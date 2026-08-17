@@ -1,0 +1,27 @@
+# Raw dumps can get huge
+outputs/raw/
+*.log
+*.tmp
+
+# Local secrets / keys
+.env
+.env.*
+*.pem
+
+# Python / Node / Rust build artifacts
+__pycache__/
+*.pyc
+node_modules/
+target/
+.venv/
+venv/
+
+# OS / editor
+.DS_Store
+.idea/
+.vscode/
+*.swp
+
+# Large curated datasets (promote to hf/ when ready)
+outputs/curated/*.parquet
+outputs/curated/*.jsonl.gz

@@ -1,0 +1,234 @@
+{
+  "agentic-coding-trajectory-factory": {
+    "batch-r02.jsonl": {
+      "aggregation": "unspecified",
+      "native_unit": "unspecified",
+      "usd_factor_or_null": null,
+      "mix_policy": "sign_order_only"
+    },
+    "batch-r03.jsonl": {
+      "aggregation": "unspecified",
+      "native_unit": "unspecified",
+      "usd_factor_or_null": null,
+      "mix_policy": "sign_order_only"
+    },
+    "batch-r04.jsonl": {
+      "aggregation": "unspecified",
+      "native_unit": "unspecified",
+      "usd_factor_or_null": null,
+      "mix_policy": "sign_order_only"
+    },
+    "batch-r05.jsonl": {
+      "aggregation": "unspecified",
+      "native_unit": "unspecified",
+      "usd_factor_or_null": null,
+      "mix_policy": "sign_order_only"
+    },
+    "batch-r06.jsonl": {
+      "aggregation": "unspecified",
+      "native_unit": "unspecified",
+      "usd_factor_or_null": null,
+      "mix_policy": "sign_order_only"
+    },
+    "episodes.jsonl": {
+      "aggregation": "unspecified",
+      "native_unit": "unspecified",
+      "usd_factor_or_null": null,
+      "mix_policy": "sign_order_only"
+    }
+  },
+  "failure-as-fuel-preference-cascade": {
+    "batch-r02.jsonl": {
+      "aggregation": "unspecified",
+      "native_unit": "mixed; see units-migration.json",
+      "usd_factor_or_null": null,
+      "mix_policy": "exclude_from_magnitude"
+    },
+    "batch-r03.jsonl": {
+      "aggregation": "unspecified",
+      "native_unit": "1.0 = USD 10,000 (STANDARD)",
+      "usd_factor_or_null": 1.0,
+      "mix_policy": "apply_usd_factor"
+    },
+    "batch-r04.jsonl": {
+      "aggregation": "unspecified",
+      "native_unit": "1.0 = USD 10,000 (STANDARD)",
+      "usd_factor_or_null": 1.0,
+      "mix_policy": "apply_usd_factor"
+    },
+    "batch-r05.jsonl": {
+      "aggregation": "unspecified",
+      "native_unit": "unspecified",
+      "usd_factor_or_null": null,
+      "mix_policy": "sign_order_only"
+    },
+    "batch-r06.jsonl": {
+      "aggregation": "unspecified",
+      "native_unit": "unspecified",
+      "usd_factor_or_null": null,
+      "mix_policy": "sign_order_only"
+    },
+    "preferences.jsonl": {
+      "aggregation": "unspecified",
+      "native_unit": "UNITLESS / no USD anchor stated; reward_components has no `units` field",
+      "usd_factor_or_null": null,
+      "mix_policy": "sign_order_only"
+    }
+  },
+  "multi-agent-ouroboros-swarm": {
+    "batch-r02.jsonl": {
+      "aggregation": "unspecified",
+      "native_unit": "unspecified",
+      "usd_factor_or_null": null,
+      "mix_policy": "sign_order_only"
+    },
+    "batch-r03.jsonl": {
+      "aggregation": "unspecified",
+      "native_unit": "unspecified",
+      "usd_factor_or_null": null,
+      "mix_policy": "sign_order_only"
+    },
+    "batch-r04.jsonl": {
+      "aggregation": "unspecified",
+      "native_unit": "unspecified",
+      "usd_factor_or_null": null,
+      "mix_policy": "sign_order_only"
+    },
+    "batch-r05.jsonl": {
+      "aggregation": "unspecified",
+      "native_unit": "unspecified",
+      "usd_factor_or_null": null,
+      "mix_policy": "sign_order_only"
+    },
+    "batch-r06.jsonl": {
+      "aggregation": "unspecified",
+      "native_unit": "unspecified",
+      "usd_factor_or_null": null,
+      "mix_policy": "sign_order_only"
+    },
+    "batch-r07.jsonl": {
+      "aggregation": "unspecified",
+      "native_unit": "unspecified",
+      "usd_factor_or_null": null,
+      "mix_policy": "sign_order_only"
+    },
+    "batch-r08.jsonl": {
+      "aggregation": "unspecified",
+      "native_unit": "unspecified",
+      "usd_factor_or_null": null,
+      "mix_policy": "sign_order_only"
+    },
+    "batch-r09.jsonl": {
+      "aggregation": "unspecified",
+      "native_unit": "unspecified",
+      "usd_factor_or_null": null,
+      "mix_policy": "sign_order_only"
+    },
+    "final-trajectories.jsonl": {
+      "aggregation": "unspecified",
+      "native_unit": "unspecified",
+      "usd_factor_or_null": null,
+      "mix_policy": "sign_order_only"
+    }
+  },
+  "neuromorphic-event-language-bridge": {
+    "batch-r02.jsonl": {
+      "aggregation": "unspecified",
+      "native_unit": "unspecified",
+      "usd_factor_or_null": null,
+      "mix_policy": "sign_order_only"
+    },
+    "batch-r03.jsonl": {
+      "aggregation": "unspecified",
+      "native_unit": "unspecified",
+      "usd_factor_or_null": null,
+      "mix_policy": "sign_order_only"
+    },
+    "batch-r04.jsonl": {
+      "aggregation": "unspecified",
+      "native_unit": "unspecified",
+      "usd_factor_or_null": null,
+      "mix_policy": "sign_order_only"
+    },
+    "batch-r05.jsonl": {
+      "aggregation": "unspecified",
+      "native_unit": "unspecified",
+      "usd_factor_or_null": null,
+      "mix_policy": "sign_order_only"
+    },
+    "batch-r06.jsonl": {
+      "aggregation": "unspecified",
+      "native_unit": "unspecified",
+      "usd_factor_or_null": null,
+      "mix_policy": "sign_order_only"
+    },
+    "batch-r07.jsonl": {
+      "aggregation": "unspecified",
+      "native_unit": "unspecified",
+      "usd_factor_or_null": null,
+      "mix_policy": "sign_order_only"
+    },
+    "batch-r08.jsonl": {
+      "aggregation": "unspecified",
+      "native_unit": "unspecified",
+      "usd_factor_or_null": null,
+      "mix_policy": "sign_order_only"
+    },
+    "batch-r09.jsonl": {
+      "aggregation": "unspecified",
+      "native_unit": "unspecified",
+      "usd_factor_or_null": null,
+      "mix_policy": "sign_order_only"
+    },
+    "pairs.jsonl": {
+      "aggregation": "unspecified",
+      "native_unit": "unspecified",
+      "usd_factor_or_null": null,
+      "mix_policy": "sign_order_only"
+    }
+  },
+  "thalamic-trajectory-factory": {
+    "batch-r02.jsonl": {
+      "aggregation": "unspecified",
+      "native_unit": "unspecified",
+      "usd_factor_or_null": null,
+      "mix_policy": "sign_order_only"
+    },
+    "batch-r03.jsonl": {
+      "aggregation": "unspecified",
+      "native_unit": "unspecified",
+      "usd_factor_or_null": null,
+      "mix_policy": "sign_order_only"
+    },
+    "batch-r04.jsonl": {
+      "aggregation": "unspecified",
+      "native_unit": "unspecified",
+      "usd_factor_or_null": null,
+      "mix_policy": "sign_order_only"
+    },
+    "batch-r05.jsonl": {
+      "aggregation": "unspecified",
+      "native_unit": "unspecified",
+      "usd_factor_or_null": null,
+      "mix_policy": "sign_order_only"
+    },
+    "batch-r06.jsonl": {
+      "aggregation": "unspecified",
+      "native_unit": "unspecified",
+      "usd_factor_or_null": null,
+      "mix_policy": "sign_order_only"
+    },
+    "batch-r07.jsonl": {
+      "aggregation": "unspecified",
+      "native_unit": "unspecified",
+      "usd_factor_or_null": null,
+      "mix_policy": "sign_order_only"
+    },
+    "trajectories.jsonl": {
+      "aggregation": "unspecified",
+      "native_unit": "unspecified",
+      "usd_factor_or_null": null,
+      "mix_policy": "sign_order_only"
+    }
+  }
+}

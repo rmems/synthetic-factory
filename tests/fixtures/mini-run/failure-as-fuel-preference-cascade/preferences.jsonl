@@ -1,0 +1,2 @@
+{"chosen": {"state": {"episode_id": "mini-pref-c", "sim_or_real": "real (production plant; actions live)"}, "proposed_action": {}, "safety_decision": {"decision": "MODIFY", "rationale": "fixture"}, "executed_action": {}, "future_outcome": {}, "reward_components": {"total": 1.0}}, "rejected": {"state": {"episode_id": "mini-pref-r"}, "proposed_action": {}, "safety_decision": {"decision": "ACCEPT", "rationale": "fixture"}, "executed_action": {}, "future_outcome": {}, "reward_components": {"total": -1.0}}, "critique": "chosen is the safer of the pair"}
+not valid json

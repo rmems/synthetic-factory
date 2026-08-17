@@ -1,0 +1,3 @@
+{"state": {"episode_id": "mini-001", "sim_or_real": "real"}, "proposed_action": {"action_type": "noop"}, "safety_decision": {"decision": "ACCEPT", "rationale": "fixture"}, "executed_action": {"action_type": "noop"}, "future_outcome": {"success": "full"}, "reward_components": {"total": 0.0}}
+
+{"state": {"episode_id": "mini-002", "sim_or_real": "high-fidelity plant simulation calibrated on telemetry"}, "proposed_action": {"action_type": "noop"}, "safety_decision": {"decision": "ACCEPT", "rationale": "fixture"}, "executed_action": {"action_type": "noop"}, "future_outcome": {"success": "full"}, "reward_components": {"total": 0.1}}

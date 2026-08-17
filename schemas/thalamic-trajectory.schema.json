@@ -1,0 +1,40 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ThalamicTrajectory",
+  "type": "object",
+  "required": ["state", "proposed_action", "safety_decision", "executed_action", "future_outcome", "reward_components"],
+  "properties": {
+    "state": {
+      "type": "object",
+      "description": "Rich environment + agent internal state"
+    },
+    "proposed_action": {
+      "type": "object",
+      "description": "What the base policy proposes (including internal reasoning)"
+    },
+    "safety_decision": {
+      "type": "object",
+      "required": ["decision", "rationale"],
+      "properties": {
+        "decision": { "enum": ["ACCEPT", "MODIFY", "REJECT"] },
+        "rationale": { "type": "string" }
+      }
+    },
+    "executed_action": {
+      "type": "object",
+      "description": "Action actually taken after the safety gate"
+    },
+    "future_outcome": {
+      "type": "object",
+      "description": "Observed results, side-effects, new state, surprises"
+    },
+    "reward_components": {
+      "type": "object",
+      "description": "Decomposed reward (task, safety, efficiency, exploration, etc.) + total"
+    },
+    "meta": {
+      "type": "object",
+      "description": "Optional: distillation notes, neuromorphic tags, failure modes, etc."
+    }
+  }
+}
