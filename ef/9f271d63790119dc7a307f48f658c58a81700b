@@ -1,0 +1,117 @@
+schemas/thalamic-trajectory-v2.schema.json
+  s_9e2578d3baa2a9::t_2a3d1ed2ef695e 1-30
+.claude/skills/run-synthetic-factory/SKILL.md
+  s_9e2578d3baa2a9::t_ec3674bd223c78 82-85
+  s_9e2578d3baa2a9::t_2a3d1ed2ef695e 112-115
+  s_9e2578d3baa2a9::t_3153f569e9f792 3,8-10,12-26,29,32-33,35-36,38-39,42-45,47,49-52,54-55,57-61,65-72,74,79-81,86-111,116-157
+tests/test_promote.py
+  s_9e2578d3baa2a9::t_5627030157f883 243-262
+prompts/04-agentic-coding-trajectory-factory.md
+  s_9e2578d3baa2a9::t_727b9d2188b106 5-6,16
+  s_9e2578d3baa2a9::t_828a31249be134 23-25
+tests/test_workflow_contract.py
+  s_9e2578d3baa2a9::t_ec3674bd223c78 1-33
+pipelines/round_txn.py
+  s_9e2578d3baa2a9::t_0c9c179eb5516e 310-314,321-325
+  s_9e2578d3baa2a9::t_20b4c2854fcd03 226-232
+  s_9e2578d3baa2a9::t_745e58f5762c4b 269,271-272,275
+  s_9e2578d3baa2a9::t_2a3d1ed2ef695e 268,270,273-274,276-284,296-300,355-360
+  s_9e2578d3baa2a9::t_0d962a6eb2d7c6 1-225,233-267,285-295,301-309,315-317,327-354,361-373,376-391,394-448
+  s_9e2578d3baa2a9::t_7dd9a2c168f156 318-320,326,374-375,392-393
+tests/test_training_audit.py
+  s_9e2578d3baa2a9::t_8cd4136d8edebe 153-164
+  s_9e2578d3baa2a9::t_fd2c05ce261539 165-178
+  s_9e2578d3baa2a9::t_66f748c9d04ee8 1-47,72-102,105-108,140-152,179-181
+  s_9e2578d3baa2a9::t_583cecae734bb3 48-67,69-71
+  s_9e2578d3baa2a9::t_ad6d8919dd71f0 68
+  s_9e2578d3baa2a9::t_f2034631a77711 103-104,109-139
+tests/test_factory_driver.py
+  s_9e2578d3baa2a9::t_0ddfc31e40dbeb 1-38
+tests/test_check_records.py
+  s_9e2578d3baa2a9::t_a34cf3057edfd2 298-304
+  s_9e2578d3baa2a9::t_583cecae734bb3 22,36-39,110-139
+  s_9e2578d3baa2a9::t_5627030157f883 97,105,223-267
+prompts/_factory-contract.md
+  s_9e2578d3baa2a9::t_727b9d2188b106 3-24,27-50
+  s_9e2578d3baa2a9::t_2a3d1ed2ef695e 25-26
+.gitignore
+  s_9e2578d3baa2a9::t_8806331dd66f62 3
+prompts/02-multi-agent-ouroboros-swarm.md
+  s_9e2578d3baa2a9::t_727b9d2188b106 5-6
+tests/test_validate_run.py
+  s_9e2578d3baa2a9::t_9ebf43d270fc5a 13,50-56
+  s_9e2578d3baa2a9::t_5627030157f883 110-141
+  s_9e2578d3baa2a9::t_a34cf3057edfd2 100-109
+tests/test_round_txn.py
+  s_9e2578d3baa2a9::t_745e58f5762c4b 83-95
+  s_9e2578d3baa2a9::t_993f57be2f5ddf 9,145,156-178
+  s_9e2578d3baa2a9::t_9ebf43d270fc5a 70-82
+  s_9e2578d3baa2a9::t_7cabf79ae28a27 1-8,10-69,96-129,131-133,144,179-200
+  s_9e2578d3baa2a9::t_0faffb2a1376a4 130,134-143
+  s_9e2578d3baa2a9::t_0c9c179eb5516e 146-155
+pipelines/validate_run.py
+  s_9e2578d3baa2a9::t_4222da4ca1873c 16,20-74,91-93,107-109,144-145
+  s_9e2578d3baa2a9::t_a34cf3057edfd2 183-190
+  s_9e2578d3baa2a9::t_a97a2918e4fd2c 110,113-116
+.claude/skills/run-synthetic-factory/driver.py
+  s_9e2578d3baa2a9::t_218f43cb7df490 111,117-121,153
+  s_9e2578d3baa2a9::t_fd2c05ce261539 225-229
+  s_9e2578d3baa2a9::t_4f73e6e8196ca7 2,5-9,12-13,24-33,36,38-41,46-53,56-67,70-73,77-110,112-114,123,125-131,133,135-141,146-148,151,154-167,172-208,214-216,218-220,222-223,230-237,240-244,249-251,253-263,267-274,277-278,280-291,293-294,298
+pipelines/check_records.py
+  s_9e2578d3baa2a9::t_a8c207d55253f1 6,50,52-57,145,147-150,153-154,274-278
+  s_9e2578d3baa2a9::t_a34cf3057edfd2 319-322
+  s_9e2578d3baa2a9::t_583cecae734bb3 257-266,292-302,308-309
+  s_9e2578d3baa2a9::t_923e5c3ed6a02f 15-16,23,26-42,44-49,51,58-59,63-67,104-144,146,151-152,155-161,178-190,192-194,197,202,204,242-254,279,287-291,303,305-307,310,313,317-318,332,337-338,340-341,344,354,359-361
+prompts/05-failure-as-fuel-preference-cascade.md
+  s_9e2578d3baa2a9::t_727b9d2188b106 5-6
+  s_9e2578d3baa2a9::t_2a3d1ed2ef695e 12-16,18-20,27-29
+  s_9e2578d3baa2a9::t_828a31249be134 31-34
+pipelines/promote.py
+  s_9e2578d3baa2a9::t_8806331dd66f62 257-264
+schemas/thalamic-trajectory.schema.json
+  s_9e2578d3baa2a9::t_4222da4ca1873c 25,32,45
+  s_9e2578d3baa2a9::t_21e314fea470dd 8-10,12,16-18,20-21
+  s_9e2578d3baa2a9::t_b78f264ff90fb1 15
+  s_9e2578d3baa2a9::t_2a3d1ed2ef695e 4,11,19
+pipelines/next_round.py
+  s_9e2578d3baa2a9::t_eed9b8110dd91a 2,7-11,26,117-127,138,147-156
+  s_9e2578d3baa2a9::t_2a3d1ed2ef695e 25,232
+  s_9e2578d3baa2a9::t_a34cf3057edfd2 80
+.claude/skills/run-synthetic-factory/factory-window.workflow.js
+  s_9e2578d3baa2a9::t_2a3d1ed2ef695e 101-103,128
+  s_9e2578d3baa2a9::t_3e1e73a6e25417 3,5,11-14,18-26,32,57-58,65-67,73-74,81-83,89-90,97-100,104,106,109-127,129-153,155-159,182-185,188-194,198
+  s_9e2578d3baa2a9::t_ec3674bd223c78 6,38-51,160-181,186-187
+prompts/01-thalamic-trajectory-factory.md
+  s_9e2578d3baa2a9::t_2a3d1ed2ef695e 27-29
+  s_9e2578d3baa2a9::t_828a31249be134 23-25
+  s_9e2578d3baa2a9::t_727b9d2188b106 5-6,12,15
+prompts/03-neuromorphic-event-language-bridge.md
+  s_9e2578d3baa2a9::t_727b9d2188b106 5-6
+  s_9e2578d3baa2a9::t_828a31249be134 27-30
+tests/test_next_round.py
+  s_9e2578d3baa2a9::t_8c0d06231d25b6 70-77,136-155
+  s_9e2578d3baa2a9::t_9ebf43d270fc5a 157-166
+pipelines/training_audit.py
+  s_9e2578d3baa2a9::t_8cd4136d8edebe 30,117-118,168,173,176-183,185-186,188-192,301-306,392-397
+  s_9e2578d3baa2a9::t_583cecae734bb3 32,120,124,137,184,187,201-203,273-284,309-312,332-336,353-354,356,390
+  s_9e2578d3baa2a9::t_597163163626b2 1-29,31,33-49,58-86,89,91-94,96,100-116,119,123,125-136,138-148,156-167,169-172,174-175,193-195,208-227,229-233,249-251,253-270,285-300,307-308,314-315,325-331,337-348,355,357-361,365-389,391,398-468
+  s_9e2578d3baa2a9::t_fd2c05ce261539 149-155
+  s_9e2578d3baa2a9::t_f2034631a77711 50-57,87-88,90,95,97-99,228,234-248,252,271-272,313,316-324,362-364
+  s_9e2578d3baa2a9::t_ad6d8919dd71f0 121-122,196-200,204-207,349-352
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "ef9f271d63790119dc7a307f48f658c58a81700b",
+  "prompts": {},
+  "sessions": {
+    "s_9e2578d3baa2a9": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0123b-099e-77b2-ade3-524935723f3f",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Raul Montoya Cardenas <montoyaraul34@gmail.com>"
+    }
+  }
+}
