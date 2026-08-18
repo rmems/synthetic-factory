@@ -1,0 +1,24 @@
+.beads/issues.jsonl
+  s_9e2578d3baa2a9::t_e15bb880722522 2-4,6-7
+  s_9e2578d3baa2a9::t_2a349fb6383196 5
+.beads/interactions.jsonl
+  s_9e2578d3baa2a9::t_7189a94d5c4494 3-6
+  s_9e2578d3baa2a9::t_e15bb880722522 7-12
+  s_9e2578d3baa2a9::t_536fd5f92da126 1-2
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "05ed094dc28e8779417d32c0f7a0c97696e67a5a",
+  "prompts": {},
+  "sessions": {
+    "s_9e2578d3baa2a9": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0123b-099e-77b2-ade3-524935723f3f",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Raul Montoya Cardenas <montoyaraul34@gmail.com>"
+    }
+  }
+}
