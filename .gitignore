@@ -26,3 +26,8 @@ venv/
 # Large curated datasets (promote to hf/ when ready)
 outputs/curated/*.parquet
 outputs/curated/*.jsonl.gz
+
+# Beads / Dolt files (added by bd init)
+.dolt/
+*.db
+.beads-credential-key
