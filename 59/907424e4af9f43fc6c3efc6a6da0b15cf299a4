@@ -1,0 +1,34 @@
+prompts/04-agentic-coding-trajectory-factory.md
+  ai_agent 41
+.claude/skills/run-synthetic-factory/driver.py
+  ai_agent 55-56,144-149
+prompts/05-failure-as-fuel-preference-cascade.md
+  ai_agent 28-139,143-206
+  s_9e2578d3baa2a9::t_ca16897c7ad120 140-142
+prompts/01-thalamic-trajectory-factory.md
+  s_9e2578d3baa2a9::t_391dae3397c6d8 9,12,16,18,20-29,31-41,43-63
+  ai_agent 14,42
+prompts/03-neuromorphic-event-language-bridge.md
+  s_9e2578d3baa2a9::t_391dae3397c6d8 31-32,35-39,41-44,47,54-55
+  ai_agent 33-34,40,45-46,48-53
+prompts/02-multi-agent-ouroboros-swarm.md
+  ai_agent 10-22
+.claude/skills/run-synthetic-factory/factory-window.workflow.js
+  ai_agent 113-140,144-146,148-154,166,193-198,250-272
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "59907424e4af9f43fc6c3efc6a6da0b15cf299a4",
+  "prompts": {},
+  "sessions": {
+    "s_9e2578d3baa2a9": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0123b-099e-77b2-ade3-524935723f3f",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Raul Montoya Cardenas <montoyaraul34@gmail.com>"
+    }
+  }
+}
