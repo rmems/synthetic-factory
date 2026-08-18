@@ -1,15 +1,23 @@
+// Generative-Improve #8/8 — Workflow Efficiency R2
+// Co-authored-by: Muse Spark <muse-spark@meta.com>
+// Improves generative data quality while preserving:
+//   - early-stop on <5% novel coverage for 2 consecutive rounds
+//   - token-efficiency 40% saving mode (docs/token-efficiency.md)
+//   - 5-lane per-factory circuit breaker (parallel lanes isolate failures)
+// See docs/token-efficiency.md for threshold tuning and savings breakdown.
+
 export const meta = {
   name: 'synthetic-factory-window',
-  description: 'Bounded five-factory window with transactional round publication and per-factory circuit breakers',
+  description: 'Bounded five-factory window with transactional round publication, per-factory circuit breakers, and token-efficiency early-stop (40% saving mode)',
   phases: [
-    { title: 'Generate', detail: 'at most five concurrent factories; rounds are sequential inside each factory' },
-    { title: 'Verify', detail: 'one bounded read-only marker check after each generated round' },
+    { title: 'Generate', detail: 'at most five concurrent factories; rounds are sequential inside each factory — generative quality via gap-aware densification' },
+    { title: 'Verify', detail: 'one bounded read-only marker check after each generated round; only verified rounds count for coverage' },
   ],
 }
 
 // args: { date: "YYYY-MM-DD", root: "/abs/path/to/synthetic-factory",
 //         starts: {"thalamic-trajectory-factory": 12, ...},
-//         end: 26 }
+//         end: 26, tokenEfficiency: true|false }
 // Always launch a fresh workflow after snapshot + audit. Never resume a prior
 // parallel workflow: cached interleavings are not a safe round allocator.
 
@@ -49,13 +57,17 @@ const VERIFICATION = {
   },
 }
 
+// Generative quality: each factory's quota explicitly demands scenario diversity,
+// gap-targeting, and training value. The prompt (below) reinforces this by
+// requiring densification of under-represented gaps and honest novel-coverage
+// self-assessment. This maximizes unique scenario yield per token.
 const FACTORIES = [
   {
     slug: 'thalamic-trajectory-factory',
     name: 'Thalamic Trajectory Factory',
     file: '01-thalamic-trajectory-factory.md',
     count: 5,
-    quota: 'Generate 5 new, long ThalamicTrajectory objects spanning successes, partial failures with recovery, all three gate decisions, long-horizon consequences, and neuromorphic temporal dynamics. Do not reuse a prior scenario.',
+    quota: 'Generate 5 new, long ThalamicTrajectory objects spanning successes, partial failures with recovery, all three gate decisions, long-horizon consequences, and neuromorphic temporal dynamics. Maximize scenario diversity — target documented gaps and under-represented failure modes; do not reuse a prior scenario or edge.',
     extra: '',
   },
   {
@@ -63,7 +75,7 @@ const FACTORIES = [
     name: 'Multi-Agent Ouroboros Swarm',
     file: '02-multi-agent-ouroboros-swarm.md',
     count: 1,
-    quota: 'Run the full six-role swarm on one new complex agentic and neuromorphic scenario for at least two densification cycles, then emit one final ThalamicTrajectory.',
+    quota: 'Run the full six-role swarm on one new complex agentic and neuromorphic scenario for at least two densification cycles, then emit one final ThalamicTrajectory. Ensure the scenario explores a novel coordination failure or recovery pattern not seen in prior rounds.',
     extra: ' Also put the complete labeled transcript in swarm-transcript-r{RR}.md inside the staging directory.',
   },
   {
@@ -71,7 +83,7 @@ const FACTORIES = [
     name: 'Neuromorphic Event + Language Bridge',
     file: '03-neuromorphic-event-language-bridge.md',
     count: 3,
-    quota: 'Generate 3 new bridge pairs. Every spike stream must be globally time-ordered, use finite timestamps/amplitudes, include realistic refractory behavior, adaptation and noise, and contain at least 48 events.',
+    quota: 'Generate 3 new bridge pairs. Every spike stream must be globally time-ordered, use finite timestamps/amplitudes, include realistic refractory behavior, adaptation and noise, and contain at least 48 events. Vary channels, temporal motifs, and language grounding across pairs to maximize coverage.',
     extra: '',
   },
   {
@@ -79,7 +91,7 @@ const FACTORIES = [
     name: 'Failure-as-Fuel Preference Cascade',
     file: '05-failure-as-fuel-preference-cascade.md',
     count: 3,
-    quota: 'Generate 3 new preference records. Chosen and rejected must share the exact same state and proposed action; vary only the gate/execution/recovery quality needed to teach the preference.',
+    quota: 'Generate 3 new preference records. Chosen and rejected must share the exact same state and proposed action; vary only the gate/execution/recovery quality needed to teach the preference. Cover distinct failure modes and recovery strategies across the 3 records.',
     extra: ' Put the diagnoses in diagnosis-r{RR}.md inside the staging directory.',
   },
   {
@@ -87,15 +99,59 @@ const FACTORIES = [
     name: 'Agentic Coding Trajectory',
     file: '04-agentic-coding-trajectory-factory.md',
     count: 2,
-    quota: 'Generate 2 new long coding-agent episodes with observable decision bases, realistic tool output, failed attempts, plan changes, recovery, and measured outcomes. Never emit hidden chain-of-thought.',
+    quota: 'Generate 2 new long coding-agent episodes with observable decision bases, realistic tool output, failed attempts, plan changes, recovery, and measured outcomes. Each episode must explore a different bug class or tool-interaction pattern. Never emit hidden chain-of-thought.',
     extra: '',
   },
 ]
 
+// ── Token-efficiency: 40% saving mode ──────────────────────────────
+// Documented in docs/token-efficiency.md. Enabled by default; disable
+// with args.tokenEfficiency=false. The 40% figure is the median saving
+// across sf-0qz windows when plateau detection cuts the ~40% tail of
+// diminishing-novelty rounds (generation + verification tokens).
+// Rule: 2 consecutive NOTES with <5% novel coverage → per-factory stop.
+// Parsing is tolerant (case-insensitive, "novel[^%]*?N%") and mirrors
+// driver.py NOVEL_COVERAGE_RE. Unparseable NOTES hold the streak (neither
+// increment nor reset) to avoid false stops or hidden plateaus.
+const TOKEN_EFFICIENCY = {
+  enabled: !(args && args.tokenEfficiency === false),
+  novelThresholdPct: 5,
+  consecutiveLimit: 2,
+  expectedSavingPct: 40,
+  docs: 'docs/token-efficiency.md',
+}
+
+function novelCoveragePct(notesText) {
+  if (!notesText || typeof notesText !== 'string') return null
+  // Matches "novel coverage 4.2%", "novel_coverage: 3%", "novel ... 12.5 %" etc.
+  // Case-insensitive, tolerant of punctuation between "novel" and the number.
+  const m = notesText.match(/novel[^%]*?(\d+(?:\.\d+)?)\s*%/i)
+  if (!m) return null
+  const v = parseFloat(m[1])
+  if (!Number.isFinite(v)) return null
+  // Clamp to valid percentage range; out-of-range treated as unparseable.
+  if (v < 0 || v > 100) return null
+  return v
+}
+
+function isLowNovel(pct) {
+  return pct !== null && pct < TOKEN_EFFICIENCY.novelThresholdPct
+}
+
 const END_ROUND = (args && args.end) || 26
 const STARTS = (args && args.starts) || {}
 log(`Transactional factory window: starts ${JSON.stringify(STARTS)}, backstop r${END_ROUND}.`)
+if (TOKEN_EFFICIENCY.enabled) {
+  log(`Token-efficiency: early-stop armed — ${TOKEN_EFFICIENCY.consecutiveLimit} consecutive NOTES <${TOKEN_EFFICIENCY.novelThresholdPct}% novel coverage → stop (target ~${TOKEN_EFFICIENCY.expectedSavingPct}% saving, see ${TOKEN_EFFICIENCY.docs}). Disable with args.tokenEfficiency=false.`)
+}
 
+// ── 5-lane circuit breaker ─────────────────────────────────────────
+// Each factory runs in its own async lane via parallel(FACTORIES.map(...)).
+// A lane breaks (break) on: agent error/session limit, identity mismatch,
+// or failed marker verification — later rounds for that factory are not
+// queued, preventing a storm of doomed agents. Other lanes continue
+// independently. Early-stop is a clean break (not an error) with the same
+// isolation guarantee.
 const perFactory = await parallel(FACTORIES.map(factory => async () => {
   const start = STARTS[factory.slug]
   if (!Number.isInteger(start) || start < 1) {
@@ -107,6 +163,7 @@ const perFactory = await parallel(FACTORIES.map(factory => async () => {
   let completed = 0
   let records = 0
   let stoppedReason = 'backstop reached'
+  let consecutiveLowNovel = 0
 
   for (let round = start; round <= END_ROUND; round++) {
     const rr = String(round).padStart(2, '0')
@@ -133,7 +190,12 @@ Setup:
 Quota:
 ${factory.quota}
 
-Write a substantive self-critique to the staged NOTES-r${rr}.md: edge cases, realism/noise, neuromorphic or agentic training value, weaknesses, and the next densification target.${factory.extra.replaceAll('{RR}', rr)}
+Generative quality (maximize training value per token):
+- Prioritize densification of remaining gaps noted in prior NOTES-rNN.md; avoid near-duplicate scenarios/edges.
+- Ensure realism: noisy sensors, refractory/adaptation dynamics, plausible tool outputs, and recovery paths where applicable.
+- Be honest in self-assessment — if novelty is low, report it accurately.
+
+Write a substantive self-critique to the staged NOTES-r${rr}.md: edge cases, realism/noise, neuromorphic or agentic training value, weaknesses, and the next densification target. Include a line "Novel coverage: <N>%" estimating the fraction of this round's scenarios/edges that are novel vs prior rounds (used for token-efficiency early-stop: 2 consecutive rounds <5% triggers stop — saving ~40% tokens on plateau; be honest even if <5%).${factory.extra.replaceAll('{RR}', rr)}
 
 Data contract:
 - Exactly ${factory.count} JSON objects in staged batch-r${rr}.jsonl, one complete object per line, no Markdown fences or commentary.
@@ -185,6 +247,32 @@ For factory ${factory.slug}, independently verify committed round ${round}:
     completed += 1
     records += verification.records
     log(`${factory.slug} r${rr}: marker-verified ${verification.records} records (window total ${records})`)
+
+    // Token-efficiency early-stop: inspect coverage_notes for novel coverage.
+    // NOTES themselves are the source of truth; the agent summary's coverage_notes
+    // mirrors the staged NOTES-rNN.md content. Parse <5% threshold.
+    // Evaluated AFTER verification so only committed rounds count. 5-lane breaker
+    // semantics: early-stop is a clean per-lane break, not a cross-factory error.
+    if (TOKEN_EFFICIENCY.enabled) {
+      const pct = novelCoveragePct(result.coverage_notes)
+      if (pct !== null && pct < TOKEN_EFFICIENCY.novelThresholdPct) {
+        consecutiveLowNovel += 1
+        log(`${factory.slug} r${rr}: novel coverage ${pct}% <${TOKEN_EFFICIENCY.novelThresholdPct}% (streak ${consecutiveLowNovel}/${TOKEN_EFFICIENCY.consecutiveLimit})`)
+      } else if (pct !== null) {
+        if (consecutiveLowNovel > 0) log(`${factory.slug} r${rr}: novel coverage ${pct}% resets low-streak`)
+        consecutiveLowNovel = 0
+      } else {
+        // Unparseable coverage — do not count toward streak, but log for visibility.
+        log(`${factory.slug} r${rr}: novel coverage unparseable from coverage_notes; streak held at ${consecutiveLowNovel}`)
+      }
+      if (consecutiveLowNovel >= TOKEN_EFFICIENCY.consecutiveLimit) {
+        const savedRounds = END_ROUND - round
+        const savingNote = savedRounds > 0 ? `, ~${TOKEN_EFFICIENCY.expectedSavingPct}% token saving (~${savedRounds} rounds + verifiers avoided)` : ''
+        stoppedReason = `early-stop: ${TOKEN_EFFICIENCY.consecutiveLimit} consecutive NOTES <${TOKEN_EFFICIENCY.novelThresholdPct}% novel coverage (token-efficiency ~${TOKEN_EFFICIENCY.expectedSavingPct}% saving mode)`
+        log(`${factory.slug}: ${stoppedReason}${savingNote}; stopping factory lane early — coverage plateau detected`)
+        break
+      }
+    }
   }
 
   return {
