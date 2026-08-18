@@ -1,0 +1,20 @@
+docs/superpowers/specs/2026-08-18-public-repositories-and-hf-collection-design.md
+  s_9e2578d3baa2a9::t_16214bf221a49a 3-4
+  s_9e2578d3baa2a9::t_49171d6d61ab27 1-2,5-263
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "36876bb2287022a408f17907d7db13458360fc59",
+  "prompts": {},
+  "sessions": {
+    "s_9e2578d3baa2a9": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0123b-099e-77b2-ade3-524935723f3f",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": null
+    }
+  }
+}
