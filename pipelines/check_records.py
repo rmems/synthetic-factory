@@ -240,13 +240,26 @@ def expected_states(obj, kind):
                 yield "language_view.trajectory.state", traj.get("state")
 
 
+# The shape layer also recomputes reward sums, but with a narrower
+# bookkeeping-key vocabulary than this checker's UNWEIGHTED_EXCLUDE /
+# weighted logic. This layer owns reward arithmetic (its "recomputed"
+# errors), so the shape layer's comparison errors are dropped here to
+# avoid double or spurious reports on the same record.
+_SHAPE_REWARD_ARITHMETIC = ("!= sum of components", "!= weighted sum")
+
+
 def shape_check(obj, where):
     if not isinstance(obj, dict):
         return [f"{where}: unrecognized record shape (not an object)"], "unknown"
     try:
-        return check_line(obj, where)
+        errs, kind = check_line(obj, where)
     except (TypeError, AttributeError) as exc:
         return [f"{where}: unrecognized record shape ({exc})"], "unknown"
+    errs = [
+        e for e in errs
+        if not any(marker in e for marker in _SHAPE_REWARD_ARITHMETIC)
+    ]
+    return errs, kind
 
 
 def canonical_record_id(obj):

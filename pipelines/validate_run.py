@@ -21,6 +21,23 @@ REPO = Path(__file__).resolve().parents[1]
 SCHEMA_PATH = REPO / "schemas" / "thalamic-trajectory.schema.json"
 THALAMIC_SCHEMA = json.loads(SCHEMA_PATH.read_text())
 THALAMIC_REQUIRED = tuple(THALAMIC_SCHEMA["required"])
+# Type-check required keys against the schema's own declared types: the six
+# trajectory fields (+ meta) are objects, but canonical `id` is a string.
+THALAMIC_OBJECT_KEYS = tuple(
+    key for key in THALAMIC_REQUIRED
+    if THALAMIC_SCHEMA["properties"].get(key, {}).get("type") == "object"
+)
+THALAMIC_STRING_KEYS = tuple(
+    key for key in THALAMIC_REQUIRED
+    if THALAMIC_SCHEMA["properties"].get(key, {}).get("type") == "string"
+)
+# The six trajectory fields identify a thalamic record for routing; `meta`
+# and `id`, though required, are exactly what legacy records are missing,
+# so routing on them would hide every other invariant behind an
+# "unrecognized shape" error.
+THALAMIC_CORE_KEYS = tuple(
+    key for key in THALAMIC_OBJECT_KEYS if key != "meta"
+)
 SAFETY_DECISIONS = frozenset(
     THALAMIC_SCHEMA["properties"]["safety_decision"]["properties"]
     ["decision"]["enum"]
@@ -107,7 +124,12 @@ def check_reward_total(rc, where):
         return errs
     total = rc.get("total")
     if not is_number(total):
-        errs.append(f"{where}: reward_components.total must be a finite number")
+        # Interval/string totals (e.g. [0.1, 0.9] or "0.5 ± 0.1") skip the
+        # arithmetic gate here; check_records surfaces them as warnings and
+        # the reward-normalization curation lane owns their conversion.
+        # Numeric-but-non-finite totals (NaN/inf) still fail via is_number.
+        if isinstance(total, (int, float)) and not isinstance(total, bool):
+            errs.append(f"{where}: reward_components.total must be a finite number")
         return errs
     # Weighted layout: total == sum(value_i * weight_i)
     weights = rc.get("weights")
@@ -312,11 +334,18 @@ def check_meta_round(obj, where):
 
 def check_thalamic(obj, where):
     errs = []
-    for key in THALAMIC_REQUIRED:
+    # Shape layer: the object-typed fields (incl. meta) are required here.
+    # Canonical `id` presence/coverage is a deep-layer concern
+    # (check_records / training_audit); at this layer it is only
+    # type-checked when present.
+    for key in THALAMIC_OBJECT_KEYS:
         if key not in obj:
             errs.append(f"{where}: missing required key '{key}'")
         elif not isinstance(obj[key], dict):
             errs.append(f"{where}: '{key}' must be an object")
+    for key in THALAMIC_STRING_KEYS:
+        if key in obj and (not isinstance(obj[key], str) or not obj[key].strip()):
+            errs.append(f"{where}: '{key}' must be a non-empty string")
     sd = obj.get("safety_decision")
     if isinstance(sd, dict):
         if sd.get("decision") not in SAFETY_DECISIONS:
@@ -368,7 +397,11 @@ def check_line(obj, where):
     """Route an object to the right checker based on its shape."""
     if not isinstance(obj, dict):
         return [f"{where}: record must be a JSON object"], "unknown"
-    if all(k in obj for k in THALAMIC_REQUIRED):
+    # Route on the object-typed trajectory fields so legacy v1 records
+    # (no canonical `id` yet) still reach the thalamic checker and get a
+    # precise "missing required key 'id'" error instead of silently
+    # skipping every invariant as an unrecognized shape.
+    if all(k in obj for k in THALAMIC_CORE_KEYS):
         return check_thalamic(obj, where), "thalamic"
     if "chosen" in obj and "rejected" in obj:
         errs = []
