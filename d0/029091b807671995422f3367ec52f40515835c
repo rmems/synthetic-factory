@@ -1,0 +1,23 @@
+.claude/skills/run-synthetic-factory/driver.py
+  s_ef828dd380d40d::t_ba17c0b48b60d2 1-181
+.claude/skills/run-synthetic-factory/factory-window.workflow.js
+  s_ef828dd380d40d::t_c5f7ef5f70f809 1-109
+.claude/skills/run-synthetic-factory/SKILL.md
+  s_ef828dd380d40d::t_6714886aedaa4f 1-114
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "d0029091b807671995422f3367ec52f40515835c",
+  "prompts": {},
+  "sessions": {
+    "s_ef828dd380d40d": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "438ac320-195b-40d3-af59-709bc123a0ec",
+        "model": "claude-fable-5"
+      },
+      "human_author": "Raul Montoya Cardenas <montoyaraul34@gmail.com>"
+    }
+  }
+}
