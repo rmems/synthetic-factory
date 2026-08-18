@@ -24,6 +24,8 @@ venv/
 *.swp
 
 # Large curated datasets (promote to hf/ when ready)
+outputs/cleaned/
+outputs/curated/
 outputs/curated/*.parquet
 outputs/curated/*.jsonl.gz
 
