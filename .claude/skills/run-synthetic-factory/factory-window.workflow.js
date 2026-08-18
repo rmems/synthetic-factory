@@ -309,17 +309,18 @@ For factory ${factory.slug}, independently verify committed round ${round}:
     records += verification.records
     log(`${factory.slug} r${rr}: marker-verified ${verification.records} records (window total ${records})`)
 
-    // Token-efficiency early-stop. Primary source: the VERIFIER's independent
-    // read of the published NOTES file (novel_coverage_pct) — never only the
-    // generation agent's self-report. Fallback: parse the mandated line the
-    // generator mirrors into coverage_notes. Evaluated AFTER verification so
-    // only committed rounds count. 5-lane breaker semantics: early-stop is a
-    // clean per-lane break, not a cross-factory error.
+    // Token-efficiency early-stop. Source: the VERIFIER's independent
+    // read of the published NOTES file (novel_coverage_pct) — never the
+    // generation agent's self-report. Missing, null, or out-of-range
+    // verifier readings are unparseable and hold the streak. Evaluated
+    // AFTER verification so only committed rounds count. 5-lane breaker
+    // semantics: early-stop is a clean per-lane break, not a
+    // cross-factory error.
     if (TOKEN_EFFICIENCY.enabled) {
       const pct = typeof verification.novel_coverage_pct === 'number'
         && verification.novel_coverage_pct >= 0 && verification.novel_coverage_pct <= 100
         ? verification.novel_coverage_pct
-        : novelCoveragePct(result.coverage_notes)
+        : null
       if (pct !== null && pct < TOKEN_EFFICIENCY.novelThresholdPct) {
         consecutiveLowNovel += 1
         log(`${factory.slug} r${rr}: novel coverage ${pct}% <${TOKEN_EFFICIENCY.novelThresholdPct}% (streak ${consecutiveLowNovel}/${TOKEN_EFFICIENCY.consecutiveLimit})`)
@@ -328,7 +329,7 @@ For factory ${factory.slug}, independently verify committed round ${round}:
         consecutiveLowNovel = 0
       } else {
         // Unparseable coverage — do not count toward streak, but log for visibility.
-        log(`${factory.slug} r${rr}: novel coverage unparseable from coverage_notes; streak held at ${consecutiveLowNovel}`)
+        log(`${factory.slug} r${rr}: novel coverage unparseable from verifier; streak held at ${consecutiveLowNovel}`)
       }
       if (consecutiveLowNovel >= TOKEN_EFFICIENCY.consecutiveLimit) {
         const savedRounds = END_ROUND - round
