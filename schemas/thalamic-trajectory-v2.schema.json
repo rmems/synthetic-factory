@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "thalamic-trajectory-v2.schema.json",
+  "title": "ThalamicTrajectoryV2",
+  "description": "Strict contract for newly published training trajectories",
+  "allOf": [
+    {
+      "$ref": "thalamic-trajectory.schema.json"
+    },
+    {
+      "type": "object",
+      "required": ["id", "state"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "state": {
+          "type": "object",
+          "required": ["sim_or_real"],
+          "properties": {
+            "sim_or_real": {
+              "enum": ["designed", "simulated", "hil"]
+            }
+          }
+        }
+      }
+    }
+  ]
+}

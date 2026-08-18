@@ -240,6 +240,26 @@ class TestPromoteRecord(unittest.TestCase):
 
 
 class TestPromoteRun(unittest.TestCase):
+    def test_rejects_destination_inside_raw(self):
+        with tempfile.TemporaryDirectory() as td:
+            raw = Path(td) / "raw"
+            _write_jsonl(raw / "f" / "a.jsonl", [_thalamic()])
+            with self.assertRaisesRegex(ValueError, "not nested inside"):
+                promote.promote_run(raw, raw / "cleaned")
+            self.assertFalse((raw / "cleaned").exists())
+
+    def test_rejects_existing_destination_without_touching_it(self):
+        with tempfile.TemporaryDirectory() as td:
+            raw = Path(td) / "raw"
+            cleaned = Path(td) / "cleaned"
+            _write_jsonl(raw / "f" / "a.jsonl", [_thalamic()])
+            cleaned.mkdir()
+            sentinel = cleaned / "sentinel.txt"
+            sentinel.write_text("keep\n")
+            with self.assertRaisesRegex(ValueError, "refusing to overwrite"):
+                promote.promote_run(raw, cleaned)
+            self.assertEqual(sentinel.read_text(), "keep\n")
+
     def test_raw_fixture_bytes_unchanged_and_cleaned_remapped(self):
         with tempfile.TemporaryDirectory() as td:
             raw = Path(td) / "raw"

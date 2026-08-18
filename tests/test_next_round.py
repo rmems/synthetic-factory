@@ -67,6 +67,14 @@ class NextRoundFromFilenames(unittest.TestCase):
 
 
 class NextRoundRefuseOccupied(unittest.TestCase):
+    def test_allocate_zero_is_rejected(self):
+        with tempfile.TemporaryDirectory() as raw:
+            factory = Path(raw) / "invalid"
+            factory.mkdir()
+            result = _invoke("--allocate", "0", str(factory))
+            self.assertEqual(result.returncode, 1)
+            self.assertIn("at least 1", result.stderr)
+
     def test_allocate_8_fails_when_batch_r08_exists(self):
         with tempfile.TemporaryDirectory() as raw:
             factory = Path(raw) / "occupied"
@@ -123,6 +131,38 @@ class NextRoundWriteIndex(unittest.TestCase):
                 {p.name for p in beta.iterdir()},
                 {"NOTES-r03.md"},
             )
+
+
+class NextRoundMarkerMode(unittest.TestCase):
+    def test_marker_mode_ignores_uncommitted_filename_claims(self):
+        with tempfile.TemporaryDirectory() as raw:
+            factory = Path(raw) / "factory"
+            factory.mkdir()
+            (factory / ".round-marker-mode.json").write_text(
+                json.dumps({"version": 1, "legacy_baseline": 2}) + "\n"
+            )
+            (factory / "ROUND-r03.complete.json").write_text(
+                json.dumps({"round": 3, "factory": "factory"}) + "\n"
+            )
+            (factory / "batch-r99.jsonl").write_text("{not-json\n")
+            (factory / "NOTES-r88.md").write_text("uncommitted\n")
+
+            result = _invoke(str(factory))
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            payload = json.loads(result.stdout)
+            self.assertEqual(payload["next_round"], 4)
+            self.assertEqual(payload["write"], "batch-r04.jsonl")
+
+    def test_corrupt_marker_state_exits_cleanly_without_traceback(self):
+        with tempfile.TemporaryDirectory() as raw:
+            factory = Path(raw) / "factory"
+            factory.mkdir()
+            (factory / ".round-marker-mode.json").write_text("{broken\n")
+            result = _invoke(str(factory))
+            self.assertEqual(result.returncode, 1)
+            self.assertIn("cannot read transaction file", result.stderr)
+            self.assertNotIn("Traceback", result.stderr)
 
 
 if __name__ == "__main__":

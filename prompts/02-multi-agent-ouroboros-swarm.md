@@ -2,9 +2,8 @@
 
 - Factory slug: `multi-agent-ouroboros-swarm`
 - Shared rules: `prompts/_factory-contract.md`
-- Before any write: `python3 pipelines/next_round.py <this-factory-dir>`
-- Emit only the unused `batch-rNN.jsonl` and `NOTES-rNN.md` that script prints
-- Never overwrite existing files
+- Reserve, stage, validate, and publish only through `pipelines/round_txn.py`
+- Never write generated content directly into `outputs/raw/`
 - `state.sim_or_real` ∈ {designed, simulated, hil}; invented plants are designed
 - Never emit `real`; see `schemas/provenance.md`
 

@@ -1,27 +1,51 @@
 export const meta = {
   name: 'synthetic-factory-window',
-  description: 'One generation window: each factory loops generate → critique → densify from its start round, no-overwrite contract',
+  description: 'Bounded five-factory window with transactional round publication and per-factory circuit breakers',
   phases: [
-    { title: 'Generate', detail: 'per-factory independent round loops from the supplied start rounds' },
+    { title: 'Generate', detail: 'at most five concurrent factories; rounds are sequential inside each factory' },
+    { title: 'Verify', detail: 'one bounded read-only marker check after each generated round' },
   ],
 }
 
 // args: { date: "YYYY-MM-DD", root: "/abs/path/to/synthetic-factory",
-//         starts: {"thalamic-trajectory-factory": 12, ...},   // from driver.py frontiers --json
-//         end: 26 }                                           // backstop round, inclusive
-// Launch fresh each window (Workflow({scriptPath, args})). Do NOT use resumeFromRunId across
-// windows: parallel-loop interleaving breaks the cache prefix and re-runs completed rounds.
+//         starts: {"thalamic-trajectory-factory": 12, ...},
+//         end: 26 }
+// Always launch a fresh workflow after snapshot + audit. Never resume a prior
+// parallel workflow: cached interleavings are not a safe round allocator.
 
 const SUMMARY = {
   type: 'object',
-  required: ['factory', 'round', 'files', 'trajectory_count', 'coverage_notes', 'remaining_gaps'],
+  required: [
+    'factory',
+    'round',
+    'files',
+    'trajectory_count',
+    'completion_marker',
+    'coverage_notes',
+    'remaining_gaps',
+  ],
   properties: {
     factory: { type: 'string' },
     round: { type: 'number' },
     files: { type: 'array', items: { type: 'string' } },
     trajectory_count: { type: 'number' },
+    completion_marker: { type: 'string' },
     coverage_notes: { type: 'string' },
     remaining_gaps: { type: 'string' },
+  },
+}
+
+const VERIFICATION = {
+  type: 'object',
+  required: ['factory', 'round', 'verified', 'next_round', 'records', 'completion_marker', 'reason'],
+  properties: {
+    factory: { type: 'string' },
+    round: { type: 'number' },
+    verified: { type: 'boolean' },
+    next_round: { type: 'number' },
+    records: { type: 'number' },
+    completion_marker: { type: 'string' },
+    reason: { type: 'string' },
   },
 }
 
@@ -30,80 +54,145 @@ const FACTORIES = [
     slug: 'thalamic-trajectory-factory',
     name: 'Thalamic Trajectory Factory',
     file: '01-thalamic-trajectory-factory.md',
-    quota: 'Generate 5 NEW long, diverse ThalamicTrajectory objects (mix success, partial failure + recovery, safety ACCEPT/MODIFY/REJECT interventions, long-horizon episodes, neuromorphic temporal dynamics, sparse events). No scenario overlap with ANY prior batch in the directory.',
+    count: 5,
+    quota: 'Generate 5 new, long ThalamicTrajectory objects spanning successes, partial failures with recovery, all three gate decisions, long-horizon consequences, and neuromorphic temporal dynamics. Do not reuse a prior scenario.',
     extra: '',
   },
   {
     slug: 'multi-agent-ouroboros-swarm',
     name: 'Multi-Agent Ouroboros Swarm',
     file: '02-multi-agent-ouroboros-swarm.md',
-    quota: 'Run the full 6-agent swarm in character on 1 NEW complex agentic + neuromorphic scenario (distinct from all prior scenarios in the directory), at least 2 full densifying cycles, ending in 1 final schema-compliant ThalamicTrajectory in the batch file.',
-    extra: ' Also write the complete labeled-by-agent transcript to a NEW swarm-transcript-r{RR}.md.',
+    count: 1,
+    quota: 'Run the full six-role swarm on one new complex agentic and neuromorphic scenario for at least two densification cycles, then emit one final ThalamicTrajectory.',
+    extra: ' Also put the complete labeled transcript in swarm-transcript-r{RR}.md inside the staging directory.',
   },
   {
     slug: 'neuromorphic-event-language-bridge',
     name: 'Neuromorphic Event + Language Bridge',
     file: '03-neuromorphic-event-language-bridge.md',
-    quota: 'Generate 3 NEW paired artifacts in fresh modality mixes not yet covered in the directory, each {spike_events: [{channel, t_rel_ms, amplitude, ...}], language_view: {description, trajectory: <ThalamicTrajectory>}, bridge_notes: {mapping, training_value}}. Spike trains MUST be strictly time-ordered with realistic refractory gaps, adaptation, noise, and 48+ events per pair.',
+    count: 3,
+    quota: 'Generate 3 new bridge pairs. Every spike stream must be globally time-ordered, use finite timestamps/amplitudes, include realistic refractory behavior, adaptation and noise, and contain at least 48 events.',
     extra: '',
   },
   {
     slug: 'failure-as-fuel-preference-cascade',
     name: 'Failure-as-Fuel Preference Cascade',
     file: '05-failure-as-fuel-preference-cascade.md',
-    quota: 'Produce 3 NEW preference records (failed trajectory + diagnosis + repaired gold version, packaged {failure_mode, rejected, chosen, critique, reward_delta}) rotating failure modes not yet covered in the directory.',
-    extra: ' Append diagnoses to a NEW diagnosis-r{RR}.md.',
+    count: 3,
+    quota: 'Generate 3 new preference records. Chosen and rejected must share the exact same state and proposed action; vary only the gate/execution/recovery quality needed to teach the preference.',
+    extra: ' Put the diagnoses in diagnosis-r{RR}.md inside the staging directory.',
   },
   {
     slug: 'agentic-coding-trajectory-factory',
     name: 'Agentic Coding Trajectory',
     file: '04-agentic-coding-trajectory-factory.md',
-    quota: 'Generate 2 NEW full, LONG multi-turn coding agent episodes ({goal, steps: [{n, thought, tool_call: {name, args}, observation, reflection}], outcome, reward}) with realistic tool noise, debugging loops, recovery, plan changes. Rotate domains and failure textures.',
+    count: 2,
+    quota: 'Generate 2 new long coding-agent episodes with observable decision bases, realistic tool output, failed attempts, plan changes, recovery, and measured outcomes. Never emit hidden chain-of-thought.',
     extra: '',
   },
 ]
 
 const END_ROUND = (args && args.end) || 26
 const STARTS = (args && args.starts) || {}
-log(`Factory window: starts ${JSON.stringify(STARTS)}, backstop r${END_ROUND}. No-overwrite contract in force.`)
+log(`Transactional factory window: starts ${JSON.stringify(STARTS)}, backstop r${END_ROUND}.`)
 
-const perFactory = await parallel(FACTORIES.map(f => async () => {
-  const start = STARTS[f.slug]
-  if (!start) { log(`${f.slug}: no start round supplied — skipping factory`); return { factory: f.slug, rounds_completed: 0, records_written: 0 } }
-  const outDir = `${args.root}/outputs/raw/${args.date}/${f.slug}`
+const perFactory = await parallel(FACTORIES.map(factory => async () => {
+  const start = STARTS[factory.slug]
+  if (!Number.isInteger(start) || start < 1) {
+    log(`${factory.slug}: missing or invalid positive-integer start; skipping`)
+    return { factory: factory.slug, rounds_completed: 0, records_written: 0, stopped_reason: 'invalid start' }
+  }
+
+  const outDir = `${args.root}/outputs/raw/${args.date}/${factory.slug}`
   let completed = 0
   let records = 0
-  for (let r = start; r <= END_ROUND; r++) {
-    const rr = String(r).padStart(2, '0')
-    const prompt = `You are the "${f.name}" subagent of the Spikenaut / Agoge / Thalamic-Relay Synthetic Data Factory — CONTINUOUS DENSIFICATION MODE, run ${args.date}, round ${r}.
+  let stoppedReason = 'backstop reached'
 
-ABSOLUTE FILE-SAFETY RULE, highest priority: NEVER overwrite, truncate, delete, or modify ANY existing file. Before every Write, check the target does not exist (ls the directory first). If ${outDir}/batch-r${rr}.jsonl already exists, write ${outDir}/batch-r${rr}c.jsonl instead; same pattern for any other name collision (append "c" before the extension). You may only CREATE new files. (Exception: you may update ${args.root}/outputs/raw/${args.date}/NEXT_ROUND.json, the shared frontier manifest.)
+  for (let round = start; round <= END_ROUND; round++) {
+    const rr = String(round).padStart(2, '0')
+    const expectedMarker = `${outDir}/ROUND-r${rr}.complete.json`
+    const prompt = `You are the "${factory.name}" subagent for the Spikenaut / Agoge / Thalamic-Relay Synthetic Data Factory, run ${args.date}, round ${round}.
 
-Setup, in order:
-1. Read ${args.root}/prompts/${f.file} and adopt it COMPLETELY as your operating role.
-2. Read ${args.root}/schemas/thalamic-trajectory.schema.json. Every ThalamicTrajectory you emit must satisfy it: six required keys (state, proposed_action, safety_decision, executed_action, future_outcome, reward_components) each an object; safety_decision.decision exactly one of ACCEPT | MODIFY | REJECT with non-empty rationale; reward_components decomposed with a total that reconciles arithmetically. Every trajectory gets "meta": {"factory": "${f.slug}", "run": "${args.date}", "round": ${r}, "tags": [...]}.
-3. List ${outDir}/ and read the two MOST RECENT NOTES*.md files plus skim the newest batch (first ~40 lines) so you know what every earlier round covered and which gaps were flagged. Fix those gaps; never repeat prior scenarios, domains, or failure modes.
+FILE-SAFETY AND COMMIT PROTOCOL — highest priority:
+1. NEVER write, edit, rename, truncate, or delete any existing file under ${outDir}. Never invent a collision suffix.
+2. Reserve exactly this round before generating:
+   python3 ${args.root}/pipelines/round_txn.py reserve ${outDir} --round ${round} --expected ${factory.count}
+3. Parse that command's JSON. Write every new artifact ONLY inside its returned staging_dir, using exactly its batch_file and notes_file names. If reservation fails, do not write anything and stop.
+4. After generation and self-critique, publish with:
+   python3 ${args.root}/pipelines/round_txn.py publish ${outDir} --round ${round} --token <returned-token>
+   Publishing enforces exact quota, record shape, reward arithmetic, canonical IDs, canonical provenance, spike ordering, and no-clobber behavior. If it reports a validation finding, repair only your staged files and retry publish. Never bypass the publisher.
+5. A round exists only if publish succeeds and creates ${expectedMarker}. Do not claim completion before then.
 
-This round's quota:
-${f.quota}
+Setup:
+- Read and obey ${args.root}/prompts/_factory-contract.md and ${args.root}/prompts/${factory.file}.
+- Read ${args.root}/schemas/thalamic-trajectory-v2.schema.json and ${args.root}/schemas/provenance.md.
+- Read the two newest NOTES files and skim the newest committed batch in ${outDir}; target documented gaps and avoid scenario repetition.
+- Every top-level record needs a globally unique "id". Every expected state needs state.sim_or_real exactly one of designed | simulated | hil. Synthetic scenarios are designed, never real.
+- Use concise observable evidence and decision bases. Do not emit private hidden reasoning or chain-of-thought.
 
-Then self-critique this round's batch (edge cases, noise realism, SNN-distillation value, what the next round should add) into a NEW ${outDir}/NOTES-r${rr}.md (or NOTES-r${rr}c.md on collision).
+Quota:
+${factory.quota}
 
-Output contract:
-- Data to ${outDir}/batch-r${rr}.jsonl (or the "c" variant on collision) — one JSON object per line, no fences, no commentary.${f.extra.replaceAll('{RR}', rr)}
-- Quality bar: long, dense, concrete, internally consistent, realistic. No placeholders. Never summarize prior material — expand beyond it.
-- Self-verify: python3-json.loads() every line of every .jsonl you wrote; fix failures before finishing.
-- Return ONLY the structured summary; no trajectory content in the final message.`
-    const res = await agent(prompt, { label: `${f.slug}:r${rr}`, phase: 'Generate', schema: SUMMARY })
-    if (res) {
-      completed += 1
-      records += res.trajectory_count || 0
-      log(`${f.slug} r${rr}: +${res.trajectory_count} records (window total ${records})`)
-    } else {
-      log(`${f.slug} r${rr}: agent failed or was skipped (session limit or safeguard flag); continuing with next round`)
+Write a substantive self-critique to the staged NOTES-r${rr}.md: edge cases, realism/noise, neuromorphic or agentic training value, weaknesses, and the next densification target.${factory.extra.replaceAll('{RR}', rr)}
+
+Data contract:
+- Exactly ${factory.count} JSON objects in staged batch-r${rr}.jsonl, one complete object per line, no Markdown fences or commentary.
+- Long, concrete, internally consistent records; no placeholders and no copied prior scenario.
+- Reward total must follow one explicitly declared aggregation and reconcile numerically.
+- Return only the structured summary after successful publication. Set completion_marker exactly to "${expectedMarker}".`
+
+    const result = await agent(prompt, {
+      label: `${factory.slug}:r${rr}`,
+      phase: 'Generate',
+      schema: SUMMARY,
+    })
+
+    if (!result) {
+      stoppedReason = `r${rr} agent error or session limit`
+      log(`${factory.slug}: ${stoppedReason}; circuit open, later rounds will not be queued`)
+      break
     }
+    if (result.factory !== factory.slug || result.round !== round) {
+      stoppedReason = `r${rr} returned mismatched identity`
+      log(`${factory.slug}: ${stoppedReason}; circuit open`)
+      break
+    }
+    const verificationPrompt = `Read-only verification only. Do not write, edit, delete, rename, or publish anything.
+
+For factory ${factory.slug}, independently verify committed round ${round}:
+1. Run: python3 ${args.root}/pipelines/round_txn.py frontier ${outDir}
+2. Require its next_round to equal ${round + 1}.
+3. Read ${expectedMarker}. Require factory=${factory.slug}, round=${round}, records=${factory.count}, and exactly one batch-r${rr}.jsonl entry with the recorded SHA-256. Verify every file listed in the marker exists under ${outDir} with the recorded byte count and SHA-256.
+4. Return only the structured verification. Set verified=true only when every check passes; records must come from the marker, not the generation agent's summary. Set completion_marker exactly to ${expectedMarker}.`
+    const verification = await agent(verificationPrompt, {
+      label: `${factory.slug}:verify-r${rr}`,
+      phase: 'Verify',
+      schema: VERIFICATION,
+    })
+    if (
+      !verification
+      || verification.factory !== factory.slug
+      || verification.round !== round
+      || verification.verified !== true
+      || verification.next_round !== round + 1
+      || verification.records !== factory.count
+      || verification.completion_marker !== expectedMarker
+    ) {
+      stoppedReason = `r${rr} completion marker could not be independently verified`
+      log(`${factory.slug}: ${stoppedReason}; circuit open`)
+      break
+    }
+    completed += 1
+    records += verification.records
+    log(`${factory.slug} r${rr}: marker-verified ${verification.records} records (window total ${records})`)
   }
-  return { factory: f.slug, rounds_completed: completed, records_written: records }
+
+  return {
+    factory: factory.slug,
+    rounds_completed: completed,
+    records_written: records,
+    stopped_reason: stoppedReason,
+  }
 }))
 
-return { mode: 'window', end_round: END_ROUND, per_factory: perFactory.filter(Boolean) }
+return { mode: 'transactional-window', end_round: END_ROUND, per_factory: perFactory.filter(Boolean) }

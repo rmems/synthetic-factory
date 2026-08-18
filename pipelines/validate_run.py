@@ -13,14 +13,65 @@ Usage: python3 pipelines/validate_run.py [--write] <run_dir>
 
 import argparse
 import json
+import math
 import sys
 from pathlib import Path
 
-THALAMIC_REQUIRED = [
-    "state", "proposed_action", "safety_decision",
-    "executed_action", "future_outcome", "reward_components",
-]
-SAFETY_DECISIONS = {"ACCEPT", "MODIFY", "REJECT"}
+REPO = Path(__file__).resolve().parents[1]
+SCHEMA_PATH = REPO / "schemas" / "thalamic-trajectory.schema.json"
+THALAMIC_SCHEMA = json.loads(SCHEMA_PATH.read_text())
+THALAMIC_REQUIRED = tuple(THALAMIC_SCHEMA["required"])
+SAFETY_DECISIONS = frozenset(
+    THALAMIC_SCHEMA["properties"]["safety_decision"]["properties"]
+    ["decision"]["enum"]
+)
+
+
+def is_number(value):
+    return (
+        isinstance(value, (int, float))
+        and not isinstance(value, bool)
+        and math.isfinite(value)
+    )
+
+
+def event_time(event):
+    """Return (key, finite float timestamp) for a supported event object."""
+    if not isinstance(event, dict):
+        return None
+    for key in ("t_rel_ms", "t_ms"):
+        value = event.get(key)
+        if is_number(value):
+            return key, float(value)
+    return None
+
+
+def check_spike_order(events, where):
+    """Require finite timestamps and global non-decreasing event order."""
+    errs = []
+    previous = None
+    for index, event in enumerate(events):
+        if not isinstance(event, dict):
+            errs.append(f"{where}: spike_events[{index}] must be an object")
+            continue
+        for key in ("channel", "amplitude"):
+            if key not in event:
+                errs.append(f"{where}: spike_events[{index}] missing '{key}'")
+        got = event_time(event)
+        if got is None:
+            errs.append(
+                f"{where}: spike_events[{index}] needs finite t_rel_ms or t_ms"
+            )
+            continue
+        key, current = got
+        if previous is not None and current < previous[1]:
+            errs.append(
+                f"{where}: spike_events not globally non-decreasing at index "
+                f"{index} ({key} {previous[1]} -> {current})"
+            )
+            break
+        previous = (key, current)
+    return errs
 
 
 def check_thalamic(obj, where):
@@ -37,6 +88,9 @@ def check_thalamic(obj, where):
         rationale = sd.get("rationale")
         if not isinstance(rationale, str) or not rationale.strip():
             errs.append(f"{where}: safety_decision.rationale must be a non-empty string")
+    rc = obj.get("reward_components")
+    if isinstance(rc, dict) and "total" not in rc:
+        errs.append(f"{where}: reward_components missing 'total'")
     return errs
 
 
@@ -50,9 +104,16 @@ def check_episode(obj, where):
         errs.append(f"{where}: steps must be a non-empty array")
     else:
         for i, step in enumerate(steps):
-            for key in ("thought", "tool_call", "observation"):
+            if not isinstance(step, dict):
+                errs.append(f"{where} step {i}: must be an object")
+                continue
+            for key in ("tool_call", "observation"):
                 if key not in step:
                     errs.append(f"{where} step {i}: missing '{key}'")
+            if "decision_basis" not in step and "thought" not in step:
+                errs.append(
+                    f"{where} step {i}: missing 'decision_basis' (or legacy 'thought')"
+                )
     return errs
 
 
@@ -80,6 +141,8 @@ def check_line(obj, where):
         events = obj["spike_events"]
         if not isinstance(events, list) or not events:
             errs.append(f"{where}: spike_events must be a non-empty array")
+        else:
+            errs += check_spike_order(events, where)
         view = obj.get("language_view")
         if not isinstance(view, dict):
             errs.append(f"{where}: language_view must be an object")
@@ -117,7 +180,14 @@ def main(argv=None):
     for path in sorted(run_dir.rglob("*.jsonl")):
         rel = path.relative_to(run_dir)
         entry = {"file": str(rel), "records": 0, "kinds": {}, "errors": []}
-        for lineno, line in enumerate(path.read_text().splitlines(), 1):
+        try:
+            text = path.read_text()
+        except UnicodeDecodeError as exc:
+            entry["errors"].append(f"{rel}: invalid UTF-8: {exc}")
+            manifest["files"].append(entry)
+            manifest["errors"].extend(entry["errors"])
+            continue
+        for lineno, line in enumerate(text.splitlines(), 1):
             if not line.strip():
                 continue
             where = f"{rel}:{lineno}"

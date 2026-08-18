@@ -1,23 +1,35 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "ThalamicTrajectory",
+  "$comment": "Legacy-compatible shape schema. New publication uses thalamic-trajectory-v2.schema.json.",
   "type": "object",
   "required": ["state", "proposed_action", "safety_decision", "executed_action", "future_outcome", "reward_components"],
   "properties": {
+    "id": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Canonical top-level record ID; mandatory in the v2 publication schema"
+    },
     "state": {
       "type": "object",
-      "description": "Rich environment + agent internal state"
+      "description": "Rich observable environment, declared memory, goals, and context",
+      "properties": {
+        "sim_or_real": {
+          "enum": ["designed", "simulated", "hil"],
+          "description": "Canonical provenance; mandatory in the v2 publication schema"
+        }
+      }
     },
     "proposed_action": {
       "type": "object",
-      "description": "What the base policy proposes (including internal reasoning)"
+      "description": "What the base policy proposes, with observable evidence and a concise decision basis; never hidden chain-of-thought"
     },
     "safety_decision": {
       "type": "object",
       "required": ["decision", "rationale"],
       "properties": {
         "decision": { "enum": ["ACCEPT", "MODIFY", "REJECT"] },
-        "rationale": { "type": "string" }
+        "rationale": { "type": "string", "minLength": 1 }
       }
     },
     "executed_action": {
@@ -30,6 +42,7 @@
     },
     "reward_components": {
       "type": "object",
+      "required": ["total"],
       "description": "Decomposed reward (task, safety, efficiency, exploration, etc.) + total"
     },
     "meta": {

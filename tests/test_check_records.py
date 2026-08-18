@@ -19,6 +19,7 @@ import check_records  # noqa: E402
 
 def _thalamic(**overrides):
     rec = {
+        "id": "t-001",
         "state": {"sim_or_real": "designed", "domain": "test"},
         "proposed_action": {"action_type": "noop"},
         "safety_decision": {"decision": "ACCEPT", "rationale": "ok"},
@@ -32,6 +33,10 @@ def _thalamic(**overrides):
         "meta": {"id": "t-001"},
     }
     rec.update(overrides)
+    if "id" not in overrides and isinstance(overrides.get("meta"), dict):
+        candidate = overrides["meta"].get("id")
+        if isinstance(candidate, str):
+            rec["id"] = candidate
     return rec
 
 
@@ -89,7 +94,7 @@ class TestCheckRecords(unittest.TestCase):
         self.assertIn("batch.jsonl:1", blob)
         self.assertEqual(result["exit_code"], 1)
 
-    def test_duplicate_meta_id_is_error(self):
+    def test_duplicate_record_id_is_error(self):
         a = _thalamic(meta={"id": "dup-1"})
         b = _thalamic(meta={"id": "dup-1"})
         b["state"] = {"sim_or_real": "designed", "domain": "other"}
@@ -97,9 +102,41 @@ class TestCheckRecords(unittest.TestCase):
         with tmp:
             result = check_records.check_run(run_dir)
         blob = "\n".join(result["errors"])
-        self.assertIn("duplicate meta.id", blob)
+        self.assertIn("duplicate record id", blob)
         self.assertIn("dup-1", blob)
         self.assertIn("batch.jsonl:2", blob)
+        self.assertEqual(result["exit_code"], 1)
+
+    def test_legacy_meta_id_is_warning_for_new_corpus(self):
+        rec = _thalamic(meta={"id": "legacy-only"})
+        rec.pop("id")
+        tmp, run_dir = _run_dir([rec])
+        with tmp:
+            loose = check_records.check_run(run_dir)
+            strict = check_records.check_run(run_dir, strict=True)
+        self.assertFalse(loose["errors"], loose)
+        self.assertIn("legacy meta.id only", "\n".join(loose["warnings"]))
+        self.assertEqual(strict["exit_code"], 1)
+
+    def test_legacy_episode_thought_is_warning(self):
+        episode = {
+            "id": "legacy-episode",
+            "goal": "fixture",
+            "steps": [
+                {
+                    "thought": "private scratch",
+                    "tool_call": {"name": "rg", "args": {}},
+                    "observation": "none",
+                }
+            ],
+            "outcome": "done",
+            "reward": {"success": True},
+        }
+        tmp, run_dir = _run_dir([episode])
+        with tmp:
+            result = check_records.check_run(run_dir, strict=True)
+        self.assertFalse(result["errors"], result)
+        self.assertIn("legacy 'thought'", "\n".join(result["warnings"]))
         self.assertEqual(result["exit_code"], 1)
 
     def test_missing_sim_or_real_is_warning_not_error(self):
@@ -183,6 +220,52 @@ class TestCheckRecords(unittest.TestCase):
         self.assertIn("batch.jsonl:1", blob)
         self.assertNotIn("batch.jsonl:2", blob)
 
+    def test_nested_weight_aliases_and_value_objects(self):
+        rec = _thalamic(
+            reward_components={
+                "weights": {"task": 0.4, "safety": 0.6},
+                "components_executed": {
+                    "task_progress": {"value": 1.0, "unit_usd": 100},
+                    "safety_alignment": {"value": 0.5, "unit_usd": 100},
+                },
+                "total": 0.7,
+            },
+            meta={"id": "nested-weight"},
+        )
+        tmp, run_dir = _run_dir([rec])
+        with tmp:
+            result = check_records.check_run(run_dir, strict=True)
+        self.assertFalse(result["errors"], result)
+        self.assertFalse(result["warnings"], result)
+        self.assertEqual(result["exit_code"], 0)
+
+    def test_unit_usd_metadata_is_not_summed_as_reward(self):
+        rec = _thalamic(
+            reward_components={
+                "task_progress": {"value": 0.4, "unit_usd": 10000},
+                "safety": {"value": 0.6, "unit_usd": 10000},
+                "unit_usd": 10000,
+                "total": 1.0,
+            },
+            meta={"id": "unit-metadata"},
+        )
+        tmp, run_dir = _run_dir([rec])
+        with tmp:
+            result = check_records.check_run(run_dir, strict=True)
+        self.assertFalse(result["errors"], result)
+        self.assertFalse(result["warnings"], result)
+
+    def test_duplicate_ids_are_global_across_files(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            _write_jsonl(root / "a.jsonl", [_thalamic(id="root-dup", meta={"id": "meta-a"})])
+            _write_jsonl(root / "b.jsonl", [_thalamic(id="root-dup", meta={"id": "meta-b"})])
+            result = check_records.check_run(root)
+        self.assertEqual(len(result["errors"]), 1, result)
+        self.assertIn("root-dup", result["errors"][0])
+        self.assertIn("a.jsonl:1", result["errors"][0])
+        self.assertIn("b.jsonl:1", result["errors"][0])
+
     def test_chosen_and_rejected_reward_components_are_checked(self):
         pair = {
             "chosen": _thalamic(
@@ -211,6 +294,13 @@ class TestCheckRecords(unittest.TestCase):
             result = check_records.check_run(tmp.name)
         self.assertTrue(any("JSON parse" in e for e in result["errors"]))
         self.assertEqual(result["exit_code"], 1)
+
+    def test_invalid_utf8_is_error_not_traceback(self):
+        with tempfile.TemporaryDirectory() as td:
+            (Path(td) / "bad.jsonl").write_bytes(b'{"id":"bad-\xff"}\n')
+            result = check_records.check_run(td)
+        self.assertEqual(result["exit_code"], 1)
+        self.assertIn("invalid UTF-8", "\n".join(result["errors"]))
 
     def test_does_not_write_into_run_dir(self):
         rec = _thalamic()

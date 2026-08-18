@@ -1,11 +1,14 @@
 #!/usr/bin/env python3
-"""Allocate the next unused factory round.
+"""Inspect the next legacy round (transactional writers use round_txn.py).
 
 Scans batch-rNN.jsonl, NOTES-rNN.md, unmarked round-1 jsonl names, and any
 jsonl meta.round integers. next_round is max(found)+1 (or 1 if none).
 
-Refuses (exit 1) if the target batch-rNN.jsonl already exists. Does not write
-trajectory files. --write-index may write NEXT_ROUND.json only.
+When marker mode is active, the next round comes only from contiguous
+``ROUND-rNN.complete.json`` commit markers.  Refuses (exit 1) if the target is
+occupied. Does not reserve a round or write trajectory files; use
+``round_txn.py reserve`` for generation. ``--write-index`` may write
+``NEXT_ROUND.json`` only.
 
 Usage:
   python3 pipelines/next_round.py <factory_dir>
@@ -18,6 +21,8 @@ import json
 import re
 import sys
 from pathlib import Path
+
+from round_txn import MODE_FILE, TransactionError, frontier_status
 
 BATCH_RE = re.compile(r"^batch-r(\d+)\.jsonl$")
 NOTES_RE = re.compile(r"^NOTES-r(\d+)\.md$")
@@ -72,7 +77,7 @@ def _rounds_from_jsonl(path):
     found = set()
     try:
         text = path.read_text()
-    except OSError:
+    except (OSError, UnicodeDecodeError):
         return found
     for line in text.splitlines():
         if not line.strip():
@@ -109,9 +114,17 @@ def scan_rounds(factory_dir):
 
 def factory_plan(factory_dir, n=None):
     factory_dir = Path(factory_dir)
-    existing = sorted(scan_rounds(factory_dir))
-    if n is None:
-        n = existing[-1] + 1 if existing else 1
+    if (factory_dir / MODE_FILE).exists():
+        status = frontier_status(factory_dir)
+        existing = list(range(1, status["highest_flushed"] + 1))
+        if n is None:
+            n = status["next_round"]
+    else:
+        existing = sorted(scan_rounds(factory_dir))
+        if n is None:
+            n = existing[-1] + 1 if existing else 1
+    if not isinstance(n, int) or isinstance(n, bool) or n < 1:
+        raise ValueError("round number must be at least 1")
     return {
         "factory": factory_dir.name,
         "next_round": n,
@@ -122,7 +135,7 @@ def factory_plan(factory_dir, n=None):
 
 
 def allocate(factory_dir, n=None):
-    """Return a plan for round n (or next unused). Refuse if batch-rNN exists."""
+    """Return an advisory plan. This does not claim the round."""
     factory_dir = Path(factory_dir)
     plan = factory_plan(factory_dir, n)
     n = plan["next_round"]
@@ -131,6 +144,16 @@ def allocate(factory_dir, n=None):
         for path in factory_dir.glob("batch-r*.jsonl")
         if BATCH_RE.fullmatch(path.name) and int(BATCH_RE.fullmatch(path.name).group(1)) == n
     ]
+    rr = f"{n:02d}"
+    collisions.extend(
+        path.name
+        for path in (
+            factory_dir / f"ROUND-r{rr}.reserved.json",
+            factory_dir / f"ROUND-r{rr}.publishing.json",
+            factory_dir / f"ROUND-r{rr}.complete.json",
+        )
+        if path.exists()
+    )
     if collisions:
         raise RoundExistsError(f"refuse: {collisions[0]} already exists")
     return plan
@@ -206,7 +229,7 @@ def main(argv=None):
         sys.exit(2)
     try:
         plan = allocate(path, args.allocate)
-    except RoundExistsError as exc:
+    except (RoundExistsError, TransactionError, ValueError) as exc:
         print(str(exc), file=sys.stderr)
         sys.exit(1)
     print(json.dumps(plan))

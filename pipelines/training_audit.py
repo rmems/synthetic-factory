@@ -1,0 +1,468 @@
+#!/usr/bin/env python3
+"""Read-only training-readiness audit for a synthetic-factory run tree.
+
+Unlike ``validate_run.py`` (record shape) and ``check_records.py`` (per-record
+invariants), this audit measures corpus-level risks: identity/provenance
+coverage, preference-pair purity, reward-schema entropy, tag reuse, duplicate
+content, length distribution, and bridge event fidelity.
+
+Usage: python3 pipelines/training_audit.py [--strict] [--markdown] <run_dir>
+"""
+
+from __future__ import annotations
+
+import argparse
+import hashlib
+import json
+import math
+import statistics
+import sys
+from collections import Counter, defaultdict
+from pathlib import Path
+
+_PIPELINES = Path(__file__).resolve().parent
+if str(_PIPELINES) not in sys.path:
+    sys.path.insert(0, str(_PIPELINES))
+
+from check_records import (  # noqa: E402
+    ALLOWED_PROVENANCE,
+    canonical_record_id,
+    check_record,
+    expected_states,
+    root_record_id,
+    walk_key,
+)
+from validate_run import event_time  # noqa: E402
+
+
+def percentile(values, fraction):
+    if not values:
+        return 0
+    ordered = sorted(values)
+    index = max(0, math.ceil(fraction * len(ordered)) - 1)
+    return ordered[index]
+
+
+def canonical_blob(value):
+    return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+
+
+def dict_field(value, key):
+    """Return a nested mapping, treating malformed values as absent."""
+    if not isinstance(value, dict):
+        return {}
+    nested = value.get(key)
+    return nested if isinstance(nested, dict) else {}
+
+
+def thalamic_views(obj, kind):
+    if kind == "thalamic":
+        yield "record", obj
+    elif kind == "preference":
+        for side in ("chosen", "rejected"):
+            value = obj.get(side)
+            if isinstance(value, dict):
+                yield side, value
+    elif kind == "bridge_pair":
+        view = obj.get("language_view")
+        if isinstance(view, dict) and isinstance(view.get("trajectory"), dict):
+            yield "language_view.trajectory", view["trajectory"]
+
+
+def reward_shape(value):
+    if not isinstance(value, dict):
+        return type(value).__name__
+    shape = []
+    for key, item in sorted(value.items()):
+        if isinstance(item, dict):
+            subtype = "value-object" if isinstance(item.get("value"), (int, float)) else "object"
+        elif isinstance(item, list):
+            subtype = "array"
+        else:
+            subtype = type(item).__name__
+        shape.append(f"{key}:{subtype}")
+    return "|".join(shape)
+
+
+def event_stream_status(events):
+    """Classify presence, event validity, and global temporal order."""
+    if not isinstance(events, list) or not events:
+        return "missing"
+    times = []
+    for event in events:
+        got = event_time(event)
+        if got is None:
+            return "invalid"
+        times.append(got[1])
+    if all(current >= previous for previous, current in zip(times, times[1:])):
+        return "sorted"
+    return "unsorted"
+
+
+def audit_run(run_dir: Path):
+    run_dir = Path(run_dir).resolve()
+    files = sorted(run_dir.rglob("*.jsonl"))
+    factories = defaultdict(
+        lambda: {
+            "files": 0,
+            "records": 0,
+            "bytes": 0,
+            "approx_tokens": 0,
+            "by_kind": Counter(),
+            "record_tokens": [],
+        }
+    )
+    totals = Counter()
+    kinds = Counter()
+    record_errors = []
+    unresolved_record_warnings = []
+    ids = {}
+    root_ids = {}
+    canonical_id_records = 0
+    root_id_records = 0
+    missing_ids = []
+    missing_root_ids = []
+    duplicate_ids = []
+    content_seen = {}
+    exact_duplicates = []
+    provenance = Counter()
+    provenance_examples = defaultdict(list)
+    gate_by_role = defaultdict(Counter)
+    preference = Counter()
+    chosen_decisions = Counter()
+    reward_keys = Counter()
+    reward_shapes = Counter()
+    tags = Counter()
+    bridge = Counter()
+    episodes = Counter()
+
+    for path in files:
+        rel = path.relative_to(run_dir)
+        factory = rel.parts[0] if len(rel.parts) > 1 else "_root"
+        payload_bytes = path.stat().st_size
+        bucket = factories[factory]
+        bucket["files"] += 1
+        bucket["bytes"] += payload_bytes
+        totals["files"] += 1
+        totals["bytes"] += payload_bytes
+
+        raw_text = path.read_bytes()
+        try:
+            text = raw_text.decode("utf-8")
+        except UnicodeDecodeError as exc:
+            record_errors.append(f"{rel}: invalid UTF-8: {exc}")
+            text = raw_text.decode("utf-8", errors="replace")
+        for line_number, line in enumerate(text.splitlines(), 1):
+            if not line.strip():
+                continue
+            where = f"{rel}:{line_number}"
+            totals["records"] += 1
+            bucket["records"] += 1
+            token_estimate = max(1, math.ceil(len(line.encode("utf-8")) / 4))
+            totals["approx_tokens"] += token_estimate
+            bucket["approx_tokens"] += token_estimate
+            bucket["record_tokens"].append(token_estimate)
+            try:
+                obj = json.loads(line)
+            except json.JSONDecodeError as exc:
+                record_errors.append(f"{where}: JSON parse error: {exc}")
+                kinds["unknown"] += 1
+                bucket["by_kind"]["unknown"] += 1
+                continue
+
+            errors, warnings, kind, checked_id = check_record(obj, where)
+            kinds[kind] += 1
+            bucket["by_kind"][kind] += 1
+            record_errors.extend(errors)
+            unresolved_record_warnings.extend(
+                warning
+                for warning in warnings
+                if not any(
+                    marker in warning
+                    for marker in (
+                        "missing canonical record id",
+                        "missing top-level id",
+                        "missing sim_or_real",
+                        "non-training provenance",
+                        "uses legacy 'thought'",
+                    )
+                )
+            )
+
+            record_id = checked_id or canonical_record_id(obj)
+            if record_id is None:
+                missing_ids.append(where)
+            else:
+                canonical_id_records += 1
+                if record_id in ids:
+                    duplicate_ids.append({"id": record_id, "first": ids[record_id], "again": where})
+                else:
+                    ids[record_id] = where
+            root_id = root_record_id(obj)
+            if root_id is None:
+                missing_root_ids.append(where)
+            else:
+                root_id_records += 1
+                if root_id not in root_ids:
+                    root_ids[root_id] = where
+
+            digest = hashlib.sha256(canonical_blob(obj).encode("utf-8")).hexdigest()
+            if digest in content_seen:
+                exact_duplicates.append({"first": content_seen[digest], "again": where})
+            else:
+                content_seen[digest] = where
+
+            for state_path, state in expected_states(obj, kind):
+                value = state.get("sim_or_real") if isinstance(state, dict) else None
+                if value is None:
+                    label = "missing"
+                elif value in ALLOWED_PROVENANCE:
+                    label = str(value)
+                else:
+                    label = "non_training"
+                provenance[label] += 1
+                if len(provenance_examples[label]) < 5:
+                    provenance_examples[label].append(f"{where}:{state_path}={value!r}")
+
+            for role, trajectory in thalamic_views(obj, kind):
+                decision = dict_field(trajectory, "safety_decision").get("decision")
+                if isinstance(decision, str):
+                    gate_by_role[role][decision] += 1
+
+            if kind == "preference":
+                preference["pairs"] += 1
+                chosen = dict_field(obj, "chosen")
+                rejected = dict_field(obj, "rejected")
+                valid_context = bool(chosen and rejected) and all(
+                    isinstance(side.get(key), dict)
+                    for side in (chosen, rejected)
+                    for key in ("state", "proposed_action")
+                )
+                same_state = valid_context and (
+                    canonical_blob(chosen["state"])
+                    == canonical_blob(rejected["state"])
+                )
+                same_proposal = valid_context and (
+                    canonical_blob(chosen["proposed_action"])
+                    == canonical_blob(rejected["proposed_action"])
+                )
+                preference["same_state"] += int(same_state)
+                preference["same_proposal"] += int(same_proposal)
+                preference["same_context"] += int(same_state and same_proposal)
+                decision = dict_field(chosen, "safety_decision").get("decision")
+                if isinstance(decision, str):
+                    chosen_decisions[decision] += 1
+
+            for _path, reward in walk_key(obj, "reward_components"):
+                if isinstance(reward, dict):
+                    reward_keys.update(reward.keys())
+                reward_shapes[reward_shape(reward)] += 1
+
+            for _path, values in walk_key(obj, "tags"):
+                if isinstance(values, list):
+                    tags.update(value for value in values if isinstance(value, str))
+
+            if kind == "bridge_pair":
+                bridge["pairs"] += 1
+                events = obj.get("spike_events")
+                if isinstance(events, list):
+                    bridge["events"] += len(events)
+                    bridge["pairs_48_plus"] += int(len(events) >= 48)
+                status = event_stream_status(events)
+                bridge[f"{status}_pairs"] += 1
+            elif kind == "episode":
+                episodes["episodes"] += 1
+                for step in obj.get("steps", []):
+                    if not isinstance(step, dict):
+                        continue
+                    episodes["steps"] += 1
+                    episodes["decision_basis_steps"] += int(
+                        "decision_basis" in step
+                    )
+                    episodes["legacy_thought_only_steps"] += int(
+                        "thought" in step and "decision_basis" not in step
+                    )
+
+    factory_output = {}
+    for name, bucket in sorted(factories.items()):
+        lengths = bucket.pop("record_tokens")
+        bucket["by_kind"] = dict(sorted(bucket["by_kind"].items()))
+        bucket["length_tokens"] = {
+            "median": round(statistics.median(lengths), 1) if lengths else 0,
+            "p95": percentile(lengths, 0.95),
+            "max": max(lengths, default=0),
+        }
+        factory_output[name] = bucket
+
+    total_records = totals["records"]
+    provenance_total = sum(provenance.values())
+    tag_uses = sum(tags.values())
+    blockers = []
+    if record_errors:
+        blockers.append(f"{len(record_errors)} record shape/invariant errors")
+    if unresolved_record_warnings:
+        blockers.append(
+            f"{len(unresolved_record_warnings)} unresolved record-invariant warnings"
+        )
+    if duplicate_ids:
+        blockers.append(f"{len(duplicate_ids)} duplicate canonical IDs")
+    if missing_root_ids:
+        blockers.append(
+            f"{len(missing_root_ids)} records missing canonical top-level IDs"
+        )
+    provenance_bad = provenance.get("missing", 0) + provenance.get("non_training", 0)
+    if provenance_bad:
+        blockers.append(f"{provenance_bad}/{provenance_total} expected states lack canonical provenance")
+    missing_streams = bridge.get("missing_pairs", 0)
+    invalid_streams = bridge.get("invalid_pairs", 0)
+    unsorted_pairs = bridge.get("unsorted_pairs", 0)
+    if missing_streams:
+        blockers.append(f"{missing_streams}/{bridge['pairs']} bridge pairs lack event streams")
+    if invalid_streams:
+        blockers.append(
+            f"{invalid_streams}/{bridge['pairs']} bridge pairs contain invalid events"
+        )
+    if unsorted_pairs:
+        blockers.append(f"{unsorted_pairs}/{bridge['pairs']} bridge pairs have invalid event ordering")
+    impure_pairs = preference["pairs"] - preference["same_context"]
+    if impure_pairs:
+        blockers.append(f"{impure_pairs}/{preference['pairs']} preference pairs change state or proposal")
+    if exact_duplicates:
+        blockers.append(f"{len(exact_duplicates)} exact duplicate records")
+    if episodes["legacy_thought_only_steps"]:
+        blockers.append(
+            f"{episodes['legacy_thought_only_steps']} episode steps use legacy "
+            "thought without observable decision_basis"
+        )
+
+    report = {
+        "run_dir": str(run_dir),
+        "totals": {
+            "files": totals["files"],
+            "records": total_records,
+            "bytes": totals["bytes"],
+            "approx_tokens": totals["approx_tokens"],
+            "by_kind": dict(sorted(kinds.items())),
+        },
+        "factories": factory_output,
+        "identity": {
+            "top_level_id_records": root_id_records,
+            "unique_top_level_ids": len(root_ids),
+            "coverage_pct": round(100 * root_id_records / total_records, 1) if total_records else 0,
+            "legacy_meta_fallback_records": canonical_id_records - root_id_records,
+            "missing_top_level": len(missing_root_ids),
+            "missing_all_id_forms": len(missing_ids),
+            "duplicates": duplicate_ids,
+            "missing_examples": missing_root_ids[:10],
+        },
+        "provenance": {
+            "expected_states": provenance_total,
+            "counts": dict(sorted(provenance.items())),
+            "canonical_pct": round(
+                100
+                * sum(provenance.get(key, 0) for key in ALLOWED_PROVENANCE)
+                / provenance_total,
+                1,
+            ) if provenance_total else 0,
+            "examples": dict(provenance_examples),
+        },
+        "gates": {role: dict(sorted(counts.items())) for role, counts in sorted(gate_by_role.items())},
+        "preferences": {
+            **dict(preference),
+            "context_purity_pct": round(
+                100 * preference["same_context"] / preference["pairs"], 1
+            ) if preference["pairs"] else 0,
+            "chosen_decisions": dict(sorted(chosen_decisions.items())),
+        },
+        "rewards": {
+            "unique_component_keys": len(reward_keys),
+            "unique_shapes": len(reward_shapes),
+            "top_component_keys": reward_keys.most_common(20),
+            "top_shapes": reward_shapes.most_common(10),
+        },
+        "tags": {
+            "uses": tag_uses,
+            "unique": len(tags),
+            "reused_uses": sum(count for count in tags.values() if count > 1),
+            "top": tags.most_common(20),
+        },
+        "bridge": dict(bridge),
+        "episodes": dict(episodes),
+        "exact_duplicates": exact_duplicates,
+        "record_invariants": {
+            "errors": len(record_errors),
+            "warnings": len(unresolved_record_warnings),
+            "error_examples": record_errors[:10],
+            "warning_examples": unresolved_record_warnings[:10],
+        },
+        "blockers": blockers,
+        "training_ready": not blockers,
+    }
+    return report
+
+
+def render_markdown(report):
+    totals = report["totals"]
+    lines = [
+        "# Synthetic-factory training audit",
+        "",
+        f"- **Scale:** {totals['files']} JSONL files, {totals['records']} records, "
+        f"{totals['bytes']:,} bytes, approximately {totals['approx_tokens']:,} tokens",
+        f"- **Kinds:** {json.dumps(totals['by_kind'], sort_keys=True)}",
+        f"- **Training-ready:** {'yes' if report['training_ready'] else 'no'}",
+        "",
+        "## Per factory",
+        "",
+        "| Factory | Files | Records | Approx. tokens | Kinds |",
+        "|---|---:|---:|---:|---|",
+    ]
+    for factory, data in report["factories"].items():
+        lines.append(
+            f"| {factory} | {data['files']} | {data['records']} | "
+            f"{data['approx_tokens']:,} | `{json.dumps(data['by_kind'], sort_keys=True)}` |"
+        )
+    lines.extend(["", "## Training blockers", ""])
+    if report["blockers"]:
+        lines.extend(f"- {item}" for item in report["blockers"])
+    else:
+        lines.append("- None detected.")
+    lines.extend(
+        [
+            "",
+            "## Corpus observations",
+            "",
+            f"- Canonical ID coverage: {report['identity']['coverage_pct']}%.",
+            f"- Canonical provenance coverage: {report['provenance']['canonical_pct']}%.",
+            f"- Preference context purity: {report['preferences']['context_purity_pct']}%; "
+            f"chosen decisions `{json.dumps(report['preferences']['chosen_decisions'], sort_keys=True)}`.",
+            f"- Reward vocabulary: {report['rewards']['unique_component_keys']} component keys "
+            f"across {report['rewards']['unique_shapes']} structural shapes.",
+            f"- Tags: {report['tags']['uses']} uses / {report['tags']['unique']} unique.",
+            f"- Bridge fidelity: {report['bridge'].get('sorted_pairs', 0)}/"
+            f"{report['bridge'].get('pairs', 0)} pairs globally time-ordered; "
+            f"{report['bridge'].get('pairs_48_plus', 0)} have at least 48 events.",
+        ]
+    )
+    return "\n".join(lines) + "\n"
+
+
+def parse_args(argv=None):
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--strict", action="store_true", help="exit 1 when blockers exist")
+    parser.add_argument("--markdown", action="store_true", help="render concise Markdown")
+    parser.add_argument("run_dir")
+    return parser.parse_args(argv)
+
+
+def main(argv=None):
+    args = parse_args(argv)
+    report = audit_run(Path(args.run_dir))
+    if args.markdown:
+        print(render_markdown(report), end="")
+    else:
+        print(json.dumps(report, indent=2, ensure_ascii=False))
+    return 1 if args.strict and report["blockers"] else 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

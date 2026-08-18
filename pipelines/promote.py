@@ -254,8 +254,14 @@ def promote_run(raw_run, cleaned_out):
     """Copy/remap every jsonl. Return a summary dict. Does not touch raw bytes."""
     raw_run = Path(raw_run).resolve()
     cleaned_out = Path(cleaned_out).resolve()
-    if raw_run == cleaned_out:
-        raise ValueError("cleaned_out must be distinct from raw_run")
+    if raw_run == cleaned_out or raw_run in cleaned_out.parents:
+        raise ValueError(
+            "cleaned_out must be distinct from, and not nested inside, raw_run"
+        )
+    if cleaned_out.exists():
+        raise ValueError(
+            f"refusing to overwrite an existing cleaned_out: {cleaned_out}"
+        )
     cleaned_out.mkdir(parents=True, exist_ok=True)
 
     files = 0

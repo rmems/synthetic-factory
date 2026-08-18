@@ -1,0 +1,200 @@
+#!/usr/bin/env python3
+"""Tests for transactional round reservation and publication."""
+
+import json
+import sys
+import tempfile
+import unittest
+from pathlib import Path
+from unittest import mock
+
+REPO = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(REPO / "pipelines"))
+
+import round_txn  # noqa: E402
+
+
+def thalamic(record_id, round_number=1):
+    return {
+        "id": record_id,
+        "state": {"sim_or_real": "designed", "domain": "transaction-test"},
+        "proposed_action": {"action": "noop", "decision_basis": "fixture"},
+        "safety_decision": {"decision": "ACCEPT", "rationale": "bounded fixture"},
+        "executed_action": {"action": "noop"},
+        "future_outcome": {"success": True},
+        "reward_components": {"task_progress": 0.5, "safety": 0.5, "total": 1.0},
+        "meta": {
+            "factory": "thalamic-trajectory-factory",
+            "round": round_number,
+            "tags": ["transaction-test"],
+        },
+    }
+
+
+def write_records(path, records):
+    path.write_text("".join(json.dumps(record) + "\n" for record in records))
+
+
+class RoundTransaction(unittest.TestCase):
+    def factory(self, root):
+        path = Path(root) / "outputs" / "raw" / "2099-01-01" / "thalamic-trajectory-factory"
+        path.mkdir(parents=True)
+        return path
+
+    def fill_stage(self, reservation, records):
+        stage = Path(reservation["staging_dir"])
+        write_records(stage / reservation["batch_file"], records)
+        (stage / reservation["notes_file"]).write_text("# Critique\n\nConcrete gap.\n")
+        return stage
+
+    def test_reserve_stage_publish_commits_once(self):
+        with tempfile.TemporaryDirectory() as td:
+            factory = self.factory(td)
+            reservation = round_txn.reserve(factory, 1, 1)
+            self.assertFalse((factory / "batch-r01.jsonl").exists())
+            self.assertTrue(Path(reservation["staging_dir"]).is_dir())
+            self.fill_stage(reservation, [thalamic("txn-1")])
+
+            manifest = round_txn.publish(factory, 1, reservation["token"])
+
+            self.assertEqual(manifest["records"], 1)
+            self.assertTrue((factory / "batch-r01.jsonl").is_file())
+            self.assertTrue((factory / "NOTES-r01.md").is_file())
+            self.assertTrue((factory / "ROUND-r01.complete.json").is_file())
+            self.assertFalse((factory / "ROUND-r01.reserved.json").exists())
+            self.assertFalse(Path(reservation["staging_dir"]).exists())
+            self.assertEqual(round_txn.frontier_status(factory)["next_round"], 2)
+            with self.assertRaisesRegex(round_txn.TransactionError, "not the frontier"):
+                round_txn.reserve(factory, 1, 1)
+
+    def test_staged_id_cannot_duplicate_a_committed_round(self):
+        with tempfile.TemporaryDirectory() as td:
+            factory = self.factory(td)
+            first = round_txn.reserve(factory, 1, 1)
+            self.fill_stage(first, [thalamic("global-id")])
+            round_txn.publish(factory, 1, first["token"])
+
+            second = round_txn.reserve(factory, 2, 1)
+            self.fill_stage(second, [thalamic("global-id", 2)])
+            with self.assertRaisesRegex(round_txn.TransactionError, "duplicate record id"):
+                round_txn.publish(factory, 2, second["token"])
+            self.assertFalse((factory / "ROUND-r02.complete.json").exists())
+
+    def test_staged_id_cannot_duplicate_another_factory(self):
+        with tempfile.TemporaryDirectory() as td:
+            factory = self.factory(td)
+            sibling = factory.parent / "other-factory"
+            sibling.mkdir()
+            write_records(sibling / "batch-r01.jsonl", [thalamic("cross-factory")])
+
+            reservation = round_txn.reserve(factory, 1, 1)
+            self.fill_stage(reservation, [thalamic("cross-factory")])
+            with self.assertRaisesRegex(round_txn.TransactionError, "duplicate record id"):
+                round_txn.publish(factory, 1, reservation["token"])
+            self.assertFalse((factory / "ROUND-r01.complete.json").exists())
+
+    def test_validation_failure_leaves_stage_and_does_not_advance(self):
+        with tempfile.TemporaryDirectory() as td:
+            factory = self.factory(td)
+            reservation = round_txn.reserve(factory, 1, 1)
+            invalid = thalamic("unused")
+            invalid.pop("id")
+            stage = self.fill_stage(reservation, [invalid])
+
+            with self.assertRaisesRegex(round_txn.TransactionError, "not training-ready"):
+                round_txn.publish(factory, 1, reservation["token"])
+
+            self.assertTrue(stage.is_dir())
+            self.assertTrue((factory / "ROUND-r01.reserved.json").is_file())
+            self.assertFalse((factory / "batch-r01.jsonl").exists())
+            self.assertFalse((factory / "ROUND-r01.complete.json").exists())
+            self.assertEqual(round_txn.frontier_status(factory)["next_round"], 1)
+
+    def test_exact_quota_is_enforced(self):
+        with tempfile.TemporaryDirectory() as td:
+            factory = self.factory(td)
+            reservation = round_txn.reserve(factory, 1, 2)
+            self.fill_stage(reservation, [thalamic("only-one")])
+            with self.assertRaisesRegex(round_txn.TransactionError, "requires exactly 2"):
+                round_txn.publish(factory, 1, reservation["token"])
+            self.assertFalse((factory / "ROUND-r01.complete.json").exists())
+
+    def test_preexisting_destination_is_never_replaced(self):
+        with tempfile.TemporaryDirectory() as td:
+            factory = self.factory(td)
+            reservation = round_txn.reserve(factory, 1, 1)
+            self.fill_stage(reservation, [thalamic("new")])
+            destination = factory / "batch-r01.jsonl"
+            destination.write_text("sentinel\n")
+
+            with self.assertRaisesRegex(round_txn.TransactionError, "replace existing output"):
+                round_txn.publish(factory, 1, reservation["token"])
+
+            self.assertEqual(destination.read_text(), "sentinel\n")
+            self.assertFalse((factory / "ROUND-r01.complete.json").exists())
+
+    def test_extra_jsonl_is_rejected(self):
+        with tempfile.TemporaryDirectory() as td:
+            factory = self.factory(td)
+            reservation = round_txn.reserve(factory, 1, 1)
+            stage = self.fill_stage(reservation, [thalamic("primary")])
+            write_records(stage / "bonus.jsonl", [thalamic("undeclared")])
+            with self.assertRaisesRegex(round_txn.TransactionError, "only the reserved JSONL"):
+                round_txn.publish(factory, 1, reservation["token"])
+            self.assertFalse((factory / "ROUND-r01.complete.json").exists())
+
+    def test_unscoped_or_marker_like_artifact_is_rejected(self):
+        with tempfile.TemporaryDirectory() as td:
+            factory = self.factory(td)
+            reservation = round_txn.reserve(factory, 1, 1)
+            stage = self.fill_stage(reservation, [thalamic("primary")])
+            (stage / "ROUND-r99.complete.json").write_text("{}\n")
+            with self.assertRaisesRegex(round_txn.TransactionError, "round-scoped"):
+                round_txn.publish(factory, 1, reservation["token"])
+            self.assertFalse((factory / "ROUND-r99.complete.json").exists())
+
+    def test_interrupted_link_plan_resumes_with_same_token(self):
+        with tempfile.TemporaryDirectory() as td:
+            factory = self.factory(td)
+            reservation = round_txn.reserve(factory, 1, 1)
+            self.fill_stage(reservation, [thalamic("resume")])
+            real_link = round_txn.os.link
+            calls = {"count": 0}
+
+            def interrupt_second_link(*args, **kwargs):
+                calls["count"] += 1
+                if calls["count"] == 2:
+                    raise OSError("simulated interruption")
+                return real_link(*args, **kwargs)
+
+            with mock.patch.object(round_txn.os, "link", side_effect=interrupt_second_link):
+                with self.assertRaisesRegex(OSError, "simulated interruption"):
+                    round_txn.publish(factory, 1, reservation["token"])
+
+            self.assertTrue((factory / "ROUND-r01.publishing.json").is_file())
+            self.assertFalse((factory / "ROUND-r01.complete.json").exists())
+            manifest = round_txn.publish(factory, 1, reservation["token"])
+            self.assertEqual(manifest["records"], 1)
+            self.assertTrue((factory / "ROUND-r01.complete.json").is_file())
+
+    def test_malformed_legacy_filename_does_not_advance_frontier(self):
+        with tempfile.TemporaryDirectory() as td:
+            factory = self.factory(td)
+            write_records(
+                factory / "batch-r02.jsonl",
+                [thalamic(f"legacy-{index}", 2) for index in range(5)],
+            )
+            (factory / "batch-r99.jsonl").write_text("{not-json\n")
+
+            status = round_txn.frontier_status(factory)
+
+            self.assertEqual(status["mode"], "legacy")
+            self.assertEqual(status["highest_flushed"], 2)
+            self.assertEqual(status["next_round"], 3)
+            reservation = round_txn.reserve(factory, 3, 5)
+            self.assertEqual(json.loads((factory / round_txn.MODE_FILE).read_text())["legacy_baseline"], 2)
+            self.assertEqual(reservation["round"], 3)
+
+
+if __name__ == "__main__":
+    unittest.main()

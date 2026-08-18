@@ -3,7 +3,7 @@
 
 Recurses *.jsonl and checks parse, record shape (same routing as
 validate_run), globally non-decreasing spike times, reward_components
-arithmetic, duplicate meta.id, and missing sim_or_real on expected
+arithmetic, duplicate record IDs, and missing/non-training provenance on expected
 state objects. Prints totals JSON to stdout and findings to stderr.
 Does not write into run_dir.
 
@@ -12,21 +12,59 @@ Usage: python3 pipelines/check_records.py [--strict] <run_dir>
 
 import argparse
 import json
+import math
+import re
 import sys
 from pathlib import Path
 
 _PIPELINES = Path(__file__).resolve().parent
 if str(_PIPELINES) not in sys.path:
     sys.path.insert(0, str(_PIPELINES))
-from validate_run import check_line  # noqa: E402
+from validate_run import check_line, event_time  # noqa: E402
 
 TOL = 1e-4
-UNWEIGHTED_EXCLUDE = frozenset({"total", "notes"})
+UNWEIGHTED_EXCLUDE = frozenset(
+    {
+        "total",
+        "notes",
+        "component_notes",
+        "aggregation",
+        "convention",
+        "frame",
+        "native_unit",
+        "provenance_notes",
+        "rounding_decimals",
+        "total_basis",
+        "unit_usd",
+        "units",
+        "weights",
+    }
+)
 WEIGHTED_SKIP_KEYS = frozenset({"total", "weights", "notes"})
+WEIGHTED_CONTAINERS = (
+    "components",
+    "actual",
+    "components_executed",
+    "components_realized",
+    "components_realized_inworld",
+    "components_executed_realized_inworld",
+)
+WEIGHT_ALIASES = {
+    "task": ("task", "task_progress", "task_outcome"),
+    "safety": ("safety", "safety_alignment", "safety_process"),
+    "incentive": ("incentive", "incentive_integrity"),
+    "coord": ("coord", "coordination", "coordination_integrity"),
+}
+ALLOWED_PROVENANCE = frozenset({"designed", "simulated", "hil"})
+ROUNDING_RE = re.compile(r"(?:rounded?\s+(?:to\s+)?)?(\d+)[- ]decimal", re.I)
 
 
 def is_number(value):
-    return isinstance(value, (int, float)) and not isinstance(value, bool)
+    return (
+        isinstance(value, (int, float))
+        and not isinstance(value, bool)
+        and math.isfinite(value)
+    )
 
 
 def walk_key(obj, name, path=""):
@@ -40,16 +78,6 @@ def walk_key(obj, name, path=""):
     elif isinstance(obj, list):
         for i, item in enumerate(obj):
             yield from walk_key(item, name, f"{path}[{i}]")
-
-
-def event_time(event):
-    if not isinstance(event, dict):
-        return None
-    for key in ("t_rel_ms", "t_ms"):
-        val = event.get(key)
-        if is_number(val):
-            return key, float(val)
-    return None
 
 
 def check_spikes(events, where):
@@ -73,6 +101,64 @@ def check_spikes(events, where):
     return []
 
 
+def component_value(value):
+    """Return a numeric reward component from supported compact/rich layouts."""
+    if is_number(value):
+        return float(value)
+    if isinstance(value, dict) and is_number(value.get("value")):
+        return float(value["value"])
+    return None
+
+
+def reward_tolerance(rc, total):
+    """Honor an explicit rounding policy while keeping the default strict."""
+    decimals = rc.get("rounding_decimals")
+    if not isinstance(decimals, int) or isinstance(decimals, bool) or decimals < 0:
+        decimals = None
+        for key in ("notes", "aggregation", "convention"):
+            value = rc.get(key)
+            if not isinstance(value, str):
+                continue
+            match = ROUNDING_RE.search(value)
+            if match:
+                decimals = int(match.group(1))
+                break
+    if decimals is None:
+        return TOL
+    return max(TOL, 0.5 * (10 ** -decimals) + 1e-12)
+
+
+def weighted_components(rc, weights):
+    """Resolve every declared weight from direct or known nested maps."""
+    containers = [rc]
+    containers.extend(
+        rc[key]
+        for key in WEIGHTED_CONTAINERS
+        if isinstance(rc.get(key), dict)
+    )
+    values = {}
+    missing = []
+    for key, weight in weights.items():
+        if key in WEIGHTED_SKIP_KEYS or not is_number(weight):
+            continue
+        value = None
+        aliases = WEIGHT_ALIASES.get(key, (key,))
+        for container in containers:
+            for candidate in aliases:
+                if candidate not in container:
+                    continue
+                value = component_value(container[candidate])
+                if value is not None:
+                    break
+            if value is not None:
+                break
+        if value is None:
+            missing.append(key)
+        else:
+            values[key] = value
+    return values, missing
+
+
 def check_reward(rc, where):
     """Recompute total from numeric siblings / weights. Interval totals warn."""
     errors, warnings = [], []
@@ -89,29 +175,33 @@ def check_reward(rc, where):
 
     weights = rc.get("weights")
     if isinstance(weights, dict):
-        recomputed = 0.0
-        used = False
-        for key, weight in weights.items():
-            if key in WEIGHTED_SKIP_KEYS:
-                continue
-            if key in rc and is_number(rc[key]) and is_number(weight):
-                recomputed += rc[key] * weight
-                used = True
-        if not used and not any(
-            k not in WEIGHTED_SKIP_KEYS and is_number(w) for k, w in weights.items()
-        ):
+        declared = {
+            key: float(weight)
+            for key, weight in weights.items()
+            if key not in WEIGHTED_SKIP_KEYS and is_number(weight)
+        }
+        if not declared:
             return errors, warnings
-        if abs(recomputed - total) > TOL:
+        values, missing = weighted_components(rc, weights)
+        if missing:
+            warnings.append(
+                f"{where}: unsupported weighted reward layout; missing components "
+                f"{', '.join(sorted(missing))}; skipped arithmetic check"
+            )
+            return errors, warnings
+        recomputed = sum(values[key] * declared[key] for key in declared)
+        tolerance = reward_tolerance(rc, total)
+        if abs(recomputed - total) > tolerance:
             errors.append(
                 f"{where}.total {total} != recomputed {recomputed} "
-                f"(weighted, diff {abs(recomputed - total)} > {TOL})"
+                f"(weighted, diff {abs(recomputed - total)} > {tolerance})"
             )
         return errors, warnings
 
     siblings = {
-        key: val
+        key: component_value(val)
         for key, val in rc.items()
-        if key not in UNWEIGHTED_EXCLUDE and is_number(val)
+        if key not in UNWEIGHTED_EXCLUDE and component_value(val) is not None
     }
     if not siblings:
         return errors, warnings
@@ -149,6 +239,31 @@ def shape_check(obj, where):
         return [f"{where}: unrecognized record shape ({exc})"], "unknown"
 
 
+def canonical_record_id(obj):
+    """Prefer a top-level id; accept legacy top-level meta.id."""
+    if not isinstance(obj, dict):
+        return None
+    value = obj.get("id")
+    if isinstance(value, str) and value.strip():
+        return value.strip()
+    meta = obj.get("meta")
+    if isinstance(meta, dict):
+        value = meta.get("id")
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    return None
+
+
+def root_record_id(obj):
+    """Return the canonical v2 top-level ID without legacy fallback."""
+    if not isinstance(obj, dict):
+        return None
+    value = obj.get("id")
+    if isinstance(value, str) and value.strip():
+        return value.strip()
+    return None
+
+
 def check_record(obj, where):
     errors, warnings = [], []
     shape_errs, kind = shape_check(obj, where)
@@ -156,7 +271,12 @@ def check_record(obj, where):
 
     if isinstance(obj, dict):
         for path, events in walk_key(obj, "spike_events"):
-            errors.extend(check_spikes(events, where))
+            # The bridge shape validator checks its top-level stream with
+            # stricter event-shape rules. Keep this pass for nested streams,
+            # but do not report a top-level inversion twice.
+            if kind == "bridge_pair" and path == "spike_events":
+                continue
+            errors.extend(check_spikes(events, f"{where}: {path}"))
         for path, rc in walk_key(obj, "reward_components"):
             rc_errs, rc_warns = check_reward(rc, f"{where}: {path}")
             errors.extend(rc_errs)
@@ -164,21 +284,42 @@ def check_record(obj, where):
         for path, state in expected_states(obj, kind):
             if isinstance(state, dict) and "sim_or_real" not in state:
                 warnings.append(f"{where}: missing sim_or_real on {path}")
+            elif isinstance(state, dict):
+                value = state.get("sim_or_real")
+                if value not in ALLOWED_PROVENANCE:
+                    warnings.append(
+                        f"{where}: non-training provenance {value!r} on {path}"
+                    )
+        if kind == "episode":
+            for index, step in enumerate(obj.get("steps", [])):
+                if (
+                    isinstance(step, dict)
+                    and "thought" in step
+                    and "decision_basis" not in step
+                ):
+                    warnings.append(
+                        f"{where}: step {index} uses legacy 'thought' without "
+                        "observable decision_basis"
+                    )
 
-    meta_id = None
-    if isinstance(obj, dict):
-        meta = obj.get("meta")
-        if isinstance(meta, dict) and "id" in meta:
-            meta_id = meta["id"]
-    return errors, warnings, kind, meta_id
+    record_id = canonical_record_id(obj)
+    if record_id is None:
+        warnings.append(f"{where}: missing canonical record id")
+    elif root_record_id(obj) is None:
+        warnings.append(f"{where}: missing top-level id (legacy meta.id only)")
+    return errors, warnings, kind, record_id
 
 
-def check_jsonl(path, rel):
+def check_jsonl(path, rel, seen_ids=None):
     errors, warnings = [], []
     kinds = {}
     records = 0
-    seen_ids = {}
-    text = Path(path).read_text()
+    if seen_ids is None:
+        seen_ids = {}
+    try:
+        text = Path(path).read_text()
+    except UnicodeDecodeError as exc:
+        return [f"{rel}: invalid UTF-8: {exc}"], warnings, kinds, records
     for lineno, line in enumerate(text.splitlines(), 1):
         if not line.strip():
             continue
@@ -188,19 +329,19 @@ def check_jsonl(path, rel):
         except json.JSONDecodeError as exc:
             errors.append(f"{where}: JSON parse error: {exc}")
             continue
-        rec_errs, rec_warns, kind, meta_id = check_record(obj, where)
+        rec_errs, rec_warns, kind, record_id = check_record(obj, where)
         records += 1
         kinds[kind] = kinds.get(kind, 0) + 1
         errors.extend(rec_errs)
         warnings.extend(rec_warns)
-        if meta_id is not None:
-            if meta_id in seen_ids:
+        if record_id is not None:
+            if record_id in seen_ids:
                 errors.append(
-                    f"{where}: duplicate meta.id {meta_id!r} "
-                    f"(first {seen_ids[meta_id]})"
+                    f"{where}: duplicate record id {record_id!r} "
+                    f"(first {seen_ids[record_id]})"
                 )
             else:
-                seen_ids[meta_id] = where
+                seen_ids[record_id] = where
     return errors, warnings, kinds, records
 
 
@@ -210,11 +351,14 @@ def check_run(run_dir, strict=False):
     kind_totals = {}
     file_count = 0
     record_count = 0
+    seen_ids = {}
 
     for path in sorted(run_dir.rglob("*.jsonl")):
         file_count += 1
         rel = path.relative_to(run_dir)
-        file_errs, file_warns, kinds, records = check_jsonl(path, rel)
+        file_errs, file_warns, kinds, records = check_jsonl(
+            path, rel, seen_ids=seen_ids
+        )
         errors.extend(file_errs)
         warnings.extend(file_warns)
         record_count += records

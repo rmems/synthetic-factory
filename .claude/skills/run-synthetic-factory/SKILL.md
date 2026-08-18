@@ -1,114 +1,157 @@
 ---
 name: run-synthetic-factory
-description: Run, launch, validate, harvest, or resume the Spikenaut/Agoge synthetic data factory — start windowed generation workflows, validate outputs/raw run trees against the Thalamic schema, compute per-factory round frontiers, snapshot before relaunch. Use for "run the factory", "launch generation", "validate the run", "harvest outputs", "resume generation".
+description: Run, launch, validate, audit, harvest, snapshot, or resume the Spikenaut/Agoge synthetic data factory. Use for factory generation windows, raw output health, per-factory round frontiers, training-readiness reports, safe publication, and promotion.
 ---
 
 # Run the Synthetic Data Factory
 
-This repo is not a server or GUI — it's a **data factory**: 7 prompts (`prompts/`), a
-Thalamic trajectory schema (`schemas/`), a validator (`pipelines/validate_run.py`),
-and dated run trees under `outputs/raw/<date>/`. "Running" it means launching a
-**Workflow** of 5 factory subagents that generate → self-critique → densify JSONL
-batches, then harvesting/validating what lands. All paths below are relative to
-the repo root. Driver: `.claude/skills/run-synthetic-factory/driver.py`
-(python3, stdlib only — no prerequisites beyond python3).
+Operate the repository as a bounded data-production system. Five factories may
+run concurrently; rounds within each factory are sequential and transactional.
+Treat `outputs/raw/` as immutable committed evidence, not a scratch directory.
 
-## Driver (agent path — start here)
+## Respect the requested scope
+
+- For **observe, harvest, audit, review, or report** requests, run only read-only
+  commands. Do not launch, stop, message, or re-prompt generators.
+- For **launch or resume** requests, complete the preflight below and launch one
+  fresh bounded workflow. Do not infer permission to mutate cleaned/curated data.
+- For **stop** requests, stop at the current workflow boundary and report any
+  reserved/unpublished stages. Do not delete them.
+- Never claim outputs are training-ready from JSON parsing or shape validation
+  alone. The corpus audit is the training gate.
+
+All commands run from the repository root. Canonical skill directory:
+`.claude/skills/run-synthetic-factory/`.
+
+## Read-only preflight
 
 ```bash
-# self-test: validator accepts all 4 record kinds, rejects violations, frontiers work
+# Tooling self-test, including no-clobber transactional publication
 python3 .claude/skills/run-synthetic-factory/driver.py smoke
 
-# validate a run tree (copies it to a temp dir first — safe on a LIVE, mid-write run)
-python3 .claude/skills/run-synthetic-factory/driver.py validate outputs/raw/2026-08-17
+# Stable-copy structural check; reports shape/event defects
+python3 .claude/skills/run-synthetic-factory/driver.py validate outputs/raw/<date>
 
-# per-factory highest flushed round + next round (--json for machine-readable)
-python3 .claude/skills/run-synthetic-factory/driver.py frontiers outputs/raw/2026-08-17 --json
+# Full stable-copy gate: structural + deep invariants + corpus readiness
+python3 .claude/skills/run-synthetic-factory/driver.py audit outputs/raw/<date>
 
-# durable pre-relaunch snapshot (refuses to clobber an existing one)
-python3 .claude/skills/run-synthetic-factory/driver.py snapshot outputs/raw/2026-08-17 w5
+# Marker-aware, validated per-factory frontiers
+python3 .claude/skills/run-synthetic-factory/driver.py frontiers outputs/raw/<date> --json
 ```
 
-`validate` exits 0 on a clean tree, nonzero with per-line errors on stderr.
-The 2026-08-17 run validates clean: 189 records (105 thalamic / 42 preference /
-39 bridge_pair / 3 episode).
+`validate` is structural/invariant evidence. `audit` additionally checks reward
+arithmetic, IDs, provenance, preference context purity, duplicates, reward/tag
+entropy, record lengths, and neuromorphic ordering/density. A nonzero audit is a
+real training blocker; report it rather than relabeling the corpus as clean.
 
-## Launch a generation window (Workflow tool)
+## Snapshot before every launch
 
-Generation runs as a Claude Code **Workflow** (requires a Claude session; there is
-no standalone CLI for this part). The committed, battle-tested script is
-`.claude/skills/run-synthetic-factory/factory-window.workflow.js`. Procedure:
-
-1. `snapshot` the run tree (see above) — always, before any launch.
-2. `frontiers --json` to get each factory's `next_round`.
-3. Launch with the Workflow tool:
-
+```bash
+python3 .claude/skills/run-synthetic-factory/driver.py \
+  snapshot outputs/raw/<date> pre-window-<N>
 ```
+
+Snapshots are sibling directories and never overwrite an existing path. Record
+the snapshot path and the audit result before generation.
+
+## Launch one bounded window
+
+Use a fresh Workflow invocation with the committed script:
+
+```text
 Workflow({
   scriptPath: "<repo>/.claude/skills/run-synthetic-factory/factory-window.workflow.js",
   args: {
-    date: "2026-08-17",                    // run dir name under outputs/raw/
-    root: "<abs repo path>",
-    starts: {                              // from frontiers --json next_round values
-      "thalamic-trajectory-factory": 12,
-      "multi-agent-ouroboros-swarm": 14,
-      "neuromorphic-event-language-bridge": 13,
-      "failure-as-fuel-preference-cascade": 11,
-      "agentic-coding-trajectory-factory": 10
+    date: "<YYYY-MM-DD>",
+    root: "<absolute-repo-path>",
+    starts: {
+      "thalamic-trajectory-factory": <frontier next_round>,
+      "multi-agent-ouroboros-swarm": <frontier next_round>,
+      "neuromorphic-event-language-bridge": <frontier next_round>,
+      "failure-as-fuel-preference-cascade": <frontier next_round>,
+      "agentic-coding-trajectory-factory": <frontier next_round>
     },
-    end: 26                                // inclusive backstop round
+    end: <inclusive-bounded-round>
   }
 })
 ```
 
-Each round-agent reads its factory prompt + the two newest `NOTES-r*.md`, generates
-its quota (5 thalamic / 1 swarm / 3 bridge / 3 preference / 2 coding records),
-self-critiques into a new NOTES file, and returns a structured summary. A window of
-~20 rounds costs roughly 3M subagent tokens over ~2 h. While it runs: harvest with
-`validate` + `frontiers` periodically. Stop anytime with TaskStop on the workflow's
-task id.
+Do not use `resumeFromRunId` for a prior parallel window. Cached interleavings
+are not a round allocator. Start a new workflow from freshly measured frontiers.
 
-## Test
+The workflow runs at most five agents at once. Each generated round is followed
+by one bounded, read-only marker verifier in the same per-factory lane; it checks
+the frontier plus marker file hashes before progress is counted. Each factory
+opens its circuit on
+the first agent error, session-limit response, identity mismatch, quota mismatch,
+or missing completion-marker claim. It does not queue a storm of doomed later
+rounds. Other factory loops remain independent.
 
-`smoke` (above) is the test suite for the tooling. For the data itself, `validate`
-IS the test: `python3 pipelines/validate_run.py <run_dir>` directly if you don't
-need the live-tree-safe copy (`--write` also emits `manifest.json` into the dir).
+## Round transaction contract
 
-## Gotchas (all hit in production on 2026-08-17)
+Agents must use `pipelines/round_txn.py`; prompt-only “do not overwrite” rules
+are insufficient.
 
-- **Session limits kill windows.** Generation burns the account's ~5 h session
-  window in ~2 h, then every queued round fails with "You've hit your session
-  limit · resets H:10". The failures are harmless — completed batches stay on
-  disk. Relaunch a **fresh** window at the reset time from new frontiers.
-- **Never `resumeFromRunId` across windows.** The 5 factory loops run in
-  parallel; their agent-call interleaving is nondeterministic, so the resume
-  cache prefix breaks and completed rounds RE-RUN live — which overwrote batch
-  files once (recovered from snapshots). Fresh launch + `starts` from
-  `frontiers` is the safe pattern; the script's no-overwrite contract
-  ("c"-suffix on collision) is the backstop.
-- **Snapshot before every launch.** `driver.py snapshot <run> wN`. This turned
-  two would-be data losses into non-events.
-- **Model safeguards can false-positive one round** (happened once in ~60
-  rounds: an API-level flag killed thalamic r05). The loop logs it and
-  continues; the round's scenario space is simply retried by a later round.
-- **`NEXT_ROUND.json`** in the run dir is a frontier manifest the factory
-  agents maintain themselves. It's benign; agents may update it (the one
-  allowed mutation). Trust `driver.py frontiers` over it if they disagree.
-- **Validate the copy, not the live tree.** A snapshot mid-write can have a
-  truncated final line; `driver.py validate` copies first for exactly this
-  reason. A bad FINAL line of a growing file is in-flight, not a defect.
-- **`find -newermt 'HH:MM'` fails on this box** — `find` is `bfs`, which wants
-  ISO timestamps (`-newermt 2026-08-17T13:11:00Z`). For overwrite checks,
-  compare file sizes against the last snapshot instead.
+```bash
+python3 pipelines/round_txn.py reserve \
+  outputs/raw/<date>/<factory> --round <N> --expected <quota>
 
-## Troubleshooting
+# Write only inside staging_dir returned above, then:
+python3 pipelines/round_txn.py publish \
+  outputs/raw/<date>/<factory> --round <N> --token <token>
 
-- `refusing to overwrite existing snapshot` → intended; pick a new label
-  (`w5`, `prehalt2`, …).
-- Validator errors like `safety_decision.decision must be ACCEPT|MODIFY|REJECT`
-  or `JSON parse error` → a factory emitted a malformed record; the message has
-  `file:line`. Quarantine the line, don't hand-fix generated content silently.
-- Workflow result shows dozens of `failed: You've hit your session limit` →
-  see Gotchas #1; nothing to repair, relaunch at reset.
-- A factory dir has `batch-rNNc.jsonl` files → the no-overwrite contract fired
-  on a name collision; both files are real data, the validator picks up both.
+python3 pipelines/round_txn.py frontier outputs/raw/<date>/<factory>
+```
+
+Publication requires the exact quota, a nonempty NOTES file, zero deep-check
+errors or warnings, and no destination collision. Files are staged under
+`outputs/staging/`; `ROUND-rNN.complete.json` is the atomic visibility point.
+An interrupted publish is resumable with the same token. Never delete a
+reservation or staging directory just because an agent stopped.
+
+New trajectories use `schemas/thalamic-trajectory-v2.schema.json`, which makes
+top-level IDs and canonical state provenance mandatory. The unsuffixed schema
+is retained only so legacy raw records remain inspectable without rewriting.
+
+## Harvest and status reporting
+
+Take a stable snapshot or use `driver.py audit`, then report:
+
+- workflow ID/state and completed/error agent counts from actual workflow data;
+- committed rounds from completion markers (or validated legacy baseline);
+- files, records, bytes, and approximate tokens per factory;
+- structural errors versus corpus-level blockers, separately;
+- ID/provenance coverage, preference purity, reward-shape entropy, duplicate
+  content, bridge ordering/density, and factories that under-produce;
+- exact timestamp and whether numbers came from live raw, a snapshot, or a
+  workflow journal.
+
+Never estimate agent-token usage from output bytes without labeling the method.
+Output-token estimates (`bytes / 4`) and model usage tokens are different units.
+
+## Promotion
+
+Raw data is immutable. Promote only into a brand-new destination:
+
+```bash
+python3 pipelines/promote.py outputs/raw/<date> outputs/cleaned/<new-label>
+```
+
+The promoter refuses an existing destination and any destination nested inside
+the raw source. Do not promote while `audit` is blocked unless the user explicitly
+asks for a diagnostic cleaned copy; never describe such a copy as curated.
+
+## Failure handling
+
+- **Session limit / model safeguard:** the affected factory circuit opens for
+  the window. Keep committed rounds, preserve staging, and resume later from a
+  fresh frontier after the external condition changes.
+- **Reservation says wrong frontier:** supplied starts are stale or another
+  writer owns the round. Re-measure; never skip ahead or add a filename suffix.
+- **Publish validation failure:** repair only the staged batch and retry with the
+  same token. Do not hand-edit committed raw output.
+- **Existing reservation:** inspect its JSON and staging directory. Resume the
+  same transaction if ownership is known; otherwise stop and report it.
+- **Legacy malformed batch:** it does not advance the validated legacy frontier.
+  Preserve it as evidence and report/quarantine through an explicit curation
+  decision rather than silently rewriting it.
