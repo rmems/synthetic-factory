@@ -7,7 +7,34 @@ designed|simulated|hil|unknown, and sorts unsorted spike trains
 (setting meta.spike_events_resorted). Writes reward-scale.json and
 PROVENANCE.md. Never mutates raw_run.
 
+Quality Gate — call ``pipelines/quality_gate.py`` after promotion
+------------------------------------------------------------------
+Promotion is **not** a training-ready signal. After this script
+writes ``cleaned_out``, run the quality gate before volume training:
+
+    python3 pipelines/quality_gate.py <cleaned_out> --threshold 0.97 --json
+
+Gate contract (see ``pipelines/quality_gate.py`` and
+``docs/quality-gate.md``):
+
+- **Embedding dedup threshold**: default ``0.97`` cosine similarity.
+  Pairs with ``cosine_sim > 0.97`` are treated as near-duplicates and
+  collapse to the same hash group. The gate also enforces exact-hash
+  dedup (SHA-256 over canonical ``state + proposed_action +
+  executed_action``) — any hash collision sets ``blocked = true``.
+  Tune via ``--threshold``; see ``docs/quality-gate.md`` for sweep
+  guidance (0.93 / 0.95 / 0.97 / 0.98).
+- **Mix enforcement**: warns when ``synthetic_ratio > 0.5``; target is
+  ~0.30 synthetic (``designed``/``simulated``/``hil``) / 0.70 real per
+  SOTA guidance. Promoted records already carry normalized
+  ``provenance.kind`` so the gate's mix bucketing is consistent.
+- **Exit code**: gate exits 1 when ``blocked`` (duplicates found) and
+  0 otherwise; CI should treat ``blocked`` as a hard fail and
+  ``warnings`` as soft fails requiring review.
+
 Usage: python3 pipelines/promote.py <raw_run> <cleaned_out>
+
+Co-authored-by: Muse Code powered by Muse Spark <muse-spark@meta.com>
 """
 
 import argparse

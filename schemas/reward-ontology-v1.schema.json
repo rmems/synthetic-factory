@@ -1,0 +1,339 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "reward-ontology-v1.schema.json",
+  "title": "Synthetic Factory Reward Ontology v1",
+  "description": "Canonical reward-training annotations and reversible source-reward sidecars. Only magnitude_comparable annotations may expose canonical numeric magnitudes.",
+  "oneOf": [
+    {
+      "$ref": "#/$defs/annotation"
+    },
+    {
+      "$ref": "#/$defs/sidecar"
+    }
+  ],
+  "$defs": {
+    "sha256": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "reasonCodes": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "pattern": "^[a-z][a-z0-9_]*$"
+      }
+    },
+    "magnitudeValue": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "json_pointer",
+        "source_total",
+        "source_unit_usd",
+        "conversion_factor",
+        "canonical_value"
+      ],
+      "properties": {
+        "json_pointer": {
+          "type": "string",
+          "pattern": "^/"
+        },
+        "source_total": {
+          "type": "number"
+        },
+        "source_unit_usd": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "conversion_factor": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "canonical_value": {
+          "type": "number"
+        },
+        "calibration_source": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "annotation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "document_type",
+        "ontology_version",
+        "comparability",
+        "reason_codes",
+        "source_sidecar_id",
+        "source_reward_count"
+      ],
+      "properties": {
+        "document_type": {
+          "const": "reward_training_annotation"
+        },
+        "ontology_version": {
+          "const": "reward-ontology-v1"
+        },
+        "comparability": {
+          "enum": [
+            "magnitude_comparable",
+            "sign_order_only",
+            "exclude_from_reward_training"
+          ]
+        },
+        "reason_codes": {
+          "$ref": "#/$defs/reasonCodes"
+        },
+        "source_sidecar_id": {
+          "$ref": "#/$defs/sha256"
+        },
+        "source_reward_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "magnitude": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "canonical_unit",
+            "aggregation",
+            "values"
+          ],
+          "properties": {
+            "canonical_unit": {
+              "const": "usd_10000_risk_adjusted_delta"
+            },
+            "aggregation": {
+              "const": "linear_unit_conversion_only"
+            },
+            "values": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "$ref": "#/$defs/magnitudeValue"
+              }
+            }
+          }
+        },
+        "order": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "preferred_json_pointer",
+            "dispreferred_json_pointer",
+            "relation"
+          ],
+          "properties": {
+            "preferred_json_pointer": {
+              "type": "string",
+              "pattern": "^/"
+            },
+            "dispreferred_json_pointer": {
+              "type": "string",
+              "pattern": "^/"
+            },
+            "relation": {
+              "const": "preferred_gt_dispreferred"
+            }
+          }
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "comparability": {
+                "const": "magnitude_comparable"
+              }
+            },
+            "required": [
+              "comparability"
+            ]
+          },
+          "then": {
+            "required": [
+              "magnitude"
+            ],
+            "not": {
+              "required": [
+                "order"
+              ]
+            }
+          },
+          "else": {
+            "not": {
+              "required": [
+                "magnitude"
+              ]
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "comparability": {
+                "const": "sign_order_only"
+              }
+            },
+            "required": [
+              "comparability"
+            ]
+          },
+          "then": {
+            "required": [
+              "order"
+            ]
+          },
+          "else": {
+            "not": {
+              "required": [
+                "order"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "sourceReward": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "json_pointer",
+        "value_sha256",
+        "value"
+      ],
+      "properties": {
+        "json_pointer": {
+          "type": "string",
+          "pattern": "^/"
+        },
+        "value_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "value": {}
+      }
+    },
+    "arithmetic": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "json_pointer",
+        "status",
+        "method"
+      ],
+      "properties": {
+        "json_pointer": {
+          "type": "string",
+          "pattern": "^/"
+        },
+        "status": {
+          "enum": [
+            "valid",
+            "invalid",
+            "unsupported"
+          ]
+        },
+        "method": {
+          "type": "string",
+          "minLength": 1
+        },
+        "source_total": {
+          "type": "number"
+        },
+        "recomputed_total": {
+          "type": "number"
+        },
+        "absolute_difference": {
+          "type": "number",
+          "minimum": 0
+        },
+        "tolerance": {
+          "type": "number",
+          "minimum": 0
+        }
+      }
+    },
+    "sidecar": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "document_type",
+        "ontology_version",
+        "sidecar_id",
+        "source",
+        "classification",
+        "source_rewards",
+        "arithmetic"
+      ],
+      "properties": {
+        "document_type": {
+          "const": "reward_source_sidecar"
+        },
+        "ontology_version": {
+          "const": "reward-ontology-v1"
+        },
+        "sidecar_id": {
+          "$ref": "#/$defs/sha256"
+        },
+        "source": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "path",
+            "line",
+            "record_sha256"
+          ],
+          "properties": {
+            "path": {
+              "type": "string",
+              "minLength": 1
+            },
+            "line": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "record_sha256": {
+              "$ref": "#/$defs/sha256"
+            }
+          }
+        },
+        "classification": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "comparability",
+            "reason_codes"
+          ],
+          "properties": {
+            "comparability": {
+              "enum": [
+                "magnitude_comparable",
+                "sign_order_only",
+                "exclude_from_reward_training"
+              ]
+            },
+            "reason_codes": {
+              "$ref": "#/$defs/reasonCodes"
+            }
+          }
+        },
+        "source_rewards": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/sourceReward"
+          }
+        },
+        "arithmetic": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/arithmetic"
+          }
+        }
+      }
+    }
+  }
+}

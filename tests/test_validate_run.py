@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """validate_run.py must not write manifest.json unless --write is passed."""
 
+import copy
 import json
 import subprocess
 import sys
@@ -13,13 +14,16 @@ VALIDATE = REPO / "pipelines" / "validate_run.py"
 V2_SCHEMA = REPO / "schemas" / "thalamic-trajectory-v2.schema.json"
 
 # Minimal record that passes the thalamic shape check (required keys + decision).
+# Includes strict fields: meta.round and valid provenance/state.
 TINY_THALAMIC = {
-    "state": {"episode_id": "tiny-001"},
+    "state": {"episode_id": "tiny-001", "sim_or_real": "designed"},
     "proposed_action": {"action_type": "noop"},
     "safety_decision": {"decision": "ACCEPT", "rationale": "test fixture"},
     "executed_action": {"action_type": "noop"},
     "future_outcome": {"success": "full"},
     "reward_components": {"total": 0.0},
+    "meta": {"round": 1},
+    "provenance": {"kind": "designed", "claimed": "designed"},
 }
 
 EXPECTED_TOTALS = {
@@ -44,6 +48,16 @@ def _invoke(*args):
         text=True,
         check=False,
     )
+
+
+def _run_with_record(record):
+    """Helper: write single record to temp dir and invoke validator."""
+    with tempfile.TemporaryDirectory() as raw:
+        run_dir = Path(raw) / "run"
+        run_dir.mkdir()
+        (run_dir / "case.jsonl").write_text(json.dumps(record) + "\n")
+        result = _invoke(str(run_dir))
+        return result
 
 
 class ValidateRunWriteFlag(unittest.TestCase):
@@ -132,12 +146,163 @@ class ValidateRunWriteFlag(unittest.TestCase):
                     {"channel": "a", "t_rel_ms": 2.0, "amplitude": 0.4},
                     {"channel": "b", "t_rel_ms": 1.0, "amplitude": 0.3},
                 ],
-                "language_view": {"trajectory": TINY_THALAMIC},
+                "language_view": {"trajectory": copy.deepcopy(TINY_THALAMIC)},
             }
             (run_dir / "bridge.jsonl").write_text(json.dumps(bridge) + "\n")
             result = _invoke(str(run_dir))
             self.assertEqual(result.returncode, 1, result.stderr)
             self.assertIn("not globally non-decreasing", result.stderr)
+
+
+class ValidateRewardTotal(unittest.TestCase):
+    def test_reward_total_reconciles(self):
+        rec = copy.deepcopy(TINY_THALAMIC)
+        rec["reward_components"] = {"task": 0.4, "safety": 0.3, "total": 0.7}
+        result = _run_with_record(rec)
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_reward_total_mismatch_fails(self):
+        rec = copy.deepcopy(TINY_THALAMIC)
+        rec["reward_components"] = {"task": 0.4, "safety": 0.3, "total": 0.9}
+        result = _run_with_record(rec)
+        self.assertEqual(result.returncode, 1, result.stderr)
+        self.assertIn("reward_components.total", result.stderr)
+        self.assertIn("sum of components", result.stderr)
+
+    def test_reward_total_non_finite_fails(self):
+        rec = copy.deepcopy(TINY_THALAMIC)
+        rec["reward_components"] = {"task": 0.4, "total": float("inf")}
+        result = _run_with_record(rec)
+        self.assertEqual(result.returncode, 1, result.stderr)
+        self.assertIn("finite", result.stderr)
+
+    def test_reward_total_ignores_bookkeeping_keys(self):
+        rec = copy.deepcopy(TINY_THALAMIC)
+        rec["reward_components"] = {
+            "task": 0.5,
+            "weights_note": "not counted",
+            "total": 0.5,
+        }
+        result = _run_with_record(rec)
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_reward_total_zero_with_no_components(self):
+        rec = copy.deepcopy(TINY_THALAMIC)
+        rec["reward_components"] = {"total": 0.0}
+        result = _run_with_record(rec)
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+
+class ValidateProvenanceStrict(unittest.TestCase):
+    def test_provenance_valid_kinds(self):
+        for kind in ["designed", "simulated", "hil", "unknown"]:
+            rec = copy.deepcopy(TINY_THALAMIC)
+            rec["provenance"] = {"kind": kind}
+            result = _run_with_record(rec)
+            self.assertEqual(result.returncode, 0, f"kind={kind} {result.stderr}")
+
+    def test_provenance_invalid_kind_fails(self):
+        rec = copy.deepcopy(TINY_THALAMIC)
+        rec["provenance"] = {"kind": "real"}
+        result = _run_with_record(rec)
+        self.assertEqual(result.returncode, 1, result.stderr)
+        self.assertIn("provenance.kind", result.stderr)
+
+    def test_state_sim_or_real_must_be_valid(self):
+        rec = copy.deepcopy(TINY_THALAMIC)
+        rec["state"]["sim_or_real"] = "real"
+        result = _run_with_record(rec)
+        self.assertEqual(result.returncode, 1, result.stderr)
+        self.assertIn("sim_or_real", result.stderr)
+
+    def test_state_sim_or_real_valid(self):
+        for v in ["designed", "simulated", "hil"]:
+            rec = copy.deepcopy(TINY_THALAMIC)
+            rec["state"]["sim_or_real"] = v
+            result = _run_with_record(rec)
+            self.assertEqual(result.returncode, 0, f"sim_or_real={v} {result.stderr}")
+
+    def test_provenance_claimed_wrong_type_fails(self):
+        rec = copy.deepcopy(TINY_THALAMIC)
+        rec["provenance"] = {"kind": "designed", "claimed": 123}
+        result = _run_with_record(rec)
+        self.assertEqual(result.returncode, 1, result.stderr)
+        self.assertIn("provenance.claimed", result.stderr)
+
+
+class ValidateMetaRound(unittest.TestCase):
+    def test_meta_round_present(self):
+        rec = copy.deepcopy(TINY_THALAMIC)
+        rec["meta"] = {"round": 2}
+        result = _run_with_record(rec)
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_meta_missing_fails(self):
+        rec = copy.deepcopy(TINY_THALAMIC)
+        rec.pop("meta", None)
+        result = _run_with_record(rec)
+        self.assertEqual(result.returncode, 1, result.stderr)
+        self.assertIn("meta", result.stderr)
+        self.assertIn("round", result.stderr)
+
+    def test_meta_round_not_integer_fails(self):
+        rec = copy.deepcopy(TINY_THALAMIC)
+        rec["meta"] = {"round": "2"}
+        result = _run_with_record(rec)
+        self.assertEqual(result.returncode, 1, result.stderr)
+        self.assertIn("meta.round", result.stderr)
+
+    def test_meta_round_zero_fails(self):
+        rec = copy.deepcopy(TINY_THALAMIC)
+        rec["meta"] = {"round": 0}
+        result = _run_with_record(rec)
+        self.assertEqual(result.returncode, 1, result.stderr)
+        self.assertIn("meta.round", result.stderr)
+
+    def test_meta_round_bool_rejected(self):
+        rec = copy.deepcopy(TINY_THALAMIC)
+        rec["meta"] = {"round": True}
+        result = _run_with_record(rec)
+        self.assertEqual(result.returncode, 1, result.stderr)
+        self.assertIn("meta.round", result.stderr)
+
+
+class ValidateSpikeOrderIdempotent(unittest.TestCase):
+    def test_spike_order_sorted_passes(self):
+        rec = copy.deepcopy(TINY_THALAMIC)
+        bridge = {
+            "spike_events": [
+                {"channel": "a", "t_rel_ms": 1.0, "amplitude": 0.4},
+                {"channel": "b", "t_rel_ms": 1.0, "amplitude": 0.3},
+                {"channel": "c", "t_ms": 2.0, "amplitude": 0.5},
+            ],
+            "language_view": {"trajectory": rec},
+        }
+        with tempfile.TemporaryDirectory() as raw:
+            run_dir = Path(raw) / "run"
+            run_dir.mkdir()
+            (run_dir / "bridge.jsonl").write_text(json.dumps(bridge) + "\n")
+            result = _invoke(str(run_dir))
+            self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_spike_order_idempotent(self):
+        # Running validator twice yields identical error counts
+        bridge = {
+            "spike_events": [
+                {"channel": "a", "t_rel_ms": 5.0, "amplitude": 0.4},
+                {"channel": "b", "t_rel_ms": 3.0, "amplitude": 0.3},
+            ],
+            "language_view": {"trajectory": copy.deepcopy(TINY_THALAMIC)},
+        }
+        with tempfile.TemporaryDirectory() as raw:
+            run_dir = Path(raw) / "run"
+            run_dir.mkdir()
+            (run_dir / "bridge.jsonl").write_text(json.dumps(bridge) + "\n")
+            r1 = _invoke(str(run_dir))
+            r2 = _invoke(str(run_dir))
+            self.assertEqual(r1.returncode, 1)
+            self.assertEqual(r2.returncode, 1)
+            self.assertEqual(r1.stderr, r2.stderr)
 
 
 if __name__ == "__main__":

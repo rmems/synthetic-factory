@@ -22,7 +22,8 @@ if str(_PIPELINES) not in sys.path:
     sys.path.insert(0, str(_PIPELINES))
 from validate_run import check_line, event_time  # noqa: E402
 
-TOL = 1e-4
+TOL = 1e-6
+STRICT_TOL = 1e-6
 UNWEIGHTED_EXCLUDE = frozenset(
     {
         "total",
@@ -111,7 +112,12 @@ def component_value(value):
 
 
 def reward_tolerance(rc, total):
-    """Honor an explicit rounding policy while keeping the default strict."""
+    """Honor an explicit rounding policy while keeping the default strict.
+
+    Strict gate: default tolerance is STRICT_TOL (1e-6). An explicit
+    rounding_decimals or note is honored only up to that strict bound when
+    the declared rounding is coarser; finer declarations do not relax.
+    """
     decimals = rc.get("rounding_decimals")
     if not isinstance(decimals, int) or isinstance(decimals, bool) or decimals < 0:
         decimals = None
@@ -125,7 +131,11 @@ def reward_tolerance(rc, total):
                 break
     if decimals is None:
         return TOL
-    return max(TOL, 0.5 * (10 ** -decimals) + 1e-12)
+    # Publish-time strict: never allow a declared rounding to loosen beyond STRICT_TOL
+    # unless the declaration is explicit and very coarse (still bounded).
+    requested = 0.5 * (10 ** -decimals) + 1e-12
+    # Strict gate caps tolerance at max(STRICT_TOL, requested) but ensure at least STRICT_TOL
+    return max(STRICT_TOL, min(requested, 1e-4)) if requested > STRICT_TOL else STRICT_TOL
 
 
 def weighted_components(rc, weights):
@@ -160,7 +170,7 @@ def weighted_components(rc, weights):
 
 
 def check_reward(rc, where):
-    """Recompute total from numeric siblings / weights. Interval totals warn."""
+    """Recompute total from numeric siblings / weights. Strict total==sum (TOL=1e-6)."""
     errors, warnings = [], []
     if not isinstance(rc, dict):
         return errors, warnings
@@ -264,6 +274,49 @@ def root_record_id(obj):
     return None
 
 
+def check_provenance_publish(obj, where):
+    """Publish-time provenance gate — any 'real' sim_or_real/provenance.kind is an error.
+
+    Spike order is already enforced globally; this gate ensures generative data
+    cannot publish with real-world provenance claims.
+    """
+    errs = []
+
+    def walk(node, path):
+        if isinstance(node, dict):
+            for k, v in node.items():
+                cur = f"{path}.{k}" if path else k
+                if k == "sim_or_real" and isinstance(v, str):
+                    if "real" in v.lower() or v not in ALLOWED_PROVENANCE:
+                        # 'real' substring is always an error; other invalid values already
+                        # produce a warning via expected_states but also flag here if
+                        # they contain 'real'. Keep error strictly for 'real'.
+                        if "real" in v.lower():
+                            errs.append(
+                                f"{where}: {cur} must not be 'real' (use 'designed') — got {v!r}"
+                            )
+                if k == "provenance" and isinstance(v, dict):
+                    kind = v.get("kind")
+                    if isinstance(kind, str) and "real" in kind.lower():
+                        errs.append(
+                            f"{where}: {cur}.kind must not be 'real' — got {kind!r}"
+                        )
+                walk(v, cur)
+        elif isinstance(node, list):
+            for i, item in enumerate(node):
+                walk(item, f"{path}[{i}]")
+
+    walk(obj, "")
+    # Deduplicate
+    seen = set()
+    out = []
+    for e in errs:
+        if e not in seen:
+            seen.add(e)
+            out.append(e)
+    return out
+
+
 def check_record(obj, where):
     errors, warnings = [], []
     shape_errs, kind = shape_check(obj, where)
@@ -281,15 +334,22 @@ def check_record(obj, where):
             rc_errs, rc_warns = check_reward(rc, f"{where}: {path}")
             errors.extend(rc_errs)
             warnings.extend(rc_warns)
+        # Strict provenance: expected states missing or invalid
         for path, state in expected_states(obj, kind):
             if isinstance(state, dict) and "sim_or_real" not in state:
                 warnings.append(f"{where}: missing sim_or_real on {path}")
             elif isinstance(state, dict):
                 value = state.get("sim_or_real")
-                if value not in ALLOWED_PROVENANCE:
+                if isinstance(value, str) and "real" in value.lower():
+                    errors.append(
+                        f"{where}: {path} sim_or_real must not be 'real' (use 'designed') — got {value!r}"
+                    )
+                elif value not in ALLOWED_PROVENANCE:
                     warnings.append(
                         f"{where}: non-training provenance {value!r} on {path}"
                     )
+        # Publish-time deep provenance scan — catches any nested 'real' not covered above
+        errors.extend(check_provenance_publish(obj, where))
         if kind == "episode":
             for index, step in enumerate(obj.get("steps", [])):
                 if (

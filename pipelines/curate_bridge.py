@@ -83,6 +83,18 @@ REASON_EXPLICIT_ORDER = "BRIDGE_EXPLICIT_CAUSAL_OR_SEQUENCE_ORDER"
 REASON_INVALID_JSON = "BRIDGE_SOURCE_JSON_INVALID"
 REASON_INVALID_UTF8 = "BRIDGE_SOURCE_UTF8_INVALID"
 
+# Raster / spike-budget sidecar (20-50 ms excerpt + routing, 23 pJ/spike)
+RASTER_WINDOW_MIN_MS = 20
+RASTER_WINDOW_MAX_MS = 50
+RASTER_ENERGY_PJ_PER_SPIKE = 23
+RASTER_ENERGY_UJ_PER_SPIKE = 23e-6  # 23 pJ = 23e-6 uJ
+REASON_RASTER_MISSING = "BRIDGE_RASTER_MISSING"
+REASON_RASTER_WINDOW = "BRIDGE_RASTER_WINDOW_INVALID"
+REASON_RASTER_SPIKE_BUDGET = "BRIDGE_SPIKE_BUDGET_MISMATCH"
+REASON_RASTER_ENERGY = "BRIDGE_ENERGY_MISMATCH"
+REASON_RASTER_ROUTING = "BRIDGE_RASTER_ROUTING_MISSING"
+REASON_RASTER_EXCERPT = "BRIDGE_RASTER_EXCERPT_INVALID"
+
 
 class BridgeCurationError(ValueError):
     """The curation input or source-root contract is invalid."""
@@ -240,6 +252,237 @@ def _adjacent_descents(times: Sequence[float]) -> list[dict[str, Any]]:
     ]
 
 
+def _expected_spikes(neurons: int, mean_rate_hz: float, window_s: float) -> int:
+    """Spike budget: neurons * rate * window, Loihi-2-class 23 pJ/spike model."""
+    return int(round(neurons * mean_rate_hz * window_s))
+
+
+def _validate_raster(
+    raster: Any,
+    *,
+    reason_codes: list[str],
+    evidence: dict[str, Any],
+) -> None:
+    """Validate 20-50 ms raster excerpt + routing and spike budget at 23 pJ/spike.
+
+    Mutates ``reason_codes`` and ``evidence`` in place.  Records evidence
+    even on success so manifests remain auditable.
+    """
+    if not isinstance(raster, dict):
+        reason_codes.append(REASON_RASTER_EXCERPT)
+        evidence["raster_error"] = "raster must be an object"
+        evidence["raster_present"] = False
+        return
+    evidence["raster_present"] = True
+    window_ms = raster.get("window_ms")
+    window_s = raster.get("window_s")
+    neurons = raster.get("neurons")
+    mean_rate_hz = raster.get("mean_rate_hz")
+    spikes = raster.get("spikes")
+    routing = raster.get("routing")
+    excerpt = raster.get("excerpt")
+
+    # Derive window_s if only window_ms given, or vice versa, and check consistency.
+    if _is_finite_number(window_ms) and not _is_finite_number(window_s):
+        window_s = float(window_ms) / 1000.0
+        evidence["raster_window_s_derived"] = window_s
+    elif _is_finite_number(window_s) and not _is_finite_number(window_ms):
+        window_ms = float(window_s) * 1000.0
+        evidence["raster_window_ms_derived"] = window_ms
+
+    # Window must be 20-50 ms inclusive.
+    if not _is_finite_number(window_ms) or not (
+        RASTER_WINDOW_MIN_MS - 1e-9 <= float(window_ms) <= RASTER_WINDOW_MAX_MS + 1e-9
+    ):
+        reason_codes.append(REASON_RASTER_WINDOW)
+        evidence["raster_window_ms"] = window_ms
+        evidence["raster_window_valid"] = False
+    else:
+        evidence["raster_window_ms"] = float(window_ms)
+        evidence["raster_window_valid"] = True
+        if _is_finite_number(window_s):
+            evidence["raster_window_s"] = float(window_s)
+            if abs(float(window_s) - float(window_ms) / 1000.0) > 1e-9:
+                reason_codes.append(REASON_RASTER_WINDOW)
+                evidence["raster_window_consistent"] = False
+            else:
+                evidence["raster_window_consistent"] = True
+
+    # Neurons / rate / spikes must be present and consistent.
+    if not isinstance(neurons, int) or isinstance(neurons, bool) or neurons < 1:
+        reason_codes.append(REASON_RASTER_SPIKE_BUDGET)
+        evidence["raster_neurons_valid"] = False
+    else:
+        evidence["raster_neurons"] = neurons
+        evidence["raster_neurons_valid"] = True
+    if not _is_finite_number(mean_rate_hz) or float(mean_rate_hz) <= 0:
+        reason_codes.append(REASON_RASTER_SPIKE_BUDGET)
+        evidence["raster_rate_valid"] = False
+    else:
+        evidence["raster_rate_hz"] = float(mean_rate_hz)
+        evidence["raster_rate_valid"] = True
+    if not isinstance(spikes, int) or isinstance(spikes, bool) or spikes < 0:
+        reason_codes.append(REASON_RASTER_SPIKE_BUDGET)
+        evidence["raster_spikes_valid"] = False
+    else:
+        evidence["raster_spikes"] = spikes
+        evidence["raster_spikes_valid"] = True
+
+    # Check spike budget when all three are valid.
+    if (
+        isinstance(neurons, int)
+        and not isinstance(neurons, bool)
+        and neurons >= 1
+        and _is_finite_number(mean_rate_hz)
+        and float(mean_rate_hz) > 0
+        and isinstance(spikes, int)
+        and not isinstance(spikes, bool)
+        and _is_finite_number(window_ms)
+        and RASTER_WINDOW_MIN_MS - 1e-9 <= float(window_ms) <= RASTER_WINDOW_MAX_MS + 1e-9
+    ):
+        ws = float(window_ms) / 1000.0 if not _is_finite_number(window_s) else float(window_s)
+        expected = _expected_spikes(neurons, float(mean_rate_hz), ws)
+        evidence["raster_expected_spikes"] = expected
+        evidence["raster_spike_budget_tolerance"] = 1
+        if abs(spikes - expected) > 1:
+            reason_codes.append(REASON_RASTER_SPIKE_BUDGET)
+            evidence["raster_spike_budget_valid"] = False
+        else:
+            evidence["raster_spike_budget_valid"] = True
+        # Energy checks (23 pJ/spike) if present.
+        energy_pj = raster.get("energy_pJ")
+        energy_uj = raster.get("energy_uJ")
+        if _is_finite_number(energy_pj):
+            expected_pj = spikes * RASTER_ENERGY_PJ_PER_SPIKE
+            evidence["raster_expected_energy_pJ"] = expected_pj
+            if abs(float(energy_pj) - expected_pj) > 1e-6:
+                reason_codes.append(REASON_RASTER_ENERGY)
+                evidence["raster_energy_pJ_valid"] = False
+            else:
+                evidence["raster_energy_pJ_valid"] = True
+        if _is_finite_number(energy_uj):
+            expected_uj = spikes * RASTER_ENERGY_UJ_PER_SPIKE
+            evidence["raster_expected_energy_uJ"] = expected_uj
+            if abs(float(energy_uj) - expected_uj) > 1e-9:
+                reason_codes.append(REASON_RASTER_ENERGY)
+                evidence["raster_energy_uJ_valid"] = False
+            else:
+                evidence["raster_energy_uJ_valid"] = True
+
+    # Routing must be present with source/target.
+    if not isinstance(routing, dict):
+        reason_codes.append(REASON_RASTER_ROUTING)
+        evidence["raster_routing_present"] = False
+    else:
+        src = routing.get("source")
+        tgt = routing.get("target")
+        if not isinstance(src, str) or not src.strip() or not isinstance(tgt, str) or not tgt.strip():
+            reason_codes.append(REASON_RASTER_ROUTING)
+            evidence["raster_routing_valid"] = False
+        else:
+            evidence["raster_routing_valid"] = True
+        evidence["raster_routing_present"] = True
+
+    # Excerpt must be non-empty and within window, neuron_id in range.
+    if not isinstance(excerpt, list) or not excerpt:
+        reason_codes.append(REASON_RASTER_EXCERPT)
+        evidence["raster_excerpt_valid"] = False
+    else:
+        evidence["raster_excerpt_count"] = len(excerpt)
+        bad = []
+        for idx, item in enumerate(excerpt):
+            if not isinstance(item, dict):
+                bad.append(idx)
+                continue
+            t = item.get("t_ms")
+            nid = item.get("neuron_id")
+            if not _is_finite_number(t) or not isinstance(nid, int) or isinstance(nid, bool):
+                bad.append(idx)
+                continue
+            if _is_finite_number(window_ms) and not (0 - 1e-9 <= float(t) <= float(window_ms) + 1e-9):
+                bad.append(idx)
+                continue
+            if isinstance(neurons, int) and not isinstance(neurons, bool) and not (0 <= nid < neurons):
+                bad.append(idx)
+        if bad:
+            reason_codes.append(REASON_RASTER_EXCERPT)
+            evidence["raster_excerpt_invalid_indices"] = bad
+            evidence["raster_excerpt_valid"] = False
+        else:
+            evidence["raster_excerpt_valid"] = True
+
+
+def _validate_gate_compute(
+    gate_compute: Any,
+    *,
+    reason_codes: list[str],
+    evidence: dict[str, Any],
+) -> None:
+    """Validate per-check spikes = neurons*rate*window @23 pJ when gate_compute present."""
+    if not isinstance(gate_compute, dict):
+        return
+    per_check = gate_compute.get("per_check")
+    if not isinstance(per_check, list) or not per_check:
+        return
+    budget_valid = True
+    for idx, check in enumerate(per_check):
+        if not isinstance(check, dict):
+            reason_codes.append(REASON_RASTER_SPIKE_BUDGET)
+            budget_valid = False
+            continue
+        neurons = check.get("neurons")
+        rate = check.get("mean_rate_hz")
+        # accept rate_hz alias
+        if rate is None:
+            rate = check.get("rate_hz")
+        window_s = check.get("window_s")
+        if window_s is None:
+            # derive from latency_ms or window_ms if present
+            wms = check.get("window_ms")
+            if _is_finite_number(wms):
+                window_s = float(wms) / 1000.0
+        spikes = check.get("spikes")
+        if not (
+            isinstance(neurons, int)
+            and not isinstance(neurons, bool)
+            and _is_finite_number(rate)
+            and _is_finite_number(window_s)
+            and isinstance(spikes, int)
+            and not isinstance(spikes, bool)
+        ):
+            continue  # not a spike-budget check, skip
+        expected = _expected_spikes(neurons, float(rate), float(window_s))
+        if abs(spikes - expected) > 1:
+            reason_codes.append(REASON_RASTER_SPIKE_BUDGET)
+            evidence.setdefault("gate_compute_spike_mismatches", []).append(
+                {"index": idx, "expected": expected, "actual": spikes}
+            )
+            budget_valid = False
+    evidence["gate_compute_spike_budget_valid"] = budget_valid
+    # Energy check if total present
+    total_spikes = None
+    if isinstance(per_check, list):
+        total_spikes = sum(
+            c.get("spikes", 0)
+            for c in per_check
+            if isinstance(c, dict) and isinstance(c.get("spikes"), int) and not isinstance(c.get("spikes"), bool)
+        )
+        evidence["gate_compute_total_spikes"] = total_spikes
+        for key in ("total_energy_uJ", "total_energy_pJ", "total_energy"):
+            val = gate_compute.get(key)
+            if _is_finite_number(val) and isinstance(total_spikes, int):
+                if key == "total_energy_pJ":
+                    expected = total_spikes * RASTER_ENERGY_PJ_PER_SPIKE
+                    if abs(float(val) - expected) > 1e-6:
+                        reason_codes.append(REASON_RASTER_ENERGY)
+                        evidence["gate_compute_energy_valid"] = False
+                elif key == "total_energy_uJ":
+                    expected = total_spikes * RASTER_ENERGY_UJ_PER_SPIKE
+                    if abs(float(val) - expected) > 1e-9:
+                        reason_codes.append(REASON_RASTER_ENERGY)
+                        evidence["gate_compute_energy_valid"] = False
+
+
 def _base_manifest(
     *,
     source_path: str,
@@ -320,8 +563,16 @@ def curate_record(
     source_line: int,
     source_hash: str,
     source_file_hash: str | None = None,
+    require_raster: bool = False,
 ) -> CurationDecision:
-    """Return a deterministic Bridge timing decision without mutating ``record``."""
+    """Return a deterministic Bridge timing decision without mutating ``record``.
+
+    When ``require_raster`` is True, a missing ``raster`` sidecar (20-50 ms
+    excerpt + routing) also quarantines the record.  Spike-budget checks
+    (spikes = neurons*rate*window @23 pJ) are always validated when the
+    relevant fields are present, so minimal legacy fixtures remain green
+    unless their budgets are wrong.
+    """
 
     if not isinstance(source_path, str) or not source_path:
         raise BridgeCurationError("source_path must be a non-empty string")
@@ -437,6 +688,40 @@ def curate_record(
             "output_event_order_hash": sha256_hex(canonical_json_bytes(sorted_events)),
         }
     )
+
+    # --- Raster / spike-budget sidecar validation (20-50 ms, 23 pJ/spike) ---
+    # Uses helper validators so manifests stay auditable. Missing raster only
+    # quarantines when require_raster=True to keep minimal legacy fixtures green.
+    raster_reasons: list[str] = []
+    raster_evidence: dict[str, Any] = {}
+    raster = record.get("raster")
+    if raster is not None:
+        _validate_raster(raster, reason_codes=raster_reasons, evidence=raster_evidence)
+    else:
+        raster_evidence["raster_present"] = False
+        if require_raster:
+            raster_reasons.append(REASON_RASTER_MISSING)
+    # Also support raster nested under meta for forward compatibility.
+    if raster is None and isinstance(record.get("meta"), dict) and isinstance(record["meta"].get("raster"), dict):
+        _validate_raster(record["meta"]["raster"], reason_codes=raster_reasons, evidence=raster_evidence)
+        raster_evidence["raster_location"] = "meta.raster"
+    gate_compute = record.get("gate_compute")
+    if isinstance(gate_compute, dict):
+        _validate_gate_compute(gate_compute, reason_codes=raster_reasons, evidence=raster_evidence)
+    # Probe language_view.trajectory for gate_compute style budgets (legacy path).
+    if not isinstance(gate_compute, dict):
+        # Check top-level safety_decision.gate_compute etc.
+        for probe_key in ("safety_decision", "gate_compute"):
+            probe = record.get(probe_key)
+            if isinstance(probe, dict) and isinstance(probe.get("gate_compute"), dict):
+                _validate_gate_compute(probe["gate_compute"], reason_codes=raster_reasons, evidence=raster_evidence)
+                break
+    evidence["raster"] = raster_evidence
+    if raster_reasons:
+        # Deduplicate and keep deterministic order.
+        uniq = sorted(set(raster_reasons))
+        evidence["repair_eligible"] = False
+        return _quarantine(record, manifest, uniq, evidence)
 
     if descents and explicit_order_fields:
         evidence["repair_eligible"] = False

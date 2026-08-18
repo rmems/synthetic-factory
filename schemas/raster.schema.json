@@ -1,0 +1,114 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "raster.schema.json",
+  "title": "RasterExcerpt",
+  "description": "20-50 ms raster excerpt + routing sidecar for neuromorphic Bridge records. Spike budget: spikes = round(neurons * mean_rate_hz * window_s) and energy = spikes * 23 pJ (Loihi-2-class 4-core, 23 pJ/spike). Window_ms must be 20-50 inclusive.",
+  "type": "object",
+  "required": ["raster"],
+  "properties": {
+    "raster": {
+      "type": "object",
+      "required": ["window_ms", "neurons", "mean_rate_hz", "spikes", "routing", "excerpt"],
+      "description": "Per-record 20-50 ms raster with spike-budget and routing. Energy fields are optional but when present must match 23 pJ/spike.",
+      "properties": {
+        "window_ms": {
+          "type": "number",
+          "minimum": 20,
+          "maximum": 50,
+          "description": "Excerpt duration in milliseconds, inclusive 20-50 ms"
+        },
+        "window_s": {
+          "type": "number",
+          "minimum": 0.02,
+          "maximum": 0.05,
+          "description": "Alternative seconds form; if present must equal window_ms/1000 within 1e-9"
+        },
+        "neurons": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Population size"
+        },
+        "mean_rate_hz": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "description": "Mean firing rate per neuron"
+        },
+        "spikes": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Total spikes; must equal round(neurons * mean_rate_hz * window_s) within ±1"
+        },
+        "energy_pJ": {
+          "type": "number",
+          "minimum": 0,
+          "description": "Total energy in picojoules; must equal spikes * 23 within 1e-6"
+        },
+        "energy_uJ": {
+          "type": "number",
+          "minimum": 0,
+          "description": "Total energy in microjoules; must equal spikes * 23e-6 within 1e-9"
+        },
+        "routing": {
+          "type": "object",
+          "required": ["source", "target"],
+          "description": "Address-event routing for this raster population",
+          "properties": {
+            "source": { "type": "string", "minLength": 1 },
+            "target": { "type": "string", "minLength": 1 },
+            "table": {
+              "type": "array",
+              "description": "Optional routing table entries",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "from": { "type": "string" },
+                  "to": { "type": "string" },
+                  "weight": { "type": "number" }
+                }
+              }
+            }
+          },
+          "additionalProperties": true
+        },
+        "excerpt": {
+          "type": "array",
+          "description": "Per-neuron spike times within the 20-50 ms window",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "required": ["t_ms", "neuron_id"],
+            "properties": {
+              "t_ms": { "type": "number", "minimum": 0, "maximum": 50 },
+              "neuron_id": { "type": "integer", "minimum": 0 },
+              "channel": { "type": "string" }
+            },
+            "additionalProperties": true
+          }
+        }
+      },
+      "additionalProperties": true
+    },
+    "gate_compute": {
+      "type": "object",
+      "description": "Alternative carrier for spike-budget checks: per-check neurons/rate/window/spikes entries",
+      "properties": {
+        "per_check": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["neurons", "mean_rate_hz", "window_s", "spikes"],
+            "properties": {
+              "neurons": { "type": "integer", "minimum": 1 },
+              "mean_rate_hz": { "type": "number", "exclusiveMinimum": 0 },
+              "window_s": { "type": "number", "exclusiveMinimum": 0 },
+              "spikes": { "type": "integer", "minimum": 0 }
+            }
+          }
+        },
+        "total_energy_uJ": { "type": "number", "minimum": 0 },
+        "total_energy_pJ": { "type": "number", "minimum": 0 }
+      }
+    }
+  },
+  "additionalProperties": true
+}

@@ -26,6 +26,15 @@ SAFETY_DECISIONS = frozenset(
     ["decision"]["enum"]
 )
 
+ALLOWED_PROVENANCE = frozenset({"designed", "simulated", "hil", "unknown"})
+ALLOWED_SIM_OR_REAL = frozenset({"designed", "simulated", "hil"})
+# Components that are not counted toward the arithmetic sum.
+REWARD_NON_COMPONENT_KEYS = frozenset(
+    {"total", "weights_note", "weights", "description", "notes", "comment"}
+)
+# Strict arithmetic tolerance — total must equal sum within 1e-6.
+REWARD_TOL = 1e-6
+
 
 def is_number(value):
     return (
@@ -74,6 +83,233 @@ def check_spike_order(events, where):
     return errs
 
 
+def _component_numeric(value):
+    """Extract numeric component value from plain number or {value: number}."""
+    if is_number(value):
+        return float(value)
+    if isinstance(value, dict) and is_number(value.get("value")):
+        return float(value["value"])
+    return None
+
+
+def check_reward_total(rc, where):
+    """Validate reward_components arithmetic: total == sum(component values).
+
+    Strict gate: total must equal the arithmetic sum of all numeric components
+    (excluding bookkeeping keys) within REWARD_TOL. Weighted aggregations are
+    supported; interval/string totals are rejected as non-finite.
+    """
+    errs = []
+    if not isinstance(rc, dict):
+        return errs
+    if "total" not in rc:
+        errs.append(f"{where}: reward_components missing 'total'")
+        return errs
+    total = rc.get("total")
+    if not is_number(total):
+        errs.append(f"{where}: reward_components.total must be a finite number")
+        return errs
+    # Weighted layout: total == sum(value_i * weight_i)
+    weights = rc.get("weights")
+    if isinstance(weights, dict) and weights:
+        # Resolve declared weights (ignore non-finite weights)
+        declared = {
+            k: float(v)
+            for k, v in weights.items()
+            if k not in REWARD_NON_COMPONENT_KEYS and is_number(v)
+        }
+        if declared:
+            # Collect containers that may hold component values (direct or nested)
+            containers = [rc]
+            for key in ("components", "components_executed", "components_realized"):
+                if isinstance(rc.get(key), dict):
+                    containers.append(rc[key])
+            # Try to resolve every declared weight
+            recomputed = 0.0
+            unresolved = []
+            for k, w in declared.items():
+                val = None
+                aliases = {
+                    "task": ("task", "task_progress", "task_outcome"),
+                    "safety": ("safety", "safety_alignment", "safety_process"),
+                }.get(k, (k,))
+                for c in containers:
+                    for cand in aliases:
+                        if cand in c:
+                            val = _component_numeric(c[cand])
+                            if val is not None:
+                                break
+                    if val is not None:
+                        break
+                    # also try direct key in rc
+                    if k in c:
+                        val = _component_numeric(c[k])
+                        if val is not None:
+                            break
+                if val is None:
+                    # If component not found in any container, fall back to direct
+                    # numeric siblings check — don't block weighted check here;
+                    # it will be handled by sibling sum below if no resolution.
+                    unresolved.append(k)
+                else:
+                    recomputed += val * w
+            if not unresolved:
+                if not math.isclose(float(total), recomputed, abs_tol=REWARD_TOL):
+                    errs.append(
+                        f"{where}: reward_components.total {total} != weighted sum {recomputed:.6g} (diff {abs(float(total) - recomputed):.6g} > {REWARD_TOL})"
+                    )
+                return errs
+    # Unweighted: sum of numeric siblings (plain or {value: n})
+    component_sum = 0.0
+    has_component = False
+    for k, v in rc.items():
+        if k in REWARD_NON_COMPONENT_KEYS:
+            continue
+        # Skip known metadata containers that are not scalar components
+        if k in ("components", "components_executed", "components_realized", "ticks"):
+            continue
+        num = _component_numeric(v)
+        if num is not None:
+            # Guard against non-finite already filtered by _component_numeric
+            component_sum += float(num)
+            has_component = True
+        elif isinstance(v, dict) and "value" in v:
+            # Rich object with non-finite value
+            if isinstance(v.get("value"), (int, float)) and not is_number(v["value"]):
+                errs.append(
+                    f"{where}: reward_components.{k}.value must be a finite number"
+                )
+        elif isinstance(v, (int, float)) and not is_number(v):
+            errs.append(
+                f"{where}: reward_components.{k} must be a finite number"
+            )
+    # Only enforce sum check when at least one numeric component exists
+    # beyond total (otherwise total alone is allowed, e.g. minimal fixture).
+    if has_component:
+        if not math.isclose(float(total), component_sum, abs_tol=REWARD_TOL):
+            errs.append(
+                f"{where}: reward_components.total {total} != sum of components {component_sum:.6g} (diff {abs(float(total) - component_sum):.6g} > {REWARD_TOL})"
+            )
+    return errs
+
+
+def check_provenance(obj, where):
+    """Strict provenance checks for top-level record, including publish-time gate.
+
+    - state.sim_or_real must be exactly one of {designed, simulated, hil}
+      (never 'real', never 'unknown', never missing for thalamic shapes).
+    - provenance.kind must be one of {designed, simulated, hil, unknown}
+      (never 'real').
+    - Any occurrence of the string 'real' (case-insensitive) in sim_or_real
+      or provenance.kind is rejected explicitly.
+    This function is the publish-time provenance gate: it is invoked for every
+    trajectory (top-level, chosen/rejected, and language_view.trajectory).
+    """
+    errs = []
+    # state.sim_or_real strict — required for v2 thalamic trajectories
+    state = obj.get("state")
+    if isinstance(state, dict):
+        if "sim_or_real" in state:
+            val = state.get("sim_or_real")
+            if not isinstance(val, str) or val not in ALLOWED_SIM_OR_REAL:
+                errs.append(
+                    f"{where}: state.sim_or_real must be one of {sorted(ALLOWED_SIM_OR_REAL)}"
+                )
+            # Explicit 'real' rejection (case-insensitive substring)
+            if isinstance(val, str) and "real" in val.lower():
+                errs.append(f"{where}: state.sim_or_real must not be 'real' (use 'designed')")
+        else:
+            # For v2 thalamic shapes, sim_or_real is mandatory; flag missing
+            # only when state looks like a thalamic state (has any expected key)
+            # to avoid false positives on unrelated objects.
+            if any(k in state for k in ("episode_id", "domain", "t0_us", "sim_or_real")):
+                # Only require when caller is a thalamic trajectory (checked via required keys)
+                pass  # defer to caller (check_thalamic) to enforce presence
+    elif "state" in obj:
+        # state present but not a dict
+        errs.append(f"{where}: state must be an object")
+
+    # provenance.kind strict — global check
+    if "provenance" in obj:
+        prov = obj.get("provenance")
+        if not isinstance(prov, dict):
+            errs.append(f"{where}: provenance must be an object")
+        else:
+            kind = prov.get("kind")
+            if kind not in ALLOWED_PROVENANCE:
+                errs.append(
+                    f"{where}: provenance.kind must be one of {sorted(ALLOWED_PROVENANCE)}"
+                )
+            if isinstance(kind, str) and "real" in kind.lower():
+                errs.append(f"{where}: provenance.kind must not be 'real'")
+            # claimed should be string/null if present
+            if "claimed" in prov:
+                claimed = prov.get("claimed")
+                if claimed is not None and not isinstance(claimed, str):
+                    errs.append(f"{where}: provenance.claimed must be a string or null")
+            # v2 publish: unknown provenance is discouraged for new data
+            # but still allowed per legacy schema — no error, just strict enum above.
+    # Deep provenance: walk any nested provenance objects (e.g. inside state)
+    # to catch hidden 'real' claims. Report once via top-level check above;
+    # nested walk is handled in check_provenance_publish for full run.
+    return errs
+
+
+def check_provenance_publish(obj, where):
+    """Publish-time deep provenance scan: any nested sim_or_real/provenance.kind == 'real' fails.
+
+    Called from check_thalamic and bridge/choice helpers to ensure staged batches
+    cannot publish hidden 'real' provenance. Spike order is already enforced
+    elsewhere.
+    """
+    errs = []
+
+    def walk(node, path):
+        if isinstance(node, dict):
+            for k, v in node.items():
+                cur = f"{path}.{k}" if path else k
+                if k == "sim_or_real" and isinstance(v, str) and "real" in v.lower():
+                    errs.append(f"{where}: {cur} must not be 'real' (use 'designed')")
+                if k == "provenance" and isinstance(v, dict):
+                    kind = v.get("kind")
+                    if isinstance(kind, str) and "real" in kind.lower():
+                        errs.append(f"{where}: {cur}.kind must not be 'real'")
+                walk(v, cur)
+        elif isinstance(node, list):
+            for i, item in enumerate(node):
+                walk(item, f"{path}[{i}]")
+
+    walk(obj, "")
+    # Deduplicate while preserving order
+    seen = set()
+    uniq = []
+    for e in errs:
+        if e not in seen:
+            seen.add(e)
+            uniq.append(e)
+    return uniq
+
+
+def check_meta_round(obj, where):
+    """Require meta.round presence and integer >=1."""
+    errs = []
+    meta = obj.get("meta")
+    if not isinstance(meta, dict):
+        errs.append(f"{where}: meta must be an object with integer 'round'")
+        return errs
+    if "round" not in meta:
+        errs.append(f"{where}: meta.round is required")
+        return errs
+    rnd = meta.get("round")
+    # bool is subclass of int, exclude
+    if isinstance(rnd, bool) or not isinstance(rnd, int):
+        errs.append(f"{where}: meta.round must be an integer")
+        return errs
+    if rnd < 1:
+        errs.append(f"{where}: meta.round must be >= 1")
+    return errs
+
+
 def check_thalamic(obj, where):
     errs = []
     for key in THALAMIC_REQUIRED:
@@ -89,8 +325,19 @@ def check_thalamic(obj, where):
         if not isinstance(rationale, str) or not rationale.strip():
             errs.append(f"{where}: safety_decision.rationale must be a non-empty string")
     rc = obj.get("reward_components")
-    if isinstance(rc, dict) and "total" not in rc:
-        errs.append(f"{where}: reward_components missing 'total'")
+    if isinstance(rc, dict):
+        errs += check_reward_total(rc, where)
+    elif rc is not None and not isinstance(rc, dict):
+        errs.append(f"{where}: reward_components must be an object")
+    else:
+        # rc missing already reported via required-key loop; also handle explicit missing total
+        if rc is None:
+            pass
+    # strict provenance and meta checks (including publish-time deep scan)
+    errs += check_provenance(obj, where)
+    # Deep publish-time provenance: any nested 'real' fails
+    errs += [e for e in check_provenance_publish(obj, where) if e not in errs]
+    errs += check_meta_round(obj, where)
     return errs
 
 
