@@ -30,6 +30,7 @@ Each line is one episode object with:
 
 ```json
 {
+  "id": "string — globally unique canonical id (e.g. act-rNN-<slug>-<hash>)",
   "goal": "string — issue / task prompt the agent was given",
   "steps": [ Step, ... ],
   "outcome": "string — final observable outcome (success or explicit failure/handoff)",
@@ -38,7 +39,11 @@ Each line is one episode object with:
 }
 ```
 
-`reward` MUST contain at least `success` (bool). Other numeric reward components are allowed but must be finite numbers. Keep `meta.factory` and `meta.round` (integer >=1).
+**`id` is REQUIRED at top level** — publish treats a missing canonical id as fatal
+(`round_txn.py` rejects the staged batch on any checker warning), so an envelope
+without `id` fails every publish. `reward` MUST contain at least `success` (bool).
+Other numeric reward components are allowed but must be finite numbers. Keep
+`meta.factory` and `meta.round` (integer >=1).
 
 ### Step budget — 12-17 steps per episode (MANDATORY)
 

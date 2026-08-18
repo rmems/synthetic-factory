@@ -79,6 +79,19 @@ Workflow({
 Do not use `resumeFromRunId` for a prior parallel window. Cached interleavings
 are not a round allocator. Start a new workflow from freshly measured frontiers.
 
+**Respect prior early-stops.** A plateau early-stop leaves no marker in the run
+tree — frontiers alone will happily re-queue the very rounds the last window
+declined. Before filling `starts`, run:
+
+```bash
+python3 .claude/skills/run-synthetic-factory/driver.py \
+  token-efficiency outputs/raw/<date> --json
+```
+
+and OMIT every factory whose `early_stop` is true (the workflow skips factories
+with no start). Re-include a plateaued factory only when its prompt, quotas, or
+gap targets have changed enough to expect fresh novelty.
+
 The workflow runs at most five agents at once. Each generated round is followed
 by one bounded, read-only marker verifier in the same per-factory lane; it checks
 the frontier plus marker file hashes before progress is counted. Each factory

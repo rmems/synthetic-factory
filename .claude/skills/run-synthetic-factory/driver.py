@@ -52,7 +52,13 @@ TOKEN_EFFICIENCY_THRESHOLD_PCT = 5.0
 TOKEN_EFFICIENCY_CONSECUTIVE = 2
 TOKEN_EFFICIENCY_SAVING_PCT = 40
 TOKEN_EFFICIENCY_DOCS = "docs/token-efficiency.md"
-NOVEL_COVERAGE_RE = re.compile(r"novel[^%]*?(\d+(?:\.\d+)?)\s*%", re.IGNORECASE)
+# Line-anchored to the labeled "Novel coverage: N%" line only, so unrelated
+# percentages in NOTES prose (e.g. "Jaccard overlap peaked at 45%") can never
+# be misread as coverage. Mirrors factory-window.workflow.js novelCoveragePct.
+NOVEL_COVERAGE_RE = re.compile(
+    r"^\s*novel[ _-]?coverage\s*[:=]?\s*(\d+(?:\.\d+)?)\s*%",
+    re.IGNORECASE | re.MULTILINE,
+)
 
 
 def run_tool(script, run_dir, *options):
@@ -144,9 +150,10 @@ def count_nonblank_lines(path):
 def parse_novel_coverage(text: str):
     """Extract 'Novel coverage: N%' from NOTES text. Returns float or None.
 
-    Tolerant parsing — case-insensitive, allows punctuation between 'novel'
-    and the number (same regex as workflow novelCoveragePct). Valid range
-    0–100; out-of-range values treated as unparseable to avoid false stops.
+    Line-anchored parsing — matches only the labeled line (case-insensitive),
+    same regex as workflow novelCoveragePct, so unrelated percentages in
+    prose never match. Valid range 0–100; out-of-range values treated as
+    unparseable to avoid false stops.
     """
     if not text:
         return None
