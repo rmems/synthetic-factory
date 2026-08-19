@@ -1,0 +1,50 @@
+name: Python smoke
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    name: operator smoke + fixture census
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+
+      - name: Factory driver smoke
+        run: python .claude/skills/run-synthetic-factory/driver.py smoke
+
+      - name: Census the committed mini-run fixture
+        run: python pipelines/census.py tests/fixtures/mini-run
+
+      - name: Shape-check the committed mini-run fixture
+        run: |
+          set +e
+          python pipelines/validate_run.py tests/fixtures/mini-run
+          status=$?
+          set -e
+          # The fixture includes one intentional JSON parse failure.
+          if [ "$status" -eq 0 ]; then
+            echo "expected a nonzero validator exit on the defective fixture"
+            exit 1
+          fi
+          echo "validator reported defects as expected (exit $status)"
