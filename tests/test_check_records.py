@@ -334,6 +334,35 @@ class TestCheckRecords(unittest.TestCase):
         self.assertEqual(proc.returncode, 1, proc.stderr)
         self.assertIn("ERROR", proc.stderr)
 
+    def test_declared_rounding_tolerance_is_capped(self):
+        # The declaration comes from the record under test, so an uncapped
+        # bound would let a record declare its own arithmetic gate away.
+        self.assertEqual(check_records.reward_tolerance({}), check_records.TOL)
+        self.assertEqual(
+            check_records.reward_tolerance({"rounding_decimals": 0}),
+            check_records.MAX_DECLARED_TOL,
+        )
+        self.assertLess(
+            check_records.reward_tolerance({"rounding_decimals": 2}),
+            check_records.MAX_DECLARED_TOL,
+        )
+
+    def test_coarse_rounding_declaration_cannot_hide_a_mismatch(self):
+        rec = _thalamic(
+            reward_components={
+                "task_progress": 0.2,
+                "safety": 0.3,
+                "total": 0.9,  # 0.4 off — far beyond any honest rounding
+                "rounding_decimals": 0,
+            },
+            meta={"id": "coarse-rounding"},
+        )
+        tmp, run_dir = _run_dir([rec])
+        with tmp:
+            result = check_records.check_run(run_dir)
+        self.assertTrue(result["errors"], result)
+        self.assertEqual(result["exit_code"], 1)
+
 
 if __name__ == "__main__":
     unittest.main()

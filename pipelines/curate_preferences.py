@@ -525,6 +525,13 @@ def write_run(run: CurationRun, source: Path, output: Path, manifest: Path) -> N
                 handle.write(payload)
                 handle.flush()
                 os.fsync(handle.fileno())
+        # Durable file contents still need a durable directory entry.
+        for directory in dict.fromkeys(path.parent for path in created):
+            directory_descriptor = os.open(directory, os.O_RDONLY)
+            try:
+                os.fsync(directory_descriptor)
+            finally:
+                os.close(directory_descriptor)
     except Exception:
         # Remove only files this invocation created; pre-existing paths are
         # rejected before and during O_EXCL creation.

@@ -1,10 +1,7 @@
 # Execution Verification — Frontier Gate Integration
 
-Co-authored-by: Muse Code powered by Muse Spark <muse-spark@meta.com>
-
-Mirrors `tests/tests_verify_execution.md` (test matrix and fixtures). This
-document is the canonical spec for `pipelines/verify_execution.py` and its
-comment hook into `pipelines/round_txn.py`.
+This document is the canonical spec for `pipelines/verify_execution.py` and
+its comment hook into `pipelines/round_txn.py`.
 
 ## Objective
 
@@ -83,9 +80,10 @@ python3 pipelines/verify_execution.py --record <path.jsonl> --line N
 Exit code `1` when blocked, `0` otherwise. `--json` emits
 `{counts, findings, blocked}`.
 
-## Tests — `tests/tests_verify_execution.md` Matrix
+## Test Matrix
 
-The test doc (this file mirrors it) exercises every clause:
+Executable coverage lives in `tests/test_quality_and_verify_gates.py`. The
+clauses this spec requires:
 
 1. **Episode verified** — steps each have `tool_call.name ∈ KNOWN_TOOLS`,
    `observation` non-empty, `decision_basis` present when `thought` present.
@@ -115,9 +113,9 @@ The test doc (this file mirrors it) exercises every clause:
     raises `TransactionError`; with `strict=False` the check_jsonl gate still
     governs and execution findings are advisory but logged.
 
-Fixtures live under `tests/fixtures/verify_execution/` (or inline in
-`tests/test_verify_execution.py` when running without files): minimal
-episode, thalamic, preference, and bridge JSONL lines for each status.
+Fixtures are constructed inline in the tests (minimal episode, thalamic,
+preference, and bridge records per status); there is no on-disk fixture
+directory for this gate.
 
 ## References
 

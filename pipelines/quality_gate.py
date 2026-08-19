@@ -2,21 +2,24 @@
 """Quality gate before volume — dedup + synthetic/real mix enforcement.
 
 Enforces SOTA guidance (30% rephrased synthetic / 70% real) and prevents
-crude-synthetic collapse via embedding dedup.
+crude-synthetic collapse via exact-hash dedup. Embedding dedup is PLANNED,
+not wired — see ``docs/quality-gate.md``.
 
 Embedding Dedup Threshold
 -------------------------
 The gate supports two dedup signals:
 
 1. Exact-hash dedup (always on): SHA-256 of canonical JSON over
-   ``state + proposed_action + executed_action`` (or ``chosen/rejected``
-   fallback). Any hash collision → ``blocked = true``. This catches
+   ``state + proposed_action + executed_action`` (falling back to
+   ``chosen/rejected``, then to the whole record for shapes this gate
+   does not model). Any hash collision → ``blocked = true``. This catches
    verbatim and near-verbatim duplicates without embeddings.
 
-2. Embedding dedup (threshold-gated): when record embeddings are
-   available, pairwise cosine similarity is computed in the shared
-   embedding space. A pair with ``cosine_sim > threshold`` is treated as
-   a near-duplicate and grouped with the hash duplicates.
+2. Embedding dedup (PLANNED — not implemented here): no similarity is
+   computed by this module; ``--threshold`` is only recorded in the
+   report. When the stage is wired, a pair with
+   ``cosine_sim > threshold`` is to be treated as a near-duplicate and
+   grouped with the hash duplicates.
 
    Default threshold: ``0.97``
 
@@ -47,7 +50,9 @@ The gate supports two dedup signals:
 Synthetic / Real Mix
 --------------------
 Counts ``state.sim_or_real`` / ``provenance.kind`` values. Buckets
-``{designed, simulated, hil}`` as synthetic. Warns when
+``{designed, simulated, hil}`` as synthetic and ``{real, unknown}`` as
+real_unknown; records with no recognized label are reported separately as
+``unlabeled`` rather than assumed real. Warns when
 ``synthetic_ratio > 0.5``; target per SOTA is ~0.30 synthetic /
 0.70 real (``Demystifying Synthetic Data``).
 
@@ -80,24 +85,55 @@ Override per-run via ``--threshold`` when you have evidence the factory's
 paraphrase cluster sits higher/lower.
 """
 
+SYNTHETIC_KINDS = frozenset({"designed", "simulated", "hil"})
+"""Provenance labels counted as rephrased synthetic."""
+
+REAL_KINDS = frozenset({"real", "unknown"})
+"""Provenance labels counted as real/unknown. Anything else (including a
+missing label) lands in the separate ``unlabeled`` bucket."""
+
+MAX_ERROR_EXAMPLES = 10
+"""Cap on per-category read/parse failure examples kept in the report."""
+
 
 def canonical_blob(value):
     return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
 
 
+def _preference_side(value):
+    """Stable hash representation of one side of a preference pair.
+
+    Well-formed sides hash on their ``state`` (so pairs that differ only in
+    bookkeeping fields still collide). A side without a dict ``state`` keeps
+    its whole value, otherwise every malformed side would reduce to ``None``
+    and unrelated records would collapse into one hash.
+    """
+    if isinstance(value, dict):
+        state = value.get("state")
+        return state if isinstance(state, dict) else value
+    return value
+
+
 def record_hash(obj):
     # Hash on state + proposed_action + executed_action to catch near-duplicates
     # Use canonical JSON for determinism
+    if not isinstance(obj, dict):
+        # A JSONL line that parses to a scalar/array must hash, not raise.
+        return hashlib.sha256(canonical_blob(obj).encode("utf-8")).hexdigest()[:16]
     keys = {k: obj[k] for k in ("state", "proposed_action", "executed_action") if k in obj}
-    if not keys and "chosen" in obj:
+    if not keys and ("chosen" in obj or "rejected" in obj):
         # Malformed pairs (missing or non-object side) must hash, not raise —
-        # this gate runs over untrusted generated JSONL.
-        chosen = obj.get("chosen")
-        rejected = obj.get("rejected")
+        # this gate runs over untrusted generated JSONL. Both fields are always
+        # present in the key set so a one-sided record stays distinguishable.
         keys = {
-            "chosen": chosen.get("state") if isinstance(chosen, dict) else chosen,
-            "rejected": rejected.get("state") if isinstance(rejected, dict) else rejected,
+            "chosen": _preference_side(obj.get("chosen")),
+            "rejected": _preference_side(obj.get("rejected")),
         }
+    if not keys:
+        # Shapes this gate does not model (e.g. bridge records carrying state
+        # under language_view) must not all hash to the empty key set, which
+        # would report every record after the first as a duplicate.
+        keys = obj
     blob = canonical_blob(keys)
     return hashlib.sha256(blob.encode("utf-8")).hexdigest()[:16]
 
@@ -114,26 +150,41 @@ def audit_run(run_dir: Path, threshold: float = DEFAULT_EMBEDDING_THRESHOLD):
             ``result['threshold']`` for provenance.
 
     Returns:
-        dict with ``counts``, ``mix``, ``duplicates``, ``warnings``,
-        ``blocked``, ``threshold``.
+        dict with ``counts``, ``mix``, ``duplicates``, ``errors``,
+        ``warnings``, ``blocked``, ``threshold``.
     """
     run_dir = Path(run_dir)
     hashes = Counter()
     provenance = Counter()
     total = 0
     duplicates = []
+    unreadable_files = 0
+    malformed_lines = 0
+    unreadable_examples = []
+    malformed_examples = []
     for path in sorted(run_dir.rglob("*.jsonl")):
         rel = path.relative_to(run_dir)
         try:
-            lines = path.read_text().splitlines()
-        except OSError:
+            # JSONL is UTF-8 by contract; never fall back to the locale encoding.
+            lines = path.read_text(encoding="utf-8").splitlines()
+        except (OSError, UnicodeDecodeError) as exc:
+            unreadable_files += 1
+            if len(unreadable_examples) < MAX_ERROR_EXAMPLES:
+                unreadable_examples.append(
+                    {"file": str(rel), "error": f"{type(exc).__name__}: {exc}"}
+                )
             continue
         for lineno, line in enumerate(lines, 1):
             if not line.strip():
                 continue
             try:
                 obj = json.loads(line)
-            except json.JSONDecodeError:
+            except json.JSONDecodeError as exc:
+                malformed_lines += 1
+                if len(malformed_examples) < MAX_ERROR_EXAMPLES:
+                    malformed_examples.append(
+                        {"file": str(rel), "line": lineno, "error": str(exc)}
+                    )
                 continue
             total += 1
             h = record_hash(obj)
@@ -157,23 +208,42 @@ def audit_run(run_dir: Path, threshold: float = DEFAULT_EMBEDDING_THRESHOLD):
                 if prov2:
                     provenance[str(prov2)] += 1
 
-    # Mix guidance: rephrased synthetic (designed/simulated/hil) vs real/unknown
-    synthetic = sum(v for k, v in provenance.items() if k in ("designed", "simulated", "hil"))
-    real_unknown = sum(v for k, v in provenance.items() if k in ("real", "unknown")) or (total - synthetic)
-    mix = {"synthetic": synthetic, "real_unknown": real_unknown, "total": total, "provenance": dict(provenance)}
+    # Mix guidance: rephrased synthetic (designed/simulated/hil) vs real/unknown.
+    # Records carrying no recognized provenance label are their own bucket —
+    # folding them into real_unknown would assert "real" about unlabeled data.
+    synthetic = sum(v for k, v in provenance.items() if k in SYNTHETIC_KINDS)
+    real_unknown = sum(v for k, v in provenance.items() if k in REAL_KINDS)
+    unlabeled = total - synthetic - real_unknown
+    mix = {"synthetic": synthetic, "real_unknown": real_unknown, "unlabeled": unlabeled,
+           "total": total, "provenance": dict(provenance)}
     if total:
         mix["synthetic_ratio"] = synthetic / total
     else:
         mix["synthetic_ratio"] = 0.0
 
-    # Gate: fail on any duplicate hash; warn on synthetic_ratio > 0.5 (SOTA says 0.3 optimal)
-    blocked = len(duplicates) > 0
+    errors = {
+        "unreadable_files": unreadable_files,
+        "malformed_lines": malformed_lines,
+        "unreadable_examples": unreadable_examples,
+        "malformed_examples": malformed_examples,
+    }
+
+    # Gate: fail on any duplicate hash or unparseable input; warn on
+    # synthetic_ratio > 0.5 (SOTA says 0.3 optimal). Skipped files/lines are not
+    # covered by any count above, so a run containing them cannot pass clean.
+    blocked = len(duplicates) > 0 or unreadable_files > 0 or malformed_lines > 0
     warnings = []
     if mix["synthetic_ratio"] > 0.5:
         warnings.append(f"synthetic_ratio {mix['synthetic_ratio']:.2f} > 0.5 — SOTA recommends ~0.30 synthetic / 0.70 real (Demystifying Synthetic Data)")
+    if unreadable_files:
+        warnings.append(f"{unreadable_files} file(s) unreadable/undecodable — counts, mix and dedup cover only the readable subset")
+    if malformed_lines:
+        warnings.append(f"{malformed_lines} malformed JSON line(s) skipped — counts, mix and dedup cover only the parseable subset")
 
-    return {"counts": {"total": total, "unique_hashes": len(hashes), "duplicate_groups": len([h for h,c in hashes.items() if c>1])},
-            "mix": mix, "duplicates": duplicates, "warnings": warnings, "blocked": blocked, "threshold": threshold}
+    return {"counts": {"total": total, "unique_hashes": len(hashes), "duplicate_groups": len([h for h,c in hashes.items() if c>1]),
+                       "unreadable_files": unreadable_files, "malformed_lines": malformed_lines},
+            "mix": mix, "duplicates": duplicates, "errors": errors, "warnings": warnings,
+            "blocked": blocked, "threshold": threshold}
 
 
 def main(argv=None):
@@ -185,12 +255,11 @@ def main(argv=None):
         type=float,
         default=DEFAULT_EMBEDDING_THRESHOLD,
         help=(
-            "cosine-similarity threshold for embedding dedup (default: %(default)s). "
-            "Pairs with cosine_sim > threshold are treated as near-duplicates. "
-            "See module docstring and docs/quality-gate.md for tuning guidance. "
-            "Current exact-hash dedup is threshold-independent; the value is "
-            "recorded in output for provenance and consumed by downstream "
-            "embedding stages."
+            "cosine-similarity threshold for the PLANNED embedding dedup stage "
+            "(default: %(default)s). No similarity is computed today: the value "
+            "is only recorded in the output for provenance and consumed by "
+            "downstream embedding stages once wired. See module docstring and "
+            "docs/quality-gate.md for tuning guidance."
         ),
     )
     args = p.parse_args(argv)
@@ -203,6 +272,10 @@ def main(argv=None):
             print(f"WARN: {w}", file=sys.stderr)
         for d in result["duplicates"]:
             print(f"DUPLICATE: {d['file']}:{d['line']} hash {d['hash']}", file=sys.stderr)
+        for e in result["errors"]["unreadable_examples"]:
+            print(f"UNREADABLE: {e['file']} ({e['error']})", file=sys.stderr)
+        for e in result["errors"]["malformed_examples"]:
+            print(f"MALFORMED: {e['file']}:{e['line']} ({e['error']})", file=sys.stderr)
     sys.exit(1 if result["blocked"] else 0)
 
 

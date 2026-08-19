@@ -129,10 +129,15 @@ Reference implementation (pure Python, no external deps):
 ```python
 import json, pathlib
 
+def is_number(x) -> bool:
+    # JSON numbers only: bool is a subclass of int and is NOT a number here.
+    return isinstance(x, (int, float)) and not isinstance(x, bool)
+
 def deep_equal(a, b) -> bool:
-    if type(a) != type(b):
-        # JSON numbers: int vs float with same value are equal
-        if isinstance(a, (int, float)) and isinstance(b, (int, float)):
+    if type(a) is not type(b):
+        # JSON numbers: int vs float with same value are equal;
+        # True/1 and False/0 are never equal (bool excluded above).
+        if is_number(a) and is_number(b):
             return float(a) == float(b)
         return False
     if isinstance(a, dict):
@@ -159,14 +164,20 @@ def check_purity(batch_path: str | pathlib.Path) -> list[str]:
     return errors
 ```
 
-The validator should be run as:
+The block above is a *reference implementation* for reviewers — there is no
+importable `docs.preference_isolation` module; this repo keeps executable
+code under `pipelines/`. The equivalent gate that actually runs is the
+read-only scan in `pipelines/curate_preferences.py`, which applies the same
+canonical `state` / `proposed_action` equality:
 
 ```
-python3 -c "from docs.preference_isolation import check_purity; ..."
+python3 pipelines/curate_preferences.py scan <batch-or-staging-dir> --json
 ```
 
-or inline in CI before `round_txn.py publish`. Any non-empty error list
-blocks publication.
+Its `summary.impure_pairs` counts same-context violations, and each impure
+`decisions[]` entry names the offending `source_line`, `reason_codes`
+(e.g. `STATE_CONTEXT_DIVERGES`) and `context_diff_paths`. Run it in CI before
+`round_txn.py publish`; any non-zero `impure_pairs` blocks publication.
 
 ### 3.4 Failure taxonomy
 
@@ -209,8 +220,8 @@ python3 pipelines/round_txn.py reserve outputs/raw/2026-08-17/failure-as-fuel-pr
 
 # Validate
 python3 pipelines/check_records.py outputs/staging/2026-08-17/failure-as-fuel-preference-cascade/r05-<token>
-python3 -c "import pathlib, json; ..."
-# purity gate must be empty
+python3 pipelines/curate_preferences.py scan outputs/staging/2026-08-17/failure-as-fuel-preference-cascade/r05-<token>/batch-r05.jsonl --json
+# purity gate: summary.impure_pairs must be 0
 
 # Publish
 python3 pipelines/round_txn.py publish outputs/raw/2026-08-17/failure-as-fuel-preference-cascade --round 5 --token <token>

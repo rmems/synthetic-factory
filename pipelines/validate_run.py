@@ -43,11 +43,32 @@ SAFETY_DECISIONS = frozenset(
     ["decision"]["enum"]
 )
 
-ALLOWED_PROVENANCE = frozenset({"designed", "simulated", "hil", "unknown"})
+# provenance.kind allows 'unknown'; state.sim_or_real does not.
+ALLOWED_PROVENANCE_KIND = frozenset({"designed", "simulated", "hil", "unknown"})
 ALLOWED_SIM_OR_REAL = frozenset({"designed", "simulated", "hil"})
-# Components that are not counted toward the arithmetic sum.
+# Bookkeeping keys that are not counted toward the arithmetic sum. This is the
+# single exclusion vocabulary for reward arithmetic: check_records imports it
+# so the shape layer and the deep layer agree on what is a component, and a
+# record that reconciles under one layer is not rejected by the other.
 REWARD_NON_COMPONENT_KEYS = frozenset(
-    {"total", "weights_note", "weights", "description", "notes", "comment"}
+    {
+        "aggregation",
+        "comment",
+        "component_notes",
+        "convention",
+        "description",
+        "frame",
+        "native_unit",
+        "notes",
+        "provenance_notes",
+        "rounding_decimals",
+        "total",
+        "total_basis",
+        "unit_usd",
+        "units",
+        "weights",
+        "weights_note",
+    }
 )
 # Strict arithmetic tolerance — total must equal sum within 1e-6.
 REWARD_TOL = 1e-6
@@ -109,6 +130,14 @@ def _component_numeric(value):
     return None
 
 
+# Marker substrings of the two mismatch messages built in check_reward_total.
+# check_records imports this tuple to drop the shape layer's arithmetic errors:
+# it owns reward arithmetic and would otherwise report the same record twice.
+REWARD_WEIGHTED_MISMATCH = "!= weighted sum"
+REWARD_UNWEIGHTED_MISMATCH = "!= sum of components"
+REWARD_ARITHMETIC_MARKERS = (REWARD_UNWEIGHTED_MISMATCH, REWARD_WEIGHTED_MISMATCH)
+
+
 def check_reward_total(rc, where):
     """Validate reward_components arithmetic: total == sum(component values).
 
@@ -127,8 +156,9 @@ def check_reward_total(rc, where):
         # Interval/string totals (e.g. [0.1, 0.9] or "0.5 ± 0.1") skip the
         # arithmetic gate here; check_records surfaces them as warnings and
         # the reward-normalization curation lane owns their conversion.
-        # Numeric-but-non-finite totals (NaN/inf) still fail via is_number.
-        if isinstance(total, (int, float)) and not isinstance(total, bool):
+        # Numeric-but-non-finite totals (NaN/inf) still fail via is_number, and
+        # a boolean total is invalid schema input rather than a skippable shape.
+        if isinstance(total, (int, float)):
             errs.append(f"{where}: reward_components.total must be a finite number")
         return errs
     # Weighted layout: total == sum(value_i * weight_i)
@@ -169,18 +199,22 @@ def check_reward_total(rc, where):
                         if val is not None:
                             break
                 if val is None:
-                    # If component not found in any container, fall back to direct
-                    # numeric siblings check — don't block weighted check here;
-                    # it will be handled by sibling sum below if no resolution.
                     unresolved.append(k)
                 else:
                     recomputed += val * w
-            if not unresolved:
-                if not math.isclose(float(total), recomputed, abs_tol=REWARD_TOL):
-                    errs.append(
-                        f"{where}: reward_components.total {total} != weighted sum {recomputed:.6g} (diff {abs(float(total) - recomputed):.6g} > {REWARD_TOL})"
-                    )
+            if unresolved:
+                # Weights are declared but this layer cannot resolve every
+                # component. The sibling-sum check below does not model the
+                # weighted layout, so falling through would report a false
+                # mismatch; check_records owns the unsupported-layout warning.
                 return errs
+            if not math.isclose(
+                float(total), recomputed, rel_tol=0.0, abs_tol=REWARD_TOL
+            ):
+                errs.append(
+                    f"{where}: reward_components.total {total} {REWARD_WEIGHTED_MISMATCH} {recomputed:.6g} (diff {abs(float(total) - recomputed):.6g} > {REWARD_TOL})"
+                )
+            return errs
     # Unweighted: sum of numeric siblings (plain or {value: n})
     component_sum = 0.0
     has_component = False
@@ -208,9 +242,11 @@ def check_reward_total(rc, where):
     # Only enforce sum check when at least one numeric component exists
     # beyond total (otherwise total alone is allowed, e.g. minimal fixture).
     if has_component:
-        if not math.isclose(float(total), component_sum, abs_tol=REWARD_TOL):
+        if not math.isclose(
+            float(total), component_sum, rel_tol=0.0, abs_tol=REWARD_TOL
+        ):
             errs.append(
-                f"{where}: reward_components.total {total} != sum of components {component_sum:.6g} (diff {abs(float(total) - component_sum):.6g} > {REWARD_TOL})"
+                f"{where}: reward_components.total {total} {REWARD_UNWEIGHTED_MISMATCH} {component_sum:.6g} (diff {abs(float(total) - component_sum):.6g} > {REWARD_TOL})"
             )
     return errs
 
@@ -258,9 +294,9 @@ def check_provenance(obj, where):
             errs.append(f"{where}: provenance must be an object")
         else:
             kind = prov.get("kind")
-            if kind not in ALLOWED_PROVENANCE:
+            if kind not in ALLOWED_PROVENANCE_KIND:
                 errs.append(
-                    f"{where}: provenance.kind must be one of {sorted(ALLOWED_PROVENANCE)}"
+                    f"{where}: provenance.kind must be one of {sorted(ALLOWED_PROVENANCE_KIND)}"
                 )
             if isinstance(kind, str) and "real" in kind.lower():
                 errs.append(f"{where}: provenance.kind must not be 'real'")
@@ -398,9 +434,11 @@ def check_line(obj, where):
     if not isinstance(obj, dict):
         return [f"{where}: record must be a JSON object"], "unknown"
     # Route on the object-typed trajectory fields so legacy v1 records
-    # (no canonical `id` yet) still reach the thalamic checker and get a
-    # precise "missing required key 'id'" error instead of silently
-    # skipping every invariant as an unrecognized shape.
+    # (no canonical `id` yet) still reach the thalamic checker and have their
+    # state / reward / provenance / meta.round invariants enforced instead of
+    # being skipped as an unrecognized shape. Canonical `id` coverage is owned
+    # by the deep layer (check_records / training_audit); this layer only
+    # type-checks an `id` that is present.
     if all(k in obj for k in THALAMIC_CORE_KEYS):
         return check_thalamic(obj, where), "thalamic"
     if "chosen" in obj and "rejected" in obj:

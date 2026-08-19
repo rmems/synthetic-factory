@@ -1,5 +1,10 @@
 #!/usr/bin/env python3
-"""validate_run.py must not write manifest.json unless --write is passed."""
+"""validate_run.py must not write manifest.json unless --write is passed.
+
+Also locks the shape layer's contract: reward arithmetic, and the id layering
+where `id` coverage belongs to the deep layer (check_records / training_audit)
+and this layer only type-checks an id that is present.
+"""
 
 import copy
 import json
@@ -12,6 +17,10 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parents[1]
 VALIDATE = REPO / "pipelines" / "validate_run.py"
 V2_SCHEMA = REPO / "schemas" / "thalamic-trajectory-v2.schema.json"
+
+sys.path.insert(0, str(REPO / "pipelines"))
+
+import verify_execution  # noqa: E402
 
 # Minimal record that passes the thalamic shape check (required keys + decision).
 # Includes strict fields: meta.round and valid provenance/state.
@@ -192,6 +201,40 @@ class ValidateRewardTotal(unittest.TestCase):
         result = _run_with_record(rec)
         self.assertEqual(result.returncode, 0, result.stderr)
 
+    def test_reward_total_boolean_fails(self):
+        rec = copy.deepcopy(TINY_THALAMIC)
+        rec["reward_components"] = {"task": 0.4, "total": True}
+        result = _run_with_record(rec)
+        self.assertEqual(result.returncode, 1, result.stderr)
+        self.assertIn("reward_components.total", result.stderr)
+        self.assertIn("finite", result.stderr)
+
+    def test_reward_metadata_keys_are_not_components(self):
+        # Same exclusion vocabulary as check_records: numeric bookkeeping keys
+        # must not be summed as reward components.
+        rec = copy.deepcopy(TINY_THALAMIC)
+        rec["reward_components"] = {
+            "task": 0.4,
+            "safety": 0.6,
+            "unit_usd": 10000,
+            "rounding_decimals": 3,
+            "total": 1.0,
+        }
+        result = _run_with_record(rec)
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_unresolved_weighted_layout_is_not_rechecked_unweighted(self):
+        # Declared weights whose components this layer cannot resolve must not
+        # fall through to the sibling-sum check (that produced false errors).
+        rec = copy.deepcopy(TINY_THALAMIC)
+        rec["reward_components"] = {
+            "task": 1.0,
+            "weights": {"task": 0.5, "mystery": 0.5},
+            "total": 0.5,
+        }
+        result = _run_with_record(rec)
+        self.assertEqual(result.returncode, 0, result.stderr)
+
 
 class ValidateProvenanceStrict(unittest.TestCase):
     def test_provenance_valid_kinds(self):
@@ -303,6 +346,80 @@ class ValidateSpikeOrderIdempotent(unittest.TestCase):
             self.assertEqual(r1.returncode, 1)
             self.assertEqual(r2.returncode, 1)
             self.assertEqual(r1.stderr, r2.stderr)
+
+
+class ValidateIdLayering(unittest.TestCase):
+    """The shape layer type-checks `id`; coverage is a deep-layer concern.
+
+    check_records / training_audit own "every record has a canonical id".
+    validate_run must not reject a legacy record for a missing id, or the
+    routing regresses to hiding every other invariant behind an id error.
+    """
+
+    def test_valid_string_id_accepted(self):
+        rec = copy.deepcopy(TINY_THALAMIC)
+        rec["id"] = "tiny-001"
+        result = _run_with_record(rec)
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_missing_id_is_not_a_shape_error(self):
+        rec = copy.deepcopy(TINY_THALAMIC)
+        rec.pop("id", None)
+        result = _run_with_record(rec)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertNotIn("'id'", result.stderr)
+
+    def test_non_string_id_rejected(self):
+        rec = copy.deepcopy(TINY_THALAMIC)
+        rec["id"] = 123
+        result = _run_with_record(rec)
+        self.assertEqual(result.returncode, 1, result.stderr)
+        self.assertIn("'id' must be a non-empty string", result.stderr)
+
+    def test_blank_id_rejected(self):
+        rec = copy.deepcopy(TINY_THALAMIC)
+        rec["id"] = "   "
+        result = _run_with_record(rec)
+        self.assertEqual(result.returncode, 1, result.stderr)
+        self.assertIn("'id' must be a non-empty string", result.stderr)
+
+
+class VerifyFrontierMalformedRecords(unittest.TestCase):
+    """Malformed records must reach a verdict through the frontier entry point.
+
+    verify_batch_for_frontier runs over untrusted generated JSONL, so a
+    non-string safety_decision.rationale or a non-object
+    language_view.trajectory must return failed/inconclusive instead of
+    raising and taking the frontier gate down with it.
+    """
+
+    def _verify(self, record):
+        with tempfile.TemporaryDirectory() as raw:
+            batch = Path(raw) / "batch-r01.jsonl"
+            batch.write_text(json.dumps(record) + "\n")
+            return verify_execution.verify_batch_for_frontier(batch, strict=True)
+
+    def test_non_string_rationale_blocks_without_raising(self):
+        rec = copy.deepcopy(TINY_THALAMIC)
+        rec["safety_decision"] = {
+            "decision": "ACCEPT",
+            "rationale": {"hidden": "object"},
+        }
+        counts, findings, blocked = self._verify(rec)
+        self.assertEqual(counts["failed"], 1, findings)
+        self.assertTrue(blocked)
+        self.assertEqual(findings[0]["status"], "failed")
+
+    def test_non_object_trajectory_blocks_without_raising(self):
+        record = {
+            "spike_events": [{"channel": "a", "t_rel_ms": 1.0, "amplitude": 0.2}],
+            "language_view": {"trajectory": "not-an-object"},
+        }
+        counts, findings, blocked = self._verify(record)
+        self.assertEqual(counts["inconclusive"], 1, findings)
+        self.assertEqual(counts["verified"], 0, findings)
+        self.assertTrue(blocked)
+        self.assertIn("not an object", findings[0]["reason"])
 
 
 if __name__ == "__main__":

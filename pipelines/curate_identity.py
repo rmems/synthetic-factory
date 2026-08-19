@@ -40,6 +40,9 @@ THALAMIC_REQUIRED = (
 )
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 HIL_RE = re.compile(r"\bhil\b", re.IGNORECASE)
+# Standalone 'real'/'live' claims only: 'realistic' and 'real-time' describe a
+# simulation and must not be read as a real-world deployment claim.
+REAL_WORLD_RE = re.compile(r"^(?:real|live)(?![\w-])", re.IGNORECASE)
 
 
 class IdentityCurationError(ValueError):
@@ -248,8 +251,7 @@ def _map_claim(claimed: Any) -> str | None:
     # narrative claiming live/production use remains designed even if it also
     # mentions simulated or HIL calibration.
     if (
-        value.startswith("real")
-        or value.startswith("live")
+        REAL_WORLD_RE.match(value)
         or "actions live" in value
         or "production" in value
     ):
@@ -332,8 +334,22 @@ def curate_record(source_record: SourceRecord) -> CurationResult:
     if not isinstance(source_record, SourceRecord):
         raise IdentityCurationError("curate_record expects a SourceRecord")
     source = _source_identity(source_record)
-    kind = record_kind(source_record.record)
     original = source_record.record
+    try:
+        kind = record_kind(original)
+    except IdentityCurationError as exc:
+        # An unrecognized record shape is source data, not a caller-contract
+        # violation: exclude this record so a batch keeps curating the rest.
+        legacy_ids = _legacy_ids(original, "/") if isinstance(original, Mapping) else []
+        mapping = _base_mapping(source, "unknown", legacy_ids)
+        mapping.update(
+            {
+                "action": "exclude",
+                "reason_codes": ["identity.unsupported_record_shape"],
+                "details": [str(exc)],
+            }
+        )
+        return CurationResult("exclude", None, mapping)
     root_original_ids = _legacy_ids(original, "/")
     mapping = _base_mapping(source, kind, root_original_ids)
 

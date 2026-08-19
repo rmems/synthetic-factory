@@ -37,7 +37,12 @@ Parsing is case-insensitive and tolerant:
 - `novel_coverage 3%` ✓
 - `Novel coverage (estimated): 12.5 %` ✓
 
-Regex: `novel[^%]*?(\d+(?:\.\d+)?)\s*%` (JS and Python share the same pattern).
+Regex: `novel[^%\r\n]*?(\d+(?:\.\d+)?)\s*%`, matched case-insensitively
+(`/…/i` in JS, `re.I` in Python — JS and Python share the same pattern).
+The character class excludes newlines so the match cannot run past the end of
+the `Novel coverage:` line: a later line such as `Test coverage: 80%` can no
+longer be captured as this round's novel coverage. Whitespace between the
+number and `%` is still tolerated.
 
 Unparseable NOTES do **not** advance or reset the streak — they hold it and are logged for visibility, so a missing line cannot hide a plateau nor trigger a false stop.
 

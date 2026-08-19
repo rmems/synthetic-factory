@@ -24,6 +24,7 @@ import copy
 import hashlib
 import json
 import math
+import os
 import re
 import sys
 from collections import Counter
@@ -245,7 +246,21 @@ def _weighted_total(reward, weights):
 
 def _unweighted_total(reward):
     component_container = reward.get("components")
-    if isinstance(component_container, dict):
+    nested = isinstance(component_container, dict)
+    siblings = [
+        component
+        for key, value in reward.items()
+        if key not in UNWEIGHTED_EXCLUDE and not (nested and key == "components")
+        for component in [_component_value(value)]
+        if component is not None
+    ]
+    if nested:
+        if siblings:
+            # Mixed legacy layout: publish-time validation sums the direct
+            # numeric siblings while this nested map declares its own
+            # components. Refuse to reconcile rather than claim an arithmetic
+            # verdict the publish gate contradicts.
+            return None
         values = [
             component
             for component in (
@@ -254,13 +269,7 @@ def _unweighted_total(reward):
             if component is not None
         ]
     else:
-        values = [
-            component
-            for key, value in reward.items()
-            if key not in UNWEIGHTED_EXCLUDE
-            for component in [_component_value(value)]
-            if component is not None
-        ]
+        values = siblings
     if not values:
         return None
     return sum(values, Decimal(0))
@@ -548,7 +557,10 @@ def validate_ontology_document(document):
                 expected_factor = (
                     _decimal(value["source_unit_usd"]) / CANONICAL_UNIT_USD
                 )
-                if _decimal(value["conversion_factor"]) != expected_factor:
+                if (
+                    abs(_decimal(value["conversion_factor"]) - expected_factor)
+                    > DEFAULT_TOLERANCE
+                ):
                     raise RewardOntologyError("canonical conversion factor mismatch")
                 expected_value = _decimal(value["source_total"]) * expected_factor
                 if (
@@ -778,14 +790,18 @@ def _record_calibration(record, catalog):
 
 def _load_jsonl(path):
     path = Path(path)
-    for line_number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
-        if not line.strip():
-            continue
-        try:
-            record = json.loads(line)
-        except json.JSONDecodeError as exc:
-            raise RewardOntologyError(f"{path}:{line_number}: invalid JSON: {exc}") from exc
-        yield line_number, record
+    with path.open(encoding="utf-8") as handle:
+        for line_number, raw_line in enumerate(handle, 1):
+            line = raw_line.rstrip("\n")
+            if not line.strip():
+                continue
+            try:
+                record = json.loads(line)
+            except json.JSONDecodeError as exc:
+                raise RewardOntologyError(
+                    f"{path}:{line_number}: invalid JSON: {exc}"
+                ) from exc
+            yield line_number, record
 
 
 def classify_jsonl(input_path, *, source_path=None, calibration_catalog=None):
@@ -810,6 +826,22 @@ def classify_jsonl(input_path, *, source_path=None, calibration_catalog=None):
         "comparability": dict(sorted(counts.items())),
         "reason_codes": dict(sorted(reasons.items())),
     }
+
+
+def _write_new_text(path, text):
+    """Create one new file exclusively; never replace an existing path."""
+    try:
+        descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o644)
+    except FileExistsError as exc:
+        raise RewardOntologyError(
+            f"refusing to overwrite existing path: {path}"
+        ) from exc
+    try:
+        with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
+            handle.write(text)
+    except BaseException:
+        path.unlink(missing_ok=True)
+        raise
 
 
 def convert_jsonl(
@@ -849,14 +881,20 @@ def convert_jsonl(
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
     sidecar_path.parent.mkdir(parents=True, exist_ok=True)
-    output_path.write_text(
+    _write_new_text(
+        output_path,
         "\n".join(output_lines) + ("\n" if output_lines else ""),
-        encoding="utf-8",
     )
-    sidecar_path.write_text(
-        "\n".join(sidecar_lines) + ("\n" if sidecar_lines else ""),
-        encoding="utf-8",
-    )
+    try:
+        _write_new_text(
+            sidecar_path,
+            "\n".join(sidecar_lines) + ("\n" if sidecar_lines else ""),
+        )
+    except BaseException:
+        # Both required outputs or neither, so a retry is not blocked by a
+        # curated file left without its reversible sidecar.
+        output_path.unlink(missing_ok=True)
+        raise
     return {
         "input": str(input_path),
         "output": str(output_path),

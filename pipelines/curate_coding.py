@@ -352,44 +352,46 @@ def curate_jsonl(source_path: str | Path) -> dict[str, Any]:
     records = []
     manifests = []
 
-    for line_number, raw_line in enumerate(source.read_bytes().splitlines(), 1):
-        if not raw_line.strip():
-            continue
-        source_hash = hashlib.sha256(raw_line).hexdigest()
-        try:
-            text = raw_line.decode("utf-8")
-        except UnicodeDecodeError:
-            manifests.append(
-                _excluded_line_manifest(
-                    source_path=str(source),
-                    source_line=line_number,
-                    source_hash=source_hash,
-                    reason=REASON_INVALID_UTF8,
+    with source.open("rb") as handle:
+        for line_number, terminated_line in enumerate(handle, 1):
+            raw_line = terminated_line.rstrip(b"\r\n")
+            if not raw_line.strip():
+                continue
+            source_hash = hashlib.sha256(raw_line).hexdigest()
+            try:
+                text = raw_line.decode("utf-8")
+            except UnicodeDecodeError:
+                manifests.append(
+                    _excluded_line_manifest(
+                        source_path=str(source),
+                        source_line=line_number,
+                        source_hash=source_hash,
+                        reason=REASON_INVALID_UTF8,
+                    )
                 )
-            )
-            continue
-        try:
-            record = json.loads(text)
-        except json.JSONDecodeError:
-            manifests.append(
-                _excluded_line_manifest(
-                    source_path=str(source),
-                    source_line=line_number,
-                    source_hash=source_hash,
-                    reason=REASON_INVALID_JSON,
+                continue
+            try:
+                record = json.loads(text)
+            except json.JSONDecodeError:
+                manifests.append(
+                    _excluded_line_manifest(
+                        source_path=str(source),
+                        source_line=line_number,
+                        source_hash=source_hash,
+                        reason=REASON_INVALID_JSON,
+                    )
                 )
-            )
-            continue
+                continue
 
-        curated, manifest = curate_episode(
-            record,
-            source_path=str(source),
-            source_line=line_number,
-            source_hash=source_hash,
-        )
-        manifests.append(manifest)
-        if curated is not None:
-            records.append(curated)
+            curated, manifest = curate_episode(
+                record,
+                source_path=str(source),
+                source_line=line_number,
+                source_hash=source_hash,
+            )
+            manifests.append(manifest)
+            if curated is not None:
+                records.append(curated)
 
     step_counts = Counter()
     evidence_sources = Counter()

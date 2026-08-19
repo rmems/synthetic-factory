@@ -31,18 +31,16 @@ import json
 import sys
 from pathlib import Path
 
-# Reuse existing validators as ground truth.
+# Reuse the existing validator vocabulary as ground truth.
 try:
-    from check_records import check_record, ALLOWED_PROVENANCE
-    from validate_run import event_time
-except ImportError:
-    ALLOWED_PROVENANCE = frozenset({"designed", "simulated", "hil"})
-
-    def event_time(event):  # type: ignore
-        return None
-
-    def check_record(obj, where):  # type: ignore
-        return [], []
+    from check_records import ALLOWED_SIM_OR_REAL
+except ImportError:  # pragma: no cover - depends on sys.path of the caller
+    print(
+        "verify_execution: check_records unavailable — falling back to the "
+        "built-in state.sim_or_real set",
+        file=sys.stderr,
+    )
+    ALLOWED_SIM_OR_REAL = frozenset({"designed", "simulated", "hil"})
 
 
 KNOWN_TOOLS = frozenset({
@@ -97,10 +95,16 @@ def verify_episode_steps(steps, where):
         if thought is not None and basis is None:
             inconclusive_reasons.append(f"step {i} has hidden thought without decision_basis")
 
-        if not isinstance(tool, dict):
+        if isinstance(tool, dict):
+            name = tool.get("name")
+        elif isinstance(tool, str) and tool.strip():
+            # Curated coding episodes keep a visible string tool call
+            # (pipelines/curate_coding.py); the shape validator accepts it, so
+            # normalize to its leading token rather than blocking the record.
+            name = tool.strip().split()[0]
+        else:
             inconclusive_reasons.append(f"step {i} missing tool_call")
             continue
-        name = tool.get("name")
         if name not in KNOWN_TOOLS:
             inconclusive_reasons.append(f"step {i} unknown tool {name!r}")
         if not isinstance(obs, str) or not obs.strip():
@@ -119,7 +123,7 @@ def verify_thalamic(obj, where):
         return "inconclusive", f"{where} is not an object — cannot verify"
     state = obj.get("state", {})
     prov = state.get("sim_or_real") if isinstance(state, dict) else None
-    if prov not in ALLOWED_PROVENANCE:
+    if prov not in ALLOWED_SIM_OR_REAL:
         return "inconclusive", f"non-training provenance {prov!r} on {where}.state.sim_or_real"
     sd = obj.get("safety_decision", {})
     # A non-string rationale (object/number/null) must not raise here — this
@@ -300,10 +304,24 @@ def main(argv=None):
 
     if args.record:
         path = Path(args.record)
-        text = path.read_text().splitlines()
-        idx = (args.line or 1) - 1
-        obj = json.loads(text[idx])
-        status, reason = verify_record_execution(obj, f"{path}:{args.line or 1}")
+        lineno = 1 if args.line is None else args.line
+        try:
+            text = path.read_text().splitlines()
+        except OSError as exc:
+            print(json.dumps({"status": "failed", "reason": str(exc)}, indent=2))
+            sys.exit(1)
+        if lineno < 1 or lineno > len(text):
+            print(json.dumps({
+                "status": "failed",
+                "reason": f"--line {lineno} out of range (file has {len(text)} lines)",
+            }, indent=2))
+            sys.exit(1)
+        try:
+            obj = json.loads(text[lineno - 1])
+        except json.JSONDecodeError as exc:
+            print(json.dumps({"status": "failed", "reason": f"JSON parse: {exc}"}, indent=2))
+            sys.exit(1)
+        status, reason = verify_record_execution(obj, f"{path}:{lineno}")
         print(json.dumps({"status": status, "reason": reason}, indent=2))
         sys.exit(0 if status == "verified" else 1)
 

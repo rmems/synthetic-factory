@@ -20,27 +20,22 @@ from pathlib import Path
 _PIPELINES = Path(__file__).resolve().parent
 if str(_PIPELINES) not in sys.path:
     sys.path.insert(0, str(_PIPELINES))
-from validate_run import check_line, event_time  # noqa: E402
+from validate_run import (  # noqa: E402
+    ALLOWED_SIM_OR_REAL,
+    REWARD_ARITHMETIC_MARKERS,
+    REWARD_NON_COMPONENT_KEYS,
+    check_line,
+    event_time,
+)
 
 TOL = 1e-6
-STRICT_TOL = 1e-6
-UNWEIGHTED_EXCLUDE = frozenset(
-    {
-        "total",
-        "notes",
-        "component_notes",
-        "aggregation",
-        "convention",
-        "frame",
-        "native_unit",
-        "provenance_notes",
-        "rounding_decimals",
-        "total_basis",
-        "unit_usd",
-        "units",
-        "weights",
-    }
-)
+# Ceiling on a record-declared rounding tolerance (see reward_tolerance).
+# 0.05 == a one-decimal rounding step; anything coarser would make the
+# arithmetic gate vacuous for rewards of order 1.
+MAX_DECLARED_TOL = 0.05
+# One exclusion vocabulary for both layers — defined in validate_run so the
+# shape layer and this deep layer never disagree about what is a component.
+UNWEIGHTED_EXCLUDE = REWARD_NON_COMPONENT_KEYS
 WEIGHTED_SKIP_KEYS = frozenset({"total", "weights", "notes"})
 WEIGHTED_CONTAINERS = (
     "components",
@@ -56,7 +51,9 @@ WEIGHT_ALIASES = {
     "incentive": ("incentive", "incentive_integrity"),
     "coord": ("coord", "coordination", "coordination_integrity"),
 }
-ALLOWED_PROVENANCE = frozenset({"designed", "simulated", "hil"})
+# Legacy alias: pipelines/training_audit.py imports this name for the same
+# state.sim_or_real vocabulary.
+ALLOWED_PROVENANCE = ALLOWED_SIM_OR_REAL
 ROUNDING_RE = re.compile(r"(?:rounded?\s+(?:to\s+)?)?(\d+)[- ]decimal", re.I)
 
 
@@ -66,6 +63,19 @@ def is_number(value):
         and not isinstance(value, bool)
         and math.isfinite(value)
     )
+
+
+def claims_real(value):
+    """True when a provenance value claims real-world origin.
+
+    Matches the exact value 'real' or a 'real'-prefixed variant
+    ('real_world', 'real-world'). Values that merely contain the substring,
+    such as 'not_real' or 'non-real', are not real-world claims.
+    """
+    if not isinstance(value, str):
+        return False
+    lowered = value.strip().lower()
+    return lowered == "real" or lowered.startswith(("real_", "real-", "real "))
 
 
 def walk_key(obj, name, path=""):
@@ -111,12 +121,19 @@ def component_value(value):
     return None
 
 
-def reward_tolerance(rc, total):
-    """Honor an explicit rounding policy while keeping the default strict.
+def reward_tolerance(rc):
+    """Honor an explicit rounding declaration while keeping the default strict.
 
-    Strict gate: default tolerance is STRICT_TOL (1e-6). An explicit
-    rounding_decimals or note is honored only up to that strict bound when
-    the declared rounding is coarser; finer declarations do not relax.
+    Default tolerance is TOL (1e-6). An explicit rounding_decimals — or a
+    "N-decimal" rounding note — widens the bound to half of that rounding
+    step, matching pipelines/curate_rewards.py; a declaration finer than TOL
+    never tightens below it.
+
+    The widening is capped at MAX_DECLARED_TOL. The declaration comes from the
+    record being checked, so an uncapped bound would let a generated record
+    declare its own arithmetic gate away (rounding_decimals: 0 implies +/-0.5,
+    which is vacuous against totals of order 1). The cap still honors every
+    rounding declaration of one decimal or finer.
     """
     decimals = rc.get("rounding_decimals")
     if not isinstance(decimals, int) or isinstance(decimals, bool) or decimals < 0:
@@ -131,11 +148,8 @@ def reward_tolerance(rc, total):
                 break
     if decimals is None:
         return TOL
-    # Publish-time strict: never allow a declared rounding to loosen beyond STRICT_TOL
-    # unless the declaration is explicit and very coarse (still bounded).
     requested = 0.5 * (10 ** -decimals) + 1e-12
-    # Strict gate caps tolerance at max(STRICT_TOL, requested) but ensure at least STRICT_TOL
-    return max(STRICT_TOL, min(requested, 1e-4)) if requested > STRICT_TOL else STRICT_TOL
+    return min(MAX_DECLARED_TOL, max(TOL, requested))
 
 
 def weighted_components(rc, weights):
@@ -200,7 +214,7 @@ def check_reward(rc, where):
             )
             return errors, warnings
         recomputed = sum(values[key] * declared[key] for key in declared)
-        tolerance = reward_tolerance(rc, total)
+        tolerance = reward_tolerance(rc)
         if abs(recomputed - total) > tolerance:
             errors.append(
                 f"{where}.total {total} != recomputed {recomputed} "
@@ -240,12 +254,12 @@ def expected_states(obj, kind):
                 yield "language_view.trajectory.state", traj.get("state")
 
 
-# The shape layer also recomputes reward sums, but with a narrower
-# bookkeeping-key vocabulary than this checker's UNWEIGHTED_EXCLUDE /
-# weighted logic. This layer owns reward arithmetic (its "recomputed"
+# The shape layer also recomputes reward sums, with a simpler weighted model
+# than this checker's. This layer owns reward arithmetic (its "recomputed"
 # errors), so the shape layer's comparison errors are dropped here to
-# avoid double or spurious reports on the same record.
-_SHAPE_REWARD_ARITHMETIC = ("!= sum of components", "!= weighted sum")
+# avoid double or spurious reports on the same record. The markers are the
+# producer's own constants, imported from validate_run.
+_SHAPE_REWARD_ARITHMETIC = REWARD_ARITHMETIC_MARKERS
 
 
 def shape_check(obj, where):
@@ -299,18 +313,16 @@ def check_provenance_publish(obj, where):
         if isinstance(node, dict):
             for k, v in node.items():
                 cur = f"{path}.{k}" if path else k
-                if k == "sim_or_real" and isinstance(v, str):
-                    if "real" in v.lower() or v not in ALLOWED_PROVENANCE:
-                        # 'real' substring is always an error; other invalid values already
-                        # produce a warning via expected_states but also flag here if
-                        # they contain 'real'. Keep error strictly for 'real'.
-                        if "real" in v.lower():
-                            errs.append(
-                                f"{where}: {cur} must not be 'real' (use 'designed') — got {v!r}"
-                            )
+                if k == "sim_or_real" and claims_real(v):
+                    # Other invalid values are surfaced as non-training
+                    # provenance warnings by check_record; this gate is only
+                    # for real-world claims.
+                    errs.append(
+                        f"{where}: {cur} must not be 'real' (use 'designed') — got {v!r}"
+                    )
                 if k == "provenance" and isinstance(v, dict):
                     kind = v.get("kind")
-                    if isinstance(kind, str) and "real" in kind.lower():
+                    if claims_real(kind):
                         errs.append(
                             f"{where}: {cur}.kind must not be 'real' — got {kind!r}"
                         )
@@ -353,11 +365,11 @@ def check_record(obj, where):
                 warnings.append(f"{where}: missing sim_or_real on {path}")
             elif isinstance(state, dict):
                 value = state.get("sim_or_real")
-                if isinstance(value, str) and "real" in value.lower():
+                if claims_real(value):
                     errors.append(
                         f"{where}: {path} sim_or_real must not be 'real' (use 'designed') — got {value!r}"
                     )
-                elif value not in ALLOWED_PROVENANCE:
+                elif value not in ALLOWED_SIM_OR_REAL:
                     warnings.append(
                         f"{where}: non-training provenance {value!r} on {path}"
                     )

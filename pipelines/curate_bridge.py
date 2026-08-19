@@ -428,6 +428,7 @@ def _validate_gate_compute(
     for idx, check in enumerate(per_check):
         if not isinstance(check, dict):
             reason_codes.append(REASON_RASTER_SPIKE_BUDGET)
+            evidence.setdefault("gate_compute_invalid_check_indices", []).append(idx)
             budget_valid = False
             continue
         neurons = check.get("neurons")
@@ -450,7 +451,13 @@ def _validate_gate_compute(
             and isinstance(spikes, int)
             and not isinstance(spikes, bool)
         ):
-            continue  # not a spike-budget check, skip
+            # A per_check entry without a usable neurons/rate/window/spikes
+            # quadruple cannot carry a spike budget, so it fails validation
+            # instead of silently passing the gate.
+            reason_codes.append(REASON_RASTER_SPIKE_BUDGET)
+            evidence.setdefault("gate_compute_invalid_check_indices", []).append(idx)
+            budget_valid = False
+            continue
         expected = _expected_spikes(neurons, float(rate), float(window_s))
         if abs(spikes - expected) > 1:
             reason_codes.append(REASON_RASTER_SPIKE_BUDGET)
@@ -468,19 +475,22 @@ def _validate_gate_compute(
             if isinstance(c, dict) and isinstance(c.get("spikes"), int) and not isinstance(c.get("spikes"), bool)
         )
         evidence["gate_compute_total_spikes"] = total_spikes
-        for key in ("total_energy_uJ", "total_energy_pJ", "total_energy"):
-            val = gate_compute.get(key)
-            if _is_finite_number(val) and isinstance(total_spikes, int):
-                if key == "total_energy_pJ":
-                    expected = total_spikes * RASTER_ENERGY_PJ_PER_SPIKE
-                    if abs(float(val) - expected) > 1e-6:
-                        reason_codes.append(REASON_RASTER_ENERGY)
-                        evidence["gate_compute_energy_valid"] = False
-                elif key == "total_energy_uJ":
-                    expected = total_spikes * RASTER_ENERGY_UJ_PER_SPIKE
-                    if abs(float(val) - expected) > 1e-9:
-                        reason_codes.append(REASON_RASTER_ENERGY)
-                        evidence["gate_compute_energy_valid"] = False
+        energy_valid: bool | None = None
+        for key, per_spike, tolerance in (
+            ("total_energy_uJ", RASTER_ENERGY_UJ_PER_SPIKE, 1e-9),
+            ("total_energy_pJ", RASTER_ENERGY_PJ_PER_SPIKE, 1e-6),
+        ):
+            if key not in gate_compute:
+                continue
+            val = gate_compute[key]
+            expected = total_spikes * per_spike
+            # A declared but non-numeric total is a mismatch, not an absence.
+            key_valid = _is_finite_number(val) and abs(float(val) - expected) <= tolerance
+            if not key_valid:
+                reason_codes.append(REASON_RASTER_ENERGY)
+            energy_valid = key_valid if energy_valid is None else (energy_valid and key_valid)
+        if energy_valid is not None:
+            evidence["gate_compute_energy_valid"] = energy_valid
 
 
 def _base_manifest(
@@ -694,28 +704,46 @@ def curate_record(
     # quarantines when require_raster=True to keep minimal legacy fixtures green.
     raster_reasons: list[str] = []
     raster_evidence: dict[str, Any] = {}
-    raster = record.get("raster")
+    # Resolve the sidecar first: a valid top-level raster wins, otherwise a
+    # valid meta.raster sidecar (forward compatibility).  A malformed sidecar
+    # is still validated so its reason codes survive; REASON_RASTER_MISSING
+    # applies only when neither location carries one at all.
+    top_raster = record.get("raster")
+    record_meta = record.get("meta")
+    meta_raster = record_meta.get("raster") if isinstance(record_meta, dict) else None
+    candidates = (("raster", top_raster), ("meta.raster", meta_raster))
+    raster_location: str | None = None
+    raster: Any = None
+    for location, value in candidates:
+        if isinstance(value, dict):
+            raster_location, raster = location, value
+            break
+    if raster is None:
+        for location, value in candidates:
+            if value is not None:
+                raster_location, raster = location, value
+                break
     if raster is not None:
+        raster_evidence["raster_location"] = raster_location
         _validate_raster(raster, reason_codes=raster_reasons, evidence=raster_evidence)
     else:
         raster_evidence["raster_present"] = False
         if require_raster:
             raster_reasons.append(REASON_RASTER_MISSING)
-    # Also support raster nested under meta for forward compatibility.
-    if raster is None and isinstance(record.get("meta"), dict) and isinstance(record["meta"].get("raster"), dict):
-        _validate_raster(record["meta"]["raster"], reason_codes=raster_reasons, evidence=raster_evidence)
-        raster_evidence["raster_location"] = "meta.raster"
     gate_compute = record.get("gate_compute")
     if isinstance(gate_compute, dict):
         _validate_gate_compute(gate_compute, reason_codes=raster_reasons, evidence=raster_evidence)
     # Probe language_view.trajectory for gate_compute style budgets (legacy path).
     if not isinstance(gate_compute, dict):
-        # Check top-level safety_decision.gate_compute etc.
-        for probe_key in ("safety_decision", "gate_compute"):
-            probe = record.get(probe_key)
-            if isinstance(probe, dict) and isinstance(probe.get("gate_compute"), dict):
-                _validate_gate_compute(probe["gate_compute"], reason_codes=raster_reasons, evidence=raster_evidence)
-                break
+        view = record.get("language_view")
+        trajectory = view.get("trajectory") if isinstance(view, dict) else None
+        if isinstance(trajectory, dict):
+            nested = trajectory.get("gate_compute")
+            if not isinstance(nested, dict):
+                probe = trajectory.get("safety_decision")
+                nested = probe.get("gate_compute") if isinstance(probe, dict) else None
+            if isinstance(nested, dict):
+                _validate_gate_compute(nested, reason_codes=raster_reasons, evidence=raster_evidence)
     evidence["raster"] = raster_evidence
     if raster_reasons:
         # Deduplicate and keep deterministic order.

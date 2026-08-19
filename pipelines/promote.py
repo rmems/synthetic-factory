@@ -17,20 +17,20 @@ writes ``cleaned_out``, run the quality gate before volume training:
 Gate contract (see ``pipelines/quality_gate.py`` and
 ``docs/quality-gate.md``):
 
-- **Embedding dedup threshold**: default ``0.97`` cosine similarity.
-  Pairs with ``cosine_sim > 0.97`` are treated as near-duplicates and
-  collapse to the same hash group. The gate also enforces exact-hash
-  dedup (SHA-256 over canonical ``state + proposed_action +
-  executed_action``) — any hash collision sets ``blocked = true``.
-  Tune via ``--threshold``; see ``docs/quality-gate.md`` for sweep
-  guidance (0.93 / 0.95 / 0.97 / 0.98).
+- **Exact-hash dedup** (active): SHA-256 over canonical ``state +
+  proposed_action + executed_action`` — any hash collision sets
+  ``blocked = true``.
+- **Embedding dedup** (PLANNED, not wired): ``--threshold`` is only
+  recorded in the gate's output; no similarity is computed yet. See
+  ``docs/quality-gate.md`` for the contract and sweep guidance.
 - **Mix enforcement**: warns when ``synthetic_ratio > 0.5``; target is
   ~0.30 synthetic (``designed``/``simulated``/``hil``) / 0.70 real per
   SOTA guidance. Promoted records already carry normalized
   ``provenance.kind`` so the gate's mix bucketing is consistent.
-- **Exit code**: gate exits 1 when ``blocked`` (duplicates found) and
-  0 otherwise; CI should treat ``blocked`` as a hard fail and
-  ``warnings`` as soft fails requiring review.
+- **Exit code**: gate exits 1 when ``blocked`` (duplicates, or files/
+  lines it could not read or parse) and 0 otherwise; CI should treat
+  ``blocked`` as a hard fail and ``warnings`` as soft fails requiring
+  review.
 
 Usage: python3 pipelines/promote.py <raw_run> <cleaned_out>
 

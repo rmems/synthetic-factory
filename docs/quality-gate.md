@@ -3,7 +3,7 @@
 Dedup + synthetic/real mix enforcement before volume training. The gate is
 the last check between ``pipelines/promote.py`` and any training run.
 
-```
+```text
 raw JSONL (append-only SoT)
     │
     ▼
@@ -19,24 +19,34 @@ Co-authored-by: Muse Code powered by Muse Spark <muse-spark@meta.com>
 
 | Check | Signal | Fail mode |
 |---|---|---|
-| **Exact-hash dedup** | SHA-256 over canonical JSON of ``state + proposed_action + executed_action`` (fallback ``chosen/rejected``) | ``blocked = true``, exit 1 |
-| **Embedding dedup** | Pairwise cosine similarity over record embeddings | Group added to ``duplicates`` with ``kind="embedding"`` when ``cosine_sim > threshold``; also sets ``blocked`` |
-| **Synthetic/real mix** | Buckets ``provenance.kind`` / ``state.sim_or_real`` → synthetic ``{designed, simulated, hil}`` vs ``{real, unknown}`` | Warns when ``synthetic_ratio > 0.5``; target ~0.30 / 0.70 per SOTA |
+| **Exact-hash dedup** (active) | SHA-256 over canonical JSON of ``state + proposed_action + executed_action`` (fallback ``chosen/rejected``, else the whole record) | ``blocked = true``, exit 1 |
+| **Embedding dedup** (PLANNED) | Not computed. ``--threshold`` is recorded in the report only | None today — no similarity is measured, so nothing is blocked by this check |
+| **Synthetic/real mix** | Buckets ``provenance.kind`` / ``state.sim_or_real`` → synthetic ``{designed, simulated, hil}`` vs ``{real, unknown}`` vs ``unlabeled`` (no recognized label) | Warns when ``synthetic_ratio > 0.5``; target ~0.30 / 0.70 per SOTA |
+| **Read/parse failures** (active) | Files that cannot be read or UTF-8 decoded, and lines that are not valid JSON | Counted in ``errors`` with examples; ``blocked = true``, exit 1 |
 
-## Embedding dedup threshold
+## Embedding dedup threshold (PLANNED)
+
+### Status
+
+**Not implemented.** ``pipelines/quality_gate.py`` computes no embeddings
+and no similarity; ``--threshold`` is accepted, echoed into the report as
+``threshold``, and otherwise unused. The rest of this section is the
+contract for the stage when it is wired — it does not describe current
+behaviour.
 
 ### Definition
 
-When embeddings are available, every record is embedded once (shared
-encoder) and pairwise cosine similarity is computed. A pair is a
+Once embeddings are wired, every record is to be embedded once (shared
+encoder) and pairwise cosine similarity computed. A pair is a
 near-duplicate iff
 
-```
+```text
 cosine_sim(a, b) > threshold
 ```
 
-All records above the threshold are grouped and reported as a
-``duplicate_group``. Downstream stages should reuse the same
+Records above the threshold are then to be grouped into ``duplicates``
+with ``kind="embedding"`` and set ``blocked``, so the gate keeps one
+``blocked`` semantics. Downstream stages should reuse the same
 ``--threshold`` value so provenance stays comparable across runs.
 
 ### Default: 0.97
@@ -89,9 +99,17 @@ gate's interface.
 
 - **Synthetic**: ``{designed, simulated, hil}`` (all promoted
   ``provenance.kind`` values that originate from the factory).
-- **Real/unknown**: ``{real, unknown}`` and any record where the
-  provenance field is missing (counted conservatively toward real so
-  the gate never understates synthetic share).
+- **Real/unknown**: ``{real, unknown}`` only — records that carry one of
+  those labels.
+- **Unlabeled**: records with no recognized provenance label (missing
+  field, or a value outside the synthetic/real sets). Reported as its own
+  ``mix.unlabeled`` bucket, never folded into real/unknown. Counting them
+  outside ``synthetic`` is the conservative choice because it avoids
+  treating an unlabeled record as *proven synthetic*; the trade-off is
+  that the reported synthetic share can understate reality, which is why
+  the bucket is surfaced instead of hidden. ``synthetic + real_unknown +
+  unlabeled == total``, and ``synthetic_ratio`` stays ``synthetic /
+  total`` over that same population.
 - **Guidance**: SOTA (``Demystifying Synthetic Data``) finds ~0.30
   rephrased synthetic / 0.70 real optimal for the target tasks. The
   gate warns at ``> 0.5`` and expects a human override justification if
@@ -110,21 +128,31 @@ python3 pipelines/quality_gate.py outputs/cleaned/2026-08-17 --threshold 0.97 --
 
 # Human-readable stderr
 python3 pipelines/quality_gate.py outputs/cleaned/2026-08-17 --threshold 0.95
-echo $?   # 0 = pass, 1 = blocked (duplicates)
+echo $?   # 0 = pass, 1 = blocked (duplicates or unreadable/malformed input)
 ```
 
 JSON output fields:
 
 ```json
 {
-  "counts": {"total": 1234, "unique_hashes": 1230, "duplicate_groups": 2},
-  "mix": {"synthetic": 380, "real_unknown": 854, "total": 1234, "synthetic_ratio": 0.308, "provenance": {"designed": 200, "simulated": 180, "unknown": 854}},
+  "counts": {"total": 1234, "unique_hashes": 1230, "duplicate_groups": 2, "unreadable_files": 0, "malformed_lines": 0},
+  "mix": {"synthetic": 380, "real_unknown": 854, "unlabeled": 0, "total": 1234, "synthetic_ratio": 0.308, "provenance": {"designed": 200, "simulated": 180, "unknown": 854}},
   "duplicates": [{"file": "batch-r02.jsonl", "line": 214, "hash": "a1b2c3d4e5f60123"}],
+  "errors": {"unreadable_files": 0, "malformed_lines": 0, "unreadable_examples": [], "malformed_examples": []},
   "warnings": [],
   "blocked": false,
   "threshold": 0.97
 }
 ```
+
+## Unreadable files and malformed lines
+
+Files the gate cannot open or UTF-8 decode, and lines that are not valid
+JSON, are counted in ``errors`` (with up to 10 examples per category) and
+set ``blocked``. Everything else in the report — ``counts``, ``mix``,
+duplicate detection — covers only the readable/parseable subset, so a
+corrupt run must never be read as a clean pass. Fix or quarantine the
+offending files and re-run the gate.
 
 ## Integration with ``pipelines/promote.py``
 
@@ -140,7 +168,8 @@ python3 pipelines/quality_gate.py outputs/cleaned/2026-08-17 --threshold 0.97 --
 CI should:
 
 - Run the gate as a required check after promotion.
-- Treat ``blocked == true`` as a hard failure (do not train).
+- Treat ``blocked == true`` as a hard failure (do not train) — it covers
+  duplicates and unreadable/malformed input alike.
 - Treat ``warnings`` (mix > 0.5) as a soft failure requiring review
   and an explicit override comment.
 

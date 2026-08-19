@@ -57,7 +57,7 @@
       "properties": {
         "total": {
           "type": "number",
-          "description": "Required finite total that must exactly equal the arithmetic sum of all finite numeric component fields excluding bookkeeping keys (total, weights, weights_note, description, notes, comment). Must be finite (no NaN, Infinity, -Infinity) and reconcile within 1e-6."
+          "description": "Required total reward. JSON Schema constrains this only to be a JSON number: finiteness and the arithmetic reconciliation below are NOT expressible here and are enforced downstream. Contract: total must equal the sum of the finite numeric sibling components, excluding the bookkeeping keys aggregation, component_notes, convention, frame, native_unit, notes, provenance_notes, rounding_decimals, total, total_basis, unit_usd, units, weights (the UNWEIGHTED_EXCLUDE vocabulary in pipelines/check_records.py), or the declared weighted sum when a weights map is present. Enforcement: finiteness (no NaN/Infinity/-Infinity, booleans rejected) by is_number() in pipelines/check_records.py and pipelines/validate_run.py; reconciliation within 1e-6 by the reward-arithmetic checks in pipelines/check_records.py. Numeric scaling and serialization on promotion are handled by pipelines/promote.py (build_reward_scale / reward-scale.json)."
         }
       },
       "additionalProperties": true,
