@@ -45,6 +45,23 @@ repositories remain unlicensed pre-release shells. Choosing their license
 or CC-BY-4.0) is an open release decision and does not follow automatically
 from this file.
 
+## Development environment
+
+Pipelines are stdlib Python 3.12+. There is no network service to boot.
+
+```bash
+python3 -m unittest discover -s tests -p 'test_*.py' -q
+python3 .claude/skills/run-synthetic-factory/driver.py smoke
+python3 pipelines/census.py tests/fixtures/mini-run
+```
+
+GitHub Actions runs those checks on pull requests and `main`
+(`.github/workflows/python.yml` and `.github/workflows/python-smoke.yml`).
+
+Cursor Cloud Agents build from `.cursor/Dockerfile` via
+`.cursor/environment.json`. The install script is idempotent and re-runs the
+same unit tests and operator smoke check.
+
 ## Structure
 - `prompts/` — factory prompts 01–07. 01–05 start with a session bootstrap; shared rules in `prompts/_factory-contract.md`
 - `schemas/` — Thalamic schema + `provenance.md`
