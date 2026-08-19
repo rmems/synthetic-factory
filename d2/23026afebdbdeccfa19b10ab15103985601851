@@ -1,0 +1,21 @@
+.github/workflows/python-smoke.yml
+  s_5da9f7a6440a38::t_4c24ae1e6aea70 31
+.github/workflows/python.yml
+  s_5da9f7a6440a38::t_2ac4423a716c5f 19,28,31
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "d223026afebdbdeccfa19b10ab15103985601851",
+  "prompts": {},
+  "sessions": {
+    "s_5da9f7a6440a38": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "ddc0f2aa-7696-4e17-942a-442ec4a381f8",
+        "model": "composer-2.5"
+      },
+      "human_author": "Raul Montoya Cardenas <montoyaraul34@gmail.com>"
+    }
+  }
+}
