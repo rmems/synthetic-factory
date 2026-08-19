@@ -15,6 +15,92 @@ sys.path.insert(0, str(REPO / "pipelines"))
 import curate_preferences  # noqa: E402
 import training_audit  # noqa: E402
 
+PURITY_FIXTURES = REPO / "tests" / "fixtures" / "preference-purity"
+
+# Golden digests of the committed fixture corpus. Pinned as constants (not
+# captured at runtime) so an in-place rewrite of the fixtures by the code
+# under test — even an idempotent one performed before the immutability test
+# takes its baseline — fails loudly instead of self-verifying.
+GOLDEN_FIXTURE_SHA256 = {
+    "batch-r02.jsonl": "521e63b18f8729cc75562fac25c5396cf3a031eeb8be3cb2093a064ec4bb66c4",
+    "batch-r03.jsonl": "b062c64d7dbe826ebbab96b08d9c3b89a281997feebf9d4d5c52d59c8c8a4dd7",
+    "batch-r04.jsonl": "84e747c8506b5bd0c1317a548089e9819aa6a58ac5b9ab87b5db12bdd5479b6d",
+    "batch-r05.jsonl": "ebd628fbcef9991ba43ee5a06c23995030b9335bc4c81170a4e679e3983307a0",
+    "batch-r06.jsonl": "e0ba73b4bd9cfd690631c646df5278b610479cde85caa8a7aab2af89662461d1",
+    "batch-r07.jsonl": "0bce1d223ed3c445aff99e9952358d3060cdc0ee111af2155250539ca3ce9093",
+    "batch-r08.jsonl": "528e8f25a27a58ac2b08b9473f8c461b15d998b98361a4352809fefed8b479d0",
+    "batch-r09.jsonl": "6e1c765ff73e77ee99df49a49629666f9b2bf69d8caa72d3736de8cb29a3953b",
+    "batch-r10.jsonl": "f3ddd8ff99d5517eb628d093e2d75d55ac38fe9d40caad84afd91be973b2be42",
+    "preferences.jsonl": "f5809982dcfa792c127a7602242d4cfdb5c0265941e5d400ffe42f8f9b16f739",
+}
+
+# The nineteen impure pairs, keyed by (file, line), mirroring the read-only
+# scan of the real raw corpus (outputs/raw/2026-08-17/
+# failure-as-fuel-preference-cascade, 2026-08-19): action, classification,
+# and reason codes are identical to the raw decisions line-for-line.
+REPAIRED_IDENTITY = (
+    "repaired",
+    "attested_identity_annotation_only",
+    (
+        "EXACT_CONTEXT_COPIED_FROM_ATTESTED_REFERENCE",
+        "BRANCH_ONLY_IDENTITY_NOTE_REMOVED",
+    ),
+)
+EXPECTED_IMPURE_DECISIONS = {
+    ("batch-r02.jsonl", 1): (
+        "excluded",
+        "unsupported_context_divergence",
+        ("BRANCH_SPECIFIC_STATE_METADATA_UNSAFE_TO_NORMALIZE",),
+    ),
+    ("batch-r02.jsonl", 2): (
+        "excluded",
+        "unsupported_context_divergence",
+        ("BRANCH_SPECIFIC_STATE_METADATA_UNSAFE_TO_NORMALIZE",),
+    ),
+    ("batch-r02.jsonl", 3): (
+        "excluded",
+        "unsupported_context_divergence",
+        ("BRANCH_SPECIFIC_STATE_METADATA_UNSAFE_TO_NORMALIZE",),
+    ),
+    ("batch-r03.jsonl", 4): REPAIRED_IDENTITY,
+    ("batch-r03.jsonl", 5): REPAIRED_IDENTITY,
+    ("batch-r03.jsonl", 6): REPAIRED_IDENTITY,
+    ("batch-r04.jsonl", 4): REPAIRED_IDENTITY,
+    ("batch-r04.jsonl", 5): REPAIRED_IDENTITY,
+    ("batch-r04.jsonl", 6): REPAIRED_IDENTITY,
+    ("batch-r05.jsonl", 2): (
+        "excluded",
+        "unsupported_context_divergence",
+        ("PROPOSED_ACTION_CONTEXT_DIVERGES",),
+    ),
+    ("batch-r05.jsonl", 3): (
+        "repaired",
+        "attested_proposal_annotation_only",
+        (
+            "EXACT_PROPOSAL_COPIED_FROM_ATTESTED_REFERENCE",
+            "BRANCH_ONLY_PROPOSAL_ANNOTATION_REMOVED",
+        ),
+    ),
+    ("batch-r06.jsonl", 2): (
+        "excluded",
+        "unsupported_context_divergence",
+        ("POLICY_MEMORY_CONTEXT_DIVERGES",),
+    ),
+    ("batch-r07.jsonl", 2): (
+        "excluded",
+        "unsupported_context_divergence",
+        ("POLICY_MEMORY_CONTEXT_DIVERGES",),
+    ),
+    **{
+        ("preferences.jsonl", line): (
+            "excluded",
+            "unsupported_context_divergence",
+            ("STATE_CONTEXT_DIVERGES", "PROPOSED_ACTION_CONTEXT_DIVERGES"),
+        )
+        for line in range(1, 7)
+    },
+}
+
 
 def trajectory(record_id, state=None, proposal=None, decision="ACCEPT"):
     return {
@@ -146,6 +232,61 @@ class CuratePreferenceRecord(unittest.TestCase):
 
         self.assertEqual(decision.action, curate_preferences.ACTION_EXCLUDED)
         self.assertEqual(decision.reason_codes, ("PROPOSED_ACTION_CONTEXT_DIVERGES",))
+
+    def test_non_attesting_identity_note_text_is_excluded(self):
+        source = pair()
+        source["chosen"]["state"]["identity_note"] = (
+            "chosen branch observed a DIFFERENT sensor bias than rejected"
+        )
+
+        decision = curate_preferences.curate_preference_record(source)
+
+        self.assertEqual(decision.action, curate_preferences.ACTION_EXCLUDED)
+        self.assertEqual(decision.reason_codes, ("STATE_CONTEXT_DIVERGES",))
+        self.assertIsNone(decision.record)
+
+    def test_identity_note_attesting_the_wrong_side_is_excluded(self):
+        source = pair()
+        source["chosen"]["state"]["identity_note"] = (
+            "IDENTICAL to chosen.state — attests the attesting side itself"
+        )
+
+        decision = curate_preferences.curate_preference_record(source)
+
+        self.assertEqual(decision.action, curate_preferences.ACTION_EXCLUDED)
+        self.assertEqual(decision.reason_codes, ("STATE_CONTEXT_DIVERGES",))
+
+    def test_proposal_source_diff_without_identity_marker_is_excluded(self):
+        source = pair(
+            proposal={
+                "action": "route load",
+                "decision_basis": "fixture",
+                "source": "policy v1 (frozen)",
+            }
+        )
+        source["chosen"]["proposed_action"]["source"] = "policy v2 (retrained)"
+
+        decision = curate_preferences.curate_preference_record(source)
+
+        self.assertEqual(decision.action, curate_preferences.ACTION_EXCLUDED)
+        self.assertEqual(decision.reason_codes, ("PROPOSED_ACTION_CONTEXT_DIVERGES",))
+        self.assertIsNone(decision.record)
+
+    def test_loosely_equal_cross_type_context_values_are_excluded(self):
+        # True == 1 and 42 == 42.0 under Python ==, but the canonical context
+        # differs; the strict type guard must treat these as divergence.
+        boolean_pair = pair()
+        boolean_pair["chosen"]["state"]["flag"] = True
+        boolean_pair["rejected"]["state"]["flag"] = 1
+        numeric_pair = pair()
+        numeric_pair["chosen"]["state"]["reading"] = 42
+        numeric_pair["rejected"]["state"]["reading"] = 42.0
+
+        for source in (boolean_pair, numeric_pair):
+            decision = curate_preferences.curate_preference_record(source)
+            self.assertEqual(decision.action, curate_preferences.ACTION_EXCLUDED)
+            self.assertEqual(decision.reason_codes, ("STATE_CONTEXT_DIVERGES",))
+            self.assertFalse(curate_preferences.context_is_pure(source))
 
     def test_branch_specific_gate_version_state_is_excluded(self):
         source = pair()
@@ -295,6 +436,214 @@ class CuratePreferenceSource(unittest.TestCase):
                 curate_preferences.PreferenceCurationError, "invalid UTF-8"
             ):
                 curate_preferences.curate_source(source)
+
+
+class PreferencePurityNineteenRegression(unittest.TestCase):
+    """Bind the nineteen known impure pairs to deterministic decisions.
+
+    The committed corpus under tests/fixtures/preference-purity/ mirrors the
+    real raw ffpc corpus line-for-line in layout and decision (10 files, 42
+    records, 19 impure: 7 repaired + 12 excluded, 23 pure controls), as
+    measured by a read-only scan of outputs/raw/2026-08-17/
+    failure-as-fuel-preference-cascade. Raw stays immutable and unreferenced.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.curation_run = curate_preferences.curate_source(PURITY_FIXTURES)
+
+    def decisions_by_location(self):
+        return {
+            (entry["source_path"], entry["source_line"]): entry
+            for entry in self.curation_run.manifest
+        }
+
+    def test_summary_reproduces_the_real_corpus_figures(self):
+        summary = self.curation_run.summary
+        self.assertEqual(summary["json_records_seen"], 42)
+        self.assertEqual(summary["preference_records"], 42)
+        self.assertEqual(summary["skipped_non_preference_records"], 0)
+        self.assertEqual(summary["impure_pairs"], 19)
+        self.assertEqual(summary["retained_pairs"], 30)
+        self.assertEqual(summary["excluded_pairs"], 12)
+        self.assertEqual(
+            summary["actions"], {"excluded": 12, "repaired": 7, "retained": 23}
+        )
+        self.assertEqual(
+            summary["classifications"],
+            {
+                "already_same_context": 23,
+                "attested_identity_annotation_only": 6,
+                "attested_proposal_annotation_only": 1,
+                "unsupported_context_divergence": 12,
+            },
+        )
+        self.assertEqual(
+            summary["reason_codes"],
+            {
+                "BRANCH_ONLY_IDENTITY_NOTE_REMOVED": 6,
+                "BRANCH_ONLY_PROPOSAL_ANNOTATION_REMOVED": 1,
+                "BRANCH_SPECIFIC_STATE_METADATA_UNSAFE_TO_NORMALIZE": 3,
+                "EXACT_CONTEXT_COPIED_FROM_ATTESTED_REFERENCE": 6,
+                "EXACT_PROPOSAL_COPIED_FROM_ATTESTED_REFERENCE": 1,
+                "POLICY_MEMORY_CONTEXT_DIVERGES": 2,
+                "PREFERENCE_CONTEXT_ALREADY_IDENTICAL": 23,
+                "PROPOSED_ACTION_CONTEXT_DIVERGES": 7,
+                "STATE_CONTEXT_DIVERGES": 6,
+            },
+        )
+        self.assertEqual(summary["retained_context_purity_pct"], 100.0)
+
+    def test_nineteen_impure_pairs_have_expected_decisions(self):
+        by_location = self.decisions_by_location()
+        impure = {
+            location: entry
+            for location, entry in by_location.items()
+            if entry["action"] != curate_preferences.ACTION_RETAINED
+        }
+        self.assertEqual(sorted(impure), sorted(EXPECTED_IMPURE_DECISIONS))
+        for location, (action, classification, reasons) in sorted(
+            EXPECTED_IMPURE_DECISIONS.items()
+        ):
+            entry = by_location[location]
+            self.assertEqual(entry["action"], action, location)
+            self.assertEqual(entry["classification"], classification, location)
+            self.assertEqual(tuple(entry["reason_codes"]), reasons, location)
+        for entry in impure.values():
+            self.assertTrue(entry["context_diff_paths"])
+
+    def test_no_excluded_pair_needs_the_generic_fallback_reason(self):
+        for entry in self.curation_run.manifest:
+            self.assertNotIn("PREFERENCE_CONTEXT_DIVERGES", entry["reason_codes"])
+
+    def test_documented_taxonomy_classes_appear_in_diff_paths(self):
+        by_location = self.decisions_by_location()
+        proposal_divergence = by_location[("batch-r05.jsonl", 2)]
+        self.assertEqual(
+            proposal_divergence["context_diff_paths"],
+            [
+                "proposed_action.content",
+                "proposed_action.internal_reasoning_optimizer",
+                "proposed_action.policy_confidence",
+                "proposed_action.snn_readout.margin",
+                "proposed_action.snn_readout.note",
+                "proposed_action.snn_readout.runner_up",
+                "proposed_action.snn_readout.winning_population",
+                "proposed_action.source",
+            ],
+        )
+        taxonomy_markers = {
+            1: "state.environment.sensor_calibration_offset_c",  # state drift
+            2: "proposed_action.content",  # action drift
+            3: "state.timestamp_local",  # timestamp skew
+            4: "proposed_action.tool",  # missing field
+            5: "state.internal.scratchpad",  # extra field
+            6: "state.observations[0].value",  # type coercion
+        }
+        for line, marker in taxonomy_markers.items():
+            entry = by_location[("preferences.jsonl", line)]
+            self.assertIn(marker, entry["context_diff_paths"], line)
+            self.assertIsNone(entry["source_record_id"], line)
+            paths = entry["context_diff_paths"]
+            self.assertTrue(any(path.startswith("state") for path in paths), line)
+            self.assertTrue(
+                any(path.startswith("proposed_action") for path in paths), line
+            )
+
+    def test_decisions_are_deterministic_and_repairs_are_idempotent(self):
+        second = curate_preferences.curate_source(PURITY_FIXTURES)
+        self.assertEqual(self.curation_run, second)
+        self.assertEqual(len(self.curation_run.records), 30)
+        for record in self.curation_run.records:
+            self.assertTrue(curate_preferences.context_is_pure(record))
+            reapplied = curate_preferences.curate_preference_record(record)
+            self.assertEqual(reapplied.action, curate_preferences.ACTION_RETAINED)
+            self.assertEqual(reapplied.record, record)
+
+    def test_curated_output_reaches_full_purity_in_strict_audit(self):
+        source_audit_root = PURITY_FIXTURES.parent / "preference-purity-as-run"
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            # The fixture corpus itself must reproduce the historical audit
+            # figures: 23/42 same-context (54.8%) and the 19/42 blocker.
+            source_factory = root / "source-run" / "failure-as-fuel-preference-cascade"
+            source_factory.mkdir(parents=True)
+            for path in sorted(PURITY_FIXTURES.glob("*.jsonl")):
+                (source_factory / path.name).write_bytes(path.read_bytes())
+            source_audit = training_audit.audit_run(root / "source-run")
+            self.assertEqual(source_audit["preferences"]["pairs"], 42)
+            self.assertEqual(source_audit["preferences"]["same_context"], 23)
+            self.assertEqual(
+                source_audit["preferences"]["context_purity_pct"], 54.8
+            )
+            self.assertIn(
+                "19/42 preference pairs change state or proposal",
+                source_audit["blockers"],
+            )
+
+            # The curated output must audit at 100% purity with the
+            # preference blocker gone.
+            destination = root / "destination"
+            destination.mkdir()
+            output = destination / "preferences.jsonl"
+            manifest = destination / "manifest.jsonl"
+            curate_preferences.write_run(
+                self.curation_run, PURITY_FIXTURES, output, manifest
+            )
+            audit_factory = root / "curated-run" / "failure-as-fuel-preference-cascade"
+            audit_factory.mkdir(parents=True)
+            (audit_factory / "preferences.jsonl").write_bytes(output.read_bytes())
+            curated_audit = training_audit.audit_run(root / "curated-run")
+            self.assertEqual(curated_audit["preferences"]["pairs"], 30)
+            self.assertEqual(curated_audit["preferences"]["same_context"], 30)
+            self.assertEqual(
+                curated_audit["preferences"]["context_purity_pct"], 100.0
+            )
+            for blocker in curated_audit["blockers"]:
+                self.assertNotIn("preference pairs change state or proposal", blocker)
+
+            emitted = [
+                json.loads(line) for line in output.read_text().splitlines()
+            ]
+            self.assertEqual(len(emitted), 30)
+            self.assertTrue(
+                all(curate_preferences.context_is_pure(item) for item in emitted)
+            )
+        self.assertFalse(source_audit_root.exists())
+
+    def test_fixture_sources_stay_byte_identical_and_writer_refuses_unsafe_paths(self):
+        with tempfile.TemporaryDirectory() as td:
+            destination = Path(td)
+            run = curate_preferences.curate_source(PURITY_FIXTURES)
+            curate_preferences.write_run(
+                run,
+                PURITY_FIXTURES,
+                destination / "preferences.jsonl",
+                destination / "manifest.jsonl",
+            )
+            with self.assertRaisesRegex(
+                curate_preferences.PreferenceCurationError, "refusing overwrite"
+            ):
+                curate_preferences.write_run(
+                    run,
+                    PURITY_FIXTURES,
+                    destination / "preferences.jsonl",
+                    destination / "manifest-2.jsonl",
+                )
+            with self.assertRaisesRegex(
+                curate_preferences.PreferenceCurationError, "inside source"
+            ):
+                curate_preferences.write_run(
+                    run,
+                    PURITY_FIXTURES,
+                    PURITY_FIXTURES / "curated.jsonl",
+                    destination / "manifest-3.jsonl",
+                )
+        hashes_after = {
+            path.name: hashlib.sha256(path.read_bytes()).hexdigest()
+            for path in sorted(PURITY_FIXTURES.glob("*.jsonl"))
+        }
+        self.assertEqual(hashes_after, GOLDEN_FIXTURE_SHA256)
 
 
 if __name__ == "__main__":
