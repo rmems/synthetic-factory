@@ -31,7 +31,19 @@ All five repositories are organized in the public
 The public dataset repositories are currently metadata-only pre-release shells.
 Visibility is not a claim of training readiness; payload publication remains
 blocked on deterministic curation, strict audit, sampled review, and a declared
-license.
+dataset license (see License below).
+
+## License
+
+This repository is licensed under the [Apache License 2.0](LICENSE) — see
+[`NOTICE`](NOTICE) for attribution. This covers the repository's contents:
+factory prompts, schemas, pipelines, skills, tests, and documentation.
+
+**Dataset payloads are a separate decision.** The Hugging Face dataset
+repositories remain unlicensed pre-release shells. Choosing their license
+(Apache-2.0 alongside the code, or a data-specific license such as ODC-BY 1.0
+or CC-BY-4.0) is an open release decision and does not follow automatically
+from this file.
 
 ## Structure
 - `prompts/` — factory prompts 01–07. 01–05 start with a session bootstrap; shared rules in `prompts/_factory-contract.md`
