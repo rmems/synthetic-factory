@@ -1,0 +1,33 @@
+AGENTS.md
+  s_5da9f7a6440a38::t_f2dfd959e72854 1-30
+.cursor/install.sh
+  s_5da9f7a6440a38::t_2fbe842e1f85fb 1-8
+README.md
+  s_5da9f7a6440a38::t_5b817f0e4c0ddc 48-64
+.github/workflows/python.yml
+  s_5da9f7a6440a38::t_78b9c0718aed43 1-41
+pyproject.toml
+  s_5da9f7a6440a38::t_5647eb6ce1f975 1-14
+.github/workflows/python-smoke.yml
+  s_5da9f7a6440a38::t_c9c477b4cef172 1-50
+.cursor/Dockerfile
+  s_5da9f7a6440a38::t_b8a7d2faaaa0a7 1-26
+.cursor/environment.json
+  s_5da9f7a6440a38::t_aa0fc435e056bc 1-8
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "75b86283a4b3e805f413d2366bcdc618eab6017b",
+  "prompts": {},
+  "sessions": {
+    "s_5da9f7a6440a38": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "ddc0f2aa-7696-4e17-942a-442ec4a381f8",
+        "model": "grok-4.6"
+      },
+      "human_author": "Raul Montoya Cardenas <montoyaraul34@gmail.com>"
+    }
+  }
+}
