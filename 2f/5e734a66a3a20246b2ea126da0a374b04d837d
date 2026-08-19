@@ -1,0 +1,118 @@
+tests/test_check_records.py
+  s_ef828dd380d40d::t_2e702692bea0ef 337-365
+schemas/raster.schema.json
+  s_ef828dd380d40d::t_dd2ef2c7a41452 8-16
+  s_ef828dd380d40d::t_2a5596019489a0 31-37
+  s_ef828dd380d40d::t_b918f6b6903593 5,17-30,38-63,66-71,150
+pipelines/check_records.py
+  s_ef828dd380d40d::t_693fb9eb781b5b 131-136
+  s_ef828dd380d40d::t_0bb89683c89de2 23-29,36-38
+  s_ef828dd380d40d::t_99b4ae125c328c 152
+  s_ef828dd380d40d::t_956b2b7209c6ec 68-80
+  s_ef828dd380d40d::t_fa9d67fba5dede 32-35
+  s_ef828dd380d40d::t_87f666582d3124 124-125,127-130
+  s_ef828dd380d40d::t_d8aec2ec0203ef 316-322,325
+  s_ef828dd380d40d::t_5aed60412058ae 54-56
+  s_ef828dd380d40d::t_57cde6d28951a1 217
+  s_ef828dd380d40d::t_c1cb88e84c0be3 257-258,260-262
+  s_ef828dd380d40d::t_558fb36e597445 368,372
+pipelines/curate_coding.py
+  s_ef828dd380d40d::t_bf72e72eb7803e 355-370,372-382,384,386-394
+pipelines/verify_execution.py
+  s_ef828dd380d40d::t_78544da547cf10 126
+  s_ef828dd380d40d::t_140eee26ab959e 307-324
+  s_ef828dd380d40d::t_1d26fa753d1933 98-105
+  s_ef828dd380d40d::t_327d0d17f95a97 34,36-43
+pipelines/curate_preferences.py
+  s_ef828dd380d40d::t_3ea3e75a46d3d3 528-534
+tests/test_validate_run.py
+  s_ef828dd380d40d::t_557c4b126948f4 351-424
+  s_ef828dd380d40d::t_43e73be238175d 204-237
+  s_ef828dd380d40d::t_910e71aed25c66 2-7,21-23
+pipelines/validate_run.py
+  s_ef828dd380d40d::t_b6c7d656618371 46-47,49-52,54-71
+  s_ef828dd380d40d::t_097d6171322d02 133-140
+  s_ef828dd380d40d::t_9cb8fb97b48b17 159-161
+  s_ef828dd380d40d::t_4ba14dae1ae91b 205-209,211-217
+  s_ef828dd380d40d::t_c43bd5b3561012 245-247,249
+  s_ef828dd380d40d::t_45c2da25ded725 297,299
+  s_ef828dd380d40d::t_7a068ffe663c5e 437-441
+.beads/issues.jsonl
+  s_5da9f7a6440a38::t_651aae845fb01f 8
+pipelines/promote.py
+  s_ef828dd380d40d::t_23b682f82a2190 20-25,30-33
+schemas/thalamic-trajectory.schema.json
+  s_ef828dd380d40d::t_6a2ce8b8e96015 60
+pipelines/curate_bridge.py
+  s_ef828dd380d40d::t_615ab18dc4f5b8 431
+  s_ef828dd380d40d::t_25cbb652d61e09 715-720,722-725
+  s_ef828dd380d40d::t_6d2cd525f2d46b 454-460
+  s_ef828dd380d40d::t_bcbde41deb2de4 707-714,727
+  s_ef828dd380d40d::t_3f5a6a688bd81f 721
+  s_ef828dd380d40d::t_27abfdf5051332 478-493
+  s_ef828dd380d40d::t_404c392b69f8c4 738-746
+pipelines/quality_gate.py
+  s_ef828dd380d40d::t_649278c3d4ecba 18-22
+  s_ef828dd380d40d::t_49a0a640d1eae5 88-97
+  s_ef828dd380d40d::t_bd2f14b563f21a 120-122
+  s_ef828dd380d40d::t_415230aa572614 153-154,161-164,168-175,182-187
+  s_ef828dd380d40d::t_79d506772a5859 275-278
+  s_ef828dd380d40d::t_cdbca1a9919e1d 103-116,124,126-127,129-130,132-136
+  s_ef828dd380d40d::t_98e9d58de331db 211-218,224-234,238-241,243-246
+  s_ef828dd380d40d::t_5494a4ce534c54 53-55
+  s_ef828dd380d40d::t_db958002338129 5-6
+  s_ef828dd380d40d::t_34922a5a4c7304 258-262
+  s_ef828dd380d40d::t_860a173c39164e 13-15
+docs/quality-gate.md
+  s_ef828dd380d40d::t_decc7ed667c951 22-29,31-35,39-40,43,47-49
+  s_ef828dd380d40d::t_55d788c00e3df0 6
+  s_ef828dd380d40d::t_7b6107215a8ba3 171-172
+  s_ef828dd380d40d::t_bc141333192006 102-112
+  s_ef828dd380d40d::t_30fa4db4c384d1 131,138-139,141,148-155
+docs/verify-execution.md
+  s_ef828dd380d40d::t_eee430fa70fe2a 3-4
+  s_ef828dd380d40d::t_4cf14402ac3aa5 116-118
+  s_ef828dd380d40d::t_979c6802c4a0dd 83,85-86
+docs/token-efficiency.md
+  s_ef828dd380d40d::t_7f534bb330b9c7 40-45
+pipelines/curate_identity.py
+  s_ef828dd380d40d::t_c6bdb3ab412819 43-45
+  s_ef828dd380d40d::t_8984fe78326f3b 343-344
+  s_ef828dd380d40d::t_789f6be8f6080e 254
+  s_ef828dd380d40d::t_96680a9cd64470 338-342,345-352
+docs/preference-isolation.md
+  s_ef828dd380d40d::t_cf47645d551058 132-135,137-140
+  s_ef828dd380d40d::t_043b2aba9b8b8e 223-224
+  s_ef828dd380d40d::t_4d397cbadcc614 167-171,174,177-180
+pipelines/curate_rewards.py
+  s_ef828dd380d40d::t_942d0eaf88fa7c 27
+  s_ef828dd380d40d::t_b8c285216c6ff0 884-885,888-897
+  s_ef828dd380d40d::t_a7c1ae400279ae 793-804
+  s_ef828dd380d40d::t_5c3bf6a257a9c7 831-846
+  s_ef828dd380d40d::t_ced1795883a0a6 249-263,272
+  s_ef828dd380d40d::t_cb8bf7aa4c15c9 560-563
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "2f5e734a66a3a20246b2ea126da0a374b04d837d",
+  "prompts": {},
+  "sessions": {
+    "s_5da9f7a6440a38": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "ddc0f2aa-7696-4e17-942a-442ec4a381f8",
+        "model": "grok-4.6"
+      },
+      "human_author": "Raul Montoya Cardenas <montoyaraul34@gmail.com>"
+    },
+    "s_ef828dd380d40d": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "438ac320-195b-40d3-af59-709bc123a0ec",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Raul Montoya Cardenas <montoyaraul34@gmail.com>"
+    }
+  }
+}
