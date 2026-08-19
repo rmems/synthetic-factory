@@ -1,0 +1,9 @@
+docs/superpowers/specs/2026-08-18-public-repositories-and-hf-collection-design.md
+  ai_agent 4-5,11-13,55-58,62-63,70-73,81-83,91-100,210-212,220,223-224,251,255-263
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "9ad7187c8259e1a9fef3d01250e5d2cbf5a24539",
+  "prompts": {}
+}
