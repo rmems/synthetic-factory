@@ -39,12 +39,17 @@ jobs:
       - name: Shape-check the committed mini-run fixture
         run: |
           set +e
-          python pipelines/validate_run.py tests/fixtures/mini-run
+          python pipelines/validate_run.py tests/fixtures/mini-run 2>validate.err
           status=$?
           set -e
+          cat validate.err >&2
           # The fixture includes one intentional JSON parse failure.
           if [ "$status" -eq 0 ]; then
             echo "expected a nonzero validator exit on the defective fixture"
+            exit 1
+          fi
+          if ! grep -F -q "JSON parse error" validate.err; then
+            echo "expected a JSON parse error on the defective fixture"
             exit 1
           fi
           echo "validator reported defects as expected (exit $status)"
