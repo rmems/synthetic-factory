@@ -77,6 +77,20 @@ const PREF_STAGE = {
   },
 }
 
+// Abort receipt: confirm CLI ran. Not a Session A handoff — do not reuse PREF_STAGE
+// (that schema requires staging_dir / reserve_token / diagnosis_files this prompt
+// does not supply, so structured-output validation would fail the release).
+const ABORT_RECEIPT = {
+  type: 'object',
+  required: ['factory', 'round', 'aborted'],
+  properties: {
+    factory: { type: 'string' },
+    round: { type: 'number' },
+    aborted: { type: 'boolean' },
+    reason: { type: 'string' },
+  },
+}
+
 // Generative quality: each factory's quota explicitly demands scenario diversity,
 // gap-targeting, and training value. The prompt (below) reinforces this by
 // requiring densification of under-represented gaps and honest novel-coverage
@@ -182,16 +196,24 @@ if (TOKEN_EFFICIENCY.enabled) {
 // round_txn abort refuses to touch a mid-publish or completed round.
 async function releaseReservation(factory, round, rr, token) {
   const outDir = `${args.root}/outputs/raw/${args.date}/${factory.slug}`
+  const reservedPath = `${outDir}/ROUND-r${rr}.reserved.json`
   log(`${factory.slug} r${rr}: releasing unpublished reservation so the frontier stays retryable`)
-  await agent(`Run exactly this one command and report its result. Do not generate, edit, or publish anything else.
+  const abortCmd = token
+    ? `python3 ${args.root}/pipelines/round_txn.py abort ${outDir} --round ${round} --token ${token}`
+    : `Read the "token" field from ${reservedPath} (if that file is missing, the reservation is already gone — set aborted=true and stop), then run:\npython3 ${args.root}/pipelines/round_txn.py abort ${outDir} --round ${round} --token <that-token>`
+  try {
+    await agent(`Run exactly this one abort and report its result. Do not generate, edit, or publish anything else.
 
-python3 ${args.root}/pipelines/round_txn.py abort ${outDir} --round ${round} --token ${token}
+${abortCmd}
 
-If it reports the round is already committed or mid-publish, that is expected and fine — report it and stop. Set factory="${factory.slug}", round=${round}, staging_dir and reserve_token to the values you were given, and diagnosis_files to [].`, {
-    label: `${factory.slug}:r${rr}-abort`,
-    phase: 'Generate',
-    schema: PREF_STAGE,
-  })
+If it reports the round is already committed or mid-publish, or that there is no reservation, that is expected and fine. Return factory="${factory.slug}", round=${round}, aborted=true when the reservation is gone or was already gone/committed/mid-publish; otherwise aborted=false and a short reason.`, {
+      label: `${factory.slug}:r${rr}-abort`,
+      phase: 'Generate',
+      schema: ABORT_RECEIPT,
+    })
+  } catch (err) {
+    log(`${factory.slug} r${rr}: reservation release failed (frontier may stay blocked): ${err}`)
+  }
 }
 
 const perFactory = await parallel(FACTORIES.map(factory => async () => {
@@ -246,6 +268,9 @@ Data contract:
 - Return only the structured summary after successful publication. Set completion_marker exactly to "${expectedMarker}".`
 
     let result
+    // Preference Session A owns the reservation; hoist the token so Session B
+    // identity failure AND later verification/circuit-break can still abort.
+    let reserveToken = null
     if (factory.slug === 'failure-as-fuel-preference-cascade') {
       // Two-session isolation (docs/preference-isolation.md): Session A and
       // Session B are SEPARATE agents with independent generation contexts —
@@ -268,9 +293,12 @@ Return the structured handoff: factory="${factory.slug}", round=${round}, the re
       if (!sessionA || sessionA.factory !== factory.slug || sessionA.round !== round) {
         stoppedReason = `r${rr} session A failed or returned mismatched identity`
         log(`${factory.slug}: ${stoppedReason}; circuit open`)
-        if (sessionA && sessionA.reserve_token) await releaseReservation(factory, round, rr, sessionA.reserve_token)
+        // sessionA may be null after a successful reserve (agent/session error);
+        // pass any token we have, otherwise abort reads ROUND-rNN.reserved.json.
+        await releaseReservation(factory, round, rr, sessionA && sessionA.reserve_token)
         break
       }
+      reserveToken = sessionA.reserve_token
       result = await agent(`You are Session B (repair synthesis) of the "${factory.name}" two-session protocol, run ${args.date}, round ${round} — a FRESH context with no Session A memory.
 
 FILE-SAFETY — highest priority: NEVER write, edit, rename, truncate, or delete any existing file under ${outDir}. Session A already reserved this round; its staging_dir is ${sessionA.staging_dir} and the publish token is ${sessionA.reserve_token}.
@@ -284,11 +312,6 @@ A round exists only if publish succeeds and creates ${expectedMarker}. Repeat th
         phase: 'Generate',
         schema: SUMMARY,
       })
-      // Session A holds the reservation; if Session B never published, release
-      // it so the frontier is not blocked for every later round.
-      if (!result || result.factory !== factory.slug || result.round !== round) {
-        await releaseReservation(factory, round, rr, sessionA.reserve_token)
-      }
     } else {
       result = await agent(prompt, {
         label: `${factory.slug}:r${rr}`,
@@ -300,11 +323,13 @@ A round exists only if publish succeeds and creates ${expectedMarker}. Repeat th
     if (!result) {
       stoppedReason = `r${rr} agent error or session limit`
       log(`${factory.slug}: ${stoppedReason}; circuit open, later rounds will not be queued`)
+      if (reserveToken) await releaseReservation(factory, round, rr, reserveToken)
       break
     }
     if (result.factory !== factory.slug || result.round !== round) {
       stoppedReason = `r${rr} returned mismatched identity`
       log(`${factory.slug}: ${stoppedReason}; circuit open`)
+      if (reserveToken) await releaseReservation(factory, round, rr, reserveToken)
       break
     }
     const verificationPrompt = `Read-only verification only. Do not write, edit, delete, rename, or publish anything.
@@ -331,6 +356,9 @@ For factory ${factory.slug}, independently verify committed round ${round}:
     ) {
       stoppedReason = `r${rr} completion marker could not be independently verified`
       log(`${factory.slug}: ${stoppedReason}; circuit open`)
+      // Matching SUMMARY without a successful publish still leaves the
+      // reservation in place; abort so the frontier stays retryable.
+      if (reserveToken) await releaseReservation(factory, round, rr, reserveToken)
       break
     }
     completed += 1
