@@ -1,0 +1,49 @@
+name: Hugging Face raw-release verification
+
+on:
+  schedule:
+    - cron: "17 3 * * *"
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/hf-release-verify.yml
+      - pipelines/verify_hf_release.py
+      - tests/test_verify_hf_release.py
+      - docs/superpowers/specs/2026-08-18-public-repositories-and-hf-collection-design.md
+  pull_request:
+    branches: [main]
+    paths:
+      - .github/workflows/hf-release-verify.yml
+      - pipelines/verify_hf_release.py
+      - tests/test_verify_hf_release.py
+      - docs/superpowers/specs/2026-08-18-public-repositories-and-hf-collection-design.md
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+jobs:
+  verify-public-release:
+    name: verify five public datasets
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.14"
+
+      - name: Run verifier unit tests
+        run: python -m unittest tests.test_verify_hf_release -q
+
+      - name: Verify public raw-release contract
+        run: python pipelines/verify_hf_release.py
