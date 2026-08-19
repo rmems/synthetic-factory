@@ -204,23 +204,24 @@ def check_reward(rc, where):
             for key, weight in weights.items()
             if key not in WEIGHTED_SKIP_KEYS and is_number(weight)
         }
-        if not declared:
+        if declared:
+            values, missing = weighted_components(rc, weights)
+            if missing:
+                warnings.append(
+                    f"{where}: unsupported weighted reward layout; missing components "
+                    f"{', '.join(sorted(missing))}; skipped arithmetic check"
+                )
+                return errors, warnings
+            recomputed = sum(values[key] * declared[key] for key in declared)
+            tolerance = reward_tolerance(rc)
+            if abs(recomputed - total) > tolerance:
+                errors.append(
+                    f"{where}.total {total} != recomputed {recomputed} "
+                    f"(weighted, diff {abs(recomputed - total)} > {tolerance})"
+                )
             return errors, warnings
-        values, missing = weighted_components(rc, weights)
-        if missing:
-            warnings.append(
-                f"{where}: unsupported weighted reward layout; missing components "
-                f"{', '.join(sorted(missing))}; skipped arithmetic check"
-            )
-            return errors, warnings
-        recomputed = sum(values[key] * declared[key] for key in declared)
-        tolerance = reward_tolerance(rc)
-        if abs(recomputed - total) > tolerance:
-            errors.append(
-                f"{where}.total {total} != recomputed {recomputed} "
-                f"(weighted, diff {abs(recomputed - total)} > {tolerance})"
-            )
-        return errors, warnings
+        # Empty or bookkeeping-only weights: same fallthrough as
+        # validate_run.check_reward_total — unweighted sibling sum.
 
     siblings = {
         key: component_value(val)
@@ -230,10 +231,11 @@ def check_reward(rc, where):
     if not siblings:
         return errors, warnings
     recomputed = sum(siblings.values())
-    if abs(recomputed - total) > TOL:
+    tolerance = reward_tolerance(rc)
+    if abs(recomputed - total) > tolerance:
         errors.append(
             f"{where}.total {total} != recomputed {recomputed} "
-            f"(unweighted, diff {abs(recomputed - total)} > {TOL})"
+            f"(unweighted, diff {abs(recomputed - total)} > {tolerance})"
         )
     return errors, warnings
 
@@ -260,6 +262,9 @@ def expected_states(obj, kind):
 # avoid double or spurious reports on the same record. The markers are the
 # producer's own constants, imported from validate_run.
 _SHAPE_REWARD_ARITHMETIC = REWARD_ARITHMETIC_MARKERS
+# Same layering for publish-time 'real' claims: validate_run already emits
+# them, and check_provenance_publish is the single owner here.
+_SHAPE_REAL_PROVENANCE = "must not be 'real'"
 
 
 def shape_check(obj, where):
@@ -272,6 +277,7 @@ def shape_check(obj, where):
     errs = [
         e for e in errs
         if not any(marker in e for marker in _SHAPE_REWARD_ARITHMETIC)
+        and _SHAPE_REAL_PROVENANCE not in e
     ]
     return errs, kind
 
@@ -365,15 +371,13 @@ def check_record(obj, where):
                 warnings.append(f"{where}: missing sim_or_real on {path}")
             elif isinstance(state, dict):
                 value = state.get("sim_or_real")
-                if claims_real(value):
-                    errors.append(
-                        f"{where}: {path} sim_or_real must not be 'real' (use 'designed') — got {value!r}"
-                    )
-                elif value not in ALLOWED_SIM_OR_REAL:
+                # 'real' claims are owned by check_provenance_publish so a
+                # single violation is not reported twice with different wording.
+                if not claims_real(value) and value not in ALLOWED_SIM_OR_REAL:
                     warnings.append(
                         f"{where}: non-training provenance {value!r} on {path}"
                     )
-        # Publish-time deep provenance scan — catches any nested 'real' not covered above
+        # Publish-time deep provenance scan — owns every nested 'real' claim
         errors.extend(check_provenance_publish(obj, where))
         if kind == "episode":
             for index, step in enumerate(obj.get("steps", [])):
