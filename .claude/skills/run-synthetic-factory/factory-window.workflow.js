@@ -283,7 +283,7 @@ Parse its JSON; write ONLY inside the returned staging_dir. If reservation fails
 
 Read and obey ${args.root}/prompts/_factory-contract.md and the "Session A" section of ${args.root}/prompts/${factory.file}, plus ${args.root}/schemas/thalamic-trajectory-v2.schema.json and ${args.root}/schemas/provenance.md.
 
-Produce EXACTLY ${factory.count} rejected ThalamicTrajectories and their diagnoses in staging: rejected-0i-r${rr}.json scratch files (one JSON object each; never .jsonl) and diagnosis-0i-r${rr}.md files, each diagnosis containing the Shared-context state/proposed_action JSON block, root cause, cascade effects, supervisor catch, repair sketch, and target reward delta per the prompt. Do NOT write batch-r${rr}.jsonl, do NOT publish, and do NOT draft any chosen content.
+Produce EXACTLY ${factory.count} rejected ThalamicTrajectories and their diagnoses in staging: rejected-01-r${rr}.json, rejected-02-r${rr}.json, rejected-03-r${rr}.json scratch files (one JSON object each; never .jsonl) and diagnosis-01-r${rr}.md, diagnosis-02-r${rr}.md, diagnosis-03-r${rr}.md files, each diagnosis containing the Shared-context state/proposed_action JSON block, root cause, cascade effects, supervisor catch, repair sketch, and target reward delta per the prompt. Do NOT write batch-r${rr}.jsonl, do NOT publish, and do NOT draft any chosen content.
 
 Return the structured handoff: factory="${factory.slug}", round=${round}, the reservation's staging_dir and token (reserve_token), and the diagnosis filenames.`, {
         label: `${factory.slug}:r${rr}-sessionA`,

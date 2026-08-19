@@ -88,9 +88,11 @@ python3 .claude/skills/run-synthetic-factory/driver.py \
   token-efficiency outputs/raw/<date> --json
 ```
 
-and OMIT every factory whose `early_stop` is true (the workflow skips factories
-with no start). Re-include a plateaued factory only when its prompt, quotas, or
-gap targets have changed enough to expect fresh novelty.
+and OMIT every factory whose `early_stop` is true — that flag is the current
+trailing two-low streak, not a historical latch (a later healthy NOTES clears
+it). The workflow skips factories with no start. Re-include a still-plateaued
+factory only when its prompt, quotas, or gap targets have changed enough to
+expect fresh novelty.
 
 The workflow runs at most five agents at once. Each generated round is followed
 by one bounded, read-only marker verifier in the same per-factory lane; it checks

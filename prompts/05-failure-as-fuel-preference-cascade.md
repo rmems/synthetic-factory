@@ -61,7 +61,8 @@ trajectory is produced in this session.
      reserved batch.
 
 3. For each rejected trajectory, write its diagnosis to the corresponding
-   `diagnosis-0i-rNN.md`. Each diagnosis MUST contain:
+   indexed file (`diagnosis-01-rNN.md`, `diagnosis-02-rNN.md`, or
+   `diagnosis-03-rNN.md`). Each diagnosis MUST contain:
    - **Shared context** — the exact `state` and `proposed_action` JSON of
      the rejected trajectory, embedded verbatim as a fenced JSON block.
      This block (and only this block) is what Session B copies
@@ -104,12 +105,14 @@ ONLY the diagnosis files as input. Session B MUST NOT read the `rejected`
 scratch artifacts.
 
 1. Start a **fresh generation context** (new model session / new
-   conversation). Session B reads ONLY `diagnosis-0i-rNN.md` files —
+   conversation). Session B reads ONLY `diagnosis-01-rNN.md`,
+   `diagnosis-02-rNN.md`, and `diagnosis-03-rNN.md` —
    nothing else from Session A. Allowed bridge: diagnosis narrative
    (root cause, cascade effects, supervisor catch, repair sketch, target
    reward delta) and the **Shared context** block's exact
    `state`/`proposed_action` JSON. Forbidden inputs:
-   `rejected-0i-rNN.json` scratch files, any file containing the full
+   `rejected-01-rNN.json` / `rejected-02-rNN.json` / `rejected-03-rNN.json`
+   scratch files, any file containing the full
    rejected trajectory, and any `safety_decision` rationale text copied
    verbatim. If the diagnosis references the rejected trajectory, it
    does so only through the repair-sketch narrative plus the shared
@@ -139,7 +142,8 @@ scratch artifacts.
      ```
      `chosen` is from Session B; `rejected` is the Session A trajectory
      embedded verbatim — **mechanically, via a script** (e.g. a short
-     `python3` snippet that json-loads each `rejected-0i-rNN.json` and
+     `python3` snippet that json-loads each `rejected-01-rNN.json` /
+     `rejected-02-rNN.json` / `rejected-03-rNN.json` and
      injects it into the assembled record) so the published batch is
      self-contained WITHOUT the rejected content ever entering Session
      B's generation context; `reward_delta` is computed at this assembly
@@ -149,15 +153,17 @@ scratch artifacts.
      do not add extra top-level JSONL lines.
    - `NOTES-rNN.md` — self-critique: residual weaknesses and the next
      round's densification target.
-   - Retain the `diagnosis-0i-rNN.md` files alongside the batch — they are
+   - Retain the `diagnosis-01-rNN.md` / `diagnosis-02-rNN.md` /
+     `diagnosis-03-rNN.md` files alongside the batch — they are
      part of the published round and document the repair rationale.
 
 4. Run the **same-context purity gate** (see `docs/preference-isolation.md`)
    over `batch-rNN.jsonl` before publishing. If any pair fails, repair
    only staged files; never hand-edit a committed raw file.
 
-**Session B isolation rule:** Session B MUST NOT read `rejected-0i-rNN.json`
-(or any file containing the full rejected trajectory) into its generation
+**Session B isolation rule:** Session B MUST NOT read `rejected-01-rNN.json`,
+`rejected-02-rNN.json`, or `rejected-03-rNN.json` (or any file containing
+the full rejected trajectory) into its generation
 context, and MUST NOT copy `safety_decision` / safety rationale text
 verbatim from the diagnosis or rejected artifacts. It reconstructs the
 `chosen` solely from the diagnosis narrative + the shared

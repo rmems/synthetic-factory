@@ -180,11 +180,15 @@ def notes_novel_coverage(path: Path):
 
 
 def factory_token_efficiency(factory_dir: Path):
-    """Scan NOTES-rNN.md in committed order; detect 2-consecutive <5% streak.
+    """Scan NOTES-rNN.md in committed order; detect a trailing 2-low streak.
 
     Returns dict with per-round coverages, early-stop flag, saving estimate,
     and generative quality note. Saving estimate assumes ~40% of tail tokens
     avoided when plateau is caught early (docs/token-efficiency.md).
+
+    early_stop is the current trailing streak (mirrors a live lane starting
+    from the frontier): a later parseable NOTES with coverage >= 5% clears a
+    historical plateau so recovered factories are not omitted from starts.
     """
     factory_dir = Path(factory_dir)
     notes = sorted(factory_dir.glob("NOTES-r*.md"))
@@ -195,7 +199,6 @@ def factory_token_efficiency(factory_dir: Path):
     notes.sort(key=round_key)
     rounds = []
     consecutive = 0
-    early_stop = False
     early_stop_at = None
     for p in notes:
         pct = notes_novel_coverage(p)
@@ -204,13 +207,16 @@ def factory_token_efficiency(factory_dir: Path):
         is_low = pct is not None and pct < TOKEN_EFFICIENCY_THRESHOLD_PCT
         if is_low:
             consecutive += 1
+            if consecutive == TOKEN_EFFICIENCY_CONSECUTIVE:
+                early_stop_at = rn
         elif pct is not None:
+            # Healthy NOTES clear a historical plateau so recovered factories
+            # are not omitted from the next window (SKILL.md uses this flag).
             consecutive = 0
+            early_stop_at = None
         # None (unparseable) does not increment nor reset — holds streak
         rounds.append({"round": rn, "file": p.name, "novel_coverage_pct": pct, "is_low": is_low})
-        if consecutive >= TOKEN_EFFICIENCY_CONSECUTIVE and not early_stop:
-            early_stop = True
-            early_stop_at = rn
+    early_stop = consecutive >= TOKEN_EFFICIENCY_CONSECUTIVE
     # 40% saving estimate: early-stop avoids ~40% of backstop tail when plateau detected.
     # For reporting, include saving mode metadata so callers can compute projected tokens.
     saving_note = (

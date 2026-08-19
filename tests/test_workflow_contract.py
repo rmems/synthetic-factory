@@ -28,6 +28,17 @@ class WorkflowContract(unittest.TestCase):
     def test_start_round_must_be_positive_integer(self):
         self.assertIn("!Number.isInteger(start) || start < 1", self.text)
 
+    def test_preference_session_a_uses_indexed_staging_names(self):
+        session_a = self.text.split("You are Session A", 1)[1].split("You are Session B", 1)[0]
+        self.assertNotIn("rejected-0i-", session_a)
+        self.assertNotIn("diagnosis-0i-", session_a)
+        self.assertIn("rejected-01-r${rr}.json", session_a)
+        self.assertIn("rejected-02-r${rr}.json", session_a)
+        self.assertIn("rejected-03-r${rr}.json", session_a)
+        self.assertIn("diagnosis-01-r${rr}.md", session_a)
+        self.assertIn("diagnosis-02-r${rr}.md", session_a)
+        self.assertIn("diagnosis-03-r${rr}.md", session_a)
+
 
 if __name__ == "__main__":
     unittest.main()
