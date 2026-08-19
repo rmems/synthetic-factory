@@ -1,0 +1,19 @@
+tests/test_curate_preferences.py
+  s_d8dd1423a610ed::t_51ed5a005ffaae 660-716
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "8362a233a9f7812776358acb58bdd5be1e6573b9",
+  "prompts": {},
+  "sessions": {
+    "s_d8dd1423a610ed": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "7dbb0f36-78d9-4cff-8834-eb128981eaaf",
+        "model": "claude-fable-5"
+      },
+      "human_author": "Raul Montoya Cardenas <montoyaraul34@gmail.com>"
+    }
+  }
+}
