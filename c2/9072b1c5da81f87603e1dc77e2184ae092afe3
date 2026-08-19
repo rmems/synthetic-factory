@@ -1,0 +1,41 @@
+tests/fixtures/preference-purity/batch-r02.jsonl
+  s_d8dd1423a610ed::t_3ce394a2f9b94e 1-3
+tests/fixtures/preference-purity/batch-r07.jsonl
+  s_d8dd1423a610ed::t_3ce394a2f9b94e 1-3
+tests/test_curate_preferences.py
+  s_d8dd1423a610ed::t_04ddca988d9e39 381,386,390,444,483-485,518-520
+  s_d8dd1423a610ed::t_5491ee1fe2f733 369-380,382-385,387-389,391-443,445-482,486-517,521-581
+  s_d8dd1423a610ed::t_37d208350fea7e 18-86
+tests/fixtures/preference-purity/batch-r03.jsonl
+  s_d8dd1423a610ed::t_3ce394a2f9b94e 1-6
+tests/fixtures/preference-purity/batch-r05.jsonl
+  s_d8dd1423a610ed::t_3ce394a2f9b94e 1-6
+tests/fixtures/preference-purity/batch-r08.jsonl
+  s_d8dd1423a610ed::t_3ce394a2f9b94e 1-3
+tests/fixtures/preference-purity/batch-r09.jsonl
+  s_d8dd1423a610ed::t_3ce394a2f9b94e 1-3
+tests/fixtures/preference-purity/batch-r04.jsonl
+  s_d8dd1423a610ed::t_3ce394a2f9b94e 1-6
+tests/fixtures/preference-purity/batch-r10.jsonl
+  s_d8dd1423a610ed::t_3ce394a2f9b94e 1-3
+tests/fixtures/preference-purity/batch-r06.jsonl
+  s_d8dd1423a610ed::t_3ce394a2f9b94e 1-3
+tests/fixtures/preference-purity/preferences.jsonl
+  s_d8dd1423a610ed::t_3ce394a2f9b94e 1-6
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "c29072b1c5da81f87603e1dc77e2184ae092afe3",
+  "prompts": {},
+  "sessions": {
+    "s_d8dd1423a610ed": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "7dbb0f36-78d9-4cff-8834-eb128981eaaf",
+        "model": "claude-fable-5"
+      },
+      "human_author": "Raul Montoya Cardenas <montoyaraul34@gmail.com>"
+    }
+  }
+}
