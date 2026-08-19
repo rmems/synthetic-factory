@@ -194,23 +194,33 @@ if (TOKEN_EFFICIENCY.enabled) {
 // Release an unpublished reservation (best effort) so one failed round does
 // not block a factory's frontier for the rest of the run. Safe by design:
 // round_txn abort refuses to touch a mid-publish or completed round.
+// Mid-publish is not a successful abort — inspect the receipt and resume
+// publish so a still-held reservation cannot silently block the frontier.
 async function releaseReservation(factory, round, rr, token) {
   const outDir = `${args.root}/outputs/raw/${args.date}/${factory.slug}`
   const reservedPath = `${outDir}/ROUND-r${rr}.reserved.json`
   log(`${factory.slug} r${rr}: releasing unpublished reservation so the frontier stays retryable`)
+  const tokenArg = token || '<same-token>'
   const abortCmd = token
     ? `python3 ${args.root}/pipelines/round_txn.py abort ${outDir} --round ${round} --token ${token}`
     : `Read the "token" field from ${reservedPath} (if that file is missing, the reservation is already gone — set aborted=true and stop), then run:\npython3 ${args.root}/pipelines/round_txn.py abort ${outDir} --round ${round} --token <that-token>`
   try {
-    await agent(`Run exactly this one abort and report its result. Do not generate, edit, or publish anything else.
+    const receipt = await agent(`Run this abort and report its result. Do not generate or edit staged files.
 
 ${abortCmd}
 
-If it reports the round is already committed or mid-publish, or that there is no reservation, that is expected and fine. Return factory="${factory.slug}", round=${round}, aborted=true when the reservation is gone or was already gone/committed/mid-publish; otherwise aborted=false and a short reason.`, {
+If abort succeeds, or reports the round is already committed, or that there is no reservation, the reservation is gone — return factory="${factory.slug}", round=${round}, aborted=true.
+If abort reports the round is mid-publish, that is NOT success: the reservation is still held. Resume the existing publication with the same token (do not invent files):
+python3 ${args.root}/pipelines/round_txn.py publish ${outDir} --round ${round} --token ${tokenArg}
+If that publish succeeds, the reservation is gone — return aborted=true and reason="resumed mid-publish". Otherwise return aborted=false and a short reason.`, {
       label: `${factory.slug}:r${rr}-abort`,
       phase: 'Generate',
       schema: ABORT_RECEIPT,
     })
+    if (!receipt || receipt.aborted !== true) {
+      const reason = (receipt && receipt.reason) || 'abort did not confirm release'
+      log(`${factory.slug} r${rr}: reservation still held (${reason}); frontier may stay blocked`)
+    }
   } catch (err) {
     log(`${factory.slug} r${rr}: reservation release failed (frontier may stay blocked): ${err}`)
   }

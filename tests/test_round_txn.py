@@ -100,6 +100,36 @@ class RoundTransaction(unittest.TestCase):
                 round_txn.abort(factory, 1, reservation["token"])
             self.assertTrue((factory / "ROUND-r01.complete.json").is_file())
 
+    def test_abort_refuses_mid_publish_and_leaves_reservation(self):
+        with tempfile.TemporaryDirectory() as td:
+            factory = self.factory(td)
+            reservation = round_txn.reserve(factory, 1, 1)
+            self.fill_stage(reservation, [thalamic("txn-mid-publish")])
+            real_link = round_txn.os.link
+            calls = {"count": 0}
+
+            def interrupt_second_link(*args, **kwargs):
+                calls["count"] += 1
+                if calls["count"] == 2:
+                    raise OSError("simulated interruption")
+                return real_link(*args, **kwargs)
+
+            with mock.patch.object(round_txn.os, "link", side_effect=interrupt_second_link):
+                with self.assertRaisesRegex(OSError, "simulated interruption"):
+                    round_txn.publish(factory, 1, reservation["token"])
+
+            self.assertTrue((factory / "ROUND-r01.publishing.json").is_file())
+            self.assertTrue((factory / "ROUND-r01.reserved.json").is_file())
+            with self.assertRaisesRegex(round_txn.TransactionError, "mid-publish"):
+                round_txn.abort(factory, 1, reservation["token"])
+            self.assertTrue((factory / "ROUND-r01.reserved.json").is_file())
+            self.assertTrue((factory / "ROUND-r01.publishing.json").is_file())
+            self.assertFalse((factory / "ROUND-r01.complete.json").exists())
+            # The only safe unstick is resume publish, not abort.
+            manifest = round_txn.publish(factory, 1, reservation["token"])
+            self.assertEqual(manifest["records"], 1)
+            self.assertTrue((factory / "ROUND-r01.complete.json").is_file())
+
     def test_staged_id_cannot_duplicate_a_committed_round(self):
         with tempfile.TemporaryDirectory() as td:
             factory = self.factory(td)

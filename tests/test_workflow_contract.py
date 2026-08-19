@@ -39,6 +39,15 @@ class WorkflowContract(unittest.TestCase):
         self.assertIn("diagnosis-02-r${rr}.md", session_a)
         self.assertIn("diagnosis-03-r${rr}.md", session_a)
 
+    def test_release_reservation_does_not_treat_mid_publish_as_success(self):
+        release = self.text.split("async function releaseReservation", 1)[1]
+        release = release.split("const perFactory", 1)[0]
+        self.assertIn("receipt.aborted", release)
+        self.assertIn("round_txn.py publish", release)
+        self.assertIn("resumed mid-publish", release)
+        self.assertNotIn("gone/committed/mid-publish", release)
+        self.assertNotIn("already committed or mid-publish", release)
+
 
 if __name__ == "__main__":
     unittest.main()
