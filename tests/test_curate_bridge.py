@@ -15,7 +15,14 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO / "pipelines"))
 
+import check_records  # noqa: E402
 import curate_bridge  # noqa: E402
+import training_audit  # noqa: E402
+
+FIXTURES = REPO / "tests" / "fixtures"
+R02_FIXTURE = "bridge-r02-defects.jsonl"
+R03_FIXTURE = "bridge-r03-defects.jsonl"
+QUARANTINE_FIXTURE = "bridge-quarantine.jsonl"
 
 
 def event(time, channel, **extra):
@@ -312,6 +319,192 @@ class BridgeTimingCuration(unittest.TestCase):
             decision.manifest["output_id_status"], "pending_identity_transform"
         )
         self.assertEqual(decision.manifest["source_record_locator"], "bridge-fixture")
+
+
+def fixture_decisions(name):
+    return curate_bridge.curate_jsonl(FIXTURES / name, source_root=FIXTURES)
+
+
+def event_times(events):
+    return [event[key] for event in events for key in ("t_rel_ms", "t_ms") if key in event]
+
+
+class BridgeKnownDefectRegression(unittest.TestCase):
+    """Bind the five documented r02-r03 defect streams to deterministic decisions.
+
+    The raw run tree is immutable and absent from this checkout, so the five
+    failures recorded in outputs/cleaned/2026-08-17/CHECK.md (batch-r02.jsonl
+    lines 1-3, batch-r03.jsonl lines 2-3) are reconstructed as checked-in
+    fixtures that mirror the real file layout line-for-line.
+    """
+
+    def test_r02_lines_1_to_3_are_deterministically_repaired(self):
+        decisions = fixture_decisions(R02_FIXTURE)
+
+        self.assertEqual([item.action for item in decisions], ["repair"] * 3)
+        for line, decision in enumerate(decisions, 1):
+            self.assertEqual(
+                decision.manifest["reason_codes"],
+                [curate_bridge.REASON_REPAIRED],
+            )
+            self.assertEqual(decision.manifest["source_path"], R02_FIXTURE)
+            self.assertEqual(decision.manifest["source_line"], line)
+            self.assertEqual(
+                decision.manifest["source_record_locator"], f"nelb-r02-00{line}"
+            )
+            self.assertEqual(decision.manifest["evidence"]["event_time_key"], "t_rel_ms")
+            self.assertTrue(decision.manifest["evidence"]["repair_eligible"])
+
+    def test_r02_line_2_repairs_the_mox_channel_humidity_artifact(self):
+        source_events = json.loads(
+            (FIXTURES / R02_FIXTURE).read_text(encoding="utf-8").splitlines()[1]
+        )["spike_events"]
+        source_times = {
+            event["event_kind"]: event["t_rel_ms"]
+            for event in source_events
+            if event["channel"] == "mox_snO2_ch4"
+        }
+        self.assertEqual(source_times["humidity_artifact"], 7300.0)
+        self.assertEqual(source_times["saturation"], 28900.0)
+        self.assertGreater(
+            [event["event_kind"] for event in source_events].index("humidity_artifact"),
+            [event["event_kind"] for event in source_events].index("saturation"),
+            "fixture must reproduce the documented within-channel violation",
+        )
+
+        decision = fixture_decisions(R02_FIXTURE)[1]
+
+        repaired = decision.output_record["spike_events"]
+        kinds = [event["event_kind"] for event in repaired]
+        self.assertLess(kinds.index("humidity_artifact"), kinds.index("saturation"))
+        times = event_times(repaired)
+        self.assertEqual(times, sorted(times))
+
+    def test_r03_line_1_is_retained_and_lines_2_to_3_are_repaired(self):
+        decisions = fixture_decisions(R03_FIXTURE)
+
+        self.assertEqual(
+            [item.action for item in decisions], ["retain", "repair", "repair"]
+        )
+        self.assertEqual(
+            decisions[0].manifest["reason_codes"],
+            [curate_bridge.REASON_RETAINED],
+        )
+        source_line_1 = json.loads(
+            (FIXTURES / R03_FIXTURE).read_text(encoding="utf-8").splitlines()[0]
+        )
+        self.assertEqual(decisions[0].output_record, source_line_1)
+        for line, decision in zip((2, 3), decisions[1:]):
+            self.assertEqual(
+                decision.manifest["reason_codes"],
+                [curate_bridge.REASON_REPAIRED],
+            )
+            self.assertEqual(decision.manifest["source_line"], line)
+            self.assertEqual(
+                decision.manifest["source_record_locator"], f"nelb-r03-00{line}"
+            )
+
+    def test_ambiguous_timing_fixtures_quarantine_with_recoverable_records(self):
+        decisions = fixture_decisions(QUARANTINE_FIXTURE)
+        source_lines = (FIXTURES / QUARANTINE_FIXTURE).read_text(
+            encoding="utf-8"
+        ).splitlines()
+
+        self.assertEqual([item.action for item in decisions], ["quarantine"] * 3)
+        expected_reasons = (
+            curate_bridge.REASON_MIXED_TIME_KEYS,
+            curate_bridge.REASON_MULTIPLE_CLOCKS,
+            curate_bridge.REASON_EXPLICIT_ORDER,
+        )
+        for decision, reason, raw_line in zip(decisions, expected_reasons, source_lines):
+            self.assertIn(reason, decision.manifest["reason_codes"])
+            self.assertIsNone(decision.output_record)
+            self.assertEqual(decision.quarantine_record, json.loads(raw_line))
+            self.assertFalse(decision.manifest["evidence"]["repair_eligible"])
+
+    def test_fixture_decisions_are_deterministic_and_repairs_are_idempotent(self):
+        for name in (R02_FIXTURE, R03_FIXTURE, QUARANTINE_FIXTURE):
+            first = fixture_decisions(name)
+            second = fixture_decisions(name)
+            self.assertEqual(first, second, name)
+            for decision in first:
+                if decision.action != "repair":
+                    continue
+                reapplied = curate_bridge.curate_record(
+                    decision.output_record,
+                    source_path=decision.manifest["source_path"],
+                    source_line=decision.manifest["source_line"],
+                    source_hash=decision.manifest["source_hash"],
+                    source_file_hash=decision.manifest["source_file_hash"],
+                )
+                self.assertEqual(reapplied.action, "retain")
+                self.assertEqual(reapplied.output_record, decision.output_record)
+                self.assertEqual(
+                    reapplied.manifest["output_hash"],
+                    decision.manifest["output_hash"],
+                )
+
+    def test_retained_and_repaired_streams_are_globally_non_decreasing(self):
+        for name in (R02_FIXTURE, R03_FIXTURE):
+            for decision in fixture_decisions(name):
+                self.assertIn(decision.action, ("retain", "repair"))
+                times = event_times(decision.output_record["spike_events"])
+                self.assertEqual(times, sorted(times), decision.manifest["source_line"])
+                self.assertEqual(
+                    decision.manifest["evidence"]["adjacent_descents_after"], []
+                )
+
+    def test_source_hashes_match_exact_fixture_bytes_and_inputs_stay_unchanged(self):
+        for name in (R02_FIXTURE, R03_FIXTURE, QUARANTINE_FIXTURE):
+            path = FIXTURES / name
+            raw_before = path.read_bytes()
+            decisions = fixture_decisions(name)
+            self.assertEqual(
+                path.read_bytes(), raw_before, "curation must not mutate its source"
+            )
+            file_hash = hashlib.sha256(raw_before).hexdigest()
+            for line, (decision, record_bytes) in enumerate(
+                zip(decisions, raw_before.splitlines()), 1
+            ):
+                self.assertEqual(decision.manifest["source_line"], line)
+                self.assertEqual(decision.manifest["source_path"], name)
+                self.assertEqual(
+                    decision.manifest["source_hash"],
+                    hashlib.sha256(record_bytes).hexdigest(),
+                )
+                self.assertEqual(decision.manifest["source_file_hash"], file_hash)
+
+
+class BridgeStrictAuditAlignment(unittest.TestCase):
+    """Repaired decision outputs must satisfy the shared strict-audit predicate.
+
+    Decision-output level only: the compose-and-materialize integration is
+    owned by sf-c5l.7 and deliberately not exercised here.
+    """
+
+    def test_fixture_defect_streams_actually_trip_the_audit_predicate(self):
+        for name, defective_lines in ((R02_FIXTURE, (1, 2, 3)), (R03_FIXTURE, (2, 3))):
+            raw_lines = (FIXTURES / name).read_text(encoding="utf-8").splitlines()
+            for line in defective_lines:
+                events = json.loads(raw_lines[line - 1])["spike_events"]
+                self.assertEqual(
+                    training_audit.event_stream_status(events),
+                    "unsorted",
+                    f"{name}:{line}",
+                )
+                self.assertEqual(
+                    len(check_records.check_spikes(events, f"{name}:{line}")), 1
+                )
+
+    def test_retained_and_repaired_outputs_pass_the_audit_predicate(self):
+        for name in (R02_FIXTURE, R03_FIXTURE):
+            for decision in fixture_decisions(name):
+                events = decision.output_record["spike_events"]
+                where = f"{name}:{decision.manifest['source_line']}"
+                self.assertEqual(
+                    training_audit.event_stream_status(events), "sorted", where
+                )
+                self.assertEqual(check_records.check_spikes(events, where), [])
 
 
 if __name__ == "__main__":
