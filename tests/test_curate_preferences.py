@@ -449,7 +449,7 @@ class PreferencePurityNineteenRegression(unittest.TestCase):
     """
 
     @classmethod
-    def setUpClass(cls):
+    def setUpClass(cls) -> None:
         cls.curation_run = curate_preferences.curate_source(PURITY_FIXTURES)
 
     def decisions_by_location(self):
@@ -580,6 +580,7 @@ class PreferencePurityNineteenRegression(unittest.TestCase):
                 "19/42 preference pairs change state or proposal",
                 source_audit["blockers"],
             )
+            self.assertIs(source_audit["training_ready"], False)
 
             # The curated output must audit at 100% purity with the
             # preference blocker gone.
@@ -638,6 +639,16 @@ class PreferencePurityNineteenRegression(unittest.TestCase):
                     PURITY_FIXTURES,
                     PURITY_FIXTURES / "curated.jsonl",
                     destination / "manifest-3.jsonl",
+                )
+            with self.assertRaisesRegex(
+                curate_preferences.PreferenceCurationError,
+                "output and manifest destinations must differ",
+            ):
+                curate_preferences.write_run(
+                    run,
+                    PURITY_FIXTURES,
+                    destination / "aliased.jsonl",
+                    destination / "aliased.jsonl",
                 )
         hashes_after = {
             path.name: hashlib.sha256(path.read_bytes()).hexdigest()
