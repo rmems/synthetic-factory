@@ -1,0 +1,20 @@
+docs/superpowers/specs/2026-08-18-public-repositories-and-hf-collection-design.md
+  s_9e2578d3baa2a9::t_da96eea1014d24 4-5,11-36,78-82,86-87,94-96,104-107,115-118,238-239,242-244
+  s_9e2578d3baa2a9::t_1d9bb255dcfed5 228-230,271,275-285
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "07acc28518f85c3ef3118bbd30e9bb2658725b94",
+  "prompts": {},
+  "sessions": {
+    "s_9e2578d3baa2a9": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0123b-099e-77b2-ade3-524935723f3f",
+        "model": "gpt-5.6-terra"
+      },
+      "human_author": "Raul Montoya Cardenas <montoyaraul34@gmail.com>"
+    }
+  }
+}
