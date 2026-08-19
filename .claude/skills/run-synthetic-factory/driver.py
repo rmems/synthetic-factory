@@ -55,8 +55,10 @@ TOKEN_EFFICIENCY_DOCS = "docs/token-efficiency.md"
 # Line-anchored to the labeled "Novel coverage: N%" line only, so unrelated
 # percentages in NOTES prose (e.g. "Jaccard overlap peaked at 45%") can never
 # be misread as coverage. Mirrors factory-window.workflow.js novelCoveragePct.
+# An optional parenthetical annotation is documented as valid
+# (docs/token-efficiency.md): "Novel coverage (estimated): 12.5 %".
 NOVEL_COVERAGE_RE = re.compile(
-    r"^\s*novel[ _-]?coverage\s*[:=]?\s*(\d+(?:\.\d+)?)\s*%",
+    r"^\s*novel[ _-]?coverage\s*(?:\([^)\n]*\))?\s*[:=]?\s*(\d+(?:\.\d+)?)\s*%",
     re.IGNORECASE | re.MULTILINE,
 )
 

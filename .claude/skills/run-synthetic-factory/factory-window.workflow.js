@@ -55,10 +55,13 @@ const VERIFICATION = {
     completion_marker: { type: 'string' },
     reason: { type: 'string' },
     // Independently read from the PUBLISHED NOTES file by the verifier —
-    // the token-efficiency early-stop uses this, not the generation
-    // agent's self-report, so one agent cannot kill its lane unaudited.
+    // the token-efficiency early-stop uses this and ONLY this, so a
+    // generation agent's self-report can never drive lane termination.
+    // Required: a verifier that cannot read the line must say so with an
+    // explicit null rather than omitting the field.
     novel_coverage_pct: { type: ['number', 'null'] },
   },
+  required: ['factory', 'round', 'verified', 'next_round', 'records', 'completion_marker', 'reason', 'novel_coverage_pct'],
 }
 
 // Session-A staging handoff for the failure-as-fuel two-session protocol.
@@ -145,7 +148,9 @@ function novelCoveragePct(notesText) {
   // Matches only the labeled line: "Novel coverage: 4.2%", "novel_coverage = 3%",
   // "Novel coverage 12.5 %". Anchored at line start so prose like
   // "...feel novel; Jaccard overlap peaked at 45%" can never match.
-  const m = notesText.match(/^\s*novel[ _-]?coverage\s*[:=]?\s*(\d+(?:\.\d+)?)\s*%/im)
+  // An optional parenthetical annotation is documented as valid
+  // (docs/token-efficiency.md): "Novel coverage (estimated): 12.5 %".
+  const m = notesText.match(/^\s*novel[ _-]?coverage\s*(?:\([^)\n]*\))?\s*[:=]?\s*(\d+(?:\.\d+)?)\s*%/im)
   if (!m) return null
   const v = parseFloat(m[1])
   if (!Number.isFinite(v)) return null
@@ -172,6 +177,23 @@ if (TOKEN_EFFICIENCY.enabled) {
 // queued, preventing a storm of doomed agents. Other lanes continue
 // independently. Early-stop is a clean break (not an error) with the same
 // isolation guarantee.
+// Release an unpublished reservation (best effort) so one failed round does
+// not block a factory's frontier for the rest of the run. Safe by design:
+// round_txn abort refuses to touch a mid-publish or completed round.
+async function releaseReservation(factory, round, rr, token) {
+  const outDir = `${args.root}/outputs/raw/${args.date}/${factory.slug}`
+  log(`${factory.slug} r${rr}: releasing unpublished reservation so the frontier stays retryable`)
+  await agent(`Run exactly this one command and report its result. Do not generate, edit, or publish anything else.
+
+python3 ${args.root}/pipelines/round_txn.py abort ${outDir} --round ${round} --token ${token}
+
+If it reports the round is already committed or mid-publish, that is expected and fine — report it and stop. Set factory="${factory.slug}", round=${round}, staging_dir and reserve_token to the values you were given, and diagnosis_files to [].`, {
+    label: `${factory.slug}:r${rr}-abort`,
+    phase: 'Generate',
+    schema: PREF_STAGE,
+  })
+}
+
 const perFactory = await parallel(FACTORIES.map(factory => async () => {
   const start = STARTS[factory.slug]
   if (!Number.isInteger(start) || start < 1) {
@@ -246,6 +268,7 @@ Return the structured handoff: factory="${factory.slug}", round=${round}, the re
       if (!sessionA || sessionA.factory !== factory.slug || sessionA.round !== round) {
         stoppedReason = `r${rr} session A failed or returned mismatched identity`
         log(`${factory.slug}: ${stoppedReason}; circuit open`)
+        if (sessionA && sessionA.reserve_token) await releaseReservation(factory, round, rr, sessionA.reserve_token)
         break
       }
       result = await agent(`You are Session B (repair synthesis) of the "${factory.name}" two-session protocol, run ${args.date}, round ${round} — a FRESH context with no Session A memory.
@@ -261,6 +284,11 @@ A round exists only if publish succeeds and creates ${expectedMarker}. Repeat th
         phase: 'Generate',
         schema: SUMMARY,
       })
+      // Session A holds the reservation; if Session B never published, release
+      // it so the frontier is not blocked for every later round.
+      if (!result || result.factory !== factory.slug || result.round !== round) {
+        await releaseReservation(factory, round, rr, sessionA.reserve_token)
+      }
     } else {
       result = await agent(prompt, {
         label: `${factory.slug}:r${rr}`,
@@ -317,6 +345,9 @@ For factory ${factory.slug}, independently verify committed round ${round}:
     // semantics: early-stop is a clean per-lane break, not a
     // cross-factory error.
     if (TOKEN_EFFICIENCY.enabled) {
+      // Verifier-sourced ONLY. A null/out-of-range value means the verifier
+      // could not read a coverage line; that holds the streak (see below)
+      // rather than falling back to the generation agent's self-report.
       const pct = typeof verification.novel_coverage_pct === 'number'
         && verification.novel_coverage_pct >= 0 && verification.novel_coverage_pct <= 100
         ? verification.novel_coverage_pct

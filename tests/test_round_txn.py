@@ -67,6 +67,39 @@ class RoundTransaction(unittest.TestCase):
             with self.assertRaisesRegex(round_txn.TransactionError, "not the frontier"):
                 round_txn.reserve(factory, 1, 1)
 
+    def test_abort_releases_reservation_so_round_can_be_retried(self):
+        with tempfile.TemporaryDirectory() as td:
+            factory = self.factory(td)
+            reservation = round_txn.reserve(factory, 1, 1)
+            stage = Path(reservation["staging_dir"])
+            self.assertTrue(stage.is_dir())
+
+            result = round_txn.abort(factory, 1, reservation["token"])
+
+            self.assertTrue(result["aborted"])
+            self.assertEqual(result["next_round"], 1)
+            self.assertFalse(stage.exists())
+            self.assertFalse((factory / "ROUND-r01.reserved.json").exists())
+            # The frontier is retryable: a fresh reservation for r1 succeeds.
+            retry = round_txn.reserve(factory, 1, 1)
+            self.fill_stage(retry, [thalamic("txn-retry")])
+            manifest = round_txn.publish(factory, 1, retry["token"])
+            self.assertEqual(manifest["records"], 1)
+
+    def test_abort_requires_matching_token_and_refuses_committed_round(self):
+        with tempfile.TemporaryDirectory() as td:
+            factory = self.factory(td)
+            reservation = round_txn.reserve(factory, 1, 1)
+            with self.assertRaisesRegex(round_txn.TransactionError, "token mismatch"):
+                round_txn.abort(factory, 1, "not-the-token")
+            self.assertTrue(Path(reservation["staging_dir"]).is_dir())
+
+            self.fill_stage(reservation, [thalamic("txn-committed")])
+            round_txn.publish(factory, 1, reservation["token"])
+            with self.assertRaisesRegex(round_txn.TransactionError, "already committed"):
+                round_txn.abort(factory, 1, reservation["token"])
+            self.assertTrue((factory / "ROUND-r01.complete.json").is_file())
+
     def test_staged_id_cannot_duplicate_a_committed_round(self):
         with tempfile.TemporaryDirectory() as td:
             factory = self.factory(td)
