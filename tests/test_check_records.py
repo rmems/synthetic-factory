@@ -30,13 +30,17 @@ def _thalamic(**overrides):
             "safety": 0.6,
             "total": 1.0,
         },
-        "meta": {"id": "t-001"},
+        "meta": {"id": "t-001", "round": 1},
     }
     rec.update(overrides)
     if "id" not in overrides and isinstance(overrides.get("meta"), dict):
         candidate = overrides["meta"].get("id")
         if isinstance(candidate, str):
             rec["id"] = candidate
+    # meta.round is required at the shape layer; meta overrides here only
+    # target identity, so backfill round unless a test sets it explicitly.
+    if isinstance(rec.get("meta"), dict):
+        rec["meta"].setdefault("round", 1)
     return rec
 
 
@@ -142,7 +146,7 @@ class TestCheckRecords(unittest.TestCase):
     def test_missing_sim_or_real_is_warning_not_error(self):
         rec = _thalamic()
         rec["state"] = {"domain": "no-provenance"}
-        rec["meta"] = {"id": "no-sim"}
+        rec["meta"] = {"id": "no-sim", "round": 1}
         tmp, run_dir = _run_dir([rec])
         with tmp:
             result = check_records.check_run(run_dir)
@@ -184,7 +188,7 @@ class TestCheckRecords(unittest.TestCase):
             "chosen": chosen,
             "rejected": rejected,
             "critique": "Process quality outranks scalar total.",
-            "meta": {"id": "pref-1"},
+            "meta": {"id": "pref-1", "round": 1},
         }
         tmp, run_dir = _run_dir([pair])
         with tmp:
@@ -277,7 +281,7 @@ class TestCheckRecords(unittest.TestCase):
                 meta={"id": "r"},
             ),
             "critique": "Both sides have broken totals.",
-            "meta": {"id": "pref-mismatch"},
+            "meta": {"id": "pref-mismatch", "round": 1},
         }
         tmp, run_dir = _run_dir([pair])
         with tmp:
@@ -329,6 +333,35 @@ class TestCheckRecords(unittest.TestCase):
         proc = _cli([str(FIXTURES)])
         self.assertEqual(proc.returncode, 1, proc.stderr)
         self.assertIn("ERROR", proc.stderr)
+
+    def test_declared_rounding_tolerance_is_capped(self):
+        # The declaration comes from the record under test, so an uncapped
+        # bound would let a record declare its own arithmetic gate away.
+        self.assertEqual(check_records.reward_tolerance({}), check_records.TOL)
+        self.assertEqual(
+            check_records.reward_tolerance({"rounding_decimals": 0}),
+            check_records.MAX_DECLARED_TOL,
+        )
+        self.assertLess(
+            check_records.reward_tolerance({"rounding_decimals": 2}),
+            check_records.MAX_DECLARED_TOL,
+        )
+
+    def test_coarse_rounding_declaration_cannot_hide_a_mismatch(self):
+        rec = _thalamic(
+            reward_components={
+                "task_progress": 0.2,
+                "safety": 0.3,
+                "total": 0.9,  # 0.4 off — far beyond any honest rounding
+                "rounding_decimals": 0,
+            },
+            meta={"id": "coarse-rounding"},
+        )
+        tmp, run_dir = _run_dir([rec])
+        with tmp:
+            result = check_records.check_run(run_dir)
+        self.assertTrue(result["errors"], result)
+        self.assertEqual(result["exit_code"], 1)
 
 
 if __name__ == "__main__":

@@ -1,53 +1,97 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "ThalamicTrajectory",
-  "$comment": "Legacy-compatible shape schema. New publication uses thalamic-trajectory-v2.schema.json.",
+  "description": "Strict generative contract for Thalamic trajectories. Requires top-level id, state.sim_or_real enum, reward_components.total finite, and meta.round integer >=1.",
+  "$comment": "Strict publication shape. New publication must also satisfy thalamic-trajectory-v2.schema.json.",
   "type": "object",
-  "required": ["state", "proposed_action", "safety_decision", "executed_action", "future_outcome", "reward_components"],
+  "required": ["id", "state", "proposed_action", "safety_decision", "executed_action", "future_outcome", "reward_components", "meta"],
   "properties": {
     "id": {
       "type": "string",
       "minLength": 1,
-      "description": "Canonical top-level record ID; mandatory in the v2 publication schema"
+      "description": "Required globally unique stable string record identifier. Must be non-empty; generative models must emit this top-level id verbatim."
     },
     "state": {
       "type": "object",
-      "description": "Rich observable environment, declared memory, goals, and context",
+      "description": "Rich observable environment, declared memory, goals, and context. Requires canonical provenance sim_or_real.",
+      "required": ["sim_or_real"],
       "properties": {
         "sim_or_real": {
+          "type": "string",
           "enum": ["designed", "simulated", "hil"],
-          "description": "Canonical provenance; mandatory in the v2 publication schema"
+          "description": "Required provenance enum: exactly 'designed', 'simulated', or 'hil'. Invented scenarios are 'designed'; never 'real' or 'unknown' in newly generated data."
         }
-      }
+      },
+      "additionalProperties": true
     },
     "proposed_action": {
       "type": "object",
-      "description": "What the base policy proposes, with observable evidence and a concise decision basis; never hidden chain-of-thought"
+      "description": "Object-valued proposed action with observable evidence and concise decision basis; never hidden chain-of-thought."
     },
     "safety_decision": {
       "type": "object",
       "required": ["decision", "rationale"],
       "properties": {
-        "decision": { "enum": ["ACCEPT", "MODIFY", "REJECT"] },
-        "rationale": { "type": "string", "minLength": 1 }
+        "decision": {
+          "enum": ["ACCEPT", "MODIFY", "REJECT"],
+          "description": "Required gate decision: exactly ACCEPT, MODIFY, or REJECT."
+        },
+        "rationale": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Required non-empty rationale tied to observable constraints."
+        }
       }
     },
     "executed_action": {
       "type": "object",
-      "description": "Action actually taken after the safety gate"
+      "description": "Object-valued action actually taken after the safety gate."
     },
     "future_outcome": {
       "type": "object",
-      "description": "Observed results, side-effects, new state, surprises"
+      "description": "Object-valued observed results, side-effects, new state, and surprises."
     },
     "reward_components": {
       "type": "object",
       "required": ["total"],
-      "description": "Decomposed reward (task, safety, efficiency, exploration, etc.) + total"
+      "properties": {
+        "total": {
+          "type": "number",
+          "description": "Required total reward. JSON Schema constrains this only to be a JSON number: finiteness and the arithmetic reconciliation below are NOT expressible here and are enforced downstream. Contract: total must equal the sum of the finite numeric sibling components, excluding the bookkeeping keys aggregation, component_notes, convention, frame, native_unit, notes, provenance_notes, rounding_decimals, total, total_basis, unit_usd, units, weights (the UNWEIGHTED_EXCLUDE vocabulary in pipelines/check_records.py), or the declared weighted sum when a weights map is present. Enforcement: finiteness (no NaN/Infinity/-Infinity, booleans rejected) by is_number() in pipelines/check_records.py and pipelines/validate_run.py; reconciliation within 1e-6 by the reward-arithmetic checks in pipelines/check_records.py. Numeric scaling and serialization on promotion are handled by pipelines/promote.py (build_reward_scale / reward-scale.json)."
+        }
+      },
+      "additionalProperties": true,
+      "description": "Decomposed reward (task, safety, efficiency, exploration, etc.) plus required finite total; total must reconcile with sum of finite components."
+    },
+    "provenance": {
+      "type": "object",
+      "required": ["kind"],
+      "properties": {
+        "kind": {
+          "enum": ["designed", "simulated", "hil", "unknown"],
+          "description": "Strict provenance kind; never 'real'. Newly generated data uses designed|simulated|hil."
+        },
+        "claimed": {
+          "type": ["string", "null"],
+          "description": "Original claimed string for designed remaps; string or null."
+        }
+      },
+      "additionalProperties": true,
+      "description": "Provenance strict: kind must be designed|simulated|hil|unknown."
     },
     "meta": {
       "type": "object",
-      "description": "Optional: distillation notes, neuromorphic tags, failure modes, etc."
+      "required": ["round"],
+      "properties": {
+        "round": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Required factory round number. Must be an integer >=1 (boolean not allowed)."
+        }
+      },
+      "additionalProperties": true,
+      "description": "Required metadata object. Must contain integer round >=1; may also hold distillation notes, tags, or neuromorphic annotations."
     }
-  }
+  },
+  "additionalProperties": true
 }

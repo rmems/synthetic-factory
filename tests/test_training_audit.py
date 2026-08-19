@@ -22,7 +22,7 @@ def thalamic(record_id, provenance="designed", decision="ACCEPT"):
         "executed_action": {"action": "noop"},
         "future_outcome": {"success": True},
         "reward_components": {"task_progress": 0.5, "safety": 0.5, "total": 1.0},
-        "meta": {"tags": ["audit", "fixture"]},
+        "meta": {"tags": ["audit", "fixture"], "round": 1},
     }
 
 

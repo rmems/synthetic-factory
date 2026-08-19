@@ -2,29 +2,60 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "thalamic-trajectory-v2.schema.json",
   "title": "ThalamicTrajectoryV2",
-  "description": "Strict contract for newly published training trajectories",
+  "description": "Strict publication contract for newly generated training trajectories. Requires top-level id, state.sim_or_real enum, reward_components.total finite, and meta.round integer >=1. Generative models must satisfy this schema exactly.",
   "allOf": [
     {
       "$ref": "thalamic-trajectory.schema.json"
     },
     {
       "type": "object",
-      "required": ["id", "state"],
+      "required": ["id", "state", "reward_components", "meta"],
       "properties": {
         "id": {
           "type": "string",
-          "minLength": 1
+          "minLength": 1,
+          "description": "Required globally unique stable string record identifier. Must be non-empty."
         },
         "state": {
           "type": "object",
           "required": ["sim_or_real"],
           "properties": {
             "sim_or_real": {
-              "enum": ["designed", "simulated", "hil"]
+              "type": "string",
+              "enum": ["designed", "simulated", "hil"],
+              "description": "Required provenance enum: exactly 'designed', 'simulated', or 'hil'. Never 'real' or 'unknown'."
             }
-          }
+          },
+          "additionalProperties": true,
+          "description": "Rich observable environment; requires canonical provenance sim_or_real."
+        },
+        "reward_components": {
+          "type": "object",
+          "required": ["total"],
+          "properties": {
+            "total": {
+              "type": "number",
+              "description": "Required finite total; must be a finite number (no NaN/Infinity) equal to sum of finite numeric components excluding bookkeeping keys, reconciled within 1e-6."
+            }
+          },
+          "additionalProperties": true,
+          "description": "Decomposed reward with required finite total."
+        },
+        "meta": {
+          "type": "object",
+          "required": ["round"],
+          "properties": {
+            "round": {
+              "type": "integer",
+              "minimum": 1,
+              "description": "Required factory round number. Must be an integer >=1 (boolean not allowed)."
+            }
+          },
+          "additionalProperties": true,
+          "description": "Required metadata with integer round >=1."
         }
-      }
+      },
+      "additionalProperties": true
     }
   ]
 }
