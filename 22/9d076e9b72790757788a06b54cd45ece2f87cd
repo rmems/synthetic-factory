@@ -1,0 +1,25 @@
+tests/test_verify_hf_release.py
+  s_9e2578d3baa2a9::t_dce80a955bb3e4 5,16-18,116,138-141,182-202,216-229
+pipelines/verify_hf_release.py
+  s_9e2578d3baa2a9::t_398b63391e3fe6 223,231,245,247,254-258
+  s_9e2578d3baa2a9::t_79500e7ed6d698 81-105,224-230,232-244,246,248-253,259-264,505
+  s_9e2578d3baa2a9::t_44e6178b876613 330
+  s_9e2578d3baa2a9::t_027da0897255ed 192-195,265-329,331-383,388-405,463-473,515-517
+  s_9e2578d3baa2a9::t_f23ae5ca9a8376 384-387
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "229d076e9b72790757788a06b54cd45ece2f87cd",
+  "prompts": {},
+  "sessions": {
+    "s_9e2578d3baa2a9": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0123b-099e-77b2-ade3-524935723f3f",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Raul Montoya Cardenas <montoyaraul34@gmail.com>"
+    }
+  }
+}
