@@ -269,13 +269,15 @@ def check_provenance(obj, where):
     if isinstance(state, dict):
         if "sim_or_real" in state:
             val = state.get("sim_or_real")
-            if not isinstance(val, str) or val not in ALLOWED_SIM_OR_REAL:
+            # One violation, one error: a 'real' value gets the specific
+            # (more actionable) message instead of that message plus the
+            # generic enum error, since inflated counts feed training_audit.
+            if isinstance(val, str) and "real" in val.lower():
+                errs.append(f"{where}: state.sim_or_real must not be 'real' (use 'designed')")
+            elif not isinstance(val, str) or val not in ALLOWED_SIM_OR_REAL:
                 errs.append(
                     f"{where}: state.sim_or_real must be one of {sorted(ALLOWED_SIM_OR_REAL)}"
                 )
-            # Explicit 'real' rejection (case-insensitive substring)
-            if isinstance(val, str) and "real" in val.lower():
-                errs.append(f"{where}: state.sim_or_real must not be 'real' (use 'designed')")
         else:
             # For v2 thalamic shapes, sim_or_real is mandatory; flag missing
             # only when state looks like a thalamic state (has any expected key)
@@ -349,11 +351,15 @@ def check_provenance_publish(obj, where):
 
 
 def check_meta_round(obj, where):
-    """Require meta.round presence and integer >=1."""
+    """Require meta.round presence and integer >=1.
+
+    A missing or non-object `meta` is already reported by the required-key
+    loop in check_thalamic, so this returns quietly in that case rather than
+    emitting a second error for the same violation.
+    """
     errs = []
     meta = obj.get("meta")
     if not isinstance(meta, dict):
-        errs.append(f"{where}: meta must be an object with integer 'round'")
         return errs
     if "round" not in meta:
         errs.append(f"{where}: meta.round is required")
@@ -392,8 +398,8 @@ def check_thalamic(obj, where):
     rc = obj.get("reward_components")
     if isinstance(rc, dict):
         errs += check_reward_total(rc, where)
-    elif rc is not None and not isinstance(rc, dict):
-        errs.append(f"{where}: reward_components must be an object")
+    # A non-object reward_components is already reported by the required-key
+    # loop above; do not emit a second error for the same violation.
     else:
         # rc missing already reported via required-key loop; also handle explicit missing total
         if rc is None:

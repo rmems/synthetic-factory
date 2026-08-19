@@ -20,6 +20,7 @@ V2_SCHEMA = REPO / "schemas" / "thalamic-trajectory-v2.schema.json"
 
 sys.path.insert(0, str(REPO / "pipelines"))
 
+import validate_run  # noqa: E402
 import verify_execution  # noqa: E402
 
 # Minimal record that passes the thalamic shape check (required keys + decision).
@@ -286,7 +287,27 @@ class ValidateMetaRound(unittest.TestCase):
         result = _run_with_record(rec)
         self.assertEqual(result.returncode, 1, result.stderr)
         self.assertIn("meta", result.stderr)
-        self.assertIn("round", result.stderr)
+        # One violation, one error: an absent meta is reported by the
+        # required-key check only; check_meta_round no longer adds a second
+        # error for the same missing field.
+        self.assertEqual(result.stderr.strip().count("ERROR:"), 1, result.stderr)
+
+    def test_one_violation_reports_exactly_one_error(self):
+        cases = {
+            "real provenance": lambda r: r.__setitem__("state", {"sim_or_real": "real"}),
+            "invalid provenance": lambda r: r.__setitem__("state", {"sim_or_real": "bogus"}),
+            "meta wrong type": lambda r: r.__setitem__("meta", "not-an-object"),
+            "reward wrong type": lambda r: r.__setitem__("reward_components", "not-an-object"),
+        }
+        for label, mutate in cases.items():
+            with self.subTest(case=label):
+                rec = copy.deepcopy(TINY_THALAMIC)
+                mutate(rec)
+                result = _run_with_record(rec)
+                self.assertEqual(result.returncode, 1, result.stderr)
+                self.assertEqual(
+                    result.stderr.strip().count("ERROR:"), 1, f"{label}: {result.stderr}"
+                )
 
     def test_meta_round_not_integer_fails(self):
         rec = copy.deepcopy(TINY_THALAMIC)
@@ -424,3 +445,64 @@ class VerifyFrontierMalformedRecords(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class SchemaRefResolution(unittest.TestCase):
+    """The v2 schema layers on v1 via a relative $ref, and validate_run derives
+    its required-key sets from v1. Nothing else checks that those three stay in
+    agreement, so a schema edit can silently change validator behavior.
+    """
+
+    SCHEMA_DIR = REPO / "schemas"
+
+    def _load(self, name):
+        return json.loads((self.SCHEMA_DIR / name).read_text())
+
+    def test_v2_relative_ref_resolves_to_a_parseable_schema(self):
+        v2 = self._load("thalamic-trajectory-v2.schema.json")
+        refs = [
+            part["$ref"]
+            for part in v2.get("allOf", [])
+            if isinstance(part, dict) and "$ref" in part
+        ]
+        self.assertTrue(refs, "v2 schema must layer on the base schema via $ref")
+        for ref in refs:
+            self.assertFalse(
+                ref.startswith(("http://", "https://")),
+                f"$ref must stay repo-relative, got {ref}",
+            )
+            target = (self.SCHEMA_DIR / ref).resolve()
+            self.assertTrue(target.is_file(), f"unresolvable $ref target: {ref}")
+            json.loads(target.read_text())
+
+    def test_validator_key_sets_match_the_base_schema(self):
+        base = self._load("thalamic-trajectory.schema.json")
+        self.assertEqual(
+            list(validate_run.THALAMIC_REQUIRED),
+            list(base["required"]),
+            "validate_run derives THALAMIC_REQUIRED from the base schema; they drifted",
+        )
+        for key in validate_run.THALAMIC_OBJECT_KEYS:
+            self.assertEqual(base["properties"][key].get("type"), "object", key)
+        for key in validate_run.THALAMIC_STRING_KEYS:
+            self.assertEqual(base["properties"][key].get("type"), "string", key)
+        self.assertNotIn(
+            "meta",
+            validate_run.THALAMIC_CORE_KEYS,
+            "routing must not require meta, or legacy records skip every invariant",
+        )
+
+    def test_v2_required_keys_are_a_subset_of_the_resolved_union(self):
+        base = self._load("thalamic-trajectory.schema.json")
+        v2 = self._load("thalamic-trajectory-v2.schema.json")
+        local = [
+            part for part in v2.get("allOf", [])
+            if isinstance(part, dict) and "required" in part
+        ]
+        for part in local:
+            for key in part["required"]:
+                self.assertIn(
+                    key,
+                    base["properties"],
+                    f"v2 requires {key!r} which the resolved base schema does not define",
+                )
