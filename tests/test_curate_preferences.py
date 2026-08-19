@@ -657,5 +657,62 @@ class PreferencePurityNineteenRegression(unittest.TestCase):
         self.assertEqual(hashes_after, GOLDEN_FIXTURE_SHA256)
 
 
+RAW_FFPC = (
+    REPO / "outputs" / "raw" / "2026-08-17" / "failure-as-fuel-preference-cascade"
+)
+
+
+@unittest.skipUnless(
+    RAW_FFPC.is_dir(),
+    "raw ffpc corpus not present in this checkout (gitignored); "
+    "fidelity is re-derived only where the immutable raw tree exists",
+)
+class PreferencePurityRawCorpusFidelity(unittest.TestCase):
+    """Independently verify the fixture corpus corresponds to the raw corpus.
+
+    The committed fixture mirrors the real raw ffpc corpus by construction,
+    but the committed evidence (golden hashes, expected decisions) is authored
+    alongside the fixture. Where the gitignored raw tree is present, this
+    read-only check re-derives the correspondence from first principles: the
+    raw scan must reproduce the bead figures, and the fixture must reproduce
+    the raw corpus's summary and per-line decision map exactly.
+    """
+
+    def test_fixture_decision_map_matches_a_fresh_raw_corpus_scan(self):
+        raw_run = curate_preferences.curate_source(RAW_FFPC)
+        fixture_run = curate_preferences.curate_source(PURITY_FIXTURES)
+
+        self.assertEqual(raw_run.summary["preference_records"], 42)
+        self.assertEqual(raw_run.summary["impure_pairs"], 19)
+        comparable_keys = (
+            "json_records_seen",
+            "preference_records",
+            "skipped_non_preference_records",
+            "impure_pairs",
+            "retained_pairs",
+            "excluded_pairs",
+            "actions",
+            "classifications",
+            "reason_codes",
+            "retained_context_purity_pct",
+        )
+        for key in comparable_keys:
+            self.assertEqual(
+                fixture_run.summary[key], raw_run.summary[key], key
+            )
+
+        def decision_map(run):
+            return {
+                (entry["source_path"], entry["source_line"]): (
+                    entry["action"],
+                    entry["classification"],
+                    tuple(entry["reason_codes"]),
+                )
+                for entry in run.manifest
+            }
+
+        self.assertEqual(decision_map(fixture_run), decision_map(raw_run))
+
+
 if __name__ == "__main__":
     unittest.main()
