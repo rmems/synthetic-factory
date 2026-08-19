@@ -28,6 +28,10 @@ where it differs from the executed public release.
 - Apache License 2.0 is explicitly authorized for each public dataset
   repository. Each card declares `license: apache-2.0` and each repository
   contains the full `LICENSE` text.
+- Each provenance record pins a `raw_snapshot`: the immutable Hub commit that
+  contains its raw JSONL evidence plus a SHA-256 identity for every declared
+  raw file. Central verification fetches those files through the pinned commit,
+  never by the mutable `main` branch name.
 - A diagnostic cleaner run may write a fresh, date-labelled destination only.
   It must preserve `outputs/raw/2026-08-17` and must state whether remaining
   curation gates prevent promotion.
