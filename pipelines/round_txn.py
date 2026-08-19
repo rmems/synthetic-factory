@@ -412,6 +412,44 @@ def publish(factory_dir: Path, round_number: int, token: str):
     return manifest
 
 
+def abort(factory_dir: Path, round_number: int, token: str):
+    """Release an unpublished reservation so a failed round can be retried.
+
+    Without this, a generation failure between reserve and publish leaves the
+    reservation in place and `reserve` rejects the round forever, blocking the
+    factory frontier. Refuses to touch a round that already started publishing
+    or completed — those are past the commit point and must not be rolled back.
+    """
+    factory_dir = Path(factory_dir).resolve()
+    paths = marker_paths(factory_dir, round_number)
+    if paths["complete"].exists():
+        raise TransactionError(
+            f"round r{round_number:02d} is already committed; refusing to abort"
+        )
+    if paths["publishing"].exists():
+        raise TransactionError(
+            f"round r{round_number:02d} is mid-publish; resume publish instead of aborting"
+        )
+    if not paths["reservation"].exists():
+        raise TransactionError(f"no reservation to abort for round r{round_number:02d}")
+    reservation = read_json(paths["reservation"])
+    if reservation.get("token") != token:
+        raise TransactionError("reservation token mismatch")
+
+    stage = Path(reservation.get("staging_dir", "")).resolve()
+    expected_stage = staging_dir(factory_dir, round_number, token).resolve()
+    if stage == expected_stage:
+        shutil.rmtree(stage, ignore_errors=True)
+    paths["reservation"].unlink(missing_ok=True)
+    return {
+        "factory": factory_dir.name,
+        "round": round_number,
+        "aborted": True,
+        "released_staging_dir": str(stage),
+        "next_round": frontier_status(factory_dir)["next_round"],
+    }
+
+
 def parse_args(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     sub = parser.add_subparsers(dest="command", required=True)
@@ -425,6 +463,10 @@ def parse_args(argv=None):
     pub.add_argument("factory_dir")
     pub.add_argument("--round", type=int, required=True, dest="round_number")
     pub.add_argument("--token", required=True)
+    abt = sub.add_parser("abort")
+    abt.add_argument("factory_dir")
+    abt.add_argument("--round", type=int, required=True, dest="round_number")
+    abt.add_argument("--token", required=True)
     return parser.parse_args(argv)
 
 
@@ -435,6 +477,8 @@ def main(argv=None):
             result = frontier_status(Path(args.factory_dir))
         elif args.command == "reserve":
             result = reserve(Path(args.factory_dir), args.round_number, args.expected)
+        elif args.command == "abort":
+            result = abort(Path(args.factory_dir), args.round_number, args.token)
         else:
             result = publish(Path(args.factory_dir), args.round_number, args.token)
     except (OSError, TransactionError) as exc:

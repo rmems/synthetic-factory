@@ -28,6 +28,26 @@ class WorkflowContract(unittest.TestCase):
     def test_start_round_must_be_positive_integer(self):
         self.assertIn("!Number.isInteger(start) || start < 1", self.text)
 
+    def test_preference_session_a_uses_indexed_staging_names(self):
+        session_a = self.text.split("You are Session A", 1)[1].split("You are Session B", 1)[0]
+        self.assertNotIn("rejected-0i-", session_a)
+        self.assertNotIn("diagnosis-0i-", session_a)
+        self.assertIn("rejected-01-r${rr}.json", session_a)
+        self.assertIn("rejected-02-r${rr}.json", session_a)
+        self.assertIn("rejected-03-r${rr}.json", session_a)
+        self.assertIn("diagnosis-01-r${rr}.md", session_a)
+        self.assertIn("diagnosis-02-r${rr}.md", session_a)
+        self.assertIn("diagnosis-03-r${rr}.md", session_a)
+
+    def test_release_reservation_does_not_treat_mid_publish_as_success(self):
+        release = self.text.split("async function releaseReservation", 1)[1]
+        release = release.split("const perFactory", 1)[0]
+        self.assertIn("receipt.aborted", release)
+        self.assertIn("round_txn.py publish", release)
+        self.assertIn("resumed mid-publish", release)
+        self.assertNotIn("gone/committed/mid-publish", release)
+        self.assertNotIn("already committed or mid-publish", release)
+
 
 if __name__ == "__main__":
     unittest.main()

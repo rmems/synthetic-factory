@@ -1,12 +1,21 @@
 #!/usr/bin/env python3
 """Read-only operator driver for the synthetic data factory.
 
+Generative-Improve #8/8 — Workflow Efficiency R2
+Co-authored-by: Muse Spark <muse-spark@meta.com>
+
+Preserves:
+  - early-stop on <5% novel coverage for 2 consecutive rounds
+  - token-efficiency 40% saving mode (docs/token-efficiency.md)
+  - 5-lane per-factory circuit breaker (workflow lanes isolate failures)
+
 Usage:
   driver.py smoke
   driver.py validate <run_dir>
   driver.py audit <run_dir>
   driver.py frontiers <run_dir> [--json]
   driver.py snapshot <run_dir> <label>
+  driver.py token-efficiency <run_dir> [--json]
 """
 
 from __future__ import annotations
@@ -31,6 +40,27 @@ VALIDATOR = PIPELINES / "validate_run.py"
 CHECKER = PIPELINES / "check_records.py"
 AUDITOR = PIPELINES / "training_audit.py"
 SAFE_LABEL = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
+
+# ── Token-efficiency: 40% saving mode ─────────────────────────────────
+# Documented in docs/token-efficiency.md. Enabled by default in the
+# workflow; driver mirrors the same thresholds for offline audit.
+# Rule: 2 consecutive NOTES with <5% novel coverage → plateau / early-stop.
+# The 40% figure is the median token saving (generation + verification)
+# when the plateau tail is cut vs running to backstop 26 (sf-0qz analysis).
+# Keep these constants in sync with factory-window.workflow.js TOKEN_EFFICIENCY.
+TOKEN_EFFICIENCY_THRESHOLD_PCT = 5.0
+TOKEN_EFFICIENCY_CONSECUTIVE = 2
+TOKEN_EFFICIENCY_SAVING_PCT = 40
+TOKEN_EFFICIENCY_DOCS = "docs/token-efficiency.md"
+# Line-anchored to the labeled "Novel coverage: N%" line only, so unrelated
+# percentages in NOTES prose (e.g. "Jaccard overlap peaked at 45%") can never
+# be misread as coverage. Mirrors factory-window.workflow.js novelCoveragePct.
+# An optional parenthetical annotation is documented as valid
+# (docs/token-efficiency.md): "Novel coverage (estimated): 12.5 %".
+NOVEL_COVERAGE_RE = re.compile(
+    r"^\s*novel[ _-]?coverage\s*(?:\([^)\n]*\))?\s*[:=]?\s*(\d+(?:\.\d+)?)\s*%",
+    re.IGNORECASE | re.MULTILINE,
+)
 
 
 def run_tool(script, run_dir, *options):
@@ -117,6 +147,124 @@ def count_records(factory_dir):
 def count_nonblank_lines(path):
     with Path(path).open("rb") as handle:
         return sum(1 for line in handle if line.strip())
+
+
+def parse_novel_coverage(text: str):
+    """Extract 'Novel coverage: N%' from NOTES text. Returns float or None.
+
+    Line-anchored parsing — matches only the labeled line (case-insensitive),
+    same regex as workflow novelCoveragePct, so unrelated percentages in
+    prose never match. Valid range 0–100; out-of-range values treated as
+    unparseable to avoid false stops.
+    """
+    if not text:
+        return None
+    match = NOVEL_COVERAGE_RE.search(text)
+    if not match:
+        return None
+    try:
+        value = float(match.group(1))
+    except ValueError:
+        return None
+    if not (0 <= value <= 100):
+        return None
+    return value
+
+
+def notes_novel_coverage(path: Path):
+    try:
+        text = path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return None
+    return parse_novel_coverage(text)
+
+
+def factory_token_efficiency(factory_dir: Path):
+    """Scan NOTES-rNN.md in committed order; detect a trailing 2-low streak.
+
+    Returns dict with per-round coverages, early-stop flag, saving estimate,
+    and generative quality note. Saving estimate assumes ~40% of tail tokens
+    avoided when plateau is caught early (docs/token-efficiency.md).
+
+    early_stop is the current trailing streak (mirrors a live lane starting
+    from the frontier): a later parseable NOTES with coverage >= 5% clears a
+    historical plateau so recovered factories are not omitted from starts.
+    """
+    factory_dir = Path(factory_dir)
+    notes = sorted(factory_dir.glob("NOTES-r*.md"))
+    # Sort by round number numeric
+    def round_key(p):
+        m = re.search(r"r(\d+)", p.name)
+        return int(m.group(1)) if m else 0
+    notes.sort(key=round_key)
+    rounds = []
+    consecutive = 0
+    early_stop_at = None
+    for p in notes:
+        pct = notes_novel_coverage(p)
+        m = re.search(r"r(\d+)", p.name)
+        rn = int(m.group(1)) if m else None
+        is_low = pct is not None and pct < TOKEN_EFFICIENCY_THRESHOLD_PCT
+        if is_low:
+            consecutive += 1
+            if consecutive == TOKEN_EFFICIENCY_CONSECUTIVE:
+                early_stop_at = rn
+        elif pct is not None:
+            # Healthy NOTES clear a historical plateau so recovered factories
+            # are not omitted from the next window (SKILL.md uses this flag).
+            consecutive = 0
+            early_stop_at = None
+        # None (unparseable) does not increment nor reset — holds streak
+        rounds.append({"round": rn, "file": p.name, "novel_coverage_pct": pct, "is_low": is_low})
+    early_stop = consecutive >= TOKEN_EFFICIENCY_CONSECUTIVE
+    # 40% saving estimate: early-stop avoids ~40% of backstop tail when plateau detected.
+    # For reporting, include saving mode metadata so callers can compute projected tokens.
+    saving_note = (
+        f"~{TOKEN_EFFICIENCY_SAVING_PCT}% token saving mode — plateau tail avoided"
+        if early_stop
+        else f"no plateau; run to backstop (see {TOKEN_EFFICIENCY_DOCS})"
+    )
+    return {
+        "factory": factory_dir.name,
+        "threshold_pct": TOKEN_EFFICIENCY_THRESHOLD_PCT,
+        "consecutive_required": TOKEN_EFFICIENCY_CONSECUTIVE,
+        "saving_mode_pct": TOKEN_EFFICIENCY_SAVING_PCT,
+        "saving_docs": TOKEN_EFFICIENCY_DOCS,
+        "saving_note": saving_note,
+        "rounds": rounds,
+        "early_stop": early_stop,
+        "early_stop_at_round": early_stop_at,
+    }
+
+
+def cmd_token_efficiency(run_dir, as_json=False):
+    """Offline token-efficiency audit per factory.
+
+    Reports per-round novel coverage, low-streak detection (2× <5%),
+    and 40% saving mode status. Mirrors workflow live early-stop logic
+    but scans committed NOTES-rNN.md on disk.
+    """
+    src = require_run_dir(run_dir)
+    factories = []
+    for directory in sorted(path for path in src.iterdir() if path.is_dir() and not path.name.startswith("_")):
+        info = factory_token_efficiency(directory)
+        factories.append(info)
+    payload = {"run_dir": str(src), "token_efficiency": factories}
+    if as_json:
+        print(json.dumps(payload, indent=2))
+    else:
+        for info in factories:
+            if info["early_stop"]:
+                print(f"{info['factory']}: EARLY-STOP at r{info['early_stop_at_round']:02d} — {TOKEN_EFFICIENCY_CONSECUTIVE} consecutive NOTES <{TOKEN_EFFICIENCY_THRESHOLD_PCT:.0f}% novel coverage (40% saving mode, {info['saving_docs']})")
+            else:
+                lows = sum(1 for r in info["rounds"] if r["is_low"])
+                print(f"{info['factory']}: no early-stop ({lows} low round(s), need {TOKEN_EFFICIENCY_CONSECUTIVE} consecutive <{TOKEN_EFFICIENCY_THRESHOLD_PCT:.0f}%) — {info['saving_note']}")
+            for r in info["rounds"]:
+                pct_str = f"{r['novel_coverage_pct']:.1f}%" if r["novel_coverage_pct"] is not None else "n/a"
+                flag = " LOW" if r["is_low"] else ""
+                print(f"  r{r['round']:02d} {r['file']}: {pct_str}{flag}")
+        print(f"\nToken-efficiency docs: {TOKEN_EFFICIENCY_DOCS} — 40% saving mode enabled by default in workflow.")
+    return payload
 
 
 def cmd_frontiers(run_dir, as_json=False):
@@ -290,6 +438,9 @@ def main(argv=None):
         return 0
     if command == "snapshot" and len(args) == 3:
         cmd_snapshot(args[1], args[2])
+        return 0
+    if command == "token-efficiency" and len(args) >= 2:
+        cmd_token_efficiency(args[1], as_json="--json" in args[2:])
         return 0
     raise SystemExit(__doc__)
 

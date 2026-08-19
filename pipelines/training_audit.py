@@ -128,6 +128,8 @@ def audit_run(run_dir: Path):
     provenance = Counter()
     provenance_examples = defaultdict(list)
     gate_by_role = defaultdict(Counter)
+    gate_errors = Counter()
+    gate_error_examples = []
     preference = Counter()
     chosen_decisions = Counter()
     reward_keys = Counter()
@@ -225,9 +227,21 @@ def audit_run(run_dir: Path):
                     provenance_examples[label].append(f"{where}:{state_path}={value!r}")
 
             for role, trajectory in thalamic_views(obj, kind):
-                decision = dict_field(trajectory, "safety_decision").get("decision")
+                sd = dict_field(trajectory, "safety_decision")
+                decision = sd.get("decision")
                 if isinstance(decision, str):
                     gate_by_role[role][decision] += 1
+                # Factory-01 mandates 1-in-5 intentionally-incorrect gates,
+                # marked via safety_decision.correctness="incorrect" and/or
+                # meta.supervisor_error_type. Count them so deliberately
+                # flawed rationales are visible (and excludable) instead of
+                # blending into gold supervision data.
+                error_type = dict_field(trajectory, "meta").get("supervisor_error_type")
+                if sd.get("correctness") == "incorrect" or error_type:
+                    gate_errors["marked"] += 1
+                    gate_errors[str(error_type) if error_type else "unspecified"] += 1
+                    if len(gate_error_examples) < 5:
+                        gate_error_examples.append(f"{where}:{role}")
 
             if kind == "preference":
                 preference["pairs"] += 1
@@ -367,6 +381,15 @@ def audit_run(run_dir: Path):
             "examples": dict(provenance_examples),
         },
         "gates": {role: dict(sorted(counts.items())) for role, counts in sorted(gate_by_role.items())},
+        "gate_errors": {
+            "marked": gate_errors.get("marked", 0),
+            "by_type": {
+                key: count
+                for key, count in sorted(gate_errors.items())
+                if key != "marked"
+            },
+            "examples": gate_error_examples,
+        },
         "preferences": {
             **dict(preference),
             "context_purity_pct": round(
@@ -441,6 +464,9 @@ def render_markdown(report):
             f"- Bridge fidelity: {report['bridge'].get('sorted_pairs', 0)}/"
             f"{report['bridge'].get('pairs', 0)} pairs globally time-ordered; "
             f"{report['bridge'].get('pairs_48_plus', 0)} have at least 48 events.",
+            f"- Intentional gate-error records (marked): {report['gate_errors']['marked']} "
+            f"`{json.dumps(report['gate_errors']['by_type'], sort_keys=True)}` — "
+            "exclude from gate-rationale supervision lanes.",
         ]
     )
     return "\n".join(lines) + "\n"

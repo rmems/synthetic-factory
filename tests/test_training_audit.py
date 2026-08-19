@@ -45,6 +45,22 @@ class TrainingAudit(unittest.TestCase):
         self.assertEqual(report["rewards"]["unique_shapes"], 1)
         self.assertGreater(report["totals"]["approx_tokens"], 0)
 
+    def test_marked_gate_errors_are_counted(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            wrong = thalamic("gate-err-1", decision="MODIFY")
+            wrong["safety_decision"]["correctness"] = "incorrect"
+            wrong["meta"]["supervisor_error_type"] = "wrong-modify"
+            clean = thalamic("gate-ok-1")
+            write(root / "thalamic-trajectory-factory" / "batch-r01.jsonl", [wrong, clean])
+            report = training_audit.audit_run(root)
+            markdown = training_audit.render_markdown(report)
+
+        self.assertEqual(report["gate_errors"]["marked"], 1)
+        self.assertEqual(report["gate_errors"]["by_type"], {"wrong-modify": 1})
+        self.assertTrue(report["gate_errors"]["examples"])
+        self.assertIn("Intentional gate-error records", markdown)
+
     def test_legacy_meta_id_and_thought_are_reported_separately(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
