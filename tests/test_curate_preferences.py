@@ -22,16 +22,16 @@ PURITY_FIXTURES = REPO / "tests" / "fixtures" / "preference-purity"
 # under test — even an idempotent one performed before the immutability test
 # takes its baseline — fails loudly instead of self-verifying.
 GOLDEN_FIXTURE_SHA256 = {
-    "batch-r02.jsonl": "521e63b18f8729cc75562fac25c5396cf3a031eeb8be3cb2093a064ec4bb66c4",
-    "batch-r03.jsonl": "b062c64d7dbe826ebbab96b08d9c3b89a281997feebf9d4d5c52d59c8c8a4dd7",
-    "batch-r04.jsonl": "84e747c8506b5bd0c1317a548089e9819aa6a58ac5b9ab87b5db12bdd5479b6d",
-    "batch-r05.jsonl": "ebd628fbcef9991ba43ee5a06c23995030b9335bc4c81170a4e679e3983307a0",
-    "batch-r06.jsonl": "e0ba73b4bd9cfd690631c646df5278b610479cde85caa8a7aab2af89662461d1",
-    "batch-r07.jsonl": "0bce1d223ed3c445aff99e9952358d3060cdc0ee111af2155250539ca3ce9093",
-    "batch-r08.jsonl": "528e8f25a27a58ac2b08b9473f8c461b15d998b98361a4352809fefed8b479d0",
-    "batch-r09.jsonl": "6e1c765ff73e77ee99df49a49629666f9b2bf69d8caa72d3736de8cb29a3953b",
-    "batch-r10.jsonl": "f3ddd8ff99d5517eb628d093e2d75d55ac38fe9d40caad84afd91be973b2be42",
-    "preferences.jsonl": "f5809982dcfa792c127a7602242d4cfdb5c0265941e5d400ffe42f8f9b16f739",
+    "batch-r02.jsonl": "9f85fd74e6974f91fbc9e6a59b4189e2cd93fdd4aaf12c081460132947aefdcc",
+    "batch-r03.jsonl": "df8bc117a6e9347e9c8cf71ec3f408c7c36a49d708be1d9ea0d0d6ced5ecbd67",
+    "batch-r04.jsonl": "60cf07294147cce075287ec468bbbec93a188b1508766bbdf2515686f90480fb",
+    "batch-r05.jsonl": "6baf5f651c03da46fcbe4e9fd057d1f27eed97701d303847bcb2ccb2721818cc",
+    "batch-r06.jsonl": "cb6cace4b68f20333809fe63ece0994c4744d3b92a926d689b819636203e3edf",
+    "batch-r07.jsonl": "c63f8a1fb02fe88a394495c0b85635df43c0860fcc52f8a6724e598fcfff287e",
+    "batch-r08.jsonl": "5741c3bdcc276972bdaefc6d2c1734beea579c5416782f47ea3e60ba6a8769d1",
+    "batch-r09.jsonl": "9aa62ca8bd273869c994c4370839dfcbef115d53bad9637b4511a5c3cc02b6e5",
+    "batch-r10.jsonl": "43e91b9967322aeeae3a06bb1fb9c6c806731f39c56ec389bb5fc28c0610570b",
+    "preferences.jsonl": "12b0062d4a2d3f7494979bfda863401abf8faa26ab3ade426b6bfda94cdd0cff",
 }
 
 # The nineteen impure pairs, keyed by (file, line), mirroring the read-only
@@ -602,6 +602,11 @@ class PreferencePurityNineteenRegression(unittest.TestCase):
             )
             for blocker in curated_audit["blockers"]:
                 self.assertNotIn("preference pairs change state or proposal", blocker)
+            # Audited alone, the curated preference lane clears every strict
+            # gate. This is a per-lane statement: the full corpus stays
+            # blocked until the remaining sf-c5l lanes land.
+            self.assertEqual(curated_audit["blockers"], [])
+            self.assertIs(curated_audit["training_ready"], True)
 
             emitted = [
                 json.loads(line) for line in output.read_text().splitlines()
