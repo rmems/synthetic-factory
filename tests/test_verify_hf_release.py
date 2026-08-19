@@ -2,6 +2,7 @@
 """Focused tests for the read-only public Hugging Face release verifier."""
 
 import hashlib
+import base64
 import json
 import sys
 import unittest
@@ -12,6 +13,9 @@ REPO = Path(__file__).resolve().parents[1]
 LICENSE_TEXT = (REPO / "LICENSE").read_text(encoding="utf-8")
 RAW_BYTES = b'{"synthetic":true}\n'
 REVISION = "a" * 40
+VALID_PARQUET = base64.b64decode(
+    "UEFSMRUEFRYVGkwVAhUAEgAACygHAAAAYS5qc29ubBUAFRIVFiwVAhUQFQYVBhw2ACgHYS5qc29ubBgHYS5qc29ubBERAAAACSACAAAAAgEBAgAVBBUQFRRMFQIVABIAAAgcAQAAAAAAAAAVABUSFRYsFQIVEBUGFQYcGAgBAAAAAAAAABgIAQAAAAAAAAAWACgIAQAAAAAAAAAYCAEAAAAAAAAAEREAAAAJIAIAAAACAQECABUEFQwVEEwVAhUAEgAABhQCAAAAe30VABUSFRYsFQIVEBUGFQYcNgAoAnt9GAJ7fRERAAAACSACAAAAAgEBAgAVBBlMNQAYBnNjaGVtYRUGABUMJQIYC3NvdXJjZV9maWxlJQBMHAAAABUEJQIYC3NvdXJjZV9saW5lABUMJQIYC3JlY29yZF9qc29uJQBMHAAAABYCGRwZPCYAHBUMGTUABhAZGAtzb3VyY2VfZmlsZRUCFgIWlgEWngEmPiYIHDYAKAdhLmpzb25sGAdhLmpzb25sEREAGSwVBBUAFQIAFQAVEBUCADwWDhkGGSYAAgAAACYAHBUEGTUABhAZGAtc291cmNlX2xpbmUVAhYCFq8BFsQBJsYBJqYBHGAgBAAAAAAAAABgIAQAAAAAAAAAWACgIAQAAAAAAAAAYCAEAAAAAAAAAEREAGSwVBBUAFQIAFQAVEBUCADwpBhkmAAIAAAAmABwVDBk1AAYQGRgLcmVjb3JkX2pzb24VAhYCFngWgAEmlgMm6gIcNgAoAnt9GAJ7fRERABksFQQVABUCABUAFRAVAgA8FgQZBhkmAAIAAAAWygMWAiYIFuIDABkcGAxBUlJPVzpzY2hlbWEYwAIvLy8vLytnQUFBQVFBQUFBQUFBS0FBd0FCZ0FGQUFnQUNnQUFBQUFCQkFBTUFBQUFDQUFJQUFBQUJBQUlBQUFBQkFBQUFBTUFBQUNFQUFBQU5BQUFBQVFBQUFDWS8vLy9BQUFCQlJBQUFBQWNBQUFBQkFBQUFBQUFBQUFMQUFBQWNtVmpiM0prWDJwemIyNEFpUC8vLzhULy8vOEFBQUVDRUFBQUFDUUFBQUFFQUFBQUFBQUFBQXNBQUFCemIzVnlZMlZmYkdsdVpRQUlBQXdBQ0FBSEFBZ0FBQUFBQUFBQlFBQUFBQkFBRkFBSUFBWUFCd0FNQUFBQUVBQVFBQUFBQUFBQkJSQUFBQUFnQUFBQUJBQUFBQUFBQUFBTEFBQUFjMjkxY21ObFgyWnBiR1VBQkFBRUFBUUFBQUFBQUFBQQAYIHBhcnF1ZXQtY3BwLWFycm93IHZlcnNpb24gMjQuMC4wGTwcAAAcAAAcAAAAAQMAAFBBUjE="
+)
 sys.path.insert(0, str(REPO / "pipelines"))
 import verify_hf_release  # noqa: E402
 
@@ -89,10 +93,6 @@ def _provenance(*, raw_digest: str | None = None) -> str:
     )
 
 
-def _parquet_frame(metadata: bytes = b"metadata") -> bytes:
-    return b"PAR1" + metadata + len(metadata).to_bytes(4, "little") + b"PAR1"
-
-
 class ReleaseVerifierTests(unittest.TestCase):
     def setUp(self) -> None:
         self.repo = verify_hf_release.DATASET_REPOS[0]
@@ -113,7 +113,7 @@ class ReleaseVerifierTests(unittest.TestCase):
     def bytes_fetcher(url: str, timeout: float) -> bytes:
         del timeout
         if url.endswith("/data/viewer/records.parquet"):
-            return _parquet_frame()
+            return VALID_PARQUET
         if url.endswith(f"/{REVISION}/data/raw/batch.jsonl"):
             return RAW_BYTES
         raise AssertionError(url)
@@ -134,6 +134,10 @@ class ReleaseVerifierTests(unittest.TestCase):
         self.assertIn(
             "README front matter must declare license: apache-2.0", self.verify().errors
         )
+
+    def test_single_quoted_license_front_matter_is_supported(self) -> None:
+        self.values["README.md"] = _card(license_name="'apache-2.0'")
+        self.assertTrue(self.verify().ok, self.verify().errors)
 
     def test_exact_grok_identity_is_required(self) -> None:
         self.values["README.md"] = _card(include_grok=False)
@@ -175,6 +179,27 @@ class ReleaseVerifierTests(unittest.TestCase):
             "raw payload digest mismatch for data/raw/batch.jsonl", self.verify().errors
         )
 
+    def test_non_object_provenance_fails_without_crashing(self) -> None:
+        self.values["provenance.json"] = "[]"
+        result = self.verify()
+        self.assertIn("provenance.json must contain a JSON object", result.errors)
+
+    def test_required_card_markers_must_be_in_owned_sections(self) -> None:
+        self.values["README.md"] = _card().replace(
+            "Grok Build (Grok 4.6(xhigh))", "Grok Build (Grok 4.6(xhigh))"
+        ).replace(
+            "## Generation attribution",
+            "## Notes\nGrok Build (Grok 4.6(xhigh))\n\n## Generation attribution",
+        ).replace(
+            "Grok Build (Grok 4.6(xhigh)) contributed",
+            "Grok Build contributed",
+        )
+        result = self.verify()
+        self.assertIn(
+            "README missing required card marker: Grok Build (Grok 4.6(xhigh))",
+            result.errors,
+        )
+
     def test_invalid_parquet_framing_fails(self) -> None:
         def invalid_viewer(url: str, timeout: float) -> bytes:
             if url.endswith("/data/viewer/records.parquet"):
@@ -187,6 +212,21 @@ class ReleaseVerifierTests(unittest.TestCase):
             bytes_fetcher=invalid_viewer,
         )
         self.assertIn("viewer projection is missing the Parquet footer magic", result.errors)
+
+    def test_parquet_schema_is_required(self) -> None:
+        invalid = VALID_PARQUET.replace(b"source_line", b"other_field")
+
+        def invalid_viewer(url: str, timeout: float) -> bytes:
+            if url.endswith("/data/viewer/records.parquet"):
+                return invalid
+            return self.bytes_fetcher(url, timeout)
+
+        result = verify_hf_release.verify_dataset(
+            self.repo,
+            text_fetcher=self.text_fetcher,
+            bytes_fetcher=invalid_viewer,
+        )
+        self.assertIn("viewer projection missing required column: source_line", result.errors)
 
     def test_public_url_rejects_other_owners(self) -> None:
         with self.assertRaises(ValueError):

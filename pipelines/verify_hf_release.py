@@ -78,6 +78,31 @@ REQUIRED_CARD_MARKERS = (
     "name: record_json",
 )
 
+CARD_SECTION_MARKERS = {
+    "__preamble__": (
+        "> **Release status:**",
+        "raw, uncurated",
+        "not training-ready",
+    ),
+    "## Intended model target": (),
+    "## Generation attribution": (
+        "Claude Fable 5",
+        "Meta Muse Spark 1.2",
+        "Codex (GPT-5.6-Sol(max))",
+        "Grok Build (Grok 4.6(xhigh))",
+        "research, quality-audit",
+        "curation-review",
+        "curation design, validation, and release engineering",
+    ),
+    "## Published raw payload": (
+        "data/viewer/records.parquet",
+    ),
+    "## Links": (
+        "[Synthetic Data Factory](https://github.com/rmems/synthetic-factory)",
+    ),
+    "## License": (),
+}
+
 REQUIRED_PURPOSE_TEXT = {
     "rmems/thalamic-relay-trajectories": "relay-gated state assessment",
     "rmems/neuromorphic-event-language-bridge": "event streams to structured language views",
@@ -164,7 +189,10 @@ def _front_matter(text: str) -> dict[str, str]:
         if ":" not in line or line.startswith((" ", "-")):
             continue
         key, value = line.split(":", 1)
-        values[key.strip()] = value.strip().strip('"')
+        value = value.strip()
+        if len(value) >= 2 and value[0] == value[-1] and value[0] in {"'", '"'}:
+            value = value[1:-1]
+        values[key.strip()] = value
     return values
 
 
@@ -190,6 +218,189 @@ def _normalized_text(value: str) -> str:
 def _normalized_sha256(value: str) -> str:
     normalized = "\n".join(value.splitlines()) + "\n"
     return hashlib.sha256(normalized.encode("utf-8")).hexdigest()
+
+
+def _markdown_section(text: str, heading: str) -> str | None:
+    """Return one level-two Markdown section without accepting nested examples."""
+
+    if heading == "__preamble__":
+        return text.split("## ", 1)[0]
+    match = re.search(
+        rf"(?ms)^({re.escape(heading)})\s*$\n(.*?)(?=^##\s|\Z)", text
+    )
+    return match.group(2) if match else None
+
+
+def _card_section_errors(card: str, repo: str) -> list[str]:
+    """Require release declarations in their owned Markdown/YAML sections."""
+
+    errors: list[str] = []
+    normalized_front_matter = _normalized_text(card.split("\n---\n", 1)[0])
+    for marker in ("name: source_file", "name: source_line", "name: record_json"):
+        if _normalized_text(marker) not in normalized_front_matter:
+            errors.append(f"README missing required card marker: {marker}")
+
+    for section, markers in CARD_SECTION_MARKERS.items():
+        section_text = _markdown_section(card, section)
+        if section != "__preamble__" and section_text is None:
+            errors.append(f"README missing required section: {section}")
+        normalized_section = _normalized_text(section_text or "")
+        for marker in markers:
+            if _normalized_text(marker) not in normalized_section:
+                errors.append(f"README missing required card marker: {marker}")
+
+    purpose = REQUIRED_PURPOSE_TEXT[repo]
+    target = REQUIRED_TARGET_TEXT[repo]
+    preamble = _normalized_text(_markdown_section(card, "__preamble__") or "")
+    target_section = _normalized_text(
+        _markdown_section(card, "## Intended model target") or ""
+    )
+    if _normalized_text(purpose) not in preamble:
+        errors.append(f"README missing repository purpose marker: {purpose}")
+    if _normalized_text(target) not in target_section:
+        errors.append(f"README missing Spikenaut classification: {target}")
+    return errors
+
+
+class _CompactReader:
+    """Minimal stdlib reader for the Parquet Thrift Compact footer protocol."""
+
+    STOP = 0
+    BOOLEAN_TRUE = 1
+    BOOLEAN_FALSE = 2
+    BYTE = 3
+    I16 = 4
+    I32 = 5
+    I64 = 6
+    DOUBLE = 7
+    BINARY = 8
+    LIST = 9
+    SET = 10
+    MAP = 11
+    STRUCT = 12
+
+    def __init__(self, data: bytes) -> None:
+        self.data = data
+        self.offset = 0
+
+    def _read(self, count: int) -> bytes:
+        end = self.offset + count
+        if end > len(self.data):
+            raise ValueError("Parquet footer is truncated")
+        value = self.data[self.offset:end]
+        self.offset = end
+        return value
+
+    def _byte(self) -> int:
+        return self._read(1)[0]
+
+    def _uvarint(self) -> int:
+        value = 0
+        shift = 0
+        while True:
+            byte = self._byte()
+            value |= (byte & 0x7F) << shift
+            if not byte & 0x80:
+                return value
+            shift += 7
+            if shift > 63:
+                raise ValueError("Parquet footer contains an oversized varint")
+
+    def _zigzag(self, value: int) -> int:
+        return (value >> 1) ^ -(value & 1)
+
+    def _integer(self, field_type: int) -> int:
+        if field_type == self.BYTE:
+            value = self._byte()
+            return value - 256 if value > 127 else value
+        if field_type in {self.I16, self.I32, self.I64}:
+            return self._zigzag(self._uvarint())
+        raise ValueError(f"unsupported integer field type {field_type}")
+
+    def _binary(self) -> bytes:
+        length = self._uvarint()
+        return self._read(length)
+
+    def _field(self, previous_id: int) -> tuple[int, int] | None:
+        header = self._byte()
+        if header == self.STOP:
+            return None
+        field_type = header & 0x0F
+        delta = header >> 4
+        field_id = previous_id + delta if delta else self._zigzag(self._uvarint())
+        return field_id, field_type
+
+    def skip(self, field_type: int) -> None:
+        if field_type in {self.BOOLEAN_TRUE, self.BOOLEAN_FALSE, self.BYTE}:
+            self._read(1) if field_type == self.BYTE else None
+        elif field_type in {self.I16, self.I32, self.I64}:
+            self._uvarint()
+        elif field_type == self.DOUBLE:
+            self._read(8)
+        elif field_type == self.BINARY:
+            self._binary()
+        elif field_type in {self.LIST, self.SET}:
+            header = self._byte()
+            size = header >> 4
+            item_type = header & 0x0F
+            if size == 15:
+                size = self._uvarint()
+            for _ in range(size):
+                self.skip(item_type)
+        elif field_type == self.MAP:
+            size = self._uvarint()
+            if size:
+                types = self._byte()
+                for _ in range(size):
+                    self.skip(types & 0x0F)
+                    self.skip(types >> 4)
+        elif field_type == self.STRUCT:
+            previous_id = 0
+            while (field := self._field(previous_id)) is not None:
+                field_id, nested_type = field
+                self.skip(nested_type)
+                previous_id = field_id
+        else:
+            raise ValueError(f"unsupported Parquet field type {field_type}")
+
+    def schema_names_and_rows(self) -> tuple[set[str], int]:
+        names: set[str] = set()
+        rows = -1
+        previous_id = 0
+        while (field := self._field(previous_id)) is not None:
+            field_id, field_type = field
+            if field_id == 2 and field_type == self.LIST:
+                header = self._byte()
+                size = header >> 4
+                item_type = header & 0x0F
+                if size == 15:
+                    size = self._uvarint()
+                if item_type != self.STRUCT:
+                    raise ValueError("Parquet schema list is not a struct list")
+                for _ in range(size):
+                    names.add(self._schema_name())
+            elif field_id == 3 and field_type in {self.I64, self.I32}:
+                rows = self._integer(field_type)
+                # FileMetaData places row groups after the schema and row
+                # count. The footer bounds have already been checked; no
+                # release-contract decision depends on decoding row groups.
+                return names, rows
+            else:
+                self.skip(field_type)
+            previous_id = field_id
+        return names, rows
+
+    def _schema_name(self) -> str:
+        name = ""
+        previous_id = 0
+        while (field := self._field(previous_id)) is not None:
+            field_id, field_type = field
+            if field_id == 4 and field_type == self.BINARY:
+                name = self._binary().decode("utf-8")
+            else:
+                self.skip(field_type)
+            previous_id = field_id
+        return name
 
 
 def _snapshot_entries(
@@ -249,6 +460,17 @@ def _viewer_errors(card: str, viewer_bytes: bytes) -> tuple[str, ...]:
     footer_size = int.from_bytes(viewer_bytes[-8:-4], "little")
     if footer_size <= 0 or footer_size > len(viewer_bytes) - 8:
         errors.append("viewer projection has an invalid Parquet footer length")
+        return tuple(errors)
+    footer_start = len(viewer_bytes) - 8 - footer_size
+    try:
+        names, rows = _CompactReader(viewer_bytes[footer_start : footer_start + footer_size]).schema_names_and_rows()
+    except (UnicodeDecodeError, ValueError) as error:
+        errors.append(f"viewer projection has invalid Parquet footer metadata: {error}")
+        return tuple(errors)
+    if rows <= 0:
+        errors.append("viewer projection must declare at least one row")
+    for required_name in {"source_file", "source_line", "record_json"} - names:
+        errors.append(f"viewer projection missing required column: {required_name}")
     return tuple(errors)
 
 
@@ -280,16 +502,7 @@ def verify_dataset(
 
     if _front_matter(card).get("license") != "apache-2.0":
         errors.append("README front matter must declare license: apache-2.0")
-    normalized_card = _normalized_text(card)
-    for marker in REQUIRED_CARD_MARKERS:
-        if _normalized_text(marker) not in normalized_card:
-            errors.append(f"README missing required card marker: {marker}")
-    purpose = REQUIRED_PURPOSE_TEXT[repo]
-    if _normalized_text(purpose) not in normalized_card:
-        errors.append(f"README missing repository purpose marker: {purpose}")
-    target = REQUIRED_TARGET_TEXT[repo]
-    if _normalized_text(target) not in normalized_card:
-        errors.append(f"README missing Spikenaut classification: {target}")
+    errors.extend(_card_section_errors(card, repo))
     if _normalized_sha256(license_text) != APACHE_2_NORMALIZED_SHA256:
         errors.append("LICENSE does not match the complete Apache License 2.0 text")
     errors.extend(_viewer_errors(card, viewer_bytes))
@@ -299,6 +512,9 @@ def verify_dataset(
     except json.JSONDecodeError as error:
         errors.append(f"provenance.json is invalid JSON: {error.msg}")
     else:
+        if not isinstance(provenance, dict):
+            errors.append("provenance.json must contain a JSON object")
+            return CheckResult(repo, tuple(errors))
         if provenance.get("payload_published") is not True:
             errors.append("provenance must mark payload_published true")
         if provenance.get("training_ready") is not False:
