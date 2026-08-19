@@ -113,12 +113,20 @@ def verify_episode_steps(steps, where):
 
 def verify_thalamic(obj, where):
     """Thalamic record: needs provenance + gate rationale + future outcome that is not hallucinated."""
+    # Callers include the bridge path, which can hand us a non-object
+    # language_view.trajectory. Return a verdict rather than raising.
+    if not isinstance(obj, dict):
+        return "inconclusive", f"{where} is not an object — cannot verify"
     state = obj.get("state", {})
     prov = state.get("sim_or_real") if isinstance(state, dict) else None
     if prov not in ALLOWED_PROVENANCE:
         return "inconclusive", f"non-training provenance {prov!r} on {where}.state.sim_or_real"
     sd = obj.get("safety_decision", {})
-    if not isinstance(sd, dict) or not sd.get("rationale", "").strip():
+    # A non-string rationale (object/number/null) must not raise here — this
+    # gate runs over untrusted generated records and a crash would take down
+    # the frontier check instead of returning a verdict.
+    rationale = sd.get("rationale") if isinstance(sd, dict) else None
+    if not isinstance(rationale, str) or not rationale.strip():
         return "failed", "missing safety_decision.rationale"
     fo = obj.get("future_outcome")
     if not isinstance(fo, dict):

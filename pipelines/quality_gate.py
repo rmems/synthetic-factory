@@ -90,7 +90,14 @@ def record_hash(obj):
     # Use canonical JSON for determinism
     keys = {k: obj[k] for k in ("state", "proposed_action", "executed_action") if k in obj}
     if not keys and "chosen" in obj:
-        keys = {"chosen": obj["chosen"].get("state"), "rejected": obj["rejected"].get("state")}
+        # Malformed pairs (missing or non-object side) must hash, not raise —
+        # this gate runs over untrusted generated JSONL.
+        chosen = obj.get("chosen")
+        rejected = obj.get("rejected")
+        keys = {
+            "chosen": chosen.get("state") if isinstance(chosen, dict) else chosen,
+            "rejected": rejected.get("state") if isinstance(rejected, dict) else rejected,
+        }
     blob = canonical_blob(keys)
     return hashlib.sha256(blob.encode("utf-8")).hexdigest()[:16]
 
@@ -135,7 +142,13 @@ def audit_run(run_dir: Path, threshold: float = DEFAULT_EMBEDDING_THRESHOLD):
                 duplicates.append({"file": str(rel), "line": lineno, "hash": h})
             # Provenance: collect sim_or_real or provenance.kind
             state = obj.get("state", {}) if isinstance(obj.get("state"), dict) else {}
-            prov = state.get("sim_or_real") or obj.get("provenance", {}).get("kind") if isinstance(obj.get("provenance"), dict) else None
+            # Parenthesize: the ternary previously bound to the whole `or`
+            # expression, so a record without a top-level provenance object
+            # discarded its state.sim_or_real entirely.
+            provenance_obj = obj.get("provenance")
+            prov = state.get("sim_or_real") or (
+                provenance_obj.get("kind") if isinstance(provenance_obj, dict) else None
+            )
             if prov:
                 provenance[str(prov)] += 1
             elif "language_view" in obj:
