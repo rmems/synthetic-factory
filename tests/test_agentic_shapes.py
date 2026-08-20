@@ -167,6 +167,21 @@ class AgenticShapes(unittest.TestCase):
         errs, kind = validate_run.check_line(rec, "t")
         self.assertEqual(kind, "preference")
         self.assertTrue(any("critique" in e for e in errs), errs)
+
+    def test_episode_preference_requires_wrapper_reward(self):
+        rec = episode_preference()
+        rec.pop("reward")
+
+        errs, kind = validate_run.check_line(rec, "t", factory_staging=True)
+
+        self.assertEqual(kind, "preference")
+        self.assertTrue(any("reward must be an object" in error for error in errs), errs)
+
+        rec = episode_preference()
+        rec["reward"]["success"] = "yes"
+        errs, kind = validate_run.check_line(rec, "t", factory_staging=True)
+        self.assertEqual(kind, "preference")
+        self.assertTrue(any("reward.success" in error for error in errs), errs)
         rec = episode_preference()
         rec["critique"] = "   "
         errs, kind = validate_run.check_line(rec, "t")

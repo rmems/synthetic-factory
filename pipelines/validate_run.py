@@ -679,6 +679,8 @@ def check_line(obj, where, factory_staging=False):
         if episode_pref and "goal" not in obj:
             if not (isinstance(chosen, dict) and "goal" in chosen):
                 errs.append(f"{where}: preference episode needs a shared or chosen goal")
+        if episode_pref:
+            errs += _require_reward(obj, where)
         if not isinstance(obj.get("critique"), str) or not obj["critique"].strip():
             errs.append(f"{where}: preference record needs a non-empty critique")
         return finish_agentic(errs, "preference")
