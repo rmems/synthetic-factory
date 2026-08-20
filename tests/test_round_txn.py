@@ -4,6 +4,7 @@
 import json
 import sys
 import tempfile
+import threading
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -129,6 +130,55 @@ class RoundTransaction(unittest.TestCase):
             manifest = round_txn.publish(factory, 1, reservation["token"])
             self.assertEqual(manifest["records"], 1)
             self.assertTrue((factory / "ROUND-r01.complete.json").is_file())
+
+    def test_abort_waits_for_inflight_publish_before_cleaning_stage(self):
+        with tempfile.TemporaryDirectory() as td:
+            factory = self.factory(td)
+            reservation = round_txn.reserve(factory, 1, 1)
+            stage = self.fill_stage(reservation, [thalamic("abort-race")])
+            entered_validation = threading.Event()
+            release_publish = threading.Event()
+            publish_error = []
+            abort_error = []
+            real_validate = round_txn.validate_stage
+
+            def pause_validation(*args, **kwargs):
+                entered_validation.set()
+                self.assertTrue(release_publish.wait(timeout=2))
+                return real_validate(*args, **kwargs)
+
+            def publish_round():
+                try:
+                    round_txn.publish(factory, 1, reservation["token"])
+                except BaseException as exc:
+                    publish_error.append(exc)
+
+            def abort_round():
+                try:
+                    round_txn.abort(factory, 1, reservation["token"])
+                except BaseException as exc:
+                    abort_error.append(exc)
+
+            with mock.patch.object(round_txn, "validate_stage", side_effect=pause_validation):
+                publisher = threading.Thread(target=publish_round)
+                publisher.start()
+                self.assertTrue(entered_validation.wait(timeout=2))
+
+                aborter = threading.Thread(target=abort_round)
+                aborter.start()
+                self.assertTrue(stage.is_dir())
+                release_publish.set()
+                publisher.join(timeout=2)
+                aborter.join(timeout=2)
+
+            self.assertFalse(publisher.is_alive())
+            self.assertFalse(aborter.is_alive())
+            self.assertEqual(publish_error, [])
+            self.assertEqual(len(abort_error), 1)
+            self.assertIsInstance(abort_error[0], round_txn.TransactionError)
+            self.assertIn("already committed", str(abort_error[0]))
+            self.assertTrue((factory / "ROUND-r01.complete.json").is_file())
+            self.assertFalse(stage.exists())
 
     def test_staged_id_cannot_duplicate_a_committed_round(self):
         with tempfile.TemporaryDirectory() as td:

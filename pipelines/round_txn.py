@@ -635,6 +635,12 @@ def abort(factory_dir: Path, round_number: int, token: str):
     or completed — those are past the commit point and must not be rolled back.
     """
     factory_dir = Path(factory_dir).resolve()
+    with run_publish_lock(factory_dir):
+        return _abort_locked(factory_dir, round_number, token)
+
+
+def _abort_locked(factory_dir: Path, round_number: int, token: str):
+    """Abort only when no publisher owns this run's transaction lock."""
     paths = marker_paths(factory_dir, round_number)
     if paths["complete"].exists():
         raise TransactionError(

@@ -292,6 +292,17 @@ class AgenticShapes(unittest.TestCase):
         self.assertEqual(kind, "multi_agent")
         self.assertTrue(any("distinct roles" in error for error in errs), errs)
 
+    def test_multi_agent_requires_textual_goal_and_joint_outcome(self):
+        rec = multi_agent()
+        rec["goal"] = None
+        rec["joint_outcome"] = []
+
+        errs, kind = validate_run.check_line(rec, "t", factory_staging=True)
+
+        self.assertEqual(kind, "multi_agent")
+        self.assertTrue(any("goal must be a non-empty string" in error for error in errs), errs)
+        self.assertTrue(any("joint_outcome must be a non-empty string" in error for error in errs), errs)
+
     def test_multi_agent_publish_rejects_malformed_structured_tool_turn(self):
         with tempfile.TemporaryDirectory() as td:
             factory = (
@@ -384,6 +395,18 @@ class AgenticShapes(unittest.TestCase):
 
             with self.assertRaisesRegex(round_txn.TransactionError, "meta.round"):
                 round_txn.publish(factory, 1, reservation["token"])
+
+    def test_step_free_safety_case_requires_textual_goal_and_outcome(self):
+        rec = safety_case()
+        rec.pop("steps")
+        rec["goal"] = None
+        rec["outcome"] = []
+
+        errs, kind = validate_run.check_line(rec, "t", factory_staging=True)
+
+        self.assertEqual(kind, "safety_case")
+        self.assertTrue(any("goal must be a non-empty string" in error for error in errs), errs)
+        self.assertTrue(any("outcome must be a non-empty string" in error for error in errs), errs)
 
 if __name__ == "__main__":
     unittest.main()

@@ -530,6 +530,15 @@ def _staging_tool_turn_errors(turn, where):
     return errors
 
 
+def _nonempty_text_field_errors(obj, where, fields):
+    """Require meaningful text for fields already required by a record shape."""
+    return [
+        f"{where}: {field} must be a non-empty string"
+        for field in fields
+        if field in obj and (not isinstance(obj[field], str) or not obj[field].strip())
+    ]
+
+
 def check_episode(obj, where, require_goal=True, forbid_hidden_thought=False):
     errs = []
     required = ("goal", "steps", "outcome", "reward") if require_goal else (
@@ -540,9 +549,7 @@ def check_episode(obj, where, require_goal=True, forbid_hidden_thought=False):
     for key in required:
         if key not in obj:
             errs.append(f"{where}: episode missing '{key}'")
-    for key in ("goal", "outcome"):
-        if key in obj and (not isinstance(obj[key], str) or not obj[key].strip()):
-            errs.append(f"{where}: {key} must be a non-empty string")
+    errs += _nonempty_text_field_errors(obj, where, ("goal", "outcome"))
     errs += _require_reward(obj, where)
     steps = obj.get("steps")
     if not isinstance(steps, list) or not steps:
@@ -573,6 +580,7 @@ def check_multi_agent(obj, where, factory_staging=False):
     for key in ("goal", "agents", "transcript", "joint_outcome", "reward"):
         if key not in obj:
             errs.append(f"{where}: multi_agent missing '{key}'")
+    errs += _nonempty_text_field_errors(obj, where, ("goal", "joint_outcome"))
     agents = obj.get("agents")
     roles = set()
     if not isinstance(agents, list) or len(agents) < 2:
@@ -612,6 +620,7 @@ def check_safety_case(obj, where, factory_staging=False):
     for key in ("goal", "case_type", "rationale", "outcome", "reward"):
         if key not in obj:
             errs.append(f"{where}: safety_case missing '{key}'")
+    errs += _nonempty_text_field_errors(obj, where, ("goal", "outcome"))
     case_type = obj.get("case_type")
     if case_type not in SAFETY_CASE_TYPES:
         errs.append(
