@@ -206,8 +206,11 @@ def shared_preference_goal(record: dict[str, Any]) -> tuple[bool, str | None]:
     rejected = record.get("rejected")
     if not isinstance(chosen, dict) or not isinstance(rejected, dict):
         return False, REASON_SIDES_NOT_OBJECTS
-    present = [goal for goal in preference_goals(record) if goal is not None]
+    top, chosen_goal, rejected_goal = preference_goals(record)
+    present = [goal for goal in (top, chosen_goal, rejected_goal) if goal is not None]
     if not present:
+        return False, REASON_GOAL_MISSING
+    if top is None and (chosen_goal is None or rejected_goal is None):
         return False, REASON_GOAL_MISSING
     if len(set(present)) != 1:
         return False, REASON_GOAL_DIVERGES
@@ -253,7 +256,7 @@ def missing_decision_basis_paths(record: Any) -> list[str]:
     return [
         path
         for path, step in iter_turn_locations(record)
-        if isinstance(step, dict) and _basis_missing(step)
+        if _basis_missing(step)
     ]
 
 

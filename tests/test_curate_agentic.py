@@ -24,10 +24,13 @@ from curate_agentic import (  # noqa: E402
     HIDDEN_THOUGHT_KEYS,
     REASON_GOAL_DIVERGES,
     REASON_GOAL_MISSING,
+    REASON_INVALID_UTF8,
     REASON_INVALID_JSON,
     REASON_MISSING_BASIS,
     REASON_PREFIX_OVERLAP,
+    REASON_RECORD_NOT_OBJECT,
     REASON_SKIPPED_KIND,
+    REASON_SIDES_NOT_OBJECTS,
     REASON_THOUGHT_REMOVED,
     classify_record,
     contains_hidden_thought_key,
@@ -282,6 +285,14 @@ class CurateAgenticTests(unittest.TestCase):
         self.assertTrue(ok)
         self.assertIsNone(reason)
 
+        only_chosen_goal = preference_fixture(
+            goal=None,
+            chosen_goal="write output.json atomically",
+        )
+        ok, reason = shared_preference_goal(only_chosen_goal)
+        self.assertFalse(ok)
+        self.assertEqual(reason, REASON_GOAL_MISSING)
+
         diverged = preference_fixture(
             chosen_goal="write output.json atomically",
             rejected_goal="rewrite the scheduler instead",
@@ -357,13 +368,13 @@ class CurateAgenticTests(unittest.TestCase):
         self.assertEqual(second["thought_fields_removed"], 0)
 
     def test_curate_source_scans_tree_and_handles_empty(self):
-        empty = curate_source(Path("/tmp/curate-agentic-missing-source-does-not-exist"))
-        self.assertEqual(empty["summary"]["input_records"], 0)
-        self.assertEqual(empty["summary"]["output_records"], 0)
-        self.assertEqual(empty["decisions"], [])
-
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
+            empty = curate_source(root / "missing-source")
+            self.assertEqual(empty["summary"]["input_records"], 0)
+            self.assertEqual(empty["summary"]["output_records"], 0)
+            self.assertEqual(empty["decisions"], [])
+
             factory = root / "long-horizon-coding-factory"
             factory.mkdir()
             (factory / "batch-r01.jsonl").write_text(
@@ -494,6 +505,31 @@ class CurateAgenticTests(unittest.TestCase):
         )
         paths = missing_decision_basis_paths(record)
         self.assertEqual(paths, ["chosen.steps[0]"])
+
+    def test_missing_basis_paths_include_non_object_steps(self):
+        paths = missing_decision_basis_paths({"steps": [None, "not a turn", _step(3)]})
+        self.assertEqual(paths, ["steps[0]", "steps[1]"])
+
+    def test_exclusion_reasons_cover_non_object_sides_and_invalid_utf8(self):
+        curated, decision = curate_record(["not", "an", "object"])
+        self.assertIsNone(curated)
+        self.assertEqual(decision["reason_codes"], [REASON_RECORD_NOT_OBJECT])
+
+        preference = preference_fixture()
+        preference["chosen"] = "not an object"
+        curated, decision = curate_record(preference)
+        self.assertIsNone(curated)
+        self.assertEqual(decision["reason_codes"], [REASON_SIDES_NOT_OBJECTS])
+
+        with tempfile.TemporaryDirectory() as temporary:
+            source = Path(temporary) / "invalid.jsonl"
+            source.write_bytes(b"\xff\n")
+            run = curate_source(source)
+        self.assertEqual(run["summary"]["input_records"], 1)
+        self.assertEqual(run["summary"]["output_records"], 0)
+        self.assertEqual(
+            run["decisions"][0]["reason_codes"], [REASON_INVALID_UTF8]
+        )
 
 
 if __name__ == "__main__":
