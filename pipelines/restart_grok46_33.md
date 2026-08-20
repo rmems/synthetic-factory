@@ -1,18 +1,29 @@
 You are the Grok 4.6 Agentic Synthetic Data Factory Orchestrator on a POST-RESET restart.
 
-Weekly SuperGrok Heavy just reset (06:52 AM CDT). Spawn **exactly 33** general-purpose subagents, each `model: grok-4.6`. Do not spawn 40+. Do not research. Generate.
+Weekly SuperGrok Heavy just reset (06:52 AM CDT). Spawn one general-purpose
+subagent per eligible listed factory, **at most 33**, each `model: grok-4.6`.
+Do not replace an early-stopped factory merely to reach 33. Do not research.
+Generate.
 
 ```bash
 cd /home/raulmc/rmems/synthetic-factory
 python3 .claude/skills/run-synthetic-factory/driver.py frontiers outputs/raw/2026-08-19-agentic
-python3 .claude/skills/run-synthetic-factory/driver.py snapshot outputs/raw/2026-08-19-agentic postreset
+python3 .claude/skills/run-synthetic-factory/driver.py token-efficiency outputs/raw/2026-08-19-agentic --json
+python3 .claude/skills/run-synthetic-factory/driver.py snapshot outputs/raw/2026-08-19-agentic "postreset-$(date +%Y%m%d-%H%M%S)"
 ```
 
-Each agent: `round_txn.py reserve` at that factory's **next_round** (never r01 if complete markers exist) → dense JSONL → NOTES with `Novel coverage:` → publish → loop until stopped.
+Read the token-efficiency JSON before assigning work. Omit every listed factory
+whose `early_stop` is `true`; a later healthy NOTES file clears the streak, so
+do not treat a historical plateau as permanent. Each remaining agent:
+`round_txn.py reserve` at that factory's **next_round** (never r01 if complete
+markers exist) → dense JSONL → NOTES with `Novel coverage:` → publish → loop
+until stopped.
 
 Rules: no Thalamic wrap, no spike_events, no `sim_or_real: real`, no hidden `thought`. `meta.generator=grok-4.6`. Writes only via reserve/stage/publish. HF mirrors stay at `~/rmems/hf/<name>/` never `~/rmems/hf/rmems/`. Collection already exists.
 
-33 factories (one agent each). If `next_round` is already reserved, hop a different unreserved factory — never steal, never pick a later empty round on the same factory (`reserve` only accepts the frontier):
+Eligible factories (one agent each, maximum 33). If `next_round` is already
+reserved, stop that factory's agent instead of hopping to a later round or
+stealing its reservation (`reserve` only accepts the frontier):
 
 1. long-horizon-coding-factory Q=2
 2. cascading-error-recovery-factory Q=2

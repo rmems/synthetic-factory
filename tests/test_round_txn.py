@@ -206,6 +206,33 @@ class RoundTransaction(unittest.TestCase):
                 round_txn.publish(factory, 1, reservation["token"])
             self.assertFalse((factory / "ROUND-r01.complete.json").exists())
 
+    def test_staged_id_cannot_duplicate_another_factory_inflight_publish(self):
+        with tempfile.TemporaryDirectory() as td:
+            factory = self.factory(td)
+            sibling = factory.parent / "other-factory"
+            sibling.mkdir()
+            first = round_txn.reserve(factory, 1, 1)
+            second = round_txn.reserve(sibling, 1, 1)
+            self.fill_stage(first, [thalamic("inflight-id")])
+            self.fill_stage(second, [thalamic("inflight-id")])
+            real_link = round_txn.os.link
+            calls = {"count": 0}
+
+            def interrupt_completion_link(*args, **kwargs):
+                calls["count"] += 1
+                if calls["count"] == 3:
+                    raise OSError("simulated interruption")
+                return real_link(*args, **kwargs)
+
+            with mock.patch.object(round_txn.os, "link", side_effect=interrupt_completion_link):
+                with self.assertRaisesRegex(OSError, "simulated interruption"):
+                    round_txn.publish(factory, 1, first["token"])
+
+            self.assertTrue((factory / "ROUND-r01.publishing.json").is_file())
+            with self.assertRaisesRegex(round_txn.TransactionError, "duplicate record id"):
+                round_txn.publish(sibling, 1, second["token"])
+            self.assertFalse((sibling / "ROUND-r01.complete.json").exists())
+
     def test_validation_failure_leaves_stage_and_does_not_advance(self):
         with tempfile.TemporaryDirectory() as td:
             factory = self.factory(td)

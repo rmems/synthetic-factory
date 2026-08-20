@@ -8,6 +8,7 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
 SCRIPT = REPO / "pipelines" / "restart_grok46_33.sh"
+PROMPT = REPO / "pipelines" / "restart_grok46_33.md"
 
 
 class RestartGrok46Tests(unittest.TestCase):
@@ -24,6 +25,15 @@ class RestartGrok46Tests(unittest.TestCase):
         self.assertIn('if ! "$ROOT/.claude/skills/run-synthetic-factory/driver.py" frontiers', text)
         self.assertIn("warning: frontier preflight failed; continuing weekly launch", text)
         subprocess.run(["bash", "-n", str(SCRIPT)], check=True)
+
+    def test_prompt_honors_plateau_stops_and_uses_fresh_snapshots(self):
+        text = PROMPT.read_text()
+
+        self.assertIn("token-efficiency outputs/raw/2026-08-19-agentic --json", text)
+        self.assertIn('"postreset-$(date +%Y%m%d-%H%M%S)"', text)
+        self.assertIn("whose `early_stop` is `true`", text)
+        self.assertIn("at most 33", text)
+        self.assertNotIn("snapshot outputs/raw/2026-08-19-agentic postreset", text)
 
 
 if __name__ == "__main__":

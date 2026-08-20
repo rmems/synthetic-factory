@@ -396,6 +396,20 @@ class AgenticShapes(unittest.TestCase):
             with self.assertRaisesRegex(round_txn.TransactionError, "meta.round"):
                 round_txn.publish(factory, 1, reservation["token"])
 
+    def test_agentic_notes_use_the_driver_novel_coverage_syntax(self):
+        with tempfile.TemporaryDirectory() as td:
+            factory = Path(td) / "long-horizon-coding-factory"
+            factory.mkdir()
+            notes = factory / "NOTES-r01.md"
+            notes.write_text("Novel coverage (estimated): 12.5 %\n")
+            self.assertIsNone(round_txn.validate_novel_coverage(notes, factory))
+
+            notes.write_text("Novel failures: 1 (2%)\n")
+            self.assertIn(
+                "Novel coverage",
+                round_txn.validate_novel_coverage(notes, factory),
+            )
+
     def test_step_free_safety_case_requires_textual_goal_and_outcome(self):
         rec = safety_case()
         rec.pop("steps")

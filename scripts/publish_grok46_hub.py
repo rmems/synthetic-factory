@@ -618,11 +618,11 @@ def main() -> int:
     if args.cmd == "snapshot":
         cmd_snapshot(args.only)
     elif args.cmd == "create":
-        cmd_create()
+        cmd_create(args.only)
     elif args.cmd == "upload":
         cmd_upload(args.only)
     elif args.cmd == "collect":
-        cmd_collect()
+        cmd_collect(args.only)
     elif args.cmd == "status":
         cmd_status()
     elif args.cmd == "all":

@@ -37,6 +37,7 @@ from check_records import check_jsonl  # noqa: E402
 MODE_FILE = ".round-marker-mode.json"
 BATCH_RE = re.compile(r"^batch-r(\d+)([a-z]*)\.jsonl$")
 COMPLETE_RE = re.compile(r"^ROUND-r(\d+)\.complete\.json$")
+PUBLISHING_RE = re.compile(r"^ROUND-r(\d+)\.publishing\.json$")
 LEGACY_R1_NAMES = {
     "trajectories.jsonl",
     "final-trajectories.jsonl",
@@ -123,7 +124,8 @@ AGENTIC_FACTORY_KINDS.update(
     }
 )
 NOVEL_COVERAGE_RE = re.compile(
-    r"^\s*novel[^%\r\n]*?(\d+(?:\.\d+)?)\s*%", re.IGNORECASE | re.MULTILINE
+    r"^\s*novel[ _-]?coverage\s*(?:\([^)\n]*\))?\s*[:=]?\s*(\d+(?:\.\d+)?)\s*%",
+    re.IGNORECASE | re.MULTILINE,
 )
 
 
@@ -379,6 +381,46 @@ def committed_jsonl_paths(factory_dir: Path):
     return visible
 
 
+def in_flight_batch_paths(factory_dir: Path):
+    """Yield batches protected by an unfinished publishing marker.
+
+    A publishing marker means the transaction has already passed the global ID
+    scan. Its IDs must remain reserved to other factory publishers even if the
+    batch has linked before the completion marker. The caller's own factory is
+    deliberately excluded by ``committed_ids`` so an interrupted transaction
+    can validate and resume its identical staged batch.
+    """
+    for marker in sorted(factory_dir.glob("ROUND-r*.publishing.json")):
+        match = PUBLISHING_RE.fullmatch(marker.name)
+        if match is None:
+            continue
+        round_number = int(match.group(1))
+        manifest = read_json(marker)
+        if manifest.get("factory") != factory_dir.name or manifest.get("round") != round_number:
+            raise TransactionError(f"publishing marker identity mismatch: {marker}")
+        reservation_path = marker_paths(factory_dir, round_number)["reservation"]
+        if not reservation_path.is_file():
+            raise TransactionError(f"publishing marker has no reservation: {marker}")
+        reservation = read_json(reservation_path)
+        token = reservation.get("token")
+        if not isinstance(token, str) or token != manifest.get("token"):
+            raise TransactionError(f"publishing marker token mismatch: {marker}")
+        stage = Path(reservation.get("staging_dir", "")).resolve()
+        expected_stage = staging_dir(factory_dir, round_number, token).resolve()
+        if stage != expected_stage:
+            raise TransactionError(f"publishing marker staging path escaped its transaction root: {marker}")
+        batch_name = f"batch-r{round_number:02d}.jsonl"
+        staged_batch = stage / batch_name
+        if staged_batch.is_file() and not staged_batch.is_symlink():
+            yield staged_batch
+            continue
+        linked_batch = factory_dir / batch_name
+        if linked_batch.is_file() and not linked_batch.is_symlink():
+            yield linked_batch
+            continue
+        raise TransactionError(f"publishing marker has no readable batch: {marker}")
+
+
 def committed_ids(factory_dir: Path):
     """Seed the run-wide ID namespace from committed/legacy raw JSONL."""
     seen_ids = {}
@@ -390,6 +432,13 @@ def committed_ids(factory_dir: Path):
             # Existing defects are reported by run audits. Here we only need
             # their identity namespace so a new round cannot reuse it.
             check_jsonl(path, path.relative_to(run_dir), seen_ids=seen_ids)
+        if candidate != factory_dir:
+            for path in in_flight_batch_paths(candidate):
+                # Staging sits alongside ``raw``, so this path is not always
+                # relative to the run directory.  Its label is diagnostic
+                # only; the path itself remains the source for ID checking.
+                label = Path(candidate.name) / ".inflight" / path.name
+                check_jsonl(path, label, seen_ids=seen_ids)
     return seen_ids
 
 
