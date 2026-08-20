@@ -398,6 +398,10 @@ def completed_manifests(src: Path) -> dict[int, dict]:
             raise SystemExit(f"completion marker commit point mismatch: {marker}")
         if not isinstance(manifest.get("files"), list):
             raise SystemExit(f"completion marker files must be an array: {marker}")
+        batch = src / f"batch-r{round_number:02d}.jsonl"
+        if not is_regular_source_file(batch):
+            raise SystemExit(f"completion marker has no regular batch: {marker}")
+        file_matches_manifest(batch, manifest)
         manifests[round_number] = manifest
     return manifests
 

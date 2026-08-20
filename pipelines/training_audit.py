@@ -32,7 +32,7 @@ from check_records import (  # noqa: E402
     root_record_id,
     walk_key,
 )
-from validate_run import _episode_like, event_time  # noqa: E402
+from validate_run import HIDDEN_THOUGHT_KEYS, _episode_like, event_time  # noqa: E402
 
 
 def percentile(values, fraction):
@@ -169,6 +169,19 @@ def episode_step_lists(obj, kind):
             side = dict_field(obj, side_name)
             if _episode_like(side):
                 yield side.get("steps", [])
+
+
+def hidden_thought_paths(value, path=""):
+    """Yield every recursively hidden-reasoning field below one step."""
+    if isinstance(value, dict):
+        for key, item in value.items():
+            child_path = f"{path}.{key}" if path else key
+            if key in HIDDEN_THOUGHT_KEYS:
+                yield child_path
+            yield from hidden_thought_paths(item, child_path)
+    elif isinstance(value, list):
+        for index, item in enumerate(value):
+            yield from hidden_thought_paths(item, f"{path}[{index}]")
 
 
 def audit_run(run_dir: Path):
@@ -372,6 +385,9 @@ def audit_run(run_dir: Path):
                     episodes["legacy_thought_only_steps"] += int(
                         "thought" in step and "decision_basis" not in step
                     )
+                    episodes["hidden_thought_fields"] += len(
+                        tuple(hidden_thought_paths(step))
+                    )
 
     factory_output = {}
     for name, bucket in sorted(factories.items()):
@@ -429,10 +445,10 @@ def audit_run(run_dir: Path):
             )
     if exact_duplicates:
         blockers.append(f"{len(exact_duplicates)} exact duplicate records")
-    if episodes["legacy_thought_only_steps"]:
+    if episodes["hidden_thought_fields"]:
         blockers.append(
-            f"{episodes['legacy_thought_only_steps']} episode steps use legacy "
-            "thought without observable decision_basis"
+            f"{episodes['hidden_thought_fields']} hidden-thought fields appear in "
+            "episode steps or preference sides"
         )
 
     report = {

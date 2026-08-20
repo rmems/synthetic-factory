@@ -515,6 +515,12 @@ def committed_ids(factory_dir: Path):
     """Seed the run-wide ID namespace from committed/legacy raw JSONL."""
     seen_ids = {}
     run_dir = factory_dir.parent
+    for path in sorted(run_dir.glob("*.jsonl")):
+        # Dated runs may retain pre-factory legacy JSONL at their root. It
+        # remains part of the run-wide namespace even though it has no
+        # factory marker directory of its own.
+        if path.is_file():
+            check_jsonl(path, path.relative_to(run_dir), seen_ids=seen_ids)
     for candidate in sorted(run_dir.iterdir()):
         if not candidate.is_dir():
             continue

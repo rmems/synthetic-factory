@@ -281,6 +281,40 @@ class PublishGrok46HubTests(unittest.TestCase):
                     with self.assertRaisesRegex(SystemExit, message):
                         publisher.published_batches(source)
 
+    def test_snapshot_refuses_manifest_without_a_regular_batch(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            source = root / "raw" / ITEM["slug"]
+            source.mkdir(parents=True)
+            (source / ".round-marker-mode.json").write_text(
+                '{"version":1,"legacy_baseline":0}\n'
+            )
+            marker = source / "ROUND-r01.complete.json"
+            marker.write_text(
+                json.dumps(
+                    {
+                        "factory": source.name,
+                        "round": 1,
+                        "commit_point": marker.name,
+                        "files": [
+                            {"name": "batch-r01.jsonl", "sha256": "0" * 64}
+                        ],
+                    }
+                )
+                + "\n"
+            )
+            stale = root / "hf" / ITEM["hub"] / "data" / "raw" / "batch-r01.jsonl"
+            stale.parent.mkdir(parents=True)
+            stale.write_text('{"id":"preserve"}\n')
+
+            with mock.patch.object(publisher, "FACTORY_ROOT", root / "raw"), mock.patch.object(
+                publisher, "HF_ROOT", root / "hf"
+            ):
+                with self.assertRaisesRegex(SystemExit, "no regular batch"):
+                    publisher.snapshot_one(ITEM)
+
+            self.assertEqual(stale.read_text(), '{"id":"preserve"}\n')
+
     def test_marker_mode_rejects_unsafe_mode_entries(self):
         for kind in ("directory", "dangling_symlink"):
             with self.subTest(kind=kind), tempfile.TemporaryDirectory() as td:

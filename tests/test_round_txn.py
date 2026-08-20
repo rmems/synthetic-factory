@@ -221,6 +221,17 @@ class RoundTransaction(unittest.TestCase):
                 round_txn.publish(factory, 1, reservation["token"])
             self.assertFalse((factory / "ROUND-r01.complete.json").exists())
 
+    def test_staged_id_cannot_duplicate_root_level_legacy_jsonl(self):
+        with tempfile.TemporaryDirectory() as td:
+            factory = self.factory(td)
+            write_records(factory.parent / "legacy.jsonl", [thalamic("root-level-id")])
+
+            reservation = round_txn.reserve(factory, 1, 1)
+            self.fill_stage(reservation, [thalamic("root-level-id")])
+            with self.assertRaisesRegex(round_txn.TransactionError, "duplicate record id"):
+                round_txn.publish(factory, 1, reservation["token"])
+            self.assertFalse((factory / "ROUND-r01.complete.json").exists())
+
     def test_staged_id_cannot_duplicate_another_factory_inflight_publish(self):
         with tempfile.TemporaryDirectory() as td:
             factory = self.factory(td)
