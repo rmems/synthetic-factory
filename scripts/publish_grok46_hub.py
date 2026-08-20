@@ -381,8 +381,10 @@ def completed_manifests(src: Path) -> dict[int, dict]:
 def marker_mode_state(src: Path) -> tuple[int | None, dict[int, dict]]:
     """Return a factory's marker-mode baseline and validated manifests once."""
     mode_path = src / ".round-marker-mode.json"
-    if not mode_path.is_file():
+    if not mode_path.exists() and not mode_path.is_symlink():
         return None, {}
+    if not is_regular_source_file(mode_path):
+        raise SystemExit(f"unsafe marker mode file: {mode_path}")
     try:
         mode = json.loads(mode_path.read_text())
     except (OSError, json.JSONDecodeError) as exc:
@@ -743,6 +745,10 @@ def cmd_upload(only: str | None = None) -> None:
                 str(dest),
                 "--type",
                 "dataset",
+                "--delete",
+                "data/raw/*",
+                "--delete",
+                "data/metadata/NOTES-r*.md",
                 "--commit-message",
                 f"Snapshot published raw from {item['slug']}",
                 "--commit-description",
@@ -793,6 +799,9 @@ def main() -> int:
     ap.add_argument("cmd", choices=["snapshot", "create", "upload", "collect", "status", "all"])
     ap.add_argument("--only")
     args = ap.parse_args()
+    if args.only and not any(is_selected(item, args.only) for item in factories()):
+        print(f"unknown --only target: {args.only}", file=sys.stderr)
+        return 2
     who = subprocess.run(["hf", "auth", "whoami", "--format", "json"], capture_output=True, text=True)
     if who.returncode != 0:
         print(who.stderr, file=sys.stderr)

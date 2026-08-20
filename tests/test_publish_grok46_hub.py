@@ -260,6 +260,21 @@ class PublishGrok46HubTests(unittest.TestCase):
                     with self.assertRaisesRegex(SystemExit, message):
                         publisher.published_batches(source)
 
+    def test_marker_mode_rejects_unsafe_mode_entries(self):
+        for kind in ("directory", "dangling_symlink"):
+            with self.subTest(kind=kind), tempfile.TemporaryDirectory() as td:
+                source = Path(td) / ITEM["slug"]
+                source.mkdir()
+                (source / "batch-r01.jsonl").write_text('{"id":"uncommitted"}\n')
+                mode = source / ".round-marker-mode.json"
+                if kind == "directory":
+                    mode.mkdir()
+                else:
+                    mode.symlink_to(source / "missing-marker-mode.json")
+
+                with self.assertRaisesRegex(SystemExit, "unsafe marker mode file"):
+                    publisher.published_batches(source)
+
     def test_only_limits_create_and_collection_operations(self):
         other = {**ITEM, "slug": "other-factory", "hub": "other"}
         with mock.patch.object(publisher, "factories", return_value=[ITEM, other]), mock.patch.object(
@@ -272,6 +287,19 @@ class PublishGrok46HubTests(unittest.TestCase):
         self.assertEqual(len(commands), 2)
         self.assertTrue(
             all(any(ITEM["hub"] in token for token in command) for command in commands)
+        )
+
+    def test_upload_syncs_managed_payload_and_note_paths(self):
+        with mock.patch.object(publisher, "factories", return_value=[ITEM]), mock.patch.object(
+            publisher, "run"
+        ) as run:
+            publisher.cmd_upload()
+
+        command = run.call_args.args[0]
+        self.assertIn("--delete", command)
+        self.assertEqual(
+            [command[index + 1] for index, value in enumerate(command) if value == "--delete"],
+            ["data/raw/*", "data/metadata/NOTES-r*.md"],
         )
 
     def test_targeted_snapshot_preserves_full_inventory(self):
@@ -330,6 +358,16 @@ class PublishGrok46HubTests(unittest.TestCase):
             self.assertEqual(publisher.main(), 0)
         create.assert_not_called()
         collect.assert_called_once_with(ITEM["slug"])
+
+    def test_unknown_only_target_fails_before_hub_authentication(self):
+        with mock.patch.object(publisher, "factories", return_value=[ITEM]), mock.patch.object(
+            publisher.subprocess, "run"
+        ) as whoami, mock.patch.object(
+            sys, "argv", ["publish_grok46_hub.py", "snapshot", "--only", "typo"]
+        ):
+            self.assertEqual(publisher.main(), 2)
+
+        whoami.assert_not_called()
 
 
 if __name__ == "__main__":
