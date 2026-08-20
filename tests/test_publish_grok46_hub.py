@@ -162,6 +162,27 @@ class PublishGrok46HubTests(unittest.TestCase):
             self.assertIn("contains no published raw batch files", card)
             self.assertNotIn("batch-r01.jsonl` through", card)
 
+    def test_snapshot_refuses_symlinked_payload_directories(self):
+        for leaf in ("raw", "metadata"):
+            with self.subTest(leaf=leaf), tempfile.TemporaryDirectory() as td:
+                root = Path(td)
+                source = root / "raw" / ITEM["slug"]
+                source.mkdir(parents=True)
+                (source / "batch-r01.jsonl").write_text('{"id":"source"}\n')
+                outside = root / "outside"
+                outside.mkdir()
+                unsafe = root / "hf" / ITEM["hub"] / "data" / leaf
+                unsafe.parent.mkdir(parents=True)
+                unsafe.symlink_to(outside, target_is_directory=True)
+
+                with mock.patch.object(publisher, "FACTORY_ROOT", root / "raw"), mock.patch.object(
+                    publisher, "HF_ROOT", root / "hf"
+                ):
+                    with self.assertRaisesRegex(SystemExit, "unsafe snapshot directory"):
+                        publisher.snapshot_one(ITEM)
+
+                self.assertEqual(list(outside.iterdir()), [])
+
     def test_snapshot_keeps_legacy_named_marker_baseline_payload(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)

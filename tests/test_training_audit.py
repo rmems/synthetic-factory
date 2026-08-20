@@ -214,6 +214,21 @@ class TrainingAudit(unittest.TestCase):
         self.assertEqual(report["preferences"]["same_goal"], 0)
         self.assertTrue(any("shared-goal" in item for item in report["blockers"]))
 
+    def test_episode_preference_legacy_thought_blocks_training(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            record = episode_preference("episode-pref-hidden-thought", pair_goal="repair the cache")
+            step = record["chosen"]["steps"][0]
+            step.pop("decision_basis")
+            step["thought"] = "private reasoning must not become training data"
+            write(root / "tool-use-preference-factory" / "batch-r01.jsonl", [record])
+
+            report = training_audit.audit_run(root)
+
+        self.assertEqual(report["episodes"]["legacy_thought_only_steps"], 1)
+        self.assertFalse(report["training_ready"])
+        self.assertTrue(any("legacy thought" in item for item in report["blockers"]))
+
     def test_episode_preference_does_not_let_wrapper_goal_mask_side_conflict(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)

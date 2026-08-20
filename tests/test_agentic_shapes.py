@@ -299,6 +299,34 @@ class AgenticShapes(unittest.TestCase):
                 ):
                     round_txn.publish(factory, 1, reservation["token"])
 
+    def test_agentic_envelope_rejects_top_level_spike_events(self):
+        with tempfile.TemporaryDirectory() as td:
+            factory = (
+                Path(td)
+                / "outputs"
+                / "raw"
+                / "2099-01-01"
+                / "long-horizon-coding-factory"
+            )
+            factory.mkdir(parents=True)
+            reservation = round_txn.reserve(factory, 1, 2)
+            stage = Path(reservation["staging_dir"])
+            records = []
+            for index in range(2):
+                record = episode(f"lhc-r01-spike-{index}")
+                record["spike_events"] = []
+                records.append(record)
+            (stage / reservation["batch_file"]).write_text(
+                "".join(json.dumps(record) + "\n" for record in records)
+            )
+            (stage / reservation["notes_file"]).write_text("Novel coverage: 80%\n")
+
+            with self.assertRaisesRegex(
+                round_txn.TransactionError,
+                "must not include top-level spike_events",
+            ):
+                round_txn.publish(factory, 1, reservation["token"])
+
     def test_thought_key_rejected_on_agentic_steps(self):
         rec = episode("lhc-r01-tz")
         rec["steps"][0]["tool_call"]["args"]["scratch"] = "hidden"

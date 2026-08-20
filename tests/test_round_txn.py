@@ -354,6 +354,40 @@ class RoundTransaction(unittest.TestCase):
             self.assertEqual(json.loads((factory / round_txn.MODE_FILE).read_text())["legacy_baseline"], 2)
             self.assertEqual(reservation["round"], 3)
 
+    def test_marker_mode_exposes_only_manifest_verified_batches(self):
+        with tempfile.TemporaryDirectory() as td:
+            factory = self.factory(td)
+            round_txn.ensure_marker_mode(factory)
+            batch = factory / "batch-r01.jsonl"
+            write_records(batch, [thalamic("manifest-checked")])
+            marker = factory / "ROUND-r01.complete.json"
+
+            marker.write_text('{"round":1}\n')
+            with self.assertRaisesRegex(round_txn.TransactionError, "identity mismatch"):
+                round_txn.committed_jsonl_paths(factory)
+
+            marker.write_text(
+                json.dumps(
+                    {
+                        "factory": factory.name,
+                        "round": 1,
+                        "commit_point": marker.name,
+                        "files": [
+                            {
+                                "name": batch.name,
+                                "sha256": round_txn.file_sha256(batch),
+                            }
+                        ],
+                    }
+                )
+                + "\n"
+            )
+            self.assertEqual(round_txn.committed_jsonl_paths(factory), [batch])
+
+            batch.write_text("tampered\n")
+            with self.assertRaisesRegex(round_txn.TransactionError, "hash mismatch"):
+                round_txn.committed_jsonl_paths(factory)
+
 
 if __name__ == "__main__":
     unittest.main()

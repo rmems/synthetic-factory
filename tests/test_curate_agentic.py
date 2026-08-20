@@ -2,6 +2,7 @@
 """Focused tests for agentic turn-level curation and preference prefix purity."""
 
 import copy
+import hashlib
 import json
 import subprocess
 import sys
@@ -28,6 +29,7 @@ from curate_agentic import (  # noqa: E402
     REASON_INVALID_UTF8,
     REASON_INVALID_JSON,
     REASON_MISSING_BASIS,
+    REASON_PREFERENCE_COLLAPSED,
     REASON_PREFIX_OVERLAP,
     REASON_RECORD_NOT_OBJECT,
     REASON_SKIPPED_KIND,
@@ -268,6 +270,19 @@ class CurateAgenticTests(unittest.TestCase):
 
         self.assertEqual(first_out, second_out)
 
+    def test_excludes_preference_collapsed_by_hidden_thought_stripping(self):
+        source = preference_fixture()
+        source["rejected"] = copy.deepcopy(source["chosen"])
+        source["chosen"]["steps"][0]["thought"] = "private rationale A"
+        source["rejected"]["steps"][0]["thought"] = "private rationale B"
+
+        curated, decision = curate_record(source)
+
+        self.assertIsNone(curated)
+        self.assertEqual(decision["action"], ACTION_EXCLUDED)
+        self.assertIn(REASON_THOUGHT_REMOVED, decision["reason_codes"])
+        self.assertIn(REASON_PREFERENCE_COLLAPSED, decision["reason_codes"])
+
     def test_flags_missing_decision_basis_without_inventing_one(self):
         source = episode_fixture(
             steps=[
@@ -459,7 +474,23 @@ class CurateAgenticTests(unittest.TestCase):
             (factory / "batch-r01.jsonl").write_text(
                 json.dumps(episode_fixture("committed")) + "\n"
             )
-            (factory / "ROUND-r01.complete.json").write_text('{"round":1}\n')
+            batch = factory / "batch-r01.jsonl"
+            (factory / "ROUND-r01.complete.json").write_text(
+                json.dumps(
+                    {
+                        "factory": factory.name,
+                        "round": 1,
+                        "commit_point": "ROUND-r01.complete.json",
+                        "files": [
+                            {
+                                "name": batch.name,
+                                "sha256": hashlib.sha256(batch.read_bytes()).hexdigest(),
+                            }
+                        ],
+                    }
+                )
+                + "\n"
+            )
             (factory / "batch-r02.jsonl").write_text(
                 json.dumps(episode_fixture("uncommitted")) + "\n"
             )

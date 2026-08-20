@@ -62,6 +62,7 @@ REASON_GOAL_DIVERGES = "PREFERENCE_GOAL_DIVERGES"
 REASON_GOAL_MISSING = "PREFERENCE_GOAL_MISSING"
 REASON_GOAL_NOT_TEXT = "PREFERENCE_GOAL_NOT_TEXT"
 REASON_SIDES_NOT_OBJECTS = "PREFERENCE_SIDES_NOT_OBJECTS"
+REASON_PREFERENCE_COLLAPSED = "PREFERENCE_COLLAPSED_AFTER_THOUGHT_STRIP"
 REASON_SAFETY_CASE_TYPE_INVALID = "SAFETY_CASE_TYPE_INVALID"
 REASON_PREFIX_OVERLAP = "PREFIX_OVERLAP_NOTED"
 REASON_RECORD_NOT_OBJECT = "RECORD_NOT_OBJECT"
@@ -357,6 +358,9 @@ def curate_record(
         ok, goal_reason = shared_preference_goal(record)
         if not ok:
             decision["reason_codes"] = reasons + [goal_reason]
+            return None, decision
+        if cleaned.get("chosen") == cleaned.get("rejected"):
+            decision["reason_codes"] = reasons + [REASON_PREFERENCE_COLLAPSED]
             return None, decision
         overlap = prefix_overlap(record.get("chosen"), record.get("rejected"))
         decision["prefix_overlap"] = overlap

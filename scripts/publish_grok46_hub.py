@@ -324,6 +324,30 @@ def link_or_copy(src: Path, dst: Path) -> None:
         temporary.unlink(missing_ok=True)
 
 
+def snapshot_directories(dest: Path) -> tuple[Path, Path]:
+    """Create a real, contained raw/metadata tree for one Hub snapshot."""
+    if HF_ROOT.exists() or HF_ROOT.is_symlink():
+        if not HF_ROOT.is_dir() or HF_ROOT.is_symlink():
+            raise SystemExit(f"unsafe snapshot directory: {HF_ROOT}")
+    else:
+        HF_ROOT.mkdir(parents=True)
+    root = HF_ROOT.resolve()
+
+    if dest.parent != HF_ROOT:
+        raise SystemExit(f"snapshot destination escaped Hub root: {dest}")
+    for directory in (dest, dest / "data", dest / "data" / "raw", dest / "data" / "metadata"):
+        if directory.exists() or directory.is_symlink():
+            if not directory.is_dir() or directory.is_symlink():
+                raise SystemExit(f"unsafe snapshot directory: {directory}")
+        else:
+            directory.mkdir()
+        try:
+            directory.resolve().relative_to(root)
+        except ValueError as exc:
+            raise SystemExit(f"snapshot directory escaped Hub root: {directory}") from exc
+    return dest / "data" / "raw", dest / "data" / "metadata"
+
+
 def batch_label(path: Path) -> tuple[int, str, str] | None:
     """Return a sortable, zero-padded round label for a published batch."""
     match = BATCH_NAME_RE.fullmatch(path.name)
@@ -492,10 +516,7 @@ def snapshot_one(item: dict) -> dict:
     dest = HF_ROOT / item["hub"]
     if not LICENSE_SRC.is_file():
         raise SystemExit(f"missing repository LICENSE at {LICENSE_SRC}")
-    raw = dest / "data" / "raw"
-    meta = dest / "data" / "metadata"
-    raw.mkdir(parents=True, exist_ok=True)
-    meta.mkdir(parents=True, exist_ok=True)
+    raw, meta = snapshot_directories(dest)
     marker_state = marker_mode_state(src)
     batches = published_batches(src, marker_state)
     notes = published_notes(src, batches, marker_state)

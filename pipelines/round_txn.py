@@ -39,6 +39,7 @@ MODE_FILE = ".round-marker-mode.json"
 BATCH_RE = re.compile(r"^batch-r(\d+)([a-z]*)\.jsonl$")
 COMPLETE_RE = re.compile(r"^ROUND-r(\d+)\.complete\.json$")
 PUBLISHING_RE = re.compile(r"^ROUND-r(\d+)\.publishing\.json$")
+SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 LEGACY_R1_NAMES = {
     "trajectories.jsonl",
     "final-trajectories.jsonl",
@@ -235,6 +236,76 @@ def completed_rounds(factory_dir: Path):
     return sorted(set(rounds))
 
 
+def completed_manifests(factory_dir: Path) -> dict[int, dict]:
+    """Return only completion manifests safe to use for batch visibility.
+
+    ``completed_rounds`` intentionally remains a lightweight frontier-report
+    helper for existing marker-mode directories.  Consumers that expose or
+    reserve committed batch contents need the full transaction contract:
+    a regular marker, its factory/round identity, its declared commit point,
+    and one valid digest entry for that round's primary batch.
+    """
+    manifests = {}
+    for path in sorted(factory_dir.glob("ROUND-r*.complete.json")):
+        match = COMPLETE_RE.fullmatch(path.name)
+        if match is None:
+            continue
+        if not path.is_file() or path.is_symlink():
+            raise TransactionError(f"unsafe completion marker: {path}")
+        round_number = int(match.group(1))
+        payload = read_json(path)
+        if payload.get("factory") != factory_dir.name:
+            raise TransactionError(f"completion marker identity mismatch: {path}")
+        declared_round = payload.get("round")
+        if (
+            not isinstance(declared_round, int)
+            or isinstance(declared_round, bool)
+            or declared_round != round_number
+        ):
+            raise TransactionError(f"completion marker round mismatch: {path}")
+        if payload.get("commit_point") != path.name:
+            raise TransactionError(f"completion marker commit point mismatch: {path}")
+        files = payload.get("files")
+        if not isinstance(files, list):
+            raise TransactionError(f"completion marker files must be an array: {path}")
+        batch_name = f"batch-r{round_number:02d}.jsonl"
+        entries = [
+            entry
+            for entry in files
+            if isinstance(entry, dict) and entry.get("name") == batch_name
+        ]
+        if len(entries) != 1:
+            raise TransactionError(
+                f"completion marker has no unique batch entry: {path}"
+            )
+        digest = entries[0].get("sha256")
+        if not isinstance(digest, str) or SHA256_RE.fullmatch(digest) is None:
+            raise TransactionError(f"completion marker has invalid batch hash: {path}")
+        if round_number in manifests:
+            raise TransactionError(f"duplicate completion markers for r{round_number:02d}")
+        manifests[round_number] = payload
+    return manifests
+
+
+def batch_matches_completion_manifest(batch: Path, manifest: dict) -> bool:
+    """Validate a committed batch against its unique completion entry."""
+    if not batch.is_file() or batch.is_symlink():
+        raise TransactionError(f"unsafe committed batch: {batch}")
+    entries = [
+        entry
+        for entry in manifest["files"]
+        if isinstance(entry, dict) and entry.get("name") == batch.name
+    ]
+    if len(entries) != 1:
+        raise TransactionError(f"completion marker has no unique batch entry for {batch}")
+    digest = entries[0].get("sha256")
+    if not isinstance(digest, str) or SHA256_RE.fullmatch(digest) is None:
+        raise TransactionError(f"completion marker has invalid batch hash for {batch}")
+    if file_sha256(batch) != digest:
+        raise TransactionError(f"completed batch hash mismatch: {batch}")
+    return True
+
+
 def frontier_status(factory_dir: Path):
     factory_dir = Path(factory_dir).resolve()
     if not factory_dir.is_dir():
@@ -381,14 +452,18 @@ def committed_jsonl_paths(factory_dir: Path):
     baseline = mode.get("legacy_baseline")
     if not isinstance(baseline, int) or isinstance(baseline, bool) or baseline < 0:
         raise TransactionError(f"invalid legacy_baseline in {mode_path}")
-    complete = set(completed_rounds(factory_dir))
+    manifests = completed_manifests(factory_dir)
     visible = []
     for path in files:
         match = BATCH_RE.fullmatch(path.name)
         if match is not None:
             round_number = int(match.group(1))
             suffix = match.group(2)
-            if round_number <= baseline or (not suffix and round_number in complete):
+            if round_number <= baseline:
+                visible.append(path)
+            elif not suffix and round_number in manifests and batch_matches_completion_manifest(
+                path, manifests[round_number]
+            ):
                 visible.append(path)
             continue
         if baseline >= 1 and path.name in LEGACY_R1_NAMES:
@@ -492,6 +567,10 @@ def validate_agentic_envelope(batch: Path, factory_dir: Path, round_number: int)
         except json.JSONDecodeError:
             continue
         where = f"{batch.name}:{lineno}"
+        if isinstance(record, dict) and "spike_events" in record:
+            errors.append(
+                f"{where}: agentic records must not include top-level spike_events"
+            )
         if AGENTIC_FACTORY_KINDS[factory_dir.name] == "preference":
             for side_name in ("chosen", "rejected"):
                 side = record.get(side_name) if isinstance(record, dict) else None

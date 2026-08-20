@@ -160,6 +160,17 @@ def preference_context_purity(obj, chosen, rejected):
     }
 
 
+def episode_step_lists(obj, kind):
+    """Yield observable episode steps, including both preference sides."""
+    if kind == "episode":
+        yield obj.get("steps", [])
+    elif kind == "preference":
+        for side_name in ("chosen", "rejected"):
+            side = dict_field(obj, side_name)
+            if _episode_like(side):
+                yield side.get("steps", [])
+
+
 def audit_run(run_dir: Path):
     run_dir = Path(run_dir).resolve()
     files = sorted(run_dir.rglob("*.jsonl"))
@@ -348,9 +359,10 @@ def audit_run(run_dir: Path):
                     bridge["pairs_48_plus"] += int(len(events) >= 48)
                 status = event_stream_status(events)
                 bridge[f"{status}_pairs"] += 1
-            elif kind == "episode":
+            if kind == "episode":
                 episodes["episodes"] += 1
-                for step in obj.get("steps", []):
+            for steps in episode_step_lists(obj, kind):
+                for step in steps:
                     if not isinstance(step, dict):
                         continue
                     episodes["steps"] += 1
