@@ -6,10 +6,37 @@ set -euo pipefail
 ROOT=/home/raulmc/rmems/synthetic-factory
 PROMPT="$ROOT/pipelines/restart_grok46_33.md"
 GROK="${GROK:-/home/raulmc/.local/bin/grok}"
-LOG=/tmp/grok46-restart-33.log
-LOCK=/tmp/grok46-restart-33.lock
-PID_FILE=/tmp/grok46-restart-33.pid
+STATE_DIR="${XDG_STATE_HOME:-/home/raulmc/.local/state}/synthetic-factory-grok46"
+umask 077
+mkdir -p "$STATE_DIR"
+chmod 700 "$STATE_DIR"
+LOG="$STATE_DIR/restart.log"
+LOCK="$STATE_DIR/launcher.lock"
+PID_FILE="$STATE_DIR/worker.state"
 SESSION=grok46-agentic-restart
+
+process_start_token() {
+  local pid="${1:-}" stat rest
+  local -a fields
+  [[ "$pid" =~ ^[0-9]+$ && -r "/proc/$pid/stat" ]] || return 1
+  stat=$(<"/proc/$pid/stat")
+  rest=${stat##*) }
+  read -r -a fields <<<"$rest"
+  [[ ${#fields[@]} -ge 20 ]] || return 1
+  printf '%s\n' "${fields[19]}"
+}
+
+write_worker_state() {
+  local pid="$1" started temporary
+  started=$(process_start_token "$pid") || return 1
+  temporary=$(mktemp "$STATE_DIR/.worker-state.XXXXXX") || return 1
+  if ! printf '%s %s\n' "$pid" "$started" >"$temporary"; then
+    rm -f -- "$temporary"
+    return 1
+  fi
+  chmod 600 "$temporary"
+  mv -f -- "$temporary" "$PID_FILE"
+}
 
 export TZ=America/Chicago
 dow=$(date +%u)
@@ -30,20 +57,24 @@ fi
 echo $$ >&9
 echo "$(date -Is) starting 33-agent restart" >>"$LOG"
 
-# The advisory flock protects overlapping launcher shells only. The nohup
-# worker outlives this shell, so keep its PID separately and refuse a second
-# window tick while that exact process is still alive.
+# The lock protects launch setup. The detached worker subsequently holds its
+# own flock, while the state file verifies both PID and /proc start token so a
+# recycled PID cannot suppress a new weekly run.
 if [[ -s "$PID_FILE" ]]; then
-  read -r existing_pid <"$PID_FILE" || true
-  if [[ "$existing_pid" =~ ^[0-9]+$ ]] && kill -0 "$existing_pid" 2>/dev/null; then
-    echo "$(date -Is) skip: nohup worker pid $existing_pid already live" >>"$LOG"
+  read -r existing_pid existing_started extra <"$PID_FILE" || true
+  current_started=""
+  if [[ "$existing_pid" =~ ^[0-9]+$ ]]; then
+    current_started=$(process_start_token "$existing_pid" || true)
+  fi
+  if [[ -n "$existing_started" && -z "$extra" && "$current_started" == "$existing_started" ]]; then
+    echo "$(date -Is) skip: nohup worker pid $existing_pid identity still live" >>"$LOG"
     exit 0
   fi
-  rm -f "$PID_FILE"
+  rm -f -- "$PID_FILE"
 fi
 
 cd "$ROOT"
-"$ROOT/.claude/skills/run-synthetic-factory/driver.py" frontiers outputs/raw/2026-08-19-agentic >>"$LOG" 2>&1 || true
+"$ROOT/.claude/skills/run-synthetic-factory/driver.py" frontiers outputs/raw/2026-08-19-agentic >>"$LOG" 2>&1
 
 if command -v tmux >/dev/null 2>&1; then
   if tmux has-session -t "$SESSION" 2>/dev/null; then
@@ -51,10 +82,18 @@ if command -v tmux >/dev/null 2>&1; then
     exit 0
   fi
   tmux new-session -d -s "$SESSION" \
-    "cd '$ROOT' && exec '$GROK' --cwd '$ROOT' --always-approve --no-plan --model grok-4.6 \"\$(cat '$PROMPT')\" 2>&1 | tee -a '$LOG'"
+    "exec 9>&-; cd '$ROOT' && exec flock '$LOCK' '$GROK' --cwd '$ROOT' --no-plan --model grok-4.6 \"\$(cat '$PROMPT')\" 2>&1 | tee -a '$LOG'"
   echo "$(date -Is) tmux session $SESSION" >>"$LOG"
 else
-  nohup "$GROK" --cwd "$ROOT" --always-approve --no-plan --model grok-4.6 "$(cat "$PROMPT")" >>"$LOG" 2>&1 &
-  echo $! >"$PID_FILE"
-  echo "$(date -Is) nohup pid $(cat "$PID_FILE")" >>"$LOG"
+  (
+    exec 9>&-
+    exec nohup flock "$LOCK" "$GROK" --cwd "$ROOT" --no-plan --model grok-4.6 "$(cat "$PROMPT")" >>"$LOG" 2>&1
+  ) &
+  worker_pid=$!
+  if ! write_worker_state "$worker_pid"; then
+    kill "$worker_pid" 2>/dev/null || true
+    echo "$(date -Is) error: could not atomically record nohup worker state" >>"$LOG"
+    exit 1
+  fi
+  echo "$(date -Is) nohup supervisor pid $worker_pid" >>"$LOG"
 fi

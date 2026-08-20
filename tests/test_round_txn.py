@@ -216,7 +216,7 @@ class RoundTransaction(unittest.TestCase):
                 round_txn.publish(factory, 1, reservation["token"])
             self.assertFalse((factory / "ROUND-r99.complete.json").exists())
 
-    def test_interrupted_link_plan_resumes_with_same_token(self):
+    def test_interrupted_batch_link_resumes_without_self_duplicate(self):
         with tempfile.TemporaryDirectory() as td:
             factory = self.factory(td)
             reservation = round_txn.reserve(factory, 1, 1)
@@ -224,18 +224,22 @@ class RoundTransaction(unittest.TestCase):
             real_link = round_txn.os.link
             calls = {"count": 0}
 
-            def interrupt_second_link(*args, **kwargs):
+            def interrupt_completion_link(*args, **kwargs):
                 calls["count"] += 1
-                if calls["count"] == 2:
+                # Notes and batch have already linked; fail just before the
+                # completion marker. Retrying must not see that linked but
+                # uncommitted batch as a duplicate of its staged record.
+                if calls["count"] == 3:
                     raise OSError("simulated interruption")
                 return real_link(*args, **kwargs)
 
-            with mock.patch.object(round_txn.os, "link", side_effect=interrupt_second_link):
+            with mock.patch.object(round_txn.os, "link", side_effect=interrupt_completion_link):
                 with self.assertRaisesRegex(OSError, "simulated interruption"):
                     round_txn.publish(factory, 1, reservation["token"])
 
             self.assertTrue((factory / "ROUND-r01.publishing.json").is_file())
             self.assertFalse((factory / "ROUND-r01.complete.json").exists())
+            self.assertTrue((factory / "batch-r01.jsonl").is_file())
             manifest = round_txn.publish(factory, 1, reservation["token"])
             self.assertEqual(manifest["records"], 1)
             self.assertTrue((factory / "ROUND-r01.complete.json").is_file())

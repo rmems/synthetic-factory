@@ -2,6 +2,7 @@
 """Additive Grok 4.6 agentic record shapes must publish without Thalamic wrapping."""
 
 import json
+import math
 import sys
 import tempfile
 import unittest
@@ -239,6 +240,21 @@ class AgenticShapes(unittest.TestCase):
         self.assertTrue(any("tool_call must" in error for error in errs), errs)
         self.assertTrue(any("observation must" in error for error in errs), errs)
 
+    def test_staging_rejects_nonfinite_reward_values_and_empty_episode_text(self):
+        for value in (math.nan, math.inf, -math.inf):
+            with self.subTest(value=value):
+                rec = episode("lhc-r01-nonfinite")
+                rec["reward"]["cost_steps"] = value
+                rec["goal"] = ""
+                rec["outcome"] = None
+
+                errs, kind = validate_run.check_line(rec, "t", factory_staging=True)
+
+                self.assertEqual(kind, "episode")
+                self.assertTrue(any("reward.cost_steps" in error for error in errs), errs)
+                self.assertTrue(any("goal must be a non-empty string" in error for error in errs), errs)
+                self.assertTrue(any("outcome must be a non-empty string" in error for error in errs), errs)
+
     def test_multi_agent_speakers_must_be_declared_string_roles(self):
         rec = multi_agent()
         rec["agents"][0]["role"] = None
@@ -251,6 +267,37 @@ class AgenticShapes(unittest.TestCase):
         self.assertTrue(any("agents[0]" in error for error in errs), errs)
         self.assertTrue(any("not a declared" in error for error in errs), errs)
         self.assertTrue(any("missing speaker" in error for error in errs), errs)
+
+    def test_multi_agent_requires_two_distinct_roles(self):
+        rec = multi_agent()
+        rec["agents"][1]["role"] = rec["agents"][0]["role"]
+
+        errs, kind = validate_run.check_line(rec, "t", factory_staging=True)
+
+        self.assertEqual(kind, "multi_agent")
+        self.assertTrue(any("distinct roles" in error for error in errs), errs)
+
+    def test_multi_agent_publish_rejects_malformed_structured_tool_turn(self):
+        with tempfile.TemporaryDirectory() as td:
+            factory = (
+                Path(td)
+                / "outputs"
+                / "raw"
+                / "2099-01-01"
+                / "multi-agent-coordination-factory"
+            )
+            factory.mkdir(parents=True)
+            reservation = round_txn.reserve(factory, 1, 1)
+            stage = Path(reservation["staging_dir"])
+            record = multi_agent()
+            record["transcript"][0].update(
+                {"tool_call": {"name": "bash", "args": {}}, "decision_basis": "", "observation": None}
+            )
+            (stage / reservation["batch_file"]).write_text(json.dumps(record) + "\n")
+            (stage / reservation["notes_file"]).write_text("Novel coverage: 70%\n")
+
+            with self.assertRaisesRegex(round_txn.TransactionError, "not training-ready"):
+                round_txn.publish(factory, 1, reservation["token"])
 
     def test_agentic_reservation_binds_configured_quota(self):
         with tempfile.TemporaryDirectory() as td:
@@ -298,6 +345,29 @@ class AgenticShapes(unittest.TestCase):
                 "".join(json.dumps(record) + "\n" for record in records)
             )
             with self.assertRaisesRegex(round_txn.TransactionError, "meta.factory"):
+                round_txn.publish(factory, 1, reservation["token"])
+
+    def test_agentic_publish_rejects_boolean_round_metadata(self):
+        with tempfile.TemporaryDirectory() as td:
+            factory = (
+                Path(td)
+                / "outputs"
+                / "raw"
+                / "2099-01-01"
+                / "long-horizon-coding-factory"
+            )
+            factory.mkdir(parents=True)
+            reservation = round_txn.reserve(factory, 1, 2)
+            stage = Path(reservation["staging_dir"])
+            records = [episode(f"bool-round-{index}") for index in range(2)]
+            for record in records:
+                record["meta"]["round"] = True
+            (stage / reservation["batch_file"]).write_text(
+                "".join(json.dumps(record) + "\n" for record in records)
+            )
+            (stage / reservation["notes_file"]).write_text("Novel coverage: 70%\n")
+
+            with self.assertRaisesRegex(round_txn.TransactionError, "meta.round"):
                 round_txn.publish(factory, 1, reservation["token"])
 
 if __name__ == "__main__":

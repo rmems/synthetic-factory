@@ -15,6 +15,8 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import contextlib
+import fcntl
 import hashlib
 import json
 import os
@@ -33,7 +35,7 @@ from check_records import check_jsonl  # noqa: E402
 
 
 MODE_FILE = ".round-marker-mode.json"
-BATCH_RE = re.compile(r"^batch-r(\d+)[a-z]*\.jsonl$")
+BATCH_RE = re.compile(r"^batch-r(\d+)([a-z]*)\.jsonl$")
 COMPLETE_RE = re.compile(r"^ROUND-r(\d+)\.complete\.json$")
 LEGACY_R1_NAMES = {
     "trajectories.jsonl",
@@ -345,15 +347,69 @@ def reserve(factory_dir: Path, round_number: int, expected: int):
     return payload
 
 
+def committed_jsonl_paths(factory_dir: Path):
+    """Yield only JSONL that is visible as committed data in one factory.
+
+    Before marker mode, every raw JSONL is legacy-visible. Once a factory has
+    a marker-mode baseline, a linked batch is visible only when it belongs to
+    that declared baseline or has its own completion marker. This deliberately
+    excludes files linked by an interrupted publish before its commit marker.
+    """
+    mode_path = factory_dir / MODE_FILE
+    files = sorted(factory_dir.glob("*.jsonl"))
+    if not mode_path.exists():
+        return files
+
+    mode = read_json(mode_path)
+    baseline = mode.get("legacy_baseline")
+    if not isinstance(baseline, int) or isinstance(baseline, bool) or baseline < 0:
+        raise TransactionError(f"invalid legacy_baseline in {mode_path}")
+    complete = set(completed_rounds(factory_dir))
+    visible = []
+    for path in files:
+        match = BATCH_RE.fullmatch(path.name)
+        if match is not None:
+            round_number = int(match.group(1))
+            suffix = match.group(2)
+            if round_number <= baseline or (not suffix and round_number in complete):
+                visible.append(path)
+            continue
+        if baseline >= 1 and path.name in LEGACY_R1_NAMES:
+            visible.append(path)
+    return visible
+
+
 def committed_ids(factory_dir: Path):
     """Seed the run-wide ID namespace from committed/legacy raw JSONL."""
     seen_ids = {}
     run_dir = factory_dir.parent
-    for path in sorted(run_dir.rglob("*.jsonl")):
-        # Existing defects are reported by run audits. Here we only need their
-        # identity namespace so a new round cannot reuse it.
-        check_jsonl(path, path.relative_to(run_dir), seen_ids=seen_ids)
+    for candidate in sorted(run_dir.iterdir()):
+        if not candidate.is_dir():
+            continue
+        for path in committed_jsonl_paths(candidate):
+            # Existing defects are reported by run audits. Here we only need
+            # their identity namespace so a new round cannot reuse it.
+            check_jsonl(path, path.relative_to(run_dir), seen_ids=seen_ids)
     return seen_ids
+
+
+@contextlib.contextmanager
+def run_publish_lock(factory_dir: Path):
+    """Serialize publish validation and the completion marker for one run."""
+    path = factory_dir.parent / ".round-publish.lock"
+    flags = os.O_RDWR | os.O_CREAT
+    if hasattr(os, "O_NOFOLLOW"):
+        flags |= os.O_NOFOLLOW
+    try:
+        fd = os.open(path, flags, 0o644)
+    except OSError as exc:
+        raise TransactionError(f"cannot acquire run publish lock {path}: {exc}") from exc
+    with os.fdopen(fd, "a+") as handle:
+        fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
 
 
 def validate_agentic_envelope(batch: Path, factory_dir: Path, round_number: int):
@@ -387,7 +443,12 @@ def validate_agentic_envelope(batch: Path, factory_dir: Path, round_number: int)
             errors.append(
                 f"{where}: meta.factory must be {factory_dir.name!r}"
             )
-        if meta.get("round") != round_number:
+        meta_round = meta.get("round")
+        if (
+            not isinstance(meta_round, int)
+            or isinstance(meta_round, bool)
+            or meta_round != round_number
+        ):
             errors.append(f"{where}: meta.round must match reservation r{round_number:02d}")
         if meta.get("generator") != "grok-4.6":
             errors.append(f"{where}: meta.generator must be 'grok-4.6'")
@@ -483,6 +544,12 @@ def validate_stage(
 
 def publish(factory_dir: Path, round_number: int, token: str):
     factory_dir = Path(factory_dir).resolve()
+    with run_publish_lock(factory_dir):
+        return _publish_locked(factory_dir, round_number, token)
+
+
+def _publish_locked(factory_dir: Path, round_number: int, token: str):
+    """Publish while holding the run-wide identity/commit lock."""
     paths = marker_paths(factory_dir, round_number)
     if paths["complete"].exists():
         raise TransactionError(f"round already complete: {paths['complete']}")

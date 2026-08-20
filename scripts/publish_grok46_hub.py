@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import shutil
 import subprocess
@@ -25,8 +26,15 @@ import sys
 import tempfile
 from pathlib import Path
 
-FACTORY_ROOT = Path("/home/raulmc/rmems/synthetic-factory/outputs/raw/2026-08-19-agentic")
-HF_ROOT = Path("/home/raulmc/rmems/hf")
+# Keep the operator defaults while allowing another checkout or runner to
+# stage a snapshot without recreating Raul's local directory layout.
+FACTORY_ROOT = Path(
+    os.environ.get(
+        "GROK46_FACTORY_ROOT",
+        "/home/raulmc/rmems/synthetic-factory/outputs/raw/2026-08-19-agentic",
+    )
+).expanduser()
+HF_ROOT = Path(os.environ.get("GROK46_HF_ROOT", "/home/raulmc/rmems/hf")).expanduser()
 REPO_ROOT = Path(__file__).resolve().parents[1]
 LICENSE_SRC = REPO_ROOT / "LICENSE"
 COLLECTION = "rmems/synthetic-data-factory-grok-46-6a8570931720e862b5638e90"
@@ -47,6 +55,7 @@ BANNED_TAG_SUBSTR = (
 )
 BATCH_NAME_RE = re.compile(r"^batch-r(\d+)([a-z]*)\.jsonl$")
 COMPLETE_MARKER_RE = re.compile(r"^ROUND-r(\d+)\.complete\.json$")
+NOTES_NAME_RE = re.compile(r"^NOTES-r(\d+)([a-z]*)\.md$")
 
 # Extra tags + one-line blurb per factory slug. Hub id is derived.
 META: dict[str, tuple[str, list[str]]] = {
@@ -323,12 +332,19 @@ def batch_label(path: Path) -> tuple[int, str, str] | None:
 
 
 def published_batches(src: Path) -> list[Path]:
-    """Return legacy batches, or only completed batches in marker-mode trees."""
+    """Return legacy-baseline and marker-completed batches from a factory."""
     batches = [
         path for path in src.glob("batch-r*.jsonl") if batch_label(path) is not None
     ]
     if not (src / ".round-marker-mode.json").is_file():
         return sorted(batches)
+    try:
+        mode = json.loads((src / ".round-marker-mode.json").read_text())
+    except (OSError, json.JSONDecodeError) as exc:
+        raise SystemExit(f"cannot read marker mode for {src}: {exc}") from exc
+    baseline = mode.get("legacy_baseline") if isinstance(mode, dict) else None
+    if not isinstance(baseline, int) or isinstance(baseline, bool) or baseline < 0:
+        raise SystemExit(f"invalid legacy_baseline in {src / '.round-marker-mode.json'}")
     complete_rounds = {
         int(match.group(1))
         for marker in src.glob("ROUND-r*.complete.json")
@@ -338,8 +354,21 @@ def published_batches(src: Path) -> list[Path]:
         path
         for path in batches
         if (label := batch_label(path)) is not None
-        and not label[1]
-        and label[0] in complete_rounds
+        and (
+            label[0] <= baseline
+            or (not label[1] and label[0] in complete_rounds)
+        )
+    )
+
+
+def published_notes(src: Path, batches: list[Path]) -> list[Path]:
+    """Return notes that correspond to exactly one visible published batch."""
+    labels = {label[2] for batch in batches if (label := batch_label(batch)) is not None}
+    return sorted(
+        path
+        for path in src.glob("NOTES-r*.md")
+        if (match := NOTES_NAME_RE.fullmatch(path.name)) is not None
+        and f"r{int(match.group(1)):02d}{match.group(2)}" in labels
     )
 
 
@@ -353,7 +382,7 @@ def snapshot_one(item: dict) -> dict:
     raw.mkdir(parents=True, exist_ok=True)
     meta.mkdir(parents=True, exist_ok=True)
     batches = published_batches(src)
-    notes = sorted(src.glob("NOTES-r*.md"))
+    notes = published_notes(src, batches)
     records = 0
     bytes_ = 0
     labels = []
@@ -365,6 +394,14 @@ def snapshot_one(item: dict) -> dict:
             existing.unlink()
         else:
             raise SystemExit(f"unsafe non-file snapshot payload: {existing}")
+    desired_note_names = {note.name for note in notes}
+    for existing in meta.glob("NOTES-r*.md"):
+        if existing.name in desired_note_names:
+            continue
+        if existing.is_file() or existing.is_symlink():
+            existing.unlink()
+        else:
+            raise SystemExit(f"unsafe non-file snapshot metadata: {existing}")
     for b in batches:
         link_or_copy(b, raw / b.name)
         records += count_jsonl_lines(b)
@@ -589,11 +626,11 @@ def main() -> int:
     if args.cmd == "snapshot":
         cmd_snapshot(args.only)
     elif args.cmd == "create":
-        cmd_create()
+        cmd_create(args.only)
     elif args.cmd == "upload":
         cmd_upload(args.only)
     elif args.cmd == "collect":
-        cmd_collect()
+        cmd_collect(args.only)
     elif args.cmd == "status":
         cmd_status()
     elif args.cmd == "all":

@@ -11,13 +11,17 @@ SCRIPT = REPO / "pipelines" / "restart_grok46_33.sh"
 
 
 class RestartGrok46Tests(unittest.TestCase):
-    def test_nohup_path_has_a_separate_liveness_guard(self):
+    def test_launcher_uses_private_identity_checked_worker_state(self):
         text = SCRIPT.read_text()
 
-        self.assertIn("PID_FILE=/tmp/grok46-restart-33.pid", text)
-        self.assertIn('kill -0 "$existing_pid"', text)
-        self.assertIn('echo $! >"$PID_FILE"', text)
-        self.assertNotIn('echo $! >"$LOCK"', text)
+        self.assertIn('STATE_DIR="${XDG_STATE_HOME:-/home/raulmc/.local/state}/synthetic-factory-grok46"', text)
+        self.assertIn('chmod 700 "$STATE_DIR"', text)
+        self.assertIn("process_start_token()", text)
+        self.assertIn('write_worker_state "$worker_pid"', text)
+        self.assertIn('exec nohup flock "$LOCK"', text)
+        self.assertNotIn("/tmp/grok46-restart-33", text)
+        self.assertNotIn("--always-approve", text)
+        self.assertNotIn('frontiers outputs/raw/2026-08-19-agentic >>"$LOG" 2>&1 || true', text)
         subprocess.run(["bash", "-n", str(SCRIPT)], check=True)
 
 

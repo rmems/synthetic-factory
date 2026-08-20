@@ -5,6 +5,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 from unittest import mock
 
 REPO = Path(__file__).resolve().parents[1]
@@ -56,26 +57,35 @@ class PublishGrok46HubTests(unittest.TestCase):
                 self.assertFalse(copied.is_symlink())
                 self.assertEqual(copied.read_text(), last.read_text())
 
-    def test_snapshot_filters_uncommitted_marker_mode_batches_and_handles_empty(self):
+    def test_snapshot_keeps_legacy_baseline_and_filters_uncommitted_marker_batches(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
             source = root / "raw" / ITEM["slug"]
             destination_root = root / "hf"
             source.mkdir(parents=True)
-            (source / ".round-marker-mode.json").write_text('{"version":1}\n')
-            (source / "batch-r01.jsonl").write_text('{"id":"committed"}\n')
+            (source / ".round-marker-mode.json").write_text(
+                '{"version":1,"legacy_baseline":1}\n'
+            )
+            (source / "batch-r01.jsonl").write_text('{"id":"legacy"}\n')
             (source / "batch-r02.jsonl").write_text('{"id":"uncommitted"}\n')
-            (source / "ROUND-r01.complete.json").write_text('{"round":1}\n')
+            (source / "batch-r03.jsonl").write_text('{"id":"committed"}\n')
+            (source / "ROUND-r03.complete.json").write_text('{"round":3}\n')
+            (source / "NOTES-r01.md").write_text("legacy\n")
+            (source / "NOTES-r02.md").write_text("uncommitted\n")
+            (source / "NOTES-r03.md").write_text("committed\n")
 
             self.assertEqual(
                 [path.name for path in publisher.published_batches(source)],
-                ["batch-r01.jsonl"],
+                ["batch-r01.jsonl", "batch-r03.jsonl"],
             )
             stale_destination = (
                 destination_root / ITEM["hub"] / "data" / "raw" / "batch-r02.jsonl"
             )
             stale_destination.parent.mkdir(parents=True)
             stale_destination.write_text('{"id":"stale"}\n')
+            stale_note = destination_root / ITEM["hub"] / "data" / "metadata" / "NOTES-r02.md"
+            stale_note.parent.mkdir(parents=True)
+            stale_note.write_text("stale\n")
             with mock.patch.object(publisher, "FACTORY_ROOT", root / "raw"), mock.patch.object(
                 publisher, "HF_ROOT", destination_root
             ):
@@ -83,6 +93,11 @@ class PublishGrok46HubTests(unittest.TestCase):
                 raw = destination_root / ITEM["hub"] / "data" / "raw"
                 self.assertTrue((raw / "batch-r01.jsonl").is_file())
                 self.assertFalse((raw / "batch-r02.jsonl").exists())
+                self.assertTrue((raw / "batch-r03.jsonl").is_file())
+                meta = destination_root / ITEM["hub"] / "data" / "metadata"
+                self.assertTrue((meta / "NOTES-r01.md").is_file())
+                self.assertFalse((meta / "NOTES-r02.md").exists())
+                self.assertTrue((meta / "NOTES-r03.md").is_file())
 
             empty_source = root / "raw" / "empty-factory"
             empty_source.mkdir()
@@ -108,6 +123,26 @@ class PublishGrok46HubTests(unittest.TestCase):
         self.assertTrue(
             all(any(ITEM["hub"] in token for token in command) for command in commands)
         )
+
+    def test_main_forwards_only_to_standalone_create_and_collect(self):
+        whoami = SimpleNamespace(returncode=0, stdout='{"user":"rmems"}', stderr="")
+        with mock.patch.object(publisher.subprocess, "run", return_value=whoami), mock.patch.object(
+            publisher, "cmd_create"
+        ) as create, mock.patch.object(publisher, "cmd_collect") as collect, mock.patch.object(
+            sys, "argv", ["publish_grok46_hub.py", "create", "--only", ITEM["hub"]]
+        ):
+            self.assertEqual(publisher.main(), 0)
+            create.assert_called_once_with(ITEM["hub"])
+            collect.assert_not_called()
+
+        with mock.patch.object(publisher.subprocess, "run", return_value=whoami), mock.patch.object(
+            publisher, "cmd_create"
+        ) as create, mock.patch.object(publisher, "cmd_collect") as collect, mock.patch.object(
+            sys, "argv", ["publish_grok46_hub.py", "collect", "--only", ITEM["slug"]]
+        ):
+            self.assertEqual(publisher.main(), 0)
+            collect.assert_called_once_with(ITEM["slug"])
+            create.assert_not_called()
 
 
 if __name__ == "__main__":

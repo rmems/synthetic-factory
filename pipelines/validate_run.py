@@ -497,7 +497,37 @@ def _require_reward(obj, where):
         return [f"{where}: reward missing 'success'"]
     if not isinstance(reward["success"], bool):
         return [f"{where}: reward.success must be a boolean"]
-    return []
+    errors = []
+    stack = [("reward", reward)]
+    while stack:
+        path, value = stack.pop()
+        if isinstance(value, dict):
+            stack.extend((f"{path}.{key}", child) for key, child in value.items())
+        elif isinstance(value, list):
+            stack.extend((f"{path}[{index}]", child) for index, child in enumerate(value))
+        elif isinstance(value, float) and not math.isfinite(value):
+            errors.append(f"{where}: {path} must be a finite number")
+    return errors
+
+
+def _staging_tool_turn_errors(turn, where):
+    """Validate an observable structured tool turn in staged agentic data."""
+    errors = []
+    basis = turn.get("decision_basis")
+    if not isinstance(basis, str) or not basis.strip():
+        errors.append(f"{where}: decision_basis must be a non-empty string")
+    tool_call = turn.get("tool_call")
+    if not isinstance(tool_call, dict):
+        errors.append(f"{where}: tool_call must be an object")
+    else:
+        if not isinstance(tool_call.get("name"), str) or not tool_call["name"].strip():
+            errors.append(f"{where}: tool_call.name must be a non-empty string")
+        if not isinstance(tool_call.get("args"), dict):
+            errors.append(f"{where}: tool_call.args must be an object")
+    observation = turn.get("observation")
+    if not isinstance(observation, str) or not observation.strip():
+        errors.append(f"{where}: observation must be a non-empty string")
+    return errors
 
 
 def check_episode(obj, where, require_goal=True, forbid_hidden_thought=False):
@@ -510,6 +540,9 @@ def check_episode(obj, where, require_goal=True, forbid_hidden_thought=False):
     for key in required:
         if key not in obj:
             errs.append(f"{where}: episode missing '{key}'")
+    for key in ("goal", "outcome"):
+        if key in obj and (not isinstance(obj[key], str) or not obj[key].strip()):
+            errs.append(f"{where}: {key} must be a non-empty string")
     errs += _require_reward(obj, where)
     steps = obj.get("steps")
     if not isinstance(steps, list) or not steps:
@@ -531,24 +564,11 @@ def check_episode(obj, where, require_goal=True, forbid_hidden_thought=False):
             ):
                 errs.append(f"{where} step {i}: missing 'decision_basis'")
             if forbid_hidden_thought:
-                basis = step.get("decision_basis")
-                if not isinstance(basis, str) or not basis.strip():
-                    errs.append(f"{where} step {i}: decision_basis must be a non-empty string")
-                tool_call = step.get("tool_call")
-                if not isinstance(tool_call, dict):
-                    errs.append(f"{where} step {i}: tool_call must be an object")
-                else:
-                    if not isinstance(tool_call.get("name"), str) or not tool_call["name"].strip():
-                        errs.append(f"{where} step {i}: tool_call.name must be a non-empty string")
-                    if not isinstance(tool_call.get("args"), dict):
-                        errs.append(f"{where} step {i}: tool_call.args must be an object")
-                observation = step.get("observation")
-                if not isinstance(observation, str) or not observation.strip():
-                    errs.append(f"{where} step {i}: observation must be a non-empty string")
+                errs += _staging_tool_turn_errors(step, f"{where} step {i}")
     return errs
 
 
-def check_multi_agent(obj, where):
+def check_multi_agent(obj, where, factory_staging=False):
     errs = []
     for key in ("goal", "agents", "transcript", "joint_outcome", "reward"):
         if key not in obj:
@@ -564,6 +584,8 @@ def check_multi_agent(obj, where):
                 errs.append(f"{where}: agents[{i}] needs a non-empty role")
             else:
                 roles.add(role.strip())
+        if len(roles) < 2:
+            errs.append(f"{where}: agents must declare at least two distinct roles")
     transcript = obj.get("transcript")
     if not isinstance(transcript, list) or not transcript:
         errs.append(f"{where}: transcript must be a non-empty array")
@@ -579,6 +601,8 @@ def check_multi_agent(obj, where):
                 errs.append(
                     f"{where}: transcript[{i}] speaker {speaker!r} is not a declared agent role"
                 )
+            if factory_staging and "tool_call" in turn:
+                errs += _staging_tool_turn_errors(turn, f"{where}: transcript[{i}]")
     errs += _require_reward(obj, where)
     return errs
 
@@ -681,7 +705,9 @@ def check_line(obj, where, factory_staging=False):
             "safety_case",
         )
     if "transcript" in obj and "agents" in obj:
-        return finish_agentic(check_multi_agent(obj, where), "multi_agent")
+        return finish_agentic(
+            check_multi_agent(obj, where, factory_staging=factory_staging), "multi_agent"
+        )
     if "goal" in obj and "steps" in obj:
         return finish_agentic(
             check_episode(obj, where, forbid_hidden_thought=factory_staging),
