@@ -598,6 +598,7 @@ def check_multi_agent(obj, where, factory_staging=False):
     if not isinstance(transcript, list) or not transcript:
         errs.append(f"{where}: transcript must be a non-empty array")
     else:
+        participating_roles = set()
         for i, turn in enumerate(transcript):
             if not isinstance(turn, dict):
                 errs.append(f"{where}: transcript[{i}] must be an object")
@@ -609,8 +610,17 @@ def check_multi_agent(obj, where, factory_staging=False):
                 errs.append(
                     f"{where}: transcript[{i}] speaker {speaker!r} is not a declared agent role"
                 )
+            else:
+                participating_roles.add(speaker.strip())
+            content = turn.get("content")
+            if not isinstance(content, str) or not content.strip():
+                errs.append(f"{where}: transcript[{i}] needs non-empty content")
             if factory_staging and "tool_call" in turn:
                 errs += _staging_tool_turn_errors(turn, f"{where}: transcript[{i}]")
+        if roles and len(participating_roles) < 2:
+            errs.append(
+                f"{where}: transcript must include substantive turns from at least two declared roles"
+            )
     errs += _require_reward(obj, where)
     return errs
 

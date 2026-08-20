@@ -153,6 +153,32 @@ class PublishGrok46HubTests(unittest.TestCase):
             self.assertIn("contains no published raw batch files", card)
             self.assertNotIn("batch-r01.jsonl` through", card)
 
+    def test_snapshot_keeps_legacy_named_marker_baseline_payload(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            source = root / "raw" / ITEM["slug"]
+            source.mkdir(parents=True)
+            (source / ".round-marker-mode.json").write_text(
+                '{"version":1,"legacy_baseline":1}\n'
+            )
+            legacy = source / "episodes.jsonl"
+            legacy.write_text('{"id":"legacy-episode"}\n')
+            (source / "NOTES-r01.md").write_text("legacy notes\n")
+
+            self.assertEqual([path.name for path in publisher.published_batches(source)], ["episodes.jsonl"])
+            with mock.patch.object(publisher, "FACTORY_ROOT", root / "raw"), mock.patch.object(
+                publisher, "HF_ROOT", root / "hf"
+            ):
+                stats = publisher.snapshot_one(ITEM)
+
+            raw = root / "hf" / ITEM["hub"] / "data" / "raw"
+            meta = root / "hf" / ITEM["hub"] / "data" / "metadata"
+            card = (root / "hf" / ITEM["hub"] / "README.md").read_text()
+            self.assertEqual(stats["records"], 1)
+            self.assertTrue((raw / legacy.name).is_file())
+            self.assertTrue((meta / "NOTES-r01.md").is_file())
+            self.assertIn("data/raw/episodes.jsonl", card)
+
     def test_snapshot_refuses_untrusted_completion_manifests(self):
         with tempfile.TemporaryDirectory() as td:
             source = Path(td) / ITEM["slug"]

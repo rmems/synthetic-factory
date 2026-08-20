@@ -32,7 +32,7 @@ from check_records import (  # noqa: E402
     root_record_id,
     walk_key,
 )
-from validate_run import event_time  # noqa: E402
+from validate_run import _episode_like, event_time  # noqa: E402
 
 
 def percentile(values, fraction):
@@ -97,6 +97,58 @@ def event_stream_status(events):
     if all(current >= previous for previous, current in zip(times, times[1:])):
         return "sorted"
     return "unsorted"
+
+
+def preference_context_purity(obj, chosen, rejected):
+    """Return the applicable DPO context invariant for a preference pair.
+
+    Thalamic pairs must hold state and proposal constant. Episode-sided pairs
+    deliberately do not carry those objects, so their corresponding invariant
+    is one shared task goal: either the outer pair supplies it or both episode
+    sides supply the same non-empty goal.
+    """
+    episode_pair = _episode_like(chosen) or _episode_like(rejected)
+    if not episode_pair:
+        valid_context = bool(chosen and rejected) and all(
+            isinstance(side.get(key), dict)
+            for side in (chosen, rejected)
+            for key in ("state", "proposed_action")
+        )
+        same_state = valid_context and (
+            canonical_blob(chosen["state"]) == canonical_blob(rejected["state"])
+        )
+        same_proposal = valid_context and (
+            canonical_blob(chosen["proposed_action"])
+            == canonical_blob(rejected["proposed_action"])
+        )
+        return {
+            "episode_pair": False,
+            "pure": same_state and same_proposal,
+            "same_state": same_state,
+            "same_proposal": same_proposal,
+            "same_goal": None,
+        }
+
+    pair_goal = obj.get("goal")
+    if isinstance(pair_goal, str) and pair_goal.strip():
+        same_goal = True
+    else:
+        chosen_goal = chosen.get("goal") if isinstance(chosen, dict) else None
+        rejected_goal = rejected.get("goal") if isinstance(rejected, dict) else None
+        same_goal = (
+            isinstance(chosen_goal, str)
+            and bool(chosen_goal.strip())
+            and isinstance(rejected_goal, str)
+            and bool(rejected_goal.strip())
+            and chosen_goal.strip() == rejected_goal.strip()
+        )
+    return {
+        "episode_pair": True,
+        "pure": same_goal,
+        "same_state": None,
+        "same_proposal": None,
+        "same_goal": same_goal,
+    }
 
 
 def audit_run(run_dir: Path):
@@ -247,22 +299,15 @@ def audit_run(run_dir: Path):
                 preference["pairs"] += 1
                 chosen = dict_field(obj, "chosen")
                 rejected = dict_field(obj, "rejected")
-                valid_context = bool(chosen and rejected) and all(
-                    isinstance(side.get(key), dict)
-                    for side in (chosen, rejected)
-                    for key in ("state", "proposed_action")
-                )
-                same_state = valid_context and (
-                    canonical_blob(chosen["state"])
-                    == canonical_blob(rejected["state"])
-                )
-                same_proposal = valid_context and (
-                    canonical_blob(chosen["proposed_action"])
-                    == canonical_blob(rejected["proposed_action"])
-                )
-                preference["same_state"] += int(same_state)
-                preference["same_proposal"] += int(same_proposal)
-                preference["same_context"] += int(same_state and same_proposal)
+                purity = preference_context_purity(obj, chosen, rejected)
+                preference["episode_pairs"] += int(purity["episode_pair"])
+                preference["thalamic_pairs"] += int(not purity["episode_pair"])
+                preference["same_context"] += int(purity["pure"])
+                if purity["same_state"] is not None:
+                    preference["same_state"] += int(purity["same_state"])
+                    preference["same_proposal"] += int(purity["same_proposal"])
+                if purity["same_goal"] is not None:
+                    preference["same_goal"] += int(purity["same_goal"])
                 decision = dict_field(chosen, "safety_decision").get("decision")
                 if isinstance(decision, str):
                     chosen_decisions[decision] += 1
@@ -340,7 +385,17 @@ def audit_run(run_dir: Path):
         blockers.append(f"{unsorted_pairs}/{bridge['pairs']} bridge pairs have invalid event ordering")
     impure_pairs = preference["pairs"] - preference["same_context"]
     if impure_pairs:
-        blockers.append(f"{impure_pairs}/{preference['pairs']} preference pairs change state or proposal")
+        if preference["episode_pairs"]:
+            blockers.append(
+                f"{impure_pairs}/{preference['pairs']} preference pairs violate their "
+                "state/proposal or shared-goal context invariant"
+            )
+        else:
+            # Retain the established all-Thalamic diagnostic as a stable
+            # operator-facing contract for existing corpus reports.
+            blockers.append(
+                f"{impure_pairs}/{preference['pairs']} preference pairs change state or proposal"
+            )
     if exact_duplicates:
         blockers.append(f"{len(exact_duplicates)} exact duplicate records")
     if episodes["legacy_thought_only_steps"]:

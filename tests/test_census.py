@@ -19,6 +19,8 @@ EXPECTED = {
         "thalamic": 2,
         "preference": 1,
         "bridge_pair": 0,
+        "multi_agent": 0,
+        "safety_case": 0,
         "episode": 0,
         "unknown": 0,
     },
@@ -101,6 +103,11 @@ class CensusBuckets(unittest.TestCase):
             self.census.classify_kind({"language_view": {}, "spike_events": []}),
             "bridge_pair",
         )
+        self.assertEqual(
+            self.census.classify_kind({"agents": [], "transcript": []}),
+            "multi_agent",
+        )
+        self.assertEqual(self.census.classify_kind({"case_type": "correct_refusal"}), "safety_case")
         self.assertEqual(
             self.census.classify_kind({"goal": "x", "steps": []}),
             "episode",

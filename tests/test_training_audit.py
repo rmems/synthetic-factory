@@ -31,6 +31,35 @@ def write(path, records):
     path.write_text("".join(json.dumps(record) + "\n" for record in records))
 
 
+def episode_preference(record_id, *, pair_goal=None, chosen_goal=None, rejected_goal=None):
+    def side(goal):
+        record = {
+            "steps": [
+                {
+                    "decision_basis": "fixture observation",
+                    "tool_call": {"name": "inspect", "args": {}},
+                    "observation": "fixture result",
+                }
+            ],
+            "outcome": "fixture complete",
+            "reward": {"success": True},
+        }
+        if goal is not None:
+            record["goal"] = goal
+        return record
+
+    record = {
+        "id": record_id,
+        "chosen": side(chosen_goal),
+        "rejected": side(rejected_goal),
+        "critique": "chosen path is safer",
+        "reward": {"success": True},
+    }
+    if pair_goal is not None:
+        record["goal"] = pair_goal
+    return record
+
+
 class TrainingAudit(unittest.TestCase):
     def test_clean_corpus_is_training_ready(self):
         with tempfile.TemporaryDirectory() as td:
@@ -153,6 +182,35 @@ class TrainingAudit(unittest.TestCase):
         self.assertEqual(report["preferences"]["pairs"], 1)
         self.assertEqual(report["preferences"]["same_context"], 0)
         self.assertGreater(report["record_invariants"]["errors"], 0)
+
+    def test_episode_preference_uses_shared_goal_not_thalamic_context(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            valid = episode_preference("episode-pref", pair_goal="repair the cache")
+            write(root / "tool-use-preference-factory" / "batch-r01.jsonl", [valid])
+
+            report = training_audit.audit_run(root)
+
+        self.assertTrue(report["training_ready"], report["blockers"])
+        self.assertEqual(report["preferences"]["episode_pairs"], 1)
+        self.assertEqual(report["preferences"]["same_goal"], 1)
+        self.assertEqual(report["preferences"]["same_context"], 1)
+
+    def test_episode_preference_with_mismatched_side_goals_blocks_training(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            invalid = episode_preference(
+                "episode-pref-mismatch",
+                chosen_goal="repair the cache",
+                rejected_goal="rotate credentials",
+            )
+            write(root / "tool-use-preference-factory" / "batch-r01.jsonl", [invalid])
+
+            report = training_audit.audit_run(root)
+
+        self.assertFalse(report["training_ready"])
+        self.assertEqual(report["preferences"]["same_goal"], 0)
+        self.assertTrue(any("shared-goal" in item for item in report["blockers"]))
 
     def test_exact_duplicate_and_global_id_duplicate_are_distinct_metrics(self):
         with tempfile.TemporaryDirectory() as td:

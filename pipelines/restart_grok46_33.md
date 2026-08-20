@@ -17,7 +17,9 @@ whose `early_stop` is `true`; a later healthy NOTES file clears the streak, so
 do not treat a historical plateau as permanent. Each remaining agent:
 `round_txn.py reserve` at that factory's **next_round** (never r01 if complete
 markers exist) → dense JSONL → NOTES with `Novel coverage:` → publish → loop
-until stopped.
+only while the next round is at most **r26**. Stop after a successful r26
+publish (or earlier for its token-efficiency stop); do not reserve a new round
+when the frontier is already beyond r26.
 
 Rules: no Thalamic wrap, no spike_events, no `sim_or_real: real`, no hidden `thought`. `meta.generator=grok-4.6`. Writes only via reserve/stage/publish. HF mirrors stay at `~/rmems/hf/<name>/` never `~/rmems/hf/rmems/`. Collection already exists.
 

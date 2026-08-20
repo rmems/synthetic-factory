@@ -50,6 +50,15 @@ BATCH_NAME_RE = re.compile(r"^batch-r(\d+)([a-z]*)\.jsonl$")
 COMPLETE_MARKER_RE = re.compile(r"^ROUND-r(\d+)\.complete\.json$")
 NOTES_NAME_RE = re.compile(r"^NOTES-r(\d+)([a-z]*)\.md$")
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
+LEGACY_R1_NAMES = frozenset(
+    {
+        "trajectories.jsonl",
+        "final-trajectories.jsonl",
+        "pairs.jsonl",
+        "preferences.jsonl",
+        "episodes.jsonl",
+    }
+)
 
 # Extra tags + one-line blurb per factory slug. Hub id is derived.
 META: dict[str, tuple[str, list[str]]] = {
@@ -325,6 +334,11 @@ def batch_label(path: Path) -> tuple[int, str, str] | None:
     return number, suffix, f"r{number:02d}{suffix}"
 
 
+def is_snapshot_payload(path: Path) -> bool:
+    """Whether a raw file has a name owned by the public snapshot mirror."""
+    return batch_label(path) is not None or path.name in LEGACY_R1_NAMES
+
+
 def is_regular_source_file(path: Path) -> bool:
     """Whether a source file can be safely copied into a public snapshot."""
     return path.is_file() and not path.is_symlink()
@@ -382,7 +396,12 @@ def file_matches_manifest(path: Path, manifest: dict) -> bool:
 
 
 def published_batches(src: Path) -> list[Path]:
-    """Return legacy-baseline and marker-completed batches from a factory."""
+    """Return marker-visible raw payloads from a factory.
+
+    Marker-mode baselines can originate in one of the pre-transaction JSONL
+    filenames.  Those files are transaction-visible at r01, so a public
+    snapshot must retain them alongside the newer ``batch-rNN.jsonl`` form.
+    """
     batches = [
         path
         for path in src.glob("batch-r*.jsonl")
@@ -398,7 +417,7 @@ def published_batches(src: Path) -> list[Path]:
     if not isinstance(baseline, int) or isinstance(baseline, bool) or baseline < 0:
         raise SystemExit(f"invalid legacy_baseline in {src / '.round-marker-mode.json'}")
     manifests = completed_manifests(src)
-    return sorted(
+    visible_batches = [
         path
         for path in batches
         if (label := batch_label(path)) is not None
@@ -410,12 +429,20 @@ def published_batches(src: Path) -> list[Path]:
                 and file_matches_manifest(path, manifests[label[0]])
             )
         )
-    )
+    ]
+    legacy_baseline = [
+        path
+        for path in src.glob("*.jsonl")
+        if baseline >= 1 and path.name in LEGACY_R1_NAMES and is_regular_source_file(path)
+    ]
+    return sorted([*visible_batches, *legacy_baseline])
 
 
 def published_notes(src: Path, batches: list[Path]) -> list[Path]:
     """Return notes that correspond to exactly one visible published batch."""
     labels = {label[2] for batch in batches if (label := batch_label(batch)) is not None}
+    if any(batch.name in LEGACY_R1_NAMES for batch in batches):
+        labels.add("r01")
     mode_path = src / ".round-marker-mode.json"
     baseline = None
     manifests = {}
@@ -466,7 +493,9 @@ def snapshot_one(item: dict) -> dict:
     bytes_ = 0
     labels = []
     desired_batch_names = {batch.name for batch in batches}
-    for existing in raw.glob("batch-r*.jsonl"):
+    for existing in raw.iterdir():
+        if not is_snapshot_payload(existing):
+            continue
         if existing.name in desired_batch_names:
             continue
         if existing.is_file() or existing.is_symlink():
@@ -489,9 +518,17 @@ def snapshot_one(item: dict) -> dict:
     for n in notes:
         link_or_copy(n, meta / n.name)
     labels = [label for label in labels if label is not None]
-    first = min(labels)[2] if labels else None
-    last_s = max(labels)[2] if labels else None
-    card = render_card(item, records=records, bytes_=bytes_, first=first, last=last_s)
+    batch_only = len(labels) == len(batches)
+    first = min(labels)[2] if labels and batch_only else None
+    last_s = max(labels)[2] if labels and batch_only else None
+    card = render_card(
+        item,
+        records=records,
+        bytes_=bytes_,
+        first=first,
+        last=last_s,
+        payload_names=[batch.name for batch in batches],
+    )
     (dest / "README.md").write_text(card, encoding="utf-8")
     license_dst = dest / "LICENSE"
     shutil.copy2(LICENSE_SRC, license_dst)
@@ -520,15 +557,28 @@ def snapshot_one(item: dict) -> dict:
 
 
 def render_card(
-    item: dict, *, records: int, bytes_: int, first: str | None, last: str | None
+    item: dict,
+    *,
+    records: int,
+    bytes_: int,
+    first: str | None,
+    last: str | None,
+    payload_names: list[str] | None = None,
 ) -> str:
     tags = "\n".join(f"- {t}" for t in item["tags"])
     kb = max(1, bytes_ // 1024)
     if first is None or last is None:
-        payload = (
-            "This snapshot currently contains no published raw batch files. "
-            "It does not claim a `data/raw/batch-rNN.jsonl` payload."
-        )
+        if payload_names:
+            names = ", ".join(f"`data/raw/{name}`" for name in payload_names)
+            payload = (
+                f"The release contains {records} raw records across {len(payload_names)} "
+                f"published JSONL payload(s) ({names}; ~{kb} KB), snapshotted from"
+            )
+        else:
+            payload = (
+                "This snapshot currently contains no published raw batch files. "
+                "It does not claim a `data/raw/batch-rNN.jsonl` payload."
+            )
     else:
         payload = (
             f"The release contains {records} raw records across\n"
@@ -632,8 +682,8 @@ def local_snapshot_stats(item: dict) -> dict:
     if raw.is_dir():
         batches = sorted(
             path
-            for path in raw.glob("batch-r*.jsonl")
-            if is_regular_source_file(path) and batch_label(path) is not None
+            for path in raw.iterdir()
+            if is_regular_source_file(path) and is_snapshot_payload(path)
         )
     return {
         "hub": item["hub"],
@@ -711,8 +761,18 @@ def cmd_collect(only: str | None = None) -> None:
 def cmd_status() -> None:
     print(f"{'hub':48} {'local_raw':>9} {'factory':>9}")
     for item in factories():
-        local = len(list((HF_ROOT / item["hub"] / "data" / "raw").glob("batch-r*.jsonl"))) if (HF_ROOT / item["hub"]).exists() else 0
-        factory = len(list((FACTORY_ROOT / item["slug"]).glob("batch-r*.jsonl")))
+        local_raw = HF_ROOT / item["hub"] / "data" / "raw"
+        local = (
+            sum(1 for path in local_raw.iterdir() if is_snapshot_payload(path))
+            if local_raw.is_dir()
+            else 0
+        )
+        factory_dir = FACTORY_ROOT / item["slug"]
+        factory = (
+            sum(1 for path in factory_dir.iterdir() if is_snapshot_payload(path))
+            if factory_dir.is_dir()
+            else 0
+        )
         print(f"{item['hub']:48} {local:9d} {factory:9d}")
 
 

@@ -32,6 +32,8 @@ class RestartGrok46Tests(unittest.TestCase):
         self.assertIn("token-efficiency outputs/raw/2026-08-19-agentic --json", text)
         self.assertIn('"postreset-$(date +%Y%m%d-%H%M%S)"', text)
         self.assertIn("whose `early_stop` is `true`", text)
+        self.assertIn("at most **r26**", text)
+        self.assertIn("Stop after a successful r26", text)
         self.assertIn("at most 33", text)
         self.assertNotIn("snapshot outputs/raw/2026-08-19-agentic postreset", text)
 

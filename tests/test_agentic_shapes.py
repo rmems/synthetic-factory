@@ -139,6 +139,19 @@ class AgenticShapes(unittest.TestCase):
         self.assertEqual(kind, "safety_case")
         self.assertEqual(errs, [])
 
+    def test_multi_agent_requires_substantive_turns_from_two_roles(self):
+        rec = multi_agent()
+        rec["transcript"] = [
+            {"n": 1, "speaker": "implementer"},
+            {"n": 2, "speaker": "implementer", "content": "Still working."},
+        ]
+
+        errs, kind = validate_run.check_line(rec, "t", factory_staging=True)
+
+        self.assertEqual(kind, "multi_agent")
+        self.assertTrue(any("non-empty content" in error for error in errs), errs)
+        self.assertTrue(any("at least two declared roles" in error for error in errs), errs)
+
     def test_quotas_include_agentic_slugs(self):
         self.assertEqual(round_txn.FACTORY_QUOTAS["long-horizon-coding-factory"], 2)
         self.assertEqual(round_txn.FACTORY_QUOTAS["cascading-error-recovery-factory"], 2)
