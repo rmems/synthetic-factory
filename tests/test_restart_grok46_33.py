@@ -22,7 +22,7 @@ class RestartGrok46Tests(unittest.TestCase):
         self.assertIn('exec nohup flock "$LOCK"', text)
         self.assertNotIn("/tmp/grok46-restart-33", text)
         self.assertNotIn("--always-approve", text)
-        self.assertIn('if ! "$ROOT/.claude/skills/run-synthetic-factory/driver.py" frontiers', text)
+        self.assertIn('if ! python3 "$ROOT/.claude/skills/run-synthetic-factory/driver.py" frontiers', text)
         self.assertIn("warning: frontier preflight failed; continuing weekly launch", text)
         subprocess.run(["bash", "-n", str(SCRIPT)], check=True)
 

@@ -74,7 +74,7 @@ if [[ -s "$PID_FILE" ]]; then
 fi
 
 cd "$ROOT"
-if ! "$ROOT/.claude/skills/run-synthetic-factory/driver.py" frontiers outputs/raw/2026-08-19-agentic >>"$LOG" 2>&1; then
+if ! python3 "$ROOT/.claude/skills/run-synthetic-factory/driver.py" frontiers outputs/raw/2026-08-19-agentic >>"$LOG" 2>&1; then
   echo "$(date -Is) warning: frontier preflight failed; continuing weekly launch" >>"$LOG"
 fi
 

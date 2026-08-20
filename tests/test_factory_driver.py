@@ -62,6 +62,25 @@ class FactoryTokenEfficiency(unittest.TestCase):
             self.assertTrue(info["early_stop"])
             self.assertEqual(info["early_stop_at_round"], 2)
 
+    def test_marker_mode_ignores_uncommitted_notes(self):
+        with tempfile.TemporaryDirectory() as td:
+            factory = Path(td) / "marker-factory"
+            factory.mkdir()
+            (factory / ".round-marker-mode.json").write_text(
+                '{"version":1,"legacy_baseline":0}\n'
+            )
+            self._write_notes(factory, [(1, 4.0), (2, 3.0)])
+
+            info = factory_driver.factory_token_efficiency(factory)
+            self.assertEqual(info["rounds"], [])
+            self.assertFalse(info["early_stop"])
+
+            (factory / "ROUND-r01.complete.json").write_text('{"round":1}\n')
+            (factory / "ROUND-r02.complete.json").write_text('{"round":2}\n')
+            info = factory_driver.factory_token_efficiency(factory)
+            self.assertTrue(info["early_stop"])
+            self.assertEqual(info["early_stop_at_round"], 2)
+
 
 class FactoryDriverBytes(unittest.TestCase):
     def test_count_records_tolerates_invalid_utf8(self):

@@ -447,6 +447,27 @@ class CurateAgenticTests(unittest.TestCase):
         )
         self.assertEqual(run["summary"]["preference"]["goal_impure"], 1)
 
+    def test_marker_mode_excludes_uncommitted_batches(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            factory = Path(temporary) / "agentic-factory"
+            factory.mkdir()
+            (factory / ".round-marker-mode.json").write_text(
+                '{"version":1,"legacy_baseline":0}\n'
+            )
+            (factory / "batch-r01.jsonl").write_text(
+                json.dumps(episode_fixture("committed")) + "\n"
+            )
+            (factory / "ROUND-r01.complete.json").write_text('{"round":1}\n')
+            (factory / "batch-r02.jsonl").write_text(
+                json.dumps(episode_fixture("uncommitted")) + "\n"
+            )
+
+            run = curate_source(factory)
+
+        self.assertEqual(run["summary"]["files"], 1)
+        self.assertEqual(run["summary"]["input_records"], 1)
+        self.assertEqual(set(run["records_by_rel"]), {"batch-r01.jsonl"})
+
     def test_cli_dry_run_does_not_write(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

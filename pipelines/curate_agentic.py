@@ -26,6 +26,8 @@ from collections import Counter
 from pathlib import Path
 from typing import Any
 
+from round_txn import MODE_FILE, committed_jsonl_paths
+
 
 TRANSFORM_NAME = "agentic_observability"
 TRANSFORM_VERSION = "1"
@@ -397,8 +399,23 @@ def _source_jsonl_files(source: Path) -> tuple[Path, ...]:
     if not source.exists():
         return ()
     if source.is_file():
-        return (source,) if source.suffix == ".jsonl" else ()
-    return tuple(sorted(path for path in source.rglob("*.jsonl") if path.is_file()))
+        paths = (source,) if source.suffix == ".jsonl" else ()
+    else:
+        paths = tuple(sorted(path for path in source.rglob("*.jsonl") if path.is_file()))
+
+    visible_by_factory: dict[Path, set[Path]] = {}
+
+    def visible(path: Path) -> bool:
+        factory = path.parent
+        if not (factory / MODE_FILE).exists():
+            return True
+        if factory not in visible_by_factory:
+            visible_by_factory[factory] = {
+                candidate.resolve() for candidate in committed_jsonl_paths(factory)
+            }
+        return path.resolve() in visible_by_factory[factory]
+
+    return tuple(path for path in paths if visible(path))
 
 
 def _relative_source_path(source: Path, path: Path) -> str:

@@ -34,7 +34,7 @@ PIPELINES = REPO / "pipelines"
 if str(PIPELINES) not in sys.path:
     sys.path.insert(0, str(PIPELINES))
 
-from round_txn import frontier_status, publish, reserve  # noqa: E402
+from round_txn import MODE_FILE, frontier_status, publish, reserve  # noqa: E402
 
 VALIDATOR = PIPELINES / "validate_run.py"
 CHECKER = PIPELINES / "check_records.py"
@@ -192,10 +192,23 @@ def factory_token_efficiency(factory_dir: Path):
     """
     factory_dir = Path(factory_dir)
     notes = sorted(factory_dir.glob("NOTES-r*.md"))
+
     # Sort by round number numeric
     def round_key(p):
         m = re.search(r"r(\d+)", p.name)
         return int(m.group(1)) if m else 0
+
+    mode_path = factory_dir / MODE_FILE
+    if mode_path.exists():
+        status = frontier_status(factory_dir)
+        baseline = status["baseline"]
+        complete = set(status["completed_markers"])
+        notes = [
+            path
+            for path in notes
+            if (round_number := round_key(path)) <= baseline or round_number in complete
+        ]
+
     notes.sort(key=round_key)
     rounds = []
     consecutive = 0
