@@ -17,6 +17,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import re
 import shutil
@@ -48,6 +49,7 @@ BANNED_TAG_SUBSTR = (
 BATCH_NAME_RE = re.compile(r"^batch-r(\d+)([a-z]*)\.jsonl$")
 COMPLETE_MARKER_RE = re.compile(r"^ROUND-r(\d+)\.complete\.json$")
 NOTES_NAME_RE = re.compile(r"^NOTES-r(\d+)([a-z]*)\.md$")
+SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 
 # Extra tags + one-line blurb per factory slug. Hub id is derived.
 META: dict[str, tuple[str, list[str]]] = {
@@ -328,6 +330,57 @@ def is_regular_source_file(path: Path) -> bool:
     return path.is_file() and not path.is_symlink()
 
 
+def file_sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def completed_manifests(src: Path) -> dict[int, dict]:
+    """Load and validate every transactional completion marker in a factory."""
+    manifests = {}
+    for marker in sorted(src.glob("ROUND-r*.complete.json")):
+        match = COMPLETE_MARKER_RE.fullmatch(marker.name)
+        if match is None:
+            continue
+        if not is_regular_source_file(marker):
+            raise SystemExit(f"unsafe completion marker: {marker}")
+        round_number = int(match.group(1))
+        try:
+            manifest = json.loads(marker.read_text())
+        except (OSError, json.JSONDecodeError) as exc:
+            raise SystemExit(f"cannot read completion marker {marker}: {exc}") from exc
+        if not isinstance(manifest, dict):
+            raise SystemExit(f"completion marker must be an object: {marker}")
+        if manifest.get("factory") != src.name or manifest.get("round") != round_number:
+            raise SystemExit(f"completion marker identity mismatch: {marker}")
+        if manifest.get("commit_point") != marker.name:
+            raise SystemExit(f"completion marker commit point mismatch: {marker}")
+        if not isinstance(manifest.get("files"), list):
+            raise SystemExit(f"completion marker files must be an array: {marker}")
+        manifests[round_number] = manifest
+    return manifests
+
+
+def batch_matches_manifest(batch: Path, manifest: dict) -> bool:
+    """Verify a completed batch against its transaction manifest entry."""
+    entries = [
+        entry
+        for entry in manifest["files"]
+        if isinstance(entry, dict) and entry.get("name") == batch.name
+    ]
+    if len(entries) != 1:
+        raise SystemExit(f"completion marker has no unique batch entry for {batch}")
+    expected = entries[0].get("sha256")
+    if not isinstance(expected, str) or SHA256_RE.fullmatch(expected) is None:
+        raise SystemExit(f"completion marker has invalid batch hash for {batch}")
+    if file_sha256(batch) != expected:
+        raise SystemExit(f"completed batch hash mismatch: {batch}")
+    return True
+
+
 def published_batches(src: Path) -> list[Path]:
     """Return legacy-baseline and marker-completed batches from a factory."""
     batches = [
@@ -344,18 +397,18 @@ def published_batches(src: Path) -> list[Path]:
     baseline = mode.get("legacy_baseline") if isinstance(mode, dict) else None
     if not isinstance(baseline, int) or isinstance(baseline, bool) or baseline < 0:
         raise SystemExit(f"invalid legacy_baseline in {src / '.round-marker-mode.json'}")
-    complete_rounds = {
-        int(match.group(1))
-        for marker in src.glob("ROUND-r*.complete.json")
-        if (match := COMPLETE_MARKER_RE.fullmatch(marker.name)) is not None
-    }
+    manifests = completed_manifests(src)
     return sorted(
         path
         for path in batches
         if (label := batch_label(path)) is not None
         and (
             label[0] <= baseline
-            or (not label[1] and label[0] in complete_rounds)
+            or (
+                not label[1]
+                and label[0] in manifests
+                and batch_matches_manifest(path, manifests[label[0]])
+            )
         )
     )
 

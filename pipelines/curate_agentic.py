@@ -60,6 +60,7 @@ REASON_GOAL_DIVERGES = "PREFERENCE_GOAL_DIVERGES"
 REASON_GOAL_MISSING = "PREFERENCE_GOAL_MISSING"
 REASON_GOAL_NOT_TEXT = "PREFERENCE_GOAL_NOT_TEXT"
 REASON_SIDES_NOT_OBJECTS = "PREFERENCE_SIDES_NOT_OBJECTS"
+REASON_SAFETY_CASE_TYPE_INVALID = "SAFETY_CASE_TYPE_INVALID"
 REASON_PREFIX_OVERLAP = "PREFIX_OVERLAP_NOTED"
 REASON_RECORD_NOT_OBJECT = "RECORD_NOT_OBJECT"
 REASON_INVALID_JSON = "INVALID_JSON"
@@ -143,13 +144,19 @@ def classify_record(obj: Any) -> str:
             for side in sides
         ):
             return "preference"
-        # Legacy Thalamic preference pairs deliberately have chosen/rejected
-        # trajectory objects rather than agentic episode sides. They belong in
-        # the skipped bucket, not in the agentic goal-impurity statistics.
-        return "legacy_preference"
+        if all(
+            isinstance(side, dict) and all(key in side for key in THALAMIC_CORE_KEYS)
+            for side in sides
+        ):
+            # Legacy Thalamic preference pairs deliberately have chosen/rejected
+            # trajectory objects rather than agentic episode sides. They belong
+            # in the skipped bucket, not in the agentic goal-impurity statistics.
+            return "legacy_preference"
+        return "preference"
     if "language_view" in obj and "spike_events" in obj:
         return "bridge_pair"
-    if obj.get("case_type") in SAFETY_CASE_TYPES or (
+    case_type = obj.get("case_type")
+    if (isinstance(case_type, str) and case_type in SAFETY_CASE_TYPES) or (
         "case_type" in obj and "rationale" in obj
     ):
         return "safety_case"
@@ -356,6 +363,11 @@ def curate_record(
         decision["prefix_overlap"] = overlap
         if overlap["noted"]:
             reasons.append(REASON_PREFIX_OVERLAP)
+    if kind == "safety_case":
+        case_type = record.get("case_type")
+        if not isinstance(case_type, str) or case_type not in SAFETY_CASE_TYPES:
+            decision["reason_codes"] = reasons + [REASON_SAFETY_CASE_TYPE_INVALID]
+            return None, decision
 
     missing = missing_decision_basis_paths(cleaned)
     decision["missing_decision_basis"] = missing

@@ -32,6 +32,7 @@ from curate_agentic import (  # noqa: E402
     REASON_RECORD_NOT_OBJECT,
     REASON_SKIPPED_KIND,
     REASON_SIDES_NOT_OBJECTS,
+    REASON_SAFETY_CASE_TYPE_INVALID,
     REASON_THOUGHT_REMOVED,
     classify_record,
     contains_hidden_thought_key,
@@ -208,6 +209,26 @@ class CurateAgenticTests(unittest.TestCase):
         self.assertIsNone(curated)
         self.assertEqual(decision["action"], ACTION_SKIPPED)
         self.assertIn(REASON_SKIPPED_KIND, decision["reason_codes"])
+
+    def test_malformed_pairs_and_unhashable_safety_types_are_excluded(self):
+        malformed_pair = {
+            "id": "agentic-pair-without-steps",
+            "chosen": {},
+            "rejected": {},
+            "meta": {"factory": "tool-use-preference-factory"},
+        }
+        curated, decision = curate_record(malformed_pair)
+        self.assertIsNone(curated)
+        self.assertEqual(decision["kind"], "preference")
+        self.assertEqual(decision["action"], ACTION_EXCLUDED)
+        self.assertIn(REASON_GOAL_MISSING, decision["reason_codes"])
+
+        malformed_safety = safety_case_fixture(case_type=[])
+        curated, decision = curate_record(malformed_safety)
+        self.assertIsNone(curated)
+        self.assertEqual(decision["kind"], "safety_case")
+        self.assertEqual(decision["action"], ACTION_EXCLUDED)
+        self.assertIn(REASON_SAFETY_CASE_TYPE_INVALID, decision["reason_codes"])
 
     def test_strips_every_hidden_thought_key_recursively(self):
         source = episode_fixture(

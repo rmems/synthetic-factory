@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """Regression tests for the Grok 4.6 Hub snapshot publisher."""
 
+import hashlib
+import json
 import sys
 import tempfile
 import unittest
@@ -80,8 +82,26 @@ class PublishGrok46HubTests(unittest.TestCase):
             )
             (source / "batch-r01.jsonl").write_text('{"id":"legacy"}\n')
             (source / "batch-r02.jsonl").write_text('{"id":"uncommitted"}\n')
-            (source / "batch-r03.jsonl").write_text('{"id":"committed"}\n')
-            (source / "ROUND-r03.complete.json").write_text('{"round":3}\n')
+            committed_batch = source / "batch-r03.jsonl"
+            committed_batch.write_text('{"id":"committed"}\n')
+            (source / "ROUND-r03.complete.json").write_text(
+                json.dumps(
+                    {
+                        "factory": ITEM["slug"],
+                        "round": 3,
+                        "commit_point": "ROUND-r03.complete.json",
+                        "files": [
+                            {
+                                "name": "batch-r03.jsonl",
+                                "sha256": hashlib.sha256(
+                                    committed_batch.read_bytes()
+                                ).hexdigest(),
+                            }
+                        ],
+                    }
+                )
+                + "\n"
+            )
             (source / "NOTES-r01.md").write_text("legacy\n")
             (source / "NOTES-r02.md").write_text("uncommitted\n")
             (source / "NOTES-r03.md").write_text("committed\n")
@@ -121,6 +141,42 @@ class PublishGrok46HubTests(unittest.TestCase):
                 card = (destination_root / "empty" / "README.md").read_text()
             self.assertIn("contains no published raw batch files", card)
             self.assertNotIn("batch-r01.jsonl` through", card)
+
+    def test_snapshot_refuses_untrusted_completion_manifests(self):
+        with tempfile.TemporaryDirectory() as td:
+            source = Path(td) / ITEM["slug"]
+            source.mkdir()
+            (source / ".round-marker-mode.json").write_text(
+                '{"version":1,"legacy_baseline":0}\n'
+            )
+            batch = source / "batch-r01.jsonl"
+            batch.write_text('{"id":"committed"}\n')
+            marker = source / "ROUND-r01.complete.json"
+
+            for manifest, message in (
+                (
+                    {
+                        "factory": "other-factory",
+                        "round": 1,
+                        "commit_point": marker.name,
+                        "files": [],
+                    },
+                    "identity mismatch",
+                ),
+                (
+                    {
+                        "factory": ITEM["slug"],
+                        "round": 1,
+                        "commit_point": marker.name,
+                        "files": [{"name": batch.name, "sha256": "0" * 64}],
+                    },
+                    "hash mismatch",
+                ),
+            ):
+                with self.subTest(message=message):
+                    marker.write_text(json.dumps(manifest) + "\n")
+                    with self.assertRaisesRegex(SystemExit, message):
+                        publisher.published_batches(source)
 
     def test_only_limits_create_and_collection_operations(self):
         other = {**ITEM, "slug": "other-factory", "hub": "other"}

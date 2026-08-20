@@ -622,7 +622,7 @@ def check_safety_case(obj, where, factory_staging=False):
             errs.append(f"{where}: safety_case missing '{key}'")
     errs += _nonempty_text_field_errors(obj, where, ("goal", "outcome"))
     case_type = obj.get("case_type")
-    if case_type not in SAFETY_CASE_TYPES:
+    if not isinstance(case_type, str) or case_type not in SAFETY_CASE_TYPES:
         errs.append(
             f"{where}: case_type must be one of {sorted(SAFETY_CASE_TYPES)} "
             f"(got {case_type!r})"

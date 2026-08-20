@@ -154,6 +154,15 @@ class AgenticShapes(unittest.TestCase):
         self.assertEqual(kind, "safety_case")
         self.assertTrue(any("case_type" in e for e in errs), errs)
 
+    def test_unhashable_case_type_is_reported_not_raised(self):
+        for value in ([], {}):
+            with self.subTest(value=value):
+                rec = safety_case()
+                rec["case_type"] = value
+                errs, kind = validate_run.check_line(rec, "t")
+                self.assertEqual(kind, "safety_case")
+                self.assertTrue(any("case_type" in error for error in errs), errs)
+
     def test_too_few_agents_rejected(self):
         rec = multi_agent()
         rec["agents"] = [{"role": "solo", "mandate": "do everything"}]
