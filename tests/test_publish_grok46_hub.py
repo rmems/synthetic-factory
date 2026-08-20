@@ -124,25 +124,21 @@ class PublishGrok46HubTests(unittest.TestCase):
             all(any(ITEM["hub"] in token for token in command) for command in commands)
         )
 
-    def test_main_forwards_only_to_standalone_create_and_collect(self):
+    def test_all_only_scopes_payload_not_complete_collection_maintenance(self):
         whoami = SimpleNamespace(returncode=0, stdout='{"user":"rmems"}', stderr="")
         with mock.patch.object(publisher.subprocess, "run", return_value=whoami), mock.patch.object(
-            publisher, "cmd_create"
-        ) as create, mock.patch.object(publisher, "cmd_collect") as collect, mock.patch.object(
-            sys, "argv", ["publish_grok46_hub.py", "create", "--only", ITEM["hub"]]
+            publisher, "cmd_snapshot"
+        ) as snapshot, mock.patch.object(publisher, "cmd_create") as create, mock.patch.object(
+            publisher, "cmd_upload"
+        ) as upload, mock.patch.object(publisher, "cmd_collect") as collect, mock.patch.object(
+            sys, "argv", ["publish_grok46_hub.py", "all", "--only", ITEM["hub"]]
         ):
             self.assertEqual(publisher.main(), 0)
-            create.assert_called_once_with(ITEM["hub"])
-            collect.assert_not_called()
 
-        with mock.patch.object(publisher.subprocess, "run", return_value=whoami), mock.patch.object(
-            publisher, "cmd_create"
-        ) as create, mock.patch.object(publisher, "cmd_collect") as collect, mock.patch.object(
-            sys, "argv", ["publish_grok46_hub.py", "collect", "--only", ITEM["slug"]]
-        ):
-            self.assertEqual(publisher.main(), 0)
-            collect.assert_called_once_with(ITEM["slug"])
-            create.assert_not_called()
+        snapshot.assert_called_once_with(ITEM["hub"])
+        upload.assert_called_once_with(ITEM["hub"])
+        create.assert_called_once_with()
+        collect.assert_called_once_with()
 
 
 if __name__ == "__main__":

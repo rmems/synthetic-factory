@@ -18,7 +18,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
 import re
 import shutil
 import subprocess
@@ -26,15 +25,8 @@ import sys
 import tempfile
 from pathlib import Path
 
-# Keep the operator defaults while allowing another checkout or runner to
-# stage a snapshot without recreating Raul's local directory layout.
-FACTORY_ROOT = Path(
-    os.environ.get(
-        "GROK46_FACTORY_ROOT",
-        "/home/raulmc/rmems/synthetic-factory/outputs/raw/2026-08-19-agentic",
-    )
-).expanduser()
-HF_ROOT = Path(os.environ.get("GROK46_HF_ROOT", "/home/raulmc/rmems/hf")).expanduser()
+FACTORY_ROOT = Path("/home/raulmc/rmems/synthetic-factory/outputs/raw/2026-08-19-agentic")
+HF_ROOT = Path("/home/raulmc/rmems/hf")
 REPO_ROOT = Path(__file__).resolve().parents[1]
 LICENSE_SRC = REPO_ROOT / "LICENSE"
 COLLECTION = "rmems/synthetic-data-factory-grok-46-6a8570931720e862b5638e90"
@@ -626,18 +618,18 @@ def main() -> int:
     if args.cmd == "snapshot":
         cmd_snapshot(args.only)
     elif args.cmd == "create":
-        cmd_create(args.only)
+        cmd_create()
     elif args.cmd == "upload":
         cmd_upload(args.only)
     elif args.cmd == "collect":
-        cmd_collect(args.only)
+        cmd_collect()
     elif args.cmd == "status":
         cmd_status()
     elif args.cmd == "all":
         cmd_snapshot(args.only)
-        cmd_create(args.only)
+        cmd_create()
         cmd_upload(args.only)
-        cmd_collect(args.only)
+        cmd_collect()
     return 0
 
 

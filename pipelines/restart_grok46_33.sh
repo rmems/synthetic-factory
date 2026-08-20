@@ -74,7 +74,9 @@ if [[ -s "$PID_FILE" ]]; then
 fi
 
 cd "$ROOT"
-"$ROOT/.claude/skills/run-synthetic-factory/driver.py" frontiers outputs/raw/2026-08-19-agentic >>"$LOG" 2>&1
+if ! "$ROOT/.claude/skills/run-synthetic-factory/driver.py" frontiers outputs/raw/2026-08-19-agentic >>"$LOG" 2>&1; then
+  echo "$(date -Is) warning: frontier preflight failed; continuing weekly launch" >>"$LOG"
+fi
 
 if command -v tmux >/dev/null 2>&1; then
   if tmux has-session -t "$SESSION" 2>/dev/null; then
