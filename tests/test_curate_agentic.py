@@ -223,7 +223,7 @@ class CurateAgenticTests(unittest.TestCase):
         self.assertEqual(decision["action"], ACTION_EXCLUDED)
         self.assertIn(REASON_GOAL_MISSING, decision["reason_codes"])
 
-        malformed_safety = safety_case_fixture(case_type=[])
+        malformed_safety = {"case_type": []}
         curated, decision = curate_record(malformed_safety)
         self.assertIsNone(curated)
         self.assertEqual(decision["kind"], "safety_case")

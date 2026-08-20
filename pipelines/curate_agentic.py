@@ -155,10 +155,7 @@ def classify_record(obj: Any) -> str:
         return "preference"
     if "language_view" in obj and "spike_events" in obj:
         return "bridge_pair"
-    case_type = obj.get("case_type")
-    if (isinstance(case_type, str) and case_type in SAFETY_CASE_TYPES) or (
-        "case_type" in obj and "rationale" in obj
-    ):
+    if "case_type" in obj:
         return "safety_case"
     if "transcript" in obj and "agents" in obj:
         return "multi_agent"

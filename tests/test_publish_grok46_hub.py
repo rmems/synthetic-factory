@@ -84,6 +84,8 @@ class PublishGrok46HubTests(unittest.TestCase):
             (source / "batch-r02.jsonl").write_text('{"id":"uncommitted"}\n')
             committed_batch = source / "batch-r03.jsonl"
             committed_batch.write_text('{"id":"committed"}\n')
+            committed_notes = source / "NOTES-r03.md"
+            committed_notes.write_text("committed\n")
             (source / "ROUND-r03.complete.json").write_text(
                 json.dumps(
                     {
@@ -96,7 +98,13 @@ class PublishGrok46HubTests(unittest.TestCase):
                                 "sha256": hashlib.sha256(
                                     committed_batch.read_bytes()
                                 ).hexdigest(),
-                            }
+                            },
+                            {
+                                "name": "NOTES-r03.md",
+                                "sha256": hashlib.sha256(
+                                    committed_notes.read_bytes()
+                                ).hexdigest(),
+                            },
                         ],
                     }
                 )
@@ -104,7 +112,6 @@ class PublishGrok46HubTests(unittest.TestCase):
             )
             (source / "NOTES-r01.md").write_text("legacy\n")
             (source / "NOTES-r02.md").write_text("uncommitted\n")
-            (source / "NOTES-r03.md").write_text("committed\n")
 
             self.assertEqual(
                 [path.name for path in publisher.published_batches(source)],
@@ -130,6 +137,10 @@ class PublishGrok46HubTests(unittest.TestCase):
                 self.assertTrue((meta / "NOTES-r01.md").is_file())
                 self.assertFalse((meta / "NOTES-r02.md").exists())
                 self.assertTrue((meta / "NOTES-r03.md").is_file())
+
+                committed_notes.write_text("tampered\n")
+                with self.assertRaisesRegex(SystemExit, "hash mismatch"):
+                    publisher.snapshot_one(ITEM)
 
             empty_source = root / "raw" / "empty-factory"
             empty_source.mkdir()
@@ -191,6 +202,26 @@ class PublishGrok46HubTests(unittest.TestCase):
         self.assertTrue(
             all(any(ITEM["hub"] in token for token in command) for command in commands)
         )
+
+    def test_targeted_snapshot_preserves_full_inventory(self):
+        other = {**ITEM, "slug": "other-factory", "hub": "other"}
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            for item, record_id in ((ITEM, "selected"), (other, "other")):
+                source = root / "raw" / item["slug"]
+                source.mkdir(parents=True)
+                (source / "batch-r01.jsonl").write_text(
+                    json.dumps({"id": record_id}) + "\n"
+                )
+            with mock.patch.object(publisher, "FACTORY_ROOT", root / "raw"), mock.patch.object(
+                publisher, "HF_ROOT", root / "hf"
+            ), mock.patch.object(publisher, "factories", return_value=[ITEM, other]):
+                publisher.cmd_snapshot()
+                publisher.cmd_snapshot(ITEM["hub"])
+
+            inventory = (root / "hf" / "SYNTHETIC-DATA-FACTORY-GROK46.md").read_text()
+            self.assertIn(f"`{ITEM['hub']}/`", inventory)
+            self.assertIn(f"`{other['hub']}/`", inventory)
 
     def test_all_only_scopes_payload_not_complete_collection_maintenance(self):
         whoami = SimpleNamespace(returncode=0, stdout='{"user":"rmems"}', stderr="")

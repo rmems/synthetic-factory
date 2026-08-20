@@ -364,20 +364,20 @@ def completed_manifests(src: Path) -> dict[int, dict]:
     return manifests
 
 
-def batch_matches_manifest(batch: Path, manifest: dict) -> bool:
-    """Verify a completed batch against its transaction manifest entry."""
+def file_matches_manifest(path: Path, manifest: dict) -> bool:
+    """Verify a completed source file against its transaction manifest entry."""
     entries = [
         entry
         for entry in manifest["files"]
-        if isinstance(entry, dict) and entry.get("name") == batch.name
+        if isinstance(entry, dict) and entry.get("name") == path.name
     ]
     if len(entries) != 1:
-        raise SystemExit(f"completion marker has no unique batch entry for {batch}")
+        raise SystemExit(f"completion marker has no unique file entry for {path}")
     expected = entries[0].get("sha256")
     if not isinstance(expected, str) or SHA256_RE.fullmatch(expected) is None:
-        raise SystemExit(f"completion marker has invalid batch hash for {batch}")
-    if file_sha256(batch) != expected:
-        raise SystemExit(f"completed batch hash mismatch: {batch}")
+        raise SystemExit(f"completion marker has invalid file hash for {path}")
+    if file_sha256(path) != expected:
+        raise SystemExit(f"completed file hash mismatch: {path}")
     return True
 
 
@@ -407,7 +407,7 @@ def published_batches(src: Path) -> list[Path]:
             or (
                 not label[1]
                 and label[0] in manifests
-                and batch_matches_manifest(path, manifests[label[0]])
+                and file_matches_manifest(path, manifests[label[0]])
             )
         )
     )
@@ -416,12 +416,38 @@ def published_batches(src: Path) -> list[Path]:
 def published_notes(src: Path, batches: list[Path]) -> list[Path]:
     """Return notes that correspond to exactly one visible published batch."""
     labels = {label[2] for batch in batches if (label := batch_label(batch)) is not None}
+    mode_path = src / ".round-marker-mode.json"
+    baseline = None
+    manifests = {}
+    if mode_path.is_file():
+        try:
+            mode = json.loads(mode_path.read_text())
+        except (OSError, json.JSONDecodeError) as exc:
+            raise SystemExit(f"cannot read marker mode for {src}: {exc}") from exc
+        baseline = mode.get("legacy_baseline") if isinstance(mode, dict) else None
+        if not isinstance(baseline, int) or isinstance(baseline, bool) or baseline < 0:
+            raise SystemExit(f"invalid legacy_baseline in {mode_path}")
+        manifests = completed_manifests(src)
+
+    def visible_note(path: Path) -> bool:
+        match = NOTES_NAME_RE.fullmatch(path.name)
+        if match is None or not is_regular_source_file(path):
+            return False
+        round_number = int(match.group(1))
+        suffix = match.group(2)
+        label = f"r{round_number:02d}{suffix}"
+        if label not in labels:
+            return False
+        if baseline is None or round_number <= baseline:
+            return True
+        return not suffix and round_number in manifests and file_matches_manifest(
+            path, manifests[round_number]
+        )
+
     return sorted(
         path
         for path in src.glob("NOTES-r*.md")
-        if is_regular_source_file(path)
-        and (match := NOTES_NAME_RE.fullmatch(path.name)) is not None
-        and f"r{int(match.group(1)):02d}{match.group(2)}" in labels
+        if visible_note(path)
     )
 
 
@@ -568,12 +594,18 @@ training-ready or factual real-world measurements.
 
 
 def cmd_snapshot(only: str | None = None) -> list[dict]:
+    items = factories()
     stats = []
-    for item in factories():
+    for item in items:
         if only and item["hub"] != only and item["slug"] != only:
             continue
         stats.append(snapshot_one(item))
         print(f"snapshot {item['hub']} batches={stats[-1]['batches']} records={stats[-1]['records']}", flush=True)
+    selected = {stat["hub"]: stat for stat in stats}
+    inventory_stats = [
+        selected.get(item["hub"], local_snapshot_stats(item))
+        for item in items
+    ]
     inv = HF_ROOT / "SYNTHETIC-DATA-FACTORY-GROK46.md"
     lines = [
         "# Synthetic data factory: Grok 4.6",
@@ -583,7 +615,7 @@ def cmd_snapshot(only: str | None = None) -> list[dict]:
         "| Local dir | Hub dataset | Factory slug | batches | records |",
         "|---|---|---|---:|---:|",
     ]
-    for s in stats:
+    for s in inventory_stats:
         lines.append(
             f"| `{s['hub']}/` | [rmems/{s['hub']}](https://huggingface.co/datasets/rmems/{s['hub']}) "
             f"| `{s['slug']}` | {s['batches']} | {s['records']} |"
@@ -591,6 +623,27 @@ def cmd_snapshot(only: str | None = None) -> list[dict]:
     lines.append("")
     inv.write_text("\n".join(lines), encoding="utf-8")
     return stats
+
+
+def local_snapshot_stats(item: dict) -> dict:
+    """Summarize an existing local Hub mirror for the shared inventory."""
+    raw = HF_ROOT / item["hub"] / "data" / "raw"
+    batches = []
+    if raw.is_dir():
+        batches = sorted(
+            path
+            for path in raw.glob("batch-r*.jsonl")
+            if is_regular_source_file(path) and batch_label(path) is not None
+        )
+    return {
+        "hub": item["hub"],
+        "slug": item["slug"],
+        "records": sum(count_jsonl_lines(path) for path in batches),
+        "batches": len(batches),
+        "notes": 0,
+        "bytes": sum(path.stat().st_size for path in batches),
+        "last": max((batch_label(path) for path in batches), default=(0, "", None))[2],
+    }
 
 
 def is_selected(item: dict, only: str | None) -> bool:
