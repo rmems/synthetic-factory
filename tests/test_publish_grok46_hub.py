@@ -325,7 +325,9 @@ class PublishGrok46HubTests(unittest.TestCase):
 
     def test_all_only_scopes_payload_not_complete_collection_maintenance(self):
         whoami = SimpleNamespace(returncode=0, stdout='{"user":"rmems"}', stderr="")
-        with mock.patch.object(publisher.subprocess, "run", return_value=whoami), mock.patch.object(
+        with mock.patch.object(publisher, "factories", return_value=[ITEM]), mock.patch.object(
+            publisher.subprocess, "run", return_value=whoami
+        ), mock.patch.object(
             publisher, "cmd_snapshot"
         ) as snapshot, mock.patch.object(publisher, "cmd_create") as create, mock.patch.object(
             publisher, "cmd_upload"
@@ -341,7 +343,9 @@ class PublishGrok46HubTests(unittest.TestCase):
 
     def test_direct_create_and_collect_honor_only(self):
         whoami = SimpleNamespace(returncode=0, stdout='{"user":"rmems"}', stderr="")
-        with mock.patch.object(publisher.subprocess, "run", return_value=whoami), mock.patch.object(
+        with mock.patch.object(publisher, "factories", return_value=[ITEM]), mock.patch.object(
+            publisher.subprocess, "run", return_value=whoami
+        ), mock.patch.object(
             publisher, "cmd_create"
         ) as create, mock.patch.object(publisher, "cmd_collect") as collect, mock.patch.object(
             sys, "argv", ["publish_grok46_hub.py", "create", "--only", ITEM["hub"]]
@@ -350,7 +354,9 @@ class PublishGrok46HubTests(unittest.TestCase):
         create.assert_called_once_with(ITEM["hub"])
         collect.assert_not_called()
 
-        with mock.patch.object(publisher.subprocess, "run", return_value=whoami), mock.patch.object(
+        with mock.patch.object(publisher, "factories", return_value=[ITEM]), mock.patch.object(
+            publisher.subprocess, "run", return_value=whoami
+        ), mock.patch.object(
             publisher, "cmd_create"
         ) as create, mock.patch.object(publisher, "cmd_collect") as collect, mock.patch.object(
             sys, "argv", ["publish_grok46_hub.py", "collect", "--only", ITEM["slug"]]
