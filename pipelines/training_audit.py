@@ -160,15 +160,27 @@ def preference_context_purity(obj, chosen, rejected):
     }
 
 
-def episode_step_lists(obj, kind):
-    """Yield observable episode steps, including both preference sides."""
+def agentic_turns(obj, kind):
+    """Yield each observable decision turn used by agentic curation."""
     if kind == "episode":
-        yield obj.get("steps", [])
+        yield from obj.get("steps", [])
     elif kind == "preference":
         for side_name in ("chosen", "rejected"):
             side = dict_field(obj, side_name)
             if _episode_like(side):
-                yield side.get("steps", [])
+                yield from side.get("steps", [])
+    elif kind == "safety_case":
+        yield from obj.get("steps", [])
+    elif kind == "multi_agent":
+        for turn in obj.get("transcript", []):
+            if isinstance(turn, dict) and "tool_call" in turn:
+                yield turn
+
+
+def has_observable_decision_basis(turn):
+    return isinstance(turn, dict) and isinstance(turn.get("decision_basis"), str) and bool(
+        turn["decision_basis"].strip()
+    )
 
 
 def hidden_thought_paths(value, path=""):
@@ -378,17 +390,19 @@ def audit_run(run_dir: Path):
                 episodes["hidden_thought_fields"] += len(
                     tuple(hidden_thought_paths(obj))
                 )
-            for steps in episode_step_lists(obj, kind):
-                for step in steps:
-                    if not isinstance(step, dict):
-                        continue
-                    episodes["steps"] += 1
-                    episodes["decision_basis_steps"] += int(
-                        "decision_basis" in step
-                    )
-                    episodes["legacy_thought_only_steps"] += int(
-                        "thought" in step and "decision_basis" not in step
-                    )
+            for turn in agentic_turns(obj, kind):
+                if not isinstance(turn, dict):
+                    continue
+                episodes["steps"] += 1
+                episodes["decision_basis_steps"] += int(
+                    has_observable_decision_basis(turn)
+                )
+                episodes["missing_decision_basis_steps"] += int(
+                    not has_observable_decision_basis(turn)
+                )
+                episodes["legacy_thought_only_steps"] += int(
+                    "thought" in turn and "decision_basis" not in turn
+                )
 
     factory_output = {}
     for name, bucket in sorted(factories.items()):
@@ -450,6 +464,11 @@ def audit_run(run_dir: Path):
         blockers.append(
             f"{episodes['hidden_thought_fields']} hidden-thought fields appear in "
             "agentic records"
+        )
+    if episodes["missing_decision_basis_steps"]:
+        blockers.append(
+            f"{episodes['missing_decision_basis_steps']} agentic turns lack a "
+            "non-empty textual decision_basis"
         )
 
     report = {

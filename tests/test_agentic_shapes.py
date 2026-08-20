@@ -299,7 +299,7 @@ class AgenticShapes(unittest.TestCase):
                 ):
                     round_txn.publish(factory, 1, reservation["token"])
 
-    def test_agentic_envelope_rejects_top_level_spike_events(self):
+    def test_agentic_envelope_rejects_recursive_spike_events(self):
         with tempfile.TemporaryDirectory() as td:
             factory = (
                 Path(td)
@@ -314,7 +314,10 @@ class AgenticShapes(unittest.TestCase):
             records = []
             for index in range(2):
                 record = episode(f"lhc-r01-spike-{index}")
-                record["spike_events"] = []
+                if index == 0:
+                    record["spike_events"] = []
+                else:
+                    record["steps"][0]["tool_call"]["args"]["spike_events"] = []
                 records.append(record)
             (stage / reservation["batch_file"]).write_text(
                 "".join(json.dumps(record) + "\n" for record in records)
@@ -323,7 +326,7 @@ class AgenticShapes(unittest.TestCase):
 
             with self.assertRaisesRegex(
                 round_txn.TransactionError,
-                "must not include top-level spike_events",
+                "must not include spike_events",
             ):
                 round_txn.publish(factory, 1, reservation["token"])
 

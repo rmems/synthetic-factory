@@ -424,6 +424,10 @@ def completed_manifests(src: Path) -> dict[int, dict]:
         if not is_regular_source_file(batch):
             raise SystemExit(f"completion marker has no regular batch: {marker}")
         file_matches_manifest(batch, manifest)
+        notes = src / f"NOTES-r{round_number:02d}.md"
+        if not is_regular_source_file(notes):
+            raise SystemExit(f"completion marker has no regular notes: {marker}")
+        file_matches_manifest(notes, manifest)
         manifests[round_number] = manifest
     return manifests
 
@@ -731,7 +735,7 @@ def cmd_snapshot(only: str | None = None) -> list[dict]:
             f"| `{s['slug']}` | {s['batches']} | {s['records']} |"
         )
     lines.append("")
-    inv.write_text("\n".join(lines), encoding="utf-8")
+    replace_snapshot_text(inv, "\n".join(lines))
     return stats
 
 

@@ -34,7 +34,14 @@ PIPELINES = REPO / "pipelines"
 if str(PIPELINES) not in sys.path:
     sys.path.insert(0, str(PIPELINES))
 
-from round_txn import frontier_status, marker_mode_path, publish, reserve  # noqa: E402
+from round_txn import (  # noqa: E402
+    completed_manifests,
+    completion_manifest_file_matches,
+    frontier_status,
+    marker_mode_path,
+    publish,
+    reserve,
+)
 
 VALIDATOR = PIPELINES / "validate_run.py"
 CHECKER = PIPELINES / "check_records.py"
@@ -204,12 +211,22 @@ def factory_token_efficiency(factory_dir: Path):
     if mode_path is not None:
         status = frontier_status(factory_dir)
         baseline = status["baseline"]
-        complete = set(status["completed_markers"])
+        manifests = completed_manifests(factory_dir)
+        for round_number, manifest in manifests.items():
+            note = factory_dir / f"NOTES-r{round_number:02d}.md"
+            completion_manifest_file_matches(note, manifest)
         notes = [
             path
             for path in notes
             if (parts := note_parts(path)) is not None
-            and (parts[0] <= baseline or parts[0] in complete)
+            and (
+                parts[0] <= baseline
+                or (
+                    not parts[1]
+                    and parts[0] in manifests
+                    and completion_manifest_file_matches(path, manifests[parts[0]])
+                )
+            )
         ]
 
     # Lettered notes are legacy artifacts for the same numeric round. The

@@ -337,6 +337,66 @@ class PublishGrok46HubTests(unittest.TestCase):
 
             self.assertEqual(stale.read_text(), '{"id":"preserve"}\n')
 
+    def test_snapshot_refuses_manifest_without_a_regular_notes_artifact(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            source = root / "raw" / ITEM["slug"]
+            source.mkdir(parents=True)
+            (source / ".round-marker-mode.json").write_text(
+                '{"version":1,"legacy_baseline":0}\n'
+            )
+            batch = source / "batch-r01.jsonl"
+            batch.write_text('{"id":"committed"}\n')
+            notes = source / "NOTES-r01.md"
+            notes.write_text("Novel coverage: 80%\n")
+            marker = source / "ROUND-r01.complete.json"
+            marker.write_text(
+                json.dumps(
+                    {
+                        "factory": source.name,
+                        "round": 1,
+                        "commit_point": marker.name,
+                        "files": [
+                            {"name": batch.name, "sha256": hashlib.sha256(batch.read_bytes()).hexdigest()},
+                            {"name": notes.name, "sha256": hashlib.sha256(notes.read_bytes()).hexdigest()},
+                        ],
+                    }
+                )
+                + "\n"
+            )
+            notes.unlink()
+            stale = root / "hf" / ITEM["hub"] / "data" / "metadata" / notes.name
+            stale.parent.mkdir(parents=True)
+            stale.write_text("preserve\n")
+
+            with mock.patch.object(publisher, "FACTORY_ROOT", root / "raw"), mock.patch.object(
+                publisher, "HF_ROOT", root / "hf"
+            ):
+                with self.assertRaisesRegex(SystemExit, "no regular notes"):
+                    publisher.snapshot_one(ITEM)
+
+            self.assertEqual(stale.read_text(), "preserve\n")
+
+    def test_snapshot_replaces_symlinked_shared_inventory(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            source = root / "raw" / ITEM["slug"]
+            source.mkdir(parents=True)
+            (source / "batch-r01.jsonl").write_text('{"id":"source"}\n')
+            inventory = root / "hf" / "SYNTHETIC-DATA-FACTORY-GROK46.md"
+            inventory.parent.mkdir()
+            outside = root / "outside.txt"
+            outside.write_text("must not change\n")
+            inventory.symlink_to(outside)
+
+            with mock.patch.object(publisher, "FACTORY_ROOT", root / "raw"), mock.patch.object(
+                publisher, "HF_ROOT", root / "hf"
+            ), mock.patch.object(publisher, "factories", return_value=[ITEM]):
+                publisher.cmd_snapshot()
+
+            self.assertFalse(inventory.is_symlink())
+            self.assertEqual(outside.read_text(), "must not change\n")
+
     def test_marker_mode_rejects_unsafe_mode_entries(self):
         for kind in ("directory", "dangling_symlink"):
             with self.subTest(kind=kind), tempfile.TemporaryDirectory() as td:

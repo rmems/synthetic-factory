@@ -17,6 +17,8 @@ factory_driver = importlib.util.module_from_spec(SPEC)
 assert SPEC.loader is not None
 SPEC.loader.exec_module(factory_driver)
 
+from round_txn import TransactionError  # noqa: E402
+
 
 class FactoryTokenEfficiency(unittest.TestCase):
     def _write_notes(self, factory, rounds):
@@ -30,6 +32,7 @@ class FactoryTokenEfficiency(unittest.TestCase):
 
     def _write_complete_marker(self, factory, round_number):
         batch = factory / f"batch-r{round_number:02d}.jsonl"
+        notes = factory / f"NOTES-r{round_number:02d}.md"
         batch.write_text(f'{{"id":"batch-{round_number}"}}\n')
         marker = factory / f"ROUND-r{round_number:02d}.complete.json"
         marker.write_text(
@@ -42,7 +45,11 @@ class FactoryTokenEfficiency(unittest.TestCase):
                         {
                             "name": batch.name,
                             "sha256": hashlib.sha256(batch.read_bytes()).hexdigest(),
-                        }
+                        },
+                        {
+                            "name": notes.name,
+                            "sha256": hashlib.sha256(notes.read_bytes()).hexdigest(),
+                        },
                     ],
                 }
             )
@@ -103,6 +110,10 @@ class FactoryTokenEfficiency(unittest.TestCase):
             info = factory_driver.factory_token_efficiency(factory)
             self.assertTrue(info["early_stop"])
             self.assertEqual(info["early_stop_at_round"], 2)
+
+            (factory / "NOTES-r02.md").write_text("Novel coverage: 99%\n")
+            with self.assertRaisesRegex(TransactionError, "hash mismatch"):
+                factory_driver.factory_token_efficiency(factory)
 
     def test_lettered_notes_do_not_double_count_one_round(self):
         with tempfile.TemporaryDirectory() as td:

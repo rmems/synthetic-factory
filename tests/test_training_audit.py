@@ -273,6 +273,19 @@ class TrainingAudit(unittest.TestCase):
         self.assertEqual(report["episodes"]["hidden_thought_fields"], 1)
         self.assertFalse(report["training_ready"])
 
+    def test_audit_blocks_empty_decision_basis(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            record = episode_preference("episode-pref-empty-basis", pair_goal="repair the cache")
+            record["chosen"]["steps"][0]["decision_basis"] = "   "
+            write(root / "tool-use-preference-factory" / "batch-r01.jsonl", [record])
+
+            report = training_audit.audit_run(root)
+
+        self.assertEqual(report["episodes"]["missing_decision_basis_steps"], 1)
+        self.assertFalse(report["training_ready"])
+        self.assertTrue(any("non-empty textual decision_basis" in item for item in report["blockers"]))
+
     def test_episode_preference_does_not_let_wrapper_goal_mask_side_conflict(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)

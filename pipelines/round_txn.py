@@ -281,29 +281,49 @@ def completed_manifests(factory_dir: Path) -> dict[int, dict]:
         digest = entries[0].get("sha256")
         if not isinstance(digest, str) or SHA256_RE.fullmatch(digest) is None:
             raise TransactionError(f"completion marker has invalid batch hash: {path}")
+        batch_matches_completion_manifest(factory_dir / batch_name, payload)
         if round_number in manifests:
             raise TransactionError(f"duplicate completion markers for r{round_number:02d}")
         manifests[round_number] = payload
     return manifests
 
 
-def batch_matches_completion_manifest(batch: Path, manifest: dict) -> bool:
-    """Validate a committed batch against its unique completion entry."""
-    if not batch.is_file() or batch.is_symlink():
-        raise TransactionError(f"unsafe committed batch: {batch}")
+def completion_manifest_file_matches(path: Path, manifest: dict) -> bool:
+    """Validate one regular committed artifact against its manifest entry."""
+    if not path.is_file() or path.is_symlink():
+        raise TransactionError(f"unsafe committed artifact: {path}")
     entries = [
         entry
         for entry in manifest["files"]
-        if isinstance(entry, dict) and entry.get("name") == batch.name
+        if isinstance(entry, dict) and entry.get("name") == path.name
     ]
     if len(entries) != 1:
-        raise TransactionError(f"completion marker has no unique batch entry for {batch}")
+        raise TransactionError(f"completion marker has no unique file entry for {path}")
     digest = entries[0].get("sha256")
     if not isinstance(digest, str) or SHA256_RE.fullmatch(digest) is None:
-        raise TransactionError(f"completion marker has invalid batch hash for {batch}")
-    if file_sha256(batch) != digest:
-        raise TransactionError(f"completed batch hash mismatch: {batch}")
+        raise TransactionError(f"completion marker has invalid file hash for {path}")
+    if file_sha256(path) != digest:
+        raise TransactionError(f"completed file hash mismatch: {path}")
     return True
+
+
+def batch_matches_completion_manifest(batch: Path, manifest: dict) -> bool:
+    """Validate a committed batch against its unique completion entry."""
+    completion_manifest_file_matches(batch, manifest)
+    return True
+
+
+def nested_key_paths(value, key, path=""):
+    """Yield every nested occurrence of one forbidden field name."""
+    if isinstance(value, dict):
+        for child_key, item in value.items():
+            child_path = f"{path}.{child_key}" if path else child_key
+            if child_key == key:
+                yield child_path
+            yield from nested_key_paths(item, key, child_path)
+    elif isinstance(value, list):
+        for index, item in enumerate(value):
+            yield from nested_key_paths(item, key, f"{path}[{index}]")
 
 
 def frontier_status(factory_dir: Path):
@@ -575,10 +595,8 @@ def validate_agentic_envelope(batch: Path, factory_dir: Path, round_number: int)
         except json.JSONDecodeError:
             continue
         where = f"{batch.name}:{lineno}"
-        if isinstance(record, dict) and "spike_events" in record:
-            errors.append(
-                f"{where}: agentic records must not include top-level spike_events"
-            )
+        for path in nested_key_paths(record, "spike_events"):
+            errors.append(f"{where}: agentic records must not include spike_events at {path}")
         if AGENTIC_FACTORY_KINDS[factory_dir.name] == "preference":
             for side_name in ("chosen", "rejected"):
                 side = record.get(side_name) if isinstance(record, dict) else None

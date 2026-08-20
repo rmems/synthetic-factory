@@ -398,6 +398,8 @@ class RoundTransaction(unittest.TestCase):
             batch.write_text("tampered\n")
             with self.assertRaisesRegex(round_txn.TransactionError, "hash mismatch"):
                 round_txn.committed_jsonl_paths(factory)
+            with self.assertRaisesRegex(round_txn.TransactionError, "hash mismatch"):
+                round_txn.frontier_status(factory)
 
     def test_marker_mode_frontier_requires_verified_completion_manifest(self):
         with tempfile.TemporaryDirectory() as td:
