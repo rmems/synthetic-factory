@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Tests for transactional round reservation and publication."""
 
+import contextlib
 import json
 import sys
 import tempfile
@@ -141,6 +142,8 @@ class RoundTransaction(unittest.TestCase):
             publish_error = []
             abort_error = []
             real_validate = round_txn.validate_stage
+            real_lock = round_txn.run_publish_lock
+            abort_attempted_lock = threading.Event()
 
             def pause_validation(*args, **kwargs):
                 entered_validation.set()
@@ -159,13 +162,25 @@ class RoundTransaction(unittest.TestCase):
                 except BaseException as exc:
                     abort_error.append(exc)
 
-            with mock.patch.object(round_txn, "validate_stage", side_effect=pause_validation):
-                publisher = threading.Thread(target=publish_round)
+            @contextlib.contextmanager
+            def observed_publish_lock(lock_factory):
+                if threading.current_thread().name == "aborter":
+                    abort_attempted_lock.set()
+                with real_lock(lock_factory):
+                    yield
+
+            with mock.patch.object(
+                round_txn, "validate_stage", side_effect=pause_validation
+            ), mock.patch.object(
+                round_txn, "run_publish_lock", side_effect=observed_publish_lock
+            ):
+                publisher = threading.Thread(target=publish_round, name="publisher")
                 publisher.start()
                 self.assertTrue(entered_validation.wait(timeout=2))
 
-                aborter = threading.Thread(target=abort_round)
+                aborter = threading.Thread(target=abort_round, name="aborter")
                 aborter.start()
+                self.assertTrue(abort_attempted_lock.wait(timeout=2))
                 self.assertTrue(stage.is_dir())
                 release_publish.set()
                 publisher.join(timeout=2)

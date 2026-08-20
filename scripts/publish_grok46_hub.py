@@ -323,10 +323,17 @@ def batch_label(path: Path) -> tuple[int, str, str] | None:
     return number, suffix, f"r{number:02d}{suffix}"
 
 
+def is_regular_source_file(path: Path) -> bool:
+    """Whether a source file can be safely copied into a public snapshot."""
+    return path.is_file() and not path.is_symlink()
+
+
 def published_batches(src: Path) -> list[Path]:
     """Return legacy-baseline and marker-completed batches from a factory."""
     batches = [
-        path for path in src.glob("batch-r*.jsonl") if batch_label(path) is not None
+        path
+        for path in src.glob("batch-r*.jsonl")
+        if is_regular_source_file(path) and batch_label(path) is not None
     ]
     if not (src / ".round-marker-mode.json").is_file():
         return sorted(batches)
@@ -359,7 +366,8 @@ def published_notes(src: Path, batches: list[Path]) -> list[Path]:
     return sorted(
         path
         for path in src.glob("NOTES-r*.md")
-        if (match := NOTES_NAME_RE.fullmatch(path.name)) is not None
+        if is_regular_source_file(path)
+        and (match := NOTES_NAME_RE.fullmatch(path.name)) is not None
         and f"r{int(match.group(1)):02d}{match.group(2)}" in labels
     )
 

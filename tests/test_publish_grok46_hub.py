@@ -35,6 +35,12 @@ class PublishGrok46HubTests(unittest.TestCase):
             first.write_text('{"id":"first"}\n')
             last.write_text('{"id":"last"}\n')
             (source / "NOTES-r01.md").write_text("Novel coverage: 80%\n")
+            outside_batch = root / "outside.jsonl"
+            outside_batch.write_text('{"id":"not-a-factory-batch"}\n')
+            outside_notes = root / "outside.md"
+            outside_notes.write_text("not factory notes\n")
+            (source / "batch-r03.jsonl").symlink_to(outside_batch)
+            (source / "NOTES-r02b.md").symlink_to(outside_notes)
 
             with mock.patch.object(publisher, "FACTORY_ROOT", root / "raw"), mock.patch.object(
                 publisher, "HF_ROOT", destination_root
@@ -46,6 +52,12 @@ class PublishGrok46HubTests(unittest.TestCase):
                 self.assertEqual(stats["last"], "r02b")
                 self.assertIn("batch-r01.jsonl` through `data/raw/batch-r02b.jsonl", card)
                 self.assertNotEqual(copied.stat().st_ino, last.stat().st_ino)
+                self.assertFalse(
+                    (destination_root / ITEM["hub"] / "data" / "raw" / "batch-r03.jsonl").exists()
+                )
+                self.assertFalse(
+                    (destination_root / ITEM["hub"] / "data" / "metadata" / "NOTES-r02b.md").exists()
+                )
                 copied.write_text('{"id":"changed"}\n')
                 self.assertEqual(last.read_text(), '{"id":"last"}\n')
 

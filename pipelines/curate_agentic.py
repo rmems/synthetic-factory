@@ -58,6 +58,7 @@ REASON_THOUGHT_REMOVED = "HIDDEN_THOUGHT_REMOVED"
 REASON_MISSING_BASIS = "MISSING_DECISION_BASIS"
 REASON_GOAL_DIVERGES = "PREFERENCE_GOAL_DIVERGES"
 REASON_GOAL_MISSING = "PREFERENCE_GOAL_MISSING"
+REASON_GOAL_NOT_TEXT = "PREFERENCE_GOAL_NOT_TEXT"
 REASON_SIDES_NOT_OBJECTS = "PREFERENCE_SIDES_NOT_OBJECTS"
 REASON_PREFIX_OVERLAP = "PREFIX_OVERLAP_NOTED"
 REASON_RECORD_NOT_OBJECT = "RECORD_NOT_OBJECT"
@@ -174,12 +175,10 @@ def _record_id(record: Any) -> str | None:
 
 
 def _norm_goal(value: Any) -> str | None:
-    if isinstance(value, str):
-        normalized = " ".join(value.split())
-        return normalized or None
-    if value is None:
+    if not isinstance(value, str):
         return None
-    return canonical_json(value)
+    normalized = " ".join(value.split())
+    return normalized or None
 
 
 def preference_goals(record: dict[str, Any]) -> tuple[str | None, ...]:
@@ -206,6 +205,13 @@ def shared_preference_goal(record: dict[str, Any]) -> tuple[bool, str | None]:
     rejected = record.get("rejected")
     if not isinstance(chosen, dict) or not isinstance(rejected, dict):
         return False, REASON_SIDES_NOT_OBJECTS
+    raw_goals = (
+        record.get("goal"),
+        chosen.get("goal"),
+        rejected.get("goal"),
+    )
+    if any(value is not None and _norm_goal(value) is None for value in raw_goals):
+        return False, REASON_GOAL_NOT_TEXT
     top, chosen_goal, rejected_goal = preference_goals(record)
     present = [goal for goal in (top, chosen_goal, rejected_goal) if goal is not None]
     if not present:
@@ -466,6 +472,7 @@ def curate_source(source: Path) -> dict[str, Any]:
                 if decision["action"] == ACTION_EXCLUDED and (
                     REASON_GOAL_DIVERGES in decision["reason_codes"]
                     or REASON_GOAL_MISSING in decision["reason_codes"]
+                    or REASON_GOAL_NOT_TEXT in decision["reason_codes"]
                     or REASON_SIDES_NOT_OBJECTS in decision["reason_codes"]
                 ):
                     preference_diverged += 1

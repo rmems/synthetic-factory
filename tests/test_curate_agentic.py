@@ -24,6 +24,7 @@ from curate_agentic import (  # noqa: E402
     HIDDEN_THOUGHT_KEYS,
     REASON_GOAL_DIVERGES,
     REASON_GOAL_MISSING,
+    REASON_GOAL_NOT_TEXT,
     REASON_INVALID_UTF8,
     REASON_INVALID_JSON,
     REASON_MISSING_BASIS,
@@ -315,6 +316,24 @@ class CurateAgenticTests(unittest.TestCase):
         curated, decision = curate_record(record)
         self.assertIsNotNone(curated)
         self.assertEqual(decision["action"], ACTION_RETAINED)
+
+    def test_preference_rejects_non_text_goals(self):
+        for place, value in (
+            ("goal", {"task": "write atomically"}),
+            ("chosen.goal", ["write atomically"]),
+            ("rejected.goal", 3),
+            ("goal", "   "),
+        ):
+            with self.subTest(place=place, value=value):
+                record = preference_fixture()
+                if place == "goal":
+                    record["goal"] = value
+                else:
+                    side, _field = place.split(".")
+                    record[side]["goal"] = value
+                curated, decision = curate_record(record)
+                self.assertIsNone(curated)
+                self.assertIn(REASON_GOAL_NOT_TEXT, decision["reason_codes"])
 
     def test_prefix_overlap_is_optional_note_not_a_fail(self):
         shared = _step(1, "Plan: inspect lock file")
