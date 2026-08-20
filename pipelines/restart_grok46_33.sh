@@ -6,15 +6,58 @@ set -euo pipefail
 ROOT=/home/raulmc/rmems/synthetic-factory
 PROMPT="$ROOT/pipelines/restart_grok46_33.md"
 GROK="${GROK:-/home/raulmc/.local/bin/grok}"
-STATE_DIR="${XDG_STATE_HOME:-/home/raulmc/.local/state}/synthetic-factory-grok46"
+STATE_HOME="${XDG_STATE_HOME:-/home/raulmc/.local/state}"
+STATE_DIR="$STATE_HOME/synthetic-factory-grok46"
 umask 077
-mkdir -p "$STATE_DIR"
-chmod 700 "$STATE_DIR"
 LOG="$STATE_DIR/restart.log"
 LOCK="$STATE_DIR/launcher.lock"
 PID_FILE="$STATE_DIR/worker.state"
 WINDOW_FILE="$STATE_DIR/last-launch-window"
 SESSION=grok46-agentic-restart
+
+die_unsafe_state() {
+  echo "$(date -Is) error: unsafe launcher state path: $1" >&2
+  exit 1
+}
+
+ensure_private_state_dir() {
+  if [[ -L "$STATE_DIR" ]]; then
+    die_unsafe_state "$STATE_DIR"
+  fi
+  if [[ -e "$STATE_DIR" ]]; then
+    [[ -d "$STATE_DIR" ]] || die_unsafe_state "$STATE_DIR"
+  else
+    mkdir -- "$STATE_DIR" || die_unsafe_state "$STATE_DIR"
+  fi
+  [[ -d "$STATE_DIR" && ! -L "$STATE_DIR" ]] || die_unsafe_state "$STATE_DIR"
+  chmod 700 "$STATE_DIR" || die_unsafe_state "$STATE_DIR"
+}
+
+ensure_private_state_file() {
+  local path="$1" temporary
+  if [[ -L "$path" ]]; then
+    die_unsafe_state "$path"
+  fi
+  if [[ -e "$path" ]]; then
+    [[ -f "$path" ]] || die_unsafe_state "$path"
+  else
+    temporary=$(mktemp "$STATE_DIR/.state-file.XXXXXX") || die_unsafe_state "$path"
+    chmod 600 "$temporary"
+    if ! ln "$temporary" "$path"; then
+      rm -f -- "$temporary"
+      die_unsafe_state "$path"
+    fi
+    rm -f -- "$temporary"
+  fi
+  [[ -f "$path" && ! -L "$path" ]] || die_unsafe_state "$path"
+  chmod 600 "$path" || die_unsafe_state "$path"
+}
+
+ensure_private_state_dir
+ensure_private_state_file "$LOG"
+ensure_private_state_file "$LOCK"
+ensure_private_state_file "$PID_FILE"
+ensure_private_state_file "$WINDOW_FILE"
 
 process_start_token() {
   local pid="${1:-}" stat rest
@@ -73,7 +116,9 @@ if [[ "$dow" != "3" ]] || (( now_hm < 652 || now_hm > 830 )); then
   exit 0
 fi
 
-exec 9>"$LOCK"
+# The lock has already been created as a regular file in our 0700 directory.
+# Append mode preserves it if a concurrent invoker wins the flock race.
+exec 9>>"$LOCK"
 if ! flock -n 9; then
   echo "$(date -Is) skip: lock held ($LOCK)" >>"$LOG"
   exit 0

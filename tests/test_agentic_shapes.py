@@ -470,6 +470,41 @@ class AgenticShapes(unittest.TestCase):
             with self.assertRaisesRegex(round_txn.TransactionError, "meta.factory"):
                 round_txn.publish(factory, 1, reservation["token"])
 
+    def test_safety_calibration_publish_requires_complete_case_mix(self):
+        with tempfile.TemporaryDirectory() as td:
+            factory = (
+                Path(td)
+                / "outputs"
+                / "raw"
+                / "2099-01-01"
+                / "safety-calibration-factory"
+            )
+            factory.mkdir(parents=True)
+            reservation = round_txn.reserve(factory, 1, 3)
+            stage = Path(reservation["staging_dir"])
+            records = []
+            for index in range(3):
+                record = safety_case()
+                record["id"] = f"same-safety-case-{index}"
+                records.append(record)
+            (stage / reservation["batch_file"]).write_text(
+                "".join(json.dumps(record) + "\n" for record in records)
+            )
+            (stage / reservation["notes_file"]).write_text("Novel coverage: 70%\n")
+
+            with self.assertRaisesRegex(round_txn.TransactionError, "exactly one each"):
+                round_txn.publish(factory, 1, reservation["token"])
+
+            for case_type, record in zip(
+                ("correct_refusal", "incorrect_refusal", "missed_refusal"), records
+            ):
+                record["case_type"] = case_type
+            (stage / reservation["batch_file"]).write_text(
+                "".join(json.dumps(record) + "\n" for record in records)
+            )
+            manifest = round_txn.publish(factory, 1, reservation["token"])
+            self.assertEqual(manifest["records"], 3)
+
     def test_agentic_publish_rejects_boolean_round_metadata(self):
         with tempfile.TemporaryDirectory() as td:
             factory = (

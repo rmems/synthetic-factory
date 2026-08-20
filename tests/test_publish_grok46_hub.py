@@ -26,6 +26,27 @@ ITEM = {
 
 
 class PublishGrok46HubTests(unittest.TestCase):
+    def test_factory_discovery_and_snapshot_reject_symlinked_factory_roots(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            raw = root / "raw"
+            raw.mkdir()
+            outside = root / "outside-factory"
+            outside.mkdir()
+            (raw / ITEM["slug"]).symlink_to(outside, target_is_directory=True)
+
+            with mock.patch.object(publisher, "FACTORY_ROOT", raw):
+                with self.assertRaisesRegex(SystemExit, "unsafe factory directory"):
+                    publisher.factories()
+                with self.assertRaisesRegex(SystemExit, "unsafe factory directory"):
+                    publisher.snapshot_one(ITEM)
+
+            linked_root = root / "linked-raw"
+            linked_root.symlink_to(raw, target_is_directory=True)
+            with mock.patch.object(publisher, "FACTORY_ROOT", linked_root):
+                with self.assertRaisesRegex(SystemExit, "unsafe factory root"):
+                    publisher.factories()
+
     def test_snapshot_uses_independent_copies_and_truthful_lettered_range(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)

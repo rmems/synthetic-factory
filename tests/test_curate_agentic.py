@@ -469,12 +469,14 @@ class CurateAgenticTests(unittest.TestCase):
             factory = Path(temporary) / "agentic-factory"
             factory.mkdir()
             (factory / ".round-marker-mode.json").write_text(
-                '{"version":1,"legacy_baseline":0}\n'
+                '{"version":1,"legacy_baseline":0,"commit_point":"ROUND-rNN.complete.json"}\n'
             )
             (factory / "batch-r01.jsonl").write_text(
                 json.dumps(episode_fixture("committed")) + "\n"
             )
             batch = factory / "batch-r01.jsonl"
+            notes = factory / "NOTES-r01.md"
+            notes.write_text("Novel coverage: 80%\n")
             (factory / "ROUND-r01.complete.json").write_text(
                 json.dumps(
                     {
@@ -485,6 +487,10 @@ class CurateAgenticTests(unittest.TestCase):
                             {
                                 "name": batch.name,
                                 "sha256": hashlib.sha256(batch.read_bytes()).hexdigest(),
+                            },
+                            {
+                                "name": notes.name,
+                                "sha256": hashlib.sha256(notes.read_bytes()).hexdigest(),
                             }
                         ],
                     }

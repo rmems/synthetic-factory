@@ -97,7 +97,7 @@ class FactoryTokenEfficiency(unittest.TestCase):
             factory = Path(td) / "marker-factory"
             factory.mkdir()
             (factory / ".round-marker-mode.json").write_text(
-                '{"version":1,"legacy_baseline":0}\n'
+                '{"version":1,"legacy_baseline":0,"commit_point":"ROUND-rNN.complete.json"}\n'
             )
             self._write_notes(factory, [(1, 4.0), (2, 3.0)])
 
@@ -120,9 +120,11 @@ class FactoryTokenEfficiency(unittest.TestCase):
             factory = Path(td) / "marker-factory"
             factory.mkdir()
             (factory / ".round-marker-mode.json").write_text(
-                '{"version":1,"legacy_baseline":2}\n'
+                '{"version":1,"legacy_baseline":0,"commit_point":"ROUND-rNN.complete.json"}\n'
             )
             self._write_notes(factory, [(1, 12.0), (2, 4.0)])
+            self._write_complete_marker(factory, 1)
+            self._write_complete_marker(factory, 2)
             (factory / "NOTES-r02b.md").write_text("Novel coverage: 3%\n")
 
             info = factory_driver.factory_token_efficiency(factory)

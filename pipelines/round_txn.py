@@ -189,6 +189,8 @@ def file_sha256(path: Path):
 
 def valid_legacy_file(path: Path):
     """Return its record count when a legacy JSONL file fully deep-checks."""
+    if not path.is_file() or path.is_symlink():
+        return 0
     errors, _warnings, _kinds, records = check_jsonl(path, path.name)
     return 0 if errors else records
 
@@ -199,7 +201,9 @@ def discover_legacy_frontier(factory_dir: Path):
     quota = FACTORY_QUOTAS.get(factory_dir.name, 1)
     by_round: dict[int, int] = {}
     for path in factory_dir.glob("*.jsonl"):
-        match = BATCH_RE.match(path.name)
+        if not path.is_file() or path.is_symlink():
+            continue
+        match = BATCH_RE.fullmatch(path.name)
         if match:
             round_number = int(match.group(1))
         elif path.name in LEGACY_R1_NAMES:
@@ -243,7 +247,7 @@ def completed_manifests(factory_dir: Path) -> dict[int, dict]:
     helper for existing marker-mode directories.  Consumers that expose or
     reserve committed batch contents need the full transaction contract:
     a regular marker, its factory/round identity, its declared commit point,
-    and one valid digest entry for that round's primary batch.
+    and matching regular, hashed files for every artifact it declares.
     """
     manifests = {}
     for path in sorted(factory_dir.glob("ROUND-r*.complete.json")):
@@ -269,19 +273,30 @@ def completed_manifests(factory_dir: Path) -> dict[int, dict]:
         if not isinstance(files, list):
             raise TransactionError(f"completion marker files must be an array: {path}")
         batch_name = f"batch-r{round_number:02d}.jsonl"
-        entries = [
-            entry
-            for entry in files
-            if isinstance(entry, dict) and entry.get("name") == batch_name
-        ]
-        if len(entries) != 1:
+        notes_name = f"NOTES-r{round_number:02d}.md"
+        names = set()
+        for entry in files:
+            name = entry.get("name") if isinstance(entry, dict) else None
+            digest = entry.get("sha256") if isinstance(entry, dict) else None
+            if (
+                not isinstance(name, str)
+                or not name
+                or Path(name).name != name
+                or name in names
+            ):
+                raise TransactionError(f"completion marker has an unsafe file entry: {path}")
+            if not isinstance(digest, str) or SHA256_RE.fullmatch(digest) is None:
+                raise TransactionError(f"completion marker has invalid file hash: {path}")
+            names.add(name)
+            completion_manifest_file_matches(factory_dir / name, payload)
+        if batch_name not in names:
             raise TransactionError(
                 f"completion marker has no unique batch entry: {path}"
             )
-        digest = entries[0].get("sha256")
-        if not isinstance(digest, str) or SHA256_RE.fullmatch(digest) is None:
-            raise TransactionError(f"completion marker has invalid batch hash: {path}")
-        batch_matches_completion_manifest(factory_dir / batch_name, payload)
+        if notes_name not in names:
+            raise TransactionError(
+                f"completion marker has no unique notes entry: {path}"
+            )
         if round_number in manifests:
             raise TransactionError(f"duplicate completion markers for r{round_number:02d}")
         manifests[round_number] = payload
@@ -342,10 +357,8 @@ def frontier_status(factory_dir: Path):
             "next_round": baseline + 1,
         }
 
-    mode = read_json(mode_path)
-    baseline = mode.get("legacy_baseline")
-    if not isinstance(baseline, int) or isinstance(baseline, bool) or baseline < 0:
-        raise TransactionError(f"invalid legacy_baseline in {mode_path}")
+    mode = validated_marker_mode(factory_dir, mode_path)
+    baseline = mode["legacy_baseline"]
     # The next reservable round must use the same validated commit contract as
     # batch visibility. A matching integer alone must not advance a lane.
     markers = sorted(completed_manifests(factory_dir))
@@ -369,7 +382,7 @@ def ensure_marker_mode(factory_dir: Path):
     mode_path = factory_dir / MODE_FILE
     existing = marker_mode_path(factory_dir)
     if existing is not None:
-        return read_json(existing)
+        return validated_marker_mode(factory_dir, existing)
     payload = {
         "version": 1,
         "created_at": utc_now(),
@@ -383,7 +396,30 @@ def ensure_marker_mode(factory_dir: Path):
         existing = marker_mode_path(factory_dir)
         if existing is None:
             raise TransactionError(f"marker mode disappeared while creating it: {mode_path}")
-        return read_json(existing)
+        return validated_marker_mode(factory_dir, existing)
+
+
+def validated_marker_mode(factory_dir: Path, mode_path: Path | None = None):
+    """Read a marker-mode declaration only when its legacy handoff is real."""
+    if mode_path is None:
+        mode_path = marker_mode_path(factory_dir)
+    if mode_path is None:
+        raise TransactionError(f"marker mode is not enabled for {factory_dir}")
+    mode = read_json(mode_path)
+    if mode.get("version") != 1:
+        raise TransactionError(f"unsupported marker mode version in {mode_path}")
+    if mode.get("commit_point") != "ROUND-rNN.complete.json":
+        raise TransactionError(f"invalid marker mode commit point in {mode_path}")
+    baseline = mode.get("legacy_baseline")
+    if not isinstance(baseline, int) or isinstance(baseline, bool) or baseline < 0:
+        raise TransactionError(f"invalid legacy_baseline in {mode_path}")
+    legacy_frontier = discover_legacy_frontier(factory_dir)
+    if baseline > legacy_frontier:
+        raise TransactionError(
+            f"legacy_baseline in {mode_path} exceeds discovered legacy frontier "
+            f"r{legacy_frontier:02d}"
+        )
+    return mode
 
 
 def staging_dir(factory_dir: Path, round_number: int, token: str):
@@ -465,15 +501,17 @@ def committed_jsonl_paths(factory_dir: Path):
     that declared baseline or has its own completion marker. This deliberately
     excludes files linked by an interrupted publish before its commit marker.
     """
-    files = sorted(factory_dir.glob("*.jsonl"))
+    files = sorted(
+        path
+        for path in factory_dir.glob("*.jsonl")
+        if path.is_file() and not path.is_symlink()
+    )
     mode_path = marker_mode_path(factory_dir)
     if mode_path is None:
         return files
 
-    mode = read_json(mode_path)
-    baseline = mode.get("legacy_baseline")
-    if not isinstance(baseline, int) or isinstance(baseline, bool) or baseline < 0:
-        raise TransactionError(f"invalid legacy_baseline in {mode_path}")
+    mode = validated_marker_mode(factory_dir, mode_path)
+    baseline = mode["legacy_baseline"]
     manifests = completed_manifests(factory_dir)
     visible = []
     for path in files:
@@ -584,6 +622,7 @@ def validate_agentic_envelope(batch: Path, factory_dir: Path, round_number: int)
     if factory_dir.name not in AGENTIC_FACTORY_KINDS:
         return []
     errors = []
+    safety_case_types = []
     for lineno, line in enumerate(batch.read_text().splitlines(), 1):
         if not line.strip():
             continue
@@ -595,6 +634,8 @@ def validate_agentic_envelope(batch: Path, factory_dir: Path, round_number: int)
         except json.JSONDecodeError:
             continue
         where = f"{batch.name}:{lineno}"
+        if factory_dir.name == "safety-calibration-factory" and isinstance(record, dict):
+            safety_case_types.append(record.get("case_type"))
         for path in nested_key_paths(record, "spike_events"):
             errors.append(f"{where}: agentic records must not include spike_events at {path}")
         if AGENTIC_FACTORY_KINDS[factory_dir.name] == "preference":
@@ -625,6 +666,17 @@ def validate_agentic_envelope(batch: Path, factory_dir: Path, round_number: int)
             errors.append(f"{where}: meta.round must match reservation r{round_number:02d}")
         if meta.get("generator") != "grok-4.6":
             errors.append(f"{where}: meta.generator must be 'grok-4.6'")
+    if factory_dir.name == "safety-calibration-factory":
+        required_case_types = {
+            "correct_refusal",
+            "incorrect_refusal",
+            "missed_refusal",
+        }
+        if len(safety_case_types) != len(required_case_types) or set(safety_case_types) != required_case_types:
+            errors.append(
+                "safety-calibration-factory requires exactly one each of "
+                "correct_refusal, incorrect_refusal, and missed_refusal per batch"
+            )
     return errors
 
 

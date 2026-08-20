@@ -370,7 +370,9 @@ class RoundTransaction(unittest.TestCase):
             factory = self.factory(td)
             round_txn.ensure_marker_mode(factory)
             batch = factory / "batch-r01.jsonl"
+            notes = factory / "NOTES-r01.md"
             write_records(batch, [thalamic("manifest-checked")])
+            notes.write_text("# Critique\n\nManifest fixture.\n")
             marker = factory / "ROUND-r01.complete.json"
 
             marker.write_text('{"round":1}\n')
@@ -387,6 +389,10 @@ class RoundTransaction(unittest.TestCase):
                             {
                                 "name": batch.name,
                                 "sha256": round_txn.file_sha256(batch),
+                            },
+                            {
+                                "name": notes.name,
+                                "sha256": round_txn.file_sha256(notes),
                             }
                         ],
                     }
@@ -400,6 +406,99 @@ class RoundTransaction(unittest.TestCase):
                 round_txn.committed_jsonl_paths(factory)
             with self.assertRaisesRegex(round_txn.TransactionError, "hash mismatch"):
                 round_txn.frontier_status(factory)
+
+    def test_completion_manifest_validates_every_declared_artifact(self):
+        with tempfile.TemporaryDirectory() as td:
+            factory = self.factory(td)
+            round_txn.ensure_marker_mode(factory)
+            batch = factory / "batch-r01.jsonl"
+            notes = factory / "NOTES-r01.md"
+            auxiliary = factory / "EVIDENCE-r01.json"
+            write_records(batch, [thalamic("complete-artifacts")])
+            notes.write_text("# Critique\n\nArtifact fixture.\n")
+            auxiliary.write_text('{"check":"passed"}\n')
+            marker = factory / "ROUND-r01.complete.json"
+            marker.write_text(
+                json.dumps(
+                    {
+                        "factory": factory.name,
+                        "round": 1,
+                        "commit_point": marker.name,
+                        "files": [
+                            {"name": batch.name, "sha256": round_txn.file_sha256(batch)},
+                            {"name": notes.name, "sha256": round_txn.file_sha256(notes)},
+                            {"name": auxiliary.name, "sha256": round_txn.file_sha256(auxiliary)},
+                        ],
+                    }
+                )
+                + "\n"
+            )
+
+            self.assertEqual(round_txn.frontier_status(factory)["next_round"], 2)
+            outside = Path(td) / "outside-evidence.json"
+            outside.write_text(auxiliary.read_text())
+            auxiliary.unlink()
+            auxiliary.symlink_to(outside)
+            with self.assertRaisesRegex(round_txn.TransactionError, "unsafe committed artifact"):
+                round_txn.frontier_status(factory)
+
+            auxiliary.unlink()
+            auxiliary.write_text('{"check":"tampered"}\n')
+            with self.assertRaisesRegex(round_txn.TransactionError, "hash mismatch"):
+                round_txn.frontier_status(factory)
+
+    def test_marker_mode_requires_schema_and_real_legacy_baseline(self):
+        with tempfile.TemporaryDirectory() as td:
+            factory = self.factory(td)
+            mode = factory / round_txn.MODE_FILE
+            mode.write_text(
+                json.dumps(
+                    {
+                        "version": 2,
+                        "legacy_baseline": 0,
+                        "commit_point": "ROUND-rNN.complete.json",
+                    }
+                )
+                + "\n"
+            )
+            with self.assertRaisesRegex(round_txn.TransactionError, "version"):
+                round_txn.frontier_status(factory)
+
+            mode.write_text(
+                json.dumps(
+                    {
+                        "version": 1,
+                        "legacy_baseline": 0,
+                        "commit_point": "ROUND-rNN.publishing.json",
+                    }
+                )
+                + "\n"
+            )
+            with self.assertRaisesRegex(round_txn.TransactionError, "commit point"):
+                round_txn.frontier_status(factory)
+
+            mode.write_text(
+                json.dumps(
+                    {
+                        "version": 1,
+                        "legacy_baseline": 1,
+                        "commit_point": "ROUND-rNN.complete.json",
+                    }
+                )
+                + "\n"
+            )
+            with self.assertRaisesRegex(round_txn.TransactionError, "exceeds discovered"):
+                round_txn.frontier_status(factory)
+
+    def test_committed_paths_ignore_symlinked_legacy_payloads(self):
+        with tempfile.TemporaryDirectory() as td:
+            factory = self.factory(td)
+            outside = Path(td) / "outside.jsonl"
+            write_records(outside, [thalamic("outside")])
+            (factory / "batch-r01.jsonl").symlink_to(outside)
+
+            self.assertEqual(round_txn.committed_jsonl_paths(factory), [])
+            self.assertEqual(round_txn.frontier_status(factory)["next_round"], 1)
 
     def test_marker_mode_frontier_requires_verified_completion_manifest(self):
         with tempfile.TemporaryDirectory() as td:

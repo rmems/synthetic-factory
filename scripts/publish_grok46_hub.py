@@ -261,8 +261,31 @@ def pretty_name(hub: str) -> str:
     return hub.replace("-", " ").title()
 
 
+def factory_source(slug: str) -> Path:
+    """Return one in-tree, non-symlinked factory directory."""
+    if FACTORY_ROOT.is_symlink() or not FACTORY_ROOT.is_dir():
+        raise SystemExit(f"unsafe factory root: {FACTORY_ROOT}")
+    root = FACTORY_ROOT.resolve()
+    source = FACTORY_ROOT / slug
+    if source.is_symlink() or not source.is_dir():
+        raise SystemExit(f"unsafe factory directory: {source}")
+    try:
+        source.resolve().relative_to(root)
+    except ValueError as exc:
+        raise SystemExit(f"factory directory escaped factory root: {source}") from exc
+    return source
+
+
 def factories() -> list[dict]:
-    slugs = sorted(p.name for p in FACTORY_ROOT.iterdir() if p.is_dir())
+    if FACTORY_ROOT.is_symlink() or not FACTORY_ROOT.is_dir():
+        raise SystemExit(f"unsafe factory root: {FACTORY_ROOT}")
+    slugs = []
+    for path in sorted(FACTORY_ROOT.iterdir()):
+        if path.is_symlink():
+            raise SystemExit(f"unsafe factory directory: {path}")
+        if path.is_dir():
+            factory_source(path.name)
+            slugs.append(path.name)
     out = []
     for slug in slugs:
         if slug not in META:
@@ -542,7 +565,7 @@ def published_notes(
 
 
 def snapshot_one(item: dict) -> dict:
-    src = FACTORY_ROOT / item["slug"]
+    src = factory_source(item["slug"])
     dest = HF_ROOT / item["hub"]
     if not LICENSE_SRC.is_file():
         raise SystemExit(f"missing repository LICENSE at {LICENSE_SRC}")

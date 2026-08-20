@@ -40,6 +40,24 @@ def _index_entries(payload):
     raise AssertionError(f"unrecognized NEXT_ROUND.json shape: {payload!r}")
 
 
+def _episode(record_id, round_number):
+    return {
+        "id": record_id,
+        "goal": "keep the marker-mode fixture valid",
+        "steps": [
+            {
+                "n": 1,
+                "decision_basis": "The fixture needs a valid legacy record.",
+                "tool_call": {"name": "noop", "args": {}},
+                "observation": "recorded",
+            }
+        ],
+        "outcome": "fixture recorded",
+        "reward": {"success": True},
+        "meta": {"factory": "factory", "round": round_number, "generator": "grok-4.6"},
+    }
+
+
 class NextRoundFromFilenames(unittest.TestCase):
     def test_batch_r02_and_notes_r07_next_is_8(self):
         result = _invoke(str(ROUNDS_FIXTURE))
@@ -140,10 +158,21 @@ class NextRoundMarkerMode(unittest.TestCase):
             factory = Path(raw) / "factory"
             factory.mkdir()
             (factory / ".round-marker-mode.json").write_text(
-                json.dumps({"version": 1, "legacy_baseline": 2}) + "\n"
+                json.dumps(
+                    {
+                        "version": 1,
+                        "legacy_baseline": 2,
+                        "commit_point": "ROUND-rNN.complete.json",
+                    }
+                )
+                + "\n"
             )
+            (factory / "batch-r01.jsonl").write_text(json.dumps(_episode("legacy-1", 1)) + "\n")
+            (factory / "batch-r02.jsonl").write_text(json.dumps(_episode("legacy-2", 2)) + "\n")
             batch = factory / "batch-r03.jsonl"
             batch.write_text('{"id":"committed"}\n')
+            notes = factory / "NOTES-r03.md"
+            notes.write_text("committed notes\n")
             marker = factory / "ROUND-r03.complete.json"
             marker.write_text(
                 json.dumps(
@@ -155,6 +184,10 @@ class NextRoundMarkerMode(unittest.TestCase):
                             {
                                 "name": batch.name,
                                 "sha256": hashlib.sha256(batch.read_bytes()).hexdigest(),
+                            },
+                            {
+                                "name": notes.name,
+                                "sha256": hashlib.sha256(notes.read_bytes()).hexdigest(),
                             }
                         ],
                     }
