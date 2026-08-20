@@ -191,7 +191,17 @@ def audit_run(run_dir: Path):
     gate_by_role = defaultdict(Counter)
     gate_errors = Counter()
     gate_error_examples = []
-    preference = Counter()
+    # Keep the historic preference-report keys present even for a corpus made
+    # entirely of episode-sided pairs, which have no Thalamic state/proposal.
+    preference = Counter(
+        pairs=0,
+        same_context=0,
+        same_state=0,
+        same_proposal=0,
+        same_goal=0,
+        episode_pairs=0,
+        thalamic_pairs=0,
+    )
     chosen_decisions = Counter()
     reward_keys = Counter()
     reward_shapes = Counter()

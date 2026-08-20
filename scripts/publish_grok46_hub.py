@@ -378,6 +378,21 @@ def completed_manifests(src: Path) -> dict[int, dict]:
     return manifests
 
 
+def marker_mode_state(src: Path) -> tuple[int | None, dict[int, dict]]:
+    """Return a factory's marker-mode baseline and validated manifests once."""
+    mode_path = src / ".round-marker-mode.json"
+    if not mode_path.is_file():
+        return None, {}
+    try:
+        mode = json.loads(mode_path.read_text())
+    except (OSError, json.JSONDecodeError) as exc:
+        raise SystemExit(f"cannot read marker mode for {src}: {exc}") from exc
+    baseline = mode.get("legacy_baseline") if isinstance(mode, dict) else None
+    if not isinstance(baseline, int) or isinstance(baseline, bool) or baseline < 0:
+        raise SystemExit(f"invalid legacy_baseline in {mode_path}")
+    return baseline, completed_manifests(src)
+
+
 def file_matches_manifest(path: Path, manifest: dict) -> bool:
     """Verify a completed source file against its transaction manifest entry."""
     entries = [
@@ -395,7 +410,9 @@ def file_matches_manifest(path: Path, manifest: dict) -> bool:
     return True
 
 
-def published_batches(src: Path) -> list[Path]:
+def published_batches(
+    src: Path, marker_state: tuple[int | None, dict[int, dict]] | None = None
+) -> list[Path]:
     """Return marker-visible raw payloads from a factory.
 
     Marker-mode baselines can originate in one of the pre-transaction JSONL
@@ -407,16 +424,11 @@ def published_batches(src: Path) -> list[Path]:
         for path in src.glob("batch-r*.jsonl")
         if is_regular_source_file(path) and batch_label(path) is not None
     ]
-    if not (src / ".round-marker-mode.json").is_file():
+    if marker_state is None:
+        marker_state = marker_mode_state(src)
+    baseline, manifests = marker_state
+    if baseline is None:
         return sorted(batches)
-    try:
-        mode = json.loads((src / ".round-marker-mode.json").read_text())
-    except (OSError, json.JSONDecodeError) as exc:
-        raise SystemExit(f"cannot read marker mode for {src}: {exc}") from exc
-    baseline = mode.get("legacy_baseline") if isinstance(mode, dict) else None
-    if not isinstance(baseline, int) or isinstance(baseline, bool) or baseline < 0:
-        raise SystemExit(f"invalid legacy_baseline in {src / '.round-marker-mode.json'}")
-    manifests = completed_manifests(src)
     visible_batches = [
         path
         for path in batches
@@ -438,23 +450,18 @@ def published_batches(src: Path) -> list[Path]:
     return sorted([*visible_batches, *legacy_baseline])
 
 
-def published_notes(src: Path, batches: list[Path]) -> list[Path]:
+def published_notes(
+    src: Path,
+    batches: list[Path],
+    marker_state: tuple[int | None, dict[int, dict]] | None = None,
+) -> list[Path]:
     """Return notes that correspond to exactly one visible published batch."""
     labels = {label[2] for batch in batches if (label := batch_label(batch)) is not None}
     if any(batch.name in LEGACY_R1_NAMES for batch in batches):
         labels.add("r01")
-    mode_path = src / ".round-marker-mode.json"
-    baseline = None
-    manifests = {}
-    if mode_path.is_file():
-        try:
-            mode = json.loads(mode_path.read_text())
-        except (OSError, json.JSONDecodeError) as exc:
-            raise SystemExit(f"cannot read marker mode for {src}: {exc}") from exc
-        baseline = mode.get("legacy_baseline") if isinstance(mode, dict) else None
-        if not isinstance(baseline, int) or isinstance(baseline, bool) or baseline < 0:
-            raise SystemExit(f"invalid legacy_baseline in {mode_path}")
-        manifests = completed_manifests(src)
+    if marker_state is None:
+        marker_state = marker_mode_state(src)
+    baseline, manifests = marker_state
 
     def visible_note(path: Path) -> bool:
         match = NOTES_NAME_RE.fullmatch(path.name)
@@ -487,8 +494,9 @@ def snapshot_one(item: dict) -> dict:
     meta = dest / "data" / "metadata"
     raw.mkdir(parents=True, exist_ok=True)
     meta.mkdir(parents=True, exist_ok=True)
-    batches = published_batches(src)
-    notes = published_notes(src, batches)
+    marker_state = marker_mode_state(src)
+    batches = published_batches(src, marker_state)
+    notes = published_notes(src, batches, marker_state)
     records = 0
     bytes_ = 0
     labels = []
@@ -577,7 +585,8 @@ def render_card(
         else:
             payload = (
                 "This snapshot currently contains no published raw batch files. "
-                "It does not claim a `data/raw/batch-rNN.jsonl` payload."
+                "It does not claim a `data/raw/batch-rNN.jsonl` payload. The factory "
+                "source tree is"
             )
     else:
         payload = (

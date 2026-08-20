@@ -71,6 +71,15 @@ class PublishGrok46HubTests(unittest.TestCase):
                 self.assertFalse(copied.is_symlink())
                 self.assertEqual(copied.read_text(), last.read_text())
 
+            empty = {**ITEM, "slug": "empty-factory", "hub": "empty"}
+            (root / "raw" / empty["slug"]).mkdir()
+            with mock.patch.object(publisher, "FACTORY_ROOT", root / "raw"), mock.patch.object(
+                publisher, "HF_ROOT", destination_root
+            ):
+                publisher.snapshot_one(empty)
+            empty_card = (destination_root / empty["hub"] / "README.md").read_text()
+            self.assertIn("payload. The factory source tree is\n`outputs/raw/", empty_card)
+
     def test_snapshot_keeps_legacy_baseline_and_filters_uncommitted_marker_batches(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
@@ -179,14 +188,23 @@ class PublishGrok46HubTests(unittest.TestCase):
             self.assertTrue((meta / "NOTES-r01.md").is_file())
             self.assertIn("data/raw/episodes.jsonl", card)
 
+            other = {**ITEM, "slug": "other-factory", "hub": "other"}
+            other_source = root / "raw" / other["slug"]
+            other_source.mkdir()
+            (other_source / "batch-r01.jsonl").write_text('{"id":"other"}\n')
             with mock.patch.object(publisher, "FACTORY_ROOT", root / "raw"), mock.patch.object(
                 publisher, "HF_ROOT", root / "hf"
-            ), mock.patch.object(publisher, "factories", return_value=[ITEM]):
-                publisher.cmd_snapshot()
+            ), mock.patch.object(publisher, "factories", return_value=[ITEM, other]):
+                publisher.cmd_snapshot(other["hub"])
                 local = publisher.local_snapshot_stats(ITEM)
 
+            inventory = (root / "hf" / "SYNTHETIC-DATA-FACTORY-GROK46.md").read_text()
             self.assertEqual(local["records"], 1)
             self.assertIsNone(local["last"])
+            self.assertIn(f"| `{ITEM['hub']}/`", inventory)
+            self.assertIn(f"| `{other['hub']}/`", inventory)
+            self.assertIn(f"| `{other['hub']}/` |", inventory)
+            self.assertIn(f"| `{other['slug']}` | 1 | 1 |", inventory)
 
     def test_snapshot_refuses_untrusted_completion_manifests(self):
         with tempfile.TemporaryDirectory() as td:
@@ -208,6 +226,24 @@ class PublishGrok46HubTests(unittest.TestCase):
                         "files": [],
                     },
                     "identity mismatch",
+                ),
+                (
+                    {
+                        "factory": ITEM["slug"],
+                        "round": 1,
+                        "commit_point": "ROUND-r02.complete.json",
+                        "files": [{"name": batch.name, "sha256": "0" * 64}],
+                    },
+                    "commit point mismatch",
+                ),
+                (
+                    {
+                        "factory": ITEM["slug"],
+                        "round": 1,
+                        "commit_point": marker.name,
+                        "files": [],
+                    },
+                    "no unique file entry",
                 ),
                 (
                     {
@@ -257,6 +293,7 @@ class PublishGrok46HubTests(unittest.TestCase):
             inventory = (root / "hf" / "SYNTHETIC-DATA-FACTORY-GROK46.md").read_text()
             self.assertIn(f"`{ITEM['hub']}/`", inventory)
             self.assertIn(f"`{other['hub']}/`", inventory)
+            self.assertIn(f"| `{other['slug']}` | 1 | 1 |", inventory)
 
     def test_all_only_scopes_payload_not_complete_collection_maintenance(self):
         whoami = SimpleNamespace(returncode=0, stdout='{"user":"rmems"}', stderr="")

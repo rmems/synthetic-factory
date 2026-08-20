@@ -195,6 +195,8 @@ class TrainingAudit(unittest.TestCase):
         self.assertEqual(report["preferences"]["episode_pairs"], 1)
         self.assertEqual(report["preferences"]["same_goal"], 1)
         self.assertEqual(report["preferences"]["same_context"], 1)
+        self.assertEqual(report["preferences"]["same_state"], 0)
+        self.assertEqual(report["preferences"]["same_proposal"], 0)
 
     def test_episode_preference_with_mismatched_side_goals_blocks_training(self):
         with tempfile.TemporaryDirectory() as td:
