@@ -18,15 +18,17 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
+import re
 import shutil
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 FACTORY_ROOT = Path("/home/raulmc/rmems/synthetic-factory/outputs/raw/2026-08-19-agentic")
 HF_ROOT = Path("/home/raulmc/rmems/hf")
-LICENSE_SRC = HF_ROOT / "long-horizon-coding-trajectories" / "LICENSE"
+REPO_ROOT = Path(__file__).resolve().parents[1]
+LICENSE_SRC = REPO_ROOT / "LICENSE"
 COLLECTION = "rmems/synthetic-data-factory-grok-46-6a8570931720e862b5638e90"
 COLLECTION_URL = (
     "https://huggingface.co/collections/rmems/synthetic-data-factory-grok-46-6a8570931720e862b5638e90"
@@ -43,6 +45,8 @@ BANNED_TAG_SUBSTR = (
     "claude-fable-5",
     "ultracode",
 )
+BATCH_NAME_RE = re.compile(r"^batch-r(\d+)([a-z]*)\.jsonl$")
+COMPLETE_MARKER_RE = re.compile(r"^ROUND-r(\d+)\.complete\.json$")
 
 # Extra tags + one-line blurb per factory slug. Hub id is derived.
 META: dict[str, tuple[str, list[str]]] = {
@@ -289,48 +293,92 @@ def count_jsonl_lines(path: Path) -> int:
 
 
 def link_or_copy(src: Path, dst: Path) -> None:
+    """Atomically replace any prior snapshot with an independent copy.
+
+    Hub working trees are mutable. A hard link would let a later edit under
+    ``HF_ROOT`` silently mutate the immutable raw factory source, while
+    retaining a symlink could publish stale or unrelated bytes. Replacing the
+    destination from a temporary regular file handles both cases safely.
+    """
     dst.parent.mkdir(parents=True, exist_ok=True)
-    if dst.exists() or dst.is_symlink():
-        if dst.is_symlink() or dst.stat().st_ino == src.stat().st_ino:
-            return
-        dst.unlink()
+    with tempfile.NamedTemporaryFile(
+        dir=dst.parent, prefix=f".{dst.name}.", suffix=".tmp", delete=False
+    ) as handle:
+        temporary = Path(handle.name)
     try:
-        os.link(src, dst)
-    except OSError:
-        shutil.copy2(src, dst)
+        shutil.copy2(src, temporary)
+        temporary.replace(dst)
+    finally:
+        temporary.unlink(missing_ok=True)
+
+
+def batch_label(path: Path) -> tuple[int, str, str] | None:
+    """Return a sortable, zero-padded round label for a published batch."""
+    match = BATCH_NAME_RE.fullmatch(path.name)
+    if match is None:
+        return None
+    number = int(match.group(1))
+    suffix = match.group(2)
+    return number, suffix, f"r{number:02d}{suffix}"
+
+
+def published_batches(src: Path) -> list[Path]:
+    """Return legacy batches, or only completed batches in marker-mode trees."""
+    batches = [
+        path for path in src.glob("batch-r*.jsonl") if batch_label(path) is not None
+    ]
+    if not (src / ".round-marker-mode.json").is_file():
+        return sorted(batches)
+    complete_rounds = {
+        int(match.group(1))
+        for marker in src.glob("ROUND-r*.complete.json")
+        if (match := COMPLETE_MARKER_RE.fullmatch(marker.name)) is not None
+    }
+    return sorted(
+        path
+        for path in batches
+        if (label := batch_label(path)) is not None
+        and not label[1]
+        and label[0] in complete_rounds
+    )
 
 
 def snapshot_one(item: dict) -> dict:
     src = FACTORY_ROOT / item["slug"]
     dest = HF_ROOT / item["hub"]
+    if not LICENSE_SRC.is_file():
+        raise SystemExit(f"missing repository LICENSE at {LICENSE_SRC}")
     raw = dest / "data" / "raw"
     meta = dest / "data" / "metadata"
     raw.mkdir(parents=True, exist_ok=True)
     meta.mkdir(parents=True, exist_ok=True)
-    batches = sorted(src.glob("batch-r*.jsonl"))
+    batches = published_batches(src)
     notes = sorted(src.glob("NOTES-r*.md"))
     records = 0
     bytes_ = 0
-    last = 0
+    labels = []
+    desired_batch_names = {batch.name for batch in batches}
+    for existing in raw.glob("batch-r*.jsonl"):
+        if existing.name in desired_batch_names:
+            continue
+        if existing.is_file() or existing.is_symlink():
+            existing.unlink()
+        else:
+            raise SystemExit(f"unsafe non-file snapshot payload: {existing}")
     for b in batches:
         link_or_copy(b, raw / b.name)
         records += count_jsonl_lines(b)
         bytes_ += b.stat().st_size
-        try:
-            last = max(last, int(b.stem.split("-r", 1)[1].rstrip("c") or "0"))
-        except ValueError:
-            pass
+        labels.append(batch_label(b))
     for n in notes:
         link_or_copy(n, meta / n.name)
-    first = "r01"
-    last_s = f"r{last}" if last else "r01"
+    labels = [label for label in labels if label is not None]
+    first = min(labels)[2] if labels else None
+    last_s = max(labels)[2] if labels else None
     card = render_card(item, records=records, bytes_=bytes_, first=first, last=last_s)
     (dest / "README.md").write_text(card, encoding="utf-8")
-    if not LICENSE_SRC.exists():
-        raise SystemExit(f"missing LICENSE at {LICENSE_SRC}")
     license_dst = dest / "LICENSE"
-    if LICENSE_SRC.resolve() != license_dst.resolve():
-        shutil.copy2(LICENSE_SRC, license_dst)
+    shutil.copy2(LICENSE_SRC, license_dst)
     (dest / "ATTRIBUTION.md").write_text(
         "Generated by Grok 4.6 via the Synthetic Data Factory agentic lane.\n"
         "Public raw snapshot; not training-ready.\n\n"
@@ -351,13 +399,26 @@ def snapshot_one(item: dict) -> dict:
         "batches": len(batches),
         "notes": len(notes),
         "bytes": bytes_,
-        "last": last,
+        "last": last_s,
     }
 
 
-def render_card(item: dict, *, records: int, bytes_: int, first: str, last: str) -> str:
+def render_card(
+    item: dict, *, records: int, bytes_: int, first: str | None, last: str | None
+) -> str:
     tags = "\n".join(f"- {t}" for t in item["tags"])
     kb = max(1, bytes_ // 1024)
+    if first is None or last is None:
+        payload = (
+            "This snapshot currently contains no published raw batch files. "
+            "It does not claim a `data/raw/batch-rNN.jsonl` payload."
+        )
+    else:
+        payload = (
+            f"The release contains {records} raw records across\n"
+            f"`data/raw/batch-{first}.jsonl` through `data/raw/batch-{last}.jsonl` "
+            f"(~{kb} KB), snapshotted from"
+        )
     return f"""---
 pretty_name: {item['pretty']}
 license: apache-2.0
@@ -392,8 +453,7 @@ Synthetic Data Factory agentic lane. Factory slug:
 
 ## Published raw payload
 
-The release contains {records} raw records across
-`data/raw/batch-{first}.jsonl` through `data/raw/batch-{last}.jsonl` (~{kb} KB), snapshotted from
+{payload}
 `outputs/raw/2026-08-19-agentic/{item['slug']}/`. Supporting notes are under
 `data/metadata/NOTES-*.md`. The factory source remains the write destination; this Hub
 copy is a public evidence snapshot, not the curated training export. Public
@@ -443,8 +503,14 @@ def cmd_snapshot(only: str | None = None) -> list[dict]:
     return stats
 
 
-def cmd_create() -> None:
+def is_selected(item: dict, only: str | None) -> bool:
+    return not only or item["hub"] == only or item["slug"] == only
+
+
+def cmd_create(only: str | None = None) -> None:
     for item in factories():
+        if not is_selected(item, only):
+            continue
         run(
             [
                 "hf",
@@ -461,7 +527,7 @@ def cmd_create() -> None:
 
 def cmd_upload(only: str | None = None) -> None:
     for item in factories():
-        if only and item["hub"] != only and item["slug"] != only:
+        if not is_selected(item, only):
             continue
         dest = HF_ROOT / item["hub"]
         run(
@@ -480,8 +546,10 @@ def cmd_upload(only: str | None = None) -> None:
         )
 
 
-def cmd_collect() -> None:
+def cmd_collect(only: str | None = None) -> None:
     for item in factories():
+        if not is_selected(item, only):
+            continue
         run(
             [
                 "hf",
@@ -530,9 +598,9 @@ def main() -> int:
         cmd_status()
     elif args.cmd == "all":
         cmd_snapshot(args.only)
-        cmd_create()
+        cmd_create(args.only)
         cmd_upload(args.only)
-        cmd_collect()
+        cmd_collect(args.only)
     return 0
 
 

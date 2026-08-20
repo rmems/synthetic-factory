@@ -44,8 +44,9 @@ cascade.
 ```
 
 Each side is episode-like: non-empty `steps` with `decision_basis`, `tool_call`,
-`observation`. Top-level `goal` is required (or `chosen.goal`). **`critique` is
-a non-empty string** — blank or missing fails publish.
+`observation`. Use a shared top-level `goal`; if it is omitted, both sides need
+identical non-empty `goal` values. **`critique` is a non-empty string** — blank
+or missing fails publish.
 
 ### Preference rules
 

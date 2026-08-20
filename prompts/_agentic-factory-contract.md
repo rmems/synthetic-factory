@@ -20,7 +20,8 @@ Same publisher as prompts 01–05:
 Every JSONL line:
 
 - `id` — globally unique string (`lhc-rNN-…`, `cer-rNN-…`, …)
-- `goal`, `outcome`
+- `goal`, `outcome` (preference records need one shared top-level goal, or
+  identical non-empty goals on both sides)
 - `reward` — must include `success` (bool); extra numeric fields finite
 - `meta.factory` — the slug
 - `meta.round` — integer ≥ 1 matching the reservation

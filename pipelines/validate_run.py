@@ -415,6 +415,9 @@ def check_thalamic(obj, where):
 SAFETY_CASE_TYPES = frozenset(
     {"correct_refusal", "incorrect_refusal", "missed_refusal"}
 )
+HIDDEN_THOUGHT_KEYS = frozenset(
+    {"thought", "chain_of_thought", "scratch", "inner_monologue"}
+)
 
 
 def _episode_like(obj):
@@ -426,12 +429,74 @@ def _episode_like(obj):
     )
 
 
+def _hidden_thought_paths(value, path=""):
+    """Return every nested forbidden hidden-reasoning key and its path."""
+    found = []
+    if isinstance(value, dict):
+        for key, item in value.items():
+            child_path = f"{path}.{key}" if path else key
+            if key in HIDDEN_THOUGHT_KEYS:
+                found.append((key, child_path))
+            found.extend(_hidden_thought_paths(item, child_path))
+    elif isinstance(value, list):
+        for index, item in enumerate(value):
+            found.extend(_hidden_thought_paths(item, f"{path}[{index}]"))
+    return found
+
+
+def _staging_hidden_thought_errors(obj, where):
+    return [
+        f"{where}: hidden '{key}' is forbidden at {path}; use observable fields"
+        for key, path in _hidden_thought_paths(obj)
+    ]
+
+
+def _normalized_goal(value):
+    if not isinstance(value, str) or not value.strip():
+        return None
+    return " ".join(value.split())
+
+
+def _staging_preference_goal_errors(obj, where):
+    """Require explicit or inherited agreement on one preference problem."""
+    chosen = obj.get("chosen")
+    rejected = obj.get("rejected")
+    raw_goals = {
+        "goal": obj.get("goal"),
+        "chosen.goal": chosen.get("goal") if isinstance(chosen, dict) else None,
+        "rejected.goal": rejected.get("goal") if isinstance(rejected, dict) else None,
+    }
+    normalized = {}
+    errors = []
+    for path, value in raw_goals.items():
+        if value is None:
+            continue
+        goal = _normalized_goal(value)
+        if goal is None:
+            errors.append(f"{where}: {path} must be a non-empty string when present")
+        else:
+            normalized[path] = goal
+    if not normalized:
+        return [f"{where}: preference needs a shared non-empty goal"]
+    if raw_goals["goal"] is None and (
+        "chosen.goal" not in normalized or "rejected.goal" not in normalized
+    ):
+        errors.append(
+            f"{where}: preference needs both side goals when no top-level goal is present"
+        )
+    if len(set(normalized.values())) > 1:
+        errors.append(f"{where}: top-level and side goals must describe the same problem")
+    return errors
+
+
 def _require_reward(obj, where):
     reward = obj.get("reward")
     if not isinstance(reward, dict):
         return [f"{where}: reward must be an object with 'success'"]
     if "success" not in reward:
         return [f"{where}: reward missing 'success'"]
+    if not isinstance(reward["success"], bool):
+        return [f"{where}: reward.success must be a boolean"]
     return []
 
 
@@ -457,14 +522,29 @@ def check_episode(obj, where, require_goal=True, forbid_hidden_thought=False):
             for key in ("tool_call", "observation"):
                 if key not in step:
                     errs.append(f"{where} step {i}: missing '{key}'")
-            if forbid_hidden_thought and "thought" in step:
-                errs.append(
-                    f"{where} step {i}: hidden 'thought' is forbidden; use 'decision_basis'"
-                )
+            # Existing non-staged records may still use the legacy ``thought``
+            # field; retain the audit warning path for those historical runs.
+            # Transactional agentic publication always uses the strict branch
+            # below and rejects every hidden-reasoning key recursively.
             if "decision_basis" not in step and (
                 forbid_hidden_thought or "thought" not in step
             ):
                 errs.append(f"{where} step {i}: missing 'decision_basis'")
+            if forbid_hidden_thought:
+                basis = step.get("decision_basis")
+                if not isinstance(basis, str) or not basis.strip():
+                    errs.append(f"{where} step {i}: decision_basis must be a non-empty string")
+                tool_call = step.get("tool_call")
+                if not isinstance(tool_call, dict):
+                    errs.append(f"{where} step {i}: tool_call must be an object")
+                else:
+                    if not isinstance(tool_call.get("name"), str) or not tool_call["name"].strip():
+                        errs.append(f"{where} step {i}: tool_call.name must be a non-empty string")
+                    if not isinstance(tool_call.get("args"), dict):
+                        errs.append(f"{where} step {i}: tool_call.args must be an object")
+                observation = step.get("observation")
+                if not isinstance(observation, str) or not observation.strip():
+                    errs.append(f"{where} step {i}: observation must be a non-empty string")
     return errs
 
 
@@ -474,12 +554,16 @@ def check_multi_agent(obj, where):
         if key not in obj:
             errs.append(f"{where}: multi_agent missing '{key}'")
     agents = obj.get("agents")
+    roles = set()
     if not isinstance(agents, list) or len(agents) < 2:
         errs.append(f"{where}: agents must be an array of at least 2 roles")
     else:
         for i, agent in enumerate(agents):
-            if not isinstance(agent, dict) or not str(agent.get("role", "")).strip():
+            role = agent.get("role") if isinstance(agent, dict) else None
+            if not isinstance(role, str) or not role.strip():
                 errs.append(f"{where}: agents[{i}] needs a non-empty role")
+            else:
+                roles.add(role.strip())
     transcript = obj.get("transcript")
     if not isinstance(transcript, list) or not transcript:
         errs.append(f"{where}: transcript must be a non-empty array")
@@ -488,8 +572,13 @@ def check_multi_agent(obj, where):
             if not isinstance(turn, dict):
                 errs.append(f"{where}: transcript[{i}] must be an object")
                 continue
-            if not str(turn.get("speaker", "")).strip():
+            speaker = turn.get("speaker")
+            if not isinstance(speaker, str) or not speaker.strip():
                 errs.append(f"{where}: transcript[{i}] missing speaker")
+            elif roles and speaker.strip() not in roles:
+                errs.append(
+                    f"{where}: transcript[{i}] speaker {speaker!r} is not a declared agent role"
+                )
     errs += _require_reward(obj, where)
     return errs
 
@@ -520,6 +609,14 @@ def check_line(obj, where, factory_staging=False):
     """Route an object to the right checker based on its shape."""
     if not isinstance(obj, dict):
         return [f"{where}: record must be a JSON object"], "unknown"
+
+    def finish_agentic(errs, kind):
+        if factory_staging:
+            errs += _staging_hidden_thought_errors(obj, where)
+            if kind == "preference":
+                errs += _staging_preference_goal_errors(obj, where)
+        return errs, kind
+
     # Route on the object-typed trajectory fields so legacy v1 records
     # (no canonical `id` yet) still reach the thalamic checker and have their
     # state / reward / provenance / meta.round invariants enforced instead of
@@ -560,7 +657,7 @@ def check_line(obj, where, factory_staging=False):
                 errs.append(f"{where}: preference episode needs a shared or chosen goal")
         if not isinstance(obj.get("critique"), str) or not obj["critique"].strip():
             errs.append(f"{where}: preference record needs a non-empty critique")
-        return errs, "preference"
+        return finish_agentic(errs, "preference")
     if "language_view" in obj and "spike_events" in obj:
         errs = []
         events = obj["spike_events"]
@@ -578,16 +675,18 @@ def check_line(obj, where, factory_staging=False):
             else:
                 errs.append(f"{where}: language_view.trajectory missing or not an object")
         return errs, "bridge_pair"
-    if obj.get("case_type") in SAFETY_CASE_TYPES or (
-        "case_type" in obj and "rationale" in obj
-    ):
-        return check_safety_case(obj, where, factory_staging=factory_staging), "safety_case"
+    if "case_type" in obj:
+        return finish_agentic(
+            check_safety_case(obj, where, factory_staging=factory_staging),
+            "safety_case",
+        )
     if "transcript" in obj and "agents" in obj:
-        return check_multi_agent(obj, where), "multi_agent"
+        return finish_agentic(check_multi_agent(obj, where), "multi_agent")
     if "goal" in obj and "steps" in obj:
-        return check_episode(
-            obj, where, forbid_hidden_thought=factory_staging
-        ), "episode"
+        return finish_agentic(
+            check_episode(obj, where, forbid_hidden_thought=factory_staging),
+            "episode",
+        )
     return [f"{where}: unrecognized record shape (keys: {sorted(obj)[:8]})"], "unknown"
 
 

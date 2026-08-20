@@ -134,7 +134,18 @@ def classify_record(obj: Any) -> str:
     if all(key in obj for key in THALAMIC_CORE_KEYS):
         return "thalamic"
     if "chosen" in obj and "rejected" in obj:
-        return "preference"
+        sides = (obj.get("chosen"), obj.get("rejected"))
+        if any(
+            isinstance(side, dict)
+            and "steps" in side
+            and not all(key in side for key in THALAMIC_CORE_KEYS)
+            for side in sides
+        ):
+            return "preference"
+        # Legacy Thalamic preference pairs deliberately have chosen/rejected
+        # trajectory objects rather than agentic episode sides. They belong in
+        # the skipped bucket, not in the agentic goal-impurity statistics.
+        return "legacy_preference"
     if "language_view" in obj and "spike_events" in obj:
         return "bridge_pair"
     if obj.get("case_type") in SAFETY_CASE_TYPES or (

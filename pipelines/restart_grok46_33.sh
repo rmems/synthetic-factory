@@ -8,6 +8,7 @@ PROMPT="$ROOT/pipelines/restart_grok46_33.md"
 GROK="${GROK:-/home/raulmc/.local/bin/grok}"
 LOG=/tmp/grok46-restart-33.log
 LOCK=/tmp/grok46-restart-33.lock
+PID_FILE=/tmp/grok46-restart-33.pid
 SESSION=grok46-agentic-restart
 
 export TZ=America/Chicago
@@ -29,6 +30,18 @@ fi
 echo $$ >&9
 echo "$(date -Is) starting 33-agent restart" >>"$LOG"
 
+# The advisory flock protects overlapping launcher shells only. The nohup
+# worker outlives this shell, so keep its PID separately and refuse a second
+# window tick while that exact process is still alive.
+if [[ -s "$PID_FILE" ]]; then
+  read -r existing_pid <"$PID_FILE" || true
+  if [[ "$existing_pid" =~ ^[0-9]+$ ]] && kill -0 "$existing_pid" 2>/dev/null; then
+    echo "$(date -Is) skip: nohup worker pid $existing_pid already live" >>"$LOG"
+    exit 0
+  fi
+  rm -f "$PID_FILE"
+fi
+
 cd "$ROOT"
 "$ROOT/.claude/skills/run-synthetic-factory/driver.py" frontiers outputs/raw/2026-08-19-agentic >>"$LOG" 2>&1 || true
 
@@ -42,6 +55,6 @@ if command -v tmux >/dev/null 2>&1; then
   echo "$(date -Is) tmux session $SESSION" >>"$LOG"
 else
   nohup "$GROK" --cwd "$ROOT" --always-approve --no-plan --model grok-4.6 "$(cat "$PROMPT")" >>"$LOG" 2>&1 &
-  echo $! >"$LOCK"
-  echo "$(date -Is) nohup pid $(cat "$LOCK")" >>"$LOG"
+  echo $! >"$PID_FILE"
+  echo "$(date -Is) nohup pid $(cat "$PID_FILE")" >>"$LOG"
 fi

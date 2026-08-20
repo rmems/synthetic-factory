@@ -189,6 +189,22 @@ class CurateAgenticTests(unittest.TestCase):
         self.assertEqual(classify_record(safety_case_fixture()), "safety_case")
         self.assertEqual(classify_record(thalamic_fixture()), "thalamic")
 
+    def test_legacy_thalamic_preference_is_skipped_not_counted_as_goal_impure(self):
+        side = thalamic_fixture()
+        record = {
+            "id": "legacy-pair",
+            "chosen": side,
+            "rejected": dict(side),
+            "critique": "legacy Thalamic pair",
+        }
+
+        curated, decision = curate_record(record)
+
+        self.assertEqual(classify_record(record), "legacy_preference")
+        self.assertIsNone(curated)
+        self.assertEqual(decision["action"], ACTION_SKIPPED)
+        self.assertIn(REASON_SKIPPED_KIND, decision["reason_codes"])
+
     def test_strips_every_hidden_thought_key_recursively(self):
         source = episode_fixture(
             steps=[

@@ -172,6 +172,26 @@ class AgenticShapes(unittest.TestCase):
         self.assertEqual(kind, "preference")
         self.assertTrue(any("critique" in e for e in errs), errs)
 
+    def test_staging_preference_requires_one_shared_goal(self):
+        rec = episode_preference()
+        rec["chosen"]["goal"] = "write output.json atomically"
+        rec["rejected"]["goal"] = "delete production data"
+
+        errs, kind = validate_run.check_line(rec, "t", factory_staging=True)
+
+        self.assertEqual(kind, "preference")
+        self.assertTrue(any("same problem" in error for error in errs), errs)
+
+    def test_case_type_routes_to_safety_even_when_misspelled(self):
+        rec = episode("safety-routing")
+        rec["case_type"] = "misspelt"
+
+        errs, kind = validate_run.check_line(rec, "t", factory_staging=True)
+
+        self.assertEqual(kind, "safety_case")
+        self.assertTrue(any("case_type" in error for error in errs), errs)
+        self.assertTrue(any("rationale" in error for error in errs), errs)
+
     def test_episode_preference_publishes(self):
         with tempfile.TemporaryDirectory() as td:
             factory = (
@@ -199,10 +219,86 @@ class AgenticShapes(unittest.TestCase):
 
     def test_thought_key_rejected_on_agentic_steps(self):
         rec = episode("lhc-r01-tz")
-        rec["steps"][0]["thought"] = "hidden"
+        rec["steps"][0]["tool_call"]["args"]["scratch"] = "hidden"
         errs, kind = validate_run.check_line(rec, "t", factory_staging=True)
         self.assertEqual(kind, "episode")
-        self.assertTrue(any("thought" in e for e in errs), errs)
+        self.assertTrue(any("scratch" in e for e in errs), errs)
+
+    def test_staging_requires_typed_observable_fields_and_boolean_reward(self):
+        rec = episode("lhc-r01-invalid")
+        rec["reward"]["success"] = "yes"
+        rec["steps"][0].update(
+            {"decision_basis": "", "tool_call": None, "observation": None}
+        )
+
+        errs, kind = validate_run.check_line(rec, "t", factory_staging=True)
+
+        self.assertEqual(kind, "episode")
+        self.assertTrue(any("reward.success" in error for error in errs), errs)
+        self.assertTrue(any("decision_basis must" in error for error in errs), errs)
+        self.assertTrue(any("tool_call must" in error for error in errs), errs)
+        self.assertTrue(any("observation must" in error for error in errs), errs)
+
+    def test_multi_agent_speakers_must_be_declared_string_roles(self):
+        rec = multi_agent()
+        rec["agents"][0]["role"] = None
+        rec["transcript"][0]["speaker"] = "undeclared"
+        rec["transcript"][1]["speaker"] = None
+
+        errs, kind = validate_run.check_line(rec, "t", factory_staging=True)
+
+        self.assertEqual(kind, "multi_agent")
+        self.assertTrue(any("agents[0]" in error for error in errs), errs)
+        self.assertTrue(any("not a declared" in error for error in errs), errs)
+        self.assertTrue(any("missing speaker" in error for error in errs), errs)
+
+    def test_agentic_reservation_binds_configured_quota(self):
+        with tempfile.TemporaryDirectory() as td:
+            factory = (
+                Path(td)
+                / "outputs"
+                / "raw"
+                / "2099-01-01"
+                / "long-horizon-coding-factory"
+            )
+            factory.mkdir(parents=True)
+
+            with self.assertRaisesRegex(round_txn.TransactionError, "requires exactly 2"):
+                round_txn.reserve(factory, 1, 1)
+
+    def test_agentic_publish_rejects_wrong_kind_and_factory_metadata(self):
+        with tempfile.TemporaryDirectory() as td:
+            factory = (
+                Path(td)
+                / "outputs"
+                / "raw"
+                / "2099-01-01"
+                / "safety-calibration-factory"
+            )
+            factory.mkdir(parents=True)
+            reservation = round_txn.reserve(factory, 1, 3)
+            stage = Path(reservation["staging_dir"])
+            records = [
+                episode(f"wrong-kind-{index}", factory="safety-calibration-factory")
+                for index in range(3)
+            ]
+            (stage / reservation["batch_file"]).write_text(
+                "".join(json.dumps(record) + "\n" for record in records)
+            )
+            (stage / reservation["notes_file"]).write_text("Novel coverage: 70%\n")
+
+            with self.assertRaisesRegex(round_txn.TransactionError, "requires only 'safety_case'"):
+                round_txn.publish(factory, 1, reservation["token"])
+
+            records = [safety_case() for _ in range(3)]
+            for index, record in enumerate(records):
+                record["id"] = f"wrong-meta-{index}"
+                record["meta"]["factory"] = "other-factory"
+            (stage / reservation["batch_file"]).write_text(
+                "".join(json.dumps(record) + "\n" for record in records)
+            )
+            with self.assertRaisesRegex(round_txn.TransactionError, "meta.factory"):
+                round_txn.publish(factory, 1, reservation["token"])
 
 if __name__ == "__main__":
     unittest.main()

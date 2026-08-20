@@ -94,6 +94,36 @@ FACTORY_QUOTAS = {
     "cache-stampede-factory": 2,
 }
 
+# The original five lanes deliberately allow an operator-selected ``expected``
+# count. Every later Grok 4.6 factory is documented with a fixed quota and
+# record shape, so it must not be possible to reserve a smaller batch by
+# passing a different CLI value.
+LEGACY_FACTORY_SLUGS = frozenset(
+    {
+        "thalamic-trajectory-factory",
+        "multi-agent-ouroboros-swarm",
+        "neuromorphic-event-language-bridge",
+        "failure-as-fuel-preference-cascade",
+        "agentic-coding-trajectory-factory",
+    }
+)
+AGENTIC_FACTORY_KINDS = {
+    slug: "episode"
+    for slug in FACTORY_QUOTAS
+    if slug not in LEGACY_FACTORY_SLUGS
+}
+AGENTIC_FACTORY_KINDS.update(
+    {
+        "tool-use-preference-factory": "preference",
+        "code-review-preference-factory": "preference",
+        "multi-agent-coordination-factory": "multi_agent",
+        "safety-calibration-factory": "safety_case",
+    }
+)
+NOVEL_COVERAGE_RE = re.compile(
+    r"^\s*novel[^%\r\n]*?(\d+(?:\.\d+)?)\s*%", re.IGNORECASE | re.MULTILINE
+)
+
 
 class TransactionError(RuntimeError):
     """A round transaction cannot proceed safely."""
@@ -275,6 +305,12 @@ def reserve(factory_dir: Path, round_number: int, expected: int):
         raise TransactionError("round number must be at least 1")
     if not isinstance(expected, int) or isinstance(expected, bool) or expected < 1:
         raise TransactionError("expected record count must be at least 1")
+    configured_quota = FACTORY_QUOTAS.get(factory_dir.name)
+    if factory_dir.name in AGENTIC_FACTORY_KINDS and expected != configured_quota:
+        raise TransactionError(
+            f"{factory_dir.name} requires exactly {configured_quota} records; "
+            f"got --expected {expected}"
+        )
     ensure_marker_mode(factory_dir)
     status = frontier_status(factory_dir)
     if round_number != status["next_round"]:
@@ -320,6 +356,57 @@ def committed_ids(factory_dir: Path):
     return seen_ids
 
 
+def validate_agentic_envelope(batch: Path, factory_dir: Path, round_number: int):
+    """Return fixed-contract envelope errors for one staged agentic batch."""
+    if factory_dir.name not in AGENTIC_FACTORY_KINDS:
+        return []
+    errors = []
+    for lineno, line in enumerate(batch.read_text().splitlines(), 1):
+        if not line.strip():
+            continue
+        # JSON parsing and base shape errors have already been checked by
+        # check_jsonl. Keep this narrow pass focused on the factory-specific
+        # values that only the transaction layer can know.
+        try:
+            record = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        where = f"{batch.name}:{lineno}"
+        if AGENTIC_FACTORY_KINDS[factory_dir.name] == "preference":
+            for side_name in ("chosen", "rejected"):
+                side = record.get(side_name) if isinstance(record, dict) else None
+                if not isinstance(side, dict) or not isinstance(side.get("steps"), list):
+                    errors.append(
+                        f"{where}: {side_name} must be an episode side with steps"
+                    )
+        meta = record.get("meta") if isinstance(record, dict) else None
+        if not isinstance(meta, dict):
+            errors.append(f"{where}: agentic record meta must be an object")
+            continue
+        if meta.get("factory") != factory_dir.name:
+            errors.append(
+                f"{where}: meta.factory must be {factory_dir.name!r}"
+            )
+        if meta.get("round") != round_number:
+            errors.append(f"{where}: meta.round must match reservation r{round_number:02d}")
+        if meta.get("generator") != "grok-4.6":
+            errors.append(f"{where}: meta.generator must be 'grok-4.6'")
+    return errors
+
+
+def validate_novel_coverage(notes: Path, factory_dir: Path):
+    """Require a usable Novel coverage percentage for fixed agentic lanes."""
+    if factory_dir.name not in AGENTIC_FACTORY_KINDS:
+        return None
+    match = NOVEL_COVERAGE_RE.search(notes.read_text())
+    if match is None:
+        return f"staged notes need a 'Novel coverage: <N>%' line: {notes}"
+    value = float(match.group(1))
+    if not 0 <= value <= 100:
+        return f"staged Novel coverage must be between 0% and 100%: {notes}"
+    return None
+
+
 def validate_stage(
     factory_dir: Path,
     stage: Path,
@@ -336,6 +423,9 @@ def validate_stage(
         raise TransactionError(f"required staged notes missing or unsafe: {notes}")
     if not notes.read_text().strip():
         raise TransactionError(f"staged notes are empty: {notes}")
+    coverage_error = validate_novel_coverage(notes, factory_dir)
+    if coverage_error:
+        raise TransactionError(coverage_error)
 
     errors, warnings, kinds, records = check_jsonl(
         batch,
@@ -349,6 +439,18 @@ def validate_stage(
     if records != expected:
         raise TransactionError(
             f"staged batch has {records} records; reservation requires exactly {expected}"
+        )
+    expected_kind = AGENTIC_FACTORY_KINDS.get(factory_dir.name)
+    if expected_kind and set(kinds) != {expected_kind}:
+        raise TransactionError(
+            f"{factory_dir.name} requires only {expected_kind!r} records; "
+            f"staged kinds are {sorted(kinds)!r}"
+        )
+    envelope_errors = validate_agentic_envelope(batch, factory_dir, round_number)
+    if envelope_errors:
+        raise TransactionError(
+            "staged batch violates the agentic factory envelope:\n"
+            + "\n".join(f"ERROR: {error}" for error in envelope_errors)
         )
 
     files = []
