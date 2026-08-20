@@ -43,6 +43,7 @@ from curate_agentic import (  # noqa: E402
     shared_preference_goal,
     strip_hidden_thought_keys,
 )
+import training_audit  # noqa: E402
 
 
 def _step(n, basis="Observation: prior tool returned 200", **extra):
@@ -521,7 +522,12 @@ class CurateAgenticTests(unittest.TestCase):
             self.assertTrue(cleaned.is_file())
             emitted = json.loads(cleaned.read_text().splitlines()[0])
             self.assertFalse(contains_hidden_thought_key(emitted))
-            self.assertTrue((dest / "CURATE-MANIFEST.jsonl").is_file())
+            manifest = dest / "CURATE-MANIFEST.json"
+            self.assertTrue(manifest.is_file())
+            self.assertIsInstance(json.loads(manifest.read_text()), list)
+            self.assertFalse((dest / "CURATE-MANIFEST.jsonl").exists())
+            audit = training_audit.audit_run(dest)
+            self.assertEqual(audit["record_invariants"]["errors"], 0)
             self.assertFalse(json.loads(first.stdout)["dry_run"])
 
             raw_dest = root / "outputs" / "raw" / "forbidden"

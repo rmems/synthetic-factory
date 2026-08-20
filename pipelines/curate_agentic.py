@@ -575,8 +575,25 @@ def _write_new_jsonl(path: Path, values: list[dict[str, Any]]) -> None:
         raise
 
 
+def _write_new_json(path: Path, value: Any) -> None:
+    """Write one metadata document without making it a record-scanner input."""
+    if _is_under_raw(path):
+        raise ValueError(f"refusing to write inside immutable raw evidence: {path}")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o644)
+    try:
+        with os.fdopen(descriptor, "w", encoding="utf-8", newline="\n") as handle:
+            json.dump(value, handle, ensure_ascii=False, indent=2, sort_keys=True)
+            handle.write("\n")
+            handle.flush()
+            os.fsync(handle.fileno())
+    except BaseException:
+        path.unlink(missing_ok=True)
+        raise
+
+
 def write_cleaned_tree(run: dict[str, Any], out: Path) -> None:
-    """Write retained JSONL plus a manifest under a new directory."""
+    """Write retained JSONL plus scanner-safe JSON metadata in a new directory."""
     out = Path(out)
     created: list[Path] = []
     try:
@@ -585,17 +602,14 @@ def write_cleaned_tree(run: dict[str, Any], out: Path) -> None:
             dest = out / relative
             _write_new_jsonl(dest, records)
             created.append(dest)
-        manifest_path = out / "CURATE-MANIFEST.jsonl"
-        _write_new_jsonl(manifest_path, run["decisions"])
+        # Metadata must not have a .jsonl suffix: every standard validator and
+        # training audit recursively treats that extension as record payload.
+        manifest_path = out / "CURATE-MANIFEST.json"
+        _write_new_json(manifest_path, run["decisions"])
         created.append(manifest_path)
         report_path = out / "CURATE-REPORT.json"
-        descriptor = os.open(report_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o644)
+        _write_new_json(report_path, run["summary"])
         created.append(report_path)
-        with os.fdopen(descriptor, "w", encoding="utf-8", newline="\n") as handle:
-            json.dump(run["summary"], handle, ensure_ascii=False, indent=2, sort_keys=True)
-            handle.write("\n")
-            handle.flush()
-            os.fsync(handle.fileno())
     except BaseException:
         for path in reversed(created):
             try:

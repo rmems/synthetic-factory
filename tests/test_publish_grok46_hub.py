@@ -179,6 +179,15 @@ class PublishGrok46HubTests(unittest.TestCase):
             self.assertTrue((meta / "NOTES-r01.md").is_file())
             self.assertIn("data/raw/episodes.jsonl", card)
 
+            with mock.patch.object(publisher, "FACTORY_ROOT", root / "raw"), mock.patch.object(
+                publisher, "HF_ROOT", root / "hf"
+            ), mock.patch.object(publisher, "factories", return_value=[ITEM]):
+                publisher.cmd_snapshot()
+                local = publisher.local_snapshot_stats(ITEM)
+
+            self.assertEqual(local["records"], 1)
+            self.assertIsNone(local["last"])
+
     def test_snapshot_refuses_untrusted_completion_manifests(self):
         with tempfile.TemporaryDirectory() as td:
             source = Path(td) / ITEM["slug"]

@@ -653,7 +653,9 @@ def cmd_snapshot(only: str | None = None) -> list[dict]:
         print(f"snapshot {item['hub']} batches={stats[-1]['batches']} records={stats[-1]['records']}", flush=True)
     selected = {stat["hub"]: stat for stat in stats}
     inventory_stats = [
-        selected.get(item["hub"], local_snapshot_stats(item))
+        selected[item["hub"]]
+        if item["hub"] in selected
+        else local_snapshot_stats(item)
         for item in items
     ]
     inv = HF_ROOT / "SYNTHETIC-DATA-FACTORY-GROK46.md"
@@ -685,6 +687,7 @@ def local_snapshot_stats(item: dict) -> dict:
             for path in raw.iterdir()
             if is_regular_source_file(path) and is_snapshot_payload(path)
         )
+    labels = [label for path in batches if (label := batch_label(path)) is not None]
     return {
         "hub": item["hub"],
         "slug": item["slug"],
@@ -692,7 +695,7 @@ def local_snapshot_stats(item: dict) -> dict:
         "batches": len(batches),
         "notes": 0,
         "bytes": sum(path.stat().st_size for path in batches),
-        "last": max((batch_label(path) for path in batches), default=(0, "", None))[2],
+        "last": max(labels, default=(0, "", None))[2],
     }
 
 

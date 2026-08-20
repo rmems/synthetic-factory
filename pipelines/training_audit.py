@@ -104,8 +104,8 @@ def preference_context_purity(obj, chosen, rejected):
 
     Thalamic pairs must hold state and proposal constant. Episode-sided pairs
     deliberately do not carry those objects, so their corresponding invariant
-    is one shared task goal: either the outer pair supplies it or both episode
-    sides supply the same non-empty goal.
+    is one shared task goal. An outer pair goal may supply the shared context,
+    but every side goal that is present must agree with it.
     """
     episode_pair = _episode_like(chosen) or _episode_like(rejected)
     if not episode_pair:
@@ -129,18 +129,27 @@ def preference_context_purity(obj, chosen, rejected):
             "same_goal": None,
         }
 
-    pair_goal = obj.get("goal")
-    if isinstance(pair_goal, str) and pair_goal.strip():
-        same_goal = True
+    raw_goals = (
+        obj.get("goal"),
+        chosen.get("goal") if isinstance(chosen, dict) else None,
+        rejected.get("goal") if isinstance(rejected, dict) else None,
+    )
+    normalized_goals = []
+    for value in raw_goals:
+        if value is None:
+            continue
+        if not isinstance(value, str) or not value.strip():
+            normalized_goals = []
+            break
+        normalized_goals.append(" ".join(value.split()))
+    outer_goal = raw_goals[0]
+    if isinstance(outer_goal, str) and outer_goal.strip():
+        # The pair supplies shared context; any explicit side goal must agree.
+        same_goal = bool(normalized_goals) and len(set(normalized_goals)) == 1
     else:
-        chosen_goal = chosen.get("goal") if isinstance(chosen, dict) else None
-        rejected_goal = rejected.get("goal") if isinstance(rejected, dict) else None
+        # Without an outer goal, both episode sides must state the same goal.
         same_goal = (
-            isinstance(chosen_goal, str)
-            and bool(chosen_goal.strip())
-            and isinstance(rejected_goal, str)
-            and bool(rejected_goal.strip())
-            and chosen_goal.strip() == rejected_goal.strip()
+            len(normalized_goals) == 2 and len(set(normalized_goals)) == 1
         )
     return {
         "episode_pair": True,

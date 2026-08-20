@@ -2,6 +2,7 @@
 """Regression checks for the Grok 4.6 weekly restart launcher."""
 
 import subprocess
+import re
 import unittest
 from pathlib import Path
 
@@ -9,6 +10,7 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parents[1]
 SCRIPT = REPO / "pipelines" / "restart_grok46_33.sh"
 PROMPT = REPO / "pipelines" / "restart_grok46_33.md"
+CONTRACT = REPO / "prompts" / "_agentic-factory-contract.md"
 
 
 class RestartGrok46Tests(unittest.TestCase):
@@ -28,14 +30,20 @@ class RestartGrok46Tests(unittest.TestCase):
 
     def test_prompt_honors_plateau_stops_and_uses_fresh_snapshots(self):
         text = PROMPT.read_text()
+        contract = CONTRACT.read_text()
 
         self.assertIn("token-efficiency outputs/raw/2026-08-19-agentic --json", text)
         self.assertIn('"postreset-$(date +%Y%m%d-%H%M%S)"', text)
         self.assertIn("whose `early_stop` is `true`", text)
         self.assertIn("at most **r26**", text)
         self.assertIn("Stop after a successful r26", text)
+        self.assertIn("read `prompts/_agentic-factory-contract.md`", text)
         self.assertIn("at most 33", text)
         self.assertNotIn("snapshot outputs/raw/2026-08-19-agentic postreset", text)
+        slugs = re.findall(r"^\d+\. ([a-z0-9-]+) Q=", text, flags=re.MULTILINE)
+        self.assertEqual(len(slugs), 33)
+        for slug in slugs:
+            self.assertIn(f"| {slug} |", contract, slug)
 
 
 if __name__ == "__main__":

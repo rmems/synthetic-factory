@@ -212,6 +212,22 @@ class TrainingAudit(unittest.TestCase):
         self.assertEqual(report["preferences"]["same_goal"], 0)
         self.assertTrue(any("shared-goal" in item for item in report["blockers"]))
 
+    def test_episode_preference_does_not_let_wrapper_goal_mask_side_conflict(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            conflicting = episode_preference(
+                "episode-pref-wrapper-conflict",
+                pair_goal="repair the cache",
+                chosen_goal="repair the cache",
+                rejected_goal="rotate credentials",
+            )
+            write(root / "tool-use-preference-factory" / "batch-r01.jsonl", [conflicting])
+
+            report = training_audit.audit_run(root)
+
+        self.assertFalse(report["training_ready"])
+        self.assertEqual(report["preferences"]["same_goal"], 0)
+
     def test_exact_duplicate_and_global_id_duplicate_are_distinct_metrics(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
