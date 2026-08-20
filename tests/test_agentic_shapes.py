@@ -55,6 +55,24 @@ def episode_preference():
     }
 
 
+def thalamic_wrapped_episode_preference(factory):
+    record = episode_preference()
+    record["meta"]["factory"] = factory
+    for side_name in ("chosen", "rejected"):
+        record[side_name].update(
+            {
+                "state": {"sim_or_real": "designed"},
+                "proposed_action": {"action": "noop"},
+                "safety_decision": {"decision": "ACCEPT", "rationale": "fixture"},
+                "executed_action": {"action": "noop"},
+                "future_outcome": {"ok": True},
+                "reward_components": {"total": 0.0},
+                "meta": {"round": 1},
+            }
+        )
+    return record
+
+
 def multi_agent():
     return {
         "id": "mac-r01-review",
@@ -254,6 +272,32 @@ class AgenticShapes(unittest.TestCase):
             manifest = round_txn.publish(factory, 1, reservation["token"])
             self.assertEqual(manifest["records"], 3)
             self.assertEqual(manifest["kinds"].get("preference"), 3)
+
+    def test_agentic_preference_rejects_thalamic_wrapped_sides(self):
+        for factory_slug in (
+            "tool-use-preference-factory",
+            "code-review-preference-factory",
+        ):
+            with self.subTest(factory_slug=factory_slug), tempfile.TemporaryDirectory() as td:
+                factory = Path(td) / "outputs" / "raw" / "2099-01-01" / factory_slug
+                factory.mkdir(parents=True)
+                reservation = round_txn.reserve(factory, 1, 3)
+                stage = Path(reservation["staging_dir"])
+                records = []
+                for index in range(3):
+                    record = thalamic_wrapped_episode_preference(factory_slug)
+                    record["id"] = f"wrapped-pref-{index}"
+                    records.append(record)
+                (stage / reservation["batch_file"]).write_text(
+                    "".join(json.dumps(record) + "\n" for record in records)
+                )
+                (stage / reservation["notes_file"]).write_text("Novel coverage: 80%\n")
+
+                with self.assertRaisesRegex(
+                    round_txn.TransactionError,
+                    "must not wrap a Thalamic trajectory",
+                ):
+                    round_txn.publish(factory, 1, reservation["token"])
 
     def test_thought_key_rejected_on_agentic_steps(self):
         rec = episode("lhc-r01-tz")

@@ -32,6 +32,7 @@ if str(_PIPELINES) not in sys.path:
     sys.path.insert(0, str(_PIPELINES))
 
 from check_records import check_jsonl  # noqa: E402
+from validate_run import THALAMIC_CORE_KEYS  # noqa: E402
 
 
 MODE_FILE = ".round-marker-mode.json"
@@ -483,6 +484,10 @@ def validate_agentic_envelope(batch: Path, factory_dir: Path, round_number: int)
                 if not isinstance(side, dict) or not isinstance(side.get("steps"), list):
                     errors.append(
                         f"{where}: {side_name} must be an episode side with steps"
+                    )
+                elif all(key in side for key in THALAMIC_CORE_KEYS):
+                    errors.append(
+                        f"{where}: {side_name} must not wrap a Thalamic trajectory"
                     )
         meta = record.get("meta") if isinstance(record, dict) else None
         if not isinstance(meta, dict):
