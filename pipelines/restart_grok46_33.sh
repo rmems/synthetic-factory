@@ -50,6 +50,17 @@ write_launch_window() {
   mv -f -- "$temporary" "$WINDOW_FILE"
 }
 
+resolve_grok() {
+  local resolved
+  if [[ "$GROK" == */* ]]; then
+    [[ -f "$GROK" && -x "$GROK" ]] || return 1
+    return 0
+  fi
+  resolved=$(command -v "$GROK") || return 1
+  [[ -f "$resolved" && -x "$resolved" ]] || return 1
+  GROK="$resolved"
+}
+
 export TZ=America/Chicago
 dow=$(date +%u)
 hour=$(date +%H)
@@ -68,6 +79,11 @@ if ! flock -n 9; then
   exit 0
 fi
 echo $$ >&9
+
+if ! resolve_grok; then
+  echo "$(date -Is) error: missing or non-executable Grok command: $GROK" >>"$LOG"
+  exit 1
+fi
 
 # A worker may complete before a later scheduler invocation in the same reset
 # window. Keep that completed launch distinct from the transient PID/session

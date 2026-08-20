@@ -43,6 +43,7 @@ from curate_agentic import (  # noqa: E402
     shared_preference_goal,
     strip_hidden_thought_keys,
 )
+from round_txn import TransactionError  # noqa: E402
 import training_audit  # noqa: E402
 
 
@@ -468,6 +469,23 @@ class CurateAgenticTests(unittest.TestCase):
         self.assertEqual(run["summary"]["files"], 1)
         self.assertEqual(run["summary"]["input_records"], 1)
         self.assertEqual(set(run["records_by_rel"]), {"batch-r01.jsonl"})
+
+    def test_marker_mode_rejects_unsafe_entries(self):
+        for kind in ("directory", "dangling_symlink"):
+            with self.subTest(kind=kind), tempfile.TemporaryDirectory() as temporary:
+                factory = Path(temporary) / "agentic-factory"
+                factory.mkdir()
+                (factory / "batch-r01.jsonl").write_text(
+                    json.dumps(episode_fixture("uncommitted")) + "\n"
+                )
+                mode = factory / ".round-marker-mode.json"
+                if kind == "directory":
+                    mode.mkdir()
+                else:
+                    mode.symlink_to(factory / "missing-marker-mode.json")
+
+                with self.assertRaisesRegex(TransactionError, "unsafe marker mode file"):
+                    curate_source(factory)
 
     def test_cli_dry_run_does_not_write(self):
         with tempfile.TemporaryDirectory() as temporary:

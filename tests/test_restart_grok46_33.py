@@ -23,6 +23,12 @@ class RestartGrok46Tests(unittest.TestCase):
         self.assertIn('write_worker_state "$worker_pid"', text)
         self.assertIn('WINDOW_FILE="$STATE_DIR/last-launch-window"', text)
         self.assertIn("write_launch_window()", text)
+        self.assertIn("resolve_grok()", text)
+        self.assertIn("missing or non-executable Grok command", text)
+        self.assertLess(
+            text.index("missing or non-executable Grok command"),
+            text.index("weekly launch already consumed"),
+        )
         self.assertIn('write_launch_window "$launch_window"', text)
         self.assertIn("weekly launch already consumed", text)
         self.assertIn('exec nohup flock "$LOCK"', text)

@@ -81,6 +81,24 @@ class FactoryTokenEfficiency(unittest.TestCase):
             self.assertTrue(info["early_stop"])
             self.assertEqual(info["early_stop_at_round"], 2)
 
+    def test_lettered_notes_do_not_double_count_one_round(self):
+        with tempfile.TemporaryDirectory() as td:
+            factory = Path(td) / "marker-factory"
+            factory.mkdir()
+            (factory / ".round-marker-mode.json").write_text(
+                '{"version":1,"legacy_baseline":2}\n'
+            )
+            self._write_notes(factory, [(1, 12.0), (2, 4.0)])
+            (factory / "NOTES-r02b.md").write_text("Novel coverage: 3%\n")
+
+            info = factory_driver.factory_token_efficiency(factory)
+
+        self.assertFalse(info["early_stop"])
+        self.assertEqual(
+            [(item["round"], item["file"]) for item in info["rounds"]],
+            [(1, "NOTES-r01.md"), (2, "NOTES-r02.md")],
+        )
+
 
 class FactoryDriverBytes(unittest.TestCase):
     def test_count_records_tolerates_invalid_utf8(self):

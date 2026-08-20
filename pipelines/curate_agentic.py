@@ -26,7 +26,7 @@ from collections import Counter
 from pathlib import Path
 from typing import Any
 
-from round_txn import MODE_FILE, committed_jsonl_paths
+from round_txn import committed_jsonl_paths, marker_mode_path
 
 
 TRANSFORM_NAME = "agentic_observability"
@@ -407,7 +407,7 @@ def _source_jsonl_files(source: Path) -> tuple[Path, ...]:
 
     def visible(path: Path) -> bool:
         factory = path.parent
-        if not (factory / MODE_FILE).exists():
+        if marker_mode_path(factory) is None:
             return True
         if factory not in visible_by_factory:
             visible_by_factory[factory] = {

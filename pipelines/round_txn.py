@@ -168,6 +168,16 @@ def read_json(path: Path):
     return value
 
 
+def marker_mode_path(factory_dir: Path) -> Path | None:
+    """Return a safe marker-mode file, or ``None`` when marker mode is absent."""
+    mode_path = factory_dir / MODE_FILE
+    if not mode_path.exists() and not mode_path.is_symlink():
+        return None
+    if not mode_path.is_file() or mode_path.is_symlink():
+        raise TransactionError(f"unsafe marker mode file: {mode_path}")
+    return mode_path
+
+
 def file_sha256(path: Path):
     digest = hashlib.sha256()
     with path.open("rb") as handle:
@@ -229,8 +239,8 @@ def frontier_status(factory_dir: Path):
     factory_dir = Path(factory_dir).resolve()
     if not factory_dir.is_dir():
         raise TransactionError(f"not a factory directory: {factory_dir}")
-    mode_path = factory_dir / MODE_FILE
-    if not mode_path.exists():
+    mode_path = marker_mode_path(factory_dir)
+    if mode_path is None:
         baseline = discover_legacy_frontier(factory_dir)
         return {
             "factory": factory_dir.name,
@@ -264,8 +274,9 @@ def frontier_status(factory_dir: Path):
 
 def ensure_marker_mode(factory_dir: Path):
     mode_path = factory_dir / MODE_FILE
-    if mode_path.exists():
-        return read_json(mode_path)
+    existing = marker_mode_path(factory_dir)
+    if existing is not None:
+        return read_json(existing)
     payload = {
         "version": 1,
         "created_at": utc_now(),
@@ -276,7 +287,10 @@ def ensure_marker_mode(factory_dir: Path):
         write_exclusive_json(mode_path, payload)
         return payload
     except FileExistsError:
-        return read_json(mode_path)
+        existing = marker_mode_path(factory_dir)
+        if existing is None:
+            raise TransactionError(f"marker mode disappeared while creating it: {mode_path}")
+        return read_json(existing)
 
 
 def staging_dir(factory_dir: Path, round_number: int, token: str):
@@ -358,9 +372,9 @@ def committed_jsonl_paths(factory_dir: Path):
     that declared baseline or has its own completion marker. This deliberately
     excludes files linked by an interrupted publish before its commit marker.
     """
-    mode_path = factory_dir / MODE_FILE
     files = sorted(factory_dir.glob("*.jsonl"))
-    if not mode_path.exists():
+    mode_path = marker_mode_path(factory_dir)
+    if mode_path is None:
         return files
 
     mode = read_json(mode_path)

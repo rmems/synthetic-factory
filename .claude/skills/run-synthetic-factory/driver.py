@@ -34,7 +34,7 @@ PIPELINES = REPO / "pipelines"
 if str(PIPELINES) not in sys.path:
     sys.path.insert(0, str(PIPELINES))
 
-from round_txn import MODE_FILE, frontier_status, publish, reserve  # noqa: E402
+from round_txn import frontier_status, marker_mode_path, publish, reserve  # noqa: E402
 
 VALIDATOR = PIPELINES / "validate_run.py"
 CHECKER = PIPELINES / "check_records.py"
@@ -61,6 +61,7 @@ NOVEL_COVERAGE_RE = re.compile(
     r"^\s*novel[ _-]?coverage\s*(?:\([^)\n]*\))?\s*[:=]?\s*(\d+(?:\.\d+)?)\s*%",
     re.IGNORECASE | re.MULTILINE,
 )
+NOTES_ROUND_RE = re.compile(r"^NOTES-r(\d+)([a-z]*)\.md$")
 
 
 def run_tool(script, run_dir, *options):
@@ -193,30 +194,43 @@ def factory_token_efficiency(factory_dir: Path):
     factory_dir = Path(factory_dir)
     notes = sorted(factory_dir.glob("NOTES-r*.md"))
 
-    # Sort by round number numeric
-    def round_key(p):
-        m = re.search(r"r(\d+)", p.name)
-        return int(m.group(1)) if m else 0
+    def note_parts(path):
+        match = NOTES_ROUND_RE.fullmatch(path.name)
+        if match is None:
+            return None
+        return int(match.group(1)), match.group(2)
 
-    mode_path = factory_dir / MODE_FILE
-    if mode_path.exists():
+    mode_path = marker_mode_path(factory_dir)
+    if mode_path is not None:
         status = frontier_status(factory_dir)
         baseline = status["baseline"]
         complete = set(status["completed_markers"])
         notes = [
             path
             for path in notes
-            if (round_number := round_key(path)) <= baseline or round_number in complete
+            if (parts := note_parts(path)) is not None
+            and (parts[0] <= baseline or parts[0] in complete)
         ]
 
-    notes.sort(key=round_key)
+    # Lettered notes are legacy artifacts for the same numeric round. The
+    # canonical unsuffixed note wins; otherwise keep one deterministic suffix
+    # so the same round cannot count twice toward a plateau.
+    notes_by_round = {}
+    for path in notes:
+        parts = note_parts(path)
+        if parts is None:
+            continue
+        round_number, suffix = parts
+        previous = notes_by_round.get(round_number)
+        if previous is None or (not suffix and note_parts(previous)[1]):
+            notes_by_round[round_number] = path
+    notes = [notes_by_round[round_number] for round_number in sorted(notes_by_round)]
     rounds = []
     consecutive = 0
     early_stop_at = None
     for p in notes:
         pct = notes_novel_coverage(p)
-        m = re.search(r"r(\d+)", p.name)
-        rn = int(m.group(1)) if m else None
+        rn = note_parts(p)[0]
         is_low = pct is not None and pct < TOKEN_EFFICIENCY_THRESHOLD_PCT
         if is_low:
             consecutive += 1
