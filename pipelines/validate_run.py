@@ -412,11 +412,31 @@ def check_thalamic(obj, where):
     return errs
 
 
-def check_episode(obj, where):
+SAFETY_CASE_TYPES = frozenset(
+    {"correct_refusal", "incorrect_refusal", "missed_refusal"}
+)
+
+
+def _episode_like(obj):
+    """True when an object is a coding/agent episode rather than Thalamic."""
+    return (
+        isinstance(obj, dict)
+        and "steps" in obj
+        and not all(key in obj for key in THALAMIC_CORE_KEYS)
+    )
+
+
+def check_episode(obj, where, require_goal=True):
     errs = []
-    for key in ("goal", "steps", "outcome", "reward"):
+    required = ("steps", "outcome", "reward")
+    if require_goal:
+        required = ("goal",) + required
+    for key in required:
         if key not in obj:
             errs.append(f"{where}: episode missing '{key}'")
+    reward = obj.get("reward")
+    if isinstance(reward, dict) and "success" not in reward:
+        errs.append(f"{where}: reward missing 'success'")
     steps = obj.get("steps")
     if not isinstance(steps, list) or not steps:
         errs.append(f"{where}: steps must be a non-empty array")
@@ -435,6 +455,55 @@ def check_episode(obj, where):
     return errs
 
 
+def check_multi_agent(obj, where):
+    errs = []
+    for key in ("goal", "agents", "transcript", "joint_outcome", "reward"):
+        if key not in obj:
+            errs.append(f"{where}: multi_agent missing '{key}'")
+    agents = obj.get("agents")
+    if not isinstance(agents, list) or len(agents) < 2:
+        errs.append(f"{where}: agents must be an array of at least 2 roles")
+    else:
+        for i, agent in enumerate(agents):
+            if not isinstance(agent, dict) or not str(agent.get("role", "")).strip():
+                errs.append(f"{where}: agents[{i}] needs a non-empty role")
+    transcript = obj.get("transcript")
+    if not isinstance(transcript, list) or not transcript:
+        errs.append(f"{where}: transcript must be a non-empty array")
+    else:
+        for i, turn in enumerate(transcript):
+            if not isinstance(turn, dict):
+                errs.append(f"{where}: transcript[{i}] must be an object")
+                continue
+            if not str(turn.get("speaker", "")).strip():
+                errs.append(f"{where}: transcript[{i}] missing speaker")
+    reward = obj.get("reward")
+    if isinstance(reward, dict) and "success" not in reward:
+        errs.append(f"{where}: reward missing 'success'")
+    return errs
+
+
+def check_safety_case(obj, where):
+    errs = []
+    for key in ("goal", "case_type", "rationale", "outcome", "reward"):
+        if key not in obj:
+            errs.append(f"{where}: safety_case missing '{key}'")
+    case_type = obj.get("case_type")
+    if case_type not in SAFETY_CASE_TYPES:
+        errs.append(
+            f"{where}: case_type must be one of {sorted(SAFETY_CASE_TYPES)} "
+            f"(got {case_type!r})"
+        )
+    if not isinstance(obj.get("rationale"), str) or not obj.get("rationale", "").strip():
+        errs.append(f"{where}: rationale must be a non-empty string")
+    if "steps" in obj:
+        errs += check_episode(obj, where, require_goal=False)
+    reward = obj.get("reward")
+    if isinstance(reward, dict) and "success" not in reward:
+        errs.append(f"{where}: reward missing 'success'")
+    return errs
+
+
 def check_line(obj, where):
     """Route an object to the right checker based on its shape."""
     if not isinstance(obj, dict):
@@ -449,14 +518,28 @@ def check_line(obj, where):
         return check_thalamic(obj, where), "thalamic"
     if "chosen" in obj and "rejected" in obj:
         errs = []
-        if not isinstance(obj.get("chosen"), dict):
+        chosen = obj.get("chosen")
+        rejected = obj.get("rejected")
+        episode_pref = _episode_like(chosen) or _episode_like(rejected)
+        if not isinstance(chosen, dict):
             errs.append(f"{where}.chosen must be an object")
+        elif episode_pref:
+            errs += check_episode(
+                chosen, f"{where}.chosen", require_goal="goal" not in obj
+            )
         else:
-            errs += check_thalamic(obj["chosen"], f"{where}.chosen")
-        if not isinstance(obj.get("rejected"), dict):
+            errs += check_thalamic(chosen, f"{where}.chosen")
+        if not isinstance(rejected, dict):
             errs.append(f"{where}.rejected must be an object")
+        elif episode_pref:
+            errs += check_episode(
+                rejected, f"{where}.rejected", require_goal="goal" not in obj
+            )
         else:
-            errs += check_thalamic(obj["rejected"], f"{where}.rejected")
+            errs += check_thalamic(rejected, f"{where}.rejected")
+        if episode_pref and "goal" not in obj:
+            if not (isinstance(chosen, dict) and "goal" in chosen):
+                errs.append(f"{where}: preference episode needs a shared or chosen goal")
         if not isinstance(obj.get("critique"), str) or not obj["critique"].strip():
             errs.append(f"{where}: preference record needs a non-empty critique")
         return errs, "preference"
@@ -477,6 +560,12 @@ def check_line(obj, where):
             else:
                 errs.append(f"{where}: language_view.trajectory missing or not an object")
         return errs, "bridge_pair"
+    if obj.get("case_type") in SAFETY_CASE_TYPES or (
+        "case_type" in obj and "rationale" in obj
+    ):
+        return check_safety_case(obj, where), "safety_case"
+    if "transcript" in obj and "agents" in obj:
+        return check_multi_agent(obj, where), "multi_agent"
     if "goal" in obj and "steps" in obj:
         return check_episode(obj, where), "episode"
     return [f"{where}: unrecognized record shape (keys: {sorted(obj)[:8]})"], "unknown"

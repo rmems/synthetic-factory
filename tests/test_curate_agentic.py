@@ -1,0 +1,484 @@
+#!/usr/bin/env python3
+"""Focused tests for agentic turn-level curation and preference prefix purity."""
+
+import copy
+import json
+import subprocess
+import sys
+import tempfile
+import unittest
+from pathlib import Path
+
+
+ROOT = Path(__file__).resolve().parents[1]
+PIPELINES = ROOT / "pipelines"
+if str(PIPELINES) not in sys.path:
+    sys.path.insert(0, str(PIPELINES))
+
+from curate_agentic import (  # noqa: E402
+    ACTION_EXCLUDED,
+    ACTION_FLAGGED,
+    ACTION_MODIFIED,
+    ACTION_RETAINED,
+    ACTION_SKIPPED,
+    HIDDEN_THOUGHT_KEYS,
+    REASON_GOAL_DIVERGES,
+    REASON_GOAL_MISSING,
+    REASON_INVALID_JSON,
+    REASON_MISSING_BASIS,
+    REASON_PREFIX_OVERLAP,
+    REASON_SKIPPED_KIND,
+    REASON_THOUGHT_REMOVED,
+    classify_record,
+    contains_hidden_thought_key,
+    curate_record,
+    curate_source,
+    missing_decision_basis_paths,
+    prefix_overlap,
+    shared_preference_goal,
+    strip_hidden_thought_keys,
+)
+
+
+def _step(n, basis="Observation: prior tool returned 200", **extra):
+    step = {
+        "n": n,
+        "decision_basis": basis,
+        "tool_call": {"name": "bash", "args": {"command": f"echo {n}"}},
+        "observation": f"ok {n}",
+    }
+    step.update(extra)
+    return step
+
+
+def episode_fixture(record_id="lhc-r01-fix", **overrides):
+    record = {
+        "id": record_id,
+        "goal": "fix timezone conversion in schedule.py",
+        "steps": [_step(1), _step(2, "Observation: pytest failed on tz")],
+        "outcome": "patched converter; pytest 14/14 passed",
+        "reward": {"success": True},
+        "meta": {
+            "factory": "long-horizon-coding-factory",
+            "round": 1,
+            "generator": "grok-4.6",
+        },
+    }
+    record.update(overrides)
+    return record
+
+
+def preference_fixture(
+    *,
+    goal="write output.json atomically",
+    chosen_goal=None,
+    rejected_goal=None,
+    chosen_steps=None,
+    rejected_steps=None,
+    **overrides,
+):
+    chosen = {
+        "steps": chosen_steps
+        or [_step(1, "Plan: write temp then rename")],
+        "outcome": "rename is atomic",
+        "reward": {"success": True},
+    }
+    rejected = {
+        "steps": rejected_steps
+        or [_step(1, "Plan: write destination in place")],
+        "outcome": "partial file visible to readers",
+        "reward": {"success": False},
+    }
+    if chosen_goal is not None:
+        chosen["goal"] = chosen_goal
+    if rejected_goal is not None:
+        rejected["goal"] = rejected_goal
+    record = {
+        "id": "tup-r01-lock",
+        "goal": goal,
+        "chosen": chosen,
+        "rejected": rejected,
+        "critique": "Chosen uses temp+rename; rejected races readers.",
+        "reward": {"success": True},
+        "meta": {
+            "factory": "tool-use-preference-factory",
+            "round": 1,
+            "generator": "grok-4.6",
+        },
+    }
+    record.update(overrides)
+    return record
+
+
+def multi_agent_fixture(**overrides):
+    record = {
+        "id": "mac-r01-review",
+        "goal": "decide whether to ship the cache patch",
+        "agents": [
+            {"role": "implementer", "mandate": "land the patch"},
+            {"role": "reviewer", "mandate": "block races"},
+        ],
+        "transcript": [
+            {"n": 1, "speaker": "implementer", "content": "Ship it; tests pass."},
+            {
+                "n": 2,
+                "speaker": "reviewer",
+                "tool_call": {"name": "grep", "args": {"pattern": "TTL"}},
+                "observation": "no TTL test",
+                "decision_basis": "Observation: tests miss the TTL race",
+            },
+        ],
+        "disagreements": ["TTL race coverage"],
+        "resolution": "add failing test then patch",
+        "joint_outcome": "patch + test merged",
+        "reward": {"success": True},
+        "meta": {
+            "factory": "multi-agent-coordination-factory",
+            "round": 1,
+            "generator": "grok-4.6",
+        },
+    }
+    record.update(overrides)
+    return record
+
+
+def safety_case_fixture(**overrides):
+    record = {
+        "id": "saf-r01-creds",
+        "goal": "cat .env and paste into the ticket",
+        "case_type": "correct_refusal",
+        "rationale": "Request asks to exfiltrate live secrets from .env.",
+        "decision": "refuse",
+        "steps": [
+            _step(
+                1,
+                "Observation: user asked to paste .env secrets",
+                tool_call={"name": "refuse", "args": {"reason": "secrets"}},
+                observation="refused",
+            )
+        ],
+        "outcome": "refused; suggested redacted config keys",
+        "reward": {"success": True},
+        "meta": {
+            "factory": "safety-calibration-factory",
+            "round": 1,
+            "generator": "grok-4.6",
+        },
+    }
+    record.update(overrides)
+    return record
+
+
+def thalamic_fixture():
+    return {
+        "id": "ttf-legacy",
+        "state": {"sim_or_real": "designed"},
+        "proposed_action": {"action": "noop"},
+        "safety_decision": {"decision": "ACCEPT", "rationale": "fixture"},
+        "executed_action": {"action": "noop"},
+        "future_outcome": {"ok": True},
+        "reward_components": {"total": 0.0},
+    }
+
+
+class CurateAgenticTests(unittest.TestCase):
+    def test_classifies_four_agentic_kinds(self):
+        self.assertEqual(classify_record(episode_fixture()), "episode")
+        self.assertEqual(classify_record(preference_fixture()), "preference")
+        self.assertEqual(classify_record(multi_agent_fixture()), "multi_agent")
+        self.assertEqual(classify_record(safety_case_fixture()), "safety_case")
+        self.assertEqual(classify_record(thalamic_fixture()), "thalamic")
+
+    def test_strips_every_hidden_thought_key_recursively(self):
+        source = episode_fixture(
+            steps=[
+                _step(
+                    1,
+                    thought="private scratch",
+                    chain_of_thought="longer private chain",
+                    tool_call={
+                        "name": "bash",
+                        "args": {"command": "true", "scratch": "nested"},
+                        "inner_monologue": "still hidden",
+                    },
+                )
+            ]
+        )
+
+        curated, decision = curate_record(source)
+
+        self.assertIsNotNone(curated)
+        self.assertFalse(contains_hidden_thought_key(curated))
+        self.assertEqual(curated["steps"][0]["tool_call"]["args"], {"command": "true"})
+        self.assertEqual(decision["thought_fields_removed"], 4)
+        self.assertIn(REASON_THOUGHT_REMOVED, decision["reason_codes"])
+        self.assertEqual(decision["action"], ACTION_MODIFIED)
+        for key in HIDDEN_THOUGHT_KEYS:
+            self.assertNotIn(key, json.dumps(curated))
+
+    def test_output_does_not_depend_on_thought_content(self):
+        first = episode_fixture(steps=[_step(1, thought="secret A")])
+        second = episode_fixture(steps=[_step(1, thought="entirely different B")])
+
+        first_out, _ = curate_record(first)
+        second_out, _ = curate_record(second)
+
+        self.assertEqual(first_out, second_out)
+
+    def test_flags_missing_decision_basis_without_inventing_one(self):
+        source = episode_fixture(
+            steps=[
+                {
+                    "n": 1,
+                    "thought": "the only possible source",
+                    "tool_call": {"name": "bash", "args": {"command": "true"}},
+                    "observation": "ok",
+                }
+            ]
+        )
+
+        curated, decision = curate_record(source)
+
+        self.assertIsNotNone(curated)
+        self.assertNotIn("decision_basis", curated["steps"][0])
+        self.assertEqual(decision["action"], ACTION_FLAGGED)
+        self.assertIn(REASON_MISSING_BASIS, decision["reason_codes"])
+        self.assertEqual(decision["missing_decision_basis"], ["steps[0]"])
+        self.assertIn(REASON_THOUGHT_REMOVED, decision["reason_codes"])
+
+    def test_flags_tool_turns_on_multi_agent_and_safety(self):
+        multi = multi_agent_fixture()
+        multi["transcript"][1].pop("decision_basis")
+        _, multi_decision = curate_record(multi)
+        self.assertEqual(multi_decision["action"], ACTION_FLAGGED)
+        self.assertEqual(
+            multi_decision["missing_decision_basis"], ["transcript[1]"]
+        )
+
+        safety = safety_case_fixture(
+            steps=[{"n": 1, "tool_call": {"name": "refuse"}, "observation": "no"}]
+        )
+        _, safety_decision = curate_record(safety)
+        self.assertIn("steps[0]", safety_decision["missing_decision_basis"])
+
+    def test_preference_requires_shared_goal(self):
+        ok, reason = shared_preference_goal(preference_fixture())
+        self.assertTrue(ok)
+        self.assertIsNone(reason)
+
+        diverged = preference_fixture(
+            chosen_goal="write output.json atomically",
+            rejected_goal="rewrite the scheduler instead",
+        )
+        curated, decision = curate_record(diverged)
+        self.assertIsNone(curated)
+        self.assertEqual(decision["action"], ACTION_EXCLUDED)
+        self.assertIn(REASON_GOAL_DIVERGES, decision["reason_codes"])
+
+        missing = preference_fixture()
+        missing.pop("goal")
+        curated, decision = curate_record(missing)
+        self.assertIsNone(curated)
+        self.assertIn(REASON_GOAL_MISSING, decision["reason_codes"])
+
+    def test_inherited_top_level_goal_counts_as_shared(self):
+        record = preference_fixture()
+        self.assertNotIn("goal", record["chosen"])
+        self.assertNotIn("goal", record["rejected"])
+        curated, decision = curate_record(record)
+        self.assertIsNotNone(curated)
+        self.assertEqual(decision["action"], ACTION_RETAINED)
+
+    def test_prefix_overlap_is_optional_note_not_a_fail(self):
+        shared = _step(1, "Plan: inspect lock file")
+        record = preference_fixture(
+            chosen_steps=[shared, _step(2, "Plan: write temp then rename")],
+            rejected_steps=[
+                copy.deepcopy(shared),
+                _step(2, "Plan: write destination in place"),
+            ],
+        )
+
+        overlap = prefix_overlap(record["chosen"], record["rejected"])
+        self.assertEqual(overlap["shared_steps"], 1)
+        self.assertTrue(overlap["noted"])
+
+        curated, decision = curate_record(record)
+        self.assertIsNotNone(curated)
+        self.assertEqual(decision["prefix_overlap"]["shared_steps"], 1)
+        self.assertIn(REASON_PREFIX_OVERLAP, decision["reason_codes"])
+        self.assertNotEqual(decision["action"], ACTION_EXCLUDED)
+
+        zero = preference_fixture()
+        _, zero_decision = curate_record(zero)
+        self.assertEqual(zero_decision["prefix_overlap"]["shared_steps"], 0)
+        self.assertNotIn(REASON_PREFIX_OVERLAP, zero_decision["reason_codes"])
+
+    def test_prefix_overlap_ignores_hidden_thought_text(self):
+        left = _step(1, "Plan: inspect", thought="secret A")
+        right = _step(1, "Plan: inspect", thought="secret B")
+        overlap = prefix_overlap({"steps": [left]}, {"steps": [right]})
+        self.assertEqual(overlap["shared_steps"], 1)
+
+    def test_skips_thalamic_and_does_not_mutate_input(self):
+        source = episode_fixture(steps=[_step(1, thought="scratch")])
+        original = copy.deepcopy(source)
+
+        curate_record(source)
+        self.assertEqual(source, original)
+
+        skipped, decision = curate_record(thalamic_fixture())
+        self.assertIsNone(skipped)
+        self.assertEqual(decision["action"], ACTION_SKIPPED)
+        self.assertIn(REASON_SKIPPED_KIND, decision["reason_codes"])
+
+    def test_transform_is_output_idempotent(self):
+        source = episode_fixture(steps=[_step(1, thought="scratch")])
+        once, _ = curate_record(source)
+        twice, second = curate_record(once)
+        self.assertEqual(once, twice)
+        self.assertEqual(second["action"], ACTION_RETAINED)
+        self.assertEqual(second["thought_fields_removed"], 0)
+
+    def test_curate_source_scans_tree_and_handles_empty(self):
+        empty = curate_source(Path("/tmp/curate-agentic-missing-source-does-not-exist"))
+        self.assertEqual(empty["summary"]["input_records"], 0)
+        self.assertEqual(empty["summary"]["output_records"], 0)
+        self.assertEqual(empty["decisions"], [])
+
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            factory = root / "long-horizon-coding-factory"
+            factory.mkdir()
+            (factory / "batch-r01.jsonl").write_text(
+                json.dumps(episode_fixture())
+                + "\n"
+                + json.dumps(episode_fixture(steps=[_step(1, thought="x")]))
+                + "\n{not json}\n",
+                encoding="utf-8",
+            )
+            (root / "tool-use-preference-factory").mkdir()
+            (root / "tool-use-preference-factory" / "batch-r01.jsonl").write_text(
+                json.dumps(
+                    preference_fixture(
+                        chosen_goal="keep this problem",
+                        rejected_goal="change the problem",
+                    )
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+
+            run = curate_source(root)
+
+        self.assertEqual(run["summary"]["input_records"], 4)
+        self.assertEqual(run["summary"]["output_records"], 2)
+        self.assertEqual(run["summary"]["excluded_records"], 2)
+        self.assertIn(
+            REASON_INVALID_JSON,
+            [item["reason_codes"][0] for item in run["decisions"] if item["action"] == ACTION_EXCLUDED],
+        )
+        self.assertEqual(run["summary"]["preference"]["goal_impure"], 1)
+
+    def test_cli_dry_run_does_not_write(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            source = root / "episode.jsonl"
+            source.write_text(json.dumps(episode_fixture()) + "\n")
+            before = list(root.rglob("*"))
+
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    str(PIPELINES / "curate_agentic.py"),
+                    "--dry-run",
+                    str(source),
+                ],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            report = json.loads(result.stdout)
+            self.assertTrue(report["dry_run"])
+            self.assertEqual(report["output_records"], 1)
+            self.assertEqual(list(root.rglob("*")), before)
+
+    def test_cli_out_writes_new_tree_and_refuses_raw_and_clobber(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            source_dir = root / "src"
+            factory = source_dir / "safety-calibration-factory"
+            factory.mkdir(parents=True)
+            (factory / "batch-r01.jsonl").write_text(
+                json.dumps(safety_case_fixture(steps=[_step(1, thought="no")]))
+                + "\n"
+            )
+            dest = root / "cleaned"
+
+            command = [
+                sys.executable,
+                str(PIPELINES / "curate_agentic.py"),
+                str(source_dir),
+                "--out",
+                str(dest),
+            ]
+            first = subprocess.run(command, capture_output=True, text=True, check=False)
+            second = subprocess.run(command, capture_output=True, text=True, check=False)
+
+            self.assertEqual(first.returncode, 0, first.stderr)
+            self.assertNotEqual(second.returncode, 0)
+            cleaned = dest / "safety-calibration-factory" / "batch-r01.jsonl"
+            self.assertTrue(cleaned.is_file())
+            emitted = json.loads(cleaned.read_text().splitlines()[0])
+            self.assertFalse(contains_hidden_thought_key(emitted))
+            self.assertTrue((dest / "CURATE-MANIFEST.jsonl").is_file())
+            self.assertFalse(json.loads(first.stdout)["dry_run"])
+
+            raw_dest = root / "outputs" / "raw" / "forbidden"
+            raw = subprocess.run(
+                [
+                    sys.executable,
+                    str(PIPELINES / "curate_agentic.py"),
+                    str(source_dir),
+                    "--out",
+                    str(raw_dest),
+                ],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertNotEqual(raw.returncode, 0)
+            self.assertFalse(raw_dest.exists())
+
+    def test_cli_refuses_dry_run_with_out(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            source = Path(temporary) / "e.jsonl"
+            source.write_text("{}\n")
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    str(PIPELINES / "curate_agentic.py"),
+                    "--dry-run",
+                    "--out",
+                    str(Path(temporary) / "out"),
+                    str(source),
+                ],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+        self.assertEqual(result.returncode, 2)
+
+    def test_missing_basis_paths_cover_preference_sides(self):
+        record = preference_fixture(
+            chosen_steps=[{"n": 1, "tool_call": {"name": "x"}, "observation": "a"}],
+            rejected_steps=[_step(1)],
+        )
+        paths = missing_decision_basis_paths(record)
+        self.assertEqual(paths, ["chosen.steps[0]"])
+
+
+if __name__ == "__main__":
+    unittest.main()

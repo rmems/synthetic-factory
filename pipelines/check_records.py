@@ -24,6 +24,7 @@ from validate_run import (  # noqa: E402
     ALLOWED_SIM_OR_REAL,
     REWARD_ARITHMETIC_MARKERS,
     REWARD_NON_COMPONENT_KEYS,
+    _episode_like,
     check_line,
     event_time,
 )
@@ -246,8 +247,12 @@ def expected_states(obj, kind):
     elif kind == "preference":
         for side in ("chosen", "rejected"):
             sub = obj.get(side)
-            if isinstance(sub, dict):
-                yield f"{side}.state", sub.get("state")
+            if not isinstance(sub, dict):
+                continue
+            # Episode-sided DPO pairs have no Thalamic state object.
+            if _episode_like(sub):
+                continue
+            yield f"{side}.state", sub.get("state")
     elif kind == "bridge_pair":
         lv = obj.get("language_view")
         if isinstance(lv, dict):
