@@ -1,0 +1,25 @@
+scripts/publish_grok46_hub.py
+  s_a101c3059277fd::t_e88b003c913e88 381-395,413-415,427-430,453-457,462-464,497-499,588-589
+pipelines/training_audit.py
+  s_a101c3059277fd::t_e88b003c913e88 194-204
+tests/test_training_audit.py
+  s_a101c3059277fd::t_e88b003c913e88 198-199
+tests/test_publish_grok46_hub.py
+  s_a101c3059277fd::t_e88b003c913e88 74-82,191-194,197-198,201,204-207,230-247,296
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "e738b62f37d13a5172191c7ae48dac53de83bb09",
+  "prompts": {},
+  "sessions": {
+    "s_a101c3059277fd": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a01e14-4bc2-7890-a7ce-1c993a8df50a",
+        "model": "gpt-5.6-terra"
+      },
+      "human_author": "Raul Montoya Cardenas <montoyaraul34@gmail.com>"
+    }
+  }
+}
