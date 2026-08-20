@@ -426,17 +426,26 @@ def _episode_like(obj):
     )
 
 
-def check_episode(obj, where, require_goal=True):
+def _require_reward(obj, where):
+    reward = obj.get("reward")
+    if not isinstance(reward, dict):
+        return [f"{where}: reward must be an object with 'success'"]
+    if "success" not in reward:
+        return [f"{where}: reward missing 'success'"]
+    return []
+
+
+def check_episode(obj, where, require_goal=True, forbid_hidden_thought=False):
     errs = []
-    required = ("steps", "outcome", "reward")
-    if require_goal:
-        required = ("goal",) + required
+    required = ("goal", "steps", "outcome", "reward") if require_goal else (
+        "steps",
+        "outcome",
+        "reward",
+    )
     for key in required:
         if key not in obj:
             errs.append(f"{where}: episode missing '{key}'")
-    reward = obj.get("reward")
-    if isinstance(reward, dict) and "success" not in reward:
-        errs.append(f"{where}: reward missing 'success'")
+    errs += _require_reward(obj, where)
     steps = obj.get("steps")
     if not isinstance(steps, list) or not steps:
         errs.append(f"{where}: steps must be a non-empty array")
@@ -448,10 +457,14 @@ def check_episode(obj, where, require_goal=True):
             for key in ("tool_call", "observation"):
                 if key not in step:
                     errs.append(f"{where} step {i}: missing '{key}'")
-            if "decision_basis" not in step and "thought" not in step:
+            if forbid_hidden_thought and "thought" in step:
                 errs.append(
-                    f"{where} step {i}: missing 'decision_basis' (or legacy 'thought')"
+                    f"{where} step {i}: hidden 'thought' is forbidden; use 'decision_basis'"
                 )
+            if "decision_basis" not in step and (
+                forbid_hidden_thought or "thought" not in step
+            ):
+                errs.append(f"{where} step {i}: missing 'decision_basis'")
     return errs
 
 
@@ -477,13 +490,11 @@ def check_multi_agent(obj, where):
                 continue
             if not str(turn.get("speaker", "")).strip():
                 errs.append(f"{where}: transcript[{i}] missing speaker")
-    reward = obj.get("reward")
-    if isinstance(reward, dict) and "success" not in reward:
-        errs.append(f"{where}: reward missing 'success'")
+    errs += _require_reward(obj, where)
     return errs
 
 
-def check_safety_case(obj, where):
+def check_safety_case(obj, where, factory_staging=False):
     errs = []
     for key in ("goal", "case_type", "rationale", "outcome", "reward"):
         if key not in obj:
@@ -497,14 +508,15 @@ def check_safety_case(obj, where):
     if not isinstance(obj.get("rationale"), str) or not obj.get("rationale", "").strip():
         errs.append(f"{where}: rationale must be a non-empty string")
     if "steps" in obj:
-        errs += check_episode(obj, where, require_goal=False)
-    reward = obj.get("reward")
-    if isinstance(reward, dict) and "success" not in reward:
-        errs.append(f"{where}: reward missing 'success'")
+        errs += check_episode(
+            obj, where, require_goal=False, forbid_hidden_thought=factory_staging
+        )
+    else:
+        errs += _require_reward(obj, where)
     return errs
 
 
-def check_line(obj, where):
+def check_line(obj, where, factory_staging=False):
     """Route an object to the right checker based on its shape."""
     if not isinstance(obj, dict):
         return [f"{where}: record must be a JSON object"], "unknown"
@@ -525,7 +537,10 @@ def check_line(obj, where):
             errs.append(f"{where}.chosen must be an object")
         elif episode_pref:
             errs += check_episode(
-                chosen, f"{where}.chosen", require_goal="goal" not in obj
+                chosen,
+                f"{where}.chosen",
+                require_goal="goal" not in obj,
+                forbid_hidden_thought=factory_staging,
             )
         else:
             errs += check_thalamic(chosen, f"{where}.chosen")
@@ -533,7 +548,10 @@ def check_line(obj, where):
             errs.append(f"{where}.rejected must be an object")
         elif episode_pref:
             errs += check_episode(
-                rejected, f"{where}.rejected", require_goal="goal" not in obj
+                rejected,
+                f"{where}.rejected",
+                require_goal="goal" not in obj,
+                forbid_hidden_thought=factory_staging,
             )
         else:
             errs += check_thalamic(rejected, f"{where}.rejected")
@@ -563,11 +581,13 @@ def check_line(obj, where):
     if obj.get("case_type") in SAFETY_CASE_TYPES or (
         "case_type" in obj and "rationale" in obj
     ):
-        return check_safety_case(obj, where), "safety_case"
+        return check_safety_case(obj, where, factory_staging=factory_staging), "safety_case"
     if "transcript" in obj and "agents" in obj:
         return check_multi_agent(obj, where), "multi_agent"
     if "goal" in obj and "steps" in obj:
-        return check_episode(obj, where), "episode"
+        return check_episode(
+            obj, where, forbid_hidden_thought=factory_staging
+        ), "episode"
     return [f"{where}: unrecognized record shape (keys: {sorted(obj)[:8]})"], "unknown"
 
 

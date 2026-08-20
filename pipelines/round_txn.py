@@ -341,6 +341,7 @@ def validate_stage(
         batch,
         batch.name,
         seen_ids=committed_ids(factory_dir),
+        factory_staging=True,
     )
     if errors or warnings:
         details = [*(f"ERROR: {item}" for item in errors), *(f"WARNING: {item}" for item in warnings)]

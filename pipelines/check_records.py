@@ -272,11 +272,11 @@ _SHAPE_REWARD_ARITHMETIC = REWARD_ARITHMETIC_MARKERS
 _SHAPE_REAL_PROVENANCE = "must not be 'real'"
 
 
-def shape_check(obj, where):
+def shape_check(obj, where, factory_staging=False):
     if not isinstance(obj, dict):
         return [f"{where}: unrecognized record shape (not an object)"], "unknown"
     try:
-        errs, kind = check_line(obj, where)
+        errs, kind = check_line(obj, where, factory_staging=factory_staging)
     except (TypeError, AttributeError) as exc:
         return [f"{where}: unrecognized record shape ({exc})"], "unknown"
     errs = [
@@ -353,9 +353,9 @@ def check_provenance_publish(obj, where):
     return out
 
 
-def check_record(obj, where):
+def check_record(obj, where, factory_staging=False):
     errors, warnings = [], []
-    shape_errs, kind = shape_check(obj, where)
+    shape_errs, kind = shape_check(obj, where, factory_staging=factory_staging)
     errors.extend(shape_errs)
 
     if isinstance(obj, dict):
@@ -404,7 +404,7 @@ def check_record(obj, where):
     return errors, warnings, kind, record_id
 
 
-def check_jsonl(path, rel, seen_ids=None):
+def check_jsonl(path, rel, seen_ids=None, factory_staging=False):
     errors, warnings = [], []
     kinds = {}
     records = 0
@@ -423,7 +423,9 @@ def check_jsonl(path, rel, seen_ids=None):
         except json.JSONDecodeError as exc:
             errors.append(f"{where}: JSON parse error: {exc}")
             continue
-        rec_errs, rec_warns, kind, record_id = check_record(obj, where)
+        rec_errs, rec_warns, kind, record_id = check_record(
+            obj, where, factory_staging=factory_staging
+        )
         records += 1
         kinds[kind] = kinds.get(kind, 0) + 1
         errors.extend(rec_errs)

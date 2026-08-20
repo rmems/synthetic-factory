@@ -182,18 +182,27 @@ class AgenticShapes(unittest.TestCase):
                 / "tool-use-preference-factory"
             )
             factory.mkdir(parents=True)
-            reservation = round_txn.reserve(factory, 1, 1)
+            reservation = round_txn.reserve(factory, 1, 3)
             stage = Path(reservation["staging_dir"])
-            (stage / reservation["batch_file"]).write_text(
-                json.dumps(episode_preference()) + "\n"
-            )
+            recs = []
+            for i in range(3):
+                rec = episode_preference()
+                rec["id"] = f"tup-r01-lock-{i}"
+                recs.append(json.dumps(rec))
+            (stage / reservation["batch_file"]).write_text("\n".join(recs) + "\n")
             (stage / reservation["notes_file"]).write_text(
                 "Novel coverage: 80%\ncritique\n"
             )
             manifest = round_txn.publish(factory, 1, reservation["token"])
-            self.assertEqual(manifest["records"], 1)
-            self.assertEqual(manifest["kinds"].get("preference"), 1)
+            self.assertEqual(manifest["records"], 3)
+            self.assertEqual(manifest["kinds"].get("preference"), 3)
 
+    def test_thought_key_rejected_on_agentic_steps(self):
+        rec = episode("lhc-r01-tz")
+        rec["steps"][0]["thought"] = "hidden"
+        errs, kind = validate_run.check_line(rec, "t", factory_staging=True)
+        self.assertEqual(kind, "episode")
+        self.assertTrue(any("thought" in e for e in errs), errs)
 
 if __name__ == "__main__":
     unittest.main()

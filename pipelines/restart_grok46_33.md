@@ -12,7 +12,7 @@ Each agent: `round_txn.py reserve` at that factory's **next_round** (never r01 i
 
 Rules: no Thalamic wrap, no spike_events, no `sim_or_real: real`, no hidden `thought`. `meta.generator=grok-4.6`. Writes only via reserve/stage/publish. HF mirrors stay at `~/rmems/hf/<name>/` never `~/rmems/hf/rmems/`. Collection already exists.
 
-33 factories (one agent each; skip if ROUND-r*.reserved.json already exists, take the next empty):
+33 factories (one agent each). If `next_round` is already reserved, hop a different unreserved factory — never steal, never pick a later empty round on the same factory (`reserve` only accepts the frontier):
 
 1. long-horizon-coding-factory Q=2
 2. cascading-error-recovery-factory Q=2

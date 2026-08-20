@@ -11,26 +11,32 @@ LOCK=/tmp/grok46-restart-33.lock
 SESSION=grok46-agentic-restart
 
 export TZ=America/Chicago
-now_hm=$(date +%H%M)
-# Weekly reset is 06:52 CDT. Allow from 06:52 through 08:30 so a delayed cron still fires.
-if [[ "$now_hm" < "0652" || "$now_hm" > "0830" ]]; then
-  echo "$(date -Is) skip: outside 06:52-08:30 CDT window (now $now_hm)" >>"$LOG"
+dow=$(date +%u)
+hour=$(date +%H)
+minute=$(date +%M)
+now_hm=$((10#$hour * 100 + 10#$minute))
+# Weekly SuperGrok Heavy reset is Wednesday 06:52 CDT. Allow through 08:30.
+if [[ "$dow" != "3" ]] || (( now_hm < 652 || now_hm > 830 )); then
+  echo "$(date -Is) skip: outside Wed 06:52-08:30 CDT (dow=$dow now=$now_hm)" >>"$LOG"
   exit 0
 fi
 
-if [[ -f "$LOCK" ]] && kill -0 "$(cat "$LOCK")" 2>/dev/null; then
-  echo "$(date -Is) skip: already running pid $(cat "$LOCK")" >>"$LOG"
+exec 9>"$LOCK"
+if ! flock -n 9; then
+  echo "$(date -Is) skip: lock held ($LOCK)" >>"$LOG"
   exit 0
 fi
-
-echo $$ >"$LOCK"
+echo $$ >&9
 echo "$(date -Is) starting 33-agent restart" >>"$LOG"
 
 cd "$ROOT"
 "$ROOT/.claude/skills/run-synthetic-factory/driver.py" frontiers outputs/raw/2026-08-19-agentic >>"$LOG" 2>&1 || true
 
 if command -v tmux >/dev/null 2>&1; then
-  tmux has-session -t "$SESSION" 2>/dev/null && tmux kill-session -t "$SESSION"
+  if tmux has-session -t "$SESSION" 2>/dev/null; then
+    echo "$(date -Is) skip: tmux session $SESSION already live" >>"$LOG"
+    exit 0
+  fi
   tmux new-session -d -s "$SESSION" \
     "cd '$ROOT' && exec '$GROK' --cwd '$ROOT' --always-approve --no-plan --model grok-4.6 \"\$(cat '$PROMPT')\" 2>&1 | tee -a '$LOG'"
   echo "$(date -Is) tmux session $SESSION" >>"$LOG"
