@@ -1,0 +1,21 @@
+tests/test_agentic_shapes.py
+  s_a101c3059277fd::t_2a9903285a4962 170-184
+pipelines/validate_run.py
+  s_a101c3059277fd::t_2a9903285a4962 682-683
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "0964cd534fc04747e08b10fe3e5908155654e5cf",
+  "prompts": {},
+  "sessions": {
+    "s_a101c3059277fd": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a01e14-4bc2-7890-a7ce-1c993a8df50a",
+        "model": "gpt-5.6-terra"
+      },
+      "human_author": "Raul Montoya Cardenas <montoyaraul34@gmail.com>"
+    }
+  }
+}
