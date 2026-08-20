@@ -2,6 +2,8 @@
 """Regression tests for the operator driver's byte-tolerant census paths."""
 
 import importlib.util
+import hashlib
+import json
 import tempfile
 import unittest
 from contextlib import redirect_stdout
@@ -25,6 +27,27 @@ class FactoryTokenEfficiency(unittest.TestCase):
                 else "Self-critique without a coverage line.\n"
             )
             (factory / f"NOTES-r{rn:02d}.md").write_text(text)
+
+    def _write_complete_marker(self, factory, round_number):
+        batch = factory / f"batch-r{round_number:02d}.jsonl"
+        batch.write_text(f'{{"id":"batch-{round_number}"}}\n')
+        marker = factory / f"ROUND-r{round_number:02d}.complete.json"
+        marker.write_text(
+            json.dumps(
+                {
+                    "factory": factory.name,
+                    "round": round_number,
+                    "commit_point": marker.name,
+                    "files": [
+                        {
+                            "name": batch.name,
+                            "sha256": hashlib.sha256(batch.read_bytes()).hexdigest(),
+                        }
+                    ],
+                }
+            )
+            + "\n"
+        )
 
     def test_early_stop_clears_after_later_healthy_notes(self):
         with tempfile.TemporaryDirectory() as td:
@@ -75,8 +98,8 @@ class FactoryTokenEfficiency(unittest.TestCase):
             self.assertEqual(info["rounds"], [])
             self.assertFalse(info["early_stop"])
 
-            (factory / "ROUND-r01.complete.json").write_text('{"round":1}\n')
-            (factory / "ROUND-r02.complete.json").write_text('{"round":2}\n')
+            self._write_complete_marker(factory, 1)
+            self._write_complete_marker(factory, 2)
             info = factory_driver.factory_token_efficiency(factory)
             self.assertTrue(info["early_stop"])
             self.assertEqual(info["early_stop_at_round"], 2)

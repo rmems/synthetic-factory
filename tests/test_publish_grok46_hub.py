@@ -183,6 +183,28 @@ class PublishGrok46HubTests(unittest.TestCase):
 
                 self.assertEqual(list(outside.iterdir()), [])
 
+    def test_snapshot_replaces_symlinked_metadata_files(self):
+        for name in ("README.md", "LICENSE", "ATTRIBUTION.md"):
+            with self.subTest(name=name), tempfile.TemporaryDirectory() as td:
+                root = Path(td)
+                source = root / "raw" / ITEM["slug"]
+                source.mkdir(parents=True)
+                (source / "batch-r01.jsonl").write_text('{"id":"source"}\n')
+                destination = root / "hf" / ITEM["hub"]
+                destination.mkdir(parents=True)
+                outside = root / "outside.txt"
+                outside.write_text("must not change\n")
+                endpoint = destination / name
+                endpoint.symlink_to(outside)
+
+                with mock.patch.object(publisher, "FACTORY_ROOT", root / "raw"), mock.patch.object(
+                    publisher, "HF_ROOT", root / "hf"
+                ):
+                    publisher.snapshot_one(ITEM)
+
+                self.assertFalse(endpoint.is_symlink())
+                self.assertEqual(outside.read_text(), "must not change\n")
+
     def test_snapshot_keeps_legacy_named_marker_baseline_payload(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)

@@ -399,6 +399,15 @@ class RoundTransaction(unittest.TestCase):
             with self.assertRaisesRegex(round_txn.TransactionError, "hash mismatch"):
                 round_txn.committed_jsonl_paths(factory)
 
+    def test_marker_mode_frontier_requires_verified_completion_manifest(self):
+        with tempfile.TemporaryDirectory() as td:
+            factory = self.factory(td)
+            round_txn.ensure_marker_mode(factory)
+            (factory / "ROUND-r01.complete.json").write_text('{"round":1}\n')
+
+            with self.assertRaisesRegex(round_txn.TransactionError, "identity mismatch"):
+                round_txn.reserve(factory, 2, 1)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """next_round.py allocates max(existing)+1 and refuses an occupied batch-rNN."""
 
+import hashlib
 import json
 import subprocess
 import sys
@@ -141,8 +142,24 @@ class NextRoundMarkerMode(unittest.TestCase):
             (factory / ".round-marker-mode.json").write_text(
                 json.dumps({"version": 1, "legacy_baseline": 2}) + "\n"
             )
-            (factory / "ROUND-r03.complete.json").write_text(
-                json.dumps({"round": 3, "factory": "factory"}) + "\n"
+            batch = factory / "batch-r03.jsonl"
+            batch.write_text('{"id":"committed"}\n')
+            marker = factory / "ROUND-r03.complete.json"
+            marker.write_text(
+                json.dumps(
+                    {
+                        "factory": "factory",
+                        "round": 3,
+                        "commit_point": marker.name,
+                        "files": [
+                            {
+                                "name": batch.name,
+                                "sha256": hashlib.sha256(batch.read_bytes()).hexdigest(),
+                            }
+                        ],
+                    }
+                )
+                + "\n"
             )
             (factory / "batch-r99.jsonl").write_text("{not-json\n")
             (factory / "NOTES-r88.md").write_text("uncommitted\n")

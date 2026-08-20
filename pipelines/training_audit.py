@@ -172,7 +172,7 @@ def episode_step_lists(obj, kind):
 
 
 def hidden_thought_paths(value, path=""):
-    """Yield every recursively hidden-reasoning field below one step."""
+    """Yield every recursively hidden-reasoning field in one agentic record."""
     if isinstance(value, dict):
         for key, item in value.items():
             child_path = f"{path}.{key}" if path else key
@@ -374,6 +374,10 @@ def audit_run(run_dir: Path):
                 bridge[f"{status}_pairs"] += 1
             if kind == "episode":
                 episodes["episodes"] += 1
+            if kind in {"episode", "preference", "multi_agent", "safety_case"}:
+                episodes["hidden_thought_fields"] += len(
+                    tuple(hidden_thought_paths(obj))
+                )
             for steps in episode_step_lists(obj, kind):
                 for step in steps:
                     if not isinstance(step, dict):
@@ -384,9 +388,6 @@ def audit_run(run_dir: Path):
                     )
                     episodes["legacy_thought_only_steps"] += int(
                         "thought" in step and "decision_basis" not in step
-                    )
-                    episodes["hidden_thought_fields"] += len(
-                        tuple(hidden_thought_paths(step))
                     )
 
     factory_output = {}
@@ -448,7 +449,7 @@ def audit_run(run_dir: Path):
     if episodes["hidden_thought_fields"]:
         blockers.append(
             f"{episodes['hidden_thought_fields']} hidden-thought fields appear in "
-            "episode steps or preference sides"
+            "agentic records"
         )
 
     report = {

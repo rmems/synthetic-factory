@@ -326,7 +326,9 @@ def frontier_status(factory_dir: Path):
     baseline = mode.get("legacy_baseline")
     if not isinstance(baseline, int) or isinstance(baseline, bool) or baseline < 0:
         raise TransactionError(f"invalid legacy_baseline in {mode_path}")
-    markers = completed_rounds(factory_dir)
+    # The next reservable round must use the same validated commit contract as
+    # batch visibility. A matching integer alone must not advance a lane.
+    markers = sorted(completed_manifests(factory_dir))
     highest = baseline
     marker_set = set(markers)
     while highest + 1 in marker_set:

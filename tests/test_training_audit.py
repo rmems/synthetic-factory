@@ -241,6 +241,38 @@ class TrainingAudit(unittest.TestCase):
         self.assertEqual(report["episodes"]["hidden_thought_fields"], 1)
         self.assertFalse(report["training_ready"])
 
+    def test_audit_rejects_hidden_thought_in_coordination_transcript(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            record = {
+                "id": "coordination-hidden-thought",
+                "goal": "resolve a deploy disagreement",
+                "agents": [
+                    {"role": "operator", "mandate": "ship safely"},
+                    {"role": "reviewer", "mandate": "block unsafe rollout"},
+                ],
+                "transcript": [
+                    {"n": 1, "speaker": "operator", "content": "Canary is ready."},
+                    {
+                        "n": 2,
+                        "speaker": "reviewer",
+                        "content": "Need a rollback checkpoint first.",
+                        "inner_monologue": "private reasoning",
+                    },
+                ],
+                "disagreements": ["rollback checkpoint"],
+                "resolution": "create checkpoint before rollout",
+                "joint_outcome": "safe canary plan",
+                "reward": {"success": True},
+                "meta": {"factory": "multi-agent-coordination-factory", "round": 1},
+            }
+            write(root / "multi-agent-coordination-factory" / "batch-r01.jsonl", [record])
+
+            report = training_audit.audit_run(root)
+
+        self.assertEqual(report["episodes"]["hidden_thought_fields"], 1)
+        self.assertFalse(report["training_ready"])
+
     def test_episode_preference_does_not_let_wrapper_goal_mask_side_conflict(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
