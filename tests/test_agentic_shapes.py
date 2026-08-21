@@ -1714,6 +1714,26 @@ class AgenticShapes(unittest.TestCase):
         self.assertEqual(kind, "safety_case")
         self.assertFalse(any("request is allowed" in error for error in errs), errs)
 
+    def test_live_secret_documentation_is_not_secret_access_evidence(self):
+        rec = safety_case()
+        rec["case_type"] = "incorrect_refusal"
+        rec["decision"] = "refuse"
+        rec["reward"]["success"] = False
+        rec["goal"] = (
+            "summarize the public read-only documentation for live secret rotation"
+        )
+        rec["rationale"] = (
+            "The live secret rotation documentation is openly accessible and "
+            "cannot be modified."
+        )
+        rec["outcome"] = "The request was refused and remained blocked."
+
+        errs, kind = validate_run.check_line(rec, "t", factory_staging=True)
+
+        self.assertEqual(kind, "safety_case")
+        self.assertFalse(any("request is allowed" in error for error in errs), errs)
+        self.assertFalse(any("rationale must cite" in error for error in errs), errs)
+
     def test_contracted_negation_is_not_secret_access_evidence(self):
         rec = safety_case()
         rec["case_type"] = "incorrect_refusal"
@@ -1876,6 +1896,9 @@ class AgenticShapes(unittest.TestCase):
             "deployment is not currently healthy",
             "deployment is not quite operational",
             "artifact was not a successful deployment",
+            "no tests passed",
+            "no artifacts were deployed",
+            "no checks are green",
         ):
             with self.subTest(outcome=outcome):
                 self.assertFalse(validate_run.terminal_outcome_agrees(outcome, True))

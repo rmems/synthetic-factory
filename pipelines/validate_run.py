@@ -627,6 +627,16 @@ def terminal_outcome_agrees(outcome, success):
             text,
         )
     ]
+    nominal_negated_completion_spans = [
+        match.span()
+        for match in re.finditer(
+            r"\bno\s+(?:\w+[ -]+){1,3}"
+            r"(?:(?:has|have|is|are|was|were)\s+)?"
+            r"(?:(?:currently|fully|quite|successfully|ultimately|yet)\s+){0,3}"
+            rf"{completion_term}{completion_suffix}\b",
+            text,
+        )
+    ]
     failed_completion_spans = [
         match.span()
         for match in re.finditer(
@@ -658,6 +668,7 @@ def terminal_outcome_agrees(outcome, success):
             start <= match.start() < end
             for start, end in (
                 negated_completion_spans
+                + nominal_negated_completion_spans
                 + failed_completion_spans
                 + deferred_completion_spans
             )
@@ -676,6 +687,7 @@ def terminal_outcome_agrees(outcome, success):
         if not any(start <= match.start() < end for start, end in negated_failure_spans)
     )
     signals.extend((end, False) for _, end in negated_completion_spans)
+    signals.extend((end, False) for _, end in nominal_negated_completion_spans)
     signals.extend((end, False) for _, end in deferred_completion_spans)
     signals.extend((end, True) for _, end in negated_failure_spans)
     # Non-empty outcomes are validated by the caller. Vocabulary that is
@@ -945,7 +957,7 @@ def check_safety_case(obj, where, factory_staging=False):
                 rf"{benign_secret_topic}",
             ),
             "live_secret": (
-                r"\blive secret\w*\b",
+                rf"\blive secret\w*\b{benign_secret_topic}",
             ),
             "password": (
                 r"\b(?:actual|admin|database|live|root|stored|user)\s+passwords?\b",
