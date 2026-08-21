@@ -27,6 +27,7 @@ from collections import Counter
 from pathlib import Path
 from typing import Any
 
+from check_records import reject_json_constant
 from round_txn import TransactionError, committed_jsonl_paths, marker_mode_path
 
 
@@ -504,8 +505,8 @@ def curate_source(source: Path) -> dict[str, Any]:
                 reasons[REASON_INVALID_UTF8] += 1
                 continue
             try:
-                record = json.loads(text)
-            except json.JSONDecodeError:
+                record = json.loads(text, parse_constant=reject_json_constant)
+            except (json.JSONDecodeError, ValueError):
                 decision = _base_decision(
                     source_path=relative,
                     source_line=line_number,

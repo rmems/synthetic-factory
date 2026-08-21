@@ -24,6 +24,7 @@ import re
 import shutil
 import stat
 import sys
+import tempfile
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -394,6 +395,44 @@ def regular_file_metadata(path: Path):
     finally:
         if fd >= 0:
             os.close(fd)
+
+
+def capture_regular_file(source: Path, destination: Path):
+    """Copy one no-follow regular-file descriptor and return captured metadata."""
+    source_flags = os.O_RDONLY
+    if hasattr(os, "O_NOFOLLOW"):
+        source_flags |= os.O_NOFOLLOW
+    try:
+        source_fd = os.open(source, source_flags)
+    except OSError as exc:
+        raise TransactionError(f"cannot open regular file safely {source}: {exc}") from exc
+    destination_flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
+    if hasattr(os, "O_NOFOLLOW"):
+        destination_flags |= os.O_NOFOLLOW
+    destination_fd = -1
+    try:
+        if not stat.S_ISREG(os.fstat(source_fd).st_mode):
+            raise TransactionError(f"unsafe non-regular file: {source}")
+        destination_fd = os.open(destination, destination_flags, 0o600)
+        digest = hashlib.sha256()
+        size = 0
+        with os.fdopen(source_fd, "rb") as input_handle, os.fdopen(
+            destination_fd, "wb"
+        ) as output_handle:
+            source_fd = -1
+            destination_fd = -1
+            for chunk in iter(lambda: input_handle.read(1024 * 1024), b""):
+                output_handle.write(chunk)
+                digest.update(chunk)
+                size += len(chunk)
+        return size, digest.hexdigest()
+    except OSError as exc:
+        raise TransactionError(f"cannot capture staged file {source}: {exc}") from exc
+    finally:
+        if source_fd >= 0:
+            os.close(source_fd)
+        if destination_fd >= 0:
+            os.close(destination_fd)
 
 
 def file_sha256(path: Path):
@@ -1333,7 +1372,7 @@ def committed_ids(factory_dir: Path):
         if path.is_file():
             check_jsonl(path, path.relative_to(run_dir), seen_ids=seen_ids)
     for candidate in sorted(run_dir.iterdir()):
-        if not candidate.is_dir():
+        if not candidate.is_dir() or candidate.is_symlink():
             continue
         for path in committed_jsonl_paths(candidate):
             # Existing defects are reported by run audits. Here we only need
@@ -1844,64 +1883,18 @@ def validate_stage(
         initial_paths = sorted(stage.iterdir())
     except OSError as exc:
         raise TransactionError(f"cannot inspect staging directory {stage}: {exc}") from exc
-    initial_files = {}
-    for path in initial_paths:
-        if not path.is_file() or path.is_symlink():
-            raise TransactionError(f"staging contains a non-regular file: {path}")
-        initial_files[path.name] = regular_file_metadata(path)
-    batch = stage / f"batch-r{round_number:02d}.jsonl"
-    notes = stage / f"NOTES-r{round_number:02d}.md"
-    if not batch.is_file() or batch.is_symlink():
-        raise TransactionError(f"required staged batch missing or unsafe: {batch}")
-    if not notes.is_file() or notes.is_symlink():
-        raise TransactionError(f"required staged notes missing or unsafe: {notes}")
-    try:
-        notes_text = notes.read_text()
-    except (OSError, UnicodeError) as exc:
-        raise TransactionError(f"cannot read staged notes as UTF-8: {notes}: {exc}") from exc
-    if not notes_text.strip():
-        raise TransactionError(f"staged notes are empty: {notes}")
-    coverage_error = validate_novel_coverage(notes, factory_dir, notes_text)
-    if coverage_error:
-        raise TransactionError(coverage_error)
-
-    errors, warnings, kinds, records = check_jsonl(
-        batch,
-        batch.name,
-        seen_ids=committed_ids(factory_dir),
-        factory_staging=True,
-    )
-    if errors or warnings:
-        details = [*(f"ERROR: {item}" for item in errors), *(f"WARNING: {item}" for item in warnings)]
-        raise TransactionError("staged batch is not training-ready:\n" + "\n".join(details))
-    if records != expected:
-        raise TransactionError(
-            f"staged batch has {records} records; reservation requires exactly {expected}"
-        )
-    expected_kind = AGENTIC_FACTORY_KINDS.get(factory_dir.name)
-    if expected_kind and set(kinds) != {expected_kind}:
-        raise TransactionError(
-            f"{factory_dir.name} requires only {expected_kind!r} records; "
-            f"staged kinds are {sorted(kinds)!r}"
-        )
-    envelope_errors = validate_agentic_envelope(batch, factory_dir, round_number)
-    if envelope_errors:
-        raise TransactionError(
-            "staged batch violates the agentic factory envelope:\n"
-            + "\n".join(f"ERROR: {error}" for error in envelope_errors)
-        )
-
-    files = []
     rr = f"{round_number:02d}"
-    allowed_core = {batch.name, notes.name}
+    batch_name = f"batch-r{rr}.jsonl"
+    notes_name = f"NOTES-r{rr}.md"
+    allowed_core = {batch_name, notes_name}
     artifact_re = re.compile(
         rf"^[A-Za-z0-9][A-Za-z0-9._-]*-r{re.escape(rr)}\.(?:md|json|txt)$"
     )
-    final_names = set()
-    for path in sorted(stage.iterdir()):
+    initial_names = {path.name for path in initial_paths}
+    for path in initial_paths:
         if not path.is_file() or path.is_symlink():
             raise TransactionError(f"staging contains a non-regular file: {path}")
-        if path.suffix == ".jsonl" and path != batch:
+        if path.suffix == ".jsonl" and path.name != batch_name:
             raise TransactionError(
                 f"staging may contain only the reserved JSONL batch: {path.name}"
             )
@@ -1910,19 +1903,85 @@ def validate_stage(
                 "auxiliary artifacts must be safe round-scoped .md/.json/.txt "
                 f"files ending in -r{rr}: {path.name}"
             )
-        metadata = regular_file_metadata(path)
-        if initial_files.get(path.name) != metadata:
-            raise TransactionError(f"staged file changed during validation: {path}")
-        final_names.add(path.name)
-        files.append(
-            {
-                "name": path.name,
-                "bytes": metadata[0],
-                "sha256": metadata[1],
-            }
+    if batch_name not in initial_names:
+        raise TransactionError(
+            f"required staged batch missing or unsafe: {stage / batch_name}"
         )
-    if final_names != set(initial_files):
-        raise TransactionError("staging file set changed during validation")
+    if notes_name not in initial_names:
+        raise TransactionError(
+            f"required staged notes missing or unsafe: {stage / notes_name}"
+        )
+
+    with tempfile.TemporaryDirectory(prefix="round-validate-") as temporary:
+        captured_dir = Path(temporary)
+        captured_files = {
+            path.name: capture_regular_file(path, captured_dir / path.name)
+            for path in initial_paths
+        }
+        try:
+            final_paths = sorted(stage.iterdir())
+        except OSError as exc:
+            raise TransactionError(f"cannot inspect staging directory {stage}: {exc}") from exc
+        if {path.name for path in final_paths} != initial_names:
+            raise TransactionError("staging file set changed during validation")
+        if any(not path.is_file() or path.is_symlink() for path in final_paths):
+            raise TransactionError("staging file set changed during validation")
+
+        batch = captured_dir / batch_name
+        notes = captured_dir / notes_name
+        try:
+            notes_text = notes.read_text()
+        except (OSError, UnicodeError) as exc:
+            raise TransactionError(
+                f"cannot read staged notes as UTF-8: {stage / notes_name}: {exc}"
+            ) from exc
+        if not notes_text.strip():
+            raise TransactionError(f"staged notes are empty: {stage / notes_name}")
+        coverage_error = validate_novel_coverage(
+            stage / notes_name, factory_dir, notes_text
+        )
+        if coverage_error:
+            raise TransactionError(coverage_error)
+
+        errors, warnings, kinds, records = check_jsonl(
+            batch,
+            batch.name,
+            seen_ids=committed_ids(factory_dir),
+            factory_staging=True,
+        )
+        if errors or warnings:
+            details = [
+                *(f"ERROR: {item}" for item in errors),
+                *(f"WARNING: {item}" for item in warnings),
+            ]
+            raise TransactionError(
+                "staged batch is not training-ready:\n" + "\n".join(details)
+            )
+        if records != expected:
+            raise TransactionError(
+                f"staged batch has {records} records; reservation requires exactly {expected}"
+            )
+        expected_kind = AGENTIC_FACTORY_KINDS.get(factory_dir.name)
+        if expected_kind and set(kinds) != {expected_kind}:
+            raise TransactionError(
+                f"{factory_dir.name} requires only {expected_kind!r} records; "
+                f"staged kinds are {sorted(kinds)!r}"
+            )
+        envelope_errors = validate_agentic_envelope(batch, factory_dir, round_number)
+        if envelope_errors:
+            raise TransactionError(
+                "staged batch violates the agentic factory envelope:\n"
+                + "\n".join(f"ERROR: {error}" for error in envelope_errors)
+            )
+
+    files = [
+        {
+            "name": path.name,
+            "bytes": captured_files[path.name][0],
+            "sha256": captured_files[path.name][1],
+        }
+        for path in initial_paths
+    ]
     return files, kinds, records
 
 

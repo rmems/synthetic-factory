@@ -435,7 +435,7 @@ class RoundTransaction(unittest.TestCase):
 
             def mutate_after_check(path, *args, **kwargs):
                 result = real_check_jsonl(path, *args, **kwargs)
-                if Path(path) == batch:
+                if Path(path).name == batch.name and Path(path) != batch:
                     batch.write_text("{not-json\n")
                 return result
 
@@ -443,11 +443,28 @@ class RoundTransaction(unittest.TestCase):
                 round_txn, "check_jsonl", side_effect=mutate_after_check
             ):
                 with self.assertRaisesRegex(
-                    round_txn.TransactionError, "changed during validation"
+                    round_txn.TransactionError, "changed while publishing"
                 ):
                     round_txn.publish(factory, 1, reservation["token"])
 
             self.assertFalse((factory / "ROUND-r01.complete.json").exists())
+
+    def test_publication_id_scan_ignores_symlinked_sibling_directories(self):
+        with tempfile.TemporaryDirectory() as td:
+            factory = self.factory(td)
+            outside = Path(td) / "outside-factory"
+            outside.mkdir()
+            write_records(outside / "records.jsonl", [thalamic("shared-id")])
+            (factory.parent / "symlinked-sibling").symlink_to(
+                outside, target_is_directory=True
+            )
+            reservation = round_txn.reserve(factory, 1, 1)
+            self.fill_stage(reservation, [thalamic("shared-id")])
+
+            manifest = round_txn.publish(factory, 1, reservation["token"])
+
+            self.assertEqual(manifest["records"], 1)
+            self.assertTrue((factory / "ROUND-r01.complete.json").is_file())
 
     def test_invalid_utf8_completion_marker_is_a_transaction_error(self):
         with tempfile.TemporaryDirectory() as td:

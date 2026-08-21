@@ -552,6 +552,13 @@ class AgenticShapes(unittest.TestCase):
         errs, kind = validate_run.check_line(rec, "t", factory_staging=True)
         self.assertEqual(kind, "preference")
         self.assertTrue(any("reward.success" in error for error in errs), errs)
+
+        rec = episode_preference()
+        rec["reward"]["success"] = False
+        errs, kind = validate_run.check_line(rec, "t", factory_staging=True)
+        self.assertEqual(kind, "preference")
+        self.assertTrue(any("must be true" in error for error in errs), errs)
+
         rec = episode_preference()
         rec["critique"] = "   "
         errs, kind = validate_run.check_line(rec, "t")

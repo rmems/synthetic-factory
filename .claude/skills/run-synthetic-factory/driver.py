@@ -100,6 +100,22 @@ def snapshot_to_temp(src, prefix):
     return temp, snap
 
 
+def marker_visible_jsonl_paths(run_dir):
+    """Resolve marker visibility while the original staging layout is intact."""
+    visible = {}
+    for factory in run_dir.iterdir():
+        if (
+            not factory.is_dir()
+            or factory.is_symlink()
+            or marker_mode_path(factory) is None
+        ):
+            continue
+        visible[factory.name] = {
+            path.relative_to(factory) for path in committed_jsonl_paths(factory)
+        }
+    return visible
+
+
 def require_run_dir(run_dir):
     src = Path(run_dir).resolve()
     if not src.is_dir():
@@ -127,15 +143,15 @@ def cmd_validate(run_dir):
 def cmd_audit(run_dir):
     """Run all three layers on one stable snapshot; never mutate the source."""
     src = require_run_dir(run_dir)
+    reject_snapshot_symlinks(src)
+    visible_by_factory = marker_visible_jsonl_paths(src)
     temp, snap = snapshot_to_temp(src, "factory-audit-")
     results = []
     try:
-        for factory in snap.iterdir():
-            if not factory.is_dir() or factory.is_symlink() or marker_mode_path(factory) is None:
-                continue
-            committed = set(committed_jsonl_paths(factory))
+        for factory_name, committed in visible_by_factory.items():
+            factory = snap / factory_name
             for path in factory.rglob("*.jsonl"):
-                if path not in committed:
+                if path.relative_to(factory) not in committed:
                     path.unlink()
         commands = (
             ("STRUCTURAL + SHAPE", VALIDATOR, ()),

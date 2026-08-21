@@ -755,6 +755,26 @@ class CurateAgenticTests(unittest.TestCase):
             run["decisions"][0]["reason_codes"], [REASON_INVALID_UTF8]
         )
 
+    def test_nonstandard_json_numeric_constants_are_invalid_json(self):
+        for value in ("NaN", "Infinity", "-Infinity"):
+            with self.subTest(value=value), tempfile.TemporaryDirectory() as temporary:
+                source = Path(temporary) / "invalid.jsonl"
+                source.write_text(
+                    json.dumps(episode_fixture()).replace(
+                        '"reward": {"success": true}',
+                        f'"reward": {{"success": true, "score": {value}}}',
+                    )
+                    + "\n"
+                )
+
+                run = curate_source(source)
+
+                self.assertEqual(run["summary"]["input_records"], 1)
+                self.assertEqual(run["summary"]["output_records"], 0)
+                self.assertEqual(
+                    run["decisions"][0]["reason_codes"], [REASON_INVALID_JSON]
+                )
+
 
 if __name__ == "__main__":
     unittest.main()

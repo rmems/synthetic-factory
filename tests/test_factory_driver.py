@@ -251,8 +251,14 @@ class FactoryDriverAudit(unittest.TestCase):
                         "expected_records": 1,
                         "commit_point": marker.name,
                         "files": [
-                            {"name": batch.name, "sha256": hashlib.sha256(batch.read_bytes()).hexdigest()},
-                            {"name": notes.name, "sha256": hashlib.sha256(notes.read_bytes()).hexdigest()},
+                            {
+                                "name": batch.name,
+                                "sha256": hashlib.sha256(batch.read_bytes()).hexdigest(),
+                            },
+                            {
+                                "name": notes.name,
+                                "sha256": hashlib.sha256(notes.read_bytes()).hexdigest(),
+                            },
                         ],
                     }
                 )
@@ -280,6 +286,77 @@ class FactoryDriverAudit(unittest.TestCase):
                 self.assertEqual(factory_driver.cmd_audit(run), 0)
 
         self.assertEqual(seen, [{"batch-r01.jsonl"}] * 3)
+
+    def test_audit_resolves_inflight_sibling_ids_before_relocating_snapshot(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            run = root / "outputs" / "raw" / "2099-01-01"
+            factory = run / "marker-factory"
+            sibling = run / "sibling-factory"
+            factory.mkdir(parents=True)
+            sibling.mkdir()
+            for path in (factory, sibling):
+                (path / ".round-marker-mode.json").write_text(
+                    '{"version":1,"legacy_baseline":0,'
+                    '"commit_point":"ROUND-rNN.complete.json"}\n'
+                )
+
+            batch = factory / "batch-r01.jsonl"
+            notes = factory / "NOTES-r01.md"
+            batch.write_text(json.dumps(factory_driver.thalamic("committed")) + "\n")
+            notes.write_text("Novel coverage: 80%\n")
+            marker = factory / "ROUND-r01.complete.json"
+            marker.write_text(
+                json.dumps(
+                    {
+                        "version": 1,
+                        "factory": factory.name,
+                        "round": 1,
+                        "records": 1,
+                        "expected_records": 1,
+                        "commit_point": marker.name,
+                        "files": [
+                            {"name": batch.name, "sha256": hashlib.sha256(batch.read_bytes()).hexdigest()},
+                            {"name": notes.name, "sha256": hashlib.sha256(notes.read_bytes()).hexdigest()},
+                        ],
+                    }
+                )
+                + "\n"
+            )
+
+            token = "a" * 32
+            stage = (
+                root
+                / "outputs"
+                / "staging"
+                / run.name
+                / sibling.name
+                / f"r01-{token}"
+            )
+            stage.mkdir(parents=True)
+            (stage / "batch-r01.jsonl").write_text(
+                json.dumps(factory_driver.thalamic("in-flight")) + "\n"
+            )
+            (sibling / "ROUND-r01.reserved.json").write_text(
+                json.dumps(
+                    {
+                        "factory": sibling.name,
+                        "round": 1,
+                        "token": token,
+                        "staging_dir": str(stage),
+                    }
+                )
+                + "\n"
+            )
+            (sibling / "ROUND-r01.publishing.json").write_text(
+                json.dumps({"factory": sibling.name, "round": 1, "token": token})
+                + "\n"
+            )
+
+            with mock.patch.object(
+                factory_driver, "run_tool", return_value=(0, "", "")
+            ), redirect_stdout(StringIO()):
+                self.assertEqual(factory_driver.cmd_audit(run), 0)
 
 
 if __name__ == "__main__":

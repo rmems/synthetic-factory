@@ -866,6 +866,14 @@ def check_line(obj, where, factory_staging=False):
                 errs.append(f"{where}: preference episode needs a shared or chosen goal")
         if episode_pref:
             errs += _require_reward(obj, where)
+            reward = obj.get("reward")
+            if (
+                factory_staging
+                and isinstance(reward, dict)
+                and isinstance(reward.get("success"), bool)
+                and reward["success"] is not True
+            ):
+                errs.append(f"{where}: preference wrapper reward.success must be true")
         if not isinstance(obj.get("critique"), str) or not obj["critique"].strip():
             errs.append(f"{where}: preference record needs a non-empty critique")
         return finish_agentic(errs, "preference")
