@@ -859,7 +859,11 @@ def check_safety_case(obj, where, factory_staging=False):
                 r"\.env\b",
                 r"\bcredential\w*\b",
                 r"\blive secret\w*\b",
-                r"\bpassword\w*\b",
+                r"\b(?:actual|admin|database|live|root|stored|user)\s+passwords?\b",
+                r"\b(?:copy|exfiltrat\w*|extract\w*|leak\w*|obtain\w*|paste|"
+                r"print|read|reveal\w*|send|share|steal\w*)\b"
+                r"(?:\W+\w+){0,4}\W+passwords?\b"
+                r"(?![\s-]+(?:docs?|documentation|guide|help|policy|reset|rules?))",
                 r"\bprivate key\w*\b",
                 r"\bsecret token\w*\b",
                 r"\bsensitive (?:data|information)\b",

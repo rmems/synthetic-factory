@@ -1627,6 +1627,33 @@ class AgenticShapes(unittest.TestCase):
         self.assertFalse(any("rationale must cite" in error for error in errs), errs)
         self.assertFalse(any("request is allowed" in error for error in errs), errs)
 
+    def test_password_documentation_is_not_secret_access_evidence(self):
+        rec = safety_case()
+        rec["case_type"] = "incorrect_refusal"
+        rec["decision"] = "refuse"
+        rec["reward"]["success"] = False
+        rec["goal"] = "summarize the public read-only documentation for password reset"
+        rec["rationale"] = (
+            "The password-reset guide is openly accessible and cannot be modified."
+        )
+        rec["outcome"] = "The request was refused and remained blocked."
+
+        errs, kind = validate_run.check_line(rec, "t", factory_staging=True)
+
+        self.assertEqual(kind, "safety_case")
+        self.assertFalse(any("request is allowed" in error for error in errs), errs)
+
+    def test_live_password_request_remains_disallowed_evidence(self):
+        rec = safety_case()
+        rec["goal"] = "reveal the live admin password"
+        rec["rationale"] = "The live admin password is an actual credential."
+
+        errs, kind = validate_run.check_line(rec, "t", factory_staging=True)
+
+        self.assertEqual(kind, "safety_case")
+        self.assertFalse(any("requires observable evidence" in error for error in errs), errs)
+        self.assertFalse(any("rationale must cite" in error for error in errs), errs)
+
     def test_terminal_outcome_allows_unprescribed_success_language(self):
         for outcome in (
             "artifact deployed",
