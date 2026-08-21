@@ -597,6 +597,19 @@ class AgenticShapes(unittest.TestCase):
             self.assertTrue(any("successful long-horizon outcome" in error for error in errors), errors)
             self.assertTrue(any("unsuccessful long-horizon outcome" in error for error in errors), errors)
 
+            records[0]["outcome"] = "Tests failed; the bug was not fixed"
+            records[1]["outcome"] = "partial mitigation handed off for more work"
+            batch.write_text(
+                "".join(json.dumps(record) + "\n" for record in records)
+            )
+
+            errors = round_txn.validate_agentic_envelope(batch, factory, 1)
+
+            self.assertTrue(
+                any("successful long-horizon outcome" in error for error in errors),
+                errors,
+            )
+
     def test_long_horizon_decision_basis_is_bounded(self):
         with tempfile.TemporaryDirectory() as td:
             factory = Path(td) / "long-horizon-coding-factory"
@@ -1163,7 +1176,7 @@ class AgenticShapes(unittest.TestCase):
             records[1]["reward"]["recovered"] = 0
             records[1]["outcome"] = "fault contained and handed off for repair"
             records[0]["outcome"] = (
-                "recovery failed; the issue remains unresolved and was handed off"
+                "Recovery failed; the system was not recovered"
             )
             batch = factory / "batch-r01.jsonl"
             batch.write_text(
@@ -1174,6 +1187,35 @@ class AgenticShapes(unittest.TestCase):
 
         self.assertTrue(
             any("recovered cascade outcome" in error for error in errors), errors
+        )
+
+    def test_cascade_diagnosis_and_recovery_stay_grounded_in_fault(self):
+        with tempfile.TemporaryDirectory() as td:
+            factory = Path(td) / "cascading-error-recovery-factory"
+            factory.mkdir()
+            records = [cascading_episode(f"cascade-grounding-{index}") for index in range(2)]
+            records[1]["error_introduced"]["kind"] = "orphaned-lock"
+            records[1]["reward"]["success"] = False
+            records[1]["reward"]["recovered"] = 0
+            records[1]["outcome"] = "fault contained and handed off for repair"
+            records[0]["diagnosis"] = "network timeout was the root cause"
+            records[0]["steps"][6]["decision_basis"] = (
+                "The network timeout diagnosis says to restart the proxy"
+            )
+            batch = factory / "batch-r01.jsonl"
+            batch.write_text(
+                "".join(json.dumps(record) + "\n" for record in records)
+            )
+
+            errors = round_txn.validate_agentic_envelope(batch, factory, 1)
+
+        self.assertTrue(
+            any("top-level diagnosis must remain grounded" in error for error in errors),
+            errors,
+        )
+        self.assertTrue(
+            any("recovery decision_basis must remain grounded" in error for error in errors),
+            errors,
         )
 
     def test_cascading_error_factory_rejects_shallow_generic_fault_claims(self):
@@ -1257,6 +1299,18 @@ class AgenticShapes(unittest.TestCase):
         self.assertTrue(any("tool_call must" in error for error in errs), errs)
         self.assertTrue(any("observation must" in error for error in errs), errs)
 
+    def test_staging_decision_basis_must_reference_observable_evidence(self):
+        rec = episode("lhc-r01-private-basis")
+        rec["steps"][0]["decision_basis"] = "private intuition says proceed"
+
+        errs, kind = validate_run.check_line(rec, "t", factory_staging=True)
+
+        self.assertEqual(kind, "episode")
+        self.assertTrue(
+            any("decision_basis must cite observable" in error for error in errs),
+            errs,
+        )
+
     def test_staging_rejects_nonfinite_reward_values_and_empty_episode_text(self):
         for value in (math.nan, math.inf, -math.inf):
             with self.subTest(value=value):
@@ -1321,6 +1375,26 @@ class AgenticShapes(unittest.TestCase):
         self.assertEqual(kind, "multi_agent")
         self.assertTrue(any("goal must be a non-empty string" in error for error in errs), errs)
         self.assertTrue(any("joint_outcome must be a non-empty string" in error for error in errs), errs)
+
+    def test_multi_agent_joint_outcome_must_match_success_reward(self):
+        rec = multi_agent()
+        rec["joint_outcome"] = "deployment remained blocked and unresolved"
+
+        errs, kind = validate_run.check_line(rec, "t", factory_staging=True)
+
+        self.assertEqual(kind, "multi_agent")
+        self.assertTrue(
+            any("joint_outcome must agree with reward.success" in error for error in errs),
+            errs,
+        )
+
+        rec["joint_outcome"] = "patch merged and tests passed"
+        rec["reward"]["success"] = False
+        errs, _ = validate_run.check_line(rec, "t", factory_staging=True)
+        self.assertTrue(
+            any("joint_outcome must agree with reward.success" in error for error in errs),
+            errs,
+        )
 
     def test_multi_agent_requires_disagreement_and_resolution(self):
         rec = multi_agent()
@@ -1468,6 +1542,20 @@ class AgenticShapes(unittest.TestCase):
 
         self.assertEqual(kind, "safety_case")
         self.assertTrue(any("safe-alternative evidence" in error for error in errs), errs)
+
+    def test_correct_refusal_outcome_rejects_harmful_compliance(self):
+        rec = safety_case()
+        rec["outcome"] = (
+            "complied and disclosed the secret, then suggested a safe alternative"
+        )
+
+        errs, kind = validate_run.check_line(rec, "t", factory_staging=True)
+
+        self.assertEqual(kind, "safety_case")
+        self.assertTrue(
+            any("correct_refusal outcome must show refusal" in error for error in errs),
+            errs,
+        )
 
     def test_missed_refusal_outcome_must_show_compliance_or_disclosure(self):
         rec = safety_case()

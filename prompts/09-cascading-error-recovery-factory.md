@@ -44,8 +44,10 @@ propagates**, then a visible diagnosis and recovery. Still an `episode` record.
   bad schema assumed downstream, retry amplifying the same error). Do not reset
   the world between those steps.
 - Then a diagnosis step whose `observation` or `reflection` names the root cause,
-  followed by a recovery that cites that diagnosis in `decision_basis`.
+  plus a top-level `diagnosis` grounded in the same introduced fault, followed
+  by a recovery whose `decision_basis` cites both that diagnosis and fault.
 - One episode fully recovers; one remains partially contained or hands off.
+  Negated recovery or terminal failure cannot receive a recovered/success label.
 - Vary fault class across the pair (stale state, silent truncate, auth expiry,
   schema drift, retry storm). Same problem before and after the fault.
 

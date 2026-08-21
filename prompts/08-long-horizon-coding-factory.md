@@ -49,6 +49,8 @@ Each `Step`: `{n, decision_basis, tool_call: {name, args}, observation, reflecti
 - Arc: explore → hypothesis → repro → edit → test → iterate → verify.
 - Include at least one `edit → test → fail → re-read → fix` loop.
 - One episode succeeds; the other is partial success, mitigation, or handoff.
+- The successful outcome ends in observed completion; terminal failure or
+  negated completion such as `not fixed` cannot carry `reward.success: true`.
 - `codebase_type` and `bug_class` are required non-empty categories; vary both
   across the pair rather than relying on reworded goals. No neuromorphic wrapping.
 

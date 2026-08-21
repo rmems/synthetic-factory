@@ -29,7 +29,11 @@ Every JSONL line:
 
 No `thought` / `chain_of_thought` / `scratch` / `inner_monologue` keys,
 including camel-case, separator, or case variants of those names.
-Every tool step has observable `decision_basis` plus `tool_call` and `observation`.
+Every tool step has `decision_basis` plus `tool_call` and `observation`.
+`decision_basis` must cite an observable plan, observation, reflection, tool
+result, file/test status, requirement, or request rather than private intuition.
+Every terminal outcome must agree with its boolean `reward.success` label,
+including when later failure or negation reverses an earlier completion claim.
 
 ## Factory quotas
 

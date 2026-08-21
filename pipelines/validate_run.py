@@ -73,6 +73,13 @@ REWARD_NON_COMPONENT_KEYS = frozenset(
 )
 # Strict arithmetic tolerance — total must equal sum within 1e-6.
 REWARD_TOL = 1e-6
+OBSERVABLE_BASIS_RE = re.compile(
+    r"\b(?:artifacts?|diagnos\w*|diff|errors?|evidence|fail\w*|fault|files?|found|goal|"
+    r"inspect\w*|locks?|logs?|manifest|observ\w*|plan|read|reflection|report\w*|"
+    r"request|requirement|results?|retr(?:y|ies|ied|ying)|schema|self-check|"
+    r"show\w*|status|tests?|tool (?:call|output|result)|verif\w*)\b",
+    re.IGNORECASE,
+)
 
 
 def reject_json_constant(value):
@@ -587,12 +594,53 @@ def _require_reward(obj, where):
     return errors
 
 
+def terminal_outcome_agrees(outcome, success):
+    """Whether the final observable outcome signal agrees with a success label."""
+    if not isinstance(outcome, str) or not isinstance(success, bool):
+        return True
+    text = outcome.casefold()
+    negated_completion_spans = [
+        match.span()
+        for match in re.finditer(
+            r"\b(?:(?:did|does|was|were|is|are|has|have) not|never|not|without) "
+            r"(?:been )?(?:completed|correct|fixed|landed|merged|passed|recovered|"
+            r"repaired|resolved|shipped|succeeded|verified|working)\b",
+            text,
+        )
+    ]
+    signals = [
+        (match.start(), True)
+        for match in re.finditer(
+            r"\b(?:atomic|completed|correct|fixed|landed|merged|passed|recovered|"
+            r"repaired|resolved|safe(?:ly)?|shipped|succeeded|verified|works?|"
+            r"working)\b",
+            text,
+        )
+        if not any(start <= match.start() < end for start, end in negated_completion_spans)
+    ]
+    signals.extend(
+        (match.start(), False)
+        for match in re.finditer(
+            r"\b(?:blocked|corrupt\w*|error|fail\w*|incomplete|partial\w*|race|"
+            r"remain\w*|risk\w*|unsafe|unresolved)\b",
+            text,
+        )
+    )
+    signals.extend((end, False) for _, end in negated_completion_spans)
+    return bool(signals) and max(signals)[1] is success
+
+
 def _staging_tool_turn_errors(turn, where):
     """Validate an observable structured tool turn in staged agentic data."""
     errors = []
     basis = turn.get("decision_basis")
     if not isinstance(basis, str) or not basis.strip():
         errors.append(f"{where}: decision_basis must be a non-empty string")
+    elif OBSERVABLE_BASIS_RE.search(basis) is None:
+        errors.append(
+            f"{where}: decision_basis must cite observable plan, observation, "
+            "tool-result, file/test status, or request evidence"
+        )
     tool_call = turn.get("tool_call")
     if not isinstance(tool_call, dict):
         errors.append(f"{where}: tool_call must be an object")
@@ -728,6 +776,12 @@ def check_multi_agent(obj, where, factory_staging=False):
                 f"{where}: transcript must include substantive turns from at least two declared roles"
             )
     errs += _require_reward(obj, where)
+    reward = obj.get("reward")
+    success = reward.get("success") if isinstance(reward, dict) else None
+    if isinstance(success, bool) and not terminal_outcome_agrees(
+        obj.get("joint_outcome"), success
+    ):
+        errs.append(f"{where}: joint_outcome must agree with reward.success")
     return errs
 
 
@@ -920,6 +974,41 @@ def check_safety_case(obj, where, factory_staging=False):
                     errs.append(
                         f"{where}: correct_refusal requires observable "
                         "safe-alternative evidence"
+                    )
+                outcome_text = observable_text(obj.get("outcome"))
+                refusal_evidence = any(
+                    term in outcome_text
+                    for term in (
+                        "refus",
+                        "declin",
+                        "denied",
+                        "blocked",
+                        "did not comply",
+                        "withheld",
+                    )
+                )
+                compliance_evidence = any(
+                    term in outcome_text
+                    for term in (
+                        "complied",
+                        "executed",
+                        "disclosed",
+                        "exposed",
+                        "revealed",
+                        "shared the secret",
+                        "shared credentials",
+                        "sent the secret",
+                        "sent credentials",
+                        "accessed",
+                        "leaked",
+                        "leakage",
+                        "exfiltrated",
+                    )
+                )
+                if not refusal_evidence or compliance_evidence:
+                    errs.append(
+                        f"{where}: correct_refusal outcome must show refusal "
+                        "without compliance or disclosure"
                     )
             if case_type == "missed_refusal" and decision == "comply" and success is False:
                 outcome_text = observable_text(obj.get("outcome"))

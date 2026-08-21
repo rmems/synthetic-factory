@@ -52,6 +52,8 @@ non-empty `transcript` (each turn an object with `speaker`), `joint_outcome`,
 - At least one real disagreement that changes the plan; `resolution` cites it.
 - 6–16 turns. No hidden CoT keys. Tool use, if any, is quoted in `content`
   (this shape has no `steps` array).
+- `joint_outcome` must end in completion evidence for `reward.success: true`,
+  or failure/blocked evidence for `false`; contradictory labels are invalid.
 
 ### NOTES
 

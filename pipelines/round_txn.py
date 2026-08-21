@@ -34,7 +34,7 @@ if str(_PIPELINES) not in sys.path:
     sys.path.insert(0, str(_PIPELINES))
 
 from check_records import check_jsonl  # noqa: E402
-from validate_run import THALAMIC_CORE_KEYS  # noqa: E402
+from validate_run import THALAMIC_CORE_KEYS, terminal_outcome_agrees  # noqa: E402
 
 
 MODE_FILE = ".round-marker-mode.json"
@@ -1076,34 +1076,6 @@ def has_long_horizon_debug_loop(steps):
     return False
 
 
-def terminal_outcome_agrees(outcome, success):
-    """Whether terminal observable language agrees with a boolean success label."""
-    if not isinstance(outcome, str) or not isinstance(success, bool):
-        return True
-    text = outcome.casefold()
-    completions = list(
-        re.finditer(
-            r"\b(?:atomic|completed|correct|fixed|passed|safe(?:ly)?|succeeded|"
-            r"verified|works?)\b",
-            text,
-        )
-    )
-    failures = list(
-        re.finditer(
-            r"\b(?:blocked|corrupt\w*|error|fail\w*|incomplete|partial\w*|race|"
-            r"remain\w*|risk\w*|unsafe|unresolved)\b",
-            text,
-        )
-    )
-    if success:
-        return bool(completions) and (
-            not failures or failures[-1].start() < completions[-1].start()
-        )
-    return bool(failures) and (
-        not completions or completions[-1].start() < failures[-1].start()
-    )
-
-
 def abandoned_failed_hypotheses(steps):
     """Return distinct explicit hypothesis labels failed then abandoned later."""
     if not isinstance(steps, list):
@@ -1611,19 +1583,14 @@ def validate_agentic_envelope(batch: Path, factory_dir: Path, round_number: int)
                         r"verified)\b|all tests passed",
                         outcome_text,
                     )
-                    incomplete_evidence = re.search(
-                        r"\b(?:partial(?:ly)?|mitigat\w*|contain\w*|handoff|"
-                        r"handed off|blocked|incomplete|unresolved)\b",
-                        outcome_text,
-                    )
                     if (
                         completion_evidence is None
-                        or incomplete_evidence is not None
+                        or not terminal_outcome_agrees(outcome, True)
                     ):
                         errors.append(
                             f"{where}: recovered cascade outcome must report "
-                            "verified full recovery without partial, unresolved, "
-                            "or handoff claims"
+                            "verified full recovery without terminal failure, "
+                            "negation, partial, unresolved, or handoff claims"
                         )
             if (
                 not isinstance(cascade_steps, int)
@@ -1670,6 +1637,14 @@ def validate_agentic_envelope(batch: Path, factory_dir: Path, round_number: int)
                         errors.append(
                             f"{where}: diagnosis step must visibly name the fault"
                         )
+                    if not (
+                        shares_visible_terms(diagnosis, fault_text)
+                        and shares_visible_terms(diagnosis, diagnosis_text)
+                    ):
+                        errors.append(
+                            f"{where}: top-level diagnosis must remain grounded "
+                            "in the introduced fault and diagnosis step"
+                        )
                     recovery_step = steps[recovery_index]
                     recovery_basis = (
                         recovery_step.get("decision_basis")
@@ -1679,6 +1654,14 @@ def validate_agentic_envelope(batch: Path, factory_dir: Path, round_number: int)
                     if not shares_visible_terms(recovery_basis, diagnosis):
                         errors.append(
                             f"{where}: recovery decision_basis must cite the diagnosis"
+                        )
+                    if not (
+                        shares_visible_terms(recovery_basis, fault_text)
+                        and shares_visible_terms(recovery_basis, diagnosis_text)
+                    ):
+                        errors.append(
+                            f"{where}: recovery decision_basis must remain grounded "
+                            "in the introduced fault and diagnosis-step evidence"
                         )
         if factory_dir.name == "long-horizon-coding-factory" and isinstance(record, dict):
             scenario_signature = long_horizon_scenario_signature(record)
@@ -1729,7 +1712,11 @@ def validate_agentic_envelope(batch: Path, factory_dir: Path, round_number: int)
                     r"\b(?:fully|fixed|repaired|landed|completed|succeeded)\b|all tests passed",
                     outcome_text,
                 )
-                if success and (completion_evidence is None or partial_evidence is not None):
+                if success and (
+                    completion_evidence is None
+                    or partial_evidence is not None
+                    or not terminal_outcome_agrees(outcome, True)
+                ):
                     errors.append(
                         f"{where}: successful long-horizon outcome must report "
                         "observable verification without partial or handoff language"
