@@ -878,51 +878,58 @@ def nested_strings(value):
             yield from nested_strings(item)
 
 
-def agentic_trajectory_text(record: dict) -> str:
-    """Return ordered trajectory evidence without task-goal keyword claims."""
+def agentic_trajectory_units(record: dict) -> list[str]:
+    """Return separate ordered steps/terminal fields, excluding the task goal."""
     chosen = record.get("chosen")
     rejected = record.get("rejected")
-    values = [record.get("steps")]
+
+    def step_units(owner):
+        steps = owner.get("steps") if isinstance(owner, dict) else None
+        return steps if isinstance(steps, list) else []
+
+    values = [*step_units(record)]
     if isinstance(chosen, dict) or isinstance(rejected, dict):
         values.extend(
             (
-                chosen.get("steps") if isinstance(chosen, dict) else None,
-                rejected.get("steps") if isinstance(rejected, dict) else None,
+                *step_units(chosen),
+                *step_units(rejected),
                 record.get("critique"),
                 chosen.get("outcome") if isinstance(chosen, dict) else None,
                 rejected.get("outcome") if isinstance(rejected, dict) else None,
             )
         )
     values.append(record.get("outcome"))
-    return " ".join(
-        text.strip().casefold()
+    return [
+        " ".join(
+            text.strip().casefold()
+            for text in nested_strings(value)
+            if text.strip()
+        )
         for value in values
-        for text in nested_strings(value)
-        if text.strip()
-    )
+        if value is not None
+    ]
 
 
 def demonstrates_ordered_scenario(record: dict, scenario_terms) -> bool:
-    """Require each scenario phase in trajectory order, never in the goal alone."""
-    trajectory = agentic_trajectory_text(record)
+    """Require failure, correction, and verification in distinct ordered units."""
+    units = agentic_trajectory_units(record)
     cursor = 0
-    for alternatives in scenario_terms:
+    phase_start = max(0, len(scenario_terms) - 3)
+    for group_index, alternatives in enumerate(scenario_terms):
         matches = [
-            (position, len(term))
-            for term in alternatives
-            if (position := trajectory.find(term, cursor)) >= 0
+            index
+            for index in range(cursor, len(units))
+            if any(term in units[index] for term in alternatives)
         ]
         if not matches:
             return False
-        position, length = min(matches)
-        cursor = position + length
+        matched_index = matches[0]
+        cursor = matched_index + (1 if group_index >= phase_start else 0)
     return True
 
 
 def long_horizon_scenario_signature(record: dict):
-    """Return a stable codebase/bug-class signature, falling back to the goal."""
-    meta = record.get("meta")
-    meta = meta if isinstance(meta, dict) else {}
+    """Return the required explicit codebase/bug-class category signature."""
 
     def normalized_field(*values):
         for value in values:
@@ -930,22 +937,9 @@ def long_horizon_scenario_signature(record: dict):
                 return re.sub(r"\s+", " ", value.strip().casefold())
         return None
 
-    codebase = normalized_field(
-        record.get("codebase_type"),
-        record.get("codebase"),
-        record.get("repository"),
-        meta.get("codebase_type"),
-        meta.get("codebase"),
-        meta.get("repository"),
-    )
-    bug_class = normalized_field(
-        record.get("bug_class"),
-        meta.get("bug_class"),
-    )
-    if codebase is not None and bug_class is not None:
-        return ("explicit", codebase, bug_class)
-    goal = normalized_field(record.get("goal"))
-    return ("goal", goal) if goal is not None else None
+    codebase = normalized_field(record.get("codebase_type"))
+    bug_class = normalized_field(record.get("bug_class"))
+    return (codebase, bug_class) if codebase is not None and bug_class is not None else None
 
 
 def banned_agentic_wrapper_paths(value, path=""):
@@ -1036,11 +1030,18 @@ def observable_step_text(step):
     ).lower()
 
 
+def step_observation_text(step):
+    """Return only the recorded result of a step, excluding plans and commands."""
+    observation = step.get("observation") if isinstance(step, dict) else None
+    return observation.casefold() if isinstance(observation, str) else ""
+
+
 def has_long_horizon_debug_loop(steps):
     """Whether observable steps contain edit, failing test, re-read, fix, verify."""
     if not isinstance(steps, list):
         return False
     texts = [observable_step_text(step) for step in steps]
+    observations = [step_observation_text(step) for step in steps]
 
     def includes(text, terms):
         return any(term in text for term in terms)
@@ -1058,7 +1059,7 @@ def has_long_horizon_debug_loop(steps):
             failure_text = texts[failure_index]
             if not (
                 includes(failure_text, test_terms)
-                and includes(failure_text, failure_terms)
+                and includes(observations[failure_index], failure_terms)
             ):
                 continue
             for read_index in range(failure_index + 1, len(texts)):
@@ -1069,10 +1070,38 @@ def has_long_horizon_debug_loop(steps):
                         continue
                     return any(
                         includes(texts[verify_index], test_terms)
-                        and includes(texts[verify_index], verify_terms)
+                        and includes(observations[verify_index], verify_terms)
                         for verify_index in range(fix_index + 1, len(texts))
                     )
     return False
+
+
+def terminal_outcome_agrees(outcome, success):
+    """Whether terminal observable language agrees with a boolean success label."""
+    if not isinstance(outcome, str) or not isinstance(success, bool):
+        return True
+    text = outcome.casefold()
+    completions = list(
+        re.finditer(
+            r"\b(?:atomic|completed|correct|fixed|passed|safe(?:ly)?|succeeded|"
+            r"verified|works?)\b",
+            text,
+        )
+    )
+    failures = list(
+        re.finditer(
+            r"\b(?:blocked|corrupt\w*|error|fail\w*|incomplete|partial\w*|race|"
+            r"remain\w*|risk\w*|unsafe|unresolved)\b",
+            text,
+        )
+    )
+    if success:
+        return bool(completions) and (
+            not failures or failures[-1].start() < completions[-1].start()
+        )
+    return bool(failures) and (
+        not completions or completions[-1].start() < failures[-1].start()
+    )
 
 
 def abandoned_failed_hypotheses(steps):
@@ -1653,7 +1682,12 @@ def validate_agentic_envelope(batch: Path, factory_dir: Path, round_number: int)
                         )
         if factory_dir.name == "long-horizon-coding-factory" and isinstance(record, dict):
             scenario_signature = long_horizon_scenario_signature(record)
-            if scenario_signature is not None:
+            if scenario_signature is None:
+                errors.append(
+                    f"{where}: long-horizon episodes require explicit non-empty "
+                    "codebase_type and bug_class categories"
+                )
+            else:
                 long_horizon_scenario_signatures.append(scenario_signature)
             steps = record.get("steps")
             for index, step in enumerate(steps if isinstance(steps, list) else ()):
@@ -1917,6 +1951,13 @@ def validate_agentic_envelope(batch: Path, factory_dir: Path, round_number: int)
                         f"{where}: {side_name}.reward.success must be "
                         f"{str(required_success).lower()}"
                     )
+                if isinstance(success, bool) and not terminal_outcome_agrees(
+                    side.get("outcome"), success
+                ):
+                    errors.append(
+                        f"{where}: {side_name}.outcome must agree with "
+                        f"{side_name}.reward.success"
+                    )
         meta = record.get("meta") if isinstance(record, dict) else None
         if not isinstance(meta, dict):
             errors.append(f"{where}: agentic record meta must be an object")
@@ -1970,8 +2011,8 @@ def validate_agentic_envelope(batch: Path, factory_dir: Path, round_number: int)
         )
     if (
         factory_dir.name == "long-horizon-coding-factory"
-        and len(long_horizon_scenario_signatures) == 2
-        and len(set(long_horizon_scenario_signatures)) != 2
+        and len(set(long_horizon_scenario_signatures))
+        != FACTORY_QUOTAS["long-horizon-coding-factory"]
     ):
         errors.append(
             "long-horizon-coding-factory requires two distinct codebase and "

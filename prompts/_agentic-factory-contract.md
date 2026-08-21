@@ -57,7 +57,8 @@ Every tool step has observable `decision_basis` plus `tool_call` and `observatio
 Every row below is a fixed episode contract in addition to the shared envelope.
 Each record must show, in trajectory order, the stated failure mechanism, one
 bounded corrective action, and observable verification in its steps/outcome;
-keywords in `goal` do not count as evidence. Invented
+failure, correction, and verification must occupy distinct ordered steps or
+terminal fields. Keywords in `goal` do not count as evidence. Invented
 systems remain designed evidence rather than live claims.
 
 | slug | Q | required scenario and observable proof |

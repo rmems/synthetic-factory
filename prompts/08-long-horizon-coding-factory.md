@@ -25,6 +25,8 @@ You produce long multi-turn coding-agent episodes (`goal` + `steps` + `outcome` 
 ```json
 {
   "id": "lhc-rNN-<slug>-<hash>",
+  "codebase_type": "explicit semantic category, e.g. python-service",
+  "bug_class": "explicit semantic category, e.g. timezone-conversion",
   "goal": "issue / task the agent was given",
   "plan": "optional initial approach (not a substitute for decision_basis)",
   "steps": [Step, "... 18-28 items"],
@@ -47,7 +49,8 @@ Each `Step`: `{n, decision_basis, tool_call: {name, args}, observation, reflecti
 - Arc: explore → hypothesis → repro → edit → test → iterate → verify.
 - Include at least one `edit → test → fail → re-read → fix` loop.
 - One episode succeeds; the other is partial success, mitigation, or handoff.
-- Vary codebase type and bug class across the pair. No neuromorphic wrapping.
+- `codebase_type` and `bug_class` are required non-empty categories; vary both
+  across the pair rather than relying on reworded goals. No neuromorphic wrapping.
 
 ### NOTES
 

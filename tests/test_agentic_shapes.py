@@ -340,6 +340,24 @@ class AgenticShapes(unittest.TestCase):
             )
 
             record["steps"] = [
+                _step(
+                    1,
+                    "Package release artifact had a manifest provenance failure; "
+                    "repair it and verify the result passes",
+                ),
+                _step(2, "Inspect an unrelated timezone conversion"),
+            ]
+            record["outcome"] = "the unrelated timezone task completed"
+            batch.write_text(json.dumps(record) + "\n")
+
+            errors = round_txn.validate_agentic_envelope(batch, factory, 1)
+
+            self.assertTrue(
+                any("ordered trajectory evidence" in error for error in errors),
+                errors,
+            )
+
+            record["steps"] = [
                 _step(1, "Inspect the package release artifact manifest and verify it passes"),
                 _step(2, "Repair the broken provenance attestation"),
             ]
@@ -621,6 +639,69 @@ class AgenticShapes(unittest.TestCase):
                 errors,
             )
 
+    def test_long_horizon_requires_explicit_scenario_categories(self):
+        with tempfile.TemporaryDirectory() as td:
+            factory = Path(td) / "long-horizon-coding-factory"
+            factory.mkdir()
+            records = [episode(f"missing-category-{index}") for index in range(2)]
+            for index, record in enumerate(records):
+                record.pop("codebase_type")
+                record.pop("bug_class")
+                record["goal"] = (
+                    "fix timezone conversion" if index == 0
+                    else "repair the timezone converter"
+                )
+                record["steps"] = long_horizon_steps()
+            records[1]["reward"]["success"] = False
+            records[1]["outcome"] = "mitigated and handed off"
+            batch = factory / "batch-r01.jsonl"
+            batch.write_text(
+                "".join(json.dumps(record) + "\n" for record in records)
+            )
+
+            errors = round_txn.validate_agentic_envelope(batch, factory, 1)
+
+            self.assertTrue(
+                any("explicit non-empty codebase_type and bug_class" in error for error in errors),
+                errors,
+            )
+            self.assertTrue(
+                any("distinct codebase and bug-class scenarios" in error for error in errors),
+                errors,
+            )
+
+    def test_long_horizon_debug_results_must_be_observed(self):
+        with tempfile.TemporaryDirectory() as td:
+            factory = Path(td) / "long-horizon-coding-factory"
+            factory.mkdir()
+            record = episode("fabricated-debug-result")
+            record["steps"] = long_horizon_steps()
+            record["steps"][3]["tool_call"]["args"]["command"] = (
+                "pytest timezone || echo failed"
+            )
+            record["steps"][3]["observation"] = "test was not run"
+            batch = factory / "batch-r01.jsonl"
+            batch.write_text(json.dumps(record) + "\n")
+
+            errors = round_txn.validate_agentic_envelope(batch, factory, 1)
+
+            self.assertTrue(
+                any("passing verification loop" in error for error in errors), errors
+            )
+
+            record["steps"][3]["observation"] = "test failed with DST error"
+            record["steps"][6]["tool_call"]["args"]["command"] = (
+                "pytest timezone || echo passed"
+            )
+            record["steps"][6]["observation"] = "verification was not run"
+            batch.write_text(json.dumps(record) + "\n")
+
+            errors = round_txn.validate_agentic_envelope(batch, factory, 1)
+
+            self.assertTrue(
+                any("passing verification loop" in error for error in errors), errors
+            )
+
     def test_bad_case_type_rejected(self):
         rec = safety_case()
         rec["case_type"] = "false_positive"
@@ -780,6 +861,27 @@ class AgenticShapes(unittest.TestCase):
             self.assertTrue(
                 any("non-empty lesson_category" in error for error in errors),
                 errors,
+            )
+
+    def test_preference_side_outcomes_must_match_success_labels(self):
+        with tempfile.TemporaryDirectory() as td:
+            factory = Path(td) / "tool-use-preference-factory"
+            factory.mkdir()
+            record = episode_preference()
+            record["chosen"]["outcome"] = "operation failed and corrupted output"
+            record["rejected"]["outcome"] = (
+                "operation completed safely and passed all tests"
+            )
+            batch = factory / "batch-r01.jsonl"
+            batch.write_text(json.dumps(record) + "\n")
+
+            errors = round_txn.validate_agentic_envelope(batch, factory, 1)
+
+            self.assertTrue(
+                any("chosen.outcome must agree" in error for error in errors), errors
+            )
+            self.assertTrue(
+                any("rejected.outcome must agree" in error for error in errors), errors
             )
 
     def test_episode_preference_rejects_inverted_side_rewards(self):

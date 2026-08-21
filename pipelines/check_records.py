@@ -27,6 +27,7 @@ from validate_run import (  # noqa: E402
     _episode_like,
     check_line,
     event_time,
+    reject_json_constant,
 )
 
 TOL = 1e-6
@@ -56,11 +57,6 @@ WEIGHT_ALIASES = {
 # state.sim_or_real vocabulary.
 ALLOWED_PROVENANCE = ALLOWED_SIM_OR_REAL
 ROUNDING_RE = re.compile(r"(?:rounded?\s+(?:to\s+)?)?(\d+)[- ]decimal", re.I)
-
-
-def reject_json_constant(value):
-    """Reject Python's non-standard NaN and Infinity JSON extensions."""
-    raise ValueError(f"non-standard JSON numeric constant {value}")
 
 
 def is_number(value):

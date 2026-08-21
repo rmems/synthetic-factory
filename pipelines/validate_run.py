@@ -75,6 +75,11 @@ REWARD_NON_COMPONENT_KEYS = frozenset(
 REWARD_TOL = 1e-6
 
 
+def reject_json_constant(value):
+    """Reject Python's non-standard NaN and Infinity JSON extensions."""
+    raise ValueError(f"non-standard JSON numeric constant {value}")
+
+
 def is_number(value):
     return (
         isinstance(value, (int, float))
@@ -1097,8 +1102,8 @@ def main(argv=None):
                 continue
             where = f"{rel}:{lineno}"
             try:
-                obj = json.loads(line)
-            except json.JSONDecodeError as exc:
+                obj = json.loads(line, parse_constant=reject_json_constant)
+            except (json.JSONDecodeError, ValueError) as exc:
                 entry["errors"].append(f"{where}: JSON parse error: {exc}")
                 continue
             errs, kind = check_line(obj, where)
