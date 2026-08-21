@@ -1,0 +1,40 @@
+prompts/_agentic-factory-contract.md
+  s_a101c3059277fd::t_ee2833f29b737b 30-31,58-60
+tests/test_agentic_shapes.py
+  s_a101c3059277fd::t_52cf8af9de443d 60-72,90
+  s_a101c3059277fd::t_de1c33e9795a1f 460,472-499,1460
+  s_a101c3059277fd::t_99a450ecaedf90 729-731,734,753-755
+  s_a101c3059277fd::t_8ed7bb52a01158 500-511
+  s_a101c3059277fd::t_d0a221b47a0d37 319-341,382-384
+  s_a101c3059277fd::t_341906a9c64ee6 342-355
+  s_a101c3059277fd::t_67a37d515e79a5 769-784
+tests/test_publish_grok46_hub.py
+  s_a101c3059277fd::t_3c88d65a625225 567,617,660,954-956,959-972
+pipelines/curate_agentic.py
+  s_a101c3059277fd::t_977670adb96305 115-117
+  s_a101c3059277fd::t_38f433b1a99f58 25,95-103,129
+pipelines/round_txn.py
+  s_a101c3059277fd::t_b3fbb8daae7fee 881-896,905-921,1112-1149,1506,1509-1510,1799,1875-1888,1982-1983
+prompts/10-tool-use-preference-factory.md
+  s_a101c3059277fd::t_ee2833f29b737b 29,59-60
+scripts/publish_grok46_hub.py
+  s_a101c3059277fd::t_09ad12726e7a6c 465-469,569
+tests/test_curate_agentic.py
+  s_a101c3059277fd::t_0bf2b1fe35f8c1 246,249-253,255,261,267,272
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "8676c15c515a849a4784d98ac619596366f1ef2e",
+  "prompts": {},
+  "sessions": {
+    "s_a101c3059277fd": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a01e14-4bc2-7890-a7ce-1c993a8df50a",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Raul Montoya Cardenas <montoyaraul34@gmail.com>"
+    }
+  }
+}
