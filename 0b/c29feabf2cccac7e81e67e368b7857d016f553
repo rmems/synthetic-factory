@@ -1,0 +1,28 @@
+pipelines/validate_run.py
+  s_a101c3059277fd::t_6eb71b9fa461f6 902
+  s_a101c3059277fd::t_50e548093f1138 605,609,903
+tests/test_agentic_shapes.py
+  s_a101c3059277fd::t_7516c5e2375c2f 1777-1788,1790,1792-1793
+  s_a101c3059277fd::t_50e548093f1138 1776,1789,1791,1794,1815,1818-1822
+.claude/skills/run-synthetic-factory/driver.py
+  s_a101c3059277fd::t_c0b9369bba7cba 220-223
+  s_a101c3059277fd::t_50e548093f1138 177,179,214,510-514,518-519
+tests/test_factory_driver.py
+  s_a101c3059277fd::t_50e548093f1138 238-284
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "0bc29feabf2cccac7e81e67e368b7857d016f553",
+  "prompts": {},
+  "sessions": {
+    "s_a101c3059277fd": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a01e14-4bc2-7890-a7ce-1c993a8df50a",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Raul Montoya Cardenas <montoyaraul34@gmail.com>"
+    }
+  }
+}
