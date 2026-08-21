@@ -127,7 +127,7 @@ def cmd_audit(run_dir):
             if not factory.is_dir() or factory.is_symlink() or marker_mode_path(factory) is None:
                 continue
             committed = set(committed_jsonl_paths(factory))
-            for path in factory.glob("*.jsonl"):
+            for path in factory.rglob("*.jsonl"):
                 if path not in committed:
                     path.unlink()
         commands = (

@@ -197,10 +197,19 @@ class FactoryDriverAudit(unittest.TestCase):
                 + "\n"
             )
             (factory / "batch-r02.jsonl").write_text('{"id":"interrupted"}\n')
+            nested = factory / "work"
+            nested.mkdir()
+            (nested / "batch-r03.jsonl").write_text('{"id":"nested-interrupted"}\n')
             seen = []
 
             def observe_snapshot(_script, snapshot, *_options):
-                seen.append({path.name for path in (snapshot / factory.name).glob("*.jsonl")})
+                snap_factory = snapshot / factory.name
+                seen.append(
+                    {
+                        path.relative_to(snap_factory).as_posix()
+                        for path in snap_factory.rglob("*.jsonl")
+                    }
+                )
                 return 0, "", ""
 
             with mock.patch.object(factory_driver, "run_tool", side_effect=observe_snapshot), redirect_stdout(

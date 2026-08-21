@@ -212,6 +212,30 @@ class AgenticShapes(unittest.TestCase):
         self.assertEqual(round_txn.FACTORY_QUOTAS["safety-calibration-factory"], 3)
         self.assertEqual(round_txn.FACTORY_QUOTAS["sparse-reward-long-task-factory"], 1)
 
+    def test_publish_rechecks_the_fixed_quota_in_the_reservation(self):
+        with tempfile.TemporaryDirectory() as td:
+            factory = (
+                Path(td)
+                / "outputs"
+                / "raw"
+                / "2099-01-01"
+                / "long-horizon-coding-factory"
+            )
+            factory.mkdir(parents=True)
+            reservation = round_txn.reserve(factory, 1, 2)
+            reservation_path = factory / "ROUND-r01.reserved.json"
+            edited = json.loads(reservation_path.read_text())
+            edited["expected_records"] = 1
+            reservation_path.write_text(json.dumps(edited) + "\n")
+            stage = Path(reservation["staging_dir"])
+            (stage / reservation["batch_file"]).write_text(
+                json.dumps(episode("lhc-r01-edited-reservation")) + "\n"
+            )
+            (stage / reservation["notes_file"]).write_text("Novel coverage: 70%\n")
+
+            with self.assertRaisesRegex(round_txn.TransactionError, "requires exactly 2"):
+                round_txn.publish(factory, 1, reservation["token"])
+
     def test_bad_case_type_rejected(self):
         rec = safety_case()
         rec["case_type"] = "false_positive"
@@ -409,6 +433,15 @@ class AgenticShapes(unittest.TestCase):
             )
             (stage / reservation["notes_file"]).write_text("Novel coverage: 80%\n")
 
+            with self.assertRaisesRegex(round_txn.TransactionError, "one full recovery"):
+                round_txn.publish(factory, 1, reservation["token"])
+
+            records[1]["reward"]["success"] = False
+            records[1]["reward"]["recovered"] = 0
+            records[1]["outcome"] = "fault contained and handed off for repair"
+            (stage / reservation["batch_file"]).write_text(
+                "".join(json.dumps(record) + "\n" for record in records)
+            )
             manifest = round_txn.publish(factory, 1, reservation["token"])
 
             self.assertEqual(manifest["records"], 2)

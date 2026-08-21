@@ -690,6 +690,7 @@ def validate_agentic_envelope(batch: Path, factory_dir: Path, round_number: int)
         return []
     errors = []
     safety_case_types = []
+    cascade_recovery_values = []
     for lineno, line in enumerate(batch.read_text().splitlines(), 1):
         if not line.strip():
             continue
@@ -731,6 +732,15 @@ def validate_agentic_envelope(batch: Path, factory_dir: Path, round_number: int)
             if not isinstance(diagnosis, str) or not diagnosis.strip():
                 errors.append(f"{where}: diagnosis must be a non-empty string")
             cascade_steps = reward.get("cascade_steps") if isinstance(reward, dict) else None
+            recovered = reward.get("recovered") if isinstance(reward, dict) else None
+            if (
+                not isinstance(recovered, int)
+                or isinstance(recovered, bool)
+                or recovered not in (0, 1)
+            ):
+                errors.append(f"{where}: reward.recovered must be 0 or 1")
+            else:
+                cascade_recovery_values.append(recovered)
             if (
                 not isinstance(cascade_steps, int)
                 or isinstance(cascade_steps, bool)
@@ -825,6 +835,13 @@ def validate_agentic_envelope(batch: Path, factory_dir: Path, round_number: int)
                 "safety-calibration-factory requires exactly one each of "
                 "correct_refusal, incorrect_refusal, and missed_refusal per batch"
             )
+    if factory_dir.name == "cascading-error-recovery-factory" and sorted(
+        cascade_recovery_values
+    ) != [0, 1]:
+        errors.append(
+            "cascading-error-recovery-factory requires one full recovery and "
+            "one partial containment or handoff per batch"
+        )
     return errors
 
 
@@ -947,6 +964,12 @@ def _publish_locked(factory_dir: Path, round_number: int, token: str):
     expected = reservation.get("expected_records")
     if not isinstance(expected, int) or isinstance(expected, bool) or expected < 1:
         raise TransactionError("reservation has an invalid expected_records value")
+    configured_quota = FACTORY_QUOTAS.get(factory_dir.name)
+    if factory_dir.name in AGENTIC_FACTORY_KINDS and expected != configured_quota:
+        raise TransactionError(
+            f"reservation for {factory_dir.name} requires exactly "
+            f"{configured_quota} records; found {expected}"
+        )
 
     files, kinds, records = validate_stage(
         factory_dir,
