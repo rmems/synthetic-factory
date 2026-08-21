@@ -36,8 +36,10 @@ if str(PIPELINES_ROOT) not in sys.path:
     sys.path.insert(0, str(PIPELINES_ROOT))
 
 from round_txn import (  # noqa: E402
+    FACTORY_QUOTAS as TRANSACTION_FACTORY_QUOTAS,
     discover_legacy_frontier as transaction_legacy_frontier,
     discover_legacy_named_baseline as transaction_legacy_named_baseline,
+    valid_legacy_file as transaction_valid_legacy_file,
 )
 
 LICENSE_SRC = REPO_ROOT / "LICENSE"
@@ -502,6 +504,33 @@ def discovered_legacy_frontier(src: Path) -> tuple[int, int]:
     return transaction_legacy_frontier(src), transaction_legacy_named_baseline(src)
 
 
+def validate_legacy_baseline_payloads(src: Path, baseline: int) -> None:
+    """Deep-check every regular legacy payload exposed by a marker baseline."""
+    records_by_round = {}
+    for path in sorted(src.glob("*.jsonl")):
+        if not is_regular_source_file(path):
+            continue
+        label = batch_label(path)
+        if label is not None:
+            round_number = label[0]
+            if round_number > baseline:
+                continue
+        elif path.name in LEGACY_R1_NAMES and baseline >= 1:
+            round_number = 1
+        else:
+            continue
+        records = transaction_valid_legacy_file(path)
+        if records < 1:
+            raise SystemExit(f"invalid legacy payload covered by marker baseline: {path}")
+        records_by_round[round_number] = records_by_round.get(round_number, 0) + records
+    quota = TRANSACTION_FACTORY_QUOTAS.get(src.name, 1)
+    for round_number, records in records_by_round.items():
+        if records < quota:
+            raise SystemExit(
+                f"legacy payloads for r{round_number:02d} do not meet quota {quota}: {src}"
+            )
+
+
 def marker_mode_state(src: Path) -> tuple[int | None, dict[int, dict]]:
     """Return a factory's marker-mode baseline and validated manifests once."""
     mode_path = src / ".round-marker-mode.json"
@@ -529,6 +558,7 @@ def marker_mode_state(src: Path) -> tuple[int | None, dict[int, dict]]:
         )
     if baseline < legacy_named_baseline:
         raise SystemExit(f"legacy_baseline in {mode_path} excludes legacy r01 payloads")
+    validate_legacy_baseline_payloads(src, baseline)
     return baseline, manifests
 
 

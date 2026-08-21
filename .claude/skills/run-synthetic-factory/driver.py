@@ -83,10 +83,15 @@ def run_tool(script, run_dir, *options):
     return proc.returncode, proc.stdout, proc.stderr
 
 
-def snapshot_to_temp(src, prefix):
+def reject_snapshot_symlinks(src):
+    """Reject source trees whose snapshot would dereference external paths."""
     for path in src.rglob("*"):
         if path.is_symlink():
             raise TransactionError(f"cannot snapshot unsafe symlinked path: {path}")
+
+
+def snapshot_to_temp(src, prefix):
+    reject_snapshot_symlinks(src)
     temp = tempfile.TemporaryDirectory(prefix=prefix)
     snap = Path(temp.name) / src.name
     shutil.copytree(src, snap)
@@ -353,6 +358,7 @@ def cmd_snapshot(run_dir, label):
     dst = src.parent / f"{src.name}-{label}"
     if dst.exists():
         raise SystemExit(f"refusing to overwrite existing snapshot: {dst}")
+    reject_snapshot_symlinks(src)
     shutil.copytree(src, dst)
     records = sum(count_nonblank_lines(path) for path in dst.rglob("*.jsonl"))
     print(f"snapshot: {dst} ({records} records)")

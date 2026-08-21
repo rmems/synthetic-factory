@@ -40,12 +40,18 @@ def episode_preference():
         "id": "tup-r01-lock",
         "goal": "write output.json atomically",
         "chosen": {
-            "steps": [_step(1, "Plan: write temp then rename")],
+            "steps": [
+                _step(index, "Plan: write temp then rename")
+                for index in range(1, 5)
+            ],
             "outcome": "rename is atomic",
             "reward": {"success": True},
         },
         "rejected": {
-            "steps": [_step(1, "Plan: write destination in place")],
+            "steps": [
+                _step(index, "Plan: write destination in place")
+                for index in range(1, 5)
+            ],
             "outcome": "partial file visible to readers",
             "reward": {"success": False},
         },
@@ -84,10 +90,13 @@ def multi_agent():
         "transcript": [
             {"n": 1, "speaker": "implementer", "content": "Ship it; tests pass."},
             {"n": 2, "speaker": "reviewer", "content": "Tests miss the TTL race."},
-            {"n": 3, "speaker": "implementer", "content": "Adding a TTL test, then ship."},
+            {"n": 3, "speaker": "implementer", "content": "I can reproduce the TTL race."},
+            {"n": 4, "speaker": "reviewer", "content": "Add the failing TTL test before patching."},
+            {"n": 5, "speaker": "implementer", "content": "The TTL test fails and the patch fixes it."},
+            {"n": 6, "speaker": "reviewer", "content": "The TTL race is covered; ship the patch."},
         ],
         "disagreements": ["TTL race coverage"],
-        "resolution": "add failing test then patch",
+        "resolution": "cover the TTL race with a failing test before the patch",
         "joint_outcome": "patch + test merged",
         "reward": {"success": True},
         "meta": {"factory": "multi-agent-coordination-factory", "round": 1, "generator": "grok-4.6"},
@@ -251,6 +260,8 @@ class AgenticShapes(unittest.TestCase):
             record = episode("srl-r01-invalid", factory=factory.name)
             record["steps"] = [_step(7)]
             record["steps"][0]["reward"] = {"score": 1}
+            record["steps"][0]["score"] = 1
+            record["steps"][0]["tests_passed"] = 14
             record["reward"].update({"terminal_only": False, "horizon_steps": 99})
             (stage / reservation["batch_file"]).write_text(json.dumps(record) + "\n")
             (stage / reservation["notes_file"]).write_text("Novel coverage: 80%\n")
@@ -262,6 +273,8 @@ class AgenticShapes(unittest.TestCase):
             self.assertIn("require 25 to 60 steps", message)
             self.assertIn("numbered contiguously from 1", message)
             self.assertIn("must not carry reward", message)
+            self.assertIn("intermediate score", message)
+            self.assertIn("intermediate tests_passed", message)
             self.assertIn("reward.horizon_steps", message)
             self.assertIn("reward.terminal_only must be true", message)
             self.assertFalse((factory / "ROUND-r01.complete.json").exists())
@@ -302,10 +315,12 @@ class AgenticShapes(unittest.TestCase):
 
             self.assertIn("require 18 to 28 steps", str(raised.exception))
             self.assertIn("numbered contiguously from 1", str(raised.exception))
+            self.assertIn("requires one success and one partial", str(raised.exception))
             self.assertFalse((factory / "ROUND-r01.complete.json").exists())
 
             for record in records:
                 record["steps"] = [_step(index) for index in range(1, 19)]
+            records[1]["reward"]["success"] = False
             (stage / reservation["batch_file"]).write_text(
                 "".join(json.dumps(record) + "\n" for record in records)
             )
@@ -437,6 +452,37 @@ class AgenticShapes(unittest.TestCase):
 
             self.assertIn("chosen.reward.success must be true", str(raised.exception))
             self.assertIn("rejected.reward.success must be false", str(raised.exception))
+            self.assertFalse((factory / "ROUND-r01.complete.json").exists())
+
+    def test_tool_use_preference_publish_enforces_step_bounds(self):
+        with tempfile.TemporaryDirectory() as td:
+            factory = (
+                Path(td)
+                / "outputs"
+                / "raw"
+                / "2099-01-01"
+                / "tool-use-preference-factory"
+            )
+            factory.mkdir(parents=True)
+            reservation = round_txn.reserve(factory, 1, 3)
+            stage = Path(reservation["staging_dir"])
+            records = []
+            for index in range(3):
+                record = episode_preference()
+                record["id"] = f"tup-r01-short-{index}"
+                record["chosen"]["steps"] = record["chosen"]["steps"][:1]
+                record["rejected"]["steps"] = record["rejected"]["steps"][:1]
+                records.append(record)
+            (stage / reservation["batch_file"]).write_text(
+                "".join(json.dumps(record) + "\n" for record in records)
+            )
+            (stage / reservation["notes_file"]).write_text("Novel coverage: 80%\n")
+
+            with self.assertRaises(round_txn.TransactionError) as raised:
+                round_txn.publish(factory, 1, reservation["token"])
+
+            self.assertIn("tool-use preference chosen episodes require 4 to 10", str(raised.exception))
+            self.assertIn("tool-use preference rejected episodes require 4 to 10", str(raised.exception))
             self.assertFalse((factory / "ROUND-r01.complete.json").exists())
 
     def test_agentic_preference_rejects_thalamic_wrapped_sides(self):
@@ -736,6 +782,38 @@ class AgenticShapes(unittest.TestCase):
             (stage / reservation["notes_file"]).write_text("Novel coverage: 70%\n")
 
             with self.assertRaisesRegex(round_txn.TransactionError, "not training-ready"):
+                round_txn.publish(factory, 1, reservation["token"])
+
+    def test_multi_agent_publish_requires_grounded_disagreement_resolution(self):
+        with tempfile.TemporaryDirectory() as td:
+            factory = (
+                Path(td)
+                / "outputs"
+                / "raw"
+                / "2099-01-01"
+                / "multi-agent-coordination-factory"
+            )
+            factory.mkdir(parents=True)
+            reservation = round_txn.reserve(factory, 1, 1)
+            stage = Path(reservation["staging_dir"])
+            record = multi_agent()
+            record["transcript"] = [
+                {
+                    "n": index,
+                    "speaker": "implementer" if index % 2 else "reviewer",
+                    "content": "Routine status update with no disputed deployment evidence.",
+                }
+                for index in range(1, 7)
+            ]
+            record["disagreements"] = ["database rollback checkpoint"]
+            record["resolution"] = "rotate the authentication key"
+            (stage / reservation["batch_file"]).write_text(json.dumps(record) + "\n")
+            (stage / reservation["notes_file"]).write_text("Novel coverage: 70%\n")
+
+            with self.assertRaisesRegex(
+                round_txn.TransactionError,
+                "resolution must cite a disagreement grounded earlier",
+            ):
                 round_txn.publish(factory, 1, reservation["token"])
 
     def test_agentic_reservation_binds_configured_quota(self):

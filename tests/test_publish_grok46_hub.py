@@ -561,6 +561,21 @@ class PublishGrok46HubTests(unittest.TestCase):
             with self.assertRaisesRegex(SystemExit, "exceeds discovered legacy frontier"):
                 publisher.published_batches(source)
 
+    def test_marker_mode_rejects_malformed_payload_below_valid_legacy_frontier(self):
+        with tempfile.TemporaryDirectory() as td:
+            source = Path(td) / ITEM["slug"]
+            source.mkdir()
+            (source / "batch-r25.jsonl").write_text("{not-json\n")
+            write_valid_legacy(source / "batch-r26.jsonl")
+            (source / ".round-marker-mode.json").write_text(
+                '{"version":1,"legacy_baseline":26,"commit_point":"ROUND-rNN.complete.json"}\n'
+            )
+
+            with self.assertRaisesRegex(
+                SystemExit, "invalid legacy payload covered by marker baseline"
+            ):
+                publisher.published_batches(source)
+
     def test_snapshot_rechecks_manifest_digest_after_visibility_selection(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)

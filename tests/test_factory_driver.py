@@ -154,6 +154,20 @@ class FactoryDriverBytes(unittest.TestCase):
                 factory_driver.cmd_snapshot(run, "bytes")
             self.assertEqual((Path(td) / "run-bytes" / "bad-bytes.jsonl").read_bytes(), b"{}\xff\n")
 
+    def test_named_snapshot_refuses_symlinked_source_payloads(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            run = root / "run"
+            run.mkdir()
+            outside = root / "outside.jsonl"
+            outside.write_text('{"id":"external"}\n')
+            (run / "batch-r01.jsonl").symlink_to(outside)
+
+            with self.assertRaisesRegex(TransactionError, "unsafe symlinked path"):
+                factory_driver.cmd_snapshot(run, "safe")
+
+            self.assertFalse((root / "run-safe").exists())
+
 
 class FactoryDriverAudit(unittest.TestCase):
     def test_audit_refuses_a_symlinked_source_payload(self):

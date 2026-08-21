@@ -126,6 +126,29 @@ class RoundTransaction(unittest.TestCase):
             self.assertEqual(sentinel.read_text(), "do not delete\n")
             self.assertTrue((factory / "ROUND-r01.reserved.json").is_file())
 
+    def test_publish_refuses_a_symlinked_staging_directory(self):
+        with tempfile.TemporaryDirectory() as td:
+            factory = self.factory(td)
+            reservation = round_txn.reserve(factory, 1, 1)
+            stage = Path(reservation["staging_dir"])
+            outside = Path(td) / "outside-publish-stage"
+            outside.mkdir()
+            write_records(outside / reservation["batch_file"], [thalamic("outside")])
+            (outside / reservation["notes_file"]).write_text("# Critique\n\nExternal.\n")
+            sentinel = outside / "keep.txt"
+            sentinel.write_text("do not delete\n")
+            stage.rmdir()
+            stage.symlink_to(outside, target_is_directory=True)
+
+            with self.assertRaisesRegex(
+                round_txn.TransactionError, "staging directory is unsafe"
+            ):
+                round_txn.publish(factory, 1, reservation["token"])
+
+            self.assertEqual(sentinel.read_text(), "do not delete\n")
+            self.assertTrue(outside.is_dir())
+            self.assertFalse((factory / "ROUND-r01.complete.json").exists())
+
     def test_abort_rejects_a_traversal_token_before_removing_any_directory(self):
         with tempfile.TemporaryDirectory() as td:
             factory = self.factory(td)
@@ -192,6 +215,41 @@ class RoundTransaction(unittest.TestCase):
             manifest = round_txn.publish(factory, 1, reservation["token"])
             self.assertEqual(manifest["records"], 1)
             self.assertTrue((factory / "ROUND-r01.complete.json").is_file())
+
+    def test_resume_rejects_corrupted_immutable_publishing_fields(self):
+        for field, value in (
+            ("version", 2),
+            ("commit_point", "ROUND-r99.complete.json"),
+        ):
+            with self.subTest(field=field), tempfile.TemporaryDirectory() as td:
+                factory = self.factory(td)
+                reservation = round_txn.reserve(factory, 1, 1)
+                self.fill_stage(reservation, [thalamic(f"resume-{field}")])
+                real_link = round_txn.os.link
+                calls = {"count": 0}
+
+                def interrupt_completion_link(*args, **kwargs):
+                    calls["count"] += 1
+                    if calls["count"] == 3:
+                        raise OSError("simulated interruption")
+                    return real_link(*args, **kwargs)
+
+                with mock.patch.object(
+                    round_txn.os, "link", side_effect=interrupt_completion_link
+                ):
+                    with self.assertRaisesRegex(OSError, "simulated interruption"):
+                        round_txn.publish(factory, 1, reservation["token"])
+
+                publishing = factory / "ROUND-r01.publishing.json"
+                payload = json.loads(publishing.read_text())
+                payload[field] = value
+                publishing.write_text(json.dumps(payload) + "\n")
+
+                with self.assertRaisesRegex(
+                    round_txn.TransactionError, "publishing plan conflicts"
+                ):
+                    round_txn.publish(factory, 1, reservation["token"])
+                self.assertFalse((factory / "ROUND-r01.complete.json").exists())
 
     def test_abort_waits_for_inflight_publish_before_cleaning_stage(self):
         with tempfile.TemporaryDirectory() as td:
@@ -350,6 +408,41 @@ class RoundTransaction(unittest.TestCase):
             self.assertTrue((factory / "ROUND-r01.reserved.json").is_file())
             self.assertFalse((factory / "batch-r01.jsonl").exists())
             self.assertFalse((factory / "ROUND-r01.complete.json").exists())
+
+    def test_publish_rejects_bytes_changed_after_record_validation(self):
+        with tempfile.TemporaryDirectory() as td:
+            factory = self.factory(td)
+            reservation = round_txn.reserve(factory, 1, 1)
+            stage = self.fill_stage(reservation, [thalamic("validated-bytes")])
+            batch = stage / reservation["batch_file"]
+            real_check_jsonl = round_txn.check_jsonl
+
+            def mutate_after_check(path, *args, **kwargs):
+                result = real_check_jsonl(path, *args, **kwargs)
+                if Path(path) == batch:
+                    batch.write_text("{not-json\n")
+                return result
+
+            with mock.patch.object(
+                round_txn, "check_jsonl", side_effect=mutate_after_check
+            ):
+                with self.assertRaisesRegex(
+                    round_txn.TransactionError, "changed during validation"
+                ):
+                    round_txn.publish(factory, 1, reservation["token"])
+
+            self.assertFalse((factory / "ROUND-r01.complete.json").exists())
+
+    def test_invalid_utf8_completion_marker_is_a_transaction_error(self):
+        with tempfile.TemporaryDirectory() as td:
+            factory = self.factory(td)
+            round_txn.ensure_marker_mode(factory)
+            (factory / "ROUND-r01.complete.json").write_bytes(b"{\xff}\n")
+
+            with self.assertRaisesRegex(
+                round_txn.TransactionError, "cannot read transaction file"
+            ):
+                round_txn.frontier_status(factory)
 
     def test_invalid_utf8_staged_notes_report_a_transaction_error(self):
         with tempfile.TemporaryDirectory() as td:

@@ -22,6 +22,7 @@ import json
 import os
 import re
 import shutil
+import stat
 import sys
 import uuid
 from datetime import datetime, timezone
@@ -189,7 +190,7 @@ def write_exclusive_json(path: Path, payload: dict):
 def read_json(path: Path):
     try:
         value = json.loads(path.read_text())
-    except (OSError, json.JSONDecodeError) as exc:
+    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
         raise TransactionError(f"cannot read transaction file {path}: {exc}") from exc
     if not isinstance(value, dict):
         raise TransactionError(f"transaction file must contain an object: {path}")
@@ -206,23 +207,56 @@ def marker_mode_path(factory_dir: Path) -> Path | None:
     return mode_path
 
 
+def regular_file_metadata(path: Path):
+    """Return size and digest from one no-follow regular-file descriptor."""
+    flags = os.O_RDONLY
+    if hasattr(os, "O_NOFOLLOW"):
+        flags |= os.O_NOFOLLOW
+    try:
+        fd = os.open(path, flags)
+    except OSError as exc:
+        raise TransactionError(f"cannot open regular file safely {path}: {exc}") from exc
+    try:
+        metadata = os.fstat(fd)
+        if not stat.S_ISREG(metadata.st_mode):
+            raise TransactionError(f"unsafe non-regular file: {path}")
+        digest = hashlib.sha256()
+        with os.fdopen(fd, "rb") as handle:
+            fd = -1
+            for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+                digest.update(chunk)
+        return metadata.st_size, digest.hexdigest()
+    finally:
+        if fd >= 0:
+            os.close(fd)
+
+
 def file_sha256(path: Path):
-    digest = hashlib.sha256()
-    with path.open("rb") as handle:
-        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
+    _size, digest = regular_file_metadata(path)
+    return digest
 
 
 def copy_verified_exclusive(source: Path, destination: Path, expected_sha256: str):
     """Atomically publish a verified copy without sharing the staged inode."""
+    source_flags = os.O_RDONLY
+    if hasattr(os, "O_NOFOLLOW"):
+        source_flags |= os.O_NOFOLLOW
+    try:
+        source_fd = os.open(source, source_flags)
+    except OSError as exc:
+        raise TransactionError(f"cannot open staged file safely {source}: {exc}") from exc
+    if not stat.S_ISREG(os.fstat(source_fd).st_mode):
+        os.close(source_fd)
+        raise TransactionError(f"staged source is not a regular file: {source}")
     temporary = destination.parent / f".{destination.name}.{uuid.uuid4().hex}.publishing"
     flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
     if hasattr(os, "O_NOFOLLOW"):
         flags |= os.O_NOFOLLOW
-    fd = os.open(temporary, flags, 0o644)
+    fd = -1
     try:
-        with source.open("rb") as input_handle, os.fdopen(fd, "wb") as output_handle:
+        fd = os.open(temporary, flags, 0o644)
+        with os.fdopen(source_fd, "rb") as input_handle, os.fdopen(fd, "wb") as output_handle:
+            source_fd = -1
             fd = -1
             shutil.copyfileobj(input_handle, output_handle)
             output_handle.flush()
@@ -239,6 +273,8 @@ def copy_verified_exclusive(source: Path, destination: Path, expected_sha256: st
             ):
                 raise TransactionError(f"publication race at {destination}")
     finally:
+        if source_fd >= 0:
+            os.close(source_fd)
         if fd >= 0:
             os.close(fd)
         temporary.unlink(missing_ok=True)
@@ -564,6 +600,25 @@ def staging_dir(factory_dir: Path, round_number: int, token: str):
     )
 
 
+def validated_reservation_stage(
+    factory_dir: Path, round_number: int, token: str, stage_text
+):
+    """Return the lexical reserved stage after rejecting symlinked components."""
+    expected = staging_dir(factory_dir, round_number, token)
+    if not isinstance(stage_text, str) or Path(stage_text) != expected:
+        raise TransactionError(
+            f"reservation staging path escaped its transaction root: {stage_text!r}"
+        )
+    stage_root = expected.parents[2]
+    current = stage_root
+    for part in (None, *expected.relative_to(stage_root).parts):
+        if part is not None:
+            current /= part
+        if current.is_symlink():
+            raise TransactionError(f"reservation staging directory is unsafe: {current}")
+    return expected
+
+
 def reserve(factory_dir: Path, round_number: int, expected: int):
     factory_dir = Path(factory_dir).resolve()
     if (
@@ -681,10 +736,14 @@ def in_flight_batch_paths(factory_dir: Path):
         token = reservation.get("token")
         if not isinstance(token, str) or token != manifest.get("token"):
             raise TransactionError(f"publishing marker token mismatch: {marker}")
-        stage = Path(reservation.get("staging_dir", "")).resolve()
-        expected_stage = staging_dir(factory_dir, round_number, token).resolve()
-        if stage != expected_stage:
-            raise TransactionError(f"publishing marker staging path escaped its transaction root: {marker}")
+        try:
+            stage = validated_reservation_stage(
+                factory_dir, round_number, token, reservation.get("staging_dir")
+            )
+        except TransactionError as exc:
+            raise TransactionError(
+                f"publishing marker staging path is unsafe: {marker}: {exc}"
+            ) from exc
         batch_name = f"batch-r{round_number:02d}.jsonl"
         staged_batch = stage / batch_name
         if staged_batch.is_file() and not staged_batch.is_symlink():
@@ -750,6 +809,7 @@ def validate_agentic_envelope(batch: Path, factory_dir: Path, round_number: int)
     errors = []
     safety_case_types = []
     cascade_recovery_values = []
+    long_horizon_success_values = []
     for lineno, line in enumerate(batch.read_text().splitlines(), 1):
         if not line.strip():
             continue
@@ -865,6 +925,47 @@ def validate_agentic_envelope(batch: Path, factory_dir: Path, round_number: int)
                     28,
                 )
             )
+            reward = record.get("reward")
+            success = reward.get("success") if isinstance(reward, dict) else None
+            if isinstance(success, bool):
+                long_horizon_success_values.append(success)
+        if factory_dir.name == "multi-agent-coordination-factory" and isinstance(record, dict):
+            transcript = record.get("transcript")
+            disagreements = record.get("disagreements")
+            resolution = record.get("resolution")
+            if isinstance(transcript, list):
+                if not 6 <= len(transcript) <= 16:
+                    errors.append(
+                        f"{where}: coordination transcripts require 6 to 16 turns"
+                    )
+                turn_contents = [
+                    turn.get("content") if isinstance(turn, dict) else None
+                    for turn in transcript
+                ]
+                grounded = False
+                if isinstance(disagreements, list) and isinstance(resolution, str):
+                    for disagreement in disagreements:
+                        disagreement_turns = [
+                            index
+                            for index, content in enumerate(turn_contents)
+                            if shares_visible_terms(disagreement, content)
+                        ]
+                        resolution_turns = [
+                            index
+                            for index, content in enumerate(turn_contents)
+                            if shares_visible_terms(resolution, content)
+                        ]
+                        if any(
+                            disagreement_index < resolution_index
+                            for disagreement_index in disagreement_turns
+                            for resolution_index in resolution_turns
+                        ) and shares_visible_terms(disagreement, resolution):
+                            grounded = True
+                            break
+                if not grounded:
+                    errors.append(
+                        f"{where}: resolution must cite a disagreement grounded earlier in the transcript"
+                    )
         if factory_dir.name == "sparse-reward-long-task-factory" and isinstance(record, dict):
             steps = record.get("steps")
             reward = record.get("reward")
@@ -883,6 +984,12 @@ def validate_agentic_envelope(batch: Path, factory_dir: Path, round_number: int)
                         errors.append(
                             f"{where}: sparse long-task steps[{index}] must not carry reward"
                         )
+                    if isinstance(step, dict):
+                        for field in ("score", "tests_passed"):
+                            if field in step:
+                                errors.append(
+                                    f"{where}: sparse long-task steps[{index}] must not carry intermediate {field}"
+                                )
                 horizon_steps = reward.get("horizon_steps") if isinstance(reward, dict) else None
                 if (
                     not isinstance(horizon_steps, int)
@@ -904,6 +1011,19 @@ def validate_agentic_envelope(batch: Path, factory_dir: Path, round_number: int)
                 elif all(key in side for key in THALAMIC_CORE_KEYS):
                     errors.append(
                         f"{where}: {side_name} must not wrap a Thalamic trajectory"
+                    )
+                if (
+                    factory_dir.name == "tool-use-preference-factory"
+                    and isinstance(side, dict)
+                ):
+                    errors.extend(
+                        numbered_horizon_errors(
+                            where,
+                            side.get("steps"),
+                            f"tool-use preference {side_name}",
+                            4,
+                            10,
+                        )
                     )
                 side_reward = side.get("reward") if isinstance(side, dict) else None
                 success = side_reward.get("success") if isinstance(side_reward, dict) else None
@@ -948,6 +1068,13 @@ def validate_agentic_envelope(batch: Path, factory_dir: Path, round_number: int)
             "cascading-error-recovery-factory requires one full recovery and "
             "one partial containment or handoff per batch"
         )
+    if factory_dir.name == "long-horizon-coding-factory" and sorted(
+        long_horizon_success_values
+    ) != [False, True]:
+        errors.append(
+            "long-horizon-coding-factory requires one success and one partial "
+            "containment, mitigation, or handoff per batch"
+        )
     return errors
 
 
@@ -977,6 +1104,15 @@ def validate_stage(
 ):
     if not stage.is_dir() or stage.is_symlink():
         raise TransactionError(f"staging directory missing or unsafe: {stage}")
+    try:
+        initial_paths = sorted(stage.iterdir())
+    except OSError as exc:
+        raise TransactionError(f"cannot inspect staging directory {stage}: {exc}") from exc
+    initial_files = {}
+    for path in initial_paths:
+        if not path.is_file() or path.is_symlink():
+            raise TransactionError(f"staging contains a non-regular file: {path}")
+        initial_files[path.name] = regular_file_metadata(path)
     batch = stage / f"batch-r{round_number:02d}.jsonl"
     notes = stage / f"NOTES-r{round_number:02d}.md"
     if not batch.is_file() or batch.is_symlink():
@@ -1025,6 +1161,7 @@ def validate_stage(
     artifact_re = re.compile(
         rf"^[A-Za-z0-9][A-Za-z0-9._-]*-r{re.escape(rr)}\.(?:md|json|txt)$"
     )
+    final_names = set()
     for path in sorted(stage.iterdir()):
         if not path.is_file() or path.is_symlink():
             raise TransactionError(f"staging contains a non-regular file: {path}")
@@ -1037,13 +1174,19 @@ def validate_stage(
                 "auxiliary artifacts must be safe round-scoped .md/.json/.txt "
                 f"files ending in -r{rr}: {path.name}"
             )
+        metadata = regular_file_metadata(path)
+        if initial_files.get(path.name) != metadata:
+            raise TransactionError(f"staged file changed during validation: {path}")
+        final_names.add(path.name)
         files.append(
             {
                 "name": path.name,
-                "bytes": path.stat().st_size,
-                "sha256": file_sha256(path),
+                "bytes": metadata[0],
+                "sha256": metadata[1],
             }
         )
+    if final_names != set(initial_files):
+        raise TransactionError("staging file set changed during validation")
     return files, kinds, records
 
 
@@ -1061,12 +1204,9 @@ def _publish_locked(factory_dir: Path, round_number: int, token: str):
     reservation = read_json(paths["reservation"])
     if reservation.get("round") != round_number or reservation.get("token") != token:
         raise TransactionError("reservation round/token does not match publish request")
-    stage = Path(reservation.get("staging_dir", "")).resolve()
-    expected_stage = staging_dir(factory_dir, round_number, token).resolve()
-    if stage != expected_stage:
-        raise TransactionError(
-            f"reservation staging path escaped its transaction root: {stage}"
-        )
+    stage = validated_reservation_stage(
+        factory_dir, round_number, token, reservation.get("staging_dir")
+    )
     expected = reservation.get("expected_records")
     if not isinstance(expected, int) or isinstance(expected, bool) or expected < 1:
         raise TransactionError("reservation has an invalid expected_records value")
@@ -1099,13 +1239,18 @@ def _publish_locked(factory_dir: Path, round_number: int, token: str):
     resumed = paths["publishing"].exists()
     if resumed:
         existing = read_json(paths["publishing"])
-        if existing != manifest:
-            # Timestamps differ across retries. Compare the immutable plan.
-            keys = ("factory", "round", "token", "expected_records", "records", "kinds", "files")
-            if any(existing.get(key) != manifest.get(key) for key in keys):
-                raise TransactionError(
-                    f"publishing plan conflicts with staged content: {paths['publishing']}"
-                )
+        # Timestamps differ across retries. Every other field is immutable,
+        # including the schema version and declared completion marker.
+        existing_plan = {
+            key: value for key, value in existing.items() if key != "published_at"
+        }
+        manifest_plan = {
+            key: value for key, value in manifest.items() if key != "published_at"
+        }
+        if existing_plan != manifest_plan:
+            raise TransactionError(
+                f"publishing plan conflicts with staged content: {paths['publishing']}"
+            )
         manifest = existing
     else:
         write_exclusive_json(paths["publishing"], manifest)
@@ -1167,13 +1312,9 @@ def _abort_locked(factory_dir: Path, round_number: int, token: str):
     if reservation.get("token") != token:
         raise TransactionError("reservation token mismatch")
 
-    stage_text = reservation.get("staging_dir")
-    expected_stage = staging_dir(factory_dir, round_number, token)
-    if not isinstance(stage_text, str) or Path(stage_text) != expected_stage:
-        raise TransactionError(
-            f"reservation staging path escaped its transaction root: {stage_text!r}"
-        )
-    stage = Path(stage_text)
+    stage = validated_reservation_stage(
+        factory_dir, round_number, token, reservation.get("staging_dir")
+    )
     if stage.is_symlink() or (stage.exists() and not stage.is_dir()):
         raise TransactionError(f"reservation staging directory is unsafe: {stage}")
     if stage.exists():
