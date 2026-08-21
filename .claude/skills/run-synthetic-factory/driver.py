@@ -201,10 +201,15 @@ def copy_snapshot_tree(src, dst):
         ) from exc
     try:
         source_stat = os.fstat(source_fd)
-        dst.mkdir(mode=0o700)
-        destination_fd = os.open(
-            dst, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
-        )
+        try:
+            dst.mkdir(mode=0o700)
+            destination_fd = os.open(
+                dst, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
+            )
+        except OSError as exc:
+            raise TransactionError(
+                f"cannot stage snapshot safely: {dst}: {exc.strerror}"
+            ) from exc
         try:
             _copy_snapshot_directory(source_fd, destination_fd, src)
             os.fchmod(destination_fd, stat.S_IMODE(source_stat.st_mode))

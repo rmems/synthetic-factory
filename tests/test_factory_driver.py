@@ -339,18 +339,18 @@ class FactoryDriverBytes(unittest.TestCase):
             real_open = factory_driver.os.open
             replaced = False
 
-            def replace_during_open(path, flags, mode=0o777, *, dir_fd=None):
+            def replace_during_open(path, flags, *args, **kwargs):
                 nonlocal replaced
                 if (
                     not replaced
                     and path == "entry.txt"
-                    and dir_fd is not None
+                    and kwargs.get("dir_fd") is not None
                     and not flags & factory_driver.os.O_CREAT
                 ):
                     entry.unlink()
                     entry.symlink_to(outside)
                     replaced = True
-                return real_open(path, flags, mode, dir_fd=dir_fd)
+                return real_open(path, flags, *args, **kwargs)
 
             with mock.patch.object(
                 factory_driver.os, "open", side_effect=replace_during_open
@@ -358,6 +358,21 @@ class FactoryDriverBytes(unittest.TestCase):
                 factory_driver.snapshot_to_temp(run, "factory-symlink-copy-")
 
             self.assertTrue(replaced)
+
+    def test_snapshot_wraps_destination_setup_failure(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            run = root / "run"
+            run.mkdir()
+
+            with self.assertRaisesRegex(
+                TransactionError, "cannot stage snapshot safely"
+            ) as captured:
+                factory_driver.copy_snapshot_tree(
+                    run, root / "missing-parent" / "snapshot"
+                )
+
+            self.assertIsInstance(captured.exception.__cause__, FileNotFoundError)
 
 
 class FactoryDriverValidation(unittest.TestCase):
