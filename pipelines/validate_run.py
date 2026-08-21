@@ -14,6 +14,7 @@ Usage: python3 pipelines/validate_run.py [--write] <run_dir>
 import argparse
 import json
 import math
+import re
 import sys
 from pathlib import Path
 
@@ -465,6 +466,50 @@ def _normalized_goal(value):
     return " ".join(value.split())
 
 
+def _preference_side_context_anchors(value):
+    """Return observable file/API/criterion anchors from one preference side."""
+    anchors = set()
+    context_key_terms = (
+        "api",
+        "criterion",
+        "criteria",
+        "endpoint",
+        "file",
+        "path",
+        "repo",
+        "repository",
+        "resource",
+        "target",
+        "url",
+    )
+    artifact_re = re.compile(
+        r"https?://[^\s\"']+|"
+        r"(?:[a-z0-9_.-]+/)*[a-z0-9_.-]+\."
+        r"(?:csv|env|go|java|js|json|md|py|rs|sql|toml|ts|txt|ya?ml)|"
+        r"/(?:[a-z0-9_{}.-]+/)*[a-z0-9_{}.-]+",
+        re.IGNORECASE,
+    )
+
+    def walk(node, key=""):
+        if isinstance(node, dict):
+            for child_key, child in node.items():
+                walk(child, str(child_key).casefold())
+        elif isinstance(node, list):
+            for child in node:
+                walk(child, key)
+        elif isinstance(node, str):
+            normalized = " ".join(node.split()).casefold()
+            if key and any(term in key for term in context_key_terms):
+                anchors.add(f"field:{normalized}")
+            anchors.update(
+                f"artifact:{match.group(0).rstrip('.,;:').casefold()}"
+                for match in artifact_re.finditer(node)
+            )
+
+    walk(value)
+    return anchors
+
+
 def _staging_preference_goal_errors(obj, where):
     """Require explicit or inherited agreement on one preference problem."""
     chosen = obj.get("chosen")
@@ -494,6 +539,18 @@ def _staging_preference_goal_errors(obj, where):
         )
     if len(set(normalized.values())) > 1:
         errors.append(f"{where}: top-level and side goals must describe the same problem")
+    if isinstance(chosen, dict) and isinstance(rejected, dict):
+        chosen_context = _preference_side_context_anchors(chosen)
+        rejected_context = _preference_side_context_anchors(rejected)
+        if (
+            chosen_context
+            and rejected_context
+            and chosen_context.isdisjoint(rejected_context)
+        ):
+            errors.append(
+                f"{where}: preference sides must share observable file, API, "
+                "target, or success-criterion context"
+            )
     return errors
 
 

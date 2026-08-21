@@ -930,10 +930,14 @@ def banned_agentic_wrapper_paths(value, path=""):
     if isinstance(value, dict):
         for key, item in value.items():
             child_path = f"{path}.{key}" if path else key
-            normalized = str(key).casefold()
+            normalized = re.sub(
+                r"[^a-z0-9]+",
+                "_",
+                re.sub(r"(?<=[a-z0-9])(?=[A-Z])", "_", str(key)).casefold(),
+            ).strip("_")
             if (
                 normalized in {"spike_events", "raster", "rasters"}
-                or normalized.endswith("_raster")
+                or re.search(r"(?:^|_)rasters?(?:_|$)", normalized) is not None
                 or "spikenaut" in normalized
                 or "neuromorphic" in normalized
             ):
@@ -1640,6 +1644,27 @@ def validate_agentic_envelope(batch: Path, factory_dir: Path, round_number: int)
                 ]
                 grounded = False
                 if isinstance(disagreements, list) and isinstance(resolution, str):
+                    plan_change_terms = (
+                        "add",
+                        "adopt",
+                        "before",
+                        "change",
+                        "compromise",
+                        "defer",
+                        "escalat",
+                        "instead",
+                        "remove",
+                        "revise",
+                        "rollback",
+                        "update",
+                    )
+                    ignored_plan_terms = (
+                        "ignored",
+                        "no change",
+                        "original plan",
+                        "proceed as planned",
+                        "unchanged",
+                    )
                     for disagreement in disagreements:
                         disagreement_turns = [
                             index
@@ -1651,16 +1676,34 @@ def validate_agentic_envelope(batch: Path, factory_dir: Path, round_number: int)
                             for index, content in enumerate(turn_contents)
                             if shares_visible_terms(resolution, content)
                         ]
-                        if any(
-                            disagreement_index < resolution_index
-                            for disagreement_index in disagreement_turns
-                            for resolution_index in resolution_turns
-                        ) and shares_visible_terms(disagreement, resolution):
-                            grounded = True
+                        if shares_visible_terms(disagreement, resolution):
+                            for disagreement_index in disagreement_turns:
+                                for resolution_index in resolution_turns:
+                                    candidate = (
+                                        f"{resolution} "
+                                        f"{turn_contents[resolution_index] or ''}"
+                                    ).casefold()
+                                    if (
+                                        disagreement_index < resolution_index
+                                        and any(
+                                            term in candidate
+                                            for term in plan_change_terms
+                                        )
+                                        and not any(
+                                            term in candidate
+                                            for term in ignored_plan_terms
+                                        )
+                                    ):
+                                        grounded = True
+                                        break
+                                if grounded:
+                                    break
+                        if grounded:
                             break
                 if not grounded:
                     errors.append(
-                        f"{where}: resolution must cite a disagreement grounded earlier in the transcript"
+                        f"{where}: resolution must cite a disagreement and "
+                        "observably change the later coordination plan"
                     )
         if factory_dir.name == "sparse-reward-long-task-factory" and isinstance(record, dict):
             steps = record.get("steps")
@@ -1705,6 +1748,46 @@ def validate_agentic_envelope(batch: Path, factory_dir: Path, round_number: int)
                     )
             if not isinstance(reward, dict) or reward.get("terminal_only") is not True:
                 errors.append(f"{where}: reward.terminal_only must be true")
+            success = reward.get("success") if isinstance(reward, dict) else None
+            outcome = record.get("outcome")
+            outcome_text = outcome.casefold() if isinstance(outcome, str) else ""
+            completion_evidence = list(re.finditer(
+                r"\b(?:completed|delivered|fixed|passed|repaired|succeeded|verified)\b",
+                outcome_text,
+            ))
+            failed_evidence = list(re.finditer(r"\b(?:failed|failing)\b", outcome_text))
+            incomplete_evidence = re.search(
+                r"\b(?:blocked|handoff|handed off|incomplete|partial(?:ly)?|unresolved)\b",
+                outcome_text,
+            )
+            if isinstance(success, bool):
+                if success and (
+                    not completion_evidence
+                    or incomplete_evidence is not None
+                    or (
+                        failed_evidence
+                        and failed_evidence[-1].start() > completion_evidence[-1].start()
+                    )
+                ):
+                    errors.append(
+                        f"{where}: successful sparse terminal reward must match "
+                        "a verified completed outcome"
+                    )
+                if not success and (
+                    incomplete_evidence is None
+                    and (
+                        not failed_evidence
+                        or (
+                            completion_evidence
+                            and completion_evidence[-1].start()
+                            > failed_evidence[-1].start()
+                        )
+                    )
+                ):
+                    errors.append(
+                        f"{where}: unsuccessful sparse terminal reward must match "
+                        "an explicit failure, partial result, or handoff"
+                    )
         if AGENTIC_FACTORY_KINDS[factory_dir.name] == "preference":
             if (
                 factory_dir.name == "tool-use-preference-factory"
@@ -2020,11 +2103,70 @@ def publish(factory_dir: Path, round_number: int, token: str):
         return _publish_locked(factory_dir, round_number, token)
 
 
+def finish_completed_publish(
+    factory_dir: Path, round_number: int, token: str, paths: dict
+):
+    """Finish cleanup after a publish crossed its atomic commit point."""
+    manifest = completed_manifests(factory_dir).get(round_number)
+    if manifest is None:
+        raise TransactionError(f"round completion marker is invalid: {paths['complete']}")
+    if manifest.get("token") != token:
+        raise TransactionError("completed round token does not match publish request")
+
+    publishing_exists = paths["publishing"].exists() or paths["publishing"].is_symlink()
+    if publishing_exists:
+        if not paths["publishing"].is_file() or paths["publishing"].is_symlink():
+            raise TransactionError(
+                f"unsafe publishing marker for completed round: {paths['publishing']}"
+            )
+        if read_json(paths["publishing"]) != manifest:
+            raise TransactionError(
+                f"publishing marker conflicts with completed round: {paths['publishing']}"
+            )
+
+    reservation_exists = (
+        paths["reservation"].exists() or paths["reservation"].is_symlink()
+    )
+    if reservation_exists:
+        if not paths["reservation"].is_file() or paths["reservation"].is_symlink():
+            raise TransactionError(
+                f"unsafe reservation for completed round: {paths['reservation']}"
+            )
+        reservation = read_json(paths["reservation"])
+        if (
+            reservation.get("factory") != factory_dir.name
+            or reservation.get("round") != round_number
+            or reservation.get("token") != token
+        ):
+            raise TransactionError(
+                f"reservation conflicts with completed round: {paths['reservation']}"
+            )
+        stage_text = reservation.get("staging_dir")
+    else:
+        stage_text = str(staging_dir(factory_dir, round_number, token))
+    stage = validated_reservation_stage(
+        factory_dir, round_number, token, stage_text
+    )
+    if stage.is_symlink() or (stage.exists() and not stage.is_dir()):
+        raise TransactionError(f"staging directory is unsafe: {stage}")
+
+    paths["publishing"].unlink(missing_ok=True)
+    paths["reservation"].unlink(missing_ok=True)
+    if stage.exists():
+        try:
+            shutil.rmtree(stage)
+        except OSError as exc:
+            raise TransactionError(
+                f"cannot finish completed round staging cleanup: {stage}: {exc}"
+            ) from exc
+    return manifest
+
+
 def _publish_locked(factory_dir: Path, round_number: int, token: str):
     """Publish while holding the run-wide identity/commit lock."""
     paths = marker_paths(factory_dir, round_number)
-    if paths["complete"].exists():
-        raise TransactionError(f"round already complete: {paths['complete']}")
+    if paths["complete"].exists() or paths["complete"].is_symlink():
+        return finish_completed_publish(factory_dir, round_number, token, paths)
     reservation = read_json(paths["reservation"])
     if reservation.get("round") != round_number or reservation.get("token") != token:
         raise TransactionError("reservation round/token does not match publish request")

@@ -36,15 +36,12 @@ if str(PIPELINES_ROOT) not in sys.path:
     sys.path.insert(0, str(PIPELINES_ROOT))
 
 from round_txn import (  # noqa: E402
-    AGENTIC_FACTORY_KINDS,
-    FACTORY_QUOTAS,
     TransactionError,
     completed_manifests as transaction_completed_manifests,
     legacy_baseline_jsonl_paths as transaction_legacy_baseline_jsonl_paths,
     discover_legacy_frontier as transaction_legacy_frontier,
     discover_legacy_named_baseline as transaction_legacy_named_baseline,
     validate_legacy_baseline_payloads as transaction_validate_legacy_baseline_payloads,
-    validate_legacy_payload as transaction_validate_legacy_payload,
 )
 
 LICENSE_SRC = REPO_ROOT / "LICENSE"
@@ -560,35 +557,12 @@ def marker_mode_state(
             and (batch_label(path) is not None or path.name in LEGACY_R1_NAMES)
         )
         before = {path.name: file_sha256(path) for path in paths}
-        seen_ids = {}
-        records_by_round: dict[int, int] = {}
-        for path in paths:
-            label = batch_label(path)
-            round_number = label[0] if label is not None else 1
-            records, problems = transaction_validate_legacy_payload(
-                path, src, round_number, seen_ids=seen_ids
-            )
-            if records < 1 or problems:
-                details = "\n".join(f"ERROR: {problem}" for problem in problems)
-                raise SystemExit(
-                    f"invalid pre-marker payload: {path}"
-                    + (f"\n{details}" if details else "")
-                )
-            records_by_round[round_number] = (
-                records_by_round.get(round_number, 0) + records
-            )
-        quota = FACTORY_QUOTAS.get(src.name, 1)
-        for round_number, records in records_by_round.items():
-            if src.name in AGENTIC_FACTORY_KINDS and records != quota:
-                raise SystemExit(
-                    f"pre-marker payloads for r{round_number:02d} require exactly "
-                    f"{quota} records for {src.name}; found {records}"
-                )
-            if records < quota:
-                raise SystemExit(
-                    f"pre-marker payloads for r{round_number:02d} do not meet "
-                    f"quota {quota}: {src}"
-                )
+        rounds = [
+            label[0] if (label := batch_label(path)) is not None else 1
+            for path in paths
+        ]
+        if rounds:
+            validate_legacy_baseline_payloads(src, max(rounds))
         after = {path.name: file_sha256(path) for path in paths}
         if before != after:
             raise SystemExit(f"pre-marker payload changed during validation: {src}")
@@ -748,6 +722,12 @@ def published_notes(
     if marker_state is None:
         marker_state = marker_mode_state(src)
     baseline, manifests, _legacy_sha256 = marker_state
+    if baseline is None:
+        labels.update(
+            f"r{label[0]:02d}"
+            for batch in batches
+            if (label := batch_label(batch)) is not None
+        )
     if baseline is not None:
         labels.update(
             f"r{label[0]:02d}"

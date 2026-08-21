@@ -216,6 +216,44 @@ class RoundTransaction(unittest.TestCase):
             self.assertEqual(manifest["records"], 1)
             self.assertTrue((factory / "ROUND-r01.complete.json").is_file())
 
+    def test_completed_publish_retry_finishes_interrupted_cleanup(self):
+        with tempfile.TemporaryDirectory() as td:
+            factory = self.factory(td)
+            reservation = round_txn.reserve(factory, 1, 1)
+            stage = self.fill_stage(reservation, [thalamic("cleanup-retry")])
+            paths = round_txn.marker_paths(factory, 1)
+            real_unlink = Path.unlink
+
+            def interrupt_cleanup(path, *args, **kwargs):
+                if path == paths["publishing"] and paths["complete"].exists():
+                    raise OSError("simulated cleanup interruption")
+                return real_unlink(path, *args, **kwargs)
+
+            with mock.patch.object(
+                Path,
+                "unlink",
+                autospec=True,
+                side_effect=interrupt_cleanup,
+            ):
+                with self.assertRaisesRegex(OSError, "simulated cleanup interruption"):
+                    round_txn.publish(factory, 1, reservation["token"])
+
+            self.assertTrue(paths["complete"].is_file())
+            self.assertTrue(paths["publishing"].is_file())
+            self.assertTrue(paths["reservation"].is_file())
+            self.assertTrue(stage.is_dir())
+
+            manifest = round_txn.publish(factory, 1, reservation["token"])
+
+            self.assertEqual(manifest["records"], 1)
+            self.assertFalse(paths["publishing"].exists())
+            self.assertFalse(paths["reservation"].exists())
+            self.assertFalse(stage.exists())
+            self.assertEqual(
+                round_txn.publish(factory, 1, reservation["token"]),
+                manifest,
+            )
+
     def test_resume_rejects_corrupted_immutable_publishing_fields(self):
         for field, value in (
             ("version", 2),

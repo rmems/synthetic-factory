@@ -78,6 +78,9 @@ def write_valid_legacy(path, count=2):
             for index in range(count)
         )
     )
+    (path.parent / f"NOTES-r{round_number:02d}.md").write_text(
+        "Novel coverage: 80%\n"
+    )
 
 
 def write_valid_thalamic(path, record_id):
@@ -201,6 +204,9 @@ class PublishGrok46HubTests(unittest.TestCase):
                 )
                 self.assertFalse(
                     (destination_root / ITEM["hub"] / "data" / "metadata" / "NOTES-r02b.md").exists()
+                )
+                self.assertTrue(
+                    (destination_root / ITEM["hub"] / "data" / "metadata" / "NOTES-r02.md").is_file()
                 )
                 copied.write_text('{"id":"changed"}\n')
                 self.assertEqual(last.read_text(), original_last)
@@ -462,6 +468,36 @@ class PublishGrok46HubTests(unittest.TestCase):
 
                 with self.assertRaisesRegex(SystemExit, message):
                     publisher.published_batches(source)
+
+        with tempfile.TemporaryDirectory() as td:
+            source = Path(td) / ITEM["slug"]
+            source.mkdir()
+            batch = source / "batch-r01.jsonl"
+            write_valid_legacy(batch)
+            (source / "NOTES-r01.md").unlink()
+
+            with self.assertRaisesRegex(SystemExit, "notes missing"):
+                publisher.published_batches(source)
+
+    def test_pre_marker_payload_ids_are_unique_across_factories(self):
+        with tempfile.TemporaryDirectory() as td:
+            run = Path(td) / "outputs" / "raw" / "2099-01-01"
+            source = run / ITEM["slug"]
+            sibling = run / "other-factory"
+            source.mkdir(parents=True)
+            sibling.mkdir()
+            records = [
+                valid_legacy_episode("shared-id", success=True),
+                valid_legacy_episode("unique-scenario-1", success=False),
+            ]
+            (source / "batch-r01.jsonl").write_text(
+                "".join(json.dumps(record) + "\n" for record in records)
+            )
+            (source / "NOTES-r01.md").write_text("Novel coverage: 80%\n")
+            write_valid_thalamic(sibling / "batch-r01.jsonl", "shared-id")
+
+            with self.assertRaisesRegex(SystemExit, "duplicate record id 'shared-id'"):
+                publisher.published_batches(source)
 
     def test_snapshot_publishes_canonical_notes_for_suffixed_legacy_batch(self):
         with tempfile.TemporaryDirectory() as td:

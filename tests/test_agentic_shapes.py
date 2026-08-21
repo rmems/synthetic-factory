@@ -594,6 +594,21 @@ class AgenticShapes(unittest.TestCase):
         self.assertEqual(kind, "preference")
         self.assertTrue(any("same problem" in error for error in errs), errs)
 
+    def test_staging_preference_requires_shared_observable_task_context(self):
+        rec = episode_preference()
+        rec["chosen"]["steps"][0]["tool_call"]["args"]["command"] = "cat cache.py"
+        rec["rejected"]["steps"][0]["tool_call"]["args"]["command"] = "cat auth.py"
+
+        errs, kind = validate_run.check_line(rec, "t", factory_staging=True)
+
+        self.assertEqual(kind, "preference")
+        self.assertTrue(any("share observable file" in error for error in errs), errs)
+
+        rec["rejected"]["steps"][0]["tool_call"]["args"]["command"] = "cat cache.py"
+        errs, kind = validate_run.check_line(rec, "t", factory_staging=True)
+        self.assertEqual(kind, "preference")
+        self.assertFalse(any("share observable file" in error for error in errs), errs)
+
     def test_case_type_routes_to_safety_even_when_misspelled(self):
         rec = episode("safety-routing")
         rec["case_type"] = "misspelt"
@@ -780,6 +795,9 @@ class AgenticShapes(unittest.TestCase):
             records[1]["reward"]["success"] = False
             records[1]["outcome"] = "partially mitigated and handed off"
             records[0]["steps"][0]["tool_call"]["args"]["raster"] = {"window_ms": 20}
+            records[0]["meta"]["raster_data"] = {"window_ms": 20}
+            records[1]["steps"][0]["tool_call"]["args"]["raster_events"] = []
+            records[1]["meta"]["rasterData"] = {"window_ms": 20}
             records[1]["meta"]["framework"] = "Spikenaut"
             batch = factory / "batch-r01.jsonl"
             batch.write_text(
@@ -789,6 +807,9 @@ class AgenticShapes(unittest.TestCase):
             errors = round_txn.validate_agentic_envelope(batch, factory, 1)
 
             self.assertTrue(any("args.raster" in error for error in errors), errors)
+            self.assertTrue(any("meta.raster_data" in error for error in errors), errors)
+            self.assertTrue(any("args.raster_events" in error for error in errors), errors)
+            self.assertTrue(any("meta.rasterData" in error for error in errors), errors)
             self.assertTrue(any("meta.framework" in error for error in errors), errors)
 
     def test_cascading_error_factory_requires_fault_and_diagnosis(self):
@@ -1234,9 +1255,76 @@ class AgenticShapes(unittest.TestCase):
 
             with self.assertRaisesRegex(
                 round_txn.TransactionError,
-                "resolution must cite a disagreement grounded earlier",
+                "observably change the later coordination plan",
             ):
                 round_txn.publish(factory, 1, reservation["token"])
+
+    def test_multi_agent_resolution_cannot_ignore_the_disagreement(self):
+        with tempfile.TemporaryDirectory() as td:
+            factory = Path(td) / "multi-agent-coordination-factory"
+            factory.mkdir()
+            record = multi_agent()
+            record["resolution"] = (
+                "TTL race coverage was ignored; proceed with the original plan unchanged"
+            )
+            record["transcript"][3]["content"] = record["resolution"]
+            batch = factory / "batch-r01.jsonl"
+            batch.write_text(json.dumps(record) + "\n")
+
+            errors = round_txn.validate_agentic_envelope(batch, factory, 1)
+
+            self.assertTrue(
+                any("observably change the later coordination plan" in error for error in errors),
+                errors,
+            )
+
+    def test_sparse_terminal_reward_must_match_the_outcome(self):
+        with tempfile.TemporaryDirectory() as td:
+            factory = Path(td) / "sparse-reward-long-task-factory"
+            factory.mkdir()
+            record = episode("sparse-outcome", factory=factory.name)
+            record["steps"] = [_step(index) for index in range(1, 26)]
+            add_sparse_failed_hypotheses(record["steps"])
+            record["reward"] = {
+                "success": True,
+                "terminal_only": True,
+                "horizon_steps": len(record["steps"]),
+            }
+            record["outcome"] = "task failed and remains unresolved"
+            batch = factory / "batch-r01.jsonl"
+            batch.write_text(json.dumps(record) + "\n")
+
+            errors = round_txn.validate_agentic_envelope(batch, factory, 1)
+            self.assertTrue(
+                any("successful sparse terminal reward" in error for error in errors),
+                errors,
+            )
+
+            record["reward"]["success"] = False
+            record["outcome"] = "repair completed and verified"
+            batch.write_text(json.dumps(record) + "\n")
+            errors = round_txn.validate_agentic_envelope(batch, factory, 1)
+            self.assertTrue(
+                any("unsuccessful sparse terminal reward" in error for error in errors),
+                errors,
+            )
+
+            record["outcome"] = "partial repair completed and handed off"
+            batch.write_text(json.dumps(record) + "\n")
+            errors = round_txn.validate_agentic_envelope(batch, factory, 1)
+            self.assertFalse(
+                any("sparse terminal reward" in error for error in errors),
+                errors,
+            )
+
+            record["reward"]["success"] = True
+            record["outcome"] = "initial attempt failed; repair completed and verified"
+            batch.write_text(json.dumps(record) + "\n")
+            errors = round_txn.validate_agentic_envelope(batch, factory, 1)
+            self.assertFalse(
+                any("sparse terminal reward" in error for error in errors),
+                errors,
+            )
 
     def test_agentic_reservation_binds_configured_quota(self):
         with tempfile.TemporaryDirectory() as td:
