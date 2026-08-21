@@ -30,6 +30,10 @@ from pathlib import Path
 
 FACTORY_ROOT = Path("/home/raulmc/rmems/synthetic-factory/outputs/raw/2026-08-19-agentic")
 HF_ROOT = Path("/home/raulmc/rmems/hf")
+# Hub clones are grouped by generating model so the Fable 5 and Grok 4.6 lanes
+# stay separated on disk. Dataset mirrors live under HF_DATASETS; root-level
+# infrastructure (.agents/, the inventory markdown) stays directly in HF_ROOT.
+HF_DATASETS = HF_ROOT / "grok-4.6"
 REPO_ROOT = Path(__file__).resolve().parents[1]
 PIPELINES_ROOT = REPO_ROOT / "pipelines"
 if str(PIPELINES_ROOT) not in sys.path:
@@ -411,14 +415,17 @@ def replace_snapshot_text(dst: Path, content: str) -> None:
 
 def snapshot_directories(dest: Path) -> tuple[Path, Path]:
     """Create a real, contained raw/metadata tree for one Hub snapshot."""
-    if HF_ROOT.exists() or HF_ROOT.is_symlink():
-        if not HF_ROOT.is_dir() or HF_ROOT.is_symlink():
-            raise SystemExit(f"unsafe snapshot directory: {HF_ROOT}")
-    else:
-        HF_ROOT.mkdir(parents=True)
+    for directory in (HF_ROOT, HF_DATASETS):
+        if directory.exists() or directory.is_symlink():
+            if not directory.is_dir() or directory.is_symlink():
+                raise SystemExit(f"unsafe snapshot directory: {directory}")
+        else:
+            directory.mkdir(parents=True)
     root = HF_ROOT.resolve()
 
-    if dest.parent != HF_ROOT:
+    # Mirrors sit one level deeper than the Hub root (grouped by model), but
+    # must still resolve inside it — the relative_to check below enforces that.
+    if dest.parent != HF_DATASETS:
         raise SystemExit(f"snapshot destination escaped Hub root: {dest}")
     for directory in (dest, dest / "data", dest / "data" / "raw", dest / "data" / "metadata"):
         if directory.exists() or directory.is_symlink():
@@ -741,7 +748,7 @@ def reconcile_snapshot_entries(
 
 def snapshot_one(item: dict) -> dict:
     src = factory_source(item["slug"])
-    dest = HF_ROOT / item["hub"]
+    dest = HF_DATASETS / item["hub"]
     if not LICENSE_SRC.is_file():
         raise SystemExit(f"missing repository LICENSE at {LICENSE_SRC}")
     raw, meta = snapshot_directories(dest)
@@ -938,7 +945,7 @@ def cmd_snapshot(only: str | None = None) -> list[dict]:
 
 def local_snapshot_stats(item: dict) -> dict:
     """Summarize an existing local Hub mirror for the shared inventory."""
-    raw = HF_ROOT / item["hub"] / "data" / "raw"
+    raw = HF_DATASETS / item["hub"] / "data" / "raw"
     batches = []
     if raw.is_dir():
         batches = sorted(
@@ -982,11 +989,12 @@ def cmd_create(only: str | None = None) -> None:
 
 def safe_upload_directory(item: dict) -> Path:
     """Return a real Hub mirror contained beneath a real ``HF_ROOT``."""
-    if not HF_ROOT.is_dir() or HF_ROOT.is_symlink():
-        raise SystemExit(f"unsafe upload root: {HF_ROOT}")
+    for directory in (HF_ROOT, HF_DATASETS):
+        if not directory.is_dir() or directory.is_symlink():
+            raise SystemExit(f"unsafe upload root: {directory}")
     root = HF_ROOT.resolve()
-    dest = HF_ROOT / item["hub"]
-    if dest.parent != HF_ROOT or not dest.is_dir() or dest.is_symlink():
+    dest = HF_DATASETS / item["hub"]
+    if dest.parent != HF_DATASETS or not dest.is_dir() or dest.is_symlink():
         raise SystemExit(f"unsafe upload directory: {dest}")
     try:
         dest.resolve().relative_to(root)
@@ -1145,7 +1153,7 @@ def cmd_collect(only: str | None = None) -> None:
 def cmd_status() -> None:
     print(f"{'hub':48} {'local_raw':>9} {'factory':>9}")
     for item in factories():
-        local_raw = HF_ROOT / item["hub"] / "data" / "raw"
+        local_raw = HF_DATASETS / item["hub"] / "data" / "raw"
         local = (
             sum(1 for path in local_raw.iterdir() if is_snapshot_payload(path))
             if local_raw.is_dir()
