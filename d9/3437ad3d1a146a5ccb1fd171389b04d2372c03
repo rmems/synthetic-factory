@@ -1,0 +1,48 @@
+pipelines/round_txn.py
+  s_a101c3059277fd::t_9d28acfbea03e5 130-151,153-194,196-233,395-397,403,557,570-572
+  s_a101c3059277fd::t_866eee185fb315 1434-1435
+  s_a101c3059277fd::t_d81bf00b3b0d95 152,195,546-550,1297-1298
+  s_a101c3059277fd::t_5753b8d6ec2989 1539-1540,1545,1549
+  s_a101c3059277fd::t_2fd8672a1a0406 504-545,551-553
+  s_a101c3059277fd::t_3176565d807a3c 769-798,801-814,1281,1295-1296,1299-1310,1431-1432,1446-1447,1449,1453-1456,1535-1538,1541,1552-1555,1638-1644,1679
+  s_a101c3059277fd::t_80d115172618cd 799-800,1433,1436-1445,1448,1450-1452,1542-1544,1546-1548,1550-1551
+tests/test_next_round.py
+  s_a101c3059277fd::t_5261d876c17efe 180
+tests/test_curate_agentic.py
+  s_a101c3059277fd::t_e86dc767e484e6 496,542
+tests/test_round_txn.py
+  s_a101c3059277fd::t_5261d876c17efe 600,662,702,744,785,832
+  s_a101c3059277fd::t_6664ef04c8fe8a 620-644,851-878
+pipelines/validate_run.py
+  s_a101c3059277fd::t_80d115172618cd 704-713
+  s_a101c3059277fd::t_780bc977b9fbaf 696-703,714-738
+tests/test_factory_driver.py
+  s_a101c3059277fd::t_a4147b5fbe8973 176
+  s_a101c3059277fd::t_5261d876c17efe 44,247
+  s_a101c3059277fd::t_b221bf5345621c 144-175,177-183
+tests/test_publish_grok46_hub.py
+  s_a101c3059277fd::t_5261d876c17efe 232,465,475,485,495,521,562,606,746
+.claude/skills/run-synthetic-factory/driver.py
+  s_a101c3059277fd::t_1fdea7ed27a564 43,75,234-237,246,344-350
+tests/test_agentic_shapes.py
+  s_a101c3059277fd::t_09efc2d2d1624a 440
+  s_a101c3059277fd::t_5261d876c17efe 1379
+  s_a101c3059277fd::t_d082f5c4503b16 257-311,432-439,441-452,549-569,689-709,1029-1040
+  s_a101c3059277fd::t_9990d5c1bfb0be 414,539,1009-1022,1288-1294
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "d93437ad3d1a146a5ccb1fd171389b04d2372c03",
+  "prompts": {},
+  "sessions": {
+    "s_a101c3059277fd": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a01e14-4bc2-7890-a7ce-1c993a8df50a",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Raul Montoya Cardenas <montoyaraul34@gmail.com>"
+    }
+  }
+}
