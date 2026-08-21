@@ -67,7 +67,6 @@ BANNED_TAG_SUBSTR = (
     "ultracode",
 )
 BATCH_NAME_RE = re.compile(r"^batch-r(\d+)([a-z]*)\.jsonl$")
-COMPLETE_MARKER_RE = re.compile(r"^ROUND-r(\d+)\.complete\.json$")
 NOTES_NAME_RE = re.compile(r"^NOTES-r(\d+)([a-z]*)\.md$")
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 LEGACY_R1_NAMES = frozenset(
@@ -463,47 +462,11 @@ def file_sha256(path: Path) -> str:
 
 
 def completed_manifests(src: Path) -> dict[int, dict]:
-    """Load and validate every transactional completion marker in a factory."""
-    manifests = {}
-    for marker in sorted(src.glob("ROUND-r*.complete.json")):
-        match = COMPLETE_MARKER_RE.fullmatch(marker.name)
-        if match is None:
-            continue
-        if not is_regular_source_file(marker):
-            raise SystemExit(f"unsafe completion marker: {marker}")
-        round_number = int(match.group(1))
-        try:
-            manifest = json.loads(marker.read_text())
-        except (OSError, UnicodeError, json.JSONDecodeError) as exc:
-            raise SystemExit(f"cannot read completion marker {marker}: {exc}") from exc
-        if not isinstance(manifest, dict):
-            raise SystemExit(f"completion marker must be an object: {marker}")
-        if manifest.get("factory") != src.name or manifest.get("round") != round_number:
-            raise SystemExit(f"completion marker identity mismatch: {marker}")
-        if manifest.get("commit_point") != marker.name:
-            raise SystemExit(f"completion marker commit point mismatch: {marker}")
-        if not isinstance(manifest.get("files"), list):
-            raise SystemExit(f"completion marker files must be an array: {marker}")
-        for entry in manifest["files"]:
-            name = entry.get("name") if isinstance(entry, dict) else None
-            if not isinstance(name, str) or not name or Path(name).name != name:
-                raise SystemExit(f"completion marker has an unsafe file entry: {marker}")
-            if name in (f"batch-r{round_number:02d}.jsonl", f"NOTES-r{round_number:02d}.md"):
-                continue
-            artifact = src / name
-            if not is_regular_source_file(artifact):
-                raise SystemExit(f"completion marker has no regular artifact: {artifact}")
-            file_matches_manifest(artifact, manifest)
-        batch = src / f"batch-r{round_number:02d}.jsonl"
-        if not is_regular_source_file(batch):
-            raise SystemExit(f"completion marker has no regular batch: {marker}")
-        file_matches_manifest(batch, manifest)
-        notes = src / f"NOTES-r{round_number:02d}.md"
-        if not is_regular_source_file(notes):
-            raise SystemExit(f"completion marker has no regular notes: {marker}")
-        file_matches_manifest(notes, manifest)
-        manifests[round_number] = manifest
-    return manifests
+    """Validate completion markers once via the transaction source of truth."""
+    try:
+        return transaction_completed_manifests(src)
+    except TransactionError as exc:
+        raise SystemExit(str(exc)) from exc
 
 
 def discovered_legacy_frontier(src: Path) -> tuple[int, int]:
@@ -586,7 +549,6 @@ def marker_mode_state(
     baseline = mode.get("legacy_baseline")
     if not isinstance(baseline, int) or isinstance(baseline, bool) or baseline < 0:
         raise SystemExit(f"invalid legacy_baseline in {mode_path}")
-    manifests = completed_manifests(src)
     legacy_frontier, legacy_named_baseline = discovered_legacy_frontier(src)
     if baseline > legacy_frontier:
         raise SystemExit(
@@ -604,10 +566,7 @@ def marker_mode_state(
     }
     if legacy_sha256 != validated_legacy_sha256:
         raise SystemExit(f"legacy baseline changed during validation: {src}")
-    try:
-        manifests = transaction_completed_manifests(src)
-    except TransactionError as exc:
-        raise SystemExit(str(exc)) from exc
+    manifests = completed_manifests(src)
     return baseline, manifests, validated_legacy_sha256
 
 

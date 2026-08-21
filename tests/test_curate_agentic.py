@@ -243,24 +243,33 @@ class CurateAgenticTests(unittest.TestCase):
                     1,
                     thought="private scratch",
                     chain_of_thought="longer private chain",
+                    chainOfThought="camel private chain",
                     tool_call={
                         "name": "bash",
-                        "args": {"command": "true", "scratch": "nested"},
+                        "args": {
+                            "command": "true",
+                            "scratch": "nested",
+                            "chain-of-thought": "hyphenated private chain",
+                        },
                         "inner_monologue": "still hidden",
+                        "Chain_Of_Thought": "mixed-case private chain",
                     },
                 )
             ]
         )
 
+        self.assertTrue(contains_hidden_thought_key(source))
         curated, decision = curate_record(source)
 
         self.assertIsNotNone(curated)
         self.assertFalse(contains_hidden_thought_key(curated))
         self.assertEqual(curated["steps"][0]["tool_call"]["args"], {"command": "true"})
-        self.assertEqual(decision["thought_fields_removed"], 4)
+        self.assertEqual(decision["thought_fields_removed"], 7)
         self.assertIn(REASON_THOUGHT_REMOVED, decision["reason_codes"])
         self.assertEqual(decision["action"], ACTION_MODIFIED)
         for key in HIDDEN_THOUGHT_KEYS:
+            self.assertNotIn(key, json.dumps(curated))
+        for key in ("chainOfThought", "chain-of-thought", "Chain_Of_Thought"):
             self.assertNotIn(key, json.dumps(curated))
 
     def test_output_does_not_depend_on_thought_content(self):

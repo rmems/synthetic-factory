@@ -27,7 +27,8 @@ Every JSONL line:
 - `meta.round` — integer ≥ 1 matching the reservation
 - `meta.generator` — `"grok-4.6"`
 
-No `thought` / `chain_of_thought` / `scratch` / `inner_monologue` keys.
+No `thought` / `chain_of_thought` / `scratch` / `inner_monologue` keys,
+including camel-case, separator, or case variants of those names.
 Every tool step has observable `decision_basis` plus `tool_call` and `observation`.
 
 ## Factory quotas
@@ -54,8 +55,9 @@ Every tool step has observable `decision_basis` plus `tool_call` and `observatio
 ## Later restart lane contracts
 
 Every row below is a fixed episode contract in addition to the shared envelope.
-Each record must show the stated failure mechanism, one bounded corrective
-action, and observable verification in its `observation`/`outcome`; invented
+Each record must show, in trajectory order, the stated failure mechanism, one
+bounded corrective action, and observable verification in its steps/outcome;
+keywords in `goal` do not count as evidence. Invented
 systems remain designed evidence rather than live claims.
 
 | slug | Q | required scenario and observable proof |

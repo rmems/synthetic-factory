@@ -564,7 +564,7 @@ class PublishGrok46HubTests(unittest.TestCase):
                         "commit_point": marker.name,
                         "files": [],
                     },
-                    "no unique file entry",
+                    "no unique batch entry",
                 ),
                 (
                     {
@@ -614,7 +614,7 @@ class PublishGrok46HubTests(unittest.TestCase):
             with mock.patch.object(publisher, "FACTORY_ROOT", root / "raw"), mock.patch.object(
                 publisher, "HF_ROOT", root / "hf"
             ):
-                with self.assertRaisesRegex(SystemExit, "no regular batch"):
+                with self.assertRaisesRegex(SystemExit, "unsafe committed artifact"):
                     publisher.snapshot_one(ITEM)
 
             self.assertEqual(stale.read_text(), '{"id":"preserve"}\n')
@@ -657,7 +657,7 @@ class PublishGrok46HubTests(unittest.TestCase):
             with mock.patch.object(publisher, "FACTORY_ROOT", root / "raw"), mock.patch.object(
                 publisher, "HF_ROOT", root / "hf"
             ):
-                with self.assertRaisesRegex(SystemExit, "no regular notes"):
+                with self.assertRaisesRegex(SystemExit, "unsafe committed artifact"):
                     publisher.snapshot_one(ITEM)
 
             self.assertEqual(stale.read_text(), "preserve\n")
@@ -951,8 +951,25 @@ class PublishGrok46HubTests(unittest.TestCase):
             source.mkdir()
             (source / "ROUND-r01.complete.json").write_bytes(b"\xff\n")
 
-            with self.assertRaisesRegex(SystemExit, "cannot read completion marker"):
+            with self.assertRaisesRegex(
+                SystemExit, r"cannot read .*ROUND-r01\.complete\.json"
+            ):
                 publisher.completed_manifests(source)
+
+    def test_marker_mode_validates_completion_manifests_once(self):
+        with tempfile.TemporaryDirectory() as td:
+            source = Path(td) / ITEM["slug"]
+            source.mkdir()
+            (source / ".round-marker-mode.json").write_text(
+                '{"version":1,"legacy_baseline":0,"commit_point":"ROUND-rNN.complete.json"}\n'
+            )
+
+            with mock.patch.object(
+                publisher, "transaction_completed_manifests", return_value={}
+            ) as validate:
+                publisher.marker_mode_state(source)
+
+            validate.assert_called_once_with(source)
 
     def test_only_limits_create_and_collection_operations(self):
         other = {**ITEM, "slug": "other-factory", "hub": "other"}

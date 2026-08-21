@@ -26,6 +26,7 @@ cascade.
 ```json
 {
   "id": "tup-rNN-<slug>-<hash>",
+  "lesson_category": "normalized semantic category, e.g. atomic-write",
   "goal": "shared task — identical for both sides",
   "chosen": {
     "steps": [Step],
@@ -55,6 +56,8 @@ or missing fails publish.
 - Teach gate/execution/recovery quality: atomic write vs in-place, verify-before-
   delete vs blind `rm`, retry-with-backoff vs tight loop, scoped grep vs dump.
 - 4–10 steps per side is enough if the contrast is load-bearing.
+- Set a non-empty `lesson_category`; all three normalized categories must be
+  distinct even when incidental paths or wording differ.
 - Three distinct tool-use lessons per batch. No hidden CoT keys.
 
 ### NOTES

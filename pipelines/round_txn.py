@@ -878,22 +878,45 @@ def nested_strings(value):
             yield from nested_strings(item)
 
 
-def agentic_observable_text(record: dict) -> str:
-    """Return lower-cased task and trajectory evidence, excluding metadata."""
-    values = [
-        record.get("goal"),
-        record.get("steps"),
-        record.get("outcome"),
-        record.get("chosen"),
-        record.get("rejected"),
-        record.get("critique"),
-    ]
+def agentic_trajectory_text(record: dict) -> str:
+    """Return ordered trajectory evidence without task-goal keyword claims."""
+    chosen = record.get("chosen")
+    rejected = record.get("rejected")
+    values = [record.get("steps")]
+    if isinstance(chosen, dict) or isinstance(rejected, dict):
+        values.extend(
+            (
+                chosen.get("steps") if isinstance(chosen, dict) else None,
+                rejected.get("steps") if isinstance(rejected, dict) else None,
+                record.get("critique"),
+                chosen.get("outcome") if isinstance(chosen, dict) else None,
+                rejected.get("outcome") if isinstance(rejected, dict) else None,
+            )
+        )
+    values.append(record.get("outcome"))
     return " ".join(
         text.strip().casefold()
         for value in values
         for text in nested_strings(value)
         if text.strip()
     )
+
+
+def demonstrates_ordered_scenario(record: dict, scenario_terms) -> bool:
+    """Require each scenario phase in trajectory order, never in the goal alone."""
+    trajectory = agentic_trajectory_text(record)
+    cursor = 0
+    for alternatives in scenario_terms:
+        matches = [
+            (position, len(term))
+            for term in alternatives
+            if (position := trajectory.find(term, cursor)) >= 0
+        ]
+        if not matches:
+            return False
+        position, length = min(matches)
+        cursor = position + length
+    return True
 
 
 def long_horizon_scenario_signature(record: dict):
@@ -1084,6 +1107,44 @@ def abandoned_failed_hypotheses(steps):
                 abandoned.add(label)
                 break
     return abandoned
+
+
+def sparse_step_progress_errors(where, steps):
+    """Reject sparse-horizon padding that changes neither state nor belief."""
+    if not isinstance(steps, list):
+        return []
+    progress_terms = re.compile(
+        r"\b(?:added|changed|created|deleted|disproved|edited|evidence|failed|"
+        r"fixed|found|hypothesis|learned|measured|patched|removed|reproduced|"
+        r"tested|updated|verified|wrote)\b"
+    )
+    stall_terms = re.compile(
+        r"\b(?:no[ -]?op|no change|nothing changed|unchanged)\b"
+    )
+    previous_observation = None
+    for index, step in enumerate(steps):
+        text = observable_step_text(step)
+        if stall_terms.search(text) is not None or progress_terms.search(text) is None:
+            return [
+                f"{where}: sparse long-task steps[{index}] must show observable "
+                "file, test, or belief progress rather than padding"
+            ]
+        observation = step.get("observation") if isinstance(step, dict) else None
+        normalized_observation = (
+            re.sub(r"\s+", " ", observation.strip().casefold())
+            if isinstance(observation, str) and observation.strip()
+            else None
+        )
+        if (
+            normalized_observation is not None
+            and normalized_observation == previous_observation
+        ):
+            return [
+                f"{where}: sparse long-task steps[{index}] repeats the prior "
+                "observation without observable progress"
+            ]
+        previous_observation = normalized_observation
+    return []
 
 
 def frontier_status(factory_dir: Path):
@@ -1442,14 +1503,11 @@ def validate_agentic_envelope(batch: Path, factory_dir: Path, round_number: int)
             )
         scenario_terms = RESTART_LANE_SCENARIO_TERMS.get(factory_dir.name)
         if scenario_terms is not None and isinstance(record, dict):
-            visible_text = agentic_observable_text(record)
-            if any(
-                not any(term in visible_text for term in alternatives)
-                for alternatives in scenario_terms
-            ):
+            if not demonstrates_ordered_scenario(record, scenario_terms):
                 errors.append(
                     f"{where}: {factory_dir.name} must demonstrate its required "
-                    "failure scenario, bounded correction, and observable verification"
+                    "failure scenario, bounded correction, and observable verification "
+                    "in ordered trajectory evidence"
                 )
         if factory_dir.name == "cascading-error-recovery-factory":
             fault = record.get("error_introduced") if isinstance(record, dict) else None
@@ -1738,6 +1796,7 @@ def validate_agentic_envelope(batch: Path, factory_dir: Path, round_number: int)
                         60,
                     )
                 )
+                errors.extend(sparse_step_progress_errors(where, steps))
                 for index, step in enumerate(steps):
                     if isinstance(step, dict):
                         for field in ("reward", "score", "tests_passed"):
@@ -1813,23 +1872,20 @@ def validate_agentic_envelope(batch: Path, factory_dir: Path, round_number: int)
                 factory_dir.name == "tool-use-preference-factory"
                 and isinstance(record, dict)
             ):
-                chosen = record.get("chosen")
-                rejected = record.get("rejected")
-                lesson = {
-                    "goal": record.get("goal"),
-                    "critique": record.get("critique"),
-                    "chosen": {
-                        key: chosen.get(key) if isinstance(chosen, dict) else None
-                        for key in ("goal", "steps", "outcome", "reward")
-                    },
-                    "rejected": {
-                        key: rejected.get(key) if isinstance(rejected, dict) else None
-                        for key in ("goal", "steps", "outcome", "reward")
-                    },
-                }
-                tool_use_lesson_signatures.append(
-                    json.dumps(lesson, sort_keys=True, separators=(",", ":"))
-                )
+                lesson_category = record.get("lesson_category")
+                if not isinstance(lesson_category, str) or not lesson_category.strip():
+                    errors.append(
+                        f"{where}: tool-use preferences require a non-empty "
+                        "lesson_category"
+                    )
+                else:
+                    tool_use_lesson_signatures.append(
+                        re.sub(
+                            r"[^a-z0-9]+",
+                            "_",
+                            lesson_category.strip().casefold(),
+                        ).strip("_")
+                    )
             for side_name in ("chosen", "rejected"):
                 side = record.get(side_name) if isinstance(record, dict) else None
                 if not isinstance(side, dict) or not isinstance(side.get("steps"), list):
@@ -1923,7 +1979,8 @@ def validate_agentic_envelope(batch: Path, factory_dir: Path, round_number: int)
         )
     if (
         factory_dir.name == "tool-use-preference-factory"
-        and len(tool_use_lesson_signatures) != len(set(tool_use_lesson_signatures))
+        and len(set(tool_use_lesson_signatures))
+        != FACTORY_QUOTAS["tool-use-preference-factory"]
     ):
         errors.append(
             "tool-use-preference-factory requires three distinct tool-use lessons per batch"

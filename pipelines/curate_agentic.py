@@ -22,6 +22,7 @@ import copy
 import hashlib
 import json
 import os
+import re
 import sys
 from collections import Counter
 from pathlib import Path
@@ -91,6 +92,15 @@ def hash_bytes(payload: bytes) -> str:
     return hashlib.sha256(payload).hexdigest()
 
 
+def normalized_key_name(value: Any) -> str:
+    """Normalize JSON keys across case, separators, and camel-case boundaries."""
+    return re.sub(
+        r"[^a-z0-9]+",
+        "_",
+        re.sub(r"(?<=[a-z0-9])(?=[A-Z])", "_", str(value)).casefold(),
+    ).strip("_")
+
+
 def _is_under_raw(path: Path) -> bool:
     parts = path.resolve(strict=False).parts
     return any(
@@ -102,9 +112,9 @@ def _is_under_raw(path: Path) -> bool:
 def contains_hidden_thought_key(value: Any) -> bool:
     """Return whether any nested mapping exposes a banned hidden-thought key."""
     if isinstance(value, dict):
-        return any(key in HIDDEN_THOUGHT_KEYS for key in value) or any(
-            contains_hidden_thought_key(item) for item in value.values()
-        )
+        return any(
+            normalized_key_name(key) in HIDDEN_THOUGHT_KEYS for key in value
+        ) or any(contains_hidden_thought_key(item) for item in value.values())
     if isinstance(value, list):
         return any(contains_hidden_thought_key(item) for item in value)
     return False
@@ -116,7 +126,7 @@ def strip_hidden_thought_keys(value: Any) -> tuple[Any, int]:
         cleaned: dict[str, Any] = {}
         removed = 0
         for key, item in value.items():
-            if key in HIDDEN_THOUGHT_KEYS:
+            if normalized_key_name(key) in HIDDEN_THOUGHT_KEYS:
                 removed += 1
                 continue
             clean_item, nested = strip_hidden_thought_keys(item)

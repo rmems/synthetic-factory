@@ -57,6 +57,19 @@ def add_sparse_failed_hypotheses(steps):
     )
 
 
+def sparse_progress_steps():
+    steps = [
+        _step(
+            index,
+            f"Evidence {index} updated the belief about constraint {index}",
+        )
+        for index in range(1, 26)
+    ]
+    for index, step in enumerate(steps, 1):
+        step["observation"] = f"learned distinct constraint {index} from evidence"
+    return steps
+
+
 def episode(record_id, round_number=1, factory="long-horizon-coding-factory"):
     alternate_scenario = str(record_id).endswith("-1")
     return {
@@ -74,6 +87,7 @@ def episode(record_id, round_number=1, factory="long-horizon-coding-factory"):
 def episode_preference():
     return {
         "id": "tup-r01-lock",
+        "lesson_category": "atomic-write",
         "goal": "write output.json atomically",
         "chosen": {
             "steps": [
@@ -302,6 +316,43 @@ class AgenticShapes(unittest.TestCase):
                         errors,
                     )
 
+    def test_restart_lane_rejects_scenario_keywords_only_in_the_goal(self):
+        with tempfile.TemporaryDirectory() as td:
+            factory = Path(td) / "package-release-factory"
+            factory.mkdir()
+            record = episode("goal-keyword-stuffing", factory=factory.name)
+            record["goal"] = (
+                "repair the package release artifact manifest and verify it passes"
+            )
+            record["steps"] = [
+                _step(1, "Inspect an unrelated timezone conversion"),
+                _step(2, "Patch the unrelated timezone conversion"),
+            ]
+            record["outcome"] = "the unrelated timezone task completed"
+            batch = factory / "batch-r01.jsonl"
+            batch.write_text(json.dumps(record) + "\n")
+
+            errors = round_txn.validate_agentic_envelope(batch, factory, 1)
+
+            self.assertTrue(
+                any("ordered trajectory evidence" in error for error in errors),
+                errors,
+            )
+
+            record["steps"] = [
+                _step(1, "Inspect the package release artifact manifest and verify it passes"),
+                _step(2, "Repair the broken provenance attestation"),
+            ]
+            record["outcome"] = "release task completed"
+            batch.write_text(json.dumps(record) + "\n")
+
+            errors = round_txn.validate_agentic_envelope(batch, factory, 1)
+
+            self.assertTrue(
+                any("ordered trajectory evidence" in error for error in errors),
+                errors,
+            )
+
     def test_restart_lane_accepts_observable_sandbox_refusal_scenario(self):
         with tempfile.TemporaryDirectory() as td:
             factory = Path(td) / "sandbox-refusal-factory"
@@ -328,6 +379,9 @@ class AgenticShapes(unittest.TestCase):
             factory.mkdir()
             record = episode_preference()
             record["goal"] = "review a patch for an incorrect authorization check"
+            record["chosen"]["steps"][0]["decision_basis"] = (
+                "Review the patch diff and identify the authorization bug"
+            )
             record["chosen"]["outcome"] = "correct fix verified by authorization tests"
             record["rejected"]["outcome"] = "bug remains and risks unauthorized access"
             record["critique"] = "prefer the chosen patch; reject the unsafe diff"
@@ -403,7 +457,7 @@ class AgenticShapes(unittest.TestCase):
             self.assertIn("at least two explicit hypotheses", message)
             self.assertFalse((factory / "ROUND-r01.complete.json").exists())
 
-            record["steps"] = [_step(index) for index in range(1, 26)]
+            record["steps"] = sparse_progress_steps()
             add_sparse_failed_hypotheses(record["steps"])
             record["reward"] = {
                 "success": True,
@@ -414,6 +468,46 @@ class AgenticShapes(unittest.TestCase):
 
             manifest = round_txn.publish(factory, 1, reservation["token"])
             self.assertEqual(manifest["records"], 1)
+
+    def test_sparse_long_task_rejects_repeated_no_progress_padding(self):
+        with tempfile.TemporaryDirectory() as td:
+            factory = Path(td) / "sparse-reward-long-task-factory"
+            factory.mkdir()
+            record = episode("sparse-padding", factory=factory.name)
+            record["steps"] = sparse_progress_steps()
+            add_sparse_failed_hypotheses(record["steps"])
+            for step in record["steps"][4:]:
+                step["decision_basis"] = "Read the same status file; no change"
+                step["tool_call"] = {
+                    "name": "bash",
+                    "args": {"command": "cat status.txt"},
+                }
+                step["observation"] = "unchanged status"
+            record["reward"] = {
+                "success": True,
+                "terminal_only": True,
+                "horizon_steps": len(record["steps"]),
+            }
+            batch = factory / "batch-r01.jsonl"
+            batch.write_text(json.dumps(record) + "\n")
+
+            errors = round_txn.validate_agentic_envelope(batch, factory, 1)
+
+            self.assertTrue(
+                any("rather than padding" in error for error in errors), errors
+            )
+
+            record["steps"] = sparse_progress_steps()
+            add_sparse_failed_hypotheses(record["steps"])
+            record["steps"][5]["observation"] = record["steps"][4]["observation"]
+            batch.write_text(json.dumps(record) + "\n")
+
+            errors = round_txn.validate_agentic_envelope(batch, factory, 1)
+
+            self.assertTrue(
+                any("repeats the prior observation" in error for error in errors),
+                errors,
+            )
 
     def test_long_horizon_publish_enforces_range_and_numbering(self):
         with tempfile.TemporaryDirectory() as td:
@@ -632,9 +726,12 @@ class AgenticShapes(unittest.TestCase):
             reservation = round_txn.reserve(factory, 1, 3)
             stage = Path(reservation["staging_dir"])
             recs = []
-            for i in range(3):
+            for i, lesson_category in enumerate(
+                ("atomic-write", "bounded-retry", "safe-delete")
+            ):
                 rec = episode_preference()
                 rec["id"] = f"tup-r01-lock-{i}"
+                rec["lesson_category"] = lesson_category
                 rec["goal"] = f"write output-{i}.json atomically"
                 recs.append(json.dumps(rec))
             (stage / reservation["batch_file"]).write_text("\n".join(recs) + "\n")
@@ -653,6 +750,9 @@ class AgenticShapes(unittest.TestCase):
             for index in range(3):
                 record = episode_preference()
                 record["id"] = f"duplicate-lesson-{index}"
+                record["goal"] = f"write result-{index}.json atomically"
+                record["critique"] += f" Wording variant {index}."
+                record["chosen"]["outcome"] += f" Attempt {index} completed."
                 records.append(record)
             batch = factory / "batch-r01.jsonl"
             batch.write_text(
@@ -663,6 +763,22 @@ class AgenticShapes(unittest.TestCase):
 
             self.assertIn(
                 "tool-use-preference-factory requires three distinct tool-use lessons per batch",
+                errors,
+            )
+
+    def test_tool_use_preference_requires_an_explicit_lesson_category(self):
+        with tempfile.TemporaryDirectory() as td:
+            factory = Path(td) / "tool-use-preference-factory"
+            factory.mkdir()
+            record = episode_preference()
+            record.pop("lesson_category")
+            batch = factory / "batch-r01.jsonl"
+            batch.write_text(json.dumps(record) + "\n")
+
+            errors = round_txn.validate_agentic_envelope(batch, factory, 1)
+
+            self.assertTrue(
+                any("non-empty lesson_category" in error for error in errors),
                 errors,
             )
 
@@ -1341,7 +1457,7 @@ class AgenticShapes(unittest.TestCase):
             factory = Path(td) / "sparse-reward-long-task-factory"
             factory.mkdir()
             record = episode("sparse-outcome", factory=factory.name)
-            record["steps"] = [_step(index) for index in range(1, 26)]
+            record["steps"] = sparse_progress_steps()
             add_sparse_failed_hypotheses(record["steps"])
             record["reward"] = {
                 "success": True,
