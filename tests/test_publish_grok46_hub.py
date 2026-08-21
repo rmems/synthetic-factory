@@ -982,6 +982,23 @@ class PublishGrok46HubTests(unittest.TestCase):
         create.assert_not_called()
         collect.assert_called_once_with(ITEM["slug"])
 
+    def test_local_commands_skip_hub_authentication(self):
+        for command, handler_name in (("snapshot", "cmd_snapshot"), ("status", "cmd_status")):
+            with self.subTest(command=command), mock.patch.object(
+                publisher.subprocess, "run"
+            ) as whoami, mock.patch.object(
+                publisher, handler_name
+            ) as handler, mock.patch.object(
+                sys, "argv", ["publish_grok46_hub.py", command]
+            ):
+                self.assertEqual(publisher.main(), 0)
+
+            whoami.assert_not_called()
+            if command == "snapshot":
+                handler.assert_called_once_with(None)
+            else:
+                handler.assert_called_once_with()
+
     def test_unknown_only_target_fails_before_hub_authentication(self):
         with mock.patch.object(publisher, "factories", return_value=[ITEM]), mock.patch.object(
             publisher.subprocess, "run"

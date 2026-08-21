@@ -1179,14 +1179,19 @@ def main() -> int:
     if args.only and not any(is_selected(item, args.only) for item in factories()):
         print(f"unknown --only target: {args.only}", file=sys.stderr)
         return 2
-    who = subprocess.run(["hf", "auth", "whoami", "--format", "json"], capture_output=True, text=True)
-    if who.returncode != 0:
-        print(who.stderr, file=sys.stderr)
-        return 2
-    ident = json.loads(who.stdout)
-    if ident.get("user") != "rmems":
-        print(f"refusing: whoami={ident!r}", file=sys.stderr)
-        return 2
+    if args.cmd in {"create", "upload", "collect", "all"}:
+        who = subprocess.run(
+            ["hf", "auth", "whoami", "--format", "json"],
+            capture_output=True,
+            text=True,
+        )
+        if who.returncode != 0:
+            print(who.stderr, file=sys.stderr)
+            return 2
+        ident = json.loads(who.stdout)
+        if ident.get("user") != "rmems":
+            print(f"refusing: whoami={ident!r}", file=sys.stderr)
+            return 2
     if args.cmd == "snapshot":
         cmd_snapshot(args.only)
     elif args.cmd == "create":
