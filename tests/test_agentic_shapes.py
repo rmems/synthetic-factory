@@ -1350,6 +1350,20 @@ class AgenticShapes(unittest.TestCase):
                 "create the stale lock before retrying", "stale-lock"
             )
         )
+        self.assertTrue(
+            round_txn.visibly_names_fault(
+                "lock file left by crashed writer",
+                "stale-lock",
+                "lock file left by crashed writer",
+            )
+        )
+        self.assertFalse(
+            round_txn.visibly_names_fault(
+                "write healthy file",
+                "stale-lock",
+                "lock file left by crashed writer",
+            )
+        )
 
     def test_category_normalization_preserves_unicode_and_symbol_identity(self):
         self.assertEqual(round_txn.normalized_category("缓存 故障"), "缓存_故障")
@@ -1360,6 +1374,10 @@ class AgenticShapes(unittest.TestCase):
         self.assertNotEqual(
             round_txn.normalized_category("!!!"),
             round_txn.normalized_category("???"),
+        )
+        self.assertEqual(
+            round_txn.normalized_category("stale lock"),
+            round_txn.normalized_category("stale__lock"),
         )
 
     def test_thought_key_rejected_on_agentic_steps(self):

@@ -990,7 +990,9 @@ def normalized_category(value):
     """Normalize a human category so punctuation cannot manufacture diversity."""
     if not isinstance(value, str):
         return ""
-    normalized = re.sub(r"[^\w]+", "_", value.strip().casefold()).strip("_")
+    normalized = re.sub(
+        r"_+", "_", re.sub(r"[^\w]+", "_", value.strip().casefold())
+    ).strip("_")
     if normalized:
         return normalized
     if value.strip():
@@ -999,13 +1001,17 @@ def normalized_category(value):
     return ""
 
 
-def visibly_names_fault(introduced_text, fault_kind):
-    """Whether one designated step explicitly names the declared fault kind."""
+def visibly_names_fault(introduced_text, *fault_evidence):
+    """Whether one designated step explicitly names declared fault evidence."""
     introduced = normalized_category(introduced_text)
-    kind = normalized_category(fault_kind)
-    if kind.startswith("symbols_"):
-        return fault_kind.strip().casefold() in introduced_text.casefold()
-    return bool(introduced and kind and kind in introduced)
+    for evidence in fault_evidence:
+        normalized = normalized_category(evidence)
+        if normalized.startswith("symbols_"):
+            if evidence.strip().casefold() in introduced_text.casefold():
+                return True
+        elif introduced and normalized and normalized in introduced:
+            return True
+    return False
 
 
 def numbered_horizon_errors(where, steps, lane, minimum, maximum):
@@ -1622,7 +1628,9 @@ def validate_agentic_envelope(batch: Path, factory_dir: Path, round_number: int)
                         if isinstance(introduced_step, dict)
                         else ""
                     )
-                    if not visibly_names_fault(introduced_text, fault.get("kind")):
+                    if not visibly_names_fault(
+                        introduced_text, fault.get("kind"), fault.get("payload")
+                    ):
                         errors.append(
                             f"{where}: error_introduced.step action or observation "
                             "must visibly introduce the declared fault"
