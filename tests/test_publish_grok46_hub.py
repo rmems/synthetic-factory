@@ -231,6 +231,8 @@ class PublishGrok46HubTests(unittest.TestCase):
                     {
                         "factory": ITEM["slug"],
                         "round": 3,
+                        "records": 2,
+                        "expected_records": 2,
                         "commit_point": "ROUND-r03.complete.json",
                         "files": [
                             {
@@ -269,6 +271,9 @@ class PublishGrok46HubTests(unittest.TestCase):
             stale_note.write_text("stale\n")
             unknown_metadata = stale_note.parent / "uncommitted.txt"
             unknown_metadata.write_text("must not publish\n")
+            mirror = destination_root / ITEM["hub"]
+            (mirror / "old.jsonl").write_text("must not publish\n")
+            (mirror / "data" / "old.txt").write_text("must not publish\n")
             with mock.patch.object(publisher, "FACTORY_ROOT", root / "raw"), mock.patch.object(
                 publisher, "HF_ROOT", destination_root
             ):
@@ -283,6 +288,8 @@ class PublishGrok46HubTests(unittest.TestCase):
                 self.assertFalse((meta / "NOTES-r02.md").exists())
                 self.assertTrue((meta / "NOTES-r03.md").is_file())
                 self.assertFalse((meta / "uncommitted.txt").exists())
+                self.assertFalse((mirror / "old.jsonl").exists())
+                self.assertFalse((mirror / "data" / "old.txt").exists())
 
                 committed_notes.write_text("tampered\n")
                 with self.assertRaisesRegex(SystemExit, "hash mismatch"):
@@ -388,6 +395,31 @@ class PublishGrok46HubTests(unittest.TestCase):
             self.assertIn(f"| `{other['hub']}/` |", inventory)
             self.assertIn(f"| `{other['slug']}` | 1 | 1 |", inventory)
 
+    def test_snapshot_publishes_canonical_notes_for_suffixed_legacy_batch(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            source = root / "raw" / ITEM["slug"]
+            source.mkdir(parents=True)
+            batch = source / "batch-r01a.jsonl"
+            write_valid_legacy(batch)
+            notes = source / "NOTES-r01.md"
+            notes.write_text("Novel coverage: 80%\n")
+            (source / ".round-marker-mode.json").write_text(
+                '{"version":1,"legacy_baseline":1,"commit_point":"ROUND-rNN.complete.json"}\n'
+            )
+
+            with mock.patch.object(
+                publisher, "FACTORY_ROOT", root / "raw"
+            ), mock.patch.object(publisher, "HF_ROOT", root / "hf"):
+                publisher.snapshot_one(ITEM)
+
+            self.assertTrue(
+                (root / "hf" / ITEM["hub"] / "data" / "raw" / batch.name).is_file()
+            )
+            self.assertTrue(
+                (root / "hf" / ITEM["hub"] / "data" / "metadata" / notes.name).is_file()
+            )
+
     def test_snapshot_refuses_untrusted_completion_manifests(self):
         with tempfile.TemporaryDirectory() as td:
             source = Path(td) / ITEM["slug"]
@@ -456,6 +488,8 @@ class PublishGrok46HubTests(unittest.TestCase):
                     {
                         "factory": source.name,
                         "round": 1,
+                        "records": 2,
+                        "expected_records": 2,
                         "commit_point": marker.name,
                         "files": [
                             {"name": "batch-r01.jsonl", "sha256": "0" * 64}
@@ -494,6 +528,8 @@ class PublishGrok46HubTests(unittest.TestCase):
                     {
                         "factory": source.name,
                         "round": 1,
+                        "records": 2,
+                        "expected_records": 2,
                         "commit_point": marker.name,
                         "files": [
                             {"name": batch.name, "sha256": hashlib.sha256(batch.read_bytes()).hexdigest()},
@@ -535,6 +571,8 @@ class PublishGrok46HubTests(unittest.TestCase):
                     {
                         "factory": source.name,
                         "round": 1,
+                        "records": 2,
+                        "expected_records": 2,
                         "commit_point": marker.name,
                         "files": [
                             {"name": batch.name, "sha256": hashlib.sha256(batch.read_bytes()).hexdigest()},
@@ -672,6 +710,8 @@ class PublishGrok46HubTests(unittest.TestCase):
                     {
                         "factory": ITEM["slug"],
                         "round": 1,
+                        "records": 2,
+                        "expected_records": 2,
                         "commit_point": "ROUND-r01.complete.json",
                         "files": [
                             {"name": batch.name, "sha256": hashlib.sha256(batch.read_bytes()).hexdigest()},
@@ -787,6 +827,44 @@ class PublishGrok46HubTests(unittest.TestCase):
                     publisher.cmd_upload()
 
             run.assert_not_called()
+
+    def test_upload_refuses_unmanaged_files_outside_payload_directories(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td) / "hf"
+            mirror = root / ITEM["hub"]
+            mirror.mkdir(parents=True)
+            (mirror / "old.jsonl").write_text("unmanaged\n")
+
+            with mock.patch.object(publisher, "HF_ROOT", root), mock.patch.object(
+                publisher, "factories", return_value=[ITEM]
+            ), mock.patch.object(publisher, "run") as run:
+                with self.assertRaisesRegex(SystemExit, "unmanaged upload tree entry"):
+                    publisher.cmd_upload()
+
+            run.assert_not_called()
+
+    def test_status_counts_only_marker_visible_factory_batches(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            source = root / "raw" / ITEM["slug"]
+            source.mkdir(parents=True)
+            (source / ".round-marker-mode.json").write_text(
+                '{"version":1,"legacy_baseline":0,"commit_point":"ROUND-rNN.complete.json"}\n'
+            )
+            write_valid_completed_long_horizon(source / "batch-r01.jsonl", 1)
+            (source / "ROUND-r01.publishing.json").write_text("{}\n")
+
+            with mock.patch.object(
+                publisher, "FACTORY_ROOT", root / "raw"
+            ), mock.patch.object(
+                publisher, "HF_ROOT", root / "hf"
+            ), mock.patch.object(
+                publisher, "factories", return_value=[ITEM]
+            ), mock.patch("builtins.print") as print_:
+                publisher.cmd_status()
+
+            row = print_.call_args_list[-1].args[0]
+            self.assertRegex(row, r"\s+0\s+0$")
 
     def test_targeted_snapshot_preserves_full_inventory(self):
         other = {**ITEM, "slug": "other-factory", "hub": "other"}

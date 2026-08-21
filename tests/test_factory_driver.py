@@ -43,6 +43,8 @@ class FactoryTokenEfficiency(unittest.TestCase):
                 {
                     "factory": factory.name,
                     "round": round_number,
+                    "records": 1,
+                    "expected_records": 1,
                     "commit_point": marker.name,
                     "files": [
                         {
@@ -203,6 +205,8 @@ class FactoryDriverAudit(unittest.TestCase):
                     {
                         "factory": factory.name,
                         "round": 1,
+                        "records": 1,
+                        "expected_records": 1,
                         "commit_point": marker.name,
                         "files": [
                             {"name": batch.name, "sha256": hashlib.sha256(batch.read_bytes()).hexdigest()},

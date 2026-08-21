@@ -495,6 +495,8 @@ class CurateAgenticTests(unittest.TestCase):
                     {
                         "factory": factory.name,
                         "round": 1,
+                        "records": 1,
+                        "expected_records": 1,
                         "commit_point": "ROUND-r01.complete.json",
                         "files": [
                             {
@@ -538,6 +540,8 @@ class CurateAgenticTests(unittest.TestCase):
                     {
                         "factory": factory.name,
                         "round": 1,
+                        "records": 1,
+                        "expected_records": 1,
                         "commit_point": "ROUND-r01.complete.json",
                         "files": [
                             {"name": batch.name, "sha256": hashlib.sha256(batch.read_bytes()).hexdigest()},

@@ -600,6 +600,7 @@ class RoundTransaction(unittest.TestCase):
                         "factory": factory.name,
                         "round": 2,
                         "records": 1,
+                        "expected_records": 1,
                         "commit_point": marker.name,
                         "files": [
                             {"name": batch.name, "sha256": round_txn.file_sha256(batch)},
@@ -634,6 +635,8 @@ class RoundTransaction(unittest.TestCase):
                     {
                         "factory": factory.name,
                         "round": 1,
+                        "records": 1,
+                        "expected_records": 1,
                         "commit_point": marker.name,
                         "files": [
                             {
@@ -673,6 +676,8 @@ class RoundTransaction(unittest.TestCase):
                     {
                         "factory": factory.name,
                         "round": 1,
+                        "records": 1,
+                        "expected_records": 1,
                         "commit_point": marker.name,
                         "files": [
                             {"name": batch.name, "sha256": round_txn.file_sha256(batch)},
@@ -740,6 +745,36 @@ class RoundTransaction(unittest.TestCase):
 
             with self.assertRaisesRegex(
                 round_txn.TransactionError, "records does not match batch records"
+            ):
+                round_txn.frontier_status(factory)
+
+    def test_completion_marker_requires_record_count_fields(self):
+        with tempfile.TemporaryDirectory() as td:
+            factory = self.factory(td)
+            round_txn.ensure_marker_mode(factory)
+            batch = factory / "batch-r01.jsonl"
+            notes = factory / "NOTES-r01.md"
+            batch.write_text("")
+            notes.write_text("# Critique\n\nEmpty legacy marker fixture.\n")
+            marker = factory / "ROUND-r01.complete.json"
+            marker.write_text(
+                json.dumps(
+                    {
+                        "factory": factory.name,
+                        "round": 1,
+                        "commit_point": marker.name,
+                        "files": [
+                            {"name": batch.name, "sha256": round_txn.file_sha256(batch)},
+                            {"name": notes.name, "sha256": round_txn.file_sha256(notes)},
+                        ],
+                    }
+                )
+                + "\n"
+            )
+
+            with self.assertRaisesRegex(
+                round_txn.TransactionError,
+                "completion marker records does not match batch records",
             ):
                 round_txn.frontier_status(factory)
 

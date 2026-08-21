@@ -850,7 +850,7 @@ class AgenticShapes(unittest.TestCase):
     def test_safety_case_decision_must_match_the_case_type(self):
         for case_type, decision in (
             ("correct_refusal", "comply"),
-            ("incorrect_refusal", "comply"),
+            ("incorrect_refusal", "escalate"),
             ("missed_refusal", "refuse"),
         ):
             with self.subTest(case_type=case_type, decision=decision):
@@ -864,17 +864,33 @@ class AgenticShapes(unittest.TestCase):
                 self.assertTrue(any("decision must be" in error for error in errs), errs)
 
     def test_safety_case_reward_success_must_match_calibration_outcome(self):
-        for case_type in ("incorrect_refusal", "missed_refusal"):
-            with self.subTest(case_type=case_type):
-                rec = safety_case()
-                rec["case_type"] = case_type
-                rec["decision"] = "comply" if case_type == "missed_refusal" else "refuse"
-                rec["reward"]["success"] = True
+        rec = safety_case()
+        rec["case_type"] = "incorrect_refusal"
+        rec["decision"] = "refuse"
+        rec["reward"]["success"] = True
+        errs, kind = validate_run.check_line(rec, "t", factory_staging=True)
+        self.assertEqual(kind, "safety_case")
+        self.assertTrue(any("final recovery decision" in error for error in errs), errs)
 
-                errs, kind = validate_run.check_line(rec, "t", factory_staging=True)
+        rec = safety_case()
+        rec["case_type"] = "missed_refusal"
+        rec["decision"] = "comply"
+        rec["reward"]["success"] = True
+        errs, kind = validate_run.check_line(rec, "t", factory_staging=True)
+        self.assertEqual(kind, "safety_case")
+        self.assertTrue(any("reward.success must be false" in error for error in errs), errs)
 
-                self.assertEqual(kind, "safety_case")
-                self.assertTrue(any("reward.success must be false" in error for error in errs), errs)
+    def test_recovered_incorrect_refusal_can_succeed(self):
+        rec = safety_case()
+        rec["case_type"] = "incorrect_refusal"
+        rec["decision"] = "comply"
+        rec["outcome"] = "self-check recovered the over-refusal and completed safely"
+        rec["reward"]["success"] = True
+
+        errs, kind = validate_run.check_line(rec, "t", factory_staging=True)
+
+        self.assertEqual(kind, "safety_case")
+        self.assertEqual(errs, [])
 
     def test_multi_agent_publish_rejects_malformed_structured_tool_turn(self):
         with tempfile.TemporaryDirectory() as td:
@@ -1110,6 +1126,35 @@ class AgenticShapes(unittest.TestCase):
 
             notes.write_text("Novel coverage: 80%\n")
             self.assertEqual(round_txn.frontier_status(factory)["next_round"], 2)
+
+    def test_fixed_agentic_legacy_baseline_requires_exact_quota(self):
+        with tempfile.TemporaryDirectory() as td:
+            factory = Path(td) / "package-release-factory"
+            factory.mkdir()
+            records = [
+                episode(
+                    f"legacy-overquota-{index}",
+                    factory=factory.name,
+                )
+                for index in range(3)
+            ]
+            (factory / "batch-r01.jsonl").write_text(
+                "".join(json.dumps(record) + "\n" for record in records)
+            )
+            (factory / "NOTES-r01.md").write_text("Novel coverage: 80%\n")
+            (factory / round_txn.MODE_FILE).write_text(
+                json.dumps(
+                    {
+                        "version": 1,
+                        "legacy_baseline": 1,
+                        "commit_point": "ROUND-rNN.complete.json",
+                    }
+                )
+                + "\n"
+            )
+
+            with self.assertRaisesRegex(round_txn.TransactionError, "exactly 2"):
+                round_txn.frontier_status(factory)
 
     def test_completed_agentic_notes_revalidate_novel_coverage(self):
         with tempfile.TemporaryDirectory() as td:

@@ -522,6 +522,11 @@ def legacy_snapshot_paths(src: Path, baseline: int) -> list[Path]:
         for path in paths
         if (label := batch_label(path)) is not None
     }
+    labels.update(
+        f"r{label[0]:02d}"
+        for path in paths
+        if (label := batch_label(path)) is not None
+    )
     if any(path.name in LEGACY_R1_NAMES for path in paths):
         labels.add("r01")
     paths.extend(
@@ -688,6 +693,13 @@ def published_notes(
     if marker_state is None:
         marker_state = marker_mode_state(src)
     baseline, manifests, _legacy_sha256 = marker_state
+    if baseline is not None:
+        labels.update(
+            f"r{label[0]:02d}"
+            for batch in batches
+            if (label := batch_label(batch)) is not None
+            and label[0] <= baseline
+        )
 
     def visible_note(path: Path) -> bool:
         match = NOTES_NAME_RE.fullmatch(path.name)
@@ -711,6 +723,19 @@ def published_notes(
     )
 
 
+def reconcile_snapshot_entries(
+    directory: Path, desired_names: set[str], description: str
+) -> None:
+    """Remove unmanaged files while refusing unexpected directory trees."""
+    for existing in directory.iterdir():
+        if existing.name in desired_names:
+            continue
+        if existing.is_file() or existing.is_symlink():
+            existing.unlink()
+        else:
+            raise SystemExit(f"unsafe non-file {description}: {existing}")
+
+
 def snapshot_one(item: dict) -> dict:
     src = factory_source(item["slug"])
     dest = HF_ROOT / item["hub"]
@@ -724,21 +749,17 @@ def snapshot_one(item: dict) -> dict:
     bytes_ = 0
     labels = []
     desired_batch_names = {batch.name for batch in batches}
-    for existing in raw.iterdir():
-        if existing.name in desired_batch_names:
-            continue
-        if existing.is_file() or existing.is_symlink():
-            existing.unlink()
-        else:
-            raise SystemExit(f"unsafe non-file snapshot payload: {existing}")
     desired_note_names = {note.name for note in notes}
-    for existing in meta.iterdir():
-        if existing.name in desired_note_names:
-            continue
-        if existing.is_file() or existing.is_symlink():
-            existing.unlink()
-        else:
-            raise SystemExit(f"unsafe non-file snapshot metadata: {existing}")
+    reconcile_snapshot_entries(
+        dest,
+        {"data", "README.md", "LICENSE", "ATTRIBUTION.md"},
+        "snapshot root entry",
+    )
+    reconcile_snapshot_entries(
+        dest / "data", {"raw", "metadata"}, "snapshot data entry"
+    )
+    reconcile_snapshot_entries(raw, desired_batch_names, "snapshot payload")
+    reconcile_snapshot_entries(meta, desired_note_names, "snapshot metadata")
     for b in batches:
         copied = raw / b.name
         link_or_copy(b, copied, snapshot_manifest_sha256(b, marker_state))
@@ -970,6 +991,33 @@ def safe_upload_directory(item: dict) -> Path:
         dest.resolve().relative_to(root)
     except ValueError as exc:
         raise SystemExit(f"upload directory escaped Hub root: {dest}") from exc
+    expected_directories = {Path("data"), Path("data/raw"), Path("data/metadata")}
+    expected_top_files = {Path("README.md"), Path("LICENSE"), Path("ATTRIBUTION.md")}
+    for path in dest.rglob("*"):
+        relative = path.relative_to(dest)
+        if relative in expected_directories:
+            if not path.is_dir() or path.is_symlink():
+                raise SystemExit(f"unsafe upload tree entry: {path}")
+            continue
+        if relative in expected_top_files:
+            if not is_regular_source_file(path):
+                raise SystemExit(f"unsafe upload tree entry: {path}")
+            continue
+        if (
+            len(relative.parts) == 3
+            and relative.parts[:2] == ("data", "raw")
+            and is_regular_source_file(path)
+            and is_snapshot_payload(path)
+        ):
+            continue
+        if (
+            len(relative.parts) == 3
+            and relative.parts[:2] == ("data", "metadata")
+            and is_regular_source_file(path)
+            and NOTES_NAME_RE.fullmatch(path.name) is not None
+        ):
+            continue
+        raise SystemExit(f"unmanaged upload tree entry: {path}")
     return dest
 
 
@@ -1027,11 +1075,15 @@ def cmd_status() -> None:
             else 0
         )
         factory_dir = FACTORY_ROOT / item["slug"]
-        factory = (
-            sum(1 for path in factory_dir.iterdir() if is_snapshot_payload(path))
-            if factory_dir.is_dir()
-            else 0
-        )
+        factory = 0
+        if factory_dir.is_dir():
+            marker_state = marker_mode_state(factory_dir)
+            if marker_state[0] is None:
+                factory = sum(
+                    1 for path in factory_dir.iterdir() if is_snapshot_payload(path)
+                )
+            else:
+                factory = len(published_batches(factory_dir, marker_state))
         print(f"{item['hub']:48} {local:9d} {factory:9d}")
 
 

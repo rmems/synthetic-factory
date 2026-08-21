@@ -179,6 +179,8 @@ class NextRoundMarkerMode(unittest.TestCase):
                     {
                         "factory": "factory",
                         "round": 3,
+                        "records": 1,
+                        "expected_records": 1,
                         "commit_point": marker.name,
                         "files": [
                             {

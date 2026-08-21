@@ -373,13 +373,19 @@ def discover_legacy_named_baseline(factory_dir: Path):
     """Return the validated r01 floor contributed by pre-marker payload names."""
     factory_dir = Path(factory_dir)
     quota = FACTORY_QUOTAS.get(factory_dir.name, 1)
-    has_completed_r01 = (factory_dir / "ROUND-r01.complete.json").exists()
+    has_transactional_r01 = any(
+        path.is_file() and not path.is_symlink()
+        for path in (
+            factory_dir / "ROUND-r01.publishing.json",
+            factory_dir / "ROUND-r01.complete.json",
+        )
+    )
     records = sum(
         valid_legacy_file(path)
         for path in factory_dir.glob("*.jsonl")
         if path.name in LEGACY_R1_NAMES
         or (
-            not has_completed_r01
+            not has_transactional_r01
             and (match := BATCH_RE.fullmatch(path.name)) is not None
             and int(match.group(1)) == 1
             and not match.group(2)
@@ -413,6 +419,11 @@ def validate_legacy_baseline_payloads(factory_dir: Path, baseline: int):
         records_by_round[round_number] = records_by_round.get(round_number, 0) + records
     quota = FACTORY_QUOTAS.get(factory_dir.name, 1)
     for round_number, records in records_by_round.items():
+        if factory_dir.name in AGENTIC_FACTORY_KINDS and records != quota:
+            raise TransactionError(
+                f"legacy payloads for r{round_number:02d} require exactly {quota} "
+                f"records for {factory_dir.name}; found {records}"
+            )
         if records < quota:
             raise TransactionError(
                 f"legacy payloads for r{round_number:02d} do not meet quota "
@@ -1375,7 +1386,7 @@ def validate_completed_batch(
             f"committed batch is not training-ready: {batch}\n" + "\n".join(details)
         )
     for field in ("records", "expected_records"):
-        if field in manifest and (
+        if field not in manifest or (
             not isinstance(manifest[field], int)
             or isinstance(manifest[field], bool)
             or manifest[field] != records
