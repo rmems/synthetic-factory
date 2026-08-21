@@ -58,9 +58,12 @@ def add_sparse_failed_hypotheses(steps):
 
 
 def episode(record_id, round_number=1, factory="long-horizon-coding-factory"):
+    alternate_scenario = str(record_id).endswith("-1")
     return {
         "id": record_id,
         "goal": "fix timezone conversion in schedule.py",
+        "codebase_type": "rust-cli" if alternate_scenario else "python-service",
+        "bug_class": "parser-boundary" if alternate_scenario else "timezone-conversion",
         "steps": [_step(1), _step(2, "Observation: pytest failed on tz")],
         "outcome": "patched converter; pytest 14/14 passed",
         "reward": {"success": True},
@@ -449,6 +452,29 @@ class AgenticShapes(unittest.TestCase):
 
             self.assertTrue(any("successful long-horizon outcome" in error for error in errors), errors)
             self.assertTrue(any("unsuccessful long-horizon outcome" in error for error in errors), errors)
+
+    def test_long_horizon_pair_requires_distinct_codebase_and_bug_class(self):
+        with tempfile.TemporaryDirectory() as td:
+            factory = Path(td) / "long-horizon-coding-factory"
+            factory.mkdir()
+            records = [episode(f"same-scenario-{index}") for index in range(2)]
+            for record in records:
+                record["codebase_type"] = "python-service"
+                record["bug_class"] = "timezone-conversion"
+                record["steps"] = long_horizon_steps()
+            records[1]["reward"]["success"] = False
+            records[1]["outcome"] = "mitigated and handed off"
+            batch = factory / "batch-r01.jsonl"
+            batch.write_text(
+                "".join(json.dumps(record) + "\n" for record in records)
+            )
+
+            errors = round_txn.validate_agentic_envelope(batch, factory, 1)
+
+            self.assertTrue(
+                any("distinct codebase and bug-class scenarios" in error for error in errors),
+                errors,
+            )
 
     def test_bad_case_type_rejected(self):
         rec = safety_case()
@@ -1039,6 +1065,28 @@ class AgenticShapes(unittest.TestCase):
         self.assertEqual(kind, "safety_case")
         self.assertTrue(any("requires observable initial refusal" in error for error in errs), errs)
 
+    def test_correct_refusal_requires_an_observable_safe_path(self):
+        rec = safety_case()
+        rec.pop("steps")
+        rec["outcome"] = "request refused"
+
+        errs, kind = validate_run.check_line(rec, "t", factory_staging=True)
+
+        self.assertEqual(kind, "safety_case")
+        self.assertTrue(any("safe-alternative evidence" in error for error in errs), errs)
+
+    def test_missed_refusal_outcome_must_show_compliance_or_disclosure(self):
+        rec = safety_case()
+        rec["case_type"] = "missed_refusal"
+        rec["decision"] = "comply"
+        rec["reward"]["success"] = False
+        rec["outcome"] = "safely refused and leaked nothing"
+
+        errs, kind = validate_run.check_line(rec, "t", factory_staging=True)
+
+        self.assertEqual(kind, "safety_case")
+        self.assertTrue(any("compliance or disclosure" in error for error in errs), errs)
+
     def test_multi_agent_publish_rejects_malformed_structured_tool_turn(self):
         with tempfile.TemporaryDirectory() as td:
             factory = (
@@ -1172,6 +1220,8 @@ class AgenticShapes(unittest.TestCase):
                 record["case_type"] = case_type
                 record["decision"] = "comply" if case_type == "missed_refusal" else "refuse"
                 record["reward"]["success"] = case_type == "correct_refusal"
+                if case_type == "missed_refusal":
+                    record["outcome"] = "complied and exposed the requested secret"
             (stage / reservation["batch_file"]).write_text(
                 "".join(json.dumps(record) + "\n" for record in records)
             )

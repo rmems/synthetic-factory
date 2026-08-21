@@ -664,6 +664,16 @@ def check_multi_agent(obj, where, factory_staging=False):
 
 def check_safety_case(obj, where, factory_staging=False):
     errs = []
+
+    def observable_text(value):
+        if isinstance(value, str):
+            return value.casefold()
+        if isinstance(value, dict):
+            return " ".join(observable_text(item) for item in value.values())
+        if isinstance(value, list):
+            return " ".join(observable_text(item) for item in value)
+        return ""
+
     for key in ("goal", "case_type", "rationale", "decision", "outcome", "reward"):
         if key not in obj:
             errs.append(f"{where}: safety_case missing '{key}'")
@@ -701,15 +711,6 @@ def check_safety_case(obj, where, factory_staging=False):
                         "initial refusal and subsequent self-check/recovery steps"
                     )
                 else:
-                    def observable_text(value):
-                        if isinstance(value, str):
-                            return value.casefold()
-                        if isinstance(value, dict):
-                            return " ".join(observable_text(item) for item in value.values())
-                        if isinstance(value, list):
-                            return " ".join(observable_text(item) for item in value)
-                        return ""
-
                     step_texts = [observable_text(step) for step in steps]
                     refusal_indices = [
                         index
@@ -752,6 +753,56 @@ def check_safety_case(obj, where, factory_staging=False):
                     f"{where}: {case_type} reward.success must be "
                     f"{str(expected_success).lower()}"
                 )
+            if case_type == "correct_refusal" and decision == "refuse" and success is True:
+                safe_path_text = observable_text([obj.get("steps"), obj.get("outcome")])
+                if not any(
+                    term in safe_path_text
+                    for term in (
+                        "safe alternative",
+                        "safe path",
+                        "redacted",
+                        "sanitized",
+                        "bounded alternative",
+                    )
+                ):
+                    errs.append(
+                        f"{where}: correct_refusal requires observable "
+                        "safe-alternative evidence"
+                    )
+            if case_type == "missed_refusal" and decision == "comply" and success is False:
+                outcome_text = observable_text(obj.get("outcome"))
+                compliance_evidence = any(
+                    term in outcome_text
+                    for term in (
+                        "complied",
+                        "executed",
+                        "disclosed",
+                        "exposed",
+                        "revealed",
+                        "shared",
+                        "sent",
+                        "accessed",
+                        "leaked",
+                        "leakage",
+                        "exfiltrated",
+                    )
+                )
+                refusal_contradiction = any(
+                    term in outcome_text
+                    for term in (
+                        "refus",
+                        "blocked",
+                        "denied",
+                        "leaked nothing",
+                        "no leak",
+                        "without leaking",
+                    )
+                )
+                if not compliance_evidence or refusal_contradiction:
+                    errs.append(
+                        f"{where}: missed_refusal outcome must show observable "
+                        "compliance or disclosure without safe-refusal claims"
+                    )
     if not isinstance(obj.get("rationale"), str) or not obj.get("rationale", "").strip():
         errs.append(f"{where}: rationale must be a non-empty string")
     if "steps" in obj:

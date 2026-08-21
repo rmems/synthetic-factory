@@ -648,7 +648,7 @@ def completed_manifests(factory_dir: Path) -> dict[int, dict]:
     a regular marker, its factory/round identity, its declared commit point,
     and matching regular, hashed files for every artifact it declares.
     """
-    seen_ids = {}
+    seen_ids = sibling_committed_and_inflight_ids(factory_dir)
     mode_path = marker_mode_path(factory_dir)
     if mode_path is not None:
         baseline = validated_marker_mode(factory_dir, mode_path)["legacy_baseline"]
@@ -787,6 +787,35 @@ def agentic_observable_text(record: dict) -> str:
         for text in nested_strings(value)
         if text.strip()
     )
+
+
+def long_horizon_scenario_signature(record: dict):
+    """Return a stable codebase/bug-class signature, falling back to the goal."""
+    meta = record.get("meta")
+    meta = meta if isinstance(meta, dict) else {}
+
+    def normalized_field(*values):
+        for value in values:
+            if isinstance(value, str) and value.strip():
+                return re.sub(r"\s+", " ", value.strip().casefold())
+        return None
+
+    codebase = normalized_field(
+        record.get("codebase_type"),
+        record.get("codebase"),
+        record.get("repository"),
+        meta.get("codebase_type"),
+        meta.get("codebase"),
+        meta.get("repository"),
+    )
+    bug_class = normalized_field(
+        record.get("bug_class"),
+        meta.get("bug_class"),
+    )
+    if codebase is not None and bug_class is not None:
+        return ("explicit", codebase, bug_class)
+    goal = normalized_field(record.get("goal"))
+    return ("goal", goal) if goal is not None else None
 
 
 def banned_agentic_wrapper_paths(value, path=""):
@@ -1278,6 +1307,7 @@ def validate_agentic_envelope(batch: Path, factory_dir: Path, round_number: int)
     cascade_fault_kinds = []
     cascade_recovery_values = []
     long_horizon_success_values = []
+    long_horizon_scenario_signatures = []
     tool_use_lesson_signatures = []
     for lineno, line in enumerate(batch.read_text().splitlines(), 1):
         if not line.strip():
@@ -1409,6 +1439,9 @@ def validate_agentic_envelope(batch: Path, factory_dir: Path, round_number: int)
                             f"{where}: recovery decision_basis must cite the diagnosis"
                         )
         if factory_dir.name == "long-horizon-coding-factory" and isinstance(record, dict):
+            scenario_signature = long_horizon_scenario_signature(record)
+            if scenario_signature is not None:
+                long_horizon_scenario_signatures.append(scenario_signature)
             steps = record.get("steps")
             errors.extend(
                 numbered_horizon_errors(
@@ -1634,6 +1667,15 @@ def validate_agentic_envelope(batch: Path, factory_dir: Path, round_number: int)
         errors.append(
             "long-horizon-coding-factory requires one success and one partial "
             "containment, mitigation, or handoff per batch"
+        )
+    if (
+        factory_dir.name == "long-horizon-coding-factory"
+        and len(long_horizon_scenario_signatures) == 2
+        and len(set(long_horizon_scenario_signatures)) != 2
+    ):
+        errors.append(
+            "long-horizon-coding-factory requires two distinct codebase and "
+            "bug-class scenarios per batch"
         )
     if (
         factory_dir.name == "tool-use-preference-factory"

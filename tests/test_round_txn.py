@@ -642,6 +642,46 @@ class RoundTransaction(unittest.TestCase):
             ):
                 round_txn.frontier_status(first)
 
+    def test_completed_marker_id_cannot_duplicate_a_sibling_factory(self):
+        with tempfile.TemporaryDirectory() as td:
+            run = Path(td) / "run"
+            sibling = run / "factory-first"
+            factory = run / "factory-second"
+            sibling.mkdir(parents=True)
+            factory.mkdir()
+            write_records(
+                sibling / "trajectories.jsonl",
+                [thalamic("shared-completed-id")],
+            )
+            round_txn.ensure_marker_mode(factory)
+            batch = factory / "batch-r01.jsonl"
+            notes = factory / "NOTES-r01.md"
+            marker = factory / "ROUND-r01.complete.json"
+            write_records(batch, [thalamic("shared-completed-id")])
+            notes.write_text("# Critique\n\nDuplicate sibling ID fixture.\n")
+            marker.write_text(
+                json.dumps(
+                    {
+                        "version": 1,
+                        "factory": factory.name,
+                        "round": 1,
+                        "records": 1,
+                        "expected_records": 1,
+                        "commit_point": marker.name,
+                        "files": [
+                            {"name": batch.name, "sha256": round_txn.file_sha256(batch)},
+                            {"name": notes.name, "sha256": round_txn.file_sha256(notes)},
+                        ],
+                    }
+                )
+                + "\n"
+            )
+
+            with self.assertRaisesRegex(
+                round_txn.TransactionError, "duplicate record id 'shared-completed-id'"
+            ):
+                round_txn.frontier_status(factory)
+
     def test_marker_mode_exposes_only_manifest_verified_batches(self):
         with tempfile.TemporaryDirectory() as td:
             factory = self.factory(td)

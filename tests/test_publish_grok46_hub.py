@@ -26,6 +26,7 @@ ITEM = {
 
 
 def valid_legacy_episode(record_id, round_number=1, success=True):
+    alternate_scenario = str(record_id).endswith("-1")
     steps = [
         {
             "n": index,
@@ -48,6 +49,8 @@ def valid_legacy_episode(record_id, round_number=1, success=True):
     return {
         "id": record_id,
         "goal": "repair a deterministic fixture",
+        "codebase_type": "rust-cli" if alternate_scenario else "python-service",
+        "bug_class": "parser-boundary" if alternate_scenario else "timezone-conversion",
         "steps": steps,
         "outcome": "fixture repaired" if success else "fixture mitigated and handed off",
         "reward": {"success": success},
@@ -106,6 +109,8 @@ def write_valid_completed_long_horizon(path, round_number):
             {
                 "id": f"committed-r{round_number:02d}-{index}",
                 "goal": "repair timezone conversion",
+                "codebase_type": "rust-cli" if index else "python-service",
+                "bug_class": "parser-boundary" if index else "timezone-conversion",
                 "steps": steps(),
                 "outcome": "fixed" if success else "mitigated and handed off",
                 "reward": {"success": success},
