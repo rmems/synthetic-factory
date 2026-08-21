@@ -128,6 +128,67 @@ AGENTIC_FACTORY_KINDS.update(
     }
 )
 RESTART_LANE_SCENARIO_TERMS = {
+    "eval-harness-trajectory-factory": (
+        ("eval", "deepeval", "pytest"),
+        ("harness", "judge", "scorer", "fixture"),
+        ("fail", "drift", "mismatch", "error"),
+        ("repair", "fix", "correct"),
+        ("verify", "valid", "pass"),
+    ),
+    "incident-response-oncall-factory": (
+        ("incident", "on-call", "oncall", "outage"),
+        ("root cause", "rca", "red herring"),
+        ("mitigat", "rollback", "repair", "fix"),
+        ("verify", "recover", "healthy", "resolved"),
+    ),
+    "data-pipeline-repair-factory": (
+        ("pipeline", "etl", "data"),
+        ("schema drift", "late data", "schema", "late"),
+        ("repair", "backfill", "fix"),
+        ("verify", "reconcile", "valid", "pass"),
+    ),
+    "git-ops-recovery-factory": (
+        ("git", "rebase", "detached head", "ci"),
+        ("conflict", "detached", "failure", "broken"),
+        ("recover", "repair", "rebase", "fix"),
+        ("verify", "clean", "pass", "commit"),
+    ),
+    "browser-tool-use-factory": (
+        ("browser", "selector", "dom", "page"),
+        ("selector fail", "stale", "not found", "timeout"),
+        ("retry", "repair", "fallback", "fix"),
+        ("verify", "loaded", "found", "pass"),
+    ),
+    "rag-retrieval-debug-factory": (
+        ("rag", "retrieval", "chunk", "citation"),
+        ("wrong chunk", "citation miss", "irrelevant", "missed"),
+        ("rerank", "repair", "query", "fix"),
+        ("verify", "ground", "relevant", "citation"),
+    ),
+    "code-review-preference-factory": (
+        ("review", "patch", "diff"),
+        ("bug", "defect", "risk", "incorrect"),
+        ("prefer", "better", "reject", "critique"),
+        ("verify", "test", "correct", "safe"),
+    ),
+    "infra-as-code-factory": (
+        ("terraform", "kubernetes", "k8s", "infrastructure"),
+        ("misconfig", "drift", "plan", "policy"),
+        ("repair", "fix", "correct"),
+        ("verify", "validate", "plan", "pass"),
+    ),
+    "api-contract-migration-factory": (
+        ("openapi", "api", "contract"),
+        ("drift", "breaking", "incompatib", "schema"),
+        ("migrat", "repair", "compatib", "fix"),
+        ("verify", "validate", "pass", "compatible"),
+    ),
+    "observability-debug-factory": (
+        ("trace", "metric", "observability", "telemetry"),
+        ("lie", "mislead", "incorrect", "mismatch"),
+        ("diagnos", "repair", "fix", "correct"),
+        ("verify", "correlat", "valid", "pass"),
+    ),
     "package-release-factory": (
         ("package", "release", "artifact", "version"),
         ("manifest", "attestation", "provenance"),
@@ -779,8 +840,15 @@ def nested_strings(value):
 
 
 def agentic_observable_text(record: dict) -> str:
-    """Return lower-cased goal, step evidence, and outcome text, excluding meta."""
-    values = [record.get("goal"), record.get("steps"), record.get("outcome")]
+    """Return lower-cased task and trajectory evidence, excluding metadata."""
+    values = [
+        record.get("goal"),
+        record.get("steps"),
+        record.get("outcome"),
+        record.get("chosen"),
+        record.get("rejected"),
+        record.get("critique"),
+    ]
     return " ".join(
         text.strip().casefold()
         for value in values
@@ -1022,10 +1090,12 @@ def ensure_marker_mode(factory_dir: Path):
     existing = marker_mode_path(factory_dir)
     if existing is not None:
         return validated_marker_mode(factory_dir, existing)
+    baseline = discover_legacy_frontier(factory_dir)
+    validate_legacy_baseline_payloads(factory_dir, baseline)
     payload = {
         "version": 1,
         "created_at": utc_now(),
-        "legacy_baseline": discover_legacy_frontier(factory_dir),
+        "legacy_baseline": baseline,
         "commit_point": "ROUND-rNN.complete.json",
     }
     try:
@@ -1538,16 +1608,19 @@ def validate_agentic_envelope(batch: Path, factory_dir: Path, round_number: int)
                     )
                 )
                 for index, step in enumerate(steps):
-                    if isinstance(step, dict) and "reward" in step:
-                        errors.append(
-                            f"{where}: sparse long-task steps[{index}] must not carry reward"
-                        )
                     if isinstance(step, dict):
-                        for field in ("score", "tests_passed"):
-                            if field in step:
-                                errors.append(
-                                    f"{where}: sparse long-task steps[{index}] must not carry intermediate {field}"
-                                )
+                        for field in ("reward", "score", "tests_passed"):
+                            for path in nested_key_paths(step, field):
+                                if field == "reward":
+                                    errors.append(
+                                        f"{where}: sparse long-task steps[{index}] "
+                                        f"must not carry reward at {path}"
+                                    )
+                                else:
+                                    errors.append(
+                                        f"{where}: sparse long-task steps[{index}] "
+                                        f"must not carry intermediate {field} at {path}"
+                                    )
                 horizon_steps = reward.get("horizon_steps") if isinstance(reward, dict) else None
                 if (
                     not isinstance(horizon_steps, int)

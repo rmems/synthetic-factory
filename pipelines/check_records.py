@@ -58,6 +58,11 @@ ALLOWED_PROVENANCE = ALLOWED_SIM_OR_REAL
 ROUNDING_RE = re.compile(r"(?:rounded?\s+(?:to\s+)?)?(\d+)[- ]decimal", re.I)
 
 
+def reject_json_constant(value):
+    """Reject Python's non-standard NaN and Infinity JSON extensions."""
+    raise ValueError(f"non-standard JSON numeric constant {value}")
+
+
 def is_number(value):
     return (
         isinstance(value, (int, float))
@@ -420,8 +425,8 @@ def check_jsonl(path, rel, seen_ids=None, factory_staging=False):
             continue
         where = f"{rel}:{lineno}"
         try:
-            obj = json.loads(line)
-        except json.JSONDecodeError as exc:
+            obj = json.loads(line, parse_constant=reject_json_constant)
+        except (json.JSONDecodeError, ValueError) as exc:
             errors.append(f"{where}: JSON parse error: {exc}")
             continue
         rec_errs, rec_warns, kind, record_id = check_record(

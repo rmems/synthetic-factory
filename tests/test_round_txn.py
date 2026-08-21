@@ -409,6 +409,22 @@ class RoundTransaction(unittest.TestCase):
             self.assertFalse((factory / "batch-r01.jsonl").exists())
             self.assertFalse((factory / "ROUND-r01.complete.json").exists())
 
+    def test_publish_rejects_nonstandard_json_numeric_constants_anywhere(self):
+        with tempfile.TemporaryDirectory() as td:
+            factory = self.factory(td)
+            reservation = round_txn.reserve(factory, 1, 1)
+            record = thalamic("nonstandard-number")
+            record["state"]["nested"] = {"measurement": float("nan")}
+            self.fill_stage(reservation, [record])
+
+            with self.assertRaisesRegex(
+                round_txn.TransactionError,
+                "non-standard JSON numeric constant NaN",
+            ):
+                round_txn.publish(factory, 1, reservation["token"])
+
+            self.assertFalse((factory / "ROUND-r01.complete.json").exists())
+
     def test_publish_rejects_bytes_changed_after_record_validation(self):
         with tempfile.TemporaryDirectory() as td:
             factory = self.factory(td)

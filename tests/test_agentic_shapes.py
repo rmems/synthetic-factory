@@ -259,6 +259,16 @@ class AgenticShapes(unittest.TestCase):
 
     def test_every_later_restart_lane_enforces_its_scenario_contract(self):
         expected_slugs = {
+            "eval-harness-trajectory-factory",
+            "incident-response-oncall-factory",
+            "data-pipeline-repair-factory",
+            "git-ops-recovery-factory",
+            "browser-tool-use-factory",
+            "rag-retrieval-debug-factory",
+            "code-review-preference-factory",
+            "infra-as-code-factory",
+            "api-contract-migration-factory",
+            "observability-debug-factory",
             "package-release-factory",
             "flaky-test-quarantine-factory",
             "db-migration-repair-factory",
@@ -312,6 +322,26 @@ class AgenticShapes(unittest.TestCase):
                 round_txn.validate_agentic_envelope(batch, factory, 1), []
             )
 
+    def test_code_review_preference_scenario_uses_both_sides_and_critique(self):
+        with tempfile.TemporaryDirectory() as td:
+            factory = Path(td) / "code-review-preference-factory"
+            factory.mkdir()
+            record = episode_preference()
+            record["goal"] = "review a patch for an incorrect authorization check"
+            record["chosen"]["outcome"] = "correct fix verified by authorization tests"
+            record["rejected"]["outcome"] = "bug remains and risks unauthorized access"
+            record["critique"] = "prefer the chosen patch; reject the unsafe diff"
+            record["meta"]["factory"] = factory.name
+            batch = factory / "batch-r01.jsonl"
+            batch.write_text(json.dumps(record) + "\n")
+
+            errors = round_txn.validate_agentic_envelope(batch, factory, 1)
+
+            self.assertFalse(
+                any("must demonstrate its required failure scenario" in error for error in errors),
+                errors,
+            )
+
     def test_publish_rechecks_the_fixed_quota_in_the_reservation(self):
         with tempfile.TemporaryDirectory() as td:
             factory = (
@@ -350,9 +380,11 @@ class AgenticShapes(unittest.TestCase):
             stage = Path(reservation["staging_dir"])
             record = episode("srl-r01-invalid", factory=factory.name)
             record["steps"] = [_step(7)]
-            record["steps"][0]["reward"] = {"score": 1}
-            record["steps"][0]["score"] = 1
-            record["steps"][0]["tests_passed"] = 14
+            record["steps"][0]["tool_call"]["args"]["nested"] = {
+                "reward": {"score": 1},
+                "score": 1,
+                "tests_passed": 14,
+            }
             record["reward"].update({"terminal_only": False, "horizon_steps": 99})
             (stage / reservation["batch_file"]).write_text(json.dumps(record) + "\n")
             (stage / reservation["notes_file"]).write_text("Novel coverage: 80%\n")
@@ -1323,6 +1355,23 @@ class AgenticShapes(unittest.TestCase):
 
             notes.write_text("Novel coverage: 80%\n")
             self.assertEqual(round_txn.frontier_status(factory)["next_round"], 2)
+
+    def test_marker_mode_is_not_persisted_for_an_invalid_agentic_baseline(self):
+        with tempfile.TemporaryDirectory() as td:
+            factory = Path(td) / "long-horizon-coding-factory"
+            factory.mkdir()
+            records = [episode(f"invalid-baseline-{index}") for index in range(2)]
+            (factory / "batch-r01.jsonl").write_text(
+                "".join(json.dumps(record) + "\n" for record in records)
+            )
+
+            with self.assertRaisesRegex(
+                round_txn.TransactionError,
+                "invalid legacy payload covered by marker baseline",
+            ):
+                round_txn.ensure_marker_mode(factory)
+
+            self.assertFalse((factory / round_txn.MODE_FILE).exists())
 
     def test_fixed_agentic_legacy_baseline_requires_exact_quota(self):
         with tempfile.TemporaryDirectory() as td:
