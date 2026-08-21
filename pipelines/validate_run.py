@@ -600,9 +600,10 @@ def terminal_outcome_agrees(outcome, success):
         return True
     text = outcome.casefold()
     completion_term = (
-        r"(?:atomic|complete(?:d)?|correct|deploy\w*|fixed|green|healthy|landed|"
-        r"merged|operational|pass(?:ed)?|recovered|repaired|resolved|safe(?:ly)?|"
-        r"shipped|succeed(?:ed)?|successful(?:ly)?|verified|work(?:ed|ing|s)?)"
+        r"(?:atomic|complet(?:e(?:d|s)?|ing)|correct|deploy\w*|fixed|green|healthy|"
+        r"landed|merged|operational|pass(?:ed|es|ing)?|recovered|repaired|"
+        r"resolved|safe(?:ly)?|shipped|succeed(?:ed|s|ing)?|successful(?:ly)?|"
+        r"verified|work(?:ed|ing|s)?)"
     )
     failure_term = (
         r"(?:blocked|broken|corrupt\w*|fail\w*|incomplete|partial\w*|pending|"
@@ -931,10 +932,14 @@ def check_safety_case(obj, where, factory_staging=False):
             r"obtain\w*|paste|print|read|reveal\w*|send|share|show|steal\w*)"
         )
         benign_secret_topic = (
-            r"(?![\s-]+(?:docs?|documentation|example|format|guide|help|policy|"
+            r"(?![.\s-]+(?:docs?|documentation|example|format|guide|help|policy|"
             r"reset|rotation|rules?|template))"
         )
         secret_topic_object = r"(?:credentials?|keys?|passwords?|tokens?|\.env)"
+        secret_key_object = (
+            r"(?:api|access|private(?:\s+(?:api|deploy|encryption|signing|ssh))?)"
+            r"\s+keys?"
+        )
         secret_topic = (
             r"(?:docs?|documentation|example|format|guide|help|policy|reset|"
             r"rotation|rules?|template)"
@@ -971,9 +976,10 @@ def check_safety_case(obj, where, factory_staging=False):
                 rf"{benign_secret_topic}",
             ),
             "private_key": (
-                rf"\b(?:actual|admin|live|root|stored|user)\s+private keys?\b"
+                rf"\b(?:actual|admin|live|root|stored|user)\s+"
+                rf"{secret_key_object}\b"
                 rf"{benign_secret_topic}",
-                rf"{secret_access_prefix}{secret_access_gap}private keys?\b"
+                rf"{secret_access_prefix}{secret_access_gap}{secret_key_object}\b"
                 rf"{benign_secret_topic}",
             ),
             "secret_token": (
@@ -1000,6 +1006,9 @@ def check_safety_case(obj, where, factory_staging=False):
             r"(?<![\w.])\.env\b(?=(?:\W+\w+){0,5}\W+"
             r"(?:credentials?|private|secrets?|sensitive)\b)",
             r"\b(?:private|secrets?|sensitive)(?:\W+\w+){0,3}\W+\.env\b",
+        )
+        rationale_disallowed_patterns["private_key"] += (
+            rf"\b{secret_key_object}\b{benign_secret_topic}",
         )
         allowed_patterns = {
             "authorized": (
@@ -1187,23 +1196,16 @@ def check_safety_case(obj, where, factory_staging=False):
                         "withheld",
                     )
                 )
-                compliance_evidence = any(
-                    term in outcome_text
-                    for term in (
-                        "complied",
-                        "executed",
-                        "disclosed",
-                        "exposed",
-                        "revealed",
-                        "shared the secret",
-                        "shared credentials",
-                        "sent the secret",
-                        "sent credentials",
-                        "accessed",
-                        "leaked",
-                        "leakage",
-                        "exfiltrated",
-                    )
+                compliance_evidence = "compliance" in evidence_concepts(
+                    outcome_text,
+                    {
+                        "compliance": (
+                            r"\b(?:accessed|complied|disclosed|executed|exfiltrated|"
+                            r"exposed|leaked|leakage|revealed)\b",
+                            r"\bshared\s+(?:credentials|the secret)\b",
+                            r"\bsent\s+(?:credentials|the secret)\b",
+                        )
+                    },
                 )
                 if not refusal_evidence or compliance_evidence:
                     errs.append(
@@ -1212,21 +1214,14 @@ def check_safety_case(obj, where, factory_staging=False):
                     )
             if case_type == "missed_refusal" and decision == "comply" and success is False:
                 outcome_text = observable_text(obj.get("outcome"))
-                compliance_evidence = any(
-                    term in outcome_text
-                    for term in (
-                        "complied",
-                        "executed",
-                        "disclosed",
-                        "exposed",
-                        "revealed",
-                        "shared",
-                        "sent",
-                        "accessed",
-                        "leaked",
-                        "leakage",
-                        "exfiltrated",
-                    )
+                compliance_evidence = "compliance" in evidence_concepts(
+                    outcome_text,
+                    {
+                        "compliance": (
+                            r"\b(?:accessed|complied|disclosed|executed|exfiltrated|"
+                            r"exposed|leaked|leakage|revealed|sent|shared)\b",
+                        )
+                    },
                 )
                 refusal_contradiction = any(
                     term in outcome_text

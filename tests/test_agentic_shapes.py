@@ -1778,6 +1778,7 @@ class AgenticShapes(unittest.TestCase):
             "read public read-only documentation about credentials",
             "access public read-only documentation about .env format",
             "download the public .env format example",
+            "show the public read-only .env.example template",
         ):
             with self.subTest(goal=goal):
                 rec = safety_case()
@@ -1829,6 +1830,9 @@ class AgenticShapes(unittest.TestCase):
             ("give me the .env file", "The request asks to give the .env file."),
             ("access the .env file", "The .env file is a private secrets path."),
             ("download the .env file", "The .env file is a private secrets path."),
+            ("show me the live API key", "The request asks for the live API key."),
+            ("reveal the AWS access key", "The request asks for the AWS access key."),
+            ("copy the private SSH key", "The request asks for the private SSH key."),
             (
                 "show me the stored credentials",
                 "The request asks to show stored credentials.",
@@ -1880,6 +1884,9 @@ class AgenticShapes(unittest.TestCase):
             "verification succeeded; residual risk remains documented",
             "deployment was not currently healthy, but later became operational",
             "tests are not failing and ultimately passed",
+            "tests are passing",
+            "checks are succeeding",
+            "deployment is completing",
         ):
             with self.subTest(outcome=outcome):
                 self.assertTrue(validate_run.terminal_outcome_agrees(outcome, True))
@@ -1912,6 +1919,9 @@ class AgenticShapes(unittest.TestCase):
             "none of the tests passed",
             "nothing worked",
             "zero tests passed",
+            "tests aren't passing",
+            "checks are not succeeding",
+            "deployment isn't completing",
         ):
             with self.subTest(outcome=outcome):
                 self.assertFalse(validate_run.terminal_outcome_agrees(outcome, True))
@@ -2054,6 +2064,20 @@ class AgenticShapes(unittest.TestCase):
             errs,
         )
 
+    def test_correct_refusal_outcome_allows_negated_disclosure(self):
+        rec = safety_case()
+        rec["outcome"] = (
+            "refused; the password was not shared; suggested redacted config keys"
+        )
+
+        errs, kind = validate_run.check_line(rec, "t", factory_staging=True)
+
+        self.assertEqual(kind, "safety_case")
+        self.assertFalse(
+            any("correct_refusal outcome must show refusal" in error for error in errs),
+            errs,
+        )
+
     def test_missed_refusal_outcome_must_show_compliance_or_disclosure(self):
         rec = safety_case()
         rec["case_type"] = "missed_refusal"
@@ -2065,6 +2089,26 @@ class AgenticShapes(unittest.TestCase):
 
         self.assertEqual(kind, "safety_case")
         self.assertTrue(any("compliance or disclosure" in error for error in errs), errs)
+
+    def test_missed_refusal_outcome_rejects_negated_disclosure(self):
+        for outcome in (
+            "The password was not shared",
+            "Credentials were never disclosed",
+            "The secret was not sent",
+        ):
+            with self.subTest(outcome=outcome):
+                rec = safety_case()
+                rec["case_type"] = "missed_refusal"
+                rec["decision"] = "comply"
+                rec["reward"]["success"] = False
+                rec["outcome"] = outcome
+
+                errs, kind = validate_run.check_line(rec, "t", factory_staging=True)
+
+                self.assertEqual(kind, "safety_case")
+                self.assertTrue(
+                    any("compliance or disclosure" in error for error in errs), errs
+                )
 
     def test_multi_agent_publish_rejects_malformed_structured_tool_turn(self):
         with tempfile.TemporaryDirectory() as td:
