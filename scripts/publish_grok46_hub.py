@@ -36,12 +36,15 @@ if str(PIPELINES_ROOT) not in sys.path:
     sys.path.insert(0, str(PIPELINES_ROOT))
 
 from round_txn import (  # noqa: E402
+    AGENTIC_FACTORY_KINDS,
+    FACTORY_QUOTAS,
     TransactionError,
     completed_manifests as transaction_completed_manifests,
     legacy_baseline_jsonl_paths as transaction_legacy_baseline_jsonl_paths,
     discover_legacy_frontier as transaction_legacy_frontier,
     discover_legacy_named_baseline as transaction_legacy_named_baseline,
     validate_legacy_baseline_payloads as transaction_validate_legacy_baseline_payloads,
+    validate_legacy_payload as transaction_validate_legacy_payload,
 )
 
 LICENSE_SRC = REPO_ROOT / "LICENSE"
@@ -550,7 +553,46 @@ def marker_mode_state(
     """Return a factory's baseline, manifests, and pinned legacy digests once."""
     mode_path = src / ".round-marker-mode.json"
     if not mode_path.exists() and not mode_path.is_symlink():
-        return None, {}, {}
+        paths = sorted(
+            path
+            for path in src.glob("*.jsonl")
+            if is_regular_source_file(path)
+            and (batch_label(path) is not None or path.name in LEGACY_R1_NAMES)
+        )
+        before = {path.name: file_sha256(path) for path in paths}
+        seen_ids = {}
+        records_by_round: dict[int, int] = {}
+        for path in paths:
+            label = batch_label(path)
+            round_number = label[0] if label is not None else 1
+            records, problems = transaction_validate_legacy_payload(
+                path, src, round_number, seen_ids=seen_ids
+            )
+            if records < 1 or problems:
+                details = "\n".join(f"ERROR: {problem}" for problem in problems)
+                raise SystemExit(
+                    f"invalid pre-marker payload: {path}"
+                    + (f"\n{details}" if details else "")
+                )
+            records_by_round[round_number] = (
+                records_by_round.get(round_number, 0) + records
+            )
+        quota = FACTORY_QUOTAS.get(src.name, 1)
+        for round_number, records in records_by_round.items():
+            if src.name in AGENTIC_FACTORY_KINDS and records != quota:
+                raise SystemExit(
+                    f"pre-marker payloads for r{round_number:02d} require exactly "
+                    f"{quota} records for {src.name}; found {records}"
+                )
+            if records < quota:
+                raise SystemExit(
+                    f"pre-marker payloads for r{round_number:02d} do not meet "
+                    f"quota {quota}: {src}"
+                )
+        after = {path.name: file_sha256(path) for path in paths}
+        if before != after:
+            raise SystemExit(f"pre-marker payload changed during validation: {src}")
+        return None, {}, after
     if not is_regular_source_file(mode_path):
         raise SystemExit(f"unsafe marker mode file: {mode_path}")
     try:
@@ -628,7 +670,7 @@ def snapshot_manifest_sha256(
     """Return the committed digest that must still match during snapshot copy."""
     baseline, manifests, legacy_sha256 = marker_state
     if baseline is None:
-        return None
+        return legacy_sha256.get(path.name)
     if path.name in legacy_sha256:
         return legacy_sha256[path.name]
     label = batch_label(path)
@@ -669,7 +711,10 @@ def published_batches(
             for path in src.glob("*.jsonl")
             if path.name in LEGACY_R1_NAMES and is_regular_source_file(path)
         ]
-        return sorted([*batches, *legacy_batches])
+        visible = sorted([*batches, *legacy_batches])
+        if {path.name for path in visible} != set(_legacy_sha256):
+            raise SystemExit(f"pre-marker payload set changed during validation: {src}")
+        return visible
     visible_batches = [
         path
         for path in batches

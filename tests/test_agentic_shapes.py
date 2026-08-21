@@ -485,6 +485,25 @@ class AgenticShapes(unittest.TestCase):
             self.assertTrue(any("successful long-horizon outcome" in error for error in errors), errors)
             self.assertTrue(any("unsuccessful long-horizon outcome" in error for error in errors), errors)
 
+    def test_long_horizon_decision_basis_is_bounded(self):
+        with tempfile.TemporaryDirectory() as td:
+            factory = Path(td) / "long-horizon-coding-factory"
+            factory.mkdir()
+            records = [episode(f"basis-{index}") for index in range(2)]
+            for record in records:
+                record["steps"] = long_horizon_steps()
+            records[0]["steps"][0]["decision_basis"] = "Observation: " + ("x" * 240)
+            records[1]["reward"]["success"] = False
+            records[1]["outcome"] = "partially mitigated and handed off"
+            batch = factory / "batch-r01.jsonl"
+            batch.write_text(
+                "".join(json.dumps(record) + "\n" for record in records)
+            )
+
+            errors = round_txn.validate_agentic_envelope(batch, factory, 1)
+
+        self.assertTrue(any("at most 240 characters" in error for error in errors), errors)
+
     def test_long_horizon_pair_requires_distinct_codebase_and_bug_class(self):
         with tempfile.TemporaryDirectory() as td:
             factory = Path(td) / "long-horizon-coding-factory"
@@ -875,6 +894,26 @@ class AgenticShapes(unittest.TestCase):
             ):
                 round_txn.publish(factory, 1, reservation["token"])
 
+    def test_unrecovered_cascade_outcome_rejects_full_completion_claims(self):
+        with tempfile.TemporaryDirectory() as td:
+            factory = Path(td) / "cascading-error-recovery-factory"
+            factory.mkdir()
+            records = [cascading_episode(f"cascade-outcome-{index}") for index in range(2)]
+            records[1]["error_introduced"]["kind"] = "orphaned-lock"
+            records[1]["reward"]["success"] = False
+            records[1]["reward"]["recovered"] = 0
+            records[1]["outcome"] = "fully recovered; all systems fixed and tests passed"
+            batch = factory / "batch-r01.jsonl"
+            batch.write_text(
+                "".join(json.dumps(record) + "\n" for record in records)
+            )
+
+            errors = round_txn.validate_agentic_envelope(batch, factory, 1)
+
+        self.assertTrue(
+            any("unrecovered cascade outcome" in error for error in errors), errors
+        )
+
     def test_cascading_error_factory_rejects_shallow_generic_fault_claims(self):
         with tempfile.TemporaryDirectory() as td:
             factory = (
@@ -1065,10 +1104,29 @@ class AgenticShapes(unittest.TestCase):
         self.assertEqual(kind, "safety_case")
         self.assertTrue(any("reward.success must be false" in error for error in errs), errs)
 
+    def test_safety_case_type_requires_request_permissibility_evidence(self):
+        rec = safety_case()
+        rec["goal"] = "say hello"
+        rec["rationale"] = "The user made a harmless request."
+        rec["steps"][0]["decision_basis"] = "The greeting is a harmless request"
+        errs, kind = validate_run.check_line(rec, "t", factory_staging=True)
+        self.assertEqual(kind, "safety_case")
+        self.assertTrue(any("request is disallowed" in error for error in errs), errs)
+
+        rec = safety_case()
+        rec["case_type"] = "incorrect_refusal"
+        rec["decision"] = "refuse"
+        rec["reward"]["success"] = False
+        errs, kind = validate_run.check_line(rec, "t", factory_staging=True)
+        self.assertEqual(kind, "safety_case")
+        self.assertTrue(any("request is allowed" in error for error in errs), errs)
+
     def test_recovered_incorrect_refusal_can_succeed(self):
         rec = safety_case()
         rec["case_type"] = "incorrect_refusal"
         rec["decision"] = "comply"
+        rec["goal"] = "summarize the public read-only changelog"
+        rec["rationale"] = "This is an allowed request for public data."
         rec["outcome"] = "self-check recovered the over-refusal and completed safely"
         rec["reward"]["success"] = True
         rec["steps"] = [
@@ -1259,6 +1317,15 @@ class AgenticShapes(unittest.TestCase):
                 record["case_type"] = case_type
                 record["decision"] = "comply" if case_type == "missed_refusal" else "refuse"
                 record["reward"]["success"] = case_type == "correct_refusal"
+                if case_type == "incorrect_refusal":
+                    record["goal"] = "summarize the public read-only changelog"
+                    record["rationale"] = "This is an allowed request for public data."
+                    record["steps"][0]["decision_basis"] = (
+                        "The public read-only request is allowed"
+                    )
+                    record["steps"][0]["tool_call"]["args"] = {
+                        "reason": "initial over-refusal"
+                    }
                 if case_type == "missed_refusal":
                     record["outcome"] = "complied and exposed the requested secret"
             (stage / reservation["batch_file"]).write_text(

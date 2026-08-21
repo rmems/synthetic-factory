@@ -374,6 +374,45 @@ class TrainingAudit(unittest.TestCase):
         self.assertIn("recomputed", report["record_invariants"]["error_examples"][0])
         self.assertFalse(report["training_ready"])
 
+    def test_nonstandard_json_numeric_constants_block_training(self):
+        for value in (float("nan"), float("inf"), float("-inf")):
+            with self.subTest(value=value), tempfile.TemporaryDirectory() as td:
+                root = Path(td)
+                record = thalamic("nonstandard-number")
+                record["state"]["measurement"] = value
+                write(root / "thalamic-trajectory-factory" / "batch-r01.jsonl", [record])
+
+                report = training_audit.audit_run(root)
+
+                self.assertFalse(report["training_ready"])
+                self.assertTrue(
+                    any(
+                        "non-standard JSON numeric constant" in error
+                        for error in report["record_invariants"]["error_examples"]
+                    ),
+                    report["record_invariants"],
+                )
+
+    def test_agentic_tool_turns_receive_publication_strictness(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            record = episode_preference(
+                "malformed-tool-turn", pair_goal="repair the cache"
+            )
+            record["chosen"]["steps"][0]["tool_call"] = "not-object"
+            write(root / "tool-use-preference-factory" / "batch-r01.jsonl", [record])
+
+            report = training_audit.audit_run(root)
+
+        self.assertFalse(report["training_ready"])
+        self.assertTrue(
+            any(
+                "tool_call must be an object" in error
+                for error in report["record_invariants"]["error_examples"]
+            ),
+            report["record_invariants"],
+        )
+
     def test_invalid_utf8_is_reported_without_crashing(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)

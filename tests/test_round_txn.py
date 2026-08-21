@@ -466,6 +466,20 @@ class RoundTransaction(unittest.TestCase):
             self.assertEqual(manifest["records"], 1)
             self.assertTrue((factory / "ROUND-r01.complete.json").is_file())
 
+    def test_publication_id_scan_ignores_symlinked_run_root_payloads(self):
+        with tempfile.TemporaryDirectory() as td:
+            factory = self.factory(td)
+            outside = Path(td) / "outside.jsonl"
+            write_records(outside, [thalamic("shared-id")])
+            (factory.parent / "linked-root.jsonl").symlink_to(outside)
+            reservation = round_txn.reserve(factory, 1, 1)
+            self.fill_stage(reservation, [thalamic("shared-id")])
+
+            manifest = round_txn.publish(factory, 1, reservation["token"])
+
+            self.assertEqual(manifest["records"], 1)
+            self.assertTrue((factory / "ROUND-r01.complete.json").is_file())
+
     def test_invalid_utf8_completion_marker_is_a_transaction_error(self):
         with tempfile.TemporaryDirectory() as td:
             factory = self.factory(td)

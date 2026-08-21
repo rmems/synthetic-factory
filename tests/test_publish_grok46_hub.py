@@ -69,7 +69,7 @@ def write_valid_legacy(path, count=2):
         "".join(
             json.dumps(
                 valid_legacy_episode(
-                    f"legacy-{index}",
+                    f"{path.stem}-{index}",
                     round_number=round_number,
                     success=index % 2 == 0,
                 )
@@ -77,6 +77,27 @@ def write_valid_legacy(path, count=2):
             + "\n"
             for index in range(count)
         )
+    )
+
+
+def write_valid_thalamic(path, record_id):
+    path.write_text(
+        json.dumps(
+            {
+                "id": record_id,
+                "state": {"sim_or_real": "designed"},
+                "proposed_action": {"action": "noop", "decision_basis": "fixture"},
+                "safety_decision": {
+                    "decision": "ACCEPT",
+                    "rationale": "bounded fixture",
+                },
+                "executed_action": {"action": "noop"},
+                "future_outcome": {"success": True},
+                "reward_components": {"total": 0.0},
+                "meta": {"round": 1},
+            }
+        )
+        + "\n"
     )
 
 
@@ -154,8 +175,9 @@ class PublishGrok46HubTests(unittest.TestCase):
             source.mkdir(parents=True)
             first = source / "batch-r01.jsonl"
             last = source / "batch-r02b.jsonl"
-            first.write_text('{"id":"first"}\n')
-            last.write_text('{"id":"last"}\n')
+            write_valid_legacy(first)
+            write_valid_legacy(last)
+            original_last = last.read_text()
             (source / "NOTES-r01.md").write_text("Novel coverage: 80%\n")
             outside_batch = root / "outside.jsonl"
             outside_batch.write_text('{"id":"not-a-factory-batch"}\n')
@@ -181,7 +203,7 @@ class PublishGrok46HubTests(unittest.TestCase):
                     (destination_root / ITEM["hub"] / "data" / "metadata" / "NOTES-r02b.md").exists()
                 )
                 copied.write_text('{"id":"changed"}\n')
-                self.assertEqual(last.read_text(), '{"id":"last"}\n')
+                self.assertEqual(last.read_text(), original_last)
 
                 stale = root / "stale.jsonl"
                 stale.write_text("stale\n")
@@ -205,7 +227,7 @@ class PublishGrok46HubTests(unittest.TestCase):
             root = Path(td)
             source = root / "raw" / ITEM["slug"]
             source.mkdir(parents=True)
-            (source / "batch-r1a.jsonl").write_text('{"id":"legacy-name"}\n')
+            write_valid_legacy(source / "batch-r1a.jsonl")
 
             with mock.patch.object(publisher, "FACTORY_ROOT", root / "raw"), mock.patch.object(
                 publisher, "HF_ROOT", root / "hf"
@@ -318,7 +340,7 @@ class PublishGrok46HubTests(unittest.TestCase):
                 root = Path(td)
                 source = root / "raw" / ITEM["slug"]
                 source.mkdir(parents=True)
-                (source / "batch-r01.jsonl").write_text('{"id":"source"}\n')
+                write_valid_legacy(source / "batch-r01.jsonl")
                 outside = root / "outside"
                 outside.mkdir()
                 unsafe = root / "hf" / ITEM["hub"] / "data" / leaf
@@ -339,7 +361,7 @@ class PublishGrok46HubTests(unittest.TestCase):
                 root = Path(td)
                 source = root / "raw" / ITEM["slug"]
                 source.mkdir(parents=True)
-                (source / "batch-r01.jsonl").write_text('{"id":"source"}\n')
+                write_valid_legacy(source / "batch-r01.jsonl")
                 destination = root / "hf" / ITEM["hub"]
                 destination.mkdir(parents=True)
                 outside = root / "outside.txt"
@@ -386,7 +408,7 @@ class PublishGrok46HubTests(unittest.TestCase):
             other = {**ITEM, "slug": "other-factory", "hub": "other"}
             other_source = root / "raw" / other["slug"]
             other_source.mkdir()
-            (other_source / "batch-r01.jsonl").write_text('{"id":"other"}\n')
+            write_valid_thalamic(other_source / "batch-r01.jsonl", "other")
             with mock.patch.object(publisher, "FACTORY_ROOT", root / "raw"), mock.patch.object(
                 publisher, "HF_ROOT", root / "hf"
             ), mock.patch.object(publisher, "factories", return_value=[ITEM, other]):
@@ -427,6 +449,19 @@ class PublishGrok46HubTests(unittest.TestCase):
             self.assertIn(
                 "data/raw/episodes.jsonl", (mirror / "README.md").read_text()
             )
+
+    def test_pre_marker_payloads_must_pass_the_factory_contract(self):
+        for payload, message in (
+            ("{not-json\n", "JSON parse error"),
+            (json.dumps({"id": "wrong-kind"}) + "\n", "requires only 'episode'"),
+        ):
+            with self.subTest(message=message), tempfile.TemporaryDirectory() as td:
+                source = Path(td) / ITEM["slug"]
+                source.mkdir()
+                (source / "batch-r01.jsonl").write_text(payload)
+
+                with self.assertRaisesRegex(SystemExit, message):
+                    publisher.published_batches(source)
 
     def test_snapshot_publishes_canonical_notes_for_suffixed_legacy_batch(self):
         with tempfile.TemporaryDirectory() as td:
@@ -634,7 +669,7 @@ class PublishGrok46HubTests(unittest.TestCase):
             root = Path(td)
             source = root / "raw" / ITEM["slug"]
             source.mkdir(parents=True)
-            (source / "batch-r01.jsonl").write_text('{"id":"source"}\n')
+            write_valid_legacy(source / "batch-r01.jsonl")
             inventory = root / "hf" / "SYNTHETIC-DATA-FACTORY-GROK46.md"
             inventory.parent.mkdir()
             outside = root / "outside.txt"
@@ -813,6 +848,36 @@ class PublishGrok46HubTests(unittest.TestCase):
                 (root / "hf" / ITEM["hub"] / "data" / "raw" / batch.name).exists()
             )
 
+    def test_snapshot_rechecks_pre_marker_digest_after_validation(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            source = root / "raw" / ITEM["slug"]
+            source.mkdir(parents=True)
+            batch = source / "batch-r01.jsonl"
+            write_valid_legacy(batch)
+            real_published_notes = publisher.published_notes
+
+            def tamper_after_selection(*args, **kwargs):
+                selected = real_published_notes(*args, **kwargs)
+                batch.write_text('{"id":"changed-after-validation"}\n')
+                return selected
+
+            with mock.patch.object(
+                publisher, "FACTORY_ROOT", root / "raw"
+            ), mock.patch.object(
+                publisher, "HF_ROOT", root / "hf"
+            ), mock.patch.object(
+                publisher, "published_notes", side_effect=tamper_after_selection
+            ):
+                with self.assertRaisesRegex(
+                    SystemExit, "changed after manifest validation"
+                ):
+                    publisher.snapshot_one(ITEM)
+
+            self.assertFalse(
+                (root / "hf" / ITEM["hub"] / "data" / "raw" / batch.name).exists()
+            )
+
     def test_invalid_utf8_completion_marker_has_a_bounded_error(self):
         with tempfile.TemporaryDirectory() as td:
             source = Path(td) / ITEM["slug"]
@@ -841,7 +906,7 @@ class PublishGrok46HubTests(unittest.TestCase):
             root = Path(td)
             source = root / "raw" / ITEM["slug"]
             source.mkdir(parents=True)
-            (source / "batch-r01.jsonl").write_text('{"id":"upload"}\n')
+            write_valid_legacy(source / "batch-r01.jsonl")
             with mock.patch.object(
                 publisher, "FACTORY_ROOT", root / "raw"
             ), mock.patch.object(publisher, "HF_ROOT", root / "hf"), mock.patch.object(
@@ -863,7 +928,7 @@ class PublishGrok46HubTests(unittest.TestCase):
             source = root / "raw" / ITEM["slug"]
             source.mkdir(parents=True)
             batch = source / "batch-r01.jsonl"
-            batch.write_text('{"id":"source"}\n')
+            write_valid_legacy(batch)
             with mock.patch.object(
                 publisher, "FACTORY_ROOT", root / "raw"
             ), mock.patch.object(publisher, "HF_ROOT", root / "hf"), mock.patch.object(
@@ -940,9 +1005,11 @@ class PublishGrok46HubTests(unittest.TestCase):
             for item, record_id in ((ITEM, "selected"), (other, "other")):
                 source = root / "raw" / item["slug"]
                 source.mkdir(parents=True)
-                (source / "batch-r01.jsonl").write_text(
-                    json.dumps({"id": record_id}) + "\n"
-                )
+                batch = source / "batch-r01.jsonl"
+                if item == ITEM:
+                    write_valid_legacy(batch)
+                else:
+                    write_valid_thalamic(batch, record_id)
             with mock.patch.object(publisher, "FACTORY_ROOT", root / "raw"), mock.patch.object(
                 publisher, "HF_ROOT", root / "hf"
             ), mock.patch.object(publisher, "factories", return_value=[ITEM, other]):

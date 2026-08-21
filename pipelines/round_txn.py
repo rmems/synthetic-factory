@@ -1369,7 +1369,7 @@ def committed_ids(factory_dir: Path):
         # Dated runs may retain pre-factory legacy JSONL at their root. It
         # remains part of the run-wide namespace even though it has no
         # factory marker directory of its own.
-        if path.is_file():
+        if path.is_file() and not path.is_symlink():
             check_jsonl(path, path.relative_to(run_dir), seen_ids=seen_ids)
     for candidate in sorted(run_dir.iterdir()):
         if not candidate.is_dir() or candidate.is_symlink():
@@ -1492,6 +1492,28 @@ def validate_agentic_envelope(batch: Path, factory_dir: Path, round_number: int)
                     errors.append(
                         f"{where}: reward.success must agree with reward.recovered"
                     )
+                outcome = record.get("outcome") if isinstance(record, dict) else None
+                outcome_text = outcome.casefold() if isinstance(outcome, str) else ""
+                if recovered == 0:
+                    partial_evidence = re.search(
+                        r"\b(?:partial(?:ly)?|mitigat\w*|contain\w*|handoff|"
+                        r"handed off|blocked|unresolved)\b",
+                        outcome_text,
+                    )
+                    contradictory_completion = re.search(
+                        r"\b(?:fully|fixed|repaired|landed|completed|succeeded)\b|"
+                        r"all (?:systems )?(?:fixed|recovered)|all tests passed",
+                        outcome_text,
+                    )
+                    if (
+                        partial_evidence is None
+                        or contradictory_completion is not None
+                    ):
+                        errors.append(
+                            f"{where}: unrecovered cascade outcome must report "
+                            "partial containment, mitigation, or handoff without "
+                            "full-completion claims"
+                        )
             if (
                 not isinstance(cascade_steps, int)
                 or isinstance(cascade_steps, bool)
@@ -1552,6 +1574,13 @@ def validate_agentic_envelope(batch: Path, factory_dir: Path, round_number: int)
             if scenario_signature is not None:
                 long_horizon_scenario_signatures.append(scenario_signature)
             steps = record.get("steps")
+            for index, step in enumerate(steps if isinstance(steps, list) else ()):
+                basis = step.get("decision_basis") if isinstance(step, dict) else None
+                if isinstance(basis, str) and len(basis) > 240:
+                    errors.append(
+                        f"{where}: long-horizon steps[{index}].decision_basis "
+                        "must be at most 240 characters"
+                    )
             errors.extend(
                 numbered_horizon_errors(
                     where,

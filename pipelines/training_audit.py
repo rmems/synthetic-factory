@@ -29,6 +29,7 @@ from check_records import (  # noqa: E402
     canonical_record_id,
     check_record,
     expected_states,
+    reject_json_constant,
     root_record_id,
     walk_key,
 )
@@ -279,14 +280,29 @@ def audit_run(run_dir: Path):
             bucket["approx_tokens"] += token_estimate
             bucket["record_tokens"].append(token_estimate)
             try:
-                obj = json.loads(line)
-            except json.JSONDecodeError as exc:
+                obj = json.loads(line, parse_constant=reject_json_constant)
+            except (json.JSONDecodeError, ValueError) as exc:
                 record_errors.append(f"{where}: JSON parse error: {exc}")
                 kinds["unknown"] += 1
                 bucket["by_kind"]["unknown"] += 1
                 continue
 
-            errors, warnings, kind, checked_id = check_record(obj, where)
+            strict_agentic = isinstance(obj, dict) and (
+                ("case_type" in obj)
+                or ("transcript" in obj and "agents" in obj)
+                or ("steps" in obj and "outcome" in obj and "reward" in obj)
+                or (
+                    "chosen" in obj
+                    and "rejected" in obj
+                    and (
+                        _episode_like(obj.get("chosen"))
+                        or _episode_like(obj.get("rejected"))
+                    )
+                )
+            )
+            errors, warnings, kind, checked_id = check_record(
+                obj, where, factory_staging=strict_agentic
+            )
             kinds[kind] += 1
             bucket["by_kind"][kind] += 1
             record_errors.extend(errors)
