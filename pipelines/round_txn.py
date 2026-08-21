@@ -288,6 +288,28 @@ def valid_legacy_file(path: Path):
     return 0 if errors else records
 
 
+def validate_legacy_payload(path: Path, factory_dir: Path, round_number: int):
+    """Return a legacy payload's records and any applicable contract errors."""
+    factory_staging = factory_dir.name in AGENTIC_FACTORY_KINDS
+    errors, warnings, kinds, records = check_jsonl(
+        path,
+        path.name,
+        factory_staging=factory_staging,
+    )
+    problems = list(errors)
+    if factory_staging:
+        problems.extend(warnings)
+        expected_kind = AGENTIC_FACTORY_KINDS[factory_dir.name]
+        if set(kinds) != {expected_kind}:
+            problems.append(
+                f"{factory_dir.name} requires only {expected_kind!r} records; "
+                f"legacy kinds are {sorted(kinds)!r}"
+            )
+        if not errors:
+            problems.extend(validate_agentic_envelope(path, factory_dir, round_number))
+    return records, problems
+
+
 def discover_legacy_frontier(factory_dir: Path):
     """Highest complete-looking legacy round, ignoring malformed name claims."""
     factory_dir = Path(factory_dir)
@@ -304,6 +326,31 @@ def discover_legacy_frontier(factory_dir: Path):
         else:
             continue
         by_round[round_number] = by_round.get(round_number, 0) + valid_legacy_file(path)
+    eligible = [round_number for round_number, count in by_round.items() if count >= quota]
+    return max(eligible, default=0)
+
+
+def discover_unmarked_legacy_frontier(factory_dir: Path):
+    """Highest validated batch round not owned by a transaction marker."""
+    factory_dir = Path(factory_dir)
+    quota = FACTORY_QUOTAS.get(factory_dir.name, 1)
+    by_round: dict[int, int] = {}
+    for path in sorted(factory_dir.glob("batch-r*.jsonl")):
+        if not path.is_file() or path.is_symlink():
+            continue
+        match = BATCH_RE.fullmatch(path.name)
+        if match is None:
+            continue
+        round_number = int(match.group(1))
+        markers = marker_paths(factory_dir, round_number)
+        if any(
+            marker.is_file() and not marker.is_symlink()
+            for marker in (markers["publishing"], markers["complete"])
+        ):
+            continue
+        records, problems = validate_legacy_payload(path, factory_dir, round_number)
+        if not problems:
+            by_round[round_number] = by_round.get(round_number, 0) + records
     eligible = [round_number for round_number, count in by_round.items() if count >= quota]
     return max(eligible, default=0)
 
@@ -342,10 +389,12 @@ def validate_legacy_baseline_payloads(factory_dir: Path, baseline: int):
             round_number = 1
         else:
             continue
-        records = valid_legacy_file(path)
-        if records < 1:
+        records, problems = validate_legacy_payload(path, factory_dir, round_number)
+        if records < 1 or problems:
+            details = "\n".join(f"ERROR: {problem}" for problem in problems)
             raise TransactionError(
                 f"invalid legacy payload covered by marker baseline: {path}"
+                + (f"\n{details}" if details else "")
             )
         records_by_round[round_number] = records_by_round.get(round_number, 0) + records
     quota = FACTORY_QUOTAS.get(factory_dir.name, 1)
@@ -468,6 +517,9 @@ def completed_manifests(factory_dir: Path) -> dict[int, dict]:
             raise TransactionError(
                 f"completion marker has no unique notes entry: {path}"
             )
+        coverage_error = validate_novel_coverage(factory_dir / notes_name, factory_dir)
+        if coverage_error:
+            raise TransactionError(coverage_error)
         validate_completed_batch(
             factory_dir, round_number, payload, seen_ids=seen_ids
         )
@@ -732,6 +784,12 @@ def validated_marker_mode(factory_dir: Path, mode_path: Path | None = None):
         raise TransactionError(
             f"legacy_baseline in {mode_path} excludes validated legacy r01 payloads"
         )
+    unmarked_frontier = discover_unmarked_legacy_frontier(factory_dir)
+    if baseline < unmarked_frontier:
+        raise TransactionError(
+            f"legacy_baseline in {mode_path} excludes validated unmarked legacy "
+            f"frontier r{unmarked_frontier:02d}"
+        )
     validate_legacy_baseline_payloads(factory_dir, baseline)
     return mode
 
@@ -967,6 +1025,7 @@ def validate_agentic_envelope(batch: Path, factory_dir: Path, round_number: int)
         return []
     errors = []
     safety_case_types = []
+    cascade_fault_kinds = []
     cascade_recovery_values = []
     long_horizon_success_values = []
     for lineno, line in enumerate(batch.read_text().splitlines(), 1):
@@ -1008,6 +1067,8 @@ def validate_agentic_envelope(batch: Path, factory_dir: Path, round_number: int)
                     )
                 if not isinstance(fault.get("kind"), str) or not fault["kind"].strip():
                     errors.append(f"{where}: error_introduced.kind must be a non-empty string")
+                else:
+                    cascade_fault_kinds.append(fault["kind"].strip().casefold())
                 if not isinstance(fault.get("payload"), str) or not fault["payload"].strip():
                     errors.append(f"{where}: error_introduced.payload must be a non-empty string")
             if not isinstance(diagnosis, str) or not diagnosis.strip():
@@ -1241,6 +1302,15 @@ def validate_agentic_envelope(batch: Path, factory_dir: Path, round_number: int)
             "cascading-error-recovery-factory requires one full recovery and "
             "one partial containment or handoff per batch"
         )
+    if (
+        factory_dir.name == "cascading-error-recovery-factory"
+        and len(cascade_fault_kinds) == 2
+        and len(set(cascade_fault_kinds)) != 2
+    ):
+        errors.append(
+            "cascading-error-recovery-factory requires two distinct "
+            "error_introduced.kind fault classes per batch"
+        )
     if factory_dir.name == "long-horizon-coding-factory" and sorted(
         long_horizon_success_values
     ) != [False, True]:
@@ -1307,13 +1377,13 @@ def validate_novel_coverage(notes: Path, factory_dir: Path, notes_text: str | No
         try:
             notes_text = notes.read_text()
         except (OSError, UnicodeError) as exc:
-            return f"cannot read staged notes as UTF-8: {notes}: {exc}"
+            return f"cannot read notes as UTF-8: {notes}: {exc}"
     match = NOVEL_COVERAGE_RE.search(notes_text)
     if match is None:
-        return f"staged notes need a 'Novel coverage: <N>%' line: {notes}"
+        return f"notes need a 'Novel coverage: <N>%' line: {notes}"
     value = float(match.group(1))
     if not 0 <= value <= 100:
-        return f"staged Novel coverage must be between 0% and 100%: {notes}"
+        return f"Novel coverage must be between 0% and 100%: {notes}"
     return None
 
 

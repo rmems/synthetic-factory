@@ -11,6 +11,7 @@ STATE_DIR="$STATE_HOME/synthetic-factory-grok46"
 umask 077
 LOG="$STATE_DIR/restart.log"
 LOCK="$STATE_DIR/launcher.lock"
+WORKER_LOCK="$STATE_DIR/worker.lock"
 PID_FILE="$STATE_DIR/worker.state"
 WINDOW_FILE="$STATE_DIR/last-launch-window"
 SESSION=grok46-agentic-restart
@@ -77,6 +78,7 @@ ensure_state_home
 ensure_private_state_dir
 ensure_private_state_file "$LOG"
 ensure_private_state_file "$LOCK"
+ensure_private_state_file "$WORKER_LOCK"
 ensure_private_state_file "$PID_FILE"
 ensure_private_state_file "$WINDOW_FILE"
 
@@ -190,7 +192,7 @@ if command -v tmux >/dev/null 2>&1; then
     exit 0
   fi
   tmux new-session -d -s "$SESSION" \
-    "exec 9>&-; cd '$ROOT' && exec flock '$LOCK' '$GROK' --cwd '$ROOT' --no-plan --model grok-4.6 \"\$(cat '$PROMPT')\" 2>&1 | tee -a '$LOG'"
+    "exec 9>&-; cd '$ROOT' && exec flock -n '$WORKER_LOCK' '$GROK' --cwd '$ROOT' --no-plan --model grok-4.6 \"\$(cat '$PROMPT')\" 2>&1 | tee -a '$LOG'"
   sleep "$STARTUP_GRACE_SECONDS"
   if ! tmux has-session -t "$SESSION" 2>/dev/null; then
     echo "$(date -Is) error: tmux worker exited during startup" >>"$LOG"
@@ -205,7 +207,7 @@ if command -v tmux >/dev/null 2>&1; then
 else
   (
     exec 9>&-
-    exec nohup flock "$LOCK" "$GROK" --cwd "$ROOT" --no-plan --model grok-4.6 "$(cat "$PROMPT")" >>"$LOG" 2>&1
+    exec nohup flock -n "$WORKER_LOCK" "$GROK" --cwd "$ROOT" --no-plan --model grok-4.6 "$(cat "$PROMPT")" >>"$LOG" 2>&1
   ) &
   worker_pid=$!
   if ! write_worker_state "$worker_pid"; then

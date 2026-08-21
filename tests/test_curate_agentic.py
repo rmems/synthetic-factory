@@ -513,6 +513,7 @@ class CurateAgenticTests(unittest.TestCase):
             (factory / "batch-r02.jsonl").write_text(
                 json.dumps(episode_fixture("uncommitted")) + "\n"
             )
+            (factory / "ROUND-r02.publishing.json").write_text("{}\n")
 
             run = curate_source(factory)
 

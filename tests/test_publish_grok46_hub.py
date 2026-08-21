@@ -25,26 +25,55 @@ ITEM = {
 }
 
 
-def valid_legacy_episode(record_id):
+def valid_legacy_episode(record_id, round_number=1, success=True):
+    steps = [
+        {
+            "n": index,
+            "decision_basis": "Observation: inspect the timezone failure",
+            "tool_call": {"name": "bash", "args": {"command": f"echo {index}"}},
+            "observation": f"inspected step {index}",
+        }
+        for index in range(1, 19)
+    ]
+    steps[2]["tool_call"]["args"]["command"] = "apply patch to converter"
+    steps[2]["observation"] = "edited the converter"
+    steps[3]["tool_call"]["args"]["command"] = "pytest timezone"
+    steps[3]["observation"] = "test failed with DST error"
+    steps[4]["tool_call"]["args"]["command"] = "sed read converter"
+    steps[4]["observation"] = "re-read the failing branch"
+    steps[5]["tool_call"]["args"]["command"] = "apply patch to fix DST fold"
+    steps[5]["observation"] = "fixed the branch"
+    steps[6]["tool_call"]["args"]["command"] = "pytest timezone"
+    steps[6]["observation"] = "tests passed; fix verified"
     return {
         "id": record_id,
         "goal": "repair a deterministic fixture",
-        "steps": [
-            {
-                "n": 1,
-                "decision_basis": "Observation: fixture is reproducible",
-                "tool_call": {"name": "inspect", "args": {}},
-                "observation": "fixture inspected",
-            }
-        ],
-        "outcome": "fixture repaired",
-        "reward": {"success": True},
+        "steps": steps,
+        "outcome": "fixture repaired" if success else "fixture mitigated and handed off",
+        "reward": {"success": success},
+        "meta": {
+            "factory": ITEM["slug"],
+            "round": round_number,
+            "generator": "grok-4.6",
+        },
     }
 
 
 def write_valid_legacy(path, count=2):
+    match = publisher.BATCH_NAME_RE.fullmatch(path.name)
+    round_number = int(match.group(1)) if match is not None else 1
     path.write_text(
-        "".join(json.dumps(valid_legacy_episode(f"legacy-{index}")) + "\n" for index in range(count))
+        "".join(
+            json.dumps(
+                valid_legacy_episode(
+                    f"legacy-{index}",
+                    round_number=round_number,
+                    success=index % 2 == 0,
+                )
+            )
+            + "\n"
+            for index in range(count)
+        )
     )
 
 
@@ -196,7 +225,7 @@ class PublishGrok46HubTests(unittest.TestCase):
             committed_batch = source / "batch-r03.jsonl"
             write_valid_completed_long_horizon(committed_batch, 3)
             committed_notes = source / "NOTES-r03.md"
-            committed_notes.write_text("committed\n")
+            committed_notes.write_text("Novel coverage: 80%\ncommitted\n")
             (source / "ROUND-r03.complete.json").write_text(
                 json.dumps(
                     {
@@ -629,7 +658,7 @@ class PublishGrok46HubTests(unittest.TestCase):
             batch = source / "batch-r01.jsonl"
             notes = source / "NOTES-r01.md"
             write_valid_completed_long_horizon(batch, 1)
-            notes.write_text("committed\n")
+            notes.write_text("Novel coverage: 80%\ncommitted\n")
             (source / ".round-marker-mode.json").write_text(
                 '{"version":1,"legacy_baseline":0,"commit_point":"ROUND-rNN.complete.json"}\n'
             )

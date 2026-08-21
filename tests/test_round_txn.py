@@ -828,6 +828,34 @@ class RoundTransaction(unittest.TestCase):
             with self.assertRaisesRegex(round_txn.TransactionError, "excludes validated legacy"):
                 round_txn.committed_jsonl_paths(factory)
 
+    def test_marker_mode_cannot_hide_a_later_validated_legacy_batch(self):
+        with tempfile.TemporaryDirectory() as td:
+            factory = self.factory(td)
+            for round_number in (1, 2):
+                write_records(
+                    factory / f"batch-r{round_number:02d}.jsonl",
+                    [
+                        thalamic(f"legacy-r{round_number:02d}-{index}", round_number)
+                        for index in range(5)
+                    ],
+                )
+            (factory / round_txn.MODE_FILE).write_text(
+                json.dumps(
+                    {
+                        "version": 1,
+                        "legacy_baseline": 1,
+                        "commit_point": "ROUND-rNN.complete.json",
+                    }
+                )
+                + "\n"
+            )
+
+            with self.assertRaisesRegex(
+                round_txn.TransactionError,
+                "excludes validated unmarked legacy frontier r02",
+            ):
+                round_txn.frontier_status(factory)
+
     def test_committed_paths_ignore_symlinked_legacy_payloads(self):
         with tempfile.TemporaryDirectory() as td:
             factory = self.factory(td)

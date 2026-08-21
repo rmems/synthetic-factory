@@ -600,8 +600,13 @@ def check_multi_agent(obj, where, factory_staging=False):
             errs.append(f"{where}: multi_agent missing '{key}'")
     errs += _nonempty_text_field_errors(obj, where, ("goal", "resolution", "joint_outcome"))
     disagreements = obj.get("disagreements")
-    if not isinstance(disagreements, list) or not any(
-        isinstance(item, str) and item.strip() for item in disagreements
+    if (
+        not isinstance(disagreements, list)
+        or not disagreements
+        or any(
+            not isinstance(item, str) or not item.strip()
+            for item in disagreements
+        )
     ):
         errs.append(f"{where}: disagreements must be a non-empty array of strings")
     agents = obj.get("agents")

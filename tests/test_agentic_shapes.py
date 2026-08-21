@@ -641,6 +641,14 @@ class AgenticShapes(unittest.TestCase):
             (stage / reservation["batch_file"]).write_text(
                 "".join(json.dumps(record) + "\n" for record in records)
             )
+
+            with self.assertRaisesRegex(round_txn.TransactionError, "two distinct"):
+                round_txn.publish(factory, 1, reservation["token"])
+
+            records[1]["error_introduced"]["kind"] = "orphaned-lock"
+            (stage / reservation["batch_file"]).write_text(
+                "".join(json.dumps(record) + "\n" for record in records)
+            )
             manifest = round_txn.publish(factory, 1, reservation["token"])
 
             self.assertEqual(manifest["records"], 2)
@@ -812,6 +820,13 @@ class AgenticShapes(unittest.TestCase):
         self.assertEqual(kind, "multi_agent")
         self.assertTrue(any("disagreements" in error for error in errs), errs)
         self.assertTrue(any("resolution" in error for error in errs), errs)
+
+        rec = multi_agent()
+        rec["disagreements"] = ["TTL race coverage", {"unexpected": "object"}]
+        errs, kind = validate_run.check_line(rec, "t", factory_staging=True)
+
+        self.assertEqual(kind, "multi_agent")
+        self.assertTrue(any("disagreements" in error for error in errs), errs)
 
     def test_safety_case_requires_an_explicit_decision(self):
         rec = safety_case()
@@ -1026,6 +1041,67 @@ class AgenticShapes(unittest.TestCase):
                 "Novel coverage",
                 round_txn.validate_novel_coverage(notes, factory),
             )
+
+    def test_marker_baseline_revalidates_fixed_agentic_envelopes(self):
+        with tempfile.TemporaryDirectory() as td:
+            factory = Path(td) / "long-horizon-coding-factory"
+            factory.mkdir()
+            records = [episode(f"legacy-short-{index}") for index in range(2)]
+            (factory / "batch-r01.jsonl").write_text(
+                "".join(json.dumps(record) + "\n" for record in records)
+            )
+            (factory / round_txn.MODE_FILE).write_text(
+                json.dumps(
+                    {
+                        "version": 1,
+                        "legacy_baseline": 1,
+                        "commit_point": "ROUND-rNN.complete.json",
+                    }
+                )
+                + "\n"
+            )
+
+            with self.assertRaisesRegex(
+                round_txn.TransactionError,
+                "invalid legacy payload covered by marker baseline",
+            ):
+                round_txn.frontier_status(factory)
+
+    def test_completed_agentic_notes_revalidate_novel_coverage(self):
+        with tempfile.TemporaryDirectory() as td:
+            factory = (
+                Path(td)
+                / "outputs"
+                / "raw"
+                / "2099-01-01"
+                / "long-horizon-coding-factory"
+            )
+            factory.mkdir(parents=True)
+            reservation = round_txn.reserve(factory, 1, 2)
+            stage = Path(reservation["staging_dir"])
+            records = [episode(f"coverage-{index}") for index in range(2)]
+            for record in records:
+                record["steps"] = long_horizon_steps()
+            records[1]["reward"]["success"] = False
+            records[1]["outcome"] = "mitigated and handed off"
+            (stage / reservation["batch_file"]).write_text(
+                "".join(json.dumps(record) + "\n" for record in records)
+            )
+            (stage / reservation["notes_file"]).write_text("Novel coverage: 80%\n")
+            round_txn.publish(factory, 1, reservation["token"])
+
+            notes = factory / "NOTES-r01.md"
+            notes.write_text("coverage omitted\n")
+            marker = factory / "ROUND-r01.complete.json"
+            payload = json.loads(marker.read_text())
+            notes_entry = next(
+                entry for entry in payload["files"] if entry["name"] == notes.name
+            )
+            notes_entry["sha256"] = round_txn.file_sha256(notes)
+            marker.write_text(json.dumps(payload) + "\n")
+
+            with self.assertRaisesRegex(round_txn.TransactionError, "Novel coverage"):
+                round_txn.frontier_status(factory)
 
     def test_step_free_safety_case_requires_textual_goal_and_outcome(self):
         rec = safety_case()
