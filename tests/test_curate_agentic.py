@@ -285,6 +285,17 @@ class CurateAgenticTests(unittest.TestCase):
         self.assertIn(REASON_THOUGHT_REMOVED, decision["reason_codes"])
         self.assertIn(REASON_PREFERENCE_COLLAPSED, decision["reason_codes"])
 
+    def test_excludes_identical_visible_responses_with_different_reward_labels(self):
+        source = preference_fixture()
+        source["rejected"]["steps"] = copy.deepcopy(source["chosen"]["steps"])
+        source["rejected"]["outcome"] = source["chosen"]["outcome"]
+
+        curated, decision = curate_record(source)
+
+        self.assertIsNone(curated)
+        self.assertEqual(decision["action"], ACTION_EXCLUDED)
+        self.assertIn(REASON_PREFERENCE_COLLAPSED, decision["reason_codes"])
+
     def test_flags_missing_decision_basis_without_inventing_one(self):
         source = episode_fixture(
             steps=[

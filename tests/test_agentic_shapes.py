@@ -236,6 +236,47 @@ class AgenticShapes(unittest.TestCase):
             with self.assertRaisesRegex(round_txn.TransactionError, "requires exactly 2"):
                 round_txn.publish(factory, 1, reservation["token"])
 
+    def test_sparse_long_task_publish_enforces_horizon_and_terminal_reward(self):
+        with tempfile.TemporaryDirectory() as td:
+            factory = (
+                Path(td)
+                / "outputs"
+                / "raw"
+                / "2099-01-01"
+                / "sparse-reward-long-task-factory"
+            )
+            factory.mkdir(parents=True)
+            reservation = round_txn.reserve(factory, 1, 1)
+            stage = Path(reservation["staging_dir"])
+            record = episode("srl-r01-invalid", factory=factory.name)
+            record["steps"] = [_step(7)]
+            record["steps"][0]["reward"] = {"score": 1}
+            record["reward"].update({"terminal_only": False, "horizon_steps": 99})
+            (stage / reservation["batch_file"]).write_text(json.dumps(record) + "\n")
+            (stage / reservation["notes_file"]).write_text("Novel coverage: 80%\n")
+
+            with self.assertRaises(round_txn.TransactionError) as raised:
+                round_txn.publish(factory, 1, reservation["token"])
+
+            message = str(raised.exception)
+            self.assertIn("require 25 to 60 steps", message)
+            self.assertIn("numbered contiguously from 1", message)
+            self.assertIn("must not carry reward", message)
+            self.assertIn("reward.horizon_steps", message)
+            self.assertIn("reward.terminal_only must be true", message)
+            self.assertFalse((factory / "ROUND-r01.complete.json").exists())
+
+            record["steps"] = [_step(index) for index in range(1, 26)]
+            record["reward"] = {
+                "success": True,
+                "terminal_only": True,
+                "horizon_steps": 25,
+            }
+            (stage / reservation["batch_file"]).write_text(json.dumps(record) + "\n")
+
+            manifest = round_txn.publish(factory, 1, reservation["token"])
+            self.assertEqual(manifest["records"], 1)
+
     def test_bad_case_type_rejected(self):
         rec = safety_case()
         rec["case_type"] = "false_positive"

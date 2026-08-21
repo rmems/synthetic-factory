@@ -360,7 +360,12 @@ def curate_record(
         if not ok:
             decision["reason_codes"] = reasons + [goal_reason]
             return None, decision
-        if cleaned.get("chosen") == cleaned.get("rejected"):
+        cleaned_chosen = cleaned.get("chosen")
+        cleaned_rejected = cleaned.get("rejected")
+        if all(
+            cleaned_chosen.get(field) == cleaned_rejected.get(field)
+            for field in ("steps", "outcome")
+        ):
             decision["reason_codes"] = reasons + [REASON_PREFERENCE_COLLAPSED]
             return None, decision
         overlap = prefix_overlap(record.get("chosen"), record.get("rejected"))

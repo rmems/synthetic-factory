@@ -829,6 +829,41 @@ def validate_agentic_envelope(batch: Path, factory_dir: Path, round_number: int)
                         errors.append(
                             f"{where}: recovery decision_basis must cite the diagnosis"
                         )
+        if factory_dir.name == "sparse-reward-long-task-factory" and isinstance(record, dict):
+            steps = record.get("steps")
+            reward = record.get("reward")
+            if isinstance(steps, list):
+                if not 25 <= len(steps) <= 60:
+                    errors.append(f"{where}: sparse long-task episodes require 25 to 60 steps")
+                step_numbers = [
+                    step.get("n") if isinstance(step, dict) else None
+                    for step in steps
+                ]
+                if any(
+                    not isinstance(number, int)
+                    or isinstance(number, bool)
+                    or number != expected_number
+                    for expected_number, number in enumerate(step_numbers, 1)
+                ):
+                    errors.append(
+                        f"{where}: sparse long-task steps must be numbered contiguously from 1"
+                    )
+                for index, step in enumerate(steps):
+                    if isinstance(step, dict) and "reward" in step:
+                        errors.append(
+                            f"{where}: sparse long-task steps[{index}] must not carry reward"
+                        )
+                horizon_steps = reward.get("horizon_steps") if isinstance(reward, dict) else None
+                if (
+                    not isinstance(horizon_steps, int)
+                    or isinstance(horizon_steps, bool)
+                    or horizon_steps != len(steps)
+                ):
+                    errors.append(
+                        f"{where}: reward.horizon_steps must equal the staged step count"
+                    )
+            if not isinstance(reward, dict) or reward.get("terminal_only") is not True:
+                errors.append(f"{where}: reward.terminal_only must be true")
         if AGENTIC_FACTORY_KINDS[factory_dir.name] == "preference":
             for side_name in ("chosen", "rejected"):
                 side = record.get(side_name) if isinstance(record, dict) else None
