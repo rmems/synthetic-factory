@@ -129,6 +129,32 @@ NOVEL_COVERAGE_RE = re.compile(
     r"^\s*novel[ _-]?coverage\s*(?:\([^)\n]*\))?\s*[:=]?\s*(\d+(?:\.\d+)?)\s*%",
     re.IGNORECASE | re.MULTILINE,
 )
+CASCADE_GENERIC_TERMS = frozenset(
+    {
+        "and",
+        "are",
+        "error",
+        "errors",
+        "failed",
+        "failure",
+        "fault",
+        "for",
+        "from",
+        "has",
+        "have",
+        "into",
+        "issue",
+        "not",
+        "problem",
+        "step",
+        "that",
+        "the",
+        "this",
+        "was",
+        "were",
+        "with",
+    }
+)
 
 
 class TransactionError(RuntimeError):
@@ -219,10 +245,17 @@ def discover_legacy_named_baseline(factory_dir: Path):
     """Return the validated r01 floor contributed by pre-marker payload names."""
     factory_dir = Path(factory_dir)
     quota = FACTORY_QUOTAS.get(factory_dir.name, 1)
+    has_completed_r01 = (factory_dir / "ROUND-r01.complete.json").exists()
     records = sum(
         valid_legacy_file(path)
         for path in factory_dir.glob("*.jsonl")
         if path.name in LEGACY_R1_NAMES
+        or (
+            not has_completed_r01
+            and (match := BATCH_RE.fullmatch(path.name)) is not None
+            and int(match.group(1)) == 1
+            and not match.group(2)
+        )
     )
     return 1 if records >= quota else 0
 
@@ -357,8 +390,16 @@ def shares_visible_terms(left, right):
     """Whether two observable strings name at least one meaningful common term."""
     if not isinstance(left, str) or not isinstance(right, str):
         return False
-    left_terms = set(re.findall(r"[a-z0-9][a-z0-9_-]{2,}", left.lower()))
-    right_terms = set(re.findall(r"[a-z0-9][a-z0-9_-]{2,}", right.lower()))
+    left_terms = {
+        term
+        for term in re.findall(r"[a-z0-9][a-z0-9_-]{2,}", left.lower())
+        if term not in CASCADE_GENERIC_TERMS
+    }
+    right_terms = {
+        term
+        for term in re.findall(r"[a-z0-9][a-z0-9_-]{2,}", right.lower())
+        if term not in CASCADE_GENERIC_TERMS
+    }
     return bool(left_terms & right_terms)
 
 

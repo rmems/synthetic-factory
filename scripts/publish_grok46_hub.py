@@ -433,7 +433,7 @@ def completed_manifests(src: Path) -> dict[int, dict]:
         round_number = int(match.group(1))
         try:
             manifest = json.loads(marker.read_text())
-        except (OSError, json.JSONDecodeError) as exc:
+        except (OSError, UnicodeError, json.JSONDecodeError) as exc:
             raise SystemExit(f"cannot read completion marker {marker}: {exc}") from exc
         if not isinstance(manifest, dict):
             raise SystemExit(f"completion marker must be an object: {marker}")
@@ -496,7 +496,7 @@ def marker_mode_state(src: Path) -> tuple[int | None, dict[int, dict]]:
         raise SystemExit(f"unsafe marker mode file: {mode_path}")
     try:
         mode = json.loads(mode_path.read_text())
-    except (OSError, json.JSONDecodeError) as exc:
+    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
         raise SystemExit(f"cannot read marker mode for {src}: {exc}") from exc
     if not isinstance(mode, dict) or mode.get("version") != 1:
         raise SystemExit(f"unsupported marker mode version in {mode_path}")
@@ -646,10 +646,16 @@ def snapshot_one(item: dict) -> dict:
         labels.append(batch_label(b))
     for n in notes:
         link_or_copy(n, meta / n.name)
-    labels = [label for label in labels if label is not None]
-    batch_only = len(labels) == len(batches)
-    first = min(labels)[2] if labels and batch_only else None
-    last_s = max(labels)[2] if labels and batch_only else None
+    labels = [
+        (batch, label)
+        for batch, label in zip(batches, labels)
+        if label is not None
+    ]
+    batch_only = len(labels) == len(batches) and all(
+        batch.name == f"batch-{label[2]}.jsonl" for batch, label in labels
+    )
+    first = min(label for _batch, label in labels)[2] if labels and batch_only else None
+    last_s = max(label for _batch, label in labels)[2] if labels and batch_only else None
     card = render_card(
         item,
         records=records,
@@ -851,11 +857,26 @@ def cmd_create(only: str | None = None) -> None:
         )
 
 
+def safe_upload_directory(item: dict) -> Path:
+    """Return a real Hub mirror contained beneath a real ``HF_ROOT``."""
+    if not HF_ROOT.is_dir() or HF_ROOT.is_symlink():
+        raise SystemExit(f"unsafe upload root: {HF_ROOT}")
+    root = HF_ROOT.resolve()
+    dest = HF_ROOT / item["hub"]
+    if dest.parent != HF_ROOT or not dest.is_dir() or dest.is_symlink():
+        raise SystemExit(f"unsafe upload directory: {dest}")
+    try:
+        dest.resolve().relative_to(root)
+    except ValueError as exc:
+        raise SystemExit(f"upload directory escaped Hub root: {dest}") from exc
+    return dest
+
+
 def cmd_upload(only: str | None = None) -> None:
     for item in factories():
         if not is_selected(item, only):
             continue
-        dest = HF_ROOT / item["hub"]
+        dest = safe_upload_directory(item)
         run(
             [
                 "hf",

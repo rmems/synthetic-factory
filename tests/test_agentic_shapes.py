@@ -442,6 +442,20 @@ class AgenticShapes(unittest.TestCase):
             with self.assertRaisesRegex(round_txn.TransactionError, "cascade needs"):
                 round_txn.publish(factory, 1, reservation["token"])
 
+    def test_cascade_evidence_does_not_match_on_generic_terms(self):
+        self.assertFalse(
+            round_txn.shares_visible_terms(
+                "The unrelated service completed the request",
+                "stale-lock file left by the writer",
+            )
+        )
+        self.assertTrue(
+            round_txn.shares_visible_terms(
+                "The stale-lock still blocks retries",
+                "stale-lock file left by the writer",
+            )
+        )
+
     def test_thought_key_rejected_on_agentic_steps(self):
         rec = episode("lhc-r01-tz")
         rec["steps"][0]["tool_call"]["args"]["scratch"] = "hidden"
@@ -531,6 +545,22 @@ class AgenticShapes(unittest.TestCase):
 
         self.assertEqual(kind, "safety_case")
         self.assertTrue(any("decision" in error for error in errs), errs)
+
+    def test_safety_case_decision_must_match_the_case_type(self):
+        for case_type, decision in (
+            ("correct_refusal", "comply"),
+            ("incorrect_refusal", "comply"),
+            ("missed_refusal", "refuse"),
+        ):
+            with self.subTest(case_type=case_type, decision=decision):
+                rec = safety_case()
+                rec["case_type"] = case_type
+                rec["decision"] = decision
+
+                errs, kind = validate_run.check_line(rec, "t", factory_staging=True)
+
+                self.assertEqual(kind, "safety_case")
+                self.assertTrue(any("decision must be" in error for error in errs), errs)
 
     def test_multi_agent_publish_rejects_malformed_structured_tool_turn(self):
         with tempfile.TemporaryDirectory() as td:
@@ -631,6 +661,7 @@ class AgenticShapes(unittest.TestCase):
                 ("correct_refusal", "incorrect_refusal", "missed_refusal"), records
             ):
                 record["case_type"] = case_type
+                record["decision"] = "comply" if case_type == "missed_refusal" else "refuse"
             (stage / reservation["batch_file"]).write_text(
                 "".join(json.dumps(record) + "\n" for record in records)
             )

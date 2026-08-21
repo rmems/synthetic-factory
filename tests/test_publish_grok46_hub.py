@@ -101,6 +101,22 @@ class PublishGrok46HubTests(unittest.TestCase):
             empty_card = (destination_root / empty["hub"] / "README.md").read_text()
             self.assertIn("payload. The factory source tree is\n`outputs/raw/", empty_card)
 
+    def test_snapshot_card_preserves_noncanonical_batch_names(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            source = root / "raw" / ITEM["slug"]
+            source.mkdir(parents=True)
+            (source / "batch-r1a.jsonl").write_text('{"id":"legacy-name"}\n')
+
+            with mock.patch.object(publisher, "FACTORY_ROOT", root / "raw"), mock.patch.object(
+                publisher, "HF_ROOT", root / "hf"
+            ):
+                publisher.snapshot_one(ITEM)
+
+            card = (root / "hf" / ITEM["hub"] / "README.md").read_text()
+            self.assertIn("`data/raw/batch-r1a.jsonl`", card)
+            self.assertNotIn("`data/raw/batch-r01a.jsonl`", card)
+
     def test_snapshot_keeps_legacy_baseline_and_filters_uncommitted_marker_batches(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
@@ -510,6 +526,15 @@ class PublishGrok46HubTests(unittest.TestCase):
             with self.assertRaisesRegex(SystemExit, "excludes legacy r01"):
                 publisher.published_batches(source)
 
+    def test_invalid_utf8_completion_marker_has_a_bounded_error(self):
+        with tempfile.TemporaryDirectory() as td:
+            source = Path(td) / ITEM["slug"]
+            source.mkdir()
+            (source / "ROUND-r01.complete.json").write_bytes(b"\xff\n")
+
+            with self.assertRaisesRegex(SystemExit, "cannot read completion marker"):
+                publisher.completed_manifests(source)
+
     def test_only_limits_create_and_collection_operations(self):
         other = {**ITEM, "slug": "other-factory", "hub": "other"}
         with mock.patch.object(publisher, "factories", return_value=[ITEM, other]), mock.patch.object(
@@ -525,10 +550,13 @@ class PublishGrok46HubTests(unittest.TestCase):
         )
 
     def test_upload_syncs_managed_payload_and_note_paths(self):
-        with mock.patch.object(publisher, "factories", return_value=[ITEM]), mock.patch.object(
-            publisher, "run"
-        ) as run:
-            publisher.cmd_upload()
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td) / "hf"
+            (root / ITEM["hub"]).mkdir(parents=True)
+            with mock.patch.object(publisher, "HF_ROOT", root), mock.patch.object(
+                publisher, "factories", return_value=[ITEM]
+            ), mock.patch.object(publisher, "run") as run:
+                publisher.cmd_upload()
 
         command = run.call_args.args[0]
         self.assertIn("--delete", command)
@@ -536,6 +564,23 @@ class PublishGrok46HubTests(unittest.TestCase):
             [command[index + 1] for index, value in enumerate(command) if value == "--delete"],
             ["data/raw/*", "data/metadata/NOTES-r*.md"],
         )
+
+    def test_upload_refuses_a_symlinked_hub_mirror(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            hub_root = root / "hf"
+            outside = root / "outside"
+            hub_root.mkdir()
+            outside.mkdir()
+            (hub_root / ITEM["hub"]).symlink_to(outside, target_is_directory=True)
+
+            with mock.patch.object(publisher, "HF_ROOT", hub_root), mock.patch.object(
+                publisher, "factories", return_value=[ITEM]
+            ), mock.patch.object(publisher, "run") as run:
+                with self.assertRaisesRegex(SystemExit, "unsafe upload directory"):
+                    publisher.cmd_upload()
+
+            run.assert_not_called()
 
     def test_targeted_snapshot_preserves_full_inventory(self):
         other = {**ITEM, "slug": "other-factory", "hub": "other"}

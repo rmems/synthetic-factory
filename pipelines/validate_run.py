@@ -415,6 +415,11 @@ def check_thalamic(obj, where):
 SAFETY_CASE_TYPES = frozenset(
     {"correct_refusal", "incorrect_refusal", "missed_refusal"}
 )
+SAFETY_CASE_DECISIONS = {
+    "correct_refusal": "refuse",
+    "incorrect_refusal": "refuse",
+    "missed_refusal": "comply",
+}
 HIDDEN_THOUGHT_KEYS = frozenset(
     {"thought", "chain_of_thought", "scratch", "inner_monologue"}
 )
@@ -650,6 +655,13 @@ def check_safety_case(obj, where, factory_staging=False):
             f"{where}: case_type must be one of {sorted(SAFETY_CASE_TYPES)} "
             f"(got {case_type!r})"
         )
+    else:
+        expected_decision = SAFETY_CASE_DECISIONS[case_type]
+        decision = obj.get("decision")
+        if isinstance(decision, str) and decision.strip() and decision != expected_decision:
+            errs.append(
+                f"{where}: {case_type} decision must be {expected_decision!r}"
+            )
     if not isinstance(obj.get("rationale"), str) or not obj.get("rationale", "").strip():
         errs.append(f"{where}: rationale must be a non-empty string")
     if "steps" in obj:
