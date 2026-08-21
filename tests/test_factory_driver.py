@@ -235,6 +235,53 @@ class FactoryDriverBytes(unittest.TestCase):
             self.assertFalse((root / "run-safe").exists())
             self.assertEqual(list(root.glob(".run-safe-*")), [])
 
+    def test_named_snapshot_keeps_only_marker_visible_batches(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            run = root / "run"
+            factory = run / "marker-factory"
+            factory.mkdir(parents=True)
+            (factory / ".round-marker-mode.json").write_text(
+                '{"version":1,"legacy_baseline":0,'
+                '"commit_point":"ROUND-rNN.complete.json"}\n'
+            )
+            notes = factory / "NOTES-r01.md"
+            notes.write_text("Novel coverage: 80%\n")
+            batch = factory / "batch-r01.jsonl"
+            batch.write_text(json.dumps(factory_driver.thalamic("committed")) + "\n")
+            marker = factory / "ROUND-r01.complete.json"
+            marker.write_text(
+                json.dumps(
+                    {
+                        "version": 1,
+                        "factory": factory.name,
+                        "round": 1,
+                        "records": 1,
+                        "expected_records": 1,
+                        "commit_point": marker.name,
+                        "files": [
+                            {
+                                "name": batch.name,
+                                "sha256": hashlib.sha256(batch.read_bytes()).hexdigest(),
+                            },
+                            {
+                                "name": notes.name,
+                                "sha256": hashlib.sha256(notes.read_bytes()).hexdigest(),
+                            },
+                        ],
+                    }
+                )
+                + "\n"
+            )
+            (factory / "batch-r02.jsonl").write_text('{"id":"uncommitted"}\n')
+
+            with redirect_stdout(StringIO()):
+                factory_driver.cmd_snapshot(run, "stable")
+
+            snapshot_factory = root / "run-stable" / factory.name
+            self.assertTrue(snapshot_factory.joinpath(batch.name).exists())
+            self.assertFalse(snapshot_factory.joinpath("batch-r02.jsonl").exists())
+
     def test_snapshot_rejects_symlink_replacement_after_preflight(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)

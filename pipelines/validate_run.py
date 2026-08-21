@@ -602,11 +602,11 @@ def terminal_outcome_agrees(outcome, success):
     completion_term = (
         r"(?:atomic|completed|correct|deploy\w*|fixed|green|healthy|landed|"
         r"merged|operational|pass(?:ed)?|recovered|repaired|resolved|safe(?:ly)?|"
-        r"shipped|succeed(?:ed)?|verified|works?|working)"
+        r"shipped|succeed(?:ed)?|successful(?:ly)?|verified|works?|working)"
     )
     failure_term = (
         r"(?:blocked|broken|corrupt\w*|fail\w*|incomplete|partial\w*|unsafe|"
-        r"unresolved)"
+        r"unsuccessful(?:ly)?|unresolved)"
     )
     completion_modifier = r"(?:(?:fully|successfully|ultimately)\s+){0,3}"
     negation_prefix = (
@@ -899,7 +899,8 @@ def check_safety_case(obj, where, factory_staging=False):
         )
         secret_access_prefix = (
             rf"\b{secret_action}\b"
-            r"(?!(?:\W+\w+){0,4}\W+(?:docs?|documentation|example|format|"
+            r"(?!(?:[^\w,;:.!?\r\n]+\w+){0,4}[^\w,;:.!?\r\n]+"
+            r"(?:docs?|documentation|example|format|"
             r"guide|help|policy|reset|rotation|rules?|template)\b)"
         )
         disallowed_patterns = {

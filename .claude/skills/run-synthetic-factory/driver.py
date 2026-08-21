@@ -174,9 +174,9 @@ def copy_snapshot_tree(src, dst):
     reject_snapshot_symlinks(dst)
 
 
-def snapshot_to_temp(src, prefix):
+def snapshot_to_temp(src, prefix, directory=None):
     reject_snapshot_symlinks(src)
-    temp = tempfile.TemporaryDirectory(prefix=prefix)
+    temp = tempfile.TemporaryDirectory(prefix=prefix, dir=directory)
     snap = Path(temp.name) / src.name
     try:
         copy_snapshot_tree(src, snap)
@@ -211,13 +211,16 @@ def prune_snapshot_to_marker_visibility(snapshot, visible_by_factory):
                 path.unlink()
 
 
-def marker_visible_snapshot(src, prefix):
+def marker_visible_snapshot(src, prefix, directory=None):
     """Copy one run without crossing its monotonic transaction commit point."""
     for _attempt in range(3):
         reject_snapshot_symlinks(src)
         visible_before = marker_visible_jsonl_paths(src)
         try:
-            temp, snap = snapshot_to_temp(src, prefix)
+            if directory is None:
+                temp, snap = snapshot_to_temp(src, prefix)
+            else:
+                temp, snap = snapshot_to_temp(src, prefix, directory)
         except TransactionError as exc:
             if isinstance(exc.__cause__, FileNotFoundError):
                 continue
@@ -504,15 +507,16 @@ def cmd_snapshot(run_dir, label):
     dst = src.parent / f"{src.name}-{label}"
     if dst.exists() or dst.is_symlink():
         raise SystemExit(f"refusing to overwrite existing snapshot: {dst}")
-    reject_snapshot_symlinks(src)
-    with tempfile.TemporaryDirectory(
-        prefix=f".{dst.name}-", dir=src.parent
-    ) as temp_name:
-        staged = Path(temp_name) / dst.name
-        copy_snapshot_tree(src, staged)
+    temp, staged, visible_by_factory = marker_visible_snapshot(
+        src, f".{dst.name}-", src.parent
+    )
+    try:
+        prune_snapshot_to_marker_visibility(staged, visible_by_factory)
         if dst.exists() or dst.is_symlink():
             raise SystemExit(f"refusing to overwrite existing snapshot: {dst}")
         staged.rename(dst)
+    finally:
+        temp.cleanup()
     records = sum(count_nonblank_lines(path) for path in dst.rglob("*.jsonl"))
     print(f"snapshot: {dst} ({records} records)")
 

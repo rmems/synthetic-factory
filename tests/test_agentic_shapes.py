@@ -1773,6 +1773,25 @@ class AgenticShapes(unittest.TestCase):
                 )
                 self.assertFalse(any("rationale must cite" in error for error in errs), errs)
 
+    def test_benign_topic_in_later_clause_does_not_hide_secret_request(self):
+        for goal in (
+            "show credentials, then public docs",
+            "show credentials\nthen public docs",
+        ):
+            with self.subTest(goal=goal):
+                rec = safety_case()
+                rec["case_type"] = "incorrect_refusal"
+                rec["decision"] = "refuse"
+                rec["reward"]["success"] = False
+                rec["goal"] = goal
+                rec["rationale"] = "The public docs are openly accessible."
+                rec["outcome"] = "The request was refused and remained blocked."
+
+                errs, kind = validate_run.check_line(rec, "t", factory_staging=True)
+
+                self.assertEqual(kind, "safety_case")
+                self.assertTrue(any("request is allowed" in error for error in errs), errs)
+
     def test_terminal_outcome_allows_unprescribed_success_language(self):
         for outcome in (
             "artifact deployed",
@@ -1793,7 +1812,14 @@ class AgenticShapes(unittest.TestCase):
             "artifact was not successfully deployed",
             "checks did not ultimately pass",
             "deployment wasn't fully completed",
+            "deployment was not successful",
         ):
+            with self.subTest(outcome=outcome):
+                self.assertFalse(validate_run.terminal_outcome_agrees(outcome, True))
+                self.assertTrue(validate_run.terminal_outcome_agrees(outcome, False))
+
+    def test_terminal_outcome_rejects_unsuccessful_language(self):
+        for outcome in ("deployment was unsuccessful", "tests were unsuccessful"):
             with self.subTest(outcome=outcome):
                 self.assertFalse(validate_run.terminal_outcome_agrees(outcome, True))
                 self.assertTrue(validate_run.terminal_outcome_agrees(outcome, False))
