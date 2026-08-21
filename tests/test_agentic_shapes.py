@@ -645,6 +645,33 @@ class AgenticShapes(unittest.TestCase):
 
             self.assertEqual(manifest["records"], 2)
 
+    def test_cascading_error_factory_requires_contiguous_step_numbers(self):
+        with tempfile.TemporaryDirectory() as td:
+            factory = (
+                Path(td)
+                / "outputs"
+                / "raw"
+                / "2099-01-01"
+                / "cascading-error-recovery-factory"
+            )
+            factory.mkdir(parents=True)
+            reservation = round_txn.reserve(factory, 1, 2)
+            stage = Path(reservation["staging_dir"])
+            records = [cascading_episode(f"cer-r01-number-{index}") for index in range(2)]
+            records[1]["reward"]["success"] = False
+            records[1]["reward"]["recovered"] = 0
+            records[0]["steps"][2].pop("n")
+            (stage / reservation["batch_file"]).write_text(
+                "".join(json.dumps(record) + "\n" for record in records)
+            )
+            (stage / reservation["notes_file"]).write_text("Novel coverage: 80%\n")
+
+            with self.assertRaisesRegex(
+                round_txn.TransactionError,
+                "cascading-error recovery steps must be numbered contiguously from 1",
+            ):
+                round_txn.publish(factory, 1, reservation["token"])
+
     def test_cascading_error_factory_rejects_shallow_generic_fault_claims(self):
         with tempfile.TemporaryDirectory() as td:
             factory = (

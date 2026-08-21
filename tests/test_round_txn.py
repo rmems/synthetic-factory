@@ -571,6 +571,50 @@ class RoundTransaction(unittest.TestCase):
             ):
                 round_txn.frontier_status(factory)
 
+    def test_completed_batch_id_cannot_duplicate_legacy_baseline_id(self):
+        with tempfile.TemporaryDirectory() as td:
+            factory = self.factory(td)
+            legacy_records = [thalamic("shared-id")]
+            legacy_records.extend(
+                thalamic(f"legacy-{index}") for index in range(1, 5)
+            )
+            write_records(factory / "trajectories.jsonl", legacy_records)
+            (factory / round_txn.MODE_FILE).write_text(
+                json.dumps(
+                    {
+                        "version": 1,
+                        "legacy_baseline": 1,
+                        "commit_point": "ROUND-rNN.complete.json",
+                    }
+                )
+                + "\n"
+            )
+            batch = factory / "batch-r02.jsonl"
+            notes = factory / "NOTES-r02.md"
+            write_records(batch, [thalamic("shared-id", 2)])
+            notes.write_text("# Critique\n\nDuplicate ID fixture.\n")
+            marker = factory / "ROUND-r02.complete.json"
+            marker.write_text(
+                json.dumps(
+                    {
+                        "factory": factory.name,
+                        "round": 2,
+                        "records": 1,
+                        "commit_point": marker.name,
+                        "files": [
+                            {"name": batch.name, "sha256": round_txn.file_sha256(batch)},
+                            {"name": notes.name, "sha256": round_txn.file_sha256(notes)},
+                        ],
+                    }
+                )
+                + "\n"
+            )
+
+            with self.assertRaisesRegex(
+                round_txn.TransactionError, "duplicate record id 'shared-id'"
+            ):
+                round_txn.frontier_status(factory)
+
     def test_marker_mode_exposes_only_manifest_verified_batches(self):
         with tempfile.TemporaryDirectory() as td:
             factory = self.factory(td)

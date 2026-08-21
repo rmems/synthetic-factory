@@ -357,6 +357,20 @@ def validate_legacy_baseline_payloads(factory_dir: Path, baseline: int):
             )
 
 
+def legacy_baseline_jsonl_paths(factory_dir: Path, baseline: int):
+    """Return regular top-level JSONL made visible by a legacy baseline."""
+    visible = []
+    for path in sorted(factory_dir.glob("*.jsonl")):
+        if not path.is_file() or path.is_symlink():
+            continue
+        match = BATCH_RE.fullmatch(path.name)
+        if match is not None and int(match.group(1)) <= baseline:
+            visible.append(path)
+        elif baseline >= 1 and path.name in LEGACY_R1_NAMES:
+            visible.append(path)
+    return visible
+
+
 def marker_paths(factory_dir: Path, round_number: int):
     rr = f"{round_number:02d}"
     return {
@@ -391,8 +405,22 @@ def completed_manifests(factory_dir: Path) -> dict[int, dict]:
     a regular marker, its factory/round identity, its declared commit point,
     and matching regular, hashed files for every artifact it declares.
     """
-    manifests = {}
     seen_ids = {}
+    mode_path = marker_mode_path(factory_dir)
+    if mode_path is not None:
+        baseline = validated_marker_mode(factory_dir, mode_path)["legacy_baseline"]
+        for legacy_path in legacy_baseline_jsonl_paths(factory_dir, baseline):
+            errors, _warnings, _kinds, _records = check_jsonl(
+                legacy_path,
+                legacy_path.name,
+                seen_ids=seen_ids,
+            )
+            if errors:
+                raise TransactionError(
+                    f"legacy baseline ID validation failed: {legacy_path}\n"
+                    + "\n".join(f"ERROR: {error}" for error in errors)
+                )
+    manifests = {}
     for path in sorted(factory_dir.glob("ROUND-r*.complete.json")):
         match = COMPLETE_RE.fullmatch(path.name)
         if match is None:
@@ -511,6 +539,14 @@ def numbered_horizon_errors(where, steps, lane, minimum, maximum):
     errors = []
     if not minimum <= len(steps) <= maximum:
         errors.append(f"{where}: {lane} episodes require {minimum} to {maximum} steps")
+    errors.extend(contiguous_step_number_errors(where, steps, lane))
+    return errors
+
+
+def contiguous_step_number_errors(where, steps, lane):
+    """Return an error unless list entries use exact integer numbering 1..K."""
+    if not isinstance(steps, list):
+        return []
     step_numbers = [
         step.get("n") if isinstance(step, dict) else None
         for step in steps
@@ -521,8 +557,8 @@ def numbered_horizon_errors(where, steps, lane, minimum, maximum):
         or number != expected_number
         for expected_number, number in enumerate(step_numbers, 1)
     ):
-        errors.append(f"{where}: {lane} steps must be numbered contiguously from 1")
-    return errors
+        return [f"{where}: {lane} steps must be numbered contiguously from 1"]
+    return []
 
 
 def observable_step_text(step):
@@ -953,6 +989,9 @@ def validate_agentic_envelope(batch: Path, factory_dir: Path, round_number: int)
             steps = record.get("steps") if isinstance(record, dict) else None
             diagnosis = record.get("diagnosis") if isinstance(record, dict) else None
             reward = record.get("reward") if isinstance(record, dict) else None
+            errors.extend(
+                contiguous_step_number_errors(where, steps, "cascading-error recovery")
+            )
             if not isinstance(fault, dict):
                 errors.append(f"{where}: error_introduced must be an object")
             else:

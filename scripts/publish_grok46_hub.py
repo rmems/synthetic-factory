@@ -532,10 +532,6 @@ def marker_mode_state(src: Path) -> tuple[int | None, dict[int, dict]]:
     if not isinstance(baseline, int) or isinstance(baseline, bool) or baseline < 0:
         raise SystemExit(f"invalid legacy_baseline in {mode_path}")
     manifests = completed_manifests(src)
-    try:
-        manifests = transaction_completed_manifests(src)
-    except TransactionError as exc:
-        raise SystemExit(str(exc)) from exc
     legacy_frontier, legacy_named_baseline = discovered_legacy_frontier(src)
     if baseline > legacy_frontier:
         raise SystemExit(
@@ -545,6 +541,10 @@ def marker_mode_state(src: Path) -> tuple[int | None, dict[int, dict]]:
     if baseline < legacy_named_baseline:
         raise SystemExit(f"legacy_baseline in {mode_path} excludes legacy r01 payloads")
     validate_legacy_baseline_payloads(src, baseline)
+    try:
+        manifests = transaction_completed_manifests(src)
+    except TransactionError as exc:
+        raise SystemExit(str(exc)) from exc
     return baseline, manifests
 
 
@@ -690,8 +690,6 @@ def snapshot_one(item: dict) -> dict:
     labels = []
     desired_batch_names = {batch.name for batch in batches}
     for existing in raw.iterdir():
-        if not is_snapshot_payload(existing):
-            continue
         if existing.name in desired_batch_names:
             continue
         if existing.is_file() or existing.is_symlink():

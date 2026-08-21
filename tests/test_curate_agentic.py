@@ -575,6 +575,26 @@ class CurateAgenticTests(unittest.TestCase):
                 with self.assertRaisesRegex(TransactionError, "unsafe marker mode file"):
                     curate_source(factory)
 
+    def test_cli_bounds_transaction_errors_without_a_traceback(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            factory = Path(temporary) / "agentic-factory"
+            factory.mkdir()
+            (factory / ".round-marker-mode.json").write_text("{broken\n")
+            (factory / "batch-r01.jsonl").write_text(
+                json.dumps(episode_fixture("marker-error")) + "\n"
+            )
+
+            result = subprocess.run(
+                [sys.executable, str(PIPELINES / "curate_agentic.py"), str(factory)],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("agentic curation failed", result.stderr)
+        self.assertNotIn("Traceback", result.stderr)
+
     def test_legacy_curation_ignores_symlinked_jsonl(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

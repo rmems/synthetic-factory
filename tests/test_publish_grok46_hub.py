@@ -233,6 +233,8 @@ class PublishGrok46HubTests(unittest.TestCase):
             )
             stale_destination.parent.mkdir(parents=True)
             stale_destination.write_text('{"id":"stale"}\n')
+            unknown_destination = stale_destination.parent / "uncommitted.jsonl"
+            unknown_destination.write_text('{"id":"unvalidated"}\n')
             stale_note = destination_root / ITEM["hub"] / "data" / "metadata" / "NOTES-r02.md"
             stale_note.parent.mkdir(parents=True)
             stale_note.write_text("stale\n")
@@ -243,6 +245,7 @@ class PublishGrok46HubTests(unittest.TestCase):
                 raw = destination_root / ITEM["hub"] / "data" / "raw"
                 self.assertTrue((raw / "batch-r01.jsonl").is_file())
                 self.assertFalse((raw / "batch-r02.jsonl").exists())
+                self.assertFalse((raw / "uncommitted.jsonl").exists())
                 self.assertTrue((raw / "batch-r03.jsonl").is_file())
                 meta = destination_root / ITEM["hub"] / "data" / "metadata"
                 self.assertTrue((meta / "NOTES-r01.md").is_file())

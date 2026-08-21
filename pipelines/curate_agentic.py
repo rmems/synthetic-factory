@@ -27,7 +27,7 @@ from collections import Counter
 from pathlib import Path
 from typing import Any
 
-from round_txn import committed_jsonl_paths, marker_mode_path
+from round_txn import TransactionError, committed_jsonl_paths, marker_mode_path
 
 
 TRANSFORM_NAME = "agentic_observability"
@@ -702,7 +702,7 @@ def main(argv: list[str] | None = None) -> int:
             run["summary"]["out"] = str(args.out)
         print(json.dumps(run["summary"], ensure_ascii=False, indent=2, sort_keys=True))
         return 0
-    except (OSError, ValueError, FileExistsError) as exc:
+    except (OSError, ValueError, FileExistsError, TransactionError) as exc:
         print(f"agentic curation failed: {exc}", file=sys.stderr)
         return 1
 
