@@ -40,6 +40,7 @@ from round_txn import (  # noqa: E402
     completed_manifests,
     completion_manifest_file_matches,
     frontier_status,
+    legacy_baseline_jsonl_paths,
     marker_mode_path,
     publish,
     reserve,
@@ -71,6 +72,7 @@ NOVEL_COVERAGE_RE = re.compile(
     re.IGNORECASE | re.MULTILINE,
 )
 NOTES_ROUND_RE = re.compile(r"^NOTES-r(\d+)([a-z]*)\.md$")
+BATCH_ROUND_RE = re.compile(r"^batch-r(\d+)[a-z]*\.jsonl$")
 
 
 def run_tool(script, run_dir, *options):
@@ -229,6 +231,10 @@ def factory_token_efficiency(factory_dir: Path):
         status = frontier_status(factory_dir)
         baseline = status["baseline"]
         manifests = completed_manifests(factory_dir)
+        baseline_rounds = set()
+        for payload in legacy_baseline_jsonl_paths(factory_dir, baseline):
+            match = BATCH_ROUND_RE.fullmatch(payload.name)
+            baseline_rounds.add(int(match.group(1)) if match is not None else 1)
         for round_number, manifest in manifests.items():
             note = factory_dir / f"NOTES-r{round_number:02d}.md"
             completion_manifest_file_matches(note, manifest)
@@ -237,7 +243,7 @@ def factory_token_efficiency(factory_dir: Path):
             for path in notes
             if (parts := note_parts(path)) is not None
             and (
-                parts[0] <= baseline
+                parts[0] in baseline_rounds
                 or (
                     not parts[1]
                     and parts[0] in manifests
@@ -335,7 +341,13 @@ def cmd_frontiers(run_dir, as_json=False):
         path for path in src.iterdir() if path.is_dir() and not path.name.startswith("_")
     ):
         status = frontier_status(directory)
-        status["records"] = count_records(directory)
+        if status["mode"] == "marker":
+            status["records"] = sum(
+                count_nonblank_lines(path)
+                for path in committed_jsonl_paths(directory)
+            )
+        else:
+            status["records"] = count_records(directory)
         factories.append(status)
     payload = {"run_dir": str(src), "factories": factories}
     if as_json:

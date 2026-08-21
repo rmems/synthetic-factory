@@ -127,6 +127,110 @@ AGENTIC_FACTORY_KINDS.update(
         "safety-calibration-factory": "safety_case",
     }
 )
+RESTART_LANE_SCENARIO_TERMS = {
+    "package-release-factory": (
+        ("package", "release", "artifact", "version"),
+        ("manifest", "attestation", "provenance"),
+        ("repair", "fix", "correct"),
+        ("verify", "valid", "pass"),
+    ),
+    "flaky-test-quarantine-factory": (
+        ("flaky", "nondeterministic", "intermittent"),
+        ("trigger", "seed", "timing", "repro"),
+        ("quarantine", "repair", "fix"),
+        ("verify", "stable", "repeat", "pass"),
+    ),
+    "db-migration-repair-factory": (
+        ("migration", "backfill", "schema"),
+        ("ordering", "compatib", "rollback", "preflight"),
+        ("repair", "fix", "additive"),
+        ("post-migration", "verify", "check", "pass"),
+    ),
+    "sandbox-refusal-factory": (
+        ("sandbox", "escape", "secret", "credential", "unsafe"),
+        ("refus", "deny", "prohibit"),
+        ("safe alternative", "redacted alternative", "bounded alternative"),
+        ("policy", "blocked", "outcome"),
+    ),
+    "monorepo-dep-bump-factory": (
+        ("workspace", "monorepo", "dependency"),
+        ("lockfile", "peer", "build graph", "build-graph"),
+        ("repair", "compatible", "pin", "bump"),
+        ("verify", "build", "pass"),
+    ),
+    "mcp-tool-schema-drift-factory": (
+        ("mcp", "tools/list", "tool schema"),
+        ("mismatch", "incompatib", "field", "version"),
+        ("request", "repair", "correct"),
+        ("verify", "valid", "success"),
+    ),
+    "llm-eval-flakiness-factory": (
+        ("judge", "rubric", "scorer", "seed"),
+        ("flaky", "instability", "varying", "nondeterministic"),
+        ("stabil", "pin", "aggregate"),
+        ("verify", "stable", "repeat"),
+    ),
+    "k8s-crashloop-factory": (
+        ("crashloop", "kubernetes", "k8s"),
+        ("config", "probe", "image", "dependency", "logs", "status"),
+        ("repair", "fix", "rollout"),
+        ("verify", "recover", "ready", "criterion"),
+    ),
+    "proto-breaking-change-factory": (
+        ("protobuf", "proto", "wire"),
+        ("tag", "field", "semantic", "incompatib"),
+        ("additive", "migration", "reserve"),
+        ("verify", "compatible", "check"),
+    ),
+    "docker-build-cache-factory": (
+        ("docker", "buildkit", "layer"),
+        ("cache", "stale", "invalidation", "key"),
+        ("rebuild", "repair", "no-cache"),
+        ("verify", "artifact", "input"),
+    ),
+    "authz-regression-factory": (
+        ("authorization", "authz", "idor", "bfla"),
+        ("denied", "allowed", "boundary", "privilege"),
+        ("repair", "policy", "fix"),
+        ("verify", "test", "confirmed"),
+    ),
+    "agent-memory-compaction-factory": (
+        ("memory", "compaction"),
+        ("stale", "lost", "evict", "retain"),
+        ("keep", "evict", "retained"),
+        ("verify", "relevant", "task state"),
+    ),
+    "prompt-cache-invalidation-factory": (
+        ("prompt", "cache", "prefix"),
+        ("schema", "tool", "change", "key"),
+        ("invalidate", "recompute"),
+        ("verify", "fresh", "updated"),
+    ),
+    "notebook-to-pipeline-factory": (
+        ("notebook", "pipeline"),
+        ("schema", "input", "operational"),
+        ("preserve", "reproducible", "transform"),
+        ("verify", "output", "repeat"),
+    ),
+    "secret-scan-remediation-factory": (
+        ("secret", "credential", "scan"),
+        ("false-positive", "detected", "pattern"),
+        ("redact", "rotate", "allowlist"),
+        ("verify", "scan", "clean"),
+    ),
+    "cache-stampede-factory": (
+        ("cache", "stampede", "miss"),
+        ("concurrent", "contention", "overload"),
+        ("singleflight", "lock", "backoff"),
+        ("verify", "bounded", "load"),
+    ),
+    "distributed-lock-factory": (
+        ("lease", "fencing", "split-brain", "lock"),
+        ("expiry", "stale", "ownership", "token"),
+        ("repair", "fence", "renew"),
+        ("verify", "cannot commit", "reject"),
+    ),
+}
 NOVEL_COVERAGE_RE = re.compile(
     r"^\s*novel[ _-]?coverage\s*(?:\([^)\n]*\))?\s*[:=]?\s*(\d+(?:\.\d+)?)\s*%",
     re.IGNORECASE | re.MULTILINE,
@@ -288,12 +392,15 @@ def valid_legacy_file(path: Path):
     return 0 if errors else records
 
 
-def validate_legacy_payload(path: Path, factory_dir: Path, round_number: int):
+def validate_legacy_payload(
+    path: Path, factory_dir: Path, round_number: int, seen_ids=None
+):
     """Return a legacy payload's records and any applicable contract errors."""
     factory_staging = factory_dir.name in AGENTIC_FACTORY_KINDS
     errors, warnings, kinds, records = check_jsonl(
         path,
         path.name,
+        seen_ids=seen_ids,
         factory_staging=factory_staging,
     )
     problems = list(errors)
@@ -394,9 +501,60 @@ def discover_legacy_named_baseline(factory_dir: Path):
     return 1 if records >= quota else 0
 
 
+def sibling_committed_and_inflight_ids(factory_dir: Path):
+    """Seed a legacy handoff with IDs already owned by sibling factories."""
+    factory_dir = Path(factory_dir)
+    run_dir = factory_dir.parent
+    seen_ids = {}
+    for path in sorted(run_dir.glob("*.jsonl")):
+        if path.is_file() and not path.is_symlink():
+            check_jsonl(path, path.relative_to(run_dir), seen_ids=seen_ids)
+    for sibling in sorted(run_dir.iterdir()):
+        if sibling == factory_dir or not sibling.is_dir() or sibling.is_symlink():
+            continue
+        mode_path = marker_mode_path(sibling)
+        if mode_path is None:
+            paths = committed_jsonl_paths(sibling)
+        else:
+            mode = read_json(mode_path)
+            baseline = mode.get("legacy_baseline")
+            if (
+                mode.get("version") != 1
+                or mode.get("commit_point") != "ROUND-rNN.complete.json"
+                or not isinstance(baseline, int)
+                or isinstance(baseline, bool)
+                or baseline < 0
+            ):
+                raise TransactionError(f"invalid sibling marker mode: {mode_path}")
+            paths = legacy_baseline_jsonl_paths(sibling, baseline)
+            for marker in sorted(sibling.glob("ROUND-r*.complete.json")):
+                match = COMPLETE_RE.fullmatch(marker.name)
+                if match is None or not marker.is_file() or marker.is_symlink():
+                    continue
+                round_number = int(match.group(1))
+                payload = read_json(marker)
+                if (
+                    payload.get("factory") == sibling.name
+                    and payload.get("round") == round_number
+                    and payload.get("commit_point") == marker.name
+                ):
+                    batch = sibling / f"batch-r{round_number:02d}.jsonl"
+                    if batch.is_file() and not batch.is_symlink():
+                        paths.append(batch)
+            paths.extend(in_flight_batch_paths(sibling))
+        for path in sorted(set(paths)):
+            try:
+                label = path.relative_to(run_dir)
+            except ValueError:
+                label = Path(sibling.name) / ".inflight" / path.name
+            check_jsonl(path, label, seen_ids=seen_ids)
+    return seen_ids
+
+
 def validate_legacy_baseline_payloads(factory_dir: Path, baseline: int):
     """Deep-check every regular legacy payload exposed by a marker baseline."""
     records_by_round = {}
+    seen_ids = sibling_committed_and_inflight_ids(factory_dir)
     for path in sorted(factory_dir.glob("*.jsonl")):
         if not path.is_file() or path.is_symlink():
             continue
@@ -409,7 +567,9 @@ def validate_legacy_baseline_payloads(factory_dir: Path, baseline: int):
             round_number = 1
         else:
             continue
-        records, problems = validate_legacy_payload(path, factory_dir, round_number)
+        records, problems = validate_legacy_payload(
+            path, factory_dir, round_number, seen_ids=seen_ids
+        )
         if records < 1 or problems:
             details = "\n".join(f"ERROR: {problem}" for problem in problems)
             raise TransactionError(
@@ -604,6 +764,52 @@ def nested_key_paths(value, key, path=""):
     elif isinstance(value, list):
         for index, item in enumerate(value):
             yield from nested_key_paths(item, key, f"{path}[{index}]")
+
+
+def nested_strings(value):
+    """Yield observable string values from a JSON-compatible value."""
+    if isinstance(value, str):
+        yield value
+    elif isinstance(value, dict):
+        for item in value.values():
+            yield from nested_strings(item)
+    elif isinstance(value, list):
+        for item in value:
+            yield from nested_strings(item)
+
+
+def agentic_observable_text(record: dict) -> str:
+    """Return lower-cased goal, step evidence, and outcome text, excluding meta."""
+    values = [record.get("goal"), record.get("steps"), record.get("outcome")]
+    return " ".join(
+        text.strip().casefold()
+        for value in values
+        for text in nested_strings(value)
+        if text.strip()
+    )
+
+
+def banned_agentic_wrapper_paths(value, path=""):
+    """Yield nested fields or values that introduce neuromorphic wrappers."""
+    if isinstance(value, dict):
+        for key, item in value.items():
+            child_path = f"{path}.{key}" if path else key
+            normalized = str(key).casefold()
+            if (
+                normalized in {"spike_events", "raster", "rasters"}
+                or normalized.endswith("_raster")
+                or "spikenaut" in normalized
+                or "neuromorphic" in normalized
+            ):
+                yield child_path
+            yield from banned_agentic_wrapper_paths(item, child_path)
+    elif isinstance(value, list):
+        for index, item in enumerate(value):
+            yield from banned_agentic_wrapper_paths(item, f"{path}[{index}]")
+    elif isinstance(value, str):
+        normalized = value.casefold()
+        if "spikenaut" in normalized or "neuromorphic" in normalized:
+            yield path or "<root>"
 
 
 def shares_visible_terms(left, right):
@@ -1072,6 +1278,7 @@ def validate_agentic_envelope(batch: Path, factory_dir: Path, round_number: int)
     cascade_fault_kinds = []
     cascade_recovery_values = []
     long_horizon_success_values = []
+    tool_use_lesson_signatures = []
     for lineno, line in enumerate(batch.read_text().splitlines(), 1):
         if not line.strip():
             continue
@@ -1085,8 +1292,22 @@ def validate_agentic_envelope(batch: Path, factory_dir: Path, round_number: int)
         where = f"{batch.name}:{lineno}"
         if factory_dir.name == "safety-calibration-factory" and isinstance(record, dict):
             safety_case_types.append(record.get("case_type"))
-        for path in nested_key_paths(record, "spike_events"):
-            errors.append(f"{where}: agentic records must not include spike_events at {path}")
+        for path in sorted(set(banned_agentic_wrapper_paths(record))):
+            errors.append(
+                f"{where}: agentic records must not include spike_events, Spikenaut, "
+                f"or neuromorphic rasters at {path}"
+            )
+        scenario_terms = RESTART_LANE_SCENARIO_TERMS.get(factory_dir.name)
+        if scenario_terms is not None and isinstance(record, dict):
+            visible_text = agentic_observable_text(record)
+            if any(
+                not any(term in visible_text for term in alternatives)
+                for alternatives in scenario_terms
+            ):
+                errors.append(
+                    f"{where}: {factory_dir.name} must demonstrate its required "
+                    "failure scenario, bounded correction, and observable verification"
+                )
         if factory_dir.name == "cascading-error-recovery-factory":
             fault = record.get("error_introduced") if isinstance(record, dict) else None
             steps = record.get("steps") if isinstance(record, dict) else None
@@ -1207,6 +1428,32 @@ def validate_agentic_envelope(batch: Path, factory_dir: Path, round_number: int)
             success = reward.get("success") if isinstance(reward, dict) else None
             if isinstance(success, bool):
                 long_horizon_success_values.append(success)
+                outcome = record.get("outcome")
+                outcome_text = outcome.casefold() if isinstance(outcome, str) else ""
+                completion_evidence = re.search(
+                    r"\b(?:passed|verified|fixed|repaired|landed|completed|succeeded)\b",
+                    outcome_text,
+                )
+                partial_evidence = re.search(
+                    r"\b(?:partial(?:ly)?|mitigat\w*|contain\w*|handoff|handed off|blocked|unresolved)\b",
+                    outcome_text,
+                )
+                contradictory_completion = re.search(
+                    r"\b(?:fully|fixed|repaired|landed|completed|succeeded)\b|all tests passed",
+                    outcome_text,
+                )
+                if success and (completion_evidence is None or partial_evidence is not None):
+                    errors.append(
+                        f"{where}: successful long-horizon outcome must report "
+                        "observable verification without partial or handoff language"
+                    )
+                if not success and (
+                    partial_evidence is None or contradictory_completion is not None
+                ):
+                    errors.append(
+                        f"{where}: unsuccessful long-horizon outcome must report "
+                        "partial containment, mitigation, or handoff"
+                    )
         if factory_dir.name == "multi-agent-coordination-factory" and isinstance(record, dict):
             transcript = record.get("transcript")
             disagreements = record.get("disagreements")
@@ -1285,6 +1532,27 @@ def validate_agentic_envelope(batch: Path, factory_dir: Path, round_number: int)
             if not isinstance(reward, dict) or reward.get("terminal_only") is not True:
                 errors.append(f"{where}: reward.terminal_only must be true")
         if AGENTIC_FACTORY_KINDS[factory_dir.name] == "preference":
+            if (
+                factory_dir.name == "tool-use-preference-factory"
+                and isinstance(record, dict)
+            ):
+                chosen = record.get("chosen")
+                rejected = record.get("rejected")
+                lesson = {
+                    "goal": record.get("goal"),
+                    "critique": record.get("critique"),
+                    "chosen": {
+                        key: chosen.get(key) if isinstance(chosen, dict) else None
+                        for key in ("goal", "steps", "outcome", "reward")
+                    },
+                    "rejected": {
+                        key: rejected.get(key) if isinstance(rejected, dict) else None
+                        for key in ("goal", "steps", "outcome", "reward")
+                    },
+                }
+                tool_use_lesson_signatures.append(
+                    json.dumps(lesson, sort_keys=True, separators=(",", ":"))
+                )
             for side_name in ("chosen", "rejected"):
                 side = record.get(side_name) if isinstance(record, dict) else None
                 if not isinstance(side, dict) or not isinstance(side.get("steps"), list):
@@ -1367,6 +1635,13 @@ def validate_agentic_envelope(batch: Path, factory_dir: Path, round_number: int)
             "long-horizon-coding-factory requires one success and one partial "
             "containment, mitigation, or handoff per batch"
         )
+    if (
+        factory_dir.name == "tool-use-preference-factory"
+        and len(tool_use_lesson_signatures) != len(set(tool_use_lesson_signatures))
+    ):
+        errors.append(
+            "tool-use-preference-factory requires three distinct tool-use lessons per batch"
+        )
     return errors
 
 
@@ -1401,7 +1676,7 @@ def validate_completed_batch(
             )
     if "kinds" in manifest and manifest["kinds"] != kinds:
         raise TransactionError(f"completion marker kinds do not match batch: {batch}")
-    if "version" in manifest and manifest["version"] != 1:
+    if manifest.get("version") != 1:
         raise TransactionError(f"unsupported completion marker version for {batch}")
     if factory_staging:
         expected_kind = AGENTIC_FACTORY_KINDS[factory_dir.name]

@@ -41,6 +41,7 @@ class FactoryTokenEfficiency(unittest.TestCase):
         marker.write_text(
             json.dumps(
                 {
+                    "version": 1,
                     "factory": factory.name,
                     "round": round_number,
                     "records": 1,
@@ -140,6 +141,46 @@ class FactoryTokenEfficiency(unittest.TestCase):
             [(1, "NOTES-r01.md"), (2, "NOTES-r02.md")],
         )
 
+    def test_marker_baseline_notes_require_a_visible_payload_round(self):
+        with tempfile.TemporaryDirectory() as td:
+            factory = Path(td) / "marker-factory"
+            factory.mkdir()
+            (factory / "batch-r26.jsonl").write_text(
+                json.dumps(factory_driver.thalamic("legacy-r26")) + "\n"
+            )
+            (factory / "NOTES-r25.md").write_text("Novel coverage: 2%\n")
+            (factory / "NOTES-r26.md").write_text("Novel coverage: 3%\n")
+            (factory / ".round-marker-mode.json").write_text(
+                '{"version":1,"legacy_baseline":26,"commit_point":"ROUND-rNN.complete.json"}\n'
+            )
+
+            info = factory_driver.factory_token_efficiency(factory)
+
+        self.assertEqual(
+            [(item["round"], item["file"]) for item in info["rounds"]],
+            [(26, "NOTES-r26.md")],
+        )
+        self.assertFalse(info["early_stop"])
+
+    def test_frontiers_counts_only_marker_visible_records(self):
+        with tempfile.TemporaryDirectory() as td:
+            run = Path(td) / "run"
+            factory = run / "marker-factory"
+            factory.mkdir(parents=True)
+            (factory / ".round-marker-mode.json").write_text(
+                '{"version":1,"legacy_baseline":0,"commit_point":"ROUND-rNN.complete.json"}\n'
+            )
+            self._write_notes(factory, [(1, 80.0)])
+            self._write_complete_marker(factory, 1)
+            (factory / "batch-r02.jsonl").write_text('{"id":"interrupted"}\n')
+            (factory / "ROUND-r02.publishing.json").write_text("{}\n")
+
+            with redirect_stdout(StringIO()):
+                frontiers = factory_driver.cmd_frontiers(run)
+
+        self.assertEqual(frontiers[0]["records"], 1)
+        self.assertEqual(frontiers[0]["highest_flushed"], 1)
+
 
 class FactoryDriverBytes(unittest.TestCase):
     def test_count_records_tolerates_invalid_utf8(self):
@@ -203,6 +244,7 @@ class FactoryDriverAudit(unittest.TestCase):
             marker.write_text(
                 json.dumps(
                     {
+                        "version": 1,
                         "factory": factory.name,
                         "round": 1,
                         "records": 1,

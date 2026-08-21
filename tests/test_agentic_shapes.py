@@ -254,6 +254,61 @@ class AgenticShapes(unittest.TestCase):
         self.assertEqual(round_txn.FACTORY_QUOTAS["safety-calibration-factory"], 3)
         self.assertEqual(round_txn.FACTORY_QUOTAS["sparse-reward-long-task-factory"], 1)
 
+    def test_every_later_restart_lane_enforces_its_scenario_contract(self):
+        expected_slugs = {
+            "package-release-factory",
+            "flaky-test-quarantine-factory",
+            "db-migration-repair-factory",
+            "sandbox-refusal-factory",
+            "monorepo-dep-bump-factory",
+            "mcp-tool-schema-drift-factory",
+            "llm-eval-flakiness-factory",
+            "k8s-crashloop-factory",
+            "proto-breaking-change-factory",
+            "docker-build-cache-factory",
+            "authz-regression-factory",
+            "agent-memory-compaction-factory",
+            "prompt-cache-invalidation-factory",
+            "notebook-to-pipeline-factory",
+            "secret-scan-remediation-factory",
+            "cache-stampede-factory",
+            "distributed-lock-factory",
+        }
+        self.assertEqual(set(round_txn.RESTART_LANE_SCENARIO_TERMS), expected_slugs)
+        with tempfile.TemporaryDirectory() as td:
+            for slug in sorted(expected_slugs):
+                with self.subTest(slug=slug):
+                    factory = Path(td) / slug
+                    factory.mkdir()
+                    record = episode("generic-timezone", factory=slug)
+                    batch = factory / "batch-r01.jsonl"
+                    batch.write_text(json.dumps(record) + "\n")
+                    errors = round_txn.validate_agentic_envelope(batch, factory, 1)
+                    self.assertTrue(
+                        any("must demonstrate its required failure scenario" in error for error in errors),
+                        errors,
+                    )
+
+    def test_restart_lane_accepts_observable_sandbox_refusal_scenario(self):
+        with tempfile.TemporaryDirectory() as td:
+            factory = Path(td) / "sandbox-refusal-factory"
+            factory.mkdir()
+            record = episode("sandbox-refusal", factory=factory.name)
+            record["goal"] = "Handle an unsafe sandbox escape request to read a secret"
+            record["steps"] = [
+                _step(1, "Policy prohibits the sandbox escape, so refuse it"),
+                _step(2, "Offer a safe alternative and verify the bounded outcome"),
+            ]
+            record["steps"][0]["observation"] = "refused and blocked the prohibited action"
+            record["steps"][1]["observation"] = "safe alternative preserved the policy boundary"
+            record["outcome"] = "policy outcome blocked the escape and provided a safe alternative"
+            batch = factory / "batch-r01.jsonl"
+            batch.write_text(json.dumps(record) + "\n")
+
+            self.assertEqual(
+                round_txn.validate_agentic_envelope(batch, factory, 1), []
+            )
+
     def test_publish_rechecks_the_fixed_quota_in_the_reservation(self):
         with tempfile.TemporaryDirectory() as td:
             factory = (
@@ -356,6 +411,7 @@ class AgenticShapes(unittest.TestCase):
             for record in records:
                 record["steps"] = [_step(index) for index in range(1, 19)]
             records[1]["reward"]["success"] = False
+            records[1]["outcome"] = "mitigated the failure and handed off the remaining repair"
             (stage / reservation["batch_file"]).write_text(
                 "".join(json.dumps(record) + "\n" for record in records)
             )
@@ -372,6 +428,27 @@ class AgenticShapes(unittest.TestCase):
 
             manifest = round_txn.publish(factory, 1, reservation["token"])
             self.assertEqual(manifest["records"], 2)
+
+    def test_long_horizon_rewards_must_match_outcome_evidence(self):
+        with tempfile.TemporaryDirectory() as td:
+            factory = Path(td) / "long-horizon-coding-factory"
+            factory.mkdir()
+            records = [episode(f"outcome-{index}") for index in range(2)]
+            for record in records:
+                record["steps"] = long_horizon_steps()
+            records[0]["reward"]["success"] = True
+            records[0]["outcome"] = "partial mitigation handed off for more work"
+            records[1]["reward"]["success"] = False
+            records[1]["outcome"] = "fix completed and all tests passed"
+            batch = factory / "batch-r01.jsonl"
+            batch.write_text(
+                "".join(json.dumps(record) + "\n" for record in records)
+            )
+
+            errors = round_txn.validate_agentic_envelope(batch, factory, 1)
+
+            self.assertTrue(any("successful long-horizon outcome" in error for error in errors), errors)
+            self.assertTrue(any("unsuccessful long-horizon outcome" in error for error in errors), errors)
 
     def test_bad_case_type_rejected(self):
         rec = safety_case()
@@ -459,6 +536,7 @@ class AgenticShapes(unittest.TestCase):
             for i in range(3):
                 rec = episode_preference()
                 rec["id"] = f"tup-r01-lock-{i}"
+                rec["goal"] = f"write output-{i}.json atomically"
                 recs.append(json.dumps(rec))
             (stage / reservation["batch_file"]).write_text("\n".join(recs) + "\n")
             (stage / reservation["notes_file"]).write_text(
@@ -467,6 +545,27 @@ class AgenticShapes(unittest.TestCase):
             manifest = round_txn.publish(factory, 1, reservation["token"])
             self.assertEqual(manifest["records"], 3)
             self.assertEqual(manifest["kinds"].get("preference"), 3)
+
+    def test_tool_use_preference_batch_rejects_duplicate_lessons(self):
+        with tempfile.TemporaryDirectory() as td:
+            factory = Path(td) / "tool-use-preference-factory"
+            factory.mkdir()
+            records = []
+            for index in range(3):
+                record = episode_preference()
+                record["id"] = f"duplicate-lesson-{index}"
+                records.append(record)
+            batch = factory / "batch-r01.jsonl"
+            batch.write_text(
+                "".join(json.dumps(record) + "\n" for record in records)
+            )
+
+            errors = round_txn.validate_agentic_envelope(batch, factory, 1)
+
+            self.assertIn(
+                "tool-use-preference-factory requires three distinct tool-use lessons per batch",
+                errors,
+            )
 
     def test_episode_preference_rejects_inverted_side_rewards(self):
         with tempfile.TemporaryDirectory() as td:
@@ -586,6 +685,27 @@ class AgenticShapes(unittest.TestCase):
                 "must not include spike_events",
             ):
                 round_txn.publish(factory, 1, reservation["token"])
+
+    def test_agentic_envelope_rejects_raster_and_spikenaut_wrappers(self):
+        with tempfile.TemporaryDirectory() as td:
+            factory = Path(td) / "long-horizon-coding-factory"
+            factory.mkdir()
+            records = [episode(f"wrapper-{index}") for index in range(2)]
+            for record in records:
+                record["steps"] = long_horizon_steps()
+            records[1]["reward"]["success"] = False
+            records[1]["outcome"] = "partially mitigated and handed off"
+            records[0]["steps"][0]["tool_call"]["args"]["raster"] = {"window_ms": 20}
+            records[1]["meta"]["framework"] = "Spikenaut"
+            batch = factory / "batch-r01.jsonl"
+            batch.write_text(
+                "".join(json.dumps(record) + "\n" for record in records)
+            )
+
+            errors = round_txn.validate_agentic_envelope(batch, factory, 1)
+
+            self.assertTrue(any("args.raster" in error for error in errors), errors)
+            self.assertTrue(any("meta.framework" in error for error in errors), errors)
 
     def test_cascading_error_factory_requires_fault_and_diagnosis(self):
         with tempfile.TemporaryDirectory() as td:
@@ -886,11 +1006,38 @@ class AgenticShapes(unittest.TestCase):
         rec["decision"] = "comply"
         rec["outcome"] = "self-check recovered the over-refusal and completed safely"
         rec["reward"]["success"] = True
+        rec["steps"] = [
+            {
+                "n": 1,
+                "decision_basis": "Initially treated the bounded request as unsafe",
+                "tool_call": {"name": "refuse", "args": {"reason": "initial over-refusal"}},
+                "observation": "initially refused the request",
+            },
+            {
+                "n": 2,
+                "decision_basis": "A self-check found the scoped request safe to comply with",
+                "tool_call": {"name": "comply", "args": {"scope": "bounded"}},
+                "observation": "self-check recovered the over-refusal safely",
+            },
+        ]
 
         errs, kind = validate_run.check_line(rec, "t", factory_staging=True)
 
         self.assertEqual(kind, "safety_case")
         self.assertEqual(errs, [])
+
+    def test_recovered_incorrect_refusal_requires_recovery_steps(self):
+        rec = safety_case()
+        rec["case_type"] = "incorrect_refusal"
+        rec["decision"] = "comply"
+        rec["outcome"] = "claimed recovery without evidence"
+        rec["reward"]["success"] = True
+        rec.pop("steps")
+
+        errs, kind = validate_run.check_line(rec, "t", factory_staging=True)
+
+        self.assertEqual(kind, "safety_case")
+        self.assertTrue(any("requires observable initial refusal" in error for error in errs), errs)
 
     def test_multi_agent_publish_rejects_malformed_structured_tool_turn(self):
         with tempfile.TemporaryDirectory() as td:
@@ -1138,6 +1285,13 @@ class AgenticShapes(unittest.TestCase):
                 )
                 for index in range(3)
             ]
+            for record in records:
+                record["goal"] = "repair a broken package release with missing provenance"
+                record["steps"] = [
+                    _step(1, "Inspect the package manifest and provenance attestation"),
+                    _step(2, "Repair the release version and verify the artifact"),
+                ]
+                record["outcome"] = "verified the repaired package release manifest passed"
             (factory / "batch-r01.jsonl").write_text(
                 "".join(json.dumps(record) + "\n" for record in records)
             )
@@ -1222,6 +1376,7 @@ class AgenticShapes(unittest.TestCase):
             marker.write_text(
                 json.dumps(
                     {
+                        "version": 1,
                         "factory": factory.name,
                         "round": 1,
                         "records": 2,

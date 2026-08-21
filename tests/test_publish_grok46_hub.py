@@ -229,6 +229,7 @@ class PublishGrok46HubTests(unittest.TestCase):
             (source / "ROUND-r03.complete.json").write_text(
                 json.dumps(
                     {
+                        "version": 1,
                         "factory": ITEM["slug"],
                         "round": 3,
                         "records": 2,
@@ -461,6 +462,7 @@ class PublishGrok46HubTests(unittest.TestCase):
             for manifest, message in (
                 (
                     {
+                        "version": 1,
                         "factory": "other-factory",
                         "round": 1,
                         "commit_point": marker.name,
@@ -470,6 +472,7 @@ class PublishGrok46HubTests(unittest.TestCase):
                 ),
                 (
                     {
+                        "version": 1,
                         "factory": ITEM["slug"],
                         "round": 1,
                         "commit_point": "ROUND-r02.complete.json",
@@ -479,6 +482,7 @@ class PublishGrok46HubTests(unittest.TestCase):
                 ),
                 (
                     {
+                        "version": 1,
                         "factory": ITEM["slug"],
                         "round": 1,
                         "commit_point": marker.name,
@@ -488,6 +492,7 @@ class PublishGrok46HubTests(unittest.TestCase):
                 ),
                 (
                     {
+                        "version": 1,
                         "factory": ITEM["slug"],
                         "round": 1,
                         "commit_point": marker.name,
@@ -513,6 +518,7 @@ class PublishGrok46HubTests(unittest.TestCase):
             marker.write_text(
                 json.dumps(
                     {
+                        "version": 1,
                         "factory": source.name,
                         "round": 1,
                         "records": 2,
@@ -553,6 +559,7 @@ class PublishGrok46HubTests(unittest.TestCase):
             marker.write_text(
                 json.dumps(
                     {
+                        "version": 1,
                         "factory": source.name,
                         "round": 1,
                         "records": 2,
@@ -596,6 +603,7 @@ class PublishGrok46HubTests(unittest.TestCase):
             marker.write_text(
                 json.dumps(
                     {
+                        "version": 1,
                         "factory": source.name,
                         "round": 1,
                         "records": 2,
@@ -735,6 +743,7 @@ class PublishGrok46HubTests(unittest.TestCase):
             (source / "ROUND-r01.complete.json").write_text(
                 json.dumps(
                     {
+                        "version": 1,
                         "factory": ITEM["slug"],
                         "round": 1,
                         "records": 2,

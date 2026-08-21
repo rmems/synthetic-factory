@@ -493,6 +493,7 @@ class CurateAgenticTests(unittest.TestCase):
             (factory / "ROUND-r01.complete.json").write_text(
                 json.dumps(
                     {
+                        "version": 1,
                         "factory": factory.name,
                         "round": 1,
                         "records": 1,
@@ -538,6 +539,7 @@ class CurateAgenticTests(unittest.TestCase):
             (factory / "ROUND-r01.complete.json").write_text(
                 json.dumps(
                     {
+                        "version": 1,
                         "factory": factory.name,
                         "round": 1,
                         "records": 1,

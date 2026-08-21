@@ -177,6 +177,7 @@ class NextRoundMarkerMode(unittest.TestCase):
             marker.write_text(
                 json.dumps(
                     {
+                        "version": 1,
                         "factory": "factory",
                         "round": 3,
                         "records": 1,

@@ -597,6 +597,7 @@ class RoundTransaction(unittest.TestCase):
             marker.write_text(
                 json.dumps(
                     {
+                        "version": 1,
                         "factory": factory.name,
                         "round": 2,
                         "records": 1,
@@ -616,6 +617,31 @@ class RoundTransaction(unittest.TestCase):
             ):
                 round_txn.frontier_status(factory)
 
+    def test_legacy_baseline_id_cannot_duplicate_a_sibling_factory(self):
+        with tempfile.TemporaryDirectory() as td:
+            run = Path(td) / "run"
+            first = run / "factory-first"
+            second = run / "factory-second"
+            first.mkdir(parents=True)
+            second.mkdir()
+            for factory in (first, second):
+                write_records(factory / "trajectories.jsonl", [thalamic("shared-sibling-id")])
+                (factory / round_txn.MODE_FILE).write_text(
+                    json.dumps(
+                        {
+                            "version": 1,
+                            "legacy_baseline": 1,
+                            "commit_point": "ROUND-rNN.complete.json",
+                        }
+                    )
+                    + "\n"
+                )
+
+            with self.assertRaisesRegex(
+                round_txn.TransactionError, "duplicate record id 'shared-sibling-id'"
+            ):
+                round_txn.frontier_status(first)
+
     def test_marker_mode_exposes_only_manifest_verified_batches(self):
         with tempfile.TemporaryDirectory() as td:
             factory = self.factory(td)
@@ -633,6 +659,7 @@ class RoundTransaction(unittest.TestCase):
             marker.write_text(
                 json.dumps(
                     {
+                        "version": 1,
                         "factory": factory.name,
                         "round": 1,
                         "records": 1,
@@ -672,6 +699,7 @@ class RoundTransaction(unittest.TestCase):
             marker.write_text(
                 json.dumps(
                     {
+                        "version": 1,
                         "factory": factory.name,
                         "round": 1,
                         "records": 1,
@@ -713,6 +741,7 @@ class RoundTransaction(unittest.TestCase):
             marker.write_text(
                 json.dumps(
                     {
+                        "version": 1,
                         "factory": factory.name,
                         "round": 1,
                         "records": 1,
@@ -753,6 +782,7 @@ class RoundTransaction(unittest.TestCase):
             marker.write_text(
                 json.dumps(
                     {
+                        "version": 1,
                         "factory": factory.name,
                         "round": 1,
                         "records": 1,
@@ -799,6 +829,7 @@ class RoundTransaction(unittest.TestCase):
             marker.write_text(
                 json.dumps(
                     {
+                        "version": 1,
                         "factory": factory.name,
                         "round": 1,
                         "commit_point": marker.name,
@@ -814,6 +845,37 @@ class RoundTransaction(unittest.TestCase):
             with self.assertRaisesRegex(
                 round_txn.TransactionError,
                 "completion marker records does not match batch records",
+            ):
+                round_txn.frontier_status(factory)
+
+    def test_completion_marker_requires_schema_version(self):
+        with tempfile.TemporaryDirectory() as td:
+            factory = self.factory(td)
+            round_txn.ensure_marker_mode(factory)
+            batch = factory / "batch-r01.jsonl"
+            notes = factory / "NOTES-r01.md"
+            write_records(batch, [thalamic("missing-marker-version")])
+            notes.write_text("# Critique\n\nVersion fixture.\n")
+            marker = factory / "ROUND-r01.complete.json"
+            marker.write_text(
+                json.dumps(
+                    {
+                        "factory": factory.name,
+                        "round": 1,
+                        "records": 1,
+                        "expected_records": 1,
+                        "commit_point": marker.name,
+                        "files": [
+                            {"name": batch.name, "sha256": round_txn.file_sha256(batch)},
+                            {"name": notes.name, "sha256": round_txn.file_sha256(notes)},
+                        ],
+                    }
+                )
+                + "\n"
+            )
+
+            with self.assertRaisesRegex(
+                round_txn.TransactionError, "unsupported completion marker version"
             ):
                 round_txn.frontier_status(factory)
 
