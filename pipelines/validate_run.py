@@ -934,7 +934,7 @@ def check_safety_case(obj, where, factory_staging=False):
                 rf"{benign_secret_topic}",
             ),
             "sensitive_data": (
-                r"\bsensitive (?:data|information)\b",
+                r"(?<!non-)\bsensitive (?:data|information)\b",
             ),
             "bypass_auth": (r"\bbypass\w* auth\w*\b",),
             "missing_auth": (r"\bmissing auth\w*\b",),

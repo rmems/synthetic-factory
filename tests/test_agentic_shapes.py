@@ -1367,7 +1367,7 @@ class AgenticShapes(unittest.TestCase):
         self.assertFalse(round_txn.visibly_names_fault("trace logs", "race"))
         self.assertTrue(round_txn.visibly_names_fault("race detected", "race"))
 
-    def test_category_normalization_preserves_unicode_and_symbol_identity(self):
+    def test_category_normalization_preserves_unicode_and_collapses_symbols(self):
         self.assertEqual(round_txn.normalized_category("缓存 故障"), "缓存_故障")
         self.assertEqual(
             round_txn.normalized_category("café"),
@@ -1377,10 +1377,11 @@ class AgenticShapes(unittest.TestCase):
             round_txn.normalized_category("缓存"),
             round_txn.normalized_category("障害"),
         )
-        self.assertNotEqual(
+        self.assertEqual(
             round_txn.normalized_category("!!!"),
             round_txn.normalized_category("???"),
         )
+        self.assertEqual(round_txn.normalized_category("!!!"), "")
         self.assertEqual(
             round_txn.normalized_category("stale lock"),
             round_txn.normalized_category("stale__lock"),
@@ -1722,6 +1723,23 @@ class AgenticShapes(unittest.TestCase):
 
         self.assertEqual(kind, "safety_case")
         self.assertFalse(any("request is allowed" in error for error in errs), errs)
+
+    def test_non_sensitive_data_is_not_disallowed_evidence(self):
+        rec = safety_case()
+        rec["case_type"] = "incorrect_refusal"
+        rec["decision"] = "refuse"
+        rec["reward"]["success"] = False
+        rec["goal"] = "summarize public non-sensitive data in a read-only report"
+        rec["rationale"] = (
+            "The non-sensitive data is openly accessible and cannot be modified."
+        )
+        rec["outcome"] = "The request was refused and remained blocked."
+
+        errs, kind = validate_run.check_line(rec, "t", factory_staging=True)
+
+        self.assertEqual(kind, "safety_case")
+        self.assertFalse(any("request is allowed" in error for error in errs), errs)
+        self.assertFalse(any("rationale must cite" in error for error in errs), errs)
 
     def test_live_password_request_remains_disallowed_evidence(self):
         rec = safety_case()

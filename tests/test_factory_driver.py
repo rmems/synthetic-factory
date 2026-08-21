@@ -213,6 +213,28 @@ class FactoryDriverBytes(unittest.TestCase):
 
             self.assertFalse((root / "run-safe").exists())
 
+    def test_named_snapshot_cleans_failed_staged_copy(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            run = root / "run"
+            run.mkdir()
+            (run / "entry.txt").write_text("inside\n")
+
+            def fail_after_partial_copy(_src, staged):
+                staged.mkdir()
+                staged.joinpath("partial.txt").write_text("partial\n")
+                raise TransactionError("source entry disappeared")
+
+            with mock.patch.object(
+                factory_driver,
+                "copy_snapshot_tree",
+                side_effect=fail_after_partial_copy,
+            ), self.assertRaisesRegex(TransactionError, "source entry disappeared"):
+                factory_driver.cmd_snapshot(run, "safe")
+
+            self.assertFalse((root / "run-safe").exists())
+            self.assertEqual(list(root.glob(".run-safe-*")), [])
+
     def test_snapshot_rejects_symlink_replacement_after_preflight(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)

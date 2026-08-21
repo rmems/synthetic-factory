@@ -992,15 +992,9 @@ def normalized_category(value):
     if not isinstance(value, str):
         return ""
     text = unicodedata.normalize("NFC", value).strip()
-    normalized = re.sub(
+    return re.sub(
         r"_+", "_", re.sub(r"[^\w]+", "_", text.casefold())
     ).strip("_")
-    if normalized:
-        return normalized
-    if text:
-        digest = hashlib.sha256(text.encode("utf-8")).hexdigest()[:16]
-        return f"symbols_{digest}"
-    return ""
 
 
 def visibly_names_fault(introduced_text, *fault_evidence):
@@ -1008,10 +1002,7 @@ def visibly_names_fault(introduced_text, *fault_evidence):
     introduced = normalized_category(introduced_text)
     for evidence in fault_evidence:
         normalized = normalized_category(evidence)
-        if normalized.startswith("symbols_"):
-            if evidence.strip().casefold() in introduced_text.casefold():
-                return True
-        elif (
+        if (
             introduced
             and normalized
             and re.search(

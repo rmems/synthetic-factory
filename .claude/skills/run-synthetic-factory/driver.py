@@ -502,10 +502,17 @@ def cmd_snapshot(run_dir, label):
     if not SAFE_LABEL.fullmatch(label):
         raise SystemExit("snapshot label may contain only letters, digits, dot, dash, underscore")
     dst = src.parent / f"{src.name}-{label}"
-    if dst.exists():
+    if dst.exists() or dst.is_symlink():
         raise SystemExit(f"refusing to overwrite existing snapshot: {dst}")
     reject_snapshot_symlinks(src)
-    copy_snapshot_tree(src, dst)
+    with tempfile.TemporaryDirectory(
+        prefix=f".{dst.name}-", dir=src.parent
+    ) as temp_name:
+        staged = Path(temp_name) / dst.name
+        copy_snapshot_tree(src, staged)
+        if dst.exists() or dst.is_symlink():
+            raise SystemExit(f"refusing to overwrite existing snapshot: {dst}")
+        staged.rename(dst)
     records = sum(count_nonblank_lines(path) for path in dst.rglob("*.jsonl"))
     print(f"snapshot: {dst} ({records} records)")
 
