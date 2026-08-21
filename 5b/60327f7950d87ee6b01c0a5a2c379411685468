@@ -1,0 +1,37 @@
+pipelines/validate_run.py
+  s_a101c3059277fd::t_51b4f00ad480ce 423-427,670-676
+pipelines/training_audit.py
+  s_a101c3059277fd::t_51b4f00ad480ce 396-402
+tests/test_publish_grok46_hub.py
+  s_a101c3059277fd::t_2c05191ece281a 28-50,152,514,544,552-605
+  s_a101c3059277fd::t_c5d948b4d7f060 277,289
+  s_a101c3059277fd::t_615952dc826916 305
+tests/test_training_audit.py
+  s_a101c3059277fd::t_2c05191ece281a 186-202,204-205
+  s_a101c3059277fd::t_9994c279f1ca32 203
+pipelines/round_txn.py
+  s_a101c3059277fd::t_51b4f00ad480ce 437-457,625-632,858-867,872-878,880
+scripts/publish_grok46_hub.py
+  s_a101c3059277fd::t_4a6af8d0d1730d 365-367,369-371
+  s_a101c3059277fd::t_f4bd300662167a 22,25,34-42,341,355-364,368,372-376,501-502,552-587,694-697,700
+tests/test_round_txn.py
+  s_a101c3059277fd::t_2c05191ece281a 285-299
+tests/test_agentic_shapes.py
+  s_a101c3059277fd::t_2c05191ece281a 280-315,706-718,819
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "5b60327f7950d87ee6b01c0a5a2c379411685468",
+  "prompts": {},
+  "sessions": {
+    "s_a101c3059277fd": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a01e14-4bc2-7890-a7ce-1c993a8df50a",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Raul Montoya Cardenas <montoyaraul34@gmail.com>"
+    }
+  }
+}
