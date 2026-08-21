@@ -603,8 +603,9 @@ def terminal_outcome_agrees(outcome, success):
         match.span()
         for match in re.finditer(
             r"\b(?:(?:did|does|was|were|is|are|has|have) not|never|not|without) "
-            r"(?:been )?(?:completed|correct|fixed|landed|merged|passed|recovered|"
-            r"repaired|resolved|shipped|succeeded|verified|working)\b",
+            r"(?:been )?(?:atomic|completed|correct|deploy\w*|fixed|green|healthy|"
+            r"landed|merged|operational|passed|recovered|repaired|resolved|"
+            r"safe(?:ly)?|shipped|succeeded|verified|works?|working)\b",
             text,
         )
     ]

@@ -1364,6 +1364,8 @@ class AgenticShapes(unittest.TestCase):
                 "lock file left by crashed writer",
             )
         )
+        self.assertFalse(round_txn.visibly_names_fault("trace logs", "race"))
+        self.assertTrue(round_txn.visibly_names_fault("race detected", "race"))
 
     def test_category_normalization_preserves_unicode_and_symbol_identity(self):
         self.assertEqual(round_txn.normalized_category("缓存 故障"), "缓存_故障")
@@ -1662,6 +1664,16 @@ class AgenticShapes(unittest.TestCase):
         ):
             with self.subTest(outcome=outcome):
                 self.assertTrue(validate_run.terminal_outcome_agrees(outcome, True))
+
+    def test_terminal_outcome_rejects_negated_success_language(self):
+        for outcome in (
+            "deployment is not healthy",
+            "checks are not green",
+            "artifact was not deployed",
+        ):
+            with self.subTest(outcome=outcome):
+                self.assertFalse(validate_run.terminal_outcome_agrees(outcome, True))
+                self.assertTrue(validate_run.terminal_outcome_agrees(outcome, False))
 
     def test_generic_staged_episode_outcome_must_agree_with_reward(self):
         rec = episode("package-release-outcome", factory="package-release-factory")

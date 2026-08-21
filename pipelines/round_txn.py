@@ -1009,7 +1009,14 @@ def visibly_names_fault(introduced_text, *fault_evidence):
         if normalized.startswith("symbols_"):
             if evidence.strip().casefold() in introduced_text.casefold():
                 return True
-        elif introduced and normalized and normalized in introduced:
+        elif (
+            introduced
+            and normalized
+            and re.search(
+                rf"(?:^|_){re.escape(normalized)}(?:_|$)", introduced
+            )
+            is not None
+        ):
             return True
     return False
 
