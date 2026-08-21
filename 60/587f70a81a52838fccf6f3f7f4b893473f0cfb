@@ -1,0 +1,9 @@
+scripts/publish_grok46_hub.py
+  ai_agent 33-36,418-423,426-428,751,948,992-994,996-997,1156
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "60587f70a81a52838fccf6f3f7f4b893473f0cfb",
+  "prompts": {}
+}
