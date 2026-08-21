@@ -16,6 +16,11 @@ CONTRACT = REPO / "prompts" / "_agentic-factory-contract.md"
 
 
 class RestartGrok46Tests(unittest.TestCase):
+    @staticmethod
+    def write_executable(path, text):
+        path.write_text(text)
+        path.chmod(0o755)
+
     def test_launcher_uses_private_identity_checked_worker_state(self):
         text = SCRIPT.read_text()
 
@@ -38,6 +43,19 @@ class RestartGrok46Tests(unittest.TestCase):
         )
         self.assertIn('write_launch_window "$launch_window"', text)
         self.assertIn("weekly launch already consumed", text)
+        self.assertIn('STARTUP_GRACE_SECONDS="${GROK_STARTUP_GRACE_SECONDS:-5}"', text)
+        self.assertIn("tmux worker exited during startup", text)
+        self.assertIn("nohup worker exited during startup", text)
+        tmux_launch = text.index("tmux new-session")
+        tmux_confirmed = text.index("tmux worker exited during startup")
+        tmux_consumed = text.index('write_launch_window "$launch_window"', tmux_launch)
+        self.assertLess(tmux_launch, tmux_confirmed)
+        self.assertLess(tmux_confirmed, tmux_consumed)
+        nohup_launch = text.index("exec nohup flock")
+        nohup_confirmed = text.index("nohup worker exited during startup")
+        nohup_consumed = text.index('write_launch_window "$launch_window"', nohup_launch)
+        self.assertLess(nohup_launch, nohup_confirmed)
+        self.assertLess(nohup_confirmed, nohup_consumed)
         self.assertIn('exec 9>>"$LOCK"', text)
         self.assertIn('exec nohup flock "$LOCK"', text)
         self.assertNotIn("/tmp/grok46-restart-33", text)
@@ -88,6 +106,57 @@ class RestartGrok46Tests(unittest.TestCase):
             state_dir = state_home / "synthetic-factory-grok46"
             self.assertTrue(state_dir.is_dir())
             self.assertTrue((state_dir / "launcher.lock").is_file())
+
+    def test_failed_tmux_startup_does_not_consume_the_weekly_window(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            commands = root / "bin"
+            commands.mkdir()
+            self.write_executable(
+                commands / "date",
+                """#!/usr/bin/env bash
+case "${1:-}" in
+  +%u) printf '3\\n' ;;
+  +%H) printf '07\\n' ;;
+  +%M) printf '00\\n' ;;
+  +%G-W%V) printf '2099-W01\\n' ;;
+  *) printf '2099-01-07T07:00:00-06:00\\n' ;;
+esac
+""",
+            )
+            self.write_executable(commands / "python3", "#!/usr/bin/env bash\nexit 0\n")
+            self.write_executable(
+                commands / "tmux",
+                """#!/usr/bin/env bash
+if [[ "${1:-}" == "new-session" ]]; then
+  exit 0
+fi
+exit 1
+""",
+            )
+            grok = root / "grok"
+            self.write_executable(grok, "#!/usr/bin/env bash\nexit 1\n")
+            state_home = root / "state"
+
+            result = subprocess.run(
+                ["bash", str(SCRIPT)],
+                env={
+                    **os.environ,
+                    "PATH": f"{commands}:{os.environ['PATH']}",
+                    "XDG_STATE_HOME": str(state_home),
+                    "GROK": str(grok),
+                    "GROK_STARTUP_GRACE_SECONDS": "0",
+                },
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+
+            window = state_home / "synthetic-factory-grok46" / "last-launch-window"
+            self.assertEqual(result.returncode, 1, result.stderr)
+            self.assertEqual(window.read_text(), "")
+            log = (state_home / "synthetic-factory-grok46" / "restart.log").read_text()
+            self.assertIn("tmux worker exited during startup", log)
 
     def test_prompt_honors_plateau_stops_and_uses_fresh_snapshots(self):
         text = PROMPT.read_text()

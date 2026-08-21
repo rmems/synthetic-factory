@@ -4,7 +4,7 @@
 Generated data is written outside ``outputs/raw`` first.  A round becomes
 visible to frontier readers only when ``ROUND-rNN.complete.json`` is linked
 into the factory directory after every staged file has passed validation and
-been linked without replacing an existing path.
+been copied without replacing an existing path.
 
 Usage:
   round_txn.py frontier <factory_dir>
@@ -40,6 +40,7 @@ BATCH_RE = re.compile(r"^batch-r(\d+)([a-z]*)\.jsonl$")
 COMPLETE_RE = re.compile(r"^ROUND-r(\d+)\.complete\.json$")
 PUBLISHING_RE = re.compile(r"^ROUND-r(\d+)\.publishing\.json$")
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
+TOKEN_RE = re.compile(r"^[0-9a-f]{32}$")
 LEGACY_R1_NAMES = {
     "trajectories.jsonl",
     "final-trajectories.jsonl",
@@ -211,6 +212,36 @@ def file_sha256(path: Path):
         for chunk in iter(lambda: handle.read(1024 * 1024), b""):
             digest.update(chunk)
     return digest.hexdigest()
+
+
+def copy_verified_exclusive(source: Path, destination: Path, expected_sha256: str):
+    """Atomically publish a verified copy without sharing the staged inode."""
+    temporary = destination.parent / f".{destination.name}.{uuid.uuid4().hex}.publishing"
+    flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
+    if hasattr(os, "O_NOFOLLOW"):
+        flags |= os.O_NOFOLLOW
+    fd = os.open(temporary, flags, 0o644)
+    try:
+        with source.open("rb") as input_handle, os.fdopen(fd, "wb") as output_handle:
+            fd = -1
+            shutil.copyfileobj(input_handle, output_handle)
+            output_handle.flush()
+            os.fsync(output_handle.fileno())
+        if file_sha256(temporary) != expected_sha256:
+            raise TransactionError(f"staged file changed while publishing: {source}")
+        try:
+            os.link(temporary, destination, follow_symlinks=False)
+        except FileExistsError:
+            if (
+                not destination.is_file()
+                or destination.is_symlink()
+                or file_sha256(destination) != expected_sha256
+            ):
+                raise TransactionError(f"publication race at {destination}")
+    finally:
+        if fd >= 0:
+            os.close(fd)
+        temporary.unlink(missing_ok=True)
 
 
 def valid_legacy_file(path: Path):
@@ -490,7 +521,9 @@ def validated_marker_mode(factory_dir: Path, mode_path: Path | None = None):
 
 
 def staging_dir(factory_dir: Path, round_number: int, token: str):
-    """Keep staging beside raw so hard-link publication stays one filesystem."""
+    """Return the private transaction stage for one validated reservation token."""
+    if not isinstance(token, str) or TOKEN_RE.fullmatch(token) is None:
+        raise TransactionError("reservation token must be 32 lowercase hexadecimal characters")
     try:
         date_dir = factory_dir.parent
         raw_dir = date_dir.parent
@@ -807,6 +840,14 @@ def validate_agentic_envelope(batch: Path, factory_dir: Path, round_number: int)
                     errors.append(
                         f"{where}: {side_name} must not wrap a Thalamic trajectory"
                     )
+                side_reward = side.get("reward") if isinstance(side, dict) else None
+                success = side_reward.get("success") if isinstance(side_reward, dict) else None
+                required_success = side_name == "chosen"
+                if isinstance(success, bool) and success is not required_success:
+                    errors.append(
+                        f"{where}: {side_name}.reward.success must be "
+                        f"{str(required_success).lower()}"
+                    )
         meta = record.get("meta") if isinstance(record, dict) else None
         if not isinstance(meta, dict):
             errors.append(f"{where}: agentic record meta must be an object")
@@ -1010,14 +1051,14 @@ def _publish_locked(factory_dir: Path, round_number: int, token: str):
         if destination.exists():
             if not resumed:
                 raise TransactionError(f"refusing to replace existing output: {destination}")
-            if not destination.is_file() or file_sha256(destination) != item["sha256"]:
+            if (
+                not destination.is_file()
+                or destination.is_symlink()
+                or file_sha256(destination) != item["sha256"]
+            ):
                 raise TransactionError(f"refusing to replace conflicting output: {destination}")
             continue
-        try:
-            os.link(source, destination, follow_symlinks=False)
-        except FileExistsError:
-            if not destination.is_file() or file_sha256(destination) != item["sha256"]:
-                raise TransactionError(f"publication race at {destination}")
+        copy_verified_exclusive(source, destination, item["sha256"])
 
     # Linking this marker is the atomic visibility point for the whole round.
     try:

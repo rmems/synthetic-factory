@@ -415,10 +415,31 @@ def _source_jsonl_files(source: Path) -> tuple[Path, ...]:
         )
 
     visible_by_factory: dict[Path, set[Path]] = {}
+    enclosing_factory: dict[Path, Path | None] = {}
+
+    def marker_factory(path: Path) -> Path | None:
+        visited = []
+        current = path.parent
+        while True:
+            if current in enclosing_factory:
+                factory = enclosing_factory[current]
+                break
+            visited.append(current)
+            if marker_mode_path(current) is not None:
+                factory = current
+                break
+            parent = current.parent
+            if parent == current:
+                factory = None
+                break
+            current = parent
+        for directory in visited:
+            enclosing_factory[directory] = factory
+        return factory
 
     def visible(path: Path) -> bool:
-        factory = path.parent
-        if marker_mode_path(factory) is None:
+        factory = marker_factory(path)
+        if factory is None:
             return True
         if factory not in visible_by_factory:
             visible_by_factory[factory] = {

@@ -69,6 +69,26 @@ class RoundTransaction(unittest.TestCase):
             with self.assertRaisesRegex(round_txn.TransactionError, "not the frontier"):
                 round_txn.reserve(factory, 1, 1)
 
+    def test_publish_copies_staged_files_to_independent_inodes(self):
+        with tempfile.TemporaryDirectory() as td:
+            factory = self.factory(td)
+            reservation = round_txn.reserve(factory, 1, 1)
+            stage = self.fill_stage(reservation, [thalamic("independent-copy")])
+            staged_batch = stage / reservation["batch_file"]
+            staged_handle = staged_batch.open("a")
+            try:
+                round_txn.publish(factory, 1, reservation["token"])
+                staged_handle.write("mutated after publish\n")
+                staged_handle.flush()
+            finally:
+                staged_handle.close()
+
+            published = factory / reservation["batch_file"]
+            self.assertNotIn("mutated after publish", published.read_text())
+            marker = json.loads((factory / "ROUND-r01.complete.json").read_text())
+            batch_entry = next(item for item in marker["files"] if item["name"] == published.name)
+            self.assertEqual(round_txn.file_sha256(published), batch_entry["sha256"])
+
     def test_abort_releases_reservation_so_round_can_be_retried(self):
         with tempfile.TemporaryDirectory() as td:
             factory = self.factory(td)
@@ -105,6 +125,29 @@ class RoundTransaction(unittest.TestCase):
 
             self.assertEqual(sentinel.read_text(), "do not delete\n")
             self.assertTrue((factory / "ROUND-r01.reserved.json").is_file())
+
+    def test_abort_rejects_a_traversal_token_before_removing_any_directory(self):
+        with tempfile.TemporaryDirectory() as td:
+            factory = self.factory(td)
+            reservation = round_txn.reserve(factory, 1, 1)
+            reservation_path = factory / "ROUND-r01.reserved.json"
+            outside = Path(td) / "victim"
+            outside.mkdir()
+            sentinel = outside / "keep.txt"
+            sentinel.write_text("do not delete\n")
+            malicious_token = "x/../../../../../victim"
+            edited = json.loads(reservation_path.read_text())
+            edited["token"] = malicious_token
+            edited["staging_dir"] = str(
+                Path(reservation["staging_dir"]).parent / f"r01-{malicious_token}"
+            )
+            reservation_path.write_text(json.dumps(edited) + "\n")
+
+            with self.assertRaisesRegex(round_txn.TransactionError, "token must be"):
+                round_txn.abort(factory, 1, malicious_token)
+
+            self.assertEqual(sentinel.read_text(), "do not delete\n")
+            self.assertTrue(reservation_path.is_file())
 
     def test_abort_requires_matching_token_and_refuses_committed_round(self):
         with tempfile.TemporaryDirectory() as td:

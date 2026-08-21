@@ -509,6 +509,44 @@ class CurateAgenticTests(unittest.TestCase):
         self.assertEqual(run["summary"]["input_records"], 1)
         self.assertEqual(set(run["records_by_rel"]), {"batch-r01.jsonl"})
 
+    def test_marker_mode_excludes_uncommitted_batches_in_nested_directories(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            factory = root / "agentic-factory"
+            factory.mkdir()
+            (factory / ".round-marker-mode.json").write_text(
+                '{"version":1,"legacy_baseline":0,"commit_point":"ROUND-rNN.complete.json"}\n'
+            )
+            batch = factory / "batch-r01.jsonl"
+            notes = factory / "NOTES-r01.md"
+            batch.write_text(json.dumps(episode_fixture("committed")) + "\n")
+            notes.write_text("Novel coverage: 80%\n")
+            (factory / "ROUND-r01.complete.json").write_text(
+                json.dumps(
+                    {
+                        "factory": factory.name,
+                        "round": 1,
+                        "commit_point": "ROUND-r01.complete.json",
+                        "files": [
+                            {"name": batch.name, "sha256": hashlib.sha256(batch.read_bytes()).hexdigest()},
+                            {"name": notes.name, "sha256": hashlib.sha256(notes.read_bytes()).hexdigest()},
+                        ],
+                    }
+                )
+                + "\n"
+            )
+            work = factory / "work"
+            work.mkdir()
+            (work / "batch-r02.jsonl").write_text(
+                json.dumps(episode_fixture("uncommitted")) + "\n"
+            )
+
+            run = curate_source(root)
+
+        self.assertEqual(run["summary"]["files"], 1)
+        self.assertEqual(run["summary"]["input_records"], 1)
+        self.assertEqual(set(run["records_by_rel"]), {"agentic-factory/batch-r01.jsonl"})
+
     def test_marker_mode_rejects_unsafe_entries(self):
         for kind in ("directory", "dangling_symlink"):
             with self.subTest(kind=kind), tempfile.TemporaryDirectory() as temporary:

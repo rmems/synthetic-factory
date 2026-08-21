@@ -331,6 +331,37 @@ class AgenticShapes(unittest.TestCase):
             self.assertEqual(manifest["records"], 3)
             self.assertEqual(manifest["kinds"].get("preference"), 3)
 
+    def test_episode_preference_rejects_inverted_side_rewards(self):
+        with tempfile.TemporaryDirectory() as td:
+            factory = (
+                Path(td)
+                / "outputs"
+                / "raw"
+                / "2099-01-01"
+                / "tool-use-preference-factory"
+            )
+            factory.mkdir(parents=True)
+            reservation = round_txn.reserve(factory, 1, 3)
+            stage = Path(reservation["staging_dir"])
+            records = []
+            for index in range(3):
+                record = episode_preference()
+                record["id"] = f"tup-r01-inverted-{index}"
+                record["chosen"]["reward"]["success"] = False
+                record["rejected"]["reward"]["success"] = True
+                records.append(record)
+            (stage / reservation["batch_file"]).write_text(
+                "".join(json.dumps(record) + "\n" for record in records)
+            )
+            (stage / reservation["notes_file"]).write_text("Novel coverage: 80%\n")
+
+            with self.assertRaises(round_txn.TransactionError) as raised:
+                round_txn.publish(factory, 1, reservation["token"])
+
+            self.assertIn("chosen.reward.success must be true", str(raised.exception))
+            self.assertIn("rejected.reward.success must be false", str(raised.exception))
+            self.assertFalse((factory / "ROUND-r01.complete.json").exists())
+
     def test_agentic_preference_rejects_thalamic_wrapped_sides(self):
         for factory_slug in (
             "tool-use-preference-factory",

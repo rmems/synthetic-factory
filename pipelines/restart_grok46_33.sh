@@ -14,6 +14,7 @@ LOCK="$STATE_DIR/launcher.lock"
 PID_FILE="$STATE_DIR/worker.state"
 WINDOW_FILE="$STATE_DIR/last-launch-window"
 SESSION=grok46-agentic-restart
+STARTUP_GRACE_SECONDS="${GROK_STARTUP_GRACE_SECONDS:-5}"
 
 die_unsafe_state() {
   echo "$(date -Is) error: unsafe launcher state path: $1" >&2
@@ -190,6 +191,11 @@ if command -v tmux >/dev/null 2>&1; then
   fi
   tmux new-session -d -s "$SESSION" \
     "exec 9>&-; cd '$ROOT' && exec flock '$LOCK' '$GROK' --cwd '$ROOT' --no-plan --model grok-4.6 \"\$(cat '$PROMPT')\" 2>&1 | tee -a '$LOG'"
+  sleep "$STARTUP_GRACE_SECONDS"
+  if ! tmux has-session -t "$SESSION" 2>/dev/null; then
+    echo "$(date -Is) error: tmux worker exited during startup" >>"$LOG"
+    exit 1
+  fi
   if ! write_launch_window "$launch_window"; then
     tmux kill-session -t "$SESSION" 2>/dev/null || true
     echo "$(date -Is) error: could not atomically record launch window" >>"$LOG"
@@ -205,6 +211,14 @@ else
   if ! write_worker_state "$worker_pid"; then
     kill "$worker_pid" 2>/dev/null || true
     echo "$(date -Is) error: could not atomically record nohup worker state" >>"$LOG"
+    exit 1
+  fi
+  sleep "$STARTUP_GRACE_SECONDS"
+  read -r recorded_pid recorded_started extra <"$PID_FILE" || true
+  current_started=$(process_start_token "$worker_pid" || true)
+  if [[ "$recorded_pid" != "$worker_pid" || -z "${recorded_started:-}" || -n "${extra:-}" || "$current_started" != "$recorded_started" ]]; then
+    rm -f -- "$PID_FILE"
+    echo "$(date -Is) error: nohup worker exited during startup" >>"$LOG"
     exit 1
   fi
   if ! write_launch_window "$launch_window"; then
