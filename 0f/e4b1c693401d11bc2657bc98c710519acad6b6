@@ -1,0 +1,36 @@
+tests/test_validate_run.py
+  s_a101c3059277fd::t_b6e3b45d894c30 134-155
+  s_a101c3059277fd::t_6c6a4ce97ddba8 209
+prompts/_agentic-factory-contract.md
+  s_a101c3059277fd::t_36485cc156e9f4 60-61
+pipelines/round_txn.py
+  s_a101c3059277fd::t_28b869395c6c9e 1079-1106,1685-1690,1954-1960,2014-2015
+  s_a101c3059277fd::t_f7f7b6f05d21d1 881-882,885-890,894-895,902-907,909-910,914-915,917-918,920-922,926-927,932,940-942
+  s_a101c3059277fd::t_22f8456fb19d79 1033-1038,1044,1062,1073
+pipelines/validate_run.py
+  s_a101c3059277fd::t_79c6ad93d843e5 78-82,1105-1106
+pipelines/check_records.py
+  s_a101c3059277fd::t_79c6ad93d843e5 30
+tests/test_agentic_shapes.py
+  s_a101c3059277fd::t_b0a5de182f929d 343-359
+  s_a101c3059277fd::t_8865d4b607a032 642-704
+  s_a101c3059277fd::t_6cf82a1fbb8f43 866-886
+prompts/08-long-horizon-coding-factory.md
+  s_a101c3059277fd::t_36485cc156e9f4 28-29,52-53
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "0fe4b1c693401d11bc2657bc98c710519acad6b6",
+  "prompts": {},
+  "sessions": {
+    "s_a101c3059277fd": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a01e14-4bc2-7890-a7ce-1c993a8df50a",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Raul Montoya Cardenas <montoyaraul34@gmail.com>"
+    }
+  }
+}
