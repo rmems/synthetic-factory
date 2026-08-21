@@ -557,6 +557,11 @@ def completed_manifests(factory_dir: Path) -> dict[int, dict]:
         validate_completed_batch(
             factory_dir, round_number, payload, seen_ids=seen_ids
         )
+        # The semantic validators reopen the committed artifacts.  Recheck
+        # every manifest-bound byte afterwards so content swapped during
+        # validation cannot advance the visible frontier.
+        for name in names:
+            completion_manifest_file_matches(factory_dir / name, payload)
         if round_number in manifests:
             raise TransactionError(f"duplicate completion markers for r{round_number:02d}")
         manifests[round_number] = payload
@@ -1399,6 +1404,12 @@ def validate_completed_batch(
     if "version" in manifest and manifest["version"] != 1:
         raise TransactionError(f"unsupported completion marker version for {batch}")
     if factory_staging:
+        expected_kind = AGENTIC_FACTORY_KINDS[factory_dir.name]
+        if set(kinds) != {expected_kind}:
+            raise TransactionError(
+                f"{factory_dir.name} requires only {expected_kind!r} records; "
+                f"committed kinds are {sorted(kinds)!r}"
+            )
         quota = FACTORY_QUOTAS[factory_dir.name]
         if records != quota:
             raise TransactionError(

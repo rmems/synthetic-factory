@@ -1192,6 +1192,55 @@ class AgenticShapes(unittest.TestCase):
             with self.assertRaisesRegex(round_txn.TransactionError, "Novel coverage"):
                 round_txn.frontier_status(factory)
 
+    def test_completed_agentic_marker_cannot_omit_fixed_kind_contract(self):
+        with tempfile.TemporaryDirectory() as td:
+            factory = Path(td) / "package-release-factory"
+            factory.mkdir()
+            batch = factory / "batch-r01.jsonl"
+            records = []
+            for index in range(2):
+                record = multi_agent()
+                record["id"] = f"wrong-kind-{index}"
+                record["meta"]["factory"] = factory.name
+                records.append(record)
+            batch.write_text(
+                "".join(json.dumps(record) + "\n" for record in records)
+            )
+            notes = factory / "NOTES-r01.md"
+            notes.write_text("Novel coverage: 80%\n")
+            (factory / round_txn.MODE_FILE).write_text(
+                json.dumps(
+                    {
+                        "version": 1,
+                        "legacy_baseline": 0,
+                        "commit_point": "ROUND-rNN.complete.json",
+                    }
+                )
+                + "\n"
+            )
+            marker = factory / "ROUND-r01.complete.json"
+            marker.write_text(
+                json.dumps(
+                    {
+                        "factory": factory.name,
+                        "round": 1,
+                        "records": 2,
+                        "expected_records": 2,
+                        "commit_point": marker.name,
+                        "files": [
+                            {"name": batch.name, "sha256": round_txn.file_sha256(batch)},
+                            {"name": notes.name, "sha256": round_txn.file_sha256(notes)},
+                        ],
+                    }
+                )
+                + "\n"
+            )
+
+            with self.assertRaisesRegex(
+                round_txn.TransactionError, "requires only 'episode' records"
+            ):
+                round_txn.frontier_status(factory)
+
     def test_step_free_safety_case_requires_textual_goal_and_outcome(self):
         rec = safety_case()
         rec.pop("steps")

@@ -395,6 +395,33 @@ class PublishGrok46HubTests(unittest.TestCase):
             self.assertIn(f"| `{other['hub']}/` |", inventory)
             self.assertIn(f"| `{other['slug']}` | 1 | 1 |", inventory)
 
+    def test_snapshot_keeps_legacy_named_payload_before_marker_mode(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            source = root / "raw" / ITEM["slug"]
+            source.mkdir(parents=True)
+            legacy = source / "episodes.jsonl"
+            write_valid_legacy(legacy)
+            notes = source / "NOTES-r01.md"
+            notes.write_text("Novel coverage: 80%\nlegacy notes\n")
+
+            self.assertEqual(
+                [path.name for path in publisher.published_batches(source)],
+                [legacy.name],
+            )
+            with mock.patch.object(
+                publisher, "FACTORY_ROOT", root / "raw"
+            ), mock.patch.object(publisher, "HF_ROOT", root / "hf"):
+                stats = publisher.snapshot_one(ITEM)
+
+            mirror = root / "hf" / ITEM["hub"]
+            self.assertEqual(stats["records"], 2)
+            self.assertTrue((mirror / "data" / "raw" / legacy.name).is_file())
+            self.assertTrue((mirror / "data" / "metadata" / notes.name).is_file())
+            self.assertIn(
+                "data/raw/episodes.jsonl", (mirror / "README.md").read_text()
+            )
+
     def test_snapshot_publishes_canonical_notes_for_suffixed_legacy_batch(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
@@ -797,11 +824,16 @@ class PublishGrok46HubTests(unittest.TestCase):
 
     def test_upload_syncs_managed_payload_and_note_paths(self):
         with tempfile.TemporaryDirectory() as td:
-            root = Path(td) / "hf"
-            (root / ITEM["hub"]).mkdir(parents=True)
-            with mock.patch.object(publisher, "HF_ROOT", root), mock.patch.object(
+            root = Path(td)
+            source = root / "raw" / ITEM["slug"]
+            source.mkdir(parents=True)
+            (source / "batch-r01.jsonl").write_text('{"id":"upload"}\n')
+            with mock.patch.object(
+                publisher, "FACTORY_ROOT", root / "raw"
+            ), mock.patch.object(publisher, "HF_ROOT", root / "hf"), mock.patch.object(
                 publisher, "factories", return_value=[ITEM]
             ), mock.patch.object(publisher, "run") as run:
+                publisher.snapshot_one(ITEM)
                 publisher.cmd_upload()
 
         command = run.call_args.args[0]
@@ -810,6 +842,27 @@ class PublishGrok46HubTests(unittest.TestCase):
             [command[index + 1] for index, value in enumerate(command) if value == "--delete"],
             ["data/raw/*", "data/metadata/NOTES-r*.md"],
         )
+
+    def test_upload_refuses_payload_changed_after_snapshot(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            source = root / "raw" / ITEM["slug"]
+            source.mkdir(parents=True)
+            batch = source / "batch-r01.jsonl"
+            batch.write_text('{"id":"source"}\n')
+            with mock.patch.object(
+                publisher, "FACTORY_ROOT", root / "raw"
+            ), mock.patch.object(publisher, "HF_ROOT", root / "hf"), mock.patch.object(
+                publisher, "factories", return_value=[ITEM]
+            ), mock.patch.object(publisher, "run") as run:
+                publisher.snapshot_one(ITEM)
+                mirror_batch = root / "hf" / ITEM["hub"] / "data" / "raw" / batch.name
+                mirror_batch.write_text('{"id":"unrelated"}\n')
+
+                with self.assertRaisesRegex(SystemExit, "upload snapshot digest mismatch"):
+                    publisher.cmd_upload()
+
+            run.assert_not_called()
 
     def test_upload_refuses_a_symlinked_hub_mirror(self):
         with tempfile.TemporaryDirectory() as td:

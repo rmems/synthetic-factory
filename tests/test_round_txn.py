@@ -660,6 +660,45 @@ class RoundTransaction(unittest.TestCase):
             with self.assertRaisesRegex(round_txn.TransactionError, "hash mismatch"):
                 round_txn.frontier_status(factory)
 
+    def test_completion_manifest_rechecks_hash_after_semantic_validation(self):
+        with tempfile.TemporaryDirectory() as td:
+            factory = self.factory(td)
+            round_txn.ensure_marker_mode(factory)
+            batch = factory / "batch-r01.jsonl"
+            notes = factory / "NOTES-r01.md"
+            write_records(batch, [thalamic("semantic-swap")])
+            notes.write_text("# Critique\n\nManifest fixture.\n")
+            marker = factory / "ROUND-r01.complete.json"
+            marker.write_text(
+                json.dumps(
+                    {
+                        "factory": factory.name,
+                        "round": 1,
+                        "records": 1,
+                        "expected_records": 1,
+                        "commit_point": marker.name,
+                        "files": [
+                            {"name": batch.name, "sha256": round_txn.file_sha256(batch)},
+                            {"name": notes.name, "sha256": round_txn.file_sha256(notes)},
+                        ],
+                    }
+                )
+                + "\n"
+            )
+            real_validate = round_txn.validate_completed_batch
+
+            def tamper_after_validation(*args, **kwargs):
+                real_validate(*args, **kwargs)
+                batch.write_text('{"id":"changed-after-validation"}\n')
+
+            with mock.patch.object(
+                round_txn,
+                "validate_completed_batch",
+                side_effect=tamper_after_validation,
+            ):
+                with self.assertRaisesRegex(round_txn.TransactionError, "hash mismatch"):
+                    round_txn.frontier_status(factory)
+
     def test_completion_manifest_validates_every_declared_artifact(self):
         with tempfile.TemporaryDirectory() as td:
             factory = self.factory(td)
