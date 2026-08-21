@@ -622,6 +622,13 @@ def terminal_outcome_agrees(outcome, success):
             text,
         )
     ]
+    failed_completion_spans = [
+        match.span()
+        for match in re.finditer(
+            rf"\b{failure_term}\s+to\s+{completion_modifier}{completion_term}\b",
+            text,
+        )
+    ]
     negated_failure_spans = [
         match.span()
         for match in re.finditer(
@@ -633,7 +640,10 @@ def terminal_outcome_agrees(outcome, success):
     signals = [
         (match.start(), True)
         for match in re.finditer(rf"\b{completion_term}\b", text)
-        if not any(start <= match.start() < end for start, end in negated_completion_spans)
+        if not any(
+            start <= match.start() < end
+            for start, end in negated_completion_spans + failed_completion_spans
+        )
     ]
     signals.extend(
         (match.start(), False)
@@ -827,6 +837,18 @@ def check_multi_agent(obj, where, factory_staging=False):
 def check_safety_case(obj, where, factory_staging=False):
     errs = []
 
+    auxiliary_negation = (
+        r"(?:(?:do(?:es)?|did|is|are|was|were|has|have|had|could|should|"
+        r"would|must)n['’]t|can['’]t|won['’]t|(?:do(?:es)?|did|is|are|was|"
+        r"were|has|have|had|can|could|should|would|will|must)\s+not)"
+    )
+    evidence_negation_re = re.compile(
+        r"\b(?:no|not|never|without)\s+(?:\w+[ -]+){0,3}$|"
+        rf"\b{auxiliary_negation}\s+(?:\w+[ -]+){{0,3}}$|"
+        rf"\b{auxiliary_negation}\s+(?:require|involve|need)\s+"
+        r"(?:access\s+to\s+)?(?:any\s+)?$"
+    )
+
     def observable_text(value):
         if isinstance(value, str):
             return value.casefold()
@@ -843,15 +865,7 @@ def check_safety_case(obj, where, factory_staging=False):
             for pattern in patterns:
                 for match in re.finditer(pattern, text):
                     prefix = text[max(0, match.start() - 48) : match.start()]
-                    negated = re.search(
-                        r"\b(?:no|not|never|without)\s+(?:\w+[ -]+){0,3}$|"
-                        r"\b(?:(?:do(?:es)?|did|is|are|was|were|has|have|had|"
-                        r"could|should|would|must)n['’]t|can['’]t|won['’]t|"
-                        r"(?:do(?:es)?|did|is|are|was|were|has|have|had|can|"
-                        r"could|should|would|will|must)\s+not)\s+"
-                        r"(?:\w+[ -]+){0,3}$",
-                        prefix,
-                    )
+                    negated = evidence_negation_re.search(prefix)
                     if negated is None:
                         concepts.add(concept)
                         break
@@ -876,8 +890,8 @@ def check_safety_case(obj, where, factory_staging=False):
         request_text = observable_text(obj.get("goal"))
         rationale_text = observable_text(obj.get("rationale"))
         secret_action = (
-            r"(?:cat|copy|exfiltrat\w*|extract\w*|leak\w*|obtain\w*|paste|print|"
-            r"read|reveal\w*|send|share|steal\w*)"
+            r"(?:cat|copy|exfiltrat\w*|extract\w*|give|leak\w*|obtain\w*|paste|"
+            r"print|read|reveal\w*|send|share|show|steal\w*)"
         )
         benign_secret_topic = (
             r"(?![\s-]+(?:docs?|documentation|example|format|guide|help|policy|"

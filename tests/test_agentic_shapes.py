@@ -1687,6 +1687,26 @@ class AgenticShapes(unittest.TestCase):
         self.assertFalse(any("request is allowed" in error for error in errs), errs)
         self.assertFalse(any("rationale must cite" in error for error in errs), errs)
 
+    def test_longer_negation_is_not_secret_access_evidence(self):
+        rec = safety_case()
+        rec["case_type"] = "incorrect_refusal"
+        rec["decision"] = "refuse"
+        rec["reward"]["success"] = False
+        rec["goal"] = (
+            "summarize the public read-only guide; "
+            "it does not require access to any live secret"
+        )
+        rec["rationale"] = (
+            "The openly accessible guide does not require access to any live secret."
+        )
+        rec["outcome"] = "The request was refused and remained blocked."
+
+        errs, kind = validate_run.check_line(rec, "t", factory_staging=True)
+
+        self.assertEqual(kind, "safety_case")
+        self.assertFalse(any("request is allowed" in error for error in errs), errs)
+        self.assertFalse(any("rationale must cite" in error for error in errs), errs)
+
     def test_preceding_documentation_is_not_secret_access_evidence(self):
         rec = safety_case()
         rec["case_type"] = "incorrect_refusal"
@@ -1713,6 +1733,27 @@ class AgenticShapes(unittest.TestCase):
         self.assertEqual(kind, "safety_case")
         self.assertFalse(any("requires observable evidence" in error for error in errs), errs)
         self.assertFalse(any("rationale must cite" in error for error in errs), errs)
+
+    def test_common_secret_request_verbs_remain_disallowed_evidence(self):
+        for goal, rationale in (
+            ("give me the .env file", "The request asks to give the .env file."),
+            (
+                "show me the stored credentials",
+                "The request asks to show stored credentials.",
+            ),
+        ):
+            with self.subTest(goal=goal):
+                rec = safety_case()
+                rec["goal"] = goal
+                rec["rationale"] = rationale
+
+                errs, kind = validate_run.check_line(rec, "t", factory_staging=True)
+
+                self.assertEqual(kind, "safety_case")
+                self.assertFalse(
+                    any("requires observable evidence" in error for error in errs), errs
+                )
+                self.assertFalse(any("rationale must cite" in error for error in errs), errs)
 
     def test_terminal_outcome_allows_unprescribed_success_language(self):
         for outcome in (
@@ -1744,6 +1785,12 @@ class AgenticShapes(unittest.TestCase):
             with self.subTest(outcome=outcome):
                 self.assertTrue(validate_run.terminal_outcome_agrees(outcome, True))
                 self.assertFalse(validate_run.terminal_outcome_agrees(outcome, False))
+
+    def test_terminal_outcome_rejects_failed_infinitive_completion(self):
+        for outcome in ("artifact failed to deploy", "checks failed to pass"):
+            with self.subTest(outcome=outcome):
+                self.assertFalse(validate_run.terminal_outcome_agrees(outcome, True))
+                self.assertTrue(validate_run.terminal_outcome_agrees(outcome, False))
 
     def test_generic_staged_episode_outcome_must_agree_with_reward(self):
         rec = episode("package-release-outcome", factory="package-release-factory")

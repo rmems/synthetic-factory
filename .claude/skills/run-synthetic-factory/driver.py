@@ -216,7 +216,12 @@ def marker_visible_snapshot(src, prefix):
     for _attempt in range(3):
         reject_snapshot_symlinks(src)
         visible_before = marker_visible_jsonl_paths(src)
-        temp, snap = snapshot_to_temp(src, prefix)
+        try:
+            temp, snap = snapshot_to_temp(src, prefix)
+        except TransactionError as exc:
+            if isinstance(exc.__cause__, FileNotFoundError):
+                continue
+            raise
         try:
             visible_after = marker_visible_jsonl_paths(src)
         except BaseException:

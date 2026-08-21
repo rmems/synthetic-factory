@@ -308,6 +308,37 @@ class FactoryDriverValidation(unittest.TestCase):
             ["visibility", "copy", "visibility", "visibility", "copy", "visibility"],
         )
 
+    def test_marker_visibility_retries_transient_cleanup_during_copy(self):
+        with tempfile.TemporaryDirectory() as td:
+            run = Path(td) / "run"
+            run.mkdir()
+            (run / "stable.txt").write_text("stable\n")
+            real_snapshot = factory_driver.snapshot_to_temp
+            attempts = 0
+
+            def transient_cleanup(src, prefix):
+                nonlocal attempts
+                attempts += 1
+                if attempts == 1:
+                    try:
+                        raise FileNotFoundError("transaction marker was cleaned up")
+                    except FileNotFoundError as cause:
+                        raise TransactionError("snapshot entry disappeared") from cause
+                return real_snapshot(src, prefix)
+
+            with mock.patch.object(
+                factory_driver, "snapshot_to_temp", side_effect=transient_cleanup
+            ):
+                temp, snapshot, visible = factory_driver.marker_visible_snapshot(
+                    run, "factory-cleanup-retry-"
+                )
+            try:
+                self.assertEqual(snapshot.joinpath("stable.txt").read_text(), "stable\n")
+                self.assertEqual(visible, {})
+                self.assertEqual(attempts, 2)
+            finally:
+                temp.cleanup()
+
     def test_validate_snapshot_excludes_uncommitted_marker_batches(self):
         with tempfile.TemporaryDirectory() as td:
             run = Path(td) / "run"
