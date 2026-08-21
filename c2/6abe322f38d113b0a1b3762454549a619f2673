@@ -1,0 +1,26 @@
+tests/test_agentic_shapes.py
+  s_a101c3059277fd::t_512f038fd43e79 239-279
+tests/test_curate_agentic.py
+  s_a101c3059277fd::t_512f038fd43e79 288-298
+pipelines/round_txn.py
+  s_a101c3059277fd::t_097ad5e52f36e9 842-847
+  s_a101c3059277fd::t_512f038fd43e79 832-841,848-866
+pipelines/curate_agentic.py
+  s_a101c3059277fd::t_512f038fd43e79 363-368
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "c26abe322f38d113b0a1b3762454549a619f2673",
+  "prompts": {},
+  "sessions": {
+    "s_a101c3059277fd": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a01e14-4bc2-7890-a7ce-1c993a8df50a",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Raul Montoya Cardenas <montoyaraul34@gmail.com>"
+    }
+  }
+}
