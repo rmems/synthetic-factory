@@ -146,6 +146,7 @@ exit 1
                     "XDG_STATE_HOME": str(state_home),
                     "GROK": str(grok),
                     "GROK_STARTUP_GRACE_SECONDS": "0",
+                    "SYNTHETIC_FACTORY_ROOT": str(REPO),
                 },
                 capture_output=True,
                 text=True,

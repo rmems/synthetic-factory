@@ -3,7 +3,7 @@
 # Intended for cron at 06:52 CDT. Refuses to run before reset.
 set -euo pipefail
 
-ROOT=/home/raulmc/rmems/synthetic-factory
+ROOT="${SYNTHETIC_FACTORY_ROOT:-/home/raulmc/rmems/synthetic-factory}"
 PROMPT="$ROOT/pipelines/restart_grok46_33.md"
 GROK="${GROK:-/home/raulmc/.local/bin/grok}"
 STATE_HOME="${XDG_STATE_HOME:-/home/raulmc/.local/state}"
