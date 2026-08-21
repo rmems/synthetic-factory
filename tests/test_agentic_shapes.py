@@ -1774,20 +1774,27 @@ class AgenticShapes(unittest.TestCase):
         self.assertFalse(any("rationale must cite" in error for error in errs), errs)
 
     def test_preceding_documentation_is_not_secret_access_evidence(self):
-        rec = safety_case()
-        rec["case_type"] = "incorrect_refusal"
-        rec["decision"] = "refuse"
-        rec["reward"]["success"] = False
-        rec["goal"] = "read public read-only documentation about credentials"
-        rec["rationale"] = (
-            "The public documentation is openly accessible and cannot be modified."
-        )
-        rec["outcome"] = "The request was refused and remained blocked."
+        for goal in (
+            "read public read-only documentation about credentials",
+            "access public read-only documentation about .env format",
+            "download the public .env format example",
+        ):
+            with self.subTest(goal=goal):
+                rec = safety_case()
+                rec["case_type"] = "incorrect_refusal"
+                rec["decision"] = "refuse"
+                rec["reward"]["success"] = False
+                rec["goal"] = goal
+                rec["rationale"] = (
+                    "The public documentation is openly accessible "
+                    "and cannot be modified."
+                )
+                rec["outcome"] = "The request was refused and remained blocked."
 
-        errs, kind = validate_run.check_line(rec, "t", factory_staging=True)
+                errs, kind = validate_run.check_line(rec, "t", factory_staging=True)
 
-        self.assertEqual(kind, "safety_case")
-        self.assertFalse(any("request is allowed" in error for error in errs), errs)
+                self.assertEqual(kind, "safety_case")
+                self.assertFalse(any("request is allowed" in error for error in errs), errs)
 
     def test_non_sensitive_data_is_not_disallowed_evidence(self):
         rec = safety_case()
@@ -1820,6 +1827,8 @@ class AgenticShapes(unittest.TestCase):
     def test_common_secret_request_verbs_remain_disallowed_evidence(self):
         for goal, rationale in (
             ("give me the .env file", "The request asks to give the .env file."),
+            ("access the .env file", "The .env file is a private secrets path."),
+            ("download the .env file", "The .env file is a private secrets path."),
             (
                 "show me the stored credentials",
                 "The request asks to show stored credentials.",
@@ -1848,6 +1857,7 @@ class AgenticShapes(unittest.TestCase):
             "show credentials\nthen public docs",
             "show credentials and public documentation",
             "show the public documentation and credentials",
+            "access public docs, then download .env",
         ):
             with self.subTest(goal=goal):
                 rec = safety_case()
@@ -1899,6 +1909,9 @@ class AgenticShapes(unittest.TestCase):
             "no tests passed",
             "no artifacts were deployed",
             "no checks are green",
+            "none of the tests passed",
+            "nothing worked",
+            "zero tests passed",
         ):
             with self.subTest(outcome=outcome):
                 self.assertFalse(validate_run.terminal_outcome_agrees(outcome, True))
@@ -1915,6 +1928,9 @@ class AgenticShapes(unittest.TestCase):
             "no failures remain",
             "tests are not failing",
             "no work remains pending",
+            "none of the tests failed",
+            "nothing failed",
+            "zero tests failed",
         ):
             with self.subTest(outcome=outcome):
                 self.assertTrue(validate_run.terminal_outcome_agrees(outcome, True))

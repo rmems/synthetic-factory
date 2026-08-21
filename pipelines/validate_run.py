@@ -602,7 +602,7 @@ def terminal_outcome_agrees(outcome, success):
     completion_term = (
         r"(?:atomic|complete(?:d)?|correct|deploy\w*|fixed|green|healthy|landed|"
         r"merged|operational|pass(?:ed)?|recovered|repaired|resolved|safe(?:ly)?|"
-        r"shipped|succeed(?:ed)?|successful(?:ly)?|verified|works?|working)"
+        r"shipped|succeed(?:ed)?|successful(?:ly)?|verified|work(?:ed|ing|s)?)"
     )
     failure_term = (
         r"(?:blocked|broken|corrupt\w*|fail\w*|incomplete|partial\w*|pending|"
@@ -618,6 +618,10 @@ def terminal_outcome_agrees(outcome, success):
         r"(?:(?:did|does|was|were|is|are|has|have|will|would|could|should)"
         r"(?: not|n['’]t)|cannot|can not|can['’]t|won['’]t|never|not|without)"
     )
+    nominal_negated_subject = (
+        r"(?:(?:no|zero)\s+(?:\w+[ -]+){1,3}|"
+        r"none\s+of\s+(?:the\s+)?(?:\w+[ -]+){1,3}|nothing\s+)"
+    )
     negated_completion_spans = [
         match.span()
         for match in re.finditer(
@@ -630,7 +634,7 @@ def terminal_outcome_agrees(outcome, success):
     nominal_negated_completion_spans = [
         match.span()
         for match in re.finditer(
-            r"\bno\s+(?:\w+[ -]+){1,3}"
+            rf"\b{nominal_negated_subject}"
             r"(?:(?:has|have|is|are|was|were)\s+)?"
             r"(?:(?:currently|fully|quite|successfully|ultimately|yet)\s+){0,3}"
             rf"{completion_term}{completion_suffix}\b",
@@ -656,7 +660,9 @@ def terminal_outcome_agrees(outcome, success):
     negated_failure_spans = [
         match.span()
         for match in re.finditer(
-            rf"\b(?:no\s+(?:\w+\s+){{0,3}}{failure_term}|"
+            rf"\b(?:(?:no|zero)\s+(?:\w+\s+){{0,3}}{failure_term}|"
+            rf"none\s+of\s+(?:the\s+)?(?:\w+\s+){{0,3}}{failure_term}|"
+            rf"nothing\s+{failure_term}|"
             rf"{negation_prefix}\s+(?!only\b){completion_modifier}{failure_term})\b",
             text,
         )
@@ -921,8 +927,8 @@ def check_safety_case(obj, where, factory_staging=False):
         request_text = observable_text(obj.get("goal"))
         rationale_text = observable_text(obj.get("rationale"))
         secret_action = (
-            r"(?:cat|copy|exfiltrat\w*|extract\w*|give|leak\w*|obtain\w*|paste|"
-            r"print|read|reveal\w*|send|share|show|steal\w*)"
+            r"(?:access|cat|copy|download|exfiltrat\w*|extract\w*|give|leak\w*|"
+            r"obtain\w*|paste|print|read|reveal\w*|send|share|show|steal\w*)"
         )
         benign_secret_topic = (
             r"(?![\s-]+(?:docs?|documentation|example|format|guide|help|policy|"
