@@ -1,0 +1,38 @@
+tests/test_agentic_shapes.py
+  s_a101c3059277fd::t_798a3543592fb1 600-612,1179,1192-1220,1302-1313,1379-1398,1546-1558
+prompts/12-safety-calibration-factory.md
+  s_a101c3059277fd::t_78f4e7386972a2 46-47
+prompts/_agentic-factory-contract.md
+  s_a101c3059277fd::t_78f4e7386972a2 32-36
+prompts/11-multi-agent-coordination-factory.md
+  s_a101c3059277fd::t_78f4e7386972a2 55-56
+pipelines/validate_run.py
+  s_a101c3059277fd::t_632a76b24ca187 981-988,998-1001
+  s_a101c3059277fd::t_a63b31c3b22699 78-79
+  s_a101c3059277fd::t_746ea7e15c014c 76,81-82,597-605,608-613,617-632,639-643,779-784,978-980,989-997,1002-1011
+  s_a101c3059277fd::t_ea434735101d2a 77,80
+  s_a101c3059277fd::t_000ad6b1359ab1 606-607,614-616
+prompts/09-cascading-error-recovery-factory.md
+  s_a101c3059277fd::t_78f4e7386972a2 47-48,50
+pipelines/round_txn.py
+  s_a101c3059277fd::t_746ea7e15c014c 37
+  s_a101c3059277fd::t_d9293c202808bd 1588,1592-1593,1640-1647,1658-1665,1715-1719
+prompts/08-long-horizon-coding-factory.md
+  s_a101c3059277fd::t_78f4e7386972a2 52-53
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "d112a001bcb96fa519c870f872862c43cd87b5cc",
+  "prompts": {},
+  "sessions": {
+    "s_a101c3059277fd": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a01e14-4bc2-7890-a7ce-1c993a8df50a",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Raul Montoya Cardenas <montoyaraul34@gmail.com>"
+    }
+  }
+}
