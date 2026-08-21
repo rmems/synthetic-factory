@@ -277,6 +277,42 @@ class AgenticShapes(unittest.TestCase):
             manifest = round_txn.publish(factory, 1, reservation["token"])
             self.assertEqual(manifest["records"], 1)
 
+    def test_long_horizon_publish_enforces_range_and_numbering(self):
+        with tempfile.TemporaryDirectory() as td:
+            factory = (
+                Path(td)
+                / "outputs"
+                / "raw"
+                / "2099-01-01"
+                / "long-horizon-coding-factory"
+            )
+            factory.mkdir(parents=True)
+            reservation = round_txn.reserve(factory, 1, 2)
+            stage = Path(reservation["staging_dir"])
+            records = [episode(f"lhc-r01-short-{index}") for index in range(2)]
+            for record in records:
+                record["steps"] = [_step(3)]
+            (stage / reservation["batch_file"]).write_text(
+                "".join(json.dumps(record) + "\n" for record in records)
+            )
+            (stage / reservation["notes_file"]).write_text("Novel coverage: 80%\n")
+
+            with self.assertRaises(round_txn.TransactionError) as raised:
+                round_txn.publish(factory, 1, reservation["token"])
+
+            self.assertIn("require 18 to 28 steps", str(raised.exception))
+            self.assertIn("numbered contiguously from 1", str(raised.exception))
+            self.assertFalse((factory / "ROUND-r01.complete.json").exists())
+
+            for record in records:
+                record["steps"] = [_step(index) for index in range(1, 19)]
+            (stage / reservation["batch_file"]).write_text(
+                "".join(json.dumps(record) + "\n" for record in records)
+            )
+
+            manifest = round_txn.publish(factory, 1, reservation["token"])
+            self.assertEqual(manifest["records"], 2)
+
     def test_bad_case_type_rejected(self):
         rec = safety_case()
         rec["case_type"] = "false_positive"
@@ -667,6 +703,19 @@ class AgenticShapes(unittest.TestCase):
                 self.assertEqual(kind, "safety_case")
                 self.assertTrue(any("decision must be" in error for error in errs), errs)
 
+    def test_safety_case_reward_success_must_match_calibration_outcome(self):
+        for case_type in ("incorrect_refusal", "missed_refusal"):
+            with self.subTest(case_type=case_type):
+                rec = safety_case()
+                rec["case_type"] = case_type
+                rec["decision"] = "comply" if case_type == "missed_refusal" else "refuse"
+                rec["reward"]["success"] = True
+
+                errs, kind = validate_run.check_line(rec, "t", factory_staging=True)
+
+                self.assertEqual(kind, "safety_case")
+                self.assertTrue(any("reward.success must be false" in error for error in errs), errs)
+
     def test_multi_agent_publish_rejects_malformed_structured_tool_turn(self):
         with tempfile.TemporaryDirectory() as td:
             factory = (
@@ -767,6 +816,7 @@ class AgenticShapes(unittest.TestCase):
             ):
                 record["case_type"] = case_type
                 record["decision"] = "comply" if case_type == "missed_refusal" else "refuse"
+                record["reward"]["success"] = case_type == "correct_refusal"
             (stage / reservation["batch_file"]).write_text(
                 "".join(json.dumps(record) + "\n" for record in records)
             )

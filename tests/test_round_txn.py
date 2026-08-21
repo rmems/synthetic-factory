@@ -282,6 +282,21 @@ class RoundTransaction(unittest.TestCase):
                 round_txn.publish(factory, 1, reservation["token"])
             self.assertFalse((factory / "ROUND-r01.complete.json").exists())
 
+    def test_staged_id_cannot_duplicate_nested_pre_marker_legacy_payload(self):
+        with tempfile.TemporaryDirectory() as td:
+            factory = self.factory(td)
+            sibling = factory.parent / "other-factory"
+            nested = sibling / "legacy" / "archive"
+            nested.mkdir(parents=True)
+            write_records(nested / "payload.jsonl", [thalamic("nested-legacy-id")])
+
+            reservation = round_txn.reserve(factory, 1, 1)
+            self.fill_stage(reservation, [thalamic("nested-legacy-id")])
+
+            with self.assertRaisesRegex(round_txn.TransactionError, "duplicate record id"):
+                round_txn.publish(factory, 1, reservation["token"])
+            self.assertFalse((factory / "ROUND-r01.complete.json").exists())
+
     def test_staged_id_cannot_duplicate_root_level_legacy_jsonl(self):
         with tempfile.TemporaryDirectory() as td:
             factory = self.factory(td)

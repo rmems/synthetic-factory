@@ -183,6 +183,26 @@ class TrainingAudit(unittest.TestCase):
         self.assertEqual(report["preferences"]["same_context"], 0)
         self.assertGreater(report["record_invariants"]["errors"], 0)
 
+    def test_legacy_thalamic_preference_is_exempt_from_agentic_thought_ban(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            chosen = thalamic("legacy-chosen")
+            rejected = thalamic("legacy-rejected")
+            chosen["state"]["thought"] = "legacy annotation"
+            record = {
+                "id": "legacy-preference",
+                "chosen": chosen,
+                "rejected": rejected,
+                "critique": "legacy Thalamic comparison",
+            }
+            write(root / "legacy-preference" / "batch-r01.jsonl", [record])
+
+            report = training_audit.audit_run(root)
+
+        self.assertEqual(report["preferences"]["thalamic_pairs"], 1)
+        self.assertEqual(report["episodes"].get("hidden_thought_fields", 0), 0)
+        self.assertFalse(any("hidden-thought fields" in item for item in report["blockers"]))
+
     def test_null_agentic_turn_containers_are_reported_without_crashing(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)

@@ -25,6 +25,29 @@ ITEM = {
 }
 
 
+def valid_legacy_episode(record_id):
+    return {
+        "id": record_id,
+        "goal": "repair a deterministic fixture",
+        "steps": [
+            {
+                "n": 1,
+                "decision_basis": "Observation: fixture is reproducible",
+                "tool_call": {"name": "inspect", "args": {}},
+                "observation": "fixture inspected",
+            }
+        ],
+        "outcome": "fixture repaired",
+        "reward": {"success": True},
+    }
+
+
+def write_valid_legacy(path, count=2):
+    path.write_text(
+        "".join(json.dumps(valid_legacy_episode(f"legacy-{index}")) + "\n" for index in range(count))
+    )
+
+
 class PublishGrok46HubTests(unittest.TestCase):
     def test_factory_discovery_and_snapshot_reject_symlinked_factory_roots(self):
         with tempfile.TemporaryDirectory() as td:
@@ -126,7 +149,7 @@ class PublishGrok46HubTests(unittest.TestCase):
             (source / ".round-marker-mode.json").write_text(
                 '{"version":1,"legacy_baseline":1,"commit_point":"ROUND-rNN.complete.json"}\n'
             )
-            (source / "batch-r01.jsonl").write_text('{"id":"legacy"}\n')
+            write_valid_legacy(source / "batch-r01.jsonl")
             (source / "batch-r02.jsonl").write_text('{"id":"uncommitted"}\n')
             committed_batch = source / "batch-r03.jsonl"
             committed_batch.write_text('{"id":"committed"}\n')
@@ -251,7 +274,7 @@ class PublishGrok46HubTests(unittest.TestCase):
                 '{"version":1,"legacy_baseline":1,"commit_point":"ROUND-rNN.complete.json"}\n'
             )
             legacy = source / "episodes.jsonl"
-            legacy.write_text('{"id":"legacy-episode"}\n')
+            write_valid_legacy(legacy)
             (source / "NOTES-r01.md").write_text("legacy notes\n")
 
             self.assertEqual([path.name for path in publisher.published_batches(source)], ["episodes.jsonl"])
@@ -263,7 +286,7 @@ class PublishGrok46HubTests(unittest.TestCase):
             raw = root / "hf" / ITEM["hub"] / "data" / "raw"
             meta = root / "hf" / ITEM["hub"] / "data" / "metadata"
             card = (root / "hf" / ITEM["hub"] / "README.md").read_text()
-            self.assertEqual(stats["records"], 1)
+            self.assertEqual(stats["records"], 2)
             self.assertTrue((raw / legacy.name).is_file())
             self.assertTrue((meta / "NOTES-r01.md").is_file())
             self.assertIn("data/raw/episodes.jsonl", card)
@@ -279,7 +302,7 @@ class PublishGrok46HubTests(unittest.TestCase):
                 local = publisher.local_snapshot_stats(ITEM)
 
             inventory = (root / "hf" / "SYNTHETIC-DATA-FACTORY-GROK46.md").read_text()
-            self.assertEqual(local["records"], 1)
+            self.assertEqual(local["records"], 2)
             self.assertIsNone(local["last"])
             self.assertIn(f"| `{ITEM['hub']}/`", inventory)
             self.assertIn(f"| `{other['hub']}/`", inventory)
@@ -488,7 +511,7 @@ class PublishGrok46HubTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             source = Path(td) / ITEM["slug"]
             source.mkdir()
-            (source / "episodes.jsonl").write_text('{"id":"legacy"}\n')
+            write_valid_legacy(source / "episodes.jsonl")
             mode = source / ".round-marker-mode.json"
 
             for payload, message in (
@@ -518,13 +541,68 @@ class PublishGrok46HubTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             source = Path(td) / ITEM["slug"]
             source.mkdir()
-            (source / "batch-r01.jsonl").write_text('{"id":"legacy"}\n')
+            write_valid_legacy(source / "batch-r01.jsonl")
             (source / ".round-marker-mode.json").write_text(
                 '{"version":1,"legacy_baseline":0,"commit_point":"ROUND-rNN.complete.json"}\n'
             )
 
             with self.assertRaisesRegex(SystemExit, "excludes legacy r01"):
                 publisher.published_batches(source)
+
+    def test_marker_mode_rejects_a_malformed_named_legacy_frontier(self):
+        with tempfile.TemporaryDirectory() as td:
+            source = Path(td) / ITEM["slug"]
+            source.mkdir()
+            (source / "batch-r26.jsonl").write_text("{not-json\n")
+            (source / ".round-marker-mode.json").write_text(
+                '{"version":1,"legacy_baseline":26,"commit_point":"ROUND-rNN.complete.json"}\n'
+            )
+
+            with self.assertRaisesRegex(SystemExit, "exceeds discovered legacy frontier"):
+                publisher.published_batches(source)
+
+    def test_snapshot_rechecks_manifest_digest_after_visibility_selection(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            source = root / "raw" / ITEM["slug"]
+            source.mkdir(parents=True)
+            batch = source / "batch-r01.jsonl"
+            notes = source / "NOTES-r01.md"
+            batch.write_text('{"id":"committed"}\n')
+            notes.write_text("committed\n")
+            (source / ".round-marker-mode.json").write_text(
+                '{"version":1,"legacy_baseline":0,"commit_point":"ROUND-rNN.complete.json"}\n'
+            )
+            (source / "ROUND-r01.complete.json").write_text(
+                json.dumps(
+                    {
+                        "factory": ITEM["slug"],
+                        "round": 1,
+                        "commit_point": "ROUND-r01.complete.json",
+                        "files": [
+                            {"name": batch.name, "sha256": hashlib.sha256(batch.read_bytes()).hexdigest()},
+                            {"name": notes.name, "sha256": hashlib.sha256(notes.read_bytes()).hexdigest()},
+                        ],
+                    }
+                )
+                + "\n"
+            )
+            real_published_notes = publisher.published_notes
+
+            def tamper_after_selection(*args, **kwargs):
+                selected = real_published_notes(*args, **kwargs)
+                batch.write_text('{"id":"changed-after-validation"}\n')
+                return selected
+
+            with mock.patch.object(publisher, "FACTORY_ROOT", root / "raw"), mock.patch.object(
+                publisher, "HF_ROOT", root / "hf"
+            ), mock.patch.object(
+                publisher, "published_notes", side_effect=tamper_after_selection
+            ):
+                with self.assertRaisesRegex(SystemExit, "changed after manifest validation"):
+                    publisher.snapshot_one(ITEM)
+
+            self.assertFalse((root / "hf" / ITEM["hub"] / "data" / "raw" / batch.name).exists())
 
     def test_invalid_utf8_completion_marker_has_a_bounded_error(self):
         with tempfile.TemporaryDirectory() as td:

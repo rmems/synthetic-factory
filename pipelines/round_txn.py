@@ -434,6 +434,27 @@ def shares_visible_terms(left, right):
     return bool(left_terms & right_terms)
 
 
+def numbered_horizon_errors(where, steps, lane, minimum, maximum):
+    """Return lane-specific horizon and exact integer numbering errors."""
+    if not isinstance(steps, list):
+        return []
+    errors = []
+    if not minimum <= len(steps) <= maximum:
+        errors.append(f"{where}: {lane} episodes require {minimum} to {maximum} steps")
+    step_numbers = [
+        step.get("n") if isinstance(step, dict) else None
+        for step in steps
+    ]
+    if any(
+        not isinstance(number, int)
+        or isinstance(number, bool)
+        or number != expected_number
+        for expected_number, number in enumerate(step_numbers, 1)
+    ):
+        errors.append(f"{where}: {lane} steps must be numbered contiguously from 1")
+    return errors
+
+
 def frontier_status(factory_dir: Path):
     factory_dir = Path(factory_dir).resolve()
     if not factory_dir.is_dir():
@@ -601,14 +622,19 @@ def committed_jsonl_paths(factory_dir: Path):
     that declared baseline or has its own completion marker. This deliberately
     excludes files linked by an interrupted publish before its commit marker.
     """
+    mode_path = marker_mode_path(factory_dir)
+    if mode_path is None:
+        return sorted(
+            path
+            for path in factory_dir.rglob("*.jsonl")
+            if path.is_file() and not path.is_symlink()
+        )
+
     files = sorted(
         path
         for path in factory_dir.glob("*.jsonl")
         if path.is_file() and not path.is_symlink()
     )
-    mode_path = marker_mode_path(factory_dir)
-    if mode_path is None:
-        return files
 
     mode = validated_marker_mode(factory_dir, mode_path)
     baseline = mode["legacy_baseline"]
@@ -829,25 +855,29 @@ def validate_agentic_envelope(batch: Path, factory_dir: Path, round_number: int)
                         errors.append(
                             f"{where}: recovery decision_basis must cite the diagnosis"
                         )
+        if factory_dir.name == "long-horizon-coding-factory" and isinstance(record, dict):
+            errors.extend(
+                numbered_horizon_errors(
+                    where,
+                    record.get("steps"),
+                    "long-horizon coding",
+                    18,
+                    28,
+                )
+            )
         if factory_dir.name == "sparse-reward-long-task-factory" and isinstance(record, dict):
             steps = record.get("steps")
             reward = record.get("reward")
             if isinstance(steps, list):
-                if not 25 <= len(steps) <= 60:
-                    errors.append(f"{where}: sparse long-task episodes require 25 to 60 steps")
-                step_numbers = [
-                    step.get("n") if isinstance(step, dict) else None
-                    for step in steps
-                ]
-                if any(
-                    not isinstance(number, int)
-                    or isinstance(number, bool)
-                    or number != expected_number
-                    for expected_number, number in enumerate(step_numbers, 1)
-                ):
-                    errors.append(
-                        f"{where}: sparse long-task steps must be numbered contiguously from 1"
+                errors.extend(
+                    numbered_horizon_errors(
+                        where,
+                        steps,
+                        "sparse long-task",
+                        25,
+                        60,
                     )
+                )
                 for index, step in enumerate(steps):
                     if isinstance(step, dict) and "reward" in step:
                         errors.append(

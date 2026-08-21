@@ -19,8 +19,10 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 import re
 import shutil
+import stat
 import subprocess
 import sys
 import tempfile
@@ -29,6 +31,15 @@ from pathlib import Path
 FACTORY_ROOT = Path("/home/raulmc/rmems/synthetic-factory/outputs/raw/2026-08-19-agentic")
 HF_ROOT = Path("/home/raulmc/rmems/hf")
 REPO_ROOT = Path(__file__).resolve().parents[1]
+PIPELINES_ROOT = REPO_ROOT / "pipelines"
+if str(PIPELINES_ROOT) not in sys.path:
+    sys.path.insert(0, str(PIPELINES_ROOT))
+
+from round_txn import (  # noqa: E402
+    discover_legacy_frontier as transaction_legacy_frontier,
+    discover_legacy_named_baseline as transaction_legacy_named_baseline,
+)
+
 LICENSE_SRC = REPO_ROOT / "LICENSE"
 COLLECTION = "rmems/synthetic-data-factory-grok-46-6a8570931720e862b5638e90"
 COLLECTION_URL = (
@@ -327,7 +338,7 @@ def count_jsonl_lines(path: Path) -> int:
     return n
 
 
-def link_or_copy(src: Path, dst: Path) -> None:
+def link_or_copy(src: Path, dst: Path, expected_sha256: str | None = None) -> None:
     """Atomically replace any prior snapshot with an independent copy.
 
     Hub working trees are mutable. A hard link would let a later edit under
@@ -341,7 +352,28 @@ def link_or_copy(src: Path, dst: Path) -> None:
     ) as handle:
         temporary = Path(handle.name)
     try:
-        shutil.copy2(src, temporary)
+        flags = os.O_RDONLY
+        if hasattr(os, "O_NOFOLLOW"):
+            flags |= os.O_NOFOLLOW
+        try:
+            source_fd = os.open(src, flags)
+        except OSError as exc:
+            raise SystemExit(f"unsafe snapshot source file: {src}: {exc}") from exc
+        try:
+            if not stat.S_ISREG(os.fstat(source_fd).st_mode):
+                raise SystemExit(f"unsafe snapshot source file: {src}")
+            with os.fdopen(source_fd, "rb") as source_handle, temporary.open(
+                "wb"
+            ) as temporary_handle:
+                source_fd = -1
+                shutil.copyfileobj(source_handle, temporary_handle)
+                temporary_handle.flush()
+                os.fsync(temporary_handle.fileno())
+        finally:
+            if source_fd >= 0:
+                os.close(source_fd)
+        if expected_sha256 is not None and file_sha256(temporary) != expected_sha256:
+            raise SystemExit(f"snapshot source changed after manifest validation: {src}")
         temporary.replace(dst)
     finally:
         temporary.unlink(missing_ok=True)
@@ -466,25 +498,8 @@ def completed_manifests(src: Path) -> dict[int, dict]:
 
 
 def discovered_legacy_frontier(src: Path) -> tuple[int, int]:
-    """Return the highest raw round claim and the non-transactional r01 floor."""
-    rounds = []
-    has_legacy_r01 = False
-    for path in src.glob("*.jsonl"):
-        if not is_regular_source_file(path):
-            continue
-        label = batch_label(path)
-        if label is not None:
-            rounds.append(label[0])
-            if (
-                label[0] == 1
-                and not label[1]
-                and not (src / "ROUND-r01.complete.json").exists()
-            ):
-                has_legacy_r01 = True
-        elif path.name in LEGACY_R1_NAMES:
-            rounds.append(1)
-            has_legacy_r01 = True
-    return max(rounds, default=0), int(has_legacy_r01)
+    """Return allocator-validated legacy frontier and named r01 floor."""
+    return transaction_legacy_frontier(src), transaction_legacy_named_baseline(src)
 
 
 def marker_mode_state(src: Path) -> tuple[int | None, dict[int, dict]]:
@@ -532,6 +547,42 @@ def file_matches_manifest(path: Path, manifest: dict) -> bool:
     if file_sha256(path) != expected:
         raise SystemExit(f"completed file hash mismatch: {path}")
     return True
+
+
+def manifest_file_sha256(path: Path, manifest: dict) -> str:
+    """Return the unique validated manifest digest for one committed file name."""
+    entries = [
+        entry
+        for entry in manifest["files"]
+        if isinstance(entry, dict) and entry.get("name") == path.name
+    ]
+    if len(entries) != 1:
+        raise SystemExit(f"completion marker has no unique file entry for {path}")
+    digest = entries[0].get("sha256")
+    if not isinstance(digest, str) or SHA256_RE.fullmatch(digest) is None:
+        raise SystemExit(f"completion marker has invalid file hash for {path}")
+    return digest
+
+
+def snapshot_manifest_sha256(
+    path: Path, marker_state: tuple[int | None, dict[int, dict]]
+) -> str | None:
+    """Return the committed digest that must still match during snapshot copy."""
+    baseline, manifests = marker_state
+    if baseline is None:
+        return None
+    label = batch_label(path)
+    if label is not None:
+        round_number, suffix, _round_label = label
+    else:
+        match = NOTES_NAME_RE.fullmatch(path.name)
+        if match is None:
+            return None
+        round_number = int(match.group(1))
+        suffix = match.group(2)
+    if round_number <= baseline or suffix or round_number not in manifests:
+        return None
+    return manifest_file_sha256(path, manifests[round_number])
 
 
 def published_batches(
@@ -640,12 +691,13 @@ def snapshot_one(item: dict) -> dict:
         else:
             raise SystemExit(f"unsafe non-file snapshot metadata: {existing}")
     for b in batches:
-        link_or_copy(b, raw / b.name)
-        records += count_jsonl_lines(b)
-        bytes_ += b.stat().st_size
+        copied = raw / b.name
+        link_or_copy(b, copied, snapshot_manifest_sha256(b, marker_state))
+        records += count_jsonl_lines(copied)
+        bytes_ += copied.stat().st_size
         labels.append(batch_label(b))
     for n in notes:
-        link_or_copy(n, meta / n.name)
+        link_or_copy(n, meta / n.name, snapshot_manifest_sha256(n, marker_state))
     labels = [
         (batch, label)
         for batch, label in zip(batches, labels)

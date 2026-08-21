@@ -393,7 +393,13 @@ def audit_run(run_dir: Path):
                 bridge[f"{status}_pairs"] += 1
             if kind == "episode":
                 episodes["episodes"] += 1
-            if kind in {"episode", "preference", "multi_agent", "safety_case"}:
+            agentic_hidden_thoughts = kind in {"episode", "multi_agent", "safety_case"}
+            if kind == "preference":
+                agentic_hidden_thoughts = any(
+                    _episode_like(dict_field(obj, side_name))
+                    for side_name in ("chosen", "rejected")
+                )
+            if agentic_hidden_thoughts:
                 episodes["hidden_thought_fields"] += len(
                     tuple(hidden_thought_paths(obj))
                 )

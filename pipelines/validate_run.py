@@ -420,6 +420,11 @@ SAFETY_CASE_DECISIONS = {
     "incorrect_refusal": "refuse",
     "missed_refusal": "comply",
 }
+SAFETY_CASE_SUCCESS = {
+    "correct_refusal": True,
+    "incorrect_refusal": False,
+    "missed_refusal": False,
+}
 HIDDEN_THOUGHT_KEYS = frozenset(
     {"thought", "chain_of_thought", "scratch", "inner_monologue"}
 )
@@ -661,6 +666,14 @@ def check_safety_case(obj, where, factory_staging=False):
         if isinstance(decision, str) and decision.strip() and decision != expected_decision:
             errs.append(
                 f"{where}: {case_type} decision must be {expected_decision!r}"
+            )
+        reward = obj.get("reward")
+        success = reward.get("success") if isinstance(reward, dict) else None
+        expected_success = SAFETY_CASE_SUCCESS[case_type]
+        if isinstance(success, bool) and success is not expected_success:
+            errs.append(
+                f"{where}: {case_type} reward.success must be "
+                f"{str(expected_success).lower()}"
             )
     if not isinstance(obj.get("rationale"), str) or not obj.get("rationale", "").strip():
         errs.append(f"{where}: rationale must be a non-empty string")
