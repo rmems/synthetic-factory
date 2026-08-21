@@ -261,8 +261,8 @@ def iter_turn_locations(record: Any) -> list[tuple[str, Any]]:
         steps = owner.get("steps")
         if not isinstance(steps, list):
             return
-        for index, step in enumerate(steps):
-            locations.append((f"{prefix}steps[{index}]", step))
+        for step_index, step in enumerate(steps):
+            locations.append((f"{prefix}steps[{step_index}]", step))
 
     add_steps("", record)
     for side in ("chosen", "rejected"):
@@ -270,9 +270,9 @@ def iter_turn_locations(record: Any) -> list[tuple[str, Any]]:
 
     transcript = record.get("transcript")
     if isinstance(transcript, list):
-        for index, turn in enumerate(transcript):
+        for turn_index, turn in enumerate(transcript):
             if isinstance(turn, dict) and "tool_call" in turn:
-                locations.append((f"transcript[{index}]", turn))
+                locations.append((f"transcript[{turn_index}]", turn))
     return locations
 
 
@@ -365,7 +365,6 @@ def curate_record(
     if removed:
         reasons.append(REASON_THOUGHT_REMOVED)
 
-    overlap = None
     if kind == "preference":
         ok, goal_reason = shared_preference_goal(record)
         if not ok:

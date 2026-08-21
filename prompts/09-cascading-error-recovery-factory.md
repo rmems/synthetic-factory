@@ -40,6 +40,8 @@ propagates**, then a visible diagnosis and recovery. Still an `episode` record.
 ### Cascade rules
 
 - Introduce one concrete fault (`error_introduced.step` ≥ 2, not the last step).
+  That exact step's action/tool call or observation must visibly introduce the
+  declared `kind` or `payload`; a fault named only in `decision_basis` fails.
 - The next **3–8** steps must **inherit** the fault (wrong cache, poisoned lock,
   bad schema assumed downstream, retry amplifying the same error). Do not reset
   the world between those steps.
@@ -49,7 +51,8 @@ propagates**, then a visible diagnosis and recovery. Still an `episode` record.
 - One episode fully recovers; one remains partially contained or hands off.
   Negated recovery or terminal failure cannot receive a recovered/success label.
 - Vary fault class across the pair (stale state, silent truncate, auth expiry,
-  schema drift, retry storm). Same problem before and after the fault.
+  schema drift, retry storm). Hyphen/space/punctuation variants count as the
+  same class. Same problem before and after the fault.
 
 ### NOTES
 

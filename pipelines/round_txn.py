@@ -986,6 +986,13 @@ def shares_visible_terms(left, right):
     return bool(left_terms & right_terms)
 
 
+def normalized_category(value):
+    """Normalize a human category so punctuation cannot manufacture diversity."""
+    if not isinstance(value, str):
+        return ""
+    return re.sub(r"[^a-z0-9]+", "_", value.strip().casefold()).strip("_")
+
+
 def numbered_horizon_errors(where, steps, lane, minimum, maximum):
     """Return lane-specific horizon and exact integer numbering errors."""
     if not isinstance(steps, list):
@@ -1043,8 +1050,8 @@ def has_long_horizon_debug_loop(steps):
     texts = [observable_step_text(step) for step in steps]
     observations = [step_observation_text(step) for step in steps]
 
-    def includes(text, terms):
-        return any(term in text for term in terms)
+    def includes(candidate_text, terms):
+        return any(term in candidate_text for term in terms)
 
     edit_terms = ("edit", "write", "patch", "apply")
     test_terms = ("test", "pytest", "cargo test", "npm test")
@@ -1315,11 +1322,12 @@ def reserve(factory_dir: Path, round_number: int, expected: int):
         )
     paths = marker_paths(factory_dir, round_number)
     for role, path in paths.items():
-        if path.exists():
+        if path.exists() or path.is_symlink():
             raise TransactionError(f"{role} path already exists: {path}")
 
     token = uuid.uuid4().hex
     stage = staging_dir(factory_dir, round_number, token)
+    validated_reservation_stage(factory_dir, round_number, token, str(stage))
     stage.mkdir(parents=True, exist_ok=False)
     payload = {
         "version": 1,
@@ -1535,9 +1543,35 @@ def validate_agentic_envelope(batch: Path, factory_dir: Path, round_number: int)
                 if not isinstance(fault.get("kind"), str) or not fault["kind"].strip():
                     errors.append(f"{where}: error_introduced.kind must be a non-empty string")
                 else:
-                    cascade_fault_kinds.append(fault["kind"].strip().casefold())
+                    cascade_fault_kinds.append(normalized_category(fault["kind"]))
                 if not isinstance(fault.get("payload"), str) or not fault["payload"].strip():
                     errors.append(f"{where}: error_introduced.payload must be a non-empty string")
+                if (
+                    isinstance(step_number, int)
+                    and not isinstance(step_number, bool)
+                    and isinstance(steps, list)
+                    and 1 <= step_number <= len(steps)
+                ):
+                    introduced_step = steps[step_number - 1]
+                    introduced_text = (
+                        " ".join(
+                            nested_strings(
+                                {
+                                    "action": introduced_step.get("action"),
+                                    "tool_call": introduced_step.get("tool_call"),
+                                    "observation": introduced_step.get("observation"),
+                                }
+                            )
+                        )
+                        if isinstance(introduced_step, dict)
+                        else ""
+                    )
+                    fault_text = f"{fault.get('kind', '')} {fault.get('payload', '')}"
+                    if not shares_visible_terms(introduced_text, fault_text):
+                        errors.append(
+                            f"{where}: error_introduced.step action or observation "
+                            "must visibly introduce the declared fault"
+                        )
             if not isinstance(diagnosis, str) or not diagnosis.strip():
                 errors.append(f"{where}: diagnosis must be a non-empty string")
             cascade_steps = reward.get("cascade_steps") if isinstance(reward, dict) else None
@@ -1900,13 +1934,7 @@ def validate_agentic_envelope(batch: Path, factory_dir: Path, round_number: int)
                         "lesson_category"
                     )
                 else:
-                    tool_use_lesson_signatures.append(
-                        re.sub(
-                            r"[^a-z0-9]+",
-                            "_",
-                            lesson_category.strip().casefold(),
-                        ).strip("_")
-                    )
+                    tool_use_lesson_signatures.append(normalized_category(lesson_category))
             for side_name in ("chosen", "rejected"):
                 side = record.get(side_name) if isinstance(record, dict) else None
                 if not isinstance(side, dict) or not isinstance(side.get("steps"), list):

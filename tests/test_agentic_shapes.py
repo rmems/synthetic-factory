@@ -195,6 +195,10 @@ def cascading_episode(record_id, round_number=1):
         _step(6, "Diagnose the stale-lock root cause"),
         _step(7, "Use the stale-lock diagnosis to remove the stale lock"),
     ]
+    record["steps"][1]["tool_call"]["args"]["command"] = (
+        "create stale-lock file after writer crash"
+    )
+    record["steps"][1]["observation"] = fault_text
     for step in record["steps"][2:5]:
         step["observation"] = f"{fault_text} still affects downstream work"
     record["steps"][5]["observation"] = (
@@ -1147,6 +1151,53 @@ class AgenticShapes(unittest.TestCase):
 
             self.assertEqual(manifest["records"], 2)
 
+    def test_cascade_declared_fault_must_be_grounded_in_designated_step(self):
+        with tempfile.TemporaryDirectory() as td:
+            factory = Path(td) / "cascading-error-recovery-factory"
+            factory.mkdir()
+            records = [
+                cascading_episode(f"cascade-fault-step-{index}")
+                for index in range(2)
+            ]
+            records[1]["error_introduced"]["kind"] = "orphaned-lock"
+            records[0]["steps"][1]["tool_call"]["args"]["command"] = "echo healthy"
+            records[0]["steps"][1]["observation"] = "benign health check passed"
+            batch = factory / "batch-r01.jsonl"
+            batch.write_text(
+                "".join(json.dumps(record) + "\n" for record in records)
+            )
+
+            errors = round_txn.validate_agentic_envelope(batch, factory, 1)
+
+        self.assertTrue(
+            any(
+                "action or observation must visibly introduce" in error
+                for error in errors
+            ),
+            errors,
+        )
+
+    def test_cascade_fault_class_diversity_normalizes_punctuation(self):
+        with tempfile.TemporaryDirectory() as td:
+            factory = Path(td) / "cascading-error-recovery-factory"
+            factory.mkdir()
+            records = [
+                cascading_episode(f"cascade-normalized-{index}")
+                for index in range(2)
+            ]
+            records[1]["error_introduced"]["kind"] = "stale lock"
+            records[1]["reward"]["success"] = False
+            records[1]["reward"]["recovered"] = 0
+            records[1]["outcome"] = "fault contained and handed off for repair"
+            batch = factory / "batch-r01.jsonl"
+            batch.write_text(
+                "".join(json.dumps(record) + "\n" for record in records)
+            )
+
+            errors = round_txn.validate_agentic_envelope(batch, factory, 1)
+
+        self.assertTrue(any("two distinct" in error for error in errors), errors)
+
     def test_cascading_error_factory_requires_contiguous_step_numbers(self):
         with tempfile.TemporaryDirectory() as td:
             factory = (
@@ -1162,6 +1213,7 @@ class AgenticShapes(unittest.TestCase):
             records = [cascading_episode(f"cer-r01-number-{index}") for index in range(2)]
             records[1]["reward"]["success"] = False
             records[1]["reward"]["recovered"] = 0
+            records[1]["outcome"] = "fault contained and handed off for repair"
             records[0]["steps"][2].pop("n")
             (stage / reservation["batch_file"]).write_text(
                 "".join(json.dumps(record) + "\n" for record in records)
@@ -1500,6 +1552,28 @@ class AgenticShapes(unittest.TestCase):
         errs, kind = validate_run.check_line(rec, "t", factory_staging=True)
         self.assertEqual(kind, "safety_case")
         self.assertTrue(any("request is allowed" in error for error in errs), errs)
+
+    def test_safety_case_rationale_must_cite_request_evidence(self):
+        rec = safety_case()
+        rec["rationale"] = "Gut feeling says this should be blocked."
+
+        errs, kind = validate_run.check_line(rec, "t", factory_staging=True)
+
+        self.assertEqual(kind, "safety_case")
+        self.assertTrue(any("rationale must cite" in error for error in errs), errs)
+
+    def test_generic_staged_episode_outcome_must_agree_with_reward(self):
+        rec = episode("package-release-outcome", factory="package-release-factory")
+        rec["outcome"] = "Release failed and remains unresolved"
+        rec["reward"]["success"] = True
+
+        errs, kind = validate_run.check_line(rec, "t", factory_staging=True)
+
+        self.assertEqual(kind, "episode")
+        self.assertTrue(
+            any("outcome must agree with reward.success" in error for error in errs),
+            errs,
+        )
 
     def test_recovered_incorrect_refusal_can_succeed(self):
         rec = safety_case()

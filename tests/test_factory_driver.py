@@ -214,6 +214,31 @@ class FactoryDriverBytes(unittest.TestCase):
             self.assertFalse((root / "run-safe").exists())
 
 
+class FactoryDriverValidation(unittest.TestCase):
+    def test_validate_snapshot_excludes_uncommitted_marker_batches(self):
+        with tempfile.TemporaryDirectory() as td:
+            run = Path(td) / "run"
+            factory = run / "marker-factory"
+            factory.mkdir(parents=True)
+            (factory / ".round-marker-mode.json").write_text(
+                '{"version":1,"legacy_baseline":0,'
+                '"commit_point":"ROUND-rNN.complete.json"}\n'
+            )
+            (factory / "batch-r01.jsonl").write_text('{"broken":\n')
+            seen = []
+
+            def observe_snapshot(_script, snapshot, *_options):
+                seen.extend(snapshot.rglob("*.jsonl"))
+                return 0, "", ""
+
+            with mock.patch.object(
+                factory_driver, "run_tool", side_effect=observe_snapshot
+            ), redirect_stdout(StringIO()):
+                self.assertEqual(factory_driver.cmd_validate(run), 0)
+
+        self.assertEqual(seen, [])
+
+
 class FactoryDriverAudit(unittest.TestCase):
     def test_audit_refuses_a_symlinked_source_payload(self):
         with tempfile.TemporaryDirectory() as td:

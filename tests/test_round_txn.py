@@ -69,6 +69,36 @@ class RoundTransaction(unittest.TestCase):
             with self.assertRaisesRegex(round_txn.TransactionError, "not the frontier"):
                 round_txn.reserve(factory, 1, 1)
 
+    def test_reserve_rejects_symlinked_staging_root_before_creating_stage(self):
+        with tempfile.TemporaryDirectory() as td:
+            factory = self.factory(td)
+            outside = Path(td) / "outside-staging"
+            outside.mkdir()
+            staging_root = Path(td) / "outputs" / "staging"
+            staging_root.symlink_to(outside, target_is_directory=True)
+
+            with self.assertRaisesRegex(
+                round_txn.TransactionError, "staging directory is unsafe"
+            ):
+                round_txn.reserve(factory, 1, 1)
+
+            self.assertEqual(list(outside.iterdir()), [])
+            self.assertFalse((factory / "ROUND-r01.reserved.json").exists())
+
+    def test_reserve_rejects_dangling_transaction_marker(self):
+        with tempfile.TemporaryDirectory() as td:
+            factory = self.factory(td)
+            marker = factory / "ROUND-r01.publishing.json"
+            marker.symlink_to(Path(td) / "missing-marker-target")
+
+            with self.assertRaisesRegex(
+                round_txn.TransactionError, "publishing path already exists"
+            ):
+                round_txn.reserve(factory, 1, 1)
+
+            self.assertTrue(marker.is_symlink())
+            self.assertFalse((factory / "ROUND-r01.reserved.json").exists())
+
     def test_publish_copies_staged_files_to_independent_inodes(self):
         with tempfile.TemporaryDirectory() as td:
             factory = self.factory(td)

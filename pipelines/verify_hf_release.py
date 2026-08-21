@@ -306,7 +306,8 @@ class _CompactReader:
             if shift > 63:
                 raise ValueError("Parquet footer contains an oversized varint")
 
-    def _zigzag(self, value: int) -> int:
+    @staticmethod
+    def _zigzag(value: int) -> int:
         return (value >> 1) ^ -(value & 1)
 
     def _integer(self, field_type: int) -> int:
@@ -515,6 +516,8 @@ def verify_dataset(
         if not isinstance(provenance, dict):
             errors.append("provenance.json must contain a JSON object")
             return CheckResult(repo, tuple(errors))
+        # Strictly require the JSON boolean; truthy values such as 1 are invalid.
+        # noinspection PySimplifyBooleanCheck
         if provenance.get("payload_published") is not True:
             errors.append("provenance must mark payload_published true")
         if provenance.get("training_ready") is not False:

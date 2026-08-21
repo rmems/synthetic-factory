@@ -26,3 +26,4 @@ jobs:
         env:
           QODANA_TOKEN: ${{ secrets.QODANA_TOKEN }}
           QODANA_ENDPOINT: 'https://qodana.cloud'
+          QODANA_PYTHON_PATH: /opt/miniconda3/bin/python3

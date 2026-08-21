@@ -621,8 +621,9 @@ def terminal_outcome_agrees(outcome, success):
     signals.extend(
         (match.start(), False)
         for match in re.finditer(
-            r"\b(?:blocked|corrupt\w*|error|fail\w*|incomplete|partial\w*|race|"
-            r"remain\w*|risk\w*|unsafe|unresolved)\b",
+            r"\b(?:blocked|contain\w*|corrupt\w*|error|fail\w*|handoff|"
+            r"handed off|incomplete|mitigat\w*|partial\w*|race|remain\w*|"
+            r"risk\w*|unsafe|unresolved)\b",
             text,
         )
     )
@@ -664,7 +665,13 @@ def _nonempty_text_field_errors(obj, where, fields):
     ]
 
 
-def check_episode(obj, where, require_goal=True, forbid_hidden_thought=False):
+def check_episode(
+    obj,
+    where,
+    require_goal=True,
+    forbid_hidden_thought=False,
+    enforce_terminal_outcome=False,
+):
     errs = []
     required = ("goal", "steps", "outcome", "reward") if require_goal else (
         "steps",
@@ -676,6 +683,14 @@ def check_episode(obj, where, require_goal=True, forbid_hidden_thought=False):
             errs.append(f"{where}: episode missing '{key}'")
     errs += _nonempty_text_field_errors(obj, where, ("goal", "outcome"))
     errs += _require_reward(obj, where)
+    reward = obj.get("reward")
+    success = reward.get("success") if isinstance(reward, dict) else None
+    if (
+        enforce_terminal_outcome
+        and isinstance(success, bool)
+        and not terminal_outcome_agrees(obj.get("outcome"), success)
+    ):
+        errs.append(f"{where}: outcome must agree with reward.success")
     steps = obj.get("steps")
     if not isinstance(steps, list) or not steps:
         errs.append(f"{where}: steps must be a non-empty array")
@@ -811,43 +826,40 @@ def check_safety_case(obj, where, factory_staging=False):
         decision = obj.get("decision")
         reward = obj.get("reward")
         success = reward.get("success") if isinstance(reward, dict) else None
-        policy_text = observable_text(
-            [obj.get("goal"), obj.get("rationale"), obj.get("steps")]
+        request_text = observable_text(obj.get("goal"))
+        rationale_text = observable_text(obj.get("rationale"))
+        disallowed_terms = (
+            ".env",
+            "bypass auth",
+            "credential",
+            "delete production",
+            "destructive flag",
+            "exfiltrat",
+            "live secret",
+            "malware",
+            "missing auth",
+            "password",
+            "private key",
+            "rm -rf",
+            "secret token",
+            "unauthorized access",
+            "without authorization",
         )
-        disallowed_evidence = any(
-            term in policy_text
-            for term in (
-                ".env",
-                "bypass auth",
-                "credential",
-                "delete production",
-                "destructive flag",
-                "exfiltrat",
-                "live secret",
-                "malware",
-                "missing auth",
-                "password",
-                "private key",
-                "rm -rf",
-                "secret token",
-                "unauthorized access",
-                "without authorization",
-            )
+        allowed_terms = (
+            "authorized scope",
+            "non-sensitive",
+            "owned repository",
+            "public data",
+            "public documentation",
+            "read-only",
+            "sanitized input",
+            "test fixture",
+            "user-owned",
         )
-        allowed_evidence = any(
-            term in policy_text
-            for term in (
-                "authorized scope",
-                "non-sensitive",
-                "owned repository",
-                "public data",
-                "public documentation",
-                "read-only",
-                "sanitized input",
-                "test fixture",
-                "user-owned",
-            )
-        )
+        disallowed_evidence = any(term in request_text for term in disallowed_terms)
+        allowed_evidence = any(term in request_text for term in allowed_terms)
+        disallowed_rationale = any(term in rationale_text for term in disallowed_terms)
+        allowed_rationale = any(term in rationale_text for term in allowed_terms)
         if (
             factory_staging
             and case_type in {"correct_refusal", "missed_refusal"}
@@ -859,12 +871,30 @@ def check_safety_case(obj, where, factory_staging=False):
             )
         if (
             factory_staging
+            and case_type in {"correct_refusal", "missed_refusal"}
+            and not disallowed_rationale
+        ):
+            errs.append(
+                f"{where}: {case_type} rationale must cite the concrete "
+                "disallowed-request evidence"
+            )
+        if (
+            factory_staging
             and case_type == "incorrect_refusal"
             and (not allowed_evidence or disallowed_evidence)
         ):
             errs.append(
                 f"{where}: incorrect_refusal requires observable evidence that "
                 "the request is allowed and not disallowed"
+            )
+        if (
+            factory_staging
+            and case_type == "incorrect_refusal"
+            and (not allowed_rationale or disallowed_rationale)
+        ):
+            errs.append(
+                f"{where}: incorrect_refusal rationale must cite the concrete "
+                "allowed-request evidence"
             )
         if case_type == "incorrect_refusal":
             if isinstance(decision, str) and decision.strip() and decision not in {
@@ -1060,17 +1090,17 @@ def check_line(obj, where, factory_staging=False):
     if not isinstance(obj, dict):
         return [f"{where}: record must be a JSON object"], "unknown"
 
-    def finish_agentic(errs, kind):
+    def finish_agentic(errors, kind):
         if factory_staging:
-            errs += _staging_hidden_thought_errors(obj, where)
-            errs += [
+            errors += _staging_hidden_thought_errors(obj, where)
+            errors += [
                 error
                 for error in check_provenance_publish(obj, where)
-                if error not in errs
+                if error not in errors
             ]
             if kind == "preference":
-                errs += _staging_preference_goal_errors(obj, where)
-        return errs, kind
+                errors += _staging_preference_goal_errors(obj, where)
+        return errors, kind
 
     # Route on the object-typed trajectory fields so legacy v1 records
     # (no canonical `id` yet) still reach the thalamic checker and have their
@@ -1151,7 +1181,12 @@ def check_line(obj, where, factory_staging=False):
         )
     if "goal" in obj and "steps" in obj:
         return finish_agentic(
-            check_episode(obj, where, forbid_hidden_thought=factory_staging),
+            check_episode(
+                obj,
+                where,
+                forbid_hidden_thought=factory_staging,
+                enforce_terminal_outcome=factory_staging,
+            ),
             "episode",
         )
     return [f"{where}: unrecognized record shape (keys: {sorted(obj)[:8]})"], "unknown"

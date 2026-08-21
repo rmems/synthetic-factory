@@ -116,6 +116,15 @@ def marker_visible_jsonl_paths(run_dir):
     return visible
 
 
+def prune_snapshot_to_marker_visibility(snapshot, visible_by_factory):
+    """Remove JSONL that was not committed when the live snapshot began."""
+    for factory_name, committed in visible_by_factory.items():
+        factory = snapshot / factory_name
+        for path in factory.rglob("*.jsonl"):
+            if path.relative_to(factory) not in committed:
+                path.unlink()
+
+
 def require_run_dir(run_dir):
     src = Path(run_dir).resolve()
     if not src.is_dir():
@@ -126,8 +135,11 @@ def require_run_dir(run_dir):
 def cmd_validate(run_dir):
     """Shape/invariant validation on a stable copy of a possibly live tree."""
     src = require_run_dir(run_dir)
+    reject_snapshot_symlinks(src)
+    visible_by_factory = marker_visible_jsonl_paths(src)
     temp, snap = snapshot_to_temp(src, "factory-validate-")
     try:
+        prune_snapshot_to_marker_visibility(snap, visible_by_factory)
         code, out, err = run_tool(VALIDATOR, snap)
     finally:
         temp.cleanup()
@@ -148,11 +160,7 @@ def cmd_audit(run_dir):
     temp, snap = snapshot_to_temp(src, "factory-audit-")
     results = []
     try:
-        for factory_name, committed in visible_by_factory.items():
-            factory = snap / factory_name
-            for path in factory.rglob("*.jsonl"):
-                if path.relative_to(factory) not in committed:
-                    path.unlink()
+        prune_snapshot_to_marker_visibility(snap, visible_by_factory)
         commands = (
             ("STRUCTURAL + SHAPE", VALIDATOR, ()),
             ("DEEP RECORD INVARIANTS", CHECKER, ("--strict",)),
@@ -237,10 +245,10 @@ def factory_token_efficiency(factory_dir: Path):
     notes = sorted(factory_dir.glob("NOTES-r*.md"))
 
     def note_parts(path):
-        match = NOTES_ROUND_RE.fullmatch(path.name)
-        if match is None:
+        note_match = NOTES_ROUND_RE.fullmatch(path.name)
+        if note_match is None:
             return None
-        return int(match.group(1)), match.group(2)
+        return int(note_match.group(1)), note_match.group(2)
 
     mode_path = marker_mode_path(factory_dir)
     if mode_path is not None:

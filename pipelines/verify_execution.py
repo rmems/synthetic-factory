@@ -78,7 +78,7 @@ KNOWN_TOOLS = frozenset({
 # ---------------------------------------------------------------------------
 
 
-def verify_episode_steps(steps, where):
+def verify_episode_steps(steps, _where):
     """Verify coding episode steps have observable execution evidence."""
     if not isinstance(steps, list) or not steps:
         return "failed", "steps missing or empty"
