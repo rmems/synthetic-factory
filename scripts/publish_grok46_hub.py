@@ -550,20 +550,26 @@ def marker_mode_state(
     """Return a factory's baseline, manifests, and pinned legacy digests once."""
     mode_path = src / ".round-marker-mode.json"
     if not mode_path.exists() and not mode_path.is_symlink():
-        paths = sorted(
+        payload_paths = sorted(
             path
             for path in src.glob("*.jsonl")
             if is_regular_source_file(path)
             and (batch_label(path) is not None or path.name in LEGACY_R1_NAMES)
         )
-        before = {path.name: file_sha256(path) for path in paths}
         rounds = [
             label[0] if (label := batch_label(path)) is not None else 1
-            for path in paths
+            for path in payload_paths
         ]
+        paths = legacy_snapshot_paths(src, max(rounds)) if rounds else []
+        before = {path.name: file_sha256(path) for path in paths}
         if rounds:
             validate_legacy_baseline_payloads(src, max(rounds))
-        after = {path.name: file_sha256(path) for path in paths}
+            after = {
+                path.name: file_sha256(path)
+                for path in legacy_snapshot_paths(src, max(rounds))
+            }
+        else:
+            after = {}
         if before != after:
             raise SystemExit(f"pre-marker payload changed during validation: {src}")
         return None, {}, after
@@ -686,7 +692,10 @@ def published_batches(
             if path.name in LEGACY_R1_NAMES and is_regular_source_file(path)
         ]
         visible = sorted([*batches, *legacy_batches])
-        if {path.name for path in visible} != set(_legacy_sha256):
+        pinned_payload_names = {
+            name for name in _legacy_sha256 if name.endswith(".jsonl")
+        }
+        if {path.name for path in visible} != pinned_payload_names:
             raise SystemExit(f"pre-marker payload set changed during validation: {src}")
         return visible
     visible_batches = [

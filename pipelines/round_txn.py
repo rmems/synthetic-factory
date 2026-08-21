@@ -1518,6 +1518,26 @@ def validate_agentic_envelope(batch: Path, factory_dir: Path, round_number: int)
                             "partial containment, mitigation, or handoff without "
                             "full-completion claims"
                         )
+                else:
+                    completion_evidence = re.search(
+                        r"\b(?:completed|fixed|passed|recovered|repaired|succeeded|"
+                        r"verified)\b|all tests passed",
+                        outcome_text,
+                    )
+                    incomplete_evidence = re.search(
+                        r"\b(?:partial(?:ly)?|mitigat\w*|contain\w*|handoff|"
+                        r"handed off|blocked|incomplete|unresolved)\b",
+                        outcome_text,
+                    )
+                    if (
+                        completion_evidence is None
+                        or incomplete_evidence is not None
+                    ):
+                        errors.append(
+                            f"{where}: recovered cascade outcome must report "
+                            "verified full recovery without partial, unresolved, "
+                            "or handoff claims"
+                        )
             if (
                 not isinstance(cascade_steps, int)
                 or isinstance(cascade_steps, bool)

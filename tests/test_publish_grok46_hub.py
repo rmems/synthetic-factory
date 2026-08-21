@@ -914,6 +914,37 @@ class PublishGrok46HubTests(unittest.TestCase):
                 (root / "hf" / ITEM["hub"] / "data" / "raw" / batch.name).exists()
             )
 
+    def test_snapshot_rechecks_pre_marker_note_digest_after_validation(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            source = root / "raw" / ITEM["slug"]
+            source.mkdir(parents=True)
+            batch = source / "batch-r01.jsonl"
+            write_valid_legacy(batch)
+            notes = source / "NOTES-r01.md"
+            real_published_notes = publisher.published_notes
+
+            def tamper_after_selection(*args, **kwargs):
+                selected = real_published_notes(*args, **kwargs)
+                notes.write_text("Novel coverage: changed after validation\n")
+                return selected
+
+            with mock.patch.object(
+                publisher, "FACTORY_ROOT", root / "raw"
+            ), mock.patch.object(
+                publisher, "HF_ROOT", root / "hf"
+            ), mock.patch.object(
+                publisher, "published_notes", side_effect=tamper_after_selection
+            ):
+                with self.assertRaisesRegex(
+                    SystemExit, "changed after manifest validation"
+                ):
+                    publisher.snapshot_one(ITEM)
+
+            self.assertFalse(
+                (root / "hf" / ITEM["hub"] / "data" / "metadata" / notes.name).exists()
+            )
+
     def test_invalid_utf8_completion_marker_has_a_bounded_error(self):
         with tempfile.TemporaryDirectory() as td:
             source = Path(td) / ITEM["slug"]

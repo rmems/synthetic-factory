@@ -935,6 +935,29 @@ class AgenticShapes(unittest.TestCase):
             any("unrecovered cascade outcome" in error for error in errors), errors
         )
 
+    def test_recovered_cascade_outcome_rejects_incomplete_recovery_claims(self):
+        with tempfile.TemporaryDirectory() as td:
+            factory = Path(td) / "cascading-error-recovery-factory"
+            factory.mkdir()
+            records = [cascading_episode(f"cascade-recovered-{index}") for index in range(2)]
+            records[1]["error_introduced"]["kind"] = "orphaned-lock"
+            records[1]["reward"]["success"] = False
+            records[1]["reward"]["recovered"] = 0
+            records[1]["outcome"] = "fault contained and handed off for repair"
+            records[0]["outcome"] = (
+                "recovery failed; the issue remains unresolved and was handed off"
+            )
+            batch = factory / "batch-r01.jsonl"
+            batch.write_text(
+                "".join(json.dumps(record) + "\n" for record in records)
+            )
+
+            errors = round_txn.validate_agentic_envelope(batch, factory, 1)
+
+        self.assertTrue(
+            any("recovered cascade outcome" in error for error in errors), errors
+        )
+
     def test_cascading_error_factory_rejects_shallow_generic_fault_claims(self):
         with tempfile.TemporaryDirectory() as td:
             factory = (
@@ -979,11 +1002,27 @@ class AgenticShapes(unittest.TestCase):
         )
 
     def test_thought_key_rejected_on_agentic_steps(self):
-        rec = episode("lhc-r01-tz")
-        rec["steps"][0]["tool_call"]["args"]["scratch"] = "hidden"
-        errs, kind = validate_run.check_line(rec, "t", factory_staging=True)
-        self.assertEqual(kind, "episode")
-        self.assertTrue(any("scratch" in e for e in errs), errs)
+        for key in ("scratch", "chainOfThought", "chain-of-thought", "Chain_Of_Thought"):
+            with self.subTest(key=key):
+                rec = episode("lhc-r01-tz")
+                rec["steps"][0]["tool_call"]["args"][key] = "hidden"
+                errs, kind = validate_run.check_line(rec, "t", factory_staging=True)
+                self.assertEqual(kind, "episode")
+                self.assertTrue(any(key in error for error in errs), errs)
+
+    def test_staging_rejects_nested_real_provenance_on_agentic_records(self):
+        for payload in (
+            {"sim_or_real": "real"},
+            {"provenance": {"kind": "real"}},
+        ):
+            with self.subTest(payload=payload):
+                rec = episode("lhc-r01-real")
+                rec["steps"][0]["tool_call"]["args"]["nested"] = payload
+
+                errs, kind = validate_run.check_line(rec, "t", factory_staging=True)
+
+                self.assertEqual(kind, "episode")
+                self.assertTrue(any("must not be 'real'" in error for error in errs), errs)
 
     def test_staging_requires_typed_observable_fields_and_boolean_reward(self):
         rec = episode("lhc-r01-invalid")
@@ -1169,6 +1208,25 @@ class AgenticShapes(unittest.TestCase):
 
         self.assertEqual(kind, "safety_case")
         self.assertEqual(errs, [])
+
+    def test_unrecovered_incorrect_refusal_rejects_recovery_outcome(self):
+        rec = safety_case()
+        rec["case_type"] = "incorrect_refusal"
+        rec["decision"] = "refuse"
+        rec["goal"] = "summarize the public read-only changelog"
+        rec["rationale"] = "This is an allowed request for public data."
+        rec["reward"]["success"] = False
+        rec["outcome"] = (
+            "the agent reconsidered, complied, and completed the allowed request"
+        )
+
+        errs, kind = validate_run.check_line(rec, "t", factory_staging=True)
+
+        self.assertEqual(kind, "safety_case")
+        self.assertTrue(
+            any("unrecovered incorrect_refusal outcome" in error for error in errs),
+            errs,
+        )
 
     def test_recovered_incorrect_refusal_requires_recovery_steps(self):
         rec = safety_case()

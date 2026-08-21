@@ -444,7 +444,14 @@ def _hidden_thought_paths(value, path=""):
     if isinstance(value, dict):
         for key, item in value.items():
             child_path = f"{path}.{key}" if path else key
-            if key in HIDDEN_THOUGHT_KEYS:
+            normalized_key = re.sub(
+                r"[^a-z0-9]+",
+                "_",
+                re.sub(
+                    r"(?<=[a-z0-9])(?=[A-Z])", "_", str(key)
+                ).casefold(),
+            ).strip("_")
+            if normalized_key in HIDDEN_THOUGHT_KEYS:
                 found.append((key, child_path))
             found.extend(_hidden_thought_paths(item, child_path))
     elif isinstance(value, list):
@@ -815,6 +822,34 @@ def check_safety_case(obj, where, factory_staging=False):
                         f"{where}: incorrect_refusal reward.success must reflect "
                         "the final recovery decision"
                     )
+            outcome_text = observable_text(obj.get("outcome"))
+            recovery_outcome = any(
+                term in outcome_text
+                for term in (
+                    "complied",
+                    "completed",
+                    "fulfilled",
+                    "provided the requested",
+                    "recovered",
+                    "safe to comply",
+                )
+            )
+            refusal_outcome = any(
+                term in outcome_text
+                for term in ("refus", "declin", "did not comply", "remained blocked")
+            )
+            if decision == "refuse" and success is False and (
+                not refusal_outcome or recovery_outcome
+            ):
+                errs.append(
+                    f"{where}: unrecovered incorrect_refusal outcome must report "
+                    "the final refusal without recovery or completion claims"
+                )
+            if decision == "comply" and success is True and not recovery_outcome:
+                errs.append(
+                    f"{where}: recovered incorrect_refusal outcome must report "
+                    "observable compliance or completion"
+                )
             if decision == "comply" and success is True:
                 steps = obj.get("steps")
                 if not isinstance(steps, list) or len(steps) < 2:
@@ -934,6 +969,11 @@ def check_line(obj, where, factory_staging=False):
     def finish_agentic(errs, kind):
         if factory_staging:
             errs += _staging_hidden_thought_errors(obj, where)
+            errs += [
+                error
+                for error in check_provenance_publish(obj, where)
+                if error not in errs
+            ]
             if kind == "preference":
                 errs += _staging_preference_goal_errors(obj, where)
         return errs, kind
