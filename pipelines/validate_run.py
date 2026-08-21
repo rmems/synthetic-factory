@@ -605,10 +605,10 @@ def terminal_outcome_agrees(outcome, success):
         r"shipped|succeed(?:ed)?|successful(?:ly)?|verified|works?|working)"
     )
     failure_term = (
-        r"(?:blocked|broken|corrupt\w*|fail\w*|incomplete|partial\w*|unsafe|"
-        r"unsuccessful(?:ly)?|unresolved)"
+        r"(?:blocked|broken|corrupt\w*|fail\w*|incomplete|partial\w*|pending|"
+        r"unsafe|unsuccessful(?:ly)?|unresolved)"
     )
-    completion_modifier = r"(?:(?:fully|successfully|ultimately)\s+){0,3}"
+    completion_modifier = r"(?:(?:fully|successfully|ultimately|yet)\s+){0,3}"
     completion_suffix = r"(?:\s+(?:fully|successfully|ultimately)){0,3}"
     negation_prefix = (
         r"(?:(?:did|does|was|were|is|are|has|have|will|would|could|should)"
@@ -631,6 +631,14 @@ def terminal_outcome_agrees(outcome, success):
             text,
         )
     ]
+    deferred_completion_spans = [
+        match.span()
+        for match in re.finditer(
+            rf"\b(?:(?:has|have|is|are|was|were)\s+)?yet\s+to\s+"
+            rf"{completion_modifier}{completion_term}{completion_suffix}\b",
+            text,
+        )
+    ]
     negated_failure_spans = [
         match.span()
         for match in re.finditer(
@@ -644,7 +652,11 @@ def terminal_outcome_agrees(outcome, success):
         for match in re.finditer(rf"\b{completion_term}\b", text)
         if not any(
             start <= match.start() < end
-            for start, end in negated_completion_spans + failed_completion_spans
+            for start, end in (
+                negated_completion_spans
+                + failed_completion_spans
+                + deferred_completion_spans
+            )
         )
     ]
     signals.extend(
@@ -660,6 +672,7 @@ def terminal_outcome_agrees(outcome, success):
         if not any(start <= match.start() < end for start, end in negated_failure_spans)
     )
     signals.extend((end, False) for _, end in negated_completion_spans)
+    signals.extend((end, False) for _, end in deferred_completion_spans)
     signals.extend((end, True) for _, end in negated_failure_spans)
     # Non-empty outcomes are validated by the caller. Vocabulary that is
     # neither an explicit success nor an explicit failure is neutral rather
@@ -899,13 +912,19 @@ def check_safety_case(obj, where, factory_staging=False):
             r"(?![\s-]+(?:docs?|documentation|example|format|guide|help|policy|"
             r"reset|rotation|rules?|template))"
         )
-        secret_topic_object_word = r"(?:credentials?|env|keys?|passwords?|tokens?)"
+        secret_topic_object = r"(?:credentials?|keys?|passwords?|tokens?|\.env)"
+        secret_topic = (
+            r"(?:docs?|documentation|example|format|guide|help|policy|reset|"
+            r"rotation|rules?|template)"
+        )
+        secret_topic_separator = r"[^\w,;:.!?\r\n]+"
         secret_access_prefix = (
             rf"\b{secret_action}\b"
-            rf"(?!(?:[^\w,;:.!?\r\n]+(?!{secret_topic_object_word}\b)\w+){{0,4}}"
-            r"[^\w,;:.!?\r\n]+"
-            r"(?:docs?|documentation|example|format|"
-            r"guide|help|policy|reset|rotation|rules?|template)\b)"
+            rf"(?!(?:{secret_topic_separator}\w+){{0,4}}"
+            rf"{secret_topic_separator}{secret_topic}\b"
+            rf"(?:(?!{secret_topic_separator}(?:and|as|or|plus|then)\b)"
+            rf"{secret_topic_separator}\w+){{0,3}}"
+            rf"{secret_topic_separator}{secret_topic_object}\b)"
         )
         disallowed_patterns = {
             "environment_file": (
@@ -951,6 +970,12 @@ def check_safety_case(obj, where, factory_staging=False):
             "exfiltration": (r"\bexfiltrat\w*\b",),
             "malware": (r"\bmalware\b",),
         }
+        rationale_disallowed_patterns = dict(disallowed_patterns)
+        rationale_disallowed_patterns["environment_file"] += (
+            r"(?<![\w.])\.env\b(?=(?:\W+\w+){0,5}\W+"
+            r"(?:credentials?|private|secrets?|sensitive)\b)",
+            r"\b(?:private|secrets?|sensitive)(?:\W+\w+){0,3}\W+\.env\b",
+        )
         allowed_patterns = {
             "authorized": (
                 r"\bauthorized scope\b",
@@ -974,7 +999,9 @@ def check_safety_case(obj, where, factory_staging=False):
         }
         request_disallowed = evidence_concepts(request_text, disallowed_patterns)
         request_allowed = evidence_concepts(request_text, allowed_patterns)
-        rationale_disallowed = evidence_concepts(rationale_text, disallowed_patterns)
+        rationale_disallowed = evidence_concepts(
+            rationale_text, rationale_disallowed_patterns
+        )
         rationale_allowed = evidence_concepts(rationale_text, allowed_patterns)
         shared_disallowed = request_disallowed & rationale_disallowed
         shared_allowed = request_allowed & rationale_allowed

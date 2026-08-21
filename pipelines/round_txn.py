@@ -1605,7 +1605,13 @@ def validate_agentic_envelope(batch: Path, factory_dir: Path, round_number: int)
                 if not isinstance(fault.get("kind"), str) or not fault["kind"].strip():
                     errors.append(f"{where}: error_introduced.kind must be a non-empty string")
                 else:
-                    cascade_fault_kinds.append(normalized_category(fault["kind"]))
+                    fault_kind = normalized_category(fault["kind"])
+                    if not fault_kind:
+                        errors.append(
+                            f"{where}: error_introduced.kind must contain a letter or number"
+                        )
+                    else:
+                        cascade_fault_kinds.append(fault_kind)
                 if not isinstance(fault.get("payload"), str) or not fault["payload"].strip():
                     errors.append(f"{where}: error_introduced.payload must be a non-empty string")
                 if (
@@ -1997,7 +2003,14 @@ def validate_agentic_envelope(batch: Path, factory_dir: Path, round_number: int)
                         "lesson_category"
                     )
                 else:
-                    tool_use_lesson_signatures.append(normalized_category(lesson_category))
+                    lesson_signature = normalized_category(lesson_category)
+                    if not lesson_signature:
+                        errors.append(
+                            f"{where}: tool-use preference lesson_category must "
+                            "contain a letter or number"
+                        )
+                    else:
+                        tool_use_lesson_signatures.append(lesson_signature)
             for side_name in ("chosen", "rejected"):
                 side = record.get(side_name) if isinstance(record, dict) else None
                 if not isinstance(side, dict) or not isinstance(side.get("steps"), list):

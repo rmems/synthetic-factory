@@ -235,6 +235,30 @@ class FactoryDriverBytes(unittest.TestCase):
             self.assertFalse((root / "run-safe").exists())
             self.assertEqual(list(root.glob(".run-safe-*")), [])
 
+    def test_named_snapshot_does_not_clobber_destination_created_before_publish(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            run = root / "run"
+            run.mkdir()
+            (run / "entry.txt").write_text("inside\n")
+            dst = root / "run-safe"
+            rename_noreplace = factory_driver.rename_snapshot_noreplace
+
+            def create_destination_then_rename(staged, destination):
+                destination.mkdir()
+                destination.joinpath("owner.txt").write_text("other process\n")
+                rename_noreplace(staged, destination)
+
+            with mock.patch.object(
+                factory_driver,
+                "rename_snapshot_noreplace",
+                side_effect=create_destination_then_rename,
+            ), self.assertRaisesRegex(SystemExit, "refusing to overwrite"):
+                factory_driver.cmd_snapshot(run, "safe")
+
+            self.assertEqual(dst.joinpath("owner.txt").read_text(), "other process\n")
+            self.assertEqual(list(root.glob(".run-safe-*")), [])
+
     def test_named_snapshot_keeps_only_marker_visible_batches(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)

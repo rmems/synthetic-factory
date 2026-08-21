@@ -908,6 +908,18 @@ class AgenticShapes(unittest.TestCase):
                 errors,
             )
 
+            record["lesson_category"] = "!!!"
+            batch.write_text(json.dumps(record) + "\n")
+            errors = round_txn.validate_agentic_envelope(batch, factory, 1)
+
+            self.assertTrue(
+                any(
+                    "lesson_category must contain a letter or number" in error
+                    for error in errors
+                ),
+                errors,
+            )
+
     def test_preference_side_outcomes_must_match_success_labels(self):
         with tempfile.TemporaryDirectory() as td:
             factory = Path(td) / "tool-use-preference-factory"
@@ -1199,6 +1211,39 @@ class AgenticShapes(unittest.TestCase):
             errors = round_txn.validate_agentic_envelope(batch, factory, 1)
 
         self.assertTrue(any("two distinct" in error for error in errors), errors)
+
+    def test_cascade_rejects_fault_kind_that_normalizes_to_empty(self):
+        with tempfile.TemporaryDirectory() as td:
+            factory = Path(td) / "cascading-error-recovery-factory"
+            factory.mkdir()
+            records = [
+                cascading_episode(f"cascade-empty-kind-{index}")
+                for index in range(2)
+            ]
+            records[0]["error_introduced"]["kind"] = "!!!"
+            records[1] = json.loads(
+                json.dumps(records[1]).replace("stale-lock", "orphaned-lock")
+            )
+            records[1]["reward"] = {
+                "success": False,
+                "cascade_steps": 3,
+                "recovered": 0,
+            }
+            records[1]["outcome"] = "fault contained and handed off for repair"
+            batch = factory / "batch-r01.jsonl"
+            batch.write_text(
+                "".join(json.dumps(record) + "\n" for record in records)
+            )
+
+            errors = round_txn.validate_agentic_envelope(batch, factory, 1)
+
+        self.assertTrue(
+            any(
+                "error_introduced.kind must contain a letter or number" in error
+                for error in errors
+            ),
+            errors,
+        )
 
     def test_cascading_error_factory_requires_contiguous_step_numbers(self):
         with tempfile.TemporaryDirectory() as td:
@@ -1778,6 +1823,7 @@ class AgenticShapes(unittest.TestCase):
             "show credentials, then public docs",
             "show credentials\nthen public docs",
             "show credentials and public documentation",
+            "show the public documentation and credentials",
         ):
             with self.subTest(goal=goal):
                 rec = safety_case()
@@ -1818,6 +1864,9 @@ class AgenticShapes(unittest.TestCase):
             "deployment did not fully complete",
             "deployment did not complete successfully",
             "deployment did not fully complete successfully",
+            "deployment is still pending",
+            "tests have yet to pass",
+            "tests have yet to pass successfully",
         ):
             with self.subTest(outcome=outcome):
                 self.assertFalse(validate_run.terminal_outcome_agrees(outcome, True))
@@ -1830,7 +1879,11 @@ class AgenticShapes(unittest.TestCase):
                 self.assertTrue(validate_run.terminal_outcome_agrees(outcome, False))
 
     def test_terminal_outcome_accepts_negated_failure_language(self):
-        for outcome in ("no failures remain", "tests are not failing"):
+        for outcome in (
+            "no failures remain",
+            "tests are not failing",
+            "no work remains pending",
+        ):
             with self.subTest(outcome=outcome):
                 self.assertTrue(validate_run.terminal_outcome_agrees(outcome, True))
                 self.assertFalse(validate_run.terminal_outcome_agrees(outcome, False))
@@ -1845,6 +1898,16 @@ class AgenticShapes(unittest.TestCase):
             with self.subTest(outcome=outcome):
                 self.assertFalse(validate_run.terminal_outcome_agrees(outcome, True))
                 self.assertTrue(validate_run.terminal_outcome_agrees(outcome, False))
+
+    def test_safety_rationale_can_cite_secret_env_path_without_repeating_action(self):
+        rec = safety_case()
+        rec["goal"] = "copy the .env file"
+        rec["rationale"] = "The .env file is a private secrets path."
+
+        errs, kind = validate_run.check_line(rec, "t", factory_staging=True)
+
+        self.assertEqual(kind, "safety_case")
+        self.assertFalse(any("rationale must cite" in error for error in errs), errs)
 
     def test_generic_staged_episode_outcome_must_agree_with_reward(self):
         rec = episode("package-release-outcome", factory="package-release-factory")

@@ -20,6 +20,8 @@ Usage:
 
 from __future__ import annotations
 
+import ctypes
+import errno
 import json
 import os
 import re
@@ -75,6 +77,45 @@ NOVEL_COVERAGE_RE = re.compile(
 )
 NOTES_ROUND_RE = re.compile(r"^NOTES-r(\d+)([a-z]*)\.md$")
 BATCH_ROUND_RE = re.compile(r"^batch-r(\d+)[a-z]*\.jsonl$")
+AT_FDCWD = -100
+RENAME_NOREPLACE = 1
+
+
+def rename_snapshot_noreplace(src, dst):
+    """Atomically publish a directory without replacing an existing path."""
+    try:
+        renameat2 = ctypes.CDLL(None, use_errno=True).renameat2
+    except AttributeError as exc:
+        raise TransactionError(
+            "atomic no-replace snapshot rename is unavailable"
+        ) from exc
+    renameat2.argtypes = (
+        ctypes.c_int,
+        ctypes.c_char_p,
+        ctypes.c_int,
+        ctypes.c_char_p,
+        ctypes.c_uint,
+    )
+    renameat2.restype = ctypes.c_int
+    if (
+        renameat2(
+            AT_FDCWD,
+            os.fsencode(src),
+            AT_FDCWD,
+            os.fsencode(dst),
+            RENAME_NOREPLACE,
+        )
+        == 0
+    ):
+        return
+    error_number = ctypes.get_errno()
+    if error_number in {errno.EEXIST, errno.ENOTEMPTY}:
+        raise FileExistsError(error_number, os.strerror(error_number), dst)
+    if error_number in {errno.EINVAL, errno.ENOSYS}:
+        raise TransactionError(
+            "atomic no-replace snapshot rename is unavailable"
+        )
+    raise OSError(error_number, os.strerror(error_number), f"{src} -> {dst}")
 
 
 def run_tool(script, run_dir, *options):
@@ -514,7 +555,12 @@ def cmd_snapshot(run_dir, label):
         prune_snapshot_to_marker_visibility(staged, visible_by_factory)
         if dst.exists() or dst.is_symlink():
             raise SystemExit(f"refusing to overwrite existing snapshot: {dst}")
-        staged.rename(dst)
+        try:
+            rename_snapshot_noreplace(staged, dst)
+        except FileExistsError as exc:
+            raise SystemExit(
+                f"refusing to overwrite existing snapshot: {dst}"
+            ) from exc
     finally:
         temp.cleanup()
     records = sum(count_nonblank_lines(path) for path in dst.rglob("*.jsonl"))
