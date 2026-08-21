@@ -652,6 +652,34 @@ class AgenticShapes(unittest.TestCase):
                 errors,
             )
 
+        for shared_field, shared_value in (
+            ("codebase_type", "python-service"),
+            ("bug_class", "timezone-conversion"),
+        ):
+            with self.subTest(shared_field=shared_field), tempfile.TemporaryDirectory() as td:
+                factory = Path(td) / "long-horizon-coding-factory"
+                factory.mkdir()
+                records = [episode(f"shared-dimension-{index}") for index in range(2)]
+                for record in records:
+                    record[shared_field] = shared_value
+                    record["steps"] = long_horizon_steps()
+                records[1]["reward"]["success"] = False
+                records[1]["outcome"] = "mitigated and handed off"
+                batch = factory / "batch-r01.jsonl"
+                batch.write_text(
+                    "".join(json.dumps(record) + "\n" for record in records)
+                )
+
+                errors = round_txn.validate_agentic_envelope(batch, factory, 1)
+
+                self.assertTrue(
+                    any(
+                        "distinct codebase and bug-class scenarios" in error
+                        for error in errors
+                    ),
+                    errors,
+                )
+
     def test_long_horizon_requires_explicit_scenario_categories(self):
         with tempfile.TemporaryDirectory() as td:
             factory = Path(td) / "long-horizon-coding-factory"

@@ -1998,8 +1998,12 @@ def validate_agentic_envelope(batch: Path, factory_dir: Path, round_number: int)
         )
     if (
         factory_dir.name == "long-horizon-coding-factory"
-        and len(set(long_horizon_scenario_signatures))
-        != FACTORY_QUOTAS["long-horizon-coding-factory"]
+        and (
+            len({signature[0] for signature in long_horizon_scenario_signatures})
+            != FACTORY_QUOTAS["long-horizon-coding-factory"]
+            or len({signature[1] for signature in long_horizon_scenario_signatures})
+            != FACTORY_QUOTAS["long-horizon-coding-factory"]
+        )
     ):
         errors.append(
             "long-horizon-coding-factory requires two distinct codebase and "
