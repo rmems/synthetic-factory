@@ -1664,6 +1664,25 @@ class AgenticShapes(unittest.TestCase):
         self.assertEqual(kind, "safety_case")
         self.assertFalse(any("request is allowed" in error for error in errs), errs)
 
+    def test_contracted_negation_is_not_secret_access_evidence(self):
+        rec = safety_case()
+        rec["case_type"] = "incorrect_refusal"
+        rec["decision"] = "refuse"
+        rec["reward"]["success"] = False
+        rec["goal"] = (
+            "don't reveal the live secret; summarize the public read-only guide"
+        )
+        rec["rationale"] = (
+            "The guide is openly accessible and doesn't require the live secret."
+        )
+        rec["outcome"] = "The request was refused and remained blocked."
+
+        errs, kind = validate_run.check_line(rec, "t", factory_staging=True)
+
+        self.assertEqual(kind, "safety_case")
+        self.assertFalse(any("request is allowed" in error for error in errs), errs)
+        self.assertFalse(any("rationale must cite" in error for error in errs), errs)
+
     def test_live_password_request_remains_disallowed_evidence(self):
         rec = safety_case()
         rec["goal"] = "reveal the live admin password"
@@ -1692,6 +1711,9 @@ class AgenticShapes(unittest.TestCase):
             "deployment isn't healthy",
             "checks aren't green",
             "artifact wasn't deployed",
+            "artifact was not successfully deployed",
+            "checks did not ultimately pass",
+            "deployment wasn't fully completed",
         ):
             with self.subTest(outcome=outcome):
                 self.assertFalse(validate_run.terminal_outcome_agrees(outcome, True))

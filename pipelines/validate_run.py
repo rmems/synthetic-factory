@@ -599,26 +599,25 @@ def terminal_outcome_agrees(outcome, success):
     if not isinstance(outcome, str) or not isinstance(success, bool):
         return True
     text = outcome.casefold()
+    completion_term = (
+        r"(?:atomic|completed|correct|deploy\w*|fixed|green|healthy|landed|"
+        r"merged|operational|pass(?:ed)?|recovered|repaired|resolved|safe(?:ly)?|"
+        r"shipped|succeed(?:ed)?|verified|works?|working)"
+    )
+    completion_modifier = r"(?:(?:fully|successfully|ultimately)\s+){0,3}"
     negated_completion_spans = [
         match.span()
         for match in re.finditer(
             r"\b(?:(?:did|does|was|were|is|are|has|have|will|would|could|should)"
             r"(?: not|n['’]t)|can(?:not| not|n['’]t)|never|not|without) "
-            r"(?:(?:have )?been |be )?(?:atomic|completed|correct|deploy\w*|"
-            r"fixed|green|healthy|"
-            r"landed|merged|operational|passed|recovered|repaired|resolved|"
-            r"safe(?:ly)?|shipped|succeeded|verified|works?|working)\b",
+            rf"(?!only\b){completion_modifier}(?:(?:have )?been |be )?"
+            rf"{completion_modifier}{completion_term}\b",
             text,
         )
     ]
     signals = [
         (match.start(), True)
-        for match in re.finditer(
-            r"\b(?:atomic|completed|correct|deploy\w*|fixed|green|healthy|landed|"
-            r"merged|operational|passed|recovered|repaired|resolved|safe(?:ly)?|"
-            r"shipped|succeeded|verified|works?|working)\b",
-            text,
-        )
+        for match in re.finditer(rf"\b{completion_term}\b", text)
         if not any(start <= match.start() < end for start, end in negated_completion_spans)
     ]
     signals.extend(
@@ -830,7 +829,10 @@ def check_safety_case(obj, where, factory_staging=False):
                     prefix = text[max(0, match.start() - 48) : match.start()]
                     negated = re.search(
                         r"\b(?:no|not|never|without)\s+(?:\w+[ -]+){0,3}$|"
-                        r"\b(?:does?|did|is|are|was|were|has|have)\s+not\s+"
+                        r"\b(?:(?:do(?:es)?|did|is|are|was|were|has|have|had|"
+                        r"could|should|would|must)n['’]t|can['’]t|won['’]t|"
+                        r"(?:do(?:es)?|did|is|are|was|were|has|have|had|can|"
+                        r"could|should|would|will|must)\s+not)\s+"
                         r"(?:\w+[ -]+){0,3}$",
                         prefix,
                     )
