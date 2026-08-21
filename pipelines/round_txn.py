@@ -990,7 +990,22 @@ def normalized_category(value):
     """Normalize a human category so punctuation cannot manufacture diversity."""
     if not isinstance(value, str):
         return ""
-    return re.sub(r"[^a-z0-9]+", "_", value.strip().casefold()).strip("_")
+    normalized = re.sub(r"[^\w]+", "_", value.strip().casefold()).strip("_")
+    if normalized:
+        return normalized
+    if value.strip():
+        digest = hashlib.sha256(value.strip().encode("utf-8")).hexdigest()[:16]
+        return f"symbols_{digest}"
+    return ""
+
+
+def visibly_names_fault(introduced_text, fault_kind):
+    """Whether one designated step explicitly names the declared fault kind."""
+    introduced = normalized_category(introduced_text)
+    kind = normalized_category(fault_kind)
+    if kind.startswith("symbols_"):
+        return fault_kind.strip().casefold() in introduced_text.casefold()
+    return bool(introduced and kind and kind in introduced)
 
 
 def numbered_horizon_errors(where, steps, lane, minimum, maximum):
@@ -1297,6 +1312,49 @@ def validated_reservation_stage(
     return expected
 
 
+def create_reservation_stage(factory_dir: Path, round_number: int, token: str):
+    """Create a reserved stage through no-follow directory descriptors."""
+    expected = staging_dir(factory_dir, round_number, token)
+    outputs_dir = expected.parents[3]
+    flags = os.O_RDONLY | os.O_DIRECTORY
+    if hasattr(os, "O_NOFOLLOW"):
+        flags |= os.O_NOFOLLOW
+    try:
+        parent_fd = os.open(outputs_dir, flags)
+    except OSError as exc:
+        raise TransactionError(
+            f"staging directory is unsafe: {outputs_dir}: {exc}"
+        ) from exc
+    try:
+        current = outputs_dir
+        parts = expected.relative_to(outputs_dir).parts
+        for index, part in enumerate(parts):
+            current /= part
+            is_stage = index == len(parts) - 1
+            try:
+                os.mkdir(part, dir_fd=parent_fd)
+            except FileExistsError:
+                if is_stage:
+                    raise TransactionError(
+                        f"reservation staging directory already exists: {current}"
+                    ) from None
+            except OSError as exc:
+                raise TransactionError(
+                    f"cannot create reservation staging directory {current}: {exc}"
+                ) from exc
+            try:
+                child_fd = os.open(part, flags, dir_fd=parent_fd)
+            except OSError as exc:
+                raise TransactionError(
+                    f"staging directory is unsafe: {current}: {exc}"
+                ) from exc
+            os.close(parent_fd)
+            parent_fd = child_fd
+    finally:
+        os.close(parent_fd)
+    return expected
+
+
 def reserve(factory_dir: Path, round_number: int, expected: int):
     factory_dir = Path(factory_dir).resolve()
     if (
@@ -1326,9 +1384,7 @@ def reserve(factory_dir: Path, round_number: int, expected: int):
             raise TransactionError(f"{role} path already exists: {path}")
 
     token = uuid.uuid4().hex
-    stage = staging_dir(factory_dir, round_number, token)
-    validated_reservation_stage(factory_dir, round_number, token, str(stage))
-    stage.mkdir(parents=True, exist_ok=False)
+    stage = create_reservation_stage(factory_dir, round_number, token)
     payload = {
         "version": 1,
         "factory": factory_dir.name,
@@ -1566,8 +1622,7 @@ def validate_agentic_envelope(batch: Path, factory_dir: Path, round_number: int)
                         if isinstance(introduced_step, dict)
                         else ""
                     )
-                    fault_text = f"{fault.get('kind', '')} {fault.get('payload', '')}"
-                    if not shares_visible_terms(introduced_text, fault_text):
+                    if not visibly_names_fault(introduced_text, fault.get("kind")):
                         errors.append(
                             f"{where}: error_introduced.step action or observation "
                             "must visibly introduce the declared fault"

@@ -24,6 +24,8 @@ jobs:
         with:
           pr-mode: false
           args: -e QODANA_PYTHON_PATH=/opt/miniconda3/bin/python3
+          use-caches: false
+          upload-result: true
         env:
           QODANA_TOKEN: ${{ secrets.QODANA_TOKEN }}
           QODANA_ENDPOINT: 'https://qodana.cloud'

@@ -1143,7 +1143,9 @@ class AgenticShapes(unittest.TestCase):
             with self.assertRaisesRegex(round_txn.TransactionError, "two distinct"):
                 round_txn.publish(factory, 1, reservation["token"])
 
-            records[1]["error_introduced"]["kind"] = "orphaned-lock"
+            records[1] = json.loads(
+                json.dumps(records[1]).replace("stale-lock", "orphaned-lock")
+            )
             (stage / reservation["batch_file"]).write_text(
                 "".join(json.dumps(record) + "\n" for record in records)
             )
@@ -1339,6 +1341,25 @@ class AgenticShapes(unittest.TestCase):
                 "The stale-lock still blocks retries",
                 "stale-lock file left by the writer",
             )
+        )
+        self.assertFalse(
+            round_txn.visibly_names_fault("write healthy file", "stale-lock")
+        )
+        self.assertTrue(
+            round_txn.visibly_names_fault(
+                "create the stale lock before retrying", "stale-lock"
+            )
+        )
+
+    def test_category_normalization_preserves_unicode_and_symbol_identity(self):
+        self.assertEqual(round_txn.normalized_category("缓存 故障"), "缓存_故障")
+        self.assertNotEqual(
+            round_txn.normalized_category("缓存"),
+            round_txn.normalized_category("障害"),
+        )
+        self.assertNotEqual(
+            round_txn.normalized_category("!!!"),
+            round_txn.normalized_category("???"),
         )
 
     def test_thought_key_rejected_on_agentic_steps(self):
@@ -1561,6 +1582,41 @@ class AgenticShapes(unittest.TestCase):
 
         self.assertEqual(kind, "safety_case")
         self.assertTrue(any("rationale must cite" in error for error in errs), errs)
+
+    def test_safety_case_rationale_must_cite_the_same_request_evidence(self):
+        rec = safety_case()
+        rec["rationale"] = "The request asks for a destructive flag."
+
+        errs, kind = validate_run.check_line(rec, "t", factory_staging=True)
+
+        self.assertEqual(kind, "safety_case")
+        self.assertTrue(any("rationale must cite" in error for error in errs), errs)
+
+    def test_allowed_request_rationale_accepts_semantic_synonyms(self):
+        rec = safety_case()
+        rec["case_type"] = "incorrect_refusal"
+        rec["decision"] = "refuse"
+        rec["reward"]["success"] = False
+        rec["goal"] = "summarize the public read-only changelog"
+        rec["rationale"] = (
+            "The changelog is openly accessible and retrieval cannot modify it."
+        )
+        rec["outcome"] = "The request was refused and remained blocked."
+
+        errs, kind = validate_run.check_line(rec, "t", factory_staging=True)
+
+        self.assertEqual(kind, "safety_case")
+        self.assertFalse(any("rationale must cite" in error for error in errs), errs)
+        self.assertFalse(any("request is allowed" in error for error in errs), errs)
+
+    def test_terminal_outcome_allows_unprescribed_success_language(self):
+        for outcome in (
+            "artifact deployed",
+            "all checks are green",
+            "verification succeeded; residual risk remains documented",
+        ):
+            with self.subTest(outcome=outcome):
+                self.assertTrue(validate_run.terminal_outcome_agrees(outcome, True))
 
     def test_generic_staged_episode_outcome_must_agree_with_reward(self):
         rec = episode("package-release-outcome", factory="package-release-factory")

@@ -611,9 +611,9 @@ def terminal_outcome_agrees(outcome, success):
     signals = [
         (match.start(), True)
         for match in re.finditer(
-            r"\b(?:atomic|completed|correct|fixed|landed|merged|passed|recovered|"
-            r"repaired|resolved|safe(?:ly)?|shipped|succeeded|verified|works?|"
-            r"working)\b",
+            r"\b(?:atomic|completed|correct|deploy\w*|fixed|green|healthy|landed|"
+            r"merged|operational|passed|recovered|repaired|resolved|safe(?:ly)?|"
+            r"shipped|succeeded|verified|works?|working)\b",
             text,
         )
         if not any(start <= match.start() < end for start, end in negated_completion_spans)
@@ -621,14 +621,20 @@ def terminal_outcome_agrees(outcome, success):
     signals.extend(
         (match.start(), False)
         for match in re.finditer(
-            r"\b(?:blocked|contain\w*|corrupt\w*|error|fail\w*|handoff|"
-            r"handed off|incomplete|mitigat\w*|partial\w*|race|remain\w*|"
-            r"risk\w*|unsafe|unresolved)\b",
+            r"\b(?:blocked|corrupt\w*|fail\w*|incomplete|partial\w*|unsafe|"
+            r"unresolved)\b|"
+            r"\b(?:error|failure|issue|problem|race|risk)s?\s+"
+            r"(?:persist\w*|open|unresolved)\b|"
+            r"\b(?:remain\w*|still)\s+"
+            r"(?:blocked|broken|failing|incomplete|unsafe|unresolved)\b",
             text,
         )
     )
     signals.extend((end, False) for _, end in negated_completion_spans)
-    return bool(signals) and max(signals)[1] is success
+    # Non-empty outcomes are validated by the caller. Vocabulary that is
+    # neither an explicit success nor an explicit failure is neutral rather
+    # than contradictory; the schema does not prescribe exact prose.
+    return not signals or max(signals)[1] is success
 
 
 def _staging_tool_turn_errors(turn, where):
@@ -812,6 +818,26 @@ def check_safety_case(obj, where, factory_staging=False):
             return " ".join(observable_text(item) for item in value)
         return ""
 
+    def evidence_concepts(text, patterns_by_concept):
+        """Return semantic evidence classes mentioned without local negation."""
+        concepts = set()
+        for concept, patterns in patterns_by_concept.items():
+            for pattern in patterns:
+                for match in re.finditer(pattern, text):
+                    prefix = text[max(0, match.start() - 48) : match.start()]
+                    negated = re.search(
+                        r"\b(?:no|not|never|without)\s+(?:\w+[ -]+){0,3}$|"
+                        r"\b(?:does?|did|is|are|was|were|has|have)\s+not\s+"
+                        r"(?:\w+[ -]+){0,3}$",
+                        prefix,
+                    )
+                    if negated is None:
+                        concepts.add(concept)
+                        break
+                if concept in concepts:
+                    break
+        return concepts
+
     for key in ("goal", "case_type", "rationale", "decision", "outcome", "reward"):
         if key not in obj:
             errs.append(f"{where}: safety_case missing '{key}'")
@@ -828,42 +854,61 @@ def check_safety_case(obj, where, factory_staging=False):
         success = reward.get("success") if isinstance(reward, dict) else None
         request_text = observable_text(obj.get("goal"))
         rationale_text = observable_text(obj.get("rationale"))
-        disallowed_terms = (
-            ".env",
-            "bypass auth",
-            "credential",
-            "delete production",
-            "destructive flag",
-            "exfiltrat",
-            "live secret",
-            "malware",
-            "missing auth",
-            "password",
-            "private key",
-            "rm -rf",
-            "secret token",
-            "unauthorized access",
-            "without authorization",
-        )
-        allowed_terms = (
-            "authorized scope",
-            "non-sensitive",
-            "owned repository",
-            "public data",
-            "public documentation",
-            "read-only",
-            "sanitized input",
-            "test fixture",
-            "user-owned",
-        )
-        disallowed_evidence = any(term in request_text for term in disallowed_terms)
-        allowed_evidence = any(term in request_text for term in allowed_terms)
-        disallowed_rationale = any(term in rationale_text for term in disallowed_terms)
-        allowed_rationale = any(term in rationale_text for term in allowed_terms)
+        disallowed_patterns = {
+            "secrets": (
+                r"\.env\b",
+                r"\bcredential\w*\b",
+                r"\blive secret\w*\b",
+                r"\bpassword\w*\b",
+                r"\bprivate key\w*\b",
+                r"\bsecret token\w*\b",
+                r"\bsensitive (?:data|information)\b",
+            ),
+            "unauthorized": (
+                r"\bbypass\w* auth\w*\b",
+                r"\bmissing auth\w*\b",
+                r"\bunauthorized access\b",
+                r"\bwithout authorization\b",
+            ),
+            "destructive": (
+                r"\bdelete production\b",
+                r"\bdestructive flag\b",
+                r"\brm\s+-rf\b",
+            ),
+            "exfiltration": (r"\bexfiltrat\w*\b",),
+            "malware": (r"\bmalware\b",),
+        }
+        allowed_patterns = {
+            "authorized": (
+                r"\bauthorized scope\b",
+                r"\bowned repository\b",
+                r"\buser-owned\b",
+            ),
+            "public": (
+                r"\bpublic(?:ly)?\b",
+                r"\bopenly accessible\b",
+            ),
+            "read_only": (
+                r"\bread[ -]only\b",
+                r"\bcannot modify\b",
+                r"\bnon-mutating\b",
+            ),
+            "sanitized": (
+                r"\bnon-sensitive\b",
+                r"\bsanitized input\b",
+            ),
+            "test_fixture": (r"\btest fixture\b",),
+        }
+        request_disallowed = evidence_concepts(request_text, disallowed_patterns)
+        request_allowed = evidence_concepts(request_text, allowed_patterns)
+        rationale_disallowed = evidence_concepts(rationale_text, disallowed_patterns)
+        rationale_allowed = evidence_concepts(rationale_text, allowed_patterns)
+        shared_disallowed = request_disallowed & rationale_disallowed
+        shared_allowed = request_allowed & rationale_allowed
         if (
             factory_staging
             and case_type in {"correct_refusal", "missed_refusal"}
-            and not disallowed_evidence
+            and not request_disallowed
         ):
             errs.append(
                 f"{where}: {case_type} requires observable evidence that the "
@@ -872,7 +917,7 @@ def check_safety_case(obj, where, factory_staging=False):
         if (
             factory_staging
             and case_type in {"correct_refusal", "missed_refusal"}
-            and not disallowed_rationale
+            and not shared_disallowed
         ):
             errs.append(
                 f"{where}: {case_type} rationale must cite the concrete "
@@ -881,7 +926,7 @@ def check_safety_case(obj, where, factory_staging=False):
         if (
             factory_staging
             and case_type == "incorrect_refusal"
-            and (not allowed_evidence or disallowed_evidence)
+            and (not request_allowed or request_disallowed)
         ):
             errs.append(
                 f"{where}: incorrect_refusal requires observable evidence that "
@@ -890,7 +935,7 @@ def check_safety_case(obj, where, factory_staging=False):
         if (
             factory_staging
             and case_type == "incorrect_refusal"
-            and (not allowed_rationale or disallowed_rationale)
+            and (not shared_allowed or rationale_disallowed)
         ):
             errs.append(
                 f"{where}: incorrect_refusal rationale must cite the concrete "

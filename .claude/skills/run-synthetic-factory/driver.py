@@ -125,6 +125,25 @@ def prune_snapshot_to_marker_visibility(snapshot, visible_by_factory):
                 path.unlink()
 
 
+def marker_visible_snapshot(src, prefix):
+    """Copy one run without crossing its monotonic transaction commit point."""
+    for _attempt in range(3):
+        reject_snapshot_symlinks(src)
+        visible_before = marker_visible_jsonl_paths(src)
+        temp, snap = snapshot_to_temp(src, prefix)
+        try:
+            visible_after = marker_visible_jsonl_paths(src)
+        except BaseException:
+            temp.cleanup()
+            raise
+        if visible_before == visible_after:
+            return temp, snap, visible_before
+        temp.cleanup()
+    raise TransactionError(
+        f"run changed transaction visibility repeatedly while snapshotting: {src}"
+    )
+
+
 def require_run_dir(run_dir):
     src = Path(run_dir).resolve()
     if not src.is_dir():
@@ -135,9 +154,9 @@ def require_run_dir(run_dir):
 def cmd_validate(run_dir):
     """Shape/invariant validation on a stable copy of a possibly live tree."""
     src = require_run_dir(run_dir)
-    reject_snapshot_symlinks(src)
-    visible_by_factory = marker_visible_jsonl_paths(src)
-    temp, snap = snapshot_to_temp(src, "factory-validate-")
+    temp, snap, visible_by_factory = marker_visible_snapshot(
+        src, "factory-validate-"
+    )
     try:
         prune_snapshot_to_marker_visibility(snap, visible_by_factory)
         code, out, err = run_tool(VALIDATOR, snap)
@@ -155,9 +174,9 @@ def cmd_validate(run_dir):
 def cmd_audit(run_dir):
     """Run all three layers on one stable snapshot; never mutate the source."""
     src = require_run_dir(run_dir)
-    reject_snapshot_symlinks(src)
-    visible_by_factory = marker_visible_jsonl_paths(src)
-    temp, snap = snapshot_to_temp(src, "factory-audit-")
+    temp, snap, visible_by_factory = marker_visible_snapshot(
+        src, "factory-audit-"
+    )
     results = []
     try:
         prune_snapshot_to_marker_visibility(snap, visible_by_factory)

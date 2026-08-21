@@ -85,6 +85,33 @@ class RoundTransaction(unittest.TestCase):
             self.assertEqual(list(outside.iterdir()), [])
             self.assertFalse((factory / "ROUND-r01.reserved.json").exists())
 
+    def test_reserve_rejects_staging_root_swapped_before_descriptor_open(self):
+        with tempfile.TemporaryDirectory() as td:
+            factory = self.factory(td)
+            outside = Path(td) / "outside-race"
+            outside.mkdir()
+            staging_root = Path(td) / "outputs" / "staging"
+            real_open = round_txn.os.open
+            swapped = False
+
+            def swap_before_open(path, flags, mode=0o777, *, dir_fd=None):
+                nonlocal swapped
+                if path == "staging" and dir_fd is not None and not swapped:
+                    staging_root.rmdir()
+                    staging_root.symlink_to(outside, target_is_directory=True)
+                    swapped = True
+                return real_open(path, flags, mode, dir_fd=dir_fd)
+
+            with mock.patch.object(round_txn.os, "open", side_effect=swap_before_open):
+                with self.assertRaisesRegex(
+                    round_txn.TransactionError, "staging directory is unsafe"
+                ):
+                    round_txn.reserve(factory, 1, 1)
+
+            self.assertTrue(swapped)
+            self.assertEqual(list(outside.iterdir()), [])
+            self.assertFalse((factory / "ROUND-r01.reserved.json").exists())
+
     def test_reserve_rejects_dangling_transaction_marker(self):
         with tempfile.TemporaryDirectory() as td:
             factory = self.factory(td)

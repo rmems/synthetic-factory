@@ -215,6 +215,46 @@ class FactoryDriverBytes(unittest.TestCase):
 
 
 class FactoryDriverValidation(unittest.TestCase):
+    def test_marker_visibility_brackets_copy_and_retries_on_commit(self):
+        with tempfile.TemporaryDirectory() as td:
+            run = Path(td) / "run"
+            run.mkdir()
+            events = []
+            real_snapshot = factory_driver.snapshot_to_temp
+            visibility = [
+                {},
+                {"factory": {Path("batch-r01.jsonl")}},
+                {"factory": {Path("batch-r01.jsonl")}},
+                {"factory": {Path("batch-r01.jsonl")}},
+            ]
+
+            def observe_visible(src):
+                events.append("visibility")
+                self.assertEqual(src, run)
+                return visibility.pop(0)
+
+            def observe_snapshot(src, prefix):
+                events.append("copy")
+                return real_snapshot(src, prefix)
+
+            with mock.patch.object(
+                factory_driver,
+                "marker_visible_jsonl_paths",
+                side_effect=observe_visible,
+            ), mock.patch.object(
+                factory_driver, "snapshot_to_temp", side_effect=observe_snapshot
+            ):
+                temp, _snapshot, visible = factory_driver.marker_visible_snapshot(
+                    run, "factory-lock-test-"
+                )
+            temp.cleanup()
+
+        self.assertEqual(visible, {"factory": {Path("batch-r01.jsonl")}})
+        self.assertEqual(
+            events,
+            ["visibility", "copy", "visibility", "visibility", "copy", "visibility"],
+        )
+
     def test_validate_snapshot_excludes_uncommitted_marker_batches(self):
         with tempfile.TemporaryDirectory() as td:
             run = Path(td) / "run"
