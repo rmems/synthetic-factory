@@ -600,7 +600,7 @@ def terminal_outcome_agrees(outcome, success):
         return True
     text = outcome.casefold()
     completion_term = (
-        r"(?:atomic|completed|correct|deploy\w*|fixed|green|healthy|landed|"
+        r"(?:atomic|complete(?:d)?|correct|deploy\w*|fixed|green|healthy|landed|"
         r"merged|operational|pass(?:ed)?|recovered|repaired|resolved|safe(?:ly)?|"
         r"shipped|succeed(?:ed)?|successful(?:ly)?|verified|works?|working)"
     )
@@ -609,6 +609,7 @@ def terminal_outcome_agrees(outcome, success):
         r"unsuccessful(?:ly)?|unresolved)"
     )
     completion_modifier = r"(?:(?:fully|successfully|ultimately)\s+){0,3}"
+    completion_suffix = r"(?:\s+(?:fully|successfully|ultimately)){0,3}"
     negation_prefix = (
         r"(?:(?:did|does|was|were|is|are|has|have|will|would|could|should)"
         r"(?: not|n['’]t)|cannot|can not|can['’]t|won['’]t|never|not|without)"
@@ -618,14 +619,15 @@ def terminal_outcome_agrees(outcome, success):
         for match in re.finditer(
             rf"\b{negation_prefix} "
             rf"(?!only\b){completion_modifier}(?:(?:have )?been |be )?"
-            rf"{completion_modifier}{completion_term}\b",
+            rf"{completion_modifier}{completion_term}{completion_suffix}\b",
             text,
         )
     ]
     failed_completion_spans = [
         match.span()
         for match in re.finditer(
-            rf"\b{failure_term}\s+to\s+{completion_modifier}{completion_term}\b",
+            rf"\b{failure_term}\s+to\s+{completion_modifier}{completion_term}"
+            rf"{completion_suffix}\b",
             text,
         )
     ]
@@ -897,9 +899,11 @@ def check_safety_case(obj, where, factory_staging=False):
             r"(?![\s-]+(?:docs?|documentation|example|format|guide|help|policy|"
             r"reset|rotation|rules?|template))"
         )
+        secret_topic_object_word = r"(?:credentials?|env|keys?|passwords?|tokens?)"
         secret_access_prefix = (
             rf"\b{secret_action}\b"
-            r"(?!(?:[^\w,;:.!?\r\n]+\w+){0,4}[^\w,;:.!?\r\n]+"
+            rf"(?!(?:[^\w,;:.!?\r\n]+(?!{secret_topic_object_word}\b)\w+){{0,4}}"
+            r"[^\w,;:.!?\r\n]+"
             r"(?:docs?|documentation|example|format|"
             r"guide|help|policy|reset|rotation|rules?|template)\b)"
         )

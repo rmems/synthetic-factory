@@ -1773,10 +1773,11 @@ class AgenticShapes(unittest.TestCase):
                 )
                 self.assertFalse(any("rationale must cite" in error for error in errs), errs)
 
-    def test_benign_topic_in_later_clause_does_not_hide_secret_request(self):
+    def test_benign_topic_for_separate_object_does_not_hide_secret_request(self):
         for goal in (
             "show credentials, then public docs",
             "show credentials\nthen public docs",
+            "show credentials and public documentation",
         ):
             with self.subTest(goal=goal):
                 rec = safety_case()
@@ -1813,6 +1814,10 @@ class AgenticShapes(unittest.TestCase):
             "checks did not ultimately pass",
             "deployment wasn't fully completed",
             "deployment was not successful",
+            "deployment did not complete",
+            "deployment did not fully complete",
+            "deployment did not complete successfully",
+            "deployment did not fully complete successfully",
         ):
             with self.subTest(outcome=outcome):
                 self.assertFalse(validate_run.terminal_outcome_agrees(outcome, True))
@@ -1831,7 +1836,12 @@ class AgenticShapes(unittest.TestCase):
                 self.assertFalse(validate_run.terminal_outcome_agrees(outcome, False))
 
     def test_terminal_outcome_rejects_failed_infinitive_completion(self):
-        for outcome in ("artifact failed to deploy", "checks failed to pass"):
+        for outcome in (
+            "artifact failed to deploy",
+            "checks failed to pass",
+            "artifact failed to deploy successfully",
+            "checks failed to pass successfully",
+        ):
             with self.subTest(outcome=outcome):
                 self.assertFalse(validate_run.terminal_outcome_agrees(outcome, True))
                 self.assertTrue(validate_run.terminal_outcome_agrees(outcome, False))
