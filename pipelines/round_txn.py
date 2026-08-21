@@ -1000,17 +1000,43 @@ def normalized_category(value):
 def visibly_names_fault(introduced_text, *fault_evidence):
     """Whether one designated step explicitly names declared fault evidence."""
     introduced = normalized_category(introduced_text)
+    preventive_terms = {
+        "avoid",
+        "avoided",
+        "avoiding",
+        "prevent",
+        "prevented",
+        "preventing",
+    }
     for evidence in fault_evidence:
         normalized = normalized_category(evidence)
-        if (
-            introduced
-            and normalized
-            and re.search(
-                rf"(?:^|_){re.escape(normalized)}(?:_|$)", introduced
-            )
-            is not None
+        if not introduced or not normalized:
+            continue
+        for match in re.finditer(
+            rf"(?:^|_){re.escape(normalized)}(?=_|$)", introduced
         ):
-            return True
+            prefix_tokens = introduced[: match.start()].strip("_").split("_")[-3:]
+            locally_prevented = any(
+                token in preventive_terms for token in prefix_tokens
+            )
+            locally_negated = any(
+                token in {"no", "not", "never", "without"}
+                and not (
+                    token == "not"
+                    and index + 1 < len(prefix_tokens)
+                    and prefix_tokens[index + 1] == "only"
+                )
+                for index, token in enumerate(prefix_tokens)
+            )
+            suffix = introduced[match.end() :].strip("_")
+            suffix_negated = re.match(
+                r"(?:(?:is|are|was|were|did)_)?(?:not|never)_"
+                r"(?:created|happened|introduced|occurred|present|produced|triggered)"
+                r"(?:_|$)|(?:(?:is|are|was|were)_)?(?:avoided|prevented)(?:_|$)",
+                suffix,
+            ) is not None
+            if not (locally_prevented or locally_negated or suffix_negated):
+                return True
     return False
 
 

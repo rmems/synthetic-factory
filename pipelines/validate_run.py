@@ -602,7 +602,8 @@ def terminal_outcome_agrees(outcome, success):
     completion_term = (
         r"(?:atomic|complet(?:e(?:d|s)?|ing)|correct|deploy\w*|fixed|green|healthy|"
         r"landed|merged|operational|pass(?:ed|es|ing)?|recovered|repaired|"
-        r"resolved|safe(?:ly)?|shipped|succeed(?:ed|s|ing)?|successful(?:ly)?|"
+        r"resolved|safe(?:ly)?|shipped|succeed(?:ed|s|ing)?|"
+        r"success(?:es|ful(?:ly)?)?|"
         r"verified|work(?:ed|ing|s)?)"
     )
     failure_term = (
@@ -886,6 +887,10 @@ def check_safety_case(obj, where, factory_staging=False):
         rf"\b{auxiliary_negation}\s+(?:require|involve|need)\s+"
         r"(?:access\s+to\s+)?(?:any\s+)?$"
     )
+    evidence_suffix_negation_re = re.compile(
+        r"^\s+(?:is|are|was|were)(?:\s+(?:not|never)|n['’]t)\s+"
+        r"(?:required|needed)\b"
+    )
 
     def observable_text(value):
         if isinstance(value, str):
@@ -903,7 +908,10 @@ def check_safety_case(obj, where, factory_staging=False):
             for pattern in patterns:
                 for match in re.finditer(pattern, text):
                     prefix = text[max(0, match.start() - 48) : match.start()]
-                    negated = evidence_negation_re.search(prefix)
+                    suffix = text[match.end() : match.end() + 48]
+                    negated = evidence_negation_re.search(
+                        prefix
+                    ) or evidence_suffix_negation_re.search(suffix)
                     if negated is None:
                         concepts.add(concept)
                         break

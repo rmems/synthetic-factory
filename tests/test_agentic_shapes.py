@@ -1191,6 +1191,39 @@ class AgenticShapes(unittest.TestCase):
             errors,
         )
 
+    def test_cascade_declared_fault_rejects_negated_designated_step(self):
+        for introduced_text in (
+            "Confirmed no stale-lock was created",
+            "Avoid creating the stale lock",
+            "The stale lock was not created",
+        ):
+            with self.subTest(introduced_text=introduced_text):
+                with tempfile.TemporaryDirectory() as td:
+                    factory = Path(td) / "cascading-error-recovery-factory"
+                    factory.mkdir()
+                    records = [
+                        cascading_episode(f"cascade-negated-fault-{index}")
+                        for index in range(2)
+                    ]
+                    records[1]["error_introduced"]["kind"] = "orphaned-lock"
+                    introduced_step = records[0]["steps"][1]
+                    introduced_step["tool_call"]["args"]["command"] = introduced_text
+                    introduced_step["observation"] = introduced_text
+                    batch = factory / "batch-r01.jsonl"
+                    batch.write_text(
+                        "".join(json.dumps(record) + "\n" for record in records)
+                    )
+
+                    errors = round_txn.validate_agentic_envelope(batch, factory, 1)
+
+                self.assertTrue(
+                    any(
+                        "action or observation must visibly introduce" in error
+                        for error in errors
+                    ),
+                    errors,
+                )
+
     def test_cascade_fault_class_diversity_normalizes_punctuation(self):
         with tempfile.TemporaryDirectory() as td:
             factory = Path(td) / "cascading-error-recovery-factory"
@@ -1393,6 +1426,21 @@ class AgenticShapes(unittest.TestCase):
         self.assertTrue(
             round_txn.visibly_names_fault(
                 "create the stale lock before retrying", "stale-lock"
+            )
+        )
+        self.assertFalse(
+            round_txn.visibly_names_fault(
+                "Confirmed no stale-lock was created", "stale-lock"
+            )
+        )
+        self.assertFalse(
+            round_txn.visibly_names_fault(
+                "Avoid creating the stale lock", "stale-lock"
+            )
+        )
+        self.assertFalse(
+            round_txn.visibly_names_fault(
+                "The stale lock was not created", "stale-lock"
             )
         )
         self.assertTrue(
@@ -1773,6 +1821,26 @@ class AgenticShapes(unittest.TestCase):
         self.assertFalse(any("request is allowed" in error for error in errs), errs)
         self.assertFalse(any("rationale must cite" in error for error in errs), errs)
 
+    def test_following_negation_is_not_secret_access_evidence(self):
+        rec = safety_case()
+        rec["case_type"] = "incorrect_refusal"
+        rec["decision"] = "refuse"
+        rec["reward"]["success"] = False
+        rec["goal"] = (
+            "Summarize the public documentation; a live secret is not required"
+        )
+        rec["rationale"] = (
+            "The public documentation is openly accessible; "
+            "a live secret is not required."
+        )
+        rec["outcome"] = "The request was refused and remained blocked."
+
+        errs, kind = validate_run.check_line(rec, "t", factory_staging=True)
+
+        self.assertEqual(kind, "safety_case")
+        self.assertFalse(any("request is allowed" in error for error in errs), errs)
+        self.assertFalse(any("rationale must cite" in error for error in errs), errs)
+
     def test_preceding_documentation_is_not_secret_access_evidence(self):
         for goal in (
             "read public read-only documentation about credentials",
@@ -1887,6 +1955,7 @@ class AgenticShapes(unittest.TestCase):
             "tests are passing",
             "checks are succeeding",
             "deployment is completing",
+            "release was a success",
         ):
             with self.subTest(outcome=outcome):
                 self.assertTrue(validate_run.terminal_outcome_agrees(outcome, True))
@@ -1922,6 +1991,8 @@ class AgenticShapes(unittest.TestCase):
             "tests aren't passing",
             "checks are not succeeding",
             "deployment isn't completing",
+            "tests were not a success",
+            "deployment wasn't a success",
         ):
             with self.subTest(outcome=outcome):
                 self.assertFalse(validate_run.terminal_outcome_agrees(outcome, True))
