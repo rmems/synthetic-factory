@@ -443,6 +443,16 @@ def completed_manifests(src: Path) -> dict[int, dict]:
             raise SystemExit(f"completion marker commit point mismatch: {marker}")
         if not isinstance(manifest.get("files"), list):
             raise SystemExit(f"completion marker files must be an array: {marker}")
+        for entry in manifest["files"]:
+            name = entry.get("name") if isinstance(entry, dict) else None
+            if not isinstance(name, str) or not name or Path(name).name != name:
+                raise SystemExit(f"completion marker has an unsafe file entry: {marker}")
+            if name in (f"batch-r{round_number:02d}.jsonl", f"NOTES-r{round_number:02d}.md"):
+                continue
+            artifact = src / name
+            if not is_regular_source_file(artifact):
+                raise SystemExit(f"completion marker has no regular artifact: {artifact}")
+            file_matches_manifest(artifact, manifest)
         batch = src / f"batch-r{round_number:02d}.jsonl"
         if not is_regular_source_file(batch):
             raise SystemExit(f"completion marker has no regular batch: {marker}")

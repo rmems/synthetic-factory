@@ -183,6 +183,34 @@ class TrainingAudit(unittest.TestCase):
         self.assertEqual(report["preferences"]["same_context"], 0)
         self.assertGreater(report["record_invariants"]["errors"], 0)
 
+    def test_null_agentic_turn_containers_are_reported_without_crashing(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            malformed_episode = {
+                "id": "null-episode-steps",
+                "goal": "repair the cache",
+                "steps": None,
+                "outcome": "not reached",
+                "reward": {"success": False},
+            }
+            malformed_multi_agent = {
+                "id": "null-transcript",
+                "goal": "resolve rollout ownership",
+                "agents": [
+                    {"role": "operator", "mandate": "ship safely"},
+                    {"role": "reviewer", "mandate": "block regressions"},
+                ],
+                "transcript": None,
+                "joint_outcome": "not reached",
+                "reward": {"success": False},
+            }
+            write(root / "agentic" / "batch-r01.jsonl", [malformed_episode, malformed_multi_agent])
+
+            report = training_audit.audit_run(root)
+
+        self.assertFalse(report["training_ready"])
+        self.assertGreaterEqual(report["record_invariants"]["errors"], 2)
+
     def test_episode_preference_uses_shared_goal_not_thalamic_context(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)

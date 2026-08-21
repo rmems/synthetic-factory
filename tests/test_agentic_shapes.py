@@ -330,6 +330,33 @@ class AgenticShapes(unittest.TestCase):
             ):
                 round_txn.publish(factory, 1, reservation["token"])
 
+    def test_cascading_error_factory_requires_fault_and_diagnosis(self):
+        with tempfile.TemporaryDirectory() as td:
+            factory = (
+                Path(td)
+                / "outputs"
+                / "raw"
+                / "2099-01-01"
+                / "cascading-error-recovery-factory"
+            )
+            factory.mkdir(parents=True)
+            reservation = round_txn.reserve(factory, 1, 2)
+            stage = Path(reservation["staging_dir"])
+            records = [
+                episode(f"cer-r01-generic-{index}", factory=factory.name)
+                for index in range(2)
+            ]
+            (stage / reservation["batch_file"]).write_text(
+                "".join(json.dumps(record) + "\n" for record in records)
+            )
+            (stage / reservation["notes_file"]).write_text("Novel coverage: 80%\n")
+
+            with self.assertRaises(round_txn.TransactionError) as raised:
+                round_txn.publish(factory, 1, reservation["token"])
+
+            self.assertIn("error_introduced", str(raised.exception))
+            self.assertIn("diagnosis", str(raised.exception))
+
     def test_thought_key_rejected_on_agentic_steps(self):
         rec = episode("lhc-r01-tz")
         rec["steps"][0]["tool_call"]["args"]["scratch"] = "hidden"

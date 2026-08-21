@@ -385,7 +385,8 @@ def check_record(obj, where, factory_staging=False):
         # Publish-time deep provenance scan — owns every nested 'real' claim
         errors.extend(check_provenance_publish(obj, where))
         if kind == "episode":
-            for index, step in enumerate(obj.get("steps", [])):
+            steps = obj.get("steps")
+            for index, step in enumerate(steps if isinstance(steps, list) else ()):
                 if (
                     isinstance(step, dict)
                     and "thought" in step

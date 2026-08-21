@@ -163,16 +163,23 @@ def preference_context_purity(obj, chosen, rejected):
 def agentic_turns(obj, kind):
     """Yield each observable decision turn used by agentic curation."""
     if kind == "episode":
-        yield from obj.get("steps", [])
+        steps = obj.get("steps")
+        if isinstance(steps, list):
+            yield from steps
     elif kind == "preference":
         for side_name in ("chosen", "rejected"):
             side = dict_field(obj, side_name)
             if _episode_like(side):
-                yield from side.get("steps", [])
+                steps = side.get("steps")
+                if isinstance(steps, list):
+                    yield from steps
     elif kind == "safety_case":
-        yield from obj.get("steps", [])
+        steps = obj.get("steps")
+        if isinstance(steps, list):
+            yield from steps
     elif kind == "multi_agent":
-        for turn in obj.get("transcript", []):
+        transcript = obj.get("transcript")
+        for turn in transcript if isinstance(transcript, list) else ():
             if isinstance(turn, dict) and "tool_call" in turn:
                 yield turn
 

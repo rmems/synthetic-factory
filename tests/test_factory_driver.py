@@ -156,6 +156,19 @@ class FactoryDriverBytes(unittest.TestCase):
 
 
 class FactoryDriverAudit(unittest.TestCase):
+    def test_audit_refuses_a_symlinked_source_payload(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            run = root / "run"
+            factory = run / "marker-factory"
+            factory.mkdir(parents=True)
+            outside = root / "outside.jsonl"
+            outside.write_text('{"id":"external"}\n')
+            (factory / "batch-r01.jsonl").symlink_to(outside)
+
+            with self.assertRaisesRegex(TransactionError, "unsafe symlinked path"):
+                factory_driver.cmd_audit(run)
+
     def test_audit_snapshot_excludes_uncommitted_marker_batches(self):
         with tempfile.TemporaryDirectory() as td:
             run = Path(td) / "run"

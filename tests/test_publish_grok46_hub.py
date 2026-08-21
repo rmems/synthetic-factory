@@ -398,6 +398,41 @@ class PublishGrok46HubTests(unittest.TestCase):
 
             self.assertEqual(stale.read_text(), "preserve\n")
 
+    def test_snapshot_validates_every_declared_manifest_artifact(self):
+        with tempfile.TemporaryDirectory() as td:
+            source = Path(td) / ITEM["slug"]
+            source.mkdir()
+            (source / ".round-marker-mode.json").write_text(
+                '{"version":1,"legacy_baseline":0,"commit_point":"ROUND-rNN.complete.json"}\n'
+            )
+            batch = source / "batch-r01.jsonl"
+            notes = source / "NOTES-r01.md"
+            evidence = source / "EVIDENCE-r01.json"
+            batch.write_text('{"id":"committed"}\n')
+            notes.write_text("Novel coverage: 80%\n")
+            evidence.write_text('{"result":"passed"}\n')
+            marker = source / "ROUND-r01.complete.json"
+            marker.write_text(
+                json.dumps(
+                    {
+                        "factory": source.name,
+                        "round": 1,
+                        "commit_point": marker.name,
+                        "files": [
+                            {"name": batch.name, "sha256": hashlib.sha256(batch.read_bytes()).hexdigest()},
+                            {"name": notes.name, "sha256": hashlib.sha256(notes.read_bytes()).hexdigest()},
+                            {"name": evidence.name, "sha256": hashlib.sha256(evidence.read_bytes()).hexdigest()},
+                        ],
+                    }
+                )
+                + "\n"
+            )
+
+            self.assertEqual([path.name for path in publisher.published_batches(source)], [batch.name])
+            evidence.write_text('{"result":"tampered"}\n')
+            with self.assertRaisesRegex(SystemExit, "hash mismatch"):
+                publisher.published_batches(source)
+
     def test_snapshot_replaces_symlinked_shared_inventory(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)

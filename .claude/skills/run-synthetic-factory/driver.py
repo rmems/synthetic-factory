@@ -35,6 +35,7 @@ if str(PIPELINES) not in sys.path:
     sys.path.insert(0, str(PIPELINES))
 
 from round_txn import (  # noqa: E402
+    TransactionError,
     committed_jsonl_paths,
     completed_manifests,
     completion_manifest_file_matches,
@@ -83,6 +84,9 @@ def run_tool(script, run_dir, *options):
 
 
 def snapshot_to_temp(src, prefix):
+    for path in src.rglob("*"):
+        if path.is_symlink():
+            raise TransactionError(f"cannot snapshot unsafe symlinked path: {path}")
     temp = tempfile.TemporaryDirectory(prefix=prefix)
     snap = Path(temp.name) / src.name
     shutil.copytree(src, snap)

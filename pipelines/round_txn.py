@@ -655,6 +655,26 @@ def validate_agentic_envelope(batch: Path, factory_dir: Path, round_number: int)
             safety_case_types.append(record.get("case_type"))
         for path in nested_key_paths(record, "spike_events"):
             errors.append(f"{where}: agentic records must not include spike_events at {path}")
+        if factory_dir.name == "cascading-error-recovery-factory":
+            fault = record.get("error_introduced") if isinstance(record, dict) else None
+            if not isinstance(fault, dict):
+                errors.append(f"{where}: error_introduced must be an object")
+            else:
+                step_number = fault.get("step")
+                steps = record.get("steps") if isinstance(record, dict) else None
+                if (
+                    not isinstance(step_number, int)
+                    or isinstance(step_number, bool)
+                    or step_number < 2
+                    or not isinstance(steps, list)
+                    or step_number >= len(steps)
+                ):
+                    errors.append(
+                        f"{where}: error_introduced.step must name a non-final step at least 2"
+                    )
+            diagnosis = record.get("diagnosis") if isinstance(record, dict) else None
+            if not isinstance(diagnosis, str) or not diagnosis.strip():
+                errors.append(f"{where}: diagnosis must be a non-empty string")
         if AGENTIC_FACTORY_KINDS[factory_dir.name] == "preference":
             for side_name in ("chosen", "rejected"):
                 side = record.get(side_name) if isinstance(record, dict) else None
@@ -697,11 +717,16 @@ def validate_agentic_envelope(batch: Path, factory_dir: Path, round_number: int)
     return errors
 
 
-def validate_novel_coverage(notes: Path, factory_dir: Path):
+def validate_novel_coverage(notes: Path, factory_dir: Path, notes_text: str | None = None):
     """Require a usable Novel coverage percentage for fixed agentic lanes."""
     if factory_dir.name not in AGENTIC_FACTORY_KINDS:
         return None
-    match = NOVEL_COVERAGE_RE.search(notes.read_text())
+    if notes_text is None:
+        try:
+            notes_text = notes.read_text()
+        except (OSError, UnicodeError) as exc:
+            return f"cannot read staged notes as UTF-8: {notes}: {exc}"
+    match = NOVEL_COVERAGE_RE.search(notes_text)
     if match is None:
         return f"staged notes need a 'Novel coverage: <N>%' line: {notes}"
     value = float(match.group(1))
@@ -724,9 +749,13 @@ def validate_stage(
         raise TransactionError(f"required staged batch missing or unsafe: {batch}")
     if not notes.is_file() or notes.is_symlink():
         raise TransactionError(f"required staged notes missing or unsafe: {notes}")
-    if not notes.read_text().strip():
+    try:
+        notes_text = notes.read_text()
+    except (OSError, UnicodeError) as exc:
+        raise TransactionError(f"cannot read staged notes as UTF-8: {notes}: {exc}") from exc
+    if not notes_text.strip():
         raise TransactionError(f"staged notes are empty: {notes}")
-    coverage_error = validate_novel_coverage(notes, factory_dir)
+    coverage_error = validate_novel_coverage(notes, factory_dir, notes_text)
     if coverage_error:
         raise TransactionError(coverage_error)
 
@@ -898,10 +927,17 @@ def _abort_locked(factory_dir: Path, round_number: int, token: str):
     if reservation.get("token") != token:
         raise TransactionError("reservation token mismatch")
 
-    stage = Path(reservation.get("staging_dir", "")).resolve()
-    expected_stage = staging_dir(factory_dir, round_number, token).resolve()
-    if stage == expected_stage:
-        shutil.rmtree(stage, ignore_errors=True)
+    stage_text = reservation.get("staging_dir")
+    expected_stage = staging_dir(factory_dir, round_number, token)
+    if not isinstance(stage_text, str) or Path(stage_text) != expected_stage:
+        raise TransactionError(
+            f"reservation staging path escaped its transaction root: {stage_text!r}"
+        )
+    stage = Path(stage_text)
+    if stage.is_symlink() or (stage.exists() and not stage.is_dir()):
+        raise TransactionError(f"reservation staging directory is unsafe: {stage}")
+    if stage.exists():
+        shutil.rmtree(stage)
     paths["reservation"].unlink(missing_ok=True)
     return {
         "factory": factory_dir.name,

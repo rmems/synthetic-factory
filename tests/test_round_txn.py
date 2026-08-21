@@ -88,6 +88,24 @@ class RoundTransaction(unittest.TestCase):
             manifest = round_txn.publish(factory, 1, retry["token"])
             self.assertEqual(manifest["records"], 1)
 
+    def test_abort_refuses_a_symlinked_staging_directory(self):
+        with tempfile.TemporaryDirectory() as td:
+            factory = self.factory(td)
+            reservation = round_txn.reserve(factory, 1, 1)
+            stage = Path(reservation["staging_dir"])
+            outside = Path(td) / "outside-stage"
+            outside.mkdir()
+            sentinel = outside / "keep.txt"
+            sentinel.write_text("do not delete\n")
+            stage.rmdir()
+            stage.symlink_to(outside, target_is_directory=True)
+
+            with self.assertRaisesRegex(round_txn.TransactionError, "staging directory is unsafe"):
+                round_txn.abort(factory, 1, reservation["token"])
+
+            self.assertEqual(sentinel.read_text(), "do not delete\n")
+            self.assertTrue((factory / "ROUND-r01.reserved.json").is_file())
+
     def test_abort_requires_matching_token_and_refuses_committed_round(self):
         with tempfile.TemporaryDirectory() as td:
             factory = self.factory(td)
@@ -274,6 +292,18 @@ class RoundTransaction(unittest.TestCase):
             self.assertTrue((factory / "ROUND-r01.reserved.json").is_file())
             self.assertFalse((factory / "batch-r01.jsonl").exists())
             self.assertFalse((factory / "ROUND-r01.complete.json").exists())
+
+    def test_invalid_utf8_staged_notes_report_a_transaction_error(self):
+        with tempfile.TemporaryDirectory() as td:
+            factory = self.factory(td)
+            reservation = round_txn.reserve(factory, 1, 1)
+            stage = self.fill_stage(reservation, [thalamic("bad-notes")])
+            (stage / reservation["notes_file"]).write_bytes(b"Novel coverage: 80%\xff\n")
+
+            with self.assertRaisesRegex(round_txn.TransactionError, "cannot read staged notes"):
+                round_txn.publish(factory, 1, reservation["token"])
+
+            self.assertTrue((factory / "ROUND-r01.reserved.json").is_file())
             self.assertEqual(round_txn.frontier_status(factory)["next_round"], 1)
 
     def test_exact_quota_is_enforced(self):
