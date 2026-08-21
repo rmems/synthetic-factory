@@ -1,0 +1,68 @@
+.coveragerc
+  s_a101c3059277fd::t_1ca85032340045 1-12
+pipelines/validate_run.py
+  s_a101c3059277fd::t_4ada3aa4e32c5f 1093,1095-1096,1099,1102-1103
+  s_a101c3059277fd::t_d3db2808b73e15 668-674,686-693,829-831,848,859-862,872-880,890-897,1184-1189
+  s_a101c3059277fd::t_771953bafe59c4 832-846,849-857
+  s_a101c3059277fd::t_2fdcea72f96b1a 624-626
+qodana.yaml
+  s_a101c3059277fd::t_9edbc77dc70502 11,16
+  s_a101c3059277fd::t_b1440a8c316c03 3-6
+  s_a101c3059277fd::t_4ada3aa4e32c5f 7-10
+  s_a101c3059277fd::t_20fa76d3186709 12-15,17-21
+tests/test_agentic_shapes.py
+  s_a101c3059277fd::t_6cda0f6c11f6a7 1556-1577
+  s_a101c3059277fd::t_c6e88ec56696c4 198-201
+  s_a101c3059277fd::t_c25ff1ffd11e8f 1216
+  s_a101c3059277fd::t_6a167bdfab586e 1154-1200
+pipelines/curate_agentic.py
+  s_a101c3059277fd::t_4ada3aa4e32c5f 264-265,273,275
+prompts/12-safety-calibration-factory.md
+  s_a101c3059277fd::t_ed3df00de3c105 50-53
+.gitignore
+  s_a101c3059277fd::t_1ca85032340045 19-21
+pipelines/verify_execution.py
+  s_a101c3059277fd::t_4ada3aa4e32c5f 81
+tests/test_factory_driver.py
+  s_a101c3059277fd::t_c5b0431069a934 217-241
+.claude/skills/run-synthetic-factory/driver.py
+  s_a101c3059277fd::t_4ada3aa4e32c5f 248-249,251
+  s_a101c3059277fd::t_6622534e272a34 119-127,138-139,142,163
+prompts/09-cascading-error-recovery-factory.md
+  s_a101c3059277fd::t_ed3df00de3c105 43-44,54-55
+.github/workflows/python.yml
+  s_a101c3059277fd::t_6384362e21d8dd 34
+  s_a101c3059277fd::t_1ca85032340045 36-51
+  s_a101c3059277fd::t_d371d85e9d4c90 33
+.github/workflows/qodana.yml
+  s_a101c3059277fd::t_c16721c922cd94 29
+scripts/publish_grok46_hub.py
+  s_a101c3059277fd::t_4ada3aa4e32c5f 913
+pipelines/verify_hf_release.py
+  s_a101c3059277fd::t_4ada3aa4e32c5f 309-310,519-520
+REVIEW.md
+  s_a101c3059277fd::t_b1440a8c316c03 65-69
+  s_a101c3059277fd::t_9edbc77dc70502 37-44
+  s_a101c3059277fd::t_1ca85032340045 1-36,45-64,70-78
+tests/test_round_txn.py
+  s_a101c3059277fd::t_f06b786651f7c0 72-101
+pipelines/round_txn.py
+  s_a101c3059277fd::t_450774158af82e 989-995,1325,1330,1546,1549-1574,1937
+  s_a101c3059277fd::t_4ada3aa4e32c5f 1053-1054
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "59be411dc42ebe8e32fe1653e351d865dabcb3ff",
+  "prompts": {},
+  "sessions": {
+    "s_a101c3059277fd": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a01e14-4bc2-7890-a7ce-1c993a8df50a",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Raul Montoya Cardenas <montoyaraul34@gmail.com>"
+    }
+  }
+}
