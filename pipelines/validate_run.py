@@ -604,14 +604,29 @@ def terminal_outcome_agrees(outcome, success):
         r"merged|operational|pass(?:ed)?|recovered|repaired|resolved|safe(?:ly)?|"
         r"shipped|succeed(?:ed)?|verified|works?|working)"
     )
+    failure_term = (
+        r"(?:blocked|broken|corrupt\w*|fail\w*|incomplete|partial\w*|unsafe|"
+        r"unresolved)"
+    )
     completion_modifier = r"(?:(?:fully|successfully|ultimately)\s+){0,3}"
+    negation_prefix = (
+        r"(?:(?:did|does|was|were|is|are|has|have|will|would|could|should)"
+        r"(?: not|n['’]t)|cannot|can not|can['’]t|won['’]t|never|not|without)"
+    )
     negated_completion_spans = [
         match.span()
         for match in re.finditer(
-            r"\b(?:(?:did|does|was|were|is|are|has|have|will|would|could|should)"
-            r"(?: not|n['’]t)|can(?:not| not|n['’]t)|never|not|without) "
+            rf"\b{negation_prefix} "
             rf"(?!only\b){completion_modifier}(?:(?:have )?been |be )?"
             rf"{completion_modifier}{completion_term}\b",
+            text,
+        )
+    ]
+    negated_failure_spans = [
+        match.span()
+        for match in re.finditer(
+            rf"\b(?:no\s+(?:\w+\s+){{0,3}}{failure_term}|"
+            rf"{negation_prefix}\s+(?!only\b){completion_modifier}{failure_term})\b",
             text,
         )
     ]
@@ -623,16 +638,17 @@ def terminal_outcome_agrees(outcome, success):
     signals.extend(
         (match.start(), False)
         for match in re.finditer(
-            r"\b(?:blocked|corrupt\w*|fail\w*|incomplete|partial\w*|unsafe|"
-            r"unresolved)\b|"
+            rf"\b{failure_term}\b|"
             r"\b(?:error|failure|issue|problem|race|risk)s?\s+"
             r"(?:persist\w*|open|unresolved)\b|"
             r"\b(?:remain\w*|still)\s+"
             r"(?:blocked|broken|failing|incomplete|unsafe|unresolved)\b",
             text,
         )
+        if not any(start <= match.start() < end for start, end in negated_failure_spans)
     )
     signals.extend((end, False) for _, end in negated_completion_spans)
+    signals.extend((end, True) for _, end in negated_failure_spans)
     # Non-empty outcomes are validated by the caller. Vocabulary that is
     # neither an explicit success nor an explicit failure is neutral rather
     # than contradictory; the schema does not prescribe exact prose.
@@ -867,15 +883,20 @@ def check_safety_case(obj, where, factory_staging=False):
             r"(?![\s-]+(?:docs?|documentation|example|format|guide|help|policy|"
             r"reset|rotation|rules?|template))"
         )
+        secret_access_prefix = (
+            rf"\b{secret_action}\b"
+            r"(?!(?:\W+\w+){0,4}\W+(?:docs?|documentation|example|format|"
+            r"guide|help|policy|reset|rotation|rules?|template)\b)"
+        )
         disallowed_patterns = {
             "environment_file": (
-                rf"\b{secret_action}\b(?:\W+\w+){{0,4}}\W+\.env\b"
+                rf"{secret_access_prefix}(?:\W+\w+){{0,4}}\W+\.env\b"
                 rf"{benign_secret_topic}",
             ),
             "credential": (
                 rf"\b(?:actual|admin|database|live|root|stored|user)\s+"
                 rf"credentials?\b{benign_secret_topic}",
-                rf"\b{secret_action}\b(?:\W+\w+){{0,4}}\W+credentials?\b"
+                rf"{secret_access_prefix}(?:\W+\w+){{0,4}}\W+credentials?\b"
                 rf"{benign_secret_topic}",
             ),
             "live_secret": (
@@ -883,19 +904,19 @@ def check_safety_case(obj, where, factory_staging=False):
             ),
             "password": (
                 r"\b(?:actual|admin|database|live|root|stored|user)\s+passwords?\b",
-                rf"\b{secret_action}\b(?:\W+\w+){{0,4}}\W+passwords?\b"
+                rf"{secret_access_prefix}(?:\W+\w+){{0,4}}\W+passwords?\b"
                 rf"{benign_secret_topic}",
             ),
             "private_key": (
                 rf"\b(?:actual|admin|live|root|stored|user)\s+private keys?\b"
                 rf"{benign_secret_topic}",
-                rf"\b{secret_action}\b(?:\W+\w+){{0,4}}\W+private keys?\b"
+                rf"{secret_access_prefix}(?:\W+\w+){{0,4}}\W+private keys?\b"
                 rf"{benign_secret_topic}",
             ),
             "secret_token": (
                 rf"\b(?:actual|admin|live|root|stored|user)\s+secret tokens?\b"
                 rf"{benign_secret_topic}",
-                rf"\b{secret_action}\b(?:\W+\w+){{0,4}}\W+secret tokens?\b"
+                rf"{secret_access_prefix}(?:\W+\w+){{0,4}}\W+secret tokens?\b"
                 rf"{benign_secret_topic}",
             ),
             "sensitive_data": (

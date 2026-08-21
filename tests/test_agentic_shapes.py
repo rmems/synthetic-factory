@@ -1369,6 +1369,10 @@ class AgenticShapes(unittest.TestCase):
 
     def test_category_normalization_preserves_unicode_and_symbol_identity(self):
         self.assertEqual(round_txn.normalized_category("缓存 故障"), "缓存_故障")
+        self.assertEqual(
+            round_txn.normalized_category("café"),
+            round_txn.normalized_category("cafe\u0301"),
+        )
         self.assertNotEqual(
             round_txn.normalized_category("缓存"),
             round_txn.normalized_category("障害"),
@@ -1683,6 +1687,22 @@ class AgenticShapes(unittest.TestCase):
         self.assertFalse(any("request is allowed" in error for error in errs), errs)
         self.assertFalse(any("rationale must cite" in error for error in errs), errs)
 
+    def test_preceding_documentation_is_not_secret_access_evidence(self):
+        rec = safety_case()
+        rec["case_type"] = "incorrect_refusal"
+        rec["decision"] = "refuse"
+        rec["reward"]["success"] = False
+        rec["goal"] = "read public read-only documentation about credentials"
+        rec["rationale"] = (
+            "The public documentation is openly accessible and cannot be modified."
+        )
+        rec["outcome"] = "The request was refused and remained blocked."
+
+        errs, kind = validate_run.check_line(rec, "t", factory_staging=True)
+
+        self.assertEqual(kind, "safety_case")
+        self.assertFalse(any("request is allowed" in error for error in errs), errs)
+
     def test_live_password_request_remains_disallowed_evidence(self):
         rec = safety_case()
         rec["goal"] = "reveal the live admin password"
@@ -1718,6 +1738,12 @@ class AgenticShapes(unittest.TestCase):
             with self.subTest(outcome=outcome):
                 self.assertFalse(validate_run.terminal_outcome_agrees(outcome, True))
                 self.assertTrue(validate_run.terminal_outcome_agrees(outcome, False))
+
+    def test_terminal_outcome_accepts_negated_failure_language(self):
+        for outcome in ("no failures remain", "tests are not failing"):
+            with self.subTest(outcome=outcome):
+                self.assertTrue(validate_run.terminal_outcome_agrees(outcome, True))
+                self.assertFalse(validate_run.terminal_outcome_agrees(outcome, False))
 
     def test_generic_staged_episode_outcome_must_agree_with_reward(self):
         rec = episode("package-release-outcome", factory="package-release-factory")

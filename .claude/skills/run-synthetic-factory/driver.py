@@ -21,8 +21,10 @@ Usage:
 from __future__ import annotations
 
 import json
+import os
 import re
 import shutil
+import stat
 import subprocess
 import sys
 import tempfile
@@ -92,11 +94,95 @@ def reject_snapshot_symlinks(src):
             raise TransactionError(f"cannot snapshot unsafe symlinked path: {path}")
 
 
+def _copy_snapshot_directory(source_fd, destination_fd, source_path):
+    """Copy an opened directory without following source-side links."""
+    with os.scandir(source_fd) as entries:
+        for entry in entries:
+            entry_path = source_path / entry.name
+            try:
+                entry_fd = os.open(
+                    entry.name,
+                    os.O_RDONLY | os.O_NONBLOCK | os.O_NOFOLLOW,
+                    dir_fd=source_fd,
+                )
+            except OSError as exc:
+                raise TransactionError(
+                    f"cannot snapshot path safely: {entry_path}: {exc.strerror}"
+                ) from exc
+            try:
+                entry_stat = os.fstat(entry_fd)
+                if stat.S_ISDIR(entry_stat.st_mode):
+                    os.mkdir(entry.name, mode=0o700, dir_fd=destination_fd)
+                    child_destination_fd = os.open(
+                        entry.name,
+                        os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW,
+                        dir_fd=destination_fd,
+                    )
+                    try:
+                        _copy_snapshot_directory(
+                            entry_fd, child_destination_fd, entry_path
+                        )
+                        os.fchmod(
+                            child_destination_fd, stat.S_IMODE(entry_stat.st_mode)
+                        )
+                    finally:
+                        os.close(child_destination_fd)
+                elif stat.S_ISREG(entry_stat.st_mode):
+                    destination_file_fd = os.open(
+                        entry.name,
+                        os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
+                        mode=0o600,
+                        dir_fd=destination_fd,
+                    )
+                    with os.fdopen(os.dup(entry_fd), "rb") as source_file, os.fdopen(
+                        destination_file_fd, "wb"
+                    ) as destination_file:
+                        shutil.copyfileobj(source_file, destination_file)
+                        os.fchmod(
+                            destination_file.fileno(),
+                            stat.S_IMODE(entry_stat.st_mode),
+                        )
+                else:
+                    raise TransactionError(
+                        f"cannot snapshot unsafe non-file path: {entry_path}"
+                    )
+            finally:
+                os.close(entry_fd)
+
+
+def copy_snapshot_tree(src, dst):
+    """Copy a tree through no-follow descriptors, then verify the result."""
+    try:
+        source_fd = os.open(src, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    except OSError as exc:
+        raise TransactionError(
+            f"cannot snapshot source safely: {src}: {exc.strerror}"
+        ) from exc
+    try:
+        source_stat = os.fstat(source_fd)
+        dst.mkdir(mode=0o700)
+        destination_fd = os.open(
+            dst, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
+        )
+        try:
+            _copy_snapshot_directory(source_fd, destination_fd, src)
+            os.fchmod(destination_fd, stat.S_IMODE(source_stat.st_mode))
+        finally:
+            os.close(destination_fd)
+    finally:
+        os.close(source_fd)
+    reject_snapshot_symlinks(dst)
+
+
 def snapshot_to_temp(src, prefix):
     reject_snapshot_symlinks(src)
     temp = tempfile.TemporaryDirectory(prefix=prefix)
     snap = Path(temp.name) / src.name
-    shutil.copytree(src, snap)
+    try:
+        copy_snapshot_tree(src, snap)
+    except BaseException:
+        temp.cleanup()
+        raise
     return temp, snap
 
 
@@ -414,7 +500,7 @@ def cmd_snapshot(run_dir, label):
     if dst.exists():
         raise SystemExit(f"refusing to overwrite existing snapshot: {dst}")
     reject_snapshot_symlinks(src)
-    shutil.copytree(src, dst)
+    copy_snapshot_tree(src, dst)
     records = sum(count_nonblank_lines(path) for path in dst.rglob("*.jsonl"))
     print(f"snapshot: {dst} ({records} records)")
 

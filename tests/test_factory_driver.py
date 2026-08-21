@@ -213,6 +213,59 @@ class FactoryDriverBytes(unittest.TestCase):
 
             self.assertFalse((root / "run-safe").exists())
 
+    def test_snapshot_rejects_symlink_replacement_after_preflight(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            run = root / "run"
+            run.mkdir()
+            entry = run / "entry.txt"
+            entry.write_text("inside\n")
+            outside = root / "outside.txt"
+            outside.write_text("outside\n")
+
+            def replace_after_preflight(_src):
+                entry.unlink()
+                entry.symlink_to(outside)
+
+            with mock.patch.object(
+                factory_driver,
+                "reject_snapshot_symlinks",
+                side_effect=replace_after_preflight,
+            ), self.assertRaisesRegex(TransactionError, "cannot snapshot path safely"):
+                factory_driver.snapshot_to_temp(run, "factory-symlink-preflight-")
+
+    def test_snapshot_rejects_symlink_replacement_during_copy(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            run = root / "run"
+            run.mkdir()
+            entry = run / "entry.txt"
+            entry.write_text("inside\n")
+            outside = root / "outside.txt"
+            outside.write_text("outside\n")
+            real_open = factory_driver.os.open
+            replaced = False
+
+            def replace_during_open(path, flags, mode=0o777, *, dir_fd=None):
+                nonlocal replaced
+                if (
+                    not replaced
+                    and path == "entry.txt"
+                    and dir_fd is not None
+                    and not flags & factory_driver.os.O_CREAT
+                ):
+                    entry.unlink()
+                    entry.symlink_to(outside)
+                    replaced = True
+                return real_open(path, flags, mode, dir_fd=dir_fd)
+
+            with mock.patch.object(
+                factory_driver.os, "open", side_effect=replace_during_open
+            ), self.assertRaisesRegex(TransactionError, "cannot snapshot path safely"):
+                factory_driver.snapshot_to_temp(run, "factory-symlink-copy-")
+
+            self.assertTrue(replaced)
+
 
 class FactoryDriverValidation(unittest.TestCase):
     def test_marker_visibility_brackets_copy_and_retries_on_commit(self):

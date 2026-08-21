@@ -25,6 +25,7 @@ import shutil
 import stat
 import sys
 import tempfile
+import unicodedata
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -990,13 +991,14 @@ def normalized_category(value):
     """Normalize a human category so punctuation cannot manufacture diversity."""
     if not isinstance(value, str):
         return ""
+    text = unicodedata.normalize("NFC", value).strip()
     normalized = re.sub(
-        r"_+", "_", re.sub(r"[^\w]+", "_", value.strip().casefold())
+        r"_+", "_", re.sub(r"[^\w]+", "_", text.casefold())
     ).strip("_")
     if normalized:
         return normalized
-    if value.strip():
-        digest = hashlib.sha256(value.strip().encode("utf-8")).hexdigest()[:16]
+    if text:
+        digest = hashlib.sha256(text.encode("utf-8")).hexdigest()[:16]
         return f"symbols_{digest}"
     return ""
 
