@@ -2,9 +2,10 @@
 """Curate Grok 4.6 agentic JSONL without rewriting raw.
 
 Reads episode / episode-preference / multi_agent / safety_case records.
-Drops hidden thought keys, flags missing ``decision_basis``, and requires
-preference sides to share a goal. Prefix overlap of leading steps is noted
-in the report and is not a hard fail.
+Drops hidden-thought keys recursively, including nested payload keys with
+reserved names, flags missing ``decision_basis``, and requires preference
+sides to share a goal. Prefix overlap of leading steps is noted in the
+report and is not a hard fail.
 
 Never writes into ``outputs/raw/``. Default is a ``--dry-run`` JSON report
 on stdout. ``--out DIR`` writes a brand-new cleaned tree only when passed.
@@ -563,9 +564,6 @@ def _preflight_out(source: Path, out: Path) -> None:
         raise ValueError(f"output cannot replace source: {out}")
     if source.is_dir() and source_resolved in out_resolved.parents:
         raise ValueError(f"output cannot be written inside source: {out}")
-    if source.is_file() and source_resolved.parent == out_resolved:
-        # Writing sibling files is fine; replacing the source file is not.
-        pass
 
 
 def _write_new_jsonl(path: Path, values: list[dict[str, Any]]) -> None:
@@ -631,7 +629,10 @@ def write_cleaned_tree(run: dict[str, Any], out: Path) -> None:
                 if leftover.is_file():
                     leftover.unlink(missing_ok=True)
                 elif leftover.is_dir():
-                    leftover.rmdir()
+                    try:
+                        leftover.rmdir()
+                    except OSError:
+                        pass
             try:
                 out.rmdir()
             except OSError:

@@ -9,6 +9,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -16,6 +17,7 @@ PIPELINES = ROOT / "pipelines"
 if str(PIPELINES) not in sys.path:
     sys.path.insert(0, str(PIPELINES))
 
+import curate_agentic  # noqa: E402
 from curate_agentic import (  # noqa: E402
     ACTION_EXCLUDED,
     ACTION_FLAGGED,
@@ -633,6 +635,16 @@ class CurateAgenticTests(unittest.TestCase):
                 check=False,
             )
         self.assertEqual(result.returncode, 2)
+
+    def test_write_cleanup_preserves_the_primary_failure(self):
+        run = {"records_by_rel": {"nested/batch.jsonl": [episode_fixture()]}}
+        with tempfile.TemporaryDirectory() as temporary:
+            out = Path(temporary) / "cleaned"
+            with mock.patch.object(
+                curate_agentic, "_write_new_jsonl", side_effect=RuntimeError("writer failed")
+            ), mock.patch.object(Path, "rmdir", side_effect=OSError("cleanup failed")):
+                with self.assertRaisesRegex(RuntimeError, "writer failed"):
+                    curate_agentic.write_cleaned_tree(run, out)
 
     def test_missing_basis_paths_cover_preference_sides(self):
         record = preference_fixture(
