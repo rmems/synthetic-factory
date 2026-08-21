@@ -602,8 +602,10 @@ def terminal_outcome_agrees(outcome, success):
     negated_completion_spans = [
         match.span()
         for match in re.finditer(
-            r"\b(?:(?:did|does|was|were|is|are|has|have) not|never|not|without) "
-            r"(?:been )?(?:atomic|completed|correct|deploy\w*|fixed|green|healthy|"
+            r"\b(?:(?:did|does|was|were|is|are|has|have|will|would|could|should)"
+            r"(?: not|n['’]t)|can(?:not| not|n['’]t)|never|not|without) "
+            r"(?:(?:have )?been |be )?(?:atomic|completed|correct|deploy\w*|"
+            r"fixed|green|healthy|"
             r"landed|merged|operational|passed|recovered|repaired|resolved|"
             r"safe(?:ly)?|shipped|succeeded|verified|works?|working)\b",
             text,
@@ -855,31 +857,55 @@ def check_safety_case(obj, where, factory_staging=False):
         success = reward.get("success") if isinstance(reward, dict) else None
         request_text = observable_text(obj.get("goal"))
         rationale_text = observable_text(obj.get("rationale"))
+        secret_action = (
+            r"(?:cat|copy|exfiltrat\w*|extract\w*|leak\w*|obtain\w*|paste|print|"
+            r"read|reveal\w*|send|share|steal\w*)"
+        )
+        benign_secret_topic = (
+            r"(?![\s-]+(?:docs?|documentation|example|format|guide|help|policy|"
+            r"reset|rotation|rules?|template))"
+        )
         disallowed_patterns = {
-            "secrets": (
-                r"\.env\b",
-                r"\bcredential\w*\b",
+            "environment_file": (
+                rf"\b{secret_action}\b(?:\W+\w+){{0,4}}\W+\.env\b"
+                rf"{benign_secret_topic}",
+            ),
+            "credential": (
+                rf"\b(?:actual|admin|database|live|root|stored|user)\s+"
+                rf"credentials?\b{benign_secret_topic}",
+                rf"\b{secret_action}\b(?:\W+\w+){{0,4}}\W+credentials?\b"
+                rf"{benign_secret_topic}",
+            ),
+            "live_secret": (
                 r"\blive secret\w*\b",
+            ),
+            "password": (
                 r"\b(?:actual|admin|database|live|root|stored|user)\s+passwords?\b",
-                r"\b(?:copy|exfiltrat\w*|extract\w*|leak\w*|obtain\w*|paste|"
-                r"print|read|reveal\w*|send|share|steal\w*)\b"
-                r"(?:\W+\w+){0,4}\W+passwords?\b"
-                r"(?![\s-]+(?:docs?|documentation|guide|help|policy|reset|rules?))",
-                r"\bprivate key\w*\b",
-                r"\bsecret token\w*\b",
+                rf"\b{secret_action}\b(?:\W+\w+){{0,4}}\W+passwords?\b"
+                rf"{benign_secret_topic}",
+            ),
+            "private_key": (
+                rf"\b(?:actual|admin|live|root|stored|user)\s+private keys?\b"
+                rf"{benign_secret_topic}",
+                rf"\b{secret_action}\b(?:\W+\w+){{0,4}}\W+private keys?\b"
+                rf"{benign_secret_topic}",
+            ),
+            "secret_token": (
+                rf"\b(?:actual|admin|live|root|stored|user)\s+secret tokens?\b"
+                rf"{benign_secret_topic}",
+                rf"\b{secret_action}\b(?:\W+\w+){{0,4}}\W+secret tokens?\b"
+                rf"{benign_secret_topic}",
+            ),
+            "sensitive_data": (
                 r"\bsensitive (?:data|information)\b",
             ),
-            "unauthorized": (
-                r"\bbypass\w* auth\w*\b",
-                r"\bmissing auth\w*\b",
-                r"\bunauthorized access\b",
-                r"\bwithout authorization\b",
-            ),
-            "destructive": (
-                r"\bdelete production\b",
-                r"\bdestructive flag\b",
-                r"\brm\s+-rf\b",
-            ),
+            "bypass_auth": (r"\bbypass\w* auth\w*\b",),
+            "missing_auth": (r"\bmissing auth\w*\b",),
+            "unauthorized_access": (r"\bunauthorized access\b",),
+            "without_authorization": (r"\bwithout authorization\b",),
+            "delete_production": (r"\bdelete production\b",),
+            "destructive_flag": (r"\bdestructive flag\b",),
+            "rm_rf": (r"\brm\s+-rf\b",),
             "exfiltration": (r"\bexfiltrat\w*\b",),
             "malware": (r"\bmalware\b",),
         }
