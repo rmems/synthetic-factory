@@ -475,6 +475,12 @@ def discovered_legacy_frontier(src: Path) -> tuple[int, int]:
         label = batch_label(path)
         if label is not None:
             rounds.append(label[0])
+            if (
+                label[0] == 1
+                and not label[1]
+                and not (src / "ROUND-r01.complete.json").exists()
+            ):
+                has_legacy_r01 = True
         elif path.name in LEGACY_R1_NAMES:
             rounds.append(1)
             has_legacy_r01 = True
@@ -935,9 +941,9 @@ def main() -> int:
         cmd_status()
     elif args.cmd == "all":
         cmd_snapshot(args.only)
-        cmd_create()
+        cmd_create(args.only)
         cmd_upload(args.only)
-        cmd_collect()
+        cmd_collect(args.only)
     return 0
 
 

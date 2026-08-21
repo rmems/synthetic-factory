@@ -498,6 +498,18 @@ class PublishGrok46HubTests(unittest.TestCase):
                     with self.assertRaisesRegex(SystemExit, message):
                         publisher.published_batches(source)
 
+    def test_marker_mode_cannot_hide_a_legacy_batch_r01(self):
+        with tempfile.TemporaryDirectory() as td:
+            source = Path(td) / ITEM["slug"]
+            source.mkdir()
+            (source / "batch-r01.jsonl").write_text('{"id":"legacy"}\n')
+            (source / ".round-marker-mode.json").write_text(
+                '{"version":1,"legacy_baseline":0,"commit_point":"ROUND-rNN.complete.json"}\n'
+            )
+
+            with self.assertRaisesRegex(SystemExit, "excludes legacy r01"):
+                publisher.published_batches(source)
+
     def test_only_limits_create_and_collection_operations(self):
         other = {**ITEM, "slug": "other-factory", "hub": "other"}
         with mock.patch.object(publisher, "factories", return_value=[ITEM, other]), mock.patch.object(
@@ -546,7 +558,7 @@ class PublishGrok46HubTests(unittest.TestCase):
             self.assertIn(f"`{other['hub']}/`", inventory)
             self.assertIn(f"| `{other['slug']}` | 1 | 1 |", inventory)
 
-    def test_all_only_scopes_payload_not_complete_collection_maintenance(self):
+    def test_all_only_scopes_every_publish_stage(self):
         whoami = SimpleNamespace(returncode=0, stdout='{"user":"rmems"}', stderr="")
         with mock.patch.object(publisher, "factories", return_value=[ITEM]), mock.patch.object(
             publisher.subprocess, "run", return_value=whoami
@@ -561,8 +573,8 @@ class PublishGrok46HubTests(unittest.TestCase):
 
         snapshot.assert_called_once_with(ITEM["hub"])
         upload.assert_called_once_with(ITEM["hub"])
-        create.assert_called_once_with()
-        collect.assert_called_once_with()
+        create.assert_called_once_with(ITEM["hub"])
+        collect.assert_called_once_with(ITEM["hub"])
 
     def test_direct_create_and_collect_honor_only(self):
         whoami = SimpleNamespace(returncode=0, stdout='{"user":"rmems"}', stderr="")

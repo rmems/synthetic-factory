@@ -115,6 +115,40 @@ def safety_case():
     }
 
 
+def cascading_episode(record_id, round_number=1):
+    record = episode(
+        record_id,
+        round_number=round_number,
+        factory="cascading-error-recovery-factory",
+    )
+    fault_text = "stale-lock file left by crashed writer"
+    record["error_introduced"] = {
+        "step": 2,
+        "kind": "stale-lock",
+        "payload": fault_text,
+    }
+    record["steps"] = [
+        _step(1, "Inspect the initial write failure"),
+        _step(2, "The stale-lock fault is introduced"),
+        _step(3, "The stale-lock blocks the retry"),
+        _step(4, "The stale-lock poisons the repair queue"),
+        _step(5, "The stale-lock remains after the second retry"),
+        _step(6, "Diagnose the stale-lock root cause"),
+        _step(7, "Use the stale-lock diagnosis to remove the stale lock"),
+    ]
+    for step in record["steps"][2:5]:
+        step["observation"] = f"{fault_text} still affects downstream work"
+    record["steps"][5]["observation"] = (
+        f"Diagnosis: {fault_text} caused every retry to inherit the fault"
+    )
+    record["steps"][6]["decision_basis"] = (
+        f"The diagnosis found {fault_text}; remove it before retrying"
+    )
+    record["diagnosis"] = f"{fault_text} caused every retry to inherit the fault"
+    record["reward"] = {"success": True, "cascade_steps": 3, "recovered": 1}
+    return record
+
+
 def thalamic_preference():
     side = {
         "state": {"sim_or_real": "designed"},
@@ -357,6 +391,57 @@ class AgenticShapes(unittest.TestCase):
             self.assertIn("error_introduced", str(raised.exception))
             self.assertIn("diagnosis", str(raised.exception))
 
+    def test_cascading_error_factory_requires_observable_propagation_and_recovery(self):
+        with tempfile.TemporaryDirectory() as td:
+            factory = (
+                Path(td)
+                / "outputs"
+                / "raw"
+                / "2099-01-01"
+                / "cascading-error-recovery-factory"
+            )
+            factory.mkdir(parents=True)
+            reservation = round_txn.reserve(factory, 1, 2)
+            stage = Path(reservation["staging_dir"])
+            records = [cascading_episode(f"cer-r01-cascade-{index}") for index in range(2)]
+            (stage / reservation["batch_file"]).write_text(
+                "".join(json.dumps(record) + "\n" for record in records)
+            )
+            (stage / reservation["notes_file"]).write_text("Novel coverage: 80%\n")
+
+            manifest = round_txn.publish(factory, 1, reservation["token"])
+
+            self.assertEqual(manifest["records"], 2)
+
+    def test_cascading_error_factory_rejects_shallow_generic_fault_claims(self):
+        with tempfile.TemporaryDirectory() as td:
+            factory = (
+                Path(td)
+                / "outputs"
+                / "raw"
+                / "2099-01-01"
+                / "cascading-error-recovery-factory"
+            )
+            factory.mkdir(parents=True)
+            reservation = round_txn.reserve(factory, 1, 2)
+            stage = Path(reservation["staging_dir"])
+            records = [episode(f"cer-r01-shallow-{index}", factory=factory.name) for index in range(2)]
+            for record in records:
+                record["error_introduced"] = {
+                    "step": 2,
+                    "kind": "stale-lock",
+                    "payload": "stale lock file",
+                }
+                record["diagnosis"] = "stale lock file"
+                record["reward"]["cascade_steps"] = 3
+            (stage / reservation["batch_file"]).write_text(
+                "".join(json.dumps(record) + "\n" for record in records)
+            )
+            (stage / reservation["notes_file"]).write_text("Novel coverage: 80%\n")
+
+            with self.assertRaisesRegex(round_txn.TransactionError, "cascade needs"):
+                round_txn.publish(factory, 1, reservation["token"])
+
     def test_thought_key_rejected_on_agentic_steps(self):
         rec = episode("lhc-r01-tz")
         rec["steps"][0]["tool_call"]["args"]["scratch"] = "hidden"
@@ -426,6 +511,26 @@ class AgenticShapes(unittest.TestCase):
         self.assertEqual(kind, "multi_agent")
         self.assertTrue(any("goal must be a non-empty string" in error for error in errs), errs)
         self.assertTrue(any("joint_outcome must be a non-empty string" in error for error in errs), errs)
+
+    def test_multi_agent_requires_disagreement_and_resolution(self):
+        rec = multi_agent()
+        rec.pop("disagreements")
+        rec["resolution"] = " "
+
+        errs, kind = validate_run.check_line(rec, "t", factory_staging=True)
+
+        self.assertEqual(kind, "multi_agent")
+        self.assertTrue(any("disagreements" in error for error in errs), errs)
+        self.assertTrue(any("resolution" in error for error in errs), errs)
+
+    def test_safety_case_requires_an_explicit_decision(self):
+        rec = safety_case()
+        rec.pop("decision")
+
+        errs, kind = validate_run.check_line(rec, "t", factory_staging=True)
+
+        self.assertEqual(kind, "safety_case")
+        self.assertTrue(any("decision" in error for error in errs), errs)
 
     def test_multi_agent_publish_rejects_malformed_structured_tool_turn(self):
         with tempfile.TemporaryDirectory() as td:

@@ -577,10 +577,23 @@ def check_episode(obj, where, require_goal=True, forbid_hidden_thought=False):
 
 def check_multi_agent(obj, where, factory_staging=False):
     errs = []
-    for key in ("goal", "agents", "transcript", "joint_outcome", "reward"):
+    for key in (
+        "goal",
+        "agents",
+        "transcript",
+        "disagreements",
+        "resolution",
+        "joint_outcome",
+        "reward",
+    ):
         if key not in obj:
             errs.append(f"{where}: multi_agent missing '{key}'")
-    errs += _nonempty_text_field_errors(obj, where, ("goal", "joint_outcome"))
+    errs += _nonempty_text_field_errors(obj, where, ("goal", "resolution", "joint_outcome"))
+    disagreements = obj.get("disagreements")
+    if not isinstance(disagreements, list) or not any(
+        isinstance(item, str) and item.strip() for item in disagreements
+    ):
+        errs.append(f"{where}: disagreements must be a non-empty array of strings")
     agents = obj.get("agents")
     roles = set()
     if not isinstance(agents, list) or len(agents) < 2:
@@ -627,10 +640,10 @@ def check_multi_agent(obj, where, factory_staging=False):
 
 def check_safety_case(obj, where, factory_staging=False):
     errs = []
-    for key in ("goal", "case_type", "rationale", "outcome", "reward"):
+    for key in ("goal", "case_type", "rationale", "decision", "outcome", "reward"):
         if key not in obj:
             errs.append(f"{where}: safety_case missing '{key}'")
-    errs += _nonempty_text_field_errors(obj, where, ("goal", "outcome"))
+    errs += _nonempty_text_field_errors(obj, where, ("goal", "decision", "outcome"))
     case_type = obj.get("case_type")
     if not isinstance(case_type, str) or case_type not in SAFETY_CASE_TYPES:
         errs.append(

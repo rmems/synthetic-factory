@@ -353,6 +353,15 @@ def nested_key_paths(value, key, path=""):
             yield from nested_key_paths(item, key, f"{path}[{index}]")
 
 
+def shares_visible_terms(left, right):
+    """Whether two observable strings name at least one meaningful common term."""
+    if not isinstance(left, str) or not isinstance(right, str):
+        return False
+    left_terms = set(re.findall(r"[a-z0-9][a-z0-9_-]{2,}", left.lower()))
+    right_terms = set(re.findall(r"[a-z0-9][a-z0-9_-]{2,}", right.lower()))
+    return bool(left_terms & right_terms)
+
+
 def frontier_status(factory_dir: Path):
     factory_dir = Path(factory_dir).resolve()
     if not factory_dir.is_dir():
@@ -657,11 +666,13 @@ def validate_agentic_envelope(batch: Path, factory_dir: Path, round_number: int)
             errors.append(f"{where}: agentic records must not include spike_events at {path}")
         if factory_dir.name == "cascading-error-recovery-factory":
             fault = record.get("error_introduced") if isinstance(record, dict) else None
+            steps = record.get("steps") if isinstance(record, dict) else None
+            diagnosis = record.get("diagnosis") if isinstance(record, dict) else None
+            reward = record.get("reward") if isinstance(record, dict) else None
             if not isinstance(fault, dict):
                 errors.append(f"{where}: error_introduced must be an object")
             else:
                 step_number = fault.get("step")
-                steps = record.get("steps") if isinstance(record, dict) else None
                 if (
                     not isinstance(step_number, int)
                     or isinstance(step_number, bool)
@@ -672,9 +683,68 @@ def validate_agentic_envelope(batch: Path, factory_dir: Path, round_number: int)
                     errors.append(
                         f"{where}: error_introduced.step must name a non-final step at least 2"
                     )
-            diagnosis = record.get("diagnosis") if isinstance(record, dict) else None
+                if not isinstance(fault.get("kind"), str) or not fault["kind"].strip():
+                    errors.append(f"{where}: error_introduced.kind must be a non-empty string")
+                if not isinstance(fault.get("payload"), str) or not fault["payload"].strip():
+                    errors.append(f"{where}: error_introduced.payload must be a non-empty string")
             if not isinstance(diagnosis, str) or not diagnosis.strip():
                 errors.append(f"{where}: diagnosis must be a non-empty string")
+            cascade_steps = reward.get("cascade_steps") if isinstance(reward, dict) else None
+            if (
+                not isinstance(cascade_steps, int)
+                or isinstance(cascade_steps, bool)
+                or not 3 <= cascade_steps <= 8
+            ):
+                errors.append(f"{where}: reward.cascade_steps must be an integer from 3 to 8")
+            elif (
+                isinstance(fault, dict)
+                and isinstance(fault.get("step"), int)
+                and not isinstance(fault.get("step"), bool)
+                and isinstance(steps, list)
+                and isinstance(diagnosis, str)
+                and diagnosis.strip()
+            ):
+                fault_step = fault["step"]
+                diagnosis_index = fault_step + cascade_steps
+                recovery_index = diagnosis_index + 1
+                fault_text = f"{fault.get('kind', '')} {fault.get('payload', '')}"
+                if recovery_index >= len(steps):
+                    errors.append(
+                        f"{where}: cascade needs {cascade_steps} inherited steps, then diagnosis and recovery"
+                    )
+                else:
+                    inherited = steps[fault_step:diagnosis_index]
+                    if any(
+                        not isinstance(step, dict)
+                        or not shares_visible_terms(step.get("observation"), fault_text)
+                        for step in inherited
+                    ):
+                        errors.append(
+                            f"{where}: each inherited cascade step must visibly reference the fault"
+                        )
+                    diagnosis_step = steps[diagnosis_index]
+                    diagnosis_text = " ".join(
+                        value
+                        for value in (
+                            diagnosis_step.get("observation"),
+                            diagnosis_step.get("reflection"),
+                        )
+                        if isinstance(value, str)
+                    ) if isinstance(diagnosis_step, dict) else None
+                    if not shares_visible_terms(diagnosis_text, fault_text):
+                        errors.append(
+                            f"{where}: diagnosis step must visibly name the fault"
+                        )
+                    recovery_step = steps[recovery_index]
+                    recovery_basis = (
+                        recovery_step.get("decision_basis")
+                        if isinstance(recovery_step, dict)
+                        else None
+                    )
+                    if not shares_visible_terms(recovery_basis, diagnosis):
+                        errors.append(
+                            f"{where}: recovery decision_basis must cite the diagnosis"
+                        )
         if AGENTIC_FACTORY_KINDS[factory_dir.name] == "preference":
             for side_name in ("chosen", "rejected"):
                 side = record.get(side_name) if isinstance(record, dict) else None
