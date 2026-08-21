@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """next_round.py allocates max(existing)+1 and refuses an occupied batch-rNN."""
 
+import hashlib
 import json
 import subprocess
 import sys
@@ -37,6 +38,24 @@ def _index_entries(payload):
         if out:
             return out
     raise AssertionError(f"unrecognized NEXT_ROUND.json shape: {payload!r}")
+
+
+def _episode(record_id, round_number):
+    return {
+        "id": record_id,
+        "goal": "keep the marker-mode fixture valid",
+        "steps": [
+            {
+                "n": 1,
+                "decision_basis": "The fixture needs a valid legacy record.",
+                "tool_call": {"name": "noop", "args": {}},
+                "observation": "recorded",
+            }
+        ],
+        "outcome": "fixture recorded",
+        "reward": {"success": True},
+        "meta": {"factory": "factory", "round": round_number, "generator": "grok-4.6"},
+    }
 
 
 class NextRoundFromFilenames(unittest.TestCase):
@@ -139,10 +158,44 @@ class NextRoundMarkerMode(unittest.TestCase):
             factory = Path(raw) / "factory"
             factory.mkdir()
             (factory / ".round-marker-mode.json").write_text(
-                json.dumps({"version": 1, "legacy_baseline": 2}) + "\n"
+                json.dumps(
+                    {
+                        "version": 1,
+                        "legacy_baseline": 2,
+                        "commit_point": "ROUND-rNN.complete.json",
+                    }
+                )
+                + "\n"
             )
-            (factory / "ROUND-r03.complete.json").write_text(
-                json.dumps({"round": 3, "factory": "factory"}) + "\n"
+            (factory / "batch-r01.jsonl").write_text(json.dumps(_episode("legacy-1", 1)) + "\n")
+            (factory / "batch-r02.jsonl").write_text(json.dumps(_episode("legacy-2", 2)) + "\n")
+            batch = factory / "batch-r03.jsonl"
+            batch.write_text(json.dumps(_episode("committed", 3)) + "\n")
+            notes = factory / "NOTES-r03.md"
+            notes.write_text("committed notes\n")
+            marker = factory / "ROUND-r03.complete.json"
+            marker.write_text(
+                json.dumps(
+                    {
+                        "version": 1,
+                        "factory": "factory",
+                        "round": 3,
+                        "records": 1,
+                        "expected_records": 1,
+                        "commit_point": marker.name,
+                        "files": [
+                            {
+                                "name": batch.name,
+                                "sha256": hashlib.sha256(batch.read_bytes()).hexdigest(),
+                            },
+                            {
+                                "name": notes.name,
+                                "sha256": hashlib.sha256(notes.read_bytes()).hexdigest(),
+                            }
+                        ],
+                    }
+                )
+                + "\n"
             )
             (factory / "batch-r99.jsonl").write_text("{not-json\n")
             (factory / "NOTES-r88.md").write_text("uncommitted\n")

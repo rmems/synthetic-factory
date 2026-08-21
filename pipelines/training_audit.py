@@ -29,10 +29,11 @@ from check_records import (  # noqa: E402
     canonical_record_id,
     check_record,
     expected_states,
+    reject_json_constant,
     root_record_id,
     walk_key,
 )
-from validate_run import event_time  # noqa: E402
+from validate_run import HIDDEN_THOUGHT_KEYS, _episode_like, event_time  # noqa: E402
 
 
 def percentile(values, fraction):
@@ -99,6 +100,110 @@ def event_stream_status(events):
     return "unsorted"
 
 
+def preference_context_purity(obj, chosen, rejected):
+    """Return the applicable DPO context invariant for a preference pair.
+
+    Thalamic pairs must hold state and proposal constant. Episode-sided pairs
+    deliberately do not carry those objects, so their corresponding invariant
+    is one shared task goal. An outer pair goal may supply the shared context,
+    but every side goal that is present must agree with it.
+    """
+    episode_pair = _episode_like(chosen) or _episode_like(rejected)
+    if not episode_pair:
+        valid_context = bool(chosen and rejected) and all(
+            isinstance(side.get(key), dict)
+            for side in (chosen, rejected)
+            for key in ("state", "proposed_action")
+        )
+        same_state = valid_context and (
+            canonical_blob(chosen["state"]) == canonical_blob(rejected["state"])
+        )
+        same_proposal = valid_context and (
+            canonical_blob(chosen["proposed_action"])
+            == canonical_blob(rejected["proposed_action"])
+        )
+        return {
+            "episode_pair": False,
+            "pure": same_state and same_proposal,
+            "same_state": same_state,
+            "same_proposal": same_proposal,
+            "same_goal": None,
+        }
+
+    raw_goals = (
+        obj.get("goal"),
+        chosen.get("goal") if isinstance(chosen, dict) else None,
+        rejected.get("goal") if isinstance(rejected, dict) else None,
+    )
+    normalized_goals = []
+    for value in raw_goals:
+        if value is None:
+            continue
+        if not isinstance(value, str) or not value.strip():
+            normalized_goals = []
+            break
+        normalized_goals.append(" ".join(value.split()))
+    outer_goal = raw_goals[0]
+    if isinstance(outer_goal, str) and outer_goal.strip():
+        # The pair supplies shared context; any explicit side goal must agree.
+        same_goal = bool(normalized_goals) and len(set(normalized_goals)) == 1
+    else:
+        # Without an outer goal, both episode sides must state the same goal.
+        same_goal = (
+            len(normalized_goals) == 2 and len(set(normalized_goals)) == 1
+        )
+    return {
+        "episode_pair": True,
+        "pure": same_goal,
+        "same_state": None,
+        "same_proposal": None,
+        "same_goal": same_goal,
+    }
+
+
+def agentic_turns(obj, kind):
+    """Yield each observable decision turn used by agentic curation."""
+    if kind == "episode":
+        steps = obj.get("steps")
+        if isinstance(steps, list):
+            yield from steps
+    elif kind == "preference":
+        for side_name in ("chosen", "rejected"):
+            side = dict_field(obj, side_name)
+            if _episode_like(side):
+                steps = side.get("steps")
+                if isinstance(steps, list):
+                    yield from steps
+    elif kind == "safety_case":
+        steps = obj.get("steps")
+        if isinstance(steps, list):
+            yield from steps
+    elif kind == "multi_agent":
+        transcript = obj.get("transcript")
+        for turn in transcript if isinstance(transcript, list) else ():
+            if isinstance(turn, dict) and "tool_call" in turn:
+                yield turn
+
+
+def has_observable_decision_basis(turn):
+    return isinstance(turn, dict) and isinstance(turn.get("decision_basis"), str) and bool(
+        turn["decision_basis"].strip()
+    )
+
+
+def hidden_thought_paths(value, path=""):
+    """Yield every recursively hidden-reasoning field in one agentic record."""
+    if isinstance(value, dict):
+        for key, item in value.items():
+            child_path = f"{path}.{key}" if path else key
+            if key in HIDDEN_THOUGHT_KEYS:
+                yield child_path
+            yield from hidden_thought_paths(item, child_path)
+    elif isinstance(value, list):
+        for index, item in enumerate(value):
+            yield from hidden_thought_paths(item, f"{path}[{index}]")
+
+
 def audit_run(run_dir: Path):
     run_dir = Path(run_dir).resolve()
     files = sorted(run_dir.rglob("*.jsonl"))
@@ -130,7 +235,17 @@ def audit_run(run_dir: Path):
     gate_by_role = defaultdict(Counter)
     gate_errors = Counter()
     gate_error_examples = []
-    preference = Counter()
+    # Keep the historic preference-report keys present even for a corpus made
+    # entirely of episode-sided pairs, which have no Thalamic state/proposal.
+    preference = Counter(
+        pairs=0,
+        same_context=0,
+        same_state=0,
+        same_proposal=0,
+        same_goal=0,
+        episode_pairs=0,
+        thalamic_pairs=0,
+    )
     chosen_decisions = Counter()
     reward_keys = Counter()
     reward_shapes = Counter()
@@ -165,14 +280,29 @@ def audit_run(run_dir: Path):
             bucket["approx_tokens"] += token_estimate
             bucket["record_tokens"].append(token_estimate)
             try:
-                obj = json.loads(line)
-            except json.JSONDecodeError as exc:
+                obj = json.loads(line, parse_constant=reject_json_constant)
+            except (json.JSONDecodeError, ValueError) as exc:
                 record_errors.append(f"{where}: JSON parse error: {exc}")
                 kinds["unknown"] += 1
                 bucket["by_kind"]["unknown"] += 1
                 continue
 
-            errors, warnings, kind, checked_id = check_record(obj, where)
+            strict_agentic = isinstance(obj, dict) and (
+                ("case_type" in obj)
+                or ("transcript" in obj and "agents" in obj)
+                or ("steps" in obj and "outcome" in obj and "reward" in obj)
+                or (
+                    "chosen" in obj
+                    and "rejected" in obj
+                    and (
+                        _episode_like(obj.get("chosen"))
+                        or _episode_like(obj.get("rejected"))
+                    )
+                )
+            )
+            errors, warnings, kind, checked_id = check_record(
+                obj, where, factory_staging=strict_agentic
+            )
             kinds[kind] += 1
             bucket["by_kind"][kind] += 1
             record_errors.extend(errors)
@@ -247,22 +377,15 @@ def audit_run(run_dir: Path):
                 preference["pairs"] += 1
                 chosen = dict_field(obj, "chosen")
                 rejected = dict_field(obj, "rejected")
-                valid_context = bool(chosen and rejected) and all(
-                    isinstance(side.get(key), dict)
-                    for side in (chosen, rejected)
-                    for key in ("state", "proposed_action")
-                )
-                same_state = valid_context and (
-                    canonical_blob(chosen["state"])
-                    == canonical_blob(rejected["state"])
-                )
-                same_proposal = valid_context and (
-                    canonical_blob(chosen["proposed_action"])
-                    == canonical_blob(rejected["proposed_action"])
-                )
-                preference["same_state"] += int(same_state)
-                preference["same_proposal"] += int(same_proposal)
-                preference["same_context"] += int(same_state and same_proposal)
+                purity = preference_context_purity(obj, chosen, rejected)
+                preference["episode_pairs"] += int(purity["episode_pair"])
+                preference["thalamic_pairs"] += int(not purity["episode_pair"])
+                preference["same_context"] += int(purity["pure"])
+                if purity["same_state"] is not None:
+                    preference["same_state"] += int(purity["same_state"])
+                    preference["same_proposal"] += int(purity["same_proposal"])
+                if purity["same_goal"] is not None:
+                    preference["same_goal"] += int(purity["same_goal"])
                 decision = dict_field(chosen, "safety_decision").get("decision")
                 if isinstance(decision, str):
                     chosen_decisions[decision] += 1
@@ -284,18 +407,31 @@ def audit_run(run_dir: Path):
                     bridge["pairs_48_plus"] += int(len(events) >= 48)
                 status = event_stream_status(events)
                 bridge[f"{status}_pairs"] += 1
-            elif kind == "episode":
+            if kind == "episode":
                 episodes["episodes"] += 1
-                for step in obj.get("steps", []):
-                    if not isinstance(step, dict):
-                        continue
-                    episodes["steps"] += 1
-                    episodes["decision_basis_steps"] += int(
-                        "decision_basis" in step
-                    )
-                    episodes["legacy_thought_only_steps"] += int(
-                        "thought" in step and "decision_basis" not in step
-                    )
+            agentic_hidden_thoughts = kind in {"episode", "multi_agent", "safety_case"}
+            if kind == "preference":
+                agentic_hidden_thoughts = any(
+                    _episode_like(dict_field(obj, side_name))
+                    for side_name in ("chosen", "rejected")
+                )
+            if agentic_hidden_thoughts:
+                episodes["hidden_thought_fields"] += len(
+                    tuple(hidden_thought_paths(obj))
+                )
+            for turn in agentic_turns(obj, kind):
+                if not isinstance(turn, dict):
+                    continue
+                episodes["steps"] += 1
+                episodes["decision_basis_steps"] += int(
+                    has_observable_decision_basis(turn)
+                )
+                episodes["missing_decision_basis_steps"] += int(
+                    not has_observable_decision_basis(turn)
+                )
+                episodes["legacy_thought_only_steps"] += int(
+                    "thought" in turn and "decision_basis" not in turn
+                )
 
     factory_output = {}
     for name, bucket in sorted(factories.items()):
@@ -340,13 +476,28 @@ def audit_run(run_dir: Path):
         blockers.append(f"{unsorted_pairs}/{bridge['pairs']} bridge pairs have invalid event ordering")
     impure_pairs = preference["pairs"] - preference["same_context"]
     if impure_pairs:
-        blockers.append(f"{impure_pairs}/{preference['pairs']} preference pairs change state or proposal")
+        if preference["episode_pairs"]:
+            blockers.append(
+                f"{impure_pairs}/{preference['pairs']} preference pairs violate their "
+                "state/proposal or shared-goal context invariant"
+            )
+        else:
+            # Retain the established all-Thalamic diagnostic as a stable
+            # operator-facing contract for existing corpus reports.
+            blockers.append(
+                f"{impure_pairs}/{preference['pairs']} preference pairs change state or proposal"
+            )
     if exact_duplicates:
         blockers.append(f"{len(exact_duplicates)} exact duplicate records")
-    if episodes["legacy_thought_only_steps"]:
+    if episodes["hidden_thought_fields"]:
         blockers.append(
-            f"{episodes['legacy_thought_only_steps']} episode steps use legacy "
-            "thought without observable decision_basis"
+            f"{episodes['hidden_thought_fields']} hidden-thought fields appear in "
+            "agentic records"
+        )
+    if episodes["missing_decision_basis_steps"]:
+        blockers.append(
+            f"{episodes['missing_decision_basis_steps']} agentic turns lack a "
+            "non-empty textual decision_basis"
         )
 
     report = {

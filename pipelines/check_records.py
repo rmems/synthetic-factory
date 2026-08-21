@@ -24,8 +24,10 @@ from validate_run import (  # noqa: E402
     ALLOWED_SIM_OR_REAL,
     REWARD_ARITHMETIC_MARKERS,
     REWARD_NON_COMPONENT_KEYS,
+    _episode_like,
     check_line,
     event_time,
+    reject_json_constant,
 )
 
 TOL = 1e-6
@@ -246,8 +248,12 @@ def expected_states(obj, kind):
     elif kind == "preference":
         for side in ("chosen", "rejected"):
             sub = obj.get(side)
-            if isinstance(sub, dict):
-                yield f"{side}.state", sub.get("state")
+            if not isinstance(sub, dict):
+                continue
+            # Episode-sided DPO pairs have no Thalamic state object.
+            if _episode_like(sub):
+                continue
+            yield f"{side}.state", sub.get("state")
     elif kind == "bridge_pair":
         lv = obj.get("language_view")
         if isinstance(lv, dict):
@@ -267,11 +273,11 @@ _SHAPE_REWARD_ARITHMETIC = REWARD_ARITHMETIC_MARKERS
 _SHAPE_REAL_PROVENANCE = "must not be 'real'"
 
 
-def shape_check(obj, where):
+def shape_check(obj, where, factory_staging=False):
     if not isinstance(obj, dict):
         return [f"{where}: unrecognized record shape (not an object)"], "unknown"
     try:
-        errs, kind = check_line(obj, where)
+        errs, kind = check_line(obj, where, factory_staging=factory_staging)
     except (TypeError, AttributeError) as exc:
         return [f"{where}: unrecognized record shape ({exc})"], "unknown"
     errs = [
@@ -348,9 +354,9 @@ def check_provenance_publish(obj, where):
     return out
 
 
-def check_record(obj, where):
+def check_record(obj, where, factory_staging=False):
     errors, warnings = [], []
-    shape_errs, kind = shape_check(obj, where)
+    shape_errs, kind = shape_check(obj, where, factory_staging=factory_staging)
     errors.extend(shape_errs)
 
     if isinstance(obj, dict):
@@ -380,7 +386,8 @@ def check_record(obj, where):
         # Publish-time deep provenance scan — owns every nested 'real' claim
         errors.extend(check_provenance_publish(obj, where))
         if kind == "episode":
-            for index, step in enumerate(obj.get("steps", [])):
+            steps = obj.get("steps")
+            for index, step in enumerate(steps if isinstance(steps, list) else ()):
                 if (
                     isinstance(step, dict)
                     and "thought" in step
@@ -399,7 +406,7 @@ def check_record(obj, where):
     return errors, warnings, kind, record_id
 
 
-def check_jsonl(path, rel, seen_ids=None):
+def check_jsonl(path, rel, seen_ids=None, factory_staging=False):
     errors, warnings = [], []
     kinds = {}
     records = 0
@@ -414,11 +421,13 @@ def check_jsonl(path, rel, seen_ids=None):
             continue
         where = f"{rel}:{lineno}"
         try:
-            obj = json.loads(line)
-        except json.JSONDecodeError as exc:
+            obj = json.loads(line, parse_constant=reject_json_constant)
+        except (json.JSONDecodeError, ValueError) as exc:
             errors.append(f"{where}: JSON parse error: {exc}")
             continue
-        rec_errs, rec_warns, kind, record_id = check_record(obj, where)
+        rec_errs, rec_warns, kind, record_id = check_record(
+            obj, where, factory_staging=factory_staging
+        )
         records += 1
         kinds[kind] = kinds.get(kind, 0) + 1
         errors.extend(rec_errs)

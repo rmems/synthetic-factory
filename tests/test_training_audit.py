@@ -31,6 +31,35 @@ def write(path, records):
     path.write_text("".join(json.dumps(record) + "\n" for record in records))
 
 
+def episode_preference(record_id, *, pair_goal=None, chosen_goal=None, rejected_goal=None):
+    def side(goal):
+        record = {
+            "steps": [
+                {
+                    "decision_basis": "fixture observation",
+                    "tool_call": {"name": "inspect", "args": {}},
+                    "observation": "fixture result",
+                }
+            ],
+            "outcome": "fixture complete",
+            "reward": {"success": True},
+        }
+        if goal is not None:
+            record["goal"] = goal
+        return record
+
+    record = {
+        "id": record_id,
+        "chosen": side(chosen_goal),
+        "rejected": side(rejected_goal),
+        "critique": "chosen path is safer",
+        "reward": {"success": True},
+    }
+    if pair_goal is not None:
+        record["goal"] = pair_goal
+    return record
+
+
 class TrainingAudit(unittest.TestCase):
     def test_clean_corpus_is_training_ready(self):
         with tempfile.TemporaryDirectory() as td:
@@ -154,6 +183,173 @@ class TrainingAudit(unittest.TestCase):
         self.assertEqual(report["preferences"]["same_context"], 0)
         self.assertGreater(report["record_invariants"]["errors"], 0)
 
+    def test_legacy_thalamic_preference_is_exempt_from_agentic_thought_ban(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            chosen = thalamic("legacy-chosen")
+            rejected = thalamic("legacy-rejected")
+            chosen["state"]["thought"] = "legacy annotation"
+            record = {
+                "id": "legacy-preference",
+                "chosen": chosen,
+                "rejected": rejected,
+                "critique": "legacy Thalamic comparison",
+            }
+            write(root / "legacy-preference" / "batch-r01.jsonl", [record])
+
+            report = training_audit.audit_run(root)
+
+        self.assertEqual(report["preferences"]["thalamic_pairs"], 1)
+        self.assertEqual(report["episodes"].get("hidden_thought_fields", 0), 0)
+        self.assertFalse(any("hidden-thought fields" in item for item in report["blockers"]))
+
+    def test_null_agentic_turn_containers_are_reported_without_crashing(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            malformed_episode = {
+                "id": "null-episode-steps",
+                "goal": "repair the cache",
+                "steps": None,
+                "outcome": "not reached",
+                "reward": {"success": False},
+            }
+            malformed_multi_agent = {
+                "id": "null-transcript",
+                "goal": "resolve rollout ownership",
+                "agents": [
+                    {"role": "operator", "mandate": "ship safely"},
+                    {"role": "reviewer", "mandate": "block regressions"},
+                ],
+                "transcript": None,
+                "joint_outcome": "not reached",
+                "reward": {"success": False},
+            }
+            write(root / "agentic" / "batch-r01.jsonl", [malformed_episode, malformed_multi_agent])
+
+            report = training_audit.audit_run(root)
+
+        self.assertFalse(report["training_ready"])
+        self.assertGreaterEqual(report["record_invariants"]["errors"], 2)
+
+    def test_episode_preference_uses_shared_goal_not_thalamic_context(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            valid = episode_preference("episode-pref", pair_goal="repair the cache")
+            write(root / "tool-use-preference-factory" / "batch-r01.jsonl", [valid])
+
+            report = training_audit.audit_run(root)
+
+        self.assertTrue(report["training_ready"], report["blockers"])
+        self.assertEqual(report["preferences"]["episode_pairs"], 1)
+        self.assertEqual(report["preferences"]["same_goal"], 1)
+        self.assertEqual(report["preferences"]["same_context"], 1)
+        self.assertEqual(report["preferences"]["same_state"], 0)
+        self.assertEqual(report["preferences"]["same_proposal"], 0)
+
+    def test_episode_preference_with_mismatched_side_goals_blocks_training(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            invalid = episode_preference(
+                "episode-pref-mismatch",
+                chosen_goal="repair the cache",
+                rejected_goal="rotate credentials",
+            )
+            write(root / "tool-use-preference-factory" / "batch-r01.jsonl", [invalid])
+
+            report = training_audit.audit_run(root)
+
+        self.assertFalse(report["training_ready"])
+        self.assertEqual(report["preferences"]["same_goal"], 0)
+        self.assertTrue(any("shared-goal" in item for item in report["blockers"]))
+
+    def test_episode_preference_legacy_thought_blocks_training(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            record = episode_preference("episode-pref-hidden-thought", pair_goal="repair the cache")
+            step = record["chosen"]["steps"][0]
+            step.pop("decision_basis")
+            step["thought"] = "private reasoning must not become training data"
+            write(root / "tool-use-preference-factory" / "batch-r01.jsonl", [record])
+
+            report = training_audit.audit_run(root)
+
+        self.assertEqual(report["episodes"]["legacy_thought_only_steps"], 1)
+        self.assertFalse(report["training_ready"])
+        self.assertTrue(any("hidden-thought" in item for item in report["blockers"]))
+
+    def test_audit_rejects_recursive_hidden_thought_fields_with_basis(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            record = episode_preference("episode-pref-recursive-thought", pair_goal="repair the cache")
+            record["rejected"]["steps"][0]["tool_call"]["args"]["scratch"] = "private"
+            write(root / "tool-use-preference-factory" / "batch-r01.jsonl", [record])
+
+            report = training_audit.audit_run(root)
+
+        self.assertEqual(report["episodes"]["hidden_thought_fields"], 1)
+        self.assertFalse(report["training_ready"])
+
+    def test_audit_rejects_hidden_thought_in_coordination_transcript(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            record = {
+                "id": "coordination-hidden-thought",
+                "goal": "resolve a deploy disagreement",
+                "agents": [
+                    {"role": "operator", "mandate": "ship safely"},
+                    {"role": "reviewer", "mandate": "block unsafe rollout"},
+                ],
+                "transcript": [
+                    {"n": 1, "speaker": "operator", "content": "Canary is ready."},
+                    {
+                        "n": 2,
+                        "speaker": "reviewer",
+                        "content": "Need a rollback checkpoint first.",
+                        "inner_monologue": "private reasoning",
+                    },
+                ],
+                "disagreements": ["rollback checkpoint"],
+                "resolution": "create checkpoint before rollout",
+                "joint_outcome": "safe canary plan",
+                "reward": {"success": True},
+                "meta": {"factory": "multi-agent-coordination-factory", "round": 1},
+            }
+            write(root / "multi-agent-coordination-factory" / "batch-r01.jsonl", [record])
+
+            report = training_audit.audit_run(root)
+
+        self.assertEqual(report["episodes"]["hidden_thought_fields"], 1)
+        self.assertFalse(report["training_ready"])
+
+    def test_audit_blocks_empty_decision_basis(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            record = episode_preference("episode-pref-empty-basis", pair_goal="repair the cache")
+            record["chosen"]["steps"][0]["decision_basis"] = "   "
+            write(root / "tool-use-preference-factory" / "batch-r01.jsonl", [record])
+
+            report = training_audit.audit_run(root)
+
+        self.assertEqual(report["episodes"]["missing_decision_basis_steps"], 1)
+        self.assertFalse(report["training_ready"])
+        self.assertTrue(any("non-empty textual decision_basis" in item for item in report["blockers"]))
+
+    def test_episode_preference_does_not_let_wrapper_goal_mask_side_conflict(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            conflicting = episode_preference(
+                "episode-pref-wrapper-conflict",
+                pair_goal="repair the cache",
+                chosen_goal="repair the cache",
+                rejected_goal="rotate credentials",
+            )
+            write(root / "tool-use-preference-factory" / "batch-r01.jsonl", [conflicting])
+
+            report = training_audit.audit_run(root)
+
+        self.assertFalse(report["training_ready"])
+        self.assertEqual(report["preferences"]["same_goal"], 0)
+
     def test_exact_duplicate_and_global_id_duplicate_are_distinct_metrics(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
@@ -177,6 +373,45 @@ class TrainingAudit(unittest.TestCase):
         self.assertEqual(report["record_invariants"]["errors"], 1)
         self.assertIn("recomputed", report["record_invariants"]["error_examples"][0])
         self.assertFalse(report["training_ready"])
+
+    def test_nonstandard_json_numeric_constants_block_training(self):
+        for value in (float("nan"), float("inf"), float("-inf")):
+            with self.subTest(value=value), tempfile.TemporaryDirectory() as td:
+                root = Path(td)
+                record = thalamic("nonstandard-number")
+                record["state"]["measurement"] = value
+                write(root / "thalamic-trajectory-factory" / "batch-r01.jsonl", [record])
+
+                report = training_audit.audit_run(root)
+
+                self.assertFalse(report["training_ready"])
+                self.assertTrue(
+                    any(
+                        "non-standard JSON numeric constant" in error
+                        for error in report["record_invariants"]["error_examples"]
+                    ),
+                    report["record_invariants"],
+                )
+
+    def test_agentic_tool_turns_receive_publication_strictness(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            record = episode_preference(
+                "malformed-tool-turn", pair_goal="repair the cache"
+            )
+            record["chosen"]["steps"][0]["tool_call"] = "not-object"
+            write(root / "tool-use-preference-factory" / "batch-r01.jsonl", [record])
+
+            report = training_audit.audit_run(root)
+
+        self.assertFalse(report["training_ready"])
+        self.assertTrue(
+            any(
+                "tool_call must be an object" in error
+                for error in report["record_invariants"]["error_examples"]
+            ),
+            report["record_invariants"],
+        )
 
     def test_invalid_utf8_is_reported_without_crashing(self):
         with tempfile.TemporaryDirectory() as td:

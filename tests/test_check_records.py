@@ -299,6 +299,27 @@ class TestCheckRecords(unittest.TestCase):
         self.assertTrue(any("JSON parse" in e for e in result["errors"]))
         self.assertEqual(result["exit_code"], 1)
 
+    def test_nonstandard_json_numeric_constants_are_parse_errors(self):
+        template = json.dumps(_thalamic()).replace(
+            '"domain": "test"',
+            '"domain": "test", "measurement": CONSTANT',
+        )
+        for constant in ("NaN", "Infinity", "-Infinity"):
+            with self.subTest(constant=constant), tempfile.TemporaryDirectory() as td:
+                path = Path(td) / "nonstandard-number.jsonl"
+                path.write_text(template.replace("CONSTANT", constant) + "\n")
+
+                result = check_records.check_run(td)
+
+                self.assertEqual(result["exit_code"], 1)
+                self.assertTrue(
+                    any(
+                        f"non-standard JSON numeric constant {constant}" in error
+                        for error in result["errors"]
+                    ),
+                    result,
+                )
+
     def test_invalid_utf8_is_error_not_traceback(self):
         with tempfile.TemporaryDirectory() as td:
             (Path(td) / "bad.jsonl").write_bytes(b'{"id":"bad-\xff"}\n')

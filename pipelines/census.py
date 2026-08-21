@@ -21,7 +21,15 @@ THALAMIC_REQUIRED = (
     "reward_components",
 )
 
-KINDS = ("thalamic", "preference", "bridge_pair", "episode", "unknown")
+KINDS = (
+    "thalamic",
+    "preference",
+    "bridge_pair",
+    "multi_agent",
+    "safety_case",
+    "episode",
+    "unknown",
+)
 SIM_BUCKETS = ("real", "real*", "sim*", "hil*", "other", "<missing>")
 
 
@@ -34,6 +42,10 @@ def classify_kind(obj):
         return "preference"
     if "language_view" in obj and "spike_events" in obj:
         return "bridge_pair"
+    if "case_type" in obj:
+        return "safety_case"
+    if "transcript" in obj and "agents" in obj:
+        return "multi_agent"
     if "goal" in obj and "steps" in obj:
         return "episode"
     return "unknown"

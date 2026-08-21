@@ -131,6 +131,28 @@ class ValidateRunWriteFlag(unittest.TestCase):
             self.assertNotIn("Traceback", result.stderr)
             self.assertIn("invalid UTF-8", result.stderr)
 
+    def test_nonstandard_json_constants_are_parse_errors(self):
+        for constant in ("NaN", "Infinity", "-Infinity"):
+            with self.subTest(constant=constant), tempfile.TemporaryDirectory() as raw:
+                run_dir = Path(raw) / "run"
+                run_dir.mkdir()
+                (run_dir / "bad-number.jsonl").write_text(
+                    '{"goal":"test","steps":[{"decision_basis":"observe",'
+                    '"tool_call":{"name":"probe","args":{"value":'
+                    + constant
+                    + '}},"observation":"ok"}],"outcome":"passed",'
+                    '"reward":{"success":true}}\n'
+                )
+
+                result = _invoke(str(run_dir))
+
+                self.assertEqual(result.returncode, 1, result.stderr)
+                self.assertNotIn("Traceback", result.stderr)
+                self.assertIn("JSON parse error", result.stderr)
+                self.assertIn(
+                    f"non-standard JSON numeric constant {constant}", result.stderr
+                )
+
     def test_non_object_episode_step_is_error_not_traceback(self):
         with tempfile.TemporaryDirectory() as raw:
             run_dir = Path(raw) / "run"
@@ -184,7 +206,7 @@ class ValidateRewardTotal(unittest.TestCase):
         rec["reward_components"] = {"task": 0.4, "total": float("inf")}
         result = _run_with_record(rec)
         self.assertEqual(result.returncode, 1, result.stderr)
-        self.assertIn("finite", result.stderr)
+        self.assertIn("non-standard JSON numeric constant Infinity", result.stderr)
 
     def test_reward_total_ignores_bookkeeping_keys(self):
         rec = copy.deepcopy(TINY_THALAMIC)
