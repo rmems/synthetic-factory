@@ -48,6 +48,48 @@ def write_valid_legacy(path, count=2):
     )
 
 
+def write_valid_completed_long_horizon(path, round_number):
+    def steps():
+        values = [
+            {
+                "n": index,
+                "decision_basis": "Observation: inspect the timezone failure",
+                "tool_call": {"name": "bash", "args": {"command": f"echo {index}"}},
+                "observation": f"inspected step {index}",
+            }
+            for index in range(1, 19)
+        ]
+        values[2]["tool_call"]["args"]["command"] = "apply patch to converter"
+        values[2]["observation"] = "edited the converter"
+        values[3]["tool_call"]["args"]["command"] = "pytest timezone"
+        values[3]["observation"] = "test failed with DST error"
+        values[4]["tool_call"]["args"]["command"] = "sed read converter"
+        values[4]["observation"] = "re-read the failing branch"
+        values[5]["tool_call"]["args"]["command"] = "apply patch to fix DST fold"
+        values[5]["observation"] = "fixed the branch"
+        values[6]["tool_call"]["args"]["command"] = "pytest timezone"
+        values[6]["observation"] = "tests passed; fix verified"
+        return values
+
+    records = []
+    for index, success in enumerate((True, False)):
+        records.append(
+            {
+                "id": f"committed-r{round_number:02d}-{index}",
+                "goal": "repair timezone conversion",
+                "steps": steps(),
+                "outcome": "fixed" if success else "mitigated and handed off",
+                "reward": {"success": success},
+                "meta": {
+                    "factory": ITEM["slug"],
+                    "round": round_number,
+                    "generator": "grok-4.6",
+                },
+            }
+        )
+    path.write_text("".join(json.dumps(record) + "\n" for record in records))
+
+
 class PublishGrok46HubTests(unittest.TestCase):
     def test_factory_discovery_and_snapshot_reject_symlinked_factory_roots(self):
         with tempfile.TemporaryDirectory() as td:
@@ -152,7 +194,7 @@ class PublishGrok46HubTests(unittest.TestCase):
             write_valid_legacy(source / "batch-r01.jsonl")
             (source / "batch-r02.jsonl").write_text('{"id":"uncommitted"}\n')
             committed_batch = source / "batch-r03.jsonl"
-            committed_batch.write_text('{"id":"committed"}\n')
+            write_valid_completed_long_horizon(committed_batch, 3)
             committed_notes = source / "NOTES-r03.md"
             committed_notes.write_text("committed\n")
             (source / "ROUND-r03.complete.json").write_text(
@@ -447,7 +489,7 @@ class PublishGrok46HubTests(unittest.TestCase):
             batch = source / "batch-r01.jsonl"
             notes = source / "NOTES-r01.md"
             evidence = source / "EVIDENCE-r01.json"
-            batch.write_text('{"id":"committed"}\n')
+            write_valid_completed_long_horizon(batch, 1)
             notes.write_text("Novel coverage: 80%\n")
             evidence.write_text('{"result":"passed"}\n')
             marker = source / "ROUND-r01.complete.json"
@@ -583,7 +625,7 @@ class PublishGrok46HubTests(unittest.TestCase):
             source.mkdir(parents=True)
             batch = source / "batch-r01.jsonl"
             notes = source / "NOTES-r01.md"
-            batch.write_text('{"id":"committed"}\n')
+            write_valid_completed_long_horizon(batch, 1)
             notes.write_text("committed\n")
             (source / ".round-marker-mode.json").write_text(
                 '{"version":1,"legacy_baseline":0,"commit_point":"ROUND-rNN.complete.json"}\n'

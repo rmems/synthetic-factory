@@ -34,7 +34,9 @@ class FactoryTokenEfficiency(unittest.TestCase):
     def _write_complete_marker(self, factory, round_number):
         batch = factory / f"batch-r{round_number:02d}.jsonl"
         notes = factory / f"NOTES-r{round_number:02d}.md"
-        batch.write_text(f'{{"id":"batch-{round_number}"}}\n')
+        batch.write_text(
+            json.dumps(factory_driver.thalamic(f"batch-{round_number}")) + "\n"
+        )
         marker = factory / f"ROUND-r{round_number:02d}.complete.json"
         marker.write_text(
             json.dumps(
@@ -193,7 +195,7 @@ class FactoryDriverAudit(unittest.TestCase):
             )
             batch = factory / "batch-r01.jsonl"
             notes = factory / "NOTES-r01.md"
-            batch.write_text('{"id":"committed"}\n')
+            batch.write_text(json.dumps(factory_driver.thalamic("committed")) + "\n")
             notes.write_text("Novel coverage: 80%\n")
             marker = factory / "ROUND-r01.complete.json"
             marker.write_text(

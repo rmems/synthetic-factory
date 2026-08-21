@@ -24,6 +24,39 @@ def _step(n, basis="Observation: prior tool returned 200"):
     }
 
 
+def long_horizon_steps():
+    steps = [_step(index) for index in range(1, 19)]
+    steps[0].update(
+        {
+            "decision_basis": "Explore the timezone converter and current tests",
+            "observation": "inspected converter and timezone fixtures",
+        }
+    )
+    steps[1]["observation"] = "reproduced the timezone failure with pytest"
+    steps[2]["tool_call"]["args"]["command"] = "apply patch to timezone converter"
+    steps[2]["observation"] = "edited the converter"
+    steps[3]["tool_call"]["args"]["command"] = "pytest timezone"
+    steps[3]["observation"] = "test failed with an ambiguous DST error"
+    steps[4]["tool_call"]["args"]["command"] = "sed read converter and traceback"
+    steps[4]["observation"] = "re-read the failing branch"
+    steps[5]["tool_call"]["args"]["command"] = "apply patch to fix DST fold"
+    steps[5]["observation"] = "fixed the converter branch"
+    steps[6]["tool_call"]["args"]["command"] = "pytest timezone"
+    steps[6]["observation"] = "tests passed; fix verified"
+    return steps
+
+
+def add_sparse_failed_hypotheses(steps):
+    steps[0]["observation"] = "Hypothesis parser failed: bypassing parsing left the bug"
+    steps[1]["decision_basis"] = (
+        "Observation disproved parser hypothesis; abandon parser and inspect cache"
+    )
+    steps[2]["observation"] = "Hypothesis cache failed: a cold run still reproduced the bug"
+    steps[3]["decision_basis"] = (
+        "Observation disproved cache hypothesis; reject cache and inspect serialization"
+    )
+
+
 def episode(record_id, round_number=1, factory="long-horizon-coding-factory"):
     return {
         "id": record_id,
@@ -277,9 +310,11 @@ class AgenticShapes(unittest.TestCase):
             self.assertIn("intermediate tests_passed", message)
             self.assertIn("reward.horizon_steps", message)
             self.assertIn("reward.terminal_only must be true", message)
+            self.assertIn("at least two explicit hypotheses", message)
             self.assertFalse((factory / "ROUND-r01.complete.json").exists())
 
             record["steps"] = [_step(index) for index in range(1, 26)]
+            add_sparse_failed_hypotheses(record["steps"])
             record["reward"] = {
                 "success": True,
                 "terminal_only": True,
@@ -321,6 +356,16 @@ class AgenticShapes(unittest.TestCase):
             for record in records:
                 record["steps"] = [_step(index) for index in range(1, 19)]
             records[1]["reward"]["success"] = False
+            (stage / reservation["batch_file"]).write_text(
+                "".join(json.dumps(record) + "\n" for record in records)
+            )
+            with self.assertRaisesRegex(
+                round_txn.TransactionError, "observable edit, failing test"
+            ):
+                round_txn.publish(factory, 1, reservation["token"])
+
+            for record in records:
+                record["steps"] = long_horizon_steps()
             (stage / reservation["batch_file"]).write_text(
                 "".join(json.dumps(record) + "\n" for record in records)
             )
@@ -701,6 +746,23 @@ class AgenticShapes(unittest.TestCase):
 
         self.assertEqual(kind, "multi_agent")
         self.assertTrue(any("distinct roles" in error for error in errs), errs)
+
+    def test_multi_agent_staging_requires_two_to_four_distinct_mandates(self):
+        rec = multi_agent()
+        rec["agents"].extend(
+            [
+                {"role": "operator", "mandate": "ship safely"},
+                {"role": "observer", "mandate": "ship safely"},
+                {"role": "auditor"},
+            ]
+        )
+
+        errs, kind = validate_run.check_line(rec, "t", factory_staging=True)
+
+        self.assertEqual(kind, "multi_agent")
+        self.assertTrue(any("at most 4 agents" in error for error in errs), errs)
+        self.assertTrue(any("non-empty mandate" in error for error in errs), errs)
+        self.assertTrue(any("distinct mandates" in error for error in errs), errs)
 
     def test_multi_agent_requires_textual_goal_and_joint_outcome(self):
         rec = multi_agent()

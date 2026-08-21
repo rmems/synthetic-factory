@@ -327,6 +327,36 @@ def discover_legacy_named_baseline(factory_dir: Path):
     return 1 if records >= quota else 0
 
 
+def validate_legacy_baseline_payloads(factory_dir: Path, baseline: int):
+    """Deep-check every regular legacy payload exposed by a marker baseline."""
+    records_by_round = {}
+    for path in sorted(factory_dir.glob("*.jsonl")):
+        if not path.is_file() or path.is_symlink():
+            continue
+        match = BATCH_RE.fullmatch(path.name)
+        if match is not None:
+            round_number = int(match.group(1))
+            if round_number > baseline:
+                continue
+        elif path.name in LEGACY_R1_NAMES and baseline >= 1:
+            round_number = 1
+        else:
+            continue
+        records = valid_legacy_file(path)
+        if records < 1:
+            raise TransactionError(
+                f"invalid legacy payload covered by marker baseline: {path}"
+            )
+        records_by_round[round_number] = records_by_round.get(round_number, 0) + records
+    quota = FACTORY_QUOTAS.get(factory_dir.name, 1)
+    for round_number, records in records_by_round.items():
+        if records < quota:
+            raise TransactionError(
+                f"legacy payloads for r{round_number:02d} do not meet quota "
+                f"{quota}: {factory_dir}"
+            )
+
+
 def marker_paths(factory_dir: Path, round_number: int):
     rr = f"{round_number:02d}"
     return {
@@ -362,6 +392,7 @@ def completed_manifests(factory_dir: Path) -> dict[int, dict]:
     and matching regular, hashed files for every artifact it declares.
     """
     manifests = {}
+    seen_ids = {}
     for path in sorted(factory_dir.glob("ROUND-r*.complete.json")):
         match = COMPLETE_RE.fullmatch(path.name)
         if match is None:
@@ -409,6 +440,9 @@ def completed_manifests(factory_dir: Path) -> dict[int, dict]:
             raise TransactionError(
                 f"completion marker has no unique notes entry: {path}"
             )
+        validate_completed_batch(
+            factory_dir, round_number, payload, seen_ids=seen_ids
+        )
         if round_number in manifests:
             raise TransactionError(f"duplicate completion markers for r{round_number:02d}")
         manifests[round_number] = payload
@@ -489,6 +523,94 @@ def numbered_horizon_errors(where, steps, lane, minimum, maximum):
     ):
         errors.append(f"{where}: {lane} steps must be numbered contiguously from 1")
     return errors
+
+
+def observable_step_text(step):
+    """Flatten only publishable tool/basis/observation fields for lane checks."""
+    if not isinstance(step, dict):
+        return ""
+    values = [step.get("decision_basis"), step.get("observation")]
+    tool_call = step.get("tool_call")
+    if isinstance(tool_call, dict):
+        values.extend((tool_call.get("name"), tool_call.get("args")))
+    return " ".join(
+        value if isinstance(value, str) else json.dumps(value, sort_keys=True)
+        for value in values
+        if isinstance(value, (str, dict, list))
+    ).lower()
+
+
+def has_long_horizon_debug_loop(steps):
+    """Whether observable steps contain edit, failing test, re-read, fix, verify."""
+    if not isinstance(steps, list):
+        return False
+    texts = [observable_step_text(step) for step in steps]
+
+    def includes(text, terms):
+        return any(term in text for term in terms)
+
+    edit_terms = ("edit", "write", "patch", "apply")
+    test_terms = ("test", "pytest", "cargo test", "npm test")
+    failure_terms = ("fail", "error", "nonzero", "red")
+    read_terms = ("re-read", "reread", "inspect", "read", "cat ", "sed ", "rg ")
+    fix_terms = ("fix", "repair", "patch", "edit", "write", "apply")
+    verify_terms = ("pass", "success", "green", "verified", "fixed")
+    for edit_index, text in enumerate(texts):
+        if not includes(text, edit_terms):
+            continue
+        for failure_index in range(edit_index + 1, len(texts)):
+            failure_text = texts[failure_index]
+            if not (
+                includes(failure_text, test_terms)
+                and includes(failure_text, failure_terms)
+            ):
+                continue
+            for read_index in range(failure_index + 1, len(texts)):
+                if not includes(texts[read_index], read_terms):
+                    continue
+                for fix_index in range(read_index + 1, len(texts)):
+                    if not includes(texts[fix_index], fix_terms):
+                        continue
+                    return any(
+                        includes(texts[verify_index], test_terms)
+                        and includes(texts[verify_index], verify_terms)
+                        for verify_index in range(fix_index + 1, len(texts))
+                    )
+    return False
+
+
+def abandoned_failed_hypotheses(steps):
+    """Return distinct explicit hypothesis labels failed then abandoned later."""
+    if not isinstance(steps, list):
+        return set()
+    failed = []
+    failure_terms = ("fail", "disproved", "ruled out", "not the cause")
+    for index, step in enumerate(steps):
+        observation = step.get("observation") if isinstance(step, dict) else None
+        if not isinstance(observation, str) or not any(
+            term in observation.lower() for term in failure_terms
+        ):
+            continue
+        failed.extend(
+            (index, match.group(1))
+            for match in re.finditer(
+                r"\bhypothesis\s*[:#_-]?\s*([a-z0-9][a-z0-9_-]{2,})",
+                observation.lower(),
+            )
+        )
+    abandoned = set()
+    abandonment_terms = ("abandon", "discard", "reject", "disproved", "ruled out")
+    for failure_index, label in failed:
+        for step in steps[failure_index + 1 :]:
+            basis = step.get("decision_basis") if isinstance(step, dict) else None
+            if (
+                isinstance(basis, str)
+                and label in basis.lower()
+                and any(term in basis.lower() for term in abandonment_terms)
+            ):
+                abandoned.add(label)
+                break
+    return abandoned
 
 
 def frontier_status(factory_dir: Path):
@@ -574,6 +696,7 @@ def validated_marker_mode(factory_dir: Path, mode_path: Path | None = None):
         raise TransactionError(
             f"legacy_baseline in {mode_path} excludes validated legacy r01 payloads"
         )
+    validate_legacy_baseline_payloads(factory_dir, baseline)
     return mode
 
 
@@ -916,15 +1039,21 @@ def validate_agentic_envelope(batch: Path, factory_dir: Path, round_number: int)
                             f"{where}: recovery decision_basis must cite the diagnosis"
                         )
         if factory_dir.name == "long-horizon-coding-factory" and isinstance(record, dict):
+            steps = record.get("steps")
             errors.extend(
                 numbered_horizon_errors(
                     where,
-                    record.get("steps"),
+                    steps,
                     "long-horizon coding",
                     18,
                     28,
                 )
             )
+            if not has_long_horizon_debug_loop(steps):
+                errors.append(
+                    f"{where}: long-horizon episodes require an observable edit, "
+                    "failing test, re-read, fix, and passing verification loop"
+                )
             reward = record.get("reward")
             success = reward.get("success") if isinstance(reward, dict) else None
             if isinstance(success, bool):
@@ -998,6 +1127,11 @@ def validate_agentic_envelope(batch: Path, factory_dir: Path, round_number: int)
                 ):
                     errors.append(
                         f"{where}: reward.horizon_steps must equal the staged step count"
+                    )
+                if len(abandoned_failed_hypotheses(steps)) < 2:
+                    errors.append(
+                        f"{where}: sparse long-task episodes require at least two "
+                        "explicit hypotheses whose failure observations precede abandonment"
                     )
             if not isinstance(reward, dict) or reward.get("terminal_only") is not True:
                 errors.append(f"{where}: reward.terminal_only must be true")
@@ -1076,6 +1210,54 @@ def validate_agentic_envelope(batch: Path, factory_dir: Path, round_number: int)
             "containment, mitigation, or handoff per batch"
         )
     return errors
+
+
+def validate_completed_batch(
+    factory_dir: Path, round_number: int, manifest: dict, seen_ids=None
+):
+    """Re-run publication record, quota, and envelope checks for one marker."""
+    batch = factory_dir / f"batch-r{round_number:02d}.jsonl"
+    factory_staging = factory_dir.name in AGENTIC_FACTORY_KINDS
+    errors, warnings, kinds, records = check_jsonl(
+        batch,
+        batch.name,
+        seen_ids=seen_ids,
+        factory_staging=factory_staging,
+    )
+    if errors or warnings:
+        details = [
+            *(f"ERROR: {item}" for item in errors),
+            *(f"WARNING: {item}" for item in warnings),
+        ]
+        raise TransactionError(
+            f"committed batch is not training-ready: {batch}\n" + "\n".join(details)
+        )
+    for field in ("records", "expected_records"):
+        if field in manifest and (
+            not isinstance(manifest[field], int)
+            or isinstance(manifest[field], bool)
+            or manifest[field] != records
+        ):
+            raise TransactionError(
+                f"completion marker {field} does not match batch records: {batch}"
+            )
+    if "kinds" in manifest and manifest["kinds"] != kinds:
+        raise TransactionError(f"completion marker kinds do not match batch: {batch}")
+    if "version" in manifest and manifest["version"] != 1:
+        raise TransactionError(f"unsupported completion marker version for {batch}")
+    if factory_staging:
+        quota = FACTORY_QUOTAS[factory_dir.name]
+        if records != quota:
+            raise TransactionError(
+                f"committed batch has {records} records; {factory_dir.name} "
+                f"requires exactly {quota}: {batch}"
+            )
+        envelope_errors = validate_agentic_envelope(batch, factory_dir, round_number)
+        if envelope_errors:
+            raise TransactionError(
+                f"committed batch violates the agentic factory envelope: {batch}\n"
+                + "\n".join(f"ERROR: {error}" for error in envelope_errors)
+            )
 
 
 def validate_novel_coverage(notes: Path, factory_dir: Path, notes_text: str | None = None):

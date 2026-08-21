@@ -170,7 +170,7 @@ class NextRoundMarkerMode(unittest.TestCase):
             (factory / "batch-r01.jsonl").write_text(json.dumps(_episode("legacy-1", 1)) + "\n")
             (factory / "batch-r02.jsonl").write_text(json.dumps(_episode("legacy-2", 2)) + "\n")
             batch = factory / "batch-r03.jsonl"
-            batch.write_text('{"id":"committed"}\n')
+            batch.write_text(json.dumps(_episode("committed", 3)) + "\n")
             notes = factory / "NOTES-r03.md"
             notes.write_text("committed notes\n")
             marker = factory / "ROUND-r03.complete.json"

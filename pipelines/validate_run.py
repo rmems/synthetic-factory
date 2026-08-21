@@ -606,17 +606,28 @@ def check_multi_agent(obj, where, factory_staging=False):
         errs.append(f"{where}: disagreements must be a non-empty array of strings")
     agents = obj.get("agents")
     roles = set()
+    mandates = set()
     if not isinstance(agents, list) or len(agents) < 2:
         errs.append(f"{where}: agents must be an array of at least 2 roles")
     else:
+        if factory_staging and len(agents) > 4:
+            errs.append(f"{where}: coordination records allow at most 4 agents")
         for i, agent in enumerate(agents):
             role = agent.get("role") if isinstance(agent, dict) else None
             if not isinstance(role, str) or not role.strip():
                 errs.append(f"{where}: agents[{i}] needs a non-empty role")
             else:
                 roles.add(role.strip())
+            if factory_staging:
+                mandate = agent.get("mandate") if isinstance(agent, dict) else None
+                if not isinstance(mandate, str) or not mandate.strip():
+                    errs.append(f"{where}: agents[{i}] needs a non-empty mandate")
+                else:
+                    mandates.add(mandate.strip())
         if len(roles) < 2:
             errs.append(f"{where}: agents must declare at least two distinct roles")
+        if factory_staging and len(mandates) != len(agents):
+            errs.append(f"{where}: agents must declare distinct mandates")
     transcript = obj.get("transcript")
     if not isinstance(transcript, list) or not transcript:
         errs.append(f"{where}: transcript must be a non-empty array")

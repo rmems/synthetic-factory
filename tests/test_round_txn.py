@@ -546,6 +546,31 @@ class RoundTransaction(unittest.TestCase):
             self.assertEqual(json.loads((factory / round_txn.MODE_FILE).read_text())["legacy_baseline"], 2)
             self.assertEqual(reservation["round"], 3)
 
+    def test_marker_baseline_rejects_malformed_lower_legacy_payload(self):
+        with tempfile.TemporaryDirectory() as td:
+            factory = self.factory(td)
+            (factory / "batch-r25.jsonl").write_text("{not-json\n")
+            write_records(
+                factory / "batch-r26.jsonl",
+                [thalamic(f"legacy-r26-{index}", 26) for index in range(5)],
+            )
+            (factory / round_txn.MODE_FILE).write_text(
+                json.dumps(
+                    {
+                        "version": 1,
+                        "legacy_baseline": 26,
+                        "commit_point": "ROUND-rNN.complete.json",
+                    }
+                )
+                + "\n"
+            )
+
+            with self.assertRaisesRegex(
+                round_txn.TransactionError,
+                "invalid legacy payload covered by marker baseline",
+            ):
+                round_txn.frontier_status(factory)
+
     def test_marker_mode_exposes_only_manifest_verified_batches(self):
         with tempfile.TemporaryDirectory() as td:
             factory = self.factory(td)
@@ -626,6 +651,52 @@ class RoundTransaction(unittest.TestCase):
             auxiliary.unlink()
             auxiliary.write_text('{"check":"tampered"}\n')
             with self.assertRaisesRegex(round_txn.TransactionError, "hash mismatch"):
+                round_txn.frontier_status(factory)
+
+    def test_completion_marker_cannot_bless_a_malformed_batch(self):
+        with tempfile.TemporaryDirectory() as td:
+            factory = self.factory(td)
+            round_txn.ensure_marker_mode(factory)
+            batch = factory / "batch-r01.jsonl"
+            notes = factory / "NOTES-r01.md"
+            batch.write_text("{not-json\n")
+            notes.write_text("# Critique\n\nMalformed batch fixture.\n")
+            marker = factory / "ROUND-r01.complete.json"
+            marker.write_text(
+                json.dumps(
+                    {
+                        "factory": factory.name,
+                        "round": 1,
+                        "records": 1,
+                        "commit_point": marker.name,
+                        "files": [
+                            {"name": batch.name, "sha256": round_txn.file_sha256(batch)},
+                            {"name": notes.name, "sha256": round_txn.file_sha256(notes)},
+                        ],
+                    }
+                )
+                + "\n"
+            )
+
+            with self.assertRaisesRegex(
+                round_txn.TransactionError, "committed batch is not training-ready"
+            ):
+                round_txn.frontier_status(factory)
+
+    def test_completion_marker_record_count_must_match_validated_batch(self):
+        with tempfile.TemporaryDirectory() as td:
+            factory = self.factory(td)
+            reservation = round_txn.reserve(factory, 1, 1)
+            self.fill_stage(reservation, [thalamic("count-mismatch")])
+            round_txn.publish(factory, 1, reservation["token"])
+            marker = factory / "ROUND-r01.complete.json"
+            payload = json.loads(marker.read_text())
+            payload["records"] = 2
+            marker.write_text(json.dumps(payload) + "\n")
+
+            with self.assertRaisesRegex(
+                round_txn.TransactionError, "records does not match batch records"
+            ):
                 round_txn.frontier_status(factory)
 
     def test_marker_mode_requires_schema_and_real_legacy_baseline(self):
