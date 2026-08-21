@@ -1,0 +1,37 @@
+tests/test_restart_grok46_33.py
+  s_a101c3059277fd::t_95bae344cade4c 62-63
+  s_a101c3059277fd::t_cf5c7f4a106c86 33-34,64-65
+tests/test_curate_agentic.py
+  s_a101c3059277fd::t_4a092d4fcd8cc5 516
+pipelines/validate_run.py
+  s_a101c3059277fd::t_dbd27fb78c973b 603-609
+pipelines/round_txn.py
+  s_a101c3059277fd::t_dbd27fb78c973b 291-307,310-312,333-357,392-394,397,520-522,787-792,1028,1070-1071,1305-1312
+  s_a101c3059277fd::t_a85fd2e73853e6 308-309,1380,1383,1386
+tests/test_publish_grok46_hub.py
+  s_a101c3059277fd::t_5ac8c1ac3aa3df 28-47,51-58,64,66-76,228,661
+  s_a101c3059277fd::t_70bfae59fd4947 63
+tests/test_round_txn.py
+  s_a101c3059277fd::t_cf5c7f4a106c86 831-858
+pipelines/restart_grok46_33.sh
+  s_a101c3059277fd::t_dbd27fb78c973b 14,81
+  s_a101c3059277fd::t_95bae344cade4c 195,210
+tests/test_agentic_shapes.py
+  s_a101c3059277fd::t_1b54b4e0d307ca 644-651,824-830,1045-1104
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "27c05f21e1e164f1cdd57413ed1124128dc0f891",
+  "prompts": {},
+  "sessions": {
+    "s_a101c3059277fd": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a01e14-4bc2-7890-a7ce-1c993a8df50a",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Raul Montoya Cardenas <montoyaraul34@gmail.com>"
+    }
+  }
+}
