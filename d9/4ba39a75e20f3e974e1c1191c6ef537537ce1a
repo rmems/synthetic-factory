@@ -1,0 +1,29 @@
+pipelines/round_txn.py
+  s_a101c3059277fd::t_2675fed15e1514 1608-1614,2006-2013
+pipelines/validate_run.py
+  s_a101c3059277fd::t_2675fed15e1514 608-609,611,634-641,655-659,675,915-920,923-927,973-978,1002-1004
+.claude/skills/run-synthetic-factory/driver.py
+  s_a101c3059277fd::t_2675fed15e1514 84-99,110-111,113,115-118,558-560
+  s_a101c3059277fd::t_dd39f1b4d71021 23-24,80-81,100-109,112,114,561-563
+tests/test_factory_driver.py
+  s_a101c3059277fd::t_2675fed15e1514 238-261
+tests/test_agentic_shapes.py
+  s_a101c3059277fd::t_dd39f1b4d71021 916-919,1241-1244
+  s_a101c3059277fd::t_2675fed15e1514 911-915,920-922,1215-1240,1245-1247,1826,1867-1869,1882-1886,1902-1910
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "d94ba39a75e20f3e974e1c1191c6ef537537ce1a",
+  "prompts": {},
+  "sessions": {
+    "s_a101c3059277fd": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a01e14-4bc2-7890-a7ce-1c993a8df50a",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Raul Montoya Cardenas <montoyaraul34@gmail.com>"
+    }
+  }
+}
