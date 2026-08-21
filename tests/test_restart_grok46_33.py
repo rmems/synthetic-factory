@@ -22,6 +22,7 @@ class RestartGrok46Tests(unittest.TestCase):
         self.assertIn('STATE_HOME="${XDG_STATE_HOME:-/home/raulmc/.local/state}"', text)
         self.assertIn('STATE_DIR="$STATE_HOME/synthetic-factory-grok46"', text)
         self.assertIn("ensure_private_state_dir()", text)
+        self.assertIn("ensure_state_home()", text)
         self.assertIn("ensure_private_state_file()", text)
         self.assertIn('ensure_private_state_file "$LOCK"', text)
         self.assertIn('chmod 700 "$STATE_DIR"', text)
@@ -71,6 +72,22 @@ class RestartGrok46Tests(unittest.TestCase):
                 self.assertEqual(result.returncode, 1)
                 self.assertIn("unsafe launcher state path", result.stderr)
                 self.assertEqual(outside.read_text(), "do not touch\n")
+
+    def test_launcher_creates_missing_state_home_ancestors(self):
+        with tempfile.TemporaryDirectory() as td:
+            state_home = Path(td) / "missing" / "nested" / "state"
+            result = subprocess.run(
+                ["bash", str(SCRIPT)],
+                env={**os.environ, "XDG_STATE_HOME": str(state_home)},
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            state_dir = state_home / "synthetic-factory-grok46"
+            self.assertTrue(state_dir.is_dir())
+            self.assertTrue((state_dir / "launcher.lock").is_file())
 
     def test_prompt_honors_plateau_stops_and_uses_fresh_snapshots(self):
         text = PROMPT.read_text()

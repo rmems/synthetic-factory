@@ -455,6 +455,22 @@ def completed_manifests(src: Path) -> dict[int, dict]:
     return manifests
 
 
+def discovered_legacy_frontier(src: Path) -> tuple[int, int]:
+    """Return the highest raw round claim and the non-transactional r01 floor."""
+    rounds = []
+    has_legacy_r01 = False
+    for path in src.glob("*.jsonl"):
+        if not is_regular_source_file(path):
+            continue
+        label = batch_label(path)
+        if label is not None:
+            rounds.append(label[0])
+        elif path.name in LEGACY_R1_NAMES:
+            rounds.append(1)
+            has_legacy_r01 = True
+    return max(rounds, default=0), int(has_legacy_r01)
+
+
 def marker_mode_state(src: Path) -> tuple[int | None, dict[int, dict]]:
     """Return a factory's marker-mode baseline and validated manifests once."""
     mode_path = src / ".round-marker-mode.json"
@@ -466,10 +482,23 @@ def marker_mode_state(src: Path) -> tuple[int | None, dict[int, dict]]:
         mode = json.loads(mode_path.read_text())
     except (OSError, json.JSONDecodeError) as exc:
         raise SystemExit(f"cannot read marker mode for {src}: {exc}") from exc
-    baseline = mode.get("legacy_baseline") if isinstance(mode, dict) else None
+    if not isinstance(mode, dict) or mode.get("version") != 1:
+        raise SystemExit(f"unsupported marker mode version in {mode_path}")
+    if mode.get("commit_point") != "ROUND-rNN.complete.json":
+        raise SystemExit(f"invalid marker mode commit point in {mode_path}")
+    baseline = mode.get("legacy_baseline")
     if not isinstance(baseline, int) or isinstance(baseline, bool) or baseline < 0:
         raise SystemExit(f"invalid legacy_baseline in {mode_path}")
-    return baseline, completed_manifests(src)
+    manifests = completed_manifests(src)
+    legacy_frontier, legacy_named_baseline = discovered_legacy_frontier(src)
+    if baseline > legacy_frontier:
+        raise SystemExit(
+            f"legacy_baseline in {mode_path} exceeds discovered legacy frontier "
+            f"r{legacy_frontier:02d}"
+        )
+    if baseline < legacy_named_baseline:
+        raise SystemExit(f"legacy_baseline in {mode_path} excludes legacy r01 payloads")
+    return baseline, manifests
 
 
 def file_matches_manifest(path: Path, manifest: dict) -> bool:

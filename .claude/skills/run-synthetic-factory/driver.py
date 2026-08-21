@@ -35,6 +35,7 @@ if str(PIPELINES) not in sys.path:
     sys.path.insert(0, str(PIPELINES))
 
 from round_txn import (  # noqa: E402
+    committed_jsonl_paths,
     completed_manifests,
     completion_manifest_file_matches,
     frontier_status,
@@ -118,6 +119,13 @@ def cmd_audit(run_dir):
     temp, snap = snapshot_to_temp(src, "factory-audit-")
     results = []
     try:
+        for factory in snap.iterdir():
+            if not factory.is_dir() or factory.is_symlink() or marker_mode_path(factory) is None:
+                continue
+            committed = set(committed_jsonl_paths(factory))
+            for path in factory.glob("*.jsonl"):
+                if path not in committed:
+                    path.unlink()
         commands = (
             ("STRUCTURAL + SHAPE", VALIDATOR, ()),
             ("DEEP RECORD INVARIANTS", CHECKER, ("--strict",)),

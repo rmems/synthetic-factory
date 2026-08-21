@@ -524,6 +524,20 @@ class CurateAgenticTests(unittest.TestCase):
                 with self.assertRaisesRegex(TransactionError, "unsafe marker mode file"):
                     curate_source(factory)
 
+    def test_legacy_curation_ignores_symlinked_jsonl(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            factory = root / "agentic-factory"
+            factory.mkdir()
+            outside = root / "outside.jsonl"
+            outside.write_text(json.dumps(episode_fixture("outside")) + "\n")
+            (factory / "batch-r01.jsonl").symlink_to(outside)
+
+            run = curate_source(factory)
+
+        self.assertEqual(run["summary"]["files"], 0)
+        self.assertEqual(run["summary"]["input_records"], 0)
+
     def test_cli_dry_run_does_not_write(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

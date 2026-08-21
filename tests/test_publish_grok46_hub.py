@@ -108,7 +108,7 @@ class PublishGrok46HubTests(unittest.TestCase):
             destination_root = root / "hf"
             source.mkdir(parents=True)
             (source / ".round-marker-mode.json").write_text(
-                '{"version":1,"legacy_baseline":1}\n'
+                '{"version":1,"legacy_baseline":1,"commit_point":"ROUND-rNN.complete.json"}\n'
             )
             (source / "batch-r01.jsonl").write_text('{"id":"legacy"}\n')
             (source / "batch-r02.jsonl").write_text('{"id":"uncommitted"}\n')
@@ -232,7 +232,7 @@ class PublishGrok46HubTests(unittest.TestCase):
             source = root / "raw" / ITEM["slug"]
             source.mkdir(parents=True)
             (source / ".round-marker-mode.json").write_text(
-                '{"version":1,"legacy_baseline":1}\n'
+                '{"version":1,"legacy_baseline":1,"commit_point":"ROUND-rNN.complete.json"}\n'
             )
             legacy = source / "episodes.jsonl"
             legacy.write_text('{"id":"legacy-episode"}\n')
@@ -275,7 +275,7 @@ class PublishGrok46HubTests(unittest.TestCase):
             source = Path(td) / ITEM["slug"]
             source.mkdir()
             (source / ".round-marker-mode.json").write_text(
-                '{"version":1,"legacy_baseline":0}\n'
+                '{"version":1,"legacy_baseline":0,"commit_point":"ROUND-rNN.complete.json"}\n'
             )
             batch = source / "batch-r01.jsonl"
             batch.write_text('{"id":"committed"}\n')
@@ -330,7 +330,7 @@ class PublishGrok46HubTests(unittest.TestCase):
             source = root / "raw" / ITEM["slug"]
             source.mkdir(parents=True)
             (source / ".round-marker-mode.json").write_text(
-                '{"version":1,"legacy_baseline":0}\n'
+                '{"version":1,"legacy_baseline":0,"commit_point":"ROUND-rNN.complete.json"}\n'
             )
             marker = source / "ROUND-r01.complete.json"
             marker.write_text(
@@ -364,7 +364,7 @@ class PublishGrok46HubTests(unittest.TestCase):
             source = root / "raw" / ITEM["slug"]
             source.mkdir(parents=True)
             (source / ".round-marker-mode.json").write_text(
-                '{"version":1,"legacy_baseline":0}\n'
+                '{"version":1,"legacy_baseline":0,"commit_point":"ROUND-rNN.complete.json"}\n'
             )
             batch = source / "batch-r01.jsonl"
             batch.write_text('{"id":"committed"}\n')
@@ -432,6 +432,36 @@ class PublishGrok46HubTests(unittest.TestCase):
 
                 with self.assertRaisesRegex(SystemExit, "unsafe marker mode file"):
                     publisher.published_batches(source)
+
+    def test_marker_mode_rejects_incomplete_or_unbacked_schema(self):
+        with tempfile.TemporaryDirectory() as td:
+            source = Path(td) / ITEM["slug"]
+            source.mkdir()
+            (source / "episodes.jsonl").write_text('{"id":"legacy"}\n')
+            mode = source / ".round-marker-mode.json"
+
+            for payload, message in (
+                (
+                    {"version": 2, "legacy_baseline": 0, "commit_point": "ROUND-rNN.complete.json"},
+                    "version",
+                ),
+                (
+                    {"version": 1, "legacy_baseline": 0, "commit_point": "ROUND-rNN.publishing.json"},
+                    "commit point",
+                ),
+                (
+                    {"version": 1, "legacy_baseline": 26, "commit_point": "ROUND-rNN.complete.json"},
+                    "exceeds discovered",
+                ),
+                (
+                    {"version": 1, "legacy_baseline": 0, "commit_point": "ROUND-rNN.complete.json"},
+                    "excludes legacy r01",
+                ),
+            ):
+                with self.subTest(message=message):
+                    mode.write_text(json.dumps(payload) + "\n")
+                    with self.assertRaisesRegex(SystemExit, message):
+                        publisher.published_batches(source)
 
     def test_only_limits_create_and_collection_operations(self):
         other = {**ITEM, "slug": "other-factory", "hub": "other"}

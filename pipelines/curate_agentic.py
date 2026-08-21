@@ -403,9 +403,15 @@ def _source_jsonl_files(source: Path) -> tuple[Path, ...]:
     if not source.exists():
         return ()
     if source.is_file():
-        paths = (source,) if source.suffix == ".jsonl" else ()
+        paths = (source,) if source.suffix == ".jsonl" and not source.is_symlink() else ()
     else:
-        paths = tuple(sorted(path for path in source.rglob("*.jsonl") if path.is_file()))
+        paths = tuple(
+            sorted(
+                path
+                for path in source.rglob("*.jsonl")
+                if path.is_file() and not path.is_symlink()
+            )
+        )
 
     visible_by_factory: dict[Path, set[Path]] = {}
 

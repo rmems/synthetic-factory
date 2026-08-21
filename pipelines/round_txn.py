@@ -215,6 +215,18 @@ def discover_legacy_frontier(factory_dir: Path):
     return max(eligible, default=0)
 
 
+def discover_legacy_named_baseline(factory_dir: Path):
+    """Return the validated r01 floor contributed by pre-marker payload names."""
+    factory_dir = Path(factory_dir)
+    quota = FACTORY_QUOTAS.get(factory_dir.name, 1)
+    records = sum(
+        valid_legacy_file(path)
+        for path in factory_dir.glob("*.jsonl")
+        if path.name in LEGACY_R1_NAMES
+    )
+    return 1 if records >= quota else 0
+
+
 def marker_paths(factory_dir: Path, round_number: int):
     rr = f"{round_number:02d}"
     return {
@@ -418,6 +430,11 @@ def validated_marker_mode(factory_dir: Path, mode_path: Path | None = None):
         raise TransactionError(
             f"legacy_baseline in {mode_path} exceeds discovered legacy frontier "
             f"r{legacy_frontier:02d}"
+        )
+    legacy_named_baseline = discover_legacy_named_baseline(factory_dir)
+    if baseline < legacy_named_baseline:
+        raise TransactionError(
+            f"legacy_baseline in {mode_path} excludes validated legacy r01 payloads"
         )
     return mode
 

@@ -20,6 +20,25 @@ die_unsafe_state() {
   exit 1
 }
 
+ensure_state_home() {
+  local component current=""
+  local -a components
+  [[ "$STATE_HOME" == /* ]] || die_unsafe_state "$STATE_HOME"
+  IFS=/ read -r -a components <<<"$STATE_HOME"
+  for component in "${components[@]}"; do
+    [[ -n "$component" ]] || continue
+    current="$current/$component"
+    if [[ -L "$current" ]]; then
+      die_unsafe_state "$current"
+    fi
+    if [[ -e "$current" ]]; then
+      [[ -d "$current" ]] || die_unsafe_state "$current"
+    else
+      mkdir -- "$current" || die_unsafe_state "$current"
+    fi
+  done
+}
+
 ensure_private_state_dir() {
   if [[ -L "$STATE_DIR" ]]; then
     die_unsafe_state "$STATE_DIR"
@@ -53,6 +72,7 @@ ensure_private_state_file() {
   chmod 600 "$path" || die_unsafe_state "$path"
 }
 
+ensure_state_home
 ensure_private_state_dir
 ensure_private_state_file "$LOG"
 ensure_private_state_file "$LOCK"

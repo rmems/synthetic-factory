@@ -9,6 +9,7 @@ import unittest
 from contextlib import redirect_stdout
 from io import StringIO
 from pathlib import Path
+from unittest import mock
 
 REPO = Path(__file__).resolve().parents[1]
 DRIVER_PATH = REPO / ".claude" / "skills" / "run-synthetic-factory" / "driver.py"
@@ -152,6 +153,49 @@ class FactoryDriverBytes(unittest.TestCase):
             with redirect_stdout(StringIO()):
                 factory_driver.cmd_snapshot(run, "bytes")
             self.assertEqual((Path(td) / "run-bytes" / "bad-bytes.jsonl").read_bytes(), b"{}\xff\n")
+
+
+class FactoryDriverAudit(unittest.TestCase):
+    def test_audit_snapshot_excludes_uncommitted_marker_batches(self):
+        with tempfile.TemporaryDirectory() as td:
+            run = Path(td) / "run"
+            factory = run / "marker-factory"
+            factory.mkdir(parents=True)
+            (factory / ".round-marker-mode.json").write_text(
+                '{"version":1,"legacy_baseline":0,"commit_point":"ROUND-rNN.complete.json"}\n'
+            )
+            batch = factory / "batch-r01.jsonl"
+            notes = factory / "NOTES-r01.md"
+            batch.write_text('{"id":"committed"}\n')
+            notes.write_text("Novel coverage: 80%\n")
+            marker = factory / "ROUND-r01.complete.json"
+            marker.write_text(
+                json.dumps(
+                    {
+                        "factory": factory.name,
+                        "round": 1,
+                        "commit_point": marker.name,
+                        "files": [
+                            {"name": batch.name, "sha256": hashlib.sha256(batch.read_bytes()).hexdigest()},
+                            {"name": notes.name, "sha256": hashlib.sha256(notes.read_bytes()).hexdigest()},
+                        ],
+                    }
+                )
+                + "\n"
+            )
+            (factory / "batch-r02.jsonl").write_text('{"id":"interrupted"}\n')
+            seen = []
+
+            def observe_snapshot(_script, snapshot, *_options):
+                seen.append({path.name for path in (snapshot / factory.name).glob("*.jsonl")})
+                return 0, "", ""
+
+            with mock.patch.object(factory_driver, "run_tool", side_effect=observe_snapshot), redirect_stdout(
+                StringIO()
+            ):
+                self.assertEqual(factory_driver.cmd_audit(run), 0)
+
+        self.assertEqual(seen, [{"batch-r01.jsonl"}] * 3)
 
 
 if __name__ == "__main__":

@@ -490,6 +490,27 @@ class RoundTransaction(unittest.TestCase):
             with self.assertRaisesRegex(round_txn.TransactionError, "exceeds discovered"):
                 round_txn.frontier_status(factory)
 
+    def test_marker_mode_cannot_hide_validated_legacy_named_payloads(self):
+        with tempfile.TemporaryDirectory() as td:
+            factory = self.factory(td)
+            write_records(
+                factory / "trajectories.jsonl",
+                [thalamic(f"legacy-{index}") for index in range(5)],
+            )
+            (factory / round_txn.MODE_FILE).write_text(
+                json.dumps(
+                    {
+                        "version": 1,
+                        "legacy_baseline": 0,
+                        "commit_point": "ROUND-rNN.complete.json",
+                    }
+                )
+                + "\n"
+            )
+
+            with self.assertRaisesRegex(round_txn.TransactionError, "excludes validated legacy"):
+                round_txn.committed_jsonl_paths(factory)
+
     def test_committed_paths_ignore_symlinked_legacy_payloads(self):
         with tempfile.TemporaryDirectory() as td:
             factory = self.factory(td)
