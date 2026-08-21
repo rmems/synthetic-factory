@@ -638,10 +638,20 @@ class AgenticShapes(unittest.TestCase):
             records[1]["reward"]["success"] = False
             records[1]["reward"]["recovered"] = 0
             records[1]["outcome"] = "fault contained and handed off for repair"
+            records[0]["reward"]["success"] = False
+            records[1]["reward"]["success"] = True
             (stage / reservation["batch_file"]).write_text(
                 "".join(json.dumps(record) + "\n" for record in records)
             )
 
+            with self.assertRaisesRegex(round_txn.TransactionError, "must agree"):
+                round_txn.publish(factory, 1, reservation["token"])
+
+            records[0]["reward"]["success"] = True
+            records[1]["reward"]["success"] = False
+            (stage / reservation["batch_file"]).write_text(
+                "".join(json.dumps(record) + "\n" for record in records)
+            )
             with self.assertRaisesRegex(round_txn.TransactionError, "two distinct"):
                 round_txn.publish(factory, 1, reservation["token"])
 
@@ -1066,6 +1076,40 @@ class AgenticShapes(unittest.TestCase):
                 "invalid legacy payload covered by marker baseline",
             ):
                 round_txn.frontier_status(factory)
+
+    def test_fixed_agentic_legacy_baseline_requires_coverage_notes(self):
+        with tempfile.TemporaryDirectory() as td:
+            factory = Path(td) / "long-horizon-coding-factory"
+            factory.mkdir()
+            records = [episode(f"legacy-coverage-{index}") for index in range(2)]
+            for record in records:
+                record["steps"] = long_horizon_steps()
+            records[1]["reward"]["success"] = False
+            records[1]["outcome"] = "mitigated and handed off"
+            (factory / "batch-r01.jsonl").write_text(
+                "".join(json.dumps(record) + "\n" for record in records)
+            )
+            (factory / round_txn.MODE_FILE).write_text(
+                json.dumps(
+                    {
+                        "version": 1,
+                        "legacy_baseline": 1,
+                        "commit_point": "ROUND-rNN.complete.json",
+                    }
+                )
+                + "\n"
+            )
+
+            with self.assertRaisesRegex(round_txn.TransactionError, "notes missing"):
+                round_txn.frontier_status(factory)
+
+            notes = factory / "NOTES-r01.md"
+            notes.write_text("coverage omitted\n")
+            with self.assertRaisesRegex(round_txn.TransactionError, "Novel coverage"):
+                round_txn.frontier_status(factory)
+
+            notes.write_text("Novel coverage: 80%\n")
+            self.assertEqual(round_txn.frontier_status(factory)["next_round"], 2)
 
     def test_completed_agentic_notes_revalidate_novel_coverage(self):
         with tempfile.TemporaryDirectory() as td:

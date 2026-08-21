@@ -856,6 +856,29 @@ class RoundTransaction(unittest.TestCase):
             ):
                 round_txn.frontier_status(factory)
 
+    def test_reserve_rejects_an_invalid_unowned_canonical_batch(self):
+        with tempfile.TemporaryDirectory() as td:
+            factory = self.factory(td)
+            (factory / "batch-r01.jsonl").write_text("{not-json\n")
+            (factory / round_txn.MODE_FILE).write_text(
+                json.dumps(
+                    {
+                        "version": 1,
+                        "legacy_baseline": 0,
+                        "commit_point": "ROUND-rNN.complete.json",
+                    }
+                )
+                + "\n"
+            )
+
+            with self.assertRaisesRegex(
+                round_txn.TransactionError,
+                "unowned canonical batch collision",
+            ):
+                round_txn.reserve(factory, 1, 1)
+
+            self.assertFalse((factory / "ROUND-r01.reserved.json").exists())
+
     def test_committed_paths_ignore_symlinked_legacy_payloads(self):
         with tempfile.TemporaryDirectory() as td:
             factory = self.factory(td)

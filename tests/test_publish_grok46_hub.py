@@ -250,7 +250,7 @@ class PublishGrok46HubTests(unittest.TestCase):
                 )
                 + "\n"
             )
-            (source / "NOTES-r01.md").write_text("legacy\n")
+            (source / "NOTES-r01.md").write_text("Novel coverage: 80%\nlegacy\n")
             (source / "NOTES-r02.md").write_text("uncommitted\n")
 
             self.assertEqual(
@@ -267,6 +267,8 @@ class PublishGrok46HubTests(unittest.TestCase):
             stale_note = destination_root / ITEM["hub"] / "data" / "metadata" / "NOTES-r02.md"
             stale_note.parent.mkdir(parents=True)
             stale_note.write_text("stale\n")
+            unknown_metadata = stale_note.parent / "uncommitted.txt"
+            unknown_metadata.write_text("must not publish\n")
             with mock.patch.object(publisher, "FACTORY_ROOT", root / "raw"), mock.patch.object(
                 publisher, "HF_ROOT", destination_root
             ):
@@ -280,6 +282,7 @@ class PublishGrok46HubTests(unittest.TestCase):
                 self.assertTrue((meta / "NOTES-r01.md").is_file())
                 self.assertFalse((meta / "NOTES-r02.md").exists())
                 self.assertTrue((meta / "NOTES-r03.md").is_file())
+                self.assertFalse((meta / "uncommitted.txt").exists())
 
                 committed_notes.write_text("tampered\n")
                 with self.assertRaisesRegex(SystemExit, "hash mismatch"):
@@ -349,7 +352,9 @@ class PublishGrok46HubTests(unittest.TestCase):
             )
             legacy = source / "episodes.jsonl"
             write_valid_legacy(legacy)
-            (source / "NOTES-r01.md").write_text("legacy notes\n")
+            (source / "NOTES-r01.md").write_text(
+                "Novel coverage: 80%\nlegacy notes\n"
+            )
 
             self.assertEqual([path.name for path in publisher.published_batches(source)], ["episodes.jsonl"])
             with mock.patch.object(publisher, "FACTORY_ROOT", root / "raw"), mock.patch.object(
@@ -692,6 +697,40 @@ class PublishGrok46HubTests(unittest.TestCase):
                     publisher.snapshot_one(ITEM)
 
             self.assertFalse((root / "hf" / ITEM["hub"] / "data" / "raw" / batch.name).exists())
+
+    def test_snapshot_rechecks_legacy_digest_after_visibility_selection(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            source = root / "raw" / ITEM["slug"]
+            source.mkdir(parents=True)
+            batch = source / "batch-r01.jsonl"
+            write_valid_legacy(batch)
+            (source / "NOTES-r01.md").write_text("Novel coverage: 80%\n")
+            (source / ".round-marker-mode.json").write_text(
+                '{"version":1,"legacy_baseline":1,"commit_point":"ROUND-rNN.complete.json"}\n'
+            )
+            real_published_notes = publisher.published_notes
+
+            def tamper_after_selection(*args, **kwargs):
+                selected = real_published_notes(*args, **kwargs)
+                batch.write_text('{"id":"changed-after-validation"}\n')
+                return selected
+
+            with mock.patch.object(
+                publisher, "FACTORY_ROOT", root / "raw"
+            ), mock.patch.object(
+                publisher, "HF_ROOT", root / "hf"
+            ), mock.patch.object(
+                publisher, "published_notes", side_effect=tamper_after_selection
+            ):
+                with self.assertRaisesRegex(
+                    SystemExit, "changed after manifest validation"
+                ):
+                    publisher.snapshot_one(ITEM)
+
+            self.assertFalse(
+                (root / "hf" / ITEM["hub"] / "data" / "raw" / batch.name).exists()
+            )
 
     def test_invalid_utf8_completion_marker_has_a_bounded_error(self):
         with tempfile.TemporaryDirectory() as td:

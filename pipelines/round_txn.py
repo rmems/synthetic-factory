@@ -355,6 +355,20 @@ def discover_unmarked_legacy_frontier(factory_dir: Path):
     return max(eligible, default=0)
 
 
+def unowned_canonical_batch_collision(factory_dir: Path, round_number: int):
+    """Return a next-round canonical path that no transaction marker owns."""
+    path = factory_dir / f"batch-r{round_number:02d}.jsonl"
+    if not path.exists() and not path.is_symlink():
+        return None
+    markers = marker_paths(factory_dir, round_number)
+    if any(
+        marker.is_file() and not marker.is_symlink()
+        for marker in (markers["publishing"], markers["complete"])
+    ):
+        return None
+    return path
+
+
 def discover_legacy_named_baseline(factory_dir: Path):
     """Return the validated r01 floor contributed by pre-marker payload names."""
     factory_dir = Path(factory_dir)
@@ -404,6 +418,15 @@ def validate_legacy_baseline_payloads(factory_dir: Path, baseline: int):
                 f"legacy payloads for r{round_number:02d} do not meet quota "
                 f"{quota}: {factory_dir}"
             )
+        if factory_dir.name in AGENTIC_FACTORY_KINDS:
+            notes = factory_dir / f"NOTES-r{round_number:02d}.md"
+            if not notes.is_file() or notes.is_symlink():
+                raise TransactionError(
+                    f"legacy baseline notes missing or unsafe for r{round_number:02d}: {notes}"
+                )
+            coverage_error = validate_novel_coverage(notes, factory_dir)
+            if coverage_error:
+                raise TransactionError(coverage_error)
 
 
 def legacy_baseline_jsonl_paths(factory_dir: Path, baseline: int):
@@ -727,6 +750,11 @@ def frontier_status(factory_dir: Path):
     while highest + 1 in marker_set:
         highest += 1
     noncontiguous = [number for number in markers if number > highest]
+    collision = unowned_canonical_batch_collision(factory_dir, highest + 1)
+    if collision is not None:
+        raise TransactionError(
+            f"unowned canonical batch collision at next round: {collision}"
+        )
     return {
         "factory": factory_dir.name,
         "mode": "marker",
@@ -1083,6 +1111,11 @@ def validate_agentic_envelope(batch: Path, factory_dir: Path, round_number: int)
                 errors.append(f"{where}: reward.recovered must be 0 or 1")
             else:
                 cascade_recovery_values.append(recovered)
+                success = reward.get("success") if isinstance(reward, dict) else None
+                if isinstance(success, bool) and success != bool(recovered):
+                    errors.append(
+                        f"{where}: reward.success must agree with reward.recovered"
+                    )
             if (
                 not isinstance(cascade_steps, int)
                 or isinstance(cascade_steps, bool)

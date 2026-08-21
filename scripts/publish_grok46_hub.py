@@ -38,6 +38,7 @@ if str(PIPELINES_ROOT) not in sys.path:
 from round_txn import (  # noqa: E402
     TransactionError,
     completed_manifests as transaction_completed_manifests,
+    legacy_baseline_jsonl_paths as transaction_legacy_baseline_jsonl_paths,
     discover_legacy_frontier as transaction_legacy_frontier,
     discover_legacy_named_baseline as transaction_legacy_named_baseline,
     validate_legacy_baseline_payloads as transaction_validate_legacy_baseline_payloads,
@@ -513,11 +514,33 @@ def validate_legacy_baseline_payloads(src: Path, baseline: int) -> None:
         raise SystemExit(str(exc)) from exc
 
 
-def marker_mode_state(src: Path) -> tuple[int | None, dict[int, dict]]:
-    """Return a factory's marker-mode baseline and validated manifests once."""
+def legacy_snapshot_paths(src: Path, baseline: int) -> list[Path]:
+    """Return legacy-baseline payload and matching note paths for byte pinning."""
+    paths = transaction_legacy_baseline_jsonl_paths(src, baseline)
+    labels = {
+        label[2]
+        for path in paths
+        if (label := batch_label(path)) is not None
+    }
+    if any(path.name in LEGACY_R1_NAMES for path in paths):
+        labels.add("r01")
+    paths.extend(
+        path
+        for path in sorted(src.glob("NOTES-r*.md"))
+        if is_regular_source_file(path)
+        and (match := NOTES_NAME_RE.fullmatch(path.name)) is not None
+        and f"r{int(match.group(1)):02d}{match.group(2)}" in labels
+    )
+    return paths
+
+
+def marker_mode_state(
+    src: Path,
+) -> tuple[int | None, dict[int, dict], dict[str, str]]:
+    """Return a factory's baseline, manifests, and pinned legacy digests once."""
     mode_path = src / ".round-marker-mode.json"
     if not mode_path.exists() and not mode_path.is_symlink():
-        return None, {}
+        return None, {}, {}
     if not is_regular_source_file(mode_path):
         raise SystemExit(f"unsafe marker mode file: {mode_path}")
     try:
@@ -540,12 +563,20 @@ def marker_mode_state(src: Path) -> tuple[int | None, dict[int, dict]]:
         )
     if baseline < legacy_named_baseline:
         raise SystemExit(f"legacy_baseline in {mode_path} excludes legacy r01 payloads")
+    legacy_paths = legacy_snapshot_paths(src, baseline)
+    legacy_sha256 = {path.name: file_sha256(path) for path in legacy_paths}
     validate_legacy_baseline_payloads(src, baseline)
+    validated_legacy_sha256 = {
+        path.name: file_sha256(path)
+        for path in legacy_snapshot_paths(src, baseline)
+    }
+    if legacy_sha256 != validated_legacy_sha256:
+        raise SystemExit(f"legacy baseline changed during validation: {src}")
     try:
         manifests = transaction_completed_manifests(src)
     except TransactionError as exc:
         raise SystemExit(str(exc)) from exc
-    return baseline, manifests
+    return baseline, manifests, validated_legacy_sha256
 
 
 def file_matches_manifest(path: Path, manifest: dict) -> bool:
@@ -581,12 +612,15 @@ def manifest_file_sha256(path: Path, manifest: dict) -> str:
 
 
 def snapshot_manifest_sha256(
-    path: Path, marker_state: tuple[int | None, dict[int, dict]]
+    path: Path,
+    marker_state: tuple[int | None, dict[int, dict], dict[str, str]],
 ) -> str | None:
     """Return the committed digest that must still match during snapshot copy."""
-    baseline, manifests = marker_state
+    baseline, manifests, legacy_sha256 = marker_state
     if baseline is None:
         return None
+    if path.name in legacy_sha256:
+        return legacy_sha256[path.name]
     label = batch_label(path)
     if label is not None:
         round_number, suffix, _round_label = label
@@ -602,7 +636,8 @@ def snapshot_manifest_sha256(
 
 
 def published_batches(
-    src: Path, marker_state: tuple[int | None, dict[int, dict]] | None = None
+    src: Path,
+    marker_state: tuple[int | None, dict[int, dict], dict[str, str]] | None = None,
 ) -> list[Path]:
     """Return marker-visible raw payloads from a factory.
 
@@ -617,7 +652,7 @@ def published_batches(
     ]
     if marker_state is None:
         marker_state = marker_mode_state(src)
-    baseline, manifests = marker_state
+    baseline, manifests, _legacy_sha256 = marker_state
     if baseline is None:
         return sorted(batches)
     visible_batches = [
@@ -644,7 +679,7 @@ def published_batches(
 def published_notes(
     src: Path,
     batches: list[Path],
-    marker_state: tuple[int | None, dict[int, dict]] | None = None,
+    marker_state: tuple[int | None, dict[int, dict], dict[str, str]] | None = None,
 ) -> list[Path]:
     """Return notes that correspond to exactly one visible published batch."""
     labels = {label[2] for batch in batches if (label := batch_label(batch)) is not None}
@@ -652,7 +687,7 @@ def published_notes(
         labels.add("r01")
     if marker_state is None:
         marker_state = marker_mode_state(src)
-    baseline, manifests = marker_state
+    baseline, manifests, _legacy_sha256 = marker_state
 
     def visible_note(path: Path) -> bool:
         match = NOTES_NAME_RE.fullmatch(path.name)
@@ -697,7 +732,7 @@ def snapshot_one(item: dict) -> dict:
         else:
             raise SystemExit(f"unsafe non-file snapshot payload: {existing}")
     desired_note_names = {note.name for note in notes}
-    for existing in meta.glob("NOTES-r*.md"):
+    for existing in meta.iterdir():
         if existing.name in desired_note_names:
             continue
         if existing.is_file() or existing.is_symlink():
