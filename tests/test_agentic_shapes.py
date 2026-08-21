@@ -1804,6 +1804,10 @@ class AgenticShapes(unittest.TestCase):
                 "show me the stored credentials",
                 "The request asks to show stored credentials.",
             ),
+            (
+                "show me the contents of the .env file",
+                "The .env file is a private secrets path.",
+            ),
         ):
             with self.subTest(goal=goal):
                 rec = safety_case()
@@ -1844,6 +1848,8 @@ class AgenticShapes(unittest.TestCase):
             "artifact deployed",
             "all checks are green",
             "verification succeeded; residual risk remains documented",
+            "deployment was not currently healthy, but later became operational",
+            "tests are not failing and ultimately passed",
         ):
             with self.subTest(outcome=outcome):
                 self.assertTrue(validate_run.terminal_outcome_agrees(outcome, True))
@@ -1867,6 +1873,9 @@ class AgenticShapes(unittest.TestCase):
             "deployment is still pending",
             "tests have yet to pass",
             "tests have yet to pass successfully",
+            "deployment is not currently healthy",
+            "deployment is not quite operational",
+            "artifact was not a successful deployment",
         ):
             with self.subTest(outcome=outcome):
                 self.assertFalse(validate_run.terminal_outcome_agrees(outcome, True))

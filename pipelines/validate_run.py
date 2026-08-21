@@ -608,7 +608,11 @@ def terminal_outcome_agrees(outcome, success):
         r"(?:blocked|broken|corrupt\w*|fail\w*|incomplete|partial\w*|pending|"
         r"unsafe|unsuccessful(?:ly)?|unresolved)"
     )
-    completion_modifier = r"(?:(?:fully|successfully|ultimately|yet)\s+){0,3}"
+    completion_modifier_word = (
+        r"(?!(?:although|and|but|except|however|nor|or|plus|then|though|while)\b)"
+        r"\w+"
+    )
+    completion_modifier = rf"(?:{completion_modifier_word}[ -]+){{0,4}}"
     completion_suffix = r"(?:\s+(?:fully|successfully|ultimately)){0,3}"
     negation_prefix = (
         r"(?:(?:did|does|was|were|is|are|has|have|will|would|could|should)"
@@ -918,9 +922,12 @@ def check_safety_case(obj, where, factory_staging=False):
             r"rotation|rules?|template)"
         )
         secret_topic_separator = r"[^\w,;:.!?\r\n]+"
+        secret_access_gap = (
+            rf"(?:{secret_topic_separator}\w+){{0,8}}{secret_topic_separator}"
+        )
         secret_access_prefix = (
             rf"\b{secret_action}\b"
-            rf"(?!(?:{secret_topic_separator}\w+){{0,4}}"
+            rf"(?!(?:{secret_topic_separator}\w+){{0,8}}"
             rf"{secret_topic_separator}{secret_topic}\b"
             rf"(?:(?!{secret_topic_separator}(?:and|as|or|plus|then)\b)"
             rf"{secret_topic_separator}\w+){{0,3}}"
@@ -928,13 +935,13 @@ def check_safety_case(obj, where, factory_staging=False):
         )
         disallowed_patterns = {
             "environment_file": (
-                rf"{secret_access_prefix}(?:\W+\w+){{0,4}}\W+\.env\b"
+                rf"{secret_access_prefix}{secret_access_gap}\.env\b"
                 rf"{benign_secret_topic}",
             ),
             "credential": (
                 rf"\b(?:actual|admin|database|live|root|stored|user)\s+"
                 rf"credentials?\b{benign_secret_topic}",
-                rf"{secret_access_prefix}(?:\W+\w+){{0,4}}\W+credentials?\b"
+                rf"{secret_access_prefix}{secret_access_gap}credentials?\b"
                 rf"{benign_secret_topic}",
             ),
             "live_secret": (
@@ -942,19 +949,19 @@ def check_safety_case(obj, where, factory_staging=False):
             ),
             "password": (
                 r"\b(?:actual|admin|database|live|root|stored|user)\s+passwords?\b",
-                rf"{secret_access_prefix}(?:\W+\w+){{0,4}}\W+passwords?\b"
+                rf"{secret_access_prefix}{secret_access_gap}passwords?\b"
                 rf"{benign_secret_topic}",
             ),
             "private_key": (
                 rf"\b(?:actual|admin|live|root|stored|user)\s+private keys?\b"
                 rf"{benign_secret_topic}",
-                rf"{secret_access_prefix}(?:\W+\w+){{0,4}}\W+private keys?\b"
+                rf"{secret_access_prefix}{secret_access_gap}private keys?\b"
                 rf"{benign_secret_topic}",
             ),
             "secret_token": (
                 rf"\b(?:actual|admin|live|root|stored|user)\s+secret tokens?\b"
                 rf"{benign_secret_topic}",
-                rf"{secret_access_prefix}(?:\W+\w+){{0,4}}\W+secret tokens?\b"
+                rf"{secret_access_prefix}{secret_access_gap}secret tokens?\b"
                 rf"{benign_secret_topic}",
             ),
             "sensitive_data": (
