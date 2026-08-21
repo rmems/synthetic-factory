@@ -1,0 +1,39 @@
+tests/test_factory_driver.py
+  s_a101c3059277fd::t_8c3e36fe24a70f 159-171
+.claude/skills/run-synthetic-factory/driver.py
+  s_a101c3059277fd::t_1dbccb5ab1e57c 38
+  s_a101c3059277fd::t_8c3e36fe24a70f 87-89
+pipelines/round_txn.py
+  s_a101c3059277fd::t_8c3e36fe24a70f 658-677,720,724-729,752-756,758,930-940
+pipelines/training_audit.py
+  s_a101c3059277fd::t_8c3e36fe24a70f 166-168,173-175,177-179,181-182
+tests/test_agentic_shapes.py
+  s_a101c3059277fd::t_8c3e36fe24a70f 333-359
+tests/test_publish_grok46_hub.py
+  s_a101c3059277fd::t_8c3e36fe24a70f 401-435
+tests/test_round_txn.py
+  s_a101c3059277fd::t_8c3e36fe24a70f 91-108,295-306
+scripts/publish_grok46_hub.py
+  s_a101c3059277fd::t_8c3e36fe24a70f 446-449,452-455
+  s_a101c3059277fd::t_1dbccb5ab1e57c 450-451
+tests/test_training_audit.py
+  s_a101c3059277fd::t_8c3e36fe24a70f 186-213
+pipelines/check_records.py
+  s_a101c3059277fd::t_8c3e36fe24a70f 388-389
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "25c4ce67b4b005298ebdf12654979ba9628db9c4",
+  "prompts": {},
+  "sessions": {
+    "s_a101c3059277fd": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a01e14-4bc2-7890-a7ce-1c993a8df50a",
+        "model": "gpt-5.6-terra"
+      },
+      "human_author": "Raul Montoya Cardenas <montoyaraul34@gmail.com>"
+    }
+  }
+}
