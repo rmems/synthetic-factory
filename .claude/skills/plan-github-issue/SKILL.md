@@ -34,11 +34,17 @@ link the twin. If that plugin is unavailable, every step has a `gh` equivalent:
 | Plugin tool | `gh` equivalent |
 | --- | --- |
 | `issue_write` (create) | `gh issue create --title --body-file --label --assignee --milestone` |
-| `issue_write` (update) | `gh issue edit <n> --body-file --add-label --remove-label --milestone` |
+| `issue_write` (update) | `gh issue edit <n> --body-file --add-label --remove-label --add-assignee --remove-assignee --milestone` |
 | `sub_issue_write` (add) | `gh api --method POST repos/<o>/<r>/issues/<parent>/sub_issues -F sub_issue_id=<child-db-id>` |
 
 `gh issue create` also takes `--blocked-by`, which mirrors the `bd dep add` edge onto
 GitHub in the same call.
+
+Assignees need the same add/remove treatment as labels — `gh issue edit` has
+`--add-assignee` and `--remove-assignee`, and without them the post-sync
+reconciliation can neither apply an assignable human owner nor clear a stale one, since
+`bd github sync` does not set assignees. Remember the bead owner may be an agent
+identifier, which is not a GitHub login: assign only a login the API confirms.
 
 These are not exact equivalents for labels. `issue_write` **replaces** the label set;
 `gh issue edit --add-label` only adds, so stale domain, `status:*`, or `priority:*`
@@ -140,10 +146,24 @@ So the ref tells you *where* to resume, not whether to:
 | `External:` | Same scope? | Action |
 | --- | --- | --- |
 | absent | yes | resume at step 3 (create the twin) |
-| present | yes | resume at step 5 (parity + commit), do **not** create |
+| present | yes | reconcile issue state (below), then resume at step 5 — do **not** create |
 | either | no | different work — create a new bead |
 
-Scope, not the ref, is what decides whether this is your bead. Note `bd search --status` takes **one** value, unlike
+Scope, not the ref, is what decides whether this is your bead.
+
+A linked resume skips step 3, and the reopen check lives there — so on this path the
+twin's state is never examined. A bead closed or reopened after the ref was written
+leaves the twin out of sync, and step 5 only touches labels, so it would write an
+accurate `status:*` label onto an issue in the wrong state. Check state before parity,
+in both directions:
+
+```bash
+bd_state=$(bd show <bead-id> | head -1 | sed -n 's/.*· \([A-Z_]*\)\].*/\1/p')
+gh_state=$(gh issue view <n> --repo rmems/synthetic-factory --json state --jq .state)
+# bead not CLOSED but issue closed  -> gh issue reopen <n> --repo rmems/synthetic-factory
+# bead CLOSED but issue open        -> gh issue close  <n> --repo rmems/synthetic-factory
+echo "bead=$bd_state issue=$gh_state"
+``` Note `bd search --status` takes **one** value, unlike
 `bd list`: a comma list silently returns nothing rather than erroring.
 
 If the hit really is an unfinished attempt, reuse that ID instead of creating — but
@@ -435,7 +455,19 @@ CHILD_ID=$(gh api repos/rmems/synthetic-factory/issues/<n> --jq .id)   # NOT <n>
 ```
 
 Then call `sub_issue_write` (`method: add`) with the parent's issue number as
-`issue_number` and `$CHILD_ID` as `sub_issue_id`. This applies equally on the resumed
+`issue_number` and `$CHILD_ID` as `sub_issue_id`.
+
+**The native link is not the whole contract.** The design spec requires the epic to
+carry a checklist linking its children ("The epic contains a checklist linking all
+seven child issues"), and `sub_issue_write` does not touch the parent's body — so a
+child can be correctly parented and still be missing from the checklist a human reads.
+Append it and verify:
+
+```bash
+gh issue view <parent-n> --repo rmems/synthetic-factory --json body --jq .body \
+  | grep -F "#<n>" || echo "child #<n> missing from the epic checklist -- add it"
+# then: gh issue edit <parent-n> --repo rmems/synthetic-factory --body-file <updated>
+``` This applies equally on the resumed
 path, where step 3 found an existing twin and kept only its number. Without a parent
 twin, fall back to the body's **Relationships** section, as the gotcha below describes.
 
