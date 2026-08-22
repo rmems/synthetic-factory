@@ -81,10 +81,14 @@ set -o pipefail
 have=$(gh issue view <n> --repo rmems/synthetic-factory --json labels --jq '.labels[].name' | sort -u) \
   || { echo "could not read current labels -- aborting rather than half-reconciling" >&2; exit 1; }
 add=$(comm -23 <(printf '%s\n' "$want" | sort -u) <(printf '%s\n' "$have"))
-managed=$( { for i in $(bd list --status=all | grep -oE 'sf-[a-z0-9.]+' | sort -u); do
-               bd show "$i" --json | jq -r '.[0].labels[]?'; done; } | sort -u)
+# Name what to PRESERVE, not what is managed. Deriving the vocabulary from current bead
+# labels leaves a hole: remove a label from its last bead and it stops being "managed",
+# so the stale copy survives on the twin and the parity diff hides it -- reporting
+# parity OK against real drift. Everything outside this list is ours to reconcile.
+# Extend it when the repo gains another GitHub-only or bot-applied label.
+PRESERVE_RE='^(size:|dataset-card$|Documentation$|GitHub Actions$|release$|development$|huggingface$|Amazon Q )'
 del=$(comm -13 <(printf '%s\n' "$want" | sort -u) <(printf '%s\n' "$have") \
-      | grep -E "^(bead|status|priority):|^($(printf '%s\n' "$managed" | paste -sd'|'))$")
+      | grep -Ev "$PRESERVE_RE")
 # Join on newlines with paste, NOT `echo $x | tr ' ' ','`: label names may contain
 # spaces (GitHub ships `good first issue`), and word-splitting would turn that one
 # label into three bogus ones while leaving the real stale label in place.
@@ -414,10 +418,30 @@ and fail *after* the bead exists, when the direct fallback would have worked. Re
 both:
 
 ```bash
+TARGET_REPO=rmems/synthetic-factory
+
+bd_destination() {   # normalized owner/repo, however it is configured
+  local combined split_owner split_repo
+  combined=$(bd_cfg github.repository); [ -n "$combined" ] || combined=${GITHUB_REPOSITORY:-}
+  if [ -n "$combined" ]; then printf '%s' "$combined" | tr 'A-Z' 'a-z'; return; fi
+  split_owner=$(bd_cfg github.owner); [ -n "$split_owner" ] || split_owner=$(bd_cfg github.org)
+  [ -n "$split_owner" ] || split_owner=${GITHUB_OWNER:-${GITHUB_ORG:-}}
+  split_repo=$(bd_cfg github.repo); [ -n "$split_repo" ] || split_repo=${GITHUB_REPO:-}
+  [ -n "$split_owner" ] && [ -n "$split_repo" ] \
+    && printf '%s/%s' "$split_owner" "$split_repo" | tr 'A-Z' 'a-z'
+}
+
 bd_can_sync() {
-  bd_configured || return 1
+  # A configured destination is not necessarily THIS destination. A stale
+  # github.repository or GITHUB_REPOSITORY inherited from another checkout would send
+  # the twin to that repo while every gh command here targets TARGET_REPO.
+  [ "$(bd_destination)" = "$(printf '%s' "$TARGET_REPO" | tr 'A-Z' 'a-z')" ] || return 1
   { [ -n "$(bd_cfg github.token)" ] || [ -n "${GITHUB_TOKEN:-}" ]; } || return 1
-  bd github sync --help >/dev/null 2>&1
+  # --dry-run, NOT --help: --help succeeds on any install and proves nothing. --dry-run
+  # resolves the real configuration -- it is what reveals that sync requires
+  # github.owner specifically and rejects a github.org-only setup, which a key-presence
+  # check would happily pass.
+  bd github sync --dry-run --issues <bead-id> >/dev/null 2>&1
 }
 ```
 
@@ -648,7 +672,7 @@ diff <(bd show <bead-id> | sed -n 's/^LABELS: //p' | tr ',' '\n' \
      <(gh issue view <n> --repo rmems/synthetic-factory --json labels \
         --jq '.labels[].name' \
        | grep -Ev '^(bead|status|priority):' \
-       | grep -Fxf <(printf '%s\n' "$managed") | sort) \
+       | grep -Ev "$PRESERVE_RE" | sort) \
   && echo "parity OK"
 ```
 
