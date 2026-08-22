@@ -154,7 +154,7 @@ def _sha256_bytes(payload: bytes) -> str:
 
 def _reject_training_ready_true(value: Any, path: str = "$") -> None:
     if isinstance(value, Mapping):
-        if value.get("training_ready") is True:
+        if value.get("training_ready"):
             raise IdentityCurationError(
                 f"{path} must not contain training_ready: true"
             )
@@ -769,9 +769,7 @@ def _apply_shape_designed(
         curated, original, source, kind, owner_specs, output_id, root_original_ids
     )
     if owner_specs:
-        for owner_path, owner in _owner_specs(curated, kind):
-            if owner_path == "/":
-                continue
+        for _owner_path, owner in _owner_specs(curated, kind):
             owner["provenance"] = {
                 "kind": "designed",
                 "claimed": None,
