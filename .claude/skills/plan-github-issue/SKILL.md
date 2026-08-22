@@ -151,6 +151,27 @@ So the ref tells you *where* to resume, not whether to:
 
 Scope, not the ref, is what decides whether this is your bead.
 
+**Validate the ref before trusting it.** A linked resume edits an existing issue's body,
+labels, milestone, and assignees. If `External:` is stale, mistyped, or points at
+another repository or another bead's issue, that reconciliation overwrites someone
+else's work. Confirm the target carries *this* bead's exact marker before touching it:
+
+```bash
+ref=$(bd show <bead-id> | sed -n 's/^External: //p')
+case "$ref" in
+  https://github.com/rmems/synthetic-factory/issues/*) ;;
+  *) echo "External ref is not a synthetic-factory issue: $ref" >&2; exit 1 ;;
+esac
+n=${ref##*/}
+gh issue view "$n" --repo rmems/synthetic-factory --json body \
+  --jq '((.body // "") | test("<!-- bead-id: <bead-id> -->"))' | grep -qx true \
+  || { echo "issue #$n does not carry this bead's marker -- stop and reconcile" >&2; exit 1; }
+```
+
+Note `(.body // "")`: a null body would otherwise make `test` fail rather than report a
+missing marker. If validation fails, do **not** create a second twin either — re-run the
+exact-marker search and reconcile deliberately.
+
 A linked resume skips step 3, which is also where post-sync metadata reconciliation
 lives. If the earlier run died after `bd github sync` wrote the ref but before that
 reconciliation, the twin keeps `bd`'s generated body — with **no `<!-- bead-id: -->`
@@ -366,7 +387,12 @@ carrying a label the repo lacks either fails the call or silently lands without 
 the step-5 parity check can never repair that by re-running `issue_write`. This is live,
 not hypothetical: 12 bead labels have no repository counterpart right now (`authz`,
 `coverage`, `dpo`, `factory`, `infra-as-code`, `log-redaction`, `mdb`, `mill`,
-`multi-agent-coordination`, `qodana`, `review`, `sandbox-refusal`). Diff before filing:
+`multi-agent-coordination`, `qodana`, `review`, `sandbox-refusal`). The tracking triplet needs this too — it is assigned in the same call, and the repo has
+only a subset today (`bead:` bug/epic/task, `priority:` P0-P2, `status:` open and
+in-progress). The first `bead:feature`, `priority:P3`, or `status:blocked` bead has no
+label to attach to. Include the triplet from step 5 in the diff, not just domain labels.
+
+Diff before filing:
 
 ```bash
 comm -23 <(bd show <bead-id> | sed -n 's/^LABELS: //p' | tr ',' '\n' \
@@ -550,6 +576,11 @@ That filter proves nothing *about* the triplet, though — it hides it. A twin m
 prints `parity OK`. The triplet is required and must be accurate, so derive it from the
 bead and check it separately. All three values come from `bd show`'s header line.
 
+Translate `_` to `-`. `bd` reports `IN_PROGRESS` but this repo's label is
+`status:in-progress`, so an underscore form reports false drift on every in-progress
+bead and makes the provisioning step below create a duplicate label. Verified live on
+`sf-c5l`/#1.
+
 Anchor **both** values to the `[● P<n> · STATUS]` suffix. A first-match `grep -oE
 'P[0-4]'` reads the title too, so a P2 bead called "Audit P0 policy" derives
 `priority:P0` and the reconciliation then overwrites a correct GitHub label with the
@@ -565,7 +596,7 @@ reconcile, would replace a correct label with a bare `status:`.
 hdr=$(bd show <bead-id> | head -1)
 want="bead:$(bd show <bead-id> | sed -n 's/.*Type: \([a-z]*\).*/\1/p' | head -1)
 priority:$(printf '%s' "$hdr" | sed -n 's/.*\[● \(P[0-4]\) · [A-Z_]*\].*/\1/p')
-status:$(printf '%s' "$hdr" | sed -n 's/.*· \([A-Z_]*\)\].*/\1/p' | tr 'A-Z' 'a-z')"
+status:$(printf '%s' "$hdr" | sed -n 's/.*· \([A-Z_]*\)\].*/\1/p' | tr 'A-Z_' 'a-z-')"
 
 diff <(printf '%s\n' "$want" | sort) \
      <(gh issue view <n> --repo rmems/synthetic-factory --json labels --jq '.labels[].name' \
@@ -585,7 +616,9 @@ other agents read stays stale and the source of truth silently diverges. Close t
 workflow with a second focused commit, same pathspec discipline:
 
 ```bash
-git diff -- .beads/issues.jsonl        # empty -> nothing to do
+git diff HEAD -- .beads/issues.jsonl   # empty -> nothing to do (HEAD, not the index:
+                                       # see step 4 -- the plain form hides another
+                                       # session's staged rows and you would commit them)
 git commit -m "chore: reconcile <bead-id> labels" -- .beads/issues.jsonl
 ```
 
