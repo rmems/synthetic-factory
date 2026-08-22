@@ -50,9 +50,12 @@ want=...   # the complete intended set, from step 5
 have=$(gh issue view <n> --repo rmems/synthetic-factory --json labels --jq '.labels[].name' | sort -u)
 add=$(comm -23 <(printf '%s\n' "$want" | sort -u) <(printf '%s\n' "$have"))
 del=$(comm -13 <(printf '%s\n' "$want" | sort -u) <(printf '%s\n' "$have"))
+# Join on newlines with paste, NOT `echo $x | tr ' ' ','`: label names may contain
+# spaces (GitHub ships `good first issue`), and word-splitting would turn that one
+# label into three bogus ones while leaving the real stale label in place.
 gh issue edit <n> --repo rmems/synthetic-factory \
-  ${add:+--add-label "$(echo $add | tr ' ' ',')"} \
-  ${del:+--remove-label "$(echo $del | tr ' ' ',')"}
+  ${add:+--add-label "$(printf '%s\n' "$add" | paste -sd,)"} \
+  ${del:+--remove-label "$(printf '%s\n' "$del" | paste -sd,)"}
 ```
 
 Provisioning beads *into* the cloud image is a change to shared infrastructure, out of
@@ -288,8 +291,23 @@ bd_configured() {
 }
 ```
 
-If `bd_configured` succeeds, prefer `bd github sync --push-only --issues <id>`.
-If it is unset, create the twin directly with the plugin — and do **not** configure it
+A destination is not a credential. `.beads/config.yaml` names `github.token` (env:
+`GITHUB_TOKEN`) as the sync credential, and a working `gh auth login` does **not**
+supply it — `gh` keeps its token in its own store, which `bd` does not read. The common
+case of authenticated `gh`, configured owner/repo, and no beads token would select sync
+and fail *after* the bead exists, when the direct fallback would have worked. Require
+both:
+
+```bash
+bd_can_sync() {
+  bd_configured || return 1
+  { [ -n "$(bd_cfg github.token)" ] || [ -n "${GITHUB_TOKEN:-}" ]; } || return 1
+  bd github sync --help >/dev/null 2>&1
+}
+```
+
+If `bd_can_sync` succeeds, prefer `bd github sync --push-only --issues <id>`.
+If it fails, create the twin directly with the plugin — and do **not** configure it
 just to file one issue, because a bare `bd github sync` pushes *every* bead and will
 spam the tracker while other agents are working.
 
@@ -393,10 +411,16 @@ print(hits[0] if hits else 'no parent twin')"
 # sub_issues_summary, so '.parent.number' reads "none" even for a linked child and the
 # check never fires. Use the dedicated endpoint; its 404 IS the unparented case.
 # Capture, do not pipe: on 404 gh prints the error BODY to stdout, so a bare
-# '... || echo none' emits the JSON and then "none". Command substitution plus the
-# exit-status fallback discards it.
-PARENT=$(gh api repos/rmems/synthetic-factory/issues/<n>/parent --jq .number 2>/dev/null) \
-  || PARENT=none
+# '... || echo none' emits the JSON and then "none".
+# And do NOT treat every failure as "no parent": gh exits 1 for any reason -- a 5xx,
+# a rate limit, or a dropped connection all look identical to an absent parent, and
+# swallowing them means adding a link that may already exist or missing a wrong one.
+# Match the specific absent-parent message; propagate anything else.
+out=$(gh api repos/rmems/synthetic-factory/issues/<n>/parent --jq .number 2>&1); rc=$?
+if [ $rc -eq 0 ]; then PARENT=$out
+elif printf '%s' "$out" | grep -q '"message":"No parent issue found"'; then PARENT=none
+else echo "parent lookup failed, not retrying blindly: $out" >&2; exit 1
+fi
 echo "$PARENT"
 ```
 
