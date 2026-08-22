@@ -68,7 +68,8 @@ same unit tests and operator smoke check.
 - `outputs/raw/` — dated dumps. `2026-08-17/` is the live run; `2026-08-17-prehalt/` is the pre-resume copy. `NEXT_ROUND.json` is a generated index, not a record
 - `outputs/cleaned/` — remapped copies (`sim_or_real` never `real`)
 - `outputs/curated/` — ready for training / HF export (empty)
-- `pipelines/` — census, next-round allocator, shape validator, deep checker, promote
+- `config/` — reviewed factory registry (`FACTORY-REGISTRY.json`). Identity authority is this file (exact `path_id` + `payload_factory`), not a slug allowlist. Onboard a generator by adding a row.
+- `pipelines/` — census, identity, next-round allocator, shape validator, deep checker, promote
 - `experiments/` — harvest notes (`2026-08-17-quality-report.md` is a mid-run snapshot; `2026-08-17-grok-census.md` is current)
 
 ## Before the next Fable session
@@ -87,6 +88,7 @@ Do **not** start prompts 06 or 07 until 01–05 have a cleaned slice you are wil
 
 ```bash
 python3 pipelines/census.py outputs/raw/2026-08-17          # JSON counts; no writes
+python3 pipelines/curate_identity.py outputs/raw/2026-08-17 --out outputs/cleaned/<new-label>
 python3 pipelines/validate_run.py outputs/raw/2026-08-17    # shape gate; no manifest unless --write
 python3 pipelines/check_records.py outputs/raw/2026-08-17   # reward / spike order / ids
 python3 pipelines/promote.py outputs/raw/2026-08-17 outputs/cleaned/2026-08-17
