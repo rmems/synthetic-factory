@@ -59,20 +59,34 @@ v0.1.0*; gate / generation / distillation → *Factory v0.2.0*. Pick the milesto
 
 ```bash
 bd create "<title>" \
-  --type=bug --priority=1 \
+  --type=<bug|feature|task|epic|chore|decision> --priority=<0-4> \
   --parent=<parent-bead-id> \
   --assignee="Raul Montoya Cardenas" \
   --labels="synthetic-factory,curation,audit,..." \
   --description "..." --design "..." --acceptance "..." --notes "..."
 ```
 
-- `--priority` takes `0-4`, **not** `high`/`medium`/`low`.
+- **Derive `--type` and `--priority` from the work, not from this example.** A defect
+  is `bug`; new capability is `feature`; routine work is `task`; a lane spanning
+  several issues is `epic`; a choice to record is `decision`. `--priority` takes `0-4`
+  (0 = highest), **not** `high`/`medium`/`low` — reserve `0`/`1` for things that block
+  a release or corrupt data, and default to `2`.
 - `--parent` makes it a hierarchical child **and inherits the parent's labels**.
 - Put measured evidence in `--design`, blast radius and coordination in `--notes`.
 
 ### 3. Create the GitHub twin
 
-Check the sync path live rather than assuming:
+**First check whether a twin already exists.** A previous run may have created the
+issue and then failed before `--external-ref` landed, so the bead looks unlinked while
+the issue is already there. Creating "the" twin at that point makes a second one:
+
+```bash
+bd show <bead-id> | grep External          # empty is not proof; also search GitHub
+gh search issues --repo rmems/synthetic-factory --match body "bead-id: <bead-id>" --json number,title
+```
+
+If a twin exists, skip creation and jump to step 4 to link it. Then check the sync path
+live rather than assuming:
 
 ```bash
 bd config get github.owner 2>/dev/null || echo "unset -> create the twin directly"
@@ -123,7 +137,10 @@ Either commit it alone, or leave it and say so:
 
 ```bash
 git diff -- .beads/issues.jsonl        # confirm only YOUR bead changed
-git add .beads/issues.jsonl && git commit -m "chore: link <bead-id> to GitHub issue #<n>"
+# Pathspec-scoped: commits ONLY this file even when other paths are staged.
+# A plain `git commit` would record the whole index — the exact collision
+# this section warns about.
+git commit -m "chore: link <bead-id> to GitHub issue #<n>" -- .beads/issues.jsonl
 ```
 
 **Never** let it ride along in a feature commit. Check `git status` before committing:
