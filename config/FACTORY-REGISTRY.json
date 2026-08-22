@@ -1,0 +1,959 @@
+{
+  "schema_version": "factory-registry-v0.1",
+  "lookup_key": "path_id",
+  "notes": "Reviewed factory authority table. pipelines/curate_identity.py loads this file from config/FACTORY-REGISTRY.json. Lookup is exact path_id then exact payload_factory; there is no *-trajectories suffix rewrite or glob. Unknown path → identity.unknown_factory; registered path with missing or different meta.factory → identity.factory_path_payload_mismatch; kind not in the row's record_kinds → identity.factory_not_authorized_for_kind. Onboard a generator by adding a reviewed row. Identity retain is not publication and not training_ready.",
+  "factories": [
+    {
+      "path_id": "agentic-coding-trajectory-factory",
+      "payload_factory": "agentic-coding-trajectory-factory",
+      "generator": "fable-5",
+      "generator_version": "fable-5",
+      "record_kinds": [
+        "episode"
+      ],
+      "identity_authoritative": true,
+      "publication_target": null,
+      "training_ready_policy": "never",
+      "allowed_curation_lanes": [
+        "curate_identity",
+        "curate_coding"
+      ],
+      "provenance_contract_by_kind": {
+        "episode": "synthetic_shape_implies_designed"
+      }
+    },
+    {
+      "path_id": "thalamic-trajectory-factory",
+      "payload_factory": "thalamic-trajectory-factory",
+      "generator": "fable-5",
+      "generator_version": "fable-5",
+      "record_kinds": [
+        "thalamic"
+      ],
+      "identity_authoritative": true,
+      "publication_target": null,
+      "training_ready_policy": "never",
+      "allowed_curation_lanes": [
+        "curate_identity"
+      ],
+      "provenance_contract_by_kind": {
+        "thalamic": "require_state_claim"
+      }
+    },
+    {
+      "path_id": "failure-as-fuel-preference-cascade",
+      "payload_factory": "failure-as-fuel-preference-cascade",
+      "generator": "fable-5",
+      "generator_version": "fable-5",
+      "record_kinds": [
+        "preference"
+      ],
+      "identity_authoritative": true,
+      "publication_target": null,
+      "training_ready_policy": "never",
+      "allowed_curation_lanes": [
+        "curate_identity",
+        "curate_preferences"
+      ],
+      "provenance_contract_by_kind": {
+        "preference": "require_state_claim"
+      }
+    },
+    {
+      "path_id": "neuromorphic-event-language-bridge",
+      "payload_factory": "neuromorphic-event-language-bridge",
+      "generator": "fable-5",
+      "generator_version": "fable-5",
+      "record_kinds": [
+        "bridge_pair"
+      ],
+      "identity_authoritative": true,
+      "publication_target": null,
+      "training_ready_policy": "never",
+      "allowed_curation_lanes": [
+        "curate_identity",
+        "curate_bridge"
+      ],
+      "provenance_contract_by_kind": {
+        "bridge_pair": "require_state_claim"
+      }
+    },
+    {
+      "path_id": "agent-memory-compaction-trajectories",
+      "payload_factory": "agent-memory-compaction-factory",
+      "generator": "grok-4.6",
+      "generator_version": "grok-4.6",
+      "record_kinds": [
+        "episode"
+      ],
+      "identity_authoritative": true,
+      "publication_target": null,
+      "training_ready_policy": "never",
+      "allowed_curation_lanes": [
+        "curate_identity",
+        "curate_coding"
+      ],
+      "provenance_contract_by_kind": {
+        "episode": "synthetic_shape_implies_designed"
+      }
+    },
+    {
+      "path_id": "api-contract-migration-trajectories",
+      "payload_factory": "api-contract-migration-factory",
+      "generator": "grok-4.6",
+      "generator_version": "grok-4.6",
+      "record_kinds": [
+        "episode"
+      ],
+      "identity_authoritative": true,
+      "publication_target": null,
+      "training_ready_policy": "never",
+      "allowed_curation_lanes": [
+        "curate_identity",
+        "curate_coding"
+      ],
+      "provenance_contract_by_kind": {
+        "episode": "synthetic_shape_implies_designed"
+      }
+    },
+    {
+      "path_id": "authz-regression-trajectories",
+      "payload_factory": "authz-regression-factory",
+      "generator": "grok-4.6",
+      "generator_version": "grok-4.6",
+      "record_kinds": [
+        "episode"
+      ],
+      "identity_authoritative": true,
+      "publication_target": null,
+      "training_ready_policy": "never",
+      "allowed_curation_lanes": [
+        "curate_identity",
+        "curate_coding"
+      ],
+      "provenance_contract_by_kind": {
+        "episode": "synthetic_shape_implies_designed"
+      }
+    },
+    {
+      "path_id": "browser-tool-use-trajectories",
+      "payload_factory": "browser-tool-use-factory",
+      "generator": "grok-4.6",
+      "generator_version": "grok-4.6",
+      "record_kinds": [
+        "episode"
+      ],
+      "identity_authoritative": true,
+      "publication_target": null,
+      "training_ready_policy": "never",
+      "allowed_curation_lanes": [
+        "curate_identity",
+        "curate_coding"
+      ],
+      "provenance_contract_by_kind": {
+        "episode": "synthetic_shape_implies_designed"
+      }
+    },
+    {
+      "path_id": "cache-stampede-trajectories",
+      "payload_factory": "cache-stampede-factory",
+      "generator": "grok-4.6",
+      "generator_version": "grok-4.6",
+      "record_kinds": [
+        "episode"
+      ],
+      "identity_authoritative": true,
+      "publication_target": null,
+      "training_ready_policy": "never",
+      "allowed_curation_lanes": [
+        "curate_identity",
+        "curate_coding"
+      ],
+      "provenance_contract_by_kind": {
+        "episode": "synthetic_shape_implies_designed"
+      }
+    },
+    {
+      "path_id": "cascading-error-recovery-trajectories",
+      "payload_factory": "cascading-error-recovery-factory",
+      "generator": "grok-4.6",
+      "generator_version": "grok-4.6",
+      "record_kinds": [
+        "episode"
+      ],
+      "identity_authoritative": true,
+      "publication_target": null,
+      "training_ready_policy": "never",
+      "allowed_curation_lanes": [
+        "curate_identity",
+        "curate_coding"
+      ],
+      "provenance_contract_by_kind": {
+        "episode": "synthetic_shape_implies_designed"
+      }
+    },
+    {
+      "path_id": "code-review-preference-pairs",
+      "payload_factory": "code-review-preference-factory",
+      "generator": "grok-4.6",
+      "generator_version": "grok-4.6",
+      "record_kinds": [
+        "preference",
+        "episode"
+      ],
+      "identity_authoritative": true,
+      "publication_target": null,
+      "training_ready_policy": "never",
+      "allowed_curation_lanes": [
+        "curate_identity",
+        "curate_coding",
+        "curate_trajectory_preferences"
+      ],
+      "provenance_contract_by_kind": {
+        "preference": "synthetic_shape_implies_designed",
+        "episode": "synthetic_shape_implies_designed"
+      }
+    },
+    {
+      "path_id": "csv-excel-ingest-trajectories",
+      "payload_factory": "csv-excel-ingest-factory",
+      "generator": "grok-4.6",
+      "generator_version": "grok-4.6",
+      "record_kinds": [
+        "episode"
+      ],
+      "identity_authoritative": true,
+      "publication_target": null,
+      "training_ready_policy": "never",
+      "allowed_curation_lanes": [
+        "curate_identity",
+        "curate_coding"
+      ],
+      "provenance_contract_by_kind": {
+        "episode": "synthetic_shape_implies_designed"
+      }
+    },
+    {
+      "path_id": "data-pipeline-repair-trajectories",
+      "payload_factory": "data-pipeline-repair-factory",
+      "generator": "grok-4.6",
+      "generator_version": "grok-4.6",
+      "record_kinds": [
+        "episode"
+      ],
+      "identity_authoritative": true,
+      "publication_target": null,
+      "training_ready_policy": "never",
+      "allowed_curation_lanes": [
+        "curate_identity",
+        "curate_coding"
+      ],
+      "provenance_contract_by_kind": {
+        "episode": "synthetic_shape_implies_designed"
+      }
+    },
+    {
+      "path_id": "db-migration-repair-trajectories",
+      "payload_factory": "db-migration-repair-factory",
+      "generator": "grok-4.6",
+      "generator_version": "grok-4.6",
+      "record_kinds": [
+        "episode"
+      ],
+      "identity_authoritative": true,
+      "publication_target": null,
+      "training_ready_policy": "never",
+      "allowed_curation_lanes": [
+        "curate_identity",
+        "curate_coding"
+      ],
+      "provenance_contract_by_kind": {
+        "episode": "synthetic_shape_implies_designed"
+      }
+    },
+    {
+      "path_id": "distributed-lock-trajectories",
+      "payload_factory": "distributed-lock-factory",
+      "generator": "grok-4.6",
+      "generator_version": "grok-4.6",
+      "record_kinds": [
+        "episode"
+      ],
+      "identity_authoritative": true,
+      "publication_target": null,
+      "training_ready_policy": "never",
+      "allowed_curation_lanes": [
+        "curate_identity",
+        "curate_coding"
+      ],
+      "provenance_contract_by_kind": {
+        "episode": "synthetic_shape_implies_designed"
+      }
+    },
+    {
+      "path_id": "docker-build-cache-trajectories",
+      "payload_factory": "docker-build-cache-factory",
+      "generator": "grok-4.6",
+      "generator_version": "grok-4.6",
+      "record_kinds": [
+        "episode"
+      ],
+      "identity_authoritative": true,
+      "publication_target": null,
+      "training_ready_policy": "never",
+      "allowed_curation_lanes": [
+        "curate_identity",
+        "curate_coding"
+      ],
+      "provenance_contract_by_kind": {
+        "episode": "synthetic_shape_implies_designed"
+      }
+    },
+    {
+      "path_id": "email-webhook-retry-trajectories",
+      "payload_factory": "email-webhook-retry-factory",
+      "generator": "grok-4.6",
+      "generator_version": "grok-4.6",
+      "record_kinds": [
+        "episode"
+      ],
+      "identity_authoritative": true,
+      "publication_target": null,
+      "training_ready_policy": "never",
+      "allowed_curation_lanes": [
+        "curate_identity",
+        "curate_coding"
+      ],
+      "provenance_contract_by_kind": {
+        "episode": "synthetic_shape_implies_designed"
+      }
+    },
+    {
+      "path_id": "eval-harness-trajectories",
+      "payload_factory": "eval-harness-trajectory-factory",
+      "generator": "grok-4.6",
+      "generator_version": "grok-4.6",
+      "record_kinds": [
+        "episode"
+      ],
+      "identity_authoritative": true,
+      "publication_target": null,
+      "training_ready_policy": "never",
+      "allowed_curation_lanes": [
+        "curate_identity",
+        "curate_coding"
+      ],
+      "provenance_contract_by_kind": {
+        "episode": "synthetic_shape_implies_designed"
+      }
+    },
+    {
+      "path_id": "feature-flag-debug-trajectories",
+      "payload_factory": "feature-flag-debug-factory",
+      "generator": "grok-4.6",
+      "generator_version": "grok-4.6",
+      "record_kinds": [
+        "episode"
+      ],
+      "identity_authoritative": true,
+      "publication_target": null,
+      "training_ready_policy": "never",
+      "allowed_curation_lanes": [
+        "curate_identity",
+        "curate_coding"
+      ],
+      "provenance_contract_by_kind": {
+        "episode": "synthetic_shape_implies_designed"
+      }
+    },
+    {
+      "path_id": "flaky-test-quarantine-trajectories",
+      "payload_factory": "flaky-test-quarantine-factory",
+      "generator": "grok-4.6",
+      "generator_version": "grok-4.6",
+      "record_kinds": [
+        "episode"
+      ],
+      "identity_authoritative": true,
+      "publication_target": null,
+      "training_ready_policy": "never",
+      "allowed_curation_lanes": [
+        "curate_identity",
+        "curate_coding"
+      ],
+      "provenance_contract_by_kind": {
+        "episode": "synthetic_shape_implies_designed"
+      }
+    },
+    {
+      "path_id": "git-ops-recovery-trajectories",
+      "payload_factory": "git-ops-recovery-factory",
+      "generator": "grok-4.6",
+      "generator_version": "grok-4.6",
+      "record_kinds": [
+        "episode"
+      ],
+      "identity_authoritative": true,
+      "publication_target": null,
+      "training_ready_policy": "never",
+      "allowed_curation_lanes": [
+        "curate_identity",
+        "curate_coding"
+      ],
+      "provenance_contract_by_kind": {
+        "episode": "synthetic_shape_implies_designed"
+      }
+    },
+    {
+      "path_id": "graphql-nplusone-trajectories",
+      "payload_factory": "graphql-nplusone-factory",
+      "generator": "grok-4.6",
+      "generator_version": "grok-4.6",
+      "record_kinds": [
+        "episode"
+      ],
+      "identity_authoritative": true,
+      "publication_target": null,
+      "training_ready_policy": "never",
+      "allowed_curation_lanes": [
+        "curate_identity",
+        "curate_coding"
+      ],
+      "provenance_contract_by_kind": {
+        "episode": "synthetic_shape_implies_designed"
+      }
+    },
+    {
+      "path_id": "incident-response-oncall-trajectories",
+      "payload_factory": "incident-response-oncall-factory",
+      "generator": "grok-4.6",
+      "generator_version": "grok-4.6",
+      "record_kinds": [
+        "episode"
+      ],
+      "identity_authoritative": true,
+      "publication_target": null,
+      "training_ready_policy": "never",
+      "allowed_curation_lanes": [
+        "curate_identity",
+        "curate_coding"
+      ],
+      "provenance_contract_by_kind": {
+        "episode": "synthetic_shape_implies_designed"
+      }
+    },
+    {
+      "path_id": "infra-as-code-trajectories",
+      "payload_factory": "infra-as-code-factory",
+      "generator": "grok-4.6",
+      "generator_version": "grok-4.6",
+      "record_kinds": [
+        "episode"
+      ],
+      "identity_authoritative": true,
+      "publication_target": null,
+      "training_ready_policy": "never",
+      "allowed_curation_lanes": [
+        "curate_identity",
+        "curate_coding"
+      ],
+      "provenance_contract_by_kind": {
+        "episode": "synthetic_shape_implies_designed"
+      }
+    },
+    {
+      "path_id": "k8s-crashloop-trajectories",
+      "payload_factory": "k8s-crashloop-factory",
+      "generator": "grok-4.6",
+      "generator_version": "grok-4.6",
+      "record_kinds": [
+        "episode"
+      ],
+      "identity_authoritative": true,
+      "publication_target": null,
+      "training_ready_policy": "never",
+      "allowed_curation_lanes": [
+        "curate_identity",
+        "curate_coding"
+      ],
+      "provenance_contract_by_kind": {
+        "episode": "synthetic_shape_implies_designed"
+      }
+    },
+    {
+      "path_id": "llm-eval-flakiness-trajectories",
+      "payload_factory": "llm-eval-flakiness-factory",
+      "generator": "grok-4.6",
+      "generator_version": "grok-4.6",
+      "record_kinds": [
+        "episode"
+      ],
+      "identity_authoritative": true,
+      "publication_target": null,
+      "training_ready_policy": "never",
+      "allowed_curation_lanes": [
+        "curate_identity",
+        "curate_coding"
+      ],
+      "provenance_contract_by_kind": {
+        "episode": "synthetic_shape_implies_designed"
+      }
+    },
+    {
+      "path_id": "log-redaction-trajectories",
+      "payload_factory": "log-redaction-factory",
+      "generator": "grok-4.6",
+      "generator_version": "grok-4.6",
+      "record_kinds": [
+        "episode"
+      ],
+      "identity_authoritative": true,
+      "publication_target": null,
+      "training_ready_policy": "never",
+      "allowed_curation_lanes": [
+        "curate_identity",
+        "curate_coding"
+      ],
+      "provenance_contract_by_kind": {
+        "episode": "synthetic_shape_implies_designed"
+      }
+    },
+    {
+      "path_id": "long-horizon-coding-trajectories",
+      "payload_factory": "long-horizon-coding-factory",
+      "generator": "grok-4.6",
+      "generator_version": "grok-4.6",
+      "record_kinds": [
+        "episode"
+      ],
+      "identity_authoritative": true,
+      "publication_target": null,
+      "training_ready_policy": "never",
+      "allowed_curation_lanes": [
+        "curate_identity",
+        "curate_coding"
+      ],
+      "provenance_contract_by_kind": {
+        "episode": "synthetic_shape_implies_designed"
+      }
+    },
+    {
+      "path_id": "mcp-tool-schema-drift-trajectories",
+      "payload_factory": "mcp-tool-schema-drift-factory",
+      "generator": "grok-4.6",
+      "generator_version": "grok-4.6",
+      "record_kinds": [
+        "episode"
+      ],
+      "identity_authoritative": true,
+      "publication_target": null,
+      "training_ready_policy": "never",
+      "allowed_curation_lanes": [
+        "curate_identity",
+        "curate_coding"
+      ],
+      "provenance_contract_by_kind": {
+        "episode": "synthetic_shape_implies_designed"
+      }
+    },
+    {
+      "path_id": "monorepo-dep-bump-trajectories",
+      "payload_factory": "monorepo-dep-bump-factory",
+      "generator": "grok-4.6",
+      "generator_version": "grok-4.6",
+      "record_kinds": [
+        "episode"
+      ],
+      "identity_authoritative": true,
+      "publication_target": null,
+      "training_ready_policy": "never",
+      "allowed_curation_lanes": [
+        "curate_identity",
+        "curate_coding"
+      ],
+      "provenance_contract_by_kind": {
+        "episode": "synthetic_shape_implies_designed"
+      }
+    },
+    {
+      "path_id": "multi-agent-coordination-transcripts",
+      "payload_factory": "multi-agent-coordination-factory",
+      "generator": "grok-4.6",
+      "generator_version": "grok-4.6",
+      "record_kinds": [
+        "multi_agent"
+      ],
+      "identity_authoritative": true,
+      "publication_target": null,
+      "training_ready_policy": "never",
+      "allowed_curation_lanes": [
+        "curate_identity",
+        "curate_coding"
+      ],
+      "provenance_contract_by_kind": {
+        "multi_agent": "synthetic_shape_implies_designed"
+      }
+    },
+    {
+      "path_id": "notebook-to-pipeline-trajectories",
+      "payload_factory": "notebook-to-pipeline-factory",
+      "generator": "grok-4.6",
+      "generator_version": "grok-4.6",
+      "record_kinds": [
+        "episode"
+      ],
+      "identity_authoritative": true,
+      "publication_target": null,
+      "training_ready_policy": "never",
+      "allowed_curation_lanes": [
+        "curate_identity",
+        "curate_coding"
+      ],
+      "provenance_contract_by_kind": {
+        "episode": "synthetic_shape_implies_designed"
+      }
+    },
+    {
+      "path_id": "observability-debug-trajectories",
+      "payload_factory": "observability-debug-factory",
+      "generator": "grok-4.6",
+      "generator_version": "grok-4.6",
+      "record_kinds": [
+        "episode"
+      ],
+      "identity_authoritative": true,
+      "publication_target": null,
+      "training_ready_policy": "never",
+      "allowed_curation_lanes": [
+        "curate_identity",
+        "curate_coding"
+      ],
+      "provenance_contract_by_kind": {
+        "episode": "synthetic_shape_implies_designed"
+      }
+    },
+    {
+      "path_id": "package-release-trajectories",
+      "payload_factory": "package-release-factory",
+      "generator": "grok-4.6",
+      "generator_version": "grok-4.6",
+      "record_kinds": [
+        "episode"
+      ],
+      "identity_authoritative": true,
+      "publication_target": null,
+      "training_ready_policy": "never",
+      "allowed_curation_lanes": [
+        "curate_identity",
+        "curate_coding"
+      ],
+      "provenance_contract_by_kind": {
+        "episode": "synthetic_shape_implies_designed"
+      }
+    },
+    {
+      "path_id": "payment-idempotency-trajectories",
+      "payload_factory": "payment-idempotency-factory",
+      "generator": "grok-4.6",
+      "generator_version": "grok-4.6",
+      "record_kinds": [
+        "episode"
+      ],
+      "identity_authoritative": true,
+      "publication_target": null,
+      "training_ready_policy": "never",
+      "allowed_curation_lanes": [
+        "curate_identity",
+        "curate_coding"
+      ],
+      "provenance_contract_by_kind": {
+        "episode": "synthetic_shape_implies_designed"
+      }
+    },
+    {
+      "path_id": "prompt-cache-invalidation-trajectories",
+      "payload_factory": "prompt-cache-invalidation-factory",
+      "generator": "grok-4.6",
+      "generator_version": "grok-4.6",
+      "record_kinds": [
+        "episode"
+      ],
+      "identity_authoritative": true,
+      "publication_target": null,
+      "training_ready_policy": "never",
+      "allowed_curation_lanes": [
+        "curate_identity",
+        "curate_coding"
+      ],
+      "provenance_contract_by_kind": {
+        "episode": "synthetic_shape_implies_designed"
+      }
+    },
+    {
+      "path_id": "proto-breaking-change-trajectories",
+      "payload_factory": "proto-breaking-change-factory",
+      "generator": "grok-4.6",
+      "generator_version": "grok-4.6",
+      "record_kinds": [
+        "episode"
+      ],
+      "identity_authoritative": true,
+      "publication_target": null,
+      "training_ready_policy": "never",
+      "allowed_curation_lanes": [
+        "curate_identity",
+        "curate_coding"
+      ],
+      "provenance_contract_by_kind": {
+        "episode": "synthetic_shape_implies_designed"
+      }
+    },
+    {
+      "path_id": "queue-backpressure-trajectories",
+      "payload_factory": "queue-backpressure-factory",
+      "generator": "grok-4.6",
+      "generator_version": "grok-4.6",
+      "record_kinds": [
+        "episode"
+      ],
+      "identity_authoritative": true,
+      "publication_target": null,
+      "training_ready_policy": "never",
+      "allowed_curation_lanes": [
+        "curate_identity",
+        "curate_coding"
+      ],
+      "provenance_contract_by_kind": {
+        "episode": "synthetic_shape_implies_designed"
+      }
+    },
+    {
+      "path_id": "rag-retrieval-debug-trajectories",
+      "payload_factory": "rag-retrieval-debug-factory",
+      "generator": "grok-4.6",
+      "generator_version": "grok-4.6",
+      "record_kinds": [
+        "episode"
+      ],
+      "identity_authoritative": true,
+      "publication_target": null,
+      "training_ready_policy": "never",
+      "allowed_curation_lanes": [
+        "curate_identity",
+        "curate_coding"
+      ],
+      "provenance_contract_by_kind": {
+        "episode": "synthetic_shape_implies_designed"
+      }
+    },
+    {
+      "path_id": "rate-limit-backoff-trajectories",
+      "payload_factory": "rate-limit-backoff-factory",
+      "generator": "grok-4.6",
+      "generator_version": "grok-4.6",
+      "record_kinds": [
+        "episode"
+      ],
+      "identity_authoritative": true,
+      "publication_target": null,
+      "training_ready_policy": "never",
+      "allowed_curation_lanes": [
+        "curate_identity",
+        "curate_coding"
+      ],
+      "provenance_contract_by_kind": {
+        "episode": "synthetic_shape_implies_designed"
+      }
+    },
+    {
+      "path_id": "safety-calibration-cases",
+      "payload_factory": "safety-calibration-factory",
+      "generator": "grok-4.6",
+      "generator_version": "grok-4.6",
+      "record_kinds": [
+        "safety_case"
+      ],
+      "identity_authoritative": true,
+      "publication_target": null,
+      "training_ready_policy": "never",
+      "allowed_curation_lanes": [
+        "curate_identity",
+        "curate_coding"
+      ],
+      "provenance_contract_by_kind": {
+        "safety_case": "synthetic_shape_implies_designed"
+      }
+    },
+    {
+      "path_id": "sandbox-refusal-trajectories",
+      "payload_factory": "sandbox-refusal-factory",
+      "generator": "grok-4.6",
+      "generator_version": "grok-4.6",
+      "record_kinds": [
+        "safety_case"
+      ],
+      "identity_authoritative": true,
+      "publication_target": null,
+      "training_ready_policy": "never",
+      "allowed_curation_lanes": [
+        "curate_identity",
+        "curate_coding"
+      ],
+      "provenance_contract_by_kind": {
+        "safety_case": "synthetic_shape_implies_designed"
+      }
+    },
+    {
+      "path_id": "search-index-rebuild-trajectories",
+      "payload_factory": "search-index-rebuild-factory",
+      "generator": "grok-4.6",
+      "generator_version": "grok-4.6",
+      "record_kinds": [
+        "episode"
+      ],
+      "identity_authoritative": true,
+      "publication_target": null,
+      "training_ready_policy": "never",
+      "allowed_curation_lanes": [
+        "curate_identity",
+        "curate_coding"
+      ],
+      "provenance_contract_by_kind": {
+        "episode": "synthetic_shape_implies_designed"
+      }
+    },
+    {
+      "path_id": "secret-scan-remediation-trajectories",
+      "payload_factory": "secret-scan-remediation-factory",
+      "generator": "grok-4.6",
+      "generator_version": "grok-4.6",
+      "record_kinds": [
+        "episode"
+      ],
+      "identity_authoritative": true,
+      "publication_target": null,
+      "training_ready_policy": "never",
+      "allowed_curation_lanes": [
+        "curate_identity",
+        "curate_coding"
+      ],
+      "provenance_contract_by_kind": {
+        "episode": "synthetic_shape_implies_designed"
+      }
+    },
+    {
+      "path_id": "sparse-reward-long-tasks",
+      "payload_factory": "sparse-reward-long-task-factory",
+      "generator": "grok-4.6",
+      "generator_version": "grok-4.6",
+      "record_kinds": [
+        "episode"
+      ],
+      "identity_authoritative": true,
+      "publication_target": null,
+      "training_ready_policy": "never",
+      "allowed_curation_lanes": [
+        "curate_identity",
+        "curate_coding"
+      ],
+      "provenance_contract_by_kind": {
+        "episode": "synthetic_shape_implies_designed"
+      }
+    },
+    {
+      "path_id": "ssl-cert-rotation-trajectories",
+      "payload_factory": "ssl-cert-rotation-factory",
+      "generator": "grok-4.6",
+      "generator_version": "grok-4.6",
+      "record_kinds": [
+        "episode"
+      ],
+      "identity_authoritative": true,
+      "publication_target": null,
+      "training_ready_policy": "never",
+      "allowed_curation_lanes": [
+        "curate_identity",
+        "curate_coding"
+      ],
+      "provenance_contract_by_kind": {
+        "episode": "synthetic_shape_implies_designed"
+      }
+    },
+    {
+      "path_id": "tool-use-preference-pairs",
+      "payload_factory": "tool-use-preference-factory",
+      "generator": "grok-4.6",
+      "generator_version": "grok-4.6",
+      "record_kinds": [
+        "preference"
+      ],
+      "identity_authoritative": true,
+      "publication_target": null,
+      "training_ready_policy": "never",
+      "allowed_curation_lanes": [
+        "curate_identity",
+        "curate_trajectory_preferences"
+      ],
+      "provenance_contract_by_kind": {
+        "preference": "synthetic_shape_implies_designed"
+      }
+    },
+    {
+      "path_id": "websocket-reconnect-trajectories",
+      "payload_factory": "websocket-reconnect-factory",
+      "generator": "grok-4.6",
+      "generator_version": "grok-4.6",
+      "record_kinds": [
+        "episode"
+      ],
+      "identity_authoritative": true,
+      "publication_target": null,
+      "training_ready_policy": "never",
+      "allowed_curation_lanes": [
+        "curate_identity",
+        "curate_coding"
+      ],
+      "provenance_contract_by_kind": {
+        "episode": "synthetic_shape_implies_designed"
+      }
+    },
+    {
+      "path_id": "gpt-5.6-sol-coding-factory",
+      "payload_factory": "gpt-5.6-sol-coding-factory",
+      "generator": "gpt-5.6-sol",
+      "generator_version": "gpt-5.6-sol",
+      "record_kinds": [
+        "episode"
+      ],
+      "identity_authoritative": true,
+      "publication_target": null,
+      "training_ready_policy": "never",
+      "allowed_curation_lanes": [
+        "curate_identity",
+        "curate_coding"
+      ],
+      "provenance_contract_by_kind": {
+        "episode": "synthetic_shape_implies_designed"
+      }
+    },
+    {
+      "path_id": "muse-spark-1.2-coding-factory",
+      "payload_factory": "muse-spark-1.2-coding-factory",
+      "generator": "muse-spark-1.2",
+      "generator_version": "muse-spark-1.2",
+      "record_kinds": [
+        "episode"
+      ],
+      "identity_authoritative": true,
+      "publication_target": null,
+      "training_ready_policy": "never",
+      "allowed_curation_lanes": [
+        "curate_identity",
+        "curate_coding"
+      ],
+      "provenance_contract_by_kind": {
+        "episode": "synthetic_shape_implies_designed"
+      }
+    }
+  ]
+}

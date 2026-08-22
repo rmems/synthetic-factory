@@ -5,7 +5,9 @@ from __future__ import annotations
 
 import copy
 import hashlib
+import json
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -14,6 +16,12 @@ PIPELINES = REPO / "pipelines"
 sys.path.insert(0, str(PIPELINES))
 
 import curate_identity as identity  # noqa: E402
+import record_kind  # noqa: E402
+
+FABLE_ACT = "agentic-coding-trajectory-factory"
+FABLE_THALAMIC = "thalamic-trajectory-factory"
+FABLE_FFPC = "failure-as-fuel-preference-cascade"
+FABLE_BRIDGE = "neuromorphic-event-language-bridge"
 
 
 def thalamic(claim="real", **overrides):
@@ -28,7 +36,57 @@ def thalamic(claim="real", **overrides):
         "executed_action": {"action_type": "noop"},
         "future_outcome": {"success": "full"},
         "reward_components": {"task": 1.0, "total": 1.0},
-        "meta": {"id": "legacy-meta-id"},
+        "meta": {"id": "legacy-meta-id", "factory": FABLE_THALAMIC},
+    }
+    record.update(overrides)
+    return record
+
+
+def episode(factory=FABLE_ACT, **overrides):
+    record = {
+        "goal": "repair a deterministic fixture",
+        "steps": [{"tool_call": "inspect", "observation": "failing"}],
+        "outcome": "fixed",
+        "reward": 1.0,
+        "meta": {"factory": factory, "round": 2},
+    }
+    record.update(overrides)
+    return record
+
+
+def safety_case(factory="safety-calibration-factory", **overrides):
+    record = {
+        "case_type": "correct_refusal",
+        "goal": "refuse the unsafe request",
+        "steps": [{"tool_call": "refuse", "observation": "refused"}],
+        "meta": {"factory": factory},
+    }
+    record.update(overrides)
+    return record
+
+
+def multi_agent(factory="multi-agent-coordination-factory", **overrides):
+    record = {
+        "transcript": [{"role": "planner", "text": "plan"}],
+        "agents": [{"name": "planner"}],
+        "goal": "coordinate a repair",
+        "steps": [{"tool_call": "talk", "observation": "ok"}],
+        "meta": {"factory": factory},
+    }
+    record.update(overrides)
+    return record
+
+
+def grok_pref(factory="tool-use-preference-factory", **overrides):
+    side = {
+        "goal": "use the tool",
+        "steps": [{"tool_call": "search", "observation": "hit"}],
+    }
+    record = {
+        "chosen": dict(side),
+        "rejected": dict(side),
+        "critique": "better tool use",
+        "meta": {"factory": factory},
     }
     record.update(overrides)
     return record
@@ -72,9 +130,16 @@ class TestCanonicalIdentity(unittest.TestCase):
         self.assertNotEqual(first_result.record["id"], changed_line.record["id"])
 
     def test_cross_factory_same_content_cannot_collide(self):
-        raw = thalamic("simulated")
-        left = source(raw, "thalamic-trajectory-factory/batch-r08.jsonl", 1)
-        right = source(raw, "agentic-coding-trajectory-factory/batch-r08.jsonl", 1)
+        left = source(
+            episode(FABLE_ACT),
+            f"{FABLE_ACT}/batch-r08.jsonl",
+            1,
+        )
+        right = source(
+            episode("long-horizon-coding-factory"),
+            "long-horizon-coding-trajectories/batch-r08.jsonl",
+            1,
+        )
 
         results = identity.curate_records([left, right])
 
@@ -208,10 +273,11 @@ class TestSupportedRecordShapes(unittest.TestCase):
             "critique": "same context, better process",
             "meta": {"id": "pair-old"},
         }
+        pair["meta"] = {"id": "pair-old", "factory": FABLE_FFPC}
         result = identity.curate_record(
             source(
                 pair,
-                "failure-as-fuel-preference-cascade/batch-r06.jsonl",
+                f"{FABLE_FFPC}/batch-r06.jsonl",
                 2,
             )
         )
@@ -251,10 +317,11 @@ class TestSupportedRecordShapes(unittest.TestCase):
             },
             "spike_events": [{"channel": "x", "t_rel_ms": 1, "amplitude": 1}],
         }
+        bridge["meta"] = {"factory": FABLE_BRIDGE}
         result = identity.curate_record(
             source(
                 bridge,
-                "neuromorphic-event-language-bridge/batch-r03.jsonl",
+                f"{FABLE_BRIDGE}/batch-r03.jsonl",
                 1,
             )
         )
@@ -268,17 +335,10 @@ class TestSupportedRecordShapes(unittest.TestCase):
         self.assertIn({"path": "/pair_id", "value": "legacy-pair"}, root_original)
 
     def test_agentic_coding_episode_has_source_grounded_designed_provenance(self):
-        episode = {
-            "goal": "repair a deterministic fixture",
-            "steps": [{"tool_call": "inspect", "observation": "failing"}],
-            "outcome": "fixed",
-            "reward": 1.0,
-            "meta": {"factory": identity.EPISODE_FACTORY, "round": 2},
-        }
         result = identity.curate_record(
             source(
-                episode,
-                "agentic-coding-trajectory-factory/episodes.jsonl",
+                episode(FABLE_ACT),
+                f"{FABLE_ACT}/episodes.jsonl",
                 1,
             )
         )
@@ -292,25 +352,25 @@ class TestSupportedRecordShapes(unittest.TestCase):
         )
 
     def test_episode_from_another_factory_is_not_silently_labeled(self):
-        episode = {
-            "goal": "fixture",
-            "steps": [{"tool_call": "inspect", "observation": "ok"}],
-            "outcome": "done",
-            "reward": 1,
-        }
         result = identity.curate_record(
-            source(episode, "unknown-factory/episodes.jsonl", 1)
+            source(episode("unknown-factory"), "unknown-factory/episodes.jsonl", 1)
         )
         self.assertEqual(result.action, "exclude")
-        self.assertEqual(
-            result.mapping["unresolved_provenance"][0]["reason"],
+        self.assertEqual(result.mapping["reason_codes"], ["identity.unknown_factory"])
+        self.assertNotIn(
             "episode_source_factory_not_authoritative",
+            json.dumps(result.mapping),
         )
 
     def test_malformed_nested_shape_is_excluded_with_reason(self):
-        pair = {"chosen": thalamic(), "rejected": None, "critique": "bad shape"}
+        pair = {
+            "chosen": thalamic(),
+            "rejected": None,
+            "critique": "bad shape",
+            "meta": {"factory": FABLE_FFPC},
+        }
         result = identity.curate_record(
-            source(pair, "failure-as-fuel-preference-cascade/bad.jsonl", 1)
+            source(pair, f"{FABLE_FFPC}/bad.jsonl", 1)
         )
         self.assertEqual(result.action, "exclude")
         self.assertEqual(
@@ -323,16 +383,343 @@ class TestSupportedRecordShapes(unittest.TestCase):
             "chosen": thalamic(None, meta={"id": "chosen-legacy"}),
             "rejected": thalamic(None, meta={"id": "rejected-legacy"}),
             "critique": "missing provenance",
-            "meta": {"id": "pair-legacy"},
+            "meta": {"id": "pair-legacy", "factory": FABLE_FFPC},
         }
         result = identity.curate_record(
-            source(pair, "failure-as-fuel-preference-cascade/preferences.jsonl", 1)
+            source(pair, f"{FABLE_FFPC}/preferences.jsonl", 1)
         )
         self.assertEqual(result.action, "exclude")
         paths = {item["path"] for item in result.mapping["original_ids"]}
         self.assertIn("/meta/id", paths)
         self.assertIn("/chosen/meta/id", paths)
         self.assertIn("/rejected/meta/id", paths)
+
+
+class TestSharedClassifierOrder(unittest.TestCase):
+    def test_overlapping_key_table_matches_census_order(self):
+        six = {
+            "state": {},
+            "proposed_action": {},
+            "safety_decision": {},
+            "executed_action": {},
+            "future_outcome": {},
+            "reward_components": {},
+        }
+        table = (
+            ({**six, "goal": "x", "steps": []}, "thalamic"),
+            ({"case_type": "correct_refusal"}, "safety_case"),
+            ({"case_type": "correct_refusal", "goal": "x", "steps": []}, "safety_case"),
+            ({"transcript": [], "agents": []}, "multi_agent"),
+            ({"transcript": [], "agents": [], "goal": "x", "steps": []}, "multi_agent"),
+            ({**six, "chosen": {}, "rejected": {}}, "thalamic"),
+            (
+                {"chosen": dict(six), "rejected": dict(six)},
+                "preference",
+            ),
+            ({"goal": "x", "steps": []}, "episode"),
+            ({"chosen": {"goal": "x"}, "rejected": {"goal": "y"}}, "preference"),
+        )
+        for payload, expected in table:
+            with self.subTest(expected=expected, keys=sorted(payload)):
+                self.assertEqual(record_kind.classify_kind(payload), expected)
+                self.assertEqual(identity.record_kind(payload), expected)
+
+
+class TestFactoryRegistryAuthority(unittest.TestCase):
+    def test_grok_long_horizon_path_payload_pair_retains(self):
+        result = identity.curate_record(
+            source(
+                episode("long-horizon-coding-factory"),
+                "long-horizon-coding-trajectories/batch.jsonl",
+                1,
+            )
+        )
+        self.assertEqual(result.action, "retained")
+        self.assertEqual(result.mapping["record_kind"], "episode")
+        self.assertEqual(result.mapping["path_id"], "long-horizon-coding-trajectories")
+        self.assertEqual(result.mapping["factory_id"], "long-horizon-coding-factory")
+        self.assertEqual(
+            result.mapping["provenance_contract"],
+            "synthetic_shape_implies_designed",
+        )
+        self.assertTrue(result.mapping["identity_authoritative"])
+        self.assertEqual(result.record["provenance"]["kind"], "designed")
+        self.assertEqual(
+            result.record["provenance"]["basis"],
+            "synthetic_factory_episode_shape",
+        )
+
+    def test_safety_calibration_is_safety_case_and_retains(self):
+        result = identity.curate_record(
+            source(
+                safety_case(),
+                "safety-calibration-cases/cases.jsonl",
+                1,
+            )
+        )
+        self.assertEqual(result.action, "retained")
+        self.assertEqual(result.mapping["record_kind"], "safety_case")
+        self.assertRegex(result.record["id"], r"^sfcur-safety_case-record-[0-9a-f]{64}$")
+        self.assertEqual(result.record["provenance"]["kind"], "designed")
+        self.assertEqual(
+            result.record["provenance"]["basis"],
+            "synthetic_factory_safety_case_shape",
+        )
+        self.assertNotEqual(result.mapping["record_kind"], "episode")
+
+    def test_multi_agent_coordination_is_multi_agent_and_retains(self):
+        result = identity.curate_record(
+            source(
+                multi_agent(),
+                "multi-agent-coordination-transcripts/batch.jsonl",
+                1,
+            )
+        )
+        self.assertEqual(result.action, "retained")
+        self.assertEqual(result.mapping["record_kind"], "multi_agent")
+        self.assertEqual(result.record["provenance"]["kind"], "designed")
+        self.assertEqual(
+            result.record["provenance"]["basis"],
+            "synthetic_factory_multi_agent_shape",
+        )
+
+    def test_unregistered_factory_is_unknown_factory(self):
+        result = identity.curate_record(
+            source(
+                episode("never-reviewed-factory"),
+                "never-reviewed-factory/episodes.jsonl",
+                1,
+            )
+        )
+        self.assertEqual(result.action, "exclude")
+        self.assertEqual(result.mapping["reason_codes"], ["identity.unknown_factory"])
+
+    def test_unregistered_directory_is_unknown_even_if_payload_is_episode(self):
+        result = identity.curate_record(
+            source(
+                episode(FABLE_ACT),
+                "never-reviewed-slug/episodes.jsonl",
+                1,
+            )
+        )
+        self.assertEqual(result.action, "exclude")
+        self.assertEqual(result.mapping["reason_codes"], ["identity.unknown_factory"])
+
+    def test_act_path_with_attacker_payload_factory_is_mismatch(self):
+        result = identity.curate_record(
+            source(
+                episode("long-horizon-coding-factory"),
+                f"{FABLE_ACT}/episodes.jsonl",
+                1,
+            )
+        )
+        self.assertEqual(result.action, "exclude")
+        self.assertEqual(
+            result.mapping["reason_codes"],
+            ["identity.factory_path_payload_mismatch"],
+        )
+
+    def test_coding_factory_emitting_preference_is_unauthorized(self):
+        result = identity.curate_record(
+            source(
+                grok_pref(FABLE_ACT),
+                f"{FABLE_ACT}/preferences.jsonl",
+                1,
+            )
+        )
+        self.assertEqual(result.action, "exclude")
+        self.assertEqual(
+            result.mapping["reason_codes"],
+            ["identity.factory_not_authorized_for_kind"],
+        )
+
+    def test_fable_thalamic_ffpc_bridge_still_require_state_claim(self):
+        retained = (
+            (thalamic("designed"), f"{FABLE_THALAMIC}/batch.jsonl", "thalamic"),
+            (
+                {
+                    "chosen": thalamic("designed"),
+                    "rejected": thalamic("designed"),
+                    "meta": {"factory": FABLE_FFPC},
+                },
+                f"{FABLE_FFPC}/batch.jsonl",
+                "preference",
+            ),
+            (
+                {
+                    "language_view": {"trajectory": thalamic("designed")},
+                    "spike_events": [{"channel": "x", "t_rel_ms": 1, "amplitude": 1}],
+                    "meta": {"factory": FABLE_BRIDGE},
+                },
+                f"{FABLE_BRIDGE}/batch.jsonl",
+                "bridge_pair",
+            ),
+        )
+        for record, path, kind in retained:
+            with self.subTest(kind=kind, action="retain"):
+                result = identity.curate_record(source(record, path, 1))
+                self.assertEqual(result.action, "retained")
+                self.assertEqual(result.mapping["record_kind"], kind)
+                self.assertEqual(
+                    result.mapping["provenance_contract"],
+                    "require_state_claim",
+                )
+
+        missing = (
+            (thalamic(None), f"{FABLE_THALAMIC}/batch.jsonl"),
+            (
+                {
+                    "chosen": thalamic(None),
+                    "rejected": thalamic(None),
+                    "meta": {"factory": FABLE_FFPC},
+                },
+                f"{FABLE_FFPC}/batch.jsonl",
+            ),
+            (
+                {
+                    "language_view": {"trajectory": thalamic(None)},
+                    "spike_events": [{"channel": "x", "t_rel_ms": 1, "amplitude": 1}],
+                    "meta": {"factory": FABLE_BRIDGE},
+                },
+                f"{FABLE_BRIDGE}/batch.jsonl",
+            ),
+        )
+        for record, path in missing:
+            with self.subTest(path=path, action="exclude"):
+                result = identity.curate_record(source(record, path, 1))
+                self.assertEqual(result.action, "exclude")
+                self.assertEqual(
+                    result.mapping["reason_codes"],
+                    ["identity.unresolved_provenance"],
+                )
+
+    def test_episode_state_sim_or_real_wins_over_designed_stamp(self):
+        raw = episode(FABLE_ACT)
+        raw["state"] = {"sim_or_real": "simulated"}
+        result = identity.curate_record(source(raw, f"{FABLE_ACT}/episodes.jsonl", 1))
+        self.assertEqual(result.action, "retained")
+        self.assertEqual(result.record["provenance"]["kind"], "simulated")
+        self.assertNotEqual(result.record["provenance"]["kind"], "designed")
+        self.assertEqual(result.record["state"]["sim_or_real"], "simulated")
+        self.assertEqual(result.mapping["provenance_contract"], "synthetic_shape_implies_designed")
+
+    def test_gpt_and_muse_retain_via_registry_json_only(self):
+        text = Path(identity.__file__).read_text(encoding="utf-8")
+        self.assertNotIn("EPISODE_FACTORY", text)
+        self.assertNotIn(FABLE_ACT, text)
+        self.assertNotIn("gpt-5.6-sol", text)
+        self.assertNotIn("muse-spark", text)
+        self.assertNotRegex(text, r"generator\s*==")
+        for factory, path in (
+            ("gpt-5.6-sol-coding-factory", "gpt-5.6-sol-coding-factory/episodes.jsonl"),
+            (
+                "muse-spark-1.2-coding-factory",
+                "muse-spark-1.2-coding-factory/episodes.jsonl",
+            ),
+        ):
+            with self.subTest(factory=factory):
+                result = identity.curate_record(source(episode(factory), path, 1))
+                self.assertEqual(result.action, "retained")
+                self.assertEqual(result.mapping["factory_id"], factory)
+                self.assertEqual(result.record["provenance"]["kind"], "designed")
+
+    def test_mapping_registry_sha256_matches_committed_bytes(self):
+        raw = identity.FACTORY_REGISTRY_PATH.read_bytes()
+        digest = hashlib.sha256(raw).hexdigest()
+        result = identity.curate_record(
+            source(episode(FABLE_ACT), f"{FABLE_ACT}/episodes.jsonl", 1)
+        )
+        self.assertEqual(result.mapping["registry"]["schema_version"], "factory-registry-v0.1")
+        self.assertEqual(result.mapping["registry"]["sha256"], digest)
+        self.assertNotIn("registry", result.record)
+        self.assertNotIn("schema_version", result.record)
+
+    def test_write_run_copies_exact_registry_bytes_and_tree_requires_sidecar(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            src = Path(tmp) / "src"
+            dest = Path(tmp) / "dest"
+            (src / FABLE_ACT).mkdir(parents=True)
+            (src / FABLE_ACT / "episodes.jsonl").write_text(
+                identity.canonical_json(episode(FABLE_ACT)) + "\n",
+                encoding="utf-8",
+            )
+            identity.write_run(src, dest)
+            sidecar = dest / "FACTORY-REGISTRY.json"
+            self.assertEqual(sidecar.read_bytes(), identity.FACTORY_REGISTRY_PATH.read_bytes())
+            identity.validate_identity_tree(dest)
+            sidecar.unlink()
+            with self.assertRaises(identity.IdentityTreeError):
+                identity.validate_identity_tree(dest)
+
+    def test_eval_harness_is_explicit_pair_not_a_glob_rewrite(self):
+        retain = identity.curate_record(
+            source(
+                episode("eval-harness-trajectory-factory"),
+                "eval-harness-trajectories/batch.jsonl",
+                1,
+            )
+        )
+        self.assertEqual(retain.action, "retained")
+        rewritten = identity.curate_record(
+            source(
+                episode("eval-harness-factory"),
+                "eval-harness-trajectories/batch.jsonl",
+                1,
+            )
+        )
+        self.assertEqual(rewritten.action, "exclude")
+        self.assertEqual(
+            rewritten.mapping["reason_codes"],
+            ["identity.factory_path_payload_mismatch"],
+        )
+
+    def test_grok_trajectory_preference_without_state_retains(self):
+        result = identity.curate_record(
+            source(
+                grok_pref(),
+                "tool-use-preference-pairs/batch.jsonl",
+                1,
+            )
+        )
+        self.assertEqual(result.action, "retained")
+        self.assertEqual(result.mapping["record_kind"], "preference")
+        self.assertEqual(
+            result.mapping["provenance_contract"],
+            "synthetic_shape_implies_designed",
+        )
+        self.assertEqual(result.record["provenance"]["kind"], "designed")
+        self.assertEqual(
+            result.record["provenance"]["basis"],
+            "synthetic_factory_preference_shape",
+        )
+
+    def test_registry_onboard_rows_are_not_training_ready(self):
+        payload = json.loads(identity.FACTORY_REGISTRY_PATH.read_text(encoding="utf-8"))
+        self.assertEqual(len(payload["factories"]), 50)
+        self.assertEqual(payload["lookup_key"], "path_id")
+        for row in payload["factories"]:
+            self.assertNotIn("training_ready", row)
+            self.assertIsNone(row["publication_target"])
+            self.assertEqual(row["training_ready_policy"], "never")
+            self.assertTrue(row["identity_authoritative"])
+        eval_row = next(
+            item
+            for item in payload["factories"]
+            if item["path_id"] == "eval-harness-trajectories"
+        )
+        self.assertEqual(eval_row["payload_factory"], "eval-harness-trajectory-factory")
+        ffpc = next(
+            item
+            for item in payload["factories"]
+            if item["path_id"] == FABLE_FFPC
+        )
+        self.assertIn("curate_preferences", ffpc["allowed_curation_lanes"])
+        grok_pref_row = next(
+            item
+            for item in payload["factories"]
+            if item["path_id"] == "tool-use-preference-pairs"
+        )
+        self.assertNotIn("curate_preferences", grok_pref_row["allowed_curation_lanes"])
 
 
 if __name__ == "__main__":
