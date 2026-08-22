@@ -85,8 +85,27 @@ it, and creating again yields two beads that can each acquire their own twin:
 bd search "<a distinctive phrase from the title>"
 ```
 
-If it returns a matching bead, reuse that ID instead of creating — but **finish its
-setup before moving on**. A run that died mid-step-2 may have created the bead and
+A hit is not automatically *your* work. `bd search` already excludes closed beads by
+default (`--status` help: "Default excludes closed"), so a stale finished bead will not
+surface — but an open bead with a similar title may be different work, or the same work
+already completed and linked. Reuse it only when it is an unfinished attempt at this
+same request: same parent, same scope, and **no external ref yet**.
+
+`bd search` does not print the external ref at any verbosity — `--long` adds the
+description, assignee, and labels only — so check each candidate with `bd show`:
+
+```bash
+bd search "<a distinctive phrase from the title>"          # candidate IDs
+bd show <candidate-id> | grep -E '^External:' || echo "no twin yet -- resumable"
+```
+
+An existing `External:` ref means that bead already has its twin — this is not a
+partial attempt, so create a new bead instead of hijacking it. If the scope differs at
+all, create a new bead. Note `bd search --status` takes **one** value, unlike
+`bd list`: a comma list silently returns nothing rather than erroring.
+
+If the hit really is an unfinished attempt, reuse that ID instead of creating — but
+**finish its setup before moving on**. A run that died mid-step-2 may have created the bead and
 nothing else, so re-check the parts that come after `bd create` (labels, `--parent`,
 and especially the `bd dep add` blockers below) rather than jumping straight to step 3
 and leaving the dependency graph permanently incomplete:
@@ -177,11 +196,17 @@ gh search issues --repo rmems/synthetic-factory --limit 200 \
   | python3 -c "
 import json,sys
 want='<!-- bead-id: <bead-id> -->'
-hits=[i for i in json.load(sys.stdin) if want in (i.get('body') or '')]
-print(hits or 'no exact-marker twin; safe to create')"
+hits=[i['number'] for i in json.load(sys.stdin) if want in (i.get('body') or '')]
+if len(hits) > 1: sys.exit(f'STOP: {len(hits)} twins share this marker: {hits} -- reconcile before linking')
+print(hits[0] if hits else 'no exact-marker twin; safe to create')"
 ```
 
-If an exact-marker twin exists, skip creation and jump to step 4 to link it. Then check
+Require **exactly one**. Earlier failed runs can leave two issues carrying the same
+marker; treating that as "a twin exists" links one and leaves the duplicate live,
+breaking the exactly-once identity the whole workflow rests on. The filter above stops
+rather than guessing — close or re-marker the extras, then re-run it.
+
+If exactly one exact-marker twin exists, skip creation and jump to step 4 to link it. Then check
 the sync path live rather than assuming — `bd` accepts either the split
 `github.owner` / `github.repo` keys or the combined `github.repository`, so probing
 one key alone reports a configured integration as unset:
@@ -280,7 +305,12 @@ print([i['number'] for i in json.load(sys.stdin) if want in (i.get('body') or ''
 
 # Child: if a previous run already added the link and died before --external-ref,
 # adding again is rejected and the retry can never get past this point.
-gh api repos/rmems/synthetic-factory/issues/<n> --jq 'has("parent")'   # true -> already linked, skip the add
+# Three outcomes: "none" -> add it; the intended parent -> already done, skip;
+# any other number -> wrong parent, re-add with replace_parent=true.
+# Compare the parent's IDENTITY, not just its presence: a child linked to the WRONG
+# parent also reports a parent, and skipping on that permanently leaves GitHub
+# disagreeing with --parent.
+gh api repos/rmems/synthetic-factory/issues/<n> --jq '.parent.number // "none"'
 ```
 
 The two arguments are **not the same kind of number**. `issue_number` is the parent's
