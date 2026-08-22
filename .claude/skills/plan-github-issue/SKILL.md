@@ -45,11 +45,13 @@ Reuse existing labels; do not invent near-synonyms (`curation` exists — do not
 
 Milestones, and the convention siblings follow:
 
+Use `gh api`, which authenticates internally. Never expand a token into a `curl -H`
+argument: process arguments are world-readable on a shared runner, so `$TOKEN` in argv
+leaks the credential for the life of the call.
+
 ```bash
-TOKEN=$(gh auth token)
-curl -s -H "Authorization: Bearer $TOKEN" \
-  "https://api.github.com/repos/rmems/synthetic-factory/milestones?state=all" \
-  | python3 -c "import json,sys; [print(m['number'], m['title']) for m in json.load(sys.stdin)]"
+gh api "repos/rmems/synthetic-factory/milestones?state=all" \
+  --jq '.[] | "\(.number) \(.title)"'
 ```
 
 Observed convention: curation / audit / training-readiness → *Synthetic Corpus
@@ -66,7 +68,15 @@ it, and creating again yields two beads that can each acquire their own twin:
 bd search "<a distinctive phrase from the title>"
 ```
 
-If it returns a matching bead, reuse that ID and skip to step 3 instead of creating.
+If it returns a matching bead, reuse that ID instead of creating — but **finish its
+setup before moving on**. A run that died mid-step-2 may have created the bead and
+nothing else, so re-check the parts that come after `bd create` (labels, `--parent`,
+and especially the `bd dep add` blockers below) rather than jumping straight to step 3
+and leaving the dependency graph permanently incomplete:
+
+```bash
+bd show <bead-id>        # confirm labels, parent, and dependency edges are all present
+```
 
 ```bash
 bd create "<title>" \
@@ -220,7 +230,8 @@ Normalize both sides before comparing — `bd` prints a `LABELS: ` prefix that `
 not, so the raw outputs never match even when the label sets are identical:
 
 ```bash
-diff <(bd show <bead-id> | sed -n 's/^LABELS: //p' | tr ',' '\n' | sed 's/ //g' | sort) \
+diff <(bd show <bead-id> | sed -n 's/^LABELS: //p' | tr ',' '\n' \
+       | sed 's/^[[:space:]]*//; s/[[:space:]]*$//' | sort) \
      <(gh issue view <n> --repo rmems/synthetic-factory --json labels \
         --jq '.labels[].name' \
        | grep -Ev '^(bead|status|priority):' | sort) \
