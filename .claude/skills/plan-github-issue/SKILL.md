@@ -99,9 +99,19 @@ bd search "<a distinctive phrase from the title>"          # candidate IDs
 bd show <candidate-id> | grep -E '^External:' || echo "no twin yet -- resumable"
 ```
 
-An existing `External:` ref means that bead already has its twin — this is not a
-partial attempt, so create a new bead instead of hijacking it. If the scope differs at
-all, create a new bead. Note `bd search --status` takes **one** value, unlike
+An existing `External:` ref does **not** mean the work finished. It is written in
+step 4, and step 5 still has to reconcile labels and commit; a run that died in between
+leaves a correct bead, a correct twin, and unreconciled tags. Creating a second bead
+there is the worst outcome — it duplicates identity to avoid finishing three commands.
+So the ref tells you *where* to resume, not whether to:
+
+| `External:` | Same scope? | Action |
+| --- | --- | --- |
+| absent | yes | resume at step 3 (create the twin) |
+| present | yes | resume at step 5 (parity + commit), do **not** create |
+| either | no | different work — create a new bead |
+
+Scope, not the ref, is what decides whether this is your bead. Note `bd search --status` takes **one** value, unlike
 `bd list`: a comma list silently returns nothing rather than erroring.
 
 If the hit really is an unfinished attempt, reuse that ID instead of creating — but
@@ -224,9 +234,14 @@ bd_cfg() { bd config get "$1" 2>/dev/null | grep -v '(not set)' | tr -d '[:space
 
 bd_configured() {
   [ -n "$(bd_cfg github.repository)" ] && return 0
-  [ -n "$(bd_cfg github.owner)" ] && [ -n "$(bd_cfg github.repo)" ] && return 0
+  # This checkout documents the split pair as github.org + github.repo
+  # (.beads/config.yaml, "Non-secret keys"). Accept github.owner as well:
+  # installations differ, and missing github.org reads a valid setup as unset.
+  { [ -n "$(bd_cfg github.org)" ] || [ -n "$(bd_cfg github.owner)" ]; } \
+    && [ -n "$(bd_cfg github.repo)" ] && return 0
   [ -n "${GITHUB_REPOSITORY:-}" ] && return 0
-  [ -n "${GITHUB_OWNER:-}" ] && [ -n "${GITHUB_REPO:-}" ] && return 0
+  { [ -n "${GITHUB_ORG:-}" ] || [ -n "${GITHUB_OWNER:-}" ]; } \
+    && [ -n "${GITHUB_REPO:-}" ] && return 0
   return 1
 }
 ```
@@ -295,13 +310,18 @@ partial-failure step 3 already handles for the child:
 ```bash
 # Parent twin: an empty External ref is NOT proof the parent has no twin. A run may
 # have created it and died before saving the ref, so fall back to the marker search.
+# Require exactly one, same as the child guard in step 3: sub_issue_write takes a
+# single issue_number, so several marker-sharing candidates would mean picking one
+# arbitrarily and hanging the hierarchy off a duplicate.
 bd show <parent-bead-id> | grep External
 gh search issues --repo rmems/synthetic-factory --limit 200 \
   --match body "bead-id: <parent-bead-id>" --json number,body \
   | python3 -c "
 import json,sys
 want='<!-- bead-id: <parent-bead-id> -->'
-print([i['number'] for i in json.load(sys.stdin) if want in (i.get('body') or '')] or 'no parent twin')"
+hits=[i['number'] for i in json.load(sys.stdin) if want in (i.get('body') or '')]
+if len(hits) > 1: sys.exit(f'STOP: {len(hits)} parent twins share this marker: {hits} -- reconcile first')
+print(hits[0] if hits else 'no parent twin')"
 
 # Child: if a previous run already added the link and died before --external-ref,
 # adding again is rejected and the retry can never get past this point.
