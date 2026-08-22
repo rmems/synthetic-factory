@@ -146,12 +146,24 @@ So the ref tells you *where* to resume, not whether to:
 | `External:` | Same scope? | Action |
 | --- | --- | --- |
 | absent | yes | resume at step 3 (create the twin) |
-| present | yes | reconcile issue state (below), then resume at step 5 — do **not** create |
+| present | yes | reconcile issue state **and** post-sync metadata (below), then resume at step 5 — do **not** create |
 | either | no | different work — create a new bead |
 
 Scope, not the ref, is what decides whether this is your bead.
 
-A linked resume skips step 3, and the reopen check lives there — so on this path the
+A linked resume skips step 3, which is also where post-sync metadata reconciliation
+lives. If the earlier run died after `bd github sync` wrote the ref but before that
+reconciliation, the twin keeps `bd`'s generated body — with **no `<!-- bead-id: -->`
+marker** and no milestone — and step 5 only touches labels, so the gap becomes
+permanent and the twin stays invisible to every marker-based search. Re-run the
+marker/milestone check from step 3 before parity:
+
+```bash
+gh issue view <n> --repo rmems/synthetic-factory --json body,milestone \
+  --jq '{marker: (.body | test("<!-- bead-id: ")), milestone: (.milestone.title // "none")}'
+```
+
+The reopen check lives in step 3 too — so on this path the
 twin's state is never examined. A bead closed or reopened after the ref was written
 leaves the twin out of sync, and step 5 only touches labels, so it would write an
 accurate `status:*` label onto an issue in the wrong state. Check state before parity,
@@ -464,8 +476,12 @@ child can be correctly parented and still be missing from the checklist a human 
 Append it and verify:
 
 ```bash
+# Anchor to a checklist LINE, not a substring: a bare `grep -F "#12"` also matches
+# "#123" and any passing mention outside the list, and would silently skip a required
+# update. `([^0-9]|$)` stops the prefix match.
 gh issue view <parent-n> --repo rmems/synthetic-factory --json body --jq .body \
-  | grep -F "#<n>" || echo "child #<n> missing from the epic checklist -- add it"
+  | grep -qE '^[[:space:]]*-[[:space:]]*\[[ x]\][[:space:]]*#<n>([^0-9]|$)' \
+  || echo "child #<n> missing from the epic checklist -- add it"
 # then: gh issue edit <parent-n> --repo rmems/synthetic-factory --body-file <updated>
 ``` This applies equally on the resumed
 path, where step 3 found an existing twin and kept only its number. Without a parent
@@ -483,7 +499,11 @@ from another session, and sweeping it into an unrelated commit is a real collisi
 Either commit it alone, or leave it and say so:
 
 ```bash
-git diff -- .beads/issues.jsonl        # confirm only YOUR bead changed
+# Diff against HEAD, not the index. `git diff -- <path>` compares the worktree to the
+# INDEX, so a change another session already staged is invisible here -- while the
+# pathspec commit below records the full worktree file and ships their bead too. That
+# is the collision this section exists to prevent, and the plain diff hides it.
+git diff HEAD -- .beads/issues.jsonl   # confirm only YOUR bead changed
 # Pathspec-scoped: commits ONLY this file even when other paths are staged.
 # A plain `git commit` would record the whole index — the exact collision
 # this section warns about.
@@ -491,7 +511,11 @@ git commit -m "chore: link <bead-id> to GitHub issue #<n>" -- .beads/issues.json
 ```
 
 **Never** let it ride along in a feature commit. Check `git status` before committing:
-if it is already staged, unstage it first (`git restore --staged .beads/issues.jsonl`).
+if it is already staged, unstage it first (`git restore --staged .beads/issues.jsonl`),
+then re-run the `git diff HEAD` check above — unstaging changes what the index holds
+but not what the worktree file contains, so the other session's edits can still be
+sitting in it. If that diff shows rows you did not write, stop and leave the file
+alone rather than committing on their behalf.
 
 ### 5. Enforce tag parity (the step people skip)
 
