@@ -829,6 +829,18 @@ class AgenticShapes(unittest.TestCase):
         self.assertEqual(kind, "preference")
         self.assertFalse(any("share observable file" in error for error in errs), errs)
 
+        rec["chosen"]["steps"][0]["tool_call"]["args"]["command"] = "cat src/app.py"
+        for alias in ("./src/app.py", "src/lib/../app.py"):
+            with self.subTest(alias=alias):
+                rec["rejected"]["steps"][0]["tool_call"]["args"]["command"] = (
+                    f"cat {alias}"
+                )
+                errs, kind = validate_run.check_line(rec, "t", factory_staging=True)
+                self.assertEqual(kind, "preference")
+                self.assertFalse(
+                    any("share observable file" in error for error in errs), errs
+                )
+
     def test_case_type_routes_to_safety_even_when_misspelled(self):
         rec = episode("safety-routing")
         rec["case_type"] = "misspelt"

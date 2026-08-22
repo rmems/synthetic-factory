@@ -14,6 +14,7 @@ Usage: python3 pipelines/validate_run.py [--write] <run_dir>
 import argparse
 import json
 import math
+import posixpath
 import re
 import sys
 from pathlib import Path
@@ -509,6 +510,12 @@ def _preference_side_context_anchors(value):
         re.IGNORECASE,
     )
 
+    def normalized_artifact(artifact_text):
+        artifact = artifact_text.rstrip(".,;:").casefold()
+        if artifact.startswith(("http://", "https://")):
+            return artifact
+        return posixpath.normpath(artifact)
+
     def walk(node, key=""):
         if isinstance(node, dict):
             for child_key, child in node.items():
@@ -521,7 +528,7 @@ def _preference_side_context_anchors(value):
             if key and any(term in key for term in context_key_terms):
                 anchors.add(f"field:{normalized}")
             anchors.update(
-                f"artifact:{match.group(0).rstrip('.,;:').casefold()}"
+                f"artifact:{normalized_artifact(match.group(0))}"
                 for match in artifact_re.finditer(node)
             )
 
