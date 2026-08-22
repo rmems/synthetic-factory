@@ -182,15 +182,19 @@ Read **both** sides — printing only the bead's labels leaves you comparing aga
 remembered value, and step 3 may have resumed an existing twin or let `bd github sync`
 create one, so the GitHub side is not necessarily what you last set:
 
+Normalize both sides before comparing — `bd` prints a `LABELS: ` prefix that `gh` does
+not, so the raw outputs never match even when the label sets are identical:
+
 ```bash
-bd show <bead-id> | grep LABELS
-gh issue view <n> --repo rmems/synthetic-factory --json labels \
-  --jq '[.labels[].name] | map(select(startswith("bead:") or startswith("status:")
-        or startswith("priority:") | not)) | sort | join(", ")'
+diff <(bd show <bead-id> | sed -n 's/^LABELS: //p' | tr ',' '\n' | sed 's/ //g' | sort) \
+     <(gh issue view <n> --repo rmems/synthetic-factory --json labels \
+        --jq '.labels[].name' \
+       | grep -Ev '^(bead|status|priority):' | sort) \
+  && echo "parity OK"
 ```
 
-The second command strips the GitHub-only tracking triplet, so its output should match
-the bead's `LABELS` line exactly. Any difference is the drift to reconcile.
+The `grep -Ev` drops the GitHub-only tracking triplet. Empty diff means parity; any
+line printed is the drift to reconcile.
 
 `issue_write` **replaces** the label set, so pass the complete list: every domain label
 plus the tracking triplet. Suppress inheritance with `--no-inherit-labels` when the
