@@ -19,8 +19,9 @@ issue first produces an orphan with no bead metadata that later syncs will dupli
 
 ### 1. Gather the targets before writing anything
 
-Find the parent epic. **Epics are usually `in_progress`, not `open`** — filtering to
-`open` alone hides them and produces orphans:
+Find the parent epic, **if this work belongs under one**. A new top-level lane is
+parentless and should stay that way. **Epics are usually `in_progress`, not `open`** —
+filtering to `open` alone hides them and produces orphans:
 
 ```bash
 bd list --status=open,in_progress      # epics show as ◐ [epic]
@@ -70,7 +71,7 @@ If it returns a matching bead, reuse that ID and skip to step 3 instead of creat
 ```bash
 bd create "<title>" \
   --type=<bug|feature|task|epic|chore|decision> --priority=<0-4> \
-  --parent=<parent-bead-id> \
+  [--parent=<parent-bead-id>] \
   [--assignee="<owner>"] \
   --labels="synthetic-factory,curation,audit,..." \
   --description "..." --design "..." --acceptance "..." --notes "..."
@@ -81,6 +82,17 @@ bd create "<title>" \
   `agent:Nietzsche`, `codex/gpt-5.6-sol max`). Assign a human only when a human asked
   for it; omit the flag when ownership is undecided, and use the agent's identifier
   when an agent owns the lane. Do not default every bead to the repo owner.
+  **The bead assignee is not the GitHub assignee.** Agent identifiers are not GitHub
+  logins — `GET /repos/.../assignees/agent:Ramanujan` returns 404, so passing one as a
+  GitHub `assignees` value fails. Carry the agent in the body's **Assigned agent** line
+  and set `assignees` only for a login the API confirms is assignable:
+
+  ```bash
+  gh api "repos/rmems/synthetic-factory/assignees/<login>" --silent && echo assignable
+  ```
+- **`--parent` is optional too.** A new top-level lane has no parent — both `sf-c5l`
+  and `sf-v46` are parentless epics. Omit the flag (and the body's **Parent bead**
+  line) rather than inventing an unrelated parent to satisfy the example.
 - **Derive `--type` and `--priority` from the work, not from this example.** A defect
   is `bug`; new capability is `feature`; routine work is `task`; a lane spanning
   several issues is `epic`; a choice to record is `decision`. `--priority` takes `0-4`
