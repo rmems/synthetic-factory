@@ -216,7 +216,16 @@ marker; treating that as "a twin exists" links one and leaves the duplicate live
 breaking the exactly-once identity the whole workflow rests on. The filter above stops
 rather than guessing — close or re-marker the extras, then re-run it.
 
-If exactly one exact-marker twin exists, skip creation and jump to step 4 to link it. Then check
+If exactly one exact-marker twin exists, skip creation and jump to step 4 to link it —
+but **read its state first**. A twin closed independently while the bead stayed active
+leaves the public collaboration surface shut, and step 5 only reconciles labels, so an
+accurate `status:open` label would sit on a closed issue:
+
+```bash
+gh issue view <n> --repo rmems/synthetic-factory --json state --jq .state
+# CLOSED while the bead is anything but closed -> reopen before continuing:
+# gh issue reopen <n> --repo rmems/synthetic-factory
+``` Then check
 the sync path live rather than assuming — `bd` accepts either the split
 `github.owner` / `github.repo` keys or the combined `github.repository`, so probing
 one key alone reports a configured integration as unset:
@@ -267,6 +276,23 @@ gh issue view <n> --repo rmems/synthetic-factory --json body \
 
 Then `issue_write` (`method: update`) with the full body template, `milestone`, and
 `assignees`. Do this before step 4 so the parity check in step 5 sees the final state.
+
+**Provision repository labels first.** Assigning a label never creates it — `gh label
+create` is a separate command, and `issue_write` cannot provision one — so a bead
+carrying a label the repo lacks either fails the call or silently lands without it, and
+the step-5 parity check can never repair that by re-running `issue_write`. This is live,
+not hypothetical: 12 bead labels have no repository counterpart right now (`authz`,
+`coverage`, `dpo`, `factory`, `infra-as-code`, `log-redaction`, `mdb`, `mill`,
+`multi-agent-coordination`, `qodana`, `review`, `sandbox-refusal`). Diff before filing:
+
+```bash
+comm -23 <(bd show <bead-id> | sed -n 's/^LABELS: //p' | tr ',' '\n' \
+            | sed 's/^[[:space:]]*//; s/[[:space:]]*$//' | grep -v '^$' | sort -u) \
+         <(gh label list --repo rmems/synthetic-factory --limit 200 --json name \
+            --jq '.[].name' | sort -u)
+# any output -> create each one before issue_write:
+# gh label create "<name>" --repo rmems/synthetic-factory --description "..."
+```
 
 Title format: `[<bead-id>] <title>`. Set `assignees`, `milestone`, and `labels` in the
 same `issue_write` call. Body template — the `<!-- bead-id: -->` marker is **required**
@@ -330,7 +356,15 @@ print(hits[0] if hits else 'no parent twin')"
 # Compare the parent's IDENTITY, not just its presence: a child linked to the WRONG
 # parent also reports a parent, and skipping on that permanently leaves GitHub
 # disagreeing with --parent.
-gh api repos/rmems/synthetic-factory/issues/<n> --jq '.parent.number // "none"'
+# The parent is NOT a field on the issue object -- that object carries only
+# sub_issues_summary, so '.parent.number' reads "none" even for a linked child and the
+# check never fires. Use the dedicated endpoint; its 404 IS the unparented case.
+# Capture, do not pipe: on 404 gh prints the error BODY to stdout, so a bare
+# '... || echo none' emits the JSON and then "none". Command substitution plus the
+# exit-status fallback discards it.
+PARENT=$(gh api repos/rmems/synthetic-factory/issues/<n>/parent --jq .number 2>/dev/null) \
+  || PARENT=none
+echo "$PARENT"
 ```
 
 The two arguments are **not the same kind of number**. `issue_number` is the parent's
