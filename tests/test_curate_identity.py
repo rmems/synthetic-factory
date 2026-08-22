@@ -5,11 +5,13 @@ from __future__ import annotations
 
 import copy
 import hashlib
+import io
 import json
 import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 REPO = Path(__file__).resolve().parents[1]
 PIPELINES = REPO / "pipelines"
@@ -247,6 +249,7 @@ class TestCanonicalProvenance(unittest.TestCase):
     def test_existing_canonical_provenance_can_resolve_a_missing_claim(self):
         raw = thalamic(None)
         raw["state"].pop("sim_or_real")
+        raw["state"]["provenance"] = {"kind": "unknown", "claimed": "ignored"}
         raw["provenance"] = {"kind": "hil", "claimed": "HIL bench"}
 
         result = identity.curate_record(source(raw))
@@ -720,6 +723,529 @@ class TestFactoryRegistryAuthority(unittest.TestCase):
             if item["path_id"] == "tool-use-preference-pairs"
         )
         self.assertNotIn("curate_preferences", grok_pref_row["allowed_curation_lanes"])
+
+
+def _valid_row(**overrides):
+    row = {
+        "path_id": "tmp-factory",
+        "payload_factory": "tmp-factory",
+        "generator": "test",
+        "generator_version": "test",
+        "record_kinds": ["episode"],
+        "identity_authoritative": True,
+        "publication_target": None,
+        "training_ready_policy": "never",
+        "allowed_curation_lanes": ["curate_identity"],
+        "provenance_contract_by_kind": {
+            "episode": "synthetic_shape_implies_designed",
+        },
+    }
+    row.update(overrides)
+    return row
+
+
+def _registry_payload(rows, **overrides):
+    payload = {
+        "schema_version": "factory-registry-v0.1",
+        "lookup_key": "path_id",
+        "factories": rows,
+    }
+    payload.update(overrides)
+    return payload
+
+
+def _load_temp_registry(directory, payload):
+    directory = Path(directory)
+    directory.mkdir(parents=True, exist_ok=True)
+    path = directory / "FACTORY-REGISTRY.json"
+    path.write_text(json.dumps(payload), encoding="utf-8")
+    return identity.load_registry(path)
+
+
+class TestIdentityWriterExcludeAndPin(unittest.TestCase):
+    def test_registry_rejects_training_ready_and_invalid_rows(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            missing = Path(tmp) / "missing.json"
+            with self.assertRaisesRegex(identity.IdentityCurationError, "unreadable"):
+                identity.load_registry(missing)
+            bad_json = Path(tmp) / "bad.json"
+            bad_json.write_bytes(b"{")
+            with self.assertRaisesRegex(identity.IdentityCurationError, "UTF-8 JSON"):
+                identity.load_registry(bad_json)
+            not_object = Path(tmp) / "list.json"
+            not_object.write_text("[]\n", encoding="utf-8")
+            with self.assertRaisesRegex(identity.IdentityCurationError, "JSON object"):
+                identity.load_registry(not_object)
+
+            ready = _registry_payload([_valid_row(training_ready=True)])
+            with self.assertRaisesRegex(identity.IdentityCurationError, "training_ready"):
+                _load_temp_registry(tmp, ready)
+            nested_list = _registry_payload(
+                [_valid_row()],
+                notes=[{"training_ready": True}],
+            )
+            with self.assertRaisesRegex(identity.IdentityCurationError, "training_ready"):
+                _load_temp_registry(Path(tmp) / "nested", nested_list)
+
+            cases = (
+                ({"schema_version": "other", "lookup_key": "path_id", "factories": [_valid_row()]}, "schema_version"),
+                ({"schema_version": "factory-registry-v0.1", "lookup_key": "slug", "factories": [_valid_row()]}, "lookup_key"),
+                ({"schema_version": "factory-registry-v0.1", "lookup_key": "path_id", "factories": []}, "non-empty list"),
+                (_registry_payload(["not-an-object"]), "must be an object"),
+                (_registry_payload([{"path_id": "x"}]), "missing fields"),
+                (_registry_payload([_valid_row(path_id="")]), "path_id must be a string"),
+                (_registry_payload([_valid_row(payload_factory="")]), "payload_factory must be a string"),
+                (_registry_payload([_valid_row(record_kinds=[])]), "non-empty list"),
+                (_registry_payload([_valid_row(record_kinds=[1])]), "must be strings"),
+                (_registry_payload([_valid_row(identity_authoritative="yes")]), "must be a boolean"),
+                (_registry_payload([_valid_row(publication_target=17)]), "null or a string"),
+                (_registry_payload([_valid_row(training_ready_policy="always")]), "never or compose_eligible"),
+                (_registry_payload([_valid_row(allowed_curation_lanes="identity")]), "list of strings"),
+                (_registry_payload([_valid_row(provenance_contract_by_kind="episode")]), "must be an object"),
+                (
+                    _registry_payload(
+                        [_valid_row(provenance_contract_by_kind={"episode": "invent-designed"})]
+                    ),
+                    "missing allowed provenance_contract",
+                ),
+                (
+                    _registry_payload(
+                        [
+                            _valid_row(
+                                identity_authoritative=False,
+                                provenance_contract_by_kind={
+                                    "episode": "synthetic_shape_implies_designed"
+                                },
+                            )
+                        ]
+                    ),
+                    "requires identity_authoritative",
+                ),
+                (
+                    _registry_payload([_valid_row(), _valid_row()]),
+                    "duplicate registry path_id",
+                ),
+            )
+            for payload, needle in cases:
+                with self.subTest(needle=needle):
+                    with self.assertRaisesRegex(identity.IdentityCurationError, needle):
+                        _load_temp_registry(Path(tmp) / needle.replace(" ", "_"), payload)
+
+            accepted = _load_temp_registry(
+                Path(tmp) / "ok",
+                _registry_payload(
+                    [
+                        _valid_row(
+                            publication_target="rmems/example",
+                            training_ready_policy="compose_eligible",
+                        )
+                    ]
+                ),
+            )
+            row = accepted.by_path_id["tmp-factory"]
+            self.assertEqual(row.publication_target, "rmems/example")
+            self.assertEqual(row.training_ready_policy, "compose_eligible")
+
+    def test_exclude_unsupported_shape_and_missing_payload_factory(self):
+        unknown = identity.curate_record(
+            source({"meta": {"factory": FABLE_THALAMIC}}, f"{FABLE_THALAMIC}/odd.jsonl", 1)
+        )
+        self.assertEqual(unknown.action, "exclude")
+        self.assertEqual(
+            unknown.mapping["reason_codes"],
+            ["identity.unsupported_record_shape"],
+        )
+        missing_meta = episode(FABLE_ACT)
+        missing_meta["meta"] = {"round": 2}
+        mismatch = identity.curate_record(
+            source(missing_meta, f"{FABLE_ACT}/episodes.jsonl", 1)
+        )
+        self.assertEqual(mismatch.action, "exclude")
+        self.assertEqual(
+            mismatch.mapping["reason_codes"],
+            ["identity.factory_path_payload_mismatch"],
+        )
+        mismatch_blank = episode(FABLE_ACT)
+        mismatch_blank["meta"] = {"factory": "  "}
+        blank = identity.curate_record(
+            source(mismatch_blank, f"{FABLE_ACT}/episodes.jsonl", 1)
+        )
+        self.assertEqual(
+            blank.mapping["reason_codes"],
+            ["identity.factory_path_payload_mismatch"],
+        )
+        no_meta = episode(FABLE_ACT)
+        no_meta["meta"] = "not-an-object"
+        self.assertEqual(
+            identity.curate_record(
+                source(no_meta, f"{FABLE_ACT}/episodes.jsonl", 1)
+            ).mapping["reason_codes"],
+            ["identity.factory_path_payload_mismatch"],
+        )
+
+    def test_exclude_not_authoritative_and_invalid_contract(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            not_auth = identity.FactoryRow(
+                path_id=FABLE_THALAMIC,
+                payload_factory=FABLE_THALAMIC,
+                generator="fable-5",
+                generator_version="fable-5",
+                record_kinds=frozenset({"thalamic"}),
+                identity_authoritative=False,
+                publication_target=None,
+                training_ready_policy="never",
+                allowed_curation_lanes=("curate_identity",),
+                provenance_contract_by_kind={"thalamic": "require_state_claim"},
+            )
+            registry = identity.FactoryRegistry(
+                schema_version="factory-registry-v0.1",
+                sha256="a" * 64,
+                raw_bytes=b"{}",
+                by_path_id={FABLE_THALAMIC: not_auth},
+            )
+            result = identity.curate_record(source(thalamic()), registry=registry)
+            self.assertEqual(result.action, "exclude")
+            self.assertEqual(
+                result.mapping["reason_codes"],
+                ["identity.factory_not_identity_authoritative"],
+            )
+
+            missing_contract = identity.FactoryRow(
+                path_id=FABLE_ACT,
+                payload_factory=FABLE_ACT,
+                generator="fable-5",
+                generator_version="fable-5",
+                record_kinds=frozenset({"episode"}),
+                identity_authoritative=True,
+                publication_target=None,
+                training_ready_policy="never",
+                allowed_curation_lanes=("curate_identity",),
+                provenance_contract_by_kind={},
+            )
+            registry = identity.FactoryRegistry(
+                schema_version="factory-registry-v0.1",
+                sha256="b" * 64,
+                raw_bytes=b"{}",
+                by_path_id={FABLE_ACT: missing_contract},
+            )
+            result = identity.curate_record(
+                source(episode(FABLE_ACT), f"{FABLE_ACT}/episodes.jsonl", 1),
+                registry=registry,
+            )
+            self.assertEqual(result.action, "exclude")
+            self.assertEqual(
+                result.mapping["reason_codes"],
+                ["identity.factory_contract_invalid"],
+            )
+
+            thalamic_shape = identity.FactoryRow(
+                path_id=FABLE_THALAMIC,
+                payload_factory=FABLE_THALAMIC,
+                generator="fable-5",
+                generator_version="fable-5",
+                record_kinds=frozenset({"thalamic"}),
+                identity_authoritative=True,
+                publication_target=None,
+                training_ready_policy="never",
+                allowed_curation_lanes=("curate_identity",),
+                provenance_contract_by_kind={
+                    "thalamic": "synthetic_shape_implies_designed"
+                },
+            )
+            registry = identity.FactoryRegistry(
+                schema_version="factory-registry-v0.1",
+                sha256="c" * 64,
+                raw_bytes=b"{}",
+                by_path_id={FABLE_THALAMIC: thalamic_shape},
+            )
+            raw = thalamic()
+            raw["state"] = {"episode_id": "legacy-episode-17"}
+            result = identity.curate_record(source(raw), registry=registry)
+            self.assertEqual(result.action, "exclude")
+            self.assertEqual(
+                result.mapping["reason_codes"],
+                ["identity.factory_contract_invalid"],
+            )
+
+    def test_invalid_bridge_and_missing_state_object_exclude(self):
+        bad_view = {
+            "language_view": "not-an-object",
+            "spike_events": [],
+            "meta": {"factory": FABLE_BRIDGE},
+        }
+        result = identity.curate_record(source(bad_view, f"{FABLE_BRIDGE}/bad.jsonl", 1))
+        self.assertEqual(result.action, "exclude")
+        self.assertEqual(
+            result.mapping["reason_codes"],
+            ["identity.invalid_nested_shape"],
+        )
+        bad_traj = {
+            "language_view": {},
+            "spike_events": [],
+            "meta": {"factory": FABLE_BRIDGE},
+        }
+        result = identity.curate_record(source(bad_traj, f"{FABLE_BRIDGE}/bad.jsonl", 1))
+        self.assertEqual(
+            result.mapping["reason_codes"],
+            ["identity.invalid_nested_shape"],
+        )
+        pair = {
+            "chosen": {"note": "no state"},
+            "rejected": {"note": "no state"},
+            "meta": {"factory": FABLE_FFPC},
+        }
+        result = identity.curate_record(source(pair, f"{FABLE_FFPC}/batch.jsonl", 1))
+        self.assertEqual(result.action, "exclude")
+        self.assertEqual(
+            result.mapping["unresolved_provenance"][0]["reason"],
+            "missing_or_non_object_state",
+        )
+
+    def test_preference_mixed_claims_and_state_wins_on_sides(self):
+        mixed = {
+            "chosen": thalamic("designed"),
+            "rejected": thalamic("simulated"),
+            "meta": {"factory": FABLE_FFPC},
+        }
+        result = identity.curate_record(source(mixed, f"{FABLE_FFPC}/batch.jsonl", 1))
+        self.assertEqual(result.action, "retained")
+        self.assertEqual(result.record["provenance"]["kind"], "unknown")
+
+        pref = grok_pref()
+        pref["chosen"]["state"] = {"sim_or_real": "designed"}
+        pref["rejected"]["state"] = {"sim_or_real": "designed"}
+        result = identity.curate_record(
+            source(pref, "tool-use-preference-pairs/batch.jsonl", 1)
+        )
+        self.assertEqual(result.action, "retained")
+        self.assertEqual(result.record["provenance"]["kind"], "designed")
+        self.assertEqual(result.record["chosen"]["state"]["sim_or_real"], "designed")
+
+    def test_record_kind_and_caller_contract_errors(self):
+        with self.assertRaisesRegex(identity.IdentityCurationError, "JSON object"):
+            identity.record_kind("not-a-record")
+        with self.assertRaisesRegex(identity.IdentityCurationError, "unsupported"):
+            identity.record_kind({"meta": {}})
+        with self.assertRaisesRegex(identity.IdentityCurationError, "SourceRecord"):
+            identity.curate_record({"goal": "x", "steps": []})
+        with self.assertRaisesRegex(identity.IdentityCurationError, "canonical JSON"):
+            identity.canonical_json({1, 2})
+        with self.assertRaisesRegex(identity.IdentityCurationError, "64 hexadecimal"):
+            identity.curate_record(source(thalamic(), digest="not-a-digest"))
+        with self.assertRaises(identity.IdentityCurationError):
+            identity.curate_record(source(thalamic(), path=""))
+
+    def test_never_emit_real_is_enforced(self):
+        raw = episode(FABLE_ACT)
+        raw["state"] = {"sim_or_real": "simulated"}
+        with mock.patch.object(identity, "_map_claim", return_value="real"):
+            with self.assertRaisesRegex(identity.IdentityCurationError, "never emit"):
+                identity.curate_record(source(raw, f"{FABLE_ACT}/episodes.jsonl", 1))
+        def stamp_real(curated, *_args, **_kwargs):
+            curated["provenance"] = {"kind": "real"}
+            return [], []
+
+        with mock.patch.object(identity, "_apply_shape_designed", stamp_real):
+            with self.assertRaisesRegex(identity.IdentityCurationError, "never emit"):
+                identity.curate_record(
+                    source(episode(FABLE_ACT), f"{FABLE_ACT}/episodes.jsonl", 1)
+                )
+        curated = episode(FABLE_ACT)
+        curated["state"] = {"sim_or_real": "simulated"}
+        source_id = identity._source_identity(
+            source(curated, f"{FABLE_ACT}/episodes.jsonl", 1)
+        )
+        with self.assertRaisesRegex(identity.IdentityCurationError, "never emit"):
+            identity._apply_resolved_state(
+                curated,
+                curated,
+                source_id,
+                "episode",
+                [],
+                [("/", curated)],
+                [
+                    {
+                        "owner_path": "/",
+                        "state_path": "/state",
+                        "kind": "real",
+                        "claimed": "real",
+                        "basis": "state.sim_or_real",
+                        "original": {},
+                    }
+                ],
+                "sfcur-episode-record-" + "a" * 64,
+                [],
+            )
+
+    def test_write_run_refuses_existing_and_raw_and_cleans_up(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            src = Path(tmp) / "src"
+            dest = Path(tmp) / "dest"
+            (src / FABLE_ACT).mkdir(parents=True)
+            # Blank line plus a path/payload mismatch so write_run retains one
+            # record and skips the excluded mapping.
+            (src / FABLE_ACT / "episodes.jsonl").write_text(
+                identity.canonical_json(episode(FABLE_ACT))
+                + "\n\n"
+                + identity.canonical_json(episode("never-reviewed-factory"))
+                + "\n",
+                encoding="utf-8",
+            )
+            dest.mkdir()
+            with self.assertRaisesRegex(identity.IdentityCurationError, "already exists"):
+                identity.write_run(src, dest)
+            dest.rmdir()
+            raw_dest = Path(tmp) / "outputs" / "raw" / "cleaned"
+            raw_dest.parent.mkdir(parents=True)
+            with self.assertRaisesRegex(identity.IdentityCurationError, "raw evidence"):
+                identity.write_run(src, raw_dest)
+
+            original = identity._write_exclusive
+
+            def boom_after_manifest(path, payload):
+                original(path, payload)
+                if path.name == identity.IDENTITY_MANIFEST_SIDECAR:
+                    (dest / identity.FACTORY_REGISTRY_SIDECAR).unlink()
+                    raise OSError("sidecar vanished")
+
+            with mock.patch.object(identity, "_write_exclusive", boom_after_manifest):
+                with self.assertRaises(OSError):
+                    identity.write_run(src, dest)
+            self.assertFalse(dest.exists())
+
+            def boom_on_records(path, payload):
+                original(path, payload)
+                if path.suffix == ".jsonl":
+                    raise OSError("fsync failed")
+                return None
+
+            with mock.patch.object(identity, "_write_exclusive", boom_on_records):
+                with self.assertRaises(OSError):
+                    identity.write_run(src, dest)
+            self.assertFalse(dest.exists())
+
+            results = identity.write_run(src, dest)
+            self.assertEqual(sum(1 for item in results if item.action == "retained"), 1)
+            self.assertTrue((dest / FABLE_ACT / "episodes.jsonl").is_file())
+            identity.validate_identity_tree(dest)
+
+    def test_validate_identity_tree_pin_mismatch_and_sidecar_errors(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            src = Path(tmp) / "src"
+            dest = Path(tmp) / "dest"
+            (src / FABLE_ACT).mkdir(parents=True)
+            (src / FABLE_ACT / "episodes.jsonl").write_text(
+                identity.canonical_json(episode(FABLE_ACT)) + "\n",
+                encoding="utf-8",
+            )
+            identity.write_run(src, dest)
+            manifest_path = dest / "IDENTITY-MANIFEST.json"
+            sidecar = dest / "FACTORY-REGISTRY.json"
+
+            manifest_path.unlink()
+            with self.assertRaisesRegex(identity.IdentityTreeError, "IDENTITY-MANIFEST"):
+                identity.validate_identity_tree(dest)
+            manifest_path.write_text("not-json", encoding="utf-8")
+            with self.assertRaisesRegex(identity.IdentityTreeError, "not readable JSON"):
+                identity.validate_identity_tree(dest)
+            manifest_path.write_text("{}\n", encoding="utf-8")
+            with self.assertRaisesRegex(identity.IdentityTreeError, "list of mappings"):
+                identity.validate_identity_tree(dest)
+            manifest_path.write_text("[1]\n", encoding="utf-8")
+            with self.assertRaisesRegex(identity.IdentityTreeError, "must be an object"):
+                identity.validate_identity_tree(dest)
+            manifest_path.write_text(
+                json.dumps([{"registry": {"sha256": "0" * 64}}]) + "\n",
+                encoding="utf-8",
+            )
+            with self.assertRaisesRegex(identity.IdentityTreeError, "does not match sidecar pin"):
+                identity.validate_identity_tree(dest)
+            manifest_path.write_text(json.dumps([{"action": "retained"}]) + "\n", encoding="utf-8")
+            with self.assertRaisesRegex(identity.IdentityTreeError, "does not match sidecar pin"):
+                identity.validate_identity_tree(dest)
+            self.assertTrue(sidecar.is_file())
+
+    def test_iter_source_records_file_blank_lines_and_parse_error(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "episodes.jsonl"
+            path.write_text(
+                identity.canonical_json(episode(FABLE_ACT)) + "\n\nnot-json\n",
+                encoding="utf-8",
+            )
+            with self.assertRaisesRegex(identity.IdentityCurationError, "JSON parse error"):
+                identity.iter_source_records(path)
+            path.write_text(
+                identity.canonical_json(episode(FABLE_ACT)) + "\n\n",
+                encoding="utf-8",
+            )
+            records = identity.iter_source_records(path)
+            self.assertEqual(len(records), 1)
+            self.assertEqual(records[0].source_path, "episodes.jsonl")
+
+    def test_write_exclusive_unlinks_partial_file(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "sidecar.json"
+
+            def bad_fdopen(*_args, **_kwargs):
+                raise OSError("fdopen failed")
+
+            with mock.patch("os.fdopen", bad_fdopen):
+                with self.assertRaises(OSError):
+                    identity._write_exclusive(path, b"{}")
+            self.assertFalse(path.exists())
+
+    def test_main_dry_run_write_and_failure(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            src = Path(tmp) / "src"
+            dest = Path(tmp) / "dest"
+            (src / FABLE_ACT).mkdir(parents=True)
+            (src / FABLE_ACT / "episodes.jsonl").write_text(
+                identity.canonical_json(episode(FABLE_ACT)) + "\n",
+                encoding="utf-8",
+            )
+            stdout = io.StringIO()
+            with mock.patch("sys.stdout", stdout):
+                self.assertEqual(identity.main([str(src)]), 0)
+            summary = json.loads(stdout.getvalue())
+            self.assertEqual(summary["retained"], 1)
+            stdout = io.StringIO()
+            with mock.patch("sys.stdout", stdout):
+                self.assertEqual(identity.main([str(src), "--out", str(dest)]), 0)
+            identity.validate_identity_tree(dest)
+            stderr = io.StringIO()
+            with mock.patch("sys.stderr", stderr):
+                self.assertEqual(identity.main([str(src), "--out", str(dest)]), 1)
+            self.assertIn("already exists", stderr.getvalue())
+
+    def test_internal_empty_owner_and_root_shape_designed_paths(self):
+        self.assertEqual(identity._curated_resolve_owners({}, "episode", []), [])
+        curated = episode(FABLE_ACT)
+        source_id = identity._source_identity(
+            source(curated, f"{FABLE_ACT}/episodes.jsonl", 1)
+        )
+        ids, mappings = identity._apply_shape_designed(
+            curated,
+            curated,
+            source_id,
+            "episode",
+            [("/", curated)],
+            "sfcur-episode-record-" + "b" * 64,
+            [],
+        )
+        self.assertEqual(ids[0]["owner_path"], "/")
+        self.assertEqual(mappings[0]["canonical"]["kind"], "designed")
+        excluded = identity.curate_record(
+            source(episode("never-reviewed-factory"), "never-reviewed-factory/e.jsonl", 1)
+        )
+        retained = identity.curate_record(
+            source(episode(FABLE_ACT), f"{FABLE_ACT}/episodes.jsonl", 1)
+        )
+        summary = identity._summary(
+            (excluded, retained),
+            identity.default_registry(),
+        )
+        self.assertEqual(summary["retained"], 1)
+        self.assertEqual(summary["excluded"], 1)
 
 
 if __name__ == "__main__":
