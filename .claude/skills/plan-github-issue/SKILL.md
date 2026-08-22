@@ -61,11 +61,16 @@ v0.1.0*; gate / generation / distillation → *Factory v0.2.0*. Pick the milesto
 bd create "<title>" \
   --type=<bug|feature|task|epic|chore|decision> --priority=<0-4> \
   --parent=<parent-bead-id> \
-  --assignee="Raul Montoya Cardenas" \
+  [--assignee="<owner>"] \
   --labels="synthetic-factory,curation,audit,..." \
   --description "..." --design "..." --acceptance "..." --notes "..."
 ```
 
+- **`--assignee` is optional — derive it from who owns the work.** Most beads here are
+  unassigned (11 of 18 at last check) and several are agent-owned (`agent:Ramanujan`,
+  `agent:Nietzsche`, `codex/gpt-5.6-sol max`). Assign a human only when a human asked
+  for it; omit the flag when ownership is undecided, and use the agent's identifier
+  when an agent owns the lane. Do not default every bead to the repo owner.
 - **Derive `--type` and `--priority` from the work, not from this example.** A defect
   is `bug`; new capability is `feature`; routine work is `task`; a lane spanning
   several issues is `epic`; a choice to record is `decision`. `--priority` takes `0-4`
@@ -120,10 +125,15 @@ and is what marker-based duplicate checks and reconciliation key on:
 
 ## Bead metadata
 - **Bead:** `sf-xxx`
-- **Type:** `bug`
-- **Local status:** `open`
-- **Priority:** `P1`
+- **Type:** `<type>`
+- **Local status:** `<status>`
+- **Priority:** `P<n>`
+- **Estimate:** `<minutes>` or _not estimated_
+- **Assigned agent:** `<assignee>` — omit this line entirely when unassigned
 - **Parent bead:** `sf-yyy` — <parent title>
+- **Blocked by / blocks:** `<bead-ids>` — omit when there are none
+- **Spec:** `docs/superpowers/specs/<file>.md` — omit when the bead has no `Spec:` line
+- **Repository:** https://github.com/rmems/synthetic-factory
 
 ## Objective
 ## Evidence
