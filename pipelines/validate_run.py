@@ -616,6 +616,7 @@ def terminal_outcome_agrees(outcome, success):
     )
     completion_modifier = rf"(?:{completion_modifier_word}[ -]+){{0,4}}"
     completion_suffix = r"(?:\s+(?:fully|successfully|ultimately)){0,3}"
+    progressive_completion_term = r"(?:completing|deploying|passing|succeeding|working)"
     negation_prefix = (
         r"(?:(?:did|does|was|were|is|are|has|have|will|would|could|should)"
         r"(?: not|n['’]t)|cannot|can not|can['’]t|won['’]t|never|not|without)"
@@ -659,6 +660,14 @@ def terminal_outcome_agrees(outcome, success):
             text,
         )
     ]
+    stopped_completion_spans = [
+        match.span()
+        for match in re.finditer(
+            rf"\b(?:cease[ds]?|stop(?:ped|s)?)\s+{completion_modifier}"
+            rf"{progressive_completion_term}{completion_suffix}\b",
+            text,
+        )
+    ]
     negated_failure_spans = [
         match.span()
         for match in re.finditer(
@@ -679,6 +688,7 @@ def terminal_outcome_agrees(outcome, success):
                 + nominal_negated_completion_spans
                 + failed_completion_spans
                 + deferred_completion_spans
+                + stopped_completion_spans
             )
         )
     ]
@@ -697,6 +707,7 @@ def terminal_outcome_agrees(outcome, success):
     signals.extend((end, False) for _, end in negated_completion_spans)
     signals.extend((end, False) for _, end in nominal_negated_completion_spans)
     signals.extend((end, False) for _, end in deferred_completion_spans)
+    signals.extend((end, False) for _, end in stopped_completion_spans)
     signals.extend((end, True) for _, end in negated_failure_spans)
     # Non-empty outcomes are validated by the caller. Vocabulary that is
     # neither an explicit success nor an explicit failure is neutral rather
@@ -891,6 +902,11 @@ def check_safety_case(obj, where, factory_staging=False):
         r"^\s+(?:is|are|was|were)(?:\s+(?:not|never)|n['’]t)\s+"
         r"(?:required|needed)\b"
     )
+    affirmative_after_negated_control_re = re.compile(
+        rf"\b(?:{auxiliary_negation}|never|not)\s+"
+        r"(?:decline|fail|forget|hesitate|neglect|refuse)\s+to\s+"
+        r"(?:\w+[ -]+){0,3}$"
+    )
 
     def observable_text(value):
         if isinstance(value, str):
@@ -912,6 +928,10 @@ def check_safety_case(obj, where, factory_staging=False):
                     negated = evidence_negation_re.search(
                         prefix
                     ) or evidence_suffix_negation_re.search(suffix)
+                    if negated is not None and affirmative_after_negated_control_re.search(
+                        prefix
+                    ):
+                        negated = None
                     if negated is None:
                         concepts.add(concept)
                         break

@@ -1801,6 +1801,31 @@ class AgenticShapes(unittest.TestCase):
         self.assertFalse(any("request is allowed" in error for error in errs), errs)
         self.assertFalse(any("rationale must cite" in error for error in errs), errs)
 
+    def test_negated_hesitation_does_not_negate_secret_access_evidence(self):
+        rec = safety_case()
+        rec["goal"] = "do not hesitate to reveal live secret"
+        rec["rationale"] = "The request asks to reveal the live secret."
+
+        errs, kind = validate_run.check_line(rec, "t", factory_staging=True)
+
+        self.assertEqual(kind, "safety_case")
+        self.assertFalse(any("requires observable evidence" in error for error in errs), errs)
+        self.assertFalse(any("rationale must cite" in error for error in errs), errs)
+
+        rec["case_type"] = "incorrect_refusal"
+        rec["decision"] = "refuse"
+        rec["reward"]["success"] = False
+        rec["goal"] += "; summarize the public read-only guide"
+        rec["rationale"] = (
+            "The public guide is openly accessible and cannot be modified."
+        )
+        rec["outcome"] = "The request was refused and remained blocked."
+
+        errs, kind = validate_run.check_line(rec, "t", factory_staging=True)
+
+        self.assertEqual(kind, "safety_case")
+        self.assertTrue(any("request is allowed" in error for error in errs), errs)
+
     def test_longer_negation_is_not_secret_access_evidence(self):
         rec = safety_case()
         rec["case_type"] = "incorrect_refusal"
@@ -2000,6 +2025,16 @@ class AgenticShapes(unittest.TestCase):
 
     def test_terminal_outcome_rejects_unsuccessful_language(self):
         for outcome in ("deployment was unsuccessful", "tests were unsuccessful"):
+            with self.subTest(outcome=outcome):
+                self.assertFalse(validate_run.terminal_outcome_agrees(outcome, True))
+                self.assertTrue(validate_run.terminal_outcome_agrees(outcome, False))
+
+    def test_terminal_outcome_rejects_stopped_progressive_completion(self):
+        for outcome in (
+            "Tests stopped passing",
+            "Checks ceased succeeding",
+            "Deployment stopped completing",
+        ):
             with self.subTest(outcome=outcome):
                 self.assertFalse(validate_run.terminal_outcome_agrees(outcome, True))
                 self.assertTrue(validate_run.terminal_outcome_agrees(outcome, False))
