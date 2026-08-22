@@ -1,0 +1,12 @@
+[run]
+branch = True
+source =
+    pipelines
+    scripts
+    .claude/skills/run-synthetic-factory
+
+[report]
+show_missing = True
+
+[xml]
+output = coverage.xml

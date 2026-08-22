@@ -467,7 +467,6 @@ def curate_record(source_record: SourceRecord) -> CurationResult:
         for resolution, (owner_path, owner) in zip(
             provenance_resolutions, curated_owners, strict=True
         ):
-            nested_id = output_id
             if owner_path != "/":
                 nested_id = _canonical_id(source, kind, owner_path)
                 owner["id"] = nested_id

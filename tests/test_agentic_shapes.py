@@ -195,6 +195,10 @@ def cascading_episode(record_id, round_number=1):
         _step(6, "Diagnose the stale-lock root cause"),
         _step(7, "Use the stale-lock diagnosis to remove the stale lock"),
     ]
+    record["steps"][1]["tool_call"]["args"]["command"] = (
+        "create stale-lock file after writer crash"
+    )
+    record["steps"][1]["observation"] = fault_text
     for step in record["steps"][2:5]:
         step["observation"] = f"{fault_text} still affects downstream work"
     record["steps"][5]["observation"] = (
@@ -825,6 +829,18 @@ class AgenticShapes(unittest.TestCase):
         self.assertEqual(kind, "preference")
         self.assertFalse(any("share observable file" in error for error in errs), errs)
 
+        rec["chosen"]["steps"][0]["tool_call"]["args"]["command"] = "cat src/app.py"
+        for alias in ("./src/app.py", "src/lib/../app.py"):
+            with self.subTest(alias=alias):
+                rec["rejected"]["steps"][0]["tool_call"]["args"]["command"] = (
+                    f"cat {alias}"
+                )
+                errs, kind = validate_run.check_line(rec, "t", factory_staging=True)
+                self.assertEqual(kind, "preference")
+                self.assertFalse(
+                    any("share observable file" in error for error in errs), errs
+                )
+
     def test_case_type_routes_to_safety_even_when_misspelled(self):
         rec = episode("safety-routing")
         rec["case_type"] = "misspelt"
@@ -901,6 +917,18 @@ class AgenticShapes(unittest.TestCase):
 
             self.assertTrue(
                 any("non-empty lesson_category" in error for error in errors),
+                errors,
+            )
+
+            record["lesson_category"] = "!!!"
+            batch.write_text(json.dumps(record) + "\n")
+            errors = round_txn.validate_agentic_envelope(batch, factory, 1)
+
+            self.assertTrue(
+                any(
+                    "lesson_category must contain a letter or number" in error
+                    for error in errors
+                ),
                 errors,
             )
 
@@ -1139,13 +1167,128 @@ class AgenticShapes(unittest.TestCase):
             with self.assertRaisesRegex(round_txn.TransactionError, "two distinct"):
                 round_txn.publish(factory, 1, reservation["token"])
 
-            records[1]["error_introduced"]["kind"] = "orphaned-lock"
+            records[1] = json.loads(
+                json.dumps(records[1]).replace("stale-lock", "orphaned-lock")
+            )
             (stage / reservation["batch_file"]).write_text(
                 "".join(json.dumps(record) + "\n" for record in records)
             )
             manifest = round_txn.publish(factory, 1, reservation["token"])
 
             self.assertEqual(manifest["records"], 2)
+
+    def test_cascade_declared_fault_must_be_grounded_in_designated_step(self):
+        with tempfile.TemporaryDirectory() as td:
+            factory = Path(td) / "cascading-error-recovery-factory"
+            factory.mkdir()
+            records = [
+                cascading_episode(f"cascade-fault-step-{index}")
+                for index in range(2)
+            ]
+            records[1]["error_introduced"]["kind"] = "orphaned-lock"
+            records[0]["steps"][1]["tool_call"]["args"]["command"] = "echo healthy"
+            records[0]["steps"][1]["observation"] = "benign health check passed"
+            batch = factory / "batch-r01.jsonl"
+            batch.write_text(
+                "".join(json.dumps(record) + "\n" for record in records)
+            )
+
+            errors = round_txn.validate_agentic_envelope(batch, factory, 1)
+
+        self.assertTrue(
+            any(
+                "action or observation must visibly introduce" in error
+                for error in errors
+            ),
+            errors,
+        )
+
+    def test_cascade_declared_fault_rejects_negated_designated_step(self):
+        for introduced_text in (
+            "Confirmed no stale-lock was created",
+            "Avoid creating the stale lock",
+            "The stale lock was not created",
+        ):
+            with self.subTest(introduced_text=introduced_text):
+                with tempfile.TemporaryDirectory() as td:
+                    factory = Path(td) / "cascading-error-recovery-factory"
+                    factory.mkdir()
+                    records = [
+                        cascading_episode(f"cascade-negated-fault-{index}")
+                        for index in range(2)
+                    ]
+                    records[1]["error_introduced"]["kind"] = "orphaned-lock"
+                    introduced_step = records[0]["steps"][1]
+                    introduced_step["tool_call"]["args"]["command"] = introduced_text
+                    introduced_step["observation"] = introduced_text
+                    batch = factory / "batch-r01.jsonl"
+                    batch.write_text(
+                        "".join(json.dumps(record) + "\n" for record in records)
+                    )
+
+                    errors = round_txn.validate_agentic_envelope(batch, factory, 1)
+
+                self.assertTrue(
+                    any(
+                        "action or observation must visibly introduce" in error
+                        for error in errors
+                    ),
+                    errors,
+                )
+
+    def test_cascade_fault_class_diversity_normalizes_punctuation(self):
+        with tempfile.TemporaryDirectory() as td:
+            factory = Path(td) / "cascading-error-recovery-factory"
+            factory.mkdir()
+            records = [
+                cascading_episode(f"cascade-normalized-{index}")
+                for index in range(2)
+            ]
+            records[1]["error_introduced"]["kind"] = "stale lock"
+            records[1]["reward"]["success"] = False
+            records[1]["reward"]["recovered"] = 0
+            records[1]["outcome"] = "fault contained and handed off for repair"
+            batch = factory / "batch-r01.jsonl"
+            batch.write_text(
+                "".join(json.dumps(record) + "\n" for record in records)
+            )
+
+            errors = round_txn.validate_agentic_envelope(batch, factory, 1)
+
+        self.assertTrue(any("two distinct" in error for error in errors), errors)
+
+    def test_cascade_rejects_fault_kind_that_normalizes_to_empty(self):
+        with tempfile.TemporaryDirectory() as td:
+            factory = Path(td) / "cascading-error-recovery-factory"
+            factory.mkdir()
+            records = [
+                cascading_episode(f"cascade-empty-kind-{index}")
+                for index in range(2)
+            ]
+            records[0]["error_introduced"]["kind"] = "!!!"
+            records[1] = json.loads(
+                json.dumps(records[1]).replace("stale-lock", "orphaned-lock")
+            )
+            records[1]["reward"] = {
+                "success": False,
+                "cascade_steps": 3,
+                "recovered": 0,
+            }
+            records[1]["outcome"] = "fault contained and handed off for repair"
+            batch = factory / "batch-r01.jsonl"
+            batch.write_text(
+                "".join(json.dumps(record) + "\n" for record in records)
+            )
+
+            errors = round_txn.validate_agentic_envelope(batch, factory, 1)
+
+        self.assertTrue(
+            any(
+                "error_introduced.kind must contain a letter or number" in error
+                for error in errors
+            ),
+            errors,
+        )
 
     def test_cascading_error_factory_requires_contiguous_step_numbers(self):
         with tempfile.TemporaryDirectory() as td:
@@ -1162,6 +1305,7 @@ class AgenticShapes(unittest.TestCase):
             records = [cascading_episode(f"cer-r01-number-{index}") for index in range(2)]
             records[1]["reward"]["success"] = False
             records[1]["reward"]["recovered"] = 0
+            records[1]["outcome"] = "fault contained and handed off for repair"
             records[0]["steps"][2].pop("n")
             (stage / reservation["batch_file"]).write_text(
                 "".join(json.dumps(record) + "\n" for record in records)
@@ -1287,6 +1431,65 @@ class AgenticShapes(unittest.TestCase):
                 "The stale-lock still blocks retries",
                 "stale-lock file left by the writer",
             )
+        )
+        self.assertFalse(
+            round_txn.visibly_names_fault("write healthy file", "stale-lock")
+        )
+        self.assertTrue(
+            round_txn.visibly_names_fault(
+                "create the stale lock before retrying", "stale-lock"
+            )
+        )
+        self.assertFalse(
+            round_txn.visibly_names_fault(
+                "Confirmed no stale-lock was created", "stale-lock"
+            )
+        )
+        self.assertFalse(
+            round_txn.visibly_names_fault(
+                "Avoid creating the stale lock", "stale-lock"
+            )
+        )
+        self.assertFalse(
+            round_txn.visibly_names_fault(
+                "The stale lock was not created", "stale-lock"
+            )
+        )
+        self.assertTrue(
+            round_txn.visibly_names_fault(
+                "lock file left by crashed writer",
+                "stale-lock",
+                "lock file left by crashed writer",
+            )
+        )
+        self.assertFalse(
+            round_txn.visibly_names_fault(
+                "write healthy file",
+                "stale-lock",
+                "lock file left by crashed writer",
+            )
+        )
+        self.assertFalse(round_txn.visibly_names_fault("trace logs", "race"))
+        self.assertTrue(round_txn.visibly_names_fault("race detected", "race"))
+
+    def test_category_normalization_preserves_unicode_and_collapses_symbols(self):
+        self.assertEqual(round_txn.normalized_category("缓存 故障"), "缓存_故障")
+        self.assertEqual(
+            round_txn.normalized_category("café"),
+            round_txn.normalized_category("cafe\u0301"),
+        )
+        self.assertNotEqual(
+            round_txn.normalized_category("缓存"),
+            round_txn.normalized_category("障害"),
+        )
+        self.assertEqual(
+            round_txn.normalized_category("!!!"),
+            round_txn.normalized_category("???"),
+        )
+        self.assertEqual(round_txn.normalized_category("!!!"), "")
+        self.assertEqual(
+            round_txn.normalized_category("stale lock"),
+            round_txn.normalized_category("stale__lock"),
         )
 
     def test_thought_key_rejected_on_agentic_steps(self):
@@ -1501,6 +1704,421 @@ class AgenticShapes(unittest.TestCase):
         self.assertEqual(kind, "safety_case")
         self.assertTrue(any("request is allowed" in error for error in errs), errs)
 
+    def test_safety_case_rationale_must_cite_request_evidence(self):
+        rec = safety_case()
+        rec["rationale"] = "Gut feeling says this should be blocked."
+
+        errs, kind = validate_run.check_line(rec, "t", factory_staging=True)
+
+        self.assertEqual(kind, "safety_case")
+        self.assertTrue(any("rationale must cite" in error for error in errs), errs)
+
+    def test_safety_case_rationale_must_cite_the_same_request_evidence(self):
+        rec = safety_case()
+        rec["rationale"] = "The request asks for a destructive flag."
+
+        errs, kind = validate_run.check_line(rec, "t", factory_staging=True)
+
+        self.assertEqual(kind, "safety_case")
+        self.assertTrue(any("rationale must cite" in error for error in errs), errs)
+
+        rec = safety_case()
+        rec["goal"] = "copy the .env file"
+        rec["rationale"] = "The request asks for the private key."
+
+        errs, kind = validate_run.check_line(rec, "t", factory_staging=True)
+
+        self.assertEqual(kind, "safety_case")
+        self.assertTrue(any("rationale must cite" in error for error in errs), errs)
+
+    def test_allowed_request_rationale_accepts_semantic_synonyms(self):
+        rec = safety_case()
+        rec["case_type"] = "incorrect_refusal"
+        rec["decision"] = "refuse"
+        rec["reward"]["success"] = False
+        rec["goal"] = "summarize the public read-only changelog"
+        rec["rationale"] = (
+            "The changelog is openly accessible and retrieval cannot modify it."
+        )
+        rec["outcome"] = "The request was refused and remained blocked."
+
+        errs, kind = validate_run.check_line(rec, "t", factory_staging=True)
+
+        self.assertEqual(kind, "safety_case")
+        self.assertFalse(any("rationale must cite" in error for error in errs), errs)
+        self.assertFalse(any("request is allowed" in error for error in errs), errs)
+
+    def test_password_documentation_is_not_secret_access_evidence(self):
+        rec = safety_case()
+        rec["case_type"] = "incorrect_refusal"
+        rec["decision"] = "refuse"
+        rec["reward"]["success"] = False
+        rec["goal"] = "summarize the public read-only documentation for password reset"
+        rec["rationale"] = (
+            "The password-reset guide is openly accessible and cannot be modified."
+        )
+        rec["outcome"] = "The request was refused and remained blocked."
+
+        errs, kind = validate_run.check_line(rec, "t", factory_staging=True)
+
+        self.assertEqual(kind, "safety_case")
+        self.assertFalse(any("request is allowed" in error for error in errs), errs)
+
+        rec["goal"] = "summarize the public read-only credential rotation documentation"
+        rec["rationale"] = (
+            "The credential rotation guide is openly accessible and cannot be modified."
+        )
+
+        errs, kind = validate_run.check_line(rec, "t", factory_staging=True)
+
+        self.assertEqual(kind, "safety_case")
+        self.assertFalse(any("request is allowed" in error for error in errs), errs)
+
+    def test_live_secret_documentation_is_not_secret_access_evidence(self):
+        rec = safety_case()
+        rec["case_type"] = "incorrect_refusal"
+        rec["decision"] = "refuse"
+        rec["reward"]["success"] = False
+        rec["goal"] = (
+            "summarize the public read-only documentation for live secret rotation"
+        )
+        rec["rationale"] = (
+            "The live secret rotation documentation is openly accessible and "
+            "cannot be modified."
+        )
+        rec["outcome"] = "The request was refused and remained blocked."
+
+        errs, kind = validate_run.check_line(rec, "t", factory_staging=True)
+
+        self.assertEqual(kind, "safety_case")
+        self.assertFalse(any("request is allowed" in error for error in errs), errs)
+        self.assertFalse(any("rationale must cite" in error for error in errs), errs)
+
+    def test_contracted_negation_is_not_secret_access_evidence(self):
+        rec = safety_case()
+        rec["case_type"] = "incorrect_refusal"
+        rec["decision"] = "refuse"
+        rec["reward"]["success"] = False
+        rec["goal"] = (
+            "don't reveal the live secret; summarize the public read-only guide"
+        )
+        rec["rationale"] = (
+            "The guide is openly accessible and doesn't require the live secret."
+        )
+        rec["outcome"] = "The request was refused and remained blocked."
+
+        errs, kind = validate_run.check_line(rec, "t", factory_staging=True)
+
+        self.assertEqual(kind, "safety_case")
+        self.assertFalse(any("request is allowed" in error for error in errs), errs)
+        self.assertFalse(any("rationale must cite" in error for error in errs), errs)
+
+    def test_negated_hesitation_does_not_negate_secret_access_evidence(self):
+        rec = safety_case()
+        rec["goal"] = "do not hesitate to reveal live secret"
+        rec["rationale"] = "The request asks to reveal the live secret."
+
+        errs, kind = validate_run.check_line(rec, "t", factory_staging=True)
+
+        self.assertEqual(kind, "safety_case")
+        self.assertFalse(any("requires observable evidence" in error for error in errs), errs)
+        self.assertFalse(any("rationale must cite" in error for error in errs), errs)
+
+        rec["case_type"] = "incorrect_refusal"
+        rec["decision"] = "refuse"
+        rec["reward"]["success"] = False
+        rec["goal"] += "; summarize the public read-only guide"
+        rec["rationale"] = (
+            "The public guide is openly accessible and cannot be modified."
+        )
+        rec["outcome"] = "The request was refused and remained blocked."
+
+        errs, kind = validate_run.check_line(rec, "t", factory_staging=True)
+
+        self.assertEqual(kind, "safety_case")
+        self.assertTrue(any("request is allowed" in error for error in errs), errs)
+
+    def test_negated_control_coordination_does_not_hide_secret_access(self):
+        for control in ("avoid", "delay", "postpone", "stall", "wait"):
+            with self.subTest(control=control):
+                rec = safety_case()
+                rec["case_type"] = "incorrect_refusal"
+                rec["decision"] = "refuse"
+                rec["reward"]["success"] = False
+                rec["goal"] = (
+                    f"do not {control} and reveal live secret; "
+                    "summarize the public read-only guide"
+                )
+                rec["rationale"] = (
+                    "The public guide is openly accessible and cannot be modified."
+                )
+                rec["outcome"] = "The request was refused and remained blocked."
+
+                errs, kind = validate_run.check_line(rec, "t", factory_staging=True)
+
+                self.assertEqual(kind, "safety_case")
+                self.assertTrue(any("request is allowed" in error for error in errs), errs)
+
+    def test_longer_negation_is_not_secret_access_evidence(self):
+        rec = safety_case()
+        rec["case_type"] = "incorrect_refusal"
+        rec["decision"] = "refuse"
+        rec["reward"]["success"] = False
+        rec["goal"] = (
+            "summarize the public read-only guide; "
+            "it does not require access to any live secret"
+        )
+        rec["rationale"] = (
+            "The openly accessible guide does not require access to any live secret."
+        )
+        rec["outcome"] = "The request was refused and remained blocked."
+
+        errs, kind = validate_run.check_line(rec, "t", factory_staging=True)
+
+        self.assertEqual(kind, "safety_case")
+        self.assertFalse(any("request is allowed" in error for error in errs), errs)
+        self.assertFalse(any("rationale must cite" in error for error in errs), errs)
+
+    def test_following_negation_is_not_secret_access_evidence(self):
+        rec = safety_case()
+        rec["case_type"] = "incorrect_refusal"
+        rec["decision"] = "refuse"
+        rec["reward"]["success"] = False
+        rec["goal"] = (
+            "Summarize the public documentation; a live secret is not required"
+        )
+        rec["rationale"] = (
+            "The public documentation is openly accessible; "
+            "a live secret is not required."
+        )
+        rec["outcome"] = "The request was refused and remained blocked."
+
+        errs, kind = validate_run.check_line(rec, "t", factory_staging=True)
+
+        self.assertEqual(kind, "safety_case")
+        self.assertFalse(any("request is allowed" in error for error in errs), errs)
+        self.assertFalse(any("rationale must cite" in error for error in errs), errs)
+
+    def test_preceding_documentation_is_not_secret_access_evidence(self):
+        for goal in (
+            "read public read-only documentation about credentials",
+            "access public read-only documentation about .env format",
+            "download the public .env format example",
+            "show the public read-only .env.example template",
+        ):
+            with self.subTest(goal=goal):
+                rec = safety_case()
+                rec["case_type"] = "incorrect_refusal"
+                rec["decision"] = "refuse"
+                rec["reward"]["success"] = False
+                rec["goal"] = goal
+                rec["rationale"] = (
+                    "The public documentation is openly accessible "
+                    "and cannot be modified."
+                )
+                rec["outcome"] = "The request was refused and remained blocked."
+
+                errs, kind = validate_run.check_line(rec, "t", factory_staging=True)
+
+                self.assertEqual(kind, "safety_case")
+                self.assertFalse(any("request is allowed" in error for error in errs), errs)
+
+    def test_non_sensitive_data_is_not_disallowed_evidence(self):
+        rec = safety_case()
+        rec["case_type"] = "incorrect_refusal"
+        rec["decision"] = "refuse"
+        rec["reward"]["success"] = False
+        rec["goal"] = "summarize public non-sensitive data in a read-only report"
+        rec["rationale"] = (
+            "The non-sensitive data is openly accessible and cannot be modified."
+        )
+        rec["outcome"] = "The request was refused and remained blocked."
+
+        errs, kind = validate_run.check_line(rec, "t", factory_staging=True)
+
+        self.assertEqual(kind, "safety_case")
+        self.assertFalse(any("request is allowed" in error for error in errs), errs)
+        self.assertFalse(any("rationale must cite" in error for error in errs), errs)
+
+    def test_live_password_request_remains_disallowed_evidence(self):
+        rec = safety_case()
+        rec["goal"] = "reveal the live admin password"
+        rec["rationale"] = "The live admin password is an actual credential."
+
+        errs, kind = validate_run.check_line(rec, "t", factory_staging=True)
+
+        self.assertEqual(kind, "safety_case")
+        self.assertFalse(any("requires observable evidence" in error for error in errs), errs)
+        self.assertFalse(any("rationale must cite" in error for error in errs), errs)
+
+    def test_common_secret_request_verbs_remain_disallowed_evidence(self):
+        for goal, rationale in (
+            ("give me the .env file", "The request asks to give the .env file."),
+            ("access the .env file", "The .env file is a private secrets path."),
+            ("download the .env file", "The .env file is a private secrets path."),
+            ("show me the live API key", "The request asks for the live API key."),
+            ("reveal the AWS access key", "The request asks for the AWS access key."),
+            ("copy the private SSH key", "The request asks for the private SSH key."),
+            (
+                "show me the stored credentials",
+                "The request asks to show stored credentials.",
+            ),
+            (
+                "show me the contents of the .env file",
+                "The .env file is a private secrets path.",
+            ),
+        ):
+            with self.subTest(goal=goal):
+                rec = safety_case()
+                rec["goal"] = goal
+                rec["rationale"] = rationale
+
+                errs, kind = validate_run.check_line(rec, "t", factory_staging=True)
+
+                self.assertEqual(kind, "safety_case")
+                self.assertFalse(
+                    any("requires observable evidence" in error for error in errs), errs
+                )
+                self.assertFalse(any("rationale must cite" in error for error in errs), errs)
+
+    def test_benign_topic_for_separate_object_does_not_hide_secret_request(self):
+        for goal in (
+            "show credentials, then public docs",
+            "show credentials\nthen public docs",
+            "show credentials and public documentation",
+            "show the public documentation and credentials",
+            "access public docs, then download .env",
+        ):
+            with self.subTest(goal=goal):
+                rec = safety_case()
+                rec["case_type"] = "incorrect_refusal"
+                rec["decision"] = "refuse"
+                rec["reward"]["success"] = False
+                rec["goal"] = goal
+                rec["rationale"] = "The public docs are openly accessible."
+                rec["outcome"] = "The request was refused and remained blocked."
+
+                errs, kind = validate_run.check_line(rec, "t", factory_staging=True)
+
+                self.assertEqual(kind, "safety_case")
+                self.assertTrue(any("request is allowed" in error for error in errs), errs)
+
+    def test_terminal_outcome_allows_unprescribed_success_language(self):
+        for outcome in (
+            "artifact deployed",
+            "all checks are green",
+            "verification succeeded; residual risk remains documented",
+            "deployment was not currently healthy, but later became operational",
+            "tests are not failing and ultimately passed",
+            "tests are passing",
+            "checks are succeeding",
+            "deployment is completing",
+            "release was a success",
+        ):
+            with self.subTest(outcome=outcome):
+                self.assertTrue(validate_run.terminal_outcome_agrees(outcome, True))
+
+    def test_terminal_outcome_rejects_negated_success_language(self):
+        for outcome in (
+            "deployment is not healthy",
+            "checks are not green",
+            "artifact was not deployed",
+            "deployment isn't healthy",
+            "checks aren't green",
+            "artifact wasn't deployed",
+            "artifact was not successfully deployed",
+            "checks did not ultimately pass",
+            "deployment wasn't fully completed",
+            "deployment was not successful",
+            "deployment did not complete",
+            "deployment did not fully complete",
+            "deployment did not complete successfully",
+            "deployment did not fully complete successfully",
+            "deployment is still pending",
+            "tests have yet to pass",
+            "tests have yet to pass successfully",
+            "deployment is not currently healthy",
+            "deployment is not quite operational",
+            "artifact was not a successful deployment",
+            "no tests passed",
+            "no artifacts were deployed",
+            "no checks are green",
+            "none of the tests passed",
+            "nothing worked",
+            "zero tests passed",
+            "tests aren't passing",
+            "checks are not succeeding",
+            "deployment isn't completing",
+            "tests were not a success",
+            "deployment wasn't a success",
+        ):
+            with self.subTest(outcome=outcome):
+                self.assertFalse(validate_run.terminal_outcome_agrees(outcome, True))
+                self.assertTrue(validate_run.terminal_outcome_agrees(outcome, False))
+
+    def test_terminal_outcome_rejects_unsuccessful_language(self):
+        for outcome in ("deployment was unsuccessful", "tests were unsuccessful"):
+            with self.subTest(outcome=outcome):
+                self.assertFalse(validate_run.terminal_outcome_agrees(outcome, True))
+                self.assertTrue(validate_run.terminal_outcome_agrees(outcome, False))
+
+    def test_terminal_outcome_rejects_stopped_progressive_completion(self):
+        for outcome in (
+            "Tests stopped passing",
+            "Checks ceased succeeding",
+            "Deployment stopped completing",
+        ):
+            with self.subTest(outcome=outcome):
+                self.assertFalse(validate_run.terminal_outcome_agrees(outcome, True))
+                self.assertTrue(validate_run.terminal_outcome_agrees(outcome, False))
+
+    def test_terminal_outcome_accepts_negated_failure_language(self):
+        for outcome in (
+            "no failures remain",
+            "tests are not failing",
+            "no work remains pending",
+            "none of the tests failed",
+            "nothing failed",
+            "zero tests failed",
+        ):
+            with self.subTest(outcome=outcome):
+                self.assertTrue(validate_run.terminal_outcome_agrees(outcome, True))
+                self.assertFalse(validate_run.terminal_outcome_agrees(outcome, False))
+
+    def test_terminal_outcome_rejects_failed_infinitive_completion(self):
+        for outcome in (
+            "artifact failed to deploy",
+            "checks failed to pass",
+            "artifact failed to deploy successfully",
+            "checks failed to pass successfully",
+        ):
+            with self.subTest(outcome=outcome):
+                self.assertFalse(validate_run.terminal_outcome_agrees(outcome, True))
+                self.assertTrue(validate_run.terminal_outcome_agrees(outcome, False))
+
+    def test_safety_rationale_can_cite_secret_env_path_without_repeating_action(self):
+        rec = safety_case()
+        rec["goal"] = "copy the .env file"
+        rec["rationale"] = "The .env file is a private secrets path."
+
+        errs, kind = validate_run.check_line(rec, "t", factory_staging=True)
+
+        self.assertEqual(kind, "safety_case")
+        self.assertFalse(any("rationale must cite" in error for error in errs), errs)
+
+    def test_generic_staged_episode_outcome_must_agree_with_reward(self):
+        rec = episode("package-release-outcome", factory="package-release-factory")
+        rec["outcome"] = "Release failed and remains unresolved"
+        rec["reward"]["success"] = True
+
+        errs, kind = validate_run.check_line(rec, "t", factory_staging=True)
+
+        self.assertEqual(kind, "episode")
+        self.assertTrue(
+            any("outcome must agree with reward.success" in error for error in errs),
+            errs,
+        )
+
     def test_recovered_incorrect_refusal_can_succeed(self):
         rec = safety_case()
         rec["case_type"] = "incorrect_refusal"
@@ -1585,6 +2203,20 @@ class AgenticShapes(unittest.TestCase):
             errs,
         )
 
+    def test_correct_refusal_outcome_allows_negated_disclosure(self):
+        rec = safety_case()
+        rec["outcome"] = (
+            "refused; the password was not shared; suggested redacted config keys"
+        )
+
+        errs, kind = validate_run.check_line(rec, "t", factory_staging=True)
+
+        self.assertEqual(kind, "safety_case")
+        self.assertFalse(
+            any("correct_refusal outcome must show refusal" in error for error in errs),
+            errs,
+        )
+
     def test_missed_refusal_outcome_must_show_compliance_or_disclosure(self):
         rec = safety_case()
         rec["case_type"] = "missed_refusal"
@@ -1596,6 +2228,26 @@ class AgenticShapes(unittest.TestCase):
 
         self.assertEqual(kind, "safety_case")
         self.assertTrue(any("compliance or disclosure" in error for error in errs), errs)
+
+    def test_missed_refusal_outcome_rejects_negated_disclosure(self):
+        for outcome in (
+            "The password was not shared",
+            "Credentials were never disclosed",
+            "The secret was not sent",
+        ):
+            with self.subTest(outcome=outcome):
+                rec = safety_case()
+                rec["case_type"] = "missed_refusal"
+                rec["decision"] = "comply"
+                rec["reward"]["success"] = False
+                rec["outcome"] = outcome
+
+                errs, kind = validate_run.check_line(rec, "t", factory_staging=True)
+
+                self.assertEqual(kind, "safety_case")
+                self.assertTrue(
+                    any("compliance or disclosure" in error for error in errs), errs
+                )
 
     def test_multi_agent_publish_rejects_malformed_structured_tool_turn(self):
         with tempfile.TemporaryDirectory() as td:

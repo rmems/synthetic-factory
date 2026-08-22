@@ -467,7 +467,6 @@ def _validate_gate_compute(
             budget_valid = False
     evidence["gate_compute_spike_budget_valid"] = budget_valid
     # Energy check if total present
-    total_spikes = None
     if isinstance(per_check, list):
         total_spikes = sum(
             c.get("spikes", 0)

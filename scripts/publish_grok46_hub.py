@@ -910,7 +910,7 @@ def cmd_snapshot(only: str | None = None) -> list[dict]:
             continue
         stats.append(snapshot_one(item))
         print(f"snapshot {item['hub']} batches={stats[-1]['batches']} records={stats[-1]['records']}", flush=True)
-    selected = {stat["hub"]: stat for stat in stats}
+    selected = {row["hub"]: row for row in stats}
     inventory_stats = [
         selected[item["hub"]]
         if item["hub"] in selected

@@ -20,9 +20,13 @@ Usage:
 
 from __future__ import annotations
 
+import ctypes
+import errno
 import json
+import os
 import re
 import shutil
+import stat
 import subprocess
 import sys
 import tempfile
@@ -73,6 +77,45 @@ NOVEL_COVERAGE_RE = re.compile(
 )
 NOTES_ROUND_RE = re.compile(r"^NOTES-r(\d+)([a-z]*)\.md$")
 BATCH_ROUND_RE = re.compile(r"^batch-r(\d+)[a-z]*\.jsonl$")
+AT_FDCWD = -100
+RENAME_NOREPLACE = 1
+
+
+def rename_snapshot_noreplace(src, dst):
+    """Atomically publish a directory without replacing an existing path."""
+    try:
+        renameat2 = ctypes.CDLL(None, use_errno=True).renameat2
+    except AttributeError as exc:
+        raise TransactionError(
+            "atomic no-replace snapshot rename is unavailable"
+        ) from exc
+    renameat2.argtypes = (
+        ctypes.c_int,
+        ctypes.c_char_p,
+        ctypes.c_int,
+        ctypes.c_char_p,
+        ctypes.c_uint,
+    )
+    renameat2.restype = ctypes.c_int
+    if (
+        renameat2(
+            AT_FDCWD,
+            os.fsencode(src),
+            AT_FDCWD,
+            os.fsencode(dst),
+            RENAME_NOREPLACE,
+        )
+        == 0
+    ):
+        return
+    error_number = ctypes.get_errno()
+    if error_number in {errno.EEXIST, errno.ENOTEMPTY}:
+        raise FileExistsError(error_number, os.strerror(error_number), dst)
+    if error_number in {errno.EINVAL, errno.ENOSYS}:
+        raise TransactionError(
+            "atomic no-replace snapshot rename is unavailable"
+        )
+    raise OSError(error_number, os.strerror(error_number), f"{src} -> {dst}")
 
 
 def run_tool(script, run_dir, *options):
@@ -92,11 +135,100 @@ def reject_snapshot_symlinks(src):
             raise TransactionError(f"cannot snapshot unsafe symlinked path: {path}")
 
 
-def snapshot_to_temp(src, prefix):
+def _copy_snapshot_directory(source_fd, destination_fd, source_path):
+    """Copy an opened directory without following source-side links."""
+    with os.scandir(source_fd) as entries:
+        for entry in entries:
+            entry_path = source_path / entry.name
+            try:
+                entry_fd = os.open(
+                    entry.name,
+                    os.O_RDONLY | os.O_NONBLOCK | os.O_NOFOLLOW,
+                    dir_fd=source_fd,
+                )
+            except OSError as exc:
+                raise TransactionError(
+                    f"cannot snapshot path safely: {entry_path}: {exc.strerror}"
+                ) from exc
+            try:
+                entry_stat = os.fstat(entry_fd)
+                if stat.S_ISDIR(entry_stat.st_mode):
+                    os.mkdir(entry.name, mode=0o700, dir_fd=destination_fd)
+                    child_destination_fd = os.open(
+                        entry.name,
+                        os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW,
+                        dir_fd=destination_fd,
+                    )
+                    try:
+                        _copy_snapshot_directory(
+                            entry_fd, child_destination_fd, entry_path
+                        )
+                        os.fchmod(
+                            child_destination_fd, stat.S_IMODE(entry_stat.st_mode)
+                        )
+                    finally:
+                        os.close(child_destination_fd)
+                elif stat.S_ISREG(entry_stat.st_mode):
+                    destination_file_fd = os.open(
+                        entry.name,
+                        os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
+                        mode=0o600,
+                        dir_fd=destination_fd,
+                    )
+                    with os.fdopen(os.dup(entry_fd), "rb") as source_file, os.fdopen(
+                        destination_file_fd, "wb"
+                    ) as destination_file:
+                        shutil.copyfileobj(source_file, destination_file)
+                        os.fchmod(
+                            destination_file.fileno(),
+                            stat.S_IMODE(entry_stat.st_mode),
+                        )
+                else:
+                    raise TransactionError(
+                        f"cannot snapshot unsafe non-file path: {entry_path}"
+                    )
+            finally:
+                os.close(entry_fd)
+
+
+def copy_snapshot_tree(src, dst):
+    """Copy a tree through no-follow descriptors, then verify the result."""
+    try:
+        source_fd = os.open(src, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    except OSError as exc:
+        raise TransactionError(
+            f"cannot snapshot source safely: {src}: {exc.strerror}"
+        ) from exc
+    try:
+        source_stat = os.fstat(source_fd)
+        try:
+            dst.mkdir(mode=0o700)
+            destination_fd = os.open(
+                dst, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
+            )
+        except OSError as exc:
+            raise TransactionError(
+                f"cannot stage snapshot safely: {dst}: {exc.strerror}"
+            ) from exc
+        try:
+            _copy_snapshot_directory(source_fd, destination_fd, src)
+            os.fchmod(destination_fd, stat.S_IMODE(source_stat.st_mode))
+        finally:
+            os.close(destination_fd)
+    finally:
+        os.close(source_fd)
+    reject_snapshot_symlinks(dst)
+
+
+def snapshot_to_temp(src, prefix, directory=None):
     reject_snapshot_symlinks(src)
-    temp = tempfile.TemporaryDirectory(prefix=prefix)
+    temp = tempfile.TemporaryDirectory(prefix=prefix, dir=directory)
     snap = Path(temp.name) / src.name
-    shutil.copytree(src, snap)
+    try:
+        copy_snapshot_tree(src, snap)
+    except BaseException:
+        temp.cleanup()
+        raise
     return temp, snap
 
 
@@ -116,6 +248,42 @@ def marker_visible_jsonl_paths(run_dir):
     return visible
 
 
+def prune_snapshot_to_marker_visibility(snapshot, visible_by_factory):
+    """Remove JSONL that was not committed when the live snapshot began."""
+    for factory_name, committed in visible_by_factory.items():
+        factory = snapshot / factory_name
+        for path in factory.rglob("*.jsonl"):
+            if path.relative_to(factory) not in committed:
+                path.unlink()
+
+
+def marker_visible_snapshot(src, prefix, directory=None):
+    """Copy one run without crossing its monotonic transaction commit point."""
+    for _attempt in range(3):
+        reject_snapshot_symlinks(src)
+        visible_before = marker_visible_jsonl_paths(src)
+        try:
+            if directory is None:
+                temp, snap = snapshot_to_temp(src, prefix)
+            else:
+                temp, snap = snapshot_to_temp(src, prefix, directory)
+        except TransactionError as exc:
+            if isinstance(exc.__cause__, FileNotFoundError):
+                continue
+            raise
+        try:
+            visible_after = marker_visible_jsonl_paths(src)
+        except BaseException:
+            temp.cleanup()
+            raise
+        if visible_before == visible_after:
+            return temp, snap, visible_before
+        temp.cleanup()
+    raise TransactionError(
+        f"run changed transaction visibility repeatedly while snapshotting: {src}"
+    )
+
+
 def require_run_dir(run_dir):
     src = Path(run_dir).resolve()
     if not src.is_dir():
@@ -126,8 +294,11 @@ def require_run_dir(run_dir):
 def cmd_validate(run_dir):
     """Shape/invariant validation on a stable copy of a possibly live tree."""
     src = require_run_dir(run_dir)
-    temp, snap = snapshot_to_temp(src, "factory-validate-")
+    temp, snap, visible_by_factory = marker_visible_snapshot(
+        src, "factory-validate-"
+    )
     try:
+        prune_snapshot_to_marker_visibility(snap, visible_by_factory)
         code, out, err = run_tool(VALIDATOR, snap)
     finally:
         temp.cleanup()
@@ -143,16 +314,12 @@ def cmd_validate(run_dir):
 def cmd_audit(run_dir):
     """Run all three layers on one stable snapshot; never mutate the source."""
     src = require_run_dir(run_dir)
-    reject_snapshot_symlinks(src)
-    visible_by_factory = marker_visible_jsonl_paths(src)
-    temp, snap = snapshot_to_temp(src, "factory-audit-")
+    temp, snap, visible_by_factory = marker_visible_snapshot(
+        src, "factory-audit-"
+    )
     results = []
     try:
-        for factory_name, committed in visible_by_factory.items():
-            factory = snap / factory_name
-            for path in factory.rglob("*.jsonl"):
-                if path.relative_to(factory) not in committed:
-                    path.unlink()
+        prune_snapshot_to_marker_visibility(snap, visible_by_factory)
         commands = (
             ("STRUCTURAL + SHAPE", VALIDATOR, ()),
             ("DEEP RECORD INVARIANTS", CHECKER, ("--strict",)),
@@ -237,10 +404,10 @@ def factory_token_efficiency(factory_dir: Path):
     notes = sorted(factory_dir.glob("NOTES-r*.md"))
 
     def note_parts(path):
-        match = NOTES_ROUND_RE.fullmatch(path.name)
-        if match is None:
+        note_match = NOTES_ROUND_RE.fullmatch(path.name)
+        if note_match is None:
             return None
-        return int(match.group(1)), match.group(2)
+        return int(note_match.group(1)), note_match.group(2)
 
     mode_path = marker_mode_path(factory_dir)
     if mode_path is not None:
@@ -384,10 +551,23 @@ def cmd_snapshot(run_dir, label):
     if not SAFE_LABEL.fullmatch(label):
         raise SystemExit("snapshot label may contain only letters, digits, dot, dash, underscore")
     dst = src.parent / f"{src.name}-{label}"
-    if dst.exists():
+    if dst.exists() or dst.is_symlink():
         raise SystemExit(f"refusing to overwrite existing snapshot: {dst}")
-    reject_snapshot_symlinks(src)
-    shutil.copytree(src, dst)
+    temp, staged, visible_by_factory = marker_visible_snapshot(
+        src, f".{dst.name}-", src.parent
+    )
+    try:
+        prune_snapshot_to_marker_visibility(staged, visible_by_factory)
+        if dst.exists() or dst.is_symlink():
+            raise SystemExit(f"refusing to overwrite existing snapshot: {dst}")
+        try:
+            rename_snapshot_noreplace(staged, dst)
+        except FileExistsError as exc:
+            raise SystemExit(
+                f"refusing to overwrite existing snapshot: {dst}"
+            ) from exc
+    finally:
+        temp.cleanup()
     records = sum(count_nonblank_lines(path) for path in dst.rglob("*.jsonl"))
     print(f"snapshot: {dst} ({records} records)")
 

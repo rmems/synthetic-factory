@@ -99,7 +99,6 @@ def _attach_owner(owner):
         return
     state = owner.get("state")
     has_state = isinstance(state, dict)
-    claimed = None
     if has_state and "sim_or_real" in state:
         claimed = state.get("sim_or_real")
         if isinstance(claimed, str) and claimed.strip().lower() in ALLOWED_KINDS:

@@ -16,6 +16,9 @@ node_modules/
 target/
 .venv/
 venv/
+.coverage
+coverage.xml
+htmlcov/
 
 # OS / editor
 .DS_Store

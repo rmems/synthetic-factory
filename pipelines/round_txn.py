@@ -25,6 +25,7 @@ import shutil
 import stat
 import sys
 import tempfile
+import unicodedata
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -986,6 +987,59 @@ def shares_visible_terms(left, right):
     return bool(left_terms & right_terms)
 
 
+def normalized_category(value):
+    """Normalize a human category so punctuation cannot manufacture diversity."""
+    if not isinstance(value, str):
+        return ""
+    text = unicodedata.normalize("NFC", value).strip()
+    return re.sub(
+        r"_+", "_", re.sub(r"[^\w]+", "_", text.casefold())
+    ).strip("_")
+
+
+def visibly_names_fault(introduced_text, *fault_evidence):
+    """Whether one designated step explicitly names declared fault evidence."""
+    introduced = normalized_category(introduced_text)
+    preventive_terms = {
+        "avoid",
+        "avoided",
+        "avoiding",
+        "prevent",
+        "prevented",
+        "preventing",
+    }
+    for evidence in fault_evidence:
+        normalized = normalized_category(evidence)
+        if not introduced or not normalized:
+            continue
+        for match in re.finditer(
+            rf"(?:^|_){re.escape(normalized)}(?=_|$)", introduced
+        ):
+            prefix_tokens = introduced[: match.start()].strip("_").split("_")[-3:]
+            locally_prevented = any(
+                token in preventive_terms for token in prefix_tokens
+            )
+            locally_negated = any(
+                token in {"no", "not", "never", "without"}
+                and not (
+                    token == "not"
+                    and index + 1 < len(prefix_tokens)
+                    and prefix_tokens[index + 1] == "only"
+                )
+                for index, token in enumerate(prefix_tokens)
+            )
+            suffix = introduced[match.end() :].strip("_")
+            suffix_negated = re.match(
+                r"(?:(?:is|are|was|were|did)_)?(?:not|never)_"
+                r"(?:created|happened|introduced|occurred|present|produced|triggered)"
+                r"(?:_|$)|(?:(?:is|are|was|were)_)?(?:avoided|prevented)(?:_|$)",
+                suffix,
+            ) is not None
+            if not (locally_prevented or locally_negated or suffix_negated):
+                return True
+    return False
+
+
 def numbered_horizon_errors(where, steps, lane, minimum, maximum):
     """Return lane-specific horizon and exact integer numbering errors."""
     if not isinstance(steps, list):
@@ -1043,8 +1097,8 @@ def has_long_horizon_debug_loop(steps):
     texts = [observable_step_text(step) for step in steps]
     observations = [step_observation_text(step) for step in steps]
 
-    def includes(text, terms):
-        return any(term in text for term in terms)
+    def includes(candidate_text, terms):
+        return any(term in candidate_text for term in terms)
 
     edit_terms = ("edit", "write", "patch", "apply")
     test_terms = ("test", "pytest", "cargo test", "npm test")
@@ -1290,6 +1344,49 @@ def validated_reservation_stage(
     return expected
 
 
+def create_reservation_stage(factory_dir: Path, round_number: int, token: str):
+    """Create a reserved stage through no-follow directory descriptors."""
+    expected = staging_dir(factory_dir, round_number, token)
+    outputs_dir = expected.parents[3]
+    flags = os.O_RDONLY | os.O_DIRECTORY
+    if hasattr(os, "O_NOFOLLOW"):
+        flags |= os.O_NOFOLLOW
+    try:
+        parent_fd = os.open(outputs_dir, flags)
+    except OSError as exc:
+        raise TransactionError(
+            f"staging directory is unsafe: {outputs_dir}: {exc}"
+        ) from exc
+    try:
+        current = outputs_dir
+        parts = expected.relative_to(outputs_dir).parts
+        for index, part in enumerate(parts):
+            current /= part
+            is_stage = index == len(parts) - 1
+            try:
+                os.mkdir(part, dir_fd=parent_fd)
+            except FileExistsError:
+                if is_stage:
+                    raise TransactionError(
+                        f"reservation staging directory already exists: {current}"
+                    ) from None
+            except OSError as exc:
+                raise TransactionError(
+                    f"cannot create reservation staging directory {current}: {exc}"
+                ) from exc
+            try:
+                child_fd = os.open(part, flags, dir_fd=parent_fd)
+            except OSError as exc:
+                raise TransactionError(
+                    f"staging directory is unsafe: {current}: {exc}"
+                ) from exc
+            os.close(parent_fd)
+            parent_fd = child_fd
+    finally:
+        os.close(parent_fd)
+    return expected
+
+
 def reserve(factory_dir: Path, round_number: int, expected: int):
     factory_dir = Path(factory_dir).resolve()
     if (
@@ -1315,12 +1412,11 @@ def reserve(factory_dir: Path, round_number: int, expected: int):
         )
     paths = marker_paths(factory_dir, round_number)
     for role, path in paths.items():
-        if path.exists():
+        if path.exists() or path.is_symlink():
             raise TransactionError(f"{role} path already exists: {path}")
 
     token = uuid.uuid4().hex
-    stage = staging_dir(factory_dir, round_number, token)
-    stage.mkdir(parents=True, exist_ok=False)
+    stage = create_reservation_stage(factory_dir, round_number, token)
     payload = {
         "version": 1,
         "factory": factory_dir.name,
@@ -1535,9 +1631,42 @@ def validate_agentic_envelope(batch: Path, factory_dir: Path, round_number: int)
                 if not isinstance(fault.get("kind"), str) or not fault["kind"].strip():
                     errors.append(f"{where}: error_introduced.kind must be a non-empty string")
                 else:
-                    cascade_fault_kinds.append(fault["kind"].strip().casefold())
+                    fault_kind = normalized_category(fault["kind"])
+                    if not fault_kind:
+                        errors.append(
+                            f"{where}: error_introduced.kind must contain a letter or number"
+                        )
+                    else:
+                        cascade_fault_kinds.append(fault_kind)
                 if not isinstance(fault.get("payload"), str) or not fault["payload"].strip():
                     errors.append(f"{where}: error_introduced.payload must be a non-empty string")
+                if (
+                    isinstance(step_number, int)
+                    and not isinstance(step_number, bool)
+                    and isinstance(steps, list)
+                    and 1 <= step_number <= len(steps)
+                ):
+                    introduced_step = steps[step_number - 1]
+                    introduced_text = (
+                        " ".join(
+                            nested_strings(
+                                {
+                                    "action": introduced_step.get("action"),
+                                    "tool_call": introduced_step.get("tool_call"),
+                                    "observation": introduced_step.get("observation"),
+                                }
+                            )
+                        )
+                        if isinstance(introduced_step, dict)
+                        else ""
+                    )
+                    if not visibly_names_fault(
+                        introduced_text, fault.get("kind"), fault.get("payload")
+                    ):
+                        errors.append(
+                            f"{where}: error_introduced.step action or observation "
+                            "must visibly introduce the declared fault"
+                        )
             if not isinstance(diagnosis, str) or not diagnosis.strip():
                 errors.append(f"{where}: diagnosis must be a non-empty string")
             cascade_steps = reward.get("cascade_steps") if isinstance(reward, dict) else None
@@ -1900,13 +2029,14 @@ def validate_agentic_envelope(batch: Path, factory_dir: Path, round_number: int)
                         "lesson_category"
                     )
                 else:
-                    tool_use_lesson_signatures.append(
-                        re.sub(
-                            r"[^a-z0-9]+",
-                            "_",
-                            lesson_category.strip().casefold(),
-                        ).strip("_")
-                    )
+                    lesson_signature = normalized_category(lesson_category)
+                    if not lesson_signature:
+                        errors.append(
+                            f"{where}: tool-use preference lesson_category must "
+                            "contain a letter or number"
+                        )
+                    else:
+                        tool_use_lesson_signatures.append(lesson_signature)
             for side_name in ("chosen", "rejected"):
                 side = record.get(side_name) if isinstance(record, dict) else None
                 if not isinstance(side, dict) or not isinstance(side.get("steps"), list):

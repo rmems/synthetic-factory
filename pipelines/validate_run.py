@@ -14,6 +14,7 @@ Usage: python3 pipelines/validate_run.py [--write] <run_dir>
 import argparse
 import json
 import math
+import posixpath
 import re
 import sys
 from pathlib import Path
@@ -509,6 +510,12 @@ def _preference_side_context_anchors(value):
         re.IGNORECASE,
     )
 
+    def normalized_artifact(artifact_text):
+        artifact = artifact_text.rstrip(".,;:").casefold()
+        if artifact.startswith(("http://", "https://")):
+            return artifact
+        return posixpath.normpath(artifact)
+
     def walk(node, key=""):
         if isinstance(node, dict):
             for child_key, child in node.items():
@@ -521,7 +528,7 @@ def _preference_side_context_anchors(value):
             if key and any(term in key for term in context_key_terms):
                 anchors.add(f"field:{normalized}")
             anchors.update(
-                f"artifact:{match.group(0).rstrip('.,;:').casefold()}"
+                f"artifact:{normalized_artifact(match.group(0))}"
                 for match in artifact_re.finditer(node)
             )
 
@@ -599,35 +606,120 @@ def terminal_outcome_agrees(outcome, success):
     if not isinstance(outcome, str) or not isinstance(success, bool):
         return True
     text = outcome.casefold()
+    completion_term = (
+        r"(?:atomic|complet(?:e(?:d|s)?|ing)|correct|deploy\w*|fixed|green|healthy|"
+        r"landed|merged|operational|pass(?:ed|es|ing)?|recovered|repaired|"
+        r"resolved|safe(?:ly)?|shipped|succeed(?:ed|s|ing)?|"
+        r"success(?:es|ful(?:ly)?)?|"
+        r"verified|work(?:ed|ing|s)?)"
+    )
+    failure_term = (
+        r"(?:blocked|broken|corrupt\w*|fail\w*|incomplete|partial\w*|pending|"
+        r"unsafe|unsuccessful(?:ly)?|unresolved)"
+    )
+    completion_modifier_word = (
+        r"(?!(?:although|and|but|except|however|nor|or|plus|then|though|while)\b)"
+        r"\w+"
+    )
+    completion_modifier = rf"(?:{completion_modifier_word}[ -]+){{0,4}}"
+    completion_suffix = r"(?:\s+(?:fully|successfully|ultimately)){0,3}"
+    progressive_completion_term = r"(?:completing|deploying|passing|succeeding|working)"
+    negation_prefix = (
+        r"(?:(?:did|does|was|were|is|are|has|have|will|would|could|should)"
+        r"(?: not|n['’]t)|cannot|can not|can['’]t|won['’]t|never|not|without)"
+    )
+    nominal_negated_subject = (
+        r"(?:(?:no|zero)\s+(?:\w+[ -]+){1,3}|"
+        r"none\s+of\s+(?:the\s+)?(?:\w+[ -]+){1,3}|nothing\s+)"
+    )
     negated_completion_spans = [
         match.span()
         for match in re.finditer(
-            r"\b(?:(?:did|does|was|were|is|are|has|have) not|never|not|without) "
-            r"(?:been )?(?:completed|correct|fixed|landed|merged|passed|recovered|"
-            r"repaired|resolved|shipped|succeeded|verified|working)\b",
+            rf"\b{negation_prefix} "
+            rf"(?!only\b){completion_modifier}(?:(?:have )?been |be )?"
+            rf"{completion_modifier}{completion_term}{completion_suffix}\b",
+            text,
+        )
+    ]
+    nominal_negated_completion_spans = [
+        match.span()
+        for match in re.finditer(
+            rf"\b{nominal_negated_subject}"
+            r"(?:(?:has|have|is|are|was|were)\s+)?"
+            r"(?:(?:currently|fully|quite|successfully|ultimately|yet)\s+){0,3}"
+            rf"{completion_term}{completion_suffix}\b",
+            text,
+        )
+    ]
+    failed_completion_spans = [
+        match.span()
+        for match in re.finditer(
+            rf"\b{failure_term}\s+to\s+{completion_modifier}{completion_term}"
+            rf"{completion_suffix}\b",
+            text,
+        )
+    ]
+    deferred_completion_spans = [
+        match.span()
+        for match in re.finditer(
+            rf"\b(?:(?:has|have|is|are|was|were)\s+)?yet\s+to\s+"
+            rf"{completion_modifier}{completion_term}{completion_suffix}\b",
+            text,
+        )
+    ]
+    stopped_completion_spans = [
+        match.span()
+        for match in re.finditer(
+            rf"\b(?:cease[ds]?|stop(?:ped|s)?)\s+{completion_modifier}"
+            rf"{progressive_completion_term}{completion_suffix}\b",
+            text,
+        )
+    ]
+    negated_failure_spans = [
+        match.span()
+        for match in re.finditer(
+            rf"\b(?:(?:no|zero)\s+(?:\w+\s+){{0,3}}{failure_term}|"
+            rf"none\s+of\s+(?:the\s+)?(?:\w+\s+){{0,3}}{failure_term}|"
+            rf"nothing\s+{failure_term}|"
+            rf"{negation_prefix}\s+(?!only\b){completion_modifier}{failure_term})\b",
             text,
         )
     ]
     signals = [
         (match.start(), True)
-        for match in re.finditer(
-            r"\b(?:atomic|completed|correct|fixed|landed|merged|passed|recovered|"
-            r"repaired|resolved|safe(?:ly)?|shipped|succeeded|verified|works?|"
-            r"working)\b",
-            text,
+        for match in re.finditer(rf"\b{completion_term}\b", text)
+        if not any(
+            start <= match.start() < end
+            for start, end in (
+                negated_completion_spans
+                + nominal_negated_completion_spans
+                + failed_completion_spans
+                + deferred_completion_spans
+                + stopped_completion_spans
+            )
         )
-        if not any(start <= match.start() < end for start, end in negated_completion_spans)
     ]
     signals.extend(
         (match.start(), False)
         for match in re.finditer(
-            r"\b(?:blocked|corrupt\w*|error|fail\w*|incomplete|partial\w*|race|"
-            r"remain\w*|risk\w*|unsafe|unresolved)\b",
+            rf"\b{failure_term}\b|"
+            r"\b(?:error|failure|issue|problem|race|risk)s?\s+"
+            r"(?:persist\w*|open|unresolved)\b|"
+            r"\b(?:remain\w*|still)\s+"
+            r"(?:blocked|broken|failing|incomplete|unsafe|unresolved)\b",
             text,
         )
+        if not any(start <= match.start() < end for start, end in negated_failure_spans)
     )
     signals.extend((end, False) for _, end in negated_completion_spans)
-    return bool(signals) and max(signals)[1] is success
+    signals.extend((end, False) for _, end in nominal_negated_completion_spans)
+    signals.extend((end, False) for _, end in deferred_completion_spans)
+    signals.extend((end, False) for _, end in stopped_completion_spans)
+    signals.extend((end, True) for _, end in negated_failure_spans)
+    # Non-empty outcomes are validated by the caller. Vocabulary that is
+    # neither an explicit success nor an explicit failure is neutral rather
+    # than contradictory; the schema does not prescribe exact prose.
+    return not signals or max(signals)[1] is success
 
 
 def _staging_tool_turn_errors(turn, where):
@@ -664,7 +756,13 @@ def _nonempty_text_field_errors(obj, where, fields):
     ]
 
 
-def check_episode(obj, where, require_goal=True, forbid_hidden_thought=False):
+def check_episode(
+    obj,
+    where,
+    require_goal=True,
+    forbid_hidden_thought=False,
+    enforce_terminal_outcome=False,
+):
     errs = []
     required = ("goal", "steps", "outcome", "reward") if require_goal else (
         "steps",
@@ -676,6 +774,14 @@ def check_episode(obj, where, require_goal=True, forbid_hidden_thought=False):
             errs.append(f"{where}: episode missing '{key}'")
     errs += _nonempty_text_field_errors(obj, where, ("goal", "outcome"))
     errs += _require_reward(obj, where)
+    reward = obj.get("reward")
+    success = reward.get("success") if isinstance(reward, dict) else None
+    if (
+        enforce_terminal_outcome
+        and isinstance(success, bool)
+        and not terminal_outcome_agrees(obj.get("outcome"), success)
+    ):
+        errs.append(f"{where}: outcome must agree with reward.success")
     steps = obj.get("steps")
     if not isinstance(steps, list) or not steps:
         errs.append(f"{where}: steps must be a non-empty array")
@@ -788,6 +894,28 @@ def check_multi_agent(obj, where, factory_staging=False):
 def check_safety_case(obj, where, factory_staging=False):
     errs = []
 
+    auxiliary_negation = (
+        r"(?:(?:do(?:es)?|did|is|are|was|were|has|have|had|could|should|"
+        r"would|must)n['’]t|can['’]t|won['’]t|(?:do(?:es)?|did|is|are|was|"
+        r"were|has|have|had|can|could|should|would|will|must)\s+not)"
+    )
+    evidence_negation_re = re.compile(
+        r"\b(?:no|not|never|without)\s+(?:\w+[ -]+){0,3}$|"
+        rf"\b{auxiliary_negation}\s+(?:\w+[ -]+){{0,3}}$|"
+        rf"\b{auxiliary_negation}\s+(?:require|involve|need)\s+"
+        r"(?:access\s+to\s+)?(?:any\s+)?$"
+    )
+    evidence_suffix_negation_re = re.compile(
+        r"^\s+(?:is|are|was|were)(?:\s+(?:not|never)|n['’]t)\s+"
+        r"(?:required|needed)\b"
+    )
+    affirmative_after_negated_control_re = re.compile(
+        rf"\b(?:{auxiliary_negation}|never|not)\s+"
+        r"(?:avoid|decline|delay|fail|forget|hesitate|neglect|postpone|"
+        r"refuse|stall|wait)\s+(?:to\s+|and\s+)"
+        r"(?:\w+[ -]+){0,3}$"
+    )
+
     def observable_text(value):
         if isinstance(value, str):
             return value.casefold()
@@ -796,6 +924,28 @@ def check_safety_case(obj, where, factory_staging=False):
         if isinstance(value, list):
             return " ".join(observable_text(item) for item in value)
         return ""
+
+    def evidence_concepts(text, patterns_by_concept):
+        """Return semantic evidence classes mentioned without local negation."""
+        concepts = set()
+        for concept, patterns in patterns_by_concept.items():
+            for pattern in patterns:
+                for match in re.finditer(pattern, text):
+                    prefix = text[max(0, match.start() - 48) : match.start()]
+                    suffix = text[match.end() : match.end() + 48]
+                    negated = evidence_negation_re.search(
+                        prefix
+                    ) or evidence_suffix_negation_re.search(suffix)
+                    if negated is not None and affirmative_after_negated_control_re.search(
+                        prefix
+                    ):
+                        negated = None
+                    if negated is None:
+                        concepts.add(concept)
+                        break
+                if concept in concepts:
+                    break
+        return concepts
 
     for key in ("goal", "case_type", "rationale", "decision", "outcome", "reward"):
         if key not in obj:
@@ -811,47 +961,124 @@ def check_safety_case(obj, where, factory_staging=False):
         decision = obj.get("decision")
         reward = obj.get("reward")
         success = reward.get("success") if isinstance(reward, dict) else None
-        policy_text = observable_text(
-            [obj.get("goal"), obj.get("rationale"), obj.get("steps")]
+        request_text = observable_text(obj.get("goal"))
+        rationale_text = observable_text(obj.get("rationale"))
+        secret_action = (
+            r"(?:access|cat|copy|download|exfiltrat\w*|extract\w*|give|leak\w*|"
+            r"obtain\w*|paste|print|read|reveal\w*|send|share|show|steal\w*)"
         )
-        disallowed_evidence = any(
-            term in policy_text
-            for term in (
-                ".env",
-                "bypass auth",
-                "credential",
-                "delete production",
-                "destructive flag",
-                "exfiltrat",
-                "live secret",
-                "malware",
-                "missing auth",
-                "password",
-                "private key",
-                "rm -rf",
-                "secret token",
-                "unauthorized access",
-                "without authorization",
-            )
+        benign_secret_topic = (
+            r"(?![.\s-]+(?:docs?|documentation|example|format|guide|help|policy|"
+            r"reset|rotation|rules?|template))"
         )
-        allowed_evidence = any(
-            term in policy_text
-            for term in (
-                "authorized scope",
-                "non-sensitive",
-                "owned repository",
-                "public data",
-                "public documentation",
-                "read-only",
-                "sanitized input",
-                "test fixture",
-                "user-owned",
-            )
+        secret_topic_object = r"(?:credentials?|keys?|passwords?|tokens?|\.env)"
+        secret_key_object = (
+            r"(?:api|access|private(?:\s+(?:api|deploy|encryption|signing|ssh))?)"
+            r"\s+keys?"
         )
+        secret_topic = (
+            r"(?:docs?|documentation|example|format|guide|help|policy|reset|"
+            r"rotation|rules?|template)"
+        )
+        secret_topic_separator = r"[^\w,;:.!?\r\n]+"
+        secret_access_gap = (
+            rf"(?:{secret_topic_separator}\w+){{0,8}}{secret_topic_separator}"
+        )
+        secret_access_prefix = (
+            rf"\b{secret_action}\b"
+            rf"(?!(?:{secret_topic_separator}\w+){{0,8}}"
+            rf"{secret_topic_separator}{secret_topic}\b"
+            rf"(?:(?!{secret_topic_separator}(?:and|as|or|plus|then)\b)"
+            rf"{secret_topic_separator}\w+){{0,3}}"
+            rf"{secret_topic_separator}{secret_topic_object}\b)"
+        )
+        disallowed_patterns = {
+            "environment_file": (
+                rf"{secret_access_prefix}{secret_access_gap}\.env\b"
+                rf"{benign_secret_topic}",
+            ),
+            "credential": (
+                rf"\b(?:actual|admin|database|live|root|stored|user)\s+"
+                rf"credentials?\b{benign_secret_topic}",
+                rf"{secret_access_prefix}{secret_access_gap}credentials?\b"
+                rf"{benign_secret_topic}",
+            ),
+            "live_secret": (
+                rf"\blive secret\w*\b{benign_secret_topic}",
+            ),
+            "password": (
+                r"\b(?:actual|admin|database|live|root|stored|user)\s+passwords?\b",
+                rf"{secret_access_prefix}{secret_access_gap}passwords?\b"
+                rf"{benign_secret_topic}",
+            ),
+            "private_key": (
+                rf"\b(?:actual|admin|live|root|stored|user)\s+"
+                rf"{secret_key_object}\b"
+                rf"{benign_secret_topic}",
+                rf"{secret_access_prefix}{secret_access_gap}{secret_key_object}\b"
+                rf"{benign_secret_topic}",
+            ),
+            "secret_token": (
+                rf"\b(?:actual|admin|live|root|stored|user)\s+secret tokens?\b"
+                rf"{benign_secret_topic}",
+                rf"{secret_access_prefix}{secret_access_gap}secret tokens?\b"
+                rf"{benign_secret_topic}",
+            ),
+            "sensitive_data": (
+                r"(?<!non-)\bsensitive (?:data|information)\b",
+            ),
+            "bypass_auth": (r"\bbypass\w* auth\w*\b",),
+            "missing_auth": (r"\bmissing auth\w*\b",),
+            "unauthorized_access": (r"\bunauthorized access\b",),
+            "without_authorization": (r"\bwithout authorization\b",),
+            "delete_production": (r"\bdelete production\b",),
+            "destructive_flag": (r"\bdestructive flag\b",),
+            "rm_rf": (r"\brm\s+-rf\b",),
+            "exfiltration": (r"\bexfiltrat\w*\b",),
+            "malware": (r"\bmalware\b",),
+        }
+        rationale_disallowed_patterns = dict(disallowed_patterns)
+        rationale_disallowed_patterns["environment_file"] += (
+            r"(?<![\w.])\.env\b(?=(?:\W+\w+){0,5}\W+"
+            r"(?:credentials?|private|secrets?|sensitive)\b)",
+            r"\b(?:private|secrets?|sensitive)(?:\W+\w+){0,3}\W+\.env\b",
+        )
+        rationale_disallowed_patterns["private_key"] += (
+            rf"\b{secret_key_object}\b{benign_secret_topic}",
+        )
+        allowed_patterns = {
+            "authorized": (
+                r"\bauthorized scope\b",
+                r"\bowned repository\b",
+                r"\buser-owned\b",
+            ),
+            "public": (
+                r"\bpublic(?:ly)?\b",
+                r"\bopenly accessible\b",
+            ),
+            "read_only": (
+                r"\bread[ -]only\b",
+                r"\bcannot modify\b",
+                r"\bnon-mutating\b",
+            ),
+            "sanitized": (
+                r"\bnon-sensitive\b",
+                r"\bsanitized input\b",
+            ),
+            "test_fixture": (r"\btest fixture\b",),
+        }
+        request_disallowed = evidence_concepts(request_text, disallowed_patterns)
+        request_allowed = evidence_concepts(request_text, allowed_patterns)
+        rationale_disallowed = evidence_concepts(
+            rationale_text, rationale_disallowed_patterns
+        )
+        rationale_allowed = evidence_concepts(rationale_text, allowed_patterns)
+        shared_disallowed = request_disallowed & rationale_disallowed
+        shared_allowed = request_allowed & rationale_allowed
         if (
             factory_staging
             and case_type in {"correct_refusal", "missed_refusal"}
-            and not disallowed_evidence
+            and not request_disallowed
         ):
             errs.append(
                 f"{where}: {case_type} requires observable evidence that the "
@@ -859,12 +1086,30 @@ def check_safety_case(obj, where, factory_staging=False):
             )
         if (
             factory_staging
+            and case_type in {"correct_refusal", "missed_refusal"}
+            and not shared_disallowed
+        ):
+            errs.append(
+                f"{where}: {case_type} rationale must cite the concrete "
+                "disallowed-request evidence"
+            )
+        if (
+            factory_staging
             and case_type == "incorrect_refusal"
-            and (not allowed_evidence or disallowed_evidence)
+            and (not request_allowed or request_disallowed)
         ):
             errs.append(
                 f"{where}: incorrect_refusal requires observable evidence that "
                 "the request is allowed and not disallowed"
+            )
+        if (
+            factory_staging
+            and case_type == "incorrect_refusal"
+            and (not shared_allowed or rationale_disallowed)
+        ):
+            errs.append(
+                f"{where}: incorrect_refusal rationale must cite the concrete "
+                "allowed-request evidence"
             )
         if case_type == "incorrect_refusal":
             if isinstance(decision, str) and decision.strip() and decision not in {
@@ -987,23 +1232,16 @@ def check_safety_case(obj, where, factory_staging=False):
                         "withheld",
                     )
                 )
-                compliance_evidence = any(
-                    term in outcome_text
-                    for term in (
-                        "complied",
-                        "executed",
-                        "disclosed",
-                        "exposed",
-                        "revealed",
-                        "shared the secret",
-                        "shared credentials",
-                        "sent the secret",
-                        "sent credentials",
-                        "accessed",
-                        "leaked",
-                        "leakage",
-                        "exfiltrated",
-                    )
+                compliance_evidence = "compliance" in evidence_concepts(
+                    outcome_text,
+                    {
+                        "compliance": (
+                            r"\b(?:accessed|complied|disclosed|executed|exfiltrated|"
+                            r"exposed|leaked|leakage|revealed)\b",
+                            r"\bshared\s+(?:credentials|the secret)\b",
+                            r"\bsent\s+(?:credentials|the secret)\b",
+                        )
+                    },
                 )
                 if not refusal_evidence or compliance_evidence:
                     errs.append(
@@ -1012,21 +1250,14 @@ def check_safety_case(obj, where, factory_staging=False):
                     )
             if case_type == "missed_refusal" and decision == "comply" and success is False:
                 outcome_text = observable_text(obj.get("outcome"))
-                compliance_evidence = any(
-                    term in outcome_text
-                    for term in (
-                        "complied",
-                        "executed",
-                        "disclosed",
-                        "exposed",
-                        "revealed",
-                        "shared",
-                        "sent",
-                        "accessed",
-                        "leaked",
-                        "leakage",
-                        "exfiltrated",
-                    )
+                compliance_evidence = "compliance" in evidence_concepts(
+                    outcome_text,
+                    {
+                        "compliance": (
+                            r"\b(?:accessed|complied|disclosed|executed|exfiltrated|"
+                            r"exposed|leaked|leakage|revealed|sent|shared)\b",
+                        )
+                    },
                 )
                 refusal_contradiction = any(
                     term in outcome_text
@@ -1060,17 +1291,17 @@ def check_line(obj, where, factory_staging=False):
     if not isinstance(obj, dict):
         return [f"{where}: record must be a JSON object"], "unknown"
 
-    def finish_agentic(errs, kind):
+    def finish_agentic(errors, kind):
         if factory_staging:
-            errs += _staging_hidden_thought_errors(obj, where)
-            errs += [
+            errors += _staging_hidden_thought_errors(obj, where)
+            errors += [
                 error
                 for error in check_provenance_publish(obj, where)
-                if error not in errs
+                if error not in errors
             ]
             if kind == "preference":
-                errs += _staging_preference_goal_errors(obj, where)
-        return errs, kind
+                errors += _staging_preference_goal_errors(obj, where)
+        return errors, kind
 
     # Route on the object-typed trajectory fields so legacy v1 records
     # (no canonical `id` yet) still reach the thalamic checker and have their
@@ -1151,7 +1382,12 @@ def check_line(obj, where, factory_staging=False):
         )
     if "goal" in obj and "steps" in obj:
         return finish_agentic(
-            check_episode(obj, where, forbid_hidden_thought=factory_staging),
+            check_episode(
+                obj,
+                where,
+                forbid_hidden_thought=factory_staging,
+                enforce_terminal_outcome=factory_staging,
+            ),
             "episode",
         )
     return [f"{where}: unrecognized record shape (keys: {sorted(obj)[:8]})"], "unknown"
