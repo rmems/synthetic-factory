@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Snapshot published Grok 4.6 factory JSONL into ~/rmems/hf/<name>/ and publish to Hub.
+"""Snapshot published Grok 4.6 factory JSONL into ~/rmems/hf/grok-4.6/<name>/ and publish to Hub.
 
 Factory SoT stays under outputs/raw/2026-08-19-agentic/. Hub clones never nest rmems/.
 Creates public Apache-2.0 dataset repos, writes cards, uploads, adds to
