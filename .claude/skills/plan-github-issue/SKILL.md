@@ -193,6 +193,23 @@ If it is unset, create the twin directly with the plugin — and do **not** conf
 just to file one issue, because a bare `bd github sync` pushes *every* bead and will
 spam the tracker while other agents are working.
 
+**The sync path does not satisfy the metadata contract — reconcile after it.** `bd`
+renders its own body and sets no milestone; `.beads/config.yaml` carries no milestone,
+body, or template mapping, so a synced twin arrives without the `<!-- bead-id: -->`
+marker, without a milestone, and without the house sections that
+`docs/superpowers/specs/2026-08-18-public-repositories-and-hf-collection-design.md`
+requires. A missing marker is not cosmetic: the step-3 duplicate search and every
+reconciliation key on it, so the twin becomes invisible to them. After syncing, apply
+the same metadata you would have passed to `issue_write`:
+
+```bash
+gh issue view <n> --repo rmems/synthetic-factory --json body \
+  --jq '.body | test("<!-- bead-id: ")' # false -> body needs the template below
+```
+
+Then `issue_write` (`method: update`) with the full body template, `milestone`, and
+`assignees`. Do this before step 4 so the parity check in step 5 sees the final state.
+
 Title format: `[<bead-id>] <title>`. Set `assignees`, `milestone`, and `labels` in the
 same `issue_write` call. Body template — the `<!-- bead-id: -->` marker is **required**
 by `docs/superpowers/specs/2026-08-18-public-repositories-and-hf-collection-design.md`
@@ -298,10 +315,38 @@ diff <(bd show <bead-id> | sed -n 's/^LABELS: //p' | tr ',' '\n' \
 The `grep -Ev` drops the GitHub-only tracking triplet. Empty diff means parity; any
 line printed is the drift to reconcile.
 
+That filter proves nothing *about* the triplet, though — it hides it. A twin missing
+`bead:*`, or carrying a `status:*`/`priority:*` left over from before an update, still
+prints `parity OK`. The triplet is required and must be accurate, so derive it from the
+bead and check it separately. All three values come from `bd show`'s header line:
+
+```bash
+hdr=$(bd show <bead-id> | head -1)
+want="bead:$(bd show <bead-id> | sed -n 's/.*Type: \([a-z]*\).*/\1/p' | head -1)
+priority:$(printf '%s' "$hdr" | grep -oE 'P[0-4]' | head -1)
+status:$(printf '%s' "$hdr" | grep -oE '(OPEN|CLOSED|IN_PROGRESS)' | head -1 | tr 'A-Z' 'a-z')"
+
+diff <(printf '%s\n' "$want" | sort) \
+     <(gh issue view <n> --repo rmems/synthetic-factory --json labels --jq '.labels[].name' \
+        | grep -E '^(bead|status|priority):' | sort) \
+  && echo "tracking triplet OK"
+```
+
 `issue_write` **replaces** the label set, so pass the complete list: every domain label
 plus the tracking triplet. If the drift you find here is *inherited* parent tags, note
 that `--no-inherit-labels` cannot help at this point — it applies only at `bd create`
 (step 2). Reconcile by removing the unwanted tags on both surfaces.
+
+**Commit the bead side again if you changed it here.** Step 4's focused commit is the
+workflow's only metadata commit, and it runs *before* this reconciliation. Any `bd`
+label fix you make now rewrites `.beads/issues.jsonl` after that commit, so the export
+other agents read stays stale and the source of truth silently diverges. Close the
+workflow with a second focused commit, same pathspec discipline:
+
+```bash
+git diff -- .beads/issues.jsonl        # empty -> nothing to do
+git commit -m "chore: reconcile <bead-id> labels" -- .beads/issues.jsonl
+```
 
 ## Gotchas
 
