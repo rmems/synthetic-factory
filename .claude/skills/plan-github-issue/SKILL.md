@@ -45,6 +45,12 @@ link the twin. If that plugin is unavailable, every step has a `gh` equivalent:
 | `issue_write` (create) | `gh issue create --title --body-file --label --assignee --milestone` |
 | `issue_write` (update) | `gh issue edit <n> --title --body-file --add-label --remove-label --add-assignee --remove-assignee --milestone` |
 | `sub_issue_write` (add) | `gh api --method POST repos/<o>/<r>/issues/<parent>/sub_issues -F sub_issue_id=<child-db-id>` |
+| `sub_issue_write` (replace parent) | `gh issue edit <n> --parent <parent-number>` (and `--remove-parent` to detach) |
+| `pull_request_read` (`get_files`) | `gh pr list --repo <o>/<r> --state open --json number,files` |
+
+Milestones need the empty case too: `gh issue edit <n> --milestone "<name>"` to set,
+and `gh issue edit <n> --remove-milestone` when the bead has none — otherwise a
+milestone removed from the bead survives on the twin and no step ever clears it.
 
 `gh issue create` also takes `--blocked-by`, which mirrors the `bd dep add` edge onto
 GitHub in the same call.
@@ -377,10 +383,16 @@ leaves the public collaboration surface shut, and step 5 only reconciles labels,
 accurate `status:open` label would sit on a closed issue:
 
 ```bash
-gh issue view <n> --repo rmems/synthetic-factory --json state --jq .state
-# CLOSED while the bead is anything but closed -> reopen before continuing:
-# gh issue reopen <n> --repo rmems/synthetic-factory
-``` Then check
+bd_state=$(bd show <bead-id> --json | jq -r '.[0].status')
+gh_state=$(gh issue view <n> --repo rmems/synthetic-factory --json state --jq .state)
+# Reconcile in BOTH directions -- step 5 only touches labels, so either mismatch
+# would leave an accurate status:* label on an issue in the wrong state:
+#   bead not closed, issue CLOSED -> gh issue reopen <n> --repo rmems/synthetic-factory
+#   bead closed,     issue OPEN   -> gh issue close  <n> --repo rmems/synthetic-factory
+echo "bead=$bd_state issue=$gh_state"
+```
+
+Then check
 the sync path live rather than assuming — `bd` accepts either the split
 `github.owner` / `github.repo` keys or the combined `github.repository`, so probing
 one key alone reports a configured integration as unset:
@@ -465,7 +477,11 @@ gh issue view <n> --repo rmems/synthetic-factory --json body \
 ```
 
 Then `issue_write` (`method: update`) with the full body template, `milestone`,
-`assignees`, **and the title**. A bead renamed after its twin was filed leaves the
+`assignees`, **and the title**. Rebuild the body from the current bead rather than
+editing labels alone: the template's **Local status** and **Priority** lines are
+plain text, so a bead whose status or priority changed after filing leaves the twin
+showing `status:blocked` as a label and `open` in its own metadata. The label check in
+step 5 cannot see that — it never reads the body. A bead renamed after its twin was filed leaves the
 issue on its old title, which then no longer matches the required
 `[<bead-id>] <title>` format — and nothing else in the workflow reads or repairs it:
 
