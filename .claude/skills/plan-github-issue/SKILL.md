@@ -62,7 +62,13 @@ Compute both directions and pass them together:
 
 ```bash
 want=...   # the complete intended set, from step 5
-have=$(gh issue view <n> --repo rmems/synthetic-factory --json labels --jq '.labels[].name' | sort -u)
+# set -o pipefail, or the trailing `| sort -u` swallows a failed read: gh errors, sort
+# succeeds on an empty stream, `have` comes back empty, and the reconciliation computes
+# ZERO removals -- so a later successful edit adds the wanted labels while every stale
+# one survives. Verified: without pipefail this assignment returns 0 for issue #999999.
+set -o pipefail
+have=$(gh issue view <n> --repo rmems/synthetic-factory --json labels --jq '.labels[].name' | sort -u) \
+  || { echo "could not read current labels -- aborting rather than half-reconciling" >&2; exit 1; }
 add=$(comm -23 <(printf '%s\n' "$want" | sort -u) <(printf '%s\n' "$have"))
 del=$(comm -13 <(printf '%s\n' "$want" | sort -u) <(printf '%s\n' "$have"))
 # Join on newlines with paste, NOT `echo $x | tr ' ' ','`: label names may contain
@@ -457,6 +463,10 @@ partial-failure step 3 already handles for the child:
 ```bash
 # Parent twin: an empty External ref is NOT proof the parent has no twin. A run may
 # have created it and died before saving the ref, so fall back to the marker search.
+# And a NON-empty ref is not proof either: validate it carries the parent's own exact
+# marker, exactly as the child's ref is validated in step 3. An unvalidated stale ref
+# means linking the child under an unrelated issue and then editing that issue's
+# checklist body. Same contains() rule -- test() would treat a dotted ID as a regex.
 # Require exactly one, same as the child guard in step 3: sub_issue_write takes a
 # single issue_number, so several marker-sharing candidates would mean picking one
 # arbitrarily and hanging the hierarchy off a duplicate.
@@ -470,6 +480,11 @@ hits=[i['number'] for i in json.load(sys.stdin) if want in (i.get('body') or '')
 if len(hits) > 1: sys.exit(f'STOP: {len(hits)} parent twins share this marker: {hits} -- reconcile first')
 print(hits[0] if hits else 'no parent twin')"
 
+# If bd show DID yield a ref, verify that issue before trusting it:
+gh issue view <parent-n> --repo rmems/synthetic-factory --json body \
+  --jq '((.body // "") | contains("<!-- bead-id: <parent-bead-id> -->"))' | grep -qx true \
+  || { echo "parent ref does not carry the parent's marker -- reconcile before linking" >&2; exit 1; }
+
 # Child: if a previous run already added the link and died before --external-ref,
 # adding again is rejected and the retry can never get past this point.
 # Three outcomes: "none" -> add it; the intended parent -> already done, skip;
@@ -480,17 +495,15 @@ print(hits[0] if hits else 'no parent twin')"
 # The parent is NOT a field on the issue object -- that object carries only
 # sub_issues_summary, so '.parent.number' reads "none" even for a linked child and the
 # check never fires. Use the dedicated endpoint; its 404 IS the unparented case.
-# Capture, do not pipe: on 404 gh prints the error BODY to stdout, so a bare
-# '... || echo none' emits the JSON and then "none".
-# And do NOT treat every failure as "no parent": gh exits 1 for any reason -- a 5xx,
-# a rate limit, or a dropped connection all look identical to an absent parent, and
-# swallowing them means adding a link that may already exist or missing a wrong one.
-# Match the specific absent-parent message; propagate anything else.
-out=$(gh api repos/rmems/synthetic-factory/issues/<n>/parent --jq .number 2>&1); rc=$?
-if [ $rc -eq 0 ]; then PARENT=$out
-elif printf '%s' "$out" | grep -q '"message":"No parent issue found"'; then PARENT=none
-else echo "parent lookup failed, not retrying blindly: $out" >&2; exit 1
-fi
+# Ask for the parent FIELD rather than probing the endpoint and interpreting its error
+# text. The REST contract documents only "404 Resource not found", so matching on the
+# body wording couples this to undocumented strings; and gh exits 1 for any reason, so
+# a 5xx, rate limit, or dropped connection would otherwise read as "no parent" and the
+# workflow would add a link that may already exist. This form yields "none" for a
+# genuinely unparented issue and exits nonzero on a real read failure.
+PARENT=$(gh issue view <n> --repo rmems/synthetic-factory --json parent \
+           --jq '.parent.number // "none"') \
+  || { echo "parent lookup failed -- not assuming unparented" >&2; exit 1; }
 echo "$PARENT"
 ```
 
