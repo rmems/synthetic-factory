@@ -26,6 +26,20 @@ command -v bd >/dev/null || echo "beads missing -- install it before running thi
 gh auth status >/dev/null 2>&1 || echo "gh not authenticated -- run: gh auth login"
 ```
 
+Passing those two is **not** sufficient. The workflow below also calls `issue_write` and
+`sub_issue_write`, which are GitHub MCP plugin tools, not `gh` subcommands — an agent
+with working `bd` and `gh` can clear the gate above and still be unable to create or
+link the twin. If that plugin is unavailable, every step has a `gh` equivalent:
+
+| Plugin tool | `gh` equivalent |
+| --- | --- |
+| `issue_write` (create) | `gh issue create --title --body-file --label --assignee --milestone` |
+| `issue_write` (update) | `gh issue edit <n> --body-file --add-label --milestone` |
+| `sub_issue_write` (add) | `gh api --method POST repos/<o>/<r>/issues/<parent>/sub_issues -F sub_issue_id=<child-db-id>` |
+
+`gh issue create` also takes `--blocked-by`, which mirrors the `bd dep add` edge onto
+GitHub in the same call.
+
 Provisioning beads *into* the cloud image is a change to shared infrastructure, out of
 scope for this skill; file it separately rather than editing `.cursor/` from here.
 
@@ -486,9 +500,12 @@ git commit -m "chore: reconcile <bead-id> labels" -- .beads/issues.jsonl
   ```
 
   If it returns projects, add the issue. Only report a no-op when the live query is empty.
-- **Sub-issue relationships need both twins on GitHub.** `sub_issue_write` links by ID;
-  if the parent bead has no GitHub twin (`bd show <parent> | grep External` is empty),
-  record the parent in the body's **Relationships** section instead.
+- **Sub-issue relationships need both twins on GitHub.** `sub_issue_write` links by
+  database ID, not issue number. An empty `bd show <parent> | grep External` does
+  **not** establish that the parent has no twin — a run can create one and die before
+  saving the ref — so run the exact-marker search from step 4 before falling back.
+  Only when that search also comes back empty should you record the parent in the
+  body's **Relationships** section instead.
 - **Check for PR collisions before filing a code fix.** If the issue touches a file an
   open PR also modifies, name that PR under **Relationships**. Compare with
   `pull_request_read` `method: get_files`.
