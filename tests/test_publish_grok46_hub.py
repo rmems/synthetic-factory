@@ -1027,6 +1027,48 @@ class PublishGrok46HubTests(unittest.TestCase):
 
             run.assert_not_called()
 
+    def test_snapshot_refuses_a_symlinked_datasets_root(self):
+        # The per-model mirror root gets the same symlink rejection as the Hub
+        # root; without this the grouping directory would be an escape hatch.
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            hub_root = root / "hf"
+            outside = root / "outside"
+            hub_root.mkdir()
+            outside.mkdir()
+            (hub_root / publisher.HF_DATASETS_DIRNAME).symlink_to(
+                outside, target_is_directory=True
+            )
+            dest = hub_root / publisher.HF_DATASETS_DIRNAME / ITEM["hub"]
+
+            with mock.patch.object(publisher, "HF_ROOT", hub_root):
+                with self.assertRaisesRegex(SystemExit, "unsafe snapshot directory"):
+                    publisher.snapshot_directories(dest)
+
+    def test_snapshot_refuses_a_destination_outside_the_datasets_root(self):
+        # A mirror written directly under the Hub root (the pre-grouping
+        # layout) must be rejected rather than silently accepted.
+        with tempfile.TemporaryDirectory() as td:
+            hub_root = Path(td) / "hf"
+            hub_root.mkdir(parents=True)
+
+            with mock.patch.object(publisher, "HF_ROOT", hub_root):
+                with self.assertRaisesRegex(
+                    SystemExit, "snapshot destination escaped Hub root"
+                ):
+                    publisher.snapshot_directories(hub_root / ITEM["hub"])
+
+    def test_upload_refuses_a_missing_datasets_root(self):
+        # HF_ROOT can exist while the per-model mirror root does not; the
+        # upload guard must reject that instead of proceeding.
+        with tempfile.TemporaryDirectory() as td:
+            hub_root = Path(td) / "hf"
+            hub_root.mkdir(parents=True)
+
+            with mock.patch.object(publisher, "HF_ROOT", hub_root):
+                with self.assertRaisesRegex(SystemExit, "unsafe upload root"):
+                    publisher.safe_upload_directory(ITEM)
+
     def test_upload_refuses_a_symlinked_hub_mirror(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
