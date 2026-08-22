@@ -1,0 +1,20 @@
+.claude/skills/plan-github-issue/SKILL.md
+  s_ef828dd380d40d::t_2fd56eb2527331 362-367
+  s_ef828dd380d40d::t_535676178cf53b 219-228,280-296,359-361
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "ee27c61dd330953b097b4af1f920d3afe32994ba",
+  "prompts": {},
+  "sessions": {
+    "s_ef828dd380d40d": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "438ac320-195b-40d3-af59-709bc123a0ec",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Raul Montoya Cardenas <montoyaraul34@gmail.com>"
+    }
+  }
+}
