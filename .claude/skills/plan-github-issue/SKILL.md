@@ -748,21 +748,65 @@ git diff HEAD -- .beads/issues.jsonl   # empty -> nothing to do (HEAD, not the i
 git commit -m "chore: reconcile <bead-id> labels" -- .beads/issues.jsonl
 ```
 
+## Concurrency
+
+Several agents work this repo at once, so two steps above are races, not just sequences.
+Neither has a true lock available — `bd` offers no create-time claim on work that does
+not exist yet, and `gh issue edit` replaces a body with no compare-and-swap — so these
+are **detect-and-converge** mitigations, not prevention. Treat them as such.
+
+- **Resume search → `bd create` (step 2).** Two agents can both search, both find
+  nothing, and both create a bead for the same request. The later exact-marker guard
+  cannot catch it: the beads have different IDs, so their twins carry different markers
+  and each looks unique. Mitigation: immediately after `bd create`, re-run the step-2
+  search and confirm exactly one bead matches. If two exist, close the newer with
+  `bd close <id> --reason="duplicate of <other>"` *before* creating any twin —
+  reconciling beads is cheap, reconciling twins is not.
+- **Epic checklist replacement (step 4).** `--body-file` writes a whole body, so two
+  agents appending different children can each read the same parent body and the second
+  write erases the first child's line. Mitigation: after writing, re-read the parent and
+  confirm your entry *and* every entry you saw before the write are still present;
+  re-apply what is missing. Keep the read-to-write window short.
+
+```bash
+# after any parent-body write
+gh issue view <parent-n> --repo rmems/synthetic-factory --json body --jq .body \
+  | grep -cE '^[[:space:]]*-[[:space:]]*\[[ x]\][[:space:]]*#[0-9]+'   # entry count
+# fewer than before your write -> you clobbered someone; re-add the missing children
+```
+
 ## Gotchas
 
 - **`bd edit` opens `$EDITOR` and hangs an agent.** Use `bd update --title/--description/--notes`.
 - **Do not hand-file a Linear twin.** Mirroring is automatic; issue bodies say so
   explicitly. Your job is only to make the tags correct at the source.
+  **But say what you actually checked.** Step 5 compares the bead and the GitHub issue
+  and nothing else, so it cannot report on Linear: if mirroring is disabled, lagging, or
+  rejects a label, parity still passes. This checkout cannot even observe it —
+  `linear.team_id` is unset and `bd` reports Linear has never been pulled. Treat the
+  verified contract as bead ↔ GitHub, and describe the Linear twin as expected rather
+  than confirmed. Where Linear *is* configured, verify it before claiming three-way
+  parity:
+
+  ```bash
+  bd config get linear.team_id | grep -qv '(not set)' \
+    && bd linear sync --pull && bd show <bead-id> | grep -i linear \
+    || echo "Linear not configured here -- parity claim covers bead <-> GitHub only"
+  ```
+
 - **ProjectsV2: query before concluding.** At the last check this repo had none, but
   that is a snapshot, not a fact — never report "no project" without running:
 
   ```bash
   gh api graphql -f query='query($o:String!,$r:String!){repository(owner:$o,name:$r){
     projectsV2(first:100){nodes{number title closed}}}}' \
-    -F o=rmems -F r=synthetic-factory --jq '.data.repository.projectsV2.nodes'
+    -F o=rmems -F r=synthetic-factory \
+      --jq '.data.repository.projectsV2.nodes | map(select(.closed == false))'
   ```
 
-  If it returns projects, add the issue. Only report a no-op when the live query is empty.
+  The query already selects `closed`, so filter on it — a historical or archived board is
+  not a destination, and treating any nonempty result as one files new work onto a closed
+  project. Only report a no-op when the *open*-filtered query is empty.
 - **Sub-issue relationships need both twins on GitHub.** `sub_issue_write` links by
   database ID, not issue number. An empty `bd show <parent> | grep External` does
   **not** establish that the parent has no twin — a run can create one and die before
