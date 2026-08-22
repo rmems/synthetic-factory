@@ -61,7 +61,18 @@ labels survive and step 5 keeps reporting drift no matter how many times you run
 Compute both directions and pass them together:
 
 ```bash
-want=...   # the complete intended set, from step 5
+# The COMPLETE intended set: bead domain labels PLUS the tracking triplet. Do not pass
+# $want_tracking here -- that holds only the three tracking labels, so every domain
+# label would land in $del and the fallback would strip exactly the tags it exists to
+# restore.
+want=$(printf '%s\n' \
+  "$(bd show <bead-id> --json | jq -r '.[0].labels[]?')" \
+  "$want_tracking" | grep -v '^$' | sort -u)
+# Only reconcile labels this workflow manages. GitHub carries collaboration labels no
+# bead will ever have -- this repo has size:S/M/L/XL/XXL, dataset-card, Documentation,
+# GitHub Actions, release and others -- and treating every non-tracking label as a
+# domain tag would delete them or push them back into the bead. Restrict $del to the
+# managed vocabulary: labels some bead uses, plus the tracking prefixes.
 # set -o pipefail, or the trailing `| sort -u` swallows a failed read: gh errors, sort
 # succeeds on an empty stream, `have` comes back empty, and the reconciliation computes
 # ZERO removals -- so a later successful edit adds the wanted labels while every stale
@@ -70,7 +81,10 @@ set -o pipefail
 have=$(gh issue view <n> --repo rmems/synthetic-factory --json labels --jq '.labels[].name' | sort -u) \
   || { echo "could not read current labels -- aborting rather than half-reconciling" >&2; exit 1; }
 add=$(comm -23 <(printf '%s\n' "$want" | sort -u) <(printf '%s\n' "$have"))
-del=$(comm -13 <(printf '%s\n' "$want" | sort -u) <(printf '%s\n' "$have"))
+managed=$( { for i in $(bd list --status=all | grep -oE 'sf-[a-z0-9.]+' | sort -u); do
+               bd show "$i" --json | jq -r '.[0].labels[]?'; done; } | sort -u)
+del=$(comm -13 <(printf '%s\n' "$want" | sort -u) <(printf '%s\n' "$have") \
+      | grep -E "^(bead|status|priority):|^($(printf '%s\n' "$managed" | paste -sd'|'))$")
 # Join on newlines with paste, NOT `echo $x | tr ' ' ','`: label names may contain
 # spaces (GitHub ships `good first issue`), and word-splitting would turn that one
 # label into three bogus ones while leaving the real stale label in place.
@@ -195,7 +209,10 @@ elif ! printf '%s' "$body" | grep -qF "<!-- bead-id: "; then
   # follows rewrites body, labels, milestone and assignees. Require corroboration.
   title=$(gh issue view "$n" --repo rmems/synthetic-factory --json title --jq .title) \
     || { echo "could not read issue #$n title -- aborting" >&2; exit 1; }
-  if printf '%s' "$title" | grep -qF "<bead-id>"; then
+  # Bracketed token, not a bare substring: bead IDs nest, so "sf-v46" occurs inside
+  # "[sf-v46.2] ..." and would falsely claim a child's issue. Verified on that exact
+  # pair -- the bare form matches, "[sf-v46]" does not.
+  if printf '%s' "$title" | grep -qF "[<bead-id>]"; then
     echo "issue #$n is markerless but its title names this bead -- reconcile (adds the marker)"
   else
     echo "issue #$n is markerless AND its title does not name <bead-id>." >&2
@@ -630,7 +647,8 @@ diff <(bd show <bead-id> | sed -n 's/^LABELS: //p' | tr ',' '\n' \
        | sed 's/^[[:space:]]*//; s/[[:space:]]*$//' | sort) \
      <(gh issue view <n> --repo rmems/synthetic-factory --json labels \
         --jq '.labels[].name' \
-       | grep -Ev '^(bead|status|priority):' | sort) \
+       | grep -Ev '^(bead|status|priority):' \
+       | grep -Fxf <(printf '%s\n' "$managed") | sort) \
   && echo "parity OK"
 ```
 
@@ -663,10 +681,10 @@ reconcile, would replace a correct label with a bare `status:`.
 # four separate passes: a three-value status allowlist, an underscore where the repo
 # uses a hyphen, a first-match P[0-4] that picked up a "P0" in the title, and a greedy
 # separator match that returned "OPEN]" as the title. --json has none of those hazards.
-want=$(bd show <bead-id> --json | jq -r '.[0] |
+want_tracking=$(bd show <bead-id> --json | jq -r '.[0] |
   "bead:\(.issue_type)", "priority:P\(.priority)", "status:\(.status | gsub("_";"-"))"')
 
-diff <(printf '%s\n' "$want" | sort) \
+diff <(printf '%s\n' "$want_tracking" | sort) \
      <(gh issue view <n> --repo rmems/synthetic-factory --json labels --jq '.labels[].name' \
         | grep -E '^(bead|status|priority):' | sort) \
   && echo "tracking triplet OK"
