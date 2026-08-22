@@ -29,6 +29,7 @@ from pathlib import Path
 from typing import Any
 
 from check_records import reject_json_constant
+from record_kind import classify_kind as classify_payload_kind
 from round_txn import TransactionError, committed_jsonl_paths, marker_mode_path
 
 
@@ -145,38 +146,31 @@ def strip_hidden_thought_keys(value: Any) -> tuple[Any, int]:
 
 
 def classify_record(obj: Any) -> str:
-    """Route a record to an agentic kind, or a skippable non-agentic kind."""
-    if not isinstance(obj, dict):
-        return "unknown"
-    if all(key in obj for key in THALAMIC_CORE_KEYS):
-        return "thalamic"
-    if "chosen" in obj and "rejected" in obj:
-        sides = (obj.get("chosen"), obj.get("rejected"))
-        if any(
-            isinstance(side, dict)
-            and "steps" in side
-            and not all(key in side for key in THALAMIC_CORE_KEYS)
-            for side in sides
-        ):
-            return "preference"
-        if all(
-            isinstance(side, dict) and all(key in side for key in THALAMIC_CORE_KEYS)
-            for side in sides
-        ):
-            # Legacy Thalamic preference pairs deliberately have chosen/rejected
-            # trajectory objects rather than agentic episode sides. They belong
-            # in the skipped bucket, not in the agentic goal-impurity statistics.
-            return "legacy_preference"
+    """Route a record to an agentic kind, or a skippable non-agentic kind.
+
+    Kind order is the shared payload classifier. ``legacy_preference`` remains
+    an agentic skip subkind after that function returns ``preference``.
+    """
+    kind = classify_payload_kind(obj)
+    if kind != "preference":
+        return kind
+    sides = (obj.get("chosen"), obj.get("rejected"))
+    if any(
+        isinstance(side, dict)
+        and "steps" in side
+        and not all(key in side for key in THALAMIC_CORE_KEYS)
+        for side in sides
+    ):
         return "preference"
-    if "language_view" in obj and "spike_events" in obj:
-        return "bridge_pair"
-    if "case_type" in obj:
-        return "safety_case"
-    if "transcript" in obj and "agents" in obj:
-        return "multi_agent"
-    if "goal" in obj and "steps" in obj:
-        return "episode"
-    return "unknown"
+    if all(
+        isinstance(side, dict) and all(key in side for key in THALAMIC_CORE_KEYS)
+        for side in sides
+    ):
+        # Legacy Thalamic preference pairs deliberately have chosen/rejected
+        # trajectory objects rather than agentic episode sides. They belong
+        # in the skipped bucket, not in the agentic goal-impurity statistics.
+        return "legacy_preference"
+    return "preference"
 
 
 def _record_id(record: Any) -> str | None:
