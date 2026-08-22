@@ -21,9 +21,18 @@ image: `.cursor/Dockerfile` installs git, sudo, Python, curl, and certificates, 
 found` for a cloud agent starting from `AGENTS.md`. Check before starting, and install
 beads (or run this skill locally) if the check fails:
 
+The same image lacks `gh`: `.cursor/Dockerfile` installs `curl` but not GitHub CLI.
+Check the binary separately from authentication — folding them together reports "not
+authenticated" for a missing binary and sends the operator to `gh auth login`, a command
+they cannot run:
+
 ```bash
 command -v bd >/dev/null || echo "beads missing -- install it before running this skill"
-gh auth status >/dev/null 2>&1 || echo "gh not authenticated -- run: gh auth login"
+if ! command -v gh >/dev/null; then
+  echo "GitHub CLI missing -- install gh before running this skill"
+elif ! gh auth status >/dev/null 2>&1; then
+  echo "gh present but not authenticated -- run: gh auth login"
+fi
 ```
 
 Passing those two is **not** sufficient. The workflow below also calls `issue_write` and
@@ -163,8 +172,11 @@ case "$ref" in
   *) echo "External ref is not a synthetic-factory issue: $ref" >&2; exit 1 ;;
 esac
 n=${ref##*/}
+# contains(), NOT test(): test() takes a REGEX, so the dot in an ID like sf-v46.2 is a
+# wildcard and an issue marked sf-v46X2 would pass this "exact" check -- then get
+# overwritten. Verified: test() returns true for that decoy, contains() returns false.
 gh issue view "$n" --repo rmems/synthetic-factory --json body \
-  --jq '((.body // "") | test("<!-- bead-id: <bead-id> -->"))' | grep -qx true \
+  --jq '((.body // "") | contains("<!-- bead-id: <bead-id> -->"))' | grep -qx true \
   || { echo "issue #$n does not carry this bead's marker -- stop and reconcile" >&2; exit 1; }
 ```
 
@@ -505,7 +517,13 @@ Append it and verify:
 # Anchor to a checklist LINE, not a substring: a bare `grep -F "#12"` also matches
 # "#123" and any passing mention outside the list, and would silently skip a required
 # update. `([^0-9]|$)` stops the prefix match.
-gh issue view <parent-n> --repo rmems/synthetic-factory --json body --jq .body \
+# Read first, THEN test. Piping straight into grep makes a failed read -- auth, rate
+# limit, network, bad parent number -- indistinguishable from "entry absent", and the
+# operator would then rewrite a parent body they never retrieved. Verified: the piped
+# form reports "missing" for issue #999999, which does not exist.
+parent_body=$(gh issue view <parent-n> --repo rmems/synthetic-factory --json body --jq .body) \
+  || { echo "could not read parent #<parent-n> -- aborting, do NOT rewrite its body" >&2; exit 1; }
+printf '%s\n' "$parent_body" \
   | grep -qE '^[[:space:]]*-[[:space:]]*\[[ x]\][[:space:]]*#<n>([^0-9]|$)' \
   || echo "child #<n> missing from the epic checklist -- add it"
 # then: gh issue edit <parent-n> --repo rmems/synthetic-factory --body-file <updated>
