@@ -12,6 +12,23 @@ issue (auto-mirrored). They must carry **the same domain tags**, or the twins dr
 Paths are relative to the repo root. Every command below is a **live check** — do
 not trust a remembered answer, including the ones in this document.
 
+## Prerequisites
+
+This skill drives two external CLIs — `bd` (beads) and `gh` — and every step below
+assumes both are on `PATH` and authenticated. That is **not** true of the Cursor Cloud
+image: `.cursor/Dockerfile` installs git, sudo, Python, curl, and certificates, and
+`.cursor/install.sh` does not install beads, so step 1 fails with `bd: command not
+found` for a cloud agent starting from `AGENTS.md`. Check before starting, and install
+beads (or run this skill locally) if the check fails:
+
+```bash
+command -v bd >/dev/null || echo "beads missing -- install it before running this skill"
+gh auth status >/dev/null 2>&1 || echo "gh not authenticated -- run: gh auth login"
+```
+
+Provisioning beads *into* the cloud image is a change to shared infrastructure, out of
+scope for this skill; file it separately rather than editing `.cursor/` from here.
+
 ## Order of operations (do not reorder)
 
 Create the **bead first**, then the GitHub twin, then link them. Creating the GitHub
@@ -100,6 +117,7 @@ bd create "<title>" \
   ```bash
   gh api "repos/rmems/synthetic-factory/assignees/<login>" --silent && echo assignable
   ```
+
 - **`--parent` is optional too.** A new top-level lane has no parent — both `sf-c5l`
   and `sf-v46` are parentless epics. Omit the flag (and the body's **Parent bead**
   line) rather than inventing an unrelated parent to satisfy the example.
@@ -246,8 +264,23 @@ and is what marker-based duplicate checks and reconciliation key on:
 establishes the hierarchy in `bd` only; GitHub does not learn it, so the twin renders
 as an unrelated top-level issue unless `sub_issue_write` is called explicitly:
 
+Both halves of this lookup must tolerate a half-finished earlier run — the same
+partial-failure step 3 already handles for the child:
+
 ```bash
-bd show <parent-bead-id> | grep External     # parent's twin number, if any
+# Parent twin: an empty External ref is NOT proof the parent has no twin. A run may
+# have created it and died before saving the ref, so fall back to the marker search.
+bd show <parent-bead-id> | grep External
+gh search issues --repo rmems/synthetic-factory --limit 200 \
+  --match body "bead-id: <parent-bead-id>" --json number,body \
+  | python3 -c "
+import json,sys
+want='<!-- bead-id: <parent-bead-id> -->'
+print([i['number'] for i in json.load(sys.stdin) if want in (i.get('body') or '')] or 'no parent twin')"
+
+# Child: if a previous run already added the link and died before --external-ref,
+# adding again is rejected and the retry can never get past this point.
+gh api repos/rmems/synthetic-factory/issues/<n> --jq 'has("parent")'   # true -> already linked, skip the add
 ```
 
 The two arguments are **not the same kind of number**. `issue_number` is the parent's
@@ -300,7 +333,7 @@ Read **both** sides — printing only the bead's labels leaves you comparing aga
 remembered value, and step 3 may have resumed an existing twin or let `bd github sync`
 create one, so the GitHub side is not necessarily what you last set:
 
-Normalize both sides before comparing — `bd` prints a `LABELS: ` prefix that `gh` does
+Normalize both sides before comparing — `bd` prints a `LABELS:` prefix, trailing space included, that `gh` does
 not, so the raw outputs never match even when the label sets are identical:
 
 ```bash
@@ -318,13 +351,19 @@ line printed is the drift to reconcile.
 That filter proves nothing *about* the triplet, though — it hides it. A twin missing
 `bead:*`, or carrying a `status:*`/`priority:*` left over from before an update, still
 prints `parity OK`. The triplet is required and must be accurate, so derive it from the
-bead and check it separately. All three values come from `bd show`'s header line:
+bead and check it separately. All three values come from `bd show`'s header line.
+
+Read the status **positionally**, not from an allowlist. This `bd` accepts seven —
+`open, in_progress, blocked, deferred, closed, pinned, hooked` (confirmed via
+`bd list --status=bogus`, which prints the valid set). A three-value regex leaves
+`status:` empty for four of them, which reports false drift and, if fed back into a
+reconcile, would replace a correct label with a bare `status:`.
 
 ```bash
 hdr=$(bd show <bead-id> | head -1)
 want="bead:$(bd show <bead-id> | sed -n 's/.*Type: \([a-z]*\).*/\1/p' | head -1)
 priority:$(printf '%s' "$hdr" | grep -oE 'P[0-4]' | head -1)
-status:$(printf '%s' "$hdr" | grep -oE '(OPEN|CLOSED|IN_PROGRESS)' | head -1 | tr 'A-Z' 'a-z')"
+status:$(printf '%s' "$hdr" | sed -n 's/.*· \([A-Z_]*\)\].*/\1/p' | tr 'A-Z' 'a-z')"
 
 diff <(printf '%s\n' "$want" | sort) \
      <(gh issue view <n> --repo rmems/synthetic-factory --json labels --jq '.labels[].name' \
