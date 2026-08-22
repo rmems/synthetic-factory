@@ -43,7 +43,7 @@ link the twin. If that plugin is unavailable, every step has a `gh` equivalent:
 | Plugin tool | `gh` equivalent |
 | --- | --- |
 | `issue_write` (create) | `gh issue create --title --body-file --label --assignee --milestone` |
-| `issue_write` (update) | `gh issue edit <n> --body-file --add-label --remove-label --add-assignee --remove-assignee --milestone` |
+| `issue_write` (update) | `gh issue edit <n> --title --body-file --add-label --remove-label --add-assignee --remove-assignee --milestone` |
 | `sub_issue_write` (add) | `gh api --method POST repos/<o>/<r>/issues/<parent>/sub_issues -F sub_issue_id=<child-db-id>` |
 
 `gh issue create` also takes `--blocked-by`, which mirrors the `bd dep add` edge onto
@@ -181,15 +181,28 @@ case "$ref" in
   *) echo "External ref is not a synthetic-factory issue: $ref" >&2; exit 1 ;;
 esac
 n=${ref##*/}
-# contains(), NOT test(): test() takes a REGEX, so the dot in an ID like sf-v46.2 is a
-# wildcard and an issue marked sf-v46X2 would pass this "exact" check -- then get
-# overwritten. Verified: test() returns true for that decoy, contains() returns false.
+# grep -qF (literal fixed-string), NOT a regex match: jq's test() treats the dot in an
+# ID like sf-v46.2 as a wildcard, so an issue marked sf-v46X2 would pass an "exact"
+# check and then get overwritten. Verified: test() returns true for that decoy, while
+# both grep -qF and jq contains() return false.
 body=$(gh issue view "$n" --repo rmems/synthetic-factory --json body --jq '.body // ""') \
   || { echo "could not read issue #$n -- aborting" >&2; exit 1; }
 if printf '%s' "$body" | grep -qF "<!-- bead-id: <bead-id> -->"; then
   : # ours, proceed
 elif ! printf '%s' "$body" | grep -qF "<!-- bead-id: "; then
-  echo "issue #$n has NO marker -- the markerless sync case; reconcile metadata (adds it)"
+  # No marker is CONSISTENT with the sync case but does not prove ownership: a stale
+  # ref can point at any unrelated markerless issue, and the reconciliation that
+  # follows rewrites body, labels, milestone and assignees. Require corroboration.
+  title=$(gh issue view "$n" --repo rmems/synthetic-factory --json title --jq .title) \
+    || { echo "could not read issue #$n title -- aborting" >&2; exit 1; }
+  if printf '%s' "$title" | grep -qF "<bead-id>"; then
+    echo "issue #$n is markerless but its title names this bead -- reconcile (adds the marker)"
+  else
+    echo "issue #$n is markerless AND its title does not name <bead-id>." >&2
+    echo "Ownership unproven -- do NOT overwrite. Confirm manually, or clear the stale" >&2
+    echo "External ref and re-run the exact-marker search." >&2
+    exit 1
+  fi
 else
   echo "issue #$n is marked for a DIFFERENT bead -- stop and reconcile" >&2; exit 1
 fi
@@ -410,8 +423,16 @@ gh issue view <n> --repo rmems/synthetic-factory --json body \
   --jq '.body | test("<!-- bead-id: ")' # false -> body needs the template below
 ```
 
-Then `issue_write` (`method: update`) with the full body template, `milestone`, and
-`assignees`. Do this before step 4 so the parity check in step 5 sees the final state.
+Then `issue_write` (`method: update`) with the full body template, `milestone`,
+`assignees`, **and the title**. A bead renamed after its twin was filed leaves the
+issue on its old title, which then no longer matches the required
+`[<bead-id>] <title>` format — and nothing else in the workflow reads or repairs it:
+
+```bash
+want_title="[<bead-id>] $(bd show <bead-id> --json | jq -r '.[0].title')"
+have_title=$(gh issue view <n> --repo rmems/synthetic-factory --json title --jq .title)
+[ "$want_title" = "$have_title" ] || echo "title drift: want [$want_title] have [$have_title]"
+``` Do this before step 4 so the parity check in step 5 sees the final state.
 
 **Provision repository labels first.** Assigning a label never creates it — `gh label
 create` is a separate command, and `issue_write` cannot provision one — so a bead
@@ -638,10 +659,12 @@ Read the status **positionally**, not from an allowlist. This `bd` accepts seven
 reconcile, would replace a correct label with a bare `status:`.
 
 ```bash
-hdr=$(bd show <bead-id> | head -1)
-want="bead:$(bd show <bead-id> | sed -n 's/.*Type: \([a-z]*\).*/\1/p' | head -1)
-priority:$(printf '%s' "$hdr" | sed -n 's/.*\[● \(P[0-4]\) · [A-Z_]*\].*/\1/p')
-status:$(printf '%s' "$hdr" | sed -n 's/.*· \([A-Z_]*\)\].*/\1/p' | tr 'A-Z_' 'a-z-')"
+# Read the FIELDS, do not parse the header line. Header parsing produced a defect in
+# four separate passes: a three-value status allowlist, an underscore where the repo
+# uses a hyphen, a first-match P[0-4] that picked up a "P0" in the title, and a greedy
+# separator match that returned "OPEN]" as the title. --json has none of those hazards.
+want=$(bd show <bead-id> --json | jq -r '.[0] |
+  "bead:\(.issue_type)", "priority:P\(.priority)", "status:\(.status | gsub("_";"-"))"')
 
 diff <(printf '%s\n' "$want" | sort) \
      <(gh issue view <n> --repo rmems/synthetic-factory --json labels --jq '.labels[].name' \
