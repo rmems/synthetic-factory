@@ -134,14 +134,28 @@ Mirror it in the twin body's **Blocked by / blocks** line so both surfaces agree
 issue and then failed before `--external-ref` landed, so the bead looks unlinked while
 the issue is already there. Creating "the" twin at that point makes a second one:
 
+**Query loosely, filter exactly.** Do not put the `<!-- -->` delimiters in the *query*:
+GitHub's search tokenizer drops that punctuation, so `--match body "<!-- bead-id: X -->"`
+returns **zero hits for every bead** and the guard reports "safe to create" every time —
+the precise duplicate it exists to prevent. Verified against issue #33, which carries the
+marker: the delimited query finds nothing, `bead-id: sf-v46.2` finds it. Search on the
+undelimited form and let the Python post-filter enforce the complete marker.
+
+`gh search issues` fetches only **30 results by default**, so the exact-marker twin can
+fall outside the returned page whenever a bead ID appears in many bodies — a parent ID
+matches every child's marker and every child's *Parent bead* line. The post-filter would
+then report "safe to create" and you would file a duplicate. Raise `--limit` so the
+filter sees every candidate. Do not add `--state all` — `gh search issues` accepts only
+`{open|closed}` there and errors out; omitting the flag already searches both.
+
 Search the **complete** marker, closing delimiter included. A bare `bead-id: sf-v46`
 also matches its children's `<!-- bead-id: sf-v46.2 -->`, which would "find" a twin
 that belongs to a different bead and link the wrong issue:
 
 ```bash
 bd show <bead-id> | grep External          # empty is not proof; also search GitHub
-gh search issues --repo rmems/synthetic-factory \
-  --match body "<!-- bead-id: <bead-id> -->" --json number,title,body \
+gh search issues --repo rmems/synthetic-factory --limit 200 \
+  --match body "bead-id: <bead-id>" --json number,title,body \
   | python3 -c "
 import json,sys
 want='<!-- bead-id: <bead-id> -->'
@@ -159,14 +173,17 @@ one key alone reports a configured integration as unset:
 fallback — it reports every install as configured. Probe by *value*, filter that
 sentinel, and check all three keys plus the environment overrides:
 
+A *lone* half is not a usable destination: `github.repo` without `github.owner` gives
+`bd` nowhere to push. Require both split keys together, or the combined key on its own:
+
 ```bash
+bd_cfg() { bd config get "$1" 2>/dev/null | grep -v '(not set)' | tr -d '[:space:]'; }
+
 bd_configured() {
-  local key val
-  for key in github.owner github.repo github.repository; do
-    val=$(bd config get "$key" 2>/dev/null | grep -v '(not set)' | tr -d '[:space:]')
-    [ -n "$val" ] && return 0
-  done
-  [ -n "${GITHUB_OWNER:-}${GITHUB_REPOSITORY:-}" ] && return 0
+  [ -n "$(bd_cfg github.repository)" ] && return 0
+  [ -n "$(bd_cfg github.owner)" ] && [ -n "$(bd_cfg github.repo)" ] && return 0
+  [ -n "${GITHUB_REPOSITORY:-}" ] && return 0
+  [ -n "${GITHUB_OWNER:-}" ] && [ -n "${GITHUB_REPO:-}" ] && return 0
   return 1
 }
 ```
@@ -216,9 +233,20 @@ as an unrelated top-level issue unless `sub_issue_write` is called explicitly:
 bd show <parent-bead-id> | grep External     # parent's twin number, if any
 ```
 
-With a parent twin, call `sub_issue_write` (`method: add`) with the parent issue as
-`issue_number` and this new issue as `sub_issue_id`. Without one, fall back to the
-body's **Relationships** section, as the gotcha below describes.
+The two arguments are **not the same kind of number**. `issue_number` is the parent's
+issue number; `sub_issue_id` is the child's *database* ID, which the API states is
+"not the same as issue number" — issue #33 is number `33` but database ID
+`5215296227`. Passing the number silently targets an unrelated object, and neither the
+inventory from step 1 nor an `External` ref carries the ID, so fetch it:
+
+```bash
+CHILD_ID=$(gh api repos/rmems/synthetic-factory/issues/<n> --jq .id)   # NOT <n>
+```
+
+Then call `sub_issue_write` (`method: add`) with the parent's issue number as
+`issue_number` and `$CHILD_ID` as `sub_issue_id`. This applies equally on the resumed
+path, where step 3 found an existing twin and kept only its number. Without a parent
+twin, fall back to the body's **Relationships** section, as the gotcha below describes.
 
 ```bash
 bd update <bead-id> --external-ref "https://github.com/rmems/synthetic-factory/issues/<n>"
