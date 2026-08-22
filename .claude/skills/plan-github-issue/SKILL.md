@@ -57,6 +57,16 @@ v0.1.0*; gate / generation / distillation → *Factory v0.2.0*. Pick the milesto
 
 ### 2. Create the bead
 
+**Resume before creating.** If an earlier run died between `bd create` and the twin,
+the bead already exists but has no marker on GitHub — so the step-3 search cannot find
+it, and creating again yields two beads that can each acquire their own twin:
+
+```bash
+bd search "<a distinctive phrase from the title>"
+```
+
+If it returns a matching bead, reuse that ID and skip to step 3 instead of creating.
+
 ```bash
 bd create "<title>" \
   --type=<bug|feature|task|epic|chore|decision> --priority=<0-4> \
@@ -78,6 +88,18 @@ bd create "<title>" \
   a release or corrupt data, and default to `2`.
 - `--parent` makes it a hierarchical child **and inherits the parent's labels**.
 - Put measured evidence in `--design`, blast radius and coordination in `--notes`.
+
+**Record blockers in the dependency graph, not just in prose.** `--parent` expresses
+hierarchy only. The bead is the declared source of truth for dependencies, so a blocker
+mentioned only in the GitHub `Relationships` section is invisible to `bd blocked`,
+`bd ready`, and every status query:
+
+```bash
+bd dep add <bead-id> --blocked-by <blocking-bead-id>
+bd show <bead-id> | grep -iA2 'depend\|block'      # confirm the edge landed
+```
+
+Mirror it in the twin body's **Blocked by / blocks** line so both surfaces agree.
 
 ### 3. Create the GitHub twin
 
