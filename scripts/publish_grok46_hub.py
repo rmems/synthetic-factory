@@ -947,7 +947,8 @@ def cmd_snapshot(only: str | None = None) -> list[dict]:
     ]
     for s in inventory_stats:
         lines.append(
-            f"| `{s['hub']}/` | [rmems/{s['hub']}](https://huggingface.co/datasets/rmems/{s['hub']}) "
+            f"| `{HF_DATASETS_DIRNAME}/{s['hub']}/` "
+            f"| [rmems/{s['hub']}](https://huggingface.co/datasets/rmems/{s['hub']}) "
             f"| `{s['slug']}` | {s['batches']} | {s['records']} |"
         )
     lines.append("")

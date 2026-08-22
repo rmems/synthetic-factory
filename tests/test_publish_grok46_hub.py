@@ -424,9 +424,13 @@ class PublishGrok46HubTests(unittest.TestCase):
             inventory = (root / "hf" / "SYNTHETIC-DATA-FACTORY-GROK46.md").read_text()
             self.assertEqual(local["records"], 2)
             self.assertIsNone(local["last"])
-            self.assertIn(f"| `{ITEM['hub']}/`", inventory)
-            self.assertIn(f"| `{other['hub']}/`", inventory)
-            self.assertIn(f"| `{other['hub']}/` |", inventory)
+            # The inventory must point at the grouped mirror location an
+            # operator will actually find on disk, not the pre-grouping path.
+            group = publisher.HF_DATASETS_DIRNAME
+            self.assertIn(f"| `{group}/{ITEM['hub']}/`", inventory)
+            self.assertIn(f"| `{group}/{other['hub']}/`", inventory)
+            self.assertNotIn(f"| `{ITEM['hub']}/`", inventory)
+            self.assertIn(f"| `{publisher.HF_DATASETS_DIRNAME}/{other['hub']}/` |", inventory)
             self.assertIn(f"| `{other['slug']}` | 1 | 1 |", inventory)
 
     def test_snapshot_keeps_legacy_named_payload_before_marker_mode(self):
@@ -1144,8 +1148,8 @@ class PublishGrok46HubTests(unittest.TestCase):
                 publisher.cmd_snapshot(ITEM["hub"])
 
             inventory = (root / "hf" / "SYNTHETIC-DATA-FACTORY-GROK46.md").read_text()
-            self.assertIn(f"`{ITEM['hub']}/`", inventory)
-            self.assertIn(f"`{other['hub']}/`", inventory)
+            self.assertIn(f"`{publisher.HF_DATASETS_DIRNAME}/{ITEM['hub']}/`", inventory)
+            self.assertIn(f"`{publisher.HF_DATASETS_DIRNAME}/{other['hub']}/`", inventory)
             self.assertIn(f"| `{other['slug']}` | 1 | 1 |", inventory)
 
     def test_all_only_scopes_every_publish_stage(self):
