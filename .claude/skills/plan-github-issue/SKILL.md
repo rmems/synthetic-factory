@@ -109,6 +109,11 @@ bd create "<title>" \
   (0 = highest), **not** `high`/`medium`/`low` — reserve `0`/`1` for things that block
   a release or corrupt data, and default to `2`.
 - `--parent` makes it a hierarchical child **and inherits the parent's labels**.
+  **Decide inheritance now — `--no-inherit-labels` is a create-time flag.** If the
+  parent's domain tags do not all apply to this child, pass `--no-inherit-labels`
+  on this `bd create` and list the child's own `--labels` explicitly. Discovering
+  the drift later, at the step-5 parity check, is too late: the flag no longer
+  applies and the only remedy is removing tags one at a time on both surfaces.
 - Put measured evidence in `--design`, blast radius and coordination in `--notes`.
 
 **Record blockers in the dependency graph, not just in prose.** `--parent` expresses
@@ -145,16 +150,28 @@ print(hits or 'no exact-marker twin; safe to create')"
 ```
 
 If an exact-marker twin exists, skip creation and jump to step 4 to link it. Then check
-the sync path live rather than assuming — `bd` accepts either the split `github.owner`
-+ `github.repo` keys or the combined `github.repository`, so probing one alone reports
-a configured integration as unset:
+the sync path live rather than assuming — `bd` accepts either the split
+`github.owner` / `github.repo` keys or the combined `github.repository`, so probing
+one key alone reports a configured integration as unset:
+
+`bd config get` **exits 0 even for an unset key** and prints the literal string
+`github.owner (not set)`, so a plain `cmd || fallback` chain never reaches its
+fallback — it reports every install as configured. Probe by *value*, filter that
+sentinel, and check all three keys plus the environment overrides:
 
 ```bash
-bd config get github.owner 2>/dev/null || bd config get github.repository 2>/dev/null \
-  || echo "unset -> create the twin directly"
+bd_configured() {
+  local key val
+  for key in github.owner github.repo github.repository; do
+    val=$(bd config get "$key" 2>/dev/null | grep -v '(not set)' | tr -d '[:space:]')
+    [ -n "$val" ] && return 0
+  done
+  [ -n "${GITHUB_OWNER:-}${GITHUB_REPOSITORY:-}" ] && return 0
+  return 1
+}
 ```
 
-If `github.owner` **is** configured, prefer `bd github sync --push-only --issues <id>`.
+If `bd_configured` succeeds, prefer `bd github sync --push-only --issues <id>`.
 If it is unset, create the twin directly with the plugin — and do **not** configure it
 just to file one issue, because a bare `bd github sync` pushes *every* bead and will
 spam the tracker while other agents are working.
@@ -190,6 +207,18 @@ and is what marker-based duplicate checks and reconciliation key on:
 ```
 
 ### 4. Link the bead back
+
+**If this bead has a parent, create the native sub-issue link first.** `--parent`
+establishes the hierarchy in `bd` only; GitHub does not learn it, so the twin renders
+as an unrelated top-level issue unless `sub_issue_write` is called explicitly:
+
+```bash
+bd show <parent-bead-id> | grep External     # parent's twin number, if any
+```
+
+With a parent twin, call `sub_issue_write` (`method: add`) with the parent issue as
+`issue_number` and this new issue as `sub_issue_id`. Without one, fall back to the
+body's **Relationships** section, as the gotcha below describes.
 
 ```bash
 bd update <bead-id> --external-ref "https://github.com/rmems/synthetic-factory/issues/<n>"
@@ -242,8 +271,9 @@ The `grep -Ev` drops the GitHub-only tracking triplet. Empty diff means parity; 
 line printed is the drift to reconcile.
 
 `issue_write` **replaces** the label set, so pass the complete list: every domain label
-plus the tracking triplet. Suppress inheritance with `--no-inherit-labels` when the
-parent's tags do not apply.
+plus the tracking triplet. If the drift you find here is *inherited* parent tags, note
+that `--no-inherit-labels` cannot help at this point — it applies only at `bd create`
+(step 2). Reconcile by removing the unwanted tags on both surfaces.
 
 ## Gotchas
 
