@@ -34,11 +34,26 @@ link the twin. If that plugin is unavailable, every step has a `gh` equivalent:
 | Plugin tool | `gh` equivalent |
 | --- | --- |
 | `issue_write` (create) | `gh issue create --title --body-file --label --assignee --milestone` |
-| `issue_write` (update) | `gh issue edit <n> --body-file --add-label --milestone` |
+| `issue_write` (update) | `gh issue edit <n> --body-file --add-label --remove-label --milestone` |
 | `sub_issue_write` (add) | `gh api --method POST repos/<o>/<r>/issues/<parent>/sub_issues -F sub_issue_id=<child-db-id>` |
 
 `gh issue create` also takes `--blocked-by`, which mirrors the `bd dep add` edge onto
 GitHub in the same call.
+
+These are not exact equivalents for labels. `issue_write` **replaces** the label set;
+`gh issue edit --add-label` only adds, so stale domain, `status:*`, or `priority:*`
+labels survive and step 5 keeps reporting drift no matter how many times you run it.
+Compute both directions and pass them together:
+
+```bash
+want=...   # the complete intended set, from step 5
+have=$(gh issue view <n> --repo rmems/synthetic-factory --json labels --jq '.labels[].name' | sort -u)
+add=$(comm -23 <(printf '%s\n' "$want" | sort -u) <(printf '%s\n' "$have"))
+del=$(comm -13 <(printf '%s\n' "$want" | sort -u) <(printf '%s\n' "$have"))
+gh issue edit <n> --repo rmems/synthetic-factory \
+  ${add:+--add-label "$(echo $add | tr ' ' ',')"} \
+  ${del:+--remove-label "$(echo $del | tr ' ' ',')"}
+```
 
 Provisioning beads *into* the cloud image is a change to shared infrastructure, out of
 scope for this skill; file it separately rather than editing `.cursor/` from here.
@@ -228,7 +243,11 @@ print(hits[0] if hits else 'no exact-marker twin; safe to create')"
 Require **exactly one**. Earlier failed runs can leave two issues carrying the same
 marker; treating that as "a twin exists" links one and leaves the duplicate live,
 breaking the exactly-once identity the whole workflow rests on. The filter above stops
-rather than guessing — close or re-marker the extras, then re-run it.
+rather than guessing. **Closing the extras does not clear it**: the search deliberately
+omits `--state`, so it spans open and closed alike — issues #2 and #3 in this repo are
+closed and still surface in a marker search — and a closed duplicate keeps its marker
+and stays in `hits` forever. Remove or rewrite the marker in the duplicate's body (then
+close it if you like), and re-run.
 
 If exactly one exact-marker twin exists, skip creation and jump to step 4 to link it —
 but **read its state first**. A twin closed independently while the bead stayed active
@@ -451,6 +470,11 @@ That filter proves nothing *about* the triplet, though — it hides it. A twin m
 prints `parity OK`. The triplet is required and must be accurate, so derive it from the
 bead and check it separately. All three values come from `bd show`'s header line.
 
+Anchor **both** values to the `[● P<n> · STATUS]` suffix. A first-match `grep -oE
+'P[0-4]'` reads the title too, so a P2 bead called "Audit P0 policy" derives
+`priority:P0` and the reconciliation then overwrites a correct GitHub label with the
+wrong one. Verified: that exact header yields `P0` unanchored, `P2` anchored.
+
 Read the status **positionally**, not from an allowlist. This `bd` accepts seven —
 `open, in_progress, blocked, deferred, closed, pinned, hooked` (confirmed via
 `bd list --status=bogus`, which prints the valid set). A three-value regex leaves
@@ -460,7 +484,7 @@ reconcile, would replace a correct label with a bare `status:`.
 ```bash
 hdr=$(bd show <bead-id> | head -1)
 want="bead:$(bd show <bead-id> | sed -n 's/.*Type: \([a-z]*\).*/\1/p' | head -1)
-priority:$(printf '%s' "$hdr" | grep -oE 'P[0-4]' | head -1)
+priority:$(printf '%s' "$hdr" | sed -n 's/.*\[● \(P[0-4]\) · [A-Z_]*\].*/\1/p')
 status:$(printf '%s' "$hdr" | sed -n 's/.*· \([A-Z_]*\)\].*/\1/p' | tr 'A-Z' 'a-z')"
 
 diff <(printf '%s\n' "$want" | sort) \
