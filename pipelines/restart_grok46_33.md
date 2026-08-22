@@ -25,7 +25,7 @@ Before generating, each agent must read `prompts/_agentic-factory-contract.md`
 and follow the exact row for its assigned slug. The row's scenario and
 observable-proof requirements are mandatory, not examples.
 
-Rules: no Thalamic wrap, no spike_events, no `sim_or_real: real`, no hidden `thought`. `meta.generator=grok-4.6`. Writes only via reserve/stage/publish. HF mirrors stay at `~/rmems/hf/<name>/` never `~/rmems/hf/rmems/`. Collection already exists.
+Rules: no Thalamic wrap, no spike_events, no `sim_or_real: real`, no hidden `thought`. `meta.generator=grok-4.6`. Writes only via reserve/stage/publish. HF mirrors stay at `~/rmems/hf/grok-4.6/<name>/` (grouped by generating model) never `~/rmems/hf/rmems/`. Collection already exists.
 
 Eligible factories (one agent each, maximum 33). If `next_round` is already
 reserved, stop that factory's agent instead of hopping to a later round or

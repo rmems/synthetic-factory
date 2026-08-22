@@ -193,20 +193,20 @@ class PublishGrok46HubTests(unittest.TestCase):
                 publisher, "HF_ROOT", destination_root
             ):
                 stats = publisher.snapshot_one(ITEM)
-                copied = destination_root / ITEM["hub"] / "data" / "raw" / last.name
-                card = (destination_root / ITEM["hub"] / "README.md").read_text()
+                copied = destination_root / publisher.HF_DATASETS_DIRNAME / ITEM["hub"] / "data" / "raw" / last.name
+                card = (destination_root / publisher.HF_DATASETS_DIRNAME / ITEM["hub"] / "README.md").read_text()
 
                 self.assertEqual(stats["last"], "r02b")
                 self.assertIn("batch-r01.jsonl` through `data/raw/batch-r02b.jsonl", card)
                 self.assertNotEqual(copied.stat().st_ino, last.stat().st_ino)
                 self.assertFalse(
-                    (destination_root / ITEM["hub"] / "data" / "raw" / "batch-r03.jsonl").exists()
+                    (destination_root / publisher.HF_DATASETS_DIRNAME / ITEM["hub"] / "data" / "raw" / "batch-r03.jsonl").exists()
                 )
                 self.assertFalse(
-                    (destination_root / ITEM["hub"] / "data" / "metadata" / "NOTES-r02b.md").exists()
+                    (destination_root / publisher.HF_DATASETS_DIRNAME / ITEM["hub"] / "data" / "metadata" / "NOTES-r02b.md").exists()
                 )
                 self.assertTrue(
-                    (destination_root / ITEM["hub"] / "data" / "metadata" / "NOTES-r02.md").is_file()
+                    (destination_root / publisher.HF_DATASETS_DIRNAME / ITEM["hub"] / "data" / "metadata" / "NOTES-r02.md").is_file()
                 )
                 copied.write_text('{"id":"changed"}\n')
                 self.assertEqual(last.read_text(), original_last)
@@ -225,7 +225,7 @@ class PublishGrok46HubTests(unittest.TestCase):
                 publisher, "HF_ROOT", destination_root
             ):
                 publisher.snapshot_one(empty)
-            empty_card = (destination_root / empty["hub"] / "README.md").read_text()
+            empty_card = (destination_root / publisher.HF_DATASETS_DIRNAME / empty["hub"] / "README.md").read_text()
             self.assertIn("payload. The factory source tree is\n`outputs/raw/", empty_card)
 
     def test_snapshot_card_preserves_noncanonical_batch_names(self):
@@ -240,7 +240,7 @@ class PublishGrok46HubTests(unittest.TestCase):
             ):
                 publisher.snapshot_one(ITEM)
 
-            card = (root / "hf" / ITEM["hub"] / "README.md").read_text()
+            card = (root / "hf" / publisher.HF_DATASETS_DIRNAME / ITEM["hub"] / "README.md").read_text()
             self.assertIn("`data/raw/batch-r1a.jsonl`", card)
             self.assertNotIn("`data/raw/batch-r01a.jsonl`", card)
 
@@ -294,30 +294,30 @@ class PublishGrok46HubTests(unittest.TestCase):
                 ["batch-r01.jsonl", "batch-r03.jsonl"],
             )
             stale_destination = (
-                destination_root / ITEM["hub"] / "data" / "raw" / "batch-r02.jsonl"
+                destination_root / publisher.HF_DATASETS_DIRNAME / ITEM["hub"] / "data" / "raw" / "batch-r02.jsonl"
             )
             stale_destination.parent.mkdir(parents=True)
             stale_destination.write_text('{"id":"stale"}\n')
             unknown_destination = stale_destination.parent / "uncommitted.jsonl"
             unknown_destination.write_text('{"id":"unvalidated"}\n')
-            stale_note = destination_root / ITEM["hub"] / "data" / "metadata" / "NOTES-r02.md"
+            stale_note = destination_root / publisher.HF_DATASETS_DIRNAME / ITEM["hub"] / "data" / "metadata" / "NOTES-r02.md"
             stale_note.parent.mkdir(parents=True)
             stale_note.write_text("stale\n")
             unknown_metadata = stale_note.parent / "uncommitted.txt"
             unknown_metadata.write_text("must not publish\n")
-            mirror = destination_root / ITEM["hub"]
+            mirror = destination_root / publisher.HF_DATASETS_DIRNAME / ITEM["hub"]
             (mirror / "old.jsonl").write_text("must not publish\n")
             (mirror / "data" / "old.txt").write_text("must not publish\n")
             with mock.patch.object(publisher, "FACTORY_ROOT", root / "raw"), mock.patch.object(
                 publisher, "HF_ROOT", destination_root
             ):
                 publisher.snapshot_one(ITEM)
-                raw = destination_root / ITEM["hub"] / "data" / "raw"
+                raw = destination_root / publisher.HF_DATASETS_DIRNAME / ITEM["hub"] / "data" / "raw"
                 self.assertTrue((raw / "batch-r01.jsonl").is_file())
                 self.assertFalse((raw / "batch-r02.jsonl").exists())
                 self.assertFalse((raw / "uncommitted.jsonl").exists())
                 self.assertTrue((raw / "batch-r03.jsonl").is_file())
-                meta = destination_root / ITEM["hub"] / "data" / "metadata"
+                meta = destination_root / publisher.HF_DATASETS_DIRNAME / ITEM["hub"] / "data" / "metadata"
                 self.assertTrue((meta / "NOTES-r01.md").is_file())
                 self.assertFalse((meta / "NOTES-r02.md").exists())
                 self.assertTrue((meta / "NOTES-r03.md").is_file())
@@ -336,7 +336,7 @@ class PublishGrok46HubTests(unittest.TestCase):
                 publisher, "HF_ROOT", destination_root
             ):
                 publisher.snapshot_one(empty_item)
-                card = (destination_root / "empty" / "README.md").read_text()
+                card = (destination_root / publisher.HF_DATASETS_DIRNAME / "empty" / "README.md").read_text()
             self.assertIn("contains no published raw batch files", card)
             self.assertNotIn("batch-r01.jsonl` through", card)
 
@@ -349,7 +349,7 @@ class PublishGrok46HubTests(unittest.TestCase):
                 write_valid_legacy(source / "batch-r01.jsonl")
                 outside = root / "outside"
                 outside.mkdir()
-                unsafe = root / "hf" / ITEM["hub"] / "data" / leaf
+                unsafe = root / "hf" / publisher.HF_DATASETS_DIRNAME / ITEM["hub"] / "data" / leaf
                 unsafe.parent.mkdir(parents=True)
                 unsafe.symlink_to(outside, target_is_directory=True)
 
@@ -368,7 +368,7 @@ class PublishGrok46HubTests(unittest.TestCase):
                 source = root / "raw" / ITEM["slug"]
                 source.mkdir(parents=True)
                 write_valid_legacy(source / "batch-r01.jsonl")
-                destination = root / "hf" / ITEM["hub"]
+                destination = root / "hf" / publisher.HF_DATASETS_DIRNAME / ITEM["hub"]
                 destination.mkdir(parents=True)
                 outside = root / "outside.txt"
                 outside.write_text("must not change\n")
@@ -403,9 +403,9 @@ class PublishGrok46HubTests(unittest.TestCase):
             ):
                 stats = publisher.snapshot_one(ITEM)
 
-            raw = root / "hf" / ITEM["hub"] / "data" / "raw"
-            meta = root / "hf" / ITEM["hub"] / "data" / "metadata"
-            card = (root / "hf" / ITEM["hub"] / "README.md").read_text()
+            raw = root / "hf" / publisher.HF_DATASETS_DIRNAME / ITEM["hub"] / "data" / "raw"
+            meta = root / "hf" / publisher.HF_DATASETS_DIRNAME / ITEM["hub"] / "data" / "metadata"
+            card = (root / "hf" / publisher.HF_DATASETS_DIRNAME / ITEM["hub"] / "README.md").read_text()
             self.assertEqual(stats["records"], 2)
             self.assertTrue((raw / legacy.name).is_file())
             self.assertTrue((meta / "NOTES-r01.md").is_file())
@@ -424,9 +424,13 @@ class PublishGrok46HubTests(unittest.TestCase):
             inventory = (root / "hf" / "SYNTHETIC-DATA-FACTORY-GROK46.md").read_text()
             self.assertEqual(local["records"], 2)
             self.assertIsNone(local["last"])
-            self.assertIn(f"| `{ITEM['hub']}/`", inventory)
-            self.assertIn(f"| `{other['hub']}/`", inventory)
-            self.assertIn(f"| `{other['hub']}/` |", inventory)
+            # The inventory must point at the grouped mirror location an
+            # operator will actually find on disk, not the pre-grouping path.
+            group = publisher.HF_DATASETS_DIRNAME
+            self.assertIn(f"| `{group}/{ITEM['hub']}/`", inventory)
+            self.assertIn(f"| `{group}/{other['hub']}/`", inventory)
+            self.assertNotIn(f"| `{ITEM['hub']}/`", inventory)
+            self.assertIn(f"| `{publisher.HF_DATASETS_DIRNAME}/{other['hub']}/` |", inventory)
             self.assertIn(f"| `{other['slug']}` | 1 | 1 |", inventory)
 
     def test_snapshot_keeps_legacy_named_payload_before_marker_mode(self):
@@ -448,7 +452,7 @@ class PublishGrok46HubTests(unittest.TestCase):
             ), mock.patch.object(publisher, "HF_ROOT", root / "hf"):
                 stats = publisher.snapshot_one(ITEM)
 
-            mirror = root / "hf" / ITEM["hub"]
+            mirror = root / "hf" / publisher.HF_DATASETS_DIRNAME / ITEM["hub"]
             self.assertEqual(stats["records"], 2)
             self.assertTrue((mirror / "data" / "raw" / legacy.name).is_file())
             self.assertTrue((mirror / "data" / "metadata" / notes.name).is_file())
@@ -518,10 +522,10 @@ class PublishGrok46HubTests(unittest.TestCase):
                 publisher.snapshot_one(ITEM)
 
             self.assertTrue(
-                (root / "hf" / ITEM["hub"] / "data" / "raw" / batch.name).is_file()
+                (root / "hf" / publisher.HF_DATASETS_DIRNAME / ITEM["hub"] / "data" / "raw" / batch.name).is_file()
             )
             self.assertTrue(
-                (root / "hf" / ITEM["hub"] / "data" / "metadata" / notes.name).is_file()
+                (root / "hf" / publisher.HF_DATASETS_DIRNAME / ITEM["hub"] / "data" / "metadata" / notes.name).is_file()
             )
 
     def test_snapshot_refuses_untrusted_completion_manifests(self):
@@ -607,7 +611,7 @@ class PublishGrok46HubTests(unittest.TestCase):
                 )
                 + "\n"
             )
-            stale = root / "hf" / ITEM["hub"] / "data" / "raw" / "batch-r01.jsonl"
+            stale = root / "hf" / publisher.HF_DATASETS_DIRNAME / ITEM["hub"] / "data" / "raw" / "batch-r01.jsonl"
             stale.parent.mkdir(parents=True)
             stale.write_text('{"id":"preserve"}\n')
 
@@ -650,7 +654,7 @@ class PublishGrok46HubTests(unittest.TestCase):
                 + "\n"
             )
             notes.unlink()
-            stale = root / "hf" / ITEM["hub"] / "data" / "metadata" / notes.name
+            stale = root / "hf" / publisher.HF_DATASETS_DIRNAME / ITEM["hub"] / "data" / "metadata" / notes.name
             stale.parent.mkdir(parents=True)
             stale.write_text("preserve\n")
 
@@ -848,7 +852,7 @@ class PublishGrok46HubTests(unittest.TestCase):
                 with self.assertRaisesRegex(SystemExit, "changed after manifest validation"):
                     publisher.snapshot_one(ITEM)
 
-            self.assertFalse((root / "hf" / ITEM["hub"] / "data" / "raw" / batch.name).exists())
+            self.assertFalse((root / "hf" / publisher.HF_DATASETS_DIRNAME / ITEM["hub"] / "data" / "raw" / batch.name).exists())
 
     def test_snapshot_rechecks_legacy_digest_after_visibility_selection(self):
         with tempfile.TemporaryDirectory() as td:
@@ -881,7 +885,7 @@ class PublishGrok46HubTests(unittest.TestCase):
                     publisher.snapshot_one(ITEM)
 
             self.assertFalse(
-                (root / "hf" / ITEM["hub"] / "data" / "raw" / batch.name).exists()
+                (root / "hf" / publisher.HF_DATASETS_DIRNAME / ITEM["hub"] / "data" / "raw" / batch.name).exists()
             )
 
     def test_snapshot_rechecks_pre_marker_digest_after_validation(self):
@@ -911,7 +915,7 @@ class PublishGrok46HubTests(unittest.TestCase):
                     publisher.snapshot_one(ITEM)
 
             self.assertFalse(
-                (root / "hf" / ITEM["hub"] / "data" / "raw" / batch.name).exists()
+                (root / "hf" / publisher.HF_DATASETS_DIRNAME / ITEM["hub"] / "data" / "raw" / batch.name).exists()
             )
 
     def test_snapshot_rechecks_pre_marker_note_digest_after_validation(self):
@@ -942,7 +946,7 @@ class PublishGrok46HubTests(unittest.TestCase):
                     publisher.snapshot_one(ITEM)
 
             self.assertFalse(
-                (root / "hf" / ITEM["hub"] / "data" / "metadata" / notes.name).exists()
+                (root / "hf" / publisher.HF_DATASETS_DIRNAME / ITEM["hub"] / "data" / "metadata" / notes.name).exists()
             )
 
     def test_invalid_utf8_completion_marker_has_a_bounded_error(self):
@@ -1019,7 +1023,7 @@ class PublishGrok46HubTests(unittest.TestCase):
                 publisher, "factories", return_value=[ITEM]
             ), mock.patch.object(publisher, "run") as run:
                 publisher.snapshot_one(ITEM)
-                mirror_batch = root / "hf" / ITEM["hub"] / "data" / "raw" / batch.name
+                mirror_batch = root / "hf" / publisher.HF_DATASETS_DIRNAME / ITEM["hub"] / "data" / "raw" / batch.name
                 mirror_batch.write_text('{"id":"unrelated"}\n')
 
                 with self.assertRaisesRegex(SystemExit, "upload snapshot digest mismatch"):
@@ -1027,14 +1031,57 @@ class PublishGrok46HubTests(unittest.TestCase):
 
             run.assert_not_called()
 
-    def test_upload_refuses_a_symlinked_hub_mirror(self):
+    def test_snapshot_refuses_a_symlinked_datasets_root(self):
+        # The per-model mirror root gets the same symlink rejection as the Hub
+        # root; without this the grouping directory would be an escape hatch.
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
             hub_root = root / "hf"
             outside = root / "outside"
             hub_root.mkdir()
             outside.mkdir()
-            (hub_root / ITEM["hub"]).symlink_to(outside, target_is_directory=True)
+            (hub_root / publisher.HF_DATASETS_DIRNAME).symlink_to(
+                outside, target_is_directory=True
+            )
+            dest = hub_root / publisher.HF_DATASETS_DIRNAME / ITEM["hub"]
+
+            with mock.patch.object(publisher, "HF_ROOT", hub_root):
+                with self.assertRaisesRegex(SystemExit, "unsafe snapshot directory"):
+                    publisher.snapshot_directories(dest)
+
+    def test_snapshot_refuses_a_destination_outside_the_datasets_root(self):
+        # A mirror written directly under the Hub root (the pre-grouping
+        # layout) must be rejected rather than silently accepted.
+        with tempfile.TemporaryDirectory() as td:
+            hub_root = Path(td) / "hf"
+            hub_root.mkdir(parents=True)
+
+            with mock.patch.object(publisher, "HF_ROOT", hub_root):
+                with self.assertRaisesRegex(
+                    SystemExit, "snapshot destination escaped Hub root"
+                ):
+                    publisher.snapshot_directories(hub_root / ITEM["hub"])
+
+    def test_upload_refuses_a_missing_datasets_root(self):
+        # HF_ROOT can exist while the per-model mirror root does not; the
+        # upload guard must reject that instead of proceeding.
+        with tempfile.TemporaryDirectory() as td:
+            hub_root = Path(td) / "hf"
+            hub_root.mkdir(parents=True)
+
+            with mock.patch.object(publisher, "HF_ROOT", hub_root):
+                with self.assertRaisesRegex(SystemExit, "unsafe upload root"):
+                    publisher.safe_upload_directory(ITEM)
+
+    def test_upload_refuses_a_symlinked_hub_mirror(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            hub_root = root / "hf"
+            outside = root / "outside"
+            datasets_root = hub_root / publisher.HF_DATASETS_DIRNAME
+            datasets_root.mkdir(parents=True)
+            outside.mkdir()
+            (datasets_root / ITEM["hub"]).symlink_to(outside, target_is_directory=True)
 
             with mock.patch.object(publisher, "HF_ROOT", hub_root), mock.patch.object(
                 publisher, "factories", return_value=[ITEM]
@@ -1047,7 +1094,7 @@ class PublishGrok46HubTests(unittest.TestCase):
     def test_upload_refuses_unmanaged_files_outside_payload_directories(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td) / "hf"
-            mirror = root / ITEM["hub"]
+            mirror = root / publisher.HF_DATASETS_DIRNAME / ITEM["hub"]
             mirror.mkdir(parents=True)
             (mirror / "old.jsonl").write_text("unmanaged\n")
 
@@ -1101,8 +1148,8 @@ class PublishGrok46HubTests(unittest.TestCase):
                 publisher.cmd_snapshot(ITEM["hub"])
 
             inventory = (root / "hf" / "SYNTHETIC-DATA-FACTORY-GROK46.md").read_text()
-            self.assertIn(f"`{ITEM['hub']}/`", inventory)
-            self.assertIn(f"`{other['hub']}/`", inventory)
+            self.assertIn(f"`{publisher.HF_DATASETS_DIRNAME}/{ITEM['hub']}/`", inventory)
+            self.assertIn(f"`{publisher.HF_DATASETS_DIRNAME}/{other['hub']}/`", inventory)
             self.assertIn(f"| `{other['slug']}` | 1 | 1 |", inventory)
 
     def test_all_only_scopes_every_publish_stage(self):
