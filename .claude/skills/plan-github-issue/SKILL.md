@@ -94,7 +94,10 @@ parentless and should stay that way. **Epics are usually `in_progress`, not `ope
 filtering to `open` alone hides them and produces orphans:
 
 ```bash
-bd list --status=open,in_progress      # epics show as ◐ [epic]
+# Include blocked and deferred: an epic in either state is still the right parent, and
+# omitting it leads to filing the work parentless or under the wrong lane. `bd list`
+# unions a comma list correctly (unlike `bd search --status`, which takes one value).
+bd list --status=open,in_progress,blocked,deferred    # epics show as ◐ [epic]
 bd show <parent-id>                    # confirm it is the right lane
 ```
 
@@ -181,14 +184,25 @@ n=${ref##*/}
 # contains(), NOT test(): test() takes a REGEX, so the dot in an ID like sf-v46.2 is a
 # wildcard and an issue marked sf-v46X2 would pass this "exact" check -- then get
 # overwritten. Verified: test() returns true for that decoy, contains() returns false.
-gh issue view "$n" --repo rmems/synthetic-factory --json body \
-  --jq '((.body // "") | contains("<!-- bead-id: <bead-id> -->"))' | grep -qx true \
-  || { echo "issue #$n does not carry this bead's marker -- stop and reconcile" >&2; exit 1; }
+body=$(gh issue view "$n" --repo rmems/synthetic-factory --json body --jq '.body // ""') \
+  || { echo "could not read issue #$n -- aborting" >&2; exit 1; }
+if printf '%s' "$body" | grep -qF "<!-- bead-id: <bead-id> -->"; then
+  : # ours, proceed
+elif ! printf '%s' "$body" | grep -qF "<!-- bead-id: "; then
+  echo "issue #$n has NO marker -- the markerless sync case; reconcile metadata (adds it)"
+else
+  echo "issue #$n is marked for a DIFFERENT bead -- stop and reconcile" >&2; exit 1
+fi
 ```
 
-Note `(.body // "")`: a null body would otherwise make `test` fail rather than report a
-missing marker. If validation fails, do **not** create a second twin either — re-run the
-exact-marker search and reconcile deliberately.
+Distinguish **missing** from **conflicting**. A `bd github sync` run that wrote
+`External:` and died before the body update leaves a twin with no marker at all — that
+is the documented partial-failure state below, and the exact-marker search cannot
+recover it either, because the marker is precisely what is absent. Rejecting it
+outright makes that recovery path unreachable. A marker belonging to *another* bead is
+the real conflict, and still stops. `grep -qF` compares literally, so a dotted ID like
+`sf-v46.2` is not a regex; `.body // ""` keeps a null body from erroring instead of
+reporting an absent marker.
 
 A linked resume skips step 3, which is also where post-sync metadata reconciliation
 lives. If the earlier run died after `bd github sync` wrote the ref but before that
@@ -199,7 +213,7 @@ marker/milestone check from step 3 before parity:
 
 ```bash
 gh issue view <n> --repo rmems/synthetic-factory --json body,milestone \
-  --jq '{marker: (.body | test("<!-- bead-id: ")), milestone: (.milestone.title // "none")}'
+  --jq '{marker: ((.body // "") | contains("<!-- bead-id: ")), milestone: (.milestone.title // "none")}'
 ```
 
 The reopen check lives in step 3 too — so on this path the
