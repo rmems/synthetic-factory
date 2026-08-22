@@ -911,7 +911,8 @@ def check_safety_case(obj, where, factory_staging=False):
     )
     affirmative_after_negated_control_re = re.compile(
         rf"\b(?:{auxiliary_negation}|never|not)\s+"
-        r"(?:decline|fail|forget|hesitate|neglect|refuse)\s+to\s+"
+        r"(?:avoid|decline|delay|fail|forget|hesitate|neglect|postpone|"
+        r"refuse|stall|wait)\s+(?:to\s+|and\s+)"
         r"(?:\w+[ -]+){0,3}$"
     )
 
