@@ -80,16 +80,29 @@ bd create "<title>" \
 issue and then failed before `--external-ref` landed, so the bead looks unlinked while
 the issue is already there. Creating "the" twin at that point makes a second one:
 
+Search the **complete** marker, closing delimiter included. A bare `bead-id: sf-v46`
+also matches its children's `<!-- bead-id: sf-v46.2 -->`, which would "find" a twin
+that belongs to a different bead and link the wrong issue:
+
 ```bash
 bd show <bead-id> | grep External          # empty is not proof; also search GitHub
-gh search issues --repo rmems/synthetic-factory --match body "bead-id: <bead-id>" --json number,title
+gh search issues --repo rmems/synthetic-factory \
+  --match body "<!-- bead-id: <bead-id> -->" --json number,title,body \
+  | python3 -c "
+import json,sys
+want='<!-- bead-id: <bead-id> -->'
+hits=[i for i in json.load(sys.stdin) if want in (i.get('body') or '')]
+print(hits or 'no exact-marker twin; safe to create')"
 ```
 
-If a twin exists, skip creation and jump to step 4 to link it. Then check the sync path
-live rather than assuming:
+If an exact-marker twin exists, skip creation and jump to step 4 to link it. Then check
+the sync path live rather than assuming — `bd` accepts either the split `github.owner`
++ `github.repo` keys or the combined `github.repository`, so probing one alone reports
+a configured integration as unset:
 
 ```bash
-bd config get github.owner 2>/dev/null || echo "unset -> create the twin directly"
+bd config get github.owner 2>/dev/null || bd config get github.repository 2>/dev/null \
+  || echo "unset -> create the twin directly"
 ```
 
 If `github.owner` **is** configured, prefer `bd github sync --push-only --issues <id>`.
@@ -155,9 +168,19 @@ to differ and are not part of the comparison.
 `--parent` **silently inherits** the parent's labels, so the bead can end up with
 domain tags the GitHub issue lacks. Diff and reconcile:
 
+Read **both** sides — printing only the bead's labels leaves you comparing against a
+remembered value, and step 3 may have resumed an existing twin or let `bd github sync`
+create one, so the GitHub side is not necessarily what you last set:
+
 ```bash
-bd show <bead-id> | grep LABELS        # compare domain labels against the issue
+bd show <bead-id> | grep LABELS
+gh issue view <n> --repo rmems/synthetic-factory --json labels \
+  --jq '[.labels[].name] | map(select(startswith("bead:") or startswith("status:")
+        or startswith("priority:") | not)) | sort | join(", ")'
 ```
+
+The second command strips the GitHub-only tracking triplet, so its output should match
+the bead's `LABELS` line exactly. Any difference is the drift to reconcile.
 
 `issue_write` **replaces** the label set, so pass the complete list: every domain label
 plus the tracking triplet. Suppress inheritance with `--no-inherit-labels` when the
