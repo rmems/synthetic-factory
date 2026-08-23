@@ -79,10 +79,16 @@ Compute both directions and pass them together:
 # missing from $want -- including bead:*/status:*/priority:* -- lands in $del and gets
 # stripped. Derive want_tracking here rather than assuming step 5 already set it: this
 # fallback can run standalone, before step 5 ever executes.
-want_tracking=$(bd show <bead-id> --json | jq -r '.[0] |
+# Read bd show ONCE and validate it. An unvalidated failure here (bad ID, bd down,
+# bd missing) lets jq silently run on empty input and $want end up domain-label-empty
+# with a successful exit status -- every current GitHub label then looks stale and
+# lands in $del below.
+bead_json=$(bd show <bead-id> --json) \
+  || { echo "could not read bead <bead-id> -- aborting rather than reconciling from a partial read" >&2; exit 1; }
+want_tracking=$(printf '%s' "$bead_json" | jq -r '.[0] |
   "bead:\(.issue_type)", "priority:P\(.priority)", "status:\(.status | gsub("_";"-"))"')
 want=$(printf '%s\n' \
-  "$(bd show <bead-id> --json | jq -r '.[0].labels[]?')" \
+  "$(printf '%s' "$bead_json" | jq -r '.[0].labels[]?')" \
   "$want_tracking" | grep -v '^$' | sort -u)
 # Only reconcile labels this workflow manages. GitHub carries collaboration labels no
 # bead will ever have -- this repo has size:S/M/L/XL/XXL, dataset-card, Documentation,
@@ -108,9 +114,16 @@ del=$(comm -13 <(printf '%s\n' "$want" | sort -u) <(printf '%s\n' "$have") \
 # Join on newlines with paste, NOT `echo $x | tr ' ' ','`: label names may contain
 # spaces (GitHub ships `good first issue`), and word-splitting would turn that one
 # label into three bogus ones while leaving the real stale label in place.
-gh issue edit <n> --repo rmems/synthetic-factory \
-  ${add:+--add-label "$(printf '%s\n' "$add" | paste -sd,)"} \
-  ${del:+--remove-label "$(printf '%s\n' "$del" | paste -sd,)"}
+# Skip the call entirely when there is nothing to change -- gh 2.96.0 requires at least
+# one edit flag and errors ("field to edit flag required when not running
+# interactively") or hangs waiting on a prompt otherwise.
+if [ -n "$add" ] || [ -n "$del" ]; then
+  gh issue edit <n> --repo rmems/synthetic-factory \
+    ${add:+--add-label "$(printf '%s\n' "$add" | paste -sd,)"} \
+    ${del:+--remove-label "$(printf '%s\n' "$del" | paste -sd,)"}
+else
+  echo "labels already match -- nothing to edit"
+fi
 ```
 
 Provisioning beads *into* the cloud image is a change to shared infrastructure, out of
@@ -279,7 +292,9 @@ gh_state=$(gh issue view <n> --repo rmems/synthetic-factory --json state --jq .s
 # bead not CLOSED but issue closed  -> gh issue reopen <n> --repo rmems/synthetic-factory
 # bead CLOSED but issue open        -> gh issue close  <n> --repo rmems/synthetic-factory
 echo "bead=$bd_state issue=$gh_state"
-``` Note `bd search --status` takes **one** value, unlike
+```
+
+Note `bd search --status` takes **one** value, unlike
 `bd list`: a comma list silently returns nothing rather than erroring.
 
 If the hit really is an unfinished attempt, reuse that ID instead of creating — but
@@ -408,6 +423,13 @@ gh_state=$(gh issue view <n> --repo rmems/synthetic-factory --json state --jq .s
 echo "bead=$bd_state issue=$gh_state"
 ```
 
+State is not the only thing that can be stale on a discovered twin. It may predate a
+title change, priority change, milestone choice, or body edit on the bead — jumping
+straight to step 4 skips the marker/title/milestone checks below (`## 3. Create the
+GitHub twin`) that a linked resume gets. Run those same checks — the `<!-- bead-id: -->`
+marker, the `[<bead-id>] <title>` format, and the milestone — before moving on, exactly
+as a linked resume would.
+
 Then check
 the sync path live rather than assuming — `bd` accepts either the split
 `github.owner` / `github.repo` keys or the combined `github.repository`, so probing
@@ -505,7 +527,9 @@ issue on its old title, which then no longer matches the required
 want_title="[<bead-id>] $(bd show <bead-id> --json | jq -r '.[0].title')"
 have_title=$(gh issue view <n> --repo rmems/synthetic-factory --json title --jq .title)
 [ "$want_title" = "$have_title" ] || echo "title drift: want [$want_title] have [$have_title]"
-``` Do this before step 4 so the parity check in step 5 sees the final state.
+```
+
+Do this before step 4 so the parity check in step 5 sees the final state.
 
 **Provision repository labels first.** Assigning a label never creates it — `gh label
 create` is a separate command, and `issue_write` cannot provision one — so a bead
@@ -635,8 +659,14 @@ inventory from step 1 nor an `External` ref carries the ID, so fetch it:
 CHILD_ID=$(gh api repos/rmems/synthetic-factory/issues/<n> --jq .id)   # NOT <n>
 ```
 
-Then call `sub_issue_write` (`method: add`) with the parent's issue number as
-`issue_number` and `$CHILD_ID` as `sub_issue_id`.
+Dispatch on the `$PARENT` computed above — do not call `add` unconditionally, it
+contradicts the three-outcome check that computed `$PARENT` in the first place:
+
+- `$PARENT` is `none` → call `sub_issue_write` (`method: add`) with the parent's issue
+  number as `issue_number` and `$CHILD_ID` as `sub_issue_id`.
+- `$PARENT` already equals the intended parent's number → already linked, skip; calling
+  `add` again is rejected.
+- `$PARENT` is any other number → wrong parent, re-`add` with `replace_parent=true`.
 
 **The native link is not the whole contract.** The design spec requires the epic to
 carry a checklist linking its children ("The epic contains a checklist linking all
@@ -658,7 +688,9 @@ printf '%s\n' "$parent_body" \
   | grep -qE '^[[:space:]]*-[[:space:]]*\[[ x]\][[:space:]]*#<n>([^0-9]|$)' \
   || echo "child #<n> missing from the epic checklist -- add it"
 # then: gh issue edit <parent-n> --repo rmems/synthetic-factory --body-file <updated>
-``` This applies equally on the resumed
+```
+
+This applies equally on the resumed
 path, where step 3 found an existing twin and kept only its number. Without a parent
 twin, fall back to the body's **Relationships** section, as the gotcha below describes.
 
@@ -835,9 +867,13 @@ expect=$(printf '%s\n%s\n' "$parent_body" "#<n>" \
   | grep -oE '#[0-9]+' | tr -d '#' | sort -un)
 
 # after any parent-body write, confirm every expected entry survived -- comparing the
-# SET, not the count, catches an equal-count substitution a count check would miss
-after=$(gh issue view <parent-n> --repo rmems/synthetic-factory --json body --jq .body \
-  | grep -oE '#[0-9]+' | tr -d '#' | sort -un)
+# SET, not the count, catches an equal-count substitution a count check would miss.
+# Validate the read itself: an unvalidated failure here makes $after empty, and comm
+# would then report every expected entry as "clobbered" -- driving a re-add from the
+# stale pre-write $parent_body and defeating the whole mitigation.
+parent_body_after=$(gh issue view <parent-n> --repo rmems/synthetic-factory --json body --jq .body) \
+  || { echo "could not re-read parent #<parent-n> -- do NOT assume entries were clobbered, retry the read" >&2; exit 1; }
+after=$(printf '%s\n' "$parent_body_after" | grep -oE '#[0-9]+' | tr -d '#' | sort -un)
 comm -23 <(printf '%s\n' "$expect") <(printf '%s\n' "$after")
 # any output -> those children were clobbered by a concurrent write; re-add them
 ```
