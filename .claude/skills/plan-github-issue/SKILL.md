@@ -14,20 +14,23 @@ not trust a remembered answer, including the ones in this document.
 
 ## Prerequisites
 
-This skill drives two external CLIs — `bd` (beads) and `gh` — and every step below
-assumes both are on `PATH` and authenticated. That is **not** true of the Cursor Cloud
-image: `.cursor/Dockerfile` installs git, sudo, Python, curl, and certificates, and
-`.cursor/install.sh` does not install beads, so step 1 fails with `bd: command not
-found` for a cloud agent starting from `AGENTS.md`. Check before starting, and install
-beads (or run this skill locally) if the check fails:
+This skill drives three external tools — `bd` (beads), `gh`, and `jq` — and every step
+below assumes all three are on `PATH` and authenticated. That is **not** true of the
+Cursor Cloud image: `.cursor/Dockerfile` installs git, sudo, Python, curl, and
+certificates, and `.cursor/install.sh` does not install beads, `gh`, or `jq`, so step 1
+fails with `bd: command not found` for a cloud agent starting from `AGENTS.md`. Check
+before starting, and install what's missing (or run this skill locally) if the check
+fails:
 
 The same image lacks `gh`: `.cursor/Dockerfile` installs `curl` but not GitHub CLI.
 Check the binary separately from authentication — folding them together reports "not
 authenticated" for a missing binary and sends the operator to `gh auth login`, a command
-they cannot run:
+they cannot run. `jq` is used throughout — label counting, parsing `--json` output — and
+its absence otherwise fails loudly mid-workflow instead of at this gate:
 
 ```bash
 command -v bd >/dev/null || echo "beads missing -- install it before running this skill"
+command -v jq >/dev/null || echo "jq missing -- install it before running this skill"
 if ! command -v gh >/dev/null; then
   echo "GitHub CLI missing -- install gh before running this skill"
 elif ! gh auth status >/dev/null 2>&1; then
@@ -46,14 +49,17 @@ link the twin. If that plugin is unavailable, every step has a `gh` equivalent:
 | `issue_write` (update) | `gh issue edit <n> --title --body-file --add-label --remove-label --add-assignee --remove-assignee --milestone` |
 | `sub_issue_write` (add) | `gh api --method POST repos/<o>/<r>/issues/<parent>/sub_issues -F sub_issue_id=<child-db-id>` |
 | `sub_issue_write` (replace parent) | `gh issue edit <n> --parent <parent-number>` (and `--remove-parent` to detach) |
-| `pull_request_read` (`get_files`) | `gh pr list --repo <o>/<r> --state open --json number,files` |
+| `pull_request_read` (`get_files`) | `gh pr list --repo <o>/<r> --state open --limit 200 --json number,files` |
 
 Milestones need the empty case too: `gh issue edit <n> --milestone "<name>"` to set,
 and `gh issue edit <n> --remove-milestone` when the bead has none — otherwise a
 milestone removed from the bead survives on the twin and no step ever clears it.
 
 `gh issue create` also takes `--blocked-by`, which mirrors the `bd dep add` edge onto
-GitHub in the same call.
+GitHub in the same call — but it takes GitHub issue numbers or URLs, **not bead IDs**.
+Resolve each blocker to its own twin's issue number first (its `External:` ref, if it
+has one); if a blocker bead has no twin yet, omit `--blocked-by` for it and rely on the
+`bd dep add` edge alone until it does.
 
 Assignees need the same add/remove treatment as labels — `gh issue edit` has
 `--add-assignee` and `--remove-assignee`, and without them the post-sync
@@ -67,10 +73,14 @@ labels survive and step 5 keeps reporting drift no matter how many times you run
 Compute both directions and pass them together:
 
 ```bash
-# The COMPLETE intended set: bead domain labels PLUS the tracking triplet. Do not pass
-# $want_tracking here -- that holds only the three tracking labels, so every domain
-# label would land in $del and the fallback would strip exactly the tags it exists to
-# restore.
+# The COMPLETE intended set: bead domain labels PLUS the tracking triplet. Both belong
+# in $want -- gh issue edit --add-label/--remove-label only adds or removes individually
+# (unlike issue_write, which replaces the whole set), so any label $have carries that is
+# missing from $want -- including bead:*/status:*/priority:* -- lands in $del and gets
+# stripped. Derive want_tracking here rather than assuming step 5 already set it: this
+# fallback can run standalone, before step 5 ever executes.
+want_tracking=$(bd show <bead-id> --json | jq -r '.[0] |
+  "bead:\(.issue_type)", "priority:P\(.priority)", "status:\(.status | gsub("_";"-"))"')
 want=$(printf '%s\n' \
   "$(bd show <bead-id> --json | jq -r '.[0].labels[]?')" \
   "$want_tracking" | grep -v '^$' | sort -u)
@@ -169,7 +179,8 @@ A hit is not automatically *your* work. `bd search` already excludes closed bead
 default (`--status` help: "Default excludes closed"), so a stale finished bead will not
 surface — but an open bead with a similar title may be different work, or the same work
 already completed and linked. Reuse it only when it is an unfinished attempt at this
-same request: same parent, same scope, and **no external ref yet**.
+same request: same parent and same scope — see the table below for how to proceed
+whether or not it already has an external ref.
 
 `bd search` does not print the external ref at any verbosity — `--long` adds the
 description, assignee, and labels only — so check each candidate with `bd show`:
@@ -362,8 +373,13 @@ gh search issues --repo rmems/synthetic-factory --limit 200 \
   --match body "bead-id: <bead-id>" --json number,title,body \
   | python3 -c "
 import json,sys
+LIMIT=200
+rows=json.load(sys.stdin)
+if len(rows) >= LIMIT:
+    sys.exit(f'STOP: search returned {len(rows)} candidates, hitting the --limit cap -- '
+             f'the exact-marker twin may be outside this page; paginate before trusting the result')
 want='<!-- bead-id: <bead-id> -->'
-hits=[i['number'] for i in json.load(sys.stdin) if want in (i.get('body') or '')]
+hits=[i['number'] for i in rows if want in (i.get('body') or '')]
 if len(hits) > 1: sys.exit(f'STOP: {len(hits)} twins share this marker: {hits} -- reconcile before linking')
 print(hits[0] if hits else 'no exact-marker twin; safe to create')"
 ```
@@ -502,11 +518,16 @@ only a subset today (`bead:` bug/epic/task, `priority:` P0-P2, `status:` open an
 in-progress). The first `bead:feature`, `priority:P3`, or `status:blocked` bead has no
 label to attach to. Include the triplet from step 5 in the diff, not just domain labels.
 
-Diff before filing:
+Diff before filing — include the tracking triplet, not just domain labels, or the first
+`bead:feature`/`priority:P3`/`status:blocked` bead silently has nothing to attach to:
 
 ```bash
-comm -23 <(bd show <bead-id> | sed -n 's/^LABELS: //p' | tr ',' '\n' \
-            | sed 's/^[[:space:]]*//; s/[[:space:]]*$//' | grep -v '^$' | sort -u) \
+want_tracking=$(bd show <bead-id> --json | jq -r '.[0] |
+  "bead:\(.issue_type)", "priority:P\(.priority)", "status:\(.status | gsub("_";"-"))"')
+comm -23 <(printf '%s\n' \
+            "$(bd show <bead-id> | sed -n 's/^LABELS: //p' | tr ',' '\n' \
+                | sed 's/^[[:space:]]*//; s/[[:space:]]*$//' | grep -v '^$')" \
+            "$want_tracking" | grep -v '^$' | sort -u) \
          <(gh label list --repo rmems/synthetic-factory --limit 200 --json name \
             --jq '.[].name' | sort -u)
 # any output -> create each one before issue_write:
@@ -567,8 +588,13 @@ gh search issues --repo rmems/synthetic-factory --limit 200 \
   --match body "bead-id: <parent-bead-id>" --json number,body \
   | python3 -c "
 import json,sys
+LIMIT=200
+rows=json.load(sys.stdin)
+if len(rows) >= LIMIT:
+    sys.exit(f'STOP: search returned {len(rows)} candidates, hitting the --limit cap -- '
+             f'the exact-marker parent twin may be outside this page; paginate before trusting the result')
 want='<!-- bead-id: <parent-bead-id> -->'
-hits=[i['number'] for i in json.load(sys.stdin) if want in (i.get('body') or '')]
+hits=[i['number'] for i in rows if want in (i.get('body') or '')]
 if len(hits) > 1: sys.exit(f'STOP: {len(hits)} parent twins share this marker: {hits} -- reconcile first')
 print(hits[0] if hits else 'no parent twin')"
 
@@ -641,6 +667,21 @@ bd update <bead-id> --external-ref "https://github.com/rmems/synthetic-factory/i
 bd show <bead-id> | grep -E 'External|LABELS'
 ```
 
+**If this bead has no parent, check the twin doesn't have one either.** A resumed twin
+(step 3) may carry a parent link from an earlier hierarchy that no longer applies, and
+`sub_issue_write` is never called for a parentless bead, so nothing detaches a stale link
+on its own:
+
+```bash
+PARENT=$(gh issue view <n> --repo rmems/synthetic-factory --json parent \
+           --jq '.parent.number // "none"') \
+  || { echo "parent lookup failed -- not assuming unparented" >&2; exit 1; }
+if [ "$PARENT" != "none" ]; then
+  echo "twin has stale parent #$PARENT but bead is parentless -- detach:"
+  echo "gh issue edit <n> --repo rmems/synthetic-factory --remove-parent"
+fi
+```
+
 `bd` writes through to `.beads/issues.jsonl` (an export of the Dolt backend, not the
 source of truth). Committing that export is how other agents see the mapping — but it
 is **shared mutable state**: it frequently arrives already-modified or already-staged
@@ -683,10 +724,21 @@ Normalize both sides before comparing — `bd` prints a `LABELS:` prefix, traili
 not, so the raw outputs never match even when the label sets are identical:
 
 ```bash
+# Defined again here (also set in the Prerequisites gh fallback above) so parity does
+# not depend on having taken that path -- an unset PRESERVE_RE makes grep -Ev "" match
+# everything and silently hides every domain label from the diff below.
+PRESERVE_RE='^(size:|dataset-card$|Documentation$|GitHub Actions$|release$|development$|huggingface$|Amazon Q )'
+
+# Capture the GitHub read into a variable and check it explicitly. Piping
+# `gh issue view` straight into the diff's process substitution makes a read failure
+# (auth, rate limit, network) indistinguishable from "issue genuinely has zero labels" --
+# diff would then report ordinary drift instead of aborting on an unobserved state.
+gh_labels=$(gh issue view <n> --repo rmems/synthetic-factory --json labels --jq '.labels[].name') \
+  || { echo "could not read current labels -- aborting rather than reporting false drift" >&2; exit 1; }
+
 diff <(bd show <bead-id> | sed -n 's/^LABELS: //p' | tr ',' '\n' \
        | sed 's/^[[:space:]]*//; s/[[:space:]]*$//' | sort) \
-     <(gh issue view <n> --repo rmems/synthetic-factory --json labels \
-        --jq '.labels[].name' \
+     <(printf '%s\n' "$gh_labels" \
        | grep -Ev '^(bead|status|priority):' \
        | grep -Ev "$PRESERVE_RE" | sort) \
   && echo "parity OK"
@@ -730,10 +782,14 @@ diff <(printf '%s\n' "$want_tracking" | sort) \
   && echo "tracking triplet OK"
 ```
 
-`issue_write` **replaces** the label set, so pass the complete list: every domain label
-plus the tracking triplet. If the drift you find here is *inherited* parent tags, note
-that `--no-inherit-labels` cannot help at this point — it applies only at `bd create`
-(step 2). Reconcile by removing the unwanted tags on both surfaces.
+`issue_write` **replaces** the label set, so pass the complete list: every domain label,
+the tracking triplet, **and** the issue's current collaboration labels (anything
+matching `$PRESERVE_RE` — `size:*`, `dataset-card`, `Documentation`, etc.). Fetch those
+from `gh issue view <n> --json labels` before calling `issue_write`; omitting them
+silently deletes labels this workflow does not own. If the drift you find here is
+*inherited* parent tags, note that `--no-inherit-labels` cannot help at this point — it
+applies only at `bd create` (step 2). Reconcile by removing the unwanted tags on both
+surfaces.
 
 **Commit the bead side again if you changed it here.** Step 4's focused commit is the
 workflow's only metadata commit, and it runs *before* this reconciliation. Any `bd`
@@ -742,10 +798,13 @@ other agents read stays stale and the source of truth silently diverges. Close t
 workflow with a second focused commit, same pathspec discipline:
 
 ```bash
-git diff HEAD -- .beads/issues.jsonl   # empty -> nothing to do (HEAD, not the index:
-                                       # see step 4 -- the plain form hides another
-                                       # session's staged rows and you would commit them)
-git commit -m "chore: reconcile <bead-id> labels" -- .beads/issues.jsonl
+# empty -> nothing to do (HEAD, not the index: see step 4 -- the plain form hides
+# another session's staged rows and you would commit them)
+if [ -n "$(git diff HEAD -- .beads/issues.jsonl)" ]; then
+  git commit -m "chore: reconcile <bead-id> labels" -- .beads/issues.jsonl
+else
+  echo "no label changes to commit"
+fi
 ```
 
 ## Concurrency
@@ -764,15 +823,23 @@ are **detect-and-converge** mitigations, not prevention. Treat them as such.
   reconciling beads is cheap, reconciling twins is not.
 - **Epic checklist replacement (step 4).** `--body-file` writes a whole body, so two
   agents appending different children can each read the same parent body and the second
-  write erases the first child's line. Mitigation: after writing, re-read the parent and
-  confirm your entry *and* every entry you saw before the write are still present;
-  re-apply what is missing. Keep the read-to-write window short.
+  write erases the first child's line. A pure entry *count* cannot catch this: if agent A
+  appends child A and agent B concurrently overwrites with child B instead, the total
+  count is unchanged even though A's entry is gone. Mitigation: capture the exact set of
+  issue numbers you saw before writing (plus your own), then after writing confirm every
+  one of them is still present — not just that the count didn't drop.
 
 ```bash
-# after any parent-body write
-gh issue view <parent-n> --repo rmems/synthetic-factory --json body --jq .body \
-  | grep -cE '^[[:space:]]*-[[:space:]]*\[[ x]\][[:space:]]*#[0-9]+'   # entry count
-# fewer than before your write -> you clobbered someone; re-add the missing children
+# before writing, capture what you saw (including the child you are about to add)
+expect=$(printf '%s\n%s\n' "$parent_body" "#<n>" \
+  | grep -oE '#[0-9]+' | tr -d '#' | sort -un)
+
+# after any parent-body write, confirm every expected entry survived -- comparing the
+# SET, not the count, catches an equal-count substitution a count check would miss
+after=$(gh issue view <parent-n> --repo rmems/synthetic-factory --json body --jq .body \
+  | grep -oE '#[0-9]+' | tr -d '#' | sort -un)
+comm -23 <(printf '%s\n' "$expect") <(printf '%s\n' "$after")
+# any output -> those children were clobbered by a concurrent write; re-add them
 ```
 
 ## Gotchas
@@ -789,9 +856,13 @@ gh issue view <parent-n> --repo rmems/synthetic-factory --json body --jq .body \
   parity:
 
   ```bash
-  bd config get linear.team_id | grep -qv '(not set)' \
-    && bd linear sync --pull && bd show <bead-id> | grep -i linear \
-    || echo "Linear not configured here -- parity claim covers bead <-> GitHub only"
+  if bd config get linear.team_id | grep -qv '(not set)'; then
+    bd linear sync --pull \
+      || { echo "Linear IS configured but sync failed -- do not report parity, investigate" >&2; exit 1; }
+    bd show <bead-id> | grep -i linear
+  else
+    echo "Linear not configured here -- parity claim covers bead <-> GitHub only"
+  fi
   ```
 
 - **ProjectsV2: query before concluding.** At the last check this repo had none, but
