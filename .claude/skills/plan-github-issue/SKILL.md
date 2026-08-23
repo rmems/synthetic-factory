@@ -212,7 +212,7 @@ So the ref tells you *where* to resume, not whether to:
 | `External:` | Same scope? | Action |
 | --- | --- | --- |
 | absent | yes | resume at step 3 (create the twin) |
-| present | yes | reconcile issue state **and** post-sync metadata (below), then resume at step 5 — do **not** create |
+| present | yes | reconcile issue state **and** post-sync metadata (below), then resume at **step 4** (hierarchy may have changed since the twin was filed — step 4's parent-link logic is safe to re-run and already handles "already linked, skip") — do **not** create |
 | either | no | different work — create a new bead |
 
 Scope, not the ref, is what decides whether this is your bead.
@@ -622,10 +622,27 @@ hits=[i['number'] for i in rows if want in (i.get('body') or '')]
 if len(hits) > 1: sys.exit(f'STOP: {len(hits)} parent twins share this marker: {hits} -- reconcile first')
 print(hits[0] if hits else 'no parent twin')"
 
-# If bd show DID yield a ref, verify that issue before trusting it:
-gh issue view <parent-n> --repo rmems/synthetic-factory --json body \
-  --jq '((.body // "") | contains("<!-- bead-id: <parent-bead-id> -->"))' | grep -qx true \
-  || { echo "parent ref does not carry the parent's marker -- reconcile before linking" >&2; exit 1; }
+# If bd show DID yield a ref, verify that issue before trusting it -- but a markerless
+# twin is not automatically a stranger's: bd github sync can write External: before
+# adding the body marker, the same partial failure the child guard in step 3 recovers
+# from with a title check. Extend the same ownership check here instead of aborting
+# outright on every markerless parent.
+parent_body=$(gh issue view <parent-n> --repo rmems/synthetic-factory --json body --jq '.body // ""') \
+  || { echo "could not read parent #<parent-n> -- aborting" >&2; exit 1; }
+if printf '%s' "$parent_body" | grep -qF "<!-- bead-id: <parent-bead-id> -->"; then
+  : # ours, proceed
+elif ! printf '%s' "$parent_body" | grep -qF "<!-- bead-id: "; then
+  parent_title=$(gh issue view <parent-n> --repo rmems/synthetic-factory --json title --jq .title) \
+    || { echo "could not read parent #<parent-n> title -- aborting" >&2; exit 1; }
+  if printf '%s' "$parent_title" | grep -qF "[<parent-bead-id>]"; then
+    echo "parent #<parent-n> is markerless but its title names this bead -- reconcile (adds the marker) before linking"
+  else
+    echo "parent #<parent-n> is markerless AND its title does not name <parent-bead-id> -- ownership unproven, do NOT link" >&2
+    exit 1
+  fi
+else
+  echo "parent #<parent-n> ref carries a DIFFERENT bead's marker -- stop and reconcile" >&2; exit 1
+fi
 
 # Child: if a previous run already added the link and died before --external-ref,
 # adding again is rejected and the retry can never get past this point.
@@ -808,9 +825,11 @@ reconcile, would replace a correct label with a bare `status:`.
 want_tracking=$(bd show <bead-id> --json | jq -r '.[0] |
   "bead:\(.issue_type)", "priority:P\(.priority)", "status:\(.status | gsub("_";"-"))"')
 
+# Reuse $gh_labels, already captured and validated above -- a second unguarded
+# `gh issue view` here would reintroduce the same failure-reads-as-empty-diff hazard
+# that capture was added to close.
 diff <(printf '%s\n' "$want_tracking" | sort) \
-     <(gh issue view <n> --repo rmems/synthetic-factory --json labels --jq '.labels[].name' \
-        | grep -E '^(bead|status|priority):' | sort) \
+     <(printf '%s\n' "$gh_labels" | grep -E '^(bead|status|priority):' | sort) \
   && echo "tracking triplet OK"
 ```
 
@@ -888,14 +907,17 @@ comm -23 <(printf '%s\n' "$expect") <(printf '%s\n' "$after")
   rejects a label, parity still passes. This checkout cannot even observe it —
   `linear.team_id` is unset and `bd` reports Linear has never been pulled. Treat the
   verified contract as bead ↔ GitHub, and describe the Linear twin as expected rather
-  than confirmed. Where Linear *is* configured, verify it before claiming three-way
-  parity:
+  than confirmed. Where Linear *is* configured, the best available check confirms sync
+  *ran*, not that its tags match — `bd show | grep -i linear` shows a Linear reference
+  exists, it does not inventory or compare the Linear issue's own tag set. Never
+  describe this as "three-way parity"; it only distinguishes "not configured" from
+  "configured, sync succeeded, contents unverified":
 
   ```bash
   if bd config get linear.team_id | grep -qv '(not set)'; then
     bd linear sync --pull \
       || { echo "Linear IS configured but sync failed -- do not report parity, investigate" >&2; exit 1; }
-    bd show <bead-id> | grep -i linear
+    bd show <bead-id> | grep -i linear   # confirms a Linear ref exists, NOT tag parity
   else
     echo "Linear not configured here -- parity claim covers bead <-> GitHub only"
   fi
