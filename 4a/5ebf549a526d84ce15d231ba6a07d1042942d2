@@ -1,0 +1,32 @@
+.claude/skills/plan-github-issue/SKILL.md
+  s_7a58402200f6be::t_cb524c39ecabda 521-522,525-530
+  s_7a58402200f6be::t_b95856908972b5 591-595,597
+  s_7a58402200f6be::t_471118ad37d0f7 670-684
+  s_7a58402200f6be::t_c155e20bec06d4 801-807
+  s_7a58402200f6be::t_d526d49dd521c6 826-830,833-842
+  s_7a58402200f6be::t_acc12d4b34e762 376-380,382
+  s_7a58402200f6be::t_20fa94c948ca85 17-23,28-29,33
+  s_7a58402200f6be::t_aac02cd63e786c 52
+  s_7a58402200f6be::t_97672d219054f7 785-792
+  s_7a58402200f6be::t_905c4acc89b401 76-83
+  s_7a58402200f6be::t_c81ad13e902a32 727-738,741
+  s_7a58402200f6be::t_27c417ea96ea06 59-62
+  s_7a58402200f6be::t_765501e5b09ae2 859-865
+  s_7a58402200f6be::t_c9974ec429d14c 182-183
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "4a5ebf549a526d84ce15d231ba6a07d1042942d2",
+  "prompts": {},
+  "sessions": {
+    "s_7a58402200f6be": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "02c05741-4254-42f4-9312-afe0a99111d8",
+        "model": "claude-sonnet-5"
+      },
+      "human_author": "Raul Montoya Cardenas <montoyaraul34@gmail.com>"
+    }
+  }
+}
