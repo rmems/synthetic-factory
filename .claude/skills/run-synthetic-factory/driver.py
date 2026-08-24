@@ -592,7 +592,14 @@ def thalamic(record_id="smoke-t1"):
         "proposed_action": {"action": "noop", "decision_basis": "fixture"},
         "safety_decision": {"decision": "ACCEPT", "rationale": "bounded fixture"},
         "executed_action": {"action": "noop"},
-        "future_outcome": {"ok": True},
+        # publish() gates on verify_execution in strict mode, so the smoke
+        # fixture carries the observable outcome evidence a real record carries.
+        "future_outcome": {
+            "ok": True,
+            "timeline": [{"t_ms": 0, "event": "noop accepted"}],
+            "observed_effects": ["no actuator motion"],
+            "new_state": {"sim_or_real": "designed", "env": "transaction smoke test"},
+        },
         "reward_components": {"task_progress": 0.5, "total": 0.5},
         "meta": {"factory": "smoke", "round": 2, "tags": ["smoke"]},
     }

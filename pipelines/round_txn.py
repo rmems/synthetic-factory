@@ -6,10 +6,18 @@ visible to frontier readers only when ``ROUND-rNN.complete.json`` is linked
 into the factory directory after every staged file has passed validation and
 been copied without replacing an existing path.
 
+Publication also fails closed on execution evidence: ``validate_stage`` runs
+``verify_execution.verify_batch_for_frontier(..., strict=True)`` and refuses to
+link the completion marker while any record is ``failed`` or ``inconclusive``.
+Cannot-verify is never treated as verified; an operator may waive
+``inconclusive`` only by recording a written reason, which is stored in the
+completion marker.
+
 Usage:
   round_txn.py frontier <factory_dir>
   round_txn.py reserve <factory_dir> --round N --expected N
   round_txn.py publish <factory_dir> --round N --token TOKEN
+                       [--allow-inconclusive REASON]
 """
 
 from __future__ import annotations
@@ -334,6 +342,117 @@ CASCADE_GENERIC_TERMS = frozenset(
 
 class TransactionError(RuntimeError):
     """A round transaction cannot proceed safely."""
+
+
+# An operator waiver has to read as a written reason, not as a keystroke.
+EXECUTION_OVERRIDE_MIN_CHARS = 8
+EXECUTION_OVERRIDE_MAX_CHARS = 500
+EXECUTION_GATE_LABEL = "pipelines/verify_execution.py:verify_batch_for_frontier"
+# Fields a publish retry may legitimately re-derive without changing the plan.
+PUBLISH_PLAN_VOLATILE_KEYS = frozenset({"published_at", "execution_verification"})
+
+
+def normalized_execution_override(reason):
+    """Validate and normalize an operator waiver for cannot-verify records.
+
+    The waiver is recorded verbatim in ``ROUND-rNN.complete.json``, so it must
+    be short, printable, single-line text that a later auditor can read.
+    """
+    if reason is None:
+        return None
+    if not isinstance(reason, str):
+        raise TransactionError(
+            "execution verification override must be a written reason string"
+        )
+    text = " ".join(reason.split())
+    if any(unicodedata.category(character) == "Cc" for character in text):
+        raise TransactionError(
+            "execution verification override must not contain control characters"
+        )
+    if len(text) < EXECUTION_OVERRIDE_MIN_CHARS:
+        raise TransactionError(
+            "execution verification override needs a written reason of at least "
+            f"{EXECUTION_OVERRIDE_MIN_CHARS} characters"
+        )
+    if len(text) > EXECUTION_OVERRIDE_MAX_CHARS:
+        raise TransactionError(
+            "execution verification override reason must be at most "
+            f"{EXECUTION_OVERRIDE_MAX_CHARS} characters"
+        )
+    return text
+
+
+def load_execution_verifier():
+    """Import the execution verifier on demand, failing closed when missing.
+
+    The import stays local so ``verify_execution`` can audit any run directory
+    without a ``round_txn`` reservation. A missing verifier is not a licence to
+    publish unverified records, so the absence raises instead of skipping.
+    """
+    try:
+        from verify_execution import verify_batch_for_frontier
+    except ImportError as exc:
+        raise TransactionError(
+            "execution verification is unavailable; refusing to publish records "
+            f"whose execution evidence cannot be checked: {exc}"
+        ) from exc
+    return verify_batch_for_frontier
+
+
+def execution_gate(batch: Path, staged_batch: Path, override=None):
+    """Gate one staged batch on observable execution evidence.
+
+    ``verified`` / ``inconclusive`` / ``failed`` come from
+    ``pipelines/verify_execution.py``, which owns that taxonomy. This gate only
+    decides what each verdict does to the frontier:
+
+    * ``failed``       — structural defect; never waivable.
+    * ``inconclusive`` — cannot-verify; blocks unless the operator records an
+      explicit written waiver. Cannot-verify is never promoted to verified.
+    * ``verified``     — passes.
+
+    Returns the summary recorded in the completion manifest.
+    """
+    verify_batch_for_frontier = load_execution_verifier()
+    counts, findings, blocked = verify_batch_for_frontier(batch, strict=True)
+    summary = {
+        "gate": EXECUTION_GATE_LABEL,
+        "strict": True,
+        "counts": counts,
+        "override": None,
+    }
+    if not blocked:
+        return summary
+
+    detail = "\n".join(
+        f"{finding['status'].upper()}: {staged_batch.name}:{finding['line']} — "
+        f"{finding['reason']}"
+        for finding in findings[:5]
+    )
+    if len(findings) > 5:
+        detail += f"\n... and {len(findings) - 5} more findings"
+    if counts["failed"]:
+        raise TransactionError(
+            f"execution verification failed for the staged batch: {staged_batch}\n"
+            f"{counts['failed']} failed, {counts['inconclusive']} inconclusive of "
+            f"{counts['total']} records; a failed record is never waivable\n"
+            + detail
+        )
+    if override is None:
+        raise TransactionError(
+            "execution verification cannot verify "
+            f"{counts['inconclusive']} of {counts['total']} staged records: "
+            f"{staged_batch}\n" + detail + "\n"
+            "cannot-verify is never treated as verified; regenerate the round "
+            "with observable execution evidence, or republish with "
+            '--allow-inconclusive "<reason>" to record an explicit operator '
+            "waiver in the completion marker"
+        )
+    summary["override"] = {
+        "reason": override,
+        "waived_inconclusive": counts["inconclusive"],
+    }
+    return summary
 
 
 def utc_now():
@@ -2259,6 +2378,7 @@ def validate_stage(
     stage: Path,
     round_number: int,
     expected: int,
+    execution_override=None,
 ):
     if not stage.is_dir() or stage.is_symlink():
         raise TransactionError(f"staging directory missing or unsafe: {stage}")
@@ -2363,6 +2483,11 @@ def validate_stage(
                 "staged batch violates the agentic factory envelope:\n"
                 + "\n".join(f"ERROR: {error}" for error in envelope_errors)
             )
+        # Frontier gate: run over the captured copy so the verdict describes the
+        # same bytes the manifest hashes, not a batch swapped in mid-validation.
+        verification = execution_gate(
+            batch, stage / batch_name, override=execution_override
+        )
 
     files = [
         {
@@ -2372,13 +2497,16 @@ def validate_stage(
         }
         for path in initial_paths
     ]
-    return files, kinds, records
+    return files, kinds, records, verification
 
 
-def publish(factory_dir: Path, round_number: int, token: str):
+def publish(
+    factory_dir: Path, round_number: int, token: str, execution_override=None
+):
+    override = normalized_execution_override(execution_override)
     factory_dir = Path(factory_dir).resolve()
     with run_publish_lock(factory_dir):
-        return _publish_locked(factory_dir, round_number, token)
+        return _publish_locked(factory_dir, round_number, token, override)
 
 
 def finish_completed_publish(
@@ -2440,7 +2568,9 @@ def finish_completed_publish(
     return manifest
 
 
-def _publish_locked(factory_dir: Path, round_number: int, token: str):
+def _publish_locked(
+    factory_dir: Path, round_number: int, token: str, execution_override=None
+):
     """Publish while holding the run-wide identity/commit lock."""
     paths = marker_paths(factory_dir, round_number)
     if paths["complete"].exists() or paths["complete"].is_symlink():
@@ -2461,11 +2591,12 @@ def _publish_locked(factory_dir: Path, round_number: int, token: str):
             f"{configured_quota} records; found {expected}"
         )
 
-    files, kinds, records = validate_stage(
+    files, kinds, records, verification = validate_stage(
         factory_dir,
         stage,
         round_number,
         expected,
+        execution_override=execution_override,
     )
     manifest = {
         "version": 1,
@@ -2476,6 +2607,7 @@ def _publish_locked(factory_dir: Path, round_number: int, token: str):
         "records": records,
         "kinds": kinds,
         "files": files,
+        "execution_verification": verification,
         "published_at": utc_now(),
         "commit_point": paths["complete"].name,
     }
@@ -2483,13 +2615,20 @@ def _publish_locked(factory_dir: Path, round_number: int, token: str):
     resumed = paths["publishing"].exists()
     if resumed:
         existing = read_json(paths["publishing"])
-        # Timestamps differ across retries. Every other field is immutable,
-        # including the schema version and declared completion marker.
+        # Timestamps differ across retries. The execution verdict is derived
+        # from the manifest-hashed batch and carries operator prose, so a retry
+        # may reword the waiver without changing the plan. Every other field is
+        # immutable, including the schema version and declared completion
+        # marker. The first recorded verdict is the one that is kept.
         existing_plan = {
-            key: value for key, value in existing.items() if key != "published_at"
+            key: value
+            for key, value in existing.items()
+            if key not in PUBLISH_PLAN_VOLATILE_KEYS
         }
         manifest_plan = {
-            key: value for key, value in manifest.items() if key != "published_at"
+            key: value
+            for key, value in manifest.items()
+            if key not in PUBLISH_PLAN_VOLATILE_KEYS
         }
         if existing_plan != manifest_plan:
             raise TransactionError(
@@ -2586,6 +2725,15 @@ def parse_args(argv=None):
     pub.add_argument("factory_dir")
     pub.add_argument("--round", type=int, required=True, dest="round_number")
     pub.add_argument("--token", required=True)
+    pub.add_argument(
+        "--allow-inconclusive",
+        dest="execution_override",
+        metavar="REASON",
+        help=(
+            "record an explicit operator waiver for records whose execution "
+            "evidence cannot be verified; failed records are never waivable"
+        ),
+    )
     abt = sub.add_parser("abort")
     abt.add_argument("factory_dir")
     abt.add_argument("--round", type=int, required=True, dest="round_number")
@@ -2603,7 +2751,12 @@ def main(argv=None):
         elif args.command == "abort":
             result = abort(Path(args.factory_dir), args.round_number, args.token)
         else:
-            result = publish(Path(args.factory_dir), args.round_number, args.token)
+            result = publish(
+                Path(args.factory_dir),
+                args.round_number,
+                args.token,
+                getattr(args, "execution_override", None),
+            )
     except (OSError, TransactionError) as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
         return 1
