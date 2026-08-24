@@ -94,6 +94,13 @@ it). The workflow skips factories with no start. Re-include a still-plateaued
 factory only when its prompt, quotas, or gap targets have changed enough to
 expect fresh novelty.
 
+The flag only exists if rounds report their novelty, so `round_txn.py publish`
+now rejects staged NOTES that omit `Novel coverage: <N>%` or state a value
+outside 0–100 — on every lane, including the legacy Thalamic factories. A
+generation agent that hits that error should repair its staged notes and
+republish; it is not a batch defect. Rounds committed before the contract are
+unaffected and stay readable. See `docs/token-efficiency.md`.
+
 The workflow runs at most five agents at once. Each generated round is followed
 by one bounded, read-only marker verifier in the same per-factory lane; it checks
 the frontier plus marker file hashes before progress is counted. Each factory

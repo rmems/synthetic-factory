@@ -2204,9 +2204,25 @@ def validate_completed_batch(
             )
 
 
-def validate_novel_coverage(notes: Path, factory_dir: Path, notes_text: str | None = None):
-    """Require a usable Novel coverage percentage for fixed agentic lanes."""
-    if factory_dir.name not in AGENTIC_FACTORY_KINDS:
+def validate_novel_coverage(
+    notes: Path,
+    factory_dir: Path,
+    notes_text: str | None = None,
+    *,
+    required: bool | None = None,
+):
+    """Require a usable Novel coverage percentage.
+
+    ``required=None`` keeps the read-path scope: only the fixed agentic lanes
+    are checked, so committed legacy rounds published before the NOTES contract
+    existed stay readable and are never rewritten.  The publish path passes
+    ``required=True`` — every *new* round, legacy lane included, must carry the
+    line so the token-efficiency early-stop can actually latch
+    (``docs/token-efficiency.md``).
+    """
+    if required is None:
+        required = factory_dir.name in AGENTIC_FACTORY_KINDS
+    if not required:
         return None
     if notes_text is None:
         try:
@@ -2288,8 +2304,11 @@ def validate_stage(
             ) from exc
         if not notes_text.strip():
             raise TransactionError(f"staged notes are empty: {stage / notes_name}")
+        # Every newly published round must carry the line, legacy lanes
+        # included: the token-efficiency early-stop cannot latch on rounds
+        # that never report their novelty (docs/token-efficiency.md).
         coverage_error = validate_novel_coverage(
-            stage / notes_name, factory_dir, notes_text
+            stage / notes_name, factory_dir, notes_text, required=True
         )
         if coverage_error:
             raise TransactionError(coverage_error)

@@ -21,6 +21,64 @@ SPEC.loader.exec_module(factory_driver)
 from round_txn import TransactionError  # noqa: E402
 
 
+FIXTURES = REPO / "tests" / "fixtures"
+
+
+class TokenEfficiencyFixtureLatch(unittest.TestCase):
+    """The committed convergence fixture must drive the documented latch.
+
+    docs/token-efficiency.md promises that two consecutive NOTES under 5%
+    early-stop a lane and that a healthy round clears the streak.  These run
+    the real `driver.py token-efficiency --json` surface over committed NOTES
+    rather than a tempdir, so the shipped fixture stays a working example of
+    the prompt contract.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        run_dir = FIXTURES / "token-efficiency"
+        buffer = StringIO()
+        with redirect_stdout(buffer):
+            cls.payload = factory_driver.cmd_token_efficiency(run_dir, as_json=True)
+        cls.printed = json.loads(buffer.getvalue())
+        cls.by_factory = {
+            item["factory"]: item for item in cls.payload["token_efficiency"]
+        }
+
+    def test_json_output_matches_the_returned_payload(self):
+        self.assertEqual(self.printed, json.loads(json.dumps(self.payload)))
+
+    def test_two_consecutive_sub_threshold_notes_fire_early_stop(self):
+        info = self.by_factory["thalamic-trajectory-factory"]
+        self.assertEqual(
+            [(item["round"], item["novel_coverage_pct"]) for item in info["rounds"]],
+            [(5, 4.2), (6, 3.1)],
+        )
+        self.assertTrue(all(item["is_low"] for item in info["rounds"]))
+        self.assertTrue(info["early_stop"])
+        self.assertEqual(info["early_stop_at_round"], 6)
+        self.assertEqual(info["threshold_pct"], 5.0)
+        self.assertEqual(info["consecutive_required"], 2)
+        self.assertEqual(info["saving_mode_pct"], 40)
+
+    def test_a_healthy_round_clears_a_single_low_round(self):
+        info = self.by_factory["agentic-coding-trajectory-factory"]
+        self.assertEqual(
+            [(item["round"], item["novel_coverage_pct"]) for item in info["rounds"]],
+            [(5, 4.8), (6, 12.0)],
+        )
+        self.assertFalse(info["early_stop"])
+        self.assertIsNone(info["early_stop_at_round"])
+
+    def test_human_output_names_the_early_stop_round(self):
+        buffer = StringIO()
+        with redirect_stdout(buffer):
+            factory_driver.cmd_token_efficiency(FIXTURES / "token-efficiency")
+        report = buffer.getvalue()
+        self.assertIn("thalamic-trajectory-factory: EARLY-STOP at r06", report)
+        self.assertIn("agentic-coding-trajectory-factory: no early-stop", report)
+
+
 class FactoryTokenEfficiency(unittest.TestCase):
     def _write_notes(self, factory, rounds):
         for rn, coverage in rounds:
