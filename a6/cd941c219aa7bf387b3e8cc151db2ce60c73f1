@@ -1,0 +1,22 @@
+tests/test_card_schema.py
+  s_002cddb1a70571::t_9e1db474a51749 26
+  s_002cddb1a70571::t_40e29c26c19b46 533-629
+config/card-schemas/ssl-cert-rotation-trajectories.json
+  s_002cddb1a70571::t_2ef0aeaeb8155d 1-88
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "a6cd941c219aa7bf387b3e8cc151db2ce60c73f1",
+  "prompts": {},
+  "sessions": {
+    "s_002cddb1a70571": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "abd260ba-6a6c-45a6-9db3-a4e0988ad60e",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Raul Montoya Cardenas <montoyaraul34@gmail.com>"
+    }
+  }
+}
