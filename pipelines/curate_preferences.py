@@ -1,5 +1,14 @@
 #!/usr/bin/env python3
-"""Conservatively curate same-context preference pairs.
+"""Conservatively curate Fable same-state/same-proposal preference pairs.
+
+Scope: this is the Fable ``state``/``proposed_action`` gate, not a universal
+preference curator. A pair whose sides are *trajectories* (``chosen.steps`` /
+``rejected.steps`` under one shared ``goal``, as in the Grok 4.6 preference
+dumps) carries no ``state``/``proposed_action`` to compare. Such pairs are
+excluded here as ``PREFERENCE_PAIR_IS_A_TRAJECTORY_PAIR`` — never coerced into
+a fabricated same-state shape — and belong to
+``pipelines/curate_trajectory_preferences.py`` (see
+``docs/trajectory-preference-gate.md``).
 
 The transform never mutates its input objects. A pair is retained only when
 ``chosen`` and ``rejected`` have canonically identical ``state`` and
@@ -63,6 +72,9 @@ TRANSFORM_VERSION = "1.2.0"
 
 AUDIT_NAME = "same-context-preference-audit"
 AUDIT_SCHEMA_VERSION = "1.1.0"
+
+REASON_TRAJECTORY_PAIR = "PREFERENCE_PAIR_IS_A_TRAJECTORY_PAIR"
+CLASSIFICATION_TRAJECTORY_PAIR = "trajectory_pair_out_of_scope"
 
 ACTION_RETAINED = "retained"
 ACTION_REPAIRED = "repaired"
@@ -166,6 +178,20 @@ def _preference_context(
     ):
         return None
     return chosen, rejected
+
+
+def _is_trajectory_pair(record: dict[str, Any]) -> bool:
+    """Whether both sides are step trajectories rather than same-state sides.
+
+    Trajectory pairs are curated by ``curate_trajectory_preferences.py``; this
+    predicate exists only so their exclusion here is named honestly.
+    """
+
+    sides = (record.get("chosen"), record.get("rejected"))
+    return all(
+        isinstance(side, dict) and isinstance(side.get("steps"), list)
+        for side in sides
+    )
 
 
 def context_is_pure(record: dict[str, Any]) -> bool:
@@ -411,6 +437,17 @@ def curate_preference_record(record: dict[str, Any]) -> CurationDecision:
         )
     context = _preference_context(record)
     if context is None:
+        if _is_trajectory_pair(record):
+            # A shared-goal trajectory pair is a different schema, not a
+            # malformed same-state pair. Naming that keeps a 0% same-state
+            # yield readable and stops anyone from inventing state here.
+            return CurationDecision(
+                action=ACTION_EXCLUDED,
+                classification=CLASSIFICATION_TRAJECTORY_PAIR,
+                reason_codes=(REASON_TRAJECTORY_PAIR,),
+                record=None,
+                context_diff_paths=(),
+            )
         return CurationDecision(
             action=ACTION_EXCLUDED,
             classification="malformed_preference_context",
@@ -682,6 +719,9 @@ def curate_source(source: Path) -> CurationRun:
         "proposed_action_only_divergent_pairs": agreement["proposed_action_only_divergent"],
         "both_context_fields_divergent_pairs": agreement["both_divergent"],
         "context_undetermined_pairs": agreement["undetermined"],
+        "out_of_scope_trajectory_pairs": classifications[
+            CLASSIFICATION_TRAJECTORY_PAIR
+        ],
         "actions": dict(sorted(actions.items())),
         "classifications": dict(sorted(classifications.items())),
         "reason_codes": dict(sorted(reasons.items())),

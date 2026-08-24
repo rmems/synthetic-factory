@@ -244,6 +244,36 @@ class PublishGrok46HubTests(unittest.TestCase):
             self.assertIn("`data/raw/batch-r1a.jsonl`", card)
             self.assertNotIn("`data/raw/batch-r01a.jsonl`", card)
 
+    def test_preference_pair_cards_disclose_the_trajectory_schema(self):
+        # The two published Grok preference repos are trajectory DPO, not Fable
+        # same-state pairs; the card must say so and claim no FFPC purity.
+        for slug in ("code-review-preference-factory", "tool-use-preference-factory"):
+            hub = publisher.hub_name(slug)
+            card = publisher.render_card(
+                {**ITEM, "slug": slug, "hub": hub},
+                records=3,
+                bytes_=4096,
+                first="r01",
+                last="r02",
+            )
+
+            self.assertTrue(hub.endswith("-preference-pairs"), hub)
+            self.assertIn("## Record schema", card)
+            self.assertIn("trajectory preference pair", card)
+            self.assertIn("`proposed_action` field", card)
+            self.assertIn("curate_trajectory_preferences.py", card)
+            self.assertIn("no FFPC-equivalent same-state", card)
+            self.assertIn("payload is unfiltered", card)
+            # The YAML tag block must still be the first --- delimited section.
+            self.assertEqual(len(card.split("---", 2)), 3)
+
+    def test_trajectory_cards_omit_the_preference_pair_disclosure(self):
+        card = publisher.render_card(
+            ITEM, records=1, bytes_=1024, first="r01", last="r01"
+        )
+
+        self.assertNotIn("## Record schema", card)
+
     def test_snapshot_keeps_legacy_baseline_and_filters_uncommitted_marker_batches(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)

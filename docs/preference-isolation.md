@@ -328,6 +328,33 @@ means Session B did not actually reason from the diagnosis. Re-run Session B
 from a fresh context against the same diagnosis; never hand-widen the two
 arms to clear the floor.
 
+### 3.7 Scope boundary — this gate is Fable-only
+
+`curate_preferences.py` is the **Fable same-state/same-proposal** gate. It can
+only judge pairs whose `chosen` and `rejected` both carry dict `state` and
+`proposed_action` values — the ThalamicTrajectory preference schema produced by
+`failure-as-fuel-preference-cascade`.
+
+It is **not** a universal preference curator. Grok 4.6 preference dumps
+(`code-review-preference-pairs`, `tool-use-preference-pairs`) are shared-goal,
+shared-prefix **trajectory pairs**: `chosen.steps` / `rejected.steps` with side
+`outcome` and `reward`, and no `state` or `proposed_action` anywhere. Those
+pairs are **out of scope for this gate** and are excluded here as
+`PREFERENCE_PAIR_IS_A_TRAJECTORY_PAIR` (classification
+`trajectory_pair_out_of_scope`, counted as
+`summary.out_of_scope_trajectory_pairs`), never coerced into a fabricated
+same-state shape and never rewritten in raw. They still count toward
+`summary.impure_pairs`, so they still block a Fable publish — correct, because
+this gate cannot judge them — and `out_of_scope_trajectory_pairs` decomposes
+that number for a reader.
+
+They are curated by the second lane,
+`pipelines/curate_trajectory_preferences.py` — see
+`docs/trajectory-preference-gate.md`, which defines its keep / repair / reject
+rules and reason codes. The two lanes report separate denominators: this gate
+skips nothing it can judge, and the trajectory gate skips every same-state pair
+it sees, so a Fable purity rate and a Grok retain rate are never mixed.
+
 ## 4. End-to-end example (round r05)
 
 ```
