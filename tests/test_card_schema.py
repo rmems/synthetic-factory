@@ -638,5 +638,100 @@ class LongHorizonCodingDeclarationTests(unittest.TestCase):
         self.assertNotIn("**Not declared yet.**", self.card)
 
 
+class PaymentIdempotencyDeclarationTests(unittest.TestCase):
+    """Issue #55: dest-stamped `sir-*` leftover mill plus thin `meta` vs designed.
+
+    Every count asserted here was derived by scanning all 347 published shards
+    of the local mirror, not transcribed from the issue body.
+    """
+
+    HUB = "payment-idempotency-trajectories"
+
+    def setUp(self):
+        self.declaration = card_schema.load(self.HUB)
+        self.assertIsNotNone(self.declaration, "config/card-schemas is missing #55")
+        self.item = {
+            "slug": "payment-idempotency-factory",
+            "hub": self.HUB,
+            "pretty": "Payment Idempotency Trajectories",
+            "blurb": "Payment leftover-idempotency-key episodes.",
+            "tags": ["synthetic-data", "trajectories"],
+        }
+        self.card = publisher.render_card(
+            self.item,
+            records=694,
+            bytes_=4778432,
+            first="r01",
+            last="r347",
+            payload_names=["batch-r01.jsonl", "batch-r311.jsonl", "batch-r347.jsonl"],
+        )
+
+    def test_declaration_matches_the_observed_union_schema(self):
+        names = {feature["name"]: feature for feature in self.declaration["features"]}
+        self.assertEqual(
+            set(names),
+            {"id", "goal", "plan", "steps", "outcome", "reward", "meta"},
+        )
+        # Unlike the long-horizon dump, `plan` is on all 694 records here.
+        self.assertNotIn("optional", names["plan"])
+        self.assertEqual(names["plan"]["dtype"], "string")
+        self.assertEqual(names["meta"]["dtype"], "json")
+        self.assertEqual(names["reward"]["dtype"], "json")
+        steps = {feature["name"]: feature for feature in names["steps"]["list"]}
+        self.assertEqual(
+            set(steps), {"n", "decision_basis", "tool_call", "observation", "reflection"}
+        )
+        self.assertTrue(steps["reflection"]["optional"])
+        self.assertIn("280 of 11385 steps", steps["reflection"]["note"])
+        tool_call = {feature["name"]: feature for feature in steps["tool_call"]["struct"]}
+        self.assertEqual(tool_call["args"]["dtype"], "json")
+        self.assertEqual(self.declaration["issues"], [55])
+
+    def test_key_bag_columns_are_declared_json(self):
+        self.assertEqual(
+            card_schema.json_columns(self.declaration["features"]),
+            ["steps[].tool_call.args", "reward", "meta"],
+        )
+
+    def test_card_front_matter_declares_the_default_config_over_raw_batches(self):
+        front_matter = self.card.split("---", 2)[1]
+        self.assertIn("configs:\n- config_name: default\n", front_matter)
+        self.assertIn('    path: "data/raw/batch-*.jsonl"\n', front_matter)
+        self.assertIn("dataset_info:\n  features:\n", front_matter)
+        self.assertIn("  - name: meta\n    dtype: json\n", front_matter)
+        self.assertIn("  - name: reward\n    dtype: json\n", front_matter)
+        self.assertIn("license: apache-2.0", front_matter)
+        self.assertIn("**not training-ready**", self.card)
+
+    def test_card_discloses_the_six_dest_stamped_sir_leftovers(self):
+        disclosure = self.declaration["disclosures"][0]
+        self.assertEqual(
+            disclosure["ids"],
+            [
+                "sir-r311-vespa-doc-leftover3c-rebuild",
+                "sir-r311-vespa-drop-document-leftover3c-handoff",
+                "sir-r312-es-reindex-leftover3c-rebuild",
+                "sir-r312-es-drop-reindex-leftover3c-handoff",
+                "sir-r313-whoosh-writer-leftover3c-rebuild",
+                "sir-r313-whoosh-drop-leftover3c-handoff",
+            ],
+        )
+        # Owned by the census (#43) and the dest-stamp detector (#44), not re-filed.
+        self.assertEqual(disclosure["issues"], [43, 44])
+        for record_id in disclosure["ids"]:
+            with self.subTest(record=record_id):
+                self.assertIn(f"`{record_id}`", self.card)
+        self.assertIn("dest-stamped", self.card)
+
+    def test_card_body_carries_the_optional_and_key_bag_notes(self):
+        self.assertIn("## Dataset viewer schema", self.card)
+        self.assertIn("| `steps[].reflection` | optional |", self.card)
+        self.assertIn("| `plan` | present on every record |", self.card)
+        # The two early `pid-` records the issue body never mentions.
+        self.assertIn("`pid-r01-idem-key-not-bound-to-body`", self.card)
+        self.assertIn("`pid-r01-webhook-replay-double-credit`", self.card)
+        self.assertNotIn("**Not declared yet.**", self.card)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -1,0 +1,79 @@
+{
+  "version": 1,
+  "dataset": "payment-idempotency-trajectories",
+  "issues": [55],
+  "note": "The viewer schema is declared by hand because `meta` is thin on 684 of 694 records (`factory`, `generator`, `round`) while 10 later designed records add `kind`, `seed`, `designed`, `domain` and `stack`, and `reward` carries four different key-sets, so the datasets-server infers the schema from `batch-r01.jsonl` and then cannot cast the later shards: `/is-valid` reports `preview` true but `viewer`, `search`, `filter` and `statistics` false, and `config-info` / `config-parquet` / `config-size` fail for `default`.",
+  "config_name": "default",
+  "split": "train",
+  "data_files": ["data/raw/batch-*.jsonl"],
+  "features": [
+    {"name": "id", "dtype": "string"},
+    {"name": "goal", "dtype": "string"},
+    {
+      "name": "plan",
+      "dtype": "string",
+      "note": "present and non-empty on all 694 records, so it is declared as required rather than optional"
+    },
+    {
+      "name": "steps",
+      "list": [
+        {"name": "n", "dtype": "int64"},
+        {"name": "decision_basis", "dtype": "string"},
+        {
+          "name": "tool_call",
+          "struct": [
+            {"name": "name", "dtype": "string"},
+            {
+              "name": "args",
+              "dtype": "json",
+              "note": "always an object; 8 distinct key-sets across the 7 tool names `bash`, `read`, `write`, `edit`, `grep`, `fetch` and `pytest`"
+            }
+          ]
+        },
+        {"name": "observation", "dtype": "string"},
+        {
+          "name": "reflection",
+          "dtype": "string",
+          "optional": true,
+          "note": "present on 280 of 11385 steps, spread over 124 of 694 records"
+        }
+      ]
+    },
+    {"name": "outcome", "dtype": "string"},
+    {
+      "name": "reward",
+      "dtype": "json",
+      "note": "key-bag: `success`, `plan_changes`, `tests_passed`, `cost_steps` on every record, plus `handoff` / `xfailed` on 289, `retries` on 7 and `duration_min` / `wasted_calls` on 4; four distinct key-sets in all"
+    },
+    {
+      "name": "meta",
+      "dtype": "json",
+      "note": "key-bag: `factory`, `generator`, `round` on every record, plus `kind`, `seed`, `designed`, `domain`, `stack` on the 10 designed records"
+    }
+  ],
+  "disclosures": [
+    {
+      "summary": "Six records in `batch-r311.jsonl`, `batch-r312.jsonl` and `batch-r313.jsonl` are search-index rebuild/handoff leftover-mill episodes (Vespa, Elasticsearch, Whoosh `leftover3c`), not payment leftover-idempotency-key episodes. They are dest-stamped: each carries `meta.factory = payment-idempotency-factory` and `meta.generator = grok-4.6` exactly like the payment records, so no metadata field distinguishes them from the advertised payload. They are kept exactly as generated.",
+      "ids": [
+        "sir-r311-vespa-doc-leftover3c-rebuild",
+        "sir-r311-vespa-drop-document-leftover3c-handoff",
+        "sir-r312-es-reindex-leftover3c-rebuild",
+        "sir-r312-es-drop-reindex-leftover3c-handoff",
+        "sir-r313-whoosh-writer-leftover3c-rebuild",
+        "sir-r313-whoosh-drop-leftover3c-handoff"
+      ],
+      "issues": [43, 44]
+    },
+    {
+      "summary": "The other 688 records are payment leftover-idempotency-key episodes: 686 carry the `pay-` id prefix and two early records in `batch-r01.jsonl` carry the earlier `pid-` prefix. Both prefixes are advertised payload; only the `sir-` prefix marks the leftover mill.",
+      "ids": [
+        "pid-r01-idem-key-not-bound-to-body",
+        "pid-r01-webhook-replay-double-credit"
+      ]
+    },
+    "138 records contain the phrase `leftover leftover leftover`. On 132 of them it is the advertised leftover-idempotency-key mechanic; the remaining 6 are the dest-stamped search-index records disclosed above.",
+    "`meta.kind` (always `episode`), `meta.seed`, `meta.designed`, `meta.domain` and `meta.stack` are present on only 10 records: the 6 dest-stamped `sir-` rows plus 4 designed payment rows in `batch-r346.jsonl` and `batch-r347.jsonl`. The other 684 records carry the thin `{factory, generator, round}` shape, and no record has a top-level `kind` field.",
+    "Every one of the 11385 steps publishes a public `decision_basis`. There are no hidden `thought` or `internal_reasoning` fields.",
+    "Two records in `batch-r76.jsonl` serialize their top-level keys in a different order (`steps` last). The field set is identical, and the declared schema matches by name, so the order carries no meaning."
+  ]
+}
