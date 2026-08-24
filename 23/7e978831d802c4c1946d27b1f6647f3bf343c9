@@ -1,0 +1,24 @@
+config/card-schemas/payment-idempotency-trajectories.json
+  s_002cddb1a70571::t_f47b252d35b6ca 1-14,16-28,30-79
+  s_002cddb1a70571::t_4d4af686d609db 15
+  s_002cddb1a70571::t_971d63aec6de42 29
+tests/test_card_schema.py
+  s_002cddb1a70571::t_eadc99c3990e86 539-540,542,546
+  s_002cddb1a70571::t_4b24e4476ad66f 532-538,541,543-545,547-626
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "237e978831d802c4c1946d27b1f6647f3bf343c9",
+  "prompts": {},
+  "sessions": {
+    "s_002cddb1a70571": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "abd260ba-6a6c-45a6-9db3-a4e0988ad60e",
+        "model": "unknown"
+      },
+      "human_author": "Raul Montoya Cardenas <montoyaraul34@gmail.com>"
+    }
+  }
+}
