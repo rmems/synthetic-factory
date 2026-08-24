@@ -350,6 +350,13 @@ class PhysicalTargetClaims(unittest.TestCase):
         errors = hp.validate_record(record, WHERE)
         self.assertTrue(any("HW_TARGET_UNKNOWN" in error for error in errors))
 
+    def test_deleting_the_execution_target_is_not_a_way_out(self):
+        # Removing an inconvenient label must not be quieter than declaring it.
+        record = copy.deepcopy(hp.generate_records(round_number=1, steps=4, repeats=2)[0])
+        del record["oracle"]["deployment"]["execution_target"]
+        errors = hp.validate_record(record, WHERE)
+        self.assertTrue(any("HW_TARGET_UNKNOWN" in error for error in errors))
+
     def test_reference_model_target_needs_no_board_metadata(self):
         records = hp.generate_records(round_number=1, steps=4, repeats=2)
         self.assertEqual(hp.validate_records(records), [])
