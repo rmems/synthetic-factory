@@ -680,6 +680,8 @@ def cmd_smoke():
         if manifest.get("records") != 1 or frontier_status(factory)["next_round"] != 2:
             failures.append("transaction reserve/publish did not commit exactly one round")
 
+    failures += smoke_parity_families()
+
     if failures:
         print("SMOKE FAIL:")
         for failure in failures:
@@ -687,9 +689,71 @@ def cmd_smoke():
         return 1
     print(
         "SMOKE PASS: four record kinds route correctly; malformed output cannot "
-        "advance a frontier; reserve/stage/validate/publish commits exactly once"
+        "advance a frontier; reserve/stage/validate/publish commits exactly once; "
+        "parity oracles report availability honestly and a relabelled verdict is "
+        "rejected"
     )
     return 0
+
+
+def smoke_parity_families():
+    """Check the two oracle-grounded parity families end to end.
+
+    Three properties, because they are the ones that would silently rot: the
+    unavailable oracles still say so, the generated records validate, and a
+    verdict that contradicts its own evidence is refused.
+    """
+    import hardware_parity
+    import neuro_oracle
+    import nir_equivalence
+    import oracle_contract
+
+    failures = []
+
+    fpga = neuro_oracle.availability_report()["spikenaut_fpga"]
+    if fpga["available"] or not fpga["reason_code"]:
+        failures.append(
+            "FPGA adapter must report unavailability with a reason code unless a "
+            "board transport exists"
+        )
+    nir_status = nir_equivalence.availability_report()["nir_rs"]
+    if nir_status["available"] or not nir_status["reason_code"]:
+        failures.append("nir_rs must report unavailability with a reason code")
+
+    hardware = hardware_parity.generate_records(round_number=1, steps=6, repeats=2)
+    errors = hardware_parity.validate_records(hardware, source="smoke-hw")
+    if errors:
+        failures.append(f"generated hardware-parity records do not validate: {errors[0]}")
+    verdicts = {record["result"]["verdict"] for record in hardware}
+    if oracle_contract.VERDICT_MISMATCH not in verdicts:
+        failures.append(
+            "hardware-parity catalog produced no mismatch; a parity corpus in which "
+            "nothing ever disagrees is not testing parity"
+        )
+
+    graphs = nir_equivalence.generate_records(round_number=1, steps=6)
+    errors = nir_equivalence.validate_records(graphs, source="smoke-nir")
+    if errors:
+        failures.append(f"generated NIR records do not validate: {errors[0]}")
+
+    # Relabel a real mismatch as a match; validation must refuse it.
+    for records, validate, code in (
+        (hardware, hardware_parity.validate_record, "PARITY_VERDICT_INCONSISTENT"),
+        (graphs, nir_equivalence.validate_record, "DIVERGENCE_SUPPRESSED"),
+    ):
+        divergent = [
+            record
+            for record in records
+            if record["result"]["verdict"] == oracle_contract.VERDICT_MISMATCH
+        ]
+        if not divergent:
+            continue
+        forged = json.loads(json.dumps(divergent[0]))
+        forged["result"]["verdict"] = oracle_contract.VERDICT_MATCH
+        if not any(code in error for error in validate(forged, "smoke:1")):
+            failures.append(f"a relabelled mismatch was not caught with {code}")
+
+    return failures
 
 
 def main(argv=None):

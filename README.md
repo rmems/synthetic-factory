@@ -64,7 +64,7 @@ same unit tests and operator smoke check.
 
 ## Structure
 - `prompts/` — factory prompts 01–07. 01–05 start with a session bootstrap; shared rules in `prompts/_factory-contract.md`
-- `schemas/` — Thalamic schema + `provenance.md`
+- `schemas/` — Thalamic schema, the two parity-family schemas, + `provenance.md`
 - `outputs/raw/` — dated dumps. `2026-08-17/` is the live run; `2026-08-17-prehalt/` is the pre-resume copy. `NEXT_ROUND.json` is a generated index, not a record
 - `outputs/cleaned/` — remapped copies (`sim_or_real` never `real`)
 - `outputs/curated/` — ready for training / HF export (empty)
@@ -91,6 +91,27 @@ python3 pipelines/validate_run.py outputs/raw/2026-08-17    # shape gate; no man
 python3 pipelines/check_records.py outputs/raw/2026-08-17   # reward / spike order / ids
 python3 pipelines/promote.py outputs/raw/2026-08-17 outputs/cleaned/2026-08-17
 ```
+
+### Oracle-grounded parity families
+
+Two verification-oriented families ask whether a neuromorphic computation
+survives deployment or interchange, rather than treating a successful export
+as proof that it did.
+
+```bash
+python3 pipelines/neuro_oracle.py                           # which oracles can run here
+python3 pipelines/hardware_parity.py availability
+python3 pipelines/hardware_parity.py generate outputs/raw/<date> --round 1
+python3 pipelines/nir_equivalence.py availability
+python3 pipelines/nir_equivalence.py generate outputs/raw/<date> --round 1
+```
+
+Both route through `census.py`, `validate_run.py`, and `check_records.py` like
+any other family, and both re-derive every recorded number during validation.
+**No FPGA and no upstream NIR runtime executes in this repository's
+environment.** What each oracle did and did not do, and what that leaves
+unverified, is spelled out in [`docs/parity-oracles.md`](docs/parity-oracles.md).
+A committed fixture round lives in `tests/fixtures/parity-run/`.
 
 Tests: `python3 -m unittest discover -s tests -p 'test_*.py' -q`
 

@@ -22,6 +22,11 @@ EXPECTED = {
         "multi_agent": 0,
         "safety_case": 0,
         "episode": 0,
+        # The oracle-grounded parity families are absent from this fixture but
+        # still reported, so a run that contains none is distinguishable from a
+        # census that cannot see them.
+        "hardware_parity": 0,
+        "nir_equivalence": 0,
         "unknown": 0,
     },
     "sim_or_real": {

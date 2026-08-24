@@ -28,14 +28,21 @@ KINDS = (
     "multi_agent",
     "safety_case",
     "episode",
+    "hardware_parity",
+    "nir_equivalence",
     "unknown",
 )
+# The oracle-grounded parity families declare their kind rather than being
+# inferred from key names. Kept as a literal so census stays import-free.
+DECLARED_KINDS = frozenset({"hardware_parity", "nir_equivalence"})
 SIM_BUCKETS = ("real", "real*", "sim*", "hil*", "other", "<missing>")
 
 
 def classify_kind(obj):
     if not isinstance(obj, dict):
         return "unknown"
+    if obj.get("record_kind") in DECLARED_KINDS:
+        return obj["record_kind"]
     if all(k in obj for k in THALAMIC_REQUIRED):
         return "thalamic"
     if "chosen" in obj and "rejected" in obj:

@@ -354,10 +354,39 @@ def check_provenance_publish(obj, where):
     return out
 
 
+def check_parity_record(obj, kind, where):
+    """Deep layer for the oracle-grounded parity families.
+
+    The family validators re-derive every parity number from the record's own
+    traces, and for NIR they re-execute the in-repo runtimes outright, so a
+    fabricated result cannot pass. Both are far too expensive for the shape
+    layer, which is why they live here.
+    """
+    if kind == "hardware_parity":
+        import hardware_parity
+
+        return hardware_parity.validate_record(obj, where)
+    import nir_equivalence
+
+    return nir_equivalence.validate_record(obj, where)
+
+
 def check_record(obj, where, factory_staging=False):
     errors, warnings = [], []
     shape_errs, kind = shape_check(obj, where, factory_staging=factory_staging)
     errors.extend(shape_errs)
+
+    if kind in ("hardware_parity", "nir_equivalence"):
+        # These records carry no thalamic state, reward components, or spike
+        # streams in the legacy shapes, so the generic passes below would only
+        # produce noise. Their own validator is the whole deep check. Record id
+        # still flows through so cross-file duplicate detection covers them.
+        deep = check_parity_record(obj, kind, where)
+        errors.extend(error for error in deep if error not in errors)
+        record_id = canonical_record_id(obj)
+        if record_id is None:
+            warnings.append(f"{where}: missing canonical record id")
+        return errors, warnings, kind, record_id
 
     if isinstance(obj, dict):
         for path, events in walk_key(obj, "spike_events"):

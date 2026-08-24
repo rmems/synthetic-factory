@@ -18,6 +18,28 @@ python3 pipelines/census.py tests/fixtures/mini-run
 `tests/fixtures/mini-run` includes one intentional JSON parse failure.
 `validate_run.py` on that path is expected to exit nonzero.
 
+## Parity oracles
+
+The `hardware-parity-spike-trajectories` and `nir-cross-runtime-equivalence`
+families depend on oracles that mostly do **not** exist in this environment.
+No FPGA is attached and no upstream NIR runtime is installed. Do not add a
+fallback that produces a plausible result in their place: the adapters raise
+with a reason code on purpose, and the validators reject any record that
+claims an execution target it cannot substantiate.
+
+```bash
+python3 pipelines/neuro_oracle.py            # hardware-parity oracle availability
+python3 pipelines/nir_equivalence.py availability
+```
+
+`docs/parity-oracles.md` records what ran, what did not, and what that leaves
+unverified. Keep it accurate if you change an adapter.
+
+`tests/fixtures/parity-run/` is the committed fixture round. It is the
+generators' default output and `tests/test_parity_factory_integration.py`
+compares it byte-for-byte, so regenerate it deliberately rather than letting
+it drift.
+
 ## Cursor Cloud specific instructions
 
 Cloud agents should start from `.cursor/environment.json`, which builds

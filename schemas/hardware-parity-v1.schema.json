@@ -1,0 +1,374 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "hardware-parity-v1.schema.json",
+  "title": "HardwareParitySpikeTrajectory",
+  "description": "One paired software/deployment run of a Spikenaut-class SNN against an identical encoded input fixture. This file is documentation: the repository has no JSON Schema library, and pipelines/hardware_parity.py is the enforcement. The validator additionally re-derives the Q8.8 conversion from scenario.model_float and recomputes every result.parity metric from the recorded traces, so a record cannot assert an agreement its own traces do not support.",
+  "type": "object",
+  "required": [
+    "id",
+    "record_kind",
+    "dataset",
+    "schema_version",
+    "generator",
+    "scenario",
+    "intervention",
+    "candidate_prediction",
+    "oracle",
+    "result",
+    "provenance",
+    "validation",
+    "meta"
+  ],
+  "properties": {
+    "id": { "type": "string", "minLength": 1 },
+    "record_kind": { "const": "hardware_parity" },
+    "dataset": { "const": "hardware-parity-spike-trajectories" },
+    "schema_version": { "type": "string", "minLength": 1 },
+    "generator": {
+      "type": "object",
+      "description": "Who authored the scenario. Never who authored the result.",
+      "required": ["name", "model", "role", "produced", "may_certify_oracle_result"],
+      "properties": {
+        "name": { "type": "string", "minLength": 1 },
+        "model": { "type": "string", "minLength": 1 },
+        "role": { "type": "string", "minLength": 1 },
+        "produced": {
+          "type": "array",
+          "minItems": 1,
+          "description": "May not contain 'result', 'oracle', or 'measurement'.",
+          "items": { "type": "string" }
+        },
+        "may_certify_oracle_result": { "const": false }
+      }
+    },
+    "scenario": {
+      "type": "object",
+      "required": ["id", "model_float", "stimulus", "input_fixture"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "stress": {
+          "type": "string",
+          "description": "What the scenario is designed to stress, e.g. q88_range_overflow"
+        },
+        "model_float": {
+          "type": "object",
+          "description": "The float64 network before export. Q8.8 provenance is re-derived from this during validation.",
+          "required": ["neurons", "inputs", "w_in", "bias", "threshold", "decay"],
+          "properties": {
+            "neurons": { "type": "integer", "minimum": 1 },
+            "inputs": { "type": "integer", "minimum": 1 },
+            "w_in": { "type": "array", "items": { "type": "array", "items": { "type": "number" } } },
+            "w_rec": {
+              "type": ["array", "null"],
+              "items": { "type": "array", "items": { "type": "number" } }
+            },
+            "bias": { "type": "array", "items": { "type": "number" } },
+            "threshold": { "type": "array", "items": { "type": "number" } },
+            "decay": { "type": "array", "items": { "type": "number" } },
+            "refractory_steps": { "type": "integer", "minimum": 0 },
+            "reset": { "enum": ["zero", "subtract"] },
+            "dt_ms": { "type": "number", "exclusiveMinimum": 0 }
+          }
+        },
+        "stimulus": {
+          "type": "object",
+          "description": "The encoded input fixture itself, so the identical-input claim is checkable from the record alone.",
+          "required": ["steps", "channels", "events"],
+          "properties": {
+            "steps": { "type": "integer", "minimum": 1 },
+            "channels": { "type": "integer", "minimum": 1 },
+            "dt_ms": { "type": "number", "exclusiveMinimum": 0 },
+            "events": {
+              "type": "array",
+              "items": { "type": "array", "items": { "enum": [0, 1] } }
+            }
+          }
+        },
+        "input_fixture": {
+          "type": "object",
+          "required": ["sha256"],
+          "properties": { "sha256": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" } }
+        }
+      }
+    },
+    "intervention": { "type": ["object", "null"] },
+    "candidate_prediction": {
+      "type": ["object", "null"],
+      "description": "The generator's guess. May not carry any oracle-only field (spikes, membrane, latency, parity, quantization, bitstream, hardware, capture).",
+      "required": ["source", "authoritative"],
+      "properties": {
+        "source": { "const": "generator" },
+        "authoritative": { "const": false }
+      }
+    },
+    "oracle": {
+      "type": "object",
+      "required": ["input_fixture", "software"],
+      "properties": {
+        "software": { "$ref": "#/$defs/run" },
+        "deployment": {
+          "oneOf": [{ "$ref": "#/$defs/run" }, { "type": "null" }],
+          "description": "Absent when the deployment-side oracle did not execute. In that case result.verdict must be 'inconclusive' and result.parity must be null."
+        },
+        "unavailable": {
+          "type": "array",
+          "description": "Every oracle that could not execute, with its reason code.",
+          "items": {
+            "type": "object",
+            "required": ["reason_code"],
+            "properties": {
+              "adapter": { "type": "string" },
+              "execution_target": { "type": "string" },
+              "reason_code": { "type": "string" },
+              "detail": { "type": "string" }
+            }
+          }
+        },
+        "environment": {
+          "type": "object",
+          "description": "The FPGA availability probe as observed at generation time, recorded on every record so an unexecuted hardware leg is distinguishable from an omitted one."
+        }
+      }
+    },
+    "result": {
+      "type": "object",
+      "required": ["oracle_backed", "verdict", "reason_codes", "derived_from"],
+      "properties": {
+        "oracle_backed": { "const": true },
+        "verdict": {
+          "enum": ["match", "mismatch", "unsupported", "inconclusive"],
+          "description": "`mismatch` iff the spike bitmaps differ or the decoded actions differ. Membrane, quantization, repeatability and latency findings ride as reason codes even on a `match`."
+        },
+        "reason_codes": { "type": "array", "items": { "type": "string" } },
+        "derived_from": {
+          "type": "array",
+          "minItems": 1,
+          "description": "The output digests of the oracle runs this verdict rests on.",
+          "items": { "type": "string" }
+        },
+        "parity": {
+          "type": ["object", "null"],
+          "required": ["spike_bitmap", "action", "timing", "membrane", "quantization", "repeatability"],
+          "properties": {
+            "spike_bitmap": {
+              "type": "object",
+              "description": "Cell-by-cell agreement over the (timestep, neuron) grid.",
+              "properties": {
+                "agreement": { "type": "number", "minimum": 0, "maximum": 1 },
+                "hamming_distance": { "type": "integer", "minimum": 0 },
+                "jaccard": { "type": "number", "minimum": 0, "maximum": 1 },
+                "software_only_spikes": { "type": "integer", "minimum": 0 },
+                "hardware_only_spikes": { "type": "integer", "minimum": 0 }
+              }
+            },
+            "action": {
+              "type": "object",
+              "properties": { "agree": { "type": "boolean" } }
+            },
+            "timing": {
+              "type": "object",
+              "description": "First-spike timing error, in timesteps and in ms.",
+              "properties": {
+                "max_abs_step_error": { "type": "number", "minimum": 0 },
+                "max_abs_ms_error": { "type": "number", "minimum": 0 }
+              }
+            },
+            "membrane": {
+              "type": "object",
+              "description": "Membrane error where both sides expose an observable trace, in mV_model.",
+              "properties": {
+                "max_abs_error": { "type": "number", "minimum": 0 },
+                "tolerance": { "type": "number", "minimum": 0 },
+                "within_tolerance": { "type": "boolean" }
+              }
+            },
+            "quantization": {
+              "type": "object",
+              "description": "Export saturation (a parameter did not fit) and runtime saturation (a partial sum did not) are counted separately.",
+              "properties": {
+                "saturated_parameter_count": { "type": "integer", "minimum": 0 },
+                "runtime_saturation_events": { "type": ["integer", "null"], "minimum": 0 },
+                "max_abs_error": { "type": "number", "minimum": 0 }
+              }
+            },
+            "repeatability": {
+              "type": "object",
+              "description": "hardware_repeatability_measured is false unless the deployment side was a physical target; determinism of a reference model is not hardware repeatability.",
+              "properties": {
+                "hardware_repeatability_measured": { "type": "boolean" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "provenance": {
+      "type": "object",
+      "required": ["kind", "tool", "tool_version"],
+      "properties": {
+        "kind": {
+          "enum": ["designed", "simulated", "hil", "unknown"],
+          "description": "schemas/provenance.md vocabulary. A genuine FPGA run is `hil`; a reference-model run is `simulated`. `real` is never emitted."
+        },
+        "units": { "type": "object" }
+      }
+    },
+    "validation": {
+      "type": "object",
+      "required": ["validator", "validator_version", "checks"],
+      "properties": { "checks": { "type": "array", "minItems": 1 } }
+    },
+    "meta": {
+      "type": "object",
+      "required": ["round", "factory"],
+      "properties": {
+        "round": { "type": "integer" },
+        "factory": { "type": "string", "minLength": 1 }
+      }
+    }
+  },
+  "additionalProperties": true,
+  "$defs": {
+    "run": {
+      "type": "object",
+      "description": "One side of the pair. A run whose execution_target is `fpga_hardware` or `recorded_capture` additionally requires hardware.revision, hardware.board_serial, bitstream.sha256, bitstream.toolchain, capture.manifest_sha256, a measured latency, and at least two repeats.",
+      "required": ["adapter", "execution_target", "runtime_class", "spikes", "action", "output_digest"],
+      "properties": {
+        "adapter": { "type": "string", "minLength": 1 },
+        "execution_target": {
+          "enum": [
+            "software_float",
+            "fixed_point_reference_model",
+            "recorded_capture",
+            "fpga_hardware"
+          ],
+          "description": "Only `fpga_hardware` is a claim about physical silicon. `fixed_point_reference_model` is a model of an FPGA datapath, not an FPGA."
+        },
+        "runtime_class": {
+          "enum": ["in_repo_reference", "recorded_capture", "physical_hardware"]
+        },
+        "repeats": { "type": "integer", "minimum": 1 },
+        "repeat_digests": { "type": "array", "items": { "type": "string" } },
+        "determinism": {
+          "type": "object",
+          "properties": {
+            "identical_repeats": { "type": "boolean" },
+            "distinct_digests": { "type": "integer", "minimum": 1 },
+            "meaning": { "type": "string" }
+          }
+        },
+        "latency": {
+          "type": ["object", "null"],
+          "required": ["measured"],
+          "properties": {
+            "measured": { "type": "boolean" },
+            "value_ms": { "type": ["number", "null"] },
+            "reason_code": { "type": ["string", "null"] }
+          }
+        },
+        "spikes": {
+          "type": "array",
+          "description": "steps x neurons binary grid",
+          "items": { "type": "array", "items": { "enum": [0, 1] } }
+        },
+        "spike_events": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["t_step", "neuron_id"],
+            "properties": {
+              "t_step": { "type": "integer", "minimum": 0 },
+              "t_ms": { "type": "number", "minimum": 0 },
+              "neuron_id": { "type": "integer", "minimum": 0 }
+            }
+          }
+        },
+        "membrane": {
+          "type": "object",
+          "required": ["observable"],
+          "properties": {
+            "observable": { "type": "boolean" },
+            "units": { "type": "string" },
+            "trace": { "type": ["array", "null"] },
+            "trace_q88_raw": { "type": "array" }
+          }
+        },
+        "action": {
+          "type": "object",
+          "required": ["label", "counts"],
+          "properties": {
+            "index": { "type": ["integer", "null"] },
+            "label": { "type": "string" },
+            "counts": { "type": "array", "items": { "type": "integer" } },
+            "rule": { "type": "string" }
+          }
+        },
+        "arithmetic": {
+          "type": "object",
+          "properties": {
+            "format": { "type": "string" },
+            "saturation_events": { "type": "integer", "minimum": 0 }
+          }
+        },
+        "quantization": {
+          "type": "object",
+          "description": "Full Q8.8 conversion provenance. Re-derived from scenario.model_float during validation.",
+          "required": ["format", "fractional_bits", "rounding", "saturation_policy", "parameters"],
+          "properties": {
+            "format": { "const": "Q8.8" },
+            "signed": { "const": true },
+            "total_bits": { "const": 16 },
+            "fractional_bits": { "const": 8 },
+            "step": { "type": "number" },
+            "representable_range": { "type": "array", "items": { "type": "number" } },
+            "rounding": { "type": "string" },
+            "saturation_policy": { "type": "string" },
+            "parameters": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": ["parameter", "float", "q88_raw", "q88_value", "abs_error", "saturated"],
+                "properties": {
+                  "parameter": { "type": "string" },
+                  "float": { "type": "number" },
+                  "q88_raw": { "type": "integer", "minimum": -32768, "maximum": 32767 },
+                  "q88_value": { "type": "number" },
+                  "abs_error": { "type": "number", "minimum": 0 },
+                  "saturated": { "type": "boolean" }
+                }
+              }
+            }
+          }
+        },
+        "hardware": {
+          "type": "object",
+          "description": "Required for a physical target.",
+          "properties": {
+            "revision": { "type": "string" },
+            "board_serial": { "type": "string" },
+            "device": { "type": "string" }
+          }
+        },
+        "bitstream": {
+          "type": "object",
+          "description": "Required for a physical target.",
+          "properties": {
+            "sha256": { "type": "string" },
+            "toolchain": { "type": "string" },
+            "built_at": { "type": "string" }
+          }
+        },
+        "capture": {
+          "type": "object",
+          "description": "Required for a physical target.",
+          "properties": {
+            "manifest_sha256": { "type": "string" },
+            "payload_sha256": { "type": "string" },
+            "recorded_at": { "type": "string" }
+          }
+        },
+        "output_digest": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" }
+      }
+    }
+  }
+}

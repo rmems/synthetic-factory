@@ -1,0 +1,196 @@
+# Parity oracles: what ran, what did not, and what that leaves unverified
+
+This document covers the two verification-oriented dataset families:
+
+- `hardware-parity-spike-trajectories`
+- `nir-cross-runtime-equivalence`
+
+Both answer the same shape of question — *did the same neuromorphic
+computation actually remain the same after translation or deployment?* — and
+both are built on the rule that generators propose experiments while oracles
+produce truth.
+
+## Oracle availability in this environment
+
+Run the probes yourself; they are the source of truth, not this table.
+
+```bash
+python3 pipelines/neuro_oracle.py        # hardware-parity oracles
+python3 pipelines/nir_equivalence.py availability
+```
+
+| Oracle | Kind | Status here | Reason code |
+|---|---|---|---|
+| `spikenaut_software_float` | in-repo float64 LIF simulator | **executes** | — |
+| `spikenaut_q88_reference_model` | in-repo Q8.8 datapath model | **executes** | — |
+| `recorded_capture` | replay of a recorded hardware run | executes when a capture file is supplied; **no capture is committed** | `CAPTURE_FILE_ABSENT` |
+| `spikenaut_fpga` | physical FPGA | **did not execute** | `FPGA_DEVICE_NOT_DECLARED` |
+| `nir_reference_v1` | in-repo NIR interpreter | **executes** | — |
+| `nir_reference_v1_altorder` | in-repo NIR interpreter, alternative conventions | **executes** | — |
+| `nir_rs` | the authority-contract oracle for the NIR family | **did not execute** | `RUNTIME_NOT_INSTALLED` |
+| `nir_python` (`nir`) | reference NIR serialization library | **did not execute** | `RUNTIME_NOT_INSTALLED` |
+| `nirtorch_snntorch` | upstream-compatible execution backend | **did not execute** | `RUNTIME_NOT_INSTALLED` |
+
+## What that leaves unverified
+
+Stated plainly, because a parity dataset that overstates its own coverage is
+worse than no dataset:
+
+1. **No FPGA was executed.** No board is attached, declared, or driven, and
+   this repository ships no board transport. Every hardware-parity record in
+   `tests/fixtures/parity-run/` therefore carries `ORACLE_UNAVAILABLE` and
+   `LATENCY_NOT_MEASURED` in its reason codes, and its deployment-side
+   `execution_target` is `fixed_point_reference_model` — a model of an FPGA
+   datapath, not an FPGA.
+2. **No hardware repeatability was measured.** Repeat runs of a deterministic
+   reference model are bit-identical by construction. The record says so in
+   `parity.repeatability.meaning`, sets
+   `parity.repeatability.hardware_repeatability_measured` to `false`, and
+   carries `REPEATABILITY_UNPROVEN`. Determinism of a model is not evidence
+   about run-to-run variability of silicon.
+3. **No latency was measured.** A Python simulator's wall-clock time is not a
+   hardware latency, so the field records `measured: false` with a reason code
+   instead of a plausible number.
+4. **No upstream NIR runtime was executed.** `nir-rs` is the authority-contract
+   oracle for that family and it is absent, as are `nir`, `nirtorch`,
+   `snntorch`, `norse`, `lava`, and `sinabs`. What did execute is a pair of
+   in-repo interpreters. A record from that pair is evidence about the
+   *conventions they declare*, and its `oracle.evidence_scope` field says
+   exactly that. It is not evidence about `nir-rs` or any upstream backend.
+
+None of these gaps is patched by a substitute. Each adapter that cannot run
+raises rather than returning something plausible, and the record that results
+says `inconclusive` or carries the unavailability on its face.
+
+## The hardware-parity oracle pair
+
+```text
+scenario (float model + encoded input fixture)
+        |
+        +--> software_float          -> spikes, action, membrane
+        |
+        +--> deployment target       -> spikes, action, membrane, Q8.8 provenance
+                 |
+                 +-- fixed_point_reference_model   (executes here)
+                 +-- recorded_capture              (needs a committed capture)
+                 +-- fpga_hardware                 (needs a board)
+```
+
+Both sides receive the identical encoded input fixture, and the fixture's
+sha256 is recorded on the scenario *and* on the oracle block. The validator
+recomputes it from the stored event grid, so "they ran the same input" is
+checkable from the record alone rather than asserted.
+
+### What makes an `fpga_hardware` claim believable
+
+A record whose deployment-side `execution_target` is `fpga_hardware` or
+`recorded_capture` is rejected unless it carries all of:
+
+- `hardware.revision` and `hardware.board_serial`
+- `bitstream.sha256` and `bitstream.toolchain`
+- `capture.manifest_sha256`
+- a latency with `measured: true` and a numeric `value_ms`
+- at least two repeats, so determinism is measured rather than assumed
+
+None of these can be produced without an actual run. That is the point: the
+reason-code path is easier to satisfy honestly than the hardware path is to
+satisfy dishonestly.
+
+### To add a real hardware leg later
+
+1. Implement a board transport in `FpgaHardwareAdapter.run`
+   (`pipelines/neuro_oracle.py`) and set `SPIKENAUT_FPGA_DEVICE` and
+   `SPIKENAUT_FPGA_BITSTREAM`.
+2. Or record a capture and replay it:
+   `python3 pipelines/hardware_parity.py generate <out> --capture <capture.json>`.
+   A capture is a JSON object with `execution_target`, `hardware`, `bitstream`,
+   a `manifest` carrying `payload_sha256` and `input_fixture_sha256`, and a
+   `payload` holding the observed spikes, action, membrane, and latency. The
+   adapter verifies both digests before returning anything, so a hand-edited
+   capture cannot be replayed as a real run.
+
+No capture is committed to this repository. Committing a synthetic one would
+be indistinguishable from committing a fabricated hardware result.
+
+## The NIR cross-runtime pair
+
+The two in-repo interpreters differ in exactly four declared conventions,
+each of which is a real interoperability hazard between neuromorphic runtimes
+rather than an invented bug:
+
+| Convention | `nir_reference_v1` | `nir_reference_v1_altorder` |
+|---|---|---|
+| Spike reset | subtract threshold | reset to zero |
+| `Delay` unit | N whole timesteps | N-1 timesteps |
+| Cycle break order | node insertion order | reverse-name order |
+| `LI` coverage | implemented | declared unsupported |
+
+Attribution is deliberately conservative. A convention is listed as a
+*candidate* cause of an observed divergence only when the graph actually
+contains the construct that convention governs — and for reset, only when a
+spike actually fired. The `attribution.basis` string says in the record that
+this is a candidate explanation and not a proven cause.
+
+### Mismatches are the product
+
+Nothing in `pipelines/nir_equivalence.py` repairs, retries, or filters a
+divergence. The validator enforces the opposite direction:
+
+- outputs that differ while the verdict claims a match is
+  `DIVERGENCE_SUPPRESSED`;
+- an unsupported diagnostic that has been edited away is
+  `UNSUPPORTED_NOT_DIAGNOSED`;
+- a runtime marked `unavailable` or `unsupported` that nonetheless carries
+  outputs is `UNAVAILABLE_RUNTIME_HAS_OUTPUT`;
+- fewer than two executed runtimes can never be a `match` — it is
+  `unsupported` when a runtime refused a construct and `inconclusive`
+  otherwise.
+
+## Anti-fabrication: what validation actually re-derives
+
+Neither family trusts the numbers written on the record.
+
+| Family | Re-derived during validation |
+|---|---|
+| hardware parity | the input-fixture digest, from the stored event grid; the entire Q8.8 conversion, from `scenario.model_float`; every metric in `result.parity`, from the stored spike and membrane traces; and the verdict those traces support |
+| NIR equivalence | the structure digest and graph digest, from `scenario.graph`; the input-fixture digest; **a full re-execution of every in-repo runtime**, compared against the recorded output digest and trace; and the comparison and verdict, from the recorded outputs |
+
+A record whose result does not follow from its own evidence fails validation.
+Upstream runtimes cannot be re-executed here, and the record says which
+runtimes were re-checked rather than implying all of them were.
+
+## Training views cannot hide a parity failure
+
+`oracle_contract.build_training_view` copies the verdict, the failure flag,
+and the reason codes onto the view, and `training_view_errors` re-checks them
+against the record. `view_set_errors` additionally rejects a view set that
+drops any record. There is no `--drop-mismatches` flag, and adding one would
+fail these checks.
+
+## Running the families
+
+```bash
+python3 pipelines/hardware_parity.py availability
+python3 pipelines/hardware_parity.py generate outputs/raw/<date> --round 1
+python3 pipelines/hardware_parity.py validate tests/fixtures/parity-run/hardware-parity-spike-trajectories/batch-r01.jsonl
+python3 pipelines/hardware_parity.py training-view <path>
+
+python3 pipelines/nir_equivalence.py availability
+python3 pipelines/nir_equivalence.py generate outputs/raw/<date> --round 1
+python3 pipelines/nir_equivalence.py validate tests/fixtures/parity-run/nir-cross-runtime-equivalence/batch-r01.jsonl
+python3 pipelines/nir_equivalence.py training-view <path>
+```
+
+Both families also route through the normal factory layers:
+`pipelines/census.py` classifies them, `pipelines/validate_run.py` enforces
+the shared envelope, and `pipelines/check_records.py` runs the full
+re-derivation described above.
+
+## Publication status
+
+Neither dataset has a Hugging Face repository and neither should get one yet.
+Per the epic's publication rule, a name is reserved only after schema, working
+oracle pipeline, deterministic fixtures, provenance, a sampled audit, and a
+declared license all exist. Schema, pipeline, fixtures, and provenance exist
+as of this document; the audit and license do not, and the FPGA and upstream
+NIR legs above are unexecuted.
