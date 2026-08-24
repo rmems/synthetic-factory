@@ -4,6 +4,7 @@
 import json
 import subprocess
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -36,7 +37,33 @@ EXPECTED = {
         "failure-as-fuel-preference-cascade": 1,
         "thalamic-trajectory-factory": 2,
     },
+    "mill_mix": {
+        "records": 0,
+        "reason_codes": {},
+        "by_factory": {},
+        "record_ids": [],
+        "record_ids_truncated": False,
+    },
 }
+
+
+def _episode(record_id, goal, factory):
+    """A generic episode slug with no destination-family field."""
+    return {
+        "id": record_id,
+        "goal": goal,
+        "steps": [
+            {
+                "n": 1,
+                "decision_basis": "Observation: reproduced",
+                "tool_call": {"name": "bash", "args": {"command": "run"}},
+                "observation": "ok",
+            }
+        ],
+        "outcome": "resolved",
+        "reward": {"success": True},
+        "meta": {"factory": factory, "round": 1, "generator": "grok-4.6"},
+    }
 
 
 def _snapshot(root: Path):
@@ -72,6 +99,95 @@ class CensusMiniRun(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(_snapshot(MINI_RUN), before)
         self.assertFalse((MINI_RUN / "manifest.json").exists())
+
+
+class CensusMillMix(unittest.TestCase):
+    """A dest-stamped leftover mill on a generic episode slug must be counted."""
+
+    def _run_tree(self, root):
+        stampede = root / "cache-stampede-factory"
+        stampede.mkdir()
+        (stampede / "batch-r01.jsonl").write_text(
+            "".join(
+                json.dumps(record) + "\n"
+                for record in (
+                    _episode(
+                        "cst-r01-ttl-expiry-thundering-herd",
+                        "Resolve TTL expiry thundering herd: add singleflight "
+                        "so one origin request refills the cache.",
+                        "cache-stampede-factory",
+                    ),
+                    _episode(
+                        "cst-r02-singleflight-lock",
+                        "Resolve stampede: the singleflight lock times out and "
+                        "every request refills the origin cache.",
+                        "cache-stampede-factory",
+                    ),
+                    # Dest-stamped, no 'leftover' in the id, no dest-family key.
+                    _episode(
+                        "gql-r1405-postgraphile-wrap-resolver-after-plugin-order",
+                        "Fix PostGraphile makeWrapResolvers leftover after "
+                        "plugin order swap: leftover wrapMass after bind to "
+                        "wrapPull. Do not drop wrap resolvers.",
+                        "cache-stampede-factory",
+                    ),
+                )
+            ),
+            encoding="utf-8",
+        )
+        graphql = root / "graphql-nplusone-factory"
+        graphql.mkdir()
+        (graphql / "batch-r01.jsonl").write_text(
+            "".join(
+                json.dumps(record) + "\n"
+                for record in (
+                    _episode(
+                        "gql-r1400-postgraphile-wrap-resolver",
+                        "Fix PostGraphile makeWrapResolvers leftover after "
+                        "plugin order swap: leftover wrapMass after bind to "
+                        "wrapPull.",
+                        "graphql-nplusone-factory",
+                    ),
+                    _episode(
+                        "gql-r1401-postgraphile-plugin-order",
+                        "Fix PostGraphile makeWrapResolvers leftover on unions: "
+                        "leftover wrapMass after bind to wrapPull.",
+                        "graphql-nplusone-factory",
+                    ),
+                )
+            ),
+            encoding="utf-8",
+        )
+
+    def test_dest_stamped_mill_is_reported(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary) / "run"
+            root.mkdir()
+            self._run_tree(root)
+            result = _invoke(str(root))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        report = json.loads(result.stdout)
+        self.assertEqual(report["by_kind"]["episode"], 5)
+        mix = report["mill_mix"]
+        self.assertEqual(mix["records"], 1)
+        self.assertEqual(
+            mix["record_ids"],
+            ["gql-r1405-postgraphile-wrap-resolver-after-plugin-order"],
+        )
+        self.assertEqual(
+            mix["by_factory"],
+            {
+                "cache-stampede-factory": {
+                    "records": 1,
+                    "foreign_prefixes": {"gql": 1},
+                }
+            },
+        )
+        self.assertEqual(
+            mix["reason_codes"].get("FOREIGN_MILL_ID_PREFIX"), 1
+        )
+        # The mix is invisible to a factory-mix check: it is dest-stamped.
+        self.assertNotIn("FOREIGN_PAYLOAD_FACTORY", mix["reason_codes"])
 
 
 class CensusBuckets(unittest.TestCase):

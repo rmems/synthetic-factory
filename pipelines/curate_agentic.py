@@ -7,6 +7,12 @@ reserved names, flags missing ``decision_basis``, and requires preference
 sides to share a goal. Prefix overlap of leading steps is noted in the
 report and is not a hard fail.
 
+Records whose mill signals belong to another factory are quarantined rather
+than composed into the cleaned tree. Mill identity is keyed on the declared
+payload factory, the mill id prefix, and the goal family (``mill_family.py``);
+it is deliberately not keyed on ``leftover`` appearing in a record id, nor on
+a destination-specific field being absent.
+
 Never writes into ``outputs/raw/``. Default is a ``--dry-run`` JSON report
 on stdout. ``--out DIR`` writes a brand-new cleaned tree only when passed.
 
@@ -24,11 +30,19 @@ import json
 import os
 import re
 import sys
-from collections import Counter
+from collections import Counter, defaultdict
 from pathlib import Path
 from typing import Any
 
 from check_records import reject_json_constant
+from mill_family import (
+    REASON_FOREIGN_MILL_GOAL_FAMILY,
+    REASON_FOREIGN_MILL_ID_PREFIX,
+    REASON_FOREIGN_PAYLOAD_FACTORY,
+    MillFinding,
+    MillIndex,
+    summarize as summarize_mill_mix,
+)
 from round_txn import TransactionError, committed_jsonl_paths, marker_mode_path
 
 
@@ -72,6 +86,13 @@ REASON_RECORD_NOT_OBJECT = "RECORD_NOT_OBJECT"
 REASON_INVALID_JSON = "INVALID_JSON"
 REASON_INVALID_UTF8 = "INVALID_UTF8"
 REASON_SKIPPED_KIND = "SKIPPED_NON_AGENTIC"
+# Foreign-mill quarantine codes, resolved across the whole source tree rather
+# than per record; re-exported so callers import one curation vocabulary.
+MILL_FAMILY_REASON_CODES = (
+    REASON_FOREIGN_PAYLOAD_FACTORY,
+    REASON_FOREIGN_MILL_ID_PREFIX,
+    REASON_FOREIGN_MILL_GOAL_FAMILY,
+)
 
 
 def canonical_json(value: Any) -> str:
@@ -471,11 +492,49 @@ def _relative_source_path(source: Path, path: Path) -> str:
     return path.name
 
 
+def _quarantine_foreign_mills(
+    kept: list[tuple[str, int, dict[str, Any]]],
+    decisions: list[dict[str, Any]],
+    mills: MillIndex,
+    actions: Counter[str],
+    reasons: Counter[str],
+) -> list[MillFinding]:
+    """Flip surviving records whose mill is foreign to their directory.
+
+    Mill ownership can only be resolved once the whole source has been read,
+    so this runs after the per-record pass and rewrites the affected decisions
+    in place. Records this pass already excluded keep their original reason.
+    """
+    survivors = {index for _relative, index, _curated in kept}
+    quarantined = []
+    for finding in mills.findings():
+        if finding.ref not in survivors:
+            continue
+        decision = decisions[finding.ref]
+        actions[decision["action"]] -= 1
+        actions[ACTION_EXCLUDED] += 1
+        decision["action"] = ACTION_EXCLUDED
+        decision["reason_codes"] = list(decision["reason_codes"]) + list(
+            finding.reason_codes
+        )
+        decision["output_id"] = None
+        decision["output_hash"] = None
+        decision["mill_family"] = finding.as_dict()
+        reasons.update(finding.reason_codes)
+        quarantined.append(finding)
+    return quarantined
+
+
 def curate_source(source: Path) -> dict[str, Any]:
     """Read-only scan of ``source`` (file or directory). Missing paths are empty."""
     source = Path(source)
-    records_by_rel: dict[str, list[dict[str, Any]]] = {}
+    records_by_rel: dict[str, list[dict[str, Any]]] = defaultdict(list)
     decisions: list[dict[str, Any]] = []
+    # (relative source file, index into ``decisions``, curated record) for every
+    # record that survived per-record curation. The cleaned tree is assembled
+    # from this only after the cross-record mill-family pass has run.
+    kept: list[tuple[str, int, dict[str, Any]]] = []
+    mills = MillIndex()
     actions: Counter[str] = Counter()
     kinds: Counter[str] = Counter()
     reasons: Counter[str] = Counter()
@@ -492,7 +551,7 @@ def curate_source(source: Path) -> dict[str, Any]:
     for path in _source_jsonl_files(source):
         files += 1
         relative = _relative_source_path(source, path)
-        retained: list[dict[str, Any]] = []
+        factory = path.parent.name
         payload = path.read_bytes()
         for line_number, raw_line in enumerate(payload.splitlines(), 1):
             if not raw_line.strip():
@@ -534,6 +593,9 @@ def curate_source(source: Path) -> dict[str, Any]:
                 source_line=line_number,
                 source_hash=source_hash,
             )
+            # Every decoded object teaches the index which mill owns which
+            # signals, including records this pass already excluded.
+            mills.add(factory, record, len(decisions))
             decisions.append(decision)
             actions[decision["action"]] += 1
             kinds[decision["kind"]] += 1
@@ -556,9 +618,18 @@ def curate_source(source: Path) -> dict[str, Any]:
                 if overlap and not overlap.get("noted"):
                     overlap_zero += 1
             if curated is not None:
-                retained.append(curated)
-        if retained:
-            records_by_rel[relative] = retained
+                kept.append((relative, len(decisions) - 1, curated))
+
+    quarantined = _quarantine_foreign_mills(kept, decisions, mills, actions, reasons)
+    dropped = {finding.ref for finding in quarantined}
+    for relative, index, curated in kept:
+        if index not in dropped:
+            records_by_rel[relative].append(curated)
+    records_by_rel = {
+        relative: items
+        for relative, items in sorted(records_by_rel.items())
+        if items
+    }
 
     output_records = sum(len(items) for items in records_by_rel.values())
     summary = {
@@ -569,11 +640,15 @@ def curate_source(source: Path) -> dict[str, Any]:
         "output_records": output_records,
         "excluded_records": actions[ACTION_EXCLUDED],
         "skipped_records": actions[ACTION_SKIPPED],
+        "quarantined_foreign_mill_records": len(quarantined),
         "thought_fields_removed": thought_removed,
         "missing_decision_basis_turns": missing_basis,
         "by_kind": dict(sorted(kinds.items())),
-        "actions": dict(sorted(actions.items())),
+        "actions": {
+            action: count for action, count in sorted(actions.items()) if count
+        },
         "reason_codes": dict(sorted(reasons.items())),
+        "mill_family": summarize_mill_mix(quarantined),
         "preference": {
             "pairs": preference_pairs,
             "shared_goal": preference_shared,

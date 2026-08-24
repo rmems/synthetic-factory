@@ -4,6 +4,10 @@
 Recursively scans every *.jsonl, classifies record kinds, and histograms
 nested sim_or_real labels. Prints JSON on stdout. Never writes into run_dir.
 
+The ``mill_mix`` section reports records whose mill signals (declared factory,
+mill id prefix, goal family) belong to a different factory than the directory
+they were published under. See ``mill_family.py``.
+
 Usage: python3 pipelines/census.py <run_dir>
 """
 
@@ -11,6 +15,12 @@ import json
 import sys
 from collections import Counter
 from pathlib import Path
+
+_PIPELINES = Path(__file__).resolve().parent
+if str(_PIPELINES) not in sys.path:
+    sys.path.insert(0, str(_PIPELINES))
+
+from mill_family import MillIndex, summarize as summarize_mill_mix  # noqa: E402
 
 THALAMIC_REQUIRED = (
     "state",
@@ -87,6 +97,7 @@ def census_dir(run_dir):
     by_kind = {kind: 0 for kind in KINDS}
     sim_hist = {bucket: 0 for bucket in SIM_BUCKETS}
     by_factory = Counter()
+    mills = MillIndex()
     files = 0
     records = 0
     parse_failures = 0
@@ -94,7 +105,9 @@ def census_dir(run_dir):
     for path in sorted(run_dir.rglob("*.jsonl")):
         files += 1
         factory = path.parent.name
-        for line in path.read_text(encoding="utf-8").splitlines():
+        for lineno, line in enumerate(
+            path.read_text(encoding="utf-8").splitlines(), 1
+        ):
             if not line.strip():
                 continue
             try:
@@ -104,6 +117,7 @@ def census_dir(run_dir):
                 continue
             records += 1
             by_factory[factory] += 1
+            mills.add(factory, obj, (str(path.relative_to(run_dir)), lineno))
             by_kind[classify_kind(obj)] += 1
             found = list(iter_sim_or_real(obj))
             if not found:
@@ -120,6 +134,7 @@ def census_dir(run_dir):
         "by_kind": by_kind,
         "sim_or_real": sim_hist,
         "by_factory": dict(sorted(by_factory.items())),
+        "mill_mix": summarize_mill_mix(mills.findings()),
     }
 
 

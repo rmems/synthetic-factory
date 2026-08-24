@@ -25,6 +25,8 @@ from curate_agentic import (  # noqa: E402
     ACTION_RETAINED,
     ACTION_SKIPPED,
     HIDDEN_THOUGHT_KEYS,
+    REASON_FOREIGN_MILL_ID_PREFIX,
+    REASON_FOREIGN_PAYLOAD_FACTORY,
     REASON_GOAL_DIVERGES,
     REASON_GOAL_MISSING,
     REASON_GOAL_NOT_TEXT,
@@ -783,6 +785,153 @@ class CurateAgenticTests(unittest.TestCase):
                 self.assertEqual(
                     run["decisions"][0]["reason_codes"], [REASON_INVALID_JSON]
                 )
+
+
+def _mill_episode(record_id, goal, factory):
+    """A generic episode slug: goal + steps only, no destination-family field."""
+    return {
+        "id": record_id,
+        "goal": goal,
+        "steps": [_step(1, "Observation: the probe reproduced the report")],
+        "outcome": "resolved",
+        "reward": {"success": True},
+        "meta": {"factory": factory, "round": 1, "generator": "grok-4.6"},
+    }
+
+
+STAMPEDE_CONTROLS = (
+    _mill_episode(
+        "cst-r01-ttl-expiry-thundering-herd",
+        "Resolve TTL expiry thundering herd on the pricing cache: add "
+        "singleflight so one origin request refills the cache.",
+        "cache-stampede-factory",
+    ),
+    _mill_episode(
+        "cst-r02-singleflight-lock-timeout",
+        "Resolve stampede on the session cache: the singleflight lock times "
+        "out and every request refills the origin cache.",
+        "cache-stampede-factory",
+    ),
+)
+# The published class this guards: a graphql-mill episode inside the
+# cache-stampede directory, stamped with the destination factory, with no
+# 'leftover' token in the id and no destination-family field to be missing.
+DEST_STAMPED_MILL = _mill_episode(
+    "gql-r1405-postgraphile-wrap-resolver-after-plugin-order",
+    "Fix PostGraphile makeWrapResolvers leftover after plugin order swap on "
+    "plant lattice-hawsepike: leftover wrapMass after bind to wrapPull. Do "
+    "not drop wrap resolvers.",
+    "cache-stampede-factory",
+)
+GRAPHQL_NATIVE = (
+    _mill_episode(
+        "gql-r1400-postgraphile-wrap-resolver",
+        "Fix PostGraphile makeWrapResolvers leftover after plugin order swap: "
+        "leftover wrapMass after bind to wrapPull.",
+        "graphql-nplusone-factory",
+    ),
+    _mill_episode(
+        "gql-r1401-postgraphile-plugin-order",
+        "Fix PostGraphile makeWrapResolvers leftover on unions: leftover "
+        "wrapMass after bind to wrapPull.",
+        "graphql-nplusone-factory",
+    ),
+)
+
+
+class ForeignMillQuarantine(unittest.TestCase):
+    """Compose must quarantine records whose mill is foreign to the directory."""
+
+    def _write_run(self, root, stampede_records):
+        for factory, records in (
+            ("cache-stampede-factory", stampede_records),
+            ("graphql-nplusone-factory", GRAPHQL_NATIVE),
+        ):
+            directory = root / factory
+            directory.mkdir(parents=True)
+            (directory / "batch-r01.jsonl").write_text(
+                "".join(json.dumps(record) + "\n" for record in records),
+                encoding="utf-8",
+            )
+
+    def _curate(self, stampede_records):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary) / "run"
+            root.mkdir()
+            self._write_run(root, stampede_records)
+            return curate_source(root)
+
+    def test_dest_stamped_mill_is_excluded_from_the_cleaned_tree(self):
+        run = self._curate(list(STAMPEDE_CONTROLS) + [DEST_STAMPED_MILL])
+
+        self.assertEqual(run["summary"]["input_records"], 5)
+        self.assertEqual(run["summary"]["output_records"], 4)
+        self.assertEqual(run["summary"]["quarantined_foreign_mill_records"], 1)
+        emitted = {
+            record["id"]
+            for records in run["records_by_rel"].values()
+            for record in records
+        }
+        self.assertNotIn(DEST_STAMPED_MILL["id"], emitted)
+        for control in STAMPEDE_CONTROLS + GRAPHQL_NATIVE:
+            self.assertIn(control["id"], emitted)
+
+    def test_quarantine_decision_names_the_home_mill(self):
+        run = self._curate(list(STAMPEDE_CONTROLS) + [DEST_STAMPED_MILL])
+        decision = next(
+            item
+            for item in run["decisions"]
+            if item["source_path"].startswith("cache-stampede-factory")
+            and item["action"] == ACTION_EXCLUDED
+        )
+        self.assertIn(REASON_FOREIGN_MILL_ID_PREFIX, decision["reason_codes"])
+        # Dest-stamped: the payload-factory axis stays silent, so a factory-mix
+        # check on its own would have let this through.
+        self.assertNotIn(REASON_FOREIGN_PAYLOAD_FACTORY, decision["reason_codes"])
+        self.assertIsNone(decision["output_id"])
+        self.assertIsNone(decision["output_hash"])
+        self.assertEqual(decision["mill_family"]["mill_prefix"], "gql")
+        self.assertEqual(
+            decision["mill_family"]["home_factories"], ["graphql-nplusone-factory"]
+        )
+
+    def test_summary_reports_the_quarantined_destination(self):
+        run = self._curate(list(STAMPEDE_CONTROLS) + [DEST_STAMPED_MILL])
+        self.assertEqual(
+            run["summary"]["mill_family"]["by_factory"],
+            {
+                "cache-stampede-factory": {
+                    "records": 1,
+                    "foreign_prefixes": {"gql": 1},
+                }
+            },
+        )
+        self.assertEqual(
+            run["summary"]["reason_codes"].get(REASON_FOREIGN_MILL_ID_PREFIX), 1
+        )
+
+    def test_a_clean_run_quarantines_nothing(self):
+        run = self._curate(list(STAMPEDE_CONTROLS))
+        self.assertEqual(run["summary"]["quarantined_foreign_mill_records"], 0)
+        self.assertEqual(run["summary"]["output_records"], 4)
+        self.assertEqual(run["summary"]["mill_family"]["records"], 0)
+        self.assertNotIn(ACTION_EXCLUDED, run["summary"]["actions"])
+
+    def test_quarantined_records_never_reach_a_written_tree(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary) / "run"
+            root.mkdir()
+            self._write_run(root, list(STAMPEDE_CONTROLS) + [DEST_STAMPED_MILL])
+            run = curate_source(root)
+            out = Path(temporary) / "cleaned"
+            curate_agentic.write_cleaned_tree(run, out)
+            written = "\n".join(
+                path.read_text(encoding="utf-8")
+                for path in sorted(out.rglob("*.jsonl"))
+            )
+        self.assertNotIn(DEST_STAMPED_MILL["id"], written)
+        for control in STAMPEDE_CONTROLS:
+            self.assertIn(control["id"], written)
 
 
 if __name__ == "__main__":
