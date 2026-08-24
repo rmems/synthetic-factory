@@ -24,6 +24,13 @@ ITEM = {
     "tags": ["synthetic-data"],
 }
 
+# A Hub name that deliberately owns no config/card-schemas/<name>.json. Legacy
+# payload fixtures publish `episodes.jsonl`, which the declared
+# `data/raw/batch-*.jsonl` glob does not cover; the coverage guard is a real
+# defect check, so the fixture moves off a declared dataset rather than the
+# guard being loosened for it.
+LEGACY_ITEM = {**ITEM, "hub": "legacy-payload-fixture"}
+
 
 def valid_legacy_episode(record_id, round_number=1, success=True):
     alternate_scenario = str(record_id).endswith("-1")
@@ -386,7 +393,7 @@ class PublishGrok46HubTests(unittest.TestCase):
     def test_snapshot_keeps_legacy_named_marker_baseline_payload(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
-            source = root / "raw" / ITEM["slug"]
+            source = root / "raw" / LEGACY_ITEM["slug"]
             source.mkdir(parents=True)
             (source / ".round-marker-mode.json").write_text(
                 '{"version":1,"legacy_baseline":1,"commit_point":"ROUND-rNN.complete.json"}\n'
@@ -401,25 +408,25 @@ class PublishGrok46HubTests(unittest.TestCase):
             with mock.patch.object(publisher, "FACTORY_ROOT", root / "raw"), mock.patch.object(
                 publisher, "HF_ROOT", root / "hf"
             ):
-                stats = publisher.snapshot_one(ITEM)
+                stats = publisher.snapshot_one(LEGACY_ITEM)
 
-            raw = root / "hf" / publisher.HF_DATASETS_DIRNAME / ITEM["hub"] / "data" / "raw"
-            meta = root / "hf" / publisher.HF_DATASETS_DIRNAME / ITEM["hub"] / "data" / "metadata"
-            card = (root / "hf" / publisher.HF_DATASETS_DIRNAME / ITEM["hub"] / "README.md").read_text()
+            raw = root / "hf" / publisher.HF_DATASETS_DIRNAME / LEGACY_ITEM["hub"] / "data" / "raw"
+            meta = root / "hf" / publisher.HF_DATASETS_DIRNAME / LEGACY_ITEM["hub"] / "data" / "metadata"
+            card = (root / "hf" / publisher.HF_DATASETS_DIRNAME / LEGACY_ITEM["hub"] / "README.md").read_text()
             self.assertEqual(stats["records"], 2)
             self.assertTrue((raw / legacy.name).is_file())
             self.assertTrue((meta / "NOTES-r01.md").is_file())
             self.assertIn("data/raw/episodes.jsonl", card)
 
-            other = {**ITEM, "slug": "other-factory", "hub": "other"}
+            other = {**LEGACY_ITEM, "slug": "other-factory", "hub": "other"}
             other_source = root / "raw" / other["slug"]
             other_source.mkdir()
             write_valid_thalamic(other_source / "batch-r01.jsonl", "other")
             with mock.patch.object(publisher, "FACTORY_ROOT", root / "raw"), mock.patch.object(
                 publisher, "HF_ROOT", root / "hf"
-            ), mock.patch.object(publisher, "factories", return_value=[ITEM, other]):
+            ), mock.patch.object(publisher, "factories", return_value=[LEGACY_ITEM, other]):
                 publisher.cmd_snapshot(other["hub"])
-                local = publisher.local_snapshot_stats(ITEM)
+                local = publisher.local_snapshot_stats(LEGACY_ITEM)
 
             inventory = (root / "hf" / "SYNTHETIC-DATA-FACTORY-GROK46.md").read_text()
             self.assertEqual(local["records"], 2)
@@ -427,16 +434,16 @@ class PublishGrok46HubTests(unittest.TestCase):
             # The inventory must point at the grouped mirror location an
             # operator will actually find on disk, not the pre-grouping path.
             group = publisher.HF_DATASETS_DIRNAME
-            self.assertIn(f"| `{group}/{ITEM['hub']}/`", inventory)
+            self.assertIn(f"| `{group}/{LEGACY_ITEM['hub']}/`", inventory)
             self.assertIn(f"| `{group}/{other['hub']}/`", inventory)
-            self.assertNotIn(f"| `{ITEM['hub']}/`", inventory)
+            self.assertNotIn(f"| `{LEGACY_ITEM['hub']}/`", inventory)
             self.assertIn(f"| `{publisher.HF_DATASETS_DIRNAME}/{other['hub']}/` |", inventory)
             self.assertIn(f"| `{other['slug']}` | 1 | 1 |", inventory)
 
     def test_snapshot_keeps_legacy_named_payload_before_marker_mode(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
-            source = root / "raw" / ITEM["slug"]
+            source = root / "raw" / LEGACY_ITEM["slug"]
             source.mkdir(parents=True)
             legacy = source / "episodes.jsonl"
             write_valid_legacy(legacy)
@@ -450,9 +457,9 @@ class PublishGrok46HubTests(unittest.TestCase):
             with mock.patch.object(
                 publisher, "FACTORY_ROOT", root / "raw"
             ), mock.patch.object(publisher, "HF_ROOT", root / "hf"):
-                stats = publisher.snapshot_one(ITEM)
+                stats = publisher.snapshot_one(LEGACY_ITEM)
 
-            mirror = root / "hf" / publisher.HF_DATASETS_DIRNAME / ITEM["hub"]
+            mirror = root / "hf" / publisher.HF_DATASETS_DIRNAME / LEGACY_ITEM["hub"]
             self.assertEqual(stats["records"], 2)
             self.assertTrue((mirror / "data" / "raw" / legacy.name).is_file())
             self.assertTrue((mirror / "data" / "metadata" / notes.name).is_file())
