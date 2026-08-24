@@ -276,26 +276,281 @@ class Validation(unittest.TestCase):
         )
 
 
+class ReSimulationGate(unittest.TestCase):
+    """The traces themselves must be re-derivable, not merely self-consistent.
+
+    Recomputing parity from a record's own traces is not enough on its own:
+    copying one side's traces onto the other yields a perfectly self-consistent
+    record asserting a match that never happened.
+    """
+
+    def setUp(self):
+        self.records = hp.generate_records(round_number=1, steps=6, repeats=2)
+        self.mismatch = next(
+            record
+            for record in self.records
+            if record["result"]["verdict"] == contract.VERDICT_MISMATCH
+        )
+
+    def _forge_match(self):
+        """Copy the software traces onto the deployment side and recompute."""
+        record = copy.deepcopy(self.mismatch)
+        software = record["oracle"]["software"]
+        deployment = record["oracle"]["deployment"]
+        deployment["spikes"] = copy.deepcopy(software["spikes"])
+        deployment["action"] = copy.deepcopy(software["action"])
+        deployment["membrane"]["trace"] = copy.deepcopy(software["membrane"]["trace"])
+        parity, verdict, codes = hp.compute_parity(
+            record["scenario"], software, deployment
+        )
+        record["result"]["parity"] = parity
+        record["result"]["verdict"] = verdict
+        record["result"]["reason_codes"] = codes
+        return record
+
+    def test_a_self_consistent_forged_match_is_rejected(self):
+        forged = self._forge_match()
+        # The forgery really does look internally consistent...
+        self.assertEqual(forged["result"]["verdict"], contract.VERDICT_MATCH)
+        # ...and re-simulation still catches it.
+        errors = hp.validate_record(forged, WHERE)
+        self.assertTrue(any("re-simulation" in error for error in errors), errors)
+
+    def test_forged_match_is_caught_through_the_deep_layer_too(self):
+        import check_records
+
+        errors, _warnings, _kind, _id = check_records.check_record(
+            self._forge_match(), WHERE
+        )
+        self.assertTrue(any("re-simulation" in error for error in errors))
+
+    def test_edited_software_trace_is_caught(self):
+        record = copy.deepcopy(self.records[0])
+        record["oracle"]["software"]["spikes"][0][0] ^= 1
+        errors = hp.validate_record(record, WHERE)
+        self.assertTrue(any("re-simulation" in error for error in errors))
+
+    def test_forged_output_digest_is_caught(self):
+        record = copy.deepcopy(self.records[0])
+        record["oracle"]["deployment"]["output_digest"] = "sha256:" + "0" * 64
+        errors = hp.validate_record(record, WHERE)
+        self.assertTrue(any("output_digest" in error for error in errors))
+
+    def test_software_side_must_declare_the_float_target(self):
+        record = copy.deepcopy(self.records[0])
+        record["oracle"]["software"]["execution_target"] = oracle.TARGET_FPGA_HARDWARE
+        errors = hp.validate_record(record, WHERE)
+        self.assertTrue(any("HW_TARGET_UNKNOWN" in error for error in errors))
+
+    def test_membrane_shape_mismatch_still_carries_a_reason_code(self):
+        # Deleting evidence must never be quieter than reporting it.
+        metrics = hp.membrane_metrics(
+            {"observable": True, "trace": [[0.0], [0.0]]},
+            {"observable": True, "trace": [[0.0]]},
+        )
+        self.assertEqual(metrics["reason_code"], "MEMBRANE_DIVERGENCE")
+
+    def test_truncated_membrane_trace_is_caught(self):
+        record = copy.deepcopy(self.mismatch)
+        del record["oracle"]["deployment"]["membrane"]["trace"][-1]
+        errors = hp.validate_record(record, WHERE)
+        self.assertTrue(errors)
+
+
+class DeterminismEvidence(unittest.TestCase):
+    """`determinism` is a claim; `repeat_digests` is the evidence for it."""
+
+    def setUp(self):
+        self.record = hp.generate_records(round_number=1, steps=4, repeats=3)[0]
+
+    def test_generated_record_is_internally_consistent(self):
+        self.assertEqual(hp.validate_record(copy.deepcopy(self.record), WHERE), [])
+
+    def test_repeatability_claim_must_match_its_digests(self):
+        record = copy.deepcopy(self.record)
+        record["oracle"]["deployment"]["repeat_digests"] = [
+            "sha256:aa",
+            "sha256:bb",
+            "sha256:cc",
+        ]
+        errors = hp.validate_record(record, WHERE)
+        self.assertTrue(any("REPEATABILITY_UNPROVEN" in error for error in errors))
+
+    def test_repeat_count_must_match_the_digest_count(self):
+        record = copy.deepcopy(self.record)
+        record["oracle"]["deployment"]["repeats"] = 500
+        errors = hp.validate_record(record, WHERE)
+        self.assertTrue(any("REPEATABILITY_UNPROVEN" in error for error in errors))
+
+    def test_output_digest_must_appear_among_the_repeats(self):
+        record = copy.deepcopy(self.record)
+        record["oracle"]["software"]["repeat_digests"] = ["sha256:" + "1" * 64] * 3
+        errors = hp.validate_record(record, WHERE)
+        self.assertTrue(any("REPEATABILITY_UNPROVEN" in error for error in errors))
+
+    def test_repeatability_block_is_recomputed(self):
+        record = copy.deepcopy(self.record)
+        record["result"]["parity"]["repeatability"]["hardware_repeatability_measured"] = (
+            True
+        )
+        errors = hp.validate_record(record, WHERE)
+        self.assertTrue(any("PARITY_METRIC_MISMATCH" in error for error in errors))
+
+
+class MalformedRecordsDoNotCrash(unittest.TestCase):
+    """A bad record must be reported, not raise and abort the whole scan."""
+
+    def setUp(self):
+        self.record = hp.generate_records(round_number=1, steps=4, repeats=2)[0]
+
+    def _assert_reports(self, mutate):
+        record = copy.deepcopy(self.record)
+        mutate(record)
+        try:
+            errors = hp.validate_record(record, WHERE)
+        except Exception as exc:  # noqa: BLE001 - the point is that none escape
+            self.fail(f"validation raised {type(exc).__name__}: {exc}")
+        self.assertTrue(errors)
+
+    def test_non_dict_deployment(self):
+        self._assert_reports(
+            lambda record: record["oracle"].__setitem__("deployment", "tampered")
+        )
+
+    def test_truthy_non_dict_oracle(self):
+        self._assert_reports(lambda record: record.__setitem__("oracle", ["x"]))
+
+    def test_ragged_spike_grid(self):
+        def mutate(record):
+            record["oracle"]["deployment"]["spikes"][0] = [1]
+
+        self._assert_reports(mutate)
+
+    def test_non_dict_software(self):
+        self._assert_reports(
+            lambda record: record["oracle"].__setitem__("software", 7)
+        )
+
+    def test_missing_model(self):
+        self._assert_reports(lambda record: record["scenario"].pop("model_float"))
+
+
+class RecordedCapturePath(unittest.TestCase):
+    """The `--capture` route must actually produce validatable records.
+
+    It is also the one place where the deployment traces are *not*
+    re-derivable, so these tests pin how that limitation is surfaced.
+    """
+
+    def _capture_adapter(self, tmp, scenario):
+        software = oracle.simulate_float(
+            scenario["model_float"], scenario["stimulus"]
+        )
+        _, quantization = oracle.quantize_model(scenario["model_float"])
+        payload = {
+            "spikes": software["spikes"],
+            "action": software["action"],
+            "membrane": software["membrane"],
+            "latency": {"measured": True, "value_ms": 0.31},
+        }
+        payload["repeat_digests"] = [oracle.run_digest(payload)] * 3
+        capture = {
+            "execution_target": oracle.TARGET_FPGA_HARDWARE,
+            "quantization": quantization,
+            "hardware": {"revision": "rev-b", "board_serial": "SN-9"},
+            "bitstream": {"sha256": "sha256:" + "b" * 64, "toolchain": "vendor 1.2"},
+            "manifest": {
+                "payload_sha256": oracle.digest(payload),
+                "input_fixture_sha256": scenario["input_fixture"]["sha256"],
+                "recorded_at": "2026-01-01T00:00:00Z",
+            },
+            "payload": payload,
+        }
+        path = Path(tmp) / "capture.json"
+        path.write_text(json.dumps(capture), encoding="utf-8")
+        return oracle.RecordedCaptureAdapter(path)
+
+    def _record(self, tmp):
+        scenario = hp.build_scenarios(steps=6)[0]
+        return hp.generate_records(
+            round_number=1,
+            steps=6,
+            deployment_adapter=self._capture_adapter(tmp, scenario),
+            repeats=3,
+        )[0]
+
+    def test_capture_derived_records_validate(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            self.assertEqual(hp.validate_record(self._record(tmp), WHERE), [])
+
+    def test_capture_derived_record_declares_hil_provenance(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            self.assertEqual(self._record(tmp)["provenance"]["kind"], "hil")
+
+    def test_a_hardware_claim_is_never_unqualified(self):
+        # The deployment traces of a physical run cannot be re-derived, so the
+        # record must say so rather than reading as fully corroborated.
+        with tempfile.TemporaryDirectory() as tmp:
+            record = self._record(tmp)
+            self.assertIn(
+                "DEPLOYMENT_TRACE_NOT_REDERIVABLE", record["result"]["reason_codes"]
+            )
+            self.assertIn(
+                "DEPLOYMENT_TRACE_NOT_REDERIVABLE", hp.training_view(record)["reason_codes"]
+            )
+
+    def test_reference_model_records_are_not_marked_unrederivable(self):
+        for record in hp.generate_records(round_number=1, steps=4, repeats=2):
+            self.assertNotIn(
+                "DEPLOYMENT_TRACE_NOT_REDERIVABLE", record["result"]["reason_codes"]
+            )
+
+    def test_capture_taken_against_another_input_is_refused(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            scenario = hp.build_scenarios(steps=6)[0]
+            adapter = self._capture_adapter(tmp, scenario)
+            # Generating with a different window changes the input fixture.
+            records = hp.generate_records(
+                round_number=1, steps=8, deployment_adapter=adapter, repeats=3
+            )
+            self.assertTrue(
+                all(record["oracle"]["deployment"] is None for record in records)
+            )
+            self.assertEqual(hp.validate_records(records), [])
+
+
 class PhysicalTargetClaims(unittest.TestCase):
-    def _promoted(self, **deployment_overrides):
+    def _promoted(self, hil=True, **deployment_overrides):
         """A reference-model record relabelled as if it came from a board."""
         record = copy.deepcopy(hp.generate_records(round_number=1, steps=4, repeats=2)[0])
         deployment = record["oracle"]["deployment"]
         deployment["execution_target"] = oracle.TARGET_FPGA_HARDWARE
         deployment.update(copy.deepcopy(deployment_overrides))
+        if hil:
+            record["provenance"]["kind"] = "hil"
         return record
 
     def test_bare_fpga_claim_is_rejected(self):
         errors = hp.validate_record(self._promoted(), WHERE)
         self.assertTrue(any("HW_PROVENANCE_MISSING" in error for error in errors))
 
+    def test_hardware_claim_must_declare_hil_provenance(self):
+        # A record claiming a board while still calling itself `simulated` is
+        # not describing one execution consistently.
+        errors = hp.validate_record(self._promoted(hil=False), WHERE)
+        self.assertTrue(any("provenance.kind 'hil'" in error for error in errors))
+
     def _fully_attributed(self):
+        """Everything the physical-target gate demands, and nothing more."""
         return {
             "hardware": {"revision": "rev-b", "board_serial": "SN-1"},
             "bitstream": {"sha256": "sha256:aa", "toolchain": "vendor 1.2"},
             "capture": {"manifest_sha256": "sha256:bb"},
             "latency": {"measured": True, "value_ms": 0.4},
             "repeats": 3,
+            "repeat_digests": ["sha256:cc"] * 3,
+            "determinism": {"distinct_digests": 1, "identical_repeats": True},
+            "output_digest": "sha256:cc",
         }
 
     def test_each_required_field_is_individually_load_bearing(self):

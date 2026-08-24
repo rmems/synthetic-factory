@@ -68,6 +68,10 @@ STATUS_EXECUTED = "executed"
 STATUS_UNSUPPORTED = "unsupported"
 STATUS_UNAVAILABLE = "unavailable"
 RUNTIME_STATUSES = (STATUS_EXECUTED, STATUS_UNSUPPORTED, STATUS_UNAVAILABLE)
+# `in_repo_reference` results are re-executed during validation.
+# `upstream_runtime` results cannot be, which is why only the former may ever
+# be marked executed here.
+RUNTIME_CLASSES = ("in_repo_reference", "upstream_runtime")
 
 STATEFUL_TYPES = frozenset({"LIF", "IF", "LI", "Delay"})
 ALL_KNOWN_TYPES = frozenset(
@@ -947,9 +951,11 @@ def relevant_conventions(graph, entries):
     nodes = (graph or {}).get("nodes") or {}
     types = {node.get("type") for node in nodes.values()}
     executed = _executed(entries)
-    spiked = any(entry["outputs"]["spike_count"] > 0 for entry in executed)
+    spiked = any(
+        ((entry.get("outputs") or {}).get("spike_count") or 0) > 0 for entry in executed
+    )
     has_recurrence = any(
-        entry["outputs"].get("recurrent_edges") for entry in executed
+        (entry.get("outputs") or {}).get("recurrent_edges") for entry in executed
     )
     relevant = set()
     if types & {"LIF", "IF"} and spiked:
@@ -1075,8 +1081,8 @@ def _state_error(entry_a, entry_b):
     Returns ``(max_error, comparable)``. Nodes present on only one side make
     the comparison incomparable rather than silently partial.
     """
-    state_a = entry_a["outputs"].get("final_membrane") or {}
-    state_b = entry_b["outputs"].get("final_membrane") or {}
+    state_a = (entry_a.get("outputs") or {}).get("final_membrane") or {}
+    state_b = (entry_b.get("outputs") or {}).get("final_membrane") or {}
     if set(state_a) != set(state_b):
         return None, False
     max_error = 0.0
@@ -1091,8 +1097,29 @@ def _state_error(entry_a, entry_b):
 
 
 def _compare_pair(entry_a, entry_b):
-    trace_a = entry_a["outputs"]["output_trace"]
-    trace_b = entry_b["outputs"]["output_trace"]
+    # Executed entries are shape-checked by _check_runtimes before validation
+    # reaches here, but compare_runtimes is also called on freshly generated
+    # entries, so missing keys degrade to "not comparable" rather than raising
+    # and taking down the scan of a whole run directory.
+    trace_a = (entry_a.get("outputs") or {}).get("output_trace")
+    trace_b = (entry_b.get("outputs") or {}).get("output_trace")
+    if not isinstance(trace_a, list) or not isinstance(trace_b, list):
+        return {
+            "a": entry_a.get("runtime"),
+            "b": entry_b.get("runtime"),
+            "agree": False,
+            "shape_match": False,
+            "spike_count_a": (entry_a.get("outputs") or {}).get("spike_count"),
+            "spike_count_b": (entry_b.get("outputs") or {}).get("spike_count"),
+            "digest_a": entry_a.get("output_digest"),
+            "digest_b": entry_b.get("output_digest"),
+            "state_comparable": False,
+            "max_abs_state_error": None,
+            "state_agree": False,
+            "first_divergent_step": 0,
+            "max_abs_error": None,
+            "reason_codes": ["COMPARISON_MISMATCH"],
+        }
     state_error, state_comparable = _state_error(entry_a, entry_b)
     pair = {
         "a": entry_a["runtime"],
@@ -1355,10 +1382,37 @@ def _check_runtimes(record, where):
                     "[RUNTIME_STATUS_UNKNOWN]"
                 )
         if entry.get("status") == STATUS_EXECUTED:
-            if not isinstance(entry.get("outputs"), dict):
+            outputs = entry.get("outputs")
+            if not isinstance(outputs, dict):
                 errors.append(f"{label}: an executed runtime must carry outputs")
+            else:
+                missing = [
+                    key
+                    for key in ("output_trace", "spike_events", "spike_count")
+                    if key not in outputs
+                ]
+                if missing:
+                    errors.append(
+                        f"{label}: executed outputs are missing {missing} "
+                        "[ENVELOPE_MALFORMED]"
+                    )
             if not entry.get("output_digest"):
                 errors.append(f"{label}: an executed runtime must carry an output digest")
+            # An `executed` claim naming a runtime this validator cannot
+            # re-execute is unfalsifiable. Without this, a record could name
+            # nir_rs -- which is not installed -- as having produced a trace,
+            # and nothing downstream would contradict it.
+            if entry.get("runtime") not in _RUNTIME_BY_NAME:
+                errors.append(
+                    f"{label}: only runtimes this validator can re-execute may be "
+                    f"marked {STATUS_EXECUTED!r}; {entry.get('runtime')!r} is not one "
+                    f"of {sorted(_RUNTIME_BY_NAME)} [RUNTIME_STATUS_UNKNOWN]"
+                )
+        if entry.get("runtime_class") not in RUNTIME_CLASSES:
+            errors.append(
+                f"{label}: runtime_class must be one of {list(RUNTIME_CLASSES)} "
+                "[RUNTIME_STATUS_UNKNOWN]"
+            )
     return errors
 
 
@@ -1409,10 +1463,25 @@ def _reexecute_in_repo_runtimes(record, where):
                 f"{label}: recorded output digest does not match a re-execution "
                 "[COMPARISON_MISMATCH]"
             )
-        elif entry.get("outputs", {}).get("output_trace") != outputs["output_trace"]:
+        # The whole outputs object, not just the trace: `spike_count` and
+        # `final_membrane` also feed the comparison, so checking only the trace
+        # would leave both editable -- and editing them deletes divergence
+        # diagnostics from a family whose entire product is divergence.
+        if entry.get("outputs") != outputs:
+            differing = sorted(
+                key
+                for key in set(outputs) | set(entry.get("outputs") or {})
+                if (entry.get("outputs") or {}).get(key) != outputs.get(key)
+            )
             errors.append(
-                f"{label}: recorded trace does not match a re-execution "
-                "[COMPARISON_MISMATCH]"
+                f"{label}: recorded outputs do not match a re-execution; differing "
+                f"fields {differing} [COMPARISON_MISMATCH]"
+            )
+        fresh_roundtrip = roundtrip(graph)
+        if entry.get("roundtrip") != fresh_roundtrip:
+            errors.append(
+                f"{label}: recorded parse/write parity does not match a re-derivation "
+                "[ROUNDTRIP_STRUCTURE_MISMATCH]"
             )
     return errors
 
@@ -1431,6 +1500,10 @@ def validate_record(record, where):
     errors = contract.check_envelope(record, where, oracle_digests=digests)
     if not isinstance(record, dict) or record.get("record_kind") != RECORD_KIND:
         return errors
+    # A truthy non-dict `oracle` would sail past every `(x or {}).get(...)`
+    # below and raise deep inside the comparison, so stop it here.
+    if not isinstance(oracle, dict):
+        return errors + [f"{where}: oracle must be an object [ENVELOPE_MALFORMED]"]
     errors += _check_runtimes(record, where)
 
     scenario = record.get("scenario") or {}

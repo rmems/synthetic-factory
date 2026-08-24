@@ -50,6 +50,7 @@ from neuro_oracle import (  # noqa: E402
     PHYSICAL_TARGETS,
     Q88_STEP,
     TARGET_FIXED_POINT_MODEL,
+    TARGET_SOFTWARE_FLOAT,
     FixedPointReferenceAdapter,
     OracleUnavailable,
     RecordedCaptureAdapter,
@@ -60,6 +61,9 @@ from neuro_oracle import (  # noqa: E402
     normalize_model,
     normalize_stimulus,
     quantize_model,
+    run_digest,
+    simulate_fixed_point,
+    simulate_float,
     stimulus_fixture,
 )
 
@@ -369,10 +373,27 @@ def _first_spike_steps(spike_grid, neurons):
     return firsts
 
 
+def _rectangular(grid):
+    """True when `grid` is a non-empty list of equal-length non-empty rows.
+
+    Ragged grids are rejected up front rather than indexed into: a short row
+    would otherwise raise mid-comparison and take down the scan of an entire
+    run directory instead of reporting one bad record.
+    """
+    if not isinstance(grid, list) or not grid:
+        return False
+    if not all(isinstance(row, list) for row in grid):
+        return False
+    width = len(grid[0])
+    return width > 0 and all(len(row) == width for row in grid)
+
+
 def spike_bitmap_metrics(software, hardware):
     """Cell-by-cell agreement over the (timestep, neuron) spike bitmap."""
     if not software or not hardware:
         return {"comparable": False, "reason": "empty spike grid"}
+    if not _rectangular(software) or not _rectangular(hardware):
+        return {"comparable": False, "reason": "spike grid is ragged or malformed"}
     if len(software) != len(hardware) or len(software[0]) != len(hardware[0]):
         return {"comparable": False, "reason": "spike grids have different shapes"}
     steps = len(software)
@@ -413,7 +434,9 @@ def spike_bitmap_metrics(software, hardware):
 
 def timing_metrics(software, hardware, dt_ms):
     """First-spike timing error over neurons that fired on both sides."""
-    if not software or not hardware or len(software[0]) != len(hardware[0]):
+    if not _rectangular(software) or not _rectangular(hardware):
+        return {"comparable": False, "reason": "spike grid is ragged or malformed"}
+    if len(software[0]) != len(hardware[0]):
         return {"comparable": False, "reason": "spike grids have different widths"}
     neurons = len(software[0])
     soft_first = _first_spike_steps(software, neurons)
@@ -457,8 +480,19 @@ def membrane_metrics(software_membrane, hardware_membrane):
             "reason_code": "MEMBRANE_DIVERGENCE",
             "reason": "at least one side does not expose membrane state",
         }
-    if not soft or not hard or len(soft) != len(hard) or len(soft[0]) != len(hard[0]):
-        return {"observable": False, "reason": "membrane traces have different shapes"}
+    if (
+        not _rectangular(soft)
+        or not _rectangular(hard)
+        or len(soft) != len(hard)
+        or len(soft[0]) != len(hard[0])
+    ):
+        # Carries a reason code for the same purpose as the branch above:
+        # deleting membrane evidence must never be quieter than reporting it.
+        return {
+            "observable": False,
+            "reason_code": "MEMBRANE_DIVERGENCE",
+            "reason": "membrane traces have different shapes",
+        }
     diffs = [abs(a - b) for row_a, row_b in zip(soft, hard) for a, b in zip(row_a, row_b)]
     return {
         "observable": True,
@@ -563,6 +597,13 @@ def compute_parity(scenario, software_run, hardware_run):
         reason_codes.append("LATENCY_NOT_MEASURED")
     if hardware_run.get("execution_target") not in PHYSICAL_TARGETS:
         reason_codes.append("ORACLE_UNAVAILABLE")
+    else:
+        # A physical run is not reproducible from software -- that is why it
+        # was run on hardware. Its traces therefore rest on the integrity of
+        # the capture and on the board provenance, and were not re-derived.
+        # This code makes that limitation visible on every hardware-claiming
+        # record instead of leaving such a record looking unqualified.
+        reason_codes.append("DEPLOYMENT_TRACE_NOT_REDERIVABLE")
 
     behavioural_mismatch = (
         "SPIKE_BITMAP_DISAGREEMENT" in reason_codes or "ACTION_DISAGREEMENT" in reason_codes
@@ -669,8 +710,12 @@ def build_record(scenario, software_run, deployment_run, unavailable, round_numb
             else contract.VERDICT_MISMATCH
         ),
     }
+    # A run that touched silicon is hardware-in-the-loop; one that did not is
+    # simulated. Deriving this from the target that actually executed keeps the
+    # record from describing one execution two different ways.
+    deployment_target = (deployment_run or {}).get("execution_target")
     provenance = {
-        "kind": "simulated",
+        "kind": "hil" if deployment_target in PHYSICAL_TARGETS else "simulated",
         "tool": VALIDATOR,
         "tool_version": SCHEMA_VERSION,
         "contract_version": contract.CONTRACT_VERSION,
@@ -817,7 +862,13 @@ def _metrics_equal(recorded, recomputed, path, where):
                 continue
             errors += _metrics_equal(recorded[key], value, f"{path}.{key}", where)
         return errors
-    if isinstance(recomputed, float) and isinstance(recorded, (int, float)):
+    # `bool` is a subclass of `int`, so an unguarded numeric comparison would
+    # let `True` satisfy a check expecting `1.0`.
+    if (
+        isinstance(recomputed, float)
+        and isinstance(recorded, (int, float))
+        and not isinstance(recorded, bool)
+    ):
         if abs(recorded - recomputed) > METRIC_TOL:
             errors.append(
                 f"{where}: {path} recorded {recorded!r} but traces give {recomputed!r} "
@@ -954,10 +1005,153 @@ def _check_physical_claim(record, where):
             "[HW_PROVENANCE_MISSING]"
         )
     repeats = deployment.get("repeats")
-    if not isinstance(repeats, int) or repeats < 2:
+    if not isinstance(repeats, int) or isinstance(repeats, bool) or repeats < 2:
         errors.append(
             f"{where}: {target} claim needs at least 2 repeated runs to say anything "
             "about determinism [REPEATABILITY_UNPROVEN]"
+        )
+    # A run on physical silicon is hardware-in-the-loop by definition. A record
+    # that claims a board while still declaring itself `simulated` is not
+    # describing one execution consistently, and the mismatch is exactly what a
+    # relabelled reference-model run looks like.
+    kind = (record.get("provenance") or {}).get("kind")
+    if kind != "hil":
+        errors.append(
+            f"{where}: a {target} claim requires provenance.kind 'hil', got {kind!r} "
+            "[HW_PROVENANCE_MISSING]"
+        )
+    return errors
+
+
+def _compare_side(recorded, fresh, label, where):
+    """Compare one recorded oracle run against a fresh re-simulation."""
+    errors = []
+    if recorded.get("spikes") != fresh["spikes"]:
+        errors.append(
+            f"{where}: oracle.{label}.spikes does not match a re-simulation of the "
+            "recorded model and stimulus [PARITY_METRIC_MISMATCH]"
+        )
+    recorded_action = recorded.get("action") or {}
+    for key in ("label", "counts"):
+        if recorded_action.get(key) != fresh["action"][key]:
+            errors.append(
+                f"{where}: oracle.{label}.action.{key} does not match a re-simulation "
+                "[PARITY_METRIC_MISMATCH]"
+            )
+    recorded_trace = (recorded.get("membrane") or {}).get("trace")
+    if recorded_trace != fresh["membrane"]["trace"]:
+        errors.append(
+            f"{where}: oracle.{label}.membrane.trace does not match a re-simulation "
+            "[MEMBRANE_DIVERGENCE]"
+        )
+    expected = run_digest(fresh)
+    if recorded.get("output_digest") != expected:
+        errors.append(
+            f"{where}: oracle.{label}.output_digest is not the digest of a "
+            "re-simulation [PARITY_METRIC_MISMATCH]"
+        )
+    return errors
+
+
+def _reexecute_reference_sides(record, where):
+    """Re-run every in-repo simulator and compare against what was recorded.
+
+    This is the anti-fabrication gate for this family. Recomputing the parity
+    metrics from the record's own traces is not enough on its own: copying one
+    side's traces onto the other would then produce a self-consistent record
+    asserting a match that never happened. Both in-repo simulators are
+    deterministic, so the traces themselves are re-derivable and are re-derived.
+
+    A physical deployment target cannot be re-simulated -- that is the whole
+    point of running on hardware -- so for those the software leg is re-derived
+    and the deployment leg rests on the capture digest chain and the board
+    provenance that :func:`_check_physical_claim` demands. The record says
+    which of the two it is, and never implies more.
+    """
+    errors = []
+    scenario = record.get("scenario") or {}
+    model = scenario.get("model_float")
+    stimulus = scenario.get("stimulus")
+    if not isinstance(model, dict) or not isinstance(stimulus, dict):
+        return [
+            f"{where}: scenario.model_float and scenario.stimulus are required to "
+            "re-derive the recorded runs [ENVELOPE_MALFORMED]"
+        ]
+    oracle = record.get("oracle") or {}
+
+    software = oracle.get("software")
+    if isinstance(software, dict):
+        target = software.get("execution_target")
+        if target != TARGET_SOFTWARE_FLOAT:
+            errors.append(
+                f"{where}: oracle.software.execution_target must be "
+                f"{TARGET_SOFTWARE_FLOAT!r}, got {target!r} [HW_TARGET_UNKNOWN]"
+            )
+        else:
+            try:
+                fresh = simulate_float(model, stimulus)
+            except (ValueError, KeyError, TypeError, IndexError) as exc:
+                return errors + [
+                    f"{where}: the recorded model and stimulus are not simulable: {exc}"
+                ]
+            errors += _compare_side(software, fresh, "software", where)
+
+    deployment = oracle.get("deployment")
+    if isinstance(deployment, dict):
+        if deployment.get("execution_target") == TARGET_FIXED_POINT_MODEL:
+            try:
+                q_model, _ = quantize_model(model)
+                fresh = simulate_fixed_point(q_model, stimulus)
+            except (ValueError, KeyError, TypeError, IndexError) as exc:
+                return errors + [
+                    f"{where}: the recorded model is not quantizable/simulable: {exc}"
+                ]
+            errors += _compare_side(deployment, fresh, "deployment", where)
+    return errors
+
+
+def _check_determinism(run, label, where):
+    """Cross-check a declared determinism block against its own repeat digests.
+
+    ``determinism`` is a claim; ``repeat_digests`` is the evidence for it.
+    Without this, a record could assert perfect repeatability over digests
+    that plainly disagree.
+    """
+    errors = []
+    digests = run.get("repeat_digests")
+    determinism = run.get("determinism")
+    if not isinstance(digests, list) or not digests:
+        return [
+            f"{where}: oracle.{label}.repeat_digests must list one digest per repeat "
+            "[REPEATABILITY_UNPROVEN]"
+        ]
+    repeats = run.get("repeats")
+    if repeats != len(digests):
+        errors.append(
+            f"{where}: oracle.{label}.repeats is {repeats!r} but {len(digests)} repeat "
+            "digests were recorded [REPEATABILITY_UNPROVEN]"
+        )
+    if run.get("output_digest") not in digests:
+        errors.append(
+            f"{where}: oracle.{label}.output_digest is absent from its own "
+            "repeat_digests [REPEATABILITY_UNPROVEN]"
+        )
+    if not isinstance(determinism, dict):
+        return errors + [
+            f"{where}: oracle.{label}.determinism must be an object "
+            "[REPEATABILITY_UNPROVEN]"
+        ]
+    distinct = len(set(digests))
+    if determinism.get("distinct_digests") != distinct:
+        errors.append(
+            f"{where}: oracle.{label}.determinism.distinct_digests claims "
+            f"{determinism.get('distinct_digests')!r} but the repeat digests contain "
+            f"{distinct} [REPEATABILITY_UNPROVEN]"
+        )
+    if determinism.get("identical_repeats") is not (distinct == 1):
+        errors.append(
+            f"{where}: oracle.{label}.determinism.identical_repeats disagrees with its "
+            "own repeat digests [REPEATABILITY_UNPROVEN]"
         )
     return errors
 
@@ -975,6 +1169,10 @@ def validate_record(record, where):
     errors = contract.check_envelope(record, where, oracle_digests=digests)
     if not isinstance(record, dict) or record.get("record_kind") != RECORD_KIND:
         return errors
+    # A truthy non-dict `oracle` would sail past every `(x or {}).get(...)`
+    # below and raise deep inside a metric function, so stop it here.
+    if not isinstance(oracle, dict):
+        return errors + [f"{where}: oracle must be an object [ENVELOPE_MALFORMED]"]
     errors += _check_input_fixture(record, where)
     errors += _check_physical_claim(record, where)
 
@@ -1008,20 +1206,34 @@ def validate_record(record, where):
     if not isinstance(software, dict):
         errors.append(f"{where}: oracle.software missing [ENVELOPE_MALFORMED]")
         return errors
+    if not isinstance(deployment, dict):
+        return errors + [
+            f"{where}: oracle.deployment must be an object or absent [ENVELOPE_MALFORMED]"
+        ]
 
     errors += _check_quantization(record, where)
+    errors += _reexecute_reference_sides(record, where)
+    errors += _check_determinism(software, "software", where)
+    errors += _check_determinism(deployment, "deployment", where)
 
     scenario = record.get("scenario") or {}
     try:
         parity, verdict, reason_codes = compute_parity(scenario, software, deployment)
-    except (KeyError, TypeError, ValueError) as exc:
+    except (KeyError, TypeError, ValueError, IndexError, AttributeError) as exc:
         return errors + [f"{where}: parity metrics are not recomputable: {exc}"]
 
     recorded_parity = result.get("parity")
     if not isinstance(recorded_parity, dict):
         errors.append(f"{where}: result.parity must be an object [PARITY_METRIC_MISMATCH]")
     else:
-        for section in ("spike_bitmap", "action", "timing", "membrane", "quantization"):
+        for section in (
+            "spike_bitmap",
+            "action",
+            "timing",
+            "membrane",
+            "quantization",
+            "repeatability",
+        ):
             errors += _metrics_equal(
                 recorded_parity.get(section), parity[section], f"result.parity.{section}",
                 where,

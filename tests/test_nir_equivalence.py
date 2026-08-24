@@ -482,6 +482,175 @@ class Validation(unittest.TestCase):
         self.assertTrue(any("COMPARISON_MISMATCH" in error for error in errors))
 
 
+class UnfalsifiableClaims(unittest.TestCase):
+    """A runtime this validator cannot re-execute may never be marked executed."""
+
+    def setUp(self):
+        self.records = nir.generate_records(round_number=1, steps=6)
+
+    def _claim_upstream_executed(self):
+        """Dress the absent nir_rs up as having produced a real trace."""
+        record = copy.deepcopy(self.records[0])
+        real = next(
+            entry
+            for entry in record["oracle"]["runtimes"]
+            if entry["status"] == nir.STATUS_EXECUTED
+        )
+        ghost = next(
+            entry for entry in record["oracle"]["runtimes"] if entry["runtime"] == "nir_rs"
+        )
+        ghost.update(
+            {
+                "status": nir.STATUS_EXECUTED,
+                "outputs": copy.deepcopy(real["outputs"]),
+                "output_digest": real["output_digest"],
+                "roundtrip": copy.deepcopy(real["roundtrip"]),
+            }
+        )
+        ghost.pop("reason_code", None)
+        ghost.pop("detail", None)
+        record["result"]["comparison"] = nir.compare_runtimes(
+            record["scenario"], record["oracle"]["runtimes"]
+        )
+        verdict, codes = nir.verdict_for(record["result"]["comparison"])
+        record["result"]["verdict"] = verdict
+        record["result"]["reason_codes"] = codes
+        record["result"]["derived_from"] = [
+            entry["output_digest"]
+            for entry in record["oracle"]["runtimes"]
+            if entry["status"] == nir.STATUS_EXECUTED
+        ]
+        return record
+
+    def test_absent_upstream_runtime_cannot_be_claimed_as_executed(self):
+        errors = nir.validate_record(self._claim_upstream_executed(), WHERE)
+        self.assertTrue(
+            any("re-execute" in error for error in errors), errors
+        )
+
+    def test_the_same_claim_is_caught_through_the_deep_layer(self):
+        import check_records
+
+        errors, _warnings, _kind, _id = check_records.check_record(
+            self._claim_upstream_executed(), WHERE
+        )
+        self.assertTrue(any("re-execute" in error for error in errors))
+
+    def test_unknown_runtime_class_is_rejected(self):
+        record = copy.deepcopy(self.records[0])
+        record["oracle"]["runtimes"][0]["runtime_class"] = "trust_me"
+        errors = nir.validate_record(record, WHERE)
+        self.assertTrue(any("runtime_class" in error for error in errors))
+
+    def test_executed_entry_missing_output_fields_is_rejected(self):
+        record = copy.deepcopy(self.records[0])
+        entry = next(
+            item
+            for item in record["oracle"]["runtimes"]
+            if item["status"] == nir.STATUS_EXECUTED
+        )
+        del entry["outputs"]["spike_count"]
+        errors = nir.validate_record(record, WHERE)
+        self.assertTrue(errors)
+
+
+class ScrubbedDivergence(unittest.TestCase):
+    """Divergence diagnostics must not be editable out of a record."""
+
+    def setUp(self):
+        self.records = nir.generate_records(round_number=1, steps=10)
+        self.divergent = next(
+            record
+            for record in self.records
+            if "DIVERGENCE_SPIKE_COUNT" in record["result"]["reason_codes"]
+        )
+
+    def test_scrubbing_spike_count_and_state_is_caught(self):
+        record = copy.deepcopy(self.divergent)
+        first, second = [
+            entry
+            for entry in record["oracle"]["runtimes"]
+            if entry["status"] == nir.STATUS_EXECUTED
+        ][:2]
+        second["outputs"]["spike_count"] = first["outputs"]["spike_count"]
+        second["outputs"]["final_membrane"] = copy.deepcopy(
+            first["outputs"]["final_membrane"]
+        )
+        record["result"]["comparison"] = nir.compare_runtimes(
+            record["scenario"], record["oracle"]["runtimes"]
+        )
+        verdict, codes = nir.verdict_for(record["result"]["comparison"])
+        record["result"]["verdict"] = verdict
+        record["result"]["reason_codes"] = codes
+        # The scrub really does delete diagnostics...
+        self.assertNotIn("DIVERGENCE_SPIKE_COUNT", codes)
+        # ...and re-execution catches it.
+        errors = nir.validate_record(record, WHERE)
+        self.assertTrue(
+            any("do not match a re-execution" in error for error in errors), errors
+        )
+
+    def test_forged_roundtrip_block_is_caught(self):
+        record = copy.deepcopy(self.records[0])
+        entry = next(
+            item
+            for item in record["oracle"]["runtimes"]
+            if item["status"] == nir.STATUS_EXECUTED
+        )
+        entry["roundtrip"]["structure_digest"] = "sha256:" + "0" * 64
+        errors = nir.validate_record(record, WHERE)
+        self.assertTrue(
+            any("ROUNDTRIP_STRUCTURE_MISMATCH" in error for error in errors), errors
+        )
+
+    def test_forged_parse_failure_claim_is_caught(self):
+        record = copy.deepcopy(self.records[0])
+        entry = next(
+            item
+            for item in record["oracle"]["runtimes"]
+            if item["status"] == nir.STATUS_EXECUTED
+        )
+        entry["roundtrip"]["canonical_stable"] = False
+        errors = nir.validate_record(record, WHERE)
+        self.assertTrue(errors)
+
+
+class MalformedRecordsDoNotCrash(unittest.TestCase):
+    def setUp(self):
+        self.record = nir.generate_records(round_number=1, steps=4)[0]
+
+    def _assert_reports(self, mutate):
+        record = copy.deepcopy(self.record)
+        mutate(record)
+        try:
+            errors = nir.validate_record(record, WHERE)
+        except Exception as exc:  # noqa: BLE001 - the point is that none escape
+            self.fail(f"validation raised {type(exc).__name__}: {exc}")
+        self.assertTrue(errors)
+
+    def test_truthy_non_dict_oracle(self):
+        self._assert_reports(lambda record: record.__setitem__("oracle", ["x"]))
+
+    def test_executed_entry_with_empty_outputs(self):
+        def mutate(record):
+            entry = next(
+                item
+                for item in record["oracle"]["runtimes"]
+                if item["status"] == nir.STATUS_EXECUTED
+            )
+            entry["outputs"] = {}
+
+        self._assert_reports(mutate)
+
+    def test_non_dict_runtime_entry(self):
+        self._assert_reports(
+            lambda record: record["oracle"]["runtimes"].append("not an object")
+        )
+
+    def test_missing_graph(self):
+        self._assert_reports(lambda record: record["scenario"].pop("graph"))
+
+
 class TrainingViews(unittest.TestCase):
     def test_views_preserve_every_record(self):
         records = _fixture_records()

@@ -267,6 +267,7 @@ class RecordedCapture(unittest.TestCase):
     def _capture(self, tmp, **overrides):
         model = _model()
         stimulus = oracle.normalize_stimulus(_stimulus(), model["inputs"])
+        _, quantization = oracle.quantize_model(model)
         payload = {
             "spikes": [[1, 0], [0, 0], [0, 0], [0, 0]],
             "action": {"index": 0, "label": "hold", "counts": [1, 0], "rule": "argmax_count"},
@@ -274,6 +275,7 @@ class RecordedCapture(unittest.TestCase):
         }
         capture = {
             "execution_target": oracle.TARGET_RECORDED_CAPTURE,
+            "quantization": quantization,
             "hardware": {"revision": "rev-b", "board_serial": "SN-1"},
             "bitstream": {"sha256": "sha256:aa", "toolchain": "vendor 1.2"},
             "manifest": {
@@ -338,6 +340,43 @@ class RecordedCapture(unittest.TestCase):
             path.write_text("{not json", encoding="utf-8")
             adapter = oracle.RecordedCaptureAdapter(path)
             self.assertEqual(adapter.availability()["reason_code"], "CAPTURE_UNREADABLE")
+
+    def test_capture_without_quantization_is_refused(self):
+        # The Q8.8 export is what was loaded onto the board; a capture that
+        # omits it cannot support a parity claim.
+        with tempfile.TemporaryDirectory() as tmp:
+            path = self._capture(tmp)
+            capture = json.loads(path.read_text())
+            del capture["quantization"]
+            capture["manifest"]["payload_sha256"] = oracle.digest(capture["payload"])
+            path.write_text(json.dumps(capture), encoding="utf-8")
+            adapter = oracle.RecordedCaptureAdapter(path)
+            with self.assertRaises(oracle.OracleUnavailable) as caught:
+                adapter.run(_model(), _stimulus())
+            self.assertEqual(
+                caught.exception.reason_code, "CAPTURE_QUANTIZATION_MISSING"
+            )
+
+    def test_malformed_payload_raises_oracle_unavailable_not_keyerror(self):
+        # run_pair only catches OracleUnavailable; anything else crashes
+        # generation instead of being recorded as an unavailability.
+        with tempfile.TemporaryDirectory() as tmp:
+            path = self._capture(tmp)
+            capture = json.loads(path.read_text())
+            del capture["payload"]["action"]
+            capture["manifest"]["payload_sha256"] = oracle.digest(capture["payload"])
+            path.write_text(json.dumps(capture), encoding="utf-8")
+            adapter = oracle.RecordedCaptureAdapter(path)
+            with self.assertRaises(oracle.OracleUnavailable) as caught:
+                adapter.run(_model(), _stimulus())
+            self.assertEqual(caught.exception.reason_code, "CAPTURE_UNREADABLE")
+
+    def test_capture_replay_carries_its_quantization_through(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            run = oracle.RecordedCaptureAdapter(self._capture(tmp)).run(
+                _model(), _stimulus()
+            )
+            self.assertEqual(run["quantization"]["format"], "Q8.8")
 
 
 class Digests(unittest.TestCase):

@@ -193,6 +193,49 @@ class DeepLayer(unittest.TestCase):
         )
         self.assertEqual(record_id, record["id"])
 
+    def test_nested_real_world_claims_are_caught_like_any_other_kind(self):
+        # The publish-time provenance scan is repository-wide. Skipping it for
+        # these kinds would make a parity record the one place in the factory
+        # where a buried real-world claim is allowed through.
+        record = copy.deepcopy(_records(HARDWARE_BATCH)[0])
+        record["oracle"]["deployment"]["hardware"] = {
+            "revision": "rev-a",
+            "sim_or_real": "real",
+        }
+        errors, _warnings, _kind, _id = check_records.check_record(record, "unit:1")
+        self.assertTrue(any("must not be 'real'" in error for error in errors))
+
+    def test_nested_real_provenance_kind_is_caught(self):
+        record = copy.deepcopy(_records(NIR_BATCH)[0])
+        record["oracle"]["capture_note"] = {"provenance": {"kind": "real"}}
+        errors, _warnings, _kind, _id = check_records.check_record(record, "unit:1")
+        self.assertTrue(any("must not be 'real'" in error for error in errors))
+
+    def test_an_unroutable_parity_kind_is_loud(self):
+        # No silent fallthrough to whichever validator happened to be last.
+        errors = check_records.check_parity_record({}, "some_future_kind", "unit:1")
+        self.assertTrue(any("no parity validator" in error for error in errors))
+
+    def test_a_malformed_record_does_not_abort_the_whole_run_scan(self):
+        # One bad line must be reported, not raise and take the directory
+        # scan down with it.
+        with tempfile.TemporaryDirectory() as tmp:
+            run_dir = Path(tmp) / "run" / "hardware-parity-spike-trajectories"
+            run_dir.mkdir(parents=True)
+            records = _records(HARDWARE_BATCH)[:2]
+            records[0] = copy.deepcopy(records[0])
+            records[0]["id"] = "broken-1"
+            records[0]["oracle"]["deployment"] = "tampered"
+            (run_dir / "batch-r01.jsonl").write_text(
+                "".join(json.dumps(record, sort_keys=True) + "\n" for record in records),
+                encoding="utf-8",
+            )
+            result = _run("check_records.py", str(Path(tmp) / "run"))
+            self.assertEqual(result.returncode, 1)
+            self.assertNotIn("Traceback", result.stderr)
+            totals = json.loads(result.stdout)
+            self.assertEqual(totals["records"], 2)
+
     def test_duplicate_ids_across_the_run_are_caught(self):
         with tempfile.TemporaryDirectory() as tmp:
             run_dir = Path(tmp) / "run" / "hardware-parity-spike-trajectories"

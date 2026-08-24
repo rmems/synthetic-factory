@@ -735,6 +735,12 @@ def smoke_parity_families():
     errors = nir_equivalence.validate_records(graphs, source="smoke-nir")
     if errors:
         failures.append(f"generated NIR records do not validate: {errors[0]}")
+    graph_verdicts = {record["result"]["verdict"] for record in graphs}
+    if oracle_contract.VERDICT_MISMATCH not in graph_verdicts:
+        failures.append(
+            "NIR catalog produced no divergence; without one the relabelling check "
+            "below silently tests nothing"
+        )
 
     # Relabel a real mismatch as a match; validation must refuse it.
     for records, validate, code in (

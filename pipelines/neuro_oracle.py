@@ -619,9 +619,34 @@ class RecordedCaptureAdapter(OracleAdapter):
                 "CAPTURE_INPUT_FIXTURE_MISMATCH",
                 "capture was taken against a different encoded input fixture",
             )
-        fingerprint = run_digest(payload)
+        if not isinstance(payload, dict):
+            raise OracleUnavailable(
+                "CAPTURE_UNREADABLE", "capture payload must be a JSON object"
+            )
+        missing = [key for key in ("spikes", "action") if key not in payload]
+        if missing:
+            raise OracleUnavailable(
+                "CAPTURE_UNREADABLE", f"capture payload is missing {missing}"
+            )
+        # The Q8.8 export is what was loaded onto the board, so a capture that
+        # omits it cannot support a parity claim -- and without this the
+        # validator's Q88_PROVENANCE_MISSING gate makes every capture-derived
+        # record unwritable.
+        quantization = capture.get("quantization") or payload.get("quantization")
+        if not quantization:
+            raise OracleUnavailable(
+                "CAPTURE_QUANTIZATION_MISSING",
+                "capture must record the Q8.8 conversion that produced the bitstream",
+            )
+        try:
+            fingerprint = run_digest(payload)
+        except (KeyError, TypeError, AttributeError) as exc:
+            raise OracleUnavailable(
+                "CAPTURE_UNREADABLE", f"capture payload is malformed: {exc}"
+            ) from exc
         repeat_digests = list(payload.get("repeat_digests") or [fingerprint])
         return {
+            "quantization": quantization,
             "adapter": self.name,
             "execution_target": self.execution_target,
             "runtime_class": self.runtime_class,

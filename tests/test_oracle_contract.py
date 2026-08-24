@@ -85,6 +85,16 @@ class Envelope(unittest.TestCase):
         )
         self.assertTrue(any("meta.round" in error for error in errors))
 
+    def test_round_must_be_at_least_one(self):
+        # Matches validate_run.check_meta_round, so a parity record is not the
+        # one kind in the factory that can carry round 0.
+        for value in (0, -1):
+            with self.subTest(round=value):
+                errors = contract.check_envelope(
+                    _record(meta={"round": value, "factory": "unit-factory"}), WHERE
+                )
+                self.assertTrue(any("meta.round" in error for error in errors))
+
 
 class GeneratorCannotSelfCertify(unittest.TestCase):
     def test_may_certify_must_be_exactly_false(self):
@@ -302,6 +312,44 @@ class TrainingViews(unittest.TestCase):
         records = [_record(id="rec-a"), _record(id="rec-b")]
         views = [self._view(record) for record in records]
         self.assertEqual(contract.view_set_errors(records, views), [])
+
+    def test_duplicating_a_view_reweights_the_corpus_and_is_rejected(self):
+        # Repeating the agreeable half dilutes failures as effectively as
+        # deleting them.
+        passing = _record(id="rec-pass")
+        failing = _record(id="rec-fail")
+        failing["result"]["verdict"] = contract.VERDICT_MISMATCH
+        records = [passing, failing]
+        views = [self._view(passing), self._view(passing), self._view(failing)]
+        errors = contract.view_set_errors(records, views)
+        self.assertTrue(any("repeats" in error for error in errors))
+
+    def test_a_view_with_no_record_behind_it_is_rejected(self):
+        records = [_record(id="rec-a")]
+        views = [self._view(records[0]), self._view(_record(id="rec-invented"))]
+        errors = contract.view_set_errors(records, views)
+        self.assertTrue(any("rec-invented" in error for error in errors))
+
+    def test_unavailable_oracle_makes_the_view_incomplete(self):
+        # `parity_failed: false` means the oracles that ran agreed. It does not
+        # mean the intended oracles ran, and a consumer must be able to tell.
+        record = _record()
+        record["result"]["reason_codes"] = ["ORACLE_UNAVAILABLE"]
+        view = self._view(record)
+        self.assertFalse(view["parity_failed"])
+        self.assertFalse(view["oracle_complete"])
+        self.assertEqual(contract.training_view_errors(record, view, WHERE), [])
+
+    def test_fully_executed_record_yields_a_complete_view(self):
+        view = self._view(_record())
+        self.assertTrue(view["oracle_complete"])
+
+    def test_overstating_oracle_completeness_is_rejected(self):
+        record = _record()
+        record["result"]["reason_codes"] = ["ORACLE_UNAVAILABLE"]
+        view = self._view(record, oracle_complete=True)
+        errors = contract.training_view_errors(record, view, WHERE)
+        self.assertTrue(any("oracle_complete" in error for error in errors))
 
 
 class ReasonCodeVocabulary(unittest.TestCase):

@@ -103,11 +103,14 @@ satisfy dishonestly.
    `SPIKENAUT_FPGA_BITSTREAM`.
 2. Or record a capture and replay it:
    `python3 pipelines/hardware_parity.py generate <out> --capture <capture.json>`.
-   A capture is a JSON object with `execution_target`, `hardware`, `bitstream`,
-   a `manifest` carrying `payload_sha256` and `input_fixture_sha256`, and a
+   A capture is a JSON object with `execution_target`, `quantization` (the Q8.8
+   conversion that produced the bitstream), `hardware`, `bitstream`, a
+   `manifest` carrying `payload_sha256` and `input_fixture_sha256`, and a
    `payload` holding the observed spikes, action, membrane, and latency. The
-   adapter verifies both digests before returning anything, so a hand-edited
-   capture cannot be replayed as a real run.
+   adapter verifies both digests and refuses a capture taken against a
+   different input fixture, so a *hand-edited* capture cannot be replayed —
+   though, per the section above, a wholly fabricated but internally consistent
+   one is outside what this repository can detect.
 
 No capture is committed to this repository. Committing a synthetic one would
 be indistinguishable from committing a fabricated hardware result.
@@ -152,20 +155,52 @@ Neither family trusts the numbers written on the record.
 
 | Family | Re-derived during validation |
 |---|---|
-| hardware parity | the input-fixture digest, from the stored event grid; the entire Q8.8 conversion, from `scenario.model_float`; every metric in `result.parity`, from the stored spike and membrane traces; and the verdict those traces support |
-| NIR equivalence | the structure digest and graph digest, from `scenario.graph`; the input-fixture digest; **a full re-execution of every in-repo runtime**, compared against the recorded output digest and trace; and the comparison and verdict, from the recorded outputs |
+| hardware parity | the input-fixture digest, from the stored event grid; the entire Q8.8 conversion, from `scenario.model_float`; **a full re-simulation of both in-repo oracles**, compared against the recorded spikes, action, membrane trace, and output digest; the declared determinism, against its own repeat digests; every metric in `result.parity`, from the stored traces; and the verdict those traces support |
+| NIR equivalence | the structure digest and graph digest, from `scenario.graph`; the input-fixture digest; **a full re-execution of every in-repo runtime**, compared against the recorded outputs *in their entirety* and the round-trip block; and the comparison and verdict, from the recorded outputs |
 
 A record whose result does not follow from its own evidence fails validation.
-Upstream runtimes cannot be re-executed here, and the record says which
-runtimes were re-checked rather than implying all of them were.
+Recomputing the metrics from a record's own traces would not be enough on its
+own: copying one side's traces onto the other yields a perfectly
+self-consistent record asserting a match that never happened, which is why the
+traces themselves are re-derived from the model and stimulus.
+
+Only a runtime this validator can re-execute may be marked `executed`. An
+`executed` claim naming `nir_rs` — which is not installed — is rejected
+outright, because such a claim is unfalsifiable rather than merely unverified.
+
+### The one thing that cannot be re-derived
+
+A run on physical silicon is not reproducible from software; that is the point
+of running it on hardware. So for a `fpga_hardware` or `recorded_capture`
+target, the deployment traces rest on two things this repository *can* check —
+the capture's internal digest chain and the board/bitstream provenance — and on
+one it cannot: that the capture describes a run that actually happened. A
+capture file is trusted input. Nothing here can distinguish a genuine capture
+from a well-formed fabricated one without an out-of-band trust anchor such as a
+signed board attestation.
+
+That limitation is not papered over. Every record with a physical target
+carries `DEPLOYMENT_TRACE_NOT_REDERIVABLE` in its reason codes and in its
+training view, so a hardware-claiming record can never read as fully
+corroborated, and `provenance.kind` must be `hil` rather than `simulated`.
 
 ## Training views cannot hide a parity failure
 
 `oracle_contract.build_training_view` copies the verdict, the failure flag,
 and the reason codes onto the view, and `training_view_errors` re-checks them
-against the record. `view_set_errors` additionally rejects a view set that
-drops any record. There is no `--drop-mismatches` flag, and adding one would
-fail these checks.
+against the record. `view_set_errors` rejects a view set that drops any
+record, that repeats one (duplicating the agreeable half dilutes failures as
+effectively as deleting them), or that contains a view with no record behind
+it. There is no `--drop-mismatches` flag, and adding one would fail these
+checks.
+
+Views also carry `oracle_complete` alongside `parity_failed`. The two answer
+different questions: `parity_failed: false` means *the oracles that ran
+agreed*, which is not the same as *the intended oracles ran*. Without the
+second flag a consumer filtering on `parity_failed` alone would read a clean
+bill of health off a record from a family called
+`hardware-parity-spike-trajectories` whose hardware leg never executed. Every
+record in the committed fixture has `oracle_complete: false`.
 
 ## Running the families
 

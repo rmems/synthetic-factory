@@ -358,17 +358,21 @@ def check_parity_record(obj, kind, where):
     """Deep layer for the oracle-grounded parity families.
 
     The family validators re-derive every parity number from the record's own
-    traces, and for NIR they re-execute the in-repo runtimes outright, so a
-    fabricated result cannot pass. Both are far too expensive for the shape
-    layer, which is why they live here.
+    traces, re-simulate the in-repo oracles, and for NIR re-execute the
+    interpreters outright, so a fabricated result cannot pass. All of that is
+    far too expensive for the shape layer, which is why it lives here.
     """
     if kind == "hardware_parity":
         import hardware_parity
 
         return hardware_parity.validate_record(obj, where)
-    import nir_equivalence
+    if kind == "nir_equivalence":
+        import nir_equivalence
 
-    return nir_equivalence.validate_record(obj, where)
+        return nir_equivalence.validate_record(obj, where)
+    # No silent fallthrough: an unrouted kind must be loud, not validated by
+    # whichever validator happened to be last.
+    return [f"{where}: no parity validator for record_kind {kind!r}"]
 
 
 def check_record(obj, where, factory_staging=False):
@@ -383,6 +387,13 @@ def check_record(obj, where, factory_staging=False):
         # still flows through so cross-file duplicate detection covers them.
         deep = check_parity_record(obj, kind, where)
         errors.extend(error for error in deep if error not in errors)
+        # The publish-time provenance scan is repository-wide and owns every
+        # nested 'real' claim. Skipping it for these kinds would make a parity
+        # record the one place in the factory where a buried real-world claim
+        # is allowed through.
+        errors.extend(
+            error for error in check_provenance_publish(obj, where) if error not in errors
+        )
         record_id = canonical_record_id(obj)
         if record_id is None:
             warnings.append(f"{where}: missing canonical record id")

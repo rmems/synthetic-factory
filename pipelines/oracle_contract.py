@@ -102,6 +102,7 @@ REASON_CODES = frozenset(
         "REPEATABILITY_UNPROVEN",
         "LATENCY_NOT_MEASURED",
         "ORACLE_UNAVAILABLE",
+        "DEPLOYMENT_TRACE_NOT_REDERIVABLE",
         # NIR equivalence
         "NO_EXECUTED_RUNTIME_PAIR",
         "UNAVAILABLE_RUNTIME_HAS_OUTPUT",
@@ -319,8 +320,15 @@ def check_envelope(record, where, oracle_digests=None):
     if not _is_object(meta):
         errors.append(f"{where}.meta must be an object")
     else:
-        if not isinstance(meta.get("round"), int) or isinstance(meta.get("round"), bool):
-            errors.append(f"{where}.meta.round must be an integer")
+        # `>= 1` matches validate_run.check_meta_round, so a parity record is
+        # not the one kind in the factory that can carry round 0 or -1.
+        round_number = meta.get("round")
+        if (
+            not isinstance(round_number, int)
+            or isinstance(round_number, bool)
+            or round_number < 1
+        ):
+            errors.append(f"{where}.meta.round must be an integer >= 1")
         if not _nonempty_str(meta.get("factory")):
             errors.append(f"{where}.meta.factory must be a non-empty string")
     return errors
@@ -334,6 +342,7 @@ TRAINING_VIEW_KEYS = (
     "dataset",
     "verdict",
     "parity_failed",
+    "oracle_complete",
     "reason_codes",
     "oracle_backed",
     "execution_targets",
@@ -351,6 +360,7 @@ def build_training_view(record, prompt, completion, execution_targets):
     """
     result = record.get("result") or {}
     verdict = result.get("verdict")
+    reason_codes = list(result.get("reason_codes", []))
     return {
         "id": record.get("id"),
         "record_kind": record.get("record_kind"),
@@ -359,7 +369,13 @@ def build_training_view(record, prompt, completion, execution_targets):
         "completion": completion,
         "verdict": verdict,
         "parity_failed": verdict not in PASSING_VERDICTS,
-        "reason_codes": list(result.get("reason_codes", [])),
+        # `parity_failed: false` means "the oracles that ran agreed", which is
+        # not the same as "the intended oracles ran". A consumer filtering on
+        # parity_failed alone would otherwise read a clean bill of health off a
+        # record whose authoritative oracle never executed, so the gap is
+        # carried as its own flag rather than buried in the reason codes.
+        "oracle_complete": "ORACLE_UNAVAILABLE" not in reason_codes,
+        "reason_codes": reason_codes,
         "oracle_backed": result.get("oracle_backed"),
         "execution_targets": list(execution_targets),
         "evidence_digests": list(result.get("derived_from", [])),
@@ -389,6 +405,12 @@ def training_view_errors(record, view, where):
             f"{where}: training view parity_failed must be {expected_failed} for verdict "
             f"{verdict!r} [TRAINING_VIEW_HIDES_FAILURE]"
         )
+    expected_complete = "ORACLE_UNAVAILABLE" not in set(result.get("reason_codes", []))
+    if view.get("oracle_complete") is not expected_complete:
+        errors.append(
+            f"{where}: training view oracle_complete must be {expected_complete} for "
+            f"this record's reason codes [TRAINING_VIEW_HIDES_FAILURE]"
+        )
     record_codes = set(result.get("reason_codes", []))
     view_codes = set(view.get("reason_codes") or [])
     if record_codes - view_codes:
@@ -413,7 +435,12 @@ def training_view_errors(record, view, where):
 
 
 def view_set_errors(records, views, where="training-view"):
-    """Every record must survive into the view set. No silent filtering."""
+    """The view set must be a faithful one-to-one image of the record set.
+
+    Checking only that no record was dropped is not enough: duplicating the
+    agreeable half of a corpus dilutes the failures just as effectively as
+    deleting them, and a view with no record behind it is unsourced.
+    """
     errors = []
     record_ids = [record.get("id") for record in records]
     view_ids = [view.get("id") for view in views]
@@ -422,5 +449,17 @@ def view_set_errors(records, views, where="training-view"):
         errors.append(
             f"{where}: training view set drops records {dropped} "
             f"[TRAINING_VIEW_HIDES_FAILURE]"
+        )
+    orphans = sorted({vid for vid in view_ids if vid not in set(record_ids)})
+    if orphans:
+        errors.append(
+            f"{where}: training view set contains views with no record behind them: "
+            f"{orphans} [TRAINING_VIEW_HIDES_FAILURE]"
+        )
+    duplicates = sorted({vid for vid in view_ids if view_ids.count(vid) > 1})
+    if duplicates:
+        errors.append(
+            f"{where}: training view set repeats {duplicates}, which reweights the "
+            f"corpus away from what the oracles found [TRAINING_VIEW_HIDES_FAILURE]"
         )
     return errors
