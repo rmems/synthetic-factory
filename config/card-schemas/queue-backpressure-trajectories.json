@@ -1,0 +1,98 @@
+{
+  "version": 1,
+  "dataset": "queue-backpressure-trajectories",
+  "issues": [70],
+  "note": "The viewer schema is declared by hand because `meta` is a key-bag whose shape changes between rounds: the datasets-server infers `meta` from the thin `{factory, generator, round}` of `batch-r01.jsonl`, then dies casting the designed-episode `{..., kind, seed, designed, domain, stack}` of every later shard, so the parquet index is never built. Declaring the union fixes the index without rewriting a single historical raw record.",
+  "config_name": "default",
+  "split": "train",
+  "data_files": ["data/raw/batch-*.jsonl"],
+  "features": [
+    {"name": "id", "dtype": "string"},
+    {"name": "goal", "dtype": "string"},
+    {
+      "name": "plan",
+      "dtype": "string",
+      "note": "present on all 282 records and always a string; it is never a list and never absent in this dataset"
+    },
+    {
+      "name": "steps",
+      "list": [
+        {"name": "n", "dtype": "int64"},
+        {"name": "decision_basis", "dtype": "string"},
+        {
+          "name": "tool_call",
+          "struct": [
+            {"name": "name", "dtype": "string"},
+            {
+              "name": "args",
+              "dtype": "json",
+              "note": "always an object; keys differ per tool — `command` (bash), `url` (fetch), `path` (read/edit/write), `path`+`args` (pytest), `old`/`new` (edit), `pattern` (grep), `contents` (write), `target`"
+            }
+          ]
+        },
+        {"name": "observation", "dtype": "string"},
+        {
+          "name": "reflection",
+          "dtype": "string",
+          "optional": true,
+          "note": "present on 4448 of 4649 steps"
+        }
+      ]
+    },
+    {"name": "outcome", "dtype": "string"},
+    {
+      "name": "reward",
+      "dtype": "json",
+      "note": "key-bag with five observed shapes over 282 records: `success`, `tests_passed`, `cost_steps` on every record, plus `plan_changes` on 278, `retries` on 265, `duration_min` and `wasted_calls` on 262, and `handoff` / `xfailed` on 4"
+    },
+    {
+      "name": "meta",
+      "dtype": "json",
+      "note": "key-bag with three observed shapes over 282 records: `factory`, `generator`, `round` on every record; 268 add `kind`, `seed`, `designed`, `domain`, `stack`; 4 of those also add `lane`; 14 carry the thin three-key shape alone"
+    }
+  ],
+  "disclosures": [
+    "Every one of the 282 records is stamped `meta.factory` `queue-backpressure-factory` and `meta.generator` `grok-4.6`, and every record is an episode (`id`/`goal`/`plan`/`steps`/`outcome`/`reward`/`meta`). There is no unstamped payload and no kind mix.",
+    {
+      "summary": "14 records carry a thin `meta` of `{factory, generator, round}` only, with no `kind`/`seed`/`designed`/`domain`/`stack`. They sit in `batch-r01` and `batch-r04`-`batch-r09` and are the records the inferred schema died on; they are kept exactly as generated.",
+      "ids": [
+        "qbp-r01-amqp-prefetch-unbounded",
+        "qbp-r01-kafka-max-poll-interval",
+        "qbp-r04-redis-xreadgroup-pel",
+        "qbp-r04-nats-maxackpending",
+        "qbp-r05-sqs-vis-extend-20s-a1c4",
+        "qbp-r05-nats-max-ack-pending-3e91",
+        "qbp-r06-redis-xread-count-ack-7b22",
+        "qbp-r06-pulsar-receiver-q-100-c810",
+        "qbp-r07-celery-prefetch-mult-1-b770",
+        "qbp-r07-bullmq-lock-180s-c3aa",
+        "qbp-r08-sidekiq-super-fetch-91ae",
+        "qbp-r08-nsq-max-in-flight-40-5e08",
+        "qbp-r09-rq-job-timeout-300-4e91",
+        "qbp-r09-huey-immediate-false-7b22"
+      ]
+    },
+    {
+      "summary": "4 records in `batch-r02` and `batch-r03` add a `meta.lane` of `b` that no other record has, and are also the 4 records whose `reward` omits `plan_changes`.",
+      "ids": [
+        "qbp-r2-sqs-inflight-p3",
+        "qbp-r2-rabbit-prefetch-p3",
+        "qbp-r3-sqs-inflight-p13",
+        "qbp-r3-rabbit-prefetch-p13"
+      ]
+    },
+    {
+      "summary": "6 records in `batch-r74`-`batch-r76` are foreign search-index-rebuild leftover3c mill payload that wears this destination's stamp: their ids are `sir-*`, their `meta.domain` / `meta.stack` are Bleve / Lucene / pg_trgm index-rebuild subjects, and 3 of them carry the `handoff` / `xfailed` reward keys. Because `meta.factory` is dest-stamped `queue-backpressure-factory` and `meta.kind` is `episode`, neither the factory-mix detector nor the dest-field family-mix detector sees them. They are disclosed here rather than removed, and no raw record is rewritten. No GitHub issue currently owns this class: the frozen factory-mix census (#43) covers only email-webhook-retry, eval-harness, observability-debug and rag-retrieval-debug, and the dest-stamped census (#44) covers only cache-stampede, k8s-crashloop and rate-limit-backoff while explicitly setting `sir-*-leftover3c-*` rows aside as out of its scope.",
+      "ids": [
+        "sir-r74-bleve-alias-leftover3c-rebuild",
+        "sir-r74-bleve-drop-leftover3c-handoff",
+        "sir-r75-lucene-nrt-leftover3c-rebuild",
+        "sir-r75-lucene-drop-leftover3c-handoff",
+        "sir-r76-pg-trgm-conc-leftover3c-rebuild",
+        "sir-r76-pg-trgm-drop-leftover3c-handoff"
+      ]
+    },
+    "The remaining 276 `qbp-*` records are this factory's own advertised leftover-bound mechanic: 96 name `leftover` in the id and 196 name it in the goal, on the same `queue-backpressure-factory` that owns the dump. Same-factory leftover naming is a designed subject, not foreign payload, and those records are not a mill mix.",
+    "Every step publishes a public `decision_basis` (4649 of 4649). There are no hidden `thought` or `internal_reasoning` fields."
+  ]
+}
