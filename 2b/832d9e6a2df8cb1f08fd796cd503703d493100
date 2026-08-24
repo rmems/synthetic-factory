@@ -1,0 +1,24 @@
+config/card-schemas/db-migration-repair-trajectories.json
+  s_002cddb1a70571::t_1c49807ad6ef6a 1-65,67-71
+  s_002cddb1a70571::t_512839f4c46373 66
+tests/test_card_schema.py
+  s_002cddb1a70571::t_88c586fd4033ec 547
+  s_002cddb1a70571::t_d1d6874fa5ecb0 532-539,542,544-546,548-632
+  s_002cddb1a70571::t_c712542c9b3d26 540-541,543
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "2b832d9e6a2df8cb1f08fd796cd503703d493100",
+  "prompts": {},
+  "sessions": {
+    "s_002cddb1a70571": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "abd260ba-6a6c-45a6-9db3-a4e0988ad60e",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Raul Montoya Cardenas <montoyaraul34@gmail.com>"
+    }
+  }
+}
