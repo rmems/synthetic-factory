@@ -1,0 +1,22 @@
+tests/test_card_schema.py
+  s_002cddb1a70571::t_a39fa81f96b073 5-7
+  s_002cddb1a70571::t_00aa2ce3747cf1 533-653
+config/card-schemas/tool-use-preference-pairs.json
+  s_002cddb1a70571::t_c2d6f9a2aa17bf 1-111
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "6815cd667a876bf7beb223ffd0e0f6e4de5dc15f",
+  "prompts": {},
+  "sessions": {
+    "s_002cddb1a70571": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "abd260ba-6a6c-45a6-9db3-a4e0988ad60e",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Raul Montoya Cardenas <montoyaraul34@gmail.com>"
+    }
+  }
+}
