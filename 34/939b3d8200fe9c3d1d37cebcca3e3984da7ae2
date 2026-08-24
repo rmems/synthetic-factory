@@ -1,0 +1,23 @@
+config/card-schemas/sparse-reward-long-tasks.json
+  s_002cddb1a70571::t_e42ed6c9f22da1 1-66,68-70
+  s_002cddb1a70571::t_9d93c22610fd7b 67
+tests/test_card_schema.py
+  s_002cddb1a70571::t_6424482f95cf67 533-633
+  s_002cddb1a70571::t_42c6c5a872a34e 26
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "34939b3d8200fe9c3d1d37cebcca3e3984da7ae2",
+  "prompts": {},
+  "sessions": {
+    "s_002cddb1a70571": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "abd260ba-6a6c-45a6-9db3-a4e0988ad60e",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Raul Montoya Cardenas <montoyaraul34@gmail.com>"
+    }
+  }
+}
