@@ -1,0 +1,69 @@
+.claude/skills/run-synthetic-factory/driver.py
+  s_002cddb1a70571::t_745d439c87e2c9 738-743
+tests/test_hardware_parity.py
+  s_002cddb1a70571::t_ab7a80f141875d 523,529-530,537-542,544,551-553
+  s_002cddb1a70571::t_1f73e3334b30cd 438-521
+  s_002cddb1a70571::t_7fad2e6d0de36e 279-437
+tests/test_parity_factory_integration.py
+  s_002cddb1a70571::t_4535d6b76375b5 196-238
+pipelines/nir_equivalence.py
+  s_002cddb1a70571::t_25c843e2957fee 954-956,958,1084-1085
+  s_002cddb1a70571::t_d4b0ac83d2f5e8 1503-1506
+  s_002cddb1a70571::t_c937ba561833a4 71-74
+  s_002cddb1a70571::t_8f3ea7918b1719 1466-1475,1477-1484
+  s_002cddb1a70571::t_f5f389eabb76a7 1385-1386,1388-1398,1401-1415
+  s_002cddb1a70571::t_67ddfba1eaf615 1100-1122
+pipelines/check_records.py
+  s_002cddb1a70571::t_723a97649cdb8e 361-363,369-370,372-375
+  s_002cddb1a70571::t_617f7e708af7de 390-396
+pipelines/oracle_contract.py
+  s_002cddb1a70571::t_bb735a86a98c77 323-331
+  s_002cddb1a70571::t_1240526592ff2f 345
+  s_002cddb1a70571::t_cd7a8a5ab091fe 408-413
+  s_002cddb1a70571::t_4a3a4626e5052c 363,372-378
+  s_002cddb1a70571::t_581d58ae3bdeeb 105
+  s_002cddb1a70571::t_98b6ab99a26212 438-443,453-463
+pipelines/hardware_parity.py
+  s_002cddb1a70571::t_d4fd84cbd58e1e 483-488
+  s_002cddb1a70571::t_f9b590f7a5b81a 865-871
+  s_002cddb1a70571::t_babc46583b467a 1026-1155
+  s_002cddb1a70571::t_7322867d753229 600-606
+  s_002cddb1a70571::t_f13e0e90f7d969 1209-1212,1215-1217,1222,1229-1236
+  s_002cddb1a70571::t_058d3121afc0b3 489-495
+  s_002cddb1a70571::t_99d6e369f30f1d 53,64-66
+  s_002cddb1a70571::t_4d1dbd570d2bdd 713-716,718
+  s_002cddb1a70571::t_5f933344d4a6a4 376-390,395-396
+  s_002cddb1a70571::t_de3cad4fe8618b 437-439
+  s_002cddb1a70571::t_f23ce2ed6b337d 1008,1013-1021
+  s_002cddb1a70571::t_7df7b080609454 1172-1175
+pipelines/neuro_oracle.py
+  s_002cddb1a70571::t_7d24f759f7a9b4 622-646,649
+tests/test_neuro_oracle.py
+  s_002cddb1a70571::t_f2cdef61e87842 270,278
+  s_002cddb1a70571::t_a5a1dceff221c8 344-380
+tests/test_nir_equivalence.py
+  s_002cddb1a70571::t_3628670e0f0536 485-653
+tests/test_oracle_contract.py
+  s_002cddb1a70571::t_9214a4de07416c 316-353
+  s_002cddb1a70571::t_a99d8164be9b10 88-97
+docs/parity-oracles.md
+  s_002cddb1a70571::t_e51614bd259870 158-159,162-185
+  s_002cddb1a70571::t_456beefd3e8540 191-203
+  s_002cddb1a70571::t_27b5bb91f72c2f 106-108,110-113
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "3a4ce07660cdbd742d5ad8bf67a72af733381d3b",
+  "prompts": {},
+  "sessions": {
+    "s_002cddb1a70571": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "abd260ba-6a6c-45a6-9db3-a4e0988ad60e",
+        "model": "unknown"
+      },
+      "human_author": "Raul Montoya Cardenas <montoyaraul34@gmail.com>"
+    }
+  }
+}
