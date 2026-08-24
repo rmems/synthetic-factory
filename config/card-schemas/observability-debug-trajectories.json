@@ -1,0 +1,115 @@
+{
+  "version": 1,
+  "dataset": "observability-debug-trajectories",
+  "issues": [69],
+  "note": "The viewer schema is declared by hand because the two payload kinds disagree on shape: the 316 `meta.kind=episode` records carry five top-level structs (`lie`, `red_herring`, `diagnosis`, `recovery`, `verification`) that the 1432 `meta.kind=designed` records omit, and `meta` / `reward` / `tool_call.args` are key-bags whose keys differ per record, so the datasets-server infers a schema from an early shard and then cannot cast a later one. Declaring the union fixes the index without rewriting a single historical raw record.",
+  "config_name": "default",
+  "split": "train",
+  "data_files": ["data/raw/batch-*.jsonl"],
+  "features": [
+    {"name": "id", "dtype": "string"},
+    {"name": "goal", "dtype": "string"},
+    {
+      "name": "plan",
+      "dtype": "string",
+      "note": "present on all 1749 records and always a string; it is not optional in this dataset"
+    },
+    {
+      "name": "lie",
+      "struct": [
+        {"name": "kind", "dtype": "string"},
+        {"name": "description", "dtype": "string"}
+      ],
+      "optional": true,
+      "note": "present on 316 of 1749 records (every `meta.kind=episode` record, no `designed` record); always the same two string keys, so it is declared as a struct rather than json and stays searchable"
+    },
+    {
+      "name": "red_herring",
+      "struct": [
+        {"name": "dashboard", "dtype": "string"},
+        {"name": "why_plausible", "dtype": "string"},
+        {
+          "name": "dismissed_at_step",
+          "dtype": "int64",
+          "optional": true,
+          "note": "present on 315 of the 316 records that carry `red_herring`; absent on `obs-r22-ms-recorded-as-seconds-histogram`"
+        }
+      ],
+      "optional": true,
+      "note": "present on 316 of 1749 records (episode only)"
+    },
+    {
+      "name": "diagnosis",
+      "struct": [
+        {"name": "step", "dtype": "int64"},
+        {"name": "how_survived", "dtype": "string"}
+      ],
+      "optional": true,
+      "note": "present on 316 of 1749 records (episode only); uniform int + string keys"
+    },
+    {
+      "name": "recovery",
+      "struct": [
+        {"name": "step", "dtype": "int64"},
+        {"name": "action", "dtype": "string"}
+      ],
+      "optional": true,
+      "note": "present on 316 of 1749 records (episode only); uniform int + string keys"
+    },
+    {
+      "name": "verification",
+      "struct": [
+        {"name": "step", "dtype": "int64"},
+        {"name": "evidence", "dtype": "string"}
+      ],
+      "optional": true,
+      "note": "present on 316 of 1749 records (episode only); uniform int + string keys"
+    },
+    {
+      "name": "steps",
+      "list": [
+        {"name": "n", "dtype": "int64"},
+        {"name": "decision_basis", "dtype": "string"},
+        {
+          "name": "tool_call",
+          "struct": [
+            {"name": "name", "dtype": "string"},
+            {
+              "name": "args",
+              "dtype": "json",
+              "note": "always an object; keys differ per tool (`command`, `path`, `old`, `new`, `contents`, `old_string`, `new_string`, `pattern`, `glob`)"
+            }
+          ]
+        },
+        {"name": "observation", "dtype": "string"},
+        {
+          "name": "reflection",
+          "dtype": "string",
+          "optional": true,
+          "note": "present on 12964 of 26254 steps"
+        }
+      ]
+    },
+    {"name": "outcome", "dtype": "string"},
+    {
+      "name": "reward",
+      "dtype": "json",
+      "note": "key-bag: 269 distinct keys across 1749 records. `success` (bool) on every record; `plan_changes`, `cost_steps`, `handoff` on all 1432 designed records; `steps`, `red_herring_dismissed` on all 316 episode records; `xfailed` on 716; `terminal_only`, `horizon_steps`, `mid_reward_steps` on the one dest-stamped `srl-*` record; the remaining ~200 keys are per-episode measurements, and `panel_before`, `child_s`, `edges` are int on some records and float on others"
+    },
+    {
+      "name": "meta",
+      "dtype": "json",
+      "note": "key-bag: `factory`, `round` (int), `generator` on every record; `kind` on 1748; `service`, `dashboard`, `lie` (a string, unrelated to the top-level `lie` struct) on the 1432 designed records; `seed`, `designed` (bool) on the 316 episode records; `plant` on the one dest-stamped `srl-*` record"
+    }
+  ],
+  "disclosures": [
+    {
+      "summary": "One record in `batch-r500.jsonl` is a dest-stamped leftover-mill row: it keeps `meta.factory=sparse-reward-long-task-factory`, `meta.plant=designed`, no `meta.kind`, and sparse-reward reward keys (`terminal_only`, `horizon_steps`, `mid_reward_steps`). It is kept exactly as generated. Re-derived independently as 1 of 1749 on the local mirror; already owned by the frozen factory_mix census, so no new leftover census is opened here.",
+      "ids": ["srl-r500-networkd-dhcp-ipv4-only-c67a"],
+      "issues": [43]
+    },
+    "The other 1748 records are `observability-debug-factory` leftover-lie (wrong dashboard / dropped label) episodes: 316 carry `meta.kind=episode`, 1432 carry `meta.kind=designed`. The 309 `leftover`-bearing record ids and 314 `leftover`-bearing goals on `obs-*` records are this factory's own advertised leftover-lie mechanic, not a foreign dump.",
+    "A full scan of all 875 shards found no `sir-*` (search-index-rebuild) leftover-in-id record and no dest-stamped payload other than the single `srl-*` row above.",
+    "Every record is generated by `grok-4.6` and every one of the 26254 steps publishes a public `decision_basis`. There are no hidden `thought` or `internal_reasoning` fields."
+  ]
+}
