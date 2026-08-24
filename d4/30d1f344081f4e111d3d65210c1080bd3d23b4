@@ -1,0 +1,23 @@
+tests/test_card_schema.py
+  s_002cddb1a70571::t_55b1dcc9f52470 26
+  s_002cddb1a70571::t_ea91ad5328788b 533-613
+config/card-schemas/graphql-nplusone-trajectories.json
+  s_002cddb1a70571::t_50278b9de02f35 1-14,16-59
+  s_002cddb1a70571::t_6700e204f894b1 15
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "d430d1f344081f4e111d3d65210c1080bd3d23b4",
+  "prompts": {},
+  "sessions": {
+    "s_002cddb1a70571": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "abd260ba-6a6c-45a6-9db3-a4e0988ad60e",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Raul Montoya Cardenas <montoyaraul34@gmail.com>"
+    }
+  }
+}
