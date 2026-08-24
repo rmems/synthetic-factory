@@ -1,0 +1,21 @@
+config/card-schemas/log-redaction-trajectories.json
+  s_002cddb1a70571::t_9c144f883e6308 1-109
+tests/test_card_schema.py
+  s_002cddb1a70571::t_d25d0f0083cda6 532-629
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "861df458fb7a22827908f839e2afbdc443193847",
+  "prompts": {},
+  "sessions": {
+    "s_002cddb1a70571": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "abd260ba-6a6c-45a6-9db3-a4e0988ad60e",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Raul Montoya Cardenas <montoyaraul34@gmail.com>"
+    }
+  }
+}
