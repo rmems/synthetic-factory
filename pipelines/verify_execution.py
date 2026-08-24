@@ -6,14 +6,12 @@ Distinguishes verified / inconclusive / failed. Never treats
 
 Frontier gate integration:
   pipelines/round_txn.py owns the frontier commit point
-  (ROUND-rNN.complete.json). Execution verification is a co-gate:
-  round_txn.validate_stage() / publish() may call
-  verify_batch_for_frontier() (or verify_stage_for_frontier())
-  to block frontier advancement when execution evidence is missing.
-  The hook is comment-anchored below ("Frontier gate hook") and
-  documented in docs/verify-execution.md. round_txn remains the
-  commit-point owner; verify_execution remains the source of truth
-  for verified / inconclusive / failed.
+  (ROUND-rNN.complete.json). Execution verification is a live co-gate:
+  round_txn.validate_stage() calls verify_batch_for_frontier(strict=True)
+  through round_txn.execution_gate() and refuses to publish while any
+  record is failed or inconclusive. round_txn remains the commit-point
+  owner; verify_execution remains the source of truth for
+  verified / inconclusive / failed. See docs/verify-execution.md.
 
 Usage:
   python3 pipelines/verify_execution.py <run_dir> [--strict]
@@ -46,35 +44,43 @@ except ImportError:  # pragma: no cover - depends on sys.path of the caller
 KNOWN_TOOLS = frozenset({
     "bash", "read_file", "edit_file", "write_file", "search",
     "gh", "kubectl", "gate-cli", "tofu", "tenv", "tflint", "aws", "jq", "hcl2json",
+    # safety-calibration-factory records a refusal as a first-class step with a
+    # decision_basis and an observation; the refusal itself is the observable
+    # outcome, so it is verifiable rather than cannot-verify.
+    "refuse",
 })
 
 # ---------------------------------------------------------------------------
-# Frontier gate hook — integration with pipelines/round_txn.py
+# Frontier gate — integration with pipelines/round_txn.py
 # ---------------------------------------------------------------------------
 # pipelines/round_txn.py:validate_stage() is the training-ready gate that
 # runs check_jsonl() and quota checks before publish() links
-# ROUND-rNN.complete.json. Execution verification is an additional frontier
-# gate: a round must not become visible to frontier readers when its
-# records lack observable execution evidence.
+# ROUND-rNN.complete.json. Execution verification is a live co-gate there:
+# a round must not become visible to frontier readers when its records lack
+# observable execution evidence.
 #
-# Hook contract (comment hook, no hard import cycle):
-#   # In pipelines/round_txn.py — inside validate_stage() after check_jsonl:
-#   #   from verify_execution import verify_batch_for_frontier
-#   #   counts, findings, blocked = verify_batch_for_frontier(batch, strict=strict_execution)
-#   #   if blocked:
-#   #       raise TransactionError("execution verification blocks frontier: " + ...)
-#   #
-#   # publish() then links ROUND-rNN.complete.json only if both gates pass.
-#   #
+# Live call site (pipelines/round_txn.py:execution_gate, invoked from
+# validate_stage() after the envelope check):
+#
+#   verify_batch_for_frontier = load_execution_verifier()
+#   counts, findings, blocked = verify_batch_for_frontier(batch, strict=True)
+#   # failed        -> TransactionError, never waivable
+#   # inconclusive  -> TransactionError unless the operator passed
+#   #                  --allow-inconclusive "<reason>", which is recorded in
+#   #                  ROUND-rNN.complete.json
+#
+# publish() links ROUND-rNN.complete.json only if both gates pass, so an
+# unverifiable round cannot advance frontier_status().next_round.
+#
 # This keeps a clean separation: round_txn owns the atomic commit point
 # and filesystem invariants; verify_execution owns the verified /
 # inconclusive / failed taxonomy and never promotes cannot-verify.
-# The hook is intentionally import-on-demand so round_txn can operate
-# without verify_execution, and verify_execution can audit any run_dir
-# without a round_txn reservation.
+# The import is on-demand so verify_execution can audit any run_dir without a
+# round_txn reservation — but a missing verifier fails the publish closed
+# rather than skipping the gate.
 #
-# See docs/verify-execution.md (mirrors tests/tests_verify_execution.md)
-# for the full contract, strict vs non-strict semantics, and test matrix.
+# See docs/verify-execution.md for the full contract, strict vs non-strict
+# semantics, the waiver format, and the test matrix.
 # ---------------------------------------------------------------------------
 
 
@@ -166,6 +172,13 @@ def verify_record_execution(obj, where="record"):
         if traj:
             return verify_thalamic(traj, f"{where}.language_view.trajectory")
         return "inconclusive", "bridge missing language_view.trajectory"
+    # Episode side of a preference pair: the pair owns `goal` while each side
+    # owns its own `steps`. round_txn.validate_agentic_envelope requires exactly
+    # that shape ("chosen/rejected must be an episode side with steps"), so
+    # route it to the step verifier instead of reporting an unrecognized shape —
+    # the execution evidence is right there in the steps.
+    if isinstance(obj.get("steps"), list):
+        return verify_episode_steps(obj.get("steps"), where)
     return "inconclusive", f"unrecognized shape keys {sorted(obj)[:6]}"
 
 
