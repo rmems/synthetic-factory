@@ -1,0 +1,29 @@
+tests/fixtures/coding-observability/legacy-2026-08-17-manifest.jsonl
+  s_002cddb1a70571::t_552cf27ad0c2bc 1-3
+pipelines/curate_coding.py
+  s_002cddb1a70571::t_e55d809c49fe38 695-713,718
+  s_002cddb1a70571::t_fb62603c5402e2 666-675,678-680
+  s_002cddb1a70571::t_da137d686de3f4 62-79
+  s_002cddb1a70571::t_c580614a671800 29
+  s_002cddb1a70571::t_25169e89b40fba 13-19
+  s_002cddb1a70571::t_7f5554a72a3acd 448-625
+tests/test_curate_coding.py
+  s_002cddb1a70571::t_c3f078bdbcd34a 32-33
+  s_002cddb1a70571::t_b4c2ed7d7e51de 329-618
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "03b6557ad870d11199873f54040274329f1bddc9",
+  "prompts": {},
+  "sessions": {
+    "s_002cddb1a70571": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "abd260ba-6a6c-45a6-9db3-a4e0988ad60e",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Raul Montoya Cardenas <montoyaraul34@gmail.com>"
+    }
+  }
+}
