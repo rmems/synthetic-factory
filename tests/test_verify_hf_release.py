@@ -61,6 +61,8 @@ Codex contributed curation design, validation, and release engineering.
 ## Published raw payload
 
 The viewer is data/viewer/records.parquet.
+Do not train on `thought` or `internal_reasoning*`; this raw Hub copy is
+evidence only.
 
 ## Links
 
@@ -168,6 +170,35 @@ class ReleaseVerifierTests(unittest.TestCase):
         )
         self.assertIn(
             "README missing repository purpose marker: relay-gated state assessment",
+            self.verify().errors,
+        )
+
+    def test_hidden_reasoning_warning_is_required_on_the_card(self) -> None:
+        self.values["README.md"] = _card().replace(
+            "Do not train on `thought` or `internal_reasoning*`; this raw Hub copy is\n"
+            "evidence only.\n",
+            "",
+        )
+        self.assertIn(
+            "README missing required card marker: "
+            "Do not train on `thought` or `internal_reasoning*`",
+            self.verify().errors,
+        )
+
+    def test_hidden_reasoning_warning_must_sit_in_the_payload_section(self) -> None:
+        self.values["README.md"] = _card().replace(
+            "## Published raw payload",
+            "## Notes\nDo not train on `thought` or `internal_reasoning*`; this raw\n"
+            "Hub copy is evidence only.\n\n## Published raw payload",
+        ).replace(
+            "The viewer is data/viewer/records.parquet.\n"
+            "Do not train on `thought` or `internal_reasoning*`; this raw Hub copy is\n"
+            "evidence only.\n",
+            "The viewer is data/viewer/records.parquet.\n",
+        )
+        self.assertIn(
+            "README missing required card marker: "
+            "Do not train on `thought` or `internal_reasoning*`",
             self.verify().errors,
         )
 

@@ -99,6 +99,8 @@ REQUIRED_CARD_MARKERS = (
     "## Intended model target",
     "## Generation attribution",
     "## Published raw payload",
+    "Do not train on `thought` or `internal_reasoning*`",
+    "raw Hub copy is evidence only",
     "## Links",
     "## License",
     "[Synthetic Data Factory](https://github.com/rmems/synthetic-factory)",
@@ -126,6 +128,10 @@ CARD_SECTION_MARKERS = {
     ),
     "## Published raw payload": (
         "data/viewer/records.parquet",
+        # Raw evidence may keep hidden CoT; the card must say it is not
+        # training supervision, so a reader cannot mistake it for one.
+        "Do not train on `thought` or `internal_reasoning*`",
+        "raw Hub copy is evidence only",
     ),
     "## Links": (
         "[Synthetic Data Factory](https://github.com/rmems/synthetic-factory)",

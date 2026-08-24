@@ -33,7 +33,17 @@ from check_records import (  # noqa: E402
     root_record_id,
     walk_key,
 )
+from curate_coding import (  # noqa: E402
+    HIDDEN_REASONING_KEYS,
+    HIDDEN_REASONING_PREFIX,
+    normalized_key_name,
+)
 from validate_run import HIDDEN_THOUGHT_KEYS, _episode_like, event_time  # noqa: E402
+
+# A curated training view may expose neither the scratch-pad vocabulary the
+# structural validator already knows about nor the ``internal_reasoning*``
+# family that Thalamic wrap records publish on ``proposed_action``.
+CURATED_FORBIDDEN_REASONING_KEYS = HIDDEN_THOUGHT_KEYS | HIDDEN_REASONING_KEYS
 
 
 def percentile(values, fraction):
@@ -191,12 +201,26 @@ def has_observable_decision_basis(turn):
     )
 
 
+def is_hidden_thought_key(key):
+    """Return whether a JSON key names model-private reasoning text.
+
+    Covers the shared scratch-pad vocabulary from ``validate_run`` plus the
+    whole ``internal_reasoning*`` family that Thalamic wrap records carry on
+    ``proposed_action``. Raw evidence may keep these keys; a curated training
+    view may not.
+    """
+    normalized = normalized_key_name(key)
+    return normalized in CURATED_FORBIDDEN_REASONING_KEYS or normalized.startswith(
+        f"{HIDDEN_REASONING_PREFIX}_"
+    )
+
+
 def hidden_thought_paths(value, path=""):
-    """Yield every recursively hidden-reasoning field in one agentic record."""
+    """Yield every recursively hidden-reasoning field in one record."""
     if isinstance(value, dict):
         for key, item in value.items():
             child_path = f"{path}.{key}" if path else key
-            if key in HIDDEN_THOUGHT_KEYS:
+            if is_hidden_thought_key(key):
                 yield child_path
             yield from hidden_thought_paths(item, child_path)
     elif isinstance(value, list):
@@ -252,6 +276,7 @@ def audit_run(run_dir: Path):
     tags = Counter()
     bridge = Counter()
     episodes = Counter()
+    hidden_thought_examples = []
 
     for path in files:
         rel = path.relative_to(run_dir)
@@ -411,16 +436,13 @@ def audit_run(run_dir: Path):
                 bridge[f"{status}_pairs"] += 1
             if kind == "episode":
                 episodes["episodes"] += 1
-            agentic_hidden_thoughts = kind in {"episode", "multi_agent", "safety_case"}
-            if kind == "preference":
-                agentic_hidden_thoughts = any(
-                    _episode_like(dict_field(obj, side_name))
-                    for side_name in ("chosen", "rejected")
-                )
-            if agentic_hidden_thoughts:
-                episodes["hidden_thought_fields"] += len(
-                    tuple(hidden_thought_paths(obj))
-                )
+            # Every kind is scanned, not only the agentic ones: Thalamic wrap
+            # records publish `proposed_action.internal_reasoning` and embed a
+            # coding episode with per-step `thought` under `executed_action`.
+            for hidden_path in hidden_thought_paths(obj):
+                episodes["hidden_thought_fields"] += 1
+                if len(hidden_thought_examples) < 10:
+                    hidden_thought_examples.append(f"{where}:{hidden_path}")
             for turn in agentic_turns(obj, kind):
                 if not isinstance(turn, dict):
                     continue
@@ -493,8 +515,8 @@ def audit_run(run_dir: Path):
         blockers.append(f"{len(exact_duplicates)} exact duplicate records")
     if episodes["hidden_thought_fields"]:
         blockers.append(
-            f"{episodes['hidden_thought_fields']} hidden-thought fields appear in "
-            "agentic records"
+            f"{episodes['hidden_thought_fields']} hidden-thought fields "
+            "(thought / internal_reasoning*) appear in records"
         )
     if episodes["missing_decision_basis_steps"]:
         blockers.append(
@@ -564,6 +586,7 @@ def audit_run(run_dir: Path):
         },
         "bridge": dict(bridge),
         "episodes": dict(episodes),
+        "hidden_thought_examples": hidden_thought_examples,
         "exact_duplicates": exact_duplicates,
         "record_invariants": {
             "errors": len(record_errors),
