@@ -1,0 +1,59 @@
+prompts/02-multi-agent-ouroboros-swarm.md
+  s_002cddb1a70571::t_475f8ec1d37c3b 51
+prompts/03-neuromorphic-event-language-bridge.md
+  s_002cddb1a70571::t_47b8aff2cda949 30-34
+prompts/05-failure-as-fuel-preference-cascade.md
+  s_002cddb1a70571::t_2d0b5e29810ef6 154-160
+tests/fixtures/token-efficiency/thalamic-trajectory-factory/NOTES-r06.md
+  s_002cddb1a70571::t_92abfbae3e48c2 1-12
+prompts/04-agentic-coding-trajectory-factory.md
+  s_002cddb1a70571::t_47b8aff2cda949 25,127
+docs/token-efficiency.md
+  s_002cddb1a70571::t_3ff83762a5f669 61-68
+  s_002cddb1a70571::t_6e61105aeec640 122-132
+  s_002cddb1a70571::t_db35dc1b3e7762 34-54
+pipelines/round_txn.py
+  s_002cddb1a70571::t_57889301f63df6 2307-2309,2311
+  s_002cddb1a70571::t_3da8682baebb8d 2207-2225
+tests/test_round_txn.py
+  s_002cddb1a70571::t_0779714d69938a 493-552
+  s_002cddb1a70571::t_1b86690853e101 49-51
+prompts/01-thalamic-trajectory-factory.md
+  s_002cddb1a70571::t_475f8ec1d37c3b 60
+tests/fixtures/token-efficiency/thalamic-trajectory-factory/NOTES-r05.md
+  s_002cddb1a70571::t_92abfbae3e48c2 1-13
+.claude/skills/run-synthetic-factory/driver.py
+  s_002cddb1a70571::t_728ca55721e06b 678-692,697-705
+.claude/skills/run-synthetic-factory/SKILL.md
+  s_002cddb1a70571::t_e8563a5849213f 97-103
+tests/test_workflow_contract.py
+  s_002cddb1a70571::t_1c4a2eafafb52c 2,4,10-14,58-117
+tests/test_factory_driver.py
+  s_002cddb1a70571::t_bd9b7e59aed4fd 24-81
+tests/fixtures/token-efficiency/agentic-coding-trajectory-factory/NOTES-r06.md
+  s_002cddb1a70571::t_92abfbae3e48c2 1-12
+prompts/_factory-contract.md
+  s_002cddb1a70571::t_affa441501629c 16-17
+  s_002cddb1a70571::t_1c604a0c6079c8 47-62,66-68
+  s_002cddb1a70571::t_239df9d4c672ea 63-65
+tests/fixtures/token-efficiency/agentic-coding-trajectory-factory/NOTES-r05.md
+  s_002cddb1a70571::t_92abfbae3e48c2 1-12
+tests/fixtures/token-efficiency/README.md
+  s_002cddb1a70571::t_92abfbae3e48c2 1-15
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "6a8bd639a77eb377d8f97ae20624abcf80263a47",
+  "prompts": {},
+  "sessions": {
+    "s_002cddb1a70571": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "abd260ba-6a6c-45a6-9db3-a4e0988ad60e",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Raul Montoya Cardenas <montoyaraul34@gmail.com>"
+    }
+  }
+}
