@@ -1,0 +1,22 @@
+tests/test_card_schema.py
+  s_002cddb1a70571::t_fc35e95400ed9b 26
+  s_002cddb1a70571::t_def3fbf80d1373 533-630
+config/card-schemas/authz-regression-trajectories.json
+  s_002cddb1a70571::t_19b16e8f5ba961 1-99
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "b015ca0b4236320e311c5ecdaaefe56727268ffa",
+  "prompts": {},
+  "sessions": {
+    "s_002cddb1a70571": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "abd260ba-6a6c-45a6-9db3-a4e0988ad60e",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Raul Montoya Cardenas <montoyaraul34@gmail.com>"
+    }
+  }
+}
