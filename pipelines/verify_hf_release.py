@@ -8,6 +8,11 @@ files from every configured dataset repository and proves that the release
 contract is still present: Apache-2.0 terms, explicit multi-model provenance,
 raw/non-training-ready status, and a lossless viewer projection.
 
+The license declaration is checked in all three places that can drift apart:
+the card front matter, the shipped ``LICENSE`` text, and ``release-status.json``.
+A repository that still calls its license undeclared while shipping an
+Apache-2.0 ``LICENSE`` file fails closed here.
+
 Usage:
     python3 pipelines/verify_hf_release.py
     python3 pipelines/verify_hf_release.py --repo rmems/thalamic-relay-trajectories
@@ -52,6 +57,31 @@ REQUIRED_CONTRIBUTORS = {
 
 HUB_BASE_URL = "https://huggingface.co"
 APACHE_2_NORMALIZED_SHA256 = "b9a1a37910c6451f5e6892324a5f52878114219b593a9f48eb8054f45e24d33c"
+
+# The shipped LICENSE text is the anchor for the license declaration: its
+# normalized digest names one license family, and both the card front matter
+# and release-status.json must repeat exactly that identifier.
+LICENSE_HASH_FAMILIES = {
+    APACHE_2_NORMALIZED_SHA256: "apache-2.0",
+}
+DEFAULT_LICENSE_FAMILY = "apache-2.0"
+
+# Placeholders that leave the release license unresolved.  A repository that
+# still carries one of these contradicts its own card, LICENSE, and Hub tag.
+UNDECLARED_LICENSE_VALUES = frozenset(
+    {
+        "",
+        "none",
+        "not-yet-declared",
+        "not_yet_declared",
+        "pending",
+        "tbd",
+        "unaddressed",
+        "undeclared",
+        "unknown",
+        "unlicensed",
+    }
+)
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 REVISION_RE = re.compile(r"^[0-9a-f]{40}$")
 
@@ -259,6 +289,66 @@ def _card_section_errors(card: str, repo: str) -> list[str]:
         errors.append(f"README missing repository purpose marker: {purpose}")
     if _normalized_text(target) not in target_section:
         errors.append(f"README missing Spikenaut classification: {target}")
+    return errors
+
+
+def _license_family(license_text: str) -> str | None:
+    """Return the canonical license id for a recognized complete license text."""
+
+    return LICENSE_HASH_FAMILIES.get(_normalized_sha256(license_text))
+
+
+def _release_status_license(text: str, errors: list[str]) -> str | None:
+    """Return the release-status license, recording structural problems."""
+
+    try:
+        status = json.loads(text)
+    except json.JSONDecodeError as error:
+        errors.append(f"release-status.json is invalid JSON: {error.msg}")
+        return None
+    if not isinstance(status, dict):
+        errors.append("release-status.json must contain a JSON object")
+        return None
+    declared = status.get("license")
+    if not isinstance(declared, str):
+        errors.append("release-status.json must declare a string license")
+        return None
+    return declared
+
+
+def _license_alignment_errors(
+    card: str, license_text: str, status_license: str | None
+) -> list[str]:
+    """Require the card, the LICENSE file, and release-status.json to agree.
+
+    ``status_license`` is ``None`` when release-status.json could not supply a
+    declaration; that failure is already recorded by the caller, so this only
+    checks the declarations that exist.
+    """
+
+    errors: list[str] = []
+    family = _license_family(license_text)
+    if family is None:
+        errors.append("LICENSE does not match the complete Apache License 2.0 text")
+    expected = family or DEFAULT_LICENSE_FAMILY
+
+    card_license = _front_matter(card).get("license")
+    normalized_card = (card_license or "").strip().casefold()
+    if normalized_card != expected:
+        errors.append(f"README front matter must declare license: {expected}")
+
+    if status_license is not None:
+        normalized_status = status_license.strip().casefold()
+        if normalized_status in UNDECLARED_LICENSE_VALUES:
+            errors.append(
+                "release-status.json leaves the license undeclared: "
+                f"{status_license!r}; LICENSE and the card declare {expected!r}"
+            )
+        elif normalized_status != expected:
+            errors.append(
+                f"release-status.json declares license {status_license!r}, "
+                f"but LICENSE and the card declare {expected!r}"
+            )
     return errors
 
 
@@ -492,6 +582,9 @@ def verify_dataset(
             public_url(repo, "provenance.json", base_url), timeout
         )
         license_text = text_fetcher(public_url(repo, "LICENSE", base_url), timeout)
+        release_status_text = text_fetcher(
+            public_url(repo, "release-status.json", base_url), timeout
+        )
         viewer_bytes = bytes_fetcher(
             public_url(
                 repo, "data/viewer/records.parquet", base_url, resolve=True
@@ -501,11 +594,9 @@ def verify_dataset(
     except Exception as error:  # network exceptions differ across Hub backends
         return CheckResult(repo, (f"public fetch failed: {error}",))
 
-    if _front_matter(card).get("license") != "apache-2.0":
-        errors.append("README front matter must declare license: apache-2.0")
+    status_license = _release_status_license(release_status_text, errors)
+    errors.extend(_license_alignment_errors(card, license_text, status_license))
     errors.extend(_card_section_errors(card, repo))
-    if _normalized_sha256(license_text) != APACHE_2_NORMALIZED_SHA256:
-        errors.append("LICENSE does not match the complete Apache License 2.0 text")
     errors.extend(_viewer_errors(card, viewer_bytes))
 
     try:
