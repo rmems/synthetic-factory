@@ -18,6 +18,17 @@ python3 pipelines/census.py tests/fixtures/mini-run
 `tests/fixtures/mini-run` includes one intentional JSON parse failure.
 `validate_run.py` on that path is expected to exit nonzero.
 
+Oracle-grounded distillation records (issue #78) have their own validator and a
+committed end-to-end fixture run:
+
+```bash
+python3 pipelines/validate_distill.py tests/fixtures/distillation-run
+python3 scripts/build_distillation_fixture.py --force   # rebuilds that fixture
+```
+
+See `docs/distillation-datasets.md` for the per-family oracle contracts and
+`schemas/oracle-grounded-record.schema.json` for the shared record envelope.
+
 ## Cursor Cloud specific instructions
 
 Cloud agents should start from `.cursor/environment.json`, which builds
