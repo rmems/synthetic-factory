@@ -1,0 +1,23 @@
+config/card-schemas/docker-build-cache-trajectories.json
+  s_002cddb1a70571::t_ec26be460b8aaf 1-110
+tests/test_card_schema.py
+  s_002cddb1a70571::t_aefeac0ff5413f 532-539,542,544-546,548-648
+  s_002cddb1a70571::t_c63c159c954de0 540-541
+  s_002cddb1a70571::t_6fc78a9a339f44 543,547
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "746a8ecc6f059666a4a1bc11a034e777d2dcf5b4",
+  "prompts": {},
+  "sessions": {
+    "s_002cddb1a70571": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "abd260ba-6a6c-45a6-9db3-a4e0988ad60e",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Raul Montoya Cardenas <montoyaraul34@gmail.com>"
+    }
+  }
+}
