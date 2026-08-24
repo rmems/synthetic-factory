@@ -43,6 +43,7 @@ if str(_PIPELINES) not in sys.path:
     sys.path.insert(0, str(_PIPELINES))
 
 from check_records import check_jsonl  # noqa: E402
+from curate_bridge import is_bridge_record, raster_status  # noqa: E402
 from validate_run import THALAMIC_CORE_KEYS, terminal_outcome_agrees  # noqa: E402
 
 
@@ -110,6 +111,9 @@ FACTORY_QUOTAS = {
     "distributed-lock-factory": 2,
     "cache-stampede-factory": 2,
 }
+
+# The neuromorphic lane carries the raster / gate-as-SNN publication contract.
+BRIDGE_FACTORY_SLUG = "neuromorphic-event-language-bridge"
 
 # The original five lanes deliberately allow an operator-selected ``expected``
 # count. Every later Grok 4.6 factory is documented with a fixed quota and
@@ -1742,6 +1746,64 @@ def run_publish_lock(factory_dir: Path):
             fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
 
 
+def validate_bridge_envelope(batch: Path, factory_dir: Path):
+    """Return raster / gate-SNN contract errors for one Bridge batch.
+
+    A newly published Bridge round has to be loadable by an SNN distillation
+    probe without parsing prose: every record carries a 20-50 ms raster excerpt
+    with a per-population routing table and a checked spike budget, and the
+    round carries at least one spike-implemented gate head.  ``curate_bridge``
+    owns the spike arithmetic; this layer only refuses the publish.
+
+    This runs on the staged batch only.  Rounds committed before the contract
+    existed keep their markers: retroactively rejecting them would break
+    frontier discovery for every historical Bridge directory, and the corpus
+    gate for those lives in ``training_audit.py`` instead.
+    """
+
+    if factory_dir.name != BRIDGE_FACTORY_SLUG:
+        return []
+    errors = []
+    bridge_records = 0
+    gate_snn_records = 0
+    for lineno, line in enumerate(batch.read_text().splitlines(), 1):
+        if not line.strip():
+            continue
+        # JSON parsing and base shape errors have already been checked by
+        # check_jsonl; this pass only adds the neuromorphic sidecar contract.
+        try:
+            record = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if not is_bridge_record(record):
+            continue
+        bridge_records += 1
+        where = f"{batch.name}:{lineno}"
+        status = raster_status(record)
+        if not status["raster_present"]:
+            errors.append(
+                f"{where}: bridge records must carry a 20-50 ms raster excerpt "
+                "sidecar (raster or meta.raster)"
+            )
+        elif status["reason_codes"]:
+            errors.append(
+                f"{where}: raster or spike-budget contract violated "
+                f"({', '.join(status['reason_codes'])})"
+            )
+        elif status["routing_table_entries"] < 1:
+            errors.append(
+                f"{where}: raster.routing.table must carry at least one "
+                "per-population routing entry"
+            )
+        gate_snn_records += int(status["gate_snn_present"])
+    if bridge_records and not gate_snn_records:
+        errors.append(
+            f"{batch.name}: a bridge round must contain at least one "
+            "spike-implemented gate (gate_snn neuron/threshold spec)"
+        )
+    return errors
+
+
 def validate_agentic_envelope(batch: Path, factory_dir: Path, round_number: int):
     """Return fixed-contract envelope errors for one staged agentic batch."""
     if factory_dir.name not in AGENTIC_FACTORY_KINDS:
@@ -2530,6 +2592,12 @@ def validate_stage(
             raise TransactionError(
                 "staged batch violates the agentic factory envelope:\n"
                 + "\n".join(f"ERROR: {error}" for error in envelope_errors)
+            )
+        bridge_errors = validate_bridge_envelope(batch, factory_dir)
+        if bridge_errors:
+            raise TransactionError(
+                "staged batch violates the bridge raster envelope:\n"
+                + "\n".join(f"ERROR: {error}" for error in bridge_errors)
             )
         # Frontier gate: run over the captured copy so the verdict describes the
         # same bytes the manifest hashes, not a batch swapped in mid-validation.

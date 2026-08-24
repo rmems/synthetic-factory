@@ -1349,5 +1349,120 @@ class RoundTransaction(unittest.TestCase):
                 round_txn.reserve(factory, 2, 1)
 
 
+BRIDGE_FIXTURE = REPO / "tests" / "fixtures" / "bridge_gate_snn.jsonl"
+
+
+def bridge(record_id, *, gate_snn=True):
+    """The committed raster + gate-as-SNN reference record, re-identified."""
+
+    record = json.loads(BRIDGE_FIXTURE.read_text(encoding="utf-8").splitlines()[0])
+    record["id"] = record_id
+    trajectory = record["language_view"]["trajectory"]
+    trajectory["id"] = f"{record_id}-traj"
+    trajectory["state"]["episode_id"] = record_id
+    trajectory["meta"]["round"] = 1
+    if not gate_snn:
+        del record["gate_snn"]
+    return record
+
+
+class BridgeRasterEnvelope(unittest.TestCase):
+    """A newly published Bridge round must be loadable by a distillation probe.
+
+    ``curate_bridge`` owns the spike arithmetic; this layer only refuses the
+    publish, and only for the staged batch — rounds committed before the
+    contract existed keep their markers.
+    """
+
+    def factory(self, root):
+        path = (
+            Path(root)
+            / "outputs"
+            / "raw"
+            / "2099-01-01"
+            / "neuromorphic-event-language-bridge"
+        )
+        path.mkdir(parents=True)
+        return path
+
+    def stage(self, factory, records):
+        reservation = round_txn.reserve(factory, 1, len(records))
+        staging = Path(reservation["staging_dir"])
+        write_records(staging / reservation["batch_file"], records)
+        (staging / reservation["notes_file"]).write_text("# Critique\n\nConcrete gap.\n")
+        return reservation
+
+    def test_raster_backed_round_with_a_gate_head_publishes(self):
+        with tempfile.TemporaryDirectory() as td:
+            factory = self.factory(td)
+            reservation = self.stage(
+                factory, [bridge("bridge-1", gate_snn=False), bridge("bridge-2")]
+            )
+            manifest = round_txn.publish(factory, 1, reservation["token"])
+
+        self.assertEqual(manifest["records"], 2)
+
+    def test_record_without_a_raster_cannot_be_published(self):
+        with tempfile.TemporaryDirectory() as td:
+            factory = self.factory(td)
+            bare = bridge("bridge-1")
+            del bare["raster"]
+            reservation = self.stage(factory, [bare])
+
+            with self.assertRaisesRegex(
+                round_txn.TransactionError, "20-50 ms raster excerpt sidecar"
+            ):
+                round_txn.publish(factory, 1, reservation["token"])
+            self.assertFalse((factory / "batch-r01.jsonl").exists())
+
+    def test_broken_spike_product_cannot_be_published(self):
+        with tempfile.TemporaryDirectory() as td:
+            factory = self.factory(td)
+            record = bridge("bridge-1")
+            record["raster"]["spikes"] = 999
+            reservation = self.stage(factory, [record])
+
+            with self.assertRaisesRegex(
+                round_txn.TransactionError, "BRIDGE_SPIKE_BUDGET_MISMATCH"
+            ):
+                round_txn.publish(factory, 1, reservation["token"])
+
+    def test_raster_without_a_routing_table_cannot_be_published(self):
+        with tempfile.TemporaryDirectory() as td:
+            factory = self.factory(td)
+            record = bridge("bridge-1")
+            record["raster"]["routing"]["table"] = []
+            reservation = self.stage(factory, [record])
+
+            with self.assertRaisesRegex(
+                round_txn.TransactionError, "routing.table must carry at least one"
+            ):
+                round_txn.publish(factory, 1, reservation["token"])
+
+    def test_round_without_a_spike_implemented_gate_cannot_be_published(self):
+        with tempfile.TemporaryDirectory() as td:
+            factory = self.factory(td)
+            reservation = self.stage(
+                factory,
+                [bridge("bridge-1", gate_snn=False), bridge("bridge-2", gate_snn=False)],
+            )
+
+            with self.assertRaisesRegex(
+                round_txn.TransactionError, "at least one spike-implemented gate"
+            ):
+                round_txn.publish(factory, 1, reservation["token"])
+
+    def test_other_factories_are_untouched_by_the_bridge_envelope(self):
+        with tempfile.TemporaryDirectory() as td:
+            factory = (
+                Path(td) / "outputs" / "raw" / "2099-01-01" / "thalamic-trajectory-factory"
+            )
+            factory.mkdir(parents=True)
+            self.assertEqual(
+                round_txn.validate_bridge_envelope(factory / "batch-r01.jsonl", factory),
+                [],
+            )
+
+
 if __name__ == "__main__":
     unittest.main()

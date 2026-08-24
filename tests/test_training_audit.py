@@ -428,5 +428,158 @@ class TrainingAudit(unittest.TestCase):
         )
 
 
+def gate_snn_bridge(record_id="raster-bridge-1"):
+    """The committed raster + third-factor + gate-as-SNN reference record."""
+
+    line = (
+        (REPO / "tests" / "fixtures" / "bridge_gate_snn.jsonl")
+        .read_text(encoding="utf-8")
+        .splitlines()[0]
+    )
+    record = json.loads(line)
+    record["id"] = record_id
+    return record
+
+
+class DistillationRasterAudit(unittest.TestCase):
+    """Corpus-level raster / gate-as-SNN coverage for SNN distillation."""
+
+    def test_raster_backed_bridge_round_is_training_ready(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            write(
+                root / "neuromorphic-event-language-bridge" / "batch-r01.jsonl",
+                [gate_snn_bridge()],
+            )
+            report = training_audit.audit_run(root)
+            markdown = training_audit.render_markdown(report)
+
+        self.assertTrue(report["training_ready"], report["blockers"])
+        bridge = report["bridge"]
+        self.assertEqual(bridge["raster_valid_pairs"], 1)
+        self.assertEqual(bridge["raster_coverage_pct"], 100.0)
+        self.assertEqual(bridge["raster_spikes"], 123)
+        self.assertEqual(bridge["third_factor_pairs"], 1)
+        self.assertEqual(bridge["gate_snn_records"], 1)
+        self.assertEqual(bridge["gate_snn_valid_records"], 1)
+        self.assertIn("Distillation rasters", markdown)
+
+    def test_bridge_pairs_without_rasters_block_training(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            bare = {
+                "id": "no-raster-1",
+                "spike_events": [
+                    {"channel": "a", "t_rel_ms": 1.0, "amplitude": 0.4},
+                    {"channel": "a", "t_rel_ms": 2.0, "amplitude": 0.5},
+                ],
+                "language_view": {"trajectory": thalamic("no-raster-inner")},
+            }
+            write(root / "neuromorphic-event-language-bridge" / "batch-r01.jsonl", [bare])
+            report = training_audit.audit_run(root)
+
+        self.assertFalse(report["training_ready"])
+        self.assertEqual(report["bridge"]["raster_missing_pairs"], 1)
+        self.assertEqual(report["bridge"]["raster_coverage_pct"], 0)
+        self.assertEqual(
+            report["bridge"]["raster_missing_examples"],
+            ["neuromorphic-event-language-bridge/batch-r01.jsonl:1"],
+        )
+        blockers = " ".join(report["blockers"])
+        self.assertIn("lack a 20-50 ms raster excerpt sidecar", blockers)
+        self.assertIn("spike-implemented gate", blockers)
+
+    def test_broken_spike_product_is_a_named_blocker(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            record = gate_snn_bridge("bad-budget-1")
+            record["raster"]["spikes"] = 999
+            write(root / "neuromorphic-event-language-bridge" / "batch-r01.jsonl", [record])
+            report = training_audit.audit_run(root)
+
+        self.assertFalse(report["training_ready"])
+        self.assertEqual(report["bridge"]["raster_defect_pairs"], 1)
+        self.assertEqual(
+            report["bridge"]["raster_defect_codes"],
+            {"BRIDGE_SPIKE_BUDGET_MISMATCH": 1, "BRIDGE_ENERGY_MISMATCH": 1},
+        )
+        self.assertTrue(
+            any("spike-budget defects" in item for item in report["blockers"]),
+            report["blockers"],
+        )
+
+    def test_raster_without_routing_table_blocks_training(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            record = gate_snn_bridge("no-table-1")
+            del record["raster"]["routing"]["table"]
+            write(root / "neuromorphic-event-language-bridge" / "batch-r01.jsonl", [record])
+            report = training_audit.audit_run(root)
+
+        self.assertFalse(report["training_ready"])
+        self.assertEqual(report["bridge"]["raster_routing_table_missing_pairs"], 1)
+        self.assertTrue(
+            any("lack a routing table" in item for item in report["blockers"]),
+            report["blockers"],
+        )
+
+    def test_a_window_needs_at_least_one_spike_implemented_gate(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            record = gate_snn_bridge("no-gate-1")
+            del record["gate_snn"]
+            write(root / "neuromorphic-event-language-bridge" / "batch-r01.jsonl", [record])
+            report = training_audit.audit_run(root)
+
+        self.assertFalse(report["training_ready"])
+        self.assertEqual(report["bridge"]["gate_snn_records"], 0)
+        self.assertTrue(
+            any(
+                "carry a spike-implemented gate" in item for item in report["blockers"]
+            ),
+            report["blockers"],
+        )
+
+    def test_one_gate_snn_record_covers_the_whole_window(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            plain = gate_snn_bridge("plain-1")
+            del plain["gate_snn"]
+            write(
+                root / "neuromorphic-event-language-bridge" / "batch-r01.jsonl",
+                [plain, gate_snn_bridge("gate-1")],
+            )
+            report = training_audit.audit_run(root)
+
+        self.assertTrue(report["training_ready"], report["blockers"])
+        self.assertEqual(report["bridge"]["pairs"], 2)
+        self.assertEqual(report["bridge"]["gate_snn_records"], 1)
+
+    def test_invalid_gate_snn_spec_is_a_blocker(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            record = gate_snn_bridge("bad-gate-1")
+            record["gate_snn"]["populations"] = [{"name": "gate", "neurons": 0}]
+            write(root / "neuromorphic-event-language-bridge" / "batch-r01.jsonl", [record])
+            report = training_audit.audit_run(root)
+
+        self.assertFalse(report["training_ready"])
+        self.assertEqual(report["bridge"]["gate_snn_records"], 1)
+        self.assertEqual(report["bridge"]["gate_snn_valid_records"], 0)
+        self.assertTrue(
+            any("gate specs are invalid" in item for item in report["blockers"]),
+            report["blockers"],
+        )
+
+    def test_corpus_without_bridge_pairs_has_no_raster_blockers(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            write(root / "thalamic-trajectory-factory" / "batch-r01.jsonl", [thalamic("t-1")])
+            report = training_audit.audit_run(root)
+
+        self.assertTrue(report["training_ready"], report["blockers"])
+        self.assertEqual(report["bridge"]["raster_coverage_pct"], 0)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -2,15 +2,17 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "raster.schema.json",
   "title": "RasterExcerpt",
-  "description": "20-50 ms raster excerpt + routing sidecar for neuromorphic Bridge records. Spike budget: spikes = round(neurons * mean_rate_hz * window_s) and energy = spikes * 23 pJ (Loihi-2-class 4-core, 23 pJ/spike). Window_ms must be 20-50 inclusive. The sidecar is optional here: pipelines/curate_bridge.py only requires one when called with require_raster=True, and accepts it either at the top level or under meta.",
+  "description": "20-50 ms raster excerpt + routing sidecar for neuromorphic Bridge records. Spike budget: spikes = round(neurons * mean_rate_hz * window_s) and energy = spikes * 23 pJ (Loihi-2-class 4-core, 23 pJ/spike). Window_ms must be 20-50 inclusive. The sidecar is optional here: pipelines/curate_bridge.py only requires one when called with require_raster=True, and accepts it either at the top level or under meta. The same file also defines gate_snn, the spike-implemented safety gate head that pipelines/training_audit.py requires at least once per window.",
   "type": "object",
   "properties": {
     "raster": { "$ref": "#/$defs/raster" },
+    "gate_snn": { "$ref": "#/$defs/gate_snn" },
     "meta": {
       "type": "object",
-      "description": "Records may carry the raster sidecar under meta instead of at the top level; the curator accepts either location.",
+      "description": "Records may carry the raster or gate_snn sidecar under meta instead of at the top level; the curator accepts either location.",
       "properties": {
-        "raster": { "$ref": "#/$defs/raster" }
+        "raster": { "$ref": "#/$defs/raster" },
+        "gate_snn": { "$ref": "#/$defs/gate_snn" }
       },
       "additionalProperties": true
     },
@@ -61,6 +63,57 @@
   },
   "additionalProperties": true,
   "$defs": {
+    "gate_snn": {
+      "type": "object",
+      "description": "Spike-implemented safety gate head. The gate decision is expressed as neuron populations with firing thresholds integrated over a decision window, so a distillation probe reads neuron counts instead of prose margins. A population that also declares mean_rate_hz and spikes is held to the same spikes = round(neurons * mean_rate_hz * decision_window_s) budget as a raster. Accepted carriers: top-level gate_snn, meta.gate_snn, language_view.trajectory.gate_snn, language_view.trajectory.safety_decision.gate_snn.",
+      "required": ["populations"],
+      "anyOf": [
+        { "required": ["decision_window_ms"] },
+        { "required": ["decision_window_s"] }
+      ],
+      "properties": {
+        "decision_window_ms": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "description": "Window the gate head integrates over, in milliseconds"
+        },
+        "decision_window_s": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "description": "Alias in seconds; used only when decision_window_ms is absent"
+        },
+        "decision": {
+          "type": "string",
+          "description": "Gate outcome the spiking head produced, e.g. ACCEPT or REJECT"
+        },
+        "populations": {
+          "type": "array",
+          "minItems": 1,
+          "description": "Gate populations; each declares a neuron count and a firing threshold",
+          "items": {
+            "type": "object",
+            "required": ["name", "neurons", "threshold"],
+            "properties": {
+              "name": { "type": "string", "minLength": 1 },
+              "neurons": { "type": "integer", "minimum": 1 },
+              "threshold": {
+                "type": "number",
+                "description": "Membrane threshold at which this population fires"
+              },
+              "mean_rate_hz": { "type": "number", "exclusiveMinimum": 0 },
+              "rate_hz": {
+                "type": "number",
+                "exclusiveMinimum": 0,
+                "description": "Alias for mean_rate_hz; used only when mean_rate_hz is absent"
+              },
+              "spikes": { "type": "integer", "minimum": 0 }
+            },
+            "additionalProperties": true
+          }
+        }
+      },
+      "additionalProperties": true
+    },
     "raster": {
       "type": "object",
       "required": ["neurons", "mean_rate_hz", "spikes", "routing", "excerpt"],
@@ -116,7 +169,7 @@
             "target": { "type": "string", "minLength": 1 },
             "table": {
               "type": "array",
-              "description": "Optional routing table entries",
+              "description": "Per-population routing table. Optional to this schema, but pipelines/training_audit.py blocks a run whose rasters carry no table entries.",
               "items": {
                 "type": "object",
                 "properties": {
@@ -125,6 +178,37 @@
                   "weight": { "type": "number" }
                 }
               }
+            },
+            "third_factor": {
+              "type": "object",
+              "description": "Third-factor (neuromodulatory) routing for this population: the eligibility channel that gates plasticity. Optional, but when present the curator requires a named modulator and a positive eligibility time constant.",
+              "required": ["modulator"],
+              "anyOf": [
+                { "required": ["tau_e_s"] },
+                { "required": ["tau_e_ms"] }
+              ],
+              "properties": {
+                "modulator": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "Neuromodulator carrying the third factor, e.g. dopamine"
+                },
+                "tau_e_s": {
+                  "type": "number",
+                  "exclusiveMinimum": 0,
+                  "description": "Eligibility-trace time constant in seconds, e.g. 2.0"
+                },
+                "tau_e_ms": {
+                  "type": "number",
+                  "exclusiveMinimum": 0,
+                  "description": "Alias in milliseconds; used only when tau_e_s is absent, as tau_e_ms/1000"
+                },
+                "eligibility": {
+                  "type": "string",
+                  "description": "Eligibility rule the third factor gates, e.g. pre_post_stdp"
+                }
+              },
+              "additionalProperties": true
             }
           },
           "additionalProperties": true

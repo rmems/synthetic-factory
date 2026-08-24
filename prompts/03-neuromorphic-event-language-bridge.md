@@ -52,13 +52,40 @@ D. Raster excerpt + routing + ISI + refractory (required for every record):
   bin counts sum to `(spikes − distinct_active_neurons)` computed over the full window.
 - **Refractory 1 ms**: for any neuron, consecutive spikes satisfy Δt ≥ 1.0 ms; no
   `neuron_id` may appear twice with `|t_a − t_b| < 1.0`.
-- Contract & enforcement status: `schemas/raster.schema.json` is the sidecar contract;
-  `pipelines/curate_bridge.py` is the validator. **Machine-enforced today** (quarantine
-  with machine-readable reason codes): missing raster, window outside 20–50 ms,
-  window_s mismatch, spike-budget mismatch, energy mismatch (pJ or uJ).
-  **Record-required but NOT yet machine-enforced** (reviewed at curation; violations
-  are still contract breaches): ISI-histogram presence/consistency, the 1 ms
-  refractory rule, excerpt sort/range/neuron_id bounds, and routing completeness —
-  do not rely on the validator to catch these.
+- **Third-factor routing (required where neuromorphic)**: `raster.routing.third_factor`
+  with a named `modulator`, a positive eligibility time constant `tau_e_s` (alias
+  `tau_e_ms`, e.g. τe 2.0 s), and the `eligibility` rule it gates. `raster.routing.table`
+  must carry at least one per-population `{from, to, weight}` entry.
+
+E. Spike-implemented gate — at least one record per round:
+- Every round must contain **at least one `gate_snn` record**: the safety gate expressed
+  as neuron populations rather than a prose margin, so the gate head is distillable.
+  Accepted carriers: top-level `gate_snn`, `meta.gate_snn`,
+  `language_view.trajectory.gate_snn`, or
+  `language_view.trajectory.safety_decision.gate_snn`.
+- Required fields: `decision_window_ms` (>0; alias `decision_window_s`) and a non-empty
+  `populations` array whose entries each declare `name`, `neurons` (>0), and a numeric
+  firing `threshold`. A population that also declares `mean_rate_hz` and `spikes` is held
+  to the same `spikes = round(neurons * mean_rate_hz * decision_window_s)` ±1 budget.
+- Record the gate outcome as `gate_snn.decision`, matching
+  `language_view.trajectory.safety_decision.decision`.
+
+F. Contract & enforcement status:
+- `schemas/raster.schema.json` is the sidecar contract (raster, third-factor routing, and
+  `gate_snn`); `pipelines/curate_bridge.py` is the record-level validator and the single
+  owner of the spike arithmetic; `pipelines/training_audit.py` is the corpus-level gate;
+  `pipelines/spike_probe.py` is the distillation loader that reads these fields and never
+  parses prose.
+- **Quarantined per record today** (machine-readable reason codes): missing raster when
+  the caller requires one, window outside 20–50 ms, `window_s` mismatch, spike-budget
+  mismatch, energy mismatch (pJ or uJ), missing/empty routing `source`/`target`, an
+  excerpt that is empty or has an out-of-window `t_ms` or an out-of-range `neuron_id`,
+  a malformed `third_factor`, and a malformed `gate_snn` spec.
+- **Blocked per round by the training audit**: any bridge pair without a raster sidecar,
+  any raster whose `routing.table` is empty, any raster or gate defect above, and a round
+  whose bridge pairs contain no `gate_snn` record at all.
+- **Record-required but NOT machine-enforced** (reviewed at curation; violations are still
+  contract breaches): ISI-histogram presence/consistency, the 1 ms refractory rule, and
+  non-decreasing `excerpt` sort order — do not rely on the validators to catch these.
 
 *Co-authored with Muse Spark — Generative-Improve #2/8 Bridge Factory.*

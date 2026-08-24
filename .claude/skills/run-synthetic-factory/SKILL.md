@@ -41,8 +41,20 @@ python3 .claude/skills/run-synthetic-factory/driver.py frontiers outputs/raw/<da
 
 `validate` is structural/invariant evidence. `audit` additionally checks reward
 arithmetic, IDs, provenance, preference context purity, duplicates, reward/tag
-entropy, record lengths, and neuromorphic ordering/density. A nonzero audit is a
-real training blocker; report it rather than relabeling the corpus as clean.
+entropy, record lengths, neuromorphic ordering/density, and SNN distillation
+readiness — a 20-50 ms raster excerpt with a routing table on every bridge
+record, the `spikes = round(neurons * rate * window_s)` budget, and at least one
+spike-implemented `gate_snn` head per round. A nonzero audit is a real training
+blocker; report it rather than relabeling the corpus as clean.
+
+To load those rasters for a distillation probe — `(neuron_id, t_us)` events,
+populations, routing, third-factor eligibility, and gate heads, all read from
+structured JSON and never from prose counts:
+
+```bash
+python3 pipelines/spike_probe.py --strict outputs/raw/<date>
+python3 pipelines/spike_probe.py --jsonl outputs/raw/<date> > rasters.jsonl
+```
 
 ## Snapshot before every launch
 

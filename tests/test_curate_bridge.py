@@ -507,5 +507,167 @@ class BridgeStrictAuditAlignment(unittest.TestCase):
                 self.assertEqual(check_records.check_spikes(events, where), [])
 
 
+def gate_snn_fixture():
+    """The committed raster + third-factor + gate-as-SNN reference record."""
+
+    line = (FIXTURES / "bridge_gate_snn.jsonl").read_text(encoding="utf-8").splitlines()[0]
+    return json.loads(line)
+
+
+class RasterAndGateSnnCuration(unittest.TestCase):
+    """The sidecar contract SNN distillation depends on.
+
+    ``curate_bridge`` owns the spike arithmetic (20-50 ms window,
+    ``spikes = round(neurons * rate * window_s)``, 23 pJ/spike) for every
+    consumer, so these tests pin the reason codes and the shared summary the
+    training audit and the distillation probe read.
+    """
+
+    def test_reference_record_curates_clean_with_full_raster_evidence(self):
+        decision = decide(gate_snn_fixture())
+        self.assertEqual(decision.action, "retain")
+        evidence = decision.manifest["evidence"]["raster"]
+        self.assertTrue(evidence["raster_spike_budget_valid"])
+        self.assertTrue(evidence["raster_energy_pJ_valid"])
+        self.assertTrue(evidence["raster_energy_uJ_valid"])
+        self.assertEqual(evidence["raster_routing_table_entries"], 2)
+        self.assertTrue(evidence["raster_third_factor_valid"])
+        self.assertEqual(evidence["raster_third_factor_tau_e_s"], 2.0)
+        self.assertTrue(evidence["gate_snn_valid"])
+        self.assertEqual(evidence["gate_snn_total_neurons"], 128)
+
+    def test_missing_raster_quarantines_only_when_required(self):
+        record = bridge([event(1.0, "a"), event(2.0, "b")])
+        self.assertEqual(decide(record).action, "retain")
+
+        raw = json.dumps(record, ensure_ascii=False).encode("utf-8")
+        strict = curate_bridge.curate_record(
+            record,
+            source_path="bridge/batch-r02.jsonl",
+            source_line=1,
+            source_hash=hashlib.sha256(raw).hexdigest(),
+            require_raster=True,
+        )
+        self.assertEqual(strict.action, "quarantine")
+        self.assertIn(
+            curate_bridge.REASON_RASTER_MISSING, strict.manifest["reason_codes"]
+        )
+
+    def test_spike_product_mismatch_is_quarantined(self):
+        record = gate_snn_fixture()
+        record["raster"]["spikes"] = 500
+        decision = decide(record)
+        self.assertEqual(decision.action, "quarantine")
+        self.assertIn(
+            curate_bridge.REASON_RASTER_SPIKE_BUDGET, decision.manifest["reason_codes"]
+        )
+
+    def test_malformed_third_factor_routing_is_quarantined(self):
+        for third_factor in (
+            {"modulator": "dopamine"},
+            {"modulator": "", "tau_e_s": 2.0},
+            {"modulator": "dopamine", "tau_e_s": 0},
+            "dopamine",
+        ):
+            with self.subTest(third_factor=third_factor):
+                record = gate_snn_fixture()
+                record["raster"]["routing"]["third_factor"] = third_factor
+                decision = decide(record)
+                self.assertEqual(decision.action, "quarantine")
+                self.assertIn(
+                    curate_bridge.REASON_THIRD_FACTOR_INVALID,
+                    decision.manifest["reason_codes"],
+                )
+
+    def test_tau_e_ms_alias_is_accepted(self):
+        record = gate_snn_fixture()
+        record["raster"]["routing"]["third_factor"] = {
+            "modulator": "dopamine",
+            "tau_e_ms": 2000,
+        }
+        decision = decide(record)
+        self.assertEqual(decision.action, "retain")
+        evidence = decision.manifest["evidence"]["raster"]
+        self.assertEqual(evidence["raster_third_factor_tau_e_s"], 2.0)
+
+    def test_gate_snn_spec_defects_are_quarantined(self):
+        broken = (
+            {"decision_window_ms": 25, "populations": []},
+            {
+                "decision_window_ms": 25,
+                "populations": [{"name": "g", "neurons": 0, "threshold": 1.0}],
+            },
+            {"decision_window_ms": 25, "populations": [{"name": "g", "neurons": 8}]},
+            {"populations": [{"name": "g", "neurons": 8, "threshold": 1.0}]},
+        )
+        for spec in broken:
+            with self.subTest(spec=spec):
+                record = gate_snn_fixture()
+                record["gate_snn"] = spec
+                decision = decide(record)
+                self.assertEqual(decision.action, "quarantine")
+                self.assertIn(
+                    curate_bridge.REASON_GATE_SNN_INVALID,
+                    decision.manifest["reason_codes"],
+                )
+
+    def test_gate_snn_population_spike_budget_is_enforced(self):
+        record = gate_snn_fixture()
+        record["gate_snn"]["populations"][0]["spikes"] = 999
+        decision = decide(record)
+        self.assertEqual(decision.action, "quarantine")
+        self.assertIn(
+            curate_bridge.REASON_RASTER_SPIKE_BUDGET, decision.manifest["reason_codes"]
+        )
+
+    def test_gate_snn_is_found_under_every_supported_carrier(self):
+        spec = gate_snn_fixture()["gate_snn"]
+        carriers = {
+            "gate_snn": lambda record: record,
+            "meta.gate_snn": lambda record: record.setdefault("meta", {}),
+            "language_view.trajectory.gate_snn": (
+                lambda record: record["language_view"]["trajectory"]
+            ),
+            "language_view.trajectory.safety_decision.gate_snn": (
+                lambda record: record["language_view"]["trajectory"]["safety_decision"]
+            ),
+        }
+        for location, container in carriers.items():
+            with self.subTest(location=location):
+                record = gate_snn_fixture()
+                del record["gate_snn"]
+                container(record)["gate_snn"] = copy.deepcopy(spec)
+                found_location, found = curate_bridge.gate_snn_sidecar(record)
+                self.assertEqual(found_location, location)
+                self.assertEqual(found, spec)
+
+    def test_raster_status_summarizes_without_reading_prose(self):
+        status = curate_bridge.raster_status(gate_snn_fixture())
+        self.assertTrue(status["bridge_record"])
+        self.assertTrue(status["raster_valid"])
+        self.assertEqual(status["raster_location"], "raster")
+        self.assertEqual(status["routing_table_entries"], 2)
+        self.assertTrue(status["third_factor_present"])
+        self.assertTrue(status["gate_snn_present"])
+        self.assertTrue(status["gate_snn_valid"])
+        self.assertEqual(status["spikes"], 123)
+        self.assertEqual(status["reason_codes"], [])
+
+    def test_raster_status_reports_a_non_bridge_record_as_out_of_scope(self):
+        status = curate_bridge.raster_status({"id": "not-a-bridge"})
+        self.assertFalse(status["bridge_record"])
+        self.assertFalse(status["raster_present"])
+        self.assertEqual(status["reason_codes"], [])
+
+    def test_raster_status_reports_missing_sidecars(self):
+        status = curate_bridge.raster_status(bridge([event(1.0, "a")]))
+        self.assertTrue(status["bridge_record"])
+        self.assertFalse(status["raster_present"])
+        self.assertFalse(status["gate_snn_present"])
+        self.assertEqual(
+            status["reason_codes"], [curate_bridge.REASON_RASTER_MISSING]
+        )
+
+
 if __name__ == "__main__":
     unittest.main()

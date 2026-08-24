@@ -94,6 +94,13 @@ REASON_RASTER_SPIKE_BUDGET = "BRIDGE_SPIKE_BUDGET_MISMATCH"
 REASON_RASTER_ENERGY = "BRIDGE_ENERGY_MISMATCH"
 REASON_RASTER_ROUTING = "BRIDGE_RASTER_ROUTING_MISSING"
 REASON_RASTER_EXCERPT = "BRIDGE_RASTER_EXCERPT_INVALID"
+REASON_THIRD_FACTOR_INVALID = "BRIDGE_THIRD_FACTOR_ROUTING_INVALID"
+REASON_GATE_SNN_INVALID = "BRIDGE_GATE_SNN_SPEC_INVALID"
+
+# Spike-implemented gate head ("gate-as-SNN"): the safety gate expressed as a
+# neuron population with thresholds and a decision window, so a distillation
+# probe reads neuron counts instead of prose.
+GATE_SNN_KEY = "gate_snn"
 
 
 class BridgeCurationError(ValueError):
@@ -257,6 +264,140 @@ def _expected_spikes(neurons: int, mean_rate_hz: float, window_s: float) -> int:
     return int(round(neurons * mean_rate_hz * window_s))
 
 
+def _validate_third_factor(
+    third_factor: Any,
+    *,
+    reason_codes: list[str],
+    evidence: dict[str, Any],
+) -> None:
+    """Validate the per-population third-factor (neuromodulatory) routing entry.
+
+    A third factor is the eligibility-trace channel that gates plasticity for
+    one population: a named modulator and a positive eligibility time constant
+    ``tau_e_s``.  Mutates ``reason_codes`` and ``evidence`` in place.
+    """
+
+    evidence["raster_third_factor_present"] = True
+    if not isinstance(third_factor, dict):
+        reason_codes.append(REASON_THIRD_FACTOR_INVALID)
+        evidence["raster_third_factor_valid"] = False
+        evidence["raster_third_factor_error"] = "third_factor must be an object"
+        return
+    modulator = third_factor.get("modulator")
+    tau_e_s = third_factor.get("tau_e_s")
+    if tau_e_s is None:
+        tau_ms = third_factor.get("tau_e_ms")
+        if _is_finite_number(tau_ms):
+            tau_e_s = float(tau_ms) / 1000.0
+            evidence["raster_third_factor_tau_e_s_derived"] = tau_e_s
+    valid = (
+        isinstance(modulator, str)
+        and bool(modulator.strip())
+        and _is_finite_number(tau_e_s)
+        and float(tau_e_s) > 0
+    )
+    if not valid:
+        reason_codes.append(REASON_THIRD_FACTOR_INVALID)
+        evidence["raster_third_factor_valid"] = False
+        return
+    evidence["raster_third_factor_valid"] = True
+    evidence["raster_third_factor_modulator"] = modulator
+    evidence["raster_third_factor_tau_e_s"] = float(tau_e_s)
+
+
+def _validate_gate_snn(
+    spec: Any,
+    *,
+    reason_codes: list[str],
+    evidence: dict[str, Any],
+) -> None:
+    """Validate a spike-implemented gate head (neurons, thresholds, window).
+
+    The gate-as-SNN spec is what makes the safety decision distillable: each
+    population declares a neuron count and a firing threshold, and the whole
+    head declares the decision window it integrates over.  A population that
+    also declares ``mean_rate_hz`` and ``spikes`` is held to the same
+    ``spikes = round(neurons * rate * window_s)`` budget as a raster.
+    """
+
+    evidence["gate_snn_present"] = True
+    if not isinstance(spec, dict):
+        reason_codes.append(REASON_GATE_SNN_INVALID)
+        evidence["gate_snn_valid"] = False
+        evidence["gate_snn_error"] = "gate_snn must be an object"
+        return
+
+    window_ms = spec.get("decision_window_ms")
+    window_s = spec.get("decision_window_s")
+    if window_ms is None and _is_finite_number(window_s):
+        window_ms = float(window_s) * 1000.0
+        evidence["gate_snn_decision_window_ms_derived"] = window_ms
+    elif _is_finite_number(window_ms) and window_s is None:
+        window_s = float(window_ms) / 1000.0
+    valid = True
+    if not _is_finite_number(window_ms) or float(window_ms) <= 0:
+        reason_codes.append(REASON_GATE_SNN_INVALID)
+        evidence["gate_snn_decision_window_valid"] = False
+        valid = False
+    else:
+        evidence["gate_snn_decision_window_ms"] = float(window_ms)
+        evidence["gate_snn_decision_window_valid"] = True
+
+    populations = spec.get("populations")
+    if not isinstance(populations, list) or not populations:
+        reason_codes.append(REASON_GATE_SNN_INVALID)
+        evidence["gate_snn_populations_valid"] = False
+        evidence["gate_snn_population_count"] = (
+            len(populations) if isinstance(populations, list) else 0
+        )
+        return
+
+    evidence["gate_snn_population_count"] = len(populations)
+    bad: list[int] = []
+    total_neurons = 0
+    for index, population in enumerate(populations):
+        if not isinstance(population, dict):
+            bad.append(index)
+            continue
+        name = population.get("name")
+        neurons = population.get("neurons")
+        threshold = population.get("threshold")
+        if (
+            not isinstance(name, str)
+            or not name.strip()
+            or not isinstance(neurons, int)
+            or isinstance(neurons, bool)
+            or neurons < 1
+            or not _is_finite_number(threshold)
+        ):
+            bad.append(index)
+            continue
+        total_neurons += neurons
+        rate = population.get("mean_rate_hz")
+        if rate is None:
+            rate = population.get("rate_hz")
+        spikes = population.get("spikes")
+        if (
+            _is_finite_number(rate)
+            and isinstance(spikes, int)
+            and not isinstance(spikes, bool)
+            and _is_finite_number(window_s)
+        ):
+            expected = _expected_spikes(neurons, float(rate), float(window_s))
+            if abs(spikes - expected) > 1:
+                reason_codes.append(REASON_RASTER_SPIKE_BUDGET)
+                evidence.setdefault("gate_snn_spike_mismatches", []).append(
+                    {"index": index, "expected": expected, "actual": spikes}
+                )
+                valid = False
+    if bad:
+        reason_codes.append(REASON_GATE_SNN_INVALID)
+        evidence["gate_snn_invalid_population_indices"] = bad
+        valid = False
+    evidence["gate_snn_total_neurons"] = total_neurons
+    evidence["gate_snn_valid"] = valid
+
+
 def _validate_raster(
     raster: Any,
     *,
@@ -382,6 +523,16 @@ def _validate_raster(
         else:
             evidence["raster_routing_valid"] = True
         evidence["raster_routing_present"] = True
+        table = routing.get("table")
+        evidence["raster_routing_table_entries"] = (
+            len(table) if isinstance(table, list) else 0
+        )
+        if "third_factor" in routing:
+            _validate_third_factor(
+                routing["third_factor"],
+                reason_codes=reason_codes,
+                evidence=evidence,
+            )
 
     # Excerpt must be non-empty and within window, neuron_id in range.
     if not isinstance(excerpt, list) or not excerpt:
@@ -492,6 +643,174 @@ def _validate_gate_compute(
             evidence["gate_compute_energy_valid"] = energy_valid
 
 
+def is_bridge_record(record: Any) -> bool:
+    """Return True for a paired spike/language Bridge record."""
+
+    return (
+        isinstance(record, dict)
+        and "language_view" in record
+        and isinstance(record.get("spike_events"), list)
+    )
+
+
+def raster_sidecar(record: Any) -> tuple[str | None, Any]:
+    """Resolve the raster sidecar location and value for one record.
+
+    A valid top-level ``raster`` wins, otherwise a valid ``meta.raster``
+    sidecar.  A malformed sidecar is still returned (with its location) so its
+    reason codes survive; ``(None, None)`` means no sidecar exists at all.
+    """
+
+    if not isinstance(record, dict):
+        return None, None
+    meta = record.get("meta")
+    candidates = (
+        ("raster", record.get("raster")),
+        ("meta.raster", meta.get("raster") if isinstance(meta, dict) else None),
+    )
+    for location, value in candidates:
+        if isinstance(value, dict):
+            return location, value
+    for location, value in candidates:
+        if value is not None:
+            return location, value
+    return None, None
+
+
+def gate_snn_sidecar(record: Any) -> tuple[str | None, Any]:
+    """Resolve the spike-implemented gate spec location and value.
+
+    Accepted carriers, in precedence order: top-level ``gate_snn``,
+    ``meta.gate_snn``, ``language_view.trajectory.gate_snn``, and
+    ``language_view.trajectory.safety_decision.gate_snn``.
+    """
+
+    if not isinstance(record, dict):
+        return None, None
+    meta = record.get("meta")
+    view = record.get("language_view")
+    trajectory = view.get("trajectory") if isinstance(view, dict) else None
+    decision = (
+        trajectory.get("safety_decision") if isinstance(trajectory, dict) else None
+    )
+    candidates = (
+        (GATE_SNN_KEY, record.get(GATE_SNN_KEY)),
+        (f"meta.{GATE_SNN_KEY}", meta.get(GATE_SNN_KEY) if isinstance(meta, dict) else None),
+        (
+            f"language_view.trajectory.{GATE_SNN_KEY}",
+            trajectory.get(GATE_SNN_KEY) if isinstance(trajectory, dict) else None,
+        ),
+        (
+            f"language_view.trajectory.safety_decision.{GATE_SNN_KEY}",
+            decision.get(GATE_SNN_KEY) if isinstance(decision, dict) else None,
+        ),
+    )
+    for location, value in candidates:
+        if isinstance(value, dict):
+            return location, value
+    for location, value in candidates:
+        if value is not None:
+            return location, value
+    return None, None
+
+
+def _gate_compute_sidecar(record: dict[str, Any]) -> Any:
+    """Return the record's gate_compute budget block, including legacy paths."""
+
+    gate_compute = record.get("gate_compute")
+    if isinstance(gate_compute, dict):
+        return gate_compute
+    view = record.get("language_view")
+    trajectory = view.get("trajectory") if isinstance(view, dict) else None
+    if not isinstance(trajectory, dict):
+        return None
+    nested = trajectory.get("gate_compute")
+    if isinstance(nested, dict):
+        return nested
+    probe = trajectory.get("safety_decision")
+    nested = probe.get("gate_compute") if isinstance(probe, dict) else None
+    return nested if isinstance(nested, dict) else None
+
+
+def _raster_reasons(
+    record: dict[str, Any],
+    *,
+    require_raster: bool,
+) -> tuple[list[str], dict[str, Any]]:
+    """Collect raster / gate-budget reason codes and evidence for one record.
+
+    This is the single owner of the spike arithmetic (20-50 ms window,
+    ``spikes = round(neurons * rate * window_s)``, 23 pJ/spike) so the curator,
+    the training audit, and the distillation probe never disagree.
+    """
+
+    reason_codes: list[str] = []
+    evidence: dict[str, Any] = {}
+    location, raster = raster_sidecar(record)
+    if raster is not None:
+        evidence["raster_location"] = location
+        _validate_raster(raster, reason_codes=reason_codes, evidence=evidence)
+    else:
+        evidence["raster_present"] = False
+        if require_raster:
+            reason_codes.append(REASON_RASTER_MISSING)
+    gate_compute = _gate_compute_sidecar(record)
+    if gate_compute is not None:
+        _validate_gate_compute(
+            gate_compute, reason_codes=reason_codes, evidence=evidence
+        )
+    gate_snn_location, gate_snn = gate_snn_sidecar(record)
+    if gate_snn is not None:
+        evidence["gate_snn_location"] = gate_snn_location
+        _validate_gate_snn(gate_snn, reason_codes=reason_codes, evidence=evidence)
+    else:
+        evidence["gate_snn_present"] = False
+    return reason_codes, evidence
+
+
+def raster_status(record: Any, *, require_raster: bool = True) -> dict[str, Any]:
+    """Summarize one record's raster/gate evidence for auditors and probes.
+
+    Returns machine-readable counts only — no prose is ever parsed.  Callers
+    that only want the reason codes can read ``reason_codes``; callers that
+    want to load spikes should use :mod:`spike_probe`.
+    """
+
+    if not is_bridge_record(record):
+        return {
+            "bridge_record": False,
+            "raster_present": False,
+            "raster_valid": False,
+            "raster_location": None,
+            "routing_table_entries": 0,
+            "third_factor_present": False,
+            "gate_snn_present": False,
+            "gate_snn_valid": False,
+            "spikes": None,
+            "reason_codes": [],
+            "evidence": {},
+        }
+    reason_codes, evidence = _raster_reasons(record, require_raster=require_raster)
+    location, raster = raster_sidecar(record)
+    spikes = raster.get("spikes") if isinstance(raster, dict) else None
+    if not isinstance(spikes, int) or isinstance(spikes, bool):
+        spikes = None
+    present = bool(evidence.get("raster_present"))
+    return {
+        "bridge_record": True,
+        "raster_present": present,
+        "raster_valid": present and not reason_codes,
+        "raster_location": location,
+        "routing_table_entries": int(evidence.get("raster_routing_table_entries", 0)),
+        "third_factor_present": bool(evidence.get("raster_third_factor_present")),
+        "gate_snn_present": bool(evidence.get("gate_snn_present")),
+        "gate_snn_valid": bool(evidence.get("gate_snn_valid")),
+        "spikes": spikes,
+        "reason_codes": sorted(set(reason_codes)),
+        "evidence": evidence,
+    }
+
+
 def _base_manifest(
     *,
     source_path: str,
@@ -578,9 +897,10 @@ def curate_record(
 
     When ``require_raster`` is True, a missing ``raster`` sidecar (20-50 ms
     excerpt + routing) also quarantines the record.  Spike-budget checks
-    (spikes = neurons*rate*window @23 pJ) are always validated when the
+    (spikes = neurons*rate*window @23 pJ), third-factor routing entries, and
+    the spike-implemented ``gate_snn`` head are always validated when the
     relevant fields are present, so minimal legacy fixtures remain green
-    unless their budgets are wrong.
+    unless their budgets or specs are wrong.
     """
 
     if not isinstance(source_path, str) or not source_path:
@@ -701,48 +1021,14 @@ def curate_record(
     # --- Raster / spike-budget sidecar validation (20-50 ms, 23 pJ/spike) ---
     # Uses helper validators so manifests stay auditable. Missing raster only
     # quarantines when require_raster=True to keep minimal legacy fixtures green.
-    raster_reasons: list[str] = []
-    raster_evidence: dict[str, Any] = {}
-    # Resolve the sidecar first: a valid top-level raster wins, otherwise a
-    # valid meta.raster sidecar (forward compatibility).  A malformed sidecar
-    # is still validated so its reason codes survive; REASON_RASTER_MISSING
-    # applies only when neither location carries one at all.
-    top_raster = record.get("raster")
-    record_meta = record.get("meta")
-    meta_raster = record_meta.get("raster") if isinstance(record_meta, dict) else None
-    candidates = (("raster", top_raster), ("meta.raster", meta_raster))
-    raster_location: str | None = None
-    raster: Any = None
-    for location, value in candidates:
-        if isinstance(value, dict):
-            raster_location, raster = location, value
-            break
-    if raster is None:
-        for location, value in candidates:
-            if value is not None:
-                raster_location, raster = location, value
-                break
-    if raster is not None:
-        raster_evidence["raster_location"] = raster_location
-        _validate_raster(raster, reason_codes=raster_reasons, evidence=raster_evidence)
-    else:
-        raster_evidence["raster_present"] = False
-        if require_raster:
-            raster_reasons.append(REASON_RASTER_MISSING)
-    gate_compute = record.get("gate_compute")
-    if isinstance(gate_compute, dict):
-        _validate_gate_compute(gate_compute, reason_codes=raster_reasons, evidence=raster_evidence)
-    # Probe language_view.trajectory for gate_compute style budgets (legacy path).
-    if not isinstance(gate_compute, dict):
-        view = record.get("language_view")
-        trajectory = view.get("trajectory") if isinstance(view, dict) else None
-        if isinstance(trajectory, dict):
-            nested = trajectory.get("gate_compute")
-            if not isinstance(nested, dict):
-                probe = trajectory.get("safety_decision")
-                nested = probe.get("gate_compute") if isinstance(probe, dict) else None
-            if isinstance(nested, dict):
-                _validate_gate_compute(nested, reason_codes=raster_reasons, evidence=raster_evidence)
+    # The sidecar resolver, the spike budget, the third-factor routing entry,
+    # and the gate-as-SNN spec all live in _raster_reasons so the curator, the
+    # training audit, and the distillation probe share one implementation.
+    # REASON_RASTER_MISSING applies only when neither location carries a
+    # sidecar at all, and only when require_raster is set.
+    raster_reasons, raster_evidence = _raster_reasons(
+        record, require_raster=require_raster
+    )
     evidence["raster"] = raster_evidence
     if raster_reasons:
         # Deduplicate and keep deterministic order.

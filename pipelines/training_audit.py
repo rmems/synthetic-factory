@@ -4,7 +4,11 @@
 Unlike ``validate_run.py`` (record shape) and ``check_records.py`` (per-record
 invariants), this audit measures corpus-level risks: identity/provenance
 coverage, preference-pair purity, reward-schema entropy, tag reuse, duplicate
-content, length distribution, and bridge event fidelity.
+content, length distribution, bridge event fidelity, and the raster/gate-SNN
+coverage an SNN distillation run needs (20-50 ms excerpt per bridge record,
+routing table, ``spikes = round(neurons * rate * window_s)``, and at least one
+spike-implemented gate head). The spike arithmetic itself is owned by
+``curate_bridge``; this module only counts and reports it.
 
 Usage: python3 pipelines/training_audit.py [--strict] [--markdown] <run_dir>
 """
@@ -33,6 +37,7 @@ from check_records import (  # noqa: E402
     root_record_id,
     walk_key,
 )
+from curate_bridge import raster_status  # noqa: E402
 from validate_run import HIDDEN_THOUGHT_KEYS, _episode_like, event_time  # noqa: E402
 
 
@@ -250,7 +255,22 @@ def audit_run(run_dir: Path):
     reward_keys = Counter()
     reward_shapes = Counter()
     tags = Counter()
-    bridge = Counter()
+    # Keep the distillation-readiness keys present even for a corpus with no
+    # bridge pairs, so the report shape is a stable operator contract.
+    bridge = Counter(
+        pairs=0,
+        raster_valid_pairs=0,
+        raster_missing_pairs=0,
+        raster_defect_pairs=0,
+        raster_routing_table_missing_pairs=0,
+        raster_spikes=0,
+        third_factor_pairs=0,
+        gate_snn_records=0,
+        gate_snn_valid_records=0,
+    )
+    raster_missing_examples = []
+    raster_defect_examples = []
+    raster_defect_codes = Counter()
     episodes = Counter()
 
     for path in files:
@@ -407,6 +427,31 @@ def audit_run(run_dir: Path):
                     bridge["pairs_48_plus"] += int(len(events) >= 48)
                 status = event_stream_status(events)
                 bridge[f"{status}_pairs"] += 1
+                # Distillation readiness: a machine-readable raster sidecar,
+                # a routing table, a checked spike product, and a gate head
+                # expressed as neurons rather than prose.
+                raster = raster_status(obj)
+                if not raster["raster_present"]:
+                    bridge["raster_missing_pairs"] += 1
+                    if len(raster_missing_examples) < 5:
+                        raster_missing_examples.append(where)
+                elif raster["reason_codes"]:
+                    bridge["raster_defect_pairs"] += 1
+                    raster_defect_codes.update(raster["reason_codes"])
+                    if len(raster_defect_examples) < 5:
+                        raster_defect_examples.append(
+                            f"{where}: {','.join(raster['reason_codes'])}"
+                        )
+                else:
+                    bridge["raster_valid_pairs"] += 1
+                    if isinstance(raster["spikes"], int):
+                        bridge["raster_spikes"] += raster["spikes"]
+                if raster["raster_present"] and raster["routing_table_entries"] < 1:
+                    bridge["raster_routing_table_missing_pairs"] += 1
+                bridge["third_factor_pairs"] += int(raster["third_factor_present"])
+                if raster["gate_snn_present"]:
+                    bridge["gate_snn_records"] += 1
+                    bridge["gate_snn_valid_records"] += int(raster["gate_snn_valid"])
             if kind == "episode":
                 episodes["episodes"] += 1
             agentic_hidden_thoughts = kind in {"episode", "multi_agent", "safety_case"}
@@ -474,6 +519,38 @@ def audit_run(run_dir: Path):
         )
     if unsorted_pairs:
         blockers.append(f"{unsorted_pairs}/{bridge['pairs']} bridge pairs have invalid event ordering")
+    bridge_pairs = bridge.get("pairs", 0)
+    missing_rasters = bridge.get("raster_missing_pairs", 0)
+    defect_rasters = bridge.get("raster_defect_pairs", 0)
+    missing_tables = bridge.get("raster_routing_table_missing_pairs", 0)
+    if missing_rasters:
+        blockers.append(
+            f"{missing_rasters}/{bridge_pairs} bridge pairs lack a 20-50 ms "
+            "raster excerpt sidecar"
+        )
+    if defect_rasters:
+        blockers.append(
+            f"{defect_rasters}/{bridge_pairs} bridge pairs have raster or "
+            "spike-budget defects "
+            f"({', '.join(sorted(raster_defect_codes))})"
+        )
+    if missing_tables:
+        blockers.append(
+            f"{missing_tables}/{bridge_pairs} bridge rasters lack a routing table"
+        )
+    if bridge_pairs and not bridge.get("gate_snn_records", 0):
+        blockers.append(
+            f"0/{bridge_pairs} bridge pairs carry a spike-implemented gate "
+            "(gate_snn neuron/threshold spec)"
+        )
+    invalid_gate_snn = bridge.get("gate_snn_records", 0) - bridge.get(
+        "gate_snn_valid_records", 0
+    )
+    if invalid_gate_snn > 0:
+        blockers.append(
+            f"{invalid_gate_snn}/{bridge.get('gate_snn_records', 0)} "
+            "spike-implemented gate specs are invalid"
+        )
     impure_pairs = preference["pairs"] - preference["same_context"]
     if impure_pairs:
         if preference["episode_pairs"]:
@@ -560,7 +637,15 @@ def audit_run(run_dir: Path):
             "reused_uses": sum(count for count in tags.values() if count > 1),
             "top": tags.most_common(20),
         },
-        "bridge": dict(bridge),
+        "bridge": {
+            **dict(bridge),
+            "raster_coverage_pct": round(
+                100 * bridge.get("raster_valid_pairs", 0) / bridge_pairs, 1
+            ) if bridge_pairs else 0,
+            "raster_missing_examples": raster_missing_examples,
+            "raster_defect_examples": raster_defect_examples,
+            "raster_defect_codes": dict(sorted(raster_defect_codes.items())),
+        },
         "episodes": dict(episodes),
         "exact_duplicates": exact_duplicates,
         "record_invariants": {
@@ -615,6 +700,13 @@ def render_markdown(report):
             f"- Bridge fidelity: {report['bridge'].get('sorted_pairs', 0)}/"
             f"{report['bridge'].get('pairs', 0)} pairs globally time-ordered; "
             f"{report['bridge'].get('pairs_48_plus', 0)} have at least 48 events.",
+            f"- Distillation rasters: {report['bridge'].get('raster_valid_pairs', 0)}/"
+            f"{report['bridge'].get('pairs', 0)} bridge pairs carry a valid 20-50 ms "
+            f"excerpt ({report['bridge'].get('raster_coverage_pct', 0)}%), "
+            f"{report['bridge'].get('raster_spikes', 0)} budgeted spikes, "
+            f"{report['bridge'].get('third_factor_pairs', 0)} third-factor routes, "
+            f"{report['bridge'].get('gate_snn_valid_records', 0)} valid "
+            "spike-implemented gate specs.",
             f"- Intentional gate-error records (marked): {report['gate_errors']['marked']} "
             f"`{json.dumps(report['gate_errors']['by_type'], sort_keys=True)}` — "
             "exclude from gate-rationale supervision lanes.",
