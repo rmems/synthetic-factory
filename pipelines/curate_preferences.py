@@ -12,6 +12,16 @@ Read-only corpus inspection::
 
     python3 pipelines/curate_preferences.py scan <source> --json
 
+Read-only impure-pair audit (public ID list plus reason codes)::
+
+    python3 pipelines/curate_preferences.py audit <source> --json
+    python3 pipelines/curate_preferences.py audit <source> --markdown
+    python3 pipelines/curate_preferences.py audit <source> --expect <audit.json>
+
+Read-only agreement check between two copies of one corpus::
+
+    python3 pipelines/curate_preferences.py reconcile <source-a> <source-b>
+
 Write a new preference JSONL and manifest (both destinations must be absent)::
 
     python3 pipelines/curate_preferences.py curate <source> \
@@ -37,7 +47,7 @@ import json
 import os
 import sys
 from collections import Counter
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
 
@@ -50,6 +60,9 @@ import leftover_mill  # noqa: E402
 
 TRANSFORM_NAME = "same-context-preference-curation"
 TRANSFORM_VERSION = "1.1.0"
+
+AUDIT_NAME = "same-context-preference-audit"
+AUDIT_SCHEMA_VERSION = "1.0.0"
 
 ACTION_RETAINED = "retained"
 ACTION_REPAIRED = "repaired"
@@ -73,6 +86,10 @@ class CurationDecision:
     record: dict[str, Any] | None
     context_diff_paths: tuple[str, ...]
     changed_context_fields: tuple[str, ...] = ()
+    # Source-side agreement per canonical context field, before any repair.
+    # ``None`` on both means the pair carries no comparable context at all.
+    same_state: bool | None = None
+    same_proposed_action: bool | None = None
 
 
 @dataclass(frozen=True)
@@ -152,6 +169,29 @@ def context_is_pure(record: dict[str, Any]) -> bool:
     return all(
         canonical_json(chosen[field]) == canonical_json(rejected[field])
         for field in ("state", "proposed_action")
+    )
+
+
+def context_field_agreement(
+    record: Any,
+) -> tuple[bool | None, bool | None]:
+    """Return ``(same_state, same_proposed_action)`` for one source pair.
+
+    ``same_state`` is exactly the invariant a Hub-side ``same_state`` audit
+    measures. ``same_proposed_action`` is the second half of the same-context
+    contract, which such an audit does not see: a pair may hold state constant
+    and still swap the proposed action. Both are ``None`` when the record
+    carries no comparable preference context.
+    """
+
+    context = _preference_context(record) if isinstance(record, dict) else None
+    if context is None:
+        return None, None
+    chosen, rejected = context
+    return (
+        canonical_json(chosen["state"]) == canonical_json(rejected["state"]),
+        canonical_json(chosen["proposed_action"])
+        == canonical_json(rejected["proposed_action"]),
     )
 
 
@@ -351,6 +391,7 @@ def curate_preference_record(record: dict[str, Any]) -> CurationDecision:
         )
 
     chosen, rejected = context
+    same_state, same_proposed_action = context_field_agreement(record)
     context_diff_paths = _all_context_diffs(chosen, rejected)
     if not context_diff_paths:
         return CurationDecision(
@@ -359,14 +400,20 @@ def curate_preference_record(record: dict[str, Any]) -> CurationDecision:
             reason_codes=("PREFERENCE_CONTEXT_ALREADY_IDENTICAL",),
             record=copy.deepcopy(record),
             context_diff_paths=(),
+            same_state=same_state,
+            same_proposed_action=same_proposed_action,
         )
 
-    repaired = _repair_identity_annotations(record)
-    if repaired is not None:
-        return repaired
-    repaired = _repair_proposal_annotations(record)
-    if repaired is not None:
-        return repaired
+    # Repairs report the agreement of the *source* pair, not of their own
+    # output: the audit has to keep naming a repaired pair as impure evidence.
+    for repair in (_repair_identity_annotations, _repair_proposal_annotations):
+        repaired = repair(record)
+        if repaired is not None:
+            return replace(
+                repaired,
+                same_state=same_state,
+                same_proposed_action=same_proposed_action,
+            )
 
     return CurationDecision(
         action=ACTION_EXCLUDED,
@@ -374,6 +421,8 @@ def curate_preference_record(record: dict[str, Any]) -> CurationDecision:
         reason_codes=_exclusion_reasons(context_diff_paths),
         record=None,
         context_diff_paths=context_diff_paths,
+        same_state=same_state,
+        same_proposed_action=same_proposed_action,
     )
 
 
@@ -429,6 +478,25 @@ def _skipped_manifest_entry(
     }
 
 
+def _agreement_labels(decision: CurationDecision) -> tuple[str, ...]:
+    """Return the disjoint agreement buckets one decision contributes to."""
+
+    if decision.same_state is None or decision.same_proposed_action is None:
+        return ("undetermined",)
+    labels: list[str] = []
+    if decision.same_state:
+        labels.append("same_state")
+    if decision.same_proposed_action:
+        labels.append("same_proposed_action")
+    if not decision.same_state and not decision.same_proposed_action:
+        labels.append("both_divergent")
+    elif not decision.same_state:
+        labels.append("state_only_divergent")
+    elif not decision.same_proposed_action:
+        labels.append("proposed_action_only_divergent")
+    return tuple(labels)
+
+
 def curate_source(source: Path) -> CurationRun:
     """Read and classify all preference candidates under ``source``."""
 
@@ -438,6 +506,7 @@ def curate_source(source: Path) -> CurationRun:
     actions: Counter[str] = Counter()
     classifications: Counter[str] = Counter()
     reasons: Counter[str] = Counter()
+    agreement: Counter[str] = Counter()
     skipped_non_preferences = 0
     leftover_mill_kinds: Counter[str] = Counter()
     total_json_records = 0
@@ -489,6 +558,7 @@ def curate_source(source: Path) -> CurationRun:
             actions[decision.action] += 1
             classifications[decision.classification] += 1
             reasons.update(decision.reason_codes)
+            agreement.update(_agreement_labels(decision))
 
             output_hash = None
             output_id = None
@@ -519,6 +589,8 @@ def curate_source(source: Path) -> CurationRun:
                     "action": decision.action,
                     "classification": decision.classification,
                     "reason_codes": list(decision.reason_codes),
+                    "same_state": decision.same_state,
+                    "same_proposed_action": decision.same_proposed_action,
                     "context_diff_paths": list(decision.context_diff_paths),
                     "changed_context_fields": list(decision.changed_context_fields),
                     "output_id": output_id,
@@ -543,6 +615,23 @@ def curate_source(source: Path) -> CurationRun:
         "impure_pairs": impure_pairs,
         "retained_pairs": retained_pairs,
         "excluded_pairs": actions[ACTION_EXCLUDED],
+        # Reconciliation between a state-only Hub audit and this scan: a
+        # ``same_state``-only measurement cannot see a pair that holds state
+        # constant and diverges on the proposed action.
+        "same_state_pairs": agreement["same_state"],
+        "state_divergent_pairs": (
+            agreement["state_only_divergent"] + agreement["both_divergent"]
+        ),
+        "same_proposed_action_pairs": agreement["same_proposed_action"],
+        "proposed_action_divergent_pairs": (
+            agreement["proposed_action_only_divergent"] + agreement["both_divergent"]
+        ),
+        "state_only_divergent_pairs": agreement["state_only_divergent"],
+        "proposed_action_only_divergent_pairs": agreement[
+            "proposed_action_only_divergent"
+        ],
+        "both_context_fields_divergent_pairs": agreement["both_divergent"],
+        "context_undetermined_pairs": agreement["undetermined"],
         "actions": dict(sorted(actions.items())),
         "classifications": dict(sorted(classifications.items())),
         "reason_codes": dict(sorted(reasons.items())),
@@ -610,11 +699,294 @@ def write_run(run: CurationRun, source: Path, output: Path, manifest: Path) -> N
         raise
 
 
+def _divergent_context_fields(entry: dict[str, Any]) -> list[str]:
+    """Return the canonical context fields that differ across the two sides."""
+
+    if entry.get("same_state") is None or entry.get("same_proposed_action") is None:
+        return []
+    fields = []
+    if not entry["same_state"]:
+        fields.append("state")
+    if not entry["same_proposed_action"]:
+        fields.append("proposed_action")
+    return fields
+
+
+def build_audit(run: CurationRun) -> dict[str, Any]:
+    """Return the public impure-pair audit document for one curation run.
+
+    The document is the machine-readable half of the published audit: every
+    impure pair by source location and record id, the reason codes behind its
+    curation decision, and the state/proposal split that reconciles a
+    ``same_state``-only count against the full same-context count.
+    """
+
+    summary = run.summary
+    impure_pairs = [
+        {
+            "source_path": entry["source_path"],
+            "source_line": entry["source_line"],
+            "source_sha256": entry["source_sha256"],
+            "record_id": entry["source_record_id"],
+            "action": entry["action"],
+            "classification": entry["classification"],
+            "reason_codes": list(entry["reason_codes"]),
+            "same_state": entry["same_state"],
+            "same_proposed_action": entry["same_proposed_action"],
+            "divergent_context_fields": _divergent_context_fields(entry),
+            "context_diff_paths": list(entry["context_diff_paths"]),
+        }
+        for entry in run.manifest
+        if entry["action"] != ACTION_RETAINED
+    ]
+    balanced = (
+        summary["state_only_divergent_pairs"]
+        + summary["proposed_action_only_divergent_pairs"]
+        + summary["both_context_fields_divergent_pairs"]
+        + summary["context_undetermined_pairs"]
+    )
+    if (
+        balanced != summary["impure_pairs"]
+        or len(impure_pairs) != summary["impure_pairs"]
+    ):
+        raise PreferenceCurationError(
+            "internal error: impure-pair reconciliation does not balance "
+            f"({len(impure_pairs)} listed, {balanced} bucketed, "
+            f"{summary['impure_pairs']} impure)"
+        )
+    return {
+        "schema_version": AUDIT_SCHEMA_VERSION,
+        "audit": AUDIT_NAME,
+        "transform": dict(summary["transform"]),
+        "summary": {
+            "preference_pairs": summary["preference_records"],
+            "impure_pairs": summary["impure_pairs"],
+            "same_state_pairs": summary["same_state_pairs"],
+            "state_divergent_pairs": summary["state_divergent_pairs"],
+            "proposed_action_divergent_pairs": summary[
+                "proposed_action_divergent_pairs"
+            ],
+            "state_only_divergent_pairs": summary["state_only_divergent_pairs"],
+            "proposed_action_only_divergent_pairs": summary[
+                "proposed_action_only_divergent_pairs"
+            ],
+            "both_context_fields_divergent_pairs": summary[
+                "both_context_fields_divergent_pairs"
+            ],
+            "context_undetermined_pairs": summary["context_undetermined_pairs"],
+            "curated_retained_pairs": summary["retained_pairs"],
+            "curated_repaired_pairs": summary["actions"].get(ACTION_REPAIRED, 0),
+            "curated_excluded_pairs": summary["excluded_pairs"],
+            "retained_context_purity_pct": summary["retained_context_purity_pct"],
+        },
+        "impure_pairs": impure_pairs,
+    }
+
+
+def _yes_no(value: bool | None) -> str:
+    if value is None:
+        return "n/a"
+    return "yes" if value else "no"
+
+
+def render_audit_markdown(audit: dict[str, Any]) -> str:
+    """Render the audit document as the published Markdown tables."""
+
+    summary = audit["summary"]
+    lines = [
+        "| Measure | Pairs |",
+        "| --- | ---: |",
+        f"| Published preference pairs | {summary['preference_pairs']} |",
+        "| `same_state = false` (state diverges) | "
+        f"{summary['state_divergent_pairs']} |",
+        "| `same_proposed_action = false` (proposal diverges) | "
+        f"{summary['proposed_action_divergent_pairs']} |",
+        f"| Impure pairs (either field diverges) | {summary['impure_pairs']} |",
+        f"| - state only | {summary['state_only_divergent_pairs']} |",
+        "| - proposed action only | "
+        f"{summary['proposed_action_only_divergent_pairs']} |",
+        f"| - both fields | {summary['both_context_fields_divergent_pairs']} |",
+        f"| - context not comparable | {summary['context_undetermined_pairs']} |",
+        "| Curated keep (already identical + repaired) | "
+        f"{summary['curated_retained_pairs']} |",
+        f"| Curated exclude | {summary['curated_excluded_pairs']} |",
+        "| Curated same-context purity | "
+        f"{summary['retained_context_purity_pct']:.1f}% |",
+        "",
+        "| Pair | Source | `same_state` | `same_proposed_action` | Curation "
+        "| Reason codes |",
+        "| --- | --- | --- | --- | --- | --- |",
+    ]
+    for pair in audit["impure_pairs"]:
+        record_id = pair["record_id"]
+        identifier = f"`{record_id}`" if record_id else "_(no record id)_"
+        reasons = ", ".join(f"`{code}`" for code in pair["reason_codes"]) or "_(none)_"
+        lines.append(
+            f"| {identifier} "
+            f"| `{pair['source_path']}:{pair['source_line']}` "
+            f"| {_yes_no(pair['same_state'])} "
+            f"| {_yes_no(pair['same_proposed_action'])} "
+            f"| {pair['action']} "
+            f"| {reasons} |"
+        )
+    return "\n".join(lines)
+
+
+def _location_sort_key(location: tuple[Any, Any]) -> tuple[str, int, str]:
+    path_part, line_part = location
+    line_number = line_part if isinstance(line_part, int) else 0
+    return (str(path_part), line_number, str(line_part))
+
+
+def _pairs_by_location(pairs: Any) -> dict[tuple[Any, Any], dict[str, Any]]:
+    located: dict[tuple[Any, Any], dict[str, Any]] = {}
+    for pair in pairs if isinstance(pairs, list) else ():
+        if isinstance(pair, dict):
+            located[(pair.get("source_path"), pair.get("source_line"))] = pair
+    return located
+
+
+AUDIT_PAIR_FIELDS = (
+    "source_sha256",
+    "record_id",
+    "action",
+    "classification",
+    "reason_codes",
+    "same_state",
+    "same_proposed_action",
+    "divergent_context_fields",
+    "context_diff_paths",
+)
+
+
+def audit_differences(expected: Any, actual: dict[str, Any]) -> list[str]:
+    """Return every way ``actual`` departs from a previously published audit."""
+
+    if not isinstance(expected, dict):
+        return ["expected audit document is not a JSON object"]
+    differences: list[str] = []
+    for key in ("schema_version", "audit", "transform"):
+        if expected.get(key) != actual.get(key):
+            differences.append(
+                f"{key}: expected {expected.get(key)!r}, got {actual.get(key)!r}"
+            )
+    expected_summary = expected.get("summary")
+    expected_summary = expected_summary if isinstance(expected_summary, dict) else {}
+    for key in sorted(set(expected_summary) | set(actual["summary"])):
+        if expected_summary.get(key) != actual["summary"].get(key):
+            differences.append(
+                f"summary.{key}: expected {expected_summary.get(key)!r}, "
+                f"got {actual['summary'].get(key)!r}"
+            )
+
+    expected_pairs = _pairs_by_location(expected.get("impure_pairs"))
+    actual_pairs = _pairs_by_location(actual["impure_pairs"])
+    for location in sorted(
+        set(expected_pairs) - set(actual_pairs), key=_location_sort_key
+    ):
+        differences.append(
+            f"{location[0]}:{location[1]}: "
+            "audited impure pair is absent from this scan"
+        )
+    for location in sorted(
+        set(actual_pairs) - set(expected_pairs), key=_location_sort_key
+    ):
+        differences.append(
+            f"{location[0]}:{location[1]}: impure pair is absent from the audit"
+        )
+    for location in sorted(
+        set(expected_pairs) & set(actual_pairs), key=_location_sort_key
+    ):
+        for field in AUDIT_PAIR_FIELDS:
+            want = expected_pairs[location].get(field)
+            got = actual_pairs[location].get(field)
+            if want != got:
+                differences.append(
+                    f"{location[0]}:{location[1]}: {field}: "
+                    f"expected {want!r}, got {got!r}"
+                )
+    return differences
+
+
+RECONCILE_DECISION_FIELDS = (
+    "action",
+    "classification",
+    "reason_codes",
+    "same_state",
+    "same_proposed_action",
+    "context_diff_paths",
+)
+RECONCILE_PAYLOAD_FIELDS = ("source_sha256", "source_record_id")
+RECONCILE_COVERAGE_KEYS = (
+    "json_records_seen",
+    "preference_records",
+    "skipped_non_preference_records",
+)
+
+
+def reconcile_runs(first: CurationRun, second: CurationRun) -> dict[str, list[str]]:
+    """Compare two scans of one corpus, keyed by source path and line.
+
+    ``coverage`` reports records one copy has and the other does not,
+    ``decisions`` reports curation verdicts that disagree, and ``payload``
+    reports agreeing verdicts reached from different source bytes.
+    """
+
+    coverage: list[str] = []
+    decisions: list[str] = []
+    payload: list[str] = []
+
+    for key in RECONCILE_COVERAGE_KEYS:
+        if first.summary[key] != second.summary[key]:
+            coverage.append(
+                f"summary.{key}: first {first.summary[key]}, "
+                f"second {second.summary[key]}"
+            )
+
+    def located(run: CurationRun) -> dict[tuple[str, int], dict[str, Any]]:
+        return {
+            (entry["source_path"], entry["source_line"]): entry
+            for entry in run.manifest
+        }
+
+    first_entries = located(first)
+    second_entries = located(second)
+    for location in sorted(
+        set(first_entries) - set(second_entries), key=_location_sort_key
+    ):
+        coverage.append(f"{location[0]}:{location[1]}: present in the first source only")
+    for location in sorted(
+        set(second_entries) - set(first_entries), key=_location_sort_key
+    ):
+        coverage.append(
+            f"{location[0]}:{location[1]}: present in the second source only"
+        )
+
+    for location in sorted(
+        set(first_entries) & set(second_entries), key=_location_sort_key
+    ):
+        for field, bucket in (
+            *((field, decisions) for field in RECONCILE_DECISION_FIELDS),
+            *((field, payload) for field in RECONCILE_PAYLOAD_FIELDS),
+        ):
+            if first_entries[location][field] != second_entries[location][field]:
+                bucket.append(
+                    f"{location[0]}:{location[1]}: {field}: "
+                    f"first {first_entries[location][field]!r}, "
+                    f"second {second_entries[location][field]!r}"
+                )
+    return {"coverage": coverage, "decisions": decisions, "payload": payload}
+
+
 def _render_human(run: CurationRun) -> str:
     summary = run.summary
     lines = [
         f"Preference records: {summary['preference_records']}",
         f"Impure: {summary['impure_pairs']}",
+        f"State-divergent (same_state=false): {summary['state_divergent_pairs']}",
+        "Proposal-divergent (same_proposed_action=false): "
+        f"{summary['proposed_action_divergent_pairs']}",
+        f"Proposal-divergent only: {summary['proposed_action_only_divergent_pairs']}",
         f"Retained: {summary['retained_pairs']}",
         f"Excluded: {summary['excluded_pairs']}",
         f"Leftover mill (quarantined): {summary['leftover_mill_records']}",
@@ -639,6 +1011,33 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "--json", action="store_true", help="emit summary and decisions as JSON"
     )
 
+    audit = subparsers.add_parser(
+        "audit", help="list impure pairs with reason codes without writing"
+    )
+    audit.add_argument("source", type=Path)
+    audit_format = audit.add_mutually_exclusive_group()
+    audit_format.add_argument(
+        "--json", action="store_true", help="emit the audit document as JSON"
+    )
+    audit_format.add_argument(
+        "--markdown", action="store_true", help="emit the published Markdown tables"
+    )
+    audit.add_argument(
+        "--expect",
+        type=Path,
+        default=None,
+        help="compare against a published audit document and fail on drift",
+    )
+
+    reconcile = subparsers.add_parser(
+        "reconcile", help="prove two copies of one corpus scan identically"
+    )
+    reconcile.add_argument("first", type=Path)
+    reconcile.add_argument("second", type=Path)
+    reconcile.add_argument(
+        "--json", action="store_true", help="emit the differences as JSON"
+    )
+
     curate = subparsers.add_parser(
         "curate", help="write retained preferences and manifest"
     )
@@ -648,10 +1047,79 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     return parser.parse_args(argv)
 
 
+def _run_audit(args: argparse.Namespace, run: CurationRun) -> int:
+    audit = build_audit(run)
+    if args.markdown:
+        print(render_audit_markdown(audit))
+    elif args.json:
+        print(json.dumps(audit, indent=2, sort_keys=True, ensure_ascii=False))
+    else:
+        summary = audit["summary"]
+        print(
+            f"Preference pairs: {summary['preference_pairs']}\n"
+            f"Impure pairs: {summary['impure_pairs']} "
+            f"(state {summary['state_divergent_pairs']}, "
+            f"proposal {summary['proposed_action_divergent_pairs']}, "
+            f"proposal only {summary['proposed_action_only_divergent_pairs']})\n"
+            f"Curated keep: {summary['curated_retained_pairs']} "
+            f"at {summary['retained_context_purity_pct']:.1f}% same-context purity"
+        )
+        for pair in audit["impure_pairs"]:
+            location = f"{pair['source_path']}:{pair['source_line']}"
+            identifier = pair["record_id"] or "<no-id>"
+            fields = ",".join(pair["divergent_context_fields"]) or "<none>"
+            reasons = ",".join(pair["reason_codes"])
+            print(
+                f"- {location} {identifier}: {pair['action']} "
+                f"[{fields}] [{reasons}]"
+            )
+    if args.expect is None:
+        return 0
+    try:
+        expected = json.loads(args.expect.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        raise PreferenceCurationError(f"{args.expect}: invalid JSON: {exc}") from exc
+    differences = audit_differences(expected, audit)
+    if not differences:
+        return 0
+    print(f"audit drift against {args.expect}:", file=sys.stderr)
+    for difference in differences:
+        print(f"- {difference}", file=sys.stderr)
+    return 1
+
+
+def _run_reconcile(args: argparse.Namespace) -> int:
+    differences = reconcile_runs(
+        curate_source(args.first), curate_source(args.second)
+    )
+    total = sum(len(values) for values in differences.values())
+    if args.json:
+        print(
+            json.dumps(
+                {"differences": differences, "difference_count": total},
+                indent=2,
+                sort_keys=True,
+                ensure_ascii=False,
+            )
+        )
+    elif not total:
+        print(f"{args.first} and {args.second} scan identically")
+    else:
+        print(f"{total} difference(s) between {args.first} and {args.second}")
+        for label in sorted(differences):
+            for difference in differences[label]:
+                print(f"- {label}: {difference}")
+    return 0 if not total else 1
+
+
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
     try:
+        if args.command == "reconcile":
+            return _run_reconcile(args)
         run = curate_source(args.source)
+        if args.command == "audit":
+            return _run_audit(args, run)
         if args.command == "scan":
             if args.json:
                 print(

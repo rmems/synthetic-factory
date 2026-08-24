@@ -179,6 +179,18 @@ Its `summary.impure_pairs` counts same-context violations, and each impure
 (e.g. `STATE_CONTEXT_DIVERGES`) and `context_diff_paths`. Run it in CI before
 `round_txn.py publish`; any non-zero `impure_pairs` blocks publication.
 
+`summary` also splits the violations by field — `state_divergent_pairs`,
+`proposed_action_divergent_pairs`, and `proposed_action_only_divergent_pairs`
+— so a state-only audit can be reconciled against this gate. A published
+worked example of that reconciliation, with the per-pair ID list and reason
+codes, is [`ffpc-same-state-audit.md`](ffpc-same-state-audit.md):
+
+```
+python3 pipelines/curate_preferences.py audit <source> --markdown
+python3 pipelines/curate_preferences.py audit <source> --expect docs/ffpc-same-state-audit.json
+python3 pipelines/curate_preferences.py reconcile <source-a> <source-b>
+```
+
 ### 3.4 Failure taxonomy
 
 | Class | Example | Detection |

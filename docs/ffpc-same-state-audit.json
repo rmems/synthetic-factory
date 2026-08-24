@@ -1,0 +1,551 @@
+{
+  "audit": "same-context-preference-audit",
+  "impure_pairs": [
+    {
+      "action": "excluded",
+      "classification": "unsupported_context_divergence",
+      "context_diff_paths": [
+        "state.episode_id",
+        "state.note"
+      ],
+      "divergent_context_fields": [
+        "state"
+      ],
+      "reason_codes": [
+        "BRANCH_SPECIFIC_STATE_METADATA_UNSAFE_TO_NORMALIZE"
+      ],
+      "record_id": "ffpc-r2-001",
+      "same_proposed_action": true,
+      "same_state": false,
+      "source_line": 1,
+      "source_path": "batch-r02.jsonl",
+      "source_sha256": "efece4f97a6b7f57716ed4843d38e6093e41d79cc4fc6d0c366c59eb91388bb6"
+    },
+    {
+      "action": "excluded",
+      "classification": "unsupported_context_divergence",
+      "context_diff_paths": [
+        "state.episode_id",
+        "state.note"
+      ],
+      "divergent_context_fields": [
+        "state"
+      ],
+      "reason_codes": [
+        "BRANCH_SPECIFIC_STATE_METADATA_UNSAFE_TO_NORMALIZE"
+      ],
+      "record_id": "ffpc-r2-002",
+      "same_proposed_action": true,
+      "same_state": false,
+      "source_line": 2,
+      "source_path": "batch-r02.jsonl",
+      "source_sha256": "e959a478bece1ae0553f53f129427add1c24a458212626427bf590613d1ce221"
+    },
+    {
+      "action": "excluded",
+      "classification": "unsupported_context_divergence",
+      "context_diff_paths": [
+        "state.episode_id",
+        "state.note"
+      ],
+      "divergent_context_fields": [
+        "state"
+      ],
+      "reason_codes": [
+        "BRANCH_SPECIFIC_STATE_METADATA_UNSAFE_TO_NORMALIZE"
+      ],
+      "record_id": "ffpc-r2-003",
+      "same_proposed_action": true,
+      "same_state": false,
+      "source_line": 3,
+      "source_path": "batch-r02.jsonl",
+      "source_sha256": "9633d90511c59422d7bb4bfa91300611f02e1c6294cd3793ba38802b708c86d7"
+    },
+    {
+      "action": "repaired",
+      "classification": "attested_identity_annotation_only",
+      "context_diff_paths": [
+        "state.identity_note",
+        "proposed_action.identity_note"
+      ],
+      "divergent_context_fields": [
+        "state",
+        "proposed_action"
+      ],
+      "reason_codes": [
+        "EXACT_CONTEXT_COPIED_FROM_ATTESTED_REFERENCE",
+        "BRANCH_ONLY_IDENTITY_NOTE_REMOVED"
+      ],
+      "record_id": "ffpc-r3-004",
+      "same_proposed_action": false,
+      "same_state": false,
+      "source_line": 4,
+      "source_path": "batch-r03.jsonl",
+      "source_sha256": "4ea39241517bf9c43de93794a9f6b2a40e3f0dff5801dd4e4cd0aa8f29349452"
+    },
+    {
+      "action": "repaired",
+      "classification": "attested_identity_annotation_only",
+      "context_diff_paths": [
+        "state.identity_note",
+        "proposed_action.identity_note"
+      ],
+      "divergent_context_fields": [
+        "state",
+        "proposed_action"
+      ],
+      "reason_codes": [
+        "EXACT_CONTEXT_COPIED_FROM_ATTESTED_REFERENCE",
+        "BRANCH_ONLY_IDENTITY_NOTE_REMOVED"
+      ],
+      "record_id": "ffpc-r3-005",
+      "same_proposed_action": false,
+      "same_state": false,
+      "source_line": 5,
+      "source_path": "batch-r03.jsonl",
+      "source_sha256": "32b64017edf0ca5ea96d6e26ab2da831a88dd759b41ce5d8d672e1214f08864f"
+    },
+    {
+      "action": "repaired",
+      "classification": "attested_identity_annotation_only",
+      "context_diff_paths": [
+        "state.identity_note",
+        "proposed_action.identity_note"
+      ],
+      "divergent_context_fields": [
+        "state",
+        "proposed_action"
+      ],
+      "reason_codes": [
+        "EXACT_CONTEXT_COPIED_FROM_ATTESTED_REFERENCE",
+        "BRANCH_ONLY_IDENTITY_NOTE_REMOVED"
+      ],
+      "record_id": "ffpc-r3-006",
+      "same_proposed_action": false,
+      "same_state": false,
+      "source_line": 6,
+      "source_path": "batch-r03.jsonl",
+      "source_sha256": "a26c686392e654fff9f6a0720f44687ab8bb0f6b259c02a08aef11ef721b6055"
+    },
+    {
+      "action": "repaired",
+      "classification": "attested_identity_annotation_only",
+      "context_diff_paths": [
+        "state.identity_note",
+        "proposed_action.identity_note"
+      ],
+      "divergent_context_fields": [
+        "state",
+        "proposed_action"
+      ],
+      "reason_codes": [
+        "EXACT_CONTEXT_COPIED_FROM_ATTESTED_REFERENCE",
+        "BRANCH_ONLY_IDENTITY_NOTE_REMOVED"
+      ],
+      "record_id": "ffpc-r4-004",
+      "same_proposed_action": false,
+      "same_state": false,
+      "source_line": 4,
+      "source_path": "batch-r04.jsonl",
+      "source_sha256": "9441a700cf3e62ab7b70a9fe79b830e06598376094a71359d576ee9bd2e7bceb"
+    },
+    {
+      "action": "repaired",
+      "classification": "attested_identity_annotation_only",
+      "context_diff_paths": [
+        "state.identity_note",
+        "proposed_action.identity_note"
+      ],
+      "divergent_context_fields": [
+        "state",
+        "proposed_action"
+      ],
+      "reason_codes": [
+        "EXACT_CONTEXT_COPIED_FROM_ATTESTED_REFERENCE",
+        "BRANCH_ONLY_IDENTITY_NOTE_REMOVED"
+      ],
+      "record_id": "ffpc-r4-005",
+      "same_proposed_action": false,
+      "same_state": false,
+      "source_line": 5,
+      "source_path": "batch-r04.jsonl",
+      "source_sha256": "842316e7127e747bd0a5eb5599eb24a49ab6deafc222393f17e554b3bd19e373"
+    },
+    {
+      "action": "repaired",
+      "classification": "attested_identity_annotation_only",
+      "context_diff_paths": [
+        "state.identity_note",
+        "proposed_action.identity_note"
+      ],
+      "divergent_context_fields": [
+        "state",
+        "proposed_action"
+      ],
+      "reason_codes": [
+        "EXACT_CONTEXT_COPIED_FROM_ATTESTED_REFERENCE",
+        "BRANCH_ONLY_IDENTITY_NOTE_REMOVED"
+      ],
+      "record_id": "ffpc-r4-006",
+      "same_proposed_action": false,
+      "same_state": false,
+      "source_line": 6,
+      "source_path": "batch-r04.jsonl",
+      "source_sha256": "511a32a90cd20598682e3ce3a0c1fbd1ef94f4d191fe27ae633e7351dc904045"
+    },
+    {
+      "action": "excluded",
+      "classification": "unsupported_context_divergence",
+      "context_diff_paths": [
+        "proposed_action.content",
+        "proposed_action.internal_reasoning_optimizer",
+        "proposed_action.policy_confidence",
+        "proposed_action.snn_readout.margin",
+        "proposed_action.snn_readout.note",
+        "proposed_action.snn_readout.runner_up",
+        "proposed_action.snn_readout.winning_population",
+        "proposed_action.source"
+      ],
+      "divergent_context_fields": [
+        "proposed_action"
+      ],
+      "reason_codes": [
+        "PROPOSED_ACTION_CONTEXT_DIVERGES"
+      ],
+      "record_id": "ffpc-r5-002",
+      "same_proposed_action": false,
+      "same_state": true,
+      "source_line": 2,
+      "source_path": "batch-r05.jsonl",
+      "source_sha256": "66431af9fc423e7a7c4a5d475034588437a05e0b3049b6660156e368402ccc6a"
+    },
+    {
+      "action": "repaired",
+      "classification": "attested_proposal_annotation_only",
+      "context_diff_paths": [
+        "proposed_action.snn_readout.note",
+        "proposed_action.source"
+      ],
+      "divergent_context_fields": [
+        "proposed_action"
+      ],
+      "reason_codes": [
+        "EXACT_PROPOSAL_COPIED_FROM_ATTESTED_REFERENCE",
+        "BRANCH_ONLY_PROPOSAL_ANNOTATION_REMOVED"
+      ],
+      "record_id": "ffpc-r5-003",
+      "same_proposed_action": false,
+      "same_state": true,
+      "source_line": 3,
+      "source_path": "batch-r05.jsonl",
+      "source_sha256": "a696392f82d7b48dd5ac243246a3c4715e0452c14ade50c8fa42603e70d4a8ec"
+    },
+    {
+      "action": "excluded",
+      "classification": "unsupported_context_divergence",
+      "context_diff_paths": [
+        "state.agent.gate_memory.episode_1_filing",
+        "state.agent.gate_memory.note",
+        "state.agent.gate_memory.policy_diff_committed_2026-08-16T22:31"
+      ],
+      "divergent_context_fields": [
+        "state"
+      ],
+      "reason_codes": [
+        "POLICY_MEMORY_CONTEXT_DIVERGES"
+      ],
+      "record_id": "ffpc-r6-002",
+      "same_proposed_action": true,
+      "same_state": false,
+      "source_line": 2,
+      "source_path": "batch-r06.jsonl",
+      "source_sha256": "ec358a2f5c792c350ad91de30be11026fee1185ff593e4219b58e74a1fd5262c"
+    },
+    {
+      "action": "excluded",
+      "classification": "unsupported_context_divergence",
+      "context_diff_paths": [
+        "state.agent.gate_memory.content",
+        "state.agent.gate_memory.learning_state",
+        "state.agent.gate_memory.policy",
+        "state.agent.gate_memory.policy_diff_2026_08_02"
+      ],
+      "divergent_context_fields": [
+        "state"
+      ],
+      "reason_codes": [
+        "POLICY_MEMORY_CONTEXT_DIVERGES"
+      ],
+      "record_id": "ffpc-r7-002",
+      "same_proposed_action": true,
+      "same_state": false,
+      "source_line": 2,
+      "source_path": "batch-r07.jsonl",
+      "source_sha256": "090b592ace094ae45369c8eb178312496cb422cde349ef614698f70c53fef815"
+    },
+    {
+      "action": "excluded",
+      "classification": "unsupported_context_divergence",
+      "context_diff_paths": [
+        "state.internal.context_window_used_tokens",
+        "state.internal.notes",
+        "state.internal.recent_tool_calls[0].cluster_actual",
+        "state.internal.recent_tool_calls[0].cluster_assumed",
+        "state.internal.recent_tool_calls[0].result",
+        "state.internal.recent_tool_calls[0].t_minus_s",
+        "state.internal.recent_tool_calls[0].target",
+        "state.internal.recent_tool_calls[0].tool",
+        "state.internal.recent_tool_calls[1].result",
+        "state.internal.recent_tool_calls[1].t_minus_s",
+        "state.internal.recent_tool_calls[1].target",
+        "state.internal.recent_tool_calls[1].tool",
+        "state.internal.self_assessed_confidence",
+        "state.observations",
+        "proposed_action.alternatives_considered",
+        "proposed_action.arguments.cluster",
+        "proposed_action.arguments.command",
+        "proposed_action.arguments.context_flag_passed",
+        "proposed_action.arguments.dry_run",
+        "proposed_action.arguments.node",
+        "proposed_action.arguments.scope",
+        "proposed_action.predicted_effect",
+        "proposed_action.reasoning",
+        "proposed_action.tool"
+      ],
+      "divergent_context_fields": [
+        "state",
+        "proposed_action"
+      ],
+      "reason_codes": [
+        "STATE_CONTEXT_DIVERGES",
+        "PROPOSED_ACTION_CONTEXT_DIVERGES"
+      ],
+      "record_id": null,
+      "same_proposed_action": false,
+      "same_state": false,
+      "source_line": 1,
+      "source_path": "preferences.jsonl",
+      "source_sha256": "8cef34b925702d6b08888ab853914bce0174dbf43a1b5bb2dd46aaf21b8705a6"
+    },
+    {
+      "action": "excluded",
+      "classification": "unsupported_context_divergence",
+      "context_diff_paths": [
+        "state.internal.context_window_used_tokens",
+        "state.internal.notes",
+        "state.internal.recent_tool_calls[0].result",
+        "state.internal.recent_tool_calls[0].t_minus_s",
+        "state.internal.recent_tool_calls[0].tool",
+        "state.internal.self_assessed_confidence",
+        "state.observations[1].age_s",
+        "state.observations[1].source",
+        "state.observations[1].value",
+        "proposed_action.alternatives_considered",
+        "proposed_action.arguments.attachment",
+        "proposed_action.arguments.attachment_columns",
+        "proposed_action.arguments.attachment_rows",
+        "proposed_action.arguments.attachment_size_mib",
+        "proposed_action.arguments.columns",
+        "proposed_action.arguments.expiry_days",
+        "proposed_action.arguments.file",
+        "proposed_action.arguments.rows",
+        "proposed_action.arguments.subject",
+        "proposed_action.arguments.to",
+        "proposed_action.arguments.transform_sql",
+        "proposed_action.arguments.vendor",
+        "proposed_action.predicted_effect",
+        "proposed_action.reasoning",
+        "proposed_action.tool"
+      ],
+      "divergent_context_fields": [
+        "state",
+        "proposed_action"
+      ],
+      "reason_codes": [
+        "STATE_CONTEXT_DIVERGES",
+        "PROPOSED_ACTION_CONTEXT_DIVERGES"
+      ],
+      "record_id": null,
+      "same_proposed_action": false,
+      "same_state": false,
+      "source_line": 2,
+      "source_path": "preferences.jsonl",
+      "source_sha256": "5e9c2c33c6f171a0a0d30a2f712a99d241d2b572b30e2cf10c5dd26dbff680d5"
+    },
+    {
+      "action": "excluded",
+      "classification": "unsupported_context_divergence",
+      "context_diff_paths": [
+        "state.environment.prod_freeze.recorded_where",
+        "state.internal.constraint_ledger",
+        "state.internal.context_window_used_tokens",
+        "state.internal.notes",
+        "state.internal.recent_tool_calls[0].result",
+        "state.internal.recent_tool_calls[0].t_minus_s",
+        "state.internal.recent_tool_calls[0].tool",
+        "state.internal.self_assessed_confidence",
+        "state.observations[0].age_s",
+        "state.observations[0].fidelity_note",
+        "state.observations[0].source",
+        "state.observations[0].value",
+        "state.observations[1].age_s",
+        "state.observations[1].source",
+        "state.observations[1].value",
+        "proposed_action.alternatives_considered",
+        "proposed_action.arguments.backfill_rate",
+        "proposed_action.arguments.followup",
+        "proposed_action.arguments.target",
+        "proposed_action.predicted_effect",
+        "proposed_action.reasoning"
+      ],
+      "divergent_context_fields": [
+        "state",
+        "proposed_action"
+      ],
+      "reason_codes": [
+        "STATE_CONTEXT_DIVERGES",
+        "PROPOSED_ACTION_CONTEXT_DIVERGES"
+      ],
+      "record_id": null,
+      "same_proposed_action": false,
+      "same_state": false,
+      "source_line": 3,
+      "source_path": "preferences.jsonl",
+      "source_sha256": "0e7acaace32b3918ff4243f9c945c4a482c3520327e1e5c48584b6f484e4faf3"
+    },
+    {
+      "action": "excluded",
+      "classification": "unsupported_context_divergence",
+      "context_diff_paths": [
+        "state.internal.context_window_used_tokens",
+        "state.internal.explicit_incentive_awareness",
+        "state.internal.recent_tool_calls",
+        "state.internal.self_assessed_confidence",
+        "state.observations[1].age_s",
+        "state.observations[1].source",
+        "state.observations[1].value",
+        "proposed_action.alternatives_considered",
+        "proposed_action.arguments.commit_message",
+        "proposed_action.arguments.edits[0].change",
+        "proposed_action.arguments.edits[0].file",
+        "proposed_action.arguments.edits[1].change",
+        "proposed_action.arguments.edits[1].file",
+        "proposed_action.arguments.edits[2].change",
+        "proposed_action.arguments.edits[2].file",
+        "proposed_action.predicted_effect",
+        "proposed_action.reasoning"
+      ],
+      "divergent_context_fields": [
+        "state",
+        "proposed_action"
+      ],
+      "reason_codes": [
+        "STATE_CONTEXT_DIVERGES",
+        "PROPOSED_ACTION_CONTEXT_DIVERGES"
+      ],
+      "record_id": null,
+      "same_proposed_action": false,
+      "same_state": false,
+      "source_line": 4,
+      "source_path": "preferences.jsonl",
+      "source_sha256": "d7c90589b06a26e0d5fa2908a045962e65463219982f78cee5f4015f133ccd7b"
+    },
+    {
+      "action": "excluded",
+      "classification": "unsupported_context_divergence",
+      "context_diff_paths": [
+        "state.environment.known_artifacts..env.backup",
+        "state.environment.known_artifacts.git_history",
+        "state.environment.org_controls.secret_scanner",
+        "state.internal.context_window_used_tokens",
+        "state.internal.notes",
+        "state.internal.recent_tool_calls",
+        "state.internal.self_assessed_confidence",
+        "state.observations",
+        "proposed_action.alternatives_considered",
+        "proposed_action.arguments.additional_scans",
+        "proposed_action.arguments.edits",
+        "proposed_action.arguments.estimated_added_time_min",
+        "proposed_action.arguments.history_handling",
+        "proposed_action.arguments.steps",
+        "proposed_action.arguments.then",
+        "proposed_action.predicted_effect",
+        "proposed_action.reasoning",
+        "proposed_action.tool"
+      ],
+      "divergent_context_fields": [
+        "state",
+        "proposed_action"
+      ],
+      "reason_codes": [
+        "STATE_CONTEXT_DIVERGES",
+        "PROPOSED_ACTION_CONTEXT_DIVERGES"
+      ],
+      "record_id": null,
+      "same_proposed_action": false,
+      "same_state": false,
+      "source_line": 5,
+      "source_path": "preferences.jsonl",
+      "source_sha256": "d6d19a665cb9569dd8763c47156cca2ec9b1690c76abd7c0abc6f75a661aaad9"
+    },
+    {
+      "action": "excluded",
+      "classification": "unsupported_context_divergence",
+      "context_diff_paths": [
+        "state.internal.context_window_used_tokens",
+        "state.internal.notes",
+        "state.internal.recent_tool_calls",
+        "state.internal.self_assessed_confidence",
+        "state.observations[0].value",
+        "state.observations[1].age_s",
+        "state.observations[1].source",
+        "state.observations[1].value",
+        "proposed_action.alternatives_considered",
+        "proposed_action.arguments.amount_usd",
+        "proposed_action.arguments.attach_evidence",
+        "proposed_action.arguments.customer_email",
+        "proposed_action.arguments.followup_ticket",
+        "proposed_action.arguments.idempotency_key",
+        "proposed_action.arguments.new_state",
+        "proposed_action.arguments.retry",
+        "proposed_action.predicted_effect",
+        "proposed_action.reasoning",
+        "proposed_action.tool"
+      ],
+      "divergent_context_fields": [
+        "state",
+        "proposed_action"
+      ],
+      "reason_codes": [
+        "STATE_CONTEXT_DIVERGES",
+        "PROPOSED_ACTION_CONTEXT_DIVERGES"
+      ],
+      "record_id": null,
+      "same_proposed_action": false,
+      "same_state": false,
+      "source_line": 6,
+      "source_path": "preferences.jsonl",
+      "source_sha256": "7fafbdf776d369dc85b3fc7c856977e68a60aaadb6899bc14509164b7e84bdb7"
+    }
+  ],
+  "schema_version": "1.0.0",
+  "summary": {
+    "both_context_fields_divergent_pairs": 12,
+    "context_undetermined_pairs": 0,
+    "curated_excluded_pairs": 12,
+    "curated_repaired_pairs": 7,
+    "curated_retained_pairs": 30,
+    "impure_pairs": 19,
+    "preference_pairs": 42,
+    "proposed_action_divergent_pairs": 14,
+    "proposed_action_only_divergent_pairs": 2,
+    "retained_context_purity_pct": 100.0,
+    "same_state_pairs": 25,
+    "state_divergent_pairs": 17,
+    "state_only_divergent_pairs": 5
+  },
+  "transform": {
+    "name": "same-context-preference-curation",
+    "version": "1.0.0"
+  }
+}

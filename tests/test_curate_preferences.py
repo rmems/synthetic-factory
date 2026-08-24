@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
 """Focused tests for conservative same-context preference curation."""
 
+import contextlib
 import copy
 import hashlib
+import io
 import json
 import sys
 import tempfile
@@ -16,6 +18,16 @@ import curate_preferences  # noqa: E402
 import training_audit  # noqa: E402
 
 PURITY_FIXTURES = REPO / "tests" / "fixtures" / "preference-purity"
+PUBLISHED_AUDIT = REPO / "docs" / "ffpc-same-state-audit.json"
+PUBLISHED_AUDIT_DOC = REPO / "docs" / "ffpc-same-state-audit.md"
+GENERATED_TABLE_START = "<!-- BEGIN GENERATED: curate_preferences audit --markdown -->"
+GENERATED_TABLE_END = "<!-- END GENERATED -->"
+
+# The Hub-side ``same_state`` audit of rmems/failure-as-fuel-preference-cascade
+# reported 17/42 while the factory scan reports 19/42. Both are correct: a
+# state-only check cannot see a pair that holds state constant and swaps the
+# proposed action. These are the two pairs in that gap.
+PROPOSAL_ONLY_IMPURE = (("batch-r05.jsonl", 2), ("batch-r05.jsonl", 3))
 
 # Golden digests of the committed fixture corpus. Pinned as constants (not
 # captured at runtime) so an in-place rewrite of the fixtures by the code
@@ -832,6 +844,394 @@ class PreferencePurityRawCorpusFidelity(unittest.TestCase):
             }
 
         self.assertEqual(decision_map(fixture_run), decision_map(raw_run))
+
+    def test_published_audit_is_the_raw_corpus_audit(self):
+        raw_audit = curate_preferences.build_audit(
+            curate_preferences.curate_source(RAW_FFPC)
+        )
+        published = json.loads(PUBLISHED_AUDIT.read_text(encoding="utf-8"))
+        self.assertEqual(
+            curate_preferences.audit_differences(published, raw_audit), []
+        )
+        self.assertEqual(published, raw_audit)
+        self.assertEqual(raw_audit["summary"]["state_divergent_pairs"], 17)
+        self.assertEqual(raw_audit["summary"]["impure_pairs"], 19)
+
+
+def run_cli(*argv):
+    """Run the module CLI, returning ``(status, stdout, stderr)``."""
+
+    out, err = io.StringIO(), io.StringIO()
+    with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+        status = curate_preferences.main(list(argv))
+    return status, out.getvalue(), err.getvalue()
+
+
+def audit_decision_map(audit):
+    """Key one audit document by source location, dropping corpus-copy fields.
+
+    ``source_sha256`` and ``record_id`` identify a particular copy of the
+    corpus; the decision itself must be reproducible from any faithful copy.
+    """
+
+    return {
+        (pair["source_path"], pair["source_line"]): (
+            pair["action"],
+            pair["classification"],
+            tuple(pair["reason_codes"]),
+            pair["same_state"],
+            pair["same_proposed_action"],
+            tuple(pair["divergent_context_fields"]),
+        )
+        for pair in audit["impure_pairs"]
+    }
+
+
+class ContextFieldAgreement(unittest.TestCase):
+    def test_agreement_is_reported_per_field_before_any_repair(self):
+        pure = curate_preferences.curate_preference_record(pair())
+        self.assertIs(pure.same_state, True)
+        self.assertIs(pure.same_proposed_action, True)
+
+        state_only = curate_preferences.curate_preference_record(
+            pair(
+                chosen_state={"sim_or_real": "designed", "domain": "a"},
+                rejected_state={"sim_or_real": "designed", "domain": "b"},
+            )
+        )
+        self.assertIs(state_only.same_state, False)
+        self.assertIs(state_only.same_proposed_action, True)
+
+        proposal_only = pair()
+        proposal_only["rejected"]["proposed_action"] = {
+            "action": "inspect-differently",
+            "decision_basis": "fixture",
+        }
+        decision = curate_preferences.curate_preference_record(proposal_only)
+        self.assertIs(decision.same_state, True)
+        self.assertIs(decision.same_proposed_action, False)
+        self.assertEqual(
+            decision.reason_codes, ("PROPOSED_ACTION_CONTEXT_DIVERGES",)
+        )
+
+    def test_repairs_report_the_source_agreement_not_their_own_output(self):
+        source = pair()
+        source["chosen"]["state"]["identity_note"] = (
+            "IDENTICAL to rejected.state; annotation only."
+        )
+        decision = curate_preferences.curate_preference_record(source)
+        self.assertEqual(decision.action, curate_preferences.ACTION_REPAIRED)
+        self.assertIs(decision.same_state, False)
+        self.assertIs(decision.same_proposed_action, True)
+        self.assertTrue(curate_preferences.context_is_pure(decision.record))
+
+    def test_malformed_pairs_have_undetermined_agreement(self):
+        for record in ("not-an-object", {"chosen": {}, "rejected": {}}):
+            decision = curate_preferences.curate_preference_record(record)
+            self.assertEqual(decision.action, curate_preferences.ACTION_EXCLUDED)
+            self.assertIsNone(decision.same_state)
+            self.assertIsNone(decision.same_proposed_action)
+        self.assertEqual(
+            curate_preferences.context_field_agreement("not-an-object"), (None, None)
+        )
+
+    def test_undetermined_pairs_are_bucketed_and_never_dropped(self):
+        with tempfile.TemporaryDirectory() as td:
+            source = Path(td) / "preferences.jsonl"
+            write_jsonl(source, [pair(), {"chosen": {}, "rejected": {}}])
+            run = curate_preferences.curate_source(source)
+            self.assertEqual(run.summary["context_undetermined_pairs"], 1)
+            self.assertEqual(run.summary["impure_pairs"], 1)
+            self.assertEqual(run.summary["state_divergent_pairs"], 0)
+            audit = curate_preferences.build_audit(run)
+            self.assertEqual(len(audit["impure_pairs"]), 1)
+            self.assertEqual(audit["impure_pairs"][0]["divergent_context_fields"], [])
+
+
+class SameStateAuditReconciliation(unittest.TestCase):
+    """Bind the Hub 17/42 and factory 19/42 counts to one decomposition."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.curation_run = curate_preferences.curate_source(PURITY_FIXTURES)
+        cls.audit = curate_preferences.build_audit(cls.curation_run)
+
+    def test_scan_splits_the_nineteen_into_state_and_proposal_divergence(self):
+        summary = self.curation_run.summary
+        self.assertEqual(summary["preference_records"], 42)
+        self.assertEqual(summary["impure_pairs"], 19)
+        # The Hub-side same_state audit measures exactly this subset.
+        self.assertEqual(summary["state_divergent_pairs"], 17)
+        self.assertEqual(summary["same_state_pairs"], 25)
+        self.assertEqual(summary["proposed_action_divergent_pairs"], 14)
+        self.assertEqual(summary["same_proposed_action_pairs"], 28)
+        self.assertEqual(summary["state_only_divergent_pairs"], 5)
+        self.assertEqual(summary["proposed_action_only_divergent_pairs"], 2)
+        self.assertEqual(summary["both_context_fields_divergent_pairs"], 12)
+        self.assertEqual(summary["context_undetermined_pairs"], 0)
+        # 17 = 5 + 12 and 19 = 17 + 2, with no pair counted twice.
+        self.assertEqual(
+            summary["state_only_divergent_pairs"]
+            + summary["both_context_fields_divergent_pairs"],
+            summary["state_divergent_pairs"],
+        )
+        self.assertEqual(
+            summary["state_divergent_pairs"]
+            + summary["proposed_action_only_divergent_pairs"],
+            summary["impure_pairs"],
+        )
+        self.assertEqual(
+            summary["same_state_pairs"] + summary["state_divergent_pairs"],
+            summary["preference_records"],
+        )
+
+    def test_the_two_proposal_only_pairs_are_invisible_to_a_state_audit(self):
+        by_location = {
+            (pair_entry["source_path"], pair_entry["source_line"]): pair_entry
+            for pair_entry in self.audit["impure_pairs"]
+        }
+        self.assertEqual(len(by_location), 19)
+        for location in PROPOSAL_ONLY_IMPURE:
+            entry = by_location[location]
+            self.assertIs(entry["same_state"], True, location)
+            self.assertIs(entry["same_proposed_action"], False, location)
+            self.assertEqual(
+                entry["divergent_context_fields"], ["proposed_action"], location
+            )
+        state_divergent = [
+            entry for entry in by_location.values() if entry["same_state"] is False
+        ]
+        self.assertEqual(len(state_divergent), 17)
+
+    def test_every_audited_pair_names_a_reason_and_a_diverging_field(self):
+        for entry in self.audit["impure_pairs"]:
+            location = (entry["source_path"], entry["source_line"])
+            self.assertTrue(entry["reason_codes"], location)
+            self.assertTrue(entry["context_diff_paths"], location)
+            self.assertTrue(entry["divergent_context_fields"], location)
+            self.assertIn(
+                entry["action"],
+                (curate_preferences.ACTION_REPAIRED, curate_preferences.ACTION_EXCLUDED),
+                location,
+            )
+            expected_fields = [
+                field
+                for field, same in (
+                    ("state", entry["same_state"]),
+                    ("proposed_action", entry["same_proposed_action"]),
+                )
+                if same is False
+            ]
+            self.assertEqual(entry["divergent_context_fields"], expected_fields, location)
+
+    def test_retained_pairs_are_absent_from_the_audit(self):
+        audited = {
+            (entry["source_path"], entry["source_line"])
+            for entry in self.audit["impure_pairs"]
+        }
+        retained = {
+            (entry["source_path"], entry["source_line"])
+            for entry in self.curation_run.manifest
+            if entry["action"] == curate_preferences.ACTION_RETAINED
+        }
+        self.assertEqual(len(retained), 23)
+        self.assertFalse(audited & retained)
+
+    def test_markdown_render_carries_the_reconciliation_and_every_pair(self):
+        markdown = curate_preferences.render_audit_markdown(self.audit)
+        self.assertIn("| `same_state = false` (state diverges) | 17 |", markdown)
+        self.assertIn(
+            "| `same_proposed_action = false` (proposal diverges) | 14 |", markdown
+        )
+        self.assertIn("| Impure pairs (either field diverges) | 19 |", markdown)
+        self.assertIn("| - proposed action only | 2 |", markdown)
+        self.assertIn("| Curated same-context purity | 100.0% |", markdown)
+        rows = [line for line in markdown.splitlines() if line.startswith("| `ffpc")]
+        anonymous = [
+            line for line in markdown.splitlines() if line.startswith("| _(no record id)_")
+        ]
+        self.assertEqual(len(rows) + len(anonymous), 19)
+        self.assertEqual(len(anonymous), 6)
+
+
+class PublishedSameStateAudit(unittest.TestCase):
+    """The committed public audit must stay bound to reproducible decisions."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.published = json.loads(PUBLISHED_AUDIT.read_text(encoding="utf-8"))
+        cls.doc = PUBLISHED_AUDIT_DOC.read_text(encoding="utf-8")
+        cls.fixture_audit = curate_preferences.build_audit(
+            curate_preferences.curate_source(PURITY_FIXTURES)
+        )
+
+    def test_published_summary_matches_the_fixture_corpus(self):
+        self.assertEqual(
+            self.published["schema_version"], curate_preferences.AUDIT_SCHEMA_VERSION
+        )
+        self.assertEqual(self.published["audit"], curate_preferences.AUDIT_NAME)
+        self.assertEqual(
+            self.published["transform"],
+            {
+                "name": curate_preferences.TRANSFORM_NAME,
+                "version": curate_preferences.TRANSFORM_VERSION,
+            },
+        )
+        self.assertEqual(self.published["summary"], self.fixture_audit["summary"])
+
+    def test_published_decisions_match_the_fixture_corpus_line_for_line(self):
+        self.assertEqual(
+            audit_decision_map(self.published),
+            audit_decision_map(self.fixture_audit),
+        )
+
+    def test_published_pairs_name_the_raw_record_ids_and_source_lines(self):
+        ids = [entry["record_id"] for entry in self.published["impure_pairs"]]
+        self.assertEqual(len(ids), 19)
+        self.assertIn("ffpc-r2-001", ids)
+        self.assertIn("ffpc-r3-004", ids)
+        # The round-1 file carries a thinner schema with no top-level id.
+        self.assertEqual(ids.count(None), 6)
+        for entry in self.published["impure_pairs"]:
+            self.assertRegex(entry["source_sha256"], r"^[0-9a-f]{64}$")
+            self.assertIsInstance(entry["source_line"], int)
+
+    def test_published_markdown_block_is_generated_from_the_published_audit(self):
+        start = self.doc.index(GENERATED_TABLE_START) + len(GENERATED_TABLE_START)
+        end = self.doc.index(GENERATED_TABLE_END)
+        block = self.doc[start:end].strip("\n")
+        self.assertEqual(
+            block, curate_preferences.render_audit_markdown(self.published)
+        )
+
+    def test_published_doc_states_the_card_limitation_claims(self):
+        self.assertIn("## Limitations", self.doc)
+        self.assertIn("**17 have `same_state = false`**", self.doc)
+        self.assertIn("**19 of 42\npairs are impure**", self.doc)
+        self.assertIn("**Do not train on `data/raw/`.**", self.doc)
+        self.assertIn("ffpc-r5-002", self.doc)
+        self.assertIn("ffpc-r5-003", self.doc)
+
+
+class AuditAndReconcileCli(unittest.TestCase):
+    def test_audit_expect_accepts_a_faithful_copy_and_reports_drift(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            source = root / "corpus"
+            source.mkdir()
+            impure = pair(
+                "drifting",
+                chosen_state={"sim_or_real": "designed", "domain": "a"},
+                rejected_state={"sim_or_real": "designed", "domain": "b"},
+            )
+            write_jsonl(source / "preferences.jsonl", [pair("clean"), impure])
+
+            status, stdout, _ = run_cli("audit", str(source), "--json")
+            self.assertEqual(status, 0)
+            expected = root / "audit.json"
+            expected.write_text(stdout, encoding="utf-8")
+
+            status, _, stderr = run_cli(
+                "audit", str(source), "--json", "--expect", str(expected)
+            )
+            self.assertEqual(status, 0, stderr)
+
+            drifted = json.loads(expected.read_text(encoding="utf-8"))
+            drifted["impure_pairs"][0]["reason_codes"] = ["SOMETHING_ELSE"]
+            drifted["summary"]["state_divergent_pairs"] = 99
+            expected.write_text(json.dumps(drifted), encoding="utf-8")
+            status, _, stderr = run_cli(
+                "audit", str(source), "--json", "--expect", str(expected)
+            )
+            self.assertEqual(status, 1)
+            self.assertIn("summary.state_divergent_pairs", stderr)
+            self.assertIn("reason_codes", stderr)
+
+    def test_audit_expect_names_pairs_present_on_only_one_side(self):
+        actual = {
+            "schema_version": curate_preferences.AUDIT_SCHEMA_VERSION,
+            "audit": curate_preferences.AUDIT_NAME,
+            "transform": {"name": "t", "version": "1"},
+            "summary": {"impure_pairs": 1},
+            "impure_pairs": [{"source_path": "a.jsonl", "source_line": 2}],
+        }
+        expected = copy.deepcopy(actual)
+        expected["impure_pairs"] = [{"source_path": "a.jsonl", "source_line": 10}]
+        differences = curate_preferences.audit_differences(expected, actual)
+        self.assertIn(
+            "a.jsonl:10: audited impure pair is absent from this scan", differences
+        )
+        self.assertIn(
+            "a.jsonl:2: impure pair is absent from the audit", differences
+        )
+        self.assertEqual(
+            curate_preferences.audit_differences("not-a-document", actual),
+            ["expected audit document is not a JSON object"],
+        )
+
+    def test_audit_markdown_and_human_output(self):
+        status, markdown, _ = run_cli(
+            "audit", str(PURITY_FIXTURES), "--markdown"
+        )
+        self.assertEqual(status, 0)
+        self.assertIn("| Impure pairs (either field diverges) | 19 |", markdown)
+
+        status, human, _ = run_cli("audit", str(PURITY_FIXTURES))
+        self.assertEqual(status, 0)
+        self.assertIn("Impure pairs: 19 (state 17, proposal 14, proposal only 2)", human)
+        self.assertIn("batch-r05.jsonl:2", human)
+        self.assertIn("[proposed_action]", human)
+
+    def test_reconcile_accepts_a_byte_identical_copy(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            copied = root / "copy"
+            copied.mkdir()
+            for path in sorted(PURITY_FIXTURES.glob("*.jsonl")):
+                (copied / path.name).write_bytes(path.read_bytes())
+            status, stdout, _ = run_cli(
+                "reconcile", str(PURITY_FIXTURES), str(copied)
+            )
+            self.assertEqual(status, 0)
+            self.assertIn("scan identically", stdout)
+
+    def test_reconcile_separates_coverage_decision_and_payload_drift(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            first, second = root / "first", root / "second"
+            first.mkdir()
+            second.mkdir()
+            clean = pair("clean")
+            impure = pair(
+                "impure",
+                chosen_state={"sim_or_real": "designed", "domain": "a"},
+                rejected_state={"sim_or_real": "designed", "domain": "b"},
+            )
+            write_jsonl(first / "preferences.jsonl", [clean, impure, clean])
+            # Same first line by verdict but different bytes, a different
+            # verdict on line 2, and one line fewer.
+            renamed = copy.deepcopy(clean)
+            renamed["id"] = "clean-renamed"
+            write_jsonl(second / "preferences.jsonl", [renamed, clean])
+
+            status, stdout, _ = run_cli(
+                "reconcile", str(first), str(second), "--json"
+            )
+            self.assertEqual(status, 1)
+            report = json.loads(stdout)
+            self.assertEqual(
+                report["difference_count"],
+                sum(len(values) for values in report["differences"].values()),
+            )
+            coverage = "\n".join(report["differences"]["coverage"])
+            decisions = "\n".join(report["differences"]["decisions"])
+            payload = "\n".join(report["differences"]["payload"])
+            self.assertIn("preferences.jsonl:3", coverage)
+            self.assertIn("summary.preference_records", coverage)
+            self.assertIn("preferences.jsonl:2", decisions)
+            self.assertIn("same_state", decisions)
+            self.assertIn("preferences.jsonl:1", payload)
+            self.assertIn("source_record_id", payload)
 
 
 if __name__ == "__main__":
