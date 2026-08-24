@@ -46,7 +46,9 @@ class RoundTransaction(unittest.TestCase):
     def fill_stage(self, reservation, records):
         stage = Path(reservation["staging_dir"])
         write_records(stage / reservation["batch_file"], records)
-        (stage / reservation["notes_file"]).write_text("# Critique\n\nConcrete gap.\n")
+        (stage / reservation["notes_file"]).write_text(
+            "# Critique\n\nConcrete gap.\n\nNovel coverage: 42%\n"
+        )
         return stage
 
     def test_reserve_stage_publish_commits_once(self):
@@ -487,6 +489,66 @@ class RoundTransaction(unittest.TestCase):
             with self.assertRaisesRegex(round_txn.TransactionError, "duplicate record id"):
                 round_txn.publish(sibling, 1, second["token"])
             self.assertFalse((sibling / "ROUND-r01.complete.json").exists())
+
+    def test_publish_requires_a_novel_coverage_line_on_the_legacy_lane(self):
+        """The NOTES latch line gates every new round, legacy lanes included.
+
+        Without it the token-efficiency early-stop has nothing to read, which
+        is why the 2026-08-19 harvest saw 0/49 parseable NOTES.
+        """
+        with tempfile.TemporaryDirectory() as td:
+            factory = self.factory(td)
+            self.assertNotIn(factory.name, round_txn.AGENTIC_FACTORY_KINDS)
+            reservation = round_txn.reserve(factory, 1, 1)
+            stage = Path(reservation["staging_dir"])
+            write_records(stage / reservation["batch_file"], [thalamic("txn-cov")])
+            notes = stage / reservation["notes_file"]
+            notes.write_text("# Critique\n\nDensified the tail. No latch line.\n")
+
+            with self.assertRaisesRegex(round_txn.TransactionError, "Novel coverage"):
+                round_txn.publish(factory, 1, reservation["token"])
+
+            # A rejected publish is retryable: the reservation and stage stay.
+            self.assertTrue(stage.is_dir())
+            self.assertTrue((factory / "ROUND-r01.reserved.json").is_file())
+            self.assertFalse((factory / "ROUND-r01.complete.json").exists())
+
+            notes.write_text("# Critique\n\nDensified the tail.\n\nNovel coverage: 3.1%\n")
+            manifest = round_txn.publish(factory, 1, reservation["token"])
+            self.assertEqual(manifest["records"], 1)
+            self.assertTrue((factory / "ROUND-r01.complete.json").is_file())
+
+    def test_publish_rejects_an_out_of_range_novel_coverage(self):
+        with tempfile.TemporaryDirectory() as td:
+            factory = self.factory(td)
+            reservation = round_txn.reserve(factory, 1, 1)
+            stage = Path(reservation["staging_dir"])
+            write_records(stage / reservation["batch_file"], [thalamic("txn-range")])
+            (stage / reservation["notes_file"]).write_text("Novel coverage: 140%\n")
+
+            with self.assertRaisesRegex(
+                round_txn.TransactionError, "between 0% and 100%"
+            ):
+                round_txn.publish(factory, 1, reservation["token"])
+            self.assertFalse((factory / "ROUND-r01.complete.json").exists())
+
+    def test_read_path_does_not_retroactively_reject_pre_contract_notes(self):
+        """Committed legacy rounds predate the contract and must stay readable.
+
+        Widening the gate is forward-only: publish requires the line, while the
+        history-reading paths keep the original fixed-agentic scope so no raw
+        round has to be rewritten.
+        """
+        with tempfile.TemporaryDirectory() as td:
+            factory = self.factory(td)
+            notes = factory / "NOTES-r01.md"
+            notes.write_text("# Critique\n\nPublished before the contract.\n")
+
+            self.assertIsNone(round_txn.validate_novel_coverage(notes, factory))
+            self.assertIn(
+                "Novel coverage",
+                round_txn.validate_novel_coverage(notes, factory, required=True),
+            )
 
     def test_validation_failure_leaves_stage_and_does_not_advance(self):
         with tempfile.TemporaryDirectory() as td:

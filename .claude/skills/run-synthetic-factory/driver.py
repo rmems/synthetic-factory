@@ -675,10 +675,34 @@ def cmd_smoke():
         record = thalamic("txn-smoke")
         record["meta"]["round"] = 1
         (stage / reservation["batch_file"]).write_text(json.dumps(record) + "\n")
-        (stage / reservation["notes_file"]).write_text("# Self-critique\n\nFixture only.\n")
+        notes = stage / reservation["notes_file"]
+        # The NOTES contract (docs/token-efficiency.md) is a publish gate on
+        # every lane, legacy included: without the line the early-stop latch
+        # can never fire, so a round that omits it must not commit.
+        notes.write_text("# Self-critique\n\nFixture only.\n")
+        try:
+            publish(factory, 1, reservation["token"])
+        except TransactionError as exc:
+            if "Novel coverage" not in str(exc):
+                failures.append(f"unexpected publish rejection: {exc}")
+        else:
+            failures.append("publish accepted NOTES without a 'Novel coverage' line")
+        notes.write_text(
+            "# Self-critique\n\nFixture only.\n\nNovel coverage: 42%\n"
+        )
         manifest = publish(factory, 1, reservation["token"])
         if manifest.get("records") != 1 or frontier_status(factory)["next_round"] != 2:
             failures.append("transaction reserve/publish did not commit exactly one round")
+
+        # Coverage-convergence latch: two consecutive published NOTES under
+        # the 5% threshold early-stop the lane (40% saving mode).
+        plateau = root / "plateau" / "thalamic-trajectory-factory"
+        plateau.mkdir(parents=True)
+        (plateau / "NOTES-r05.md").write_text("Novel coverage: 4.2%\n")
+        (plateau / "NOTES-r06.md").write_text("Novel coverage: 3.1%\n")
+        latch = factory_token_efficiency(plateau)
+        if not latch["early_stop"] or latch["early_stop_at_round"] != 6:
+            failures.append(f"coverage plateau did not early-stop: {latch}")
 
     if failures:
         print("SMOKE FAIL:")
@@ -687,7 +711,9 @@ def cmd_smoke():
         return 1
     print(
         "SMOKE PASS: four record kinds route correctly; malformed output cannot "
-        "advance a frontier; reserve/stage/validate/publish commits exactly once"
+        "advance a frontier; reserve/stage/validate/publish commits exactly once; "
+        "NOTES without a 'Novel coverage: <N>%' line cannot publish; two "
+        "consecutive sub-5% rounds early-stop the lane"
     )
     return 0
 
