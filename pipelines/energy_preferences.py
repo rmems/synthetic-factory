@@ -454,7 +454,13 @@ def _grid_allocations(demand: float, n: int, steps: int):
 def grid_allocation(
     demand: float, weights: list[float], caps: list[float], steps: int
 ) -> list[float]:
-    """Exhaustive grid search. Correct up to grid resolution, and slow."""
+    """Exhaustive grid search. Correct up to grid resolution, and slow.
+
+    When the grid is too coarse for any point to satisfy the caps, this returns
+    an all-zero allocation. That is deliberate: downstream it scores as
+    ``DEMAND_NOT_MET`` with zero task quality, which is the honest description
+    of a policy that could not solve the problem at its own resolution.
+    """
 
     best: list[float] | None = None
     best_cost = float("inf")
