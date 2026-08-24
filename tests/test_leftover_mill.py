@@ -1,17 +1,21 @@
 #!/usr/bin/env python3
-"""Issue #43 ledger and shared-detector quarantine reporting."""
+"""Shared-detector reporting and payload-first kind-mix quarantine tests."""
 
 import json
+import re
 import subprocess
 import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO / "pipelines"))
+sys.path.insert(0, str(REPO / "scripts"))
 
 import leftover_mill  # noqa: E402
+import publish_grok46_hub as publisher  # noqa: E402
 from mill_family import (  # noqa: E402
     MillIndex,
     REASON_FOREIGN_PAYLOAD_FACTORY,
@@ -272,6 +276,23 @@ class Cli(unittest.TestCase):
         result = self._invoke(str(REPO / "pipelines" / "not-a-directory"))
         self.assertEqual(result.returncode, 2)
         self.assertIn("not a directory", result.stderr)
+QUARANTINE_DOC = REPO / "docs" / "leftover-mill-quarantine.md"
+CODE_REVIEW_SLUG = "code-review-preference-factory"
+
+PREFERENCE_ITEM = {
+    "slug": CODE_REVIEW_SLUG,
+    "hub": "code-review-preference-pairs",
+    "pretty": "Code Review Preference Pairs",
+    "blurb": "Code-review chosen/rejected/critique preference pairs.",
+    "tags": ["synthetic-data", "preference-data"],
+}
+EPISODE_ITEM = {
+    "slug": "long-horizon-coding-factory",
+    "hub": "long-horizon-coding-trajectories",
+    "pretty": "Long Horizon Coding Trajectories",
+    "blurb": "Test factory.",
+    "tags": ["synthetic-data"],
+}
 
     def test_marker_error_is_a_bounded_cli_failure(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -294,5 +315,347 @@ class Cli(unittest.TestCase):
         self.assertNotIn("Traceback", result.stderr)
 
 
+def episode_side(goal="repair the leftover vfs image id"):
+    return {
+        "goal": goal,
+        "steps": [
+            {
+                "n": index,
+                "decision_basis": "Observation: inspect the leftover object",
+                "tool_call": {"name": "bash", "args": {"command": f"echo {index}"}},
+                "observation": f"inspected step {index}",
+            }
+            for index in range(1, 5)
+        ],
+        "outcome": "leftover object removed",
+        "reward": {"success": True},
+    }
+
+
+def preference_record(record_id):
+    chosen = episode_side()
+    rejected = episode_side()
+    rejected["reward"] = {"success": False}
+    return {
+        "id": record_id,
+        "chosen": chosen,
+        "rejected": rejected,
+        "critique": "the rejected patch never re-reads the leftover object",
+        "reward_delta": 0.4,
+        "meta": {"factory": CODE_REVIEW_SLUG, "round": 1, "generator": "grok-4.6"},
+    }
+
+
+def episode_record(record_id):
+    record = episode_side()
+    record["id"] = record_id
+    record["plan"] = "inspect, repair, verify"
+    record["meta"] = {
+        "factory": CODE_REVIEW_SLUG,
+        "round": 723,
+        "generator": "grok-4.6",
+    }
+    return record
+
+
+def write_jsonl(path, records):
+    path.write_text("".join(json.dumps(record) + "\n" for record in records))
+
+
+def stage_legacy_baseline(source, records, *, raw_text=None):
+    """Stage one payload visible through a marker-mode legacy baseline.
+
+    Rounds at or below ``legacy_baseline`` are published on their recorded
+    digest alone. That is how the 12 code-review episodes reached the Hub: they
+    predate the commit-time kind check in ``pipelines/round_txn.py``, so the
+    publish boundary is the only place left that can still see them.
+    """
+    source.mkdir(parents=True, exist_ok=True)
+    batch = source / "batch-r01.jsonl"
+    if raw_text is None:
+        write_jsonl(batch, records)
+    else:
+        batch.write_text(raw_text)
+    notes = source / "NOTES-r01.md"
+    notes.write_text("Novel coverage: 80%\n")
+    baseline_state = (
+        1,
+        {},
+        {path.name: publisher.file_sha256(path) for path in (batch, notes)},
+    )
+    return batch, baseline_state
+
+
+class LedgerContract(unittest.TestCase):
+    def test_ledger_names_the_twelve_published_code_review_episodes(self):
+        ids = leftover_mill.KIND_MIX_QUARANTINE[CODE_REVIEW_SLUG]
+        self.assertEqual(len(ids), 12)
+        self.assertEqual(len(set(ids)), 12)
+        self.assertEqual(
+            sorted({identifier.split("-")[1] for identifier in ids}),
+            ["r723", "r724", "r725", "r726", "r727", "r728"],
+        )
+        self.assertEqual(leftover_mill.quarantined_ids(CODE_REVIEW_SLUG), set(ids))
+
+    def test_only_the_code_review_preference_lane_has_acknowledged_records(self):
+        self.assertEqual(list(leftover_mill.KIND_MIX_QUARANTINE), [CODE_REVIEW_SLUG])
+        self.assertEqual(
+            leftover_mill.quarantined_ids("tool-use-preference-factory"), frozenset()
+        )
+
+    def test_documentation_lists_exactly_the_ledger_records(self):
+        text = QUARANTINE_DOC.read_text()
+        documented = set(re.findall(r"`(dbc-r7\d\d-[a-z0-9-]+)`", text))
+        self.assertEqual(
+            documented, set(leftover_mill.KIND_MIX_QUARANTINE[CODE_REVIEW_SLUG])
+        )
+        self.assertIn("payload-first", text)
+
+    def test_destination_kind_comes_from_the_factory_registry(self):
+        self.assertEqual(leftover_mill.destination_kind(CODE_REVIEW_SLUG), "preference")
+        self.assertEqual(
+            leftover_mill.destination_kind("long-horizon-coding-factory"), "episode"
+        )
+        self.assertIsNone(leftover_mill.destination_kind("not-a-factory"))
+        self.assertTrue(leftover_mill.is_preference_destination(CODE_REVIEW_SLUG))
+        self.assertTrue(
+            leftover_mill.is_preference_destination("tool-use-preference-factory")
+        )
+        self.assertFalse(
+            leftover_mill.is_preference_destination("long-horizon-coding-factory")
+        )
+
+
+class KindMixDetection(unittest.TestCase):
+    def test_kind_is_read_from_the_payload_not_the_id_suffix(self):
+        # A ``-leftover`` id is scenario naming: thousands of legitimate
+        # episodes carry it. Only the payload decides.
+        native = preference_record("dbc-r900-buildkit-cachemount-leftover")
+        self.assertIsNone(leftover_mill.kind_mix_kind(native, "preference"))
+
+        foreign = episode_record("crp-r900-review-patch-native-looking-id")
+        self.assertEqual(leftover_mill.kind_mix_kind(foreign, "preference"), "episode")
+
+    def test_unclassifiable_and_legacy_shapes_are_not_reported_as_mill_mix(self):
+        self.assertIsNone(leftover_mill.kind_mix_kind({"id": "ordinary"}, "preference"))
+        self.assertIsNone(leftover_mill.kind_mix_kind("not-a-record", "preference"))
+        thalamic_side = {
+            "state": {},
+            "proposed_action": {},
+            "safety_decision": {},
+            "executed_action": {},
+            "future_outcome": {},
+            "reward_components": {},
+        }
+        legacy = {"id": "legacy", "chosen": thalamic_side, "rejected": thalamic_side}
+        self.assertIsNone(leftover_mill.kind_mix_kind(legacy, "preference"))
+
+    def test_destinations_without_a_declared_kind_report_nothing(self):
+        foreign = episode_record("dbc-r723-buildah-layers-vfs-id-leftover")
+        self.assertIsNone(leftover_mill.kind_mix_kind(foreign, None))
+        self.assertEqual(
+            leftover_mill.find_kind_mix(
+                [(1, foreign)], None, slug=CODE_REVIEW_SLUG, source_name="x.jsonl"
+            ),
+            [],
+        )
+
+    def test_record_id_falls_back_to_meta_id(self):
+        self.assertEqual(leftover_mill.record_id({"id": " top "}), "top")
+        self.assertEqual(leftover_mill.record_id({"meta": {"id": "nested"}}), "nested")
+        self.assertIsNone(leftover_mill.record_id({"id": "  "}))
+        self.assertIsNone(leftover_mill.record_id([]))
+
+    def test_scan_marks_ledger_records_acknowledged_and_others_not(self):
+        with tempfile.TemporaryDirectory() as td:
+            path = Path(td) / "batch-r723.jsonl"
+            known = leftover_mill.KIND_MIX_QUARANTINE[CODE_REVIEW_SLUG][0]
+            write_jsonl(
+                path,
+                [
+                    episode_record(known),
+                    preference_record("crp-r723-ok"),
+                    episode_record("crp-r723-brand-new-mill-leak"),
+                ],
+            )
+            findings = leftover_mill.scan_jsonl_kind_mix(
+                path, "preference", slug=CODE_REVIEW_SLUG
+            )
+            self.assertEqual([f.source_line for f in findings], [1, 3])
+            self.assertEqual([f.acknowledged for f in findings], [True, False])
+            self.assertEqual(
+                [f.record_id for f in leftover_mill.unacknowledged(findings)],
+                ["crp-r723-brand-new-mill-leak"],
+            )
+            self.assertIn("is 'episode'", findings[0].describe())
+
+    def test_undecodable_lines_are_reported_and_never_acknowledged(self):
+        with tempfile.TemporaryDirectory() as td:
+            path = Path(td) / "batch-r01.jsonl"
+            path.write_bytes(
+                json.dumps(preference_record("crp-r01-ok")).encode("utf-8")
+                + b"\n\n"
+                + b"{not json}\n"
+                + b'{"id":"\xff\xfe"}\n'
+            )
+            findings = leftover_mill.scan_jsonl_kind_mix(
+                path, "preference", slug=CODE_REVIEW_SLUG
+            )
+            self.assertEqual([f.record_kind for f in findings], ["unparseable"] * 2)
+            self.assertEqual([f.source_line for f in findings], [3, 4])
+            self.assertEqual(leftover_mill.unacknowledged(findings), findings)
+
+    def test_scan_is_inert_for_destinations_without_a_declared_kind(self):
+        with tempfile.TemporaryDirectory() as td:
+            path = Path(td) / "batch-r01.jsonl"
+            path.write_text("{not json}\n")
+            self.assertEqual(
+                leftover_mill.scan_jsonl_kind_mix(path, None, slug="not-a-factory"), []
+            )
+
+
+class PreferencePublishGate(unittest.TestCase):
+    def _snapshot(self, root, item, records, *, raw_text=None):
+        source = root / "raw" / item["slug"]
+        _batch, baseline_state = stage_legacy_baseline(
+            source, records, raw_text=raw_text
+        )
+        with mock.patch.object(
+            publisher, "FACTORY_ROOT", root / "raw"
+        ), mock.patch.object(
+            publisher, "HF_ROOT", root / "hf"
+        ), mock.patch.object(
+            publisher, "marker_mode_state", return_value=baseline_state
+        ):
+            return publisher.snapshot_one(item)
+
+    def _card(self, root, item):
+        return (
+            root / "hf" / publisher.HF_DATASETS_DIRNAME / item["hub"] / "README.md"
+        ).read_text()
+
+    def test_new_leftover_mill_blocks_a_preference_snapshot(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            with self.assertRaises(SystemExit) as caught:
+                self._snapshot(
+                    root,
+                    PREFERENCE_ITEM,
+                    [
+                        preference_record("crp-r01-a"),
+                        episode_record("crp-r01-fresh-mill-leak"),
+                    ],
+                )
+            message = str(caught.exception)
+            self.assertIn("unquarantined leftover-mill", message)
+            self.assertIn("crp-r01-fresh-mill-leak", message)
+            self.assertIn("batch-r01.jsonl:2", message)
+
+    def test_a_blocked_snapshot_leaves_the_mirror_untouched(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            mirror_raw = (
+                root
+                / "hf"
+                / publisher.HF_DATASETS_DIRNAME
+                / PREFERENCE_ITEM["hub"]
+                / "data"
+                / "raw"
+            )
+            mirror_raw.mkdir(parents=True)
+            previous = mirror_raw / "batch-r01.jsonl"
+            write_jsonl(previous, [preference_record("crp-r01-previously-published")])
+            previous_bytes = previous.read_bytes()
+
+            with self.assertRaises(SystemExit):
+                self._snapshot(
+                    root,
+                    PREFERENCE_ITEM,
+                    [
+                        preference_record("crp-r01-a"),
+                        episode_record("crp-r01-fresh-mill-leak"),
+                    ],
+                )
+
+            # The gate runs before any copy or reconcile, so the already
+            # published mirror is neither overwritten nor pruned.
+            self.assertEqual(previous.read_bytes(), previous_bytes)
+            self.assertFalse(
+                (
+                    root
+                    / "hf"
+                    / publisher.HF_DATASETS_DIRNAME
+                    / PREFERENCE_ITEM["hub"]
+                    / "README.md"
+                ).exists()
+            )
+
+    def test_undecodable_payload_blocks_a_preference_snapshot(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            with self.assertRaisesRegex(SystemExit, "unquarantined leftover-mill"):
+                self._snapshot(
+                    root,
+                    PREFERENCE_ITEM,
+                    [preference_record("crp-r01-a")],
+                    raw_text=json.dumps(preference_record("crp-r01-a"))
+                    + "\n{ truncated\n",
+                )
+
+    def test_ledger_records_publish_with_a_disclosed_corrected_count(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            known = leftover_mill.KIND_MIX_QUARANTINE[CODE_REVIEW_SLUG][0]
+            stats = self._snapshot(
+                root,
+                PREFERENCE_ITEM,
+                [
+                    preference_record("crp-r01-a"),
+                    preference_record("crp-r01-b"),
+                    episode_record(known),
+                ],
+            )
+            self.assertEqual(stats["records"], 3)
+            self.assertEqual(stats["quarantined"], 1)
+
+            card = self._card(root, PREFERENCE_ITEM)
+            self.assertIn("## Leftover-mill quarantine", card)
+            self.assertIn(f"`{known}`", card)
+            self.assertIn("Quarantined: 1 of the 3 published raw records", card)
+            self.assertIn("**2**, not 3", card)
+            self.assertIn("raw JSONL is published unmodified", card)
+
+            # Raw evidence is mirrored byte-for-byte; nothing is rewritten.
+            raw = (
+                root
+                / "hf"
+                / publisher.HF_DATASETS_DIRNAME
+                / PREFERENCE_ITEM["hub"]
+                / "data"
+                / "raw"
+                / "batch-r01.jsonl"
+            )
+            source = root / "raw" / PREFERENCE_ITEM["slug"] / "batch-r01.jsonl"
+            self.assertEqual(raw.read_bytes(), source.read_bytes())
+
+    def test_clean_preference_snapshot_has_no_quarantine_section(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            stats = self._snapshot(
+                root, PREFERENCE_ITEM, [preference_record("crp-r01-a")]
+            )
+            self.assertEqual(stats["quarantined"], 0)
+            self.assertNotIn("Leftover-mill quarantine", self._card(root, PREFERENCE_ITEM))
+
+    def test_non_preference_destinations_are_left_alone(self):
+        # Factory mix and dest-stamped family mix on episode slugs belong to
+        # separate detectors; this gate must not reach into them.
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            stats = self._snapshot(
+                root, EPISODE_ITEM, [preference_record("crp-r01-foreign")]
+            )
+            self.assertEqual(stats["quarantined"], 0)
+            self.assertNotIn("Leftover-mill quarantine", self._card(root, EPISODE_ITEM))
 if __name__ == "__main__":
     unittest.main()

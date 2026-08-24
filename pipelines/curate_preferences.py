@@ -20,6 +20,12 @@ Write a new preference JSONL and manifest (both destinations must be absent)::
 ``source`` may be one JSONL file or a directory scanned recursively. Records
 without preference-pair fields are counted and skipped; malformed preference
 candidates are explicitly excluded rather than silently dropped.
+
+A skipped record whose payload kind names a different generation mill (an
+agentic episode inside a preference tree, for example) is *quarantined*: it
+gets its own manifest row and its own summary counter so it can never be
+absorbed into a preference-pair denominator. See ``pipelines/leftover_mill.py``
+and ``docs/leftover-mill-quarantine.md``.
 """
 
 from __future__ import annotations
@@ -35,6 +41,12 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+_PIPELINES = Path(__file__).resolve().parent
+if str(_PIPELINES) not in sys.path:
+    sys.path.insert(0, str(_PIPELINES))
+
+import leftover_mill  # noqa: E402
+
 
 TRANSFORM_NAME = "same-context-preference-curation"
 TRANSFORM_VERSION = "1.0.0"
@@ -42,6 +54,9 @@ TRANSFORM_VERSION = "1.0.0"
 ACTION_RETAINED = "retained"
 ACTION_REPAIRED = "repaired"
 ACTION_EXCLUDED = "excluded"
+# Quarantine is not a preference decision: a leftover-mill record never was a
+# pair, so it is recorded separately and never counted in a pair denominator.
+ACTION_QUARANTINED = "quarantined"
 
 
 class PreferenceCurationError(RuntimeError):
@@ -387,6 +402,33 @@ def _relative_source_path(source: Path, path: Path) -> str:
     return path.name
 
 
+def _skipped_manifest_entry(
+    relative_path: str,
+    line_number: int,
+    raw_line: bytes,
+    file_hash: str,
+    record: Any,
+    mill_kind: str,
+) -> dict[str, Any]:
+    """Return a manifest row for a quarantined leftover-mill record."""
+
+    return {
+        "source_path": relative_path,
+        "source_line": line_number,
+        "source_sha256": _sha256(raw_line),
+        "source_file_sha256": file_hash,
+        "source_record_id": leftover_mill.record_id(record),
+        "transform": {"name": TRANSFORM_NAME, "version": TRANSFORM_VERSION},
+        "action": ACTION_QUARANTINED,
+        "classification": f"leftover_mill_{mill_kind}",
+        "reason_codes": [leftover_mill.REASON_KIND_MIX],
+        "context_diff_paths": [],
+        "changed_context_fields": [],
+        "output_id": None,
+        "output_sha256": None,
+    }
+
+
 def curate_source(source: Path) -> CurationRun:
     """Read and classify all preference candidates under ``source``."""
 
@@ -397,6 +439,7 @@ def curate_source(source: Path) -> CurationRun:
     classifications: Counter[str] = Counter()
     reasons: Counter[str] = Counter()
     skipped_non_preferences = 0
+    leftover_mill_kinds: Counter[str] = Counter()
     total_json_records = 0
 
     for path in _source_files(source):
@@ -421,6 +464,22 @@ def curate_source(source: Path) -> CurationRun:
                 ) from exc
             if not _is_preference_candidate(record):
                 skipped_non_preferences += 1
+                mill_kind = leftover_mill.kind_mix_kind(record, "preference")
+                if mill_kind is not None:
+                    # A leftover-mill record is evidence, not a silent drop: it
+                    # gets a manifest row so the exclusion is auditable, but it
+                    # never enters the preference counters.
+                    leftover_mill_kinds[mill_kind] += 1
+                    manifest.append(
+                        _skipped_manifest_entry(
+                            relative_path,
+                            line_number,
+                            raw_line,
+                            file_hash,
+                            record,
+                            mill_kind,
+                        )
+                    )
                 continue
 
             decision = curate_preference_record(record)
@@ -473,6 +532,11 @@ def curate_source(source: Path) -> CurationRun:
         "json_records_seen": total_json_records,
         "preference_records": preference_records,
         "skipped_non_preference_records": skipped_non_preferences,
+        # Subset of the skipped records whose payload kind names a different
+        # generation mill. Reported separately so a preference yield can never
+        # quietly absorb them into a pair denominator.
+        "leftover_mill_records": sum(leftover_mill_kinds.values()),
+        "leftover_mill_kinds": dict(sorted(leftover_mill_kinds.items())),
         "impure_pairs": impure_pairs,
         "retained_pairs": retained_pairs,
         "excluded_pairs": actions[ACTION_EXCLUDED],
@@ -550,6 +614,7 @@ def _render_human(run: CurationRun) -> str:
         f"Impure: {summary['impure_pairs']}",
         f"Retained: {summary['retained_pairs']}",
         f"Excluded: {summary['excluded_pairs']}",
+        f"Leftover mill (quarantined): {summary['leftover_mill_records']}",
         f"Retained context purity: {summary['retained_context_purity_pct']:.1f}%",
         "Decisions:",
     ]

@@ -47,6 +47,7 @@ from round_txn import (  # noqa: E402
     discover_legacy_named_baseline as transaction_legacy_named_baseline,
     validate_legacy_baseline_payloads as transaction_validate_legacy_baseline_payloads,
 )
+import leftover_mill  # noqa: E402
 
 LICENSE_SRC = REPO_ROOT / "LICENSE"
 
@@ -758,6 +759,38 @@ def reconcile_snapshot_entries(
             raise SystemExit(f"unsafe non-file {description}: {existing}")
 
 
+def gate_leftover_mill(
+    item: dict, payloads: list[tuple[Path, str]]
+) -> list[leftover_mill.KindMixFinding]:
+    """Refuse a preference publish carrying unquarantined leftover-mill records.
+
+    The destination kind comes from the factory registry and the record kind
+    comes from the payload, so neither the directory slug nor a ``-leftover``
+    id suffix can vouch for a record. Destinations that do not publish
+    preference pairs are not gated here: factory mix and dest-stamped family
+    mix on episode slugs are separate detectors (issues #43 and #44).
+    """
+    expected = (
+        "preference" if leftover_mill.is_preference_destination(item["slug"]) else None
+    )
+    findings: list[leftover_mill.KindMixFinding] = []
+    for path, name in payloads:
+        findings.extend(
+            leftover_mill.scan_jsonl_kind_mix(
+                path, expected, slug=item["slug"], source_name=name
+            )
+        )
+    unacknowledged = leftover_mill.unacknowledged(findings)
+    if unacknowledged:
+        detail = "; ".join(finding.describe() for finding in unacknowledged[:10])
+        raise SystemExit(
+            f"{item['hub']}: refusing to publish {len(unacknowledged)} "
+            f"unquarantined leftover-mill record(s) into a preference "
+            f"destination: {detail}"
+        )
+    return findings
+
+
 def snapshot_one(item: dict) -> dict:
     src = factory_source(item["slug"])
     dest = hf_datasets_root() / item["hub"]
@@ -767,6 +800,10 @@ def snapshot_one(item: dict) -> dict:
     marker_state = marker_mode_state(src)
     batches = published_batches(src, marker_state)
     notes = published_notes(src, batches, marker_state)
+    # Payload-first preference gate. It runs before anything is written, so a
+    # leftover-mill leak leaves the mirror untouched, and again on the copies
+    # below, so the card describes the bytes that actually landed.
+    gate_leftover_mill(item, [(batch, batch.name) for batch in batches])
     records = 0
     bytes_ = 0
     labels = []
@@ -788,6 +825,7 @@ def snapshot_one(item: dict) -> dict:
         records += count_jsonl_lines(copied)
         bytes_ += copied.stat().st_size
         labels.append(batch_label(b))
+    kind_mix = gate_leftover_mill(item, [(raw / b.name, b.name) for b in batches])
     for n in notes:
         link_or_copy(n, meta / n.name, snapshot_manifest_sha256(n, marker_state))
     labels = [
@@ -807,6 +845,7 @@ def snapshot_one(item: dict) -> dict:
         first=first,
         last=last_s,
         payload_names=[batch.name for batch in batches],
+        kind_mix=kind_mix,
     )
     replace_snapshot_text(dest / "README.md", card)
     license_dst = dest / "LICENSE"
@@ -830,7 +869,38 @@ def snapshot_one(item: dict) -> dict:
         "notes": len(notes),
         "bytes": bytes_,
         "last": last_s,
+        "quarantined": len(kind_mix),
     }
+
+
+def render_quarantine_section(
+    records: int, kind_mix: list[leftover_mill.KindMixFinding]
+) -> str:
+    """Disclose acknowledged leftover-mill records instead of hiding them."""
+    if not kind_mix:
+        return ""
+    ids = "\n".join(
+        f"- `{finding.record_id}` (`data/raw/{finding.source_name}` line "
+        f"{finding.source_line}, payload kind `{finding.record_kind}`)"
+        for finding in kind_mix
+    )
+    return f"""
+## Leftover-mill quarantine
+
+Quarantined: {len(kind_mix)} of the {records} published raw records. They are
+**not preference pairs** — they are leftover-mill records whose payload carries
+a different record kind, classified from the payload itself rather than from the
+file name or the `-leftover` id suffix. The preference-pair count this snapshot
+supports is **{records - len(kind_mix)}**, not {records}.
+
+The raw JSONL is published unmodified: these records stay in `data/raw/` as
+evidence and are quarantined by id here, never by editing the payload to fake a
+preference schema. Preference curation (`pipelines/curate_preferences.py`)
+already excludes them, and any *new* leftover-mill record blocks a snapshot of
+this repository outright.
+
+{ids}
+"""
 
 
 def render_card(
@@ -841,6 +911,7 @@ def render_card(
     first: str | None,
     last: str | None,
     payload_names: list[str] | None = None,
+    kind_mix: list[leftover_mill.KindMixFinding] | None = None,
 ) -> str:
     tags = "\n".join(f"- {t}" for t in item["tags"])
     kb = max(1, bytes_ // 1024)
@@ -863,6 +934,7 @@ def render_card(
             f"`data/raw/batch-{first}.jsonl` through `data/raw/batch-{last}.jsonl` "
             f"(~{kb} KB), snapshotted from"
         )
+    quarantine = render_quarantine_section(records, list(kind_mix or ()))
     return f"""---
 pretty_name: {item['pretty']}
 license: apache-2.0
@@ -902,7 +974,7 @@ Synthetic Data Factory agentic lane. Factory slug:
 `data/metadata/NOTES-*.md`. The factory source remains the write destination; this Hub
 copy is a public evidence snapshot, not the curated training export. Public
 visibility is not a training-readiness claim.
-
+{quarantine}
 ## Planned curated release
 
 Curated training publication remains blocked until a later audit and export
@@ -928,7 +1000,12 @@ def cmd_snapshot(only: str | None = None) -> list[dict]:
         if only and item["hub"] != only and item["slug"] != only:
             continue
         stats.append(snapshot_one(item))
-        print(f"snapshot {item['hub']} batches={stats[-1]['batches']} records={stats[-1]['records']}", flush=True)
+        print(
+            f"snapshot {item['hub']} batches={stats[-1]['batches']} "
+            f"records={stats[-1]['records']} "
+            f"quarantined={stats[-1]['quarantined']}",
+            flush=True,
+        )
     selected = {row["hub"]: row for row in stats}
     inventory_stats = [
         selected[item["hub"]]
