@@ -1,0 +1,67 @@
+prompts/03-neuromorphic-event-language-bridge.md
+  s_002cddb1a70571::t_7fb35e9650123c 51-85
+pipelines/spike_probe.py
+  s_002cddb1a70571::t_4ae726abdd2d30 202
+  s_002cddb1a70571::t_48f43c62fcaccf 14-15
+  s_002cddb1a70571::t_9a5e0dc2d24f91 108
+  s_002cddb1a70571::t_26d2af3a2888e8 1-13,16-107,109-201,203-271
+schemas/raster.schema.json
+  s_002cddb1a70571::t_66f1149e64ebeb 5,9,12,14-15
+  s_002cddb1a70571::t_4361575bc8e404 172,181-211
+  s_002cddb1a70571::t_d48026d119cd97 66-116
+tests/test_round_txn.py
+  s_002cddb1a70571::t_9b6f37828e1a44 1220-1329,1331-1334
+  s_002cddb1a70571::t_fc72a62933bf0a 1330
+pipelines/training_audit.py
+  s_002cddb1a70571::t_4069ce159b251b 258-270
+  s_002cddb1a70571::t_89b0dbfca06e3a 271-273
+  s_002cddb1a70571::t_c2be9da807d926 703-709
+  s_002cddb1a70571::t_6c0e481630ff57 40
+  s_002cddb1a70571::t_3e7e08b7c4f893 7-11
+  s_002cddb1a70571::t_a23d385d754c6c 640-648
+  s_002cddb1a70571::t_569078e7393a1a 522-553
+  s_002cddb1a70571::t_bd75ff30ce7513 430-454
+.claude/skills/run-synthetic-factory/SKILL.md
+  s_002cddb1a70571::t_9464c0ae42b65e 44-57
+tests/test_spike_probe.py
+  s_002cddb1a70571::t_8346796d4afcc8 1-117,121-190
+  s_002cddb1a70571::t_ce3eabe14e8b2a 118-120
+tests/fixtures/bridge_gate_snn.jsonl
+  s_002cddb1a70571::t_7738e1b1f2ce26 1
+pipelines/curate_bridge.py
+  s_002cddb1a70571::t_4d6cea42501c87 1024-1031
+  s_002cddb1a70571::t_52a89d159f0f48 526-535
+  s_002cddb1a70571::t_3b65adea6d06e3 97-103
+  s_002cddb1a70571::t_79cfd140c32f3a 267-400
+  s_002cddb1a70571::t_22b7bd7c17c28e 900-901,903
+  s_002cddb1a70571::t_27f67681460e74 646-813
+tests/test_curate_bridge.py
+  s_002cddb1a70571::t_83d1588949bfe6 596-599
+  s_002cddb1a70571::t_cc09c090696e6c 510-595,600-671
+tests/test_training_audit.py
+  s_002cddb1a70571::t_bf262d01ca1cd1 431-583
+pipelines/round_txn.py
+  s_002cddb1a70571::t_057f156d183067 1579-1588
+  s_002cddb1a70571::t_f058a9ea0ad430 2389
+  s_002cddb1a70571::t_6c529378051854 1576
+  s_002cddb1a70571::t_8fdd51286c05eb 1577-1578,1589-1633
+  s_002cddb1a70571::t_86cc8870951431 38
+  s_002cddb1a70571::t_111397c0f056df 107-109
+  s_002cddb1a70571::t_01be76b469675e 2390-2394
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "9aa3a59aa61dad98115a2f94635eb12d578246f6",
+  "prompts": {},
+  "sessions": {
+    "s_002cddb1a70571": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "abd260ba-6a6c-45a6-9db3-a4e0988ad60e",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Raul Montoya Cardenas <montoyaraul34@gmail.com>"
+    }
+  }
+}
