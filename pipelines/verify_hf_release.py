@@ -148,7 +148,7 @@ CARD_SECTION_MARKERS = {
 REQUIRED_PURPOSE_TEXT = {
     "rmems/thalamic-relay-trajectories": "relay-gated state assessment",
     "rmems/neuromorphic-event-language-bridge": "event streams to structured language views",
-    "rmems/multi-agent-ouroboros-swarm": "delegation, critique, conflict resolution",
+    "rmems/multi-agent-ouroboros-swarm": "safety-gate adjudication trajectories",
     "rmems/failure-as-fuel-preference-cascade": "chosen/rejected comparisons",
     "rmems/agentic-coding-trajectories": "planning, tool use, observation",
 }
@@ -159,6 +159,21 @@ REQUIRED_TARGET_TEXT = {
     "rmems/multi-agent-ouroboros-swarm": "not labeled as Spikenaut training data",
     "rmems/failure-as-fuel-preference-cascade": "not labeled as Spikenaut training data",
     "rmems/agentic-coding-trajectories": "not labeled as Spikenaut training data",
+}
+
+# Repository-specific payload-kind disclosures.  A card must not advertise a
+# record kind its JSONL rows do not have.  Issue #75 found that all 14 published
+# rows on multi-agent-ouroboros-swarm are thalamic-gate wraps while the card
+# sold all 14 as multi-agent trajectories, and the swarm dialogue exists only as
+# markdown sidecars.  These markers are required inside the
+# "## Published raw payload" section, which is where the payload claim lives.
+# Repositories absent from this mapping carry no extra payload requirement.
+REQUIRED_PAYLOAD_DISCLOSURE = {
+    "rmems/multi-agent-ouroboros-swarm": (
+        "thalamic-gate wrap schema",
+        "7 of the 14 records",
+        "sidecars, not JSONL training records",
+    ),
 }
 
 
@@ -312,6 +327,13 @@ def _card_section_errors(card: str, repo: str) -> list[str]:
         errors.append(f"README missing repository purpose marker: {purpose}")
     if _normalized_text(target) not in target_section:
         errors.append(f"README missing Spikenaut classification: {target}")
+
+    payload_section = _normalized_text(
+        _markdown_section(card, "## Published raw payload") or ""
+    )
+    for marker in REQUIRED_PAYLOAD_DISCLOSURE.get(repo, ()):
+        if _normalized_text(marker) not in payload_section:
+            errors.append(f"README missing payload-kind disclosure: {marker}")
     return errors
 
 
