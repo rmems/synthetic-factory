@@ -71,17 +71,38 @@ class SimulatorRules(unittest.TestCase):
 
     def test_benign_jitter_continues(self):
         result = self.sim.run(
-            scenario(), disturbance("event_jitter", channels=["c0"], jitter_ms=0.4)
+            scenario(),
+            disturbance(
+                "event_jitter", channels=["c0"], onset_ms=2.0, duration_ms=20.0,
+                jitter_ms=0.4,
+            ),
         )
         self.assertEqual(result.outcome, "continue")
         self.assertEqual(result.reason_codes, ("WITHIN_TOLERANCE",))
 
     def test_jitter_beyond_tolerance_degrades(self):
         result = self.sim.run(
-            scenario(), disturbance("event_jitter", channels=["c0"], jitter_ms=3.0)
+            scenario(),
+            disturbance(
+                "event_jitter", channels=["c0"], onset_ms=2.0, duration_ms=20.0,
+                jitter_ms=3.0,
+            ),
         )
         self.assertEqual(result.outcome, "degrade_gracefully")
         self.assertIn("JITTER_BEYOND_TOLERANCE", result.reason_codes)
+
+    def test_jitter_scheduled_outside_the_run_is_not_silently_applied(self):
+        # The window used to be ignored, so a disturbance scheduled long after
+        # the run still degraded the outcome.
+        result = self.sim.run(
+            scenario(),
+            disturbance(
+                "event_jitter", channels=["c0"], onset_ms=1000.0, duration_ms=5.0,
+                jitter_ms=3.0,
+            ),
+        )
+        self.assertEqual(result.outcome, "continue")
+        self.assertEqual(result.max_jitter_ms, 0.0)
 
     def test_thermal_ladder_walks_warn_limit_shutdown(self):
         ladder = {58.0: "continue", 70.0: "degrade_gracefully",
@@ -98,16 +119,53 @@ class SimulatorRules(unittest.TestCase):
                 self.assertEqual(result.outcome, expected)
 
     def test_malformed_burst_quarantines(self):
+        for kind in sorted(fr.MALFORMED_INTEGRITY_KINDS):
+            with self.subTest(malformed_kind=kind):
+                result = self.sim.run(
+                    scenario(),
+                    disturbance(
+                        "malformed_spike_burst", channels=["c1"], malformed_count=2,
+                        malformed_kind=kind,
+                    ),
+                )
+                self.assertEqual(result.outcome, "quarantine")
+                self.assertIn("MALFORMED_STREAM_QUARANTINED", result.reason_codes)
+                self.assertTrue(result.integrity_violation)
+
+    def test_events_from_an_unknown_channel_are_dropped_not_quarantined(self):
+        # Rejected at the relay boundary: nothing trusted was corrupted, so
+        # quarantining the whole stream would be the wrong response.
         result = self.sim.run(
             scenario(),
             disturbance(
                 "malformed_spike_burst", channels=["c1"], malformed_count=2,
-                malformed_kind="negative_amplitude",
+                malformed_kind="unknown_channel",
             ),
         )
-        self.assertEqual(result.outcome, "quarantine")
-        self.assertIn("MALFORMED_STREAM_QUARANTINED", result.reason_codes)
-        self.assertTrue(result.integrity_violation)
+        self.assertEqual(result.outcome, "degrade_gracefully")
+        self.assertIn("EVENTS_DROPPED", result.reason_codes)
+        self.assertFalse(result.integrity_violation)
+
+    def test_a_disturbance_missing_a_parameter_is_refused(self):
+        # It used to default to zero and run as a no-op that still looked like
+        # a disturbance in the record.
+        with self.assertRaises(oc.ContractError) as caught:
+            self.sim.run(scenario(), disturbance("sensor_loss", channels=["c0"]))
+        self.assertIn("no-op", str(caught.exception))
+
+    def test_a_parameter_the_simulator_does_not_read_is_refused(self):
+        with self.assertRaises(oc.ContractError) as caught:
+            self.sim.run(
+                scenario(),
+                disturbance(
+                    "stale_sensor", channels=["c0"], onset_ms=2.0, duration_ms=9.0,
+                    stale_age_ms=22.0,
+                ),
+            )
+        self.assertIn("stale_age_ms", str(caught.exception))
+
+    def test_every_disturbance_kind_has_a_parameter_spec(self):
+        self.assertEqual(set(fr.PARAMETER_SPEC), set(fr.DISTURBANCES))
 
     def test_late_result_past_hard_deadline_fails_closed(self):
         result = self.sim.run(
@@ -177,10 +235,30 @@ class SimulatorRules(unittest.TestCase):
             scenario(),
             disturbance(
                 "burst_corruption", channels=["c0"], onset_ms=2.0,
-                duration_ms=8.0, corrupt_ratio=0.2,
+                duration_ms=44.0, corrupt_ratio=0.3,
             ),
         )
         self.assertEqual(light.outcome, "degrade_gracefully")
+        self.assertIn("CORRUPTION_BELOW_QUARANTINE_THRESHOLD", light.reason_codes)
+
+    def test_the_realised_corruption_ratio_tracks_the_requested_one(self):
+        # It used to snap to quarters, so 0.8 was applied as 1.0 and the
+        # recorded intervention did not describe what was simulated.
+        for requested in (0.2, 0.4, 0.6, 0.8):
+            with self.subTest(requested=requested):
+                result = self.sim.run(
+                    scenario(),
+                    disturbance(
+                        "burst_corruption",
+                        channels=["c0", "c1", "c2", "c3"],
+                        onset_ms=0.0,
+                        duration_ms=1000.0,
+                        corrupt_ratio=requested,
+                    ),
+                )
+                self.assertAlmostEqual(
+                    result.realised_corrupt_ratio, requested, delta=0.12
+                )
 
     def test_missing_channel_reduces_the_set_but_keeps_running(self):
         result = self.sim.run(
@@ -193,7 +271,9 @@ class SimulatorRules(unittest.TestCase):
     def test_stale_beyond_threshold_is_detected(self):
         result = self.sim.run(
             scenario(min_healthy_channels=2),
-            disturbance("stale_sensor", channels=["c0"], onset_ms=2.0, stale_age_ms=22.0),
+            disturbance(
+                "stale_sensor", channels=["c0"], onset_ms=2.0, duration_ms=22.0
+            ),
         )
         self.assertGreater(
             result.max_staleness_ms, fr.DEFAULT_SYSTEM["stale_threshold_ms"]
@@ -271,11 +351,13 @@ class RecordsAreContractual(unittest.TestCase):
         for record in self.records:
             self.assertTrue(record["result"]["reason_codes"])
 
-    def test_records_are_curation_eligible_once_validated(self):
-        stamped = oc.stamp_validation(
-            self.records[0], validator="v", version="1", findings=[]
-        )
-        self.assertEqual(oc.curation_eligible(stamped), (True, []))
+    def test_records_are_curation_eligible_when_they_validate_clean(self):
+        self.assertEqual(oc.curation_eligible(self.records[0], []), (True, []))
+
+    def test_records_are_not_eligible_when_validation_found_something(self):
+        eligible, reasons = oc.curation_eligible(self.records[0], ["a finding"])
+        self.assertFalse(eligible)
+        self.assertIn("VALIDATION_FINDINGS:1", reasons)
 
     def test_ids_are_unique(self):
         ids = [record["id"] for record in self.records]

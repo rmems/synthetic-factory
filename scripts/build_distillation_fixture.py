@@ -142,9 +142,14 @@ def build(out: Path, force: bool = False) -> dict[str, Any]:
         "training_ready": False,
         "training_ready_note": (
             "Structural validity is not training-readiness. The router records "
-            "come from a reference_only oracle and are excluded by "
+            f"come from a {router_oracle.authority} oracle and are excluded by "
             "oracle_contract.curation_eligible; the energy records are "
-            "denominated in cpu_time_s because no energy meter was readable."
+            f"denominated in {meter.cost_quantity} "
+            + (
+                f"as measured by {meter.name}."
+                if meter.measures_energy
+                else "because no energy meter was readable on this host."
+            )
         ),
     }
     (out / "MANIFEST.json").write_text(

@@ -121,20 +121,15 @@ def validate_path(root: Path, strict: bool = False) -> dict[str, Any]:
                 findings.append({"file": str(path), "line": lineno, "error": error})
             if not errors:
                 valid += 1
-                if isinstance(obj, dict):
-                    ok, reasons = oc.curation_eligible(
-                        oc.stamp_validation(
-                            obj,
-                            validator=VALIDATOR_NAME,
-                            version=VALIDATOR_VERSION,
-                            findings=[],
-                        )
-                    )
-                    if ok:
-                        eligible += 1
-                    else:
-                        for reason in reasons:
-                            ineligible[reason] += 1
+            if isinstance(obj, dict):
+                # Eligibility is decided on the findings this validator just
+                # produced, never on a validation block the record shipped with.
+                ok, reasons = oc.curation_eligible(obj, errors)
+                if ok:
+                    eligible += 1
+                elif not errors:
+                    for reason in reasons:
+                        ineligible[reason] += 1
             if isinstance(obj, dict):
                 stamped.append(
                     oc.stamp_validation(
@@ -187,9 +182,10 @@ def main(argv: list[str] | None = None) -> int:
         return 2
 
     stamped = report.pop("_stamped")
-    if args.stamp_output:
-        oc.write_jsonl(args.stamp_output, stamped)
 
+    # Report first. Writing the stamp output can fail (the destination must not
+    # already exist), and losing the findings to that failure would be the
+    # worst possible trade.
     if args.json:
         print(json.dumps(report, indent=2, sort_keys=True))
     else:
@@ -200,6 +196,13 @@ def main(argv: list[str] | None = None) -> int:
             f"INVALID: {finding['file']}:{finding['line']} — {finding['error']}",
             file=sys.stderr,
         )
+
+    if args.stamp_output:
+        try:
+            oc.write_jsonl(args.stamp_output, stamped)
+        except oc.ContractError as exc:
+            print(f"stamp output not written: {exc}", file=sys.stderr)
+            return 2
     return 1 if report["blocked"] else 0
 
 

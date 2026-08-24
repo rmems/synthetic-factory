@@ -87,10 +87,35 @@ OUTCOME_PRECEDENCE = (
     "continue",
 )
 
-# Every malformed kind is the same integrity failure as far as the relay is
-# concerned — the stream can no longer be trusted, so it is quarantined. The
-# kind is carried through as scenario metadata, not as a severity dial.
 MALFORMED_KINDS = ("non_monotonic_time", "negative_amplitude", "unknown_channel")
+
+# A malformed burst is not one failure. Times that go backwards and amplitudes
+# that go negative are corruption *inside* an accepted stream — the relay
+# cannot tell which events to trust, so the stream is quarantined. Events tagged
+# with a channel the relay does not know are rejected at the boundary instead:
+# nothing trusted was corrupted, so they count as drops.
+MALFORMED_INTEGRITY_KINDS = frozenset({"non_monotonic_time", "negative_amplitude"})
+
+# Parameters each disturbance consumes. Validated on every run, because a
+# parameter the simulator silently ignores turns a scenario into a no-op that
+# still looks like a disturbance in the record.
+PARAMETER_SPEC: dict[str, tuple[tuple[str, ...], tuple[str, ...]]] = {
+    "sensor_loss": (("channels", "onset_ms", "duration_ms"), ()),
+    "stale_sensor": (("channels", "onset_ms", "duration_ms"), ()),
+    "event_jitter": (("channels", "onset_ms", "duration_ms", "jitter_ms"), ()),
+    "burst_corruption": (
+        ("channels", "onset_ms", "duration_ms", "corrupt_ratio"),
+        (),
+    ),
+    "thermal_excursion": (("onset_ms", "ramp_ms", "peak_c"), ("channels",)),
+    "missing_channel": (("channels",), ()),
+    "malformed_spike_burst": (
+        ("channels", "malformed_count", "malformed_kind"),
+        (),
+    ),
+    "delayed_result": (("delay_ms",), ("channels",)),
+    "temporary_saturation": (("channels", "onset_ms", "duration_ms"), ()),
+}
 
 
 class FaultOracle:
@@ -133,6 +158,19 @@ class FaultResult:
     integrity_violation: bool
     result_delay_ms: float
     trace: tuple[dict[str, Any], ...] = field(default=())
+
+    @property
+    def realised_corrupt_ratio(self) -> float:
+        """Corrupted share of the event stream the simulator actually applied.
+
+        The generator asks for a ``corrupt_ratio``; the tick grid can only
+        approximate it. Recording what landed keeps the label honest about the
+        severity that was simulated rather than the one that was requested.
+        """
+
+        if self.total_events <= 0:
+            return 0.0
+        return self.corrupt_events / self.total_events
 
     @property
     def residual_error(self) -> float:
@@ -195,6 +233,31 @@ class RelayReflexSimulator(FaultOracle):
     # -- stream construction -------------------------------------------------
 
     @staticmethod
+    def _check_parameters(kind: str, parameters: dict[str, Any]) -> None:
+        """Refuse a disturbance this simulator would silently ignore.
+
+        Missing parameters used to default to zero, so a plausible-looking
+        disturbance could run as a no-op and still be recorded as a scenario.
+        An unexpected parameter is refused for the same reason: writing
+        ``duration_ms`` where the kind reads ``stale_age_ms`` should be an
+        error, not a quietly discarded intention.
+        """
+
+        required, optional = PARAMETER_SPEC[kind]
+        missing = [key for key in required if key not in parameters]
+        if missing:
+            raise oc.ContractError(
+                f"{kind} needs parameters {sorted(missing)}; a missing parameter "
+                "would run as a no-op"
+            )
+        unknown = sorted(set(parameters) - set(required) - set(optional))
+        if unknown:
+            raise oc.ContractError(
+                f"{kind} does not use parameters {unknown}; it reads "
+                f"{sorted(required + optional)}"
+            )
+
+    @staticmethod
     def _affected(parameters: dict[str, Any], channels: list[str]) -> list[str]:
         """Narrow the disturbance's declared channels to the relay's own."""
 
@@ -210,6 +273,7 @@ class RelayReflexSimulator(FaultOracle):
         if kind not in DISTURBANCES:
             raise oc.ContractError(f"unknown disturbance kind: {kind!r}")
         params = dict(disturbance.get("parameters", {}))
+        self._check_parameters(kind, params)
         # ``affected`` is narrowed to the relay's own channels for the tick
         # loop; ``declared`` keeps every name the disturbance claimed, so a
         # disturbance that also hits the fallback source is seen as such.
@@ -239,9 +303,9 @@ class RelayReflexSimulator(FaultOracle):
         onset_ms = float(params.get("onset_ms", 0.0))
         duration_ms = float(params.get("duration_ms", 0.0))
         jitter_ms = float(params.get("jitter_ms", 0.0))
-        stale_age_ms = float(params.get("stale_age_ms", 0.0))
         corrupt_ratio_target = float(params.get("corrupt_ratio", 0.0))
         malformed_count = int(params.get("malformed_count", 0))
+        malformed_kind = str(params.get("malformed_kind") or "")
         peak_c = float(params.get("peak_c", system["ambient_c"]))
         ramp_ms = max(float(params.get("ramp_ms", 1.0)), 1e-6)
         result_delay_ms = float(params.get("delay_ms", 0.0))
@@ -262,24 +326,20 @@ class RelayReflexSimulator(FaultOracle):
             for channel in live_channels:
                 total += 1
                 lost = kind == "sensor_loss" and in_window and channel in affected
-                stale = (
-                    kind == "stale_sensor"
-                    and channel in affected
-                    and onset_ms <= now_ms < (onset_ms + stale_age_ms)
-                )
+                stale = kind == "stale_sensor" and channel in affected and in_window
                 if lost:
                     dropped += 1
                 elif not stale:
                     last_fresh_ms[channel] = now_ms
 
-                if kind == "event_jitter" and channel in affected:
-                    offset = jitter_ms if tick % 2 == 0 else -jitter_ms
-                    max_jitter = max(max_jitter, abs(offset))
+                if kind == "event_jitter" and channel in affected and in_window:
+                    max_jitter = max(max_jitter, abs(jitter_ms))
 
                 if kind == "burst_corruption" and channel in affected and in_window:
-                    # Deterministic interleave: corrupt the first
-                    # ``corrupt_ratio`` share of each affected tick window.
-                    if (tick % 4) / 4.0 < corrupt_ratio_target:
+                    # Deterministic pseudo-random phase, fine enough that the
+                    # realised corruption tracks the requested ratio instead of
+                    # snapping to quarters.
+                    if ((tick * 7919) % 1000) / 1000.0 < corrupt_ratio_target:
                         corrupt += 1
 
                 if (
@@ -288,7 +348,12 @@ class RelayReflexSimulator(FaultOracle):
                     and malformed_emitted < malformed_count
                 ):
                     malformed_emitted += 1
-                    integrity_violation = True
+                    if malformed_kind in MALFORMED_INTEGRITY_KINDS:
+                        integrity_violation = True
+                    else:
+                        # Rejected at the relay boundary rather than trusted
+                        # and later found corrupt.
+                        dropped += 1
 
                 saturating = (
                     kind == "temporary_saturation" and channel in affected and in_window
@@ -480,10 +545,14 @@ def _disturbance(rng: random.Random, kind: str, channels: list[str]) -> dict[str
     elif kind == "stale_sensor":
         parameters |= {
             "onset_ms": float(rng.choice([2.0, 6.0])),
-            "stale_age_ms": float(rng.choice([4.0, 9.0, 22.0])),
+            "duration_ms": float(rng.choice([4.0, 9.0, 22.0])),
         }
     elif kind == "event_jitter":
-        parameters |= {"jitter_ms": float(rng.choice([0.4, 1.2, 3.0]))}
+        parameters |= {
+            "onset_ms": 2.0,
+            "duration_ms": float(rng.choice([10.0, 40.0])),
+            "jitter_ms": float(rng.choice([0.4, 1.2, 3.0])),
+        }
     elif kind == "burst_corruption":
         parameters |= {
             "onset_ms": 4.0,
@@ -586,6 +655,12 @@ def build_records(
             ),
             oc.new_measurement(
                 "residual_error", round(result.residual_error, 6), "simulator_state"
+            ),
+            oc.new_measurement(
+                "corrupt_ratio",
+                round(result.realised_corrupt_ratio, 6),
+                "simulator_state",
+                detail={"requested": intervention["parameters"].get("corrupt_ratio")},
             ),
             oc.new_measurement(
                 "peak_temperature_c", result.peak_temperature_c, "simulator_thermal_model"

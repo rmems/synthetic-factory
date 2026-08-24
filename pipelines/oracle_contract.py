@@ -131,6 +131,7 @@ QUANTITY_UNITS = {
     "healthy_channel_count": "count",
     "dropped_event_count": "count",
     "residual_error": "ratio",
+    "corrupt_ratio": "ratio",
     "task_quality": "ratio",
     "routing_entropy": "nat",
     "top1_top2_margin": "logit",
@@ -161,6 +162,8 @@ MODELED_METERS = frozenset(
         "datasheet_estimate",
     }
 )
+
+SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 
 ISO_8601_RE = re.compile(
     r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$"
@@ -490,6 +493,18 @@ def check_measurements(record: dict[str, Any], where: str) -> list[str]:
     return errors
 
 
+ENERGY_KEY_HINTS = ("joule", "energy", "watt", "_wh", "kwh", "power_w")
+
+
+def _is_energy_key(key: str) -> bool:
+    """True when a field name reads as an energy value rather than a label."""
+
+    lowered = key.lower()
+    if lowered in ENERGY_QUANTITIES:
+        return True
+    return any(hint in lowered for hint in ENERGY_KEY_HINTS)
+
+
 def check_no_theoretical_energy_claim(record: dict[str, Any], where: str) -> list[str]:
     """Refuse an energy number that was modeled rather than measured.
 
@@ -526,6 +541,19 @@ def check_no_theoretical_energy_claim(record: dict[str, Any], where: str) -> lis
             )
             continue
         measured_energy_quantities.add(quantity)
+
+    # A bare energy number anywhere under `result` is an energy claim too.
+    # Without this, `result["energy_j"] = 1e-7` sails past the measurement
+    # checks because it never appears in `result.measurements` at all.
+    for path, key, value in _walk_keys(result, "result"):
+        # Only a number can be an energy value. A boolean is a flag
+        # (`cost_is_energy`, `measures_energy`) and a string names a quantity.
+        if key == "measurements" or not is_number(value) or not _is_energy_key(key):
+            continue
+        errors.append(
+            f"{path}: THEORETICAL_ENERGY_CLAIM — an energy value must be carried "
+            "as a measurement with a meter, not as a bare field"
+        )
 
     preference = result.get("preference")
     if isinstance(preference, dict):
@@ -628,6 +656,11 @@ def _check_provenance_block(block: Any, where: str) -> list[str]:
         errors.append(
             f"{where}.provenance.produced_at must be an ISO-8601 UTC timestamp"
         )
+    # Required, not optional. If the digest may be absent, deleting it is all it
+    # takes to switch off tamper detection for the whole record.
+    digest = block.get("record_sha256")
+    if not isinstance(digest, str) or not SHA256_RE.match(digest):
+        errors.append(f"{where}.provenance.record_sha256 must be a sha256 hex digest")
     return errors
 
 
@@ -663,6 +696,13 @@ def _check_validation_block(block: Any, where: str) -> list[str]:
         errors.append(
             f"{where}.validation.validator.checked_at must be an ISO-8601 UTC timestamp"
         )
+    validated_digest = validator.get("validated_digest")
+    if validated_digest is not None and not (
+        isinstance(validated_digest, str) and SHA256_RE.match(validated_digest)
+    ):
+        errors.append(
+            f"{where}.validation.validator.validated_digest must be a sha256 digest"
+        )
     return errors
 
 
@@ -684,6 +724,11 @@ def check_envelope(record: Any, where: str) -> list[str]:
         )
     if not isinstance(record.get("scenario"), dict) or not record["scenario"]:
         errors.append(f"{where}.scenario must be a non-empty object")
+    for optional in ("intervention", "candidate_prediction"):
+        # Must be an object, not a list: the predicted_* naming rule below is
+        # only expressible over named keys, so a list would slip past it.
+        if optional in record and not isinstance(record[optional], dict):
+            errors.append(f"{where}.{optional} must be an object")
     errors += _check_generator_block(record.get("generator"), where)
     errors += _check_oracle_block(record.get("oracle"), where)
     errors += _check_result_block(record.get("result"), where)
@@ -721,7 +766,13 @@ def stamp_validation(
     """Return a copy of ``record`` with a validator-owned verdict attached.
 
     The producer never calls this; only a validator does. The measured content
-    digest is unchanged because ``record_digest`` excludes ``validation``.
+    digest is unchanged because ``record_digest`` excludes ``validation``, and
+    the verdict carries the digest it was formed over so a stamp cannot be
+    lifted from one record onto another.
+
+    A stamp records that a validation happened; it is not evidence that one
+    did. See :func:`curation_eligible`, which decides on the caller's own
+    findings and never reads this block.
     """
 
     stamped = copy.deepcopy(record)
@@ -731,21 +782,32 @@ def stamp_validation(
             "name": validator,
             "version": version,
             "checked_at": utc_now_iso(),
+            "validated_digest": record_digest(record),
         },
         "findings": list(findings),
     }
     return stamped
 
 
-def curation_eligible(record: dict[str, Any]) -> tuple[bool, list[str]]:
-    """Fail closed: only a validated, authoritative, measured record curates.
+def curation_eligible(
+    record: dict[str, Any], findings: list[str]
+) -> tuple[bool, list[str]]:
+    """Fail closed: only an authoritative oracle's measured, validated result.
 
-    Structural validity alone never makes a record training-ready. A
-    ``reference_only`` oracle proves the pipeline shape and is deliberately
-    excluded here.
+    ``findings`` must come from the caller's *own* validation run over this
+    record; an empty list means it validated clean. The ``validation`` block
+    already sitting in the record is deliberately not consulted. Nothing stored
+    in a file can prove who wrote it, so trusting it would let a producer stamp
+    itself ``passed`` and walk straight through this gate.
+
+    Structural validity alone never makes a record training-ready, and a
+    ``reference_only`` oracle proves the pipeline shape without ever grounding
+    a label.
     """
 
     reasons: list[str] = []
+    if findings:
+        reasons.append(f"VALIDATION_FINDINGS:{len(findings)}")
     oracle = record.get("oracle")
     if not isinstance(oracle, dict):
         reasons.append("ORACLE_BLOCK_MISSING")
@@ -760,11 +822,26 @@ def curation_eligible(record: dict[str, Any]) -> tuple[bool, list[str]]:
         reasons.append(f"ORACLE_RESULT_NOT_MEASURED:{result.get('status')!r}")
     elif not result.get("measurements"):
         reasons.append("ORACLE_RESULT_MISSING")
-    validation = record.get("validation")
-    if not isinstance(validation, dict) or validation.get("status") != VALIDATION_PASSED:
-        status = validation.get("status") if isinstance(validation, dict) else None
-        reasons.append(f"NOT_VALIDATED:{status!r}")
+    if check_digest(record, "record"):
+        reasons.append("RECORD_DIGEST_MISMATCH")
     return (not reasons), reasons
+
+
+def stamp_is_bound_to_content(record: dict[str, Any]) -> bool:
+    """True when a stamped verdict was formed over this exact content.
+
+    Catches a verdict lifted from one record onto another. It says nothing
+    about *who* stamped it, which is why :func:`curation_eligible` does not
+    rely on the stamp at all.
+    """
+
+    validation = record.get("validation")
+    if not isinstance(validation, dict):
+        return False
+    validator = validation.get("validator")
+    if not isinstance(validator, dict):
+        return False
+    return validator.get("validated_digest") == record_digest(record)
 
 
 def read_jsonl(path) -> list[tuple[int, Any]]:

@@ -17,13 +17,21 @@ import moe_router as mr  # noqa: E402
 import oracle_contract as oc  # noqa: E402
 
 
-def recording_from_reference(texts, *, is_llm_teacher=False, run_id="r1"):
+# A model id no checkpoint will ever have. Recordings built in these tests
+# exercise the replay plumbing; their routing numbers are the reference
+# router's own real computation, and no such recording is ever committed.
+PLUMBING_TEACHER = "unit-test/not-a-real-moe-checkpoint"
+
+
+def recording_from_reference(
+    texts, *, model=PLUMBING_TEACHER, is_llm_teacher=True, run_id="r1"
+):
     """Build a replay recording from routing the reference oracle really did.
 
     The observations are the reference router's own computed output — no
-    routing decision is invented here. ``is_llm_teacher`` only exercises the
-    plumbing that treats a recording from a real teacher as authoritative; it
-    is a test fixture flag and never ships in a committed recording.
+    routing decision is invented. ``model`` and ``is_llm_teacher`` describe
+    what the recording *claims* to be, which is what the laundering guards in
+    ``RecordedTeacherRouter.available`` are there to inspect.
     """
 
     reference = mr.ReferenceMoERouter()
@@ -36,8 +44,8 @@ def recording_from_reference(texts, *, is_llm_teacher=False, run_id="r1"):
         "recorded_at": "2026-08-23T00:00:00Z",
         "teacher": {
             "is_llm_teacher": is_llm_teacher,
-            "model": "reference_moe_router",
-            "revision_or_checkpoint": "seed:7",
+            "model": model,
+            "revision_or_checkpoint": "rev-abc123",
             "configuration_sha256": reference.fingerprint()["configuration_sha256"],
         },
         "observations": observations,
@@ -46,11 +54,33 @@ def recording_from_reference(texts, *, is_llm_teacher=False, run_id="r1"):
 
 class Featurisation(unittest.TestCase):
     def test_features_are_stable_across_processes(self):
-        # Bucketing comes from BLAKE2b, not Python's randomised hash().
-        first = mr.featurize("relay gate")
-        second = mr.featurize("relay gate")
-        self.assertEqual(first, second)
-        self.assertEqual(len(first), mr.FEATURE_DIM)
+        # Bucketing comes from BLAKE2b, not Python's randomised hash(). Two
+        # calls in one interpreter would agree either way, so this really has
+        # to cross a process boundary with hash randomisation left on.
+        import os
+        import subprocess
+
+        script = (
+            "import sys, json;"
+            f"sys.path.insert(0, {str(REPO / 'pipelines')!r});"
+            "import moe_router;"
+            "print(json.dumps(moe_router.featurize('relay gate')))"
+        )
+        environment = dict(os.environ)
+        environment.pop("PYTHONHASHSEED", None)
+        outputs = set()
+        for _ in range(2):
+            completed = subprocess.run(
+                [sys.executable, "-c", script],
+                capture_output=True,
+                text=True,
+                check=True,
+                env=environment,
+            )
+            outputs.add(completed.stdout.strip())
+        self.assertEqual(len(outputs), 1)
+        self.assertEqual(json.loads(outputs.pop()), mr.featurize("relay gate"))
+        self.assertEqual(len(mr.featurize("relay gate")), mr.FEATURE_DIM)
 
     def test_features_are_unit_norm(self):
         features = mr.featurize("a spike burst arrived late")
@@ -146,6 +176,29 @@ class RecordedTeacher(unittest.TestCase):
         self.assertFalse(available)
         self.assertIn("configuration_sha256", detail)
 
+    def test_a_recording_of_the_reference_stand_in_cannot_pose_as_a_teacher(self):
+        # The laundering route: record the reference gate's real output, label
+        # it a teacher, and it would become curatable teacher truth.
+        recording = recording_from_reference(
+            ["laundered"], model="reference_moe_router", is_llm_teacher=True
+        )
+        available, detail = mr.RecordedTeacherRouter(recording).available()
+        self.assertFalse(available)
+        self.assertIn("non-teacher stand-in", detail)
+
+    def test_a_recording_that_does_not_declare_a_teacher_is_unavailable(self):
+        recording = recording_from_reference(["quiet"], is_llm_teacher=False)
+        available, detail = mr.RecordedTeacherRouter(recording).available()
+        self.assertFalse(available)
+        self.assertIn("is_llm_teacher", detail)
+
+    def test_a_recording_that_omits_is_llm_teacher_is_not_assumed_to_be_one(self):
+        recording = recording_from_reference(["silent"])
+        del recording["teacher"]["is_llm_teacher"]
+        oracle = mr.RecordedTeacherRouter(recording)
+        self.assertFalse(oracle.is_llm_teacher)
+        self.assertFalse(oracle.available()[0])
+
     def test_an_empty_recording_is_unavailable(self):
         oracle = mr.RecordedTeacherRouter(
             {"teacher": {"model": "m", "revision_or_checkpoint": "r",
@@ -166,10 +219,13 @@ class RealTeacherIsAbsentNotFaked(unittest.TestCase):
     def test_transformers_oracle_reports_why_it_cannot_run(self):
         oracle = mr.TransformersMoERouter("some/moe-model")
         available, detail = oracle.available()
-        self.assertIsInstance(available, bool)
         self.assertTrue(detail)
-        if not available:
-            self.assertRegex(detail, r"Error|No module|error")
+        if available:
+            self.skipTest(
+                "torch and transformers import on this host; the interesting "
+                "case is the unavailable one"
+            )
+        self.assertRegex(detail, r"Error|No module|error")
 
     def test_fingerprint_is_refused_before_the_model_loads(self):
         with self.assertRaises(oc.OracleUnavailable):
@@ -210,10 +266,7 @@ class Records(unittest.TestCase):
 
     def test_reference_records_are_never_curation_eligible(self):
         for record in self.records:
-            stamped = oc.stamp_validation(
-                record, validator="v", version="1", findings=[]
-            )
-            eligible, reasons = oc.curation_eligible(stamped)
+            eligible, reasons = oc.curation_eligible(record, [])
             self.assertFalse(eligible)
             self.assertIn("ORACLE_NOT_AUTHORITATIVE:'reference_only'", reasons)
 
@@ -249,17 +302,38 @@ class Records(unittest.TestCase):
         texts = [
             proposal["scenario"]["context"] for proposal in mr.propose_contexts(11, 5)
         ]
-        oracle = mr.RecordedTeacherRouter(
-            recording_from_reference(texts, is_llm_teacher=True)
-        )
+        oracle = mr.RecordedTeacherRouter(recording_from_reference(texts))
         records = mr.build_records(11, 5, oracle=oracle)
         for record in records:
             self.assertEqual(mr.check_family(record, record["id"]), [])
             self.assertTrue(record["result"]["teacher_grounded"])
-            stamped = oc.stamp_validation(
-                record, validator="v", version="1", findings=[]
-            )
-            self.assertEqual(oc.curation_eligible(stamped), (True, []))
+            self.assertEqual(oc.curation_eligible(record, []), (True, []))
+
+    def test_a_fabricated_top1_expert_is_caught(self):
+        record = dict(self.records[0])
+        record = json.loads(json.dumps(record))
+        layers = record["result"]["routing"]["layers"]
+        wrong = (layers[-1]["top_k_experts"][0] + 3) % 8
+        record["result"]["top1_expert"] = wrong
+        record["result"]["routing"]["top1_expert"] = wrong
+        errors = mr.check_family(record, "x")
+        self.assertTrue(any("top1_expert" in error for error in errors))
+
+    def test_a_fabricated_expert_agreement_is_caught(self):
+        record = json.loads(json.dumps(self.records[0]))
+        record["result"]["routing"]["expert_agreement"] = 1.0
+        errors = mr.check_family(record, "x")
+        self.assertTrue(any("expert_agreement" in error for error in errors))
+
+    def test_a_measurement_that_contradicts_the_routing_is_caught(self):
+        record = json.loads(json.dumps(self.records[0]))
+        for item in record["result"]["measurements"]:
+            if item["quantity"] == "routing_entropy":
+                item["value"] = item["value"] + 0.5
+        errors = mr.check_family(record, "x")
+        self.assertTrue(
+            any("recorded routing says" in error for error in errors)
+        )
 
 
 class FamilyChecks(unittest.TestCase):

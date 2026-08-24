@@ -221,11 +221,30 @@ class ResultFailsClosed(unittest.TestCase):
 
 
 class ValidationIsNotSelfCertified(unittest.TestCase):
-    def test_producer_may_not_claim_passed(self):
+    def test_a_passed_status_with_no_validator_is_rejected(self):
         record = minimal_record()
         record["validation"] = {"status": "passed", "validator": None, "findings": []}
         errors = oc.check_envelope(record, "x")
         self.assertTrue(any("validator must be an object" in error for error in errors))
+
+    def test_a_self_named_validator_is_structurally_valid_but_not_trusted(self):
+        # check_envelope cannot tell who wrote a validation block — nothing on
+        # disk can. The defence is that curation_eligible ignores it entirely,
+        # which CurationFailsClosed asserts.
+        record = minimal_record()
+        record["validation"] = {
+            "status": "passed",
+            "validator": {
+                "name": "the-producer-itself",
+                "version": "1.0.0",
+                "checked_at": oc.utc_now_iso(),
+            },
+            "findings": [],
+        }
+        self.assertEqual(oc.check_envelope(record, "x"), [])
+        self.assertFalse(oc.stamp_is_bound_to_content(record))
+        eligible, reasons = oc.curation_eligible(record, ["found a problem"])
+        self.assertFalse(eligible)
 
     def test_unvalidated_record_may_not_name_a_validator(self):
         record = minimal_record()
@@ -255,16 +274,33 @@ class ValidationIsNotSelfCertified(unittest.TestCase):
 
 
 class CurationFailsClosed(unittest.TestCase):
-    def test_unvalidated_record_is_not_eligible(self):
-        eligible, reasons = oc.curation_eligible(minimal_record())
+    def test_a_record_with_findings_is_not_eligible(self):
+        eligible, reasons = oc.curation_eligible(minimal_record(), ["something wrong"])
         self.assertFalse(eligible)
-        self.assertTrue(any(reason.startswith("NOT_VALIDATED") for reason in reasons))
+        self.assertIn("VALIDATION_FINDINGS:1", reasons)
+
+    def test_a_self_stamped_passed_verdict_does_not_make_a_record_eligible(self):
+        # The whole point of the gate: a producer can write any validation
+        # block it likes, so eligibility must come from the caller's own run.
+        record = minimal_record()
+        record["validation"] = {
+            "status": oc.VALIDATION_PASSED,
+            "validator": {
+                "name": "the-producer-itself",
+                "version": "1.0.0",
+                "checked_at": oc.utc_now_iso(),
+            },
+            "findings": [],
+        }
+        eligible, reasons = oc.curation_eligible(record, ["a real finding"])
+        self.assertFalse(eligible)
+        self.assertIn("VALIDATION_FINDINGS:1", reasons)
 
     def test_reference_only_oracle_is_never_eligible(self):
         record = minimal_record()
         record["oracle"]["authority"] = oc.AUTHORITY_REFERENCE_ONLY
-        stamped = oc.stamp_validation(record, validator="v", version="1", findings=[])
-        eligible, reasons = oc.curation_eligible(stamped)
+        record["provenance"]["record_sha256"] = oc.record_digest(record)
+        eligible, reasons = oc.curation_eligible(record, [])
         self.assertFalse(eligible)
         self.assertIn("ORACLE_NOT_AUTHORITATIVE:'reference_only'", reasons)
 
@@ -275,18 +311,42 @@ class CurationFailsClosed(unittest.TestCase):
             measurements=[],
             abstention_reason="no meter",
         )
-        stamped = oc.stamp_validation(record, validator="v", version="1", findings=[])
-        eligible, reasons = oc.curation_eligible(stamped)
+        record["provenance"]["record_sha256"] = oc.record_digest(record)
+        eligible, reasons = oc.curation_eligible(record, [])
         self.assertFalse(eligible)
         self.assertTrue(
             any(reason.startswith("ORACLE_RESULT_NOT_MEASURED") for reason in reasons)
         )
 
-    def test_validated_authoritative_measured_record_is_eligible(self):
+    def test_a_tampered_record_is_never_eligible(self):
+        record = minimal_record()
+        record["result"]["outcome"] = "continue"
+        eligible, reasons = oc.curation_eligible(record, [])
+        self.assertFalse(eligible)
+        self.assertIn("RECORD_DIGEST_MISMATCH", reasons)
+
+    def test_an_authoritative_measured_record_that_validated_clean_is_eligible(self):
+        self.assertEqual(oc.curation_eligible(minimal_record(), []), (True, []))
+
+
+class StampBinding(unittest.TestCase):
+    def test_a_stamp_is_bound_to_the_content_it_was_formed_over(self):
         stamped = oc.stamp_validation(
             minimal_record(), validator="v", version="1", findings=[]
         )
-        self.assertEqual(oc.curation_eligible(stamped), (True, []))
+        self.assertTrue(oc.stamp_is_bound_to_content(stamped))
+
+    def test_a_stamp_lifted_onto_other_content_is_detected(self):
+        stamped = oc.stamp_validation(
+            minimal_record(), validator="v", version="1", findings=[]
+        )
+        other = minimal_record(id="rec-2")
+        other["provenance"]["record_sha256"] = oc.record_digest(other)
+        other["validation"] = stamped["validation"]
+        self.assertFalse(oc.stamp_is_bound_to_content(other))
+
+    def test_an_unstamped_record_is_not_bound(self):
+        self.assertFalse(oc.stamp_is_bound_to_content(minimal_record()))
 
 
 class JsonlHelpers(unittest.TestCase):

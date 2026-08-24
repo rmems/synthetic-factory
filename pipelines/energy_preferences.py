@@ -401,7 +401,14 @@ def objective(weights: list[float], allocation: list[float]) -> float:
 def analytic_allocation(
     demand: float, weights: list[float], caps: list[float]
 ) -> list[float]:
-    """Exact KKT solution of the capped quadratic allocation problem."""
+    """Exact KKT solution of the capped quadratic allocation problem.
+
+    Each round spreads the remaining demand proportionally to ``1/w``, pins any
+    actuator that would exceed its cap, and repeats. Every pinned actuator was
+    over its trial share, and the trial shares sum to the remaining demand, so
+    the remainder stays strictly positive until the loop settles — the free set
+    empties only when the caps cannot meet the demand at all.
+    """
 
     n = len(weights)
     fixed: dict[int, float] = {}
@@ -418,10 +425,6 @@ def analytic_allocation(
             fixed[index] = caps[index]
             remaining -= caps[index]
             free.discard(index)
-        if remaining <= 0:
-            for index in free:
-                fixed[index] = 0.0
-            break
     return [fixed.get(i, 0.0) for i in range(n)]
 
 
@@ -453,13 +456,14 @@ def _grid_allocations(demand: float, n: int, steps: int):
 
 def grid_allocation(
     demand: float, weights: list[float], caps: list[float], steps: int
-) -> list[float]:
+) -> list[float] | None:
     """Exhaustive grid search. Correct up to grid resolution, and slow.
 
-    When the grid is too coarse for any point to satisfy the caps, this returns
-    an all-zero allocation. That is deliberate: downstream it scores as
-    ``DEMAND_NOT_MET`` with zero task quality, which is the honest description
-    of a policy that could not solve the problem at its own resolution.
+    Returns ``None`` when no point on the grid satisfies the caps. It must not
+    return an all-zero allocation in that case: zeros have an objective of
+    ``0.0``, *lower* than the true optimum, so any caller comparing objectives
+    would rank a policy that solved nothing above one that solved the problem.
+    ``None`` says "this policy found nothing", which is the actual outcome.
     """
 
     best: list[float] | None = None
@@ -471,7 +475,7 @@ def grid_allocation(
         if cost < best_cost:
             best_cost = cost
             best = candidate
-    return best if best is not None else [0.0] * len(weights)
+    return best
 
 
 @dataclass(frozen=True)
@@ -486,7 +490,7 @@ class PolicyEvaluation:
 
 
 def evaluate_allocation(
-    allocation: list[float],
+    allocation: list[float] | None,
     *,
     demand: float,
     weights: list[float],
@@ -494,7 +498,20 @@ def evaluate_allocation(
     optimum: float,
     quality_floor: float,
 ) -> PolicyEvaluation:
-    """Score an allocation against the task objective and safety envelope."""
+    """Score an allocation against the task objective and safety envelope.
+
+    ``allocation is None`` means the policy produced no answer at all, which is
+    reported as its own failure rather than folded into a safety violation.
+    """
+
+    if allocation is None:
+        return PolicyEvaluation(
+            allocation=(),
+            task_quality=0.0,
+            safety_ok=False,
+            violations=("NO_FEASIBLE_ALLOCATION_FOUND",),
+            success=False,
+        )
 
     violations: list[str] = []
     for index, (value, cap) in enumerate(zip(allocation, caps)):
@@ -704,7 +721,7 @@ def build_records(
             workload = workloads[policy_id]
             allocation = workload()
             evaluation = evaluate_allocation(
-                list(allocation),
+                None if allocation is None else list(allocation),
                 demand=demand,
                 weights=weights,
                 caps=caps,
@@ -821,6 +838,21 @@ def check_family(record: dict[str, Any], where: str) -> list[str]:
             f"{where}.result.candidates must list at least two measured candidates"
         ]
 
+    # The flag that tells a joule corpus from a second corpus. Readers,
+    # MANIFEST.json and the "no theoretical energy" rule all lean on it, so it
+    # has to follow from the quantity rather than be asserted alongside it.
+    corpus_quantity = result.get("cost_quantity")
+    cost_is_energy = result.get("cost_is_energy")
+    if corpus_quantity not in oc.QUANTITY_UNITS:
+        errors.append(f"{where}.result.cost_quantity must be a registered quantity")
+    if not isinstance(cost_is_energy, bool):
+        errors.append(f"{where}.result.cost_is_energy must be a boolean")
+    elif cost_is_energy != (corpus_quantity in oc.ENERGY_QUANTITIES):
+        errors.append(
+            f"{where}.result.cost_is_energy is {cost_is_energy} but cost_quantity "
+            f"is {corpus_quantity!r} — the flag must follow the quantity"
+        )
+
     # Keyed by a tuple, not a joined string, so a candidate id containing the
     # separator cannot be made to collide with another candidate's reading.
     measured_costs: dict[tuple[str, str], float] = {}
@@ -856,6 +888,11 @@ def check_family(record: dict[str, Any], where: str) -> list[str]:
         if quantity not in oc.QUANTITY_UNITS:
             errors.append(f"{spot}.cost_quantity must be a registered quantity")
             continue
+        if corpus_quantity in oc.QUANTITY_UNITS and quantity != corpus_quantity:
+            errors.append(
+                f"{spot}.cost_quantity is {quantity!r} but the record is "
+                f"denominated in {corpus_quantity!r} — costs must be comparable"
+            )
         if not oc.is_number(candidate.get("cost_value")):
             errors.append(f"{spot}.cost_value must be a number")
             continue
@@ -896,6 +933,24 @@ def check_family(record: dict[str, Any], where: str) -> list[str]:
         return errors + [
             f"{where}.result.preference.preferred must name a measured candidate"
         ]
+    # The preference restates the winning candidate's cost. If that restatement
+    # is free to drift, a record can advertise a cheap energy figure while the
+    # candidate it points at was measured in seconds.
+    if preference.get("cost_quantity") != preferred.get("cost_quantity"):
+        errors.append(
+            f"{where}.result.preference.cost_quantity is "
+            f"{preference.get('cost_quantity')!r} but {preferred_id!r} was measured "
+            f"in {preferred.get('cost_quantity')!r}"
+        )
+    if not oc.is_number(preference.get("cost_value")) or (
+        oc.is_number(preferred.get("cost_value"))
+        and abs(float(preference["cost_value"]) - float(preferred["cost_value"])) > 1e-12
+    ):
+        errors.append(
+            f"{where}.result.preference.cost_value is "
+            f"{preference.get('cost_value')!r} but {preferred_id!r} measured "
+            f"{preferred.get('cost_value')!r}"
+        )
     if preferred.get("safety_ok") is not True:
         errors.append(
             f"{where}.result.preference: PREFERRED_CANDIDATE_UNSAFE — "

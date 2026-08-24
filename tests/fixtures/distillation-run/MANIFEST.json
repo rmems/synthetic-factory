@@ -62,15 +62,15 @@
   "files": {
     "energy-preferences/batch-r01.jsonl": {
       "records": 4,
-      "sha256": "71f83cd018cd69f4fb141884df33f464aa7f9a6732fd719396ba8d0fd3d9202f"
+      "sha256": "56a2a0200a32771624099002ef2ed63bf2de7e6833dca85ed3b3a89621ea1fbc"
     },
     "fault-recovery/batch-r01.jsonl": {
       "records": 18,
-      "sha256": "a65921d715cf69e7bc615d5826e9e723be8313739a8ce6dc58234034a96a2f4c"
+      "sha256": "dcf76c732e82b6f12601047abc8febccd3538becadaa051bcf6096fecb4f01a4"
     },
     "moe-router/batch-r01.jsonl": {
       "records": 80,
-      "sha256": "0ad0e0be62a266b95b8c16a49b1d35598d9ca66e885e8e379c1f7025a6a7a0ac"
+      "sha256": "1016517399d76e34aba505e8d979f188acfb971d88ee08b9ed04a6883c6aeb92"
     }
   },
   "generated_by": "scripts/build_distillation_fixture.py",
@@ -128,7 +128,7 @@
     "snn-energy-routing-preferences": 20260823
   },
   "training_ready": false,
-  "training_ready_note": "Structural validity is not training-readiness. The router records come from a reference_only oracle and are excluded by oracle_contract.curation_eligible; the energy records are denominated in cpu_time_s because no energy meter was readable.",
+  "training_ready_note": "Structural validity is not training-readiness. The router records come from a reference_only oracle and are excluded by oracle_contract.curation_eligible; the energy records are denominated in cpu_time_s because no energy meter was readable on this host.",
   "validation": {
     "curation_eligible": 22,
     "curation_ineligible_reasons": {
@@ -140,12 +140,12 @@
       "snn-energy-routing-preferences": 4
     },
     "fault_outcomes": {
-      "continue": 2,
-      "degrade_gracefully": 8,
+      "continue": 3,
+      "degrade_gracefully": 7,
       "fail_closed": 1,
-      "fallback": 3,
-      "quarantine": 2,
-      "reflex_action": 2
+      "fallback": 5,
+      "quarantine": 1,
+      "reflex_action": 1
     },
     "invalid": 0,
     "preferred_policies": {

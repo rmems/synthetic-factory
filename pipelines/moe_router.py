@@ -60,6 +60,10 @@ GENERATOR_VERSION = "1.0.0"
 FEATURE_DIM = 48
 COMPACT_DIM = 16
 
+# Oracles that compute real routing but are not language-model teachers. A
+# recording may never name one of these as the teacher it replays.
+NON_TEACHER_ORACLE_NAMES = frozenset({"reference_moe_router"})
+
 # Context seeds spanning prose, code, math, structured data, dialogue and
 # configuration. The generator composes them; it never labels them.
 CONTEXT_TEMPLATES: tuple[tuple[str, str], ...] = (
@@ -337,7 +341,20 @@ class ReferenceMoERouter(RouterOracle):
 
 
 class RecordedTeacherRouter(RouterOracle):
-    """Replays routing recorded from a real teacher run. Fails closed."""
+    """Replays routing recorded from a real teacher run. Fails closed.
+
+    This is the only oracle here that turns a file on disk into an
+    ``authoritative`` label, so it is also the obvious laundering route: point
+    it at a recording of a stand-in's output, label the recording as a teacher,
+    and the stand-in's routing becomes curatable teacher truth.
+
+    Two guards make that a deliberate lie rather than an accident. The
+    recording must declare ``is_llm_teacher: true`` explicitly — the default is
+    no longer "assume teacher" — and it may not name a known non-teacher oracle
+    as its model. Neither guard can stop someone who sets out to forge a
+    recording; what they stop is a stand-in's output drifting into the
+    authoritative path by omission.
+    """
 
     name = "recorded_teacher_router"
     version = "1.0.0"
@@ -351,7 +368,9 @@ class RecordedTeacherRouter(RouterOracle):
         self.teacher = teacher if isinstance(teacher, dict) else {}
         observations = recording.get("observations")
         self.observations = observations if isinstance(observations, dict) else {}
-        self.is_llm_teacher = bool(self.teacher.get("is_llm_teacher", True))
+        # Defaults to False: a recording that forgets to say what produced it
+        # is not assumed to be a teacher.
+        self.is_llm_teacher = self.teacher.get("is_llm_teacher") is True
 
     @classmethod
     def from_path(cls, path) -> "RecordedTeacherRouter":
@@ -369,6 +388,18 @@ class RecordedTeacherRouter(RouterOracle):
         ]
         if missing:
             return False, f"recording is missing teacher fields: {sorted(missing)}"
+        if not self.is_llm_teacher:
+            return False, (
+                "recording does not declare is_llm_teacher: true — a recorded "
+                "replay may only ground labels for a real teacher run"
+            )
+        model = str(self.teacher.get("model") or "")
+        if model in NON_TEACHER_ORACLE_NAMES:
+            return False, (
+                f"recording names {model!r} as its teacher, which is a "
+                "non-teacher stand-in; its routing may not be curated as "
+                "teacher truth"
+            )
         if not self.observations:
             return False, "recording contains no routing observations"
         return True, f"{len(self.observations)} recorded context(s)"
@@ -722,6 +753,16 @@ def check_family(record: dict[str, Any], where: str) -> list[str]:
             errors.append(
                 f"{where}.oracle.fingerprint.is_llm_teacher must be a boolean"
             )
+        if (
+            isinstance(oracle, dict)
+            and oracle.get("authority") == oc.AUTHORITY_AUTHORITATIVE
+            and str(fingerprint.get("model") or "") in NON_TEACHER_ORACLE_NAMES
+        ):
+            errors.append(
+                f"{where}.oracle: LAUNDERED_REFERENCE_ORACLE — "
+                f"{fingerprint.get('model')!r} is a non-teacher stand-in and may "
+                "not be recorded as an authoritative teacher"
+            )
 
     result = record.get("result")
     if not isinstance(result, dict):
@@ -745,6 +786,17 @@ def check_family(record: dict[str, Any], where: str) -> list[str]:
                 f"{where}.result.teacher_grounded must be {expected} for an "
                 f"{oracle.get('authority')!r} oracle with is_llm_teacher="
                 f"{result.get('is_llm_teacher')!r}"
+            )
+        # An authoritative router oracle must be a teacher. Otherwise a
+        # stand-in's routing reaches curation with teacher_grounded false and
+        # nothing downstream objecting.
+        if (
+            oracle.get("authority") == oc.AUTHORITY_AUTHORITATIVE
+            and result.get("teacher_grounded") is not True
+        ):
+            errors.append(
+                f"{where}.oracle: an authoritative router oracle must be "
+                "teacher-grounded; mark a non-teacher oracle reference_only"
             )
 
     routing = result.get("routing")
@@ -806,6 +858,58 @@ def check_family(record: dict[str, Any], where: str) -> list[str]:
     agreement = routing.get("expert_agreement")
     if not oc.is_number(agreement) or not 0.0 <= float(agreement) <= 1.0:
         errors.append(f"{where}.result.routing.expert_agreement must be in [0, 1]")
+
+    # The distillation label and the summary statistics are derived, not
+    # independent facts. Recompute them from the layers the oracle recorded, so
+    # a fabricated top-1 expert cannot be trained on.
+    tops = [
+        layer["top_k_experts"][0]
+        for layer in layers
+        if isinstance(layer, dict)
+        and isinstance(layer.get("top_k_experts"), list)
+        and layer["top_k_experts"]
+    ]
+    if len(tops) == len(layers) and tops:
+        modal, count = Counter(tops).most_common(1)[0]
+        if result.get("top1_expert") != modal:
+            errors.append(
+                f"{where}.result.top1_expert is {result.get('top1_expert')!r} but the "
+                f"recorded layers route to {modal!r}"
+            )
+        if routing.get("top1_expert") != modal:
+            errors.append(
+                f"{where}.result.routing.top1_expert disagrees with its own layers"
+            )
+        expected_agreement = count / len(tops)
+        if oc.is_number(agreement) and abs(float(agreement) - expected_agreement) > 1e-6:
+            errors.append(
+                f"{where}.result.routing.expert_agreement is {agreement} but the "
+                f"recorded layers agree {expected_agreement:.6f} of the time"
+            )
+
+    # The compact targets in result.measurements describe the last layer and
+    # the cross-layer agreement. Reconcile them with the routing they summarise.
+    last = layers[-1] if isinstance(layers[-1], dict) else {}
+    expected_measurements = {
+        "top1_top2_margin": last.get("top1_top2_margin"),
+        "routing_entropy": last.get("routing_entropy"),
+        "expert_agreement": agreement,
+    }
+    measurements = result.get("measurements")
+    for item in measurements if isinstance(measurements, list) else []:
+        if not isinstance(item, dict):
+            continue
+        quantity = item.get("quantity")
+        expected = expected_measurements.get(quantity)
+        if expected is None or not oc.is_number(expected):
+            continue
+        if not oc.is_number(item.get("value")):
+            continue
+        if abs(float(item["value"]) - float(expected)) > 1e-6:
+            errors.append(
+                f"{where}.result: measured {quantity} is {item['value']} but the "
+                f"recorded routing says {expected}"
+            )
     return errors
 
 

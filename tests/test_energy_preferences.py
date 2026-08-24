@@ -74,6 +74,43 @@ class AllocationTask(unittest.TestCase):
         coarse = ep.objective(weights, ep.grid_allocation(1.0, weights, caps, 4))
         self.assertLess(exact, coarse + 1e-12)
 
+    def test_a_grid_with_no_feasible_point_reports_no_solution(self):
+        # Never an all-zero allocation: its objective is 0.0, lower than the
+        # true optimum, so a caller comparing objectives would rank a policy
+        # that solved nothing above one that solved the problem.
+        weights = [1.0, 1.0, 1.0, 1.0]
+        caps = [0.2, 0.2, 0.2, 0.2]
+        self.assertIsNone(ep.grid_allocation(1.0, weights, caps, 2))
+        evaluation = ep.evaluate_allocation(
+            None, demand=1.0, weights=weights, caps=caps,
+            optimum=0.25, quality_floor=0.98,
+        )
+        self.assertFalse(evaluation.safety_ok)
+        self.assertEqual(evaluation.violations, ("NO_FEASIBLE_ALLOCATION_FOUND",))
+        self.assertEqual(evaluation.task_quality, 0.0)
+
+    def test_the_analytic_solver_matches_an_exhaustive_grid(self):
+        import random as _random
+
+        rng = _random.Random(1)
+        for _ in range(60):
+            n = 4
+            weights = [round(rng.uniform(0.3, 3.0), 3) for _ in range(n)]
+            demand = round(rng.uniform(0.5, 2.0), 3)
+            caps = [round(rng.uniform(demand / n * 0.6, demand / n * 2.0), 3)
+                    for _ in range(n)]
+            if sum(caps) <= demand:
+                caps = [round(cap + demand / n, 3) for cap in caps]
+            exact = ep.analytic_allocation(demand, weights, caps)
+            self.assertAlmostEqual(sum(exact), demand, places=6)
+            for value, cap in zip(exact, caps):
+                self.assertLessEqual(value, cap + 1e-9)
+            grid = ep.grid_allocation(demand, weights, caps, 40)
+            if grid is not None:
+                self.assertLessEqual(
+                    ep.objective(weights, exact), ep.objective(weights, grid) + 1e-9
+                )
+
     def test_unclipped_allocation_can_break_a_cap(self):
         weights = [0.5, 2.0, 2.0, 2.0]
         allocation = ep.unclipped_allocation(1.0, weights)
@@ -266,7 +303,11 @@ class RecordsAreMeasured(unittest.TestCase):
                 self.assertIn(key, measured)
                 self.assertEqual(measured[key], candidate["cost_value"])
 
-    def test_the_unsafe_policy_is_measured_cheaper_and_still_rejected(self):
+    def test_the_unsafe_policy_is_never_preferred(self):
+        # Only what a real measurement can promise. Whether the unsafe policy
+        # also lands *cheaper* depends on this host's clock granularity, so
+        # that half is asserted against the deterministic meter instead
+        # (DeterministicMeterPaths).
         for record in self.records:
             by_id = {c["id"]: c for c in record["result"]["candidates"]}
             unclipped = by_id["unclipped_proportional"]
@@ -274,10 +315,7 @@ class RecordsAreMeasured(unittest.TestCase):
             self.assertTrue(unclipped["safety_violations"])
             preference = record["result"]["preference"]
             self.assertNotEqual(preference["preferred"], "unclipped_proportional")
-            self.assertIn(
-                "unclipped_proportional",
-                preference["cheaper_but_constraint_violating"],
-            )
+            self.assertNotIn("unclipped_proportional", preference["feasible"])
 
     def test_the_meter_probe_is_recorded_on_the_oracle(self):
         for record in self.records:
@@ -292,14 +330,27 @@ class RecordsAreMeasured(unittest.TestCase):
 
 class DeterministicMeterPaths(unittest.TestCase):
     def test_a_deterministic_meter_prefers_the_cheapest_feasible_policy(self):
-        # exhaustive=1.0, analytic=0.1, coarse=0.05, unclipped=0.01 in call order
+        # Call order is alphabetical: analytic, coarse, exhaustive, unclipped.
+        # The cheapest two measurements go to a policy below the quality floor
+        # and to the unsafe one, so a "cheapest wins" rule would pick either.
         costs = {1: 0.1, 2: 0.05, 3: 1.0, 4: 0.01}
         meter = FakeMeter(costs)
         records = ep.build_records(7, 1, meter=meter, repeats=2)
         result = records[0]["result"]
-        self.assertEqual(result["preference"]["preferred"], "analytic_kkt")
+        preference = result["preference"]
+        self.assertEqual(preference["preferred"], "analytic_kkt")
         self.assertEqual(ep.check_family(records[0], "x"), [])
         self.assertEqual(meter.calls, 4)
+        self.assertEqual(
+            preference["cheaper_but_constraint_violating"],
+            ["coarse_grid", "unclipped_proportional"],
+        )
+        by_id = {c["id"]: c for c in result["candidates"]}
+        self.assertLess(
+            by_id["unclipped_proportional"]["cost_value"],
+            by_id["analytic_kkt"]["cost_value"],
+        )
+        self.assertFalse(by_id["unclipped_proportional"]["safety_ok"])
 
     def test_an_energy_meter_produces_an_energy_denominated_record(self):
         records = ep.build_records(7, 1, meter=FakeEnergyMeter(), repeats=2)
