@@ -4,9 +4,11 @@
 Recursively scans every *.jsonl, classifies record kinds, and histograms
 nested sim_or_real labels. Prints JSON on stdout. Never writes into run_dir.
 
-The ``mill_mix`` section reports records whose mill signals (declared factory,
+The `mill_mix` section reports records whose mill signals (declared factory,
 mill id prefix, goal family) belong to a different factory than the directory
-they were published under. See ``mill_family.py``.
+they were published under. Those findings are also subtracted from the
+destination's `eligible` denominator. Detection and mill ownership come only
+from `mill_family.py`; `leftover` in an id is never itself evidence.
 
 Usage: python3 pipelines/census.py <run_dir>
 """
@@ -21,6 +23,7 @@ if str(_PIPELINES) not in sys.path:
     sys.path.insert(0, str(_PIPELINES))
 
 from mill_family import (  # noqa: E402
+    MillFinding,
     MillIndex,
     factory_identity_for_path as shared_factory_identity_for_path,
     summarize as summarize_mill_mix,
@@ -173,6 +176,16 @@ def factory_for_path(run_dir: Path, path: Path) -> str:
     return factory_identity_for_path(run_dir, path)[0]
 
 
+def _finding_row(finding: MillFinding) -> dict:
+    row = finding.as_dict()
+    ref = finding.ref
+    if isinstance(ref, tuple) and len(ref) == 2:
+        source, line = ref
+        row["source"] = str(source)
+        row["line"] = line
+    return row
+
+
 def census_dir(run_dir):
     run_dir = Path(run_dir).resolve()
     by_kind = {kind: 0 for kind in KINDS}
@@ -182,14 +195,23 @@ def census_dir(run_dir):
     files = 0
     records = 0
     parse_failures = 0
+    decode_failures = 0
+    unreadable_files = []
 
     for path in visible_jsonl_paths(run_dir):
         files += 1
         relative = path.relative_to(run_dir)
         factory, factory_verified = factory_identity_for_path(run_dir, path)
-        for lineno, line in enumerate(
-            path.read_text(encoding="utf-8").splitlines(), 1
-        ):
+        try:
+            payload = path.read_text(encoding="utf-8")
+        except UnicodeDecodeError as exc:
+            decode_failures += 1
+            unreadable_files.append(
+                {"source": relative.as_posix(), "error": str(exc)}
+            )
+            continue
+
+        for lineno, line in enumerate(payload.splitlines(), 1):
             if not line.strip():
                 continue
             try:
@@ -213,15 +235,29 @@ def census_dir(run_dir):
             for value in found:
                 sim_hist[bucket_sim_or_real(value)] += 1
 
+    findings = mills.findings()
+    quarantined_by_factory = Counter(finding.factory for finding in findings)
+    mill_mix = summarize_mill_mix(findings)
+    mill_mix["quarantined_records"] = [
+        _finding_row(finding) for finding in findings
+    ]
+
     return {
         "run_dir": str(run_dir),
         "files": files,
         "records": records,
         "parse_failures": parse_failures,
+        "decode_failures": decode_failures,
+        "unreadable_files": unreadable_files,
+        "eligible_records": records - len(findings),
         "by_kind": by_kind,
         "sim_or_real": sim_hist,
         "by_factory": dict(sorted(by_factory.items())),
-        "mill_mix": summarize_mill_mix(mills.findings()),
+        "eligible_by_factory": {
+            factory: by_factory[factory] - quarantined_by_factory[factory]
+            for factory in sorted(by_factory)
+        },
+        "mill_mix": mill_mix,
     }
 
 

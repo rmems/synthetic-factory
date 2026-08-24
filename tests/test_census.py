@@ -38,12 +38,20 @@ EXPECTED = {
         "failure-as-fuel-preference-cascade": 1,
         "thalamic-trajectory-factory": 2,
     },
+    "decode_failures": 0,
+    "unreadable_files": [],
+    "eligible_records": 3,
+    "eligible_by_factory": {
+        "failure-as-fuel-preference-cascade": 1,
+        "thalamic-trajectory-factory": 2,
+    },
     "mill_mix": {
         "records": 0,
         "reason_codes": {},
         "by_factory": {},
         "record_ids": [],
         "record_ids_truncated": False,
+        "quarantined_records": [],
     },
 }
 
@@ -189,6 +197,18 @@ class CensusMillMix(unittest.TestCase):
         )
         # The mix is invisible to a factory-mix check: it is dest-stamped.
         self.assertNotIn("FOREIGN_PAYLOAD_FACTORY", mix["reason_codes"])
+        self.assertEqual(report["eligible_records"], 4)
+        self.assertEqual(
+            report["eligible_by_factory"],
+            {
+                "cache-stampede-factory": 2,
+                "graphql-nplusone-factory": 2,
+            },
+        )
+        self.assertEqual(
+            mix["quarantined_records"][0]["source"],
+            "cache-stampede-factory/batch-r01.jsonl",
+        )
 
     def test_nested_batches_keep_their_enclosing_factory_identity(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -218,6 +238,75 @@ class CensusMillMix(unittest.TestCase):
         )
         self.assertNotIn("archive", report["by_factory"])
         self.assertEqual(report["mill_mix"]["records"], 1)
+        self.assertEqual(
+            report["eligible_by_factory"],
+            {
+                "cache-stampede-factory": 2,
+                "graphql-nplusone-factory": 2,
+            },
+        )
+
+    def test_issue_43_factory_mix_is_named_and_subtracted(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary) / "run"
+            destination = root / "email-webhook-retry-factory"
+            destination.mkdir(parents=True)
+            (destination / "batch-r56.jsonl").write_text(
+                "".join(
+                    json.dumps(record) + "\n"
+                    for record in (
+                        _episode(
+                            "sir-r56-meili-swap-leftover3c-rebuild",
+                            "rebuild the search index",
+                            "search-index-rebuild-factory",
+                        ),
+                        _episode(
+                            "ewh-r56-webhook-leftover-pk-retry",
+                            "retry the webhook",
+                            "email-webhook-retry-factory",
+                        ),
+                    )
+                ),
+                encoding="utf-8",
+            )
+            result = _invoke(str(root))
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        report = json.loads(result.stdout)
+        self.assertEqual(report["records"], 2)
+        self.assertEqual(report["eligible_records"], 1)
+        self.assertEqual(
+            report["eligible_by_factory"], {"email-webhook-retry-factory": 1}
+        )
+        mix = report["mill_mix"]
+        self.assertEqual(mix["records"], 1)
+        self.assertEqual(
+            mix["reason_codes"], {"FOREIGN_PAYLOAD_FACTORY": 1}
+        )
+        self.assertEqual(
+            [row["record_id"] for row in mix["quarantined_records"]],
+            ["sir-r56-meili-swap-leftover3c-rebuild"],
+        )
+
+    def test_invalid_utf8_file_is_reported_and_excluded(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary) / "run"
+            destination = root / "email-webhook-retry-factory"
+            destination.mkdir(parents=True)
+            (destination / "bad.jsonl").write_bytes(
+                b'{"id":"bad","goal":"\xff","steps":[]}\n'
+            )
+            result = _invoke(str(root))
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        report = json.loads(result.stdout)
+        self.assertEqual(report["records"], 0)
+        self.assertEqual(report["eligible_records"], 0)
+        self.assertEqual(report["decode_failures"], 1)
+        self.assertEqual(
+            [row["source"] for row in report["unreadable_files"]],
+            ["email-webhook-retry-factory/bad.jsonl"],
+        )
 
     def test_suffixed_outer_snapshot_keeps_child_factory_identities(self):
         with tempfile.TemporaryDirectory() as temporary:

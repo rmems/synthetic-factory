@@ -428,5 +428,79 @@ class TrainingAudit(unittest.TestCase):
         )
 
 
+class LeftoverMillDenominator(unittest.TestCase):
+    """Issue #43: mill leftovers leave the destination's eligible denominator."""
+
+    @staticmethod
+    def _episode(record_id, factory):
+        return {
+            "id": record_id,
+            "goal": "rebuild the search index",
+            "steps": [
+                {
+                    "decision_basis": "fixture observation",
+                    "tool_call": {"name": "inspect", "args": {}},
+                    "observation": "fixture result",
+                }
+            ],
+            "outcome": "fixture complete",
+            "reward": {"success": True},
+            "meta": {"factory": factory, "round": 1, "tags": ["audit", "fixture"]},
+        }
+
+    def test_factory_mix_is_quarantined_but_never_a_training_blocker(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            foreign = self._episode(
+                "evh-r21-cite-orphan-c3e8",
+                "eval-harness-trajectory-factory",
+            )
+            # This would be a readiness blocker if quarantine fell through to
+            # check_record or the episode metrics.
+            foreign["steps"][0].pop("decision_basis")
+            write(
+                root / "rag-retrieval-debug-factory" / "batch-r21.jsonl",
+                [
+                    foreign,
+                    self._episode("rag-r21-chunk-leftover-cite", "rag-retrieval-debug-factory"),
+                ],
+            )
+            report = training_audit.audit_run(root)
+
+        self.assertEqual(report["totals"]["records"], 2)
+        self.assertEqual(report["totals"]["eligible_records"], 1)
+        self.assertEqual(
+            report["factories"]["rag-retrieval-debug-factory"]["eligible_records"], 1
+        )
+        mill = report["mill_mix"]
+        self.assertEqual(mill["records"], 1)
+        self.assertEqual(
+            mill["reason_codes"], {"FOREIGN_PAYLOAD_FACTORY": 1}
+        )
+        self.assertEqual(
+            [row["record_id"] for row in mill["quarantined_records"]],
+            ["evh-r21-cite-orphan-c3e8"],
+        )
+        self.assertEqual(report["record_invariants"]["errors"], 0)
+        self.assertEqual(report["episodes"]["episodes"], 1)
+        self.assertEqual(report["episodes"]["missing_decision_basis_steps"], 0)
+        self.assertEqual(report["identity"]["coverage_pct"], 100.0)
+
+    def test_clean_corpus_reports_a_full_eligible_denominator(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            write(
+                root / "thalamic-trajectory-factory" / "batch-r01.jsonl",
+                [thalamic("clean-1")],
+            )
+            report = training_audit.audit_run(root)
+
+        self.assertEqual(report["totals"]["eligible_records"], 1)
+        self.assertEqual(report["mill_mix"]["records"], 0)
+        self.assertEqual(report["mill_mix"]["quarantined_records"], [])
+        markdown = training_audit.render_markdown(report)
+        self.assertIn("Eligible after foreign-mill quarantine", markdown)
+
+
 if __name__ == "__main__":
     unittest.main()

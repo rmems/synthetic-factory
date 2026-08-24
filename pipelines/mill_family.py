@@ -278,17 +278,36 @@ def mill_prefix(record: Any) -> str | None:
 
 
 def declared_factory(record: Any) -> str | None:
-    """Return the factory the payload claims for itself."""
+    """Return the unambiguous factory the payload claims for itself.
+
+    Preference wrappers often carry provenance on `chosen` and `rejected`
+    instead of at the root. A single consistent side-level stamp is evidence;
+    disagreeing side stamps are ambiguous and deliberately resolve to nothing.
+    """
 
     if not isinstance(record, Mapping):
         return None
-    meta = record.get("meta")
-    if not isinstance(meta, Mapping):
+
+    def stamp(container: Any) -> str | None:
+        if not isinstance(container, Mapping):
+            return None
+        meta = container.get("meta")
+        if not isinstance(meta, Mapping):
+            return None
+        value = meta.get("factory")
+        if isinstance(value, str) and value.strip():
+            return value.strip()
         return None
-    value = meta.get("factory")
-    if isinstance(value, str) and value.strip():
-        return value.strip()
-    return None
+
+    root = stamp(record)
+    if root is not None:
+        return root
+    side_stamps = {
+        value
+        for side in ("chosen", "rejected")
+        if (value := stamp(record.get(side))) is not None
+    }
+    return next(iter(side_stamps)) if len(side_stamps) == 1 else None
 
 
 def goal_text(record: Any) -> str | None:
