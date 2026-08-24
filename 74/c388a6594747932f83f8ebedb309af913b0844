@@ -1,0 +1,45 @@
+pipelines/census.py
+  s_002cddb1a70571::t_22a2164ce44bd7 7-13,22-33,38-47
+  s_002cddb1a70571::t_8f3a0dd7510964 86-89,93,98-102,113-128,141,145-156
+.claude/skills/run-synthetic-factory/SKILL.md
+  s_002cddb1a70571::t_6713b2aef16d4f 148-155
+  s_002cddb1a70571::t_8be6236da70fb9 40-42
+  s_002cddb1a70571::t_7135a447b649df 43
+pipelines/training_audit.py
+  s_002cddb1a70571::t_2496c1cd702d50 220,227-229
+  s_002cddb1a70571::t_94499a8d0b6971 300-317
+  s_002cddb1a70571::t_cc3054e85f96d2 536
+  s_002cddb1a70571::t_72f0d4b60adbc2 37-42
+  s_002cddb1a70571::t_dfd3900754e956 623-625,630-631,636
+  s_002cddb1a70571::t_669e1535eaf1ec 542-549
+tests/test_census.py
+  s_002cddb1a70571::t_ac9c4f51d5215f 100-144
+  s_002cddb1a70571::t_d6eae08110ae3b 40-50,54-62
+  s_002cddb1a70571::t_4c0d455a10efd1 7
+tests/test_leftover_mill.py
+  s_002cddb1a70571::t_f61781327cef77 1-324
+pipelines/leftover_mill.py
+  s_002cddb1a70571::t_323a0fa8ce92c8 1-32,34-42,44-204,212-216,218-224,228-230,232-284,290-360
+  s_002cddb1a70571::t_2e14d8032ab1ef 285-289
+  s_002cddb1a70571::t_619ff00541eaec 33
+  s_002cddb1a70571::t_b21ce50d5a266c 43
+  s_002cddb1a70571::t_a144ed1682f432 205-211,217,225-227,231
+tests/test_training_audit.py
+  s_002cddb1a70571::t_7a1c62e96871dd 431-493
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "74c388a6594747932f83f8ebedb309af913b0844",
+  "prompts": {},
+  "sessions": {
+    "s_002cddb1a70571": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "abd260ba-6a6c-45a6-9db3-a4e0988ad60e",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Raul Montoya Cardenas <montoyaraul34@gmail.com>"
+    }
+  }
+}
