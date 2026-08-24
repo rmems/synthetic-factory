@@ -1,0 +1,128 @@
+schemas/oracle-grounded/synaptic-delay-causal-trajectories.schema.json
+  s_002cddb1a70571::t_e63221fbd35826 1-159
+tests/fixtures/oracle-grounded/golden-r01/temporal-memory-spike-challenges/rejected-r01.jsonl
+  s_002cddb1a70571::t_f19b6ca110c4a2 1-2
+schemas/oracle-grounded/neuromodulator-credit-assignment.schema.json
+  s_002cddb1a70571::t_71bd2ffd35740d 1-164
+pipelines/oracle_grounded/sim.py
+  s_002cddb1a70571::t_5083c83ee042e4 780-786,791,795-797
+  s_002cddb1a70571::t_c09f444d96a79f 1-25,31-632,635-750,752-779,787-790,792-793,798-827,829-861,882-899,901-904,911-917,919-954
+  s_002cddb1a70571::t_40308c7ee5ef4d 751
+  s_002cddb1a70571::t_8d3510d07eb1f8 26-30
+  s_002cddb1a70571::t_09a4f7972bf458 633-634
+  s_002cddb1a70571::t_666433b57c620a 862-869
+  s_002cddb1a70571::t_7e6d4250bf7c10 870-881
+  s_002cddb1a70571::t_c744fa77793d9e 794
+  s_002cddb1a70571::t_0354a91b3dd930 900,905-910,918
+  s_002cddb1a70571::t_762f4e17fbc021 828
+tests/test_oracle_grounded_sim.py
+  s_002cddb1a70571::t_b2a5921bb113c1 140-141
+  s_002cddb1a70571::t_de4bb3548943a5 1-139,142-432,436-447,454-570,574-577
+  s_002cddb1a70571::t_ab8a40960033f3 433-435,448-453
+  s_002cddb1a70571::t_2096c628ccd954 571-573
+tests/fixtures/oracle-grounded/golden-r01/neuromodulator-credit-assignment/accepted-r01.jsonl
+  s_002cddb1a70571::t_f19b6ca110c4a2 1-4
+pipelines/oracle_grounded/__init__.py
+  s_002cddb1a70571::t_d2c03591a5d281 1-21
+pipelines/oracle_grounded/families.py
+  s_002cddb1a70571::t_df4056b668643a 1-29,36-44,48-54,56-474,478-516,518-529,531,533-581,585-672,676,730-738,740-748,750-758,760-768,770-778,780-791
+  s_002cddb1a70571::t_a67d4f7904e995 30-35
+  s_002cddb1a70571::t_5f80c2e8ea6c34 673-675,677-704,714-715,721-729,739,749,759,769,779
+  s_002cddb1a70571::t_71f18c25a0cf53 705,707-711,713,716-720
+  s_002cddb1a70571::t_06f21d599aa7e4 517
+  s_002cddb1a70571::t_a3b88146a099d0 45-47,55
+  s_002cddb1a70571::t_72855c99ada801 475-477
+  s_002cddb1a70571::t_97b66522cb0cf8 530
+  s_002cddb1a70571::t_5c216de771b6d0 582-584
+  s_002cddb1a70571::t_cff41dde8bf99e 706,712
+  s_002cddb1a70571::t_b0076309b124c2 532
+tests/fixtures/oracle-grounded/golden-r01/temporal-memory-spike-challenges/accepted-r01.jsonl
+  s_002cddb1a70571::t_f19b6ca110c4a2 1-2
+schemas/oracle-grounded/neuron-dynamics-counterfactuals.schema.json
+  s_002cddb1a70571::t_40c390597c6813 1-144
+pipelines/oracle_grounded/canon.py
+  s_002cddb1a70571::t_2fd1e30f8cc04c 1-93
+tests/fixtures/oracle-grounded/golden-r01/synaptic-delay-causal-trajectories/accepted-r01.jsonl
+  s_002cddb1a70571::t_f19b6ca110c4a2 1-4
+README.md
+  s_002cddb1a70571::t_0b22a2da7d736f 95-108
+  s_002cddb1a70571::t_94ffcf810e5e38 71
+  s_002cddb1a70571::t_d73fea0c2c5121 67
+pipelines/oracle_grounded/generators.py
+  s_002cddb1a70571::t_f28e52040dabb2 514-515,522-527
+  s_002cddb1a70571::t_19cb56051fe8c8 60-61
+  s_002cddb1a70571::t_b3886970b52a90 261-262
+  s_002cddb1a70571::t_6125fcf9b455e7 1-59,62-260,263-513,516-521,528-584
+tests/fixtures/oracle-grounded/invalid/malformed-generator.jsonl
+  s_002cddb1a70571::t_02ed157d36899a 1-7
+tests/fixtures/oracle-grounded/make_invalid_fixtures.py
+  s_002cddb1a70571::t_1677e755709447 1-155
+schemas/oracle-grounded-v1.schema.json
+  s_002cddb1a70571::t_fcb59a13abd816 1-197,199-261
+  s_002cddb1a70571::t_d3417ecbe28038 198
+pipelines/oracle_validate.py
+  s_002cddb1a70571::t_fe31f32db0f9e0 102-104
+  s_002cddb1a70571::t_1605a959ab4f36 1-101,105-158
+tests/fixtures/oracle-grounded/invalid/invalid-oracle.jsonl
+  s_002cddb1a70571::t_02ed157d36899a 1-9
+pipelines/oracle_grounded/oracles.py
+  s_002cddb1a70571::t_05612f094803b4 324-330
+  s_002cddb1a70571::t_b821530b494ddb 58
+  s_002cddb1a70571::t_21092918fd7650 1-33,49-57,59-160,171-323,331-385,393-399
+  s_002cddb1a70571::t_b9a746513098b9 161-170
+  s_002cddb1a70571::t_fbabbb6bc62eef 386-392
+  s_002cddb1a70571::t_d47e3f6bd37bf6 34-48
+pipelines/oracle_grounded/rng.py
+  s_002cddb1a70571::t_69fee72927da45 1-77
+docs/oracle-grounded-datasets.md
+  s_002cddb1a70571::t_0e22d8dc1fed96 1-128,134-276
+  s_002cddb1a70571::t_6bc79af622d3d8 129-133
+pipelines/oracle_grounded/record.py
+  s_002cddb1a70571::t_9105d4033f4695 395-464
+  s_002cddb1a70571::t_d177bb0989c461 361-362
+  s_002cddb1a70571::t_23a76d307f2b01 252-263,265,267-268,271-272,275-276,278,280-283,285-294,296-300,302
+  s_002cddb1a70571::t_3c5618fd5b56f8 205-206,219-220
+  s_002cddb1a70571::t_307d18d6238169 235,238,244-248
+  s_002cddb1a70571::t_58a36870738994 473,476-485
+  s_002cddb1a70571::t_1ef604a77b7a8d 1-113,121-154,156-204,207,214-218,221,223-234,236-237,239-243,249-251,264,266,269-270,273-274,277,279,284,295,301,303-360,363-394,465-472,474-475,486-521
+  s_002cddb1a70571::t_a8b7eb604682e4 208-213,222
+  s_002cddb1a70571::t_419ba5ca7de1ff 114-120
+  s_002cddb1a70571::t_79c3312a19714d 155
+tests/fixtures/oracle-grounded/golden-r01/manifest.json
+  s_002cddb1a70571::t_b85b72e83d464b 1-100,102-108,110-116,118-124,126-132,134-136,138-140,142-204
+  s_002cddb1a70571::t_f19b6ca110c4a2 101,109,117,125,133,137,141
+tests/test_oracle_grounded_cli.py
+  s_002cddb1a70571::t_c659b8e5a1d614 1-391
+tests/fixtures/oracle-grounded/golden-r01/neuron-dynamics-counterfactuals/accepted-r01.jsonl
+  s_002cddb1a70571::t_f19b6ca110c4a2 1-4
+tests/fixtures/oracle-grounded/golden-r01/spike-encoder-equivalence-pairs/accepted-r01.jsonl
+  s_002cddb1a70571::t_f19b6ca110c4a2 1-4
+tests/fixtures/oracle-grounded/protocol_double.py
+  s_002cddb1a70571::t_f70935ff47489e 1-61
+schemas/oracle-grounded/spike-encoder-equivalence-pairs.schema.json
+  s_002cddb1a70571::t_3dfae72075bf00 1-163
+schemas/oracle-grounded/temporal-memory-spike-challenges.schema.json
+  s_002cddb1a70571::t_10278751ff768f 1-150
+pipelines/oracle_generate.py
+  s_002cddb1a70571::t_00188d284e3558 1-233
+tests/test_oracle_grounded_record.py
+  s_002cddb1a70571::t_40ddb68585582c 1-238,243-547,549-553,570-571,574,587-693
+  s_002cddb1a70571::t_241d2ff10ed22e 239-242
+  s_002cddb1a70571::t_d652dacdfd4645 548,554-569,572-573,575-586
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "31e547d9d380eb4a3213e1f4bedbe9d54580604a",
+  "prompts": {},
+  "sessions": {
+    "s_002cddb1a70571": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "abd260ba-6a6c-45a6-9db3-a4e0988ad60e",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Raul Montoya Cardenas <montoyaraul34@gmail.com>"
+    }
+  }
+}
