@@ -1,0 +1,38 @@
+pipelines/curate_gate.py
+  s_002cddb1a70571::t_2e217825f06ec7 1-217,220-286,322-326,328-687,691-877,880-967,973-1007,1010-1061,1065-1084
+  s_002cddb1a70571::t_2c866049a7cae9 218-219
+  s_002cddb1a70571::t_29c2c8e2d63daf 1008-1009
+  s_002cddb1a70571::t_01919141dc2606 1062-1064
+  s_002cddb1a70571::t_21fcee9438475c 291-292,301,306-313
+  s_002cddb1a70571::t_d00dc6126ff905 688-690
+  s_002cddb1a70571::t_3c878bfac57b74 878-879
+  s_002cddb1a70571::t_63ff91ec9a134f 968-972
+  s_002cddb1a70571::t_0910911d07f0be 293-297
+  s_002cddb1a70571::t_8afab52b905346 287-290,298-300,302,314-315,327
+  s_002cddb1a70571::t_211cc81ae9c2cc 303-305,316-321
+tests/test_curate_gate.py
+  s_002cddb1a70571::t_f6885c81acf042 4,10
+  s_002cddb1a70571::t_fc686f7220e263 85-90
+  s_002cddb1a70571::t_b29cf7d4523d54 1-3,5-9,11-84,91-160,162-188,190-318,344-643
+  s_002cddb1a70571::t_4df1cfd36bc636 189
+  s_002cddb1a70571::t_3cd7b0f91e33b6 319-343
+  s_002cddb1a70571::t_cfa0d6d87484c9 161
+README.md
+  s_002cddb1a70571::t_268fec9878c973 95-127
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "7a7ff1ee70bb63fb782fc4cd740a9065edbd4284",
+  "prompts": {},
+  "sessions": {
+    "s_002cddb1a70571": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "abd260ba-6a6c-45a6-9db3-a4e0988ad60e",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Raul Montoya Cardenas <montoyaraul34@gmail.com>"
+    }
+  }
+}
