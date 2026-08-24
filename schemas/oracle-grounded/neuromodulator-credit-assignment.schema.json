@@ -1,0 +1,164 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "oracle-grounded/neuromodulator-credit-assignment.schema.json",
+  "title": "NeuromodulatorCreditAssignment",
+  "description": "Family payload for neuromodulator-credit-assignment. Specified oracle path: `limbic-critic` then `plasticity-lab`. Neither runtime is bound in this repository, so the reference critic and reference three-factor STDP in pipelines/oracle_grounded/sim.py run instead and the record is stamped implementation: 'reference'. The two stages are resolved independently, so oracle.stages says which half of the chain each measurement came from. The learning update is applied, not predicted: weights_after are written into a second run of the same circuit on the same input, and post_update_behavior is a measurement of that run. A record whose weight deltas are all below the update epsilon reports update_applied: false and publishes no learning claim.",
+  "type": "object",
+  "properties": {
+    "scenario": {
+      "type": "object",
+      "required": ["situation", "outcome", "circuit"],
+      "properties": {
+        "situation": { "type": "string" },
+        "outcome": {
+          "type": "object",
+          "required": ["expected_value", "received_reward"],
+          "description": "Reward units are normalized to [0, 1]; risk, novelty and effort are dimensionless in [0, 1].",
+          "properties": {
+            "expected_value": { "type": "number" },
+            "received_reward": { "type": "number" },
+            "risk": { "type": "number", "minimum": 0, "maximum": 1 },
+            "novelty": { "type": "number", "minimum": 0, "maximum": 1 },
+            "effort": { "type": "number", "minimum": 0, "maximum": 1 }
+          }
+        },
+        "circuit": {
+          "type": "object",
+          "required": [
+            "pre_neuron_count",
+            "pre_spike_times_ms",
+            "initial_weights",
+            "duration_ms"
+          ],
+          "properties": {
+            "pre_neuron_count": { "type": "integer", "minimum": 1 },
+            "pre_spike_times_ms": {
+              "type": "array",
+              "items": { "type": "array", "items": { "type": "number", "minimum": 0 } },
+              "description": "One non-decreasing spike train per pre-synaptic neuron, in milliseconds."
+            },
+            "initial_weights": { "type": "array", "items": { "type": "number" } },
+            "duration_ms": { "type": "number", "exclusiveMinimum": 0 }
+          }
+        }
+      },
+      "additionalProperties": true
+    },
+    "intervention": {
+      "type": "null",
+      "description": "The outcome itself is the manipulation for this family."
+    },
+    "candidate_prediction": {
+      "type": "object",
+      "required": ["kind"],
+      "properties": {
+        "kind": { "const": "non_authoritative_guess" },
+        "predicted_valence": { "enum": ["positive", "negative", "neutral"] },
+        "predicted_weight_direction": { "enum": ["potentiation", "depression", "none"] },
+        "predicted_strongest_synapse": { "type": "integer", "minimum": 0 },
+        "basis": { "type": "string" }
+      }
+    },
+    "result": {
+      "type": "object",
+      "properties": {
+        "measured": {
+          "type": "object",
+          "required": ["critic", "plasticity"],
+          "properties": {
+            "critic": {
+              "type": "object",
+              "required": [
+                "reward_prediction_error",
+                "dopamine_phasic",
+                "dopamine",
+                "serotonin",
+                "acetylcholine",
+                "norepinephrine",
+                "valence"
+              ],
+              "properties": {
+                "reward_prediction_error": {
+                  "type": "number",
+                  "description": "received_reward - expected_value, in reward units."
+                },
+                "dopamine_phasic": {
+                  "type": "number",
+                  "minimum": -1,
+                  "maximum": 1,
+                  "description": "Signed burst or dip; this is the third factor in the weight update."
+                },
+                "dopamine": { "type": "number", "minimum": 0, "maximum": 1 },
+                "serotonin": { "type": "number", "minimum": 0, "maximum": 1 },
+                "acetylcholine": { "type": "number", "minimum": 0, "maximum": 1 },
+                "norepinephrine": { "type": "number", "minimum": 0, "maximum": 1 },
+                "valence": { "enum": ["positive", "negative", "neutral"] }
+              }
+            },
+            "plasticity": {
+              "type": "object",
+              "required": [
+                "weights_before",
+                "weights_after",
+                "weight_deltas",
+                "eligibility",
+                "modulatory_gain",
+                "update_applied",
+                "update_rule",
+                "pre_update_behavior",
+                "post_update_behavior",
+                "behavior_delta"
+              ],
+              "properties": {
+                "weights_before": { "type": "array", "items": { "type": "number" } },
+                "weights_after": {
+                  "type": "array",
+                  "items": { "type": "number" },
+                  "description": "Must equal weights_before + weight_deltas elementwise, within the record rounding tolerance."
+                },
+                "weight_deltas": { "type": "array", "items": { "type": "number" } },
+                "eligibility": {
+                  "type": "array",
+                  "items": { "type": "number" },
+                  "description": "Per-synapse STDP eligibility decayed to the reward time; dimensionless."
+                },
+                "modulatory_gain": { "type": "number" },
+                "update_applied": {
+                  "type": "boolean",
+                  "description": "True only when at least one weight actually moved."
+                },
+                "update_rule": { "type": "string" },
+                "pre_update_behavior": { "$ref": "#/$defs/readoutBehavior" },
+                "post_update_behavior": {
+                  "$ref": "#/$defs/readoutBehavior",
+                  "description": "Measured by re-running the circuit with weights_after, not extrapolated."
+                },
+                "behavior_delta": {
+                  "type": "object",
+                  "properties": {
+                    "spike_count_delta": { "type": "integer" },
+                    "output_rate_delta_hz": { "type": "number" },
+                    "first_spike_shift_ms": { "type": ["number", "null"] }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "readoutBehavior": {
+      "type": "object",
+      "required": ["spike_count", "spike_times_ms", "output_rate_hz"],
+      "properties": {
+        "spike_count": { "type": "integer", "minimum": 0 },
+        "spike_times_ms": { "type": "array", "items": { "type": "number", "minimum": 0 } },
+        "first_spike_ms": { "type": ["number", "null"] },
+        "output_rate_hz": { "type": "number", "minimum": 0 }
+      },
+      "additionalProperties": true
+    }
+  }
+}

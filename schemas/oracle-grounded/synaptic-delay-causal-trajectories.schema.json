@@ -1,0 +1,159 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "oracle-grounded/synaptic-delay-causal-trajectories.schema.json",
+  "title": "SynapticDelayCausalTrajectory",
+  "description": "Family payload for synaptic-delay-causal-trajectories. Specified oracle: `synaptic-mesh` plus a compatible runtime. When that runtime is not bound, the delta-synapse spiking mesh in pipelines/oracle_grounded/sim.py runs instead and the record is stamped implementation: 'reference'. The generator proposes a small delayed network and one topology or delay perturbation; the oracle runs the same stimulus through the network before and after, and reports first arrival, firing order, downstream activation, suppression, and propagation delay.",
+  "type": "object",
+  "properties": {
+    "scenario": {
+      "type": "object",
+      "required": ["nodes", "edges", "source", "sink", "stimulus", "duration_ms"],
+      "properties": {
+        "nodes": { "type": "array", "items": { "type": "string" }, "minItems": 2 },
+        "edges": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/edge" }
+        },
+        "source": { "type": "string" },
+        "sink": { "type": "string" },
+        "stimulus": {
+          "type": "object",
+          "required": ["target", "pulse_count", "interval_ms", "amplitude", "onset_ms"],
+          "properties": {
+            "target": { "type": "string" },
+            "pulse_count": { "type": "integer", "minimum": 1 },
+            "interval_ms": { "type": "number", "exclusiveMinimum": 0 },
+            "amplitude": { "type": "number" },
+            "onset_ms": { "type": "number", "minimum": 0 }
+          }
+        },
+        "duration_ms": { "type": "number", "exclusiveMinimum": 0 }
+      },
+      "additionalProperties": true
+    },
+    "intervention": {
+      "type": "object",
+      "required": ["kind", "parameters"],
+      "properties": {
+        "kind": {
+          "enum": [
+            "delay_change",
+            "edge_removal",
+            "sign_flip",
+            "weight_change",
+            "add_recurrent_edge"
+          ]
+        },
+        "edge_index": {
+          "type": ["integer", "null"],
+          "description": "Index into scenario.edges, or null when the intervention adds an edge."
+        },
+        "edge": { "anyOf": [{ "$ref": "#/$defs/edge" }, { "type": "null" }] },
+        "parameters": { "type": "object" },
+        "description": { "type": "string" }
+      }
+    },
+    "candidate_prediction": {
+      "type": "object",
+      "required": ["kind", "predicted_sink_reached"],
+      "properties": {
+        "kind": { "const": "non_authoritative_guess" },
+        "predicted_sink_reached": { "type": "boolean" },
+        "predicted_propagation_delay_ms": { "type": ["number", "null"] },
+        "basis": { "type": "string" }
+      }
+    },
+    "result": {
+      "type": "object",
+      "properties": {
+        "measured": {
+          "type": "object",
+          "required": ["before", "after", "delta"],
+          "properties": {
+            "before": { "$ref": "#/$defs/causalSummary" },
+            "after": { "$ref": "#/$defs/causalSummary" },
+            "delta": {
+              "type": "object",
+              "required": [
+                "suppressed_nodes",
+                "recruited_nodes",
+                "firing_order_changed",
+                "sink_reachability_changed"
+              ],
+              "properties": {
+                "suppressed_nodes": {
+                  "type": "array",
+                  "items": { "type": "string" },
+                  "description": "Nodes that spiked before the intervention and not after."
+                },
+                "recruited_nodes": { "type": "array", "items": { "type": "string" } },
+                "firing_order_changed": { "type": "boolean" },
+                "propagation_delay_delta_ms": { "type": ["number", "null"] },
+                "sink_reached_before": { "type": "boolean" },
+                "sink_reached_after": { "type": "boolean" },
+                "sink_reachability_changed": { "type": "boolean" }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "edge": {
+      "type": "object",
+      "required": ["src", "dst", "weight", "delay_ms"],
+      "properties": {
+        "src": { "type": "string" },
+        "dst": { "type": "string" },
+        "weight": {
+          "type": "number",
+          "description": "Instantaneous post-synaptic jump in normalized membrane units. Negative is inhibitory."
+        },
+        "delay_ms": { "type": "number", "exclusiveMinimum": 0 }
+      },
+      "additionalProperties": false
+    },
+    "causalSummary": {
+      "type": "object",
+      "required": [
+        "source",
+        "sink",
+        "first_arrival_ms",
+        "firing_order",
+        "downstream_activation",
+        "sink_reached",
+        "spike_counts"
+      ],
+      "properties": {
+        "source": { "type": "string" },
+        "sink": { "type": "string" },
+        "first_arrival_ms": {
+          "type": "object",
+          "description": "Node id to first spike time in milliseconds, or null if the node never spiked.",
+          "additionalProperties": { "type": ["number", "null"] }
+        },
+        "firing_order": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Node ids in order of first spike, each appearing at most once."
+        },
+        "downstream_activation": { "type": "array", "items": { "type": "string" } },
+        "propagation_delay_ms": {
+          "type": ["number", "null"],
+          "description": "sink first arrival minus source first arrival; null when either never spiked."
+        },
+        "sink_reached": { "type": "boolean" },
+        "spike_counts": { "type": "object", "additionalProperties": { "type": "integer" } },
+        "total_spikes": { "type": "integer", "minimum": 0 },
+        "energy_pJ": { "type": "number", "minimum": 0 },
+        "spike_budget_exhausted": {
+          "type": "boolean",
+          "description": "True when the run hit its spike ceiling; such a trajectory is truncated and the record is rejected."
+        }
+      },
+      "additionalProperties": true
+    }
+  }
+}

@@ -64,11 +64,11 @@ same unit tests and operator smoke check.
 
 ## Structure
 - `prompts/` — factory prompts 01–07. 01–05 start with a session bootstrap; shared rules in `prompts/_factory-contract.md`
-- `schemas/` — Thalamic schema + `provenance.md`
+- `schemas/` — Thalamic schema + `provenance.md`; `oracle-grounded-v1.schema.json` and `oracle-grounded/` for the oracle-grounded families
 - `outputs/raw/` — dated dumps. `2026-08-17/` is the live run; `2026-08-17-prehalt/` is the pre-resume copy. `NEXT_ROUND.json` is a generated index, not a record
 - `outputs/cleaned/` — remapped copies (`sim_or_real` never `real`)
 - `outputs/curated/` — ready for training / HF export (empty)
-- `pipelines/` — census, next-round allocator, shape validator, deep checker, promote
+- `pipelines/` — census, next-round allocator, shape validator, deep checker, promote; `oracle_grounded/` holds the oracle-grounded generators, oracle adapters, and reference simulators
 - `experiments/` — harvest notes (`2026-08-17-quality-report.md` is a mid-run snapshot; `2026-08-17-grok-census.md` is current)
 
 ## Before the next Fable session
@@ -91,6 +91,20 @@ python3 pipelines/validate_run.py outputs/raw/2026-08-17    # shape gate; no man
 python3 pipelines/check_records.py outputs/raw/2026-08-17   # reward / spike order / ids
 python3 pipelines/promote.py outputs/raw/2026-08-17 outputs/cleaned/2026-08-17
 ```
+
+Oracle-grounded families (generator proposes, oracle measures — see
+[`docs/oracle-grounded-datasets.md`](docs/oracle-grounded-datasets.md)):
+
+```bash
+python3 pipelines/oracle_generate.py --count 8 outputs/oracle-grounded/2026-09-01
+python3 pipelines/oracle_validate.py --reproduce outputs/oracle-grounded/2026-09-01
+```
+
+None of the runtimes issue #77 names (`axon-encoder`, `neuromod`,
+`synaptic-mesh`, `limbic-critic`, `plasticity-lab`, a validated recurrent SNN)
+are available here, so those runs use deterministic in-repo reference
+simulators, are stamped `implementation: "reference"`, and are **not**
+publishable as measurements of the named runtimes.
 
 Tests: `python3 -m unittest discover -s tests -p 'test_*.py' -q`
 

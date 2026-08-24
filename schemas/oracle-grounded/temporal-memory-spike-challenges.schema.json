@@ -1,0 +1,150 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "oracle-grounded/temporal-memory-spike-challenges.schema.json",
+  "title": "TemporalMemorySpikeChallenge",
+  "description": "Family payload for temporal-memory-spike-challenges. Specified oracle: a validated recurrent SNN implementation. No such runtime is bound in this repository, so the recurrent delay-loop network in pipelines/oracle_grounded/sim.py runs instead and the record is stamped implementation: 'reference'. The generator proposes a delayed-dependency trial: a cue, a delay, distractors, and optionally a reset; the oracle runs the trial and reports which output the network selects at the probe. Temporal dependence is measured, not assumed: the same network is re-run with the cue removed (and, when present, with the reset removed), and a record is accepted only if that changes the measured response. Trials where the loop forgot before the probe are kept as rejected records with that reason, because a forgotten cue is a real measurement of the retention limit.",
+  "type": "object",
+  "properties": {
+    "scenario": {
+      "type": "object",
+      "required": [
+        "cue",
+        "cue_ms",
+        "probe_ms",
+        "delay_ms",
+        "distractor_ms",
+        "reset_ms",
+        "network_variant"
+      ],
+      "properties": {
+        "cue": { "enum": ["A", "B"] },
+        "cue_ms": { "type": "number", "minimum": 0 },
+        "probe_ms": { "type": "number", "exclusiveMinimum": 0 },
+        "delay_ms": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "description": "probe_ms - cue_ms; the interval the network must bridge."
+        },
+        "distractor_ms": {
+          "type": "array",
+          "items": { "type": "number", "minimum": 0 },
+          "description": "Times of distractor pulses inside the delay."
+        },
+        "distractor_count": { "type": "integer", "minimum": 0 },
+        "reset_ms": {
+          "type": ["number", "null"],
+          "description": "Time of a state-reset pulse, or null. A reset drives both latches below the point where the next delayed loop spike can re-fire them."
+        },
+        "event_sparsity": {
+          "type": "number",
+          "description": "Events per 100 ms of delay; lower means sparser."
+        },
+        "network_variant": {
+          "type": "object",
+          "description": "Loop parameters the generator varies. latch_adaptation_b sets how fast the loop fatigues and therefore how long the state survives.",
+          "properties": {
+            "loop_delay_ms": { "type": "number", "exclusiveMinimum": 0 },
+            "latch_adaptation_b": { "type": "number", "minimum": 0 },
+            "distractor_weight": { "type": "number" }
+          },
+          "additionalProperties": true
+        }
+      },
+      "additionalProperties": true
+    },
+    "intervention": {
+      "type": "null",
+      "description": "The delay structure in the scenario is the manipulation; the ablations are oracle-side controls."
+    },
+    "candidate_prediction": {
+      "type": "object",
+      "required": ["kind", "predicted_response"],
+      "properties": {
+        "kind": { "const": "non_authoritative_guess" },
+        "predicted_response": { "enum": ["A", "B", "none"] },
+        "basis": { "type": "string" }
+      }
+    },
+    "result": {
+      "type": "object",
+      "properties": {
+        "measured": {
+          "type": "object",
+          "required": ["baseline", "probes", "temporal_dependence", "delay_ms"],
+          "properties": {
+            "baseline": { "$ref": "#/$defs/trial" },
+            "probes": {
+              "type": "object",
+              "description": "Control re-runs of the same network. cue_ablation is always present.",
+              "required": ["cue_ablation"],
+              "properties": {
+                "cue_ablation": { "$ref": "#/$defs/trial" },
+                "reset_ablation": { "$ref": "#/$defs/trial" },
+                "distractor_swap": { "$ref": "#/$defs/trial" }
+              },
+              "additionalProperties": false
+            },
+            "temporal_dependence": {
+              "type": "object",
+              "required": ["demonstrated", "changed_by", "method"],
+              "properties": {
+                "demonstrated": {
+                  "type": "boolean",
+                  "description": "True only when removing an earlier event changed the measured response. Accepted records must have this true."
+                },
+                "changed_by": { "type": "array", "items": { "type": "string" } },
+                "method": { "type": "string" }
+              }
+            },
+            "distractor_invariant": {
+              "type": ["boolean", "null"],
+              "description": "Whether displacing the distractors left the response unchanged; null when the trial had none."
+            },
+            "delay_ms": { "type": "number", "exclusiveMinimum": 0 }
+          }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "trial": {
+      "type": "object",
+      "required": [
+        "response",
+        "response_ambiguous",
+        "output_spike_counts",
+        "memory_spike_counts",
+        "state_retained_at_probe",
+        "total_spikes",
+        "energy_pJ",
+        "duration_ms"
+      ],
+      "properties": {
+        "response": {
+          "enum": ["A", "B", "none"],
+          "description": "Which readout fired first inside the response window after the probe."
+        },
+        "response_latency_ms": { "type": ["number", "null"], "minimum": 0 },
+        "response_ambiguous": {
+          "type": "boolean",
+          "description": "True when both readouts fired on the same step; the network did not resolve the choice and the record is rejected."
+        },
+        "output_spike_counts": { "type": "object", "additionalProperties": { "type": "integer" } },
+        "memory_spike_counts": { "type": "object", "additionalProperties": { "type": "integer" } },
+        "latch_last_spike_ms": {
+          "type": "object",
+          "additionalProperties": { "type": ["number", "null"] }
+        },
+        "state_retained_at_probe": {
+          "type": "boolean",
+          "description": "Whether a memory loop spiked within 1.5 loop periods before the probe."
+        },
+        "total_spikes": { "type": "integer", "minimum": 0 },
+        "energy_pJ": { "type": "number", "minimum": 0 },
+        "duration_ms": { "type": "number", "exclusiveMinimum": 0 },
+        "spike_budget_exhausted": { "type": "boolean" }
+      },
+      "additionalProperties": true
+    }
+  }
+}

@@ -1,0 +1,163 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "oracle-grounded/spike-encoder-equivalence-pairs.schema.json",
+  "title": "SpikeEncoderEquivalencePair",
+  "description": "Family payload for spike-encoder-equivalence-pairs. Specified oracle: `axon-encoder`. When that runtime is not bound, the deterministic encoder bank in pipelines/oracle_grounded/sim.py runs instead and the record is stamped implementation: 'reference'. The generator authors a sensor trace and names two encoding families; the oracle encodes, decodes, and measures how much of the trace survived. Constrains only the family-specific parts; the envelope is oracle-grounded-v1.schema.json.",
+  "type": "object",
+  "properties": {
+    "scenario": {
+      "type": "object",
+      "required": [
+        "signal_family",
+        "signal_parameters",
+        "perturbation",
+        "sample_count",
+        "sample_ms",
+        "signal",
+        "encoding_pair"
+      ],
+      "properties": {
+        "signal_family": {
+          "enum": ["baseline", "burst", "drift", "outlier", "periodic", "sparse_events"]
+        },
+        "signal_parameters": { "type": "object" },
+        "perturbation": {
+          "type": "object",
+          "required": ["kind", "parameters"],
+          "properties": {
+            "kind": {
+              "enum": ["none", "additive_noise", "dropout", "quantization", "gain_drift"]
+            },
+            "parameters": { "type": "object" }
+          }
+        },
+        "sample_count": { "type": "integer", "minimum": 2 },
+        "sample_ms": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "description": "Sample period in milliseconds; one signal value per period."
+        },
+        "signal": {
+          "type": "array",
+          "items": { "type": "number", "minimum": 0, "maximum": 1 },
+          "description": "The observed (post-perturbation) sensor trace, normalized to [0, 1]."
+        },
+        "encoding_pair": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 2,
+          "items": { "enum": ["rate", "latency", "delta", "temporal"] }
+        },
+        "question": { "type": "string" }
+      },
+      "additionalProperties": true
+    },
+    "intervention": {
+      "type": "null",
+      "description": "This family perturbs the sensor inside the scenario rather than intervening on the oracle."
+    },
+    "candidate_prediction": {
+      "type": "object",
+      "required": ["kind", "predicted_winner"],
+      "properties": {
+        "kind": { "const": "non_authoritative_guess" },
+        "predicted_winner": { "enum": ["rate", "latency", "delta", "temporal"] },
+        "basis": { "type": "string" }
+      }
+    },
+    "result": {
+      "type": "object",
+      "properties": {
+        "measured": {
+          "type": "object",
+          "required": [
+            "encoding_a",
+            "encoding_b",
+            "winner",
+            "winner_basis",
+            "retention_margin",
+            "energy_margin_pJ"
+          ],
+          "properties": {
+            "encoding_a": { "$ref": "#/$defs/encodingMeasurement" },
+            "encoding_b": { "$ref": "#/$defs/encodingMeasurement" },
+            "winner": {
+              "type": ["string", "null"],
+              "description": "The encoding that retained more information, or null on a tie. Must be one of scenario.encoding_pair."
+            },
+            "winner_basis": {
+              "enum": ["information_retention", "spike_count_tiebreak", "tie"]
+            },
+            "retention_margin": {
+              "type": "number",
+              "description": "retention(encoding_a) - retention(encoding_b), dimensionless."
+            },
+            "energy_margin_pJ": { "type": "number" }
+          }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "encodingMeasurement": {
+      "type": "object",
+      "required": [
+        "encoding",
+        "spike_count",
+        "channels",
+        "mean_rate_hz",
+        "energy_pJ",
+        "rmse",
+        "information_retention",
+        "reconstruction",
+        "representation_excerpt",
+        "spike_train_digest"
+      ],
+      "properties": {
+        "encoding": { "enum": ["rate", "latency", "delta", "temporal"] },
+        "spike_count": { "type": "integer", "minimum": 0 },
+        "channels": { "type": "array", "items": { "type": "string" } },
+        "mean_rate_hz": { "type": "number", "minimum": 0 },
+        "energy_pJ": {
+          "type": "number",
+          "minimum": 0,
+          "description": "spike_count * 23 pJ, the Loihi-2-class constant already used by raster.schema.json."
+        },
+        "rmse": { "type": "number", "minimum": 0 },
+        "mean_abs_error": { "type": "number", "minimum": 0 },
+        "max_abs_error": { "type": "number", "minimum": 0 },
+        "pearson_r": {
+          "type": ["number", "null"],
+          "description": "Null when either series is constant and r is undefined."
+        },
+        "information_retention": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1,
+          "description": "1 - rmse, clipped to [0, 1]."
+        },
+        "retention_per_spike": { "type": ["number", "null"] },
+        "reconstruction": {
+          "type": "array",
+          "items": { "type": "number" },
+          "description": "The decoded trace, same length as scenario.signal."
+        },
+        "representation_excerpt": {
+          "type": "array",
+          "description": "Bounded excerpt of the spike train; the full train is pinned by spike_train_digest.",
+          "items": {
+            "type": "object",
+            "required": ["channel", "t_ms"],
+            "properties": {
+              "channel": { "type": "string" },
+              "t_ms": { "type": "number", "minimum": 0 }
+            }
+          }
+        },
+        "representation_excerpt_truncated": { "type": "boolean" },
+        "spike_train_digest": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" }
+      },
+      "additionalProperties": true
+    }
+  }
+}
