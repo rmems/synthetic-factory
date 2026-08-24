@@ -1,0 +1,24 @@
+config/card-schemas/flaky-test-quarantine-trajectories.json
+  s_002cddb1a70571::t_2e3a5cfc5b2a4b 15
+  s_002cddb1a70571::t_4f6c64d61d2fdb 1-14,16-87
+tests/test_card_schema.py
+  s_002cddb1a70571::t_597571d0c9d526 5-7
+  s_002cddb1a70571::t_1c9b4ad06bc835 27
+  s_002cddb1a70571::t_b3917368e1042c 534-659
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "fab30aad5a25e01b74df2a07ea0ae8969cd7846c",
+  "prompts": {},
+  "sessions": {
+    "s_002cddb1a70571": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "abd260ba-6a6c-45a6-9db3-a4e0988ad60e",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Raul Montoya Cardenas <montoyaraul34@gmail.com>"
+    }
+  }
+}
