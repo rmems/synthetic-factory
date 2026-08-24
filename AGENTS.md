@@ -18,6 +18,20 @@ python3 pipelines/census.py tests/fixtures/mini-run
 `tests/fixtures/mini-run` includes one intentional JSON parse failure.
 `validate_run.py` on that path is expected to exit nonzero.
 
+## Hugging Face card viewer schemas
+
+Published cards declare their Dataset Viewer schema by hand, one JSON file per
+dataset at `config/card-schemas/<hub-dataset-name>.json`. The format and the
+rules live in `pipelines/card_schema.py`. Audit the set with:
+
+```bash
+python3 scripts/publish_grok46_hub.py schemas          # lists declared/undeclared
+python3 scripts/publish_grok46_hub.py schemas --strict # nonzero while any gap remains
+```
+
+A dataset with no declaration publishes a card that says so. Never rewrite
+historical raw JSONL to fix a viewer schema — declare the union on the card.
+
 ## Cursor Cloud specific instructions
 
 Cloud agents should start from `.cursor/environment.json`, which builds

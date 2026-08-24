@@ -11,7 +11,11 @@ Usage:
     python3 scripts/publish_grok46_hub.py upload [--only HUB_NAME]
     python3 scripts/publish_grok46_hub.py collect
     python3 scripts/publish_grok46_hub.py status
+    python3 scripts/publish_grok46_hub.py schemas [--strict]
     python3 scripts/publish_grok46_hub.py all
+
+Card viewer schemas are declared one JSON file per dataset under
+config/card-schemas/<hub-dataset-name>.json; see pipelines/card_schema.py.
 """
 
 from __future__ import annotations
@@ -39,6 +43,8 @@ PIPELINES_ROOT = REPO_ROOT / "pipelines"
 if str(PIPELINES_ROOT) not in sys.path:
     sys.path.insert(0, str(PIPELINES_ROOT))
 
+import card_schema  # noqa: E402
+from card_schema import CardSchemaError  # noqa: E402
 from round_txn import (  # noqa: E402
     TransactionError,
     completed_manifests as transaction_completed_manifests,
@@ -294,6 +300,43 @@ def hub_name(slug: str) -> str:
 
 def pretty_name(hub: str) -> str:
     return hub.replace("-", " ").title()
+
+
+def known_hub_names() -> list[str]:
+    """Every Hub dataset name this publisher can produce, from META alone.
+
+    Derived from the slug table rather than the factory tree so the schema
+    audit runs anywhere, including a checkout with no ``outputs/raw`` mirror.
+    """
+    return sorted(hub_name(slug) for slug in META)
+
+
+def card_declaration(hub: str) -> dict | None:
+    """Return the validated card schema declaration for one Hub dataset.
+
+    Returns ``None`` only when the dataset owns no declaration file at all. A
+    declaration that exists but does not validate is a hard failure: a broken
+    file must never degrade into an undeclared card.
+    """
+    try:
+        return card_schema.load(hub)
+    except CardSchemaError as exc:
+        raise SystemExit(str(exc)) from exc
+
+
+def card_schema_audit() -> tuple[list[str], list[str], list[str]]:
+    """Return ``(declared, undeclared, orphaned)`` Hub dataset names."""
+    known = known_hub_names()
+    try:
+        on_disk = card_schema.declared_datasets()
+    except CardSchemaError as exc:
+        raise SystemExit(str(exc)) from exc
+    have = set(on_disk)
+    expected = set(known)
+    declared = [name for name in known if name in have]
+    undeclared = [name for name in known if name not in have]
+    orphaned = [name for name in on_disk if name not in expected]
+    return declared, undeclared, orphaned
 
 
 def factory_source(slug: str) -> Path:
@@ -844,6 +887,22 @@ def render_card(
 ) -> str:
     tags = "\n".join(f"- {t}" for t in item["tags"])
     kb = max(1, bytes_ // 1024)
+    declaration = card_declaration(item["hub"])
+    if declaration is None:
+        schema_block = ""
+        schema_section = card_schema.undeclared_body_section(item["hub"])
+    else:
+        errors = card_schema.payload_coverage_errors(declaration, payload_names or [])
+        if errors:
+            raise SystemExit(
+                f"card schema for {item['hub']} does not cover the published payload: "
+                + "; ".join(errors)
+            )
+        try:
+            schema_block = card_schema.metadata_yaml(declaration)
+            schema_section = card_schema.body_section(declaration)
+        except CardSchemaError as exc:
+            raise SystemExit(f"cannot render card schema for {item['hub']}: {exc}") from exc
     if first is None or last is None:
         if payload_names:
             names = ", ".join(f"`data/raw/{name}`" for name in payload_names)
@@ -870,7 +929,7 @@ language:
 - en
 tags:
 {tags}
----
+{schema_block}---
 
 # {item['pretty']}
 
@@ -903,6 +962,7 @@ Synthetic Data Factory agentic lane. Factory slug:
 copy is a public evidence snapshot, not the curated training export. Public
 visibility is not a training-readiness claim.
 
+{schema_section}
 ## Planned curated release
 
 Curated training publication remains blocked until a later audit and export
@@ -1185,11 +1245,69 @@ def cmd_status() -> None:
         print(f"{item['hub']:48} {local:9d} {factory:9d}")
 
 
+def cmd_schemas(strict: bool = False) -> int:
+    """Report every dataset's card schema declaration state, loudly.
+
+    Exits nonzero on a declaration file that is malformed or does not name a
+    real Hub dataset, so a typo'd filename can never sit unnoticed. With
+    ``--strict`` an undeclared dataset is also a failure.
+    """
+    declared, undeclared, orphaned = card_schema_audit()
+    for name in declared:
+        declaration = card_declaration(name)
+        if declaration is None:
+            raise SystemExit(f"card schema for {name} disappeared during the audit")
+        kind = "schema" if declaration["features"] else "disclosure-only"
+        issues = (
+            " " + ", ".join(f"#{number}" for number in declaration["issues"])
+            if declaration["issues"]
+            else ""
+        )
+        print(f"declared    {name:48} {kind}{issues}")
+    for name in undeclared:
+        print(f"UNDECLARED  {name:48} no config/card-schemas/{name}.json")
+    print(
+        f"\n{len(declared)} declared, {len(undeclared)} undeclared, "
+        f"{len(orphaned)} orphaned of {len(declared) + len(undeclared)} datasets"
+    )
+    if orphaned:
+        for name in orphaned:
+            print(
+                f"ORPHANED    config/card-schemas/{name}.json names no known dataset",
+                file=sys.stderr,
+            )
+        return 2
+    if undeclared and strict:
+        print(
+            f"strict: {len(undeclared)} dataset(s) still publish a card with no "
+            "declared viewer schema",
+            file=sys.stderr,
+        )
+        return 1
+    return 0
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
-    ap.add_argument("cmd", choices=["snapshot", "create", "upload", "collect", "status", "all"])
+    ap.add_argument(
+        "cmd",
+        choices=["snapshot", "create", "upload", "collect", "status", "schemas", "all"],
+    )
     ap.add_argument("--only")
+    ap.add_argument(
+        "--strict",
+        action="store_true",
+        help="schemas: fail when any dataset has no card schema declaration",
+    )
     args = ap.parse_args()
+    if args.cmd == "schemas":
+        if args.only:
+            print("schemas does not accept --only", file=sys.stderr)
+            return 2
+        return cmd_schemas(strict=args.strict)
+    if args.strict:
+        print("--strict only applies to the schemas command", file=sys.stderr)
+        return 2
     if args.only and not any(is_selected(item, args.only) for item in factories()):
         print(f"unknown --only target: {args.only}", file=sys.stderr)
         return 2
