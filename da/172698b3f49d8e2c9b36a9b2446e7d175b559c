@@ -1,0 +1,21 @@
+config/card-schemas/proto-breaking-change-trajectories.json
+  s_002cddb1a70571::t_3a2f5b929b4faf 1-56
+tests/test_card_schema.py
+  s_002cddb1a70571::t_56842abedaaa16 532-627
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "da172698b3f49d8e2c9b36a9b2446e7d175b559c",
+  "prompts": {},
+  "sessions": {
+    "s_002cddb1a70571": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "abd260ba-6a6c-45a6-9db3-a4e0988ad60e",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Raul Montoya Cardenas <montoyaraul34@gmail.com>"
+    }
+  }
+}
