@@ -67,9 +67,9 @@ same unit tests and operator smoke check.
 - `schemas/` — Thalamic schema + `provenance.md`
 - `outputs/raw/` — dated dumps. `2026-08-17/` is the live run; `2026-08-17-prehalt/` is the pre-resume copy. `NEXT_ROUND.json` is a generated index, not a record
 - `outputs/cleaned/` — remapped copies (`sim_or_real` never `real`)
-- `outputs/curated/` — ready for training / HF export (empty)
+- `outputs/curated/` — compose destinations (`records/`, `manifest/`, `COMPOSE.json`) and their exports; gitignored, built by `pipelines/compose_curated.py`
 - `config/` — reviewed factory registry (`FACTORY-REGISTRY.json`). Identity authority is this file (exact `path_id` + `payload_factory`), not a slug allowlist. Onboard a generator by adding a row.
-- `pipelines/` — census, identity, next-round allocator, shape validator, deep checker, promote
+- `pipelines/` — census, identity, next-round allocator, shape validator, deep checker, curation integration/promotion, compose, and export
 - `experiments/` — harvest notes (`2026-08-17-quality-report.md` is a mid-run snapshot; `2026-08-17-grok-census.md` is current)
 
 ## Before the next Fable session
@@ -131,6 +131,45 @@ reason codes, per-kind and per-factory counts, gate results, and the recorded
 review. See the module docstring for the plan schema.
 
 Tests: `python3 -m unittest discover -s tests -p 'test_*.py' -q`
+
+## Compose and export (curated → train/eval split)
+
+The five curation lanes (`curate_identity`, `curate_bridge`,
+`curate_preferences`, `curate_rewards`, `curate_coding`) are record-level and
+independent. `compose_curated.py` applies them in one documented order and
+`export_hf.py` turns the result into a lossless export plus a tiny split.
+
+```bash
+# 1. Compose: identity -> bridge -> preferences -> rewards -> coding
+#    (tag normalization is not composed yet). Never overwrites a destination.
+python3 pipelines/compose_curated.py outputs/raw/2026-08-17 outputs/curated/2026-08-23
+python3 pipelines/compose_curated.py --strict <source_run> <destination>   # exit 1 unless training_ready
+
+# 2. Export: refuses unless training_audit reports training_ready: true
+python3 pipelines/export_hf.py outputs/curated/2026-08-23 outputs/curated/2026-08-23-export
+```
+
+Compose writes a brand-new destination:
+
+| Path | Contents |
+|---|---|
+| `records/<factory>/<file>.jsonl` | curated payload — the only subtree the audit reads |
+| `manifest/compose-manifest.jsonl` | one entry per source record: source hashes, per-lane transform name/version, action, reason codes, output hash |
+| `manifest/reward-sidecars.jsonl` | reversible copies of every source reward |
+| `COMPOSE.json` | counts, exclusions by reason code, output digests, audit result |
+
+Export writes `data/curated/…` (byte-identical payload),
+`data/viewer/records.parquet` (`{source_file, source_line, record_json}`,
+uncompressed PLAIN, written and read back with the standard library),
+`data/splits/train.jsonl`, `data/splits/eval.jsonl`, `provenance.json` carrying
+`training_ready` from the audit, and a one-page `EVAL_PROTOCOL.md`. The split is
+a pure function of `(salt, source_file, source_line)`, so it reproduces exactly
+and appending records never reshuffles the existing ones.
+
+**No trainer.** Neither command launches local or cloud training, and neither
+creates or uploads a Hugging Face repository. They produce split files and an
+evaluation protocol on disk; running a trainer is a separate, explicitly
+approved decision.
 
 ## Quick start (generation)
 
