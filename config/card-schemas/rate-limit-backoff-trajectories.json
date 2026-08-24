@@ -1,0 +1,84 @@
+{
+  "version": 1,
+  "dataset": "rate-limit-backoff-trajectories",
+  "issues": [53],
+  "note": "The viewer schema is declared by hand because `meta` is a key-bag whose shape changes between shards: the datasets-server infers `{factory, generator, round}` from the eight thin records in `batch-r01.jsonl` / `batch-r02.jsonl`, then cannot cast the later records that add `kind`, `seed`, `designed`, `domain`, `stack`, `lane`, and `plant`. `reward` varies the same way — 136 of 312 records add `mid_reward` and 7 add `handoff` / `xfailed` — so declaring the union fixes the index without rewriting a single historical raw record.",
+  "config_name": "default",
+  "split": "train",
+  "data_files": ["data/raw/batch-*.jsonl"],
+  "features": [
+    {"name": "id", "dtype": "string"},
+    {"name": "goal", "dtype": "string"},
+    {
+      "name": "plan",
+      "dtype": "string",
+      "note": "always a string, present on all 312 records including the 12 foreign-mill rows disclosed below"
+    },
+    {
+      "name": "steps",
+      "list": [
+        {"name": "n", "dtype": "int64"},
+        {"name": "decision_basis", "dtype": "string"},
+        {
+          "name": "tool_call",
+          "struct": [
+            {"name": "name", "dtype": "string"},
+            {
+              "name": "args",
+              "dtype": "json",
+              "note": "always an object; keys differ per tool (`path`, `command`, `url`, `args`, `old` / `new`, `contents`, `target`, `pattern`, `cmd`)"
+            }
+          ]
+        },
+        {"name": "observation", "dtype": "string"},
+        {
+          "name": "reflection",
+          "dtype": "string",
+          "optional": true,
+          "note": "present on 4831 of 5148 steps"
+        }
+      ]
+    },
+    {"name": "outcome", "dtype": "string"},
+    {
+      "name": "reward",
+      "dtype": "json",
+      "note": "key-bag: `success` (bool) plus `tests_passed` and `cost_steps` on every record, then `plan_changes` on 304, `retries` on 293, `duration_min` on 292, `wasted_calls` on 292, `mid_reward` on 136, and `handoff` / `xfailed` on 7. Every value is a bool or an int; no record carries `residual`"
+    },
+    {
+      "name": "meta",
+      "dtype": "json",
+      "note": "key-bag: `factory`, `generator`, `round` on every record, then `kind` on 304, `seed` / `designed` / `domain` / `stack` on 294, `plant` on 10, and `lane` on 8. `kind` is `episode` on 294 and is an outcome label (`success` on 5, `partial` on 5) on the 10 dest-stamped records disclosed below"
+    }
+  ],
+  "disclosures": [
+    {
+      "summary": "Ten records that landed in rounds r135-r139 of this destination are dest-stamped GraphQL leftover-mill episodes, not rate-limit episodes: their `meta.factory` reads `rate-limit-backoff-factory` but their ids use the `gql-` prefix, their goals are GraphQL cost-analyzer / relay / persisted-query / FilterSet / remote-schema leftover goals, they carry `meta.plant` (`lattice-*`) that no other record has, and they stuff an outcome label into `meta.kind` instead of `episode`. They are kept exactly as generated.",
+      "ids": [
+        "gql-r135-hotchocolate-cost-analyzer-after-projection",
+        "gql-r135-hotchocolate-disable-cost",
+        "gql-r136-strawberry-relay-connection-after-override",
+        "gql-r136-strawberry-drop-relay",
+        "gql-r137-mercurius-persisted-query-after-schema",
+        "gql-r137-mercurius-disable-persisted",
+        "gql-r138-graphene-django-filter-after-queryset",
+        "gql-r138-graphene-drop-filterset",
+        "gql-r139-hasura-remote-schema-after-perm-reload",
+        "gql-r139-hasura-disable-remote-schema"
+      ],
+      "issues": [43, 44]
+    },
+    {
+      "summary": "Two further records in round r114 are dest-stamped search-index-rebuild leftover-mill episodes: `meta.factory` again reads `rate-limit-backoff-factory`, but the ids use the `sir-` prefix and carry the leftover-in-id `leftover3c` marker, and both goals are Quickwit split-publish goals with `meta.stack` naming Quickwit. Unlike the ten above they carry the full designed-episode `meta` shape and `meta.kind` `episode`, so neither the dest-field-absence nor the `meta.plant` signal reaches them. They are kept exactly as generated.",
+      "ids": [
+        "sir-r114-quickwit-split-leftover3c-rebuild",
+        "sir-r114-quickwit-drop-split-leftover3c-handoff"
+      ],
+      "issues": [43, 44]
+    },
+    "The eight records the inferred schema died on are the thin-`meta` rows in rounds r01, r02, r07, and r08 — `rlb-r01-retry-after-seconds-ignored`, `rlb-r01-retry-after-http-date-skew`, `rlb-r02-reset-epoch-ignored`, `rlb-r02-retry-after-zero-ms`, `rlb-r07-http-503-retry-after-2d91`, `rlb-r07-token-bucket-10rps-7e80`, `rlb-r08-retry-after-zero-floor-5bb8`, `rlb-r08-exp-min-retry-after-8d44` — which publish only `factory`, `generator`, and `round`. They are the earliest rounds of the factory and are kept exactly as generated.",
+    "Eight records in rounds r03-r06 carry `meta.lane` (`b`), a key no other record has, and omit `reward.plan_changes`. They are `rate-limit-backoff-factory` episodes from the two-lane rounds and are published as generated.",
+    "The remaining 284 records are `rate-limit-backoff-factory` episodes generated by `grok-4.6`, with the full `kind` / `seed` / `designed` / `domain` / `stack` `meta` shape.",
+    "Every step publishes a public `decision_basis`. There are no hidden `thought` or `internal_reasoning` fields."
+  ]
+}
