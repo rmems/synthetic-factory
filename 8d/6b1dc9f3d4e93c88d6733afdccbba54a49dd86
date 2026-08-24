@@ -1,0 +1,23 @@
+config/card-schemas/safety-calibration-cases.json
+  s_002cddb1a70571::t_c7c63667783cc9 1-83,85-109
+  s_002cddb1a70571::t_cf406d110c3a72 84
+tests/test_card_schema.py
+  s_002cddb1a70571::t_8f963e7d537157 26
+  s_002cddb1a70571::t_cf17581a99c412 533-643
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "8d6b1dc9f3d4e93c88d6733afdccbba54a49dd86",
+  "prompts": {},
+  "sessions": {
+    "s_002cddb1a70571": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "abd260ba-6a6c-45a6-9db3-a4e0988ad60e",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Raul Montoya Cardenas <montoyaraul34@gmail.com>"
+    }
+  }
+}
