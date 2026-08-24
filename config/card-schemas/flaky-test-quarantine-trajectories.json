@@ -1,0 +1,87 @@
+{
+  "version": 1,
+  "dataset": "flaky-test-quarantine-trajectories",
+  "issues": [64],
+  "note": "The viewer schema is declared by hand because `meta` widens twice across the run: 2976 records carry a thin `{factory, generator, round}`, 160 later `flk-*` records (`batch-r1489`-`batch-r1575`) add `designed`, and 14 dest-stamped `sir-*` records add `designed`, `kind`, `domain`, `stack` and `seed`, so the datasets-server infers a struct `meta` from the early thin shards and then cannot cast the later ones, leaving `/is-valid` at preview true with viewer, search, filter and statistics false and the Dataset Viewer at a 500. Declaring the union fixes the index without rewriting a single historical raw record.",
+  "config_name": "default",
+  "split": "train",
+  "data_files": ["data/raw/batch-*.jsonl"],
+  "features": [
+    {"name": "id", "dtype": "string"},
+    {"name": "goal", "dtype": "string"},
+    {
+      "name": "plan",
+      "dtype": "string",
+      "note": "always a string, on 3150 of 3150 records; unlike the `long-horizon-coding-trajectories` declaration, `plan` is not optional in this dataset"
+    },
+    {
+      "name": "steps",
+      "list": [
+        {"name": "n", "dtype": "int64"},
+        {
+          "name": "decision_basis",
+          "dtype": "string",
+          "note": "present on 38604 of 38604 steps; the reasoning this dataset publishes"
+        },
+        {
+          "name": "tool_call",
+          "struct": [
+            {
+              "name": "name",
+              "dtype": "string",
+              "note": "6 tools; `bash`, `read`, `edit` and `grep` on the 3136 flaky-test episodes, `pytest` and `fetch` only inside the 14 dest-stamped `sir-*` records"
+            },
+            {
+              "name": "args",
+              "dtype": "json",
+              "note": "always an object; keys differ per tool (`path`, `command`, `pattern`, `old`, `new`, plus `url` and `args` that appear only in the 14 `sir-*` records)"
+            }
+          ]
+        },
+        {"name": "observation", "dtype": "string"},
+        {
+          "name": "reflection",
+          "dtype": "string",
+          "optional": true,
+          "note": "present on 6586 of 38604 steps"
+        }
+      ]
+    },
+    {"name": "outcome", "dtype": "string"},
+    {
+      "name": "reward",
+      "dtype": "json",
+      "note": "key-bag of 18 keys with mixed value types: `success` (bool), `cost_steps` and `plan_changes` on every record, then `tests_passed` 3070, `orders_ok` 2863, `skip_rejected` 1120, `xfail_rejected` 1009, `reruns_rejected` 926, `handoff` 88, `drop_flag_rejected` 80, `skip_applied` 80, `drop_flag_applied` 80, `seeds_ok` 29, `repeats` 28, `xfailed` 8, `retries` 7, `repeats_ok` 4 and `locales_ok` 1"
+    },
+    {
+      "name": "meta",
+      "dtype": "json",
+      "note": "key-bag with mixed value types: `factory` and `generator` (string) and `round` (int) on every record, `designed` (bool) on 174, and `kind`, `seed`, `domain`, `stack` (string) on the 14 `sir-*` records only"
+    }
+  ],
+  "disclosures": [
+    {
+      "summary": "Fourteen records in `batch-r1537.jsonl` through `batch-r1543.jsonl` are search-index-rebuild leftover-lll episodes that the `search_index_rebuild_leftover_lll_mill.py` hop wrote into this factory and dest-stamped: they keep `meta.factory` = `flaky-test-quarantine-factory` while carrying vector-store payloads (Weaviate, Qdrant, Milvus, Pinecone, Chroma, LanceDB, pgvector), the only `meta.kind` / `domain` / `stack` / `seed` keys in the dump, and the only `pytest` / `fetch` tool calls (231 of the 38604 steps). They are kept exactly as generated. Neither frozen leftover-mill census covers them: the 30 `factory_mix` ids frozen in issue 43 are stamped with a foreign factory and land in four other destinations, and the 40 dest-stamped records frozen in issue 44 land in cache-stampede, k8s-crashloop and rate-limit-backoff. Ownership of these 14 stays with this issue.",
+      "ids": [
+        "sir-r1537-weaviate-alias-leftover-lll-rebuild",
+        "sir-r1537-weaviate-drop-class-leftover-lll-handoff",
+        "sir-r1538-qdrant-alias-leftover-lll-rebuild",
+        "sir-r1538-qdrant-delete-coll-leftover-lll-handoff",
+        "sir-r1539-milvus-alias-leftover-lll-rebuild",
+        "sir-r1539-milvus-drop-coll-leftover-lll-handoff",
+        "sir-r1540-pinecone-ns-leftover-lll-rebuild",
+        "sir-r1540-pinecone-delete-index-leftover-lll-handoff",
+        "sir-r1541-chroma-persist-leftover-lll-rebuild",
+        "sir-r1541-chroma-delete-coll-leftover-lll-handoff",
+        "sir-r1542-lancedb-compact-leftover-lll-rebuild",
+        "sir-r1542-lancedb-overwrite-leftover-lll-handoff",
+        "sir-r1543-pgvector-hnsw-leftover-lll-rebuild",
+        "sir-r1543-pgvector-drop-hnsw-leftover-lll-handoff"
+      ],
+      "issues": [64]
+    },
+    "The other 3136 records (`flk-*` 3134 and the two early `ftq-*` from `batch-r01.jsonl`) are this factory's own flaky-test leftover-cause quarantine episodes. `leftover` in a record id or goal is this factory's advertised mechanic, not evidence of a foreign dump, so those rows are not disclosed as mill leftovers.",
+    "Every one of the 3150 records is stamped `generator` `grok-4.6` and `factory` `flaky-test-quarantine-factory`; the 14 `sir-*` rows above are the only foreign payloads.",
+    "Every step publishes a public `decision_basis` (38604 of 38604). There are no hidden `thought` or `internal_reasoning` fields, and no top-level `kind` or `state` column."
+  ]
+}
