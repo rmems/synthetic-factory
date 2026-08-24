@@ -1,0 +1,99 @@
+tests/test_energy_preferences.py
+  s_002cddb1a70571::t_c198118f3bf084 306-310,318
+  s_002cddb1a70571::t_6dcbb9740fd0f3 77-113
+  s_002cddb1a70571::t_73edd0fc4f5a0e 333-335,340-341,344-353
+pipelines/validate_distill.py
+  s_002cddb1a70571::t_22cac155bac76f 186-188,199-205
+  s_002cddb1a70571::t_484b8cdd1fb1bb 124-132
+pipelines/energy_preferences.py
+  s_002cddb1a70571::t_8456fbe36adc3d 724
+  s_002cddb1a70571::t_a2a5855997afbe 501-514
+  s_002cddb1a70571::t_0ac1cb3fcdd258 493
+  s_002cddb1a70571::t_511ad4254ef7e7 404-411
+  s_002cddb1a70571::t_93fd9efd25f49c 459,462-466,478
+  s_002cddb1a70571::t_ab704b6c0b0c56 841-855
+  s_002cddb1a70571::t_0896fdabdf905b 891-895
+  s_002cddb1a70571::t_aa64567ea48e2d 936-953
+scripts/build_distillation_fixture.py
+  s_002cddb1a70571::t_997ab1c390f92d 145,147-152
+schemas/oracle-grounded-record.schema.json
+  s_002cddb1a70571::t_51ab14f63e6823 5
+  s_002cddb1a70571::t_6cc0e6bc147c70 179,189
+  s_002cddb1a70571::t_2e296d56748ef6 210-214
+pipelines/fault_recovery.py
+  s_002cddb1a70571::t_5fff6bbed8a938 236-259
+  s_002cddb1a70571::t_cb107c53f30e3d 276
+  s_002cddb1a70571::t_81c91d47b62ccd 308
+  s_002cddb1a70571::t_56941756ddea81 92-118
+  s_002cddb1a70571::t_f6ab41428e767f 329,335-336,339-342,351-356
+  s_002cddb1a70571::t_e1dfea1c33e8d3 660-664
+  s_002cddb1a70571::t_f0a9491edb59d9 163-174
+  s_002cddb1a70571::t_f3811df45333b4 548,551-555
+tests/fixtures/distillation-run/fault-recovery/batch-r01.jsonl
+  s_002cddb1a70571::t_391ba7ae31789e 1-18
+pipelines/oracle_contract.py
+  s_002cddb1a70571::t_e0caf19acde212 545-548,552-557
+  s_002cddb1a70571::t_ffc1eefc2d83ce 134
+  s_002cddb1a70571::t_d462c747db608d 659-663
+  s_002cddb1a70571::t_5fb152ee4b87af 727-731
+  s_002cddb1a70571::t_86e5fc3468c1d0 496-507
+  s_002cddb1a70571::t_a81e43e5f6b2db 825-826,830-844
+  s_002cddb1a70571::t_9a0cfdecff1b82 549-551
+  s_002cddb1a70571::t_eb008c596cf94f 769-775,785
+  s_002cddb1a70571::t_a8fa929acf6e44 166-167
+  s_002cddb1a70571::t_e1aae98b0b855d 792-801,803-805,809-810
+  s_002cddb1a70571::t_80a6818265c036 699-705
+pipelines/moe_router.py
+  s_002cddb1a70571::t_5695e09d7b48a5 391-402
+  s_002cddb1a70571::t_f143ba276e7bec 861-912
+  s_002cddb1a70571::t_e569da71798981 344-357
+  s_002cddb1a70571::t_7716a7fcdbeb12 371-373
+  s_002cddb1a70571::t_80b8502d673d36 756-765
+  s_002cddb1a70571::t_77afd7035eb5d9 790-800
+  s_002cddb1a70571::t_22ad6f1e95f0b8 63-66
+tests/test_oracle_contract.py
+  s_002cddb1a70571::t_46e0b8ee9ccafe 224,230-247
+  s_002cddb1a70571::t_e60dcb48c8fc25 277-278,280-297,302-303,314-315,321-339,343-349
+tests/fixtures/distillation-run/moe-router/batch-r01.jsonl
+  s_002cddb1a70571::t_391ba7ae31789e 1-80
+tests/test_fault_recovery.py
+  s_002cddb1a70571::t_deed2ec53d626b 274-276
+  s_002cddb1a70571::t_56133dab1b3044 122-137,142,145-168
+  s_002cddb1a70571::t_a896809102519b 74-78,85-89,94-105
+  s_002cddb1a70571::t_36e1e745f81e79 238,242-261
+  s_002cddb1a70571::t_c3c547595e61a5 354-360
+tests/fixtures/distillation-run/MANIFEST.json
+  s_002cddb1a70571::t_391ba7ae31789e 65,69,73,131,143-144,146-148
+tests/fixtures/distillation-run/energy-preferences/batch-r01.jsonl
+  s_002cddb1a70571::t_391ba7ae31789e 1-4
+tests/test_moe_router.py
+  s_002cddb1a70571::t_dd6e4264f65699 179-201
+  s_002cddb1a70571::t_a79db1a314a860 269
+  s_002cddb1a70571::t_821443f25595f6 57-83
+  s_002cddb1a70571::t_96f4770f7cc357 305,310-336
+  s_002cddb1a70571::t_e416cdd70a7272 223-228
+  s_002cddb1a70571::t_e0f4da29f204a1 20-28,32-34,47-48
+docs/distillation-datasets.md
+  s_002cddb1a70571::t_b34037642c487d 73-82
+  s_002cddb1a70571::t_f7f4c93f312a07 24-32
+  s_002cddb1a70571::t_38cacc3f3ca7e2 50-57
+  s_002cddb1a70571::t_d2e957c0b904aa 170-179
+  s_002cddb1a70571::t_f80dfce666a73d 147-154
+  s_002cddb1a70571::t_3ccad9be041184 188-198
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "41266b116174274198513872a016837568028ddc",
+  "prompts": {},
+  "sessions": {
+    "s_002cddb1a70571": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "abd260ba-6a6c-45a6-9db3-a4e0988ad60e",
+        "model": "unknown"
+      },
+      "human_author": "Raul Montoya Cardenas <montoyaraul34@gmail.com>"
+    }
+  }
+}
