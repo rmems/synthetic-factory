@@ -1,0 +1,22 @@
+config/card-schemas/secret-scan-remediation-trajectories.json
+  s_002cddb1a70571::t_98188b09362da0 1-60
+tests/test_card_schema.py
+  s_002cddb1a70571::t_035d13193f93a0 533-626
+  s_002cddb1a70571::t_5699f4d41bdafa 26
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "87cb33dff5d098026f39fb3da1c962270e4fdcb7",
+  "prompts": {},
+  "sessions": {
+    "s_002cddb1a70571": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "abd260ba-6a6c-45a6-9db3-a4e0988ad60e",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Raul Montoya Cardenas <montoyaraul34@gmail.com>"
+    }
+  }
+}
