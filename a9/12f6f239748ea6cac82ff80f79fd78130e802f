@@ -1,0 +1,22 @@
+tests/test_card_schema.py
+  s_002cddb1a70571::t_10e714f442b0f3 533-633
+  s_002cddb1a70571::t_4cdcd9d0874f0b 26
+config/card-schemas/git-ops-recovery-trajectories.json
+  s_002cddb1a70571::t_02fe3397fc7732 1-69
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "a912f6f239748ea6cac82ff80f79fd78130e802f",
+  "prompts": {},
+  "sessions": {
+    "s_002cddb1a70571": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "abd260ba-6a6c-45a6-9db3-a4e0988ad60e",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Raul Montoya Cardenas <montoyaraul34@gmail.com>"
+    }
+  }
+}
