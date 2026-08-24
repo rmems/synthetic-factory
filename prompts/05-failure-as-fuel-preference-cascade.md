@@ -15,6 +15,14 @@ The two sessions MUST be executed in order and MUST NOT share generation
 context beyond the diagnosis artifacts. A single `round_txn.py reserve`
 covers both sessions — they operate on the same `staging_dir`.
 
+**The single-session path is DEPRECATED.** Generating failure, diagnosis,
+and repair in one context produces correlated arms — the repair becomes the
+negation of the failure it just wrote — and that is the collapse vector this
+factory exists to avoid. No new round may be produced that way. Every
+record attests `meta.isolation: "two-session"`, and
+`pipelines/preference_arms.py` blocks a round that cannot produce that
+attestation or whose two arms are one arm restated.
+
 **Execution note (automated launcher):** under
 `.claude/skills/run-synthetic-factory/factory-window.workflow.js`, Session A
 and Session B run as two separate workflow agents with independent
@@ -157,9 +165,12 @@ scratch artifacts.
      `diagnosis-03-rNN.md` files alongside the batch — they are
      part of the published round and document the repair rationale.
 
-4. Run the **same-context purity gate** (see `docs/preference-isolation.md`)
-   over `batch-rNN.jsonl` before publishing. If any pair fails, repair
-   only staged files; never hand-edit a committed raw file.
+4. Run the **same-context purity gate** and the **independent-arm gate**
+   (see `docs/preference-isolation.md`) over `batch-rNN.jsonl` before
+   publishing. If any pair fails, repair only staged files; never hand-edit
+   a committed raw file. A near-verbatim arm pair is not a formatting
+   defect — re-synthesize that `chosen` from the diagnosis instead of
+   padding it to clear the floor.
 
 **Session B isolation rule:** Session B MUST NOT read `rejected-01-rNN.json`,
 `rejected-02-rNN.json`, or `rejected-03-rNN.json` (or any file containing
@@ -188,10 +199,19 @@ must teach gate/execution/recovery quality, not reward a changed problem.
 See `docs/preference-isolation.md` for the canonical validator and the
 failure taxonomy. **Enforcement:** `round_txn.py publish` checks record
 shape only — it performs NO chosen/rejected comparison. The gate is
-enforced pre-publish by the mandatory purity command below (both steps
-must exit 0 before publish) and post-publish by
+enforced pre-publish by the mandatory purity command below (all three
+steps must exit 0 before publish) and post-publish by
 `pipelines/curate_preferences.py` and `pipelines/training_audit.py`;
 a round with a same-context violation is not training-ready.
+
+## Independent-arm gate (summary)
+
+Same context is necessary but not sufficient: two arms that share a problem
+can still be one arm restated. `pipelines/preference_arms.py` requires that
+each pair's contrast surface (everything except `state`, `proposed_action`,
+`id`, and `meta`) sit more than the arm-distance floor apart, and that the
+record attest `meta.isolation: "two-session"`. See
+`docs/preference-isolation.md` §3.6 for the metric and the reason codes.
 
 ## Purity check command
 
@@ -262,10 +282,18 @@ else:
 "
 ```
 
-Both steps must exit 0 before publish. Fix violations by editing only staged
-files (make `chosen.state`/`proposed_action` byte-identical to `rejected`,
-and rewrite chosen safety rationale in original wording); never hand-edit
-committed raw files.
+```bash
+# 3. Independent-arm gate: arms must not be one arm restated, and each
+#    record must attest the two-session protocol
+python3 pipelines/preference_arms.py scan <staging_dir>/batch-rNN.jsonl
+```
+
+All three steps must exit 0 before publish. Fix violations by editing only
+staged files (make `chosen.state`/`proposed_action` byte-identical to
+`rejected`, and rewrite chosen safety rationale in original wording); never
+hand-edit committed raw files. `PREFERENCE_ARMS_NEAR_VERBATIM` is repaired
+by re-synthesizing that `chosen` from its diagnosis in a fresh context, not
+by widening the wording until the floor clears.
 
 ---
 

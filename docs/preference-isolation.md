@@ -1,4 +1,4 @@
-# Preference Isolation — Two-Session Generation & Same-Context Purity Gate
+# Preference Isolation — Two-Session Generation, Same-Context Purity & Independent Arms
 
 > Factory: `failure-as-fuel-preference-cascade` (sf-cic)  
 > Co-author: Muse Code powered by Muse Spark  
@@ -12,9 +12,32 @@ quality** rather than a changed problem. If the two sides propose different
 tasks, different states, or different tool calls, the learner can exploit
 the easier problem instead of the better judgment.
 
-This document defines the **two-session isolation protocol** and the
-**same-context purity gate** that together enforce that property for every
-round of `failure-as-fuel-preference-cascade`.
+This document defines the **two-session isolation protocol**, the
+**same-context purity gate**, and the **independent-arm gate** that together
+enforce that property for every round of
+`failure-as-fuel-preference-cascade`.
+
+### 1.1 The single-session path is deprecated
+
+Earlier rounds generated failure → diagnosis → repair → preference inside
+**one** context. That path is **deprecated and must not be used for new
+rounds.** A single context that has just written the failure writes the
+repair as its negation: the two arms end up correlated, the DPO gradient
+degenerates toward surface polarity, and the round becomes a monoculture
+sample rather than an independent contrast.
+
+Concretely, for every round generated from this point on:
+
+| Rule | Enforcement |
+|---|---|
+| `rejected` + diagnosis come from Session A only | `prompts/05-…md` Session A isolation rule; the launcher runs it as its own agent |
+| `chosen` comes from a fresh Session B whose only bridge is the diagnosis | `prompts/05-…md` Session B isolation rule; the launcher runs it as a separate agent |
+| Each record attests `meta.isolation: "two-session"` | `pipelines/preference_arms.py` — a missing or non-`two-session` attestation blocks the round |
+| The two arms are not one arm restated | `pipelines/preference_arms.py` arm-distance floor (Section 3.6) |
+
+Legacy corpora that predate the protocol carry no attestation. Scan those
+with `--no-require-isolation`, which reports the attestation but does not
+block on it. New rounds MUST NOT use that flag.
 
 ## 2. Two-session generation
 
@@ -78,7 +101,9 @@ failures of the same class.
 - [ ] Session B context was reset (new conversation / cleared history)
 - [ ] Session B did not open any `rejected-rNN*.json` file
 - [ ] Final `batch-rNN.jsonl` has exactly 3 lines, each with `chosen` + `rejected` + non-empty `critique`
+- [ ] Every record attests `meta.isolation: "two-session"`
 - [ ] Same-context purity gate passes (Section 3)
+- [ ] Independent-arm gate passes (Section 3.6)
 - [ ] `NOTES-rNN.md` names residual weaknesses and next densification target
 
 ## 3. Same-context purity gate
@@ -216,6 +241,61 @@ addition to the per-pair decisions.
 4. Re-run `check_purity` and `pipelines/check_records.py` before re-attempting
    `round_txn.py publish`.
 
+### 3.6 Independent-arm gate
+
+Same-context purity says the two arms share a problem. It says nothing about
+whether they are two independent answers. A Session B that restated the
+rejected arm — same gate decision, same execution, same outcome, a synonym
+swapped in the rationale — passes Section 3 and still teaches nothing.
+
+`pipelines/preference_arms.py` closes that hole:
+
+```
+python3 pipelines/preference_arms.py scan <staging_dir-or-batch> --json
+```
+
+The command is a read-only gate; it exits non-zero when any pair is blocked,
+and it fails closed when a source contains no preference pairs at all.
+
+**What it measures.** For each side it builds the *contrast surface* — every
+arm field except `state`, `proposed_action` (identical by Section 3, so they
+would swamp any metric), `id`, and `meta` (per-side bookkeeping that would
+manufacture distance no learner ever sees). Each surface becomes a
+path-scoped term-frequency vector: string leaves contribute one term per
+word, non-string leaves stay atomic so `0.2` and `-0.2` never collide, and
+list positions are collapsed so a reordered list is not a different arm.
+The arm distance is then
+
+```
+arm_distance = 1 - cosine_similarity(terms(chosen), terms(rejected))
+```
+
+This is a deterministic, stdlib-only stand-in for the embedding distance
+described in `docs/quality-gate.md`, which remains unimplemented. The
+default floor is `1 - quality_gate.DEFAULT_EMBEDDING_THRESHOLD` (0.03),
+imported from that single source of truth so the arm gate and the corpus
+near-duplicate sweep cannot drift apart: a pair the near-duplicate sweep
+would collapse is exactly the pair this gate rejects. Observed distance on
+an honest two-session round runs ~0.7; `--min-distance` tightens the floor
+when a round wants more headroom than "not a copy".
+
+**Reason codes.**
+
+| Code | Meaning |
+|---|---|
+| `PREFERENCE_PAIR_MALFORMED` | `chosen`/`rejected` are not both objects |
+| `PREFERENCE_CONTEXT_DIVERGES` | Section 3 violation (delegated to `curate_preferences.context_is_pure`) |
+| `PREFERENCE_ARMS_NEAR_VERBATIM` | `arm_distance <= --min-distance`: one arm restated, not repaired |
+| `PREFERENCE_ARM_CONTRAST_EMPTY` | An arm carries no contrastive content at all |
+| `PREFERENCE_ARMS_ISOLATION_UNDECLARED` | No `meta.isolation` on the record or either arm |
+| `PREFERENCE_ARMS_ISOLATION_CONFLICT` | Record and arms disagree about how the pair was generated |
+| `PREFERENCE_ARMS_SINGLE_SESSION_PATH` | The attestation names the deprecated single-context path |
+
+**Repair on failure.** A near-verbatim pair is not a formatting defect — it
+means Session B did not actually reason from the diagnosis. Re-run Session B
+from a fresh context against the same diagnosis; never hand-widen the two
+arms to clear the floor.
+
 ## 4. End-to-end example (round r05)
 
 ```
@@ -239,6 +319,8 @@ python3 pipelines/round_txn.py reserve outputs/raw/2026-08-17/failure-as-fuel-pr
 python3 pipelines/check_records.py outputs/staging/2026-08-17/failure-as-fuel-preference-cascade/r05-<token>
 python3 pipelines/curate_preferences.py scan outputs/staging/2026-08-17/failure-as-fuel-preference-cascade/r05-<token>/batch-r05.jsonl --json
 # purity gate: summary.impure_pairs must be 0
+python3 pipelines/preference_arms.py scan outputs/staging/2026-08-17/failure-as-fuel-preference-cascade/r05-<token>/batch-r05.jsonl
+# arm gate: must exit 0 (independent arms + two-session attestation)
 
 # Publish
 python3 pipelines/round_txn.py publish outputs/raw/2026-08-17/failure-as-fuel-preference-cascade --round 5 --token <token>
@@ -256,6 +338,10 @@ python3 pipelines/round_txn.py publish outputs/raw/2026-08-17/failure-as-fuel-pr
 - The diagnosis files are retained on publish as round artifacts; they
   document the repair rationale for audit and for training the next round's
   densification.
+- Every published record carries `meta.isolation: "two-session"`. The value
+  is the round's attestation that the deprecated single-session path
+  (Section 1.1) was not used, and `pipelines/preference_arms.py` blocks any
+  round that cannot produce it.
 - No generated content is ever written directly into `outputs/raw/`; all
   writes go through the reserved `staging_dir` and are atomically linked
   on `publish`.
