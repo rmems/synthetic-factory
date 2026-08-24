@@ -1,0 +1,22 @@
+tests/test_card_schema.py
+  s_002cddb1a70571::t_197cdfc7d384f2 26
+  s_002cddb1a70571::t_06124d5dadee9e 533-644
+config/card-schemas/data-pipeline-repair-trajectories.json
+  s_002cddb1a70571::t_99a1e573f97ae0 1-81
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "aa9059f18275c84a2805184a7bb0065338ef1759",
+  "prompts": {},
+  "sessions": {
+    "s_002cddb1a70571": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "abd260ba-6a6c-45a6-9db3-a4e0988ad60e",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Raul Montoya Cardenas <montoyaraul34@gmail.com>"
+    }
+  }
+}
