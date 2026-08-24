@@ -24,6 +24,7 @@ from validate_run import (  # noqa: E402
     ALLOWED_SIM_OR_REAL,
     REWARD_ARITHMETIC_MARKERS,
     REWARD_NON_COMPONENT_KEYS,
+    SPIKE_ORDER_MISMATCH,
     _episode_like,
     check_line,
     event_time,
@@ -271,6 +272,12 @@ _SHAPE_REWARD_ARITHMETIC = REWARD_ARITHMETIC_MARKERS
 # Same layering for publish-time 'real' claims: validate_run already emits
 # them, and check_provenance_publish is the single owner here.
 _SHAPE_REAL_PROVENANCE = "must not be 'real'"
+# And the same for spike order. The shape layer checks the bridge stream and
+# any trajectory-level stream; this layer walks every nested stream, so it is
+# the single owner of the inversion error and drops the shape layer's copy.
+# Per-event shape errors (missing channel/amplitude/timestamp) are not
+# duplicated here, so they are kept.
+_SHAPE_SPIKE_ORDER = SPIKE_ORDER_MISMATCH
 
 
 def shape_check(obj, where, factory_staging=False):
@@ -284,6 +291,7 @@ def shape_check(obj, where, factory_staging=False):
         e for e in errs
         if not any(marker in e for marker in _SHAPE_REWARD_ARITHMETIC)
         and _SHAPE_REAL_PROVENANCE not in e
+        and _SHAPE_SPIKE_ORDER not in e
     ]
     return errs, kind
 
@@ -361,11 +369,9 @@ def check_record(obj, where, factory_staging=False):
 
     if isinstance(obj, dict):
         for path, events in walk_key(obj, "spike_events"):
-            # The bridge shape validator checks its top-level stream with
-            # stricter event-shape rules. Keep this pass for nested streams,
-            # but do not report a top-level inversion twice.
-            if kind == "bridge_pair" and path == "spike_events":
-                continue
+            # Single owner of spike order: shape_check drops the shape layer's
+            # inversion errors, so every stream — top-level, bridge, or nested
+            # — is reported exactly once, from here.
             errors.extend(check_spikes(events, f"{where}: {path}"))
         for path, rc in walk_key(obj, "reward_components"):
             rc_errs, rc_warns = check_reward(rc, f"{where}: {path}")

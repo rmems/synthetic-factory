@@ -44,10 +44,31 @@ SAFETY_DECISIONS = frozenset(
     THALAMIC_SCHEMA["properties"]["safety_decision"]["properties"]
     ["decision"]["enum"]
 )
+# Spike-train contract, read from the schema so the declared shape and the
+# runtime checker cannot drift. `spike_event` requires one finite timestamp
+# (canonical t_rel_ms, alias t_ms); `bridge_spike_event` layers the extra
+# per-event keys that bridge-pair streams must carry. Global non-decreasing
+# order is not expressible in JSON Schema and is enforced by
+# check_spike_order() below.
+SPIKE_TIME_KEYS = tuple(
+    key
+    for branch in THALAMIC_SCHEMA["$defs"]["spike_event"]["anyOf"]
+    for key in branch["required"]
+)
+BRIDGE_SPIKE_EVENT_KEYS = tuple(
+    key
+    for part in THALAMIC_SCHEMA["$defs"]["bridge_spike_event"]["allOf"]
+    for key in part.get("required", ())
+)
 
-# provenance.kind allows 'unknown'; state.sim_or_real does not.
-ALLOWED_PROVENANCE_KIND = frozenset({"designed", "simulated", "hil", "unknown"})
-ALLOWED_SIM_OR_REAL = frozenset({"designed", "simulated", "hil"})
+# provenance.kind allows 'unknown'; state.sim_or_real does not. Both
+# vocabularies are the schema's own enums.
+ALLOWED_PROVENANCE_KIND = frozenset(
+    THALAMIC_SCHEMA["properties"]["provenance"]["properties"]["kind"]["enum"]
+)
+ALLOWED_SIM_OR_REAL = frozenset(
+    THALAMIC_SCHEMA["properties"]["state"]["properties"]["sim_or_real"]["enum"]
+)
 # Bookkeeping keys that are not counted toward the arithmetic sum. This is the
 # single exclusion vocabulary for reward arithmetic: check_records imports it
 # so the shape layer and the deep layer agree on what is a component, and a
@@ -100,39 +121,68 @@ def event_time(event):
     """Return (key, finite float timestamp) for a supported event object."""
     if not isinstance(event, dict):
         return None
-    for key in ("t_rel_ms", "t_ms"):
+    for key in SPIKE_TIME_KEYS:
         value = event.get(key)
         if is_number(value):
             return key, float(value)
     return None
 
 
-def check_spike_order(events, where):
-    """Require finite timestamps and global non-decreasing event order."""
+# Marker substring of the inversion message built in check_spike_order.
+# check_records imports it to drop the shape layer's order errors: that layer
+# owns spike order and would otherwise report the same inversion twice.
+SPIKE_ORDER_MISMATCH = "spike_events not globally non-decreasing"
+
+
+def check_spike_order(events, where, require_keys=BRIDGE_SPIKE_EVENT_KEYS):
+    """Require finite timestamps and global non-decreasing event order.
+
+    `require_keys` is the per-event key requirement, defaulting to the bridge
+    stream's ($defs/bridge_spike_event). Thalamic trajectories may carry a
+    stream annotated with fewer keys, so their caller passes an empty tuple;
+    the timestamp and ordering rules are the same for every stream.
+    """
     errs = []
     previous = None
     for index, event in enumerate(events):
         if not isinstance(event, dict):
             errs.append(f"{where}: spike_events[{index}] must be an object")
             continue
-        for key in ("channel", "amplitude"):
+        for key in require_keys:
             if key not in event:
                 errs.append(f"{where}: spike_events[{index}] missing '{key}'")
         got = event_time(event)
         if got is None:
             errs.append(
-                f"{where}: spike_events[{index}] needs finite t_rel_ms or t_ms"
+                f"{where}: spike_events[{index}] needs finite "
+                f"{' or '.join(SPIKE_TIME_KEYS)}"
             )
             continue
         key, current = got
         if previous is not None and current < previous[1]:
             errs.append(
-                f"{where}: spike_events not globally non-decreasing at index "
+                f"{where}: {SPIKE_ORDER_MISMATCH} at index "
                 f"{index} ({key} {previous[1]} -> {current})"
             )
             break
         previous = (key, current)
     return errs
+
+
+def check_spike_stream(obj, where):
+    """Check an optional trajectory-level spike train.
+
+    A thalamic trajectory need not carry spike_events, but when it does the
+    stream must be an array of timestamped events in globally non-decreasing
+    time — the same ordering contract the bridge stream already had, which
+    previously went unchecked outside bridge pairs.
+    """
+    if "spike_events" not in obj:
+        return []
+    events = obj["spike_events"]
+    if not isinstance(events, list):
+        return [f"{where}: spike_events must be an array"]
+    return check_spike_order(events, where, require_keys=())
 
 
 def _component_numeric(value):
@@ -423,6 +473,8 @@ def check_thalamic(obj, where):
     # Deep publish-time provenance: any nested 'real' fails
     errs += [e for e in check_provenance_publish(obj, where) if e not in errs]
     errs += check_meta_round(obj, where)
+    # Optional trajectory-level spike train: same ordering contract as bridge.
+    errs += check_spike_stream(obj, where)
     return errs
 
 

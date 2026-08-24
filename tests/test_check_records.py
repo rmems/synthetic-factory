@@ -385,5 +385,64 @@ class TestCheckRecords(unittest.TestCase):
         self.assertEqual(result["exit_code"], 1)
 
 
+class SpikeOrderHasOneOwner(unittest.TestCase):
+    """Spike order is reported once per stream, from this layer only.
+
+    validate_run now checks a trajectory-level stream as well as the bridge
+    stream, so both layers see the same inversion. shape_check drops the
+    shape layer's order errors — the same layering already used for reward
+    arithmetic and 'real' provenance — while keeping its per-event shape
+    errors, which this layer does not duplicate.
+    """
+
+    UNSORTED = [
+        {"channel": "a", "t_rel_ms": 9.0, "amplitude": 0.4},
+        {"channel": "b", "t_rel_ms": 1.0, "amplitude": 0.3},
+    ]
+
+    def _errors(self, record):
+        tmp, run_dir = _run_dir([record])
+        with tmp:
+            return check_records.check_run(run_dir)["errors"]
+
+    def _order_errors(self, record):
+        return [e for e in self._errors(record) if "non-decreasing" in e]
+
+    def test_thalamic_stream_reported_once(self):
+        errors = self._order_errors(_thalamic(spike_events=list(self.UNSORTED)))
+        self.assertEqual(len(errors), 1, errors)
+        self.assertIn("spike_events: spike_events not globally", errors[0])
+
+    def test_bridge_stream_reported_once(self):
+        record = {
+            "id": "bridge-unsorted",
+            "spike_events": list(self.UNSORTED),
+            "language_view": {"trajectory": _thalamic()},
+        }
+        errors = self._order_errors(record)
+        self.assertEqual(len(errors), 1, errors)
+
+    def test_preference_side_stream_reported_once(self):
+        record = {
+            "id": "pref-unsorted",
+            "chosen": _thalamic(spike_events=list(self.UNSORTED)),
+            "rejected": _thalamic(meta={"id": "pref-rejected"}),
+            "critique": "chosen train is channel-grouped, not time-ordered",
+        }
+        errors = self._order_errors(record)
+        self.assertEqual(len(errors), 1, errors)
+        self.assertIn("chosen.spike_events", errors[0])
+
+    def test_bridge_event_shape_errors_survive_the_order_filter(self):
+        record = {
+            "id": "bridge-shapeless",
+            "spike_events": [{"t_rel_ms": 1.0}],
+            "language_view": {"trajectory": _thalamic()},
+        }
+        blob = "\n".join(self._errors(record))
+        self.assertIn("missing 'channel'", blob)
+        self.assertIn("missing 'amplitude'", blob)
+
+
 if __name__ == "__main__":
     unittest.main()
