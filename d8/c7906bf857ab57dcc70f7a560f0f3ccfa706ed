@@ -1,0 +1,55 @@
+pipelines/preference_arms.py
+  s_002cddb1a70571::t_d477eb035126e1 179-181
+  s_002cddb1a70571::t_b0cab75eaa7f16 1-68,71,73-178,182-208,210,214-457,460-470,475-479
+  s_002cddb1a70571::t_c987a943f930e2 458-459,471-474
+  s_002cddb1a70571::t_743e2fc8e1ea5b 69-70,72
+  s_002cddb1a70571::t_42dfd5ff72f220 209,211-213
+prompts/05-failure-as-fuel-preference-cascade.md
+  s_002cddb1a70571::t_5618bd35bab1e2 168-173
+  s_002cddb1a70571::t_5a36ea474cff8d 285-296
+  s_002cddb1a70571::t_292012265edc68 202-203,207-214
+  s_002cddb1a70571::t_ba4b4fdff410e4 18-25
+docs/preference-isolation.md
+  s_002cddb1a70571::t_382295a5be1b78 104,106
+  s_002cddb1a70571::t_de5fd5f6c29d02 227-281
+  s_002cddb1a70571::t_3379a4d4b619d5 324-327
+  s_002cddb1a70571::t_012b41be251658 1
+  s_002cddb1a70571::t_7942a1572eb7fb 305-306
+  s_002cddb1a70571::t_d8e151c35d8071 15-40
+tests/fixtures/preference-arms/gate-label-only-r11.jsonl
+  ai_agent 1
+tests/test_preference_arms.py
+  s_002cddb1a70571::t_17e1c87da30a91 24,34-36,181,309
+  s_002cddb1a70571::t_43488472880755 260-271
+  s_002cddb1a70571::t_db720e0271916d 249
+  s_002cddb1a70571::t_2c43cab70d416a 1-23,25-33,37-98,107-111,115-138,140,143-180,182-248,250-259,272-308,311-364,376,379,386-453
+  s_002cddb1a70571::t_65a01fc15e3ee9 99-106
+  s_002cddb1a70571::t_e40ca3186a455e 112-114
+  s_002cddb1a70571::t_3a5da4b0ea3ac7 139,141-142
+  s_002cddb1a70571::t_919286499292df 310
+  s_002cddb1a70571::t_0e00a51871a38b 365-375,377-378,380-385
+tests/fixtures/preference-arms/near-verbatim-r11.jsonl
+  s_002cddb1a70571::t_0454de143238a1 1
+tests/fixtures/preference-arms/batch-r11.jsonl
+  s_002cddb1a70571::t_0454de143238a1 1-3
+tests/fixtures/preference-arms/single-session-r11.jsonl
+  s_002cddb1a70571::t_0454de143238a1 1
+.claude/skills/run-synthetic-factory/factory-window.workflow.js
+  s_002cddb1a70571::t_0204123210618d 318-320
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "d8c7906bf857ab57dcc70f7a560f0f3ccfa706ed",
+  "prompts": {},
+  "sessions": {
+    "s_002cddb1a70571": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "abd260ba-6a6c-45a6-9db3-a4e0988ad60e",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Raul Montoya Cardenas <montoyaraul34@gmail.com>"
+    }
+  }
+}
