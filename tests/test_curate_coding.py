@@ -29,6 +29,8 @@ from curate_coding import (  # noqa: E402
     curate_episode,
     curate_jsonl,
     curate_step,
+    verify_curation,
+    verify_manifest,
 )
 
 
@@ -322,6 +324,296 @@ class CurateCodingTests(unittest.TestCase):
         curate_episode(source)
 
         self.assertEqual(source, original)
+
+
+def curated_result(steps_per_record):
+    """Curate temporary JSONL episodes and return the full curate_jsonl result."""
+    with tempfile.TemporaryDirectory() as temporary:
+        source = Path(temporary) / "episodes.jsonl"
+        with source.open("w", encoding="utf-8") as handle:
+            for steps in steps_per_record:
+                handle.write(json.dumps(episode(steps), ensure_ascii=False) + "\n")
+        return curate_jsonl(source)
+
+
+class VerifyCurationTests(unittest.TestCase):
+    def test_clean_run_reports_no_violations(self):
+        result = curated_result([[visible_step(), visible_step(n=2)]])
+
+        self.assertEqual(verify_curation(result), [])
+        self.assertEqual(verify_curation(result, expected_source_steps=2), [])
+
+    def test_excluded_steps_still_reconcile(self):
+        result = curated_result([[visible_step(), {"n": 2, "thought": "only"}]])
+
+        self.assertEqual(verify_curation(result, expected_source_steps=2), [])
+        self.assertEqual(result["summary"]["excluded_steps"], 1)
+
+    def test_declared_source_step_total_is_enforced(self):
+        result = curated_result([[visible_step()]])
+
+        violations = verify_curation(result, expected_source_steps=77)
+
+        self.assertEqual(len(violations), 1)
+        self.assertIn("expected 77 source steps", violations[0])
+
+    def test_step_action_without_reason_codes_is_a_violation(self):
+        result = curated_result([[visible_step()]])
+        result["manifest"][0]["step_actions"][0]["reason_codes"] = []
+
+        violations = verify_curation(result)
+
+        self.assertTrue(any("no reason codes recorded" in item for item in violations))
+
+    def test_exclusion_without_an_exclusion_reason_is_a_violation(self):
+        result = curated_result([[visible_step(), {"n": 2, "thought": "only"}]])
+        excluded = result["manifest"][0]["step_actions"][1]
+        excluded["reason_codes"] = [REASON_THOUGHT_REMOVED]
+
+        violations = verify_curation(result)
+
+        self.assertTrue(
+            any("without an exclusion reason code" in item for item in violations)
+        )
+
+    def test_retained_step_without_visible_evidence_source_is_a_violation(self):
+        result = curated_result([[visible_step()]])
+        result["manifest"][0]["step_actions"][0]["evidence_source"] = None
+
+        violations = verify_curation(result)
+
+        self.assertTrue(
+            any("without a visible evidence source" in item for item in violations)
+        )
+
+    def test_surviving_thought_key_is_a_violation(self):
+        result = curated_result([[visible_step()]])
+        result["records"][0]["steps"][0]["thought"] = "leaked"
+
+        violations = verify_curation(result)
+
+        self.assertTrue(
+            any("still exposes a thought key" in item for item in violations)
+        )
+
+    def test_unlabeled_or_oversized_basis_is_a_violation(self):
+        result = curated_result([[visible_step()]])
+        result["records"][0]["steps"][0]["decision_basis"] = "x" * (
+            MAX_DECISION_BASIS_CHARS + 1
+        )
+
+        violations = verify_curation(result)
+
+        self.assertTrue(
+            any("does not open with a visible evidence label" in item for item in violations)
+        )
+        self.assertTrue(
+            any(
+                f"exceeds {MAX_DECISION_BASIS_CHARS} chars" in item
+                for item in violations
+            )
+        )
+
+    def test_step_counts_that_disagree_with_step_actions_are_a_violation(self):
+        result = curated_result([[visible_step()]])
+        result["manifest"][0]["step_counts"]["retained"] = 0
+
+        violations = verify_curation(result)
+
+        self.assertTrue(
+            any("disagree with the recorded step actions" in item for item in violations)
+        )
+
+    def test_manifest_missing_its_transform_identity_is_a_violation(self):
+        result = curated_result([[visible_step()]])
+        result["manifest"][0]["transform"] = "something_else"
+        result["manifest"][0]["source_hash"] = ""
+
+        violations = verify_manifest(result["manifest"])
+
+        self.assertTrue(
+            any("is not a coding_observability manifest" in item for item in violations)
+        )
+        self.assertTrue(any("records no source hash" in item for item in violations))
+
+
+class LegacyCodingManifestFixtureTests(unittest.TestCase):
+    """Audit fixture for the three legacy 2026-08-17 coding episodes.
+
+    The raw episode payload is immutable, gitignored evidence, so the committed
+    fixture is the transform manifest for that run: source and output hashes,
+    per-step reason codes, and counts, with no episode text. It pins the
+    recorded result — 77 legacy steps, all migrated with reason codes — so the
+    acceptance accounting is checkable without republishing raw evidence.
+    """
+
+    FIXTURE = (
+        ROOT
+        / "tests"
+        / "fixtures"
+        / "coding-observability"
+        / "legacy-2026-08-17-manifest.jsonl"
+    )
+    LEGACY_SOURCE_STEPS = 77
+    RECORD_KEYS = {
+        "source_path",
+        "source_line",
+        "source_hash",
+        "transform",
+        "transform_version",
+        "action",
+        "reason_codes",
+        "output_id",
+        "output_hash",
+        "thought_fields_removed",
+        "step_counts",
+        "step_actions",
+    }
+    STEP_KEYS = {
+        "source_step_index",
+        "source_step_number",
+        "action",
+        "reason_codes",
+        "evidence_source",
+        "thought_fields_removed",
+        "output_step_index",
+    }
+
+    def setUp(self):
+        self.entries = [
+            json.loads(line)
+            for line in self.FIXTURE.read_text(encoding="utf-8").splitlines()
+            if line.strip()
+        ]
+
+    def test_fixture_passes_the_lane_acceptance_check(self):
+        violations = verify_manifest(
+            self.entries, expected_source_steps=self.LEGACY_SOURCE_STEPS
+        )
+
+        self.assertEqual(violations, [])
+
+    def test_every_legacy_step_is_migrated_or_excluded_with_reason_codes(self):
+        actions = [item for entry in self.entries for item in entry["step_actions"]]
+
+        self.assertEqual(len(self.entries), 3)
+        self.assertEqual(len(actions), self.LEGACY_SOURCE_STEPS)
+        self.assertTrue(all(item["reason_codes"] for item in actions))
+        self.assertEqual(
+            {item["action"] for item in actions},
+            {"migrated"},
+        )
+        self.assertEqual(
+            {item["evidence_source"] for item in actions},
+            {"reflection"},
+        )
+        self.assertEqual(
+            sum(item["thought_fields_removed"] for item in actions),
+            self.LEGACY_SOURCE_STEPS,
+        )
+        for item in actions:
+            self.assertIn(REASON_THOUGHT_REMOVED, item["reason_codes"])
+            self.assertIn(REASON_BASIS_FROM_REFLECTION, item["reason_codes"])
+
+    def test_fixture_records_provenance_without_raw_episode_payload(self):
+        for entry in self.entries:
+            self.assertEqual(set(entry), self.RECORD_KEYS)
+            self.assertEqual(entry["transform"], "coding_observability")
+            self.assertEqual(entry["action"], "modified")
+            self.assertTrue(entry["source_hash"])
+            self.assertTrue(entry["output_hash"])
+            self.assertEqual(
+                entry["source_path"],
+                "outputs/raw/2026-08-17/agentic-coding-trajectory-factory/episodes.jsonl",
+            )
+            for item in entry["step_actions"]:
+                self.assertEqual(set(item), self.STEP_KEYS)
+
+    def test_fixture_check_is_not_vacuous(self):
+        damaged = copy.deepcopy(self.entries)
+        damaged[0]["step_actions"][0]["reason_codes"] = []
+
+        violations = verify_manifest(
+            damaged, expected_source_steps=self.LEGACY_SOURCE_STEPS
+        )
+
+        self.assertTrue(any("no reason codes recorded" in item for item in violations))
+
+
+class CurateCodingVerifyCliTests(unittest.TestCase):
+    def run_cli(self, *arguments):
+        return subprocess.run(
+            [sys.executable, str(PIPELINES / "curate_coding.py"), *arguments],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+
+    def test_verify_gate_reports_the_expected_step_total(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            source = Path(temporary) / "episodes.jsonl"
+            source.write_text(
+                json.dumps(episode([visible_step(), visible_step(n=2)])) + "\n",
+                encoding="utf-8",
+            )
+
+            result = self.run_cli(str(source), "--verify", "--expect-source-steps", "2")
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            summary = json.loads(result.stdout)
+            self.assertEqual(
+                summary["verification"],
+                {"expected_source_steps": 2, "violations": []},
+            )
+
+    def test_verify_gate_fails_and_writes_nothing_on_a_step_count_mismatch(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            source = root / "episodes.jsonl"
+            output = root / "new" / "coding.jsonl"
+            manifest = root / "new" / "manifest.jsonl"
+            source.write_text(
+                json.dumps(episode([visible_step()])) + "\n", encoding="utf-8"
+            )
+
+            result = self.run_cli(
+                str(source),
+                "--output-jsonl",
+                str(output),
+                "--manifest-jsonl",
+                str(manifest),
+                "--expect-source-steps",
+                "77",
+            )
+
+            self.assertEqual(result.returncode, 2)
+            self.assertIn("VIOLATION: expected 77 source steps", result.stderr)
+            self.assertFalse(output.exists())
+            self.assertFalse(manifest.exists())
+
+    def test_verify_gate_rejects_a_negative_expected_step_total(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            source = Path(temporary) / "episodes.jsonl"
+            source.write_text(
+                json.dumps(episode([visible_step()])) + "\n", encoding="utf-8"
+            )
+
+            result = self.run_cli(str(source), "--expect-source-steps", "-1")
+
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("must not be negative", result.stderr)
+
+    def test_default_run_stays_silent_about_verification(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            source = Path(temporary) / "episodes.jsonl"
+            source.write_text(
+                json.dumps(episode([visible_step()])) + "\n", encoding="utf-8"
+            )
+
+            result = self.run_cli(str(source))
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertNotIn("verification", json.loads(result.stdout))
 
 
 if __name__ == "__main__":
