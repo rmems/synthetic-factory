@@ -1,0 +1,22 @@
+config/card-schemas/rate-limit-backoff-trajectories.json
+  s_002cddb1a70571::t_db4efa4b48f833 1-14,16-84
+  s_002cddb1a70571::t_def6810f224328 15
+tests/test_card_schema.py
+  s_002cddb1a70571::t_6753e016830c49 532-684
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "2bf7f9ae8dde9554b1adfafed01dd82ee1607666",
+  "prompts": {},
+  "sessions": {
+    "s_002cddb1a70571": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "abd260ba-6a6c-45a6-9db3-a4e0988ad60e",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Raul Montoya Cardenas <montoyaraul34@gmail.com>"
+    }
+  }
+}
