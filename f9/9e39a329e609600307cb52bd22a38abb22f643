@@ -1,0 +1,23 @@
+config/card-schemas/feature-flag-debug-trajectories.json
+  s_002cddb1a70571::t_a7a53442eed935 1-55,57-59
+  s_002cddb1a70571::t_7c67b15ed33209 56
+tests/test_card_schema.py
+  s_002cddb1a70571::t_407bf2e2af211a 26
+  s_002cddb1a70571::t_f2ee71d3183d84 533-620
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "f99e39a329e609600307cb52bd22a38abb22f643",
+  "prompts": {},
+  "sessions": {
+    "s_002cddb1a70571": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "abd260ba-6a6c-45a6-9db3-a4e0988ad60e",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Raul Montoya Cardenas <montoyaraul34@gmail.com>"
+    }
+  }
+}
