@@ -1,0 +1,23 @@
+tests/test_card_schema.py
+  s_002cddb1a70571::t_5f4228f1980ade 532-534
+  s_002cddb1a70571::t_d4bf5f5133a522 535-643
+config/card-schemas/rag-retrieval-debug-trajectories.json
+  s_002cddb1a70571::t_cbcd8fb5654410 1-14,16-132
+  s_002cddb1a70571::t_56a6bdac07691a 15
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "5a8b099391d2a6cfd6e6435a0c68744f5db9817f",
+  "prompts": {},
+  "sessions": {
+    "s_002cddb1a70571": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "abd260ba-6a6c-45a6-9db3-a4e0988ad60e",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Raul Montoya Cardenas <montoyaraul34@gmail.com>"
+    }
+  }
+}
