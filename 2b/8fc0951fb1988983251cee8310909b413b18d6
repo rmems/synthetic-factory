@@ -1,0 +1,40 @@
+docs/trajectory-preference-gate.md
+  s_002cddb1a70571::t_2651b4f8070484 1-167
+scripts/publish_grok46_hub.py
+  s_002cddb1a70571::t_2f110e1af9936d 836-868,924
+tests/test_publish_grok46_hub.py
+  s_002cddb1a70571::t_fa2c5e6418a7c9 247-276
+pipelines/curate_preferences.py
+  s_002cddb1a70571::t_ed580d1f40108c 2-11,51-53,142-155,356-366,516-518
+tests/fixtures/grok-trajectory-preferences/batch-r01.jsonl
+  s_002cddb1a70571::t_8f51c9e8011611 1-3
+pipelines/curate_trajectory_preferences.py
+  s_002cddb1a70571::t_03456e93db2679 216-218,301-312,379
+  s_002cddb1a70571::t_ff2773612b5c47 48,97-99,127,224-225,227
+  s_002cddb1a70571::t_6c8ccc7f6a0d34 1-47,49-51,53-96,100-126,128-215,219-223,226,228-259,266,268,271-272,299-300,313-378,380-435,440-602
+  s_002cddb1a70571::t_1b0eb81fe83e18 52,260-265,267,269-270,273-298,436-439
+docs/preference-isolation.md
+  s_002cddb1a70571::t_136cba001587e1 202
+  s_002cddb1a70571::t_9c340c6e0a7d86 203-216,221-228
+  s_002cddb1a70571::t_3194081ee4bff3 217-220
+tests/test_curate_trajectory_preferences.py
+  s_002cddb1a70571::t_bddddffdb28d0a 1-51,54-57,60-260,262-272,274-418,430-438,441-448,451-456,468-485,497-541
+  s_002cddb1a70571::t_b0361488b7306e 52-53,58-59,419-429,439-440,449-450,457-467,486-496
+  s_002cddb1a70571::t_03456e93db2679 261,273
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "2b8fc0951fb1988983251cee8310909b413b18d6",
+  "prompts": {},
+  "sessions": {
+    "s_002cddb1a70571": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "abd260ba-6a6c-45a6-9db3-a4e0988ad60e",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Raul Montoya Cardenas <montoyaraul34@gmail.com>"
+    }
+  }
+}
