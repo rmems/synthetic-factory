@@ -1,0 +1,28 @@
+config/card-schemas/multi-agent-coordination-transcripts.json
+  s_002cddb1a70571::t_d8f2163558bdd6 58
+  s_002cddb1a70571::t_e5cfef1db1f8af 69
+  s_002cddb1a70571::t_e3705a14a3686f 27
+  s_002cddb1a70571::t_49b13b9db63981 1-26,28-57,59-68,70-91
+tests/test_card_schema.py
+  s_002cddb1a70571::t_b095f087a36ff3 26
+  s_002cddb1a70571::t_e1c942ee5cfe65 593
+  s_002cddb1a70571::t_4a46b1cee7c37e 611
+  s_002cddb1a70571::t_1ca5fdf6963e0c 583-587
+  s_002cddb1a70571::t_af1b1c235645aa 533-582,588-592,594-610,612-665
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "9bc9ca902992ff766c7c48262d1b6750fa6de9f0",
+  "prompts": {},
+  "sessions": {
+    "s_002cddb1a70571": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "abd260ba-6a6c-45a6-9db3-a4e0988ad60e",
+        "model": "unknown"
+      },
+      "human_author": "Raul Montoya Cardenas <montoyaraul34@gmail.com>"
+    }
+  }
+}
