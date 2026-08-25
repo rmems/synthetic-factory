@@ -61,7 +61,7 @@ from __future__ import annotations
 
 import json
 import re
-from fnmatch import fnmatch
+from fnmatch import fnmatchcase
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -249,6 +249,10 @@ def validate(payload: object, dataset: str) -> dict:
         )
         assert isinstance(pattern, str)
         _require(".." not in pattern, f"data_files pattern escapes the repo: {pattern!r}")
+        _require(
+            all("**" not in segment or segment == "**" for segment in pattern.split("/")),
+            f"recursive wildcard '**' must occupy an entire path segment: {pattern!r}",
+        )
         _require(pattern not in data_files, f"duplicate data_files pattern: {pattern!r}")
         data_files.append(pattern)
 
@@ -608,21 +612,56 @@ def undeclared_body_section(dataset: str) -> str:
         [
             "## Dataset viewer schema",
             "",
-            "**Not declared yet.** This card carries no `configs` / `dataset_info` "
-            "block, so index availability is unverified here: the datasets-server "
-            "may infer a working schema for a homogeneous payload, while a later "
-            "heterogeneous shard can still make `viewer`, `search`, `filter`, or "
-            "`statistics` fail even where the streaming preview works. The published "
-            "raw payload described above is complete and unmodified; only the "
-            "card-side schema declaration is missing.",
+            (
+                "**Not declared yet.** This card carries no `configs` / `dataset_info` "
+                "block, so index availability is unverified here: the datasets-server "
+                "may infer a working schema for a homogeneous payload, while a later "
+                "heterogeneous shard can still make `viewer`, `search`, `filter`, or "
+                "`statistics` fail even where the streaming preview works. The published "
+                "raw payload described above is complete and unmodified; only the "
+                "card-side schema declaration is missing."
+            ),
             "",
-            f"Declaring it is tracked per dataset at {ISSUE_URL} (search "
-            f"`{dataset}`). The declaration is one JSON file at "
-            f"`config/card-schemas/{dataset}.json` in "
-            "https://github.com/rmems/synthetic-factory.",
+            (
+                f"Declaring it is tracked per dataset at {ISSUE_URL} (search "
+                f"`{dataset}`). The declaration is one JSON file at "
+                f"`config/card-schemas/{dataset}.json` in "
+                "https://github.com/rmems/synthetic-factory."
+            ),
             "",
         ]
     )
+
+
+def _glob_matches(path: str, pattern: str) -> bool:
+    """Match one repo-relative path with case-sensitive Hub-style glob semantics.
+
+    ``*`` and ``?`` match within one path segment only. A segment consisting
+    of ``**`` may consume zero or more complete segments. This prevents a
+    declaration such as ``data/raw/*.jsonl`` from covering a nested payload
+    that the Hub globber would not select.
+    """
+    path_parts = path.split("/")
+    pattern_parts = pattern.split("/")
+    previous = [False] * (len(pattern_parts) + 1)
+    previous[0] = True
+    for pattern_index, glob in enumerate(pattern_parts, 1):
+        if glob == "**":
+            previous[pattern_index] = previous[pattern_index - 1]
+
+    for part in path_parts:
+        current = [False] * (len(pattern_parts) + 1)
+        for pattern_index, glob in enumerate(pattern_parts, 1):
+            if glob == "**":
+                current[pattern_index] = (
+                    current[pattern_index - 1] or previous[pattern_index]
+                )
+            else:
+                current[pattern_index] = previous[
+                    pattern_index - 1
+                ] and fnmatchcase(part, glob)
+        previous = current
+    return previous[-1]
 
 
 def payload_coverage_errors(declaration: dict, payload_names: list[str]) -> list[str]:
@@ -638,7 +677,9 @@ def payload_coverage_errors(declaration: dict, payload_names: list[str]) -> list
     paths = [f"data/raw/{name}" for name in payload_names]
     errors = []
     uncovered = [
-        path for path in paths if not any(fnmatch(path, pattern) for pattern in patterns)
+        path
+        for path in paths
+        if not any(_glob_matches(path, pattern) for pattern in patterns)
     ]
     if uncovered:
         errors.append(
@@ -646,7 +687,9 @@ def payload_coverage_errors(declaration: dict, payload_names: list[str]) -> list
             + ", ".join(sorted(uncovered))
         )
     unused = [
-        pattern for pattern in patterns if not any(fnmatch(path, pattern) for path in paths)
+        pattern
+        for pattern in patterns
+        if not any(_glob_matches(path, pattern) for path in paths)
     ]
     if unused:
         errors.append(

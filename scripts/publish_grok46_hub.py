@@ -340,7 +340,7 @@ def card_schema_audit() -> tuple[list[str], list[str], list[str]]:
 
 
 def card_declaration_for_payload(hub: str, payload_names: list[str]) -> dict | None:
-    """Load one declaration and fail if it does not cover the source payload."""
+    """Load and fully preflight one declaration against the source payload."""
     declaration = card_declaration(hub)
     if declaration is None:
         return None
@@ -350,6 +350,13 @@ def card_declaration_for_payload(hub: str, payload_names: list[str]) -> dict | N
             f"card schema for {hub} does not cover the published payload: "
             + "; ".join(errors)
         )
+    try:
+        schema_yaml = card_schema.metadata_yaml(declaration)
+        schema_body = card_schema.body_section(declaration)
+        schema_yaml.encode("utf-8")
+        schema_body.encode("utf-8")
+    except (CardSchemaError, UnicodeEncodeError) as exc:
+        raise SystemExit(f"cannot render card schema for {hub}: {exc}") from exc
     return declaration
 
 

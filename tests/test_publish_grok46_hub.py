@@ -211,6 +211,65 @@ class PublishGrok46HubTests(unittest.TestCase):
             self.assertEqual(after, before)
             self.assertFalse((mirror / "data").exists())
 
+    def test_schema_render_failure_preserves_the_existing_mirror(self):
+        cases = (
+            ("config_name", {"config_name": "bad---name"}),
+            ("split", {"split": "bad---name"}),
+            ("body_utf8", {"note": "bad\ud800note"}),
+        )
+        for case, overrides in cases:
+            with self.subTest(case=case), tempfile.TemporaryDirectory() as td:
+                root = Path(td)
+                source = root / "raw" / ITEM["slug"]
+                source.mkdir(parents=True)
+                write_valid_legacy(source / "batch-r01.jsonl")
+
+                destination_root = root / "hf"
+                mirror = destination_root / publisher.HF_DATASETS_DIRNAME / ITEM["hub"]
+                mirror.mkdir(parents=True)
+                (mirror / "README.md").write_text("previous card\n", encoding="utf-8")
+                (mirror / "previous-snapshot.json").write_text(
+                    '{"state":"complete"}\n',
+                    encoding="utf-8",
+                )
+                before = {
+                    path.relative_to(mirror): path.read_bytes()
+                    for path in mirror.rglob("*")
+                    if path.is_file()
+                }
+
+                schema_root = root / "card-schemas"
+                schema_root.mkdir()
+                declaration = {
+                    "version": 1,
+                    "dataset": ITEM["hub"],
+                    "note": "Fixture declaration reaches YAML rendering.",
+                    "features": [{"name": "id", "dtype": "string"}],
+                }
+                declaration.update(overrides)
+                (schema_root / f"{ITEM['hub']}.json").write_text(
+                    json.dumps(declaration),
+                    encoding="utf-8",
+                )
+
+                with mock.patch.object(
+                    publisher, "FACTORY_ROOT", root / "raw"
+                ), mock.patch.object(
+                    publisher, "HF_ROOT", destination_root
+                ), mock.patch.object(
+                    publisher.card_schema, "SCHEMA_ROOT", schema_root
+                ):
+                    with self.assertRaisesRegex(SystemExit, "cannot render card schema"):
+                        publisher.snapshot_one(ITEM)
+
+                after = {
+                    path.relative_to(mirror): path.read_bytes()
+                    for path in mirror.rglob("*")
+                    if path.is_file()
+                }
+                self.assertEqual(after, before)
+                self.assertFalse((mirror / "data").exists())
+
     def test_factory_discovery_and_snapshot_reject_symlinked_factory_roots(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
