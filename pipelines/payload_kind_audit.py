@@ -23,10 +23,11 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import html
 import json
 import sys
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any, Iterable, Mapping
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
@@ -43,6 +44,7 @@ EPISODE_MARKERS = ("goal", "steps")
 # Step-level reasoning fields. ``decision_basis`` is the observable form this
 # factory's curation contract requires; ``thought`` is the legacy hidden form.
 REASONING_FIELDS = ("thought", "decision_basis", "reflection")
+SUPPORTED_RECORD_KINDS = frozenset({"episode", "thalamic"})
 
 
 class PayloadKindAuditError(ValueError):
@@ -53,17 +55,37 @@ def _is_episode_shaped(value: Any) -> bool:
     return isinstance(value, Mapping) and all(key in value for key in EPISODE_MARKERS)
 
 
-def _steps(value: Any) -> list[Mapping[str, Any]]:
-    if not isinstance(value, Mapping):
-        return []
+def _steps(value: Mapping[str, Any], where: str) -> list[Mapping[str, Any]]:
     steps = value.get("steps")
     if not isinstance(steps, list):
-        return []
-    return [step for step in steps if isinstance(step, Mapping)]
+        raise PayloadKindAuditError(f"{where}.steps must be a JSON array")
+    for index, step in enumerate(steps):
+        if not isinstance(step, Mapping):
+            raise PayloadKindAuditError(f"{where}.steps[{index}] must be a JSON object")
+    return steps
 
 
-def _record_row(record: Mapping[str, Any], source_file: str, line: int, digest: str) -> dict:
-    kind = record_kind(record)
+def _coding_steps(record: Mapping[str, Any], kind: str, where: str) -> list[Mapping[str, Any]]:
+    if kind == "episode":
+        return _steps(record, where)
+    if kind == "thalamic":
+        executed = record.get("executed_action")
+        if not _is_episode_shaped(executed):
+            return []
+        return _steps(executed, f"{where}.executed_action")
+    raise PayloadKindAuditError(
+        f"{where}: payload kind {kind!r} is outside this episode/thalamic audit"
+    )
+
+
+def _record_row(
+    record: Mapping[str, Any],
+    kind: str,
+    steps: list[Mapping[str, Any]],
+    source_file: str,
+    line: int,
+    digest: str,
+) -> dict:
     row: dict[str, Any] = {
         "source_file": source_file,
         "source_line": line,
@@ -83,7 +105,7 @@ def _record_row(record: Mapping[str, Any], source_file: str, line: int, digest: 
         row["supervisor_id"] = gate.get("supervisor_id")
         row["gate_decision"] = gate.get("decision")
         row["wraps_coding_episode"] = _is_episode_shaped(executed)
-        row["coding_steps"] = len(_steps(executed))
+        row["coding_steps"] = len(steps)
     else:
         # Episode records in this lane carry no top-level identifier; they are
         # addressable only by ``source_file:source_line``. That is reported,
@@ -91,22 +113,41 @@ def _record_row(record: Mapping[str, Any], source_file: str, line: int, digest: 
         row["id"] = record.get("id")
         row["domain"] = None
         row["wraps_coding_episode"] = False
-        row["coding_steps"] = len(_steps(record))
+        row["coding_steps"] = len(steps)
     return row
 
 
-def _reasoning_counts(record: Mapping[str, Any], kind: str) -> dict[str, int]:
-    owner = record.get("executed_action") if kind == "thalamic" else record
+def _reasoning_counts(steps: list[Mapping[str, Any]]) -> dict[str, int]:
     counts = {field: 0 for field in REASONING_FIELDS}
-    for step in _steps(owner):
+    for step in steps:
         for field in REASONING_FIELDS:
             if field in step:
                 counts[field] += 1
     return counts
 
 
-def build_audit(corpus: Path) -> dict:
-    """Return the deterministic payload-kind audit of one corpus directory."""
+def _reject_json_constant(value: str) -> None:
+    raise ValueError(f"non-standard JSON constant {value!r}")
+
+
+def _jsonl_lines(raw: bytes, source_file: str):
+    """Yield LF-delimited UTF-8 records without splitting on Unicode separators."""
+    for line_number, line_bytes in enumerate(raw.split(b"\n"), 1):
+        # CRLF is one record terminator, so neither byte belongs to the record
+        # digest. A bare carriage return elsewhere remains part of the payload.
+        if line_bytes.endswith(b"\r"):
+            line_bytes = line_bytes[:-1]
+        try:
+            line = line_bytes.decode("utf-8")
+        except UnicodeDecodeError as exc:
+            raise PayloadKindAuditError(
+                f"{source_file}:{line_number}: payload is not valid UTF-8: {exc}"
+            ) from exc
+        yield line_number, line_bytes, line
+
+
+def build_audit(corpus: Path, payload_names: Iterable[str] | None = None) -> dict:
+    """Return a deterministic audit of the whole corpus or one named snapshot."""
     corpus = Path(corpus)
     if corpus.is_symlink() or not corpus.is_dir():
         raise PayloadKindAuditError(f"not a readable corpus directory: {corpus}")
@@ -120,28 +161,51 @@ def build_audit(corpus: Path) -> dict:
     reasoning = {field: 0 for field in REASONING_FIELDS}
     wrapping = 0
 
-    for path in sorted(corpus.glob("*.jsonl")):
+    if payload_names is None:
+        payload_paths = sorted(corpus.glob("*.jsonl"))
+    else:
+        names = list(payload_names)
+        if len(names) != len(set(names)):
+            raise PayloadKindAuditError("snapshot payload names must be unique")
+        for name in names:
+            if not isinstance(name, str) or not name.endswith(".jsonl") or Path(name).name != name:
+                raise PayloadKindAuditError(f"unsafe snapshot payload name: {name!r}")
+        payload_paths = [corpus / name for name in sorted(names)]
+    if not payload_paths:
+        raise PayloadKindAuditError(f"corpus contains no *.jsonl payloads: {corpus}")
+
+    for path in payload_paths:
         if path.is_symlink() or not path.is_file():
             raise PayloadKindAuditError(f"unsafe payload entry: {path}")
-        raw = path.read_bytes()
+        try:
+            raw = path.read_bytes()
+        except OSError as exc:
+            raise PayloadKindAuditError(f"cannot read payload {path}: {exc}") from exc
         file_kinds: dict[str, int] = {}
         count = 0
-        for line_number, line in enumerate(raw.decode("utf-8").splitlines(), 1):
+        for line_number, line_bytes, line in _jsonl_lines(raw, path.name):
             if not line.strip():
                 continue
             try:
-                record = json.loads(line)
-            except json.JSONDecodeError as exc:
+                record = json.loads(line, parse_constant=_reject_json_constant)
+            except (json.JSONDecodeError, ValueError) as exc:
                 raise PayloadKindAuditError(f"{path.name}:{line_number}: {exc}") from exc
             if not isinstance(record, dict):
                 raise PayloadKindAuditError(
                     f"{path.name}:{line_number}: record must be a JSON object"
                 )
-            digest = hashlib.sha256(line.encode("utf-8")).hexdigest()
+            digest = hashlib.sha256(line_bytes).hexdigest()
             try:
-                row = _record_row(record, path.name, line_number, digest)
+                kind = record_kind(record)
             except IdentityCurationError as exc:
                 raise PayloadKindAuditError(f"{path.name}:{line_number}: {exc}") from exc
+            where = f"{path.name}:{line_number}"
+            if kind not in SUPPORTED_RECORD_KINDS:
+                raise PayloadKindAuditError(
+                    f"{where}: payload kind {kind!r} is outside this episode/thalamic audit"
+                )
+            steps = _coding_steps(record, kind, where)
+            row = _record_row(record, kind, steps, path.name, line_number, digest)
             count += 1
             kind = row["kind"]
             kinds[kind] = kinds.get(kind, 0) + 1
@@ -156,7 +220,7 @@ def build_audit(corpus: Path) -> dict:
                     wrapping += 1
             else:
                 native_steps += row["coding_steps"]
-            for field, value in _reasoning_counts(record, kind).items():
+            for field, value in _reasoning_counts(steps).items():
                 reasoning[field] += value
             records.append(row)
         files.append(
@@ -168,6 +232,9 @@ def build_audit(corpus: Path) -> dict:
                 "kinds": dict(sorted(file_kinds.items())),
             }
         )
+
+    if not records:
+        raise PayloadKindAuditError(f"corpus contains no auditable records: {corpus}")
 
     return {
         "schema_version": SCHEMA_VERSION,
@@ -199,17 +266,35 @@ def render_markdown(audit: Mapping[str, Any]) -> str:
         "|---|---|---|---|---|---:|",
     ]
     for row in audit["records"]:
-        gate = row.get("supervisor_id") or "—"
+        gate = _markdown_cell(row.get("supervisor_id") or "—")
         decision = row.get("gate_decision")
         if decision:
-            gate = f"{gate} / {decision}"
-        record_id = f"`{row['id']}`" if row.get("id") else "—"
+            gate = f"{gate} / {_markdown_cell(decision)}"
+        record_id = _markdown_code(row["id"]) if row.get("id") else "—"
+        source = _markdown_code(f"{row['source_file']}:{row['source_line']}")
         lines.append(
-            f"| `{row['source_file']}:{row['source_line']}` | {row['kind']} | "
+            f"| {source} | {_markdown_cell(row['kind'])} | "
             f"{record_id} | {gate} | {'yes' if row['wraps_coding_episode'] else 'no'} | "
             f"{row['coding_steps']} |"
         )
     return "\n".join(lines) + "\n"
+
+
+def _markdown_cell(value: Any) -> str:
+    rendered = html.escape(str(value), quote=False)
+    return (
+        rendered.replace("|", "&#124;")
+        .replace("\r\n", "<br>")
+        .replace("\r", "<br>")
+        .replace("\n", "<br>")
+    )
+
+
+def _markdown_code(value: Any) -> str:
+    text = str(value)
+    if not any(marker in text for marker in ("`", "|", "\r", "\n")):
+        return f"`{_markdown_cell(text)}`"
+    return f"<code>{_markdown_cell(text)}</code>"
 
 
 def _drift(derived: Mapping[str, Any], published: Mapping[str, Any]) -> list[str]:
@@ -222,10 +307,24 @@ def _drift(derived: Mapping[str, Any], published: Mapping[str, Any]) -> list[str
     return problems
 
 
+def _snapshot_payload_names(published: Mapping[str, Any]) -> list[str]:
+    files = published.get("files")
+    if not isinstance(files, list) or not files:
+        raise PayloadKindAuditError("published audit files must be a non-empty array")
+    names = []
+    for index, entry in enumerate(files):
+        if not isinstance(entry, Mapping) or not isinstance(entry.get("path"), str):
+            raise PayloadKindAuditError(f"published audit files[{index}].path must be a string")
+        names.append(entry["path"])
+    return names
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("corpus", type=Path, help="directory of published *.jsonl")
-    parser.add_argument("--markdown", action="store_true", help="emit the record table")
+    output = parser.add_mutually_exclusive_group()
+    output.add_argument("--json", action="store_true", help="emit the full JSON audit (default)")
+    output.add_argument("--markdown", action="store_true", help="emit the record table")
     parser.add_argument(
         "--expect",
         type=Path,
@@ -234,12 +333,8 @@ def main(argv: list[str] | None = None) -> int:
     )
     args = parser.parse_args(argv)
 
-    try:
-        audit = build_audit(args.corpus)
-    except PayloadKindAuditError as exc:
-        print(f"payload-kind audit failed: {exc}", file=sys.stderr)
-        return 2
-
+    published = None
+    payload_names = None
     if args.expect is not None:
         try:
             published = json.loads(args.expect.read_text(encoding="utf-8"))
@@ -249,6 +344,19 @@ def main(argv: list[str] | None = None) -> int:
         if not isinstance(published, dict):
             print(f"{args.expect} is not a JSON object", file=sys.stderr)
             return 2
+        try:
+            payload_names = _snapshot_payload_names(published)
+        except PayloadKindAuditError as exc:
+            print(f"cannot use {args.expect}: {exc}", file=sys.stderr)
+            return 2
+
+    try:
+        audit = build_audit(args.corpus, payload_names=payload_names)
+    except PayloadKindAuditError as exc:
+        print(f"payload-kind audit failed: {exc}", file=sys.stderr)
+        return 2
+
+    if published is not None:
         problems = _drift(audit, published)
         if problems:
             for problem in problems:

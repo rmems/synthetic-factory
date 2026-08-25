@@ -242,17 +242,20 @@ python3 pipelines/payload_kind_audit.py \
   --expect docs/agentic-coding-payload-kind.json
 ```
 
-The first prints the audit; the second re-derives it and exits non-zero naming
-each field that has drifted from the committed one. `--markdown` prints the
-per-record table above. The command is read-only: it opens the corpus for
-reading and writes only to stdout.
+The first prints the audit of every JSONL currently in the corpus. The second
+re-derives the exact file snapshot named by the committed audit and exits
+non-zero naming each field that has drifted from it; later append-only rounds
+outside that named release snapshot do not make the historical release audit
+stale. `--markdown` prints the per-record table above. The command is read-only:
+it opens the corpus for reading and writes only to stdout.
 
 `tests/test_payload_kind_audit.py` pins the same finding two ways. Its offline
 class runs against a committed fixture and against the committed audit itself,
 so the numbers in this document are checked in any checkout. Its raw-corpus
-class re-derives the audit from
+class re-derives the audit's named file snapshot from
 `outputs/raw/2026-08-17/agentic-coding-trajectory-factory` and skips where that
-gitignored tree is absent.
+gitignored tree is absent. The source directory is append-only and may contain
+newer rounds that were not part of the published Hub revision.
 
 ## Scope
 
