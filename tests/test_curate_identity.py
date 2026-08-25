@@ -19,6 +19,7 @@ sys.path.insert(0, str(PIPELINES))
 
 import curate_identity as identity  # noqa: E402
 import record_kind  # noqa: E402
+import round_txn  # noqa: E402
 
 FABLE_ACT = "agentic-coding-trajectory-factory"
 FABLE_THALAMIC = "thalamic-trajectory-factory"
@@ -726,6 +727,31 @@ class TestFactoryRegistryAuthority(unittest.TestCase):
             "synthetic_factory_preference_shape",
         )
 
+    def test_shape_authority_resolves_existing_state_provenance_first(self):
+        simulated = episode(FABLE_ACT)
+        simulated["state"] = {
+            "provenance": {"kind": "simulated", "claimed": "sim fixture"}
+        }
+        result = identity.curate_record(
+            source(simulated, f"{FABLE_ACT}/episodes.jsonl", 1)
+        )
+        self.assertEqual(result.action, "retained")
+        self.assertEqual(result.record["provenance"]["kind"], "simulated")
+        self.assertEqual(result.record["state"]["sim_or_real"], "simulated")
+
+        real = episode(FABLE_ACT)
+        real["state"] = {
+            "provenance": {"kind": "real", "claimed": "live system"}
+        }
+        result = identity.curate_record(
+            source(real, f"{FABLE_ACT}/episodes.jsonl", 1)
+        )
+        self.assertEqual(result.action, "exclude")
+        self.assertEqual(
+            result.mapping["reason_codes"],
+            ["identity.unresolved_provenance"],
+        )
+
     def test_registry_onboard_rows_are_not_training_ready(self):
         payload = json.loads(identity.FACTORY_REGISTRY_PATH.read_text(encoding="utf-8"))
         self.assertEqual(len(payload["factories"]), 51)
@@ -741,6 +767,12 @@ class TestFactoryRegistryAuthority(unittest.TestCase):
         self.assertEqual(len(grok_rows), 44)
         for row in grok_rows:
             self.assertEqual(row["path_id"], row["payload_factory"])
+            expected_kind = round_txn.AGENTIC_FACTORY_KINDS[row["path_id"]]
+            self.assertEqual(row["record_kinds"], [expected_kind])
+            self.assertEqual(
+                set(row["provenance_contract_by_kind"]),
+                {expected_kind},
+            )
         eval_row = next(
             item
             for item in payload["factories"]
@@ -1288,6 +1320,86 @@ class TestIdentityWriterExcludeAndPin(unittest.TestCase):
                     self.assertEqual(results[0].action, "retained")
                     self.assertTrue((dest / FABLE_ACT / "episodes.jsonl").is_file())
                     identity.validate_identity_tree(dest)
+
+    def test_nested_inputs_preserve_the_registered_factory_segment(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            nested = root / FABLE_ACT / "data"
+            nested.mkdir(parents=True)
+            source_file = nested / "episodes.jsonl"
+            source_file.write_text(
+                identity.canonical_json(episode(FABLE_ACT)) + "\n",
+                encoding="utf-8",
+            )
+            expected = f"{FABLE_ACT}/data/episodes.jsonl"
+            for source_input in (source_file, nested):
+                with self.subTest(source_input=source_input):
+                    records = identity.iter_source_records(source_input)
+                    self.assertEqual(records[0].source_path, expected)
+
+    def test_marker_mode_scan_excludes_uncommitted_batches(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            factory = root / FABLE_ACT
+            factory.mkdir()
+            (factory / round_txn.MODE_FILE).write_text(
+                '{"version":1,"legacy_baseline":0,'
+                '"commit_point":"ROUND-rNN.complete.json"}\n',
+                encoding="utf-8",
+            )
+            committed = factory / "batch-r01.jsonl"
+            committed_record = episode(FABLE_ACT)
+            committed_record["id"] = "agentic-coding-r01-0001"
+            committed_record["reward"] = {"success": True}
+            committed_record["steps"][0]["decision_basis"] = (
+                "Observation: deterministic fixture failed"
+            )
+            committed.write_text(
+                identity.canonical_json(committed_record) + "\n",
+                encoding="utf-8",
+            )
+            notes = factory / "NOTES-r01.md"
+            notes.write_text("Novel coverage: 80%\n", encoding="utf-8")
+            (factory / "ROUND-r01.complete.json").write_text(
+                json.dumps(
+                    {
+                        "version": 1,
+                        "factory": factory.name,
+                        "round": 1,
+                        "records": 1,
+                        "expected_records": 1,
+                        "commit_point": "ROUND-r01.complete.json",
+                        "files": [
+                            {
+                                "name": committed.name,
+                                "sha256": hashlib.sha256(
+                                    committed.read_bytes()
+                                ).hexdigest(),
+                            },
+                            {
+                                "name": notes.name,
+                                "sha256": hashlib.sha256(
+                                    notes.read_bytes()
+                                ).hexdigest(),
+                            },
+                        ],
+                    }
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            (factory / "batch-r02.jsonl").write_text(
+                identity.canonical_json(episode(FABLE_ACT)) + "\n",
+                encoding="utf-8",
+            )
+
+            for source_input in (factory, root):
+                with self.subTest(source_input=source_input):
+                    records = identity.iter_source_records(source_input)
+                    self.assertEqual(
+                        [item.source_path for item in records],
+                        [f"{FABLE_ACT}/batch-r01.jsonl"],
+                    )
 
     def test_write_exclusive_unlinks_partial_file(self):
         with tempfile.TemporaryDirectory() as tmp:

@@ -32,6 +32,7 @@ from record_kind import (
     classify_kind,
     preference_side_kinds,
 )
+from round_txn import TransactionError, committed_jsonl_paths, marker_mode_path
 
 TRANSFORM_NAME = "curate_identity"
 TRANSFORM_VERSION = "identity-provenance-v2"
@@ -564,17 +565,26 @@ def _exclude(mapping: dict[str, Any], reason: str, **extra: Any) -> CurationResu
     return CurationResult("exclude", None, mapping)
 
 
-def _payload_has_sim_or_real(
+def _payload_has_state_claim(
     record: Mapping[str, Any], owner_specs: list[tuple[str, Mapping[str, Any]]]
 ) -> bool:
-    if owner_specs:
-        for _path, owner in owner_specs:
-            state = owner.get("state")
-            if isinstance(state, Mapping) and "sim_or_real" in state:
-                return True
-        return False
-    state = record.get("state")
-    return isinstance(state, Mapping) and "sim_or_real" in state
+    owners = owner_specs if owner_specs else [("/", record)]
+    return any(
+        isinstance(state := owner.get("state"), Mapping)
+        and ("sim_or_real" in state or "provenance" in state)
+        for _path, owner in owners
+    )
+
+
+def _contains_real_provenance(value: Any) -> bool:
+    if isinstance(value, Mapping):
+        provenance = value.get("provenance")
+        if isinstance(provenance, Mapping) and provenance.get("kind") == "real":
+            return True
+        return any(_contains_real_provenance(item) for item in value.values())
+    if isinstance(value, list):
+        return any(_contains_real_provenance(item) for item in value)
+    return False
 
 
 def _collect_state_resolutions(
@@ -883,7 +893,7 @@ def curate_record(
             all_original_ids.extend(_legacy_ids(owner, owner_path))
     mapping["original_ids"] = all_original_ids
 
-    use_state = contract == CONTRACT_REQUIRE_STATE or _payload_has_sim_or_real(
+    use_state = contract == CONTRACT_REQUIRE_STATE or _payload_has_state_claim(
         original, owner_specs
     )
     state_owners = owner_specs if owner_specs else [("/", original)]
@@ -933,7 +943,7 @@ def curate_record(
             root_original_ids,
         )
 
-    if curated.get("provenance", {}).get("kind") == "real":
+    if _contains_real_provenance(curated):
         raise IdentityCurationError("identity must never emit provenance.kind=real")
 
     mapping.update(
@@ -1091,6 +1101,55 @@ def validate_identity_tree(dest: Path) -> FactoryRegistry:
     return registry
 
 
+def _registered_factory_ancestor(
+    directory: Path,
+    registry: FactoryRegistry,
+) -> Path | None:
+    for candidate in (directory, *directory.parents):
+        if candidate.name in registry.by_path_id:
+            return candidate
+    return None
+
+
+def _committed_source_paths(paths: Iterable[Path]) -> list[Path]:
+    visible_by_factory: dict[Path, set[Path]] = {}
+    enclosing_factory: dict[Path, Path | None] = {}
+
+    def marker_factory(path: Path) -> Path | None:
+        visited: list[Path] = []
+        current = path.parent
+        while True:
+            if current in enclosing_factory:
+                factory = enclosing_factory[current]
+                break
+            visited.append(current)
+            if marker_mode_path(current) is not None:
+                factory = current
+                break
+            parent = current.parent
+            if parent == current:
+                factory = None
+                break
+            current = parent
+        for directory in visited:
+            enclosing_factory[directory] = factory
+        return factory
+
+    visible: list[Path] = []
+    for path in paths:
+        factory = marker_factory(path)
+        if factory is None:
+            visible.append(path)
+            continue
+        if factory not in visible_by_factory:
+            visible_by_factory[factory] = {
+                candidate.resolve() for candidate in committed_jsonl_paths(factory)
+            }
+        if path.resolve() in visible_by_factory[factory]:
+            visible.append(path)
+    return visible
+
+
 def iter_source_records(
     source: Path,
     registry: FactoryRegistry | None = None,
@@ -1101,6 +1160,8 @@ def iter_source_records(
     registry = default_registry() if registry is None else registry
     if not source.exists():
         raise IdentityCurationError(f"source does not exist: {source}")
+    if source.is_symlink():
+        raise IdentityCurationError(f"source must not be a symlink: {source}")
     if source.is_file():
         if source.suffix != ".jsonl":
             raise IdentityCurationError(f"source is not a JSONL file: {source}")
@@ -1108,17 +1169,32 @@ def iter_source_records(
             raise IdentityCurationError(
                 f"JSONL source must be inside a factory directory: {source}"
             )
-        files = [source]
-        root = source.parent.parent
+        candidates = [source]
+        factory_dir = _registered_factory_ancestor(source.parent, registry)
+        root = factory_dir.parent if factory_dir is not None else source.parent.parent
     elif source.is_dir():
-        files = sorted(path for path in source.rglob("*.jsonl") if path.is_file())
-        if not files:
+        candidates = sorted(
+            path
+            for path in source.rglob("*.jsonl")
+            if path.is_file() and not path.is_symlink()
+        )
+        if not candidates:
             raise IdentityCurationError(f"no JSONL files under source: {source}")
-        has_direct_jsonl = any(path.parent == source for path in files)
-        is_factory_dir = source.name in registry.by_path_id
-        root = source.parent if is_factory_dir or has_direct_jsonl else source
+        factory_dir = _registered_factory_ancestor(source, registry)
     else:
         raise IdentityCurationError(f"source is not a JSONL file or directory: {source}")
+    try:
+        files = _committed_source_paths(candidates)
+    except TransactionError as exc:
+        raise IdentityCurationError(f"invalid source transaction state: {exc}") from exc
+    if not files:
+        raise IdentityCurationError(f"no committed JSONL files under source: {source}")
+    if source.is_dir():
+        has_direct_jsonl = any(path.parent == source for path in files)
+        if factory_dir is not None:
+            root = factory_dir.parent
+        else:
+            root = source.parent if has_direct_jsonl else source
     records: list[SourceRecord] = []
     for path in files:
         rel = path.relative_to(root).as_posix()
