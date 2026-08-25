@@ -11,6 +11,7 @@ runtime.
 import math
 import sys
 import unittest
+from itertools import pairwise
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
@@ -184,7 +185,16 @@ class Encoders(unittest.TestCase):
         comparison = sim.compare_encodings(self.signal, "temporal", "rate", self.config)
         if comparison["winner_basis"] == "information_retention":
             expected = "temporal" if comparison["retention_margin"] > 0 else "rate"
-            self.assertEqual(comparison["winner"], expected)
+        elif comparison["winner_basis"] == "spike_count_tiebreak":
+            expected = (
+                "temporal"
+                if comparison["a"]["spike_count"] < comparison["b"]["spike_count"]
+                else "rate"
+            )
+        else:
+            self.assertEqual(comparison["winner_basis"], "tie")
+            expected = None
+        self.assertEqual(comparison["winner"], expected)
 
     def test_pearson_is_none_for_a_constant_series(self):
         self.assertIsNone(sim.pearson([1.0, 1.0, 1.0], [1.0, 2.0, 3.0]))
@@ -208,9 +218,7 @@ class NeuronDynamics(unittest.TestCase):
 
     def test_raising_the_threshold_reduces_firing(self):
         base = sim.simulate_neuron(self.config, self.drive(2.0))
-        raised = sim.simulate_neuron(
-            sim.neuron_config({"v_threshold": 4.0}), self.drive(2.0)
-        )
+        raised = sim.simulate_neuron(sim.neuron_config({"v_threshold": 4.0}), self.drive(2.0))
         self.assertLess(raised["spike_count"], base["spike_count"])
 
     def test_a_subthreshold_drive_never_fires(self):
@@ -222,18 +230,12 @@ class NeuronDynamics(unittest.TestCase):
     def test_the_refractory_period_bounds_the_rate(self):
         config = sim.neuron_config({"t_refractory_ms": 10.0})
         measured = sim.simulate_neuron(config, self.drive(6.0))
-        intervals = [
-            b - a for a, b in zip(measured["spike_times_ms"], measured["spike_times_ms"][1:])
-        ]
+        intervals = [b - a for a, b in pairwise(measured["spike_times_ms"])]
         self.assertTrue(all(gap >= 10.0 for gap in intervals), intervals)
 
     def test_adaptation_slows_a_neuron_down(self):
-        adapting = sim.simulate_neuron(
-            sim.neuron_config({"adaptation_b": 0.4}), self.drive(3.0)
-        )
-        flat = sim.simulate_neuron(
-            sim.neuron_config({"adaptation_b": 0.0}), self.drive(3.0)
-        )
+        adapting = sim.simulate_neuron(sim.neuron_config({"adaptation_b": 0.4}), self.drive(3.0))
+        flat = sim.simulate_neuron(sim.neuron_config({"adaptation_b": 0.0}), self.drive(3.0))
         self.assertLess(adapting["spike_count"], flat["spike_count"])
 
     def test_spike_count_matches_spike_times(self):
@@ -396,12 +398,13 @@ class CriticAndPlasticity(unittest.TestCase):
         modulators = sim.run_critic(
             {"expected_value": 0.2, "received_reward": 0.9}, self.critic_config
         )
-        measured = sim.run_plasticity(
-            self.weights, self.pre, modulators, self.plasticity_config
-        )
+        measured = sim.run_plasticity(self.weights, self.pre, modulators, self.plasticity_config)
         self.assertTrue(measured["update_applied"])
         for before, after, delta in zip(
-            measured["weights_before"], measured["weights_after"], measured["weight_deltas"]
+            measured["weights_before"],
+            measured["weights_after"],
+            measured["weight_deltas"],
+            strict=True,
         ):
             self.assertAlmostEqual(before + delta, after, places=9)
 
@@ -409,9 +412,7 @@ class CriticAndPlasticity(unittest.TestCase):
         modulators = sim.run_critic(
             {"expected_value": 0.1, "received_reward": 1.0}, self.critic_config
         )
-        measured = sim.run_plasticity(
-            self.weights, self.pre, modulators, self.plasticity_config
-        )
+        measured = sim.run_plasticity(self.weights, self.pre, modulators, self.plasticity_config)
         # Re-run the circuit at the updated weights: it must reproduce exactly
         # what the record publishes as post_update_behavior.
         replay = sim._plasticity_circuit(
@@ -423,9 +424,7 @@ class CriticAndPlasticity(unittest.TestCase):
         modulators = sim.run_critic(
             {"expected_value": 0.5, "received_reward": 0.5}, self.critic_config
         )
-        measured = sim.run_plasticity(
-            self.weights, self.pre, modulators, self.plasticity_config
-        )
+        measured = sim.run_plasticity(self.weights, self.pre, modulators, self.plasticity_config)
         self.assertFalse(measured["update_applied"])
         self.assertEqual(measured["weights_before"], measured["weights_after"])
 
@@ -446,10 +445,8 @@ class CriticAndPlasticity(unittest.TestCase):
             self.plasticity_config,
         )
         self.assertNotEqual(sum(rewarded["weight_deltas"]), 0.0)
-        self.assertLess(
-            sum(rewarded["weight_deltas"]) * sum(punished["weight_deltas"]), 0.0
-        )
-        for up, down in zip(rewarded["weight_deltas"], punished["weight_deltas"]):
+        self.assertLess(sum(rewarded["weight_deltas"]) * sum(punished["weight_deltas"]), 0.0)
+        for up, down in zip(rewarded["weight_deltas"], punished["weight_deltas"], strict=True):
             self.assertAlmostEqual(up, -down, places=9)
 
     def test_weights_are_clamped_to_their_bounds(self):
@@ -476,6 +473,25 @@ class CriticAndPlasticity(unittest.TestCase):
 
 
 class RecurrentMemory(unittest.TestCase):
+    def test_response_and_ambiguity_are_functions_of_retained_output_counts(self):
+        self.assertEqual(sim.memory_response_from_counts({"OA": 2, "OB": 0}), ("A", False))
+        self.assertEqual(sim.memory_response_from_counts({"OA": 0, "OB": 3}), ("B", False))
+        self.assertEqual(sim.memory_response_from_counts({"OA": 0, "OB": 0}), ("none", False))
+        self.assertEqual(sim.memory_response_from_counts({"OA": 1, "OB": 1}), ("none", True))
+        self.assertEqual(sim.memory_response_from_counts({"OA": 2.0, "OB": 0.0}), ("A", False))
+
+        for malformed in (
+            {"OA": True, "OB": 0},
+            {"OA": -1, "OB": 0},
+            {"OA": 1.5, "OB": 0},
+            {"OA": float("inf"), "OB": 0},
+            {"OA": 1},
+            [1, 0],
+        ):
+            with self.subTest(malformed=malformed):
+                with self.assertRaises(ValueError):
+                    sim.memory_response_from_counts(malformed)
+
     def task(self, **overrides):
         base = {
             "cue": "A",
@@ -505,24 +521,18 @@ class RecurrentMemory(unittest.TestCase):
 
     def test_the_probe_alone_cannot_drive_an_output(self):
         config = sim.memory_config({"latch_adaptation_b": 0.02})
-        measured = sim.run_memory_task(
-            self.task(cue=None, distractor_ms=[]), config
-        )
+        measured = sim.run_memory_task(self.task(cue=None, distractor_ms=[]), config)
         self.assertEqual(measured["output_spike_counts"], {"OA": 0, "OB": 0})
 
     def test_a_fatiguing_loop_forgets_before_a_long_probe(self):
         config = sim.memory_config({"latch_adaptation_b": 0.07})
-        measured = sim.run_memory_task(
-            self.task(probe_ms=400.0, distractor_ms=[]), config
-        )
+        measured = sim.run_memory_task(self.task(probe_ms=400.0, distractor_ms=[]), config)
         self.assertEqual(measured["response"], "none")
         self.assertFalse(measured["state_retained_at_probe"])
 
     def test_a_slower_fatiguing_loop_holds_the_same_cue(self):
         config = sim.memory_config({"latch_adaptation_b": 0.015})
-        measured = sim.run_memory_task(
-            self.task(probe_ms=400.0, distractor_ms=[]), config
-        )
+        measured = sim.run_memory_task(self.task(probe_ms=400.0, distractor_ms=[]), config)
         self.assertEqual(measured["response"], "A")
 
     def test_a_reset_clears_the_stored_state(self):
@@ -535,9 +545,7 @@ class RecurrentMemory(unittest.TestCase):
     def test_weak_distractors_do_not_disturb_the_stored_cue(self):
         config = sim.memory_config({"latch_adaptation_b": 0.02, "distractor_weight": 0.45})
         plain = sim.run_memory_task(self.task(distractor_ms=[]), config)
-        noisy = sim.run_memory_task(
-            self.task(distractor_ms=[50.0, 80.0, 120.0, 160.0]), config
-        )
+        noisy = sim.run_memory_task(self.task(distractor_ms=[50.0, 80.0, 120.0, 160.0]), config)
         self.assertEqual(plain["response"], noisy["response"])
 
     def test_longer_delays_cost_more_energy(self):
@@ -545,9 +553,7 @@ class RecurrentMemory(unittest.TestCase):
         short = sim.run_memory_task(self.task(probe_ms=120.0, distractor_ms=[]), config)
         long = sim.run_memory_task(self.task(probe_ms=400.0, distractor_ms=[]), config)
         self.assertGreater(long["energy_pJ"], short["energy_pJ"])
-        self.assertAlmostEqual(
-            long["energy_pJ"], long["total_spikes"] * sim.ENERGY_PJ_PER_SPIKE
-        )
+        self.assertAlmostEqual(long["energy_pJ"], long["total_spikes"] * sim.ENERGY_PJ_PER_SPIKE)
 
     def test_the_trial_is_deterministic(self):
         config = sim.memory_config()

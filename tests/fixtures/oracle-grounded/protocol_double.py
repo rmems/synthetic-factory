@@ -13,7 +13,15 @@ Modes, selected by argv[1] (default ``ok``):
   badjson     stdout that is not JSON
   wrongproto  a response with the wrong protocol string
   noversion   a response missing runtime_version
+  unknowncommit a response whose runtime_commit is unresolved
+  badcommit   a response whose runtime_commit is not hexadecimal
   empty       a response whose measurement is empty
+  emptyunits  a response whose units mapping is empty
+  nan         a response containing JSON NaN
+  infinity    a response containing JSON Infinity
+  overflow    a response containing the finite-looking overflow literal 1e309
+  stdout_flood stdout larger than the protocol capture limit
+  stderr_flood stderr larger than the protocol capture limit
   fail        exit nonzero
 """
 
@@ -30,6 +38,12 @@ def main(argv):
     if mode == "badjson":
         sys.stdout.write("this is not json")
         return 0
+    if mode == "stdout_flood":
+        sys.stdout.write("x" * (9 * 1024 * 1024))
+        return 0
+    if mode == "stderr_flood":
+        sys.stderr.write("x" * (2 * 1024 * 1024))
+        return 3
     try:
         request = json.loads(raw)
     except json.JSONDecodeError as exc:
@@ -53,11 +67,22 @@ def main(argv):
         response.pop("runtime_version")
     elif mode == "empty":
         response["measured"] = {}
+    elif mode == "emptyunits":
+        response["units"] = {}
     elif mode == "unknowncommit":
         response["runtime_commit"] = "unknown"
     elif mode == "badcommit":
         response["runtime_commit"] = "not-a-source-revision"
-    sys.stdout.write(json.dumps(response, sort_keys=True))
+    elif mode == "nan":
+        response["measured"]["nonfinite"] = float("nan")
+    elif mode == "infinity":
+        response["measured"]["nonfinite"] = float("inf")
+    elif mode == "overflow":
+        response["measured"]["nonfinite"] = "OVERFLOW_LITERAL"
+    output = json.dumps(response, sort_keys=True)
+    if mode == "overflow":
+        output = output.replace('"OVERFLOW_LITERAL"', "1e309")
+    sys.stdout.write(output)
     return 0
 
 

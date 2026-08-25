@@ -11,6 +11,9 @@ intervention it rebuilds exactly the request the oracle was handed, so
 ``validate`` can re-run the oracle and compare the measurement byte for byte.
 """
 
+import math
+from itertools import pairwise
+
 from . import canon, generators, oracles, sim
 
 ENCODER_FAMILY = "spike-encoder-equivalence-pairs"
@@ -54,11 +57,21 @@ class FamilySpec:
     """Everything the pipeline needs to know about one dataset family."""
 
     def __init__(
-        self, name, runtimes, oracle_type, propose, build_request, build_oracle, checks, score
+        self,
+        name,
+        runtimes,
+        oracle_type,
+        units,
+        propose,
+        build_request,
+        build_oracle,
+        checks,
+        score,
     ):
         self.name = name
         self.runtimes = tuple(runtimes)
         self.oracle_type = oracle_type
+        self.units = units
         self.propose = propose
         self.build_request = build_request
         self._build_oracle = build_oracle
@@ -156,26 +169,85 @@ def _encoder_propose(rng):
 
 def _encoder_checks(record):
     measured = record["result"]["measured"]
-    pair = record["scenario"]["encoding_pair"]
+    scenario = record["scenario"]
+    pair = scenario["encoding_pair"]
     findings = []
     winner = measured["winner"]
     if winner is not None and winner not in pair:
         findings.append(f"winner {winner!r} is not one of the compared encodings {pair}")
-    for side in ("encoding_a", "encoding_b"):
-        retention = measured[side]["information_retention"]
+    if len(scenario["signal"]) != scenario["sample_count"]:
+        findings.append("scenario.signal length does not match scenario.sample_count")
+    for side, expected_encoding in zip(("encoding_a", "encoding_b"), pair, strict=True):
+        state = measured[side]
+        if state["encoding"] != expected_encoding:
+            findings.append(
+                f"{side}.encoding {state['encoding']!r} does not match "
+                f"scenario.encoding_pair ({expected_encoding!r})"
+            )
+        retention = state["information_retention"]
         if not 0.0 <= retention <= 1.0:
             findings.append(f"{side}.information_retention out of range: {retention}")
-        if measured[side]["spike_count"] < 0:
+        if state["spike_count"] < 0:
             findings.append(f"{side}.spike_count is negative")
-        decoded = measured[side]["reconstruction"]
+        decoded = state["reconstruction"]
         if len(decoded) != record["scenario"]["sample_count"]:
             findings.append(f"{side}.reconstruction length does not match sample_count")
+        else:
+            errors = [
+                abs(actual - reconstructed)
+                for actual, reconstructed in zip(scenario["signal"], decoded, strict=True)
+            ]
+            expected_rmse = sim.rmse(scenario["signal"], decoded)
+            derived = {
+                "rmse": expected_rmse,
+                "mean_abs_error": sum(errors) / len(errors) if errors else 0.0,
+                "max_abs_error": max(errors) if errors else 0.0,
+                "pearson_r": sim.pearson(scenario["signal"], decoded),
+                "information_retention": sim.clamp(1.0 - expected_rmse, 0.0, 1.0),
+                "mean_rate_hz": state["spike_count"]
+                / ((scenario["sample_count"] * scenario["sample_ms"]) / 1000.0),
+                "energy_pJ": state["spike_count"] * sim.ENERGY_PJ_PER_SPIKE,
+                "retention_per_spike": (
+                    sim.clamp(1.0 - expected_rmse, 0.0, 1.0) / state["spike_count"]
+                    if state["spike_count"]
+                    else None
+                ),
+            }
+            for field, expected in derived.items():
+                if not _measurement_matches(state.get(field), expected):
+                    findings.append(
+                        f"{side}.{field} does not match the value derived from "
+                        "the signal, reconstruction, and spike count"
+                    )
+        excerpt = state["representation_excerpt"]
+        if len(excerpt) > state["spike_count"]:
+            findings.append(f"{side}.representation_excerpt exceeds spike_count")
+        duration_ms = scenario["sample_count"] * scenario["sample_ms"]
+        for position, event in enumerate(excerpt):
+            if event["channel"] not in state["channels"]:
+                findings.append(
+                    f"{side}.representation_excerpt[{position}] names an unknown channel"
+                )
+            if not 0 <= event["t_ms"] < duration_ms:
+                findings.append(
+                    f"{side}.representation_excerpt[{position}].t_ms lies outside "
+                    "the encoded signal window"
+                )
+        expected_truncated = state["spike_count"] > len(excerpt)
+        if state.get("representation_excerpt_truncated") is not expected_truncated:
+            findings.append(
+                f"{side}.representation_excerpt_truncated does not match "
+                "spike_count and the retained excerpt"
+            )
     retention_gap = (
         measured["encoding_a"]["information_retention"]
         - measured["encoding_b"]["information_retention"]
     )
     if not _measurement_matches(measured["retention_margin"], retention_gap):
         findings.append("retention_margin does not match the two measured retentions")
+    energy_gap = measured["encoding_a"]["energy_pJ"] - measured["encoding_b"]["energy_pJ"]
+    if not _measurement_matches(measured["energy_margin_pJ"], energy_gap):
+        findings.append("energy_margin_pJ does not match the two measured energies")
     tie_epsilon = record["oracle"]["configuration"]["tie_epsilon"]
     if abs(retention_gap) >= tie_epsilon:
         expected_basis = "information_retention"
@@ -184,8 +256,7 @@ def _encoder_checks(record):
         expected_basis = "spike_count_tiebreak"
         expected_winner = (
             pair[0]
-            if measured["encoding_a"]["spike_count"]
-            < measured["encoding_b"]["spike_count"]
+            if measured["encoding_a"]["spike_count"] < measured["encoding_b"]["spike_count"]
             else pair[1]
         )
     else:
@@ -197,9 +268,7 @@ def _encoder_checks(record):
             f"retention and spike counts ({expected_basis!r})"
         )
     if winner != expected_winner:
-        findings.append(
-            f"winner {winner!r} does not match the measured {expected_basis} decision"
-        )
+        findings.append(f"winner {winner!r} does not match the measured {expected_basis} decision")
     return findings
 
 
@@ -232,9 +301,9 @@ def _intervened_parameters(baseline, intervention):
     updated = dict(baseline)
     if intervention["operation"] != "scale":
         raise ValueError(f"unsupported neuron intervention: {intervention['operation']}")
-    updated[parameter] = baseline.get(parameter, sim.NEURON_DEFAULTS[parameter]) * intervention[
-        "factor"
-    ]
+    updated[parameter] = (
+        baseline.get(parameter, sim.NEURON_DEFAULTS[parameter]) * intervention["factor"]
+    )
     return updated
 
 
@@ -290,6 +359,8 @@ def _neuron_propose(rng):
 def _neuron_checks(record):
     measured = record["result"]["measured"]
     findings = []
+    steps = generators.neuron_sample_count(record["scenario"])
+    duration_ms = steps * record["scenario"]["dt_ms"]
     before = measured["before"]
     after = measured["after"]
     delta = measured["delta"]
@@ -302,21 +373,59 @@ def _neuron_checks(record):
             )
     for side, state in (("before", before), ("after", after)):
         times = state["spike_times_ms"]
-        if any(later < earlier for earlier, later in zip(times, times[1:])):
+        if any(later < earlier for earlier, later in pairwise(times)):
             findings.append(f"{side}.spike_times_ms is not non-decreasing")
-        if state["spike_count"] != len(times):
-            findings.append(f"{side}.spike_count does not match spike_times_ms")
+        if any(time_ms < 0 or time_ms >= duration_ms for time_ms in times):
+            findings.append(
+                f"{side}.spike_times_ms contains an event outside the simulated duration"
+            )
+        intervals = [later - earlier for earlier, later in pairwise(times)]
+        mean_isi = sum(intervals) / len(intervals) if intervals else None
+        if intervals and len(intervals) > 1 and mean_isi:
+            variance = sum((item - mean_isi) ** 2 for item in intervals) / len(intervals)
+            cv_isi = math.sqrt(variance) / mean_isi
+        else:
+            cv_isi = None
+        expected = {
+            "spike_count": len(times),
+            "first_spike_ms": times[0] if times else None,
+            "last_spike_ms": times[-1] if times else None,
+            "mean_rate_hz": len(times) / (duration_ms / 1000.0) if duration_ms else 0.0,
+            "mean_isi_ms": mean_isi,
+            "cv_isi": cv_isi,
+            "adaptation_index": (
+                intervals[-1] / intervals[0] if len(intervals) >= 2 and intervals[0] else None
+            ),
+            "duration_ms": duration_ms,
+        }
+        stride = max(
+            1,
+            math.ceil(steps / record["oracle"]["configuration"]["trace_points"]),
+        )
+        expected["v_trace_stride_ms"] = stride * record["scenario"]["dt_ms"]
+        for field, value in expected.items():
+            if not _measurement_matches(state.get(field), value):
+                findings.append(
+                    f"{side}.{field} does not match the summary derived from "
+                    "spike_times_ms and the retained duration"
+                )
+        expected_trace_points = math.ceil(steps / stride) if steps else 0
+        if len(state["v_trace"]) != expected_trace_points:
+            findings.append(
+                f"{side}.v_trace length does not match v_trace_stride_ms and duration_ms"
+            )
     configuration = record["oracle"]["configuration"]
     parameter = configuration["intervened_parameter"]
+    expected_parameter = sim.INTERVENTION_TARGETS[record["intervention"]["target"]]
+    if record["intervention"]["parameter"] != expected_parameter:
+        findings.append("intervention.parameter does not match intervention.target")
     changed = [
         key
         for key in configuration["before"]
         if configuration["before"][key] != configuration["after"].get(key)
     ]
     if changed != [parameter]:
-        findings.append(
-            f"intervention should change exactly {parameter!r}, but changed {changed}"
-        )
+        findings.append(f"intervention should change exactly {parameter!r}, but changed {changed}")
     return findings
 
 
@@ -401,16 +510,52 @@ def _mesh_propose(rng):
 
 def _mesh_checks(record):
     measured = record["result"]["measured"]
-    nodes = set(record["scenario"]["nodes"])
+    node_order = record["scenario"]["nodes"]
+    nodes = set(node_order)
     sink = record["scenario"]["sink"]
     findings = []
     for side in ("before", "after"):
         state = measured[side]
+        if state["source"] != record["scenario"]["source"]:
+            findings.append(f"{side}.source does not match scenario.source")
+        if state["sink"] != sink:
+            findings.append(f"{side}.sink does not match scenario.sink")
+        arrivals = state["first_arrival_ms"]
+        counts = state["spike_counts"]
+        if set(arrivals) != nodes:
+            findings.append(f"{side}.first_arrival_ms keys do not match scenario.nodes")
+        if set(counts) != nodes:
+            findings.append(f"{side}.spike_counts keys do not match scenario.nodes")
         unknown = [node for node in state["firing_order"] if node not in nodes]
         if unknown:
             findings.append(f"{side}.firing_order names unknown nodes: {unknown}")
         if len(set(state["firing_order"])) != len(state["firing_order"]):
             findings.append(f"{side}.firing_order repeats a node")
+        if set(arrivals) == nodes and set(counts) == nodes:
+            for node in node_order:
+                fired = counts[node] > 0
+                if (arrivals[node] is not None) is not fired:
+                    findings.append(f"{side}.first_arrival_ms[{node}] disagrees with spike_counts")
+                arrival = arrivals[node]
+                if arrival is not None and not 0 <= arrival < record["scenario"]["duration_ms"]:
+                    findings.append(
+                        f"{side}.first_arrival_ms[{node}] lies outside the simulated duration"
+                    )
+            expected_order = sorted(
+                (node for node in node_order if arrivals[node] is not None),
+                key=lambda node: (arrivals[node], node),
+            )
+            if state["firing_order"] != expected_order:
+                findings.append(f"{side}.firing_order does not match first_arrival_ms")
+            expected_activation = [node for node in node_order if counts[node] > 0]
+            if state["downstream_activation"] != expected_activation:
+                findings.append(f"{side}.downstream_activation does not match spike_counts")
+            expected_total = sum(counts.values())
+            if state["total_spikes"] != expected_total:
+                findings.append(f"{side}.total_spikes does not match spike_counts")
+            expected_energy = expected_total * sim.ENERGY_PJ_PER_SPIKE
+            if not _measurement_matches(state["energy_pJ"], expected_energy):
+                findings.append(f"{side}.energy_pJ does not match total_spikes")
         reached = state["first_arrival_ms"].get(sink) is not None
         if reached != state["sink_reached"]:
             findings.append(f"{side}.sink_reached disagrees with first_arrival_ms[{sink}]")
@@ -423,23 +568,21 @@ def _mesh_checks(record):
             None if source_time is None or sink_time is None else sink_time - source_time
         )
         if not _measurement_matches(delay, expected_delay):
-            findings.append(
-                f"{side}.propagation_delay_ms does not match sink minus source arrival"
-            )
+            findings.append(f"{side}.propagation_delay_ms does not match sink minus source arrival")
     delta = measured["delta"]
-    if delta["sink_reachability_changed"] != (
-        measured["before"]["sink_reached"] != measured["after"]["sink_reached"]
-    ):
-        findings.append("delta.sink_reachability_changed is inconsistent")
+    expected_delta = sim.mesh_causal_delta(measured["before"], measured["after"])
+    for field, expected in expected_delta.items():
+        if not _measurement_matches(delta.get(field), expected):
+            findings.append(
+                f"delta.{field} does not match the value derived from before/after states"
+            )
     before_delay = measured["before"]["propagation_delay_ms"]
     after_delay = measured["after"]["propagation_delay_ms"]
-    expected_delta = (
+    expected_delay_delta = (
         None if before_delay is None or after_delay is None else after_delay - before_delay
     )
-    if not _measurement_matches(delta.get("propagation_delay_delta_ms"), expected_delta):
-        findings.append(
-            "delta.propagation_delay_delta_ms does not match the before/after delays"
-        )
+    if not _measurement_matches(delta.get("propagation_delay_delta_ms"), expected_delay_delta):
+        findings.append("delta.propagation_delay_delta_ms does not match the before/after delays")
     return findings
 
 
@@ -565,6 +708,11 @@ def _credit_checks(record):
     expected_rpe = outcome["received_reward"] - outcome["expected_value"]
     if abs(critic["reward_prediction_error"] - expected_rpe) > ROUNDING_TOL:
         findings.append("critic.reward_prediction_error does not match the scenario outcome")
+    expected_valence = (
+        "positive" if expected_rpe > 1e-9 else ("negative" if expected_rpe < -1e-9 else "neutral")
+    )
+    if critic["valence"] != expected_valence:
+        findings.append("critic.valence does not match reward_prediction_error")
     for level in ("dopamine", "serotonin", "acetylcholine", "norepinephrine"):
         if not 0.0 <= critic[level] <= 1.0:
             findings.append(f"critic.{level} is outside [0, 1]")
@@ -572,13 +720,75 @@ def _credit_checks(record):
     before = plasticity["weights_before"]
     after = plasticity["weights_after"]
     deltas = plasticity["weight_deltas"]
-    if not (len(before) == len(after) == len(deltas)):
+    scenario_circuit = record["scenario"]["circuit"]
+    initial_weights = scenario_circuit["initial_weights"]
+    if before != initial_weights:
+        findings.append("plasticity.weights_before does not match scenario.initial_weights")
+    vector_lengths = (
+        len(before),
+        len(after),
+        len(deltas),
+        len(plasticity["eligibility"]),
+        len(initial_weights),
+        len(scenario_circuit["pre_spike_times_ms"]),
+    )
+    derived_deltas = []
+    if len(set(vector_lengths)) != 1 or vector_lengths[0] != scenario_circuit["pre_neuron_count"]:
         findings.append("plasticity weight vectors have inconsistent lengths")
     else:
-        for index, (start, end, delta) in enumerate(zip(before, after, deltas)):
-            if abs((start + delta) - end) > ROUNDING_TOL:
-                findings.append(f"weight {index} does not satisfy after = before + delta")
-    applied = any(abs(delta) > sim.WEIGHT_UPDATE_EPS for delta in deltas)
+        plasticity_config = record["oracle"]["configuration"]["plasticity"]
+        eligibility = plasticity["eligibility"]
+        derived_deltas = []
+        for index, (start, end, delta, trace) in enumerate(
+            zip(before, after, deltas, eligibility, strict=True)
+        ):
+            raw_delta = (
+                plasticity_config["learning_rate"]
+                * trace
+                * critic["dopamine_phasic"]
+                * plasticity["modulatory_gain"]
+            )
+            derived_after = sim.clamp(
+                start + raw_delta,
+                plasticity_config["w_min"],
+                plasticity_config["w_max"],
+            )
+            derived_delta = derived_after - start
+            derived_deltas.append(derived_delta)
+            if not _measurement_matches(delta, derived_delta):
+                findings.append(
+                    f"weight {index} delta does not match learning_rate * eligibility "
+                    "* dopamine_phasic * modulatory_gain with configured bounds"
+                )
+            if not _measurement_matches(end, start + derived_delta):
+                findings.append(
+                    f"weight {index} does not satisfy after = before + delta "
+                    "derived from the retained learning rule"
+                )
+    for index, times in enumerate(scenario_circuit["pre_spike_times_ms"]):
+        if any(later < earlier for earlier, later in pairwise(times)):
+            findings.append(f"scenario pre-synaptic spike train {index} is not ordered")
+        if any(time_ms < 0 or time_ms >= scenario_circuit["duration_ms"] for time_ms in times):
+            findings.append(
+                f"scenario pre-synaptic spike train {index} leaves the circuit duration"
+            )
+    # The gain coefficients belong to the plasticity configuration in records
+    # produced by this family.
+    plasticity_config = record["oracle"]["configuration"]["plasticity"]
+    expected_gain = (
+        1.0
+        + plasticity_config["modulatory_gain_ach"] * critic["acetylcholine"]
+        + plasticity_config["modulatory_gain_ne"] * critic["norepinephrine"]
+    )
+    if not _measurement_matches(plasticity["modulatory_gain"], expected_gain):
+        findings.append("plasticity.modulatory_gain does not match critic modulators")
+    if plasticity["update_rule"] != ("dw = lr * eligibility * dopamine_phasic * modulatory_gain"):
+        findings.append("plasticity.update_rule does not name the executed update")
+    applied = (
+        any(abs(delta) > sim.WEIGHT_UPDATE_EPS for delta in derived_deltas)
+        if len(derived_deltas) == len(deltas)
+        else False
+    )
     if plasticity["update_applied"] != applied:
         findings.append("plasticity.update_applied disagrees with the weight deltas")
     if "post_update_behavior" not in plasticity or "pre_update_behavior" not in plasticity:
@@ -586,6 +796,21 @@ def _credit_checks(record):
     else:
         pre = plasticity["pre_update_behavior"]
         post = plasticity["post_update_behavior"]
+        duration_ms = plasticity_config["duration_ms"]
+        for name, behavior in (("pre_update_behavior", pre), ("post_update_behavior", post)):
+            times = behavior["spike_times_ms"]
+            if any(later < earlier for earlier, later in pairwise(times)):
+                findings.append(f"plasticity.{name}.spike_times_ms is not ordered")
+            if any(time_ms < 0 or time_ms >= duration_ms for time_ms in times):
+                findings.append(f"plasticity.{name}.spike_times_ms leaves the simulated duration")
+            expected_summary = {
+                "spike_count": len(times),
+                "first_spike_ms": times[0] if times else None,
+                "output_rate_hz": len(times) / (duration_ms / 1000.0),
+            }
+            for field, expected in expected_summary.items():
+                if not _measurement_matches(behavior.get(field), expected):
+                    findings.append(f"plasticity.{name}.{field} does not match spike_times_ms")
         expected_behavior_delta = {
             "spike_count_delta": post["spike_count"] - pre["spike_count"],
             "output_rate_delta_hz": post["output_rate_hz"] - pre["output_rate_hz"],
@@ -600,8 +825,7 @@ def _credit_checks(record):
             for field, expected in expected_behavior_delta.items():
                 if not _measurement_matches(behavior_delta.get(field), expected):
                     findings.append(
-                        f"plasticity.behavior_delta.{field} does not match the "
-                        "pre/post behavior"
+                        f"plasticity.behavior_delta.{field} does not match the pre/post behavior"
                     )
     return findings
 
@@ -719,16 +943,72 @@ def _memory_checks(record):
     measured = record["result"]["measured"]
     baseline = measured["baseline"]
     findings = []
-    if baseline["response"] not in ("A", "B", "none"):
-        findings.append(f"unexpected response: {baseline['response']!r}")
-    if baseline["response_ambiguous"]:
-        findings.append("both readouts fired on the same step; the response is ambiguous")
-    latency = baseline["response_latency_ms"]
-    if latency is not None and latency < 0:
-        findings.append("response_latency_ms is negative")
-    if baseline["spike_budget_exhausted"]:
-        findings.append("the trial hit the spike budget; the trajectory is truncated")
+    scenario = record["scenario"]
+    configuration = record["oracle"]["configuration"]
+    expected_delay = scenario["probe_ms"] - scenario["cue_ms"]
+    if not _measurement_matches(scenario["delay_ms"], expected_delay):
+        findings.append("scenario.delay_ms does not match probe_ms - cue_ms")
+    if not _measurement_matches(measured["delay_ms"], expected_delay):
+        findings.append("result.measured.delay_ms does not match the scenario delay")
+    if scenario["distractor_count"] != len(scenario["distractor_ms"]):
+        findings.append("scenario.distractor_count does not match distractor_ms")
+    expected_sparsity = (len(scenario["distractor_ms"]) + 1) / max(1.0, expected_delay / 100.0)
+    if not _measurement_matches(scenario["event_sparsity"], expected_sparsity):
+        findings.append("scenario.event_sparsity does not match the retained events")
+    if any(later <= earlier for earlier, later in pairwise(scenario["distractor_ms"])):
+        findings.append("scenario.distractor_ms must be strictly increasing")
+    if any(
+        time_ms <= scenario["cue_ms"] or time_ms >= scenario["probe_ms"]
+        for time_ms in scenario["distractor_ms"]
+    ):
+        findings.append("scenario distractors must lie strictly between cue and probe")
     probes = measured["probes"]
+    for name, trial in (("baseline", baseline), *sorted(probes.items())):
+        expected_response, expected_ambiguous = sim.memory_response_from_counts(
+            trial["output_spike_counts"]
+        )
+        if trial["response"] != expected_response:
+            findings.append(f"{name}.response does not match output_spike_counts")
+        if trial["response_ambiguous"] is not expected_ambiguous:
+            findings.append(f"{name}.response_ambiguous does not match output_spike_counts")
+        if trial["response"] not in ("A", "B", "none"):
+            findings.append(f"{name}.response is unexpected: {trial['response']!r}")
+        if trial["response_ambiguous"]:
+            findings.append(f"{name} has an ambiguous response")
+        latency = trial["response_latency_ms"]
+        if latency is not None and latency < 0:
+            findings.append(f"{name}.response_latency_ms is negative")
+        if latency is not None and latency > configuration["response_window_ms"]:
+            findings.append(f"{name}.response_latency_ms leaves the response window")
+        if (trial["response"] == "none") is not (latency is None):
+            findings.append(f"{name}.response and response_latency_ms disagree")
+        if trial["spike_budget_exhausted"]:
+            findings.append(f"{name} hit the spike budget; the trajectory is truncated")
+        if set(trial["output_spike_counts"]) != {"OA", "OB"}:
+            findings.append(f"{name}.output_spike_counts has unexpected neuron ids")
+        if set(trial["memory_spike_counts"]) != {"MA", "MB"}:
+            findings.append(f"{name}.memory_spike_counts has unexpected neuron ids")
+        if set(trial["latch_last_spike_ms"]) != {"MA", "MB"}:
+            findings.append(f"{name}.latch_last_spike_ms has unexpected neuron ids")
+        if any(
+            time_ms is not None and not 0 <= time_ms <= scenario["probe_ms"]
+            for time_ms in trial["latch_last_spike_ms"].values()
+        ):
+            findings.append(f"{name}.latch_last_spike_ms leaves the retained probe window")
+        expected_energy = trial["total_spikes"] * sim.ENERGY_PJ_PER_SPIKE
+        if not _measurement_matches(trial["energy_pJ"], expected_energy):
+            findings.append(f"{name}.energy_pJ does not match total_spikes")
+        expected_duration = scenario["probe_ms"] + configuration["response_window_ms"] + 5.0
+        if not _measurement_matches(trial["duration_ms"], expected_duration):
+            findings.append(f"{name}.duration_ms does not match the task configuration")
+        horizon = configuration["loop_delay_ms"] * 1.5
+        retained = any(
+            time_ms is not None
+            and scenario["probe_ms"] - horizon <= time_ms <= scenario["probe_ms"]
+            for time_ms in trial["latch_last_spike_ms"].values()
+        )
+        if trial["state_retained_at_probe"] is not retained:
+            findings.append(f"{name}.state_retained_at_probe does not match latch_last_spike_ms")
     differing = sorted(
         name
         for name in ("cue_ablation", "reset_ablation")
@@ -736,9 +1016,7 @@ def _memory_checks(record):
     )
     dependence = measured["temporal_dependence"]
     if dependence.get("demonstrated") != bool(differing):
-        findings.append(
-            "temporal_dependence.demonstrated does not match the ablation responses"
-        )
+        findings.append("temporal_dependence.demonstrated does not match the ablation responses")
     if dependence.get("changed_by") != differing:
         findings.append("temporal_dependence.changed_by does not match the changed controls")
     if not differing:
@@ -748,6 +1026,20 @@ def _memory_checks(record):
         )
     if "cue_ablation" not in probes:
         findings.append("the cue-ablation control is missing")
+    expected_probe_names = {"cue_ablation"}
+    if scenario["reset_ms"] is not None:
+        expected_probe_names.add("reset_ablation")
+    if scenario["distractor_ms"]:
+        expected_probe_names.add("distractor_swap")
+    if set(probes) != expected_probe_names:
+        findings.append("memory control probes do not match the scenario controls")
+    expected_invariant = (
+        probes["distractor_swap"]["response"] == baseline["response"]
+        if "distractor_swap" in probes
+        else None
+    )
+    if measured.get("distractor_invariant") is not expected_invariant:
+        findings.append("distractor_invariant does not match the distractor control")
     return findings
 
 
@@ -814,6 +1106,7 @@ SPECS = {
         name=ENCODER_FAMILY,
         runtimes=("axon-encoder",),
         oracle_type="spike-encoder",
+        units=ENCODER_UNITS,
         propose=_encoder_propose,
         build_request=encoder_request,
         build_oracle=_encoder_oracle,
@@ -824,6 +1117,7 @@ SPECS = {
         name=NEURON_FAMILY,
         runtimes=("neuromod",),
         oracle_type="neuron-simulation",
+        units=NEURON_UNITS,
         propose=_neuron_propose,
         build_request=neuron_request,
         build_oracle=_neuron_oracle,
@@ -834,6 +1128,7 @@ SPECS = {
         name=MESH_FAMILY,
         runtimes=("synaptic-mesh",),
         oracle_type="network-simulation",
+        units=MESH_UNITS,
         propose=_mesh_propose,
         build_request=mesh_request,
         build_oracle=_mesh_oracle,
@@ -844,6 +1139,7 @@ SPECS = {
         name=CREDIT_FAMILY,
         runtimes=("limbic-critic", "plasticity-lab"),
         oracle_type="critic-plasticity-chain",
+        units={"critic": CRITIC_UNITS, "plasticity": PLASTICITY_UNITS},
         propose=_credit_propose,
         build_request=credit_request,
         build_oracle=_credit_oracle,
@@ -854,6 +1150,7 @@ SPECS = {
         name=MEMORY_FAMILY,
         runtimes=("recurrent-snn",),
         oracle_type="recurrent-snn",
+        units=MEMORY_UNITS,
         propose=_memory_propose,
         build_request=memory_request,
         build_oracle=_memory_oracle,
@@ -862,9 +1159,7 @@ SPECS = {
     ),
 }
 
-ALL_RUNTIMES = tuple(
-    dict.fromkeys(runtime for spec in SPECS.values() for runtime in spec.runtimes)
-)
+ALL_RUNTIMES = tuple(dict.fromkeys(runtime for spec in SPECS.values() for runtime in spec.runtimes))
 
 
 def spec_for(family):

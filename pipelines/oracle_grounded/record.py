@@ -14,7 +14,9 @@ Validation fails closed. A record with a missing, unattributed, or unhashed
 oracle result is rejected, never downgraded to "probably fine".
 """
 
-from . import canon, families, generators, oracles
+import re
+
+from . import canon, families, generators, oracles, schema_validation
 from .rng import Rng, seed_from_label
 
 SCHEMA_ID = "oracle-grounded/v1"
@@ -129,9 +131,7 @@ def build_record(
     }
     reserved = _reserved_key_hits(proposal)
     if reserved:
-        raise GenerationError(
-            f"generator emitted oracle-reserved keys: {', '.join(reserved)}"
-        )
+        raise GenerationError(f"generator emitted oracle-reserved keys: {', '.join(reserved)}")
 
     request = spec.build_request(scenario, intervention)
     adapter = spec.oracle(environ)
@@ -203,12 +203,15 @@ def build_record(
 
 def assess(record):
     """Run every check and produce the record's own validation block."""
-    layers = classify(record)
+    # The validation block is what this function is constructing.  Validate
+    # every other schema and invariant now, then authenticate the completed
+    # block when the record is read back through ``validate_record``.
+    layers = classify(record, check_declared_status=False)
     findings = layers["envelope"] + layers["family"]
     spec = families.spec_for(record["family"])
     try:
         score = spec.score(record)
-    except (KeyError, IndexError, TypeError, ValueError):
+    except Exception:
         # A measurement in an unexpected shape cannot be scored. That is itself
         # reported by the family checks; scoring must not raise over it.
         score = None
@@ -247,10 +250,14 @@ def publishability(record, findings=()):
         reasons.append("record failed validation")
     if reasons:
         return False, "; ".join(reasons)
-    return True, "measured by the named runtime with resolved provenance"
+    return (
+        True,
+        "measured through the named-runtime protocol with resolved stored "
+        "provenance; the protocol does not provide external attestation",
+    )
 
 
-def classify(record, require_named_runtime=False):
+def classify(record, require_named_runtime=False, check_declared_status=True):
     """Split findings into layers so a rejected record still validates.
 
     * ``envelope`` — structure, hashes, attribution, provenance. Always fatal:
@@ -278,6 +285,21 @@ def classify(record, require_named_runtime=False):
     if not isinstance(record.get("id"), str) or not record["id"]:
         envelope.append("id must be a non-empty string")
 
+    # The checked-in JSON Schemas are executable curation constraints, not
+    # documentation.  Keep this stdlib-only through the local subset validator.
+    try:
+        envelope.extend(
+            schema_validation.validate_record_schemas(
+                record,
+                family,
+                include_validation=check_declared_status,
+            )
+        )
+    except Exception as exc:
+        envelope.append(f"record schema validation could not run: {type(exc).__name__}")
+    if envelope:
+        return {"envelope": envelope, "family": [], "status": []}
+
     envelope.extend(_validate_generator_side(record))
     envelope.extend(_validate_oracle_side(record, require_named_runtime))
     if envelope:
@@ -285,19 +307,23 @@ def classify(record, require_named_runtime=False):
 
     try:
         family_findings = families.spec_for(family).checks(record)
-    except (AttributeError, KeyError, TypeError, IndexError, ValueError) as exc:
+    except Exception as exc:
         return {
-            "envelope": [f"family checks could not run on this record: {exc}"],
+            "envelope": [f"family checks could not run on this record: {type(exc).__name__}"],
             "family": [],
             "status": [],
         }
-    status = _validate_declared_status(record, family_findings)
+    status = _validate_declared_status(record, family_findings) if check_declared_status else []
     return {"envelope": envelope, "family": family_findings, "status": status}
 
 
 def validate_record(record, check_declared_status=True, require_named_runtime=False):
     """Flat list of findings. Empty means the record is acceptable as-is."""
-    layers = classify(record, require_named_runtime=require_named_runtime)
+    layers = classify(
+        record,
+        require_named_runtime=require_named_runtime,
+        check_declared_status=check_declared_status,
+    )
     findings = layers["envelope"] + layers["family"]
     if check_declared_status:
         findings = findings + layers["status"]
@@ -311,6 +337,54 @@ def _validate_generator_side(record):
         return ["generator must be an object"]
     if generator.get("authoritative") is not False:
         findings.append("generator.authoritative must be false")
+    family = record["family"]
+    identifier = record["id"]
+    match = re.fullmatch(rf"{re.escape(family)}-r([0-9]+)-([0-9]+)", identifier)
+    if match is None:
+        findings.append("id does not encode the record family, round, and index")
+    else:
+        round_number, index = int(match.group(1)), int(match.group(2))
+        if record["meta"]["round"] != round_number:
+            findings.append("meta.round does not match the round encoded in id")
+        if identifier != f"{family}-r{round_number:02d}-{index:04d}":
+            findings.append("id is not in canonical family-round-index form")
+        if generator.get("label") != f"{family}#{index}":
+            findings.append("generator.label does not match the family and index in id")
+        record_seed = generator.get("seed")
+        if not isinstance(record_seed, int) or isinstance(record_seed, bool):
+            findings.append("generator.seed must be an integer")
+        else:
+            expected_generator = generators.generator_block(
+                record_seed,
+                f"{family}#{index}",
+            )
+            if generator != expected_generator:
+                findings.append("generator does not match the deterministic generator contract")
+            try:
+                expected_scenario, expected_intervention, expected_candidate = families.spec_for(
+                    family
+                ).propose(Rng(record_seed))
+                expected_proposal = {
+                    "scenario": canon.normalize(expected_scenario),
+                    "intervention": canon.normalize(expected_intervention),
+                    "candidate_prediction": canon.normalize(expected_candidate),
+                }
+                retained_proposal = {
+                    key: record[key] for key in ("scenario", "intervention", "candidate_prediction")
+                }
+                if retained_proposal != expected_proposal:
+                    findings.append(
+                        "generator.seed does not reproduce the stored scenario, "
+                        "intervention, and candidate prediction"
+                    )
+            except Exception as exc:
+                findings.append(
+                    "generator proposal could not be reproduced from generator.seed: "
+                    f"{type(exc).__name__}"
+                )
+    expected_tags = ["oracle-grounded", family, record["oracle"]["implementation"]]
+    if record["meta"].get("tags") != expected_tags:
+        findings.append("meta.tags do not match the record family and oracle implementation")
     if not isinstance(record["scenario"], dict) or not record["scenario"]:
         findings.append("scenario must be a non-empty object")
     candidate = record["candidate_prediction"]
@@ -318,9 +392,7 @@ def _validate_generator_side(record):
         if not isinstance(candidate, dict):
             findings.append("candidate_prediction must be an object or null")
         elif candidate.get("kind") != "non_authoritative_guess":
-            findings.append(
-                "candidate_prediction.kind must be 'non_authoritative_guess'"
-            )
+            findings.append("candidate_prediction.kind must be 'non_authoritative_guess'")
     reserved = _reserved_key_hits(proposal_of(record))
     if reserved:
         findings.append(
@@ -331,6 +403,22 @@ def _validate_generator_side(record):
         findings.append(
             "proposal_hash does not cover the stored generator sections "
             "(the scenario or the prediction was edited after the oracle ran)"
+        )
+    try:
+        request = families.spec_for(record["family"]).build_request(
+            record["scenario"], record["intervention"]
+        )
+        rebuilt = canon.normalize(request.get("configuration"))
+        retained = canon.normalize(record["oracle"].get("configuration"))
+        if retained != rebuilt:
+            findings.append(
+                "oracle.configuration does not match the configuration rebuilt "
+                "from scenario and intervention"
+            )
+    except Exception as exc:
+        findings.append(
+            "oracle request could not be rebuilt from scenario and intervention: "
+            f"{type(exc).__name__}"
         )
     return findings
 
@@ -350,17 +438,53 @@ def _validate_oracle_side(record, require_named_runtime):
         findings.append("oracle.units must be a non-empty object")
     if not isinstance(oracle["stages"], list) or not oracle["stages"]:
         findings.append("oracle.stages must list at least one executed stage")
-    if oracle["repo"] != oracles.REPO_SLUG and oracle["implementation"] == "reference":
-        findings.append(f"reference oracle must declare repo {oracles.REPO_SLUG!r}")
+    if oracle["repo"] != oracles.REPO_SLUG:
+        findings.append(f"oracle must declare repo {oracles.REPO_SLUG!r}")
     commit = oracle["commit"]
-    if not isinstance(commit, str) or not commit.strip() or commit == "unknown":
-        findings.append("oracle.commit must be a resolved commit, not 'unknown'")
+    if not oracles.is_source_commit(commit):
+        findings.append("oracle.commit must be a resolved lowercase 40- or 64-hex source commit")
+    elif oracles.resolve_source_commit(commit) != commit:
+        findings.append(
+            "oracle.commit does not resolve to that commit object in the source repository"
+        )
     if not canon.is_digest(oracle.get("module_digest", "")):
         findings.append("oracle.module_digest must be a sha256 digest")
     if oracle["implementation"] not in ("reference", "named-runtime", "mixed"):
         findings.append(f"unknown oracle.implementation: {oracle['implementation']!r}")
     else:
-        findings.extend(_validate_stage_consistency(oracle))
+        findings.extend(_validate_stage_consistency(oracle, record["family"]))
+        if oracle["implementation"] in ("reference", "mixed"):
+            if oracle.get("module") != oracles.MODULE_PATH:
+                findings.append(f"reference oracle.module must be {oracles.MODULE_PATH!r}")
+            if oracle.get("module_digest") != oracles.module_digest():
+                findings.append(
+                    "reference oracle.module_digest does not match the current "
+                    "reference implementation"
+                )
+        expected_authority = {
+            "reference": "reference-simulator",
+            "named-runtime": "measured-runtime",
+            "mixed": "mixed-reference-and-runtime",
+        }[oracle["implementation"]]
+        if oracle.get("authority") != expected_authority:
+            findings.append(
+                f"oracle.authority must be {expected_authority!r} for "
+                f"implementation {oracle['implementation']!r}"
+            )
+
+    spec = families.spec_for(record["family"])
+    if oracle.get("type") != spec.oracle_type:
+        findings.append(
+            f"oracle.type {oracle.get('type')!r} does not match family oracle type "
+            f"{spec.oracle_type!r}"
+        )
+    if oracle.get("requested_runtime") != list(spec.runtimes):
+        findings.append(
+            "oracle.requested_runtime does not match the runtimes specified for "
+            f"{record['family']!r}"
+        )
+    if oracle.get("units") != spec.units:
+        findings.append("oracle.units does not match the family units contract")
     if require_named_runtime and oracle["implementation"] != "named-runtime":
         findings.append(
             "oracle.implementation is not 'named-runtime' and a named runtime was required"
@@ -378,6 +502,11 @@ def _validate_oracle_side(record, require_named_runtime):
             f"result.produced_by {result.get('produced_by')!r} does not match "
             f"oracle.id {oracle['id']!r}"
         )
+    result_units = result.get("units")
+    if not isinstance(result_units, dict) or not result_units:
+        findings.append("result.units must be a non-empty object")
+    elif result_units != oracle["units"]:
+        findings.append("result.units does not exactly match oracle.units")
     if record["result_hash"] != canon.digest(result):
         findings.append("result_hash does not cover the stored result")
 
@@ -390,10 +519,25 @@ def _validate_oracle_side(record, require_named_runtime):
             findings.append(f"provenance.kind must be one of {sorted(ALLOWED_PROVENANCE_KIND)}")
         elif kind not in TRAINING_PROVENANCE_KIND:
             findings.append("provenance.kind must not be 'unknown' on a new record")
+        elif kind != "simulated":
+            findings.append(
+                "provenance.kind must be 'simulated'; the sf-oracle protocol does "
+                "not attest physical hardware execution"
+            )
+        if provenance.get("oracle_grounded") is not True:
+            findings.append("provenance.oracle_grounded must be true")
+        if provenance.get("claimed") != oracle.get("authority"):
+            findings.append("provenance.claimed must match oracle.authority")
+        if provenance.get("generator_authored") != list(GENERATOR_SECTIONS):
+            findings.append("provenance.generator_authored does not match the generator sections")
+        if provenance.get("oracle_authored") != ["result", "oracle.stages"]:
+            findings.append(
+                "provenance.oracle_authored does not match the oracle-authored sections"
+            )
     return findings
 
 
-def _validate_stage_consistency(oracle):
+def _validate_stage_consistency(oracle, family):
     """A record cannot label itself with an authority its stages do not show.
 
     Without this, relabelling ``implementation`` from ``reference`` to
@@ -406,6 +550,13 @@ def _validate_stage_consistency(oracle):
     stages = oracle["stages"]
     if not isinstance(stages, list) or not stages:
         return findings
+    spec = families.spec_for(family)
+    reference_oracle = spec.oracle({})
+    reference_adapters = (
+        [adapter for _name, adapter, _build in reference_oracle._steps]
+        if isinstance(reference_oracle, oracles.ChainOracle)
+        else [reference_oracle]
+    )
     kinds = set()
     for position, stage in enumerate(stages):
         if not isinstance(stage, dict):
@@ -413,6 +564,10 @@ def _validate_stage_consistency(oracle):
             continue
         kind = stage.get("implementation")
         kinds.add(kind)
+        requested_runtime = spec.runtimes[position] if position < len(spec.runtimes) else None
+        reference_adapter = (
+            reference_adapters[position] if position < len(reference_adapters) else None
+        )
         if kind == "named-runtime":
             for field in ("version", "runtime_commit"):
                 value = stage.get(field)
@@ -425,16 +580,67 @@ def _validate_stage_consistency(oracle):
                     f"oracle.stages[{position}].runtime_commit must be a resolved "
                     "7-64 digit hexadecimal revision"
                 )
+            if stage.get("oracle_id") != requested_runtime:
+                findings.append(
+                    f"oracle.stages[{position}].oracle_id must match its requested runtime"
+                )
+            executable = stage.get("executable")
+            if not isinstance(executable, str) or not executable.strip():
+                findings.append(
+                    f"oracle.stages[{position}] claims a named runtime but has no executable"
+                )
         elif kind == "reference":
+            if reference_adapter is not None:
+                if stage.get("oracle_id") != reference_adapter.oracle_id:
+                    findings.append(
+                        f"oracle.stages[{position}].oracle_id does not match the "
+                        "canonical reference adapter"
+                    )
+                if stage.get("version") != reference_adapter.version:
+                    findings.append(
+                        f"oracle.stages[{position}].version does not match the "
+                        "canonical reference adapter"
+                    )
+            if "runtime_commit" in stage or "executable" in stage:
+                findings.append(
+                    f"oracle.stages[{position}] reference evidence carries named-runtime fields"
+                )
             if stage.get("module_digest") != oracle["module_digest"]:
                 findings.append(
                     f"oracle.stages[{position}] module_digest does not match oracle.module_digest"
+                )
+            if stage.get("module_digest") != oracles.module_digest():
+                findings.append(
+                    f"oracle.stages[{position}] module_digest does not match the "
+                    "current reference implementation"
                 )
         else:
             findings.append(
                 f"oracle.stages[{position}].implementation must be 'reference' or "
                 f"'named-runtime', got {kind!r}"
             )
+    expected_stage_names = (
+        [f"{family}:critic", f"{family}:plasticity"]
+        if family == families.CREDIT_FAMILY
+        else [family]
+    )
+    requested = oracle.get("requested_runtime")
+    if len(stages) != len(expected_stage_names):
+        findings.append("oracle.stages count does not match the family oracle path")
+    else:
+        for position, (stage, expected_name) in enumerate(
+            zip(stages, expected_stage_names, strict=True)
+        ):
+            if not isinstance(stage, dict):
+                continue
+            if stage.get("stage") != expected_name:
+                findings.append(f"oracle.stages[{position}].stage does not match {expected_name!r}")
+            if isinstance(requested, list) and position < len(requested):
+                if stage.get("requested_runtime") != requested[position]:
+                    findings.append(
+                        f"oracle.stages[{position}].requested_runtime does not match "
+                        "oracle.requested_runtime"
+                    )
     declared = oracle["implementation"]
     if declared == "named-runtime" and kinds != {"named-runtime"}:
         findings.append(
@@ -451,6 +657,17 @@ def _validate_stage_consistency(oracle):
             "oracle.implementation is 'mixed' but the stages are not mixed: "
             f"{sorted(str(kind) for kind in kinds)}"
         )
+    stage_ids = [
+        stage.get("oracle_id")
+        for stage in stages
+        if isinstance(stage, dict) and isinstance(stage.get("oracle_id"), str)
+    ]
+    if len(stage_ids) == len(stages):
+        expected_oracle_id = "+".join(stage_ids)
+        if oracle.get("id") != expected_oracle_id:
+            findings.append("oracle.id does not match the ordered identities of oracle.stages")
+    if oracle.get("version") != reference_oracle.version:
+        findings.append("oracle.version does not match the canonical adapter-envelope version")
 
     availability = oracle.get("availability")
     if not isinstance(availability, dict):
@@ -458,6 +675,40 @@ def _validate_stage_consistency(oracle):
         return findings
     if oracle.get("runtime_bound") != availability.get("all_bound"):
         findings.append("oracle.runtime_bound disagrees with oracle.availability.all_bound")
+    probes = availability.get("runtimes")
+    requested = oracle.get("requested_runtime")
+    if isinstance(probes, list) and isinstance(requested, list):
+        expected_probes = [
+            {
+                "runtime": runtime,
+                "binding_env": oracles.env_key(runtime),
+                "bound": probe.get("bound") if isinstance(probe, dict) else None,
+            }
+            for runtime, probe in zip(requested, probes)
+        ]
+        if len(probes) != len(requested) or probes != expected_probes:
+            findings.append(
+                "oracle.availability.runtimes must exactly describe the requested runtimes"
+            )
+        if len(probes) == len(stages):
+            for position, (probe, stage) in enumerate(zip(probes, stages, strict=True)):
+                if isinstance(probe, dict) and isinstance(stage, dict):
+                    expected_kind = "named-runtime" if probe.get("bound") is True else "reference"
+                    if stage.get("implementation") != expected_kind:
+                        findings.append(
+                            f"oracle.stages[{position}].implementation disagrees "
+                            "with the corresponding runtime binding"
+                        )
+        bound = [
+            probe.get("runtime")
+            for probe in probes
+            if isinstance(probe, dict) and probe.get("bound") is True
+        ]
+        unbound = [runtime for runtime in requested if runtime not in bound]
+        if availability.get("all_bound") is not (not unbound):
+            findings.append("oracle.availability.all_bound is not derived from runtimes")
+        if availability.get("unbound") != unbound:
+            findings.append("oracle.availability.unbound is not derived from runtimes")
     if declared == "named-runtime":
         unbound = availability.get("unbound") or []
         if unbound:
@@ -472,27 +723,49 @@ def _validate_declared_status(record, findings_so_far):
     validation = record.get("validation")
     if not isinstance(validation, dict):
         return ["validation must be an object"]
-    status = validation.get("status")
-    if status not in ("accepted", "rejected"):
-        return [f"validation.status must be accepted or rejected, got {status!r}"]
     out = []
-    reasons = validation.get("reasons") or []
-    if status == "accepted" and findings_so_far:
-        out.append("validation.status is 'accepted' but the record fails its own checks")
-    if status == "rejected":
-        if not reasons:
-            out.append("validation.status is 'rejected' but no reason is recorded")
-        elif sorted(reasons) != sorted(findings_so_far):
-            # A rejected record is still evidence; its stated reason has to be
-            # the reason it actually fails, or the rejection log is fiction.
-            out.append(
-                "validation.reasons do not match the recomputed findings: "
-                f"stored {sorted(reasons)}, recomputed {sorted(findings_so_far)}"
-            )
-    if validation.get("publishable") and record["oracle"]["implementation"] != "named-runtime":
+    expected_status = "rejected" if findings_so_far else "accepted"
+    status = validation.get("status")
+    if status != expected_status:
         out.append(
-            "validation.publishable is true for a record measured by a reference "
-            "implementation"
+            f"validation.status is {status!r} but the recomputed status is {expected_status!r}"
+        )
+    expected_reasons = list(findings_so_far)
+    if validation.get("reasons") != expected_reasons:
+        # A rejected record is still evidence; its stated reason has to be the
+        # exact deterministic finding sequence, or the rejection log is fiction.
+        out.append(
+            "validation.reasons do not match the recomputed findings: "
+            f"stored {validation.get('reasons')!r}, recomputed {expected_reasons!r}"
+        )
+    expected_checks = {
+        "envelope": True,
+        "family_invariants": not findings_so_far,
+    }
+    if validation.get("checks") != expected_checks:
+        out.append(
+            "validation.checks do not match the recomputed validation layers: "
+            f"stored {validation.get('checks')!r}, recomputed {expected_checks!r}"
+        )
+    spec = families.spec_for(record["family"])
+    try:
+        expected_score = spec.score(record)
+    except Exception:
+        expected_score = None
+    if validation.get("candidate_prediction_correct") is not expected_score:
+        out.append(
+            "validation.candidate_prediction_correct does not match the "
+            f"recomputed candidate score {expected_score!r}"
+        )
+    expected_publishable, expected_reason = publishability(record, findings_so_far)
+    if validation.get("publishable") is not expected_publishable:
+        out.append(
+            f"validation.publishable is {validation.get('publishable')!r} but the "
+            f"recomputed value is {expected_publishable!r}"
+        )
+    if validation.get("publishable_reason") != expected_reason:
+        out.append(
+            "validation.publishable_reason does not match the recomputed publishability decision"
         )
     return out
 
@@ -501,18 +774,35 @@ def reproduce(record, environ=None):
     """Re-run the oracle from the stored scenario and compare the measurement.
 
     Returns ``(status, detail)`` where status is one of ``reproduced``,
-    ``mismatch``, or ``unavailable``.
+    ``mismatch``, ``unavailable``, or ``invalid``.  Malformed stored input is
+    bounded as ``invalid`` instead of escaping as a validator traceback.
     """
-    spec = families.spec_for(record["family"])
-    request = spec.build_request(record["scenario"], record["intervention"])
-    rebuilt_configuration = canon.normalize(request.get("configuration"))
-    stored_configuration = canon.normalize(record["oracle"].get("configuration"))
+    try:
+        stored_oracle = record["oracle"]
+        implementation = stored_oracle["implementation"]
+        stored_commit = stored_oracle.get("commit")
+        if oracles.resolve_source_commit(stored_commit) != stored_commit:
+            return "invalid", "stored oracle.commit is not a resolved source commit"
+        if implementation in ("reference", "mixed"):
+            if stored_oracle.get("module") != oracles.MODULE_PATH:
+                return "mismatch", "stored reference module identity is not current"
+            if stored_oracle.get("module_digest") != oracles.module_digest():
+                return "mismatch", "stored reference module digest is not current"
+        spec = families.spec_for(record["family"])
+        request = spec.build_request(record["scenario"], record["intervention"])
+        rebuilt_configuration = canon.normalize(request.get("configuration"))
+        stored_configuration = canon.normalize(stored_oracle.get("configuration"))
+    except Exception as exc:
+        return "invalid", f"stored record cannot rebuild an oracle request: {type(exc).__name__}"
     if rebuilt_configuration != stored_configuration:
         return "mismatch", (
             "stored oracle.configuration does not match the configuration rebuilt "
             "from scenario and intervention"
         )
-    adapter = spec.oracle(environ)
+    try:
+        adapter = spec.oracle(environ)
+    except oracles.OracleError as exc:
+        return "unavailable", str(exc)
     if adapter.implementation != record["oracle"]["implementation"]:
         return "unavailable", (
             f"record was measured by {record['oracle']['implementation']!r} but this "
@@ -522,13 +812,23 @@ def reproduce(record, environ=None):
         run = adapter.run(record["family"], request)
     except oracles.OracleError as exc:
         return "unavailable", str(exc)
+    try:
+        replay_stages = canon.normalize(run.stages)
+        stored_stages = canon.normalize(stored_oracle["stages"])
+    except Exception as exc:
+        return "invalid", f"stored stage identity is malformed: {type(exc).__name__}"
+    if replay_stages != stored_stages:
+        return "mismatch", "stored oracle stage code identity does not match the replay"
     replay = {
         "produced_by": adapter.oracle_id,
         "measured": run.measured,
         "units": run.units,
     }
-    if canon.digest(replay) == record["result_hash"]:
-        return "reproduced", record["result_hash"]
-    return "mismatch", (
-        f"expected {record['result_hash']}, recomputed {canon.digest(replay)}"
-    )
+    try:
+        replay_digest = canon.digest(replay)
+        expected_digest = record["result_hash"]
+    except (KeyError, TypeError, ValueError) as exc:
+        return "invalid", f"stored result digest is malformed: {type(exc).__name__}"
+    if replay_digest == expected_digest:
+        return "reproduced", expected_digest
+    return "mismatch", f"expected {expected_digest}, recomputed {replay_digest}"

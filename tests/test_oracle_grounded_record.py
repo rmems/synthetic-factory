@@ -14,25 +14,74 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO / "pipelines"))
 
-from oracle_grounded import canon, families, generators, oracles, record  # noqa: E402
+from oracle_grounded import (  # noqa: E402
+    canon,
+    families,
+    generators,
+    oracles,
+    record,
+    schema_validation,
+    sim,
+)
 
 DOUBLE = REPO / "tests" / "fixtures" / "oracle-grounded" / "protocol_double.py"
-PINNED_COMMIT = "0" * 40
+PINNED_COMMIT = oracles.resolve_commit(REPO)[0]
 
 
 def build(family, index=0, **kwargs):
     kwargs.setdefault("commit", PINNED_COMMIT)
     kwargs.setdefault("dirty", False)
+    kwargs.setdefault("environ", {})
     return record.build_record(family, index, seed=12345, **kwargs)
 
 
 def double_env(mode="ok", runtimes=("axon-encoder",)):
     command = f"{sys.executable} {DOUBLE} {mode}"
     return {oracles.env_key(runtime): command for runtime in runtimes}
+
+
+def result_findings(item):
+    item["result_hash"] = canon.digest(item["result"])
+    return record.validate_record(item, check_declared_status=False)
+
+
+def proposal_findings(item):
+    item["proposal_hash"] = canon.digest(record.proposal_of(item))
+    return record.validate_record(item, check_declared_status=False)
+
+
+def relabel_as_named_runtime(item):
+    """Create a structurally valid synthetic named-runtime record for gate tests."""
+    item = copy.deepcopy(item)
+    oracle = item["oracle"]
+    oracle["implementation"] = "named-runtime"
+    oracle["authority"] = "measured-runtime"
+    item["provenance"]["claimed"] = "measured-runtime"
+    item["meta"]["tags"][-1] = "named-runtime"
+    oracle["runtime_bound"] = True
+    oracle["availability"]["all_bound"] = True
+    oracle["availability"]["unbound"] = []
+    for probe in oracle["availability"]["runtimes"]:
+        probe["bound"] = True
+    stage_ids = []
+    for stage, runtime in zip(oracle["stages"], oracle["requested_runtime"], strict=True):
+        stage["implementation"] = "named-runtime"
+        stage["oracle_id"] = runtime
+        stage["version"] = "0.0.0-double"
+        stage["runtime_commit"] = "a" * 40
+        stage["executable"] = runtime
+        stage.pop("module_digest", None)
+        stage_ids.append(runtime)
+    oracle["id"] = "+".join(stage_ids)
+    item["result"]["produced_by"] = oracle["id"]
+    item["result_hash"] = canon.digest(item["result"])
+    item["validation"] = record.assess(item)
+    return item
 
 
 class EnvelopeShape(unittest.TestCase):
@@ -85,9 +134,7 @@ class GeneratorNeverMeasures(unittest.TestCase):
     def test_a_generator_claiming_authority_is_rejected(self):
         item = build(families.MESH_FAMILY)
         item["generator"]["authoritative"] = True
-        self.assertTrue(
-            any("authoritative" in finding for finding in record.validate_record(item))
-        )
+        self.assertTrue(any("authoritative" in finding for finding in record.validate_record(item)))
 
     def test_a_measurement_key_in_a_generator_section_is_rejected(self):
         for section in ("scenario", "candidate_prediction"):
@@ -126,21 +173,15 @@ class GeneratorNeverMeasures(unittest.TestCase):
 
     def test_the_candidate_prediction_is_scored_but_not_believed(self):
         item = build(families.ENCODER_FAMILY)
-        self.assertIn(
-            item["validation"]["candidate_prediction_correct"], (True, False, None)
-        )
+        self.assertIn(item["validation"]["candidate_prediction_correct"], (True, False, None))
         self.assertNotIn("candidate_prediction", item["result"]["measured"])
 
 
 class HashesCoverWhatTheyClaim(unittest.TestCase):
     def test_the_proposal_hash_covers_exactly_the_generator_sections(self):
         item = build(families.ENCODER_FAMILY)
-        self.assertEqual(
-            item["proposal_hash"], canon.digest(record.proposal_of(item))
-        )
-        self.assertEqual(
-            sorted(record.proposal_of(item)), sorted(record.GENERATOR_SECTIONS)
-        )
+        self.assertEqual(item["proposal_hash"], canon.digest(record.proposal_of(item)))
+        self.assertEqual(sorted(record.proposal_of(item)), sorted(record.GENERATOR_SECTIONS))
 
     def test_editing_a_scenario_after_the_fact_is_detected(self):
         item = build(families.ENCODER_FAMILY)
@@ -178,7 +219,7 @@ class CurationFailsClosed(unittest.TestCase):
         item = build(families.NEURON_FAMILY)
         item["result"] = {}
         findings = record.validate_record(item)
-        self.assertTrue(any("fails closed" in f for f in findings), findings)
+        self.assertTrue(any("$.result" in f and "required" in f for f in findings), findings)
 
     def test_an_empty_measurement_is_an_error(self):
         item = build(families.NEURON_FAMILY)
@@ -200,11 +241,49 @@ class CurationFailsClosed(unittest.TestCase):
         findings = record.validate_record(item)
         self.assertTrue(any("commit" in f for f in findings), findings)
 
+    def test_source_commit_requires_a_full_lowercase_object_id(self):
+        for forged in ("main", "a" * 39, "a" * 41, "A" * 40, "0x" + "a" * 40):
+            item = build(families.NEURON_FAMILY)
+            item["oracle"]["commit"] = forged
+            findings = record.validate_record(item, check_declared_status=False)
+            with self.subTest(commit=forged):
+                self.assertTrue(any("oracle.commit" in f for f in findings), findings)
+        self.assertTrue(oracles.is_source_commit("a" * 40))
+        self.assertTrue(oracles.is_source_commit("b" * 64))
+
+    def test_a_syntactically_valid_but_absent_source_commit_is_rejected(self):
+        absent = "f" * 40
+        self.assertTrue(oracles.is_source_commit(absent))
+        self.assertIsNone(oracles.resolve_source_commit(absent))
+        item = build(families.NEURON_FAMILY)
+        item["oracle"]["commit"] = absent
+        findings = record.validate_record(item, check_declared_status=False)
+        self.assertTrue(any("does not resolve" in finding for finding in findings), findings)
+
+    def test_generator_seed_must_reproduce_the_stored_proposal(self):
+        item = build(families.ENCODER_FAMILY)
+        item["generator"]["seed"] += 1
+        item["oracle"]["seed"] = item["generator"]["seed"]
+        item["proposal_hash"] = canon.digest(record.proposal_of(item))
+        findings = record.validate_record(item, check_declared_status=False)
+        self.assertTrue(
+            any("generator.seed does not reproduce" in finding for finding in findings),
+            findings,
+        )
+
     def test_a_missing_module_digest_is_an_error(self):
         item = build(families.NEURON_FAMILY)
         item["oracle"]["module_digest"] = "not-a-digest"
         findings = record.validate_record(item)
         self.assertTrue(any("module_digest" in f for f in findings), findings)
+
+    def test_a_self_consistent_stale_reference_digest_is_rejected(self):
+        item = build(families.NEURON_FAMILY)
+        forged = canon.digest({"different": "reference implementation"})
+        item["oracle"]["module_digest"] = forged
+        item["oracle"]["stages"][0]["module_digest"] = forged
+        findings = record.validate_record(item, check_declared_status=False)
+        self.assertTrue(any("current reference implementation" in f for f in findings), findings)
 
     def test_a_missing_dirty_state_is_an_error(self):
         item = build(families.NEURON_FAMILY)
@@ -233,7 +312,22 @@ class CurationFailsClosed(unittest.TestCase):
         item = build(families.NEURON_FAMILY)
         item["provenance"]["kind"] = "unknown"
         findings = record.validate_record(item)
-        self.assertTrue(any("unknown" in f for f in findings), findings)
+        self.assertTrue(any("provenance.kind" in f for f in findings), findings)
+
+    def test_protocol_execution_cannot_self_attest_hil_or_designed_provenance(self):
+        for item in (
+            build(families.NEURON_FAMILY),
+            relabel_as_named_runtime(build(families.ENCODER_FAMILY)),
+        ):
+            for forged in ("hil", "designed"):
+                candidate = copy.deepcopy(item)
+                candidate["provenance"]["kind"] = forged
+                findings = record.validate_record(candidate, check_declared_status=False)
+                with self.subTest(implementation=item["oracle"]["implementation"], kind=forged):
+                    self.assertTrue(
+                        any("does not attest physical hardware" in f for f in findings),
+                        findings,
+                    )
 
 
 class AuthorityCannotBeSelfDeclared(unittest.TestCase):
@@ -255,6 +349,18 @@ class AuthorityCannotBeSelfDeclared(unittest.TestCase):
         findings = record.validate_record(item)
         self.assertTrue(any("publishable" in f for f in findings), findings)
 
+    def test_a_rejected_named_runtime_record_cannot_claim_publishability(self):
+        item = next(
+            relabel_as_named_runtime(build(families.MEMORY_FAMILY, index))
+            for index in range(24)
+            if build(families.MEMORY_FAMILY, index)["validation"]["status"] == "rejected"
+        )
+        self.assertEqual(item["validation"]["status"], "rejected")
+        self.assertFalse(item["validation"]["publishable"])
+        item["validation"]["publishable"] = True
+        findings = record.validate_record(item)
+        self.assertTrue(any("recomputed value" in f for f in findings), findings)
+
     def test_relabelling_a_reference_run_as_a_named_runtime_is_rejected(self):
         item = build(families.ENCODER_FAMILY)
         item["oracle"]["implementation"] = "named-runtime"
@@ -263,6 +369,44 @@ class AuthorityCannotBeSelfDeclared(unittest.TestCase):
         self.assertTrue(
             any("not every stage was run by a named runtime" in f for f in findings), findings
         )
+
+    def test_coordinated_oracle_identity_and_version_rewrites_are_rejected(self):
+        item = build(families.ENCODER_FAMILY)
+        oracle = item["oracle"]
+        oracle["id"] = "forged-reference-oracle"
+        oracle["version"] = "999.0.0-forged"
+        oracle["stages"][0]["oracle_id"] = "different-forged-stage-id"
+        oracle["stages"][0]["version"] = "888.0.0-forged"
+        item["result"]["produced_by"] = oracle["id"]
+        findings = result_findings(item)
+        self.assertTrue(any("canonical reference adapter" in f for f in findings), findings)
+        self.assertTrue(any("oracle.id" in f for f in findings), findings)
+        self.assertTrue(any("oracle.version" in f for f in findings), findings)
+
+    def test_named_runtime_stage_requires_its_runtime_identity_and_executable(self):
+        item = build(families.ENCODER_FAMILY)
+        oracle = item["oracle"]
+        oracle["implementation"] = "named-runtime"
+        oracle["authority"] = "measured-runtime"
+        oracle["runtime_bound"] = True
+        oracle["availability"]["all_bound"] = True
+        oracle["availability"]["unbound"] = []
+        oracle["availability"]["runtimes"][0]["bound"] = True
+        stage = oracle["stages"][0]
+        stage["implementation"] = "named-runtime"
+        stage["runtime_commit"] = "a" * 40
+        item["provenance"]["claimed"] = "measured-runtime"
+        item["meta"]["tags"][-1] = "named-runtime"
+        item["validation"] = record.assess(item)
+        findings = record.validate_record(item, check_declared_status=False)
+        self.assertTrue(any("oracle_id" in f for f in findings), findings)
+        self.assertTrue(any("executable" in f for f in findings), findings)
+
+    def test_named_runtime_publication_does_not_claim_external_attestation(self):
+        item = relabel_as_named_runtime(build(families.ENCODER_FAMILY))
+        publishable, reason = record.publishability(item, ())
+        self.assertTrue(publishable)
+        self.assertIn("does not provide external attestation", reason)
 
     def test_a_stage_digest_that_does_not_match_the_oracle_is_rejected(self):
         item = build(families.ENCODER_FAMILY)
@@ -276,6 +420,14 @@ class AuthorityCannotBeSelfDeclared(unittest.TestCase):
         findings = record.validate_record(item)
         self.assertTrue(any("runtime_bound" in f for f in findings), findings)
 
+    def test_each_stage_implementation_must_match_its_runtime_binding(self):
+        item = build(families.CREDIT_FAMILY)
+        availability = item["oracle"]["availability"]
+        availability["runtimes"][0]["bound"] = True
+        availability["unbound"] = ["plasticity-lab"]
+        findings = record.validate_record(item)
+        self.assertTrue(any("corresponding runtime binding" in f for f in findings), findings)
+
     def test_require_named_runtime_rejects_a_reference_record(self):
         item = build(families.ENCODER_FAMILY)
         self.assertEqual(record.validate_record(item), [])
@@ -287,7 +439,7 @@ class AuthorityCannotBeSelfDeclared(unittest.TestCase):
         availability = item["oracle"]["availability"]
         self.assertEqual(availability["unbound"], ["axon-encoder"])
         self.assertFalse(availability["all_bound"])
-        probe = availability["runtimes"][0]
+        probe = oracles.probe_runtime("axon-encoder", environ={})
         self.assertEqual(probe["binding_env"], "SF_ORACLE_AXON_ENCODER_CMD")
         self.assertIn("axon-encoder", probe["note"])
 
@@ -304,7 +456,7 @@ class DeclaredStatus(unittest.TestCase):
         item["validation"]["status"] = "accepted"
         item["validation"]["reasons"] = []
         findings = record.validate_record(item)
-        self.assertTrue(any("fails its own checks" in f for f in findings), findings)
+        self.assertTrue(any("recomputed status" in f for f in findings), findings)
 
     def test_a_rewritten_rejection_reason_is_rejected(self):
         item = self.rejected_memory_record()
@@ -317,13 +469,13 @@ class DeclaredStatus(unittest.TestCase):
         item["validation"]["status"] = "rejected"
         item["validation"]["reasons"] = []
         findings = record.validate_record(item)
-        self.assertTrue(any("no reason is recorded" in f for f in findings), findings)
+        self.assertTrue(any("recomputed status" in f for f in findings), findings)
 
     def test_an_unknown_status_is_rejected(self):
         item = build(families.ENCODER_FAMILY)
         item["validation"]["status"] = "probably fine"
         findings = record.validate_record(item)
-        self.assertTrue(any("accepted or rejected" in f for f in findings), findings)
+        self.assertTrue(any("validation.status" in f for f in findings), findings)
 
     def test_a_rejected_record_keeps_a_clean_envelope(self):
         item = self.rejected_memory_record()
@@ -349,9 +501,7 @@ class FamilyInvariants(unittest.TestCase):
             self.assertEqual(item["validation"]["status"], "accepted")
         else:
             self.assertEqual(item["validation"]["status"], "rejected")
-            self.assertTrue(
-                any("temporal dependence" in r for r in item["validation"]["reasons"])
-            )
+            self.assertTrue(any("temporal dependence" in r for r in item["validation"]["reasons"]))
 
     def test_a_forged_temporal_dependence_flag_is_caught(self):
         item = build(families.MEMORY_FAMILY)
@@ -368,8 +518,7 @@ class FamilyInvariants(unittest.TestCase):
         item = next(
             build(families.MEMORY_FAMILY, index)
             for index in range(24)
-            if build(families.MEMORY_FAMILY, index)["validation"]["status"]
-            == "accepted"
+            if build(families.MEMORY_FAMILY, index)["validation"]["status"] == "accepted"
         )
         measured = item["result"]["measured"]
         for probe in measured["probes"].values():
@@ -410,7 +559,7 @@ class FamilyInvariants(unittest.TestCase):
         item = build(families.NEURON_FAMILY)
         item["oracle"]["configuration"]["after"]["v_rest"] = 0.25
         findings = record.validate_record(item, check_declared_status=False)
-        self.assertTrue(any("exactly" in f for f in findings), findings)
+        self.assertTrue(any("configuration" in f for f in findings), findings)
 
     def test_an_inconsistent_neuron_delta_is_caught(self):
         item = build(families.NEURON_FAMILY)
@@ -446,9 +595,7 @@ class FamilyInvariants(unittest.TestCase):
         item = next(
             build(families.ENCODER_FAMILY, index)
             for index in range(200)
-            if build(families.ENCODER_FAMILY, index)["result"]["measured"][
-                "winner_basis"
-            ]
+            if build(families.ENCODER_FAMILY, index)["result"]["measured"]["winner_basis"]
             == "spike_count_tiebreak"
         )
         measured = item["result"]["measured"]
@@ -485,6 +632,17 @@ class FamilyInvariants(unittest.TestCase):
         findings = record.validate_record(item, check_declared_status=False)
         self.assertTrue(any("after = before + delta" in f for f in findings), findings)
 
+    def test_self_consistent_forged_weight_deltas_do_not_bypass_the_learning_rule(self):
+        item = build(families.CREDIT_FAMILY)
+        plasticity = item["result"]["measured"]["plasticity"]
+        plasticity["weight_deltas"] = [0.0] * len(plasticity["weights_before"])
+        plasticity["weights_after"] = list(plasticity["weights_before"])
+        plasticity["update_applied"] = False
+        item["result_hash"] = canon.digest(item["result"])
+        findings = record.validate_record(item, check_declared_status=False)
+        rule_findings = [finding for finding in findings if "retained learning rule" in finding]
+        self.assertEqual(len(rule_findings), len(plasticity["weights_before"]), findings)
+
     def test_every_plasticity_behavior_delta_is_recomputed(self):
         for field in (
             "spike_count_delta",
@@ -515,6 +673,43 @@ class FamilyInvariants(unittest.TestCase):
         self.assertEqual(sorted(item["result"]["measured"]), ["critic", "plasticity"])
         self.assertEqual(item["oracle"]["requested_runtime"], ["limbic-critic", "plasticity-lab"])
 
+    def test_memory_response_labels_are_derived_for_baseline_and_every_control(self):
+        item = next(
+            build(families.MEMORY_FAMILY, index)
+            for index in range(24)
+            if len(build(families.MEMORY_FAMILY, index)["result"]["measured"]["probes"]) > 1
+        )
+        measured = item["result"]["measured"]
+        trials = [("baseline", measured["baseline"]), *sorted(measured["probes"].items())]
+        for name, _trial in trials:
+            candidate = copy.deepcopy(item)
+            target = (
+                candidate["result"]["measured"]["baseline"]
+                if name == "baseline"
+                else candidate["result"]["measured"]["probes"][name]
+            )
+            target["response"] = "B" if target["response"] != "B" else "A"
+            target["response_latency_ms"] = 0.0
+            findings = result_findings(candidate)
+            with self.subTest(trial=name):
+                self.assertTrue(
+                    any(f"{name}.response does not match" in f for f in findings),
+                    findings,
+                )
+
+    def test_memory_ambiguity_is_derived_from_both_output_counts(self):
+        item = build(families.MEMORY_FAMILY)
+        trial = item["result"]["measured"]["baseline"]
+        trial["output_spike_counts"] = {"OA": 1, "OB": 1}
+        trial["response"] = "none"
+        trial["response_latency_ms"] = None
+        trial["response_ambiguous"] = False
+        findings = result_findings(item)
+        self.assertTrue(
+            any("baseline.response_ambiguous does not match" in f for f in findings),
+            findings,
+        )
+
     def test_a_mesh_sink_flag_that_contradicts_the_arrivals_is_caught(self):
         item = build(families.MESH_FAMILY)
         before = item["result"]["measured"]["before"]
@@ -531,9 +726,7 @@ class FamilyInvariants(unittest.TestCase):
         measured["delta"]["propagation_delay_delta_ms"] = -1.0
         item["result_hash"] = canon.digest(item["result"])
         findings = record.validate_record(item, check_declared_status=False)
-        self.assertTrue(
-            any("sink minus source arrival" in f for f in findings), findings
-        )
+        self.assertTrue(any("sink minus source arrival" in f for f in findings), findings)
 
         item = build(families.MESH_FAMILY)
         item["result"]["measured"]["delta"]["propagation_delay_delta_ms"] = 999.0
@@ -552,7 +745,351 @@ class FamilyInvariants(unittest.TestCase):
         item = build(families.NEURON_FAMILY)
         item["oracle"]["configuration"]["after"] = []
         layers = record.classify(item)
-        self.assertTrue(any("family checks could not run" in f for f in layers["envelope"]))
+        self.assertTrue(any("configuration" in f for f in layers["envelope"]))
+
+
+class AuthoritativeRecordSemantics(unittest.TestCase):
+    """Every retained label must be derivable from retained evidence."""
+
+    def test_the_declared_candidate_score_and_layer_checks_are_authenticated(self):
+        item = build(families.ENCODER_FAMILY)
+        score = item["validation"]["candidate_prediction_correct"]
+        item["validation"]["candidate_prediction_correct"] = not score
+        findings = record.validate_record(item)
+        self.assertTrue(any("candidate_prediction_correct" in f for f in findings), findings)
+
+        item = build(families.ENCODER_FAMILY)
+        item["validation"]["checks"]["envelope"] = False
+        findings = record.validate_record(item)
+        self.assertTrue(any("validation.checks" in f for f in findings), findings)
+
+        item = build(families.ENCODER_FAMILY)
+        item["validation"]["checks"]["invented"] = True
+        findings = record.validate_record(item)
+        self.assertTrue(any("invented" in f for f in findings), findings)
+
+        item = build(families.ENCODER_FAMILY)
+        item["validation"]["reasons"] = ["accepted because I said so"]
+        findings = record.validate_record(item)
+        self.assertTrue(any("validation.reasons" in f for f in findings), findings)
+
+    def test_provenance_claims_and_authorship_lists_are_authenticated(self):
+        mutations = {
+            "claimed": "some-other-authority",
+            "oracle_grounded": False,
+            "generator_authored": ["scenario"],
+            "oracle_authored": ["result"],
+        }
+        for field, forged in mutations.items():
+            item = build(families.ENCODER_FAMILY)
+            item["provenance"][field] = forged
+            findings = record.validate_record(item, check_declared_status=False)
+            with self.subTest(field=field):
+                self.assertTrue(any(field in finding for finding in findings), findings)
+
+    def test_units_must_be_nonempty_equal_and_family_exact(self):
+        item = build(families.ENCODER_FAMILY)
+        item["result"]["units"] = {}
+        findings = result_findings(item)
+        self.assertTrue(any("result.units" in f for f in findings), findings)
+
+        item = build(families.ENCODER_FAMILY)
+        item["result"]["units"]["rmse"] = "forged-unit"
+        findings = result_findings(item)
+        self.assertTrue(any("result.units" in f for f in findings), findings)
+
+        item = build(families.ENCODER_FAMILY)
+        item["result"]["units"]["rmse"] = "forged-unit"
+        item["oracle"]["units"]["rmse"] = "forged-unit"
+        findings = result_findings(item)
+        self.assertTrue(any("family units contract" in f for f in findings), findings)
+
+    def test_stdlib_schema_gate_enforces_nested_required_types_and_uniqueness(self):
+        item = build(families.ENCODER_FAMILY)
+        del item["scenario"]["sample_count"]
+        findings = proposal_findings(item)
+        self.assertTrue(any("sample_count" in f and "required" in f for f in findings), findings)
+
+        item = build(families.ENCODER_FAMILY)
+        item["scenario"]["sample_count"] = True
+        findings = proposal_findings(item)
+        self.assertTrue(any("sample_count" in f and "type" in f for f in findings), findings)
+
+        item = build(families.ENCODER_FAMILY)
+        item["scenario"]["encoding_pair"][1] = item["scenario"]["encoding_pair"][0]
+        findings = proposal_findings(item)
+        self.assertTrue(any("encoding_pair" in f and "unique" in f for f in findings), findings)
+
+        item = build(families.MESH_FAMILY)
+        item["scenario"]["nodes"][1] = item["scenario"]["nodes"][0]
+        findings = proposal_findings(item)
+        self.assertTrue(any("nodes" in f and "unique" in f for f in findings), findings)
+
+        item = build(families.MESH_FAMILY)
+        order = item["result"]["measured"]["before"]["firing_order"]
+        order.append(order[0])
+        findings = result_findings(item)
+        self.assertTrue(any("firing_order" in f and "unique" in f for f in findings), findings)
+
+    def test_draft_integer_semantics_accept_integral_floats_only(self):
+        schema = {"type": "integer"}
+        for value in (0, -4, 1.0, -12.0):
+            with self.subTest(accepted=value):
+                self.assertEqual(schema_validation._validate(value, schema, schema, "$"), [])
+        for value in (True, False, 1.5, float("nan"), float("inf"), float("-inf")):
+            with self.subTest(rejected=value):
+                self.assertTrue(
+                    schema_validation._validate(value, schema, schema, "$"),
+                    f"{value!r} was accepted as an integer",
+                )
+
+        item = build(families.MEMORY_FAMILY)
+        measured = item["result"]["measured"]
+        for trial in (measured["baseline"], *measured["probes"].values()):
+            trial["output_spike_counts"] = {
+                key: float(value) for key, value in trial["output_spike_counts"].items()
+            }
+        item["result_hash"] = canon.digest(item["result"])
+        item["validation"] = record.assess(item)
+        layers = record.classify(item)
+        self.assertEqual(layers["envelope"], [])
+        self.assertEqual(layers["status"], [])
+
+    def test_redundant_record_identity_labels_are_authenticated(self):
+        item = build(families.ENCODER_FAMILY)
+        item["generator"]["label"] = "another-family#99"
+        findings = proposal_findings(item)
+        self.assertTrue(any("generator.label" in f for f in findings), findings)
+
+        item = build(families.ENCODER_FAMILY)
+        item["meta"]["round"] += 1
+        findings = record.validate_record(item, check_declared_status=False)
+        self.assertTrue(any("meta.round" in f for f in findings), findings)
+
+        item = build(families.ENCODER_FAMILY)
+        item["meta"]["tags"][-1] = "named-runtime"
+        findings = record.validate_record(item, check_declared_status=False)
+        self.assertTrue(any("meta.tags" in f for f in findings), findings)
+
+    def test_every_encoder_identity_and_summary_is_recomputed(self):
+        item = build(families.ENCODER_FAMILY)
+        item["result"]["measured"]["encoding_a"]["encoding"] = item["scenario"]["encoding_pair"][1]
+        findings = result_findings(item)
+        self.assertTrue(any("encoding_a.encoding" in f for f in findings), findings)
+
+        scalar_fields = (
+            "rmse",
+            "mean_abs_error",
+            "max_abs_error",
+            "pearson_r",
+            "information_retention",
+            "mean_rate_hz",
+            "energy_pJ",
+            "retention_per_spike",
+        )
+        for field in scalar_fields:
+            item = build(families.ENCODER_FAMILY)
+            state = item["result"]["measured"]["encoding_a"]
+            state[field] = 0.123456 if state[field] is None else state[field] + 0.123456
+            findings = result_findings(item)
+            with self.subTest(field=field):
+                self.assertTrue(any(field in finding for finding in findings), findings)
+
+        for field in ("retention_margin", "energy_margin_pJ"):
+            item = build(families.ENCODER_FAMILY)
+            item["result"]["measured"][field] += 0.25
+            findings = result_findings(item)
+            with self.subTest(field=field):
+                self.assertTrue(any(field in finding for finding in findings), findings)
+
+        item = build(families.ENCODER_FAMILY)
+        state = item["result"]["measured"]["encoding_a"]
+        state["representation_excerpt_truncated"] = not state["representation_excerpt_truncated"]
+        findings = result_findings(item)
+        self.assertTrue(any("representation_excerpt_truncated" in f for f in findings), findings)
+
+    def test_every_neuron_spike_summary_is_recomputed(self):
+        fields = (
+            "spike_count",
+            "first_spike_ms",
+            "last_spike_ms",
+            "mean_rate_hz",
+            "mean_isi_ms",
+            "cv_isi",
+            "adaptation_index",
+            "duration_ms",
+            "v_trace_stride_ms",
+        )
+        for field in fields:
+            item = build(families.NEURON_FAMILY)
+            state = item["result"]["measured"]["before"]
+            state[field] = 0.125 if state[field] is None else state[field] + 1
+            findings = result_findings(item)
+            with self.subTest(field=field):
+                self.assertTrue(any(field in finding for finding in findings), findings)
+
+        item = build(families.NEURON_FAMILY)
+        item["result"]["measured"]["before"]["v_trace"].pop()
+        findings = result_findings(item)
+        self.assertTrue(any("v_trace length" in f for f in findings), findings)
+
+    def test_neuron_spikes_cannot_be_shifted_outside_the_run(self):
+        item = build(families.NEURON_FAMILY)
+        duration = item["result"]["measured"]["before"]["duration_ms"]
+        for side in ("before", "after"):
+            state = item["result"]["measured"][side]
+            state["spike_times_ms"] = [
+                time_ms + duration * 4 for time_ms in state["spike_times_ms"]
+            ]
+            if state["spike_times_ms"]:
+                state["first_spike_ms"] = state["spike_times_ms"][0]
+                state["last_spike_ms"] = state["spike_times_ms"][-1]
+        item["result"]["measured"]["delta"] = sim.compare_neuron_states(
+            item["result"]["measured"]["before"],
+            item["result"]["measured"]["after"],
+        )
+        findings = result_findings(item)
+        self.assertTrue(any("outside the simulated duration" in f for f in findings), findings)
+
+    def test_every_mesh_label_and_summary_is_recomputed(self):
+        item = build(families.MESH_FAMILY)
+        state = item["result"]["measured"]["before"]
+        mutations = {
+            "source": "forged-source",
+            "sink": "forged-sink",
+            "firing_order": list(reversed(state["firing_order"])),
+            "downstream_activation": list(reversed(state["downstream_activation"])),
+            "total_spikes": state["total_spikes"] + 1,
+            "energy_pJ": state["energy_pJ"] + 1,
+        }
+        for field, forged in mutations.items():
+            candidate = build(families.MESH_FAMILY)
+            candidate["result"]["measured"]["before"][field] = forged
+            findings = result_findings(candidate)
+            with self.subTest(field=field):
+                self.assertTrue(any(field in finding for finding in findings), findings)
+
+    def test_mesh_arrivals_cannot_be_shifted_outside_the_run(self):
+        item = build(families.MESH_FAMILY)
+        duration = item["scenario"]["duration_ms"]
+        for side in ("before", "after"):
+            arrivals = item["result"]["measured"][side]["first_arrival_ms"]
+            for node, time_ms in list(arrivals.items()):
+                if time_ms is not None:
+                    arrivals[node] = time_ms + duration * 4
+        findings = result_findings(item)
+        self.assertTrue(any("outside the simulated duration" in f for f in findings), findings)
+
+        boundary = build(families.MESH_FAMILY)
+        arrivals = boundary["result"]["measured"]["before"]["first_arrival_ms"]
+        node = next(node for node, time_ms in arrivals.items() if time_ms is not None)
+        arrivals[node] = duration
+        findings = result_findings(boundary)
+        self.assertTrue(any("outside the simulated duration" in f for f in findings), findings)
+
+        expected_delta = item["result"]["measured"]["delta"]
+        for field, value in expected_delta.items():
+            candidate = build(families.MESH_FAMILY)
+            delta = candidate["result"]["measured"]["delta"]
+            if isinstance(value, bool):
+                delta[field] = not value
+            elif isinstance(value, list):
+                delta[field] = value + ["forged-node"]
+            else:
+                delta[field] = 123.0 if value is None else value + 123.0
+            findings = result_findings(candidate)
+            with self.subTest(delta=field):
+                self.assertTrue(any(field in finding for finding in findings), findings)
+
+    def test_credit_labels_vectors_and_behavior_summaries_are_recomputed(self):
+        item = build(families.CREDIT_FAMILY)
+        plasticity = item["result"]["measured"]["plasticity"]
+        plasticity["weights_before"][0] += 0.25
+        findings = result_findings(item)
+        self.assertTrue(any("weights_before" in f for f in findings), findings)
+
+        item = build(families.CREDIT_FAMILY)
+        item["result"]["measured"]["plasticity"]["eligibility"].pop()
+        findings = result_findings(item)
+        self.assertTrue(any("inconsistent lengths" in f for f in findings), findings)
+
+        for field in ("spike_count", "first_spike_ms", "output_rate_hz"):
+            item = build(families.CREDIT_FAMILY)
+            behavior = item["result"]["measured"]["plasticity"]["pre_update_behavior"]
+            behavior[field] = 0.25 if behavior[field] is None else behavior[field] + 1
+            findings = result_findings(item)
+            with self.subTest(behavior=field):
+                self.assertTrue(any(field in finding for finding in findings), findings)
+
+        item = build(families.CREDIT_FAMILY)
+        item["result"]["measured"]["plasticity"]["modulatory_gain"] += 0.5
+        findings = result_findings(item)
+        self.assertTrue(any("modulatory_gain" in f for f in findings), findings)
+
+        item = build(families.CREDIT_FAMILY)
+        item["result"]["measured"]["plasticity"]["update_rule"] = "trust me"
+        findings = result_findings(item)
+        self.assertTrue(any("update_rule" in f for f in findings), findings)
+
+        item = build(families.CREDIT_FAMILY)
+        critic = item["result"]["measured"]["critic"]
+        critic["valence"] = "negative" if critic["valence"] != "negative" else "positive"
+        findings = result_findings(item)
+        self.assertTrue(any("critic.valence" in f for f in findings), findings)
+
+    def test_temporal_controls_and_all_derivable_summaries_are_recomputed(self):
+        item = next(
+            build(families.MEMORY_FAMILY, index)
+            for index in range(24)
+            if build(families.MEMORY_FAMILY, index)["scenario"]["distractor_ms"]
+        )
+        scenario_mutations = {
+            "delay_ms": item["scenario"]["delay_ms"] + 1,
+            "distractor_count": item["scenario"]["distractor_count"] + 1,
+            "event_sparsity": item["scenario"]["event_sparsity"] + 1,
+        }
+        for field, forged in scenario_mutations.items():
+            candidate = copy.deepcopy(item)
+            candidate["scenario"][field] = forged
+            findings = proposal_findings(candidate)
+            with self.subTest(scenario=field):
+                self.assertTrue(
+                    any(
+                        field in finding or "generator.seed does not reproduce" in finding
+                        for finding in findings
+                    ),
+                    findings,
+                )
+
+        trial_mutations = {
+            "state_retained_at_probe": not item["result"]["measured"]["baseline"][
+                "state_retained_at_probe"
+            ],
+            "energy_pJ": item["result"]["measured"]["baseline"]["energy_pJ"] + 1,
+            "duration_ms": item["result"]["measured"]["baseline"]["duration_ms"] + 1,
+        }
+        for field, forged in trial_mutations.items():
+            candidate = copy.deepcopy(item)
+            candidate["result"]["measured"]["baseline"][field] = forged
+            findings = result_findings(candidate)
+            with self.subTest(trial=field):
+                self.assertTrue(any(field in finding for finding in findings), findings)
+
+        candidate = copy.deepcopy(item)
+        candidate["result"]["measured"]["delay_ms"] += 1
+        findings = result_findings(candidate)
+        self.assertTrue(any("measured.delay_ms" in f for f in findings), findings)
+
+        candidate = copy.deepcopy(item)
+        invariant = candidate["result"]["measured"]["distractor_invariant"]
+        candidate["result"]["measured"]["distractor_invariant"] = not invariant
+        findings = result_findings(candidate)
+        self.assertTrue(any("distractor_invariant" in f for f in findings), findings)
+
+        candidate = copy.deepcopy(item)
+        del candidate["result"]["measured"]["probes"]["distractor_swap"]
+        findings = result_findings(candidate)
+        self.assertTrue(any("control probes" in f for f in findings), findings)
 
 
 class Reproducibility(unittest.TestCase):
@@ -561,7 +1098,7 @@ class Reproducibility(unittest.TestCase):
             for index in range(3):
                 item = build(family, index)
                 with self.subTest(family=family, index=index):
-                    status, detail = record.reproduce(item)
+                    status, detail = record.reproduce(item, environ={})
                     self.assertEqual(status, "reproduced", detail)
                     self.assertEqual(detail, item["result_hash"])
 
@@ -582,15 +1119,37 @@ class Reproducibility(unittest.TestCase):
         item = build(families.NEURON_FAMILY)
         item["result"]["measured"]["after"]["spike_count"] += 1
         item["result_hash"] = canon.digest(item["result"])
-        status, detail = record.reproduce(item)
+        status, detail = record.reproduce(item, environ={})
         self.assertEqual(status, "mismatch", detail)
+
+    def test_reproduction_authenticates_reference_code_before_replaying(self):
+        item = build(families.NEURON_FAMILY)
+        forged = canon.digest({"forged": "implementation"})
+        item["oracle"]["module_digest"] = forged
+        item["oracle"]["stages"][0]["module_digest"] = forged
+        status, detail = record.reproduce(item, environ={})
+        self.assertEqual(status, "mismatch", detail)
+        self.assertIn("module digest", detail)
+
+    def test_reproduction_rejects_an_unresolved_source_commit_before_replaying(self):
+        item = build(families.NEURON_FAMILY)
+        item["oracle"]["commit"] = "main"
+        status, detail = record.reproduce(item, environ={})
+        self.assertEqual(status, "invalid", detail)
+        self.assertIn("source commit", detail)
 
     def test_reproduce_reports_unavailable_rather_than_guessing(self):
         item = build(families.ENCODER_FAMILY)
         item["oracle"]["implementation"] = "named-runtime"
-        status, detail = record.reproduce(item)
+        status, detail = record.reproduce(item, environ={})
         self.assertEqual(status, "unavailable")
         self.assertIn("named-runtime", detail)
+
+    def test_malformed_stored_data_is_bounded_as_invalid(self):
+        malformed = {"family": families.ENCODER_FAMILY, "scenario": []}
+        status, detail = record.reproduce(malformed, environ={})
+        self.assertEqual(status, "invalid")
+        self.assertIn("cannot rebuild", detail)
 
 
 class ExternalOracleProtocol(unittest.TestCase):
@@ -647,8 +1206,14 @@ class ExternalOracleProtocol(unittest.TestCase):
             "wrongproto",
             "noversion",
             "empty",
+            "emptyunits",
             "unknowncommit",
             "badcommit",
+            "nan",
+            "infinity",
+            "overflow",
+            "stdout_flood",
+            "stderr_flood",
         ):
             with self.subTest(mode=mode):
                 with self.assertRaises(oracles.OracleError):
@@ -664,6 +1229,47 @@ class ExternalOracleProtocol(unittest.TestCase):
         )
         with self.assertRaises(oracles.OracleError):
             adapter.run("f", {})
+
+    def test_stage_provenance_and_errors_never_copy_full_argv(self):
+        secret = "TOP-SECRET-ARGUMENT"
+        adapter = oracles.ExternalCommandOracle(
+            oracle_id="axon-encoder",
+            oracle_type="spike-encoder",
+            description="double",
+            runtime="axon-encoder",
+            command=[sys.executable, str(DOUBLE), "ok", f"--token={secret}"],
+        )
+        run = adapter.run("f", {"configuration": {}, "data": {}})
+        stage = run.stages[0]
+        self.assertNotIn("command", stage)
+        self.assertEqual(stage["executable"], Path(sys.executable).name)
+        self.assertNotIn(secret, json.dumps(stage))
+
+        missing = oracles.ExternalCommandOracle(
+            oracle_id="axon-encoder",
+            oracle_type="spike-encoder",
+            description="missing",
+            runtime="axon-encoder",
+            command=[f"/definitely/not/{secret}", f"--token={secret}"],
+        )
+        with self.assertRaises(oracles.OracleError) as raised:
+            missing.run("f", {})
+        self.assertNotIn(secret, str(raised.exception))
+
+    def test_malformed_shell_binding_is_bounded_and_names_only_the_env_key(self):
+        key = oracles.env_key("axon-encoder")
+        secret = "TOP-SECRET-UNTERMINATED"
+        with self.assertRaises(oracles.OracleError) as raised:
+            oracles.bind(
+                runtime="axon-encoder",
+                oracle_id="encoder-ref",
+                oracle_type="spike-encoder",
+                description="reference",
+                reference_fn=lambda request: ({"ok": True}, {"ok": "unit"}),
+                environ={key: f'{sys.executable} "{secret}'},
+            )
+        self.assertIn(key, str(raised.exception))
+        self.assertNotIn(secret, str(raised.exception))
 
     def test_a_bound_record_declares_the_runtime(self):
         item = build(families.ENCODER_FAMILY, environ=double_env("ok"))
@@ -689,7 +1295,7 @@ class ExternalOracleProtocol(unittest.TestCase):
         item = build(families.ENCODER_FAMILY, environ=double_env("ok"))
         self.assertEqual(item["validation"]["status"], "rejected")
         self.assertTrue(
-            any("family checks could not run" in r for r in item["validation"]["reasons"]),
+            any("family schema" in r for r in item["validation"]["reasons"]),
             item["validation"]["reasons"],
         )
         self.assertIsNone(item["validation"]["candidate_prediction_correct"])
@@ -725,19 +1331,45 @@ class ExternalOracleProtocol(unittest.TestCase):
         self.assertFalse(probe["bound"])
         self.assertIn("no sf-oracle/1 binding", probe["note"])
 
+    def test_canonical_availability_is_independent_of_host_path(self):
+        with mock.patch.object(oracles.shutil, "which", return_value="/host/a"):
+            on_path = oracles.availability_report(("axon-encoder",), environ={})
+        with mock.patch.object(oracles.shutil, "which", return_value=None):
+            absent = oracles.availability_report(("axon-encoder",), environ={})
+        self.assertEqual(on_path, absent)
+        self.assertEqual(
+            sorted(on_path["runtimes"][0]),
+            ["binding_env", "bound", "runtime"],
+        )
+
     def test_an_empty_measurement_from_any_oracle_is_refused(self):
         with self.assertRaises(oracles.OracleError):
             oracles.OracleRun({}, {}, [])
         with self.assertRaises(oracles.OracleError):
             oracles.OracleRun({"a": 1}, None, [])
+        with self.assertRaises(oracles.OracleError):
+            oracles.OracleRun({"a": 1}, {}, [{"stage": "f"}])
+
+    def test_nonfinite_reference_output_is_also_an_oracle_error(self):
+        with self.assertRaises(oracles.OracleError):
+            oracles.OracleRun(
+                {"value": float("inf")},
+                {"value": "unit"},
+                [{"stage": "f"}],
+            )
+
+    def test_nonfinite_external_request_is_bounded_as_an_oracle_error(self):
+        with self.assertRaises(oracles.OracleError):
+            self.adapter("ok").run(
+                "f",
+                {"configuration": {"overflow": float("inf")}, "data": {}},
+            )
 
 
 class OracleProvenance(unittest.TestCase):
     def test_the_module_digest_pins_the_implementation_sources(self):
         here = REPO / "pipelines" / "oracle_grounded"
-        expected = canon.digest_files(
-            str(here / name) for name in oracles.IMPLEMENTATION_SOURCES
-        )
+        expected = canon.digest_files(str(here / name) for name in oracles.IMPLEMENTATION_SOURCES)
         self.assertEqual(oracles.module_digest(), expected)
         self.assertTrue(canon.is_digest(oracles.module_digest()))
 
@@ -786,7 +1418,7 @@ class OracleProvenance(unittest.TestCase):
     def test_reproduction_rejects_a_tampered_stored_configuration(self):
         item = build(families.ENCODER_FAMILY)
         item["oracle"]["configuration"]["max_rate_hz"] = 1
-        status, detail = record.reproduce(item)
+        status, detail = record.reproduce(item, environ={})
         self.assertEqual(status, "mismatch")
         self.assertIn("configuration", detail)
 

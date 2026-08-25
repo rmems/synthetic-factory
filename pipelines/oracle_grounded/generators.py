@@ -96,9 +96,7 @@ def apply_perturbation(values, perturbation, rng, params):
         return [value if rng.random() < keep else 0.0 for value in values]
     if perturbation == "quantization":
         steps = params["steps"]
-        return [
-            sim.clamp(round(value * (steps - 1)) / (steps - 1), 0.0, 1.0) for value in values
-        ]
+        return [sim.clamp(round(value * (steps - 1)) / (steps - 1), 0.0, 1.0) for value in values]
     if perturbation == "gain_drift":
         span = params["span"]
         count = len(values)
@@ -209,6 +207,10 @@ def predict_encoder_winner(scenario):
 # --------------------------------------------------------------------------
 
 STIMULI = ("step", "pulse_train", "ramp")
+# A retained scenario must be small enough to validate and reproduce without
+# turning one JSON record into an unbounded allocation.  Generated fixtures use
+# 600 samples; this ceiling leaves ample headroom for real evaluation records.
+MAX_NEURON_STEPS = 1_000_000
 
 
 def propose_neuron_scenario(rng, duration_ms=300.0, dt_ms=0.5):
@@ -248,10 +250,62 @@ def propose_neuron_scenario(rng, duration_ms=300.0, dt_ms=0.5):
     }
 
 
+def _finite_number(value, name):
+    if not isinstance(value, (int, float)) or isinstance(value, bool) or not math.isfinite(value):
+        raise ValueError(f"{name} must be a finite number")
+    return value
+
+
+def neuron_sample_count(scenario):
+    """Validate a neuron stimulus and return its bounded sample count."""
+    if not isinstance(scenario, dict):
+        raise ValueError("neuron scenario must be an object")
+    duration_ms = _finite_number(scenario.get("duration_ms"), "duration_ms")
+    dt_ms = _finite_number(scenario.get("dt_ms"), "dt_ms")
+    if duration_ms <= 0 or dt_ms <= 0:
+        raise ValueError("duration_ms and dt_ms must be positive")
+    ratio = duration_ms / dt_ms
+    if not math.isfinite(ratio) or ratio < 1 or ratio > MAX_NEURON_STEPS:
+        raise ValueError(f"duration_ms / dt_ms must be in [1, {MAX_NEURON_STEPS}]")
+    steps = int(round(ratio))
+    if steps < 1 or steps > MAX_NEURON_STEPS:
+        raise ValueError(f"rounded neuron sample count must be in [1, {MAX_NEURON_STEPS}]")
+
+    stimulus = scenario.get("stimulus")
+    if not isinstance(stimulus, dict):
+        raise ValueError("stimulus must be an object")
+    kind = stimulus.get("kind")
+    params = stimulus.get("parameters")
+    if kind not in STIMULI or not isinstance(params, dict):
+        raise ValueError("stimulus kind or parameters are invalid")
+    required = {
+        "step": ("amplitude", "onset_ms", "offset_ms"),
+        "pulse_train": ("amplitude", "period_ms", "width_ms", "onset_ms"),
+        "ramp": ("peak", "onset_ms"),
+    }[kind]
+    values = {
+        name: _finite_number(params.get(name), f"stimulus.parameters.{name}") for name in required
+    }
+    onset_ms = values["onset_ms"]
+    if onset_ms < 0 or onset_ms >= duration_ms:
+        raise ValueError("stimulus onset_ms must be inside the trial")
+    if kind == "step":
+        if values["offset_ms"] <= onset_ms or values["offset_ms"] > duration_ms:
+            raise ValueError("step offset_ms must follow onset_ms and stay in the trial")
+    elif kind == "pulse_train":
+        period_ms = values["period_ms"]
+        width_ms = values["width_ms"]
+        if period_ms <= 0:
+            raise ValueError("pulse_train period_ms must be positive")
+        if width_ms <= 0 or width_ms > period_ms:
+            raise ValueError("pulse_train width_ms must be in (0, period_ms]")
+    return steps
+
+
 def build_current(scenario):
     """Stimulus waveform, one sample per dt. Shared by generator and oracle."""
     dt_ms = scenario["dt_ms"]
-    steps = int(round(scenario["duration_ms"] / dt_ms))
+    steps = neuron_sample_count(scenario)
     kind = scenario["stimulus"]["kind"]
     params = scenario["stimulus"]["parameters"]
     current = []
@@ -539,9 +593,11 @@ def propose_memory_scenario(rng):
     delay_ms = rng.choice((80.0, 150.0, 240.0, 360.0, 520.0, 700.0))
     probe_ms = cue_ms + delay_ms
     distractor_count = rng.randint(0, 4)
-    distractors = sorted(
-        rng.uniform(cue_ms + 20.0, probe_ms - 15.0) for _ in range(distractor_count)
-    ) if probe_ms - 15.0 > cue_ms + 20.0 else []
+    distractors = (
+        sorted(rng.uniform(cue_ms + 20.0, probe_ms - 15.0) for _ in range(distractor_count))
+        if probe_ms - 15.0 > cue_ms + 20.0
+        else []
+    )
     reset_ms = None
     if rng.random() < 0.25 and probe_ms - 25.0 > cue_ms + 25.0:
         reset_ms = rng.uniform(cue_ms + 25.0, probe_ms - 25.0)

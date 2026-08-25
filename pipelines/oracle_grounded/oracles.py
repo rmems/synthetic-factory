@@ -23,6 +23,7 @@ import re
 import shlex
 import shutil
 import subprocess
+import threading
 from pathlib import Path
 
 from . import canon
@@ -31,6 +32,9 @@ PROTOCOL = "sf-oracle/1"
 REPO_ROOT = Path(__file__).resolve().parents[2]
 REPO_SLUG = "rmems/synthetic-factory"
 DEFAULT_TIMEOUT_S = 60
+MAX_PROTOCOL_STDOUT_BYTES = 8 * 1024 * 1024
+MAX_PROTOCOL_STDERR_BYTES = 1024 * 1024
+PROTOCOL_READ_BYTES = 64 * 1024
 
 # The code whose identity a measurement depends on: the simulators, the
 # adapters, the family wiring that turns a stored scenario back into an oracle
@@ -49,11 +53,17 @@ IMPLEMENTATION_SOURCES = (
 MODULE_PATH = "pipelines/oracle_grounded"
 
 _MODULE_DIGEST_CACHE = {}
+_SOURCE_COMMIT_CACHE = {}
 RUNTIME_COMMIT_RE = re.compile(r"^[0-9a-fA-F]{7,64}$")
+SOURCE_COMMIT_RE = re.compile(r"^(?:[0-9a-f]{40}|[0-9a-f]{64})$")
 
 
 class OracleError(RuntimeError):
     """A bound oracle could not produce an authoritative result."""
+
+
+def _reject_json_constant(value):
+    raise ValueError(f"non-finite JSON token {value}")
 
 
 def module_digest():
@@ -75,6 +85,44 @@ def env_key(runtime):
 def is_runtime_commit(value):
     """Whether ``value`` is a resolved hexadecimal source revision."""
     return isinstance(value, str) and RUNTIME_COMMIT_RE.fullmatch(value) is not None
+
+
+def is_source_commit(value):
+    """Whether ``value`` is a fully resolved canonical source revision."""
+    return isinstance(value, str) and SOURCE_COMMIT_RE.fullmatch(value) is not None
+
+
+def resolve_source_commit(value, repo_root=None):
+    """Return the canonical commit object id, or ``None`` when it is absent.
+
+    Syntax alone is not provenance.  A full-length hexadecimal string is only
+    a resolved source revision when the repository can prove that exact object
+    exists and is a commit.
+    """
+    if not is_source_commit(value):
+        return None
+    root = Path(repo_root or REPO_ROOT)
+    key = (str(root.resolve()), value)
+    if key in _SOURCE_COMMIT_CACHE:
+        return _SOURCE_COMMIT_CACHE[key]
+    git = shutil.which("git")
+    if git is None:
+        return None
+    try:
+        resolved = subprocess.run(
+            [git, "-C", str(root), "rev-parse", "--verify", f"{value}^{{commit}}"],
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=15,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    canonical = resolved.stdout.strip()
+    if resolved.returncode != 0 or canonical != value or not is_source_commit(canonical):
+        return None
+    _SOURCE_COMMIT_CACHE[key] = canonical
+    return canonical
 
 
 def resolve_commit(repo_root=None):
@@ -107,7 +155,8 @@ def resolve_commit(repo_root=None):
     except (OSError, subprocess.SubprocessError):
         return "unknown", None
     dirty = bool(status.stdout.strip()) if status.returncode == 0 else None
-    return head.stdout.strip() or "unknown", dirty
+    commit = head.stdout.strip()
+    return (resolve_source_commit(commit, root) or "unknown"), dirty
 
 
 class OracleRun:
@@ -116,10 +165,20 @@ class OracleRun:
     __slots__ = ("measured", "units", "stages")
 
     def __init__(self, measured, units, stages):
+        try:
+            measured = canon.normalize(measured)
+            units = canon.normalize(units)
+            stages = canon.normalize(stages)
+        except (TypeError, ValueError) as exc:
+            raise OracleError(
+                f"oracle returned a non-canonical value: {type(exc).__name__}"
+            ) from exc
         if not isinstance(measured, dict) or not measured:
             raise OracleError("oracle returned an empty measurement")
-        if not isinstance(units, dict):
+        if not isinstance(units, dict) or not units:
             raise OracleError("oracle returned no units mapping")
+        if not isinstance(stages, list) or not stages:
+            raise OracleError("oracle returned no executed stages")
         self.measured = measured
         self.units = units
         self.stages = stages
@@ -167,13 +226,12 @@ class ReferenceOracle(OracleAdapter):
     def run(self, family, request):
         try:
             measured, units = self._fn(request)
-        except (KeyError, IndexError, TypeError, ValueError) as exc:
+        except Exception as exc:
             # A malformed request — including one assembled from an upstream
             # chain stage that answered in the wrong shape — is an oracle
             # failure, not a crash. The record is dropped.
             raise OracleError(
-                f"{self.oracle_id}: could not run on this request: "
-                f"{type(exc).__name__}: {exc}"
+                f"{self.oracle_id}: could not run on this request: {type(exc).__name__}: {exc}"
             ) from exc
         return OracleRun(
             measured,
@@ -215,14 +273,21 @@ class ExternalCommandOracle(OracleAdapter):
         description,
         runtime,
         command,
-        version="unknown",
+        version="1.0.0",
         timeout_s=DEFAULT_TIMEOUT_S,
     ):
         super().__init__(oracle_id, oracle_type, description, version)
         self.runtime = runtime
         self.requested_runtime = runtime
         self.command = list(command)
+        if not self.command or not self.command[0]:
+            raise OracleError(f"{runtime}: configured command has no executable")
         self.timeout_s = timeout_s
+
+    @property
+    def executable_identity(self):
+        """A bounded, non-secret stage identity; arguments are never retained."""
+        return Path(self.command[0]).name or self.runtime
 
     @property
     def implementation(self):
@@ -233,49 +298,51 @@ class ExternalCommandOracle(OracleAdapter):
         return "measured-runtime"
 
     def run(self, family, request):
-        payload = json.dumps(
-            {
-                "protocol": PROTOCOL,
-                "oracle": self.runtime,
-                "family": family,
-                "request": canon.normalize(request),
-            },
-            sort_keys=True,
-        )
         try:
-            completed = subprocess.run(
-                self.command,
-                input=payload,
-                capture_output=True,
-                text=True,
-                check=False,
-                timeout=self.timeout_s,
+            payload = json.dumps(
+                {
+                    "protocol": PROTOCOL,
+                    "oracle": self.runtime,
+                    "family": family,
+                    "request": canon.normalize(request),
+                },
+                sort_keys=True,
+                allow_nan=False,
             )
-        except subprocess.TimeoutExpired as exc:
-            raise OracleError(f"{self.runtime}: timed out after {self.timeout_s}s") from exc
-        except OSError as exc:
-            raise OracleError(f"{self.runtime}: could not execute {self.command!r}: {exc}") from exc
-        if completed.returncode != 0:
-            detail = (completed.stderr or "").strip()[:400]
-            raise OracleError(f"{self.runtime}: exit {completed.returncode}: {detail}")
+        except (TypeError, ValueError) as exc:
+            raise OracleError(
+                f"{self.runtime}: request could not be canonicalized: {type(exc).__name__}"
+            ) from exc
+        returncode, stdout = _run_protocol_command(
+            self.command,
+            payload.encode("utf-8"),
+            self.timeout_s,
+            self.runtime,
+        )
+        if returncode != 0:
+            # stderr is controlled by an external process and may echo command
+            # arguments or environment secrets.  The status is sufficient for
+            # the fail-closed record boundary; operator logs remain external.
+            raise OracleError(f"{self.runtime}: configured command exited {returncode}")
         try:
-            response = json.loads(completed.stdout)
-        except json.JSONDecodeError as exc:
+            response = json.loads(
+                stdout,
+                parse_constant=_reject_json_constant,
+            )
+            response = canon.normalize(response)
+        except (json.JSONDecodeError, RecursionError, TypeError, ValueError) as exc:
             raise OracleError(f"{self.runtime}: response was not JSON: {exc}") from exc
         if not isinstance(response, dict):
             raise OracleError(f"{self.runtime}: response was not a JSON object")
         if response.get("protocol") != PROTOCOL:
-            raise OracleError(
-                f"{self.runtime}: protocol mismatch: {response.get('protocol')!r} != {PROTOCOL!r}"
-            )
+            raise OracleError(f"{self.runtime}: protocol mismatch; expected {PROTOCOL}")
         for field in ("runtime_version", "runtime_commit"):
             value = response.get(field)
             if not isinstance(value, str) or not value.strip():
                 raise OracleError(f"{self.runtime}: response is missing {field}")
         if not is_runtime_commit(response["runtime_commit"]):
             raise OracleError(
-                f"{self.runtime}: runtime_commit must be a resolved 7-64 digit "
-                "hexadecimal revision"
+                f"{self.runtime}: runtime_commit must be a resolved 7-64 digit hexadecimal revision"
             )
         return OracleRun(
             response.get("measured"),
@@ -288,10 +355,102 @@ class ExternalCommandOracle(OracleAdapter):
                     "oracle_id": self.oracle_id,
                     "version": response["runtime_version"],
                     "runtime_commit": response["runtime_commit"],
-                    "command": self.command,
+                    "executable": self.executable_identity,
                 }
             ],
         )
+
+
+def _run_protocol_command(command, payload, timeout_s, runtime):
+    """Execute one protocol command while bounding both captured streams."""
+    try:
+        process = subprocess.Popen(
+            command,
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+    except OSError as exc:
+        detail = exc.strerror or type(exc).__name__
+        raise OracleError(f"{runtime}: could not execute configured command: {detail}") from exc
+
+    chunks = {"stdout": [], "stderr": []}
+    overflow = []
+    io_errors = []
+
+    def stop_process():
+        try:
+            process.kill()
+        except (OSError, ProcessLookupError):
+            pass
+
+    def read_stream(name, stream, limit):
+        total = 0
+        try:
+            while True:
+                chunk = stream.read(PROTOCOL_READ_BYTES)
+                if not chunk:
+                    break
+                total += len(chunk)
+                if total > limit:
+                    overflow.append(name)
+                    stop_process()
+                    break
+                chunks[name].append(chunk)
+        except OSError as exc:
+            io_errors.append((name, exc))
+            stop_process()
+        finally:
+            stream.close()
+
+    def write_stdin():
+        try:
+            process.stdin.write(payload)
+            process.stdin.close()
+        except BrokenPipeError:
+            pass
+        except OSError as exc:
+            io_errors.append(("stdin", exc))
+            stop_process()
+
+    threads = [
+        threading.Thread(
+            target=read_stream,
+            args=("stdout", process.stdout, MAX_PROTOCOL_STDOUT_BYTES),
+            daemon=True,
+        ),
+        threading.Thread(
+            target=read_stream,
+            args=("stderr", process.stderr, MAX_PROTOCOL_STDERR_BYTES),
+            daemon=True,
+        ),
+        threading.Thread(target=write_stdin, daemon=True),
+    ]
+    for thread in threads:
+        thread.start()
+    try:
+        returncode = process.wait(timeout=timeout_s)
+    except subprocess.TimeoutExpired as exc:
+        stop_process()
+        process.wait()
+        for thread in threads:
+            thread.join()
+        raise OracleError(f"{runtime}: timed out after {timeout_s}s") from exc
+    for thread in threads:
+        thread.join()
+    if overflow:
+        stream = overflow[0]
+        limit = MAX_PROTOCOL_STDOUT_BYTES if stream == "stdout" else MAX_PROTOCOL_STDERR_BYTES
+        raise OracleError(f"{runtime}: {stream} exceeded the {limit}-byte protocol limit")
+    if io_errors:
+        stream, exc = io_errors[0]
+        detail = exc.strerror or type(exc).__name__
+        raise OracleError(f"{runtime}: {stream} I/O failed: {detail}") from exc
+    try:
+        stdout = b"".join(chunks["stdout"]).decode("utf-8")
+    except UnicodeError as exc:
+        raise OracleError(f"{runtime}: response was not valid UTF-8") from exc
+    return returncode, stdout
 
 
 class ChainOracle(OracleAdapter):
@@ -335,7 +494,7 @@ class ChainOracle(OracleAdapter):
         for name, adapter, build_request in self._steps:
             try:
                 step_request = build_request(carried) if build_request else carried
-            except (KeyError, IndexError, TypeError) as exc:
+            except Exception as exc:
                 raise OracleError(
                     f"stage {name!r}: the previous stage did not supply what it needs: "
                     f"{type(exc).__name__}: {exc}"
@@ -376,14 +535,21 @@ def probe_runtime(runtime, environ=None):
 def bind(runtime, oracle_id, oracle_type, description, reference_fn, environ=None):
     """Return the external adapter when bound, else the reference adapter."""
     env = os.environ if environ is None else environ
-    command = env.get(env_key(runtime), "").strip()
+    key = env_key(runtime)
+    command = env.get(key, "").strip()
     if command:
+        try:
+            argv = shlex.split(command)
+        except ValueError as exc:
+            raise OracleError(f"{key} contains a malformed command") from exc
+        if not argv or not argv[0]:
+            raise OracleError(f"{key} contains a command with no executable")
         return ExternalCommandOracle(
             oracle_id=runtime,
             oracle_type=oracle_type,
             description=f"{runtime} via {PROTOCOL}",
             runtime=runtime,
-            command=shlex.split(command),
+            command=argv,
         )
     return ReferenceOracle(
         oracle_id=oracle_id,
@@ -402,7 +568,18 @@ def availability_report(runtimes, environ=None):
     must describe the oracle binding and nothing about the machine. The code
     identity that actually matters is ``module_digest``.
     """
-    probes = [probe_runtime(runtime, environ) for runtime in runtimes]
+    diagnostics = [probe_runtime(runtime, environ) for runtime in runtimes]
+    # PATH membership and prose diagnostics describe the current host, not the
+    # oracle binding contract.  Keep them available through ``probe_runtime``
+    # for operators but exclude them from canonical records and manifests.
+    probes = [
+        {
+            "runtime": probe["runtime"],
+            "binding_env": probe["binding_env"],
+            "bound": probe["bound"],
+        }
+        for probe in diagnostics
+    ]
     return {
         "protocol": PROTOCOL,
         "runtimes": probes,

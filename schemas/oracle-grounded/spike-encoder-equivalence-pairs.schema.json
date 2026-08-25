@@ -46,6 +46,7 @@
           "type": "array",
           "minItems": 2,
           "maxItems": 2,
+          "uniqueItems": true,
           "items": { "enum": ["rate", "latency", "delta", "temporal"] }
         },
         "question": { "type": "string" }
@@ -108,9 +109,14 @@
         "mean_rate_hz",
         "energy_pJ",
         "rmse",
+        "mean_abs_error",
+        "max_abs_error",
+        "pearson_r",
         "information_retention",
+        "retention_per_spike",
         "reconstruction",
         "representation_excerpt",
+        "representation_excerpt_truncated",
         "spike_train_digest"
       ],
       "properties": {

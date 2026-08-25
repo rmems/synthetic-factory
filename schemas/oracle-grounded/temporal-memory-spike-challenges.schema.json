@@ -28,6 +28,7 @@
         "distractor_ms": {
           "type": "array",
           "items": { "type": "number", "minimum": 0 },
+          "uniqueItems": true,
           "description": "Times of distractor pulses inside the delay."
         },
         "distractor_count": { "type": "integer", "minimum": 0 },
@@ -70,7 +71,13 @@
       "properties": {
         "measured": {
           "type": "object",
-          "required": ["baseline", "probes", "temporal_dependence", "delay_ms"],
+          "required": [
+            "baseline",
+            "probes",
+            "temporal_dependence",
+            "distractor_invariant",
+            "delay_ms"
+          ],
           "properties": {
             "baseline": { "$ref": "#/$defs/trial" },
             "probes": {
@@ -111,29 +118,54 @@
       "type": "object",
       "required": [
         "response",
+        "response_latency_ms",
         "response_ambiguous",
         "output_spike_counts",
         "memory_spike_counts",
+        "latch_last_spike_ms",
         "state_retained_at_probe",
         "total_spikes",
         "energy_pJ",
-        "duration_ms"
+        "duration_ms",
+        "spike_budget_exhausted"
       ],
       "properties": {
         "response": {
           "enum": ["A", "B", "none"],
-          "description": "Which readout fired first inside the response window after the probe."
+          "description": "Derived from OA/OB spikes inside the response window: only OA means A, only OB means B, neither or both means none."
         },
         "response_latency_ms": { "type": ["number", "null"], "minimum": 0 },
         "response_ambiguous": {
           "type": "boolean",
-          "description": "True when both readouts fired on the same step; the network did not resolve the choice and the record is rejected."
+          "description": "True when both readouts fired inside the response window; the network did not resolve the choice and the record is rejected."
         },
-        "output_spike_counts": { "type": "object", "additionalProperties": { "type": "integer" } },
-        "memory_spike_counts": { "type": "object", "additionalProperties": { "type": "integer" } },
+        "output_spike_counts": {
+          "type": "object",
+          "required": ["OA", "OB"],
+          "properties": {
+            "OA": { "type": "integer", "minimum": 0 },
+            "OB": { "type": "integer", "minimum": 0 }
+          },
+          "additionalProperties": false
+        },
+        "memory_spike_counts": {
+          "type": "object",
+          "required": ["MA", "MB"],
+          "properties": {
+            "MA": { "type": "integer", "minimum": 0 },
+            "MB": { "type": "integer", "minimum": 0 }
+          },
+          "additionalProperties": false
+        },
         "latch_last_spike_ms": {
           "type": "object",
-          "additionalProperties": { "type": ["number", "null"] }
+          "description": "Latest latch spike at or before the probe, so state_retained_at_probe is derivable.",
+          "required": ["MA", "MB"],
+          "properties": {
+            "MA": { "type": ["number", "null"], "minimum": 0 },
+            "MB": { "type": ["number", "null"], "minimum": 0 }
+          },
+          "additionalProperties": false
         },
         "state_retained_at_probe": {
           "type": "boolean",

@@ -9,7 +9,12 @@
       "type": "object",
       "required": ["nodes", "edges", "source", "sink", "stimulus", "duration_ms"],
       "properties": {
-        "nodes": { "type": "array", "items": { "type": "string" }, "minItems": 2 },
+        "nodes": {
+          "type": "array",
+          "items": { "type": "string" },
+          "minItems": 2,
+          "uniqueItems": true
+        },
         "edges": {
           "type": "array",
           "minItems": 1,
@@ -79,6 +84,9 @@
                 "suppressed_nodes",
                 "recruited_nodes",
                 "firing_order_changed",
+                "propagation_delay_delta_ms",
+                "sink_reached_before",
+                "sink_reached_after",
                 "sink_reachability_changed"
               ],
               "properties": {
@@ -123,8 +131,12 @@
         "first_arrival_ms",
         "firing_order",
         "downstream_activation",
+        "propagation_delay_ms",
         "sink_reached",
-        "spike_counts"
+        "spike_counts",
+        "total_spikes",
+        "energy_pJ",
+        "spike_budget_exhausted"
       ],
       "properties": {
         "source": { "type": "string" },
@@ -137,15 +149,23 @@
         "firing_order": {
           "type": "array",
           "items": { "type": "string" },
+          "uniqueItems": true,
           "description": "Node ids in order of first spike, each appearing at most once."
         },
-        "downstream_activation": { "type": "array", "items": { "type": "string" } },
+        "downstream_activation": {
+          "type": "array",
+          "items": { "type": "string" },
+          "uniqueItems": true
+        },
         "propagation_delay_ms": {
           "type": ["number", "null"],
           "description": "sink first arrival minus source first arrival; null when either never spiked."
         },
         "sink_reached": { "type": "boolean" },
-        "spike_counts": { "type": "object", "additionalProperties": { "type": "integer" } },
+        "spike_counts": {
+          "type": "object",
+          "additionalProperties": { "type": "integer", "minimum": 0 }
+        },
         "total_spikes": { "type": "integer", "minimum": 0 },
         "energy_pJ": { "type": "number", "minimum": 0 },
         "spike_budget_exhausted": {

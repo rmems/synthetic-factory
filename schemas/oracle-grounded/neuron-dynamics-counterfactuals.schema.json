@@ -14,11 +14,48 @@
           "required": ["kind", "parameters"],
           "properties": {
             "kind": { "enum": ["step", "pulse_train", "ramp"] },
-            "parameters": { "type": "object" }
+            "parameters": {
+              "anyOf": [
+                {
+                  "type": "object",
+                  "required": ["amplitude", "onset_ms", "offset_ms"],
+                  "properties": {
+                    "amplitude": { "type": "number" },
+                    "onset_ms": { "type": "number", "minimum": 0 },
+                    "offset_ms": { "type": "number", "exclusiveMinimum": 0 }
+                  },
+                  "additionalProperties": true
+                },
+                {
+                  "type": "object",
+                  "required": ["amplitude", "period_ms", "width_ms", "onset_ms"],
+                  "properties": {
+                    "amplitude": { "type": "number" },
+                    "period_ms": { "type": "number", "exclusiveMinimum": 0 },
+                    "width_ms": { "type": "number", "exclusiveMinimum": 0 },
+                    "onset_ms": { "type": "number", "minimum": 0 }
+                  },
+                  "additionalProperties": true
+                },
+                {
+                  "type": "object",
+                  "required": ["peak", "onset_ms"],
+                  "properties": {
+                    "peak": { "type": "number" },
+                    "onset_ms": { "type": "number", "minimum": 0 }
+                  },
+                  "additionalProperties": true
+                }
+              ]
+            }
           }
         },
-        "duration_ms": { "type": "number", "exclusiveMinimum": 0 },
-        "dt_ms": { "type": "number", "exclusiveMinimum": 0 },
+        "duration_ms": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "maximum": 1000000
+        },
+        "dt_ms": { "type": "number", "minimum": 0.000001 },
         "baseline_parameters": {
           "type": "object",
           "description": "Neuron parameters the generator proposes. Units: v_threshold in normalized membrane units (rest 0, threshold nominally 1), tau_m_ms and t_refractory_ms in milliseconds, adaptation_b in membrane units added per spike, input_scale and neuromod_gain dimensionless.",
@@ -78,7 +115,16 @@
             "after": { "$ref": "#/$defs/neuronState" },
             "delta": {
               "type": "object",
-              "required": ["spike_count_delta", "direction"],
+              "required": [
+                "spike_count_delta",
+                "mean_rate_delta_hz",
+                "first_spike_shift_ms",
+                "mean_isi_delta_ms",
+                "v_mean_delta",
+                "direction",
+                "silenced",
+                "unsilenced"
+              ],
               "properties": {
                 "spike_count_delta": { "type": "integer" },
                 "mean_rate_delta_hz": { "type": "number" },
@@ -103,7 +149,15 @@
       "required": [
         "spike_count",
         "spike_times_ms",
+        "first_spike_ms",
+        "last_spike_ms",
         "mean_rate_hz",
+        "mean_isi_ms",
+        "cv_isi",
+        "adaptation_index",
+        "v_mean",
+        "v_max",
+        "v_min",
         "v_trace",
         "v_trace_stride_ms",
         "duration_ms"

@@ -98,7 +98,7 @@
   "files": {
     "neuromodulator-credit-assignment/accepted-r01.jsonl": {
       "records": 4,
-      "sha256": "b25dd5b78b2b64468f57940486f1b380ee8e8ea4c42ff3152c4e7eb3ee1b0e73"
+      "sha256": "e42ca32d42e65bf99642f7a137da2b2286bb4823c3dc092d21cef8e84d9ce76e"
     },
     "neuromodulator-credit-assignment/rejected-r01.jsonl": {
       "records": 0,
@@ -106,7 +106,7 @@
     },
     "neuron-dynamics-counterfactuals/accepted-r01.jsonl": {
       "records": 4,
-      "sha256": "8da92243370137b9d78eefd5cdd23bc757346358ed92f95523dafa2e9d2d46a2"
+      "sha256": "06d5f1fbfc9c3533a23743dc0eb8096cce2718c5dd33a563b8aa46e52820d277"
     },
     "neuron-dynamics-counterfactuals/rejected-r01.jsonl": {
       "records": 0,
@@ -114,7 +114,7 @@
     },
     "spike-encoder-equivalence-pairs/accepted-r01.jsonl": {
       "records": 4,
-      "sha256": "d68e6cb3d04fa6513bb2eb495af6c6a87bbbf86764b404388e440c36260953b4"
+      "sha256": "9dce93a38148bea35497fefeeb9432c8f7befab12d287ccfafe59ed2bdabf700"
     },
     "spike-encoder-equivalence-pairs/rejected-r01.jsonl": {
       "records": 0,
@@ -122,7 +122,7 @@
     },
     "synaptic-delay-causal-trajectories/accepted-r01.jsonl": {
       "records": 4,
-      "sha256": "324b44319a3ced80967bc535d73f8fc6fa8ce2cee838f89fcc0b1cbaf11ff289"
+      "sha256": "a23e9c6ce6c2384cff42be133bf7037aa97d166fd0534d8a7959b2590229ab83"
     },
     "synaptic-delay-causal-trajectories/rejected-r01.jsonl": {
       "records": 0,
@@ -130,15 +130,15 @@
     },
     "temporal-memory-spike-challenges/accepted-r01.jsonl": {
       "records": 2,
-      "sha256": "d99a09c878d8dffe735ac47ea74baa811531238c3ed438d2a3b03bf4f2cd97bf"
+      "sha256": "7e4e4f3829fd588f78cc85296b739d780bfabf3525ca9a4fe14ae97911e8861e"
     },
     "temporal-memory-spike-challenges/rejected-r01.jsonl": {
       "records": 2,
-      "sha256": "fa46b0c210b15c5e023dc748e8810acd451ec34b83a987e20f80a6a2e468d454"
+      "sha256": "a90f7c51b716f2934a2419e92d2d02ec37b81c27b89075881e831a593227ef0a"
     }
   },
   "generation_errors": [],
-  "module_digest": "sha256:59dba7e03715192f5cb882fc708a7edf65207ce09c74e3d02cb455c552f07072",
+  "module_digest": "sha256:9755d43d72be64ab7b2659826ed7faa37b7b004c03e2d081db6356c021644593",
   "note": "Counts describe this run only. A reference-implementation oracle measures a real model but is not the named runtime; no record here is publishable as a measurement of the named runtime.",
   "oracle_availability": {
     "all_bound": false,
@@ -147,43 +147,31 @@
       {
         "binding_env": "SF_ORACLE_AXON_ENCODER_CMD",
         "bound": false,
-        "note": "axon-encoder is not installed and SF_ORACLE_AXON_ENCODER_CMD is unset",
-        "on_path": false,
         "runtime": "axon-encoder"
       },
       {
         "binding_env": "SF_ORACLE_NEUROMOD_CMD",
         "bound": false,
-        "note": "neuromod is not installed and SF_ORACLE_NEUROMOD_CMD is unset",
-        "on_path": false,
         "runtime": "neuromod"
       },
       {
         "binding_env": "SF_ORACLE_SYNAPTIC_MESH_CMD",
         "bound": false,
-        "note": "synaptic-mesh is not installed and SF_ORACLE_SYNAPTIC_MESH_CMD is unset",
-        "on_path": false,
         "runtime": "synaptic-mesh"
       },
       {
         "binding_env": "SF_ORACLE_LIMBIC_CRITIC_CMD",
         "bound": false,
-        "note": "limbic-critic is not installed and SF_ORACLE_LIMBIC_CRITIC_CMD is unset",
-        "on_path": false,
         "runtime": "limbic-critic"
       },
       {
         "binding_env": "SF_ORACLE_PLASTICITY_LAB_CMD",
         "bound": false,
-        "note": "plasticity-lab is not installed and SF_ORACLE_PLASTICITY_LAB_CMD is unset",
-        "on_path": false,
         "runtime": "plasticity-lab"
       },
       {
         "binding_env": "SF_ORACLE_RECURRENT_SNN_CMD",
         "bound": false,
-        "note": "recurrent-snn is not installed and SF_ORACLE_RECURRENT_SNN_CMD is unset",
-        "on_path": false,
         "runtime": "recurrent-snn"
       }
     ],

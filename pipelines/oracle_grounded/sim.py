@@ -16,6 +16,7 @@ Every function here is pure and deterministic: same inputs, same floats.
 """
 
 import math
+from itertools import pairwise
 
 # Loihi-2-class energy constant, the same 23 pJ/spike already used by
 # schemas/raster.schema.json so the two families report comparable numbers.
@@ -40,7 +41,7 @@ def pearson(left, right):
         return None
     mean_l = sum(left) / count
     mean_r = sum(right) / count
-    cov = sum((a - mean_l) * (b - mean_r) for a, b in zip(left, right))
+    cov = sum((a - mean_l) * (b - mean_r) for a, b in zip(left, right, strict=True))
     var_l = math.sqrt(sum((a - mean_l) ** 2 for a in left))
     var_r = math.sqrt(sum((b - mean_r) ** 2 for b in right))
     if var_l == 0.0 or var_r == 0.0:
@@ -50,7 +51,9 @@ def pearson(left, right):
 
 def rmse(left, right):
     count = len(left)
-    return math.sqrt(sum((a - b) ** 2 for a, b in zip(left, right)) / count)
+    if count != len(right) or not count:
+        raise ValueError("rmse requires two non-empty, equal-length series")
+    return math.sqrt(sum((a - b) ** 2 for a, b in zip(left, right, strict=True)) / count)
 
 
 # --------------------------------------------------------------------------
@@ -225,7 +228,7 @@ def run_encoder(signal, encoding, config):
     spikes = encode(signal, config)
     spikes.sort(key=lambda item: (item["t_ms"], item["channel"]))
     decoded = decode(spikes, len(signal), config)
-    errors = [abs(a - b) for a, b in zip(signal, decoded)]
+    errors = [abs(a - b) for a, b in zip(signal, decoded, strict=True)]
     error = rmse(signal, decoded)
     retention = clamp(1.0 - error, 0.0, 1.0)
     count = len(spikes)
@@ -358,7 +361,7 @@ def simulate_neuron(config, input_current, trace_points=48):
 def _neuron_summary(spikes, trace, config, steps, trace_points):
     dt_ms = config["dt_ms"]
     duration_ms = steps * dt_ms
-    intervals = [b - a for a, b in zip(spikes, spikes[1:])]
+    intervals = [b - a for a, b in pairwise(spikes)]
     mean_isi = (sum(intervals) / len(intervals)) if intervals else None
     if intervals and len(intervals) > 1 and mean_isi:
         variance = sum((item - mean_isi) ** 2 for item in intervals) / len(intervals)
@@ -398,9 +401,7 @@ def compare_neuron_states(before, after):
     return {
         "spike_count_delta": delta_count,
         "mean_rate_delta_hz": after["mean_rate_hz"] - before["mean_rate_hz"],
-        "first_spike_shift_ms": _optional_delta(
-            after["first_spike_ms"], before["first_spike_ms"]
-        ),
+        "first_spike_shift_ms": _optional_delta(after["first_spike_ms"], before["first_spike_ms"]),
         "mean_isi_delta_ms": _optional_delta(after["mean_isi_ms"], before["mean_isi_ms"]),
         "v_mean_delta": _optional_delta(after["v_mean"], before["v_mean"]),
         "direction": direction,
@@ -524,9 +525,7 @@ def simulate_mesh(nodes, edges, events, duration_ms, dt_ms=0.5, max_spikes=4000)
         ((t, node_id) for node_id, times in by_node.items() for t in times),
         key=lambda item: (item[0], item[1]),
     )
-    first_spike = {
-        node_id: (times[0] if times else None) for node_id, times in by_node.items()
-    }
+    first_spike = {node_id: (times[0] if times else None) for node_id, times in by_node.items()}
     firing_order = []
     for _time, node_id in all_spikes:
         if node_id not in firing_order:
@@ -684,9 +683,7 @@ def _plasticity_circuit(weights, pre_spikes, config, readout_overrides=None):
                 }
             )
     events.sort(key=lambda item: (item["t_ms"], item["amplitude"]))
-    result = simulate_mesh(
-        [readout], [], events, config["duration_ms"], dt_ms=config["dt_ms"]
-    )
+    result = simulate_mesh([readout], [], events, config["duration_ms"], dt_ms=config["dt_ms"])
     post = result["spikes_by_node"]["readout"]
     duration_s = config["duration_ms"] / 1000.0
     return {
@@ -883,6 +880,39 @@ def memory_events(task, config):
     return events
 
 
+def memory_response_from_counts(output_spike_counts):
+    """Derive the categorical response from the retained OA/OB primitives.
+
+    A single active readout selects its label.  Neither readout means no
+    response; both readouts is an unresolved, ambiguous response and therefore
+    also carries the neutral ``none`` label rather than choosing one by
+    iteration order.
+    """
+    if not isinstance(output_spike_counts, dict):
+        raise ValueError("output_spike_counts must be an object")
+    if set(output_spike_counts) != {"OA", "OB"}:
+        raise ValueError("output_spike_counts must contain exactly OA and OB")
+    counts = {}
+    for node_id in ("OA", "OB"):
+        value = output_spike_counts[node_id]
+        if (
+            not isinstance(value, (int, float))
+            or isinstance(value, bool)
+            or (isinstance(value, float) and not math.isfinite(value))
+            or value != math.trunc(value)
+            or value < 0
+        ):
+            raise ValueError(f"output_spike_counts.{node_id} must be a non-negative integer")
+        counts[node_id] = value
+    active_a = counts["OA"] > 0
+    active_b = counts["OB"] > 0
+    if active_a and not active_b:
+        return "A", False
+    if active_b and not active_a:
+        return "B", False
+    return "none", active_a and active_b
+
+
 def run_memory_task(task, config):
     """Simulate one delayed-dependency trial and read the network's answer."""
     nodes, edges = memory_network(config)
@@ -897,44 +927,44 @@ def run_memory_task(task, config):
             if probe_ms <= time_ms <= window_end:
                 responses.append((time_ms, node_id))
     responses.sort()
-    ambiguous = False
-    if responses:
-        response_time, node_id = responses[0]
-        response = "A" if node_id == "OA" else "B"
-        latency = response_time - probe_ms
-        # Both readouts firing on the same step is a tie the network does not
-        # resolve; reporting the node that happens to sort first would be an
-        # artefact of iteration order, so it is flagged instead.
-        ambiguous = any(
-            time_ms == response_time and other != node_id for time_ms, other in responses
-        )
-    else:
-        response = "none"
+    # Retain exactly the primitive used for the categorical answer: output
+    # spikes inside the declared response window.  Counting whole-trial spikes
+    # here would let an unrelated pre/post-window event select a label whose
+    # latency cannot be derived from the retained response evidence.
+    output_spike_counts = {
+        node_id: sum(1 for _time_ms, observed in responses if observed == node_id)
+        for node_id in ("OA", "OB")
+    }
+    response, ambiguous = memory_response_from_counts(output_spike_counts)
+    if response == "none":
         latency = None
+    else:
+        response_node = "OA" if response == "A" else "OB"
+        response_time = next(time_ms for time_ms, node_id in responses if node_id == response_node)
+        latency = response_time - probe_ms
     latch_alive = _latch_alive(result, probe_ms, config)
     return {
         "response": response,
         "response_latency_ms": latency,
         "response_ambiguous": ambiguous,
-        "output_spike_counts": {
-            "OA": len(result["spikes_by_node"]["OA"]),
-            "OB": len(result["spikes_by_node"]["OB"]),
-        },
+        "output_spike_counts": output_spike_counts,
         "memory_spike_counts": {
             "MA": len(result["spikes_by_node"]["MA"]),
             "MB": len(result["spikes_by_node"]["MB"]),
         },
+        # Retain the primitive that actually supports the state-at-probe label.
+        # A loop may keep spiking after the probe; the final trial spike cannot
+        # establish whether it was alive when the probe arrived.
         "latch_last_spike_ms": {
-            "MA": (
-                result["spikes_by_node"]["MA"][-1]
-                if result["spikes_by_node"]["MA"]
-                else None
-            ),
-            "MB": (
-                result["spikes_by_node"]["MB"][-1]
-                if result["spikes_by_node"]["MB"]
-                else None
-            ),
+            node_id: next(
+                (
+                    time_ms
+                    for time_ms in reversed(result["spikes_by_node"][node_id])
+                    if time_ms <= probe_ms
+                ),
+                None,
+            )
+            for node_id in ("MA", "MB")
         },
         "state_retained_at_probe": latch_alive,
         "total_spikes": result["total_spikes"],

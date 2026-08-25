@@ -135,6 +135,11 @@
                 },
                 "behavior_delta": {
                   "type": "object",
+                  "required": [
+                    "spike_count_delta",
+                    "output_rate_delta_hz",
+                    "first_spike_shift_ms"
+                  ],
                   "properties": {
                     "spike_count_delta": { "type": "integer" },
                     "output_rate_delta_hz": { "type": "number" },
@@ -151,7 +156,12 @@
   "$defs": {
     "readoutBehavior": {
       "type": "object",
-      "required": ["spike_count", "spike_times_ms", "output_rate_hz"],
+      "required": [
+        "spike_count",
+        "spike_times_ms",
+        "first_spike_ms",
+        "output_rate_hz"
+      ],
       "properties": {
         "spike_count": { "type": "integer", "minimum": 0 },
         "spike_times_ms": { "type": "array", "items": { "type": "number", "minimum": 0 } },

@@ -86,14 +86,20 @@
           "description": "Must equal oracle.id."
         },
         "measured": { "type": "object", "minProperties": 1 },
-        "units": { "type": "object" }
+        "units": { "type": "object", "minProperties": 1 }
       },
       "additionalProperties": false
     },
     "result_hash": { "$ref": "#/$defs/digest" },
     "provenance": {
       "type": "object",
-      "required": ["kind", "oracle_grounded"],
+      "required": [
+        "kind",
+        "claimed",
+        "oracle_grounded",
+        "generator_authored",
+        "oracle_authored"
+      ],
       "properties": {
         "kind": {
           "enum": ["designed", "simulated", "hil"],
@@ -101,14 +107,29 @@
         },
         "claimed": { "type": "string" },
         "oracle_grounded": { "const": true },
-        "generator_authored": { "type": "array", "items": { "type": "string" } },
-        "oracle_authored": { "type": "array", "items": { "type": "string" } }
+        "generator_authored": {
+          "type": "array",
+          "items": { "type": "string" },
+          "uniqueItems": true
+        },
+        "oracle_authored": {
+          "type": "array",
+          "items": { "type": "string" },
+          "uniqueItems": true
+        }
       },
       "additionalProperties": true
     },
     "validation": {
       "type": "object",
-      "required": ["status", "reasons", "checks", "publishable", "publishable_reason"],
+      "required": [
+        "status",
+        "reasons",
+        "checks",
+        "candidate_prediction_correct",
+        "publishable",
+        "publishable_reason"
+      ],
       "properties": {
         "status": { "enum": ["accepted", "rejected"] },
         "reasons": {
@@ -116,7 +137,15 @@
           "items": { "type": "string" },
           "description": "Must match the findings recomputed at validation time. A rejected record with an unrelated reason is itself invalid."
         },
-        "checks": { "type": "object" },
+        "checks": {
+          "type": "object",
+          "required": ["envelope", "family_invariants"],
+          "properties": {
+            "envelope": { "type": "boolean" },
+            "family_invariants": { "type": "boolean" }
+          },
+          "additionalProperties": false
+        },
         "candidate_prediction_correct": { "type": ["boolean", "null"] },
         "publishable": {
           "type": "boolean",
@@ -124,7 +153,7 @@
         },
         "publishable_reason": { "type": "string" }
       },
-      "additionalProperties": true
+      "additionalProperties": false
     },
     "meta": {
       "type": "object",
@@ -179,15 +208,15 @@
           "type": "array",
           "items": { "type": "string" },
           "minItems": 1,
+          "uniqueItems": true,
           "description": "The runtime(s) the family is specified against, whether or not they were available."
         },
         "runtime_bound": { "type": "boolean" },
         "repo": { "type": "string", "minLength": 1 },
         "commit": {
           "type": "string",
-          "minLength": 1,
-          "not": { "const": "unknown" },
-          "description": "Code provenance. A record whose commit cannot be resolved is rejected."
+          "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$",
+          "description": "Resolved lowercase 40- or 64-hex source commit. A record whose commit cannot be resolved is rejected."
         },
         "dirty": {
           "type": ["boolean", "null"],
@@ -229,7 +258,11 @@
                 "pattern": "^[0-9a-fA-F]{7,64}$",
                 "description": "Resolved hexadecimal source revision for the named runtime."
               },
-              "command": { "type": "array", "items": { "type": "string" } }
+              "executable": {
+                "type": "string",
+                "minLength": 1,
+                "description": "Basename-only executable identity. Command arguments are never retained because they may contain secrets."
+              }
             },
             "additionalProperties": true
           }
@@ -243,13 +276,11 @@
               "type": "array",
               "items": {
                 "type": "object",
-                "required": ["runtime", "binding_env", "bound", "on_path", "note"],
+                "required": ["runtime", "binding_env", "bound"],
                 "properties": {
                   "runtime": { "type": "string" },
                   "binding_env": { "type": "string" },
-                  "bound": { "type": "boolean" },
-                  "on_path": { "type": "boolean" },
-                  "note": { "type": "string" }
+                  "bound": { "type": "boolean" }
                 },
                 "additionalProperties": false
               }
