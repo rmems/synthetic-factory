@@ -443,13 +443,16 @@ class PublisherIntegrationTests(unittest.TestCase):
             )
 
     def test_an_undeclared_dataset_card_carries_the_visible_placeholder(self):
+        # Use a name that no published dataset owns so adding a declaration for
+        # a real dataset cannot accidentally turn this fallback test green.
         item = {
-            "slug": "websocket-reconnect-factory",
-            "hub": "websocket-reconnect-trajectories",
-            "pretty": "Websocket Reconnect Trajectories",
+            "slug": "still-undeclared-factory",
+            "hub": "still-undeclared-trajectories",
+            "pretty": "Still Undeclared Trajectories",
             "blurb": "Test factory.",
             "tags": ["synthetic-data"],
         }
+        self.assertIsNone(card_schema.load(item["hub"]))
         card = publisher.render_card(
             item,
             records=2,
