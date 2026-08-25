@@ -12,55 +12,37 @@
     {
       "name": "plan",
       "dtype": "string",
-      "note": "a string on all 1876 records, so it is mandatory here and is declared without `optional`"
+      "note": "observed snapshot through round 938: a non-empty string on all 1876 records; declared without `optional` for this snapshot"
     },
     {
       "name": "error_introduced",
+      "dtype": "json",
       "optional": true,
-      "note": "present on 76 of 1876 records (the `meta.kind=episode` rows); always exactly these three fields with these types, so it is declared as a struct rather than as `json`",
-      "struct": [
-        {"name": "step", "dtype": "int64"},
-        {"name": "kind", "dtype": "string"},
-        {"name": "description", "dtype": "string"}
-      ]
+      "note": "observed snapshot through round 938: present on 76 of 1876 records (the `meta.kind=episode` rows), currently as `{step int, kind string, description string}`; kept as `json` so a future nested key or type cannot recreate the Arrow cast failure"
     },
     {
       "name": "propagation",
+      "dtype": "json",
       "optional": true,
-      "note": "present on 76 of 1876 records; always exactly these four fields",
-      "struct": [
-        {"name": "hops", "dtype": "int64"},
-        {"name": "survived_steps", "list": "int64"},
-        {"name": "mask", "dtype": "string"},
-        {"name": "first_symptom_step", "dtype": "int64"}
-      ]
+      "note": "observed snapshot through round 938: present on 76 of 1876 records, currently as `{hops int, survived_steps list[int], mask string, first_symptom_step int}`; kept as `json` so future nested-shape drift remains loadable"
     },
     {
       "name": "diagnosis",
+      "dtype": "json",
       "optional": true,
-      "note": "present on 76 of 1876 records; always exactly these two fields",
-      "struct": [
-        {"name": "step", "dtype": "int64"},
-        {"name": "how_survived", "dtype": "string"}
-      ]
+      "note": "observed snapshot through round 938: present on 76 of 1876 records, currently as `{step int, how_survived string}`; kept as `json` to tolerate nested-shape drift"
     },
     {
       "name": "recovery",
+      "dtype": "json",
       "optional": true,
-      "note": "present on 76 of 1876 records; always exactly these two fields",
-      "struct": [
-        {"name": "step", "dtype": "int64"},
-        {"name": "action", "dtype": "string"}
-      ]
+      "note": "observed snapshot through round 938: present on 76 of 1876 records, currently as `{step int, action string}`; kept as `json` to tolerate nested-shape drift"
     },
     {
       "name": "verification",
+      "dtype": "json",
       "optional": true,
-      "note": "present on 76 of 1876 records; always exactly these two fields",
-      "struct": [
-        {"name": "step", "dtype": "int64"},
-        {"name": "evidence", "dtype": "string"}
-      ]
+      "note": "observed snapshot through round 938: present on 76 of 1876 records, currently as `{step int, evidence string}`; kept as `json` to tolerate nested-shape drift"
     },
     {
       "name": "steps",
