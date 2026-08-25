@@ -1,0 +1,43 @@
+tests/test_compose_curated.py
+  s_940326c4ee4215::t_d46d32ef04faab 91
+  s_940326c4ee4215::t_9fac41fb3b01bf 93
+  s_940326c4ee4215::t_ea336941777b63 94-95,265
+  s_940326c4ee4215::t_44c64fc6348e09 248-249
+  s_940326c4ee4215::t_3aa82a654929b5 303-304
+  s_940326c4ee4215::t_42fee68878c764 333
+  s_940326c4ee4215::t_3a9ec24442d7ac 391
+pipelines/compose_curated.py
+  s_940326c4ee4215::t_aec2b1b8557810 17-18,266-267,269-271,273-276
+  s_940326c4ee4215::t_35a25d32834bdf 105-106,143-144,288,399-400,406-407,438,468-469
+  s_940326c4ee4215::t_659226e74b4668 278-280,284-285
+  s_940326c4ee4215::t_294ea47391ad9f 286
+  s_940326c4ee4215::t_0d3bafd178a98b 287
+  s_940326c4ee4215::t_ac433843a36df4 398
+  s_940326c4ee4215::t_82fd19f2fb9bda 405,486
+  s_940326c4ee4215::t_f8a1d479f463bf 423-424
+tests/test_export_hf.py
+  s_940326c4ee4215::t_2613a4e2612dac 168
+  s_940326c4ee4215::t_42fee68878c764 179
+  s_940326c4ee4215::t_d9109ec62e2040 181-182,262,302
+pipelines/export_hf.py
+  s_940326c4ee4215::t_98b9f3ee3d105e 564,586-587
+README.md
+  s_940326c4ee4215::t_c844e6ffde7bd0 70,72,135-142,144-164,168-172
+  s_940326c4ee4215::t_2a142d331be429 111-113
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "d9f106e97f316d221db9ef45a88abf209fb31e95",
+  "prompts": {},
+  "sessions": {
+    "s_940326c4ee4215": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a032e4-1904-7a82-8c8b-1ad3cfbeb0b0",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": null
+    }
+  }
+}
