@@ -172,6 +172,18 @@ class PayloadKindClassification(unittest.TestCase):
             {"native": 0, "wrapped": 0, "total": 0},
         )
 
+    def test_malformed_gate_metadata_containers_fail_closed(self):
+        for field in ("state", "safety_decision"):
+            with self.subTest(field=field):
+                with tempfile.TemporaryDirectory() as raw:
+                    directory = Path(raw)
+                    record = _thalamic("act-r02-001", {"summary": "no episode"})
+                    record[field] = "not-an-object"
+                    _write_corpus(directory, {"batch-r02.jsonl": [record]})
+                    with self.assertRaises(payload_kind_audit.PayloadKindAuditError) as caught:
+                        payload_kind_audit.build_audit(directory)
+                self.assertIn(f"batch-r02.jsonl:1.{field} must be a JSON object", str(caught.exception))
+
     def test_malformed_episode_step_containers_fail_closed(self):
         malformed = (
             _episode("not-a-list"),
@@ -380,6 +392,28 @@ class PayloadKindClassification(unittest.TestCase):
                         code = payload_kind_audit.main([str(directory), "--expect", str(expected)])
                     self.assertEqual(code, 2)
                     self.assertIn("payload-kind audit failed", err.getvalue())
+
+    def test_snapshot_name_type_errors_are_controlled(self):
+        with tempfile.TemporaryDirectory() as raw:
+            directory = Path(raw)
+            _write_corpus(directory, {"episodes.jsonl": [_episode([])]})
+            with self.assertRaises(payload_kind_audit.PayloadKindAuditError) as caught:
+                payload_kind_audit.build_audit(directory, payload_names=[[]])
+        self.assertIn("unsafe snapshot payload name", str(caught.exception))
+
+    def test_expect_rejects_non_standard_json_constants_as_input_errors(self):
+        with tempfile.TemporaryDirectory() as raw:
+            directory = Path(raw)
+            _write_corpus(directory, {"episodes.jsonl": [_episode([])]})
+            published = payload_kind_audit.build_audit(directory)
+            serialized = json.dumps(published).replace('"records": 1', '"records": NaN', 1)
+            expected = directory / "audit.json"
+            expected.write_text(serialized, encoding="utf-8")
+            err = io.StringIO()
+            with redirect_stderr(err):
+                code = payload_kind_audit.main([str(directory), "--expect", str(expected)])
+        self.assertEqual(code, 2)
+        self.assertIn("non-standard JSON constant", err.getvalue())
 
 
 class PublishedAgenticCodingPayloadKindAudit(unittest.TestCase):

@@ -55,6 +55,13 @@ def _is_episode_shaped(value: Any) -> bool:
     return isinstance(value, Mapping) and all(key in value for key in EPISODE_MARKERS)
 
 
+def _required_mapping(record: Mapping[str, Any], key: str, where: str) -> Mapping[str, Any]:
+    value = record.get(key)
+    if not isinstance(value, Mapping):
+        raise PayloadKindAuditError(f"{where}.{key} must be a JSON object")
+    return value
+
+
 def _steps(value: Mapping[str, Any], where: str) -> list[Mapping[str, Any]]:
     steps = value.get("steps")
     if not isinstance(steps, list):
@@ -93,12 +100,8 @@ def _record_row(
         "sha256": digest,
     }
     if kind == "thalamic":
-        state = record.get("state") if isinstance(record.get("state"), Mapping) else {}
-        gate = (
-            record.get("safety_decision")
-            if isinstance(record.get("safety_decision"), Mapping)
-            else {}
-        )
+        state = _required_mapping(record, "state", f"{source_file}:{line}")
+        gate = _required_mapping(record, "safety_decision", f"{source_file}:{line}")
         executed = record.get("executed_action")
         row["id"] = state.get("episode_id")
         row["domain"] = state.get("domain")
@@ -165,11 +168,11 @@ def build_audit(corpus: Path, payload_names: Iterable[str] | None = None) -> dic
         payload_paths = sorted(corpus.glob("*.jsonl"))
     else:
         names = list(payload_names)
-        if len(names) != len(set(names)):
-            raise PayloadKindAuditError("snapshot payload names must be unique")
         for name in names:
             if not isinstance(name, str) or not name.endswith(".jsonl") or Path(name).name != name:
                 raise PayloadKindAuditError(f"unsafe snapshot payload name: {name!r}")
+        if len(names) != len(set(names)):
+            raise PayloadKindAuditError("snapshot payload names must be unique")
         payload_paths = [corpus / name for name in sorted(names)]
     if not payload_paths:
         raise PayloadKindAuditError(f"corpus contains no *.jsonl payloads: {corpus}")
@@ -337,8 +340,11 @@ def main(argv: list[str] | None = None) -> int:
     payload_names = None
     if args.expect is not None:
         try:
-            published = json.loads(args.expect.read_text(encoding="utf-8"))
-        except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+            published = json.loads(
+                args.expect.read_text(encoding="utf-8"),
+                parse_constant=_reject_json_constant,
+            )
+        except (OSError, UnicodeError, ValueError) as exc:
             print(f"cannot read {args.expect}: {exc}", file=sys.stderr)
             return 2
         if not isinstance(published, dict):
