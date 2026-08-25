@@ -1,0 +1,27 @@
+pipelines/quality_gate.py
+  s_940326c4ee4215::t_8084fd5535168c 45-51,81,127,148-162,269-271,273-288,294-306,339-351
+  s_940326c4ee4215::t_7b99dba34bb92d 272
+  s_940326c4ee4215::t_06c255f7cc7f7e 289-293
+docs/quality-gate.md
+  s_940326c4ee4215::t_8084fd5535168c 68,72-75,81-83,291,294,300
+  s_940326c4ee4215::t_06c255f7cc7f7e 147-151
+tests/test_quality_and_verify_gates.py
+  s_940326c4ee4215::t_8084fd5535168c 300-301,315-323,326-351
+  s_940326c4ee4215::t_7b99dba34bb92d 302-307,324-325
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "0a52c65c7fcdd83dc82eb6b4fb03099e88de2d5f",
+  "prompts": {},
+  "sessions": {
+    "s_940326c4ee4215": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a032e4-1904-7a82-8c8b-1ad3cfbeb0b0",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Raul Montoya Cardenas <montoyaraul34@gmail.com>"
+    }
+  }
+}
