@@ -128,23 +128,43 @@ def structural_digest(graph):
     structure comparison answers "is this the same graph" rather than "is this
     the same file".
     """
-    nodes = graph.get("nodes") or {}
+    if not isinstance(graph, dict):
+        raise GraphError("graph must be an object")
+    nodes = graph.get("nodes")
+    edges = graph.get("edges")
+    if not isinstance(nodes, dict):
+        raise GraphError("graph.nodes must be an object")
+    if not isinstance(edges, list):
+        raise GraphError("graph.edges must be an array")
+    for name, node in nodes.items():
+        if not isinstance(name, str) or not isinstance(node, dict):
+            raise GraphError("graph nodes must map string names to objects")
+    if any(
+        not isinstance(edge, list)
+        or len(edge) != 2
+        or not all(isinstance(item, str) for item in edge)
+        for edge in edges
+    ):
+        raise GraphError("graph edges must be [source, target] string pairs")
     structure = {
         "nodes": sorted(
             [name, node.get("type"), node.get("size"), node.get("shape")]
             for name, node in nodes.items()
         ),
-        "edges": sorted([source, target] for source, target in graph.get("edges") or []),
+        "edges": sorted([source, target] for source, target in edges),
     }
     return digest(structure)
 
 
-def roundtrip(graph):
-    """Parse/write parity for one graph: does a write-read-write cycle move?"""
-    first = serialize(graph)
+def _roundtrip_with_codec(graph, serializer, parser):
+    """Parse/write parity through one explicitly selected codec adapter."""
     try:
-        reparsed = parse(first)
-    except (json.JSONDecodeError, GraphError) as exc:
+        first = serializer(graph)
+        reparsed = parser(first)
+        second = serializer(reparsed)
+        before = structural_digest(graph)
+        after = structural_digest(reparsed)
+    except (json.JSONDecodeError, GraphError, TypeError, ValueError) as exc:
         return {
             "parse_ok": False,
             "canonical_stable": False,
@@ -153,9 +173,6 @@ def roundtrip(graph):
             "detail": str(exc),
             "structure_digest": None,
         }
-    second = serialize(reparsed)
-    before = structural_digest(graph)
-    after = structural_digest(reparsed)
     return {
         "parse_ok": True,
         "canonical_stable": first == second,
@@ -164,6 +181,11 @@ def roundtrip(graph):
         else "ROUNDTRIP_STRUCTURE_MISMATCH",
         "structure_digest": after,
     }
+
+
+def roundtrip(graph):
+    """Parse/write parity through the module's canonical NIR JSON codec."""
+    return _roundtrip_with_codec(graph, serialize, parse)
 
 
 # ── Graph topology ────────────────────────────────────────────────────
@@ -234,6 +256,20 @@ class NirReferenceRuntime:
 
     def availability(self):
         return {"available": True, "reason_code": None, "detail": "stdlib interpreter"}
+
+    def serialize_graph(self, graph):
+        """Serialize through this runtime's declared interchange adapter."""
+        return serialize(graph)
+
+    def parse_graph(self, text):
+        """Parse through this runtime's declared interchange adapter."""
+        return parse(text)
+
+    def roundtrip_graph(self, graph):
+        report = _roundtrip_with_codec(graph, self.serialize_graph, self.parse_graph)
+        report["runtime"] = self.name
+        report["adapter"] = f"{self.name}.nir_json"
+        return report
 
     # -- node semantics -------------------------------------------------
 
@@ -888,7 +924,10 @@ def execute_runtime(runtime, scenario):
         entry["reason_code"] = status["reason_code"]
         entry["detail"] = status["detail"]
         return entry
-    entry["roundtrip"] = roundtrip(scenario["graph"])
+    # Parse/write evidence belongs to the runtime adapter that performed it.
+    # A module-level JSON round trip copied onto every entry would agree by
+    # construction while proving nothing about either runtime boundary.
+    entry["roundtrip"] = runtime.roundtrip_graph(scenario["graph"])
     try:
         outputs = runtime.execute(scenario["graph"], scenario["stimulus"])
     except UnsupportedConstruct as exc:
@@ -912,7 +951,11 @@ def execute_runtime(runtime, scenario):
 
 
 def _executed(entries):
-    return [entry for entry in entries if entry["status"] == STATUS_EXECUTED]
+    return [
+        entry
+        for entry in entries
+        if isinstance(entry, dict) and entry.get("status") == STATUS_EXECUTED
+    ]
 
 
 def convention_delta(entries):
@@ -1154,6 +1197,11 @@ def _compare_pair(entry_a, entry_b):
             if error > NUMERIC_TOL and first_divergent is None:
                 first_divergent = step
     reason_codes = []
+    events_a = entry_a["outputs"].get("spike_events")
+    events_b = entry_b["outputs"].get("spike_events")
+    events_agree = events_a == events_b
+    if not events_agree:
+        reason_codes.append("DIVERGENCE_EVENT_STREAM")
     if pair["spike_count_a"] != pair["spike_count_b"]:
         reason_codes.append("DIVERGENCE_SPIKE_COUNT")
     if max_error > NUMERIC_TOL:
@@ -1168,8 +1216,11 @@ def _compare_pair(entry_a, entry_b):
     ]
     pair.update(
         {
-            "agree": not behavioural
-            and entry_a["output_digest"] == entry_b["output_digest"],
+            # Whole-output digests are evidence identifiers, not a numerical
+            # comparator: traces that differ within NUMERIC_TOL legitimately
+            # hash differently. Event streams remain exact, while numeric
+            # traces use the declared tolerance.
+            "agree": not behavioural and events_agree,
             "shape_match": True,
             "first_divergent_step": first_divergent,
             "max_abs_error": max_error,
@@ -1221,6 +1272,21 @@ def verdict_for(comparison):
 # ── Record construction ───────────────────────────────────────────────
 
 
+def _evidence_scope(entries):
+    executed = [entry["runtime"] for entry in _executed(entries)]
+    if len(executed) >= 2:
+        execution = f"executed in-repo runtimes {executed!r}"
+    elif len(executed) == 1:
+        execution = f"only one in-repo runtime executed: {executed[0]!r}"
+    else:
+        execution = "no in-repo runtime executed this graph"
+    return (
+        f"{execution}; nir-rs and the other upstream NIR runtimes were unavailable, "
+        "so this record is evidence only about the runtimes and diagnostics that "
+        "actually executed"
+    )
+
+
 def build_record(scenario, entries, round_number):
     comparison = compare_runtimes(scenario, entries)
     verdict, reason_codes = verdict_for(comparison)
@@ -1259,11 +1325,7 @@ def build_record(scenario, entries, round_number):
             "runtimes": entries,
             "identical_input_fixture": True,
             "input_fixture": copy.deepcopy(scenario["input_fixture"]),
-            "evidence_scope": (
-                "executed runtimes are two in-repo interpreters; no upstream NIR "
-                "runtime was available, so this record is evidence about the declared "
-                "conventions and not about nir-rs or any upstream backend"
-            ),
+            "evidence_scope": _evidence_scope(entries),
         },
         "result": {
             "oracle_backed": True,
@@ -1351,7 +1413,10 @@ def generate_records(round_number=1, steps=10):
 
 # ── Validation ────────────────────────────────────────────────────────
 
+ALL_RUNTIMES = (*IN_REPO_RUNTIMES, *UPSTREAM_RUNTIMES)
+EXPECTED_RUNTIME_NAMES = tuple(runtime.name for runtime in ALL_RUNTIMES)
 _RUNTIME_BY_NAME = {runtime.name: runtime for runtime in IN_REPO_RUNTIMES}
+_ALL_RUNTIME_BY_NAME = {runtime.name: runtime for runtime in ALL_RUNTIMES}
 
 
 def _check_runtimes(record, where):
@@ -1359,12 +1424,46 @@ def _check_runtimes(record, where):
     runtimes = ((record.get("oracle") or {}).get("runtimes")) or []
     if not isinstance(runtimes, list) or not runtimes:
         return [f"{where}: oracle.runtimes must be a non-empty array [ENVELOPE_MALFORMED]"]
+    names = [
+        entry.get("runtime") if isinstance(entry, dict) else None for entry in runtimes
+    ]
+    if names != list(EXPECTED_RUNTIME_NAMES):
+        errors.append(
+            f"{where}: oracle.runtimes must contain the complete ordered inventory "
+            f"{list(EXPECTED_RUNTIME_NAMES)!r}, got {names!r} "
+            "[RUNTIME_STATUS_UNKNOWN]"
+        )
     for entry in runtimes:
         name = entry.get("runtime") if isinstance(entry, dict) else None
         label = f"{where}.oracle.runtimes[{name!r}]"
         if not isinstance(entry, dict):
             errors.append(f"{where}: every runtime entry must be an object")
             continue
+        expected_runtime = _ALL_RUNTIME_BY_NAME.get(name)
+        if expected_runtime is None:
+            errors.append(
+                f"{label}: runtime is outside the declared inventory "
+                "[RUNTIME_STATUS_UNKNOWN]"
+            )
+            continue
+        expected_class = expected_runtime.runtime_class
+        if entry.get("runtime_class") != expected_class:
+            errors.append(
+                f"{label}: runtime_class must be {expected_class!r}, got "
+                f"{entry.get('runtime_class')!r} [RUNTIME_STATUS_UNKNOWN]"
+            )
+        expected_conventions = dict(getattr(expected_runtime, "conventions", {}))
+        if entry.get("conventions") != expected_conventions:
+            errors.append(
+                f"{label}: conventions do not match the selected runtime implementation "
+                "[COMPARISON_MISMATCH]"
+            )
+        expected_supported = list(getattr(expected_runtime, "supported_types", ()))
+        if entry.get("supported_types") != expected_supported:
+            errors.append(
+                f"{label}: supported_types do not match the selected runtime "
+                "implementation [COMPARISON_MISMATCH]"
+            )
         if entry.get("status") not in RUNTIME_STATUSES:
             errors.append(
                 f"{label}: status must be one of {list(RUNTIME_STATUSES)} "
@@ -1408,11 +1507,32 @@ def _check_runtimes(record, where):
                     f"marked {STATUS_EXECUTED!r}; {entry.get('runtime')!r} is not one "
                     f"of {sorted(_RUNTIME_BY_NAME)} [RUNTIME_STATUS_UNKNOWN]"
                 )
-        if entry.get("runtime_class") not in RUNTIME_CLASSES:
-            errors.append(
-                f"{label}: runtime_class must be one of {list(RUNTIME_CLASSES)} "
-                "[RUNTIME_STATUS_UNKNOWN]"
-            )
+        availability = expected_runtime.availability()
+        if not availability["available"]:
+            if entry.get("status") != STATUS_UNAVAILABLE:
+                errors.append(
+                    f"{label}: unavailable runtime must be recorded as "
+                    f"{STATUS_UNAVAILABLE!r}, not {entry.get('status')!r} "
+                    "[RUNTIME_STATUS_UNKNOWN]"
+                )
+            if entry.get("reason_code") not in {
+                "RUNTIME_NOT_INSTALLED",
+                "RUNTIME_ADAPTER_NOT_IMPLEMENTED",
+            }:
+                errors.append(
+                    f"{label}: unavailable upstream runtime has an invalid reason_code "
+                    "[RUNTIME_STATUS_UNKNOWN]"
+                )
+            if not isinstance(entry.get("detail"), str) or not entry["detail"].strip():
+                errors.append(
+                    f"{label}: unavailable upstream runtime needs a non-empty detail "
+                    "[RUNTIME_STATUS_UNKNOWN]"
+                )
+            if entry.get("roundtrip") is not None:
+                errors.append(
+                    f"{label}: an unavailable runtime cannot claim parse/write evidence "
+                    "[RUNTIME_STATUS_UNKNOWN]"
+                )
     return errors
 
 
@@ -1444,6 +1564,24 @@ def _reexecute_in_repo_runtimes(record, where):
                 errors.append(
                     f"{label}: runtime actually rejects this graph ({exc.node_type}) but "
                     f"the record says {entry.get('status')!r} [UNSUPPORTED_NOT_DIAGNOSED]"
+                )
+            expected_diagnostic = {
+                "reason_code": "UNSUPPORTED_CONSTRUCT",
+                "unsupported_node": exc.node,
+                "unsupported_type": exc.node_type,
+                "detail": exc.detail,
+            }
+            for key, expected in expected_diagnostic.items():
+                if entry.get(key) != expected:
+                    errors.append(
+                        f"{label}: {key} recorded {entry.get(key)!r} but the runtime "
+                        f"reported {expected!r} [UNSUPPORTED_NOT_DIAGNOSED]"
+                    )
+            fresh_roundtrip = runtime.roundtrip_graph(graph)
+            if entry.get("roundtrip") != fresh_roundtrip:
+                errors.append(
+                    f"{label}: recorded parse/write parity does not match this runtime's "
+                    "adapter [ROUNDTRIP_STRUCTURE_MISMATCH]"
                 )
             continue
         except GraphError as exc:
@@ -1477,10 +1615,11 @@ def _reexecute_in_repo_runtimes(record, where):
                 f"{label}: recorded outputs do not match a re-execution; differing "
                 f"fields {differing} [COMPARISON_MISMATCH]"
             )
-        fresh_roundtrip = roundtrip(graph)
+        fresh_roundtrip = runtime.roundtrip_graph(graph)
         if entry.get("roundtrip") != fresh_roundtrip:
             errors.append(
-                f"{label}: recorded parse/write parity does not match a re-derivation "
+                f"{label}: recorded parse/write parity does not match this runtime's "
+                "adapter "
                 "[ROUNDTRIP_STRUCTURE_MISMATCH]"
             )
     return errors
@@ -1507,9 +1646,22 @@ def validate_record(record, where):
     errors += _check_runtimes(record, where)
 
     scenario = record.get("scenario") or {}
+    if not isinstance(scenario, dict):
+        return errors + [f"{where}: scenario must be an object [ENVELOPE_MALFORMED]"]
     graph = scenario.get("graph")
+    graph_shape_valid = False
     if isinstance(graph, dict):
-        if scenario.get("structure_digest") != structural_digest(graph):
+        try:
+            fresh_structure_digest = structural_digest(graph)
+        except GraphError as exc:
+            errors.append(f"{where}: malformed scenario.graph: {exc} [ENVELOPE_MALFORMED]")
+            fresh_structure_digest = None
+        else:
+            graph_shape_valid = True
+        if (
+            fresh_structure_digest is not None
+            and scenario.get("structure_digest") != fresh_structure_digest
+        ):
             errors.append(
                 f"{where}: scenario.structure_digest does not match the recorded graph "
                 "[STRUCTURE_DIGEST_MISMATCH]"
@@ -1519,15 +1671,46 @@ def validate_record(record, where):
                 f"{where}: scenario.graph_sha256 does not match the recorded graph "
                 "[STRUCTURE_DIGEST_MISMATCH]"
             )
+    else:
+        errors.append(f"{where}: scenario.graph must be an object [ENVELOPE_MALFORMED]")
     stimulus = scenario.get("stimulus")
     if isinstance(stimulus, dict):
         fixture = scenario.get("input_fixture") or {}
-        if fixture.get("sha256") != digest(stimulus.get("events")):
+        oracle_fixture = oracle.get("input_fixture") or {}
+        recomputed_fixture = digest(stimulus.get("events"))
+        if not isinstance(fixture, dict) or fixture.get("sha256") != recomputed_fixture:
             errors.append(
                 f"{where}: scenario.input_fixture.sha256 does not match the recorded "
                 "stimulus [INPUT_FIXTURE_MISMATCH]"
             )
+        if (
+            not isinstance(oracle_fixture, dict)
+            or oracle_fixture.get("sha256") != recomputed_fixture
+        ):
+            errors.append(
+                f"{where}: oracle.input_fixture.sha256 does not match the executed "
+                "stimulus [INPUT_FIXTURE_MISMATCH]"
+            )
+        if oracle.get("identical_input_fixture") is not True:
+            errors.append(
+                f"{where}: oracle.identical_input_fixture must be exactly true "
+                "[INPUT_FIXTURE_MISMATCH]"
+            )
+    else:
+        errors.append(
+            f"{where}: scenario.stimulus must be an object [ENVELOPE_MALFORMED]"
+        )
+    runtimes = oracle.get("runtimes") or []
+    if oracle.get("evidence_scope") != _evidence_scope(
+        [entry for entry in runtimes if isinstance(entry, dict)]
+    ):
+        errors.append(
+            f"{where}: oracle.evidence_scope does not describe the runtimes that "
+            "actually executed [COMPARISON_MISMATCH]"
+        )
 
+    if not graph_shape_valid:
+        return errors
     errors += _reexecute_in_repo_runtimes(record, where)
     if errors:
         return errors
@@ -1538,54 +1721,25 @@ def validate_record(record, where):
     )
     verdict, reason_codes = verdict_for(recomputed)
     result = record.get("result") or {}
+    if not isinstance(result, dict):
+        return errors + [f"{where}: result must be an object [ENVELOPE_MALFORMED]"]
     recorded = result.get("comparison")
     if not isinstance(recorded, dict):
         errors.append(f"{where}: result.comparison must be an object [COMPARISON_MISMATCH]")
-    else:
-        for key in ("executed_runtimes", "executed_count"):
-            if recorded.get(key) != recomputed[key]:
-                errors.append(
-                    f"{where}: result.comparison.{key} recorded {recorded.get(key)!r} but "
-                    f"re-deriving gives {recomputed[key]!r} [COMPARISON_MISMATCH]"
-                )
-        if recorded.get("output_parity", {}).get("agree") != recomputed["output_parity"][
-            "agree"
-        ]:
-            errors.append(
-                f"{where}: result.comparison.output_parity.agree disagrees with the "
-                "recorded outputs [COMPARISON_MISMATCH]"
-            )
-        recorded_pairs = recorded.get("output_parity", {}).get("pairs") or []
-        if len(recorded_pairs) != len(recomputed["output_parity"]["pairs"]):
-            errors.append(
-                f"{where}: result.comparison.output_parity.pairs count disagrees with "
-                "the recorded outputs [COMPARISON_MISMATCH]"
-            )
-        else:
-            for stored, fresh in zip(recorded_pairs, recomputed["output_parity"]["pairs"]):
-                for key in ("agree", "spike_count_a", "spike_count_b",
-                            "first_divergent_step", "reason_codes", "state_agree",
-                            "state_comparable"):
-                    if stored.get(key) != fresh[key]:
-                        errors.append(
-                            f"{where}: pair {fresh['a']}/{fresh['b']} field {key} recorded "
-                            f"{stored.get(key)!r} but re-derives to {fresh[key]!r} "
-                            "[COMPARISON_MISMATCH]"
-                        )
-        if recorded.get("unsupported") != recomputed["unsupported"]:
-            errors.append(
-                f"{where}: unsupported diagnostics were altered [UNSUPPORTED_NOT_DIAGNOSED]"
-            )
+    elif recorded != recomputed:
+        errors.append(
+            f"{where}: result.comparison does not exactly match the re-executed "
+            "runtime evidence [COMPARISON_MISMATCH]"
+        )
     if result.get("verdict") != verdict:
         errors.append(
             f"{where}: result.verdict is {result.get('verdict')!r} but the recorded "
             f"outputs support {verdict!r} [DIVERGENCE_SUPPRESSED]"
         )
-    missing = sorted(set(reason_codes) - set(result.get("reason_codes") or []))
-    if missing:
+    if result.get("reason_codes") != reason_codes:
         errors.append(
-            f"{where}: result.reason_codes omits {missing} that the outputs require "
-            "[DIVERGENCE_SUPPRESSED]"
+            f"{where}: result.reason_codes records {result.get('reason_codes')!r} but "
+            f"re-execution gives {reason_codes!r} [DIVERGENCE_SUPPRESSED]"
         )
     if recomputed["executed_count"] >= 2 and recomputed["output_parity"]["agree"] is False:
         if result.get("verdict") == contract.VERDICT_MATCH:
@@ -1593,6 +1747,12 @@ def validate_record(record, where):
                 f"{where}: outputs diverge but the verdict claims a match "
                 "[DIVERGENCE_SUPPRESSED]"
             )
+    expected_summary = _summarize(scenario, recomputed, verdict)
+    if result.get("summary") != expected_summary:
+        errors.append(
+            f"{where}: result.summary is not derived from the re-executed comparison "
+            "[COMPARISON_MISMATCH]"
+        )
     return errors
 
 
@@ -1616,13 +1776,25 @@ def training_view(record):
         for entry in runtimes
         if isinstance(entry, dict)
     ]
+    executed = list((result.get("comparison") or {}).get("executed_runtimes") or [])
+    if len(executed) >= 2:
+        execution_claim = f"was executed across runtimes {executed!r}"
+    elif len(executed) == 1:
+        execution_claim = f"executed on only one runtime, {executed[0]!r}"
+    else:
+        execution_claim = "did not execute on any runtime"
     prompt = (
-        f"NIR graph '{scenario.get('name')}' (class {scenario.get('class')}) is executed "
-        f"on more than one runtime against the identical stimulus "
+        f"NIR graph '{scenario.get('name')}' (class {scenario.get('class')}) "
+        f"{execution_claim} against stimulus "
         f"{(scenario.get('input_fixture') or {}).get('sha256')}. "
-        "Does the computation survive the runtime boundary?"
+        "What does the available evidence establish about runtime equivalence?"
     )
-    view = contract.build_training_view(record, prompt, result.get("summary"), targets)
+    completion = _summarize(
+        scenario,
+        result.get("comparison") or {},
+        result.get("verdict"),
+    )
+    view = contract.build_training_view(record, prompt, completion, targets)
     view["graph_class"] = scenario.get("class")
     view["scenario_id"] = scenario.get("id")
     view["executed_runtimes"] = list(
@@ -1633,6 +1805,9 @@ def training_view(record):
 
 
 def build_training_views(records, source="record"):
+    validation_errors = validate_records(records, source=source)
+    if validation_errors:
+        return [], validation_errors
     views = [training_view(record) for record in records]
     errors = []
     for index, (record, view) in enumerate(zip(records, views), 1):

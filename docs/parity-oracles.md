@@ -154,6 +154,20 @@ divergence. The validator enforces the opposite direction:
   `unsupported` when a runtime refused a construct and `inconclusive`
   otherwise.
 
+Every record carries the complete five-runtime inventory in a fixed order,
+including unavailable upstream runtimes. The validator re-runs the
+availability probe, binds each runtime class, convention declaration, and
+supported-type list to the selected implementation, and rejects duplicate or
+missing names. An unavailable upstream runtime cannot be relabelled as
+`executed` or `unsupported`, and an in-repo unsupported diagnostic is checked
+against the exception raised on re-execution.
+
+Parse/write evidence is produced and rechecked through each in-repo runtime's
+declared codec adapter. Output event streams are compared exactly; numerical
+traces use `NUMERIC_TOL`, so harmless within-tolerance floating-point noise is
+not turned into a mismatch merely because canonical output digests differ.
+Those digests remain evidence identifiers, not a numerical comparator.
+
 ## Anti-fabrication: what validation actually re-derives
 
 Neither family trusts the numbers written on the record.

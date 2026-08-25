@@ -269,6 +269,16 @@ class Runtimes(unittest.TestCase):
         self.assertNotIn("output_digest", entry)
         self.assertTrue(entry["reason_code"])
 
+    def test_roundtrip_evidence_names_the_runtime_adapter(self):
+        scenario = nir.build_scenario(nir.GRAPH_SPECS[0], steps=4)
+        for runtime in nir.IN_REPO_RUNTIMES:
+            with self.subTest(runtime=runtime.name):
+                entry = nir.execute_runtime(runtime, scenario)
+                self.assertEqual(entry["roundtrip"]["runtime"], runtime.name)
+                self.assertEqual(
+                    entry["roundtrip"]["adapter"], f"{runtime.name}.nir_json"
+                )
+
 
 class Comparison(unittest.TestCase):
     def test_convention_delta_lists_only_differences(self):
@@ -305,6 +315,30 @@ class Comparison(unittest.TestCase):
             and record["result"]["verdict"] == contract.VERDICT_MATCH
         ]
         self.assertTrue(drifted, "expected at least one match with state drift")
+
+    def test_numeric_noise_within_tolerance_does_not_require_equal_digests(self):
+        scenario = nir.build_scenarios(steps=4)[0]
+        first = nir.execute_runtime(nir.REFERENCE_V1, scenario)
+        second = copy.deepcopy(first)
+        second["runtime"] = "within_tolerance"
+        second["outputs"]["output_trace"][0][0] += nir.NUMERIC_TOL / 2
+        second["output_digest"] = "sha256:" + "1" * 64
+        pair = nir._compare_pair(first, second)
+        self.assertTrue(pair["agree"], pair)
+
+    def test_event_streams_are_compared_exactly(self):
+        scenario = nir.build_scenarios(steps=4)[0]
+        first = nir.execute_runtime(nir.REFERENCE_V1, scenario)
+        second = copy.deepcopy(first)
+        second["runtime"] = "different_events"
+        if second["outputs"]["spike_events"]:
+            second["outputs"]["spike_events"][0]["t_step"] += 1
+        else:
+            second["outputs"]["spike_events"].append({"t_step": 0, "channel": 0})
+        second["outputs"]["spike_count"] = len(second["outputs"]["spike_events"])
+        pair = nir._compare_pair(first, second)
+        self.assertFalse(pair["agree"])
+        self.assertIn("DIVERGENCE_EVENT_STREAM", pair["reason_codes"])
 
     def test_fewer_than_two_executed_runtimes_is_never_a_match(self):
         comparison = {
@@ -368,6 +402,18 @@ class Generation(unittest.TestCase):
         for record in nir.generate_records(round_number=1, steps=4):
             self.assertIn("in-repo", record["oracle"]["evidence_scope"])
             self.assertIn("nir-rs", record["oracle"]["evidence_scope"])
+
+    def test_evidence_scope_matches_the_actual_executed_count(self):
+        for record in nir.generate_records(round_number=1, steps=4):
+            executed = record["result"]["comparison"]["executed_count"]
+            scope = record["oracle"]["evidence_scope"]
+            with self.subTest(record=record["id"], executed=executed):
+                if executed >= 2:
+                    self.assertIn("executed in-repo runtimes", scope)
+                elif executed == 1:
+                    self.assertIn("only one in-repo runtime executed", scope)
+                else:
+                    self.assertIn("no in-repo runtime executed", scope)
 
 
 class Validation(unittest.TestCase):
@@ -481,6 +527,41 @@ class Validation(unittest.TestCase):
         errors = nir.validate_record(record, WHERE)
         self.assertTrue(any("COMPARISON_MISMATCH" in error for error in errors))
 
+    def test_every_pair_and_state_metric_is_bound_to_reexecution(self):
+        mutations = (
+            lambda comparison: comparison["output_parity"]["pairs"][0].__setitem__(
+                "max_abs_error", 99.0
+            ),
+            lambda comparison: comparison["output_parity"]["pairs"][0].__setitem__(
+                "max_abs_state_error", 99.0
+            ),
+            lambda comparison: comparison["output_parity"]["pairs"][0].__setitem__(
+                "shape_match", False
+            ),
+            lambda comparison: comparison["state_parity"].__setitem__("agree", False),
+        )
+        for mutate in mutations:
+            with self.subTest(mutation=mutate):
+                record = copy.deepcopy(self.records[0])
+                mutate(record["result"]["comparison"])
+                errors = nir.validate_record(record, WHERE)
+                self.assertTrue(
+                    any("COMPARISON_MISMATCH" in error for error in errors), errors
+                )
+
+    def test_oracle_fixture_and_identical_flag_are_load_bearing(self):
+        record = copy.deepcopy(self.records[0])
+        record["oracle"]["input_fixture"]["sha256"] = "sha256:" + "0" * 64
+        record["oracle"]["identical_input_fixture"] = False
+        errors = nir.validate_record(record, WHERE)
+        self.assertTrue(any("INPUT_FIXTURE_MISMATCH" in error for error in errors))
+
+    def test_fabricated_summary_is_rejected(self):
+        record = copy.deepcopy(self.records[0])
+        record["result"]["summary"] = "all runtimes agree"
+        errors = nir.validate_record(record, WHERE)
+        self.assertTrue(any("result.summary" in error for error in errors), errors)
+
 
 class UnfalsifiableClaims(unittest.TestCase):
     """A runtime this validator cannot re-execute may never be marked executed."""
@@ -553,6 +634,47 @@ class UnfalsifiableClaims(unittest.TestCase):
         errors = nir.validate_record(record, WHERE)
         self.assertTrue(errors)
 
+    def test_runtime_inventory_cannot_drop_unavailable_oracles(self):
+        record = copy.deepcopy(self.records[0])
+        record["oracle"]["runtimes"] = [
+            entry
+            for entry in record["oracle"]["runtimes"]
+            if entry["runtime"] in {"nir_reference_v1", "nir_reference_v1_altorder"}
+        ]
+        errors = nir.validate_record(record, WHERE)
+        self.assertTrue(any("complete ordered inventory" in error for error in errors))
+
+    def test_duplicate_runtime_names_are_rejected(self):
+        record = copy.deepcopy(self.records[0])
+        record["oracle"]["runtimes"][1] = copy.deepcopy(
+            record["oracle"]["runtimes"][0]
+        )
+        errors = nir.validate_record(record, WHERE)
+        self.assertTrue(any("complete ordered inventory" in error for error in errors))
+
+    def test_absent_upstream_runtime_cannot_claim_unsupported(self):
+        record = copy.deepcopy(self.records[0])
+        entry = next(
+            item for item in record["oracle"]["runtimes"] if item["runtime"] == "nir_rs"
+        )
+        entry["status"] = nir.STATUS_UNSUPPORTED
+        entry["reason_code"] = "UNSUPPORTED_CONSTRUCT"
+        entry["unsupported_node"] = "invented"
+        entry["unsupported_type"] = "Invented"
+        errors = nir.validate_record(record, WHERE)
+        self.assertTrue(any("unavailable runtime" in error for error in errors), errors)
+
+    def test_runtime_declarations_are_bound_to_the_implementation(self):
+        for key, replacement in (
+            ("conventions", {"reset": "fabricated"}),
+            ("supported_types", ["Input", "Output"]),
+        ):
+            with self.subTest(key=key):
+                record = copy.deepcopy(self.records[0])
+                record["oracle"]["runtimes"][0][key] = replacement
+                errors = nir.validate_record(record, WHERE)
+                self.assertTrue(any(key in error for error in errors), errors)
+
 
 class ScrubbedDivergence(unittest.TestCase):
     """Divergence diagnostics must not be editable out of a record."""
@@ -614,6 +736,26 @@ class ScrubbedDivergence(unittest.TestCase):
         errors = nir.validate_record(record, WHERE)
         self.assertTrue(errors)
 
+    def test_unsupported_diagnostic_is_rederived_from_the_exception(self):
+        record = copy.deepcopy(
+            next(
+                item
+                for item in self.records
+                if any(
+                    entry["status"] == nir.STATUS_UNSUPPORTED
+                    for entry in item["oracle"]["runtimes"]
+                )
+            )
+        )
+        entry = next(
+            item
+            for item in record["oracle"]["runtimes"]
+            if item["status"] == nir.STATUS_UNSUPPORTED
+        )
+        entry["unsupported_node"] = "invented"
+        errors = nir.validate_record(record, WHERE)
+        self.assertTrue(any("UNSUPPORTED_NOT_DIAGNOSED" in error for error in errors))
+
 
 class MalformedRecordsDoNotCrash(unittest.TestCase):
     def setUp(self):
@@ -650,6 +792,11 @@ class MalformedRecordsDoNotCrash(unittest.TestCase):
     def test_missing_graph(self):
         self._assert_reports(lambda record: record["scenario"].pop("graph"))
 
+    def test_nodes_array_is_reported_instead_of_crashing(self):
+        self._assert_reports(
+            lambda record: record["scenario"]["graph"].__setitem__("nodes", [])
+        )
+
 
 class TrainingViews(unittest.TestCase):
     def test_views_preserve_every_record(self):
@@ -676,6 +823,16 @@ class TrainingViews(unittest.TestCase):
             any("nir_rs:unavailable" in target for target in views[0]["execution_targets"])
         )
 
+    def test_prompt_does_not_invent_a_runtime_pair(self):
+        record = next(
+            item
+            for item in _fixture_records()
+            if item["result"]["comparison"]["executed_count"] < 2
+        )
+        prompt = nir.training_view(record)["prompt"]
+        self.assertNotIn("more than one runtime", prompt)
+        self.assertTrue("only one runtime" in prompt or "did not execute" in prompt)
+
     def test_filtering_out_divergences_is_rejected(self):
         records = _fixture_records()
         views = [
@@ -685,6 +842,13 @@ class TrainingViews(unittest.TestCase):
         ]
         errors = contract.view_set_errors(records, views)
         self.assertTrue(any("TRAINING_VIEW_HIDES_FAILURE" in error for error in errors))
+
+    def test_completion_is_rederived_instead_of_copying_summary(self):
+        record = copy.deepcopy(_fixture_records()[0])
+        record["result"]["summary"] = "fabricated completion"
+        self.assertNotEqual(
+            nir.training_view(record)["completion"], "fabricated completion"
+        )
 
 
 class Cli(unittest.TestCase):
@@ -722,6 +886,16 @@ class Cli(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         lines = [line for line in result.stdout.splitlines() if line.strip()]
         self.assertEqual(len(lines), len(_fixture_records()))
+
+    def test_training_view_cli_refuses_an_invalid_record(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "batch.jsonl"
+            record = copy.deepcopy(_fixture_records()[0])
+            record["result"]["summary"] = "fabricated completion"
+            path.write_text(json.dumps(record) + "\n", encoding="utf-8")
+            result = _cli(["training-view", str(path)])
+            self.assertEqual(result.returncode, 1)
+            self.assertIn("result.summary", result.stderr)
 
 
 if __name__ == "__main__":
