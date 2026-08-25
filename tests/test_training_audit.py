@@ -61,6 +61,13 @@ def episode_preference(record_id, *, pair_goal=None, chosen_goal=None, rejected_
 
 
 class TrainingAudit(unittest.TestCase):
+    def test_mixed_bridge_timestamp_keys_are_invalid(self):
+        events = [
+            {"channel": "a", "t_rel_ms": 120.0, "amplitude": 0.5},
+            {"channel": "b", "t_ms": 90.0, "amplitude": 0.4},
+        ]
+        self.assertEqual(training_audit.event_stream_status(events), "invalid")
+
     def test_clean_corpus_is_training_ready(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)

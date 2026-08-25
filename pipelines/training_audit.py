@@ -90,11 +90,15 @@ def event_stream_status(events):
     if not isinstance(events, list) or not events:
         return "missing"
     times = []
+    time_keys = set()
     for event in events:
         got = event_time(event)
         if got is None:
             return "invalid"
+        time_keys.add(got[0])
         times.append(got[1])
+    if len(time_keys) > 1:
+        return "invalid"
     if all(current >= previous for previous, current in zip(times, times[1:])):
         return "sorted"
     return "unsorted"

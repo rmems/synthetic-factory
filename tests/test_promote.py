@@ -231,12 +231,25 @@ class TestPromoteRecord(unittest.TestCase):
     def test_already_sorted_spikes_not_flagged(self):
         rec = _thalamic()
         rec["spike_events"] = [
-            {"channel": "a", "t_rel_ms": 1.0},
+            {"channel": "a", "t_ms": 1.0},
             {"channel": "b", "t_ms": 2.0},
         ]
         out = promote.promote_record(rec)
         self.assertNotIn("spike_events_resorted", out.get("meta", {}))
         self.assertEqual([e.get("t_rel_ms") or e.get("t_ms") for e in out["spike_events"]], [1.0, 2.0])
+
+    def test_mixed_timestamp_keys_are_not_resorted_as_one_clock(self):
+        rec = _thalamic()
+        rec["spike_events"] = [
+            {"channel": "a", "t_rel_ms": 120.0},
+            {"channel": "b", "t_ms": 90.0},
+        ]
+        out = promote.promote_record(rec)
+        self.assertEqual(
+            [event.get("t_rel_ms") or event.get("t_ms") for event in out["spike_events"]],
+            [120.0, 90.0],
+        )
+        self.assertNotIn("spike_events_resorted", out.get("meta", {}))
 
 
 class TestPromoteRun(unittest.TestCase):

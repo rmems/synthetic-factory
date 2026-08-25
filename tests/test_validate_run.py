@@ -363,7 +363,7 @@ class ValidateSpikeOrderIdempotent(unittest.TestCase):
             "spike_events": [
                 {"channel": "a", "t_rel_ms": 1.0, "amplitude": 0.4},
                 {"channel": "b", "t_rel_ms": 1.0, "amplitude": 0.3},
-                {"channel": "c", "t_ms": 2.0, "amplitude": 0.5},
+                {"channel": "c", "t_rel_ms": 2.0, "amplitude": 0.5},
             ],
             "language_view": {"trajectory": rec},
         }
@@ -548,10 +548,27 @@ class SchemaRefResolution(unittest.TestCase):
         spike_event = base["$defs"]["spike_event"]
         self.assertEqual(
             list(validate_run.SPIKE_TIME_KEYS),
-            [key for branch in spike_event["anyOf"] for key in branch["required"]],
+            [key for branch in spike_event["oneOf"] for key in branch["required"]],
         )
         for key in validate_run.SPIKE_TIME_KEYS:
             self.assertEqual(spike_event["properties"][key]["type"], "number", key)
+        self.assertEqual(
+            list(validate_run.SPIKE_EVENT_STRING_KEYS),
+            [
+                key
+                for key, definition in spike_event["properties"].items()
+                if definition.get("type") == "string"
+            ],
+        )
+        self.assertEqual(
+            list(validate_run.SPIKE_EVENT_NUMBER_KEYS),
+            [
+                key
+                for key, definition in spike_event["properties"].items()
+                if definition.get("type") == "number"
+            ],
+        )
+        self.assertEqual(spike_event["properties"]["channel"]["pattern"], r"\S")
 
         bridge_event = base["$defs"]["bridge_spike_event"]
         self.assertEqual(
@@ -588,6 +605,7 @@ class SchemaRefResolution(unittest.TestCase):
         # least say where it is enforced instead of leaving the stream untyped.
         description = base["properties"]["spike_events"]["description"]
         self.assertIn("non-decreasing", description)
+        self.assertIn("same timestamp key", description)
         self.assertIn("check_spike_order", description)
 
 
@@ -610,11 +628,36 @@ class ThalamicSpikeStream(unittest.TestCase):
                 [
                     {"channel": "a", "t_rel_ms": 1.0, "amplitude": 0.4},
                     {"channel": "a", "t_rel_ms": 1.0, "amplitude": 0.5},
+                    {"channel": "b", "t_rel_ms": 2.0, "amplitude": 0.3},
+                ]
+            )
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_sorted_alias_stream_passes(self):
+        result = _run_with_record(
+            self._record(
+                [
+                    {"channel": "a", "t_ms": 1.0, "amplitude": 0.4},
                     {"channel": "b", "t_ms": 2.0, "amplitude": 0.3},
                 ]
             )
         )
         self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_mixed_timestamp_keys_are_rejected_without_an_order_verdict(self):
+        result = _run_with_record(
+            self._record(
+                [
+                    {"channel": "a", "t_rel_ms": 120.0, "amplitude": 0.4},
+                    {"channel": "b", "t_ms": 90.0, "amplitude": 0.3},
+                ]
+            )
+        )
+        self.assertEqual(result.returncode, 1, result.stderr)
+        self.assertIn(validate_run.SPIKE_TIME_KEY_MISMATCH, result.stderr)
+        self.assertNotIn(validate_run.SPIKE_ORDER_MISMATCH, result.stderr)
+        self.assertEqual(result.stderr.strip().count("ERROR:"), 1, result.stderr)
 
     def test_unsorted_stream_is_rejected_once(self):
         result = _run_with_record(
@@ -634,6 +677,27 @@ class ThalamicSpikeStream(unittest.TestCase):
         self.assertEqual(result.returncode, 1, result.stderr)
         self.assertIn("needs finite t_rel_ms or t_ms", result.stderr)
 
+    def test_event_with_both_timestamp_keys_is_rejected(self):
+        result = _run_with_record(
+            self._record([{"t_rel_ms": 1.0, "t_ms": 1.0}])
+        )
+        self.assertEqual(result.returncode, 1, result.stderr)
+        self.assertIn("must use exactly one of t_rel_ms or t_ms", result.stderr)
+
+    def test_invalid_timestamp_cannot_be_shadowed_by_valid_alias(self):
+        result = _run_with_record(
+            self._record([{"t_rel_ms": "bad", "t_ms": 1.0}])
+        )
+        self.assertEqual(result.returncode, 1, result.stderr)
+        self.assertIn("t_rel_ms must be a finite number", result.stderr)
+        self.assertIn("must use exactly one of t_rel_ms or t_ms", result.stderr)
+
+    def test_oversized_timestamp_is_rejected_without_crashing(self):
+        result = _run_with_record(self._record([{"t_rel_ms": 10**400}]))
+        self.assertEqual(result.returncode, 1, result.stderr)
+        self.assertIn("t_rel_ms must be a finite number", result.stderr)
+        self.assertNotIn("Traceback", result.stderr)
+
     def test_non_array_stream_is_rejected(self):
         result = _run_with_record(self._record({"channel": "a"}))
         self.assertEqual(result.returncode, 1, result.stderr)
@@ -645,6 +709,19 @@ class ThalamicSpikeStream(unittest.TestCase):
         # already round-trips (pipelines/promote.py sorts bare {channel, t_ms}).
         result = _run_with_record(self._record([{"t_rel_ms": 1.0}]))
         self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_optional_event_fields_follow_schema_types_when_present(self):
+        cases = (
+            ({"t_rel_ms": 1.0, "channel": False}, "channel must be a non-empty string"),
+            ({"t_rel_ms": 1.0, "channel": "   "}, "channel must be a non-empty string"),
+            ({"t_rel_ms": 1.0, "amplitude": "bad"}, "amplitude must be a finite number"),
+            ({"t_rel_ms": 1.0, "amplitude": False}, "amplitude must be a finite number"),
+        )
+        for event, marker in cases:
+            with self.subTest(event=event):
+                result = _run_with_record(self._record([event]))
+                self.assertEqual(result.returncode, 1, result.stderr)
+                self.assertIn(marker, result.stderr)
 
     def test_bridge_stream_still_requires_channel_and_amplitude(self):
         bridge = {
@@ -659,6 +736,22 @@ class ThalamicSpikeStream(unittest.TestCase):
         self.assertEqual(result.returncode, 1, result.stderr)
         for key in validate_run.BRIDGE_SPIKE_EVENT_KEYS:
             self.assertIn(f"missing '{key}'", result.stderr)
+
+    def test_bridge_event_field_types_are_enforced(self):
+        bridge = {
+            "spike_events": [
+                {"channel": False, "amplitude": "bad", "t_rel_ms": 1.0}
+            ],
+            "language_view": {"trajectory": copy.deepcopy(TINY_THALAMIC)},
+        }
+        with tempfile.TemporaryDirectory() as raw:
+            run_dir = Path(raw) / "run"
+            run_dir.mkdir()
+            (run_dir / "bridge.jsonl").write_text(json.dumps(bridge) + "\n")
+            result = _invoke(str(run_dir))
+        self.assertEqual(result.returncode, 1, result.stderr)
+        self.assertIn("channel must be a non-empty string", result.stderr)
+        self.assertIn("amplitude must be a finite number", result.stderr)
 
 
 class StrictContractFixtures(unittest.TestCase):

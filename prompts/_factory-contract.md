@@ -40,10 +40,12 @@ start factories 06 or 07 from this contract.
   action. The contrast must teach gate/execution/recovery quality, not reward a
   changed problem.
 - Any `spike_events` stream — on a Bridge pair or on a trajectory — is one
-  train in global time order: every event carries a finite `t_rel_ms` (or the
-  `t_ms` alias) and the timestamps are non-decreasing. Never group events by
-  channel. Bridge streams additionally carry finite amplitudes, channel IDs,
-  realistic density, refractory gaps, adaptation, and noise.
+  train in global time order: every event carries exactly one finite
+  `t_rel_ms` (or the `t_ms` alias), every event in the stream uses that same
+  key, and the timestamps are non-decreasing. Never mix timestamp keys or
+  group events by channel. Bridge streams additionally carry finite
+  amplitudes, non-empty channel IDs, realistic density, refractory gaps,
+  adaptation, and noise.
 
 ## Quality
 

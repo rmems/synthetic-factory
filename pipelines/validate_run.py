@@ -45,15 +45,27 @@ SAFETY_DECISIONS = frozenset(
     ["decision"]["enum"]
 )
 # Spike-train contract, read from the schema so the declared shape and the
-# runtime checker cannot drift. `spike_event` requires one finite timestamp
-# (canonical t_rel_ms, alias t_ms); `bridge_spike_event` layers the extra
-# per-event keys that bridge-pair streams must carry. Global non-decreasing
-# order is not expressible in JSON Schema and is enforced by
-# check_spike_order() below.
+# runtime checker cannot drift. `spike_event` requires exactly one finite
+# timestamp (canonical t_rel_ms, alias t_ms); `bridge_spike_event` layers the
+# extra per-event keys that bridge-pair streams must carry. Global
+# non-decreasing order and one clock key per stream are enforced by
+# check_spike_order() below because neither cross-item rule is expressible in
+# JSON Schema.
+SPIKE_EVENT_PROPERTIES = THALAMIC_SCHEMA["$defs"]["spike_event"]["properties"]
 SPIKE_TIME_KEYS = tuple(
     key
-    for branch in THALAMIC_SCHEMA["$defs"]["spike_event"]["anyOf"]
+    for branch in THALAMIC_SCHEMA["$defs"]["spike_event"]["oneOf"]
     for key in branch["required"]
+)
+SPIKE_EVENT_STRING_KEYS = tuple(
+    key
+    for key, definition in SPIKE_EVENT_PROPERTIES.items()
+    if definition.get("type") == "string"
+)
+SPIKE_EVENT_NUMBER_KEYS = tuple(
+    key
+    for key, definition in SPIKE_EVENT_PROPERTIES.items()
+    if definition.get("type") == "number"
 )
 BRIDGE_SPIKE_EVENT_KEYS = tuple(
     key
@@ -110,40 +122,49 @@ def reject_json_constant(value):
 
 
 def is_number(value):
-    return (
-        isinstance(value, (int, float))
-        and not isinstance(value, bool)
-        and math.isfinite(value)
-    )
+    if not isinstance(value, (int, float)) or isinstance(value, bool):
+        return False
+    try:
+        # math.isfinite converts integers to float. A syntactically valid JSON
+        # integer may exceed that range, so treat conversion overflow as an
+        # invalid runtime number instead of crashing the validator.
+        return math.isfinite(value)
+    except OverflowError:
+        return False
 
 
 def event_time(event):
-    """Return (key, finite float timestamp) for a supported event object."""
+    """Return the event's sole supported finite timestamp, if valid."""
     if not isinstance(event, dict):
         return None
-    for key in SPIKE_TIME_KEYS:
-        value = event.get(key)
-        if is_number(value):
-            return key, float(value)
-    return None
+    present = [key for key in SPIKE_TIME_KEYS if key in event]
+    if len(present) != 1:
+        return None
+    key = present[0]
+    value = event[key]
+    if not is_number(value):
+        return None
+    return key, float(value)
 
 
 # Marker substring of the inversion message built in check_spike_order.
 # check_records imports it to drop the shape layer's order errors: that layer
 # owns spike order and would otherwise report the same inversion twice.
 SPIKE_ORDER_MISMATCH = "spike_events not globally non-decreasing"
+SPIKE_TIME_KEY_MISMATCH = "spike_events must use one timestamp key throughout"
 
 
 def check_spike_order(events, where, require_keys=BRIDGE_SPIKE_EVENT_KEYS):
-    """Require finite timestamps and global non-decreasing event order.
+    """Require schema-valid events on one globally ordered clock key.
 
     `require_keys` is the per-event key requirement, defaulting to the bridge
     stream's ($defs/bridge_spike_event). Thalamic trajectories may carry a
-    stream annotated with fewer keys, so their caller passes an empty tuple;
-    the timestamp and ordering rules are the same for every stream.
+    stream annotated with fewer keys, so their caller passes an empty tuple.
+    Optional channel/amplitude fields still obey their schema types whenever
+    present. A stream may use t_rel_ms or t_ms, but never both or a mixture.
     """
     errs = []
-    previous = None
+    timed = []
     for index, event in enumerate(events):
         if not isinstance(event, dict):
             errs.append(f"{where}: spike_events[{index}] must be an object")
@@ -151,14 +172,55 @@ def check_spike_order(events, where, require_keys=BRIDGE_SPIKE_EVENT_KEYS):
         for key in require_keys:
             if key not in event:
                 errs.append(f"{where}: spike_events[{index}] missing '{key}'")
-        got = event_time(event)
-        if got is None:
+
+        for key in SPIKE_EVENT_STRING_KEYS:
+            if key in event and (
+                not isinstance(event[key], str) or not event[key].strip()
+            ):
+                errs.append(
+                    f"{where}: spike_events[{index}].{key} must be a "
+                    "non-empty string"
+                )
+        for key in SPIKE_EVENT_NUMBER_KEYS:
+            if key in event and not is_number(event[key]):
+                errs.append(
+                    f"{where}: spike_events[{index}].{key} must be a finite number"
+                )
+
+        present_time_keys = [key for key in SPIKE_TIME_KEYS if key in event]
+        if not present_time_keys:
             errs.append(
                 f"{where}: spike_events[{index}] needs finite "
                 f"{' or '.join(SPIKE_TIME_KEYS)}"
             )
             continue
+        if len(present_time_keys) != 1:
+            errs.append(
+                f"{where}: spike_events[{index}] must use exactly one of "
+                f"{' or '.join(SPIKE_TIME_KEYS)}"
+            )
+            continue
+        got = event_time(event)
+        if got is None:
+            # The invalid present timestamp was reported by the number-field
+            # loop above. Do not add a second error for the same value.
+            continue
         key, current = got
+        timed.append((index, key, current))
+
+    stream_time_keys = {key for _, key, _ in timed}
+    if len(stream_time_keys) > 1:
+        errs.append(
+            f"{where}: {SPIKE_TIME_KEY_MISMATCH}; found "
+            f"{', '.join(sorted(stream_time_keys))}"
+        )
+        # Numeric values from relative and alias clock scopes are not
+        # chronologically comparable. Report the contract error without also
+        # manufacturing an order verdict.
+        return errs
+
+    previous = None
+    for index, key, current in timed:
         if previous is not None and current < previous[1]:
             errs.append(
                 f"{where}: {SPIKE_ORDER_MISMATCH} at index "

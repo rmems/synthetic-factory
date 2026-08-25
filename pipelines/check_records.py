@@ -95,7 +95,12 @@ def walk_key(obj, name, path=""):
 
 
 def check_spikes(events, where):
-    """Require globally non-decreasing times when events carry t_rel_ms/t_ms."""
+    """Require non-decreasing times when one comparable clock key is present.
+
+    The shape layer owns per-event validity and mixed-key rejection. This deep
+    layer owns only the order verdict, so it must never compare numeric values
+    from t_rel_ms and t_ms as though they shared a clock.
+    """
     if not isinstance(events, list):
         return []
     timed = []
@@ -104,6 +109,8 @@ def check_spikes(events, where):
         if got is not None:
             timed.append((i, got[0], got[1]))
     if len(timed) < 2:
+        return []
+    if len({key for _, key, _ in timed}) > 1:
         return []
     for (i0, key0, t0), (i1, key1, t1) in zip(timed, timed[1:]):
         if t1 < t0:

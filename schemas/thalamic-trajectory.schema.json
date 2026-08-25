@@ -95,15 +95,15 @@
     "spike_events": {
       "type": "array",
       "items": { "$ref": "#/$defs/spike_event" },
-      "description": "Optional neuromorphic event stream. Every event must carry a finite timestamp, and the stream must be globally non-decreasing in that timestamp — a single train in time order, never grouped per channel. Global ordering is NOT expressible in JSON Schema; it is enforced by check_spike_order() in pipelines/validate_run.py (shape layer) and check_spikes() in pipelines/check_records.py (deep layer, the single owner of the order error). Bridge-pair records carry this stream at their own top level and must additionally satisfy #/$defs/bridge_spike_event with a non-empty array."
+      "description": "Optional neuromorphic event stream. Every event must carry exactly one finite timestamp under t_rel_ms or t_ms, every event in one stream must use the same timestamp key, and the stream must be globally non-decreasing in that timestamp — a single train in time order, never grouped per channel. Cross-item key consistency and global ordering are NOT expressible in JSON Schema; they are enforced by check_spike_order() in pipelines/validate_run.py (shape layer) and check_spikes() in pipelines/check_records.py (deep layer, the single owner of the order error). Bridge-pair records carry this stream at their own top level and must additionally satisfy #/$defs/bridge_spike_event with a non-empty array."
     }
   },
   "additionalProperties": true,
   "$defs": {
     "spike_event": {
       "type": "object",
-      "description": "One event in a spike train. Requires a finite timestamp under the canonical key t_rel_ms, or under the accepted alias t_ms when t_rel_ms is absent. Finiteness (no NaN/Infinity/-Infinity, booleans rejected) is enforced by event_time() in pipelines/validate_run.py.",
-      "anyOf": [
+      "description": "One event in a spike train. Requires exactly one finite timestamp under the canonical key t_rel_ms or the accepted alias t_ms. Finiteness (no NaN/Infinity/-Infinity, booleans and values outside the runtime float range rejected) is enforced by event_time() in pipelines/validate_run.py.",
+      "oneOf": [
         { "required": ["t_rel_ms"] },
         { "required": ["t_ms"] }
       ],
@@ -114,11 +114,12 @@
         },
         "t_ms": {
           "type": "number",
-          "description": "Accepted alias for t_rel_ms; read only when t_rel_ms is absent or non-finite."
+          "description": "Accepted alias for t_rel_ms. Choose one timestamp key for the entire stream; never mix the two."
         },
         "channel": {
           "type": "string",
           "minLength": 1,
+          "pattern": "\\S",
           "description": "Source channel identifier. Required on bridge-pair event streams."
         },
         "amplitude": {

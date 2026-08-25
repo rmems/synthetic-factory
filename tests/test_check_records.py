@@ -422,6 +422,21 @@ class SpikeOrderHasOneOwner(unittest.TestCase):
         errors = self._order_errors(record)
         self.assertEqual(len(errors), 1, errors)
 
+    def test_mixed_timestamp_keys_are_not_compared_as_one_clock(self):
+        record = {
+            "id": "bridge-mixed-clock",
+            "spike_events": [
+                {"channel": "a", "t_rel_ms": 120.0, "amplitude": 0.4},
+                {"channel": "b", "t_ms": 90.0, "amplitude": 0.3},
+            ],
+            "language_view": {"trajectory": _thalamic()},
+        }
+        errors = self._errors(record)
+        mixed = [e for e in errors if "one timestamp key throughout" in e]
+        order = [e for e in errors if "non-decreasing" in e]
+        self.assertEqual(len(mixed), 1, errors)
+        self.assertEqual(order, [], errors)
+
     def test_preference_side_stream_reported_once(self):
         record = {
             "id": "pref-unsorted",
