@@ -97,6 +97,14 @@ def canonical_json(value: Any) -> str:
     )
 
 
+def _canonical_json_equal(left: Any, right: Any) -> bool:
+    """Compare JSON values without Python's bool/number coercion."""
+    try:
+        return canonical_json(left) == canonical_json(right)
+    except (TypeError, ValueError):
+        return False
+
+
 def _reject_json_constant(value: str) -> None:
     """Reject Python-only numeric constants accepted by ``json.loads``."""
     raise ValueError(f"non-standard JSON numeric constant: {value}")
@@ -301,7 +309,7 @@ class Taxonomy:
                 "reason": reason,
             }
         for rule_id, mapped, compiled in self.pattern_rules:
-            if compiled.match(normalized):
+            if compiled.fullmatch(normalized):
                 return {
                     "source": tag,
                     "normalized": normalized,
@@ -413,9 +421,9 @@ def _existing_provenance(
     vocabulary, so a stale or malformed sidecar is a conflict, not an invitation
     to guess.
     """
-    stored = record.get(TAG_PROVENANCE_FIELD)
-    if stored is None:
+    if TAG_PROVENANCE_FIELD not in record:
         return {}, False, False
+    stored = record[TAG_PROVENANCE_FIELD]
     if not isinstance(stored, dict):
         return {}, True, True
     if (
@@ -445,7 +453,7 @@ def _existing_provenance(
             "unmapped_tags",
             "duplicates_collapsed",
         ):
-            if entry.get(key) != expected[key]:
+            if not _canonical_json_equal(entry.get(key), expected[key]):
                 return {}, True, True
         reusable[pointer] = entry
     return reusable, False, True
@@ -551,7 +559,7 @@ def curate_record(
 
         prior = reusable.get(pointer)
         if prior is not None:
-            if prior["canonical_tags"] != tags:
+            if not _canonical_json_equal(prior["canonical_tags"], tags):
                 # The stored sidecar no longer describes this container, so the
                 # original tags are not recoverable from the record.
                 manifest["reason_codes"] = [REASON_PROVENANCE_CONFLICT]
@@ -769,7 +777,7 @@ def curate_jsonl(
         "mapped_tag_uses": sum(
             count for rule, count in rule_uses.items() if rule != RULE_TRANSFORM
         ),
-        "unmapped_tag_uses": sum(unmapped_uses.values()),
+        "unmapped_tag_uses": sum(unmapped_uses.values()) + nonstring_uses,
         "unmapped_unique_tags": len(unmapped_uses),
         "nonstring_tag_uses": nonstring_uses,
         "entropy_bits": {

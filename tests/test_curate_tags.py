@@ -265,6 +265,23 @@ class MapTagTests(unittest.TestCase):
         )
         self.assertIsNone(TAXONOMY.map_tag("r3b_gap6_closed_tables")["canonical"])
 
+    def test_pattern_rule_matches_the_whole_normalized_tag(self):
+        taxonomy = Taxonomy(
+            minimal_taxonomy(
+                pattern_rules=[
+                    {
+                        "id": "alternation",
+                        "tag": "decision:accept",
+                        "pattern": "^foo|bar$",
+                    }
+                ]
+            ),
+            source="<test>",
+        )
+
+        self.assertEqual(taxonomy.map_tag("bar")["canonical"], "decision:accept")
+        self.assertIsNone(taxonomy.map_tag("foo-extra")["canonical"])
+
     def test_non_string_and_empty_tags_are_reported_not_guessed(self):
         not_string = TAXONOMY.map_tag(17)
         self.assertIsNone(not_string["canonical"])
@@ -423,6 +440,19 @@ class CurateRecordTests(unittest.TestCase):
         self.assertIsNone(curated)
         self.assertEqual(manifest["reason_codes"], [REASON_PROVENANCE_CONFLICT])
 
+    def test_explicit_null_tag_provenance_is_a_conflict(self):
+        sources = (
+            record(["MODIFY"], tag_provenance=None),
+            {"id": "tagless", TAG_PROVENANCE_FIELD: None},
+        )
+        for source in sources:
+            with self.subTest(record=source["id"]):
+                curated, manifest = curate_record(source, taxonomy=TAXONOMY)
+                self.assertIsNone(curated)
+                self.assertEqual(
+                    manifest["reason_codes"], [REASON_PROVENANCE_CONFLICT]
+                )
+
     def test_provenance_requires_matching_transform_identity(self):
         curated, _ = curate_record(record(["MODIFY"]), taxonomy=TAXONOMY)
         mutations = {
@@ -508,6 +538,16 @@ class CurateRecordTests(unittest.TestCase):
                 self.assertEqual(
                     manifest["reason_codes"], [REASON_PROVENANCE_CONFLICT]
                 )
+
+    def test_provenance_replay_compares_json_numeric_types_strictly(self):
+        curated, _ = curate_record(record([1]), taxonomy=TAXONOMY)
+        entry = curated[TAG_PROVENANCE_FIELD]["containers"][0]
+        entry["source_tags"] = [True]
+
+        again, manifest = curate_record(curated, taxonomy=TAXONOMY)
+
+        self.assertIsNone(again)
+        self.assertEqual(manifest["reason_codes"], [REASON_PROVENANCE_CONFLICT])
 
     def test_provenance_missing_a_container_is_a_conflict(self):
         curated, _ = curate_record(record(["MODIFY"]), taxonomy=TAXONOMY)
@@ -721,6 +761,20 @@ class CurateJsonlTests(unittest.TestCase):
             for mapping in curated[TAG_PROVENANCE_FIELD]["containers"][0]["mappings"]
         }
         self.assertIn(REASON_TAG_NOT_STRING, reasons)
+
+    def test_summary_unmapped_total_includes_nonstring_entries(self):
+        rows = [record([17, None], id="a")]
+        with tempfile.TemporaryDirectory() as temporary:
+            source = Path(temporary) / "corpus.jsonl"
+            source.write_text(
+                "".join(json.dumps(row, sort_keys=True) + "\n" for row in rows),
+                encoding="utf-8",
+            )
+            summary = curate_jsonl(source, TAXONOMY)["summary"]
+
+        self.assertEqual(summary["nonstring_tag_uses"], 2)
+        self.assertEqual(summary["unmapped_tag_uses"], 2)
+        self.assertEqual(summary["unmapped_unique_tags"], 0)
 
     def test_every_retained_record_carries_only_canonical_tags(self):
         rows = [
