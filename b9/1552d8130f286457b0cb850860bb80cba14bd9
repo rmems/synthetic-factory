@@ -1,0 +1,26 @@
+tests/test_publish_grok46_hub.py
+  s_940326c4ee4215::t_26f974474c4ad0 159-213
+scripts/publish_grok46_hub.py
+  s_940326c4ee4215::t_26f974474c4ad0 907
+  s_940326c4ee4215::t_fc469d59266454 342-355,831-834
+pipelines/card_schema.py
+  s_940326c4ee4215::t_fc469d59266454 142-156,159-160,188-192,194-197,495-501,612-617
+tests/test_card_schema.py
+  s_940326c4ee4215::t_fc469d59266454 174,181-182,186-211,313-321,376,379-380
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "b91552d8130f286457b0cb850860bb80cba14bd9",
+  "prompts": {},
+  "sessions": {
+    "s_940326c4ee4215": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a032e4-1904-7a82-8c8b-1ad3cfbeb0b0",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Raul Montoya Cardenas <montoyaraul34@gmail.com>"
+    }
+  }
+}
