@@ -100,6 +100,8 @@ class WebsocketReconnectDeclarationTests(unittest.TestCase):
         self.assertIn("`wsr-r11-close-1005-backoff-7c2d`", self.card)
         self.assertIn("`meta.lane`", self.card)
         self.assertIn("no dest-stamped foreign payload", self.card)
+        self.assertIn("does not infer generator-file provenance", self.card)
+        self.assertNotIn("mill_wsr_leftover", self.card)
         self.assertIn("| `steps[].reflection` | optional |", self.card)
         self.assertIn("| `plan` | present on every record |", self.card)
         self.assertNotIn("**Not declared yet.**", self.card)
@@ -107,4 +109,3 @@ class WebsocketReconnectDeclarationTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-
