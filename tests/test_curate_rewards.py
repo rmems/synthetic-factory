@@ -392,6 +392,23 @@ class RewardOntologyV1Tests(unittest.TestCase):
         ):
             curate_rewards.restore_source_record(wrong_link, sidecar)
 
+    def test_sidecar_reason_codes_must_be_strings_after_rehash(self):
+        record = preference(
+            {"task_progress": 1.0, "safety": 0.0, "total": 1.0},
+            {"task_progress": 0.0, "safety": 0.0, "total": 0.0},
+        )
+        _curated, sidecar = curate_rewards.curate_record(record)
+        malformed = copy.deepcopy(sidecar)
+        malformed["classification"]["reason_codes"].append(1)
+        malformed.pop("sidecar_id")
+        malformed["sidecar_id"] = curate_rewards._sha256(malformed)
+
+        with self.assertRaisesRegex(
+            curate_rewards.RewardOntologyError,
+            "invalid sidecar classification",
+        ):
+            curate_rewards.validate_ontology_document(malformed)
+
     def test_runtime_validator_recomputes_canonical_conversion(self):
         units = "1.0 reward unit = USD 10,000 (risk-adjusted); deltas vs baseline"
         record = preference(
@@ -664,6 +681,39 @@ class ConversionPolicyMappingTests(unittest.TestCase):
             {"record_id_pattern", "factor_field", "scope_field"},
         )
 
+    def test_schema_declares_the_runtime_policy_and_census_contracts(self):
+        schema = json.loads(SCHEMA.read_text(encoding="utf-8"))
+        conversion_policy = schema["$defs"]["conversionPolicy"]
+        policy_schema = conversion_policy["properties"]["policy"]
+        self.assertIn("arithmetic", policy_schema["required"])
+        self.assertEqual(
+            policy_schema["properties"]["arithmetic"]["$ref"],
+            "#/$defs/policyArithmetic",
+        )
+        arithmetic_required = set(schema["$defs"]["policyArithmetic"]["required"])
+        self.assertTrue(
+            {
+                "default_tolerance",
+                "declared_total_field",
+                "weights_field",
+                "rounding_decimals_field",
+                "rounding_declaration_pattern",
+                "rounding_declaration_fields",
+                "nested_component_key",
+                "weighted_containers",
+                "weight_aliases",
+                "non_component_keys",
+                "methods",
+            }
+            <= arithmetic_required
+        )
+        expected = conversion_policy["properties"]["expected_classification"]
+        self.assertIn("by_factory", expected["required"])
+        self.assertEqual(
+            set(expected["properties"]["by_factory"]["additionalProperties"]["required"]),
+            {"records", "comparability", "reason_codes"},
+        )
+
     def test_every_declared_reason_code_is_cited_by_a_declared_rule(self):
         policy = curate_rewards.CONVERSION_POLICY["policy"]
         cited = set()
@@ -895,6 +945,116 @@ class SourceVocabularyMappingTests(unittest.TestCase):
                 self.assertTrue(
                     method.startswith("unweighted_component_sum"), row["signature"]
                 )
+
+    def test_census_emits_and_policy_accepts_plural_arithmetic_outcomes(self):
+        census = curate_rewards.reward_census(
+            [
+                {
+                    "reward_components": {
+                        "review_probe_component": 1.0,
+                        "total": 1.0,
+                    }
+                },
+                {
+                    "reward_components": {
+                        "review_probe_component": 1.0,
+                        "total": 2.0,
+                    }
+                },
+            ]
+        )
+        self.assertEqual(len(census["shapes"]), 1)
+        shape = census["shapes"][0]
+        self.assertNotIn("arithmetic_status", shape)
+        self.assertNotIn("arithmetic_method", shape)
+        self.assertEqual(
+            shape["arithmetic_outcomes"],
+            [
+                {"status": "invalid", "method": "unweighted_component_sum"},
+                {"status": "valid", "method": "unweighted_component_sum"},
+            ],
+        )
+
+        document = copy.deepcopy(curate_rewards.CONVERSION_POLICY)
+        document["source_vocabulary"]["shapes"][0] = shape
+        self.assertIs(curate_rewards.validate_conversion_policy(document), document)
+
+    def test_malformed_shape_arithmetic_outcomes_are_refused(self):
+        document = curate_rewards.CONVERSION_POLICY
+        base_shape = copy.deepcopy(document["source_vocabulary"]["shapes"][0])
+        outcome = {
+            "status": base_shape["arithmetic_status"],
+            "method": base_shape["arithmetic_method"],
+        }
+        cases = {
+            "singular and plural": (
+                {**base_shape, "arithmetic_outcomes": [outcome]},
+                "exactly one",
+            ),
+            "half singular": (
+                {key: value for key, value in base_shape.items()
+                 if key != "arithmetic_method"},
+                "arithmetic_method",
+            ),
+            "empty plural": (
+                {
+                    "signature": base_shape["signature"],
+                    "occurrences": base_shape["occurrences"],
+                    "arithmetic_outcomes": [],
+                },
+                "nonempty list",
+            ),
+            "duplicate plural": (
+                {
+                    "signature": base_shape["signature"],
+                    "occurrences": base_shape["occurrences"],
+                    "arithmetic_outcomes": [outcome, copy.deepcopy(outcome)],
+                },
+                "duplicate arithmetic outcome",
+            ),
+        }
+        for name, (shape, message) in cases.items():
+            with self.subTest(name=name):
+                malformed = copy.deepcopy(document)
+                malformed["source_vocabulary"]["shapes"][0] = shape
+                with self.assertRaisesRegex(
+                    curate_rewards.RewardOntologyError, message
+                ):
+                    curate_rewards.validate_conversion_policy(malformed)
+
+    def test_by_factory_census_must_reconcile_with_global_counts(self):
+        document = curate_rewards.CONVERSION_POLICY
+        factory = "agentic-coding-trajectory-factory"
+
+        wrong_records = copy.deepcopy(document)
+        entry = wrong_records["expected_classification"]["by_factory"][factory]
+        entry["records"] += 1
+        entry["comparability"]["exclude_from_reward_training"] += 1
+        with self.assertRaisesRegex(
+            curate_rewards.RewardOntologyError,
+            "by_factory records must sum to records",
+        ):
+            curate_rewards.validate_conversion_policy(wrong_records)
+
+        wrong_classes = copy.deepcopy(document)
+        entry = wrong_classes["expected_classification"]["by_factory"][factory]
+        entry["comparability"]["exclude_from_reward_training"] -= 1
+        entry["comparability"]["sign_order_only"] = 1
+        with self.assertRaisesRegex(
+            curate_rewards.RewardOntologyError,
+            "by_factory comparability counts must match",
+        ):
+            curate_rewards.validate_conversion_policy(wrong_classes)
+
+        wrong_reasons = copy.deepcopy(document)
+        entry = wrong_reasons["expected_classification"]["by_factory"][factory]
+        entry["reason_codes"]["magnitude_calibration_missing"] -= 1
+        entry["reason_codes"]["explicit_usd_unit_calibration"] = 1
+        with self.assertRaisesRegex(
+            curate_rewards.RewardOntologyError,
+            "by_factory reason-code counts must match",
+        ):
+            curate_rewards.validate_conversion_policy(wrong_reasons)
 
     def test_the_frozen_classification_census_is_internally_consistent(self):
         expected = curate_rewards.CONVERSION_POLICY["expected_classification"]

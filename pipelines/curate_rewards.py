@@ -387,12 +387,46 @@ def _validate_source_vocabulary(document, arithmetic, where):
             raise _policy_error(shape_where, f"duplicate shape signature {signature!r}")
         signatures.add(signature)
         _mapping_integer(shape, "occurrences", shape_where, minimum=1)
-        status = _mapping_str(shape, "arithmetic_status", shape_where)
-        if status not in ARITHMETIC_STATUSES:
-            raise _policy_error(shape_where, f"unknown arithmetic status {status!r}")
-        method = _mapping_str(shape, "arithmetic_method", shape_where)
-        if method not in arithmetic["methods"]:
-            raise _policy_error(shape_where, f"unknown arithmetic method {method!r}")
+        has_singular = (
+            "arithmetic_status" in shape or "arithmetic_method" in shape
+        )
+        has_plural = "arithmetic_outcomes" in shape
+        if has_singular == has_plural:
+            raise _policy_error(
+                shape_where,
+                "shape must declare exactly one of singular arithmetic fields "
+                "or arithmetic_outcomes",
+            )
+        outcomes = [shape] if has_singular else shape["arithmetic_outcomes"]
+        if not isinstance(outcomes, list) or not outcomes:
+            raise _policy_error(
+                shape_where, "arithmetic_outcomes must be a nonempty list"
+            )
+        seen_outcomes = set()
+        for outcome_index, outcome in enumerate(outcomes):
+            outcome_where = (
+                shape_where
+                if has_singular
+                else f"{shape_where}.arithmetic_outcomes[{outcome_index}]"
+            )
+            if not isinstance(outcome, dict):
+                raise _policy_error(outcome_where, "outcome must be an object")
+            status_key = "arithmetic_status" if has_singular else "status"
+            method_key = "arithmetic_method" if has_singular else "method"
+            status = _mapping_str(outcome, status_key, outcome_where)
+            if status not in ARITHMETIC_STATUSES:
+                raise _policy_error(
+                    outcome_where, f"unknown arithmetic status {status!r}"
+                )
+            method = _mapping_str(outcome, method_key, outcome_where)
+            if method not in arithmetic["methods"]:
+                raise _policy_error(
+                    outcome_where, f"unknown arithmetic method {method!r}"
+                )
+            pair = (status, method)
+            if pair in seen_outcomes:
+                raise _policy_error(outcome_where, "duplicate arithmetic outcome")
+            seen_outcomes.add(pair)
     return vocabulary
 
 
@@ -425,6 +459,66 @@ def _validate_expected_classification(document, classes, reason_codes, run, wher
         )
     for reason in expected_reasons:
         _mapping_integer(expected_reasons, reason, expected_where)
+    by_factory = _mapping_object(expected, "by_factory", expected_where)
+    factory_records = 0
+    factory_comparability = Counter()
+    factory_reasons = Counter()
+    for factory, entry in by_factory.items():
+        factory_where = f"{expected_where}.by_factory[{factory!r}]"
+        if not isinstance(factory, str) or not factory:
+            raise _policy_error(expected_where, "factory names must be nonempty strings")
+        if not isinstance(entry, dict) or not entry:
+            raise _policy_error(factory_where, "entry must be a nonempty object")
+        entry_records = _mapping_integer(entry, "records", factory_where)
+        entry_comparability = _mapping_object(
+            entry, "comparability", factory_where
+        )
+        unknown_classes = sorted(set(entry_comparability) - set(classes))
+        if unknown_classes:
+            raise _policy_error(
+                factory_where,
+                f"unknown comparability classes {unknown_classes}",
+            )
+        entry_classified = 0
+        for name in entry_comparability:
+            count = _mapping_integer(
+                entry_comparability, name, factory_where
+            )
+            entry_classified += count
+            factory_comparability[name] += count
+        if entry_classified != entry_records:
+            raise _policy_error(
+                factory_where, "comparability counts must sum to records"
+            )
+        entry_reasons = _mapping_object(entry, "reason_codes", factory_where)
+        unknown_factory_reasons = sorted(
+            set(entry_reasons) - set(reason_codes)
+        )
+        if unknown_factory_reasons:
+            raise _policy_error(
+                factory_where,
+                f"uncatalogued reason-code counts {unknown_factory_reasons}",
+            )
+        for reason in entry_reasons:
+            factory_reasons[reason] += _mapping_integer(
+                entry_reasons, reason, factory_where
+            )
+        factory_records += entry_records
+    if factory_records != records:
+        raise _policy_error(
+            expected_where, "by_factory records must sum to records"
+        )
+    for name in classes:
+        if factory_comparability[name] != comparability[name]:
+            raise _policy_error(
+                expected_where,
+                "by_factory comparability counts must match the global census",
+            )
+    if dict(sorted(factory_reasons.items())) != dict(sorted(expected_reasons.items())):
+        raise _policy_error(
+            expected_where,
+            "by_factory reason-code counts must match the global census",
+        )
     return expected
 
 
@@ -1184,18 +1278,23 @@ def validate_ontology_document(document):
             ):
                 raise RewardOntologyError("invalid source reward entry")
         classification = document.get("classification")
+        reason_codes = (
+            classification.get("reason_codes")
+            if isinstance(classification, dict)
+            else None
+        )
         if (
             not isinstance(classification, dict)
             or classification.get("comparability") not in COMPARABILITY_CLASSES
-            or not isinstance(classification.get("reason_codes"), list)
-            or not classification["reason_codes"]
-            or len(classification["reason_codes"])
-            != len(set(classification["reason_codes"]))
+            or not isinstance(reason_codes, list)
+            or not reason_codes
+            or not all(isinstance(code, str) for code in reason_codes)
+            or len(reason_codes) != len(set(reason_codes))
         ):
             raise RewardOntologyError("invalid sidecar classification")
-        _require_catalogued_reasons(classification["reason_codes"])
+        _require_catalogued_reasons(reason_codes)
         _require_declared_verdict(
-            classification["comparability"], classification["reason_codes"]
+            classification["comparability"], reason_codes
         )
         for entry in document.get("arithmetic", []):
             if not isinstance(entry, dict):
