@@ -310,6 +310,7 @@ def _validate_gate_snn(
     *,
     reason_codes: list[str],
     evidence: dict[str, Any],
+    expected_decision: str | None = None,
 ) -> None:
     """Validate a spike-implemented gate head (neurons, thresholds, window).
 
@@ -327,21 +328,51 @@ def _validate_gate_snn(
         evidence["gate_snn_error"] = "gate_snn must be an object"
         return
 
+    valid = True
     window_ms = spec.get("decision_window_ms")
     window_s = spec.get("decision_window_s")
-    if window_ms is None and _is_finite_number(window_s):
+    if window_ms is None and _is_finite_number(window_s) and float(window_s) > 0:
         window_ms = float(window_s) * 1000.0
         evidence["gate_snn_decision_window_ms_derived"] = window_ms
-    elif _is_finite_number(window_ms) and window_s is None:
+    elif window_s is None and _is_finite_number(window_ms) and float(window_ms) > 0:
         window_s = float(window_ms) / 1000.0
-    valid = True
-    if not _is_finite_number(window_ms) or float(window_ms) <= 0:
+        evidence["gate_snn_decision_window_s_derived"] = window_s
+
+    window_valid = (
+        _is_finite_number(window_ms)
+        and float(window_ms) > 0
+        and _is_finite_number(window_s)
+        and float(window_s) > 0
+    )
+    window_consistent = window_valid and abs(
+        float(window_s) - float(window_ms) / 1000.0
+    ) <= 1e-9
+    if not window_valid or not window_consistent:
         reason_codes.append(REASON_GATE_SNN_INVALID)
         evidence["gate_snn_decision_window_valid"] = False
+        evidence["gate_snn_decision_window_consistent"] = bool(window_consistent)
         valid = False
     else:
         evidence["gate_snn_decision_window_ms"] = float(window_ms)
+        evidence["gate_snn_decision_window_s"] = float(window_s)
         evidence["gate_snn_decision_window_valid"] = True
+        evidence["gate_snn_decision_window_consistent"] = True
+
+    decision = spec.get("decision")
+    decision_valid = isinstance(decision, str) and bool(decision.strip())
+    if decision_valid:
+        normalized_decision = decision.strip().upper()
+        evidence["gate_snn_decision"] = normalized_decision
+        if expected_decision is not None:
+            expected = expected_decision.strip().upper()
+            evidence["gate_snn_expected_decision"] = expected
+            decision_valid = normalized_decision == expected
+    if not decision_valid:
+        reason_codes.append(REASON_GATE_SNN_INVALID)
+        evidence["gate_snn_decision_valid"] = False
+        valid = False
+    else:
+        evidence["gate_snn_decision_valid"] = True
 
     populations = spec.get("populations")
     if not isinstance(populations, list) or not populations:
@@ -377,12 +408,23 @@ def _validate_gate_snn(
         if rate is None:
             rate = population.get("rate_hz")
         spikes = population.get("spikes")
-        if (
-            _is_finite_number(rate)
-            and isinstance(spikes, int)
-            and not isinstance(spikes, bool)
-            and _is_finite_number(window_s)
-        ):
+        has_rate = rate is not None
+        has_spikes = spikes is not None
+        if has_rate or has_spikes:
+            budget_shape_valid = (
+                has_rate
+                and has_spikes
+                and _is_finite_number(rate)
+                and float(rate) > 0
+                and isinstance(spikes, int)
+                and not isinstance(spikes, bool)
+                and spikes >= 0
+                and window_valid
+                and window_consistent
+            )
+            if not budget_shape_valid:
+                bad.append(index)
+                continue
             expected = _expected_spikes(neurons, float(rate), float(window_s))
             if abs(spikes - expected) > 1:
                 reason_codes.append(REASON_RASTER_SPIKE_BUDGET)
@@ -524,15 +566,45 @@ def _validate_raster(
             evidence["raster_routing_valid"] = True
         evidence["raster_routing_present"] = True
         table = routing.get("table")
-        evidence["raster_routing_table_entries"] = (
+        valid_table_entries = []
+        invalid_table_indices = []
+        if isinstance(table, list):
+            for index, entry in enumerate(table):
+                if not isinstance(entry, dict):
+                    invalid_table_indices.append(index)
+                    continue
+                source = entry.get("from")
+                target = entry.get("to")
+                weight = entry.get("weight")
+                if (
+                    not isinstance(source, str)
+                    or not source.strip()
+                    or not isinstance(target, str)
+                    or not target.strip()
+                    or (weight is not None and not _is_finite_number(weight))
+                ):
+                    invalid_table_indices.append(index)
+                    continue
+                valid_table_entries.append(entry)
+        elif table is not None:
+            invalid_table_indices.append(0)
+        evidence["raster_routing_table_entries"] = len(valid_table_entries)
+        evidence["raster_routing_table_declared_entries"] = (
             len(table) if isinstance(table, list) else 0
         )
+        if invalid_table_indices:
+            reason_codes.append(REASON_RASTER_ROUTING)
+            evidence["raster_routing_table_invalid_indices"] = invalid_table_indices
         if "third_factor" in routing:
             _validate_third_factor(
                 routing["third_factor"],
                 reason_codes=reason_codes,
                 evidence=evidence,
             )
+        else:
+            reason_codes.append(REASON_THIRD_FACTOR_INVALID)
+            evidence["raster_third_factor_present"] = False
+            evidence["raster_third_factor_valid"] = False
 
     # Excerpt must be non-empty and within window, neuron_id in range.
     if not isinstance(excerpt, list) or not excerpt:
@@ -646,11 +718,25 @@ def _validate_gate_compute(
 def is_bridge_record(record: Any) -> bool:
     """Return True for a paired spike/language Bridge record."""
 
+    view = record.get("language_view") if isinstance(record, dict) else None
     return (
         isinstance(record, dict)
-        and "language_view" in record
+        and isinstance(view, dict)
+        and isinstance(view.get("trajectory"), dict)
         and isinstance(record.get("spike_events"), list)
     )
+
+
+def _expected_gate_decision(record: dict[str, Any]) -> str | None:
+    """Return the structured safety decision a gate-SNN head must reproduce."""
+
+    view = record.get("language_view")
+    trajectory = view.get("trajectory") if isinstance(view, dict) else None
+    safety = (
+        trajectory.get("safety_decision") if isinstance(trajectory, dict) else None
+    )
+    decision = safety.get("decision") if isinstance(safety, dict) else None
+    return decision if isinstance(decision, str) and decision.strip() else None
 
 
 def raster_sidecar(record: Any) -> tuple[str | None, Any]:
@@ -762,7 +848,12 @@ def _raster_reasons(
     gate_snn_location, gate_snn = gate_snn_sidecar(record)
     if gate_snn is not None:
         evidence["gate_snn_location"] = gate_snn_location
-        _validate_gate_snn(gate_snn, reason_codes=reason_codes, evidence=evidence)
+        _validate_gate_snn(
+            gate_snn,
+            reason_codes=reason_codes,
+            evidence=evidence,
+            expected_decision=_expected_gate_decision(record),
+        )
     else:
         evidence["gate_snn_present"] = False
     return reason_codes, evidence
@@ -925,7 +1016,7 @@ def curate_record(
         return _quarantine(record, manifest, [REASON_NOT_BRIDGE], {})
 
     events = record.get("spike_events")
-    if "language_view" not in record or not isinstance(events, list):
+    if not is_bridge_record(record):
         return _quarantine(record, manifest, [REASON_NOT_BRIDGE], {})
     if not events:
         return _quarantine(

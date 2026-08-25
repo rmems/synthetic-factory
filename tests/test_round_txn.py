@@ -1389,7 +1389,9 @@ class BridgeRasterEnvelope(unittest.TestCase):
         reservation = round_txn.reserve(factory, 1, len(records))
         staging = Path(reservation["staging_dir"])
         write_records(staging / reservation["batch_file"], records)
-        (staging / reservation["notes_file"]).write_text("# Critique\n\nConcrete gap.\n")
+        (staging / reservation["notes_file"]).write_text(
+            "# Critique\n\nConcrete gap.\n\nNovel coverage: 100%\n"
+        )
         return reservation
 
     def test_raster_backed_round_with_a_gate_head_publishes(self):
@@ -1398,7 +1400,12 @@ class BridgeRasterEnvelope(unittest.TestCase):
             reservation = self.stage(
                 factory, [bridge("bridge-1", gate_snn=False), bridge("bridge-2")]
             )
-            manifest = round_txn.publish(factory, 1, reservation["token"])
+            manifest = round_txn.publish(
+                factory,
+                1,
+                reservation["token"],
+                execution_override="bridge envelope fixture has no live executor",
+            )
 
         self.assertEqual(manifest["records"], 2)
 
