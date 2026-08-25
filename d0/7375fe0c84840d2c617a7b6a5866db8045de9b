@@ -1,0 +1,27 @@
+tests/test_curate_tags.py
+  s_940326c4ee4215::t_44bcf0072bb8cf 805,807
+  s_940326c4ee4215::t_31d57ce5647882 23,919
+  s_940326c4ee4215::t_760a8254e166db 180-207,253-256,261-281,900-918
+  s_940326c4ee4215::t_08687667fab321 321-337,496-508,595-604,820-832
+  s_940326c4ee4215::t_468bad866939fb 920-922
+pipelines/curate_tags.py
+  s_940326c4ee4215::t_23415cf279be5d 101-108,439,441,471,578,833
+  s_940326c4ee4215::t_44bcf0072bb8cf 561,592,642,694,794,826
+  s_940326c4ee4215::t_31d57ce5647882 72,197,252-253,303,316-319,340-347,721-731,745-755,768-786
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "d07375fe0c84840d2c617a7b6a5866db8045de9b",
+  "prompts": {},
+  "sessions": {
+    "s_940326c4ee4215": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a032e4-1904-7a82-8c8b-1ad3cfbeb0b0",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": null
+    }
+  }
+}
