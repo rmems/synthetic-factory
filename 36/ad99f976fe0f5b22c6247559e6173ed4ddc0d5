@@ -1,0 +1,27 @@
+pipelines/oracle_grounded/record.py
+  s_940326c4ee4215::t_c62f95da3b4495 492-493,495-501
+pipelines/oracle_validate.py
+  s_940326c4ee4215::t_c62f95da3b4495 67-84,94-95,97,99-100,107,109-111,139
+tests/test_oracle_grounded_cli.py
+  s_940326c4ee4215::t_c62f95da3b4495 11,23,46-73,257,290-334
+docs/oracle-grounded-datasets.md
+  s_940326c4ee4215::t_c62f95da3b4495 124-128
+tests/test_oracle_grounded_record.py
+  s_940326c4ee4215::t_c62f95da3b4495 38-55,276-287
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "36ad99f976fe0f5b22c6247559e6173ed4ddc0d5",
+  "prompts": {},
+  "sessions": {
+    "s_940326c4ee4215": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a032e4-1904-7a82-8c8b-1ad3cfbeb0b0",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Raul Montoya Cardenas <montoyaraul34@gmail.com>"
+    }
+  }
+}
