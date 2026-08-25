@@ -82,6 +82,10 @@ class TokenEfficiencyFixtureLatch(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         run_dir = FIXTURES / "token-efficiency"
+        cls.frontiers = {
+            factory.name: factory_driver.frontier_status(factory)
+            for factory in sorted(path for path in run_dir.iterdir() if path.is_dir())
+        }
         buffer = StringIO()
         with redirect_stdout(buffer):
             cls.payload = factory_driver.cmd_token_efficiency(run_dir, as_json=True)
@@ -93,15 +97,23 @@ class TokenEfficiencyFixtureLatch(unittest.TestCase):
     def test_json_output_matches_the_returned_payload(self):
         self.assertEqual(self.printed, json.loads(json.dumps(self.payload)))
 
+    def test_fixture_rounds_are_hash_bound_marker_mode_commits(self):
+        for factory, status in self.frontiers.items():
+            with self.subTest(factory=factory):
+                self.assertEqual(status["mode"], "marker")
+                self.assertEqual(status["completed_markers"], [1, 2])
+                self.assertEqual(status["highest_flushed"], 2)
+                self.assertEqual(status["next_round"], 3)
+
     def test_two_consecutive_sub_threshold_notes_fire_early_stop(self):
         info = self.by_factory["thalamic-trajectory-factory"]
         self.assertEqual(
             [(item["round"], item["novel_coverage_pct"]) for item in info["rounds"]],
-            [(5, 4.2), (6, 3.1)],
+            [(1, 4.2), (2, 3.1)],
         )
         self.assertTrue(all(item["is_low"] for item in info["rounds"]))
         self.assertTrue(info["early_stop"])
-        self.assertEqual(info["early_stop_at_round"], 6)
+        self.assertEqual(info["early_stop_at_round"], 2)
         self.assertEqual(info["threshold_pct"], 5.0)
         self.assertEqual(info["consecutive_required"], 2)
         self.assertEqual(info["saving_mode_pct"], 40)
@@ -110,7 +122,7 @@ class TokenEfficiencyFixtureLatch(unittest.TestCase):
         info = self.by_factory["agentic-coding-trajectory-factory"]
         self.assertEqual(
             [(item["round"], item["novel_coverage_pct"]) for item in info["rounds"]],
-            [(5, 4.8), (6, 12.0)],
+            [(1, 4.8), (2, 12.0)],
         )
         self.assertFalse(info["early_stop"])
         self.assertIsNone(info["early_stop_at_round"])
@@ -120,7 +132,7 @@ class TokenEfficiencyFixtureLatch(unittest.TestCase):
         with redirect_stdout(buffer):
             factory_driver.cmd_token_efficiency(FIXTURES / "token-efficiency")
         report = buffer.getvalue()
-        self.assertIn("thalamic-trajectory-factory: EARLY-STOP at r06", report)
+        self.assertIn("thalamic-trajectory-factory: EARLY-STOP at r02", report)
         self.assertIn("agentic-coding-trajectory-factory: no early-stop", report)
 
 
@@ -182,6 +194,21 @@ class FactoryTokenEfficiency(unittest.TestCase):
             info = factory_driver.factory_token_efficiency(factory)
             self.assertTrue(info["early_stop"])
             self.assertEqual(info["early_stop_at_round"], 3)
+
+    def test_duplicate_novel_coverage_lines_are_ambiguous(self):
+        self.assertIsNone(
+            factory_driver.parse_novel_coverage(
+                "Novel coverage: 4%\nNovel coverage: 4%\n"
+            )
+        )
+        self.assertIsNone(
+            factory_driver.parse_novel_coverage(
+                "Novel coverage: 4%\nNovel coverage: 80%\n"
+            )
+        )
+        self.assertEqual(
+            factory_driver.parse_novel_coverage("Novel coverage: 4%\n"), 4.0
+        )
 
     def test_unparseable_notes_hold_but_do_not_latch_past_recovery(self):
         with tempfile.TemporaryDirectory() as td:
