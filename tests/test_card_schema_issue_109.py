@@ -106,6 +106,8 @@ class SslCertRotationDeclarationTests(unittest.TestCase):
                 self.assertIn(f"`{record_id}`", self.card)
         self.assertIn("### Known payload disclosures", self.card)
         self.assertIn("issues/44", self.card)
+        self.assertIn("Every one of the 730 records is stamped", self.card)
+        self.assertIn("Every step publishes a public `decision_basis`", self.card)
 
     def test_every_declared_disclosure_id_names_a_thin_meta_or_odd_record(self):
         disclosed = {
