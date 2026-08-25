@@ -698,6 +698,23 @@ class ThalamicSpikeStream(unittest.TestCase):
         self.assertIn("t_rel_ms must be a finite number", result.stderr)
         self.assertNotIn("Traceback", result.stderr)
 
+    def test_large_integer_timestamp_order_preserves_precision(self):
+        result = _run_with_record(
+            self._record(
+                [
+                    {"t_rel_ms": 9007199254740993},
+                    {"t_rel_ms": 9007199254740992},
+                ]
+            )
+        )
+        self.assertEqual(result.returncode, 1, result.stderr)
+        self.assertIn(validate_run.SPIKE_ORDER_MISMATCH, result.stderr)
+        self.assertIn(
+            "9007199254740993 -> 9007199254740992",
+            result.stderr,
+        )
+        self.assertEqual(result.stderr.strip().count("ERROR:"), 1, result.stderr)
+
     def test_non_array_stream_is_rejected(self):
         result = _run_with_record(self._record({"channel": "a"}))
         self.assertEqual(result.returncode, 1, result.stderr)

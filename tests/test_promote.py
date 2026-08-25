@@ -251,6 +251,19 @@ class TestPromoteRecord(unittest.TestCase):
         )
         self.assertNotIn("spike_events_resorted", out.get("meta", {}))
 
+    def test_large_integer_timestamp_order_is_resorted_without_precision_loss(self):
+        rec = _thalamic()
+        rec["spike_events"] = [
+            {"channel": "a", "t_rel_ms": 9007199254740993},
+            {"channel": "b", "t_rel_ms": 9007199254740992},
+        ]
+        out = promote.promote_record(rec)
+        self.assertEqual(
+            [event["t_rel_ms"] for event in out["spike_events"]],
+            [9007199254740992, 9007199254740993],
+        )
+        self.assertTrue(out["meta"]["spike_events_resorted"])
+
 
 class TestPromoteRun(unittest.TestCase):
     def test_rejects_destination_inside_raw(self):

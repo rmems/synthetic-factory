@@ -25,6 +25,7 @@ from validate_run import (  # noqa: E402
     REWARD_ARITHMETIC_MARKERS,
     REWARD_NON_COMPONENT_KEYS,
     SPIKE_ORDER_MISMATCH,
+    SPIKE_TIME_KEY_MISMATCH,
     _episode_like,
     check_line,
     event_time,
@@ -94,12 +95,13 @@ def walk_key(obj, name, path=""):
             yield from walk_key(item, name, f"{path}[{i}]")
 
 
-def check_spikes(events, where):
+def check_spikes(events, where, *, report_mixed_clock=False):
     """Require non-decreasing times when one comparable clock key is present.
 
-    The shape layer owns per-event validity and mixed-key rejection. This deep
-    layer owns only the order verdict, so it must never compare numeric values
-    from t_rel_ms and t_ms as though they shared a clock.
+    The deep record checker opts into mixed-key reporting because it discovers
+    nested streams that the shape layer cannot see. Other callers, especially
+    promotion's safe sorter, leave ``report_mixed_clock`` false so incomparable
+    clocks are neither compared nor resorted.
     """
     if not isinstance(events, list):
         return []
@@ -110,7 +112,13 @@ def check_spikes(events, where):
             timed.append((i, got[0], got[1]))
     if len(timed) < 2:
         return []
-    if len({key for _, key, _ in timed}) > 1:
+    time_keys = {key for _, key, _ in timed}
+    if len(time_keys) > 1:
+        if report_mixed_clock:
+            return [
+                f"{where}: {SPIKE_TIME_KEY_MISMATCH}; found "
+                f"{', '.join(sorted(time_keys))}"
+            ]
         return []
     for (i0, key0, t0), (i1, key1, t1) in zip(timed, timed[1:]):
         if t1 < t0:
@@ -279,12 +287,14 @@ _SHAPE_REWARD_ARITHMETIC = REWARD_ARITHMETIC_MARKERS
 # Same layering for publish-time 'real' claims: validate_run already emits
 # them, and check_provenance_publish is the single owner here.
 _SHAPE_REAL_PROVENANCE = "must not be 'real'"
-# And the same for spike order. The shape layer checks the bridge stream and
-# any trajectory-level stream; this layer walks every nested stream, so it is
-# the single owner of the inversion error and drops the shape layer's copy.
+# And the same for spike clock/order. The shape layer checks the bridge stream
+# and any trajectory-level stream; this layer walks every nested stream, so it
+# is the single owner of mixed-clock and inversion errors and drops the shape
+# layer's copies.
 # Per-event shape errors (missing channel/amplitude/timestamp) are not
 # duplicated here, so they are kept.
 _SHAPE_SPIKE_ORDER = SPIKE_ORDER_MISMATCH
+_SHAPE_SPIKE_TIME_KEY = SPIKE_TIME_KEY_MISMATCH
 
 
 def shape_check(obj, where, factory_staging=False):
@@ -299,6 +309,7 @@ def shape_check(obj, where, factory_staging=False):
         if not any(marker in e for marker in _SHAPE_REWARD_ARITHMETIC)
         and _SHAPE_REAL_PROVENANCE not in e
         and _SHAPE_SPIKE_ORDER not in e
+        and _SHAPE_SPIKE_TIME_KEY not in e
     ]
     return errs, kind
 
@@ -376,10 +387,16 @@ def check_record(obj, where, factory_staging=False):
 
     if isinstance(obj, dict):
         for path, events in walk_key(obj, "spike_events"):
-            # Single owner of spike order: shape_check drops the shape layer's
-            # inversion errors, so every stream — top-level, bridge, or nested
-            # — is reported exactly once, from here.
-            errors.extend(check_spikes(events, f"{where}: {path}"))
+            # Single owner of stream clock/order: shape_check drops the shape
+            # layer's copies, so every stream — top-level, bridge, or nested —
+            # is reported exactly once, from here.
+            errors.extend(
+                check_spikes(
+                    events,
+                    f"{where}: {path}",
+                    report_mixed_clock=True,
+                )
+            )
         for path, rc in walk_key(obj, "reward_components"):
             rc_errs, rc_warns = check_reward(rc, f"{where}: {path}")
             errors.extend(rc_errs)

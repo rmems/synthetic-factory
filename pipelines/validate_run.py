@@ -134,7 +134,7 @@ def is_number(value):
 
 
 def event_time(event):
-    """Return the event's sole supported finite timestamp, if valid."""
+    """Return the event's sole supported finite timestamp without precision loss."""
     if not isinstance(event, dict):
         return None
     present = [key for key in SPIKE_TIME_KEYS if key in event]
@@ -144,7 +144,9 @@ def event_time(event):
     value = event[key]
     if not is_number(value):
         return None
-    return key, float(value)
+    # Preserve JSON integers as integers. Converting every timestamp to float
+    # collapses adjacent values above 2**53 and can hide a decreasing stream.
+    return key, value
 
 
 # Marker substring of the inversion message built in check_spike_order.

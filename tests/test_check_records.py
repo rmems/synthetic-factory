@@ -437,6 +437,32 @@ class SpikeOrderHasOneOwner(unittest.TestCase):
         self.assertEqual(len(mixed), 1, errors)
         self.assertEqual(order, [], errors)
 
+    def test_nested_mixed_timestamp_keys_are_rejected_once(self):
+        record = _thalamic(
+            future_outcome={
+                "success": "full",
+                "spike_events": [
+                    {"t_rel_ms": 120},
+                    {"t_ms": 90},
+                ],
+            }
+        )
+        errors = self._errors(record)
+        mixed = [e for e in errors if "one timestamp key throughout" in e]
+        order = [e for e in errors if "non-decreasing" in e]
+        self.assertEqual(len(mixed), 1, errors)
+        self.assertIn("future_outcome.spike_events", mixed[0])
+        self.assertEqual(order, [], errors)
+
+    def test_large_integer_timestamp_order_preserves_precision(self):
+        events = [
+            {"t_rel_ms": 9007199254740993},
+            {"t_rel_ms": 9007199254740992},
+        ]
+        errors = self._order_errors(_thalamic(spike_events=events))
+        self.assertEqual(len(errors), 1, errors)
+        self.assertIn("9007199254740993 -> 9007199254740992", errors[0])
+
     def test_preference_side_stream_reported_once(self):
         record = {
             "id": "pref-unsorted",
