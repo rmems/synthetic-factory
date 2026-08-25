@@ -44,6 +44,7 @@ ORACLE_KEYS = (
     "runtime_bound",
     "repo",
     "commit",
+    "dirty",
     "module",
     "module_digest",
     "version",
@@ -419,6 +420,11 @@ def _validate_stage_consistency(oracle):
                     findings.append(
                         f"oracle.stages[{position}] claims a named runtime but has no {field}"
                     )
+            if not oracles.is_runtime_commit(stage.get("runtime_commit")):
+                findings.append(
+                    f"oracle.stages[{position}].runtime_commit must be a resolved "
+                    "7-64 digit hexadecimal revision"
+                )
         elif kind == "reference":
             if stage.get("module_digest") != oracle["module_digest"]:
                 findings.append(
@@ -499,6 +505,13 @@ def reproduce(record, environ=None):
     """
     spec = families.spec_for(record["family"])
     request = spec.build_request(record["scenario"], record["intervention"])
+    rebuilt_configuration = canon.normalize(request.get("configuration"))
+    stored_configuration = canon.normalize(record["oracle"].get("configuration"))
+    if rebuilt_configuration != stored_configuration:
+        return "mismatch", (
+            "stored oracle.configuration does not match the configuration rebuilt "
+            "from scenario and intervention"
+        )
     adapter = spec.oracle(environ)
     if adapter.implementation != record["oracle"]["implementation"]:
         return "unavailable", (

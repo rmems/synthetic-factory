@@ -39,7 +39,7 @@ def main(argv):
     response = {
         "protocol": "sf-oracle/1",
         "runtime_version": "0.0.0-double",
-        "runtime_commit": "d0ub1e" + "0" * 34,
+        "runtime_commit": "d0b1e00" + "0" * 33,
         "measured": {
             "protocol_double": True,
             "echoed_family": request.get("family"),
@@ -53,6 +53,10 @@ def main(argv):
         response.pop("runtime_version")
     elif mode == "empty":
         response["measured"] = {}
+    elif mode == "unknowncommit":
+        response["runtime_commit"] = "unknown"
+    elif mode == "badcommit":
+        response["runtime_commit"] = "not-a-source-revision"
     sys.stdout.write(json.dumps(response, sort_keys=True))
     return 0
 

@@ -10,6 +10,8 @@ which JSON cannot represent and which would silently poison a golden fixture.
 import hashlib
 import json
 import math
+import os
+from pathlib import Path
 
 # Six decimals is finer than any measurement this package emits (times are in
 # milliseconds, currents and voltages are order 1) and coarse enough that
@@ -66,13 +68,23 @@ def digest_files(paths):
     """``sha256:<hex>`` over a set of source files, order-independent.
 
     Used for ``oracle.module_digest``: the identity of the code that produced
-    a measurement, independent of whether the tree happens to be committed.
+    a measurement, independent of whether the tree happens to be committed or
+    where the checkout lives. Source names are made relative to their common
+    directory before hashing, so identical trees have identical digests.
     """
+    resolved = [Path(item).resolve() for item in paths]
+    if not resolved:
+        return HASH_PREFIX + hashlib.sha256().hexdigest()
+    common_parent = Path(os.path.commonpath([str(path.parent) for path in resolved]))
+    named_paths = sorted(
+        ((path.relative_to(common_parent).as_posix(), path) for path in resolved),
+        key=lambda item: item[0],
+    )
     accumulator = hashlib.sha256()
-    for path in sorted(str(item) for item in paths):
+    for source_name, path in named_paths:
         with open(path, "rb") as handle:
             body = handle.read()
-        accumulator.update(path.encode("utf-8"))
+        accumulator.update(source_name.encode("utf-8"))
         accumulator.update(b"\0")
         accumulator.update(hashlib.sha256(body).hexdigest().encode("ascii"))
         accumulator.update(b"\n")

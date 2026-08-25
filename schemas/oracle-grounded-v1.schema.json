@@ -155,6 +155,7 @@
         "runtime_bound",
         "repo",
         "commit",
+        "dirty",
         "module",
         "module_digest",
         "version",
@@ -223,7 +224,11 @@
               "oracle_id": { "type": "string" },
               "version": { "type": "string" },
               "module_digest": { "$ref": "#/$defs/digest" },
-              "runtime_commit": { "type": "string" },
+              "runtime_commit": {
+                "type": "string",
+                "pattern": "^[0-9a-fA-F]{7,64}$",
+                "description": "Resolved hexadecimal source revision for the named runtime."
+              },
               "command": { "type": "array", "items": { "type": "string" } }
             },
             "additionalProperties": true

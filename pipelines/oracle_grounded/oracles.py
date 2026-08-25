@@ -19,6 +19,7 @@ command fails, times out, or answers off-protocol, the run raises
 
 import json
 import os
+import re
 import shlex
 import shutil
 import subprocess
@@ -48,6 +49,7 @@ IMPLEMENTATION_SOURCES = (
 MODULE_PATH = "pipelines/oracle_grounded"
 
 _MODULE_DIGEST_CACHE = {}
+RUNTIME_COMMIT_RE = re.compile(r"^[0-9a-fA-F]{7,64}$")
 
 
 class OracleError(RuntimeError):
@@ -68,6 +70,11 @@ def module_digest():
 def env_key(runtime):
     """Environment variable that binds a named runtime to this pipeline."""
     return "SF_ORACLE_" + str(runtime).upper().replace("-", "_").replace(".", "_") + "_CMD"
+
+
+def is_runtime_commit(value):
+    """Whether ``value`` is a resolved hexadecimal source revision."""
+    return isinstance(value, str) and RUNTIME_COMMIT_RE.fullmatch(value) is not None
 
 
 def resolve_commit(repo_root=None):
@@ -265,6 +272,11 @@ class ExternalCommandOracle(OracleAdapter):
             value = response.get(field)
             if not isinstance(value, str) or not value.strip():
                 raise OracleError(f"{self.runtime}: response is missing {field}")
+        if not is_runtime_commit(response["runtime_commit"]):
+            raise OracleError(
+                f"{self.runtime}: runtime_commit must be a resolved 7-64 digit "
+                "hexadecimal revision"
+            )
         return OracleRun(
             response.get("measured"),
             response.get("units", {}),

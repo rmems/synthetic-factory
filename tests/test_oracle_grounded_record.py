@@ -8,8 +8,10 @@ mutates one thing and asserts the validator notices.
 
 import copy
 import json
+import shutil
 import subprocess
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -203,6 +205,12 @@ class CurationFailsClosed(unittest.TestCase):
         item["oracle"]["module_digest"] = "not-a-digest"
         findings = record.validate_record(item)
         self.assertTrue(any("module_digest" in f for f in findings), findings)
+
+    def test_a_missing_dirty_state_is_an_error(self):
+        item = build(families.NEURON_FAMILY)
+        del item["oracle"]["dirty"]
+        findings = record.validate_record(item)
+        self.assertTrue(any("dirty" in f for f in findings), findings)
 
     def test_a_record_with_no_executed_stages_is_an_error(self):
         item = build(families.NEURON_FAMILY)
@@ -529,7 +537,15 @@ class ExternalOracleProtocol(unittest.TestCase):
         self.assertEqual(run.measured["echoed_request_keys"], ["configuration", "data"])
 
     def test_every_malformed_answer_raises_rather_than_falling_back(self):
-        for mode in ("fail", "badjson", "wrongproto", "noversion", "empty"):
+        for mode in (
+            "fail",
+            "badjson",
+            "wrongproto",
+            "noversion",
+            "empty",
+            "unknowncommit",
+            "badcommit",
+        ):
             with self.subTest(mode=mode):
                 with self.assertRaises(oracles.OracleError):
                     self.adapter(mode).run("f", {"configuration": {}, "data": {}})
@@ -558,6 +574,12 @@ class ExternalOracleProtocol(unittest.TestCase):
         self.assertTrue(record.publishability(item, ())[0])
         self.assertEqual(item["validation"]["status"], "rejected")
         self.assertFalse(item["validation"]["publishable"])
+
+    def test_a_named_runtime_stage_requires_a_resolved_hex_commit(self):
+        item = build(families.ENCODER_FAMILY, environ=double_env("ok"))
+        item["oracle"]["stages"][0]["runtime_commit"] = "unknown"
+        findings = record.validate_record(item)
+        self.assertTrue(any("runtime_commit" in f for f in findings), findings)
 
     def test_a_runtime_answering_in_the_wrong_shape_is_rejected_not_crashed(self):
         item = build(families.ENCODER_FAMILY, environ=double_env("ok"))
@@ -615,6 +637,17 @@ class OracleProvenance(unittest.TestCase):
         self.assertEqual(oracles.module_digest(), expected)
         self.assertTrue(canon.is_digest(oracles.module_digest()))
 
+    def test_file_digests_are_independent_of_checkout_path(self):
+        here = REPO / "pipelines" / "oracle_grounded"
+        original = [here / name for name in oracles.IMPLEMENTATION_SOURCES]
+        with tempfile.TemporaryDirectory(prefix="oracle-digest-") as temp:
+            copied = []
+            for source in original:
+                destination = Path(temp) / source.name
+                shutil.copy2(source, destination)
+                copied.append(destination)
+            self.assertEqual(canon.digest_files(original), canon.digest_files(copied))
+
     def test_resolve_commit_returns_a_pair(self):
         commit, dirty = oracles.resolve_commit()
         self.assertIsInstance(commit, str)
@@ -645,6 +678,13 @@ class OracleProvenance(unittest.TestCase):
                     canon.normalize(request["configuration"]),
                     canon.normalize(item["oracle"]["configuration"]),
                 )
+
+    def test_reproduction_rejects_a_tampered_stored_configuration(self):
+        item = build(families.ENCODER_FAMILY)
+        item["oracle"]["configuration"]["max_rate_hz"] = 1
+        status, detail = record.reproduce(item)
+        self.assertEqual(status, "mismatch")
+        self.assertIn("configuration", detail)
 
     def test_the_double_is_a_runnable_script(self):
         completed = subprocess.run(

@@ -9,6 +9,7 @@ letting a fixture quietly stop describing the code that produced it.
 """
 
 import json
+import os
 import subprocess
 import sys
 import tempfile
@@ -27,12 +28,13 @@ GOLDEN = FIXTURES / "golden-r01"
 INVALID = FIXTURES / "invalid"
 
 
-def run_cli(script, *args):
+def run_cli(script, *args, env=None):
     return subprocess.run(
         [sys.executable, str(script), *[str(arg) for arg in args]],
         capture_output=True,
         text=True,
         check=False,
+        env=env,
     )
 
 
@@ -339,6 +341,38 @@ class GenerateCli(unittest.TestCase):
             self.assertEqual(completed.returncode, 3)
             self.assertIn("not bound", completed.stderr)
             self.assertFalse(out.exists())
+
+    def test_require_runtime_checks_only_the_selected_family(self):
+        with tempfile.TemporaryDirectory(prefix="oracle-selected-runtime-") as temp:
+            out = Path(temp) / "run"
+            env = dict(os.environ)
+            for runtime in families.ALL_RUNTIMES:
+                env.pop(oracles.env_key(runtime), None)
+            env[oracles.env_key("axon-encoder")] = (
+                f"{sys.executable} {FIXTURES / 'protocol_double.py'} ok"
+            )
+            completed = run_cli(
+                GENERATE,
+                "--family",
+                families.ENCODER_FAMILY,
+                "--count",
+                1,
+                "--require-runtime",
+                "--oracle-commit",
+                "c" * 40,
+                out,
+                env=env,
+            )
+            self.assertEqual(completed.returncode, 0, completed.stderr)
+            manifest = json.loads((out / "manifest.json").read_text())
+            self.assertEqual(manifest["oracle_availability"]["unbound"], [])
+            self.assertEqual(
+                [
+                    probe["runtime"]
+                    for probe in manifest["oracle_availability"]["runtimes"]
+                ],
+                ["axon-encoder"],
+            )
 
     def test_an_unknown_family_is_a_usage_error(self):
         with tempfile.TemporaryDirectory(prefix="oracle-bad-family-") as temp:

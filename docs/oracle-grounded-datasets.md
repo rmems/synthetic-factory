@@ -85,12 +85,13 @@ Response on stdout:
 
 ```json
 {"protocol": "sf-oracle/1", "runtime_version": "1.2.3",
- "runtime_commit": "<sha>", "measured": {...}, "units": {...}}
+ "runtime_commit": "<7-64 hex revision>", "measured": {...}, "units": {...}}
 ```
 
 A bound oracle **never** silently degrades to the reference implementation.
 Nonzero exit, timeout, non-JSON output, a protocol mismatch, a missing
-`runtime_version`/`runtime_commit`, or an empty measurement all raise
+`runtime_version`, a resolved 7-64 digit hexadecimal `runtime_commit`, or an
+empty measurement all raise
 `OracleError`, and the record is dropped rather than filled in. The chain
 family binds each stage separately, so a deployment with only `limbic-critic`
 available produces `implementation: "mixed"` and stage-level attribution.
@@ -126,7 +127,7 @@ Every accepted record retains:
 * `oracle.repo`, `oracle.commit`, `oracle.dirty` — the tree the oracle ran from.
   A record whose commit cannot be resolved is **rejected**; `"unknown"` is not
   an acceptable commit.
-* `oracle.module_digest` — sha256 over the oracle implementation sources
+* `oracle.module_digest` — checkout-path-independent sha256 over the oracle implementation sources
   (`canon.py`, `families.py`, `generators.py`, `oracles.py`, `rng.py`, `sim.py`;
   `record.py` validates records and never measures, so it is excluded). This,
   not the git commit, is what actually pins the code that produced a

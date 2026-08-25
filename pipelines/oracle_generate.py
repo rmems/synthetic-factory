@@ -123,7 +123,14 @@ def main(argv=None):
         print(f"oracle_generate: unknown families: {', '.join(unknown)}", file=sys.stderr)
         return 2
 
-    availability = oracles.availability_report(families.ALL_RUNTIMES)
+    selected_runtimes = tuple(
+        dict.fromkeys(
+            runtime
+            for family in selected
+            for runtime in families.spec_for(family).runtimes
+        )
+    )
+    availability = oracles.availability_report(selected_runtimes)
     if args.require_runtime and not availability["all_bound"]:
         print(
             "oracle_generate: --require-runtime was passed but these oracles are "
