@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """Issue #65 leaf tests for the per-dataset card schema declaration."""
 
+from collections import Counter
+
 import test_card_schema as _shared
 
 unittest = _shared.unittest
@@ -20,6 +22,15 @@ write_declaration = _shared.write_declaration
 
 
 GIT_OPS = "git-ops-recovery-trajectories"
+GIT_OPS_MIRROR = (
+    Path.home()
+    / "rmems"
+    / "hf"
+    / "grok-4.6"
+    / GIT_OPS
+    / "data"
+    / "raw"
+)
 
 
 class GitOpsRecoveryDeclarationTests(unittest.TestCase):
@@ -76,11 +87,82 @@ class GitOpsRecoveryDeclarationTests(unittest.TestCase):
         tool_call = {feature["name"]: feature for feature in steps["tool_call"]["struct"]}
         self.assertEqual(tool_call["args"]["dtype"], "json")
         self.assertEqual(self.declaration["issues"], [65])
+        self.assertIn(
+            "25 further multi-record int counters", names["reward"]["note"]
+        )
+        self.assertIn("24 single-record int extras", names["reward"]["note"])
+        self.assertIn(
+            "`kind` and `plant` co-occur on 266 records", names["meta"]["note"]
+        )
+        self.assertIn(
+            "four `sir-*` records carry `kind` with no `plant`",
+            names["meta"]["note"],
+        )
 
     def test_key_bag_columns_are_declared_json(self):
         self.assertEqual(
             card_schema.json_columns(self.declaration["features"]),
             ["steps[].tool_call.args", "reward", "meta"],
+        )
+
+    @unittest.skipUnless(
+        GIT_OPS_MIRROR.is_dir(),
+        "read-only published mirror is not available",
+    )
+    def test_published_mirror_reconciles_reward_and_meta_censuses(self):
+        """Recheck the corrected card claims when the mirror is present."""
+        payloads = sorted(GIT_OPS_MIRROR.glob("batch-*.jsonl"))
+        self.assertEqual(len(payloads), 1416)
+        reward_counts = Counter()
+        meta_counts = Counter()
+        records = 0
+        for payload in payloads:
+            with payload.open(encoding="utf-8") as handle:
+                for line in handle:
+                    if not line.strip():
+                        continue
+                    record = json.loads(line)
+                    reward_counts.update(record["reward"].keys())
+                    keys = record["meta"].keys()
+                    meta_counts["kind"] += "kind" in keys
+                    meta_counts["plant"] += "plant" in keys
+                    meta_counts["kind_and_plant"] += "kind" in keys and "plant" in keys
+                    meta_counts["kind_without_plant"] += (
+                        "kind" in keys and "plant" not in keys
+                    )
+                    records += 1
+
+        self.assertEqual(records, 2832)
+        self.assertEqual(len(reward_counts), 58)
+        self.assertEqual(sum(count == 1 for count in reward_counts.values()), 24)
+        self.assertEqual(sum(count > 1 for count in reward_counts.values()), 34)
+        six_named = {
+            "success",
+            "tests_passed",
+            "cost_steps",
+            "pr",
+            "blocked",
+            "handoff",
+        }
+        float_triple = {
+            "process_quality",
+            "verify_rigor",
+            "recovery_completeness",
+        }
+        further_multi = {
+            key
+            for key, count in reward_counts.items()
+            if count > 1 and key not in six_named | float_triple
+        }
+        self.assertEqual(len(further_multi), 25)
+        self.assertEqual(
+            meta_counts,
+            Counter(
+                kind=270,
+                plant=266,
+                kind_and_plant=266,
+                kind_without_plant=4,
+            ),
         )
 
     def test_declared_glob_covers_every_published_shard(self):
@@ -120,9 +202,8 @@ class GitOpsRecoveryDeclarationTests(unittest.TestCase):
         self.assertIn("Ownership therefore stays with this dataset", disclosure["summary"])
         # 171 leftover-in-id names split 167 same-factory + 4 foreign, not 171.
         joined = " ".join(item["summary"] for item in self.declaration["disclosures"])
-        self.assertIn("167", joined)
+        self.assertIn("167 same-factory plus 4 foreign", joined)
 
 
 if __name__ == "__main__":
     unittest.main()
-

@@ -44,12 +44,12 @@
     {
       "name": "reward",
       "dtype": "json",
-      "note": "key-bag of 58 distinct keys over 49 distinct key sets, mixing five JSON types: `success` (bool) on every record, then `tests_passed` (2603), `cost_steps` (2566), `pr` (2499, int or null), `blocked` (659, str), `handoff` (579, str or int), the float triple `process_quality` / `verify_rigor` / `recovery_completeness` (76 each), 22 further int counters such as `poisoned_caches_deleted` (73), `live_ci_verified` (73), `unleased_force` (48), `main_rewritten` (47) and `tag_moved` (46), and 24 single-record extras"
+      "note": "key-bag of 58 distinct keys over 49 distinct key sets, mixing five JSON types: `success` (bool) on every record, then `tests_passed` (2603), `cost_steps` (2566), `pr` (2499, int or null), `blocked` (659, str), `handoff` (579, str or int), the float triple `process_quality` / `verify_rigor` / `recovery_completeness` (76 each), 25 further multi-record int counters (from `poisoned_caches_deleted` and `live_ci_verified` at 73 each through 12 keys present on 2-6 records), and 24 single-record int extras"
     },
     {
       "name": "meta",
       "dtype": "json",
-      "note": "key-bag over 7 distinct key sets: `factory`, `generator`, `round` on every record; then `kind` (270), `plant` (266, str), `designed` (194, bool), `seed` (194), `k` (190, bool), `incident` + `steps` (76, where `steps` is an int and unrelated to the top-level step list), `tag` (69), `dep` (26), `pr` (26) and `domain` + `stack` (4). `kind` and `plant` do not co-occur: the four `sir-*` records carry `kind` with no `plant`"
+      "note": "key-bag over 7 distinct key sets: `factory`, `generator`, `round` on every record; then `kind` (270), `plant` (266, str), `designed` (194, bool), `seed` (194), `k` (190, bool), `incident` + `steps` (76, where `steps` is an int and unrelated to the top-level step list), `tag` (69), `dep` (26), `pr` (26) and `domain` + `stack` (4). `kind` and `plant` co-occur on 266 records; the four `sir-*` records carry `kind` with no `plant`"
     }
   ],
   "disclosures": [
