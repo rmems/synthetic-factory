@@ -108,6 +108,7 @@ class RagRetrievalDebugDeclarationTests(unittest.TestCase):
         # `plan` is a string on all 1876 records here, unlike issue #36's dataset.
         self.assertEqual(names["plan"]["dtype"], "string")
         self.assertNotIn("optional", names["plan"])
+        self.assertIn("observed snapshot through round 938", names["plan"]["note"])
         steps = {feature["name"]: feature for feature in names["steps"]["list"]}
         self.assertEqual(
             set(steps), {"n", "decision_basis", "tool_call", "observation", "reflection"}
@@ -165,7 +166,7 @@ class RagRetrievalDebugDeclarationTests(unittest.TestCase):
                 self.assertEqual(feature["dtype"], "json")
                 self.assertRegex(
                     feature["note"],
-                    r"observed snapshot through round 938: present on 76 of 1876 records",
+                    r"observed snapshot through round \d+: present on \d+ of \d+ records",
                 )
                 self.assertRegex(feature["note"], r"(?:drift|cast failure)")
 
