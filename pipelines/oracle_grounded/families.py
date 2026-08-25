@@ -39,6 +39,17 @@ RATE_UNITS = "hertz"
 DIMENSIONLESS = "dimensionless"
 
 
+def _measurement_matches(actual, expected):
+    """Compare a stored scalar with a value derived from stored measurements."""
+    if actual is None or expected is None:
+        return actual is expected
+    if isinstance(actual, bool) or isinstance(expected, bool):
+        return actual is expected
+    if isinstance(actual, (int, float)) and isinstance(expected, (int, float)):
+        return abs(actual - expected) <= ROUNDING_TOL
+    return actual == expected
+
+
 class FamilySpec:
     """Everything the pipeline needs to know about one dataset family."""
 
@@ -159,11 +170,36 @@ def _encoder_checks(record):
         decoded = measured[side]["reconstruction"]
         if len(decoded) != record["scenario"]["sample_count"]:
             findings.append(f"{side}.reconstruction length does not match sample_count")
-    margin = measured["retention_margin"]
-    if measured["winner_basis"] == "information_retention":
-        expected = pair[0] if margin > 0 else pair[1]
-        if winner != expected:
-            findings.append("winner disagrees with the sign of retention_margin")
+    retention_gap = (
+        measured["encoding_a"]["information_retention"]
+        - measured["encoding_b"]["information_retention"]
+    )
+    if not _measurement_matches(measured["retention_margin"], retention_gap):
+        findings.append("retention_margin does not match the two measured retentions")
+    tie_epsilon = record["oracle"]["configuration"]["tie_epsilon"]
+    if abs(retention_gap) >= tie_epsilon:
+        expected_basis = "information_retention"
+        expected_winner = pair[0] if retention_gap > 0 else pair[1]
+    elif measured["encoding_a"]["spike_count"] != measured["encoding_b"]["spike_count"]:
+        expected_basis = "spike_count_tiebreak"
+        expected_winner = (
+            pair[0]
+            if measured["encoding_a"]["spike_count"]
+            < measured["encoding_b"]["spike_count"]
+            else pair[1]
+        )
+    else:
+        expected_basis = "tie"
+        expected_winner = None
+    if measured["winner_basis"] != expected_basis:
+        findings.append(
+            f"winner_basis {measured['winner_basis']!r} does not match the measured "
+            f"retention and spike counts ({expected_basis!r})"
+        )
+    if winner != expected_winner:
+        findings.append(
+            f"winner {winner!r} does not match the measured {expected_basis} decision"
+        )
     return findings
 
 
@@ -257,16 +293,13 @@ def _neuron_checks(record):
     before = measured["before"]
     after = measured["after"]
     delta = measured["delta"]
-    if delta["spike_count_delta"] != after["spike_count"] - before["spike_count"]:
-        findings.append("delta.spike_count_delta does not match before/after spike counts")
-    direction = delta["direction"]
-    expected = (
-        "increases_firing"
-        if delta["spike_count_delta"] > 0
-        else ("decreases_firing" if delta["spike_count_delta"] < 0 else "unchanged_firing")
-    )
-    if direction != expected:
-        findings.append(f"delta.direction {direction!r} disagrees with the spike-count change")
+    expected_delta = sim.compare_neuron_states(before, after)
+    for field, expected in expected_delta.items():
+        actual = delta.get(field)
+        if not _measurement_matches(actual, expected):
+            findings.append(
+                f"delta.{field} does not match the value derived from before/after states"
+            )
     for side, state in (("before", before), ("after", after)):
         times = state["spike_times_ms"]
         if any(later < earlier for earlier, later in zip(times, times[1:])):
@@ -384,13 +417,29 @@ def _mesh_checks(record):
         if state["spike_budget_exhausted"]:
             findings.append(f"{side} hit the spike budget; the trajectory is truncated")
         delay = state["propagation_delay_ms"]
-        if delay is not None and delay < 0:
-            findings.append(f"{side}.propagation_delay_ms is negative: {delay}")
+        source_time = state["first_arrival_ms"].get(record["scenario"]["source"])
+        sink_time = state["first_arrival_ms"].get(sink)
+        expected_delay = (
+            None if source_time is None or sink_time is None else sink_time - source_time
+        )
+        if not _measurement_matches(delay, expected_delay):
+            findings.append(
+                f"{side}.propagation_delay_ms does not match sink minus source arrival"
+            )
     delta = measured["delta"]
     if delta["sink_reachability_changed"] != (
         measured["before"]["sink_reached"] != measured["after"]["sink_reached"]
     ):
         findings.append("delta.sink_reachability_changed is inconsistent")
+    before_delay = measured["before"]["propagation_delay_ms"]
+    after_delay = measured["after"]["propagation_delay_ms"]
+    expected_delta = (
+        None if before_delay is None or after_delay is None else after_delay - before_delay
+    )
+    if not _measurement_matches(delta.get("propagation_delay_delta_ms"), expected_delta):
+        findings.append(
+            "delta.propagation_delay_delta_ms does not match the before/after delays"
+        )
     return findings
 
 
@@ -534,6 +583,26 @@ def _credit_checks(record):
         findings.append("plasticity.update_applied disagrees with the weight deltas")
     if "post_update_behavior" not in plasticity or "pre_update_behavior" not in plasticity:
         findings.append("plasticity must report behaviour before and after the update")
+    else:
+        pre = plasticity["pre_update_behavior"]
+        post = plasticity["post_update_behavior"]
+        expected_behavior_delta = {
+            "spike_count_delta": post["spike_count"] - pre["spike_count"],
+            "output_rate_delta_hz": post["output_rate_hz"] - pre["output_rate_hz"],
+            "first_spike_shift_ms": sim._optional_delta(
+                post["first_spike_ms"], pre["first_spike_ms"]
+            ),
+        }
+        behavior_delta = plasticity.get("behavior_delta")
+        if not isinstance(behavior_delta, dict):
+            findings.append("plasticity.behavior_delta must be an object")
+        else:
+            for field, expected in expected_behavior_delta.items():
+                if not _measurement_matches(behavior_delta.get(field), expected):
+                    findings.append(
+                        f"plasticity.behavior_delta.{field} does not match the "
+                        "pre/post behavior"
+                    )
     return findings
 
 
@@ -659,12 +728,25 @@ def _memory_checks(record):
         findings.append("response_latency_ms is negative")
     if baseline["spike_budget_exhausted"]:
         findings.append("the trial hit the spike budget; the trajectory is truncated")
-    if not measured["temporal_dependence"]["demonstrated"]:
+    probes = measured["probes"]
+    differing = sorted(
+        name
+        for name in ("cue_ablation", "reset_ablation")
+        if name in probes and probes[name]["response"] != baseline["response"]
+    )
+    dependence = measured["temporal_dependence"]
+    if dependence.get("demonstrated") != bool(differing):
+        findings.append(
+            "temporal_dependence.demonstrated does not match the ablation responses"
+        )
+    if dependence.get("changed_by") != differing:
+        findings.append("temporal_dependence.changed_by does not match the changed controls")
+    if not differing:
         findings.append(
             "no temporal dependence: removing the earlier events left the measured "
             "response unchanged"
         )
-    if "cue_ablation" not in measured["probes"]:
+    if "cue_ablation" not in probes:
         findings.append("the cue-ablation control is missing")
     return findings
 

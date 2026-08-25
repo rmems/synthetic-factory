@@ -364,6 +364,23 @@ class FamilyInvariants(unittest.TestCase):
         # with the declared status. Both are fatal.
         self.assertTrue(findings)
 
+    def test_temporal_dependence_is_derived_from_the_ablation_responses(self):
+        item = next(
+            build(families.MEMORY_FAMILY, index)
+            for index in range(24)
+            if build(families.MEMORY_FAMILY, index)["validation"]["status"]
+            == "accepted"
+        )
+        measured = item["result"]["measured"]
+        for probe in measured["probes"].values():
+            probe["response"] = measured["baseline"]["response"]
+        measured["temporal_dependence"]["demonstrated"] = True
+        measured["temporal_dependence"]["changed_by"] = ["cue_ablation"]
+        item["result_hash"] = canon.digest(item["result"])
+        findings = record.validate_record(item, check_declared_status=False)
+        self.assertTrue(any("demonstrated" in f for f in findings), findings)
+        self.assertTrue(any("changed_by" in f for f in findings), findings)
+
     def test_the_cue_ablation_control_is_always_present(self):
         for index in range(6):
             item = build(families.MEMORY_FAMILY, index)
@@ -402,6 +419,20 @@ class FamilyInvariants(unittest.TestCase):
         findings = record.validate_record(item, check_declared_status=False)
         self.assertTrue(any("spike_count_delta" in f for f in findings), findings)
 
+    def test_every_redundant_neuron_delta_is_recomputed(self):
+        for field in (
+            "mean_rate_delta_hz",
+            "first_spike_shift_ms",
+            "mean_isi_delta_ms",
+            "v_mean_delta",
+        ):
+            item = build(families.NEURON_FAMILY)
+            item["result"]["measured"]["delta"][field] = 123.456
+            item["result_hash"] = canon.digest(item["result"])
+            findings = record.validate_record(item, check_declared_status=False)
+            with self.subTest(field=field):
+                self.assertTrue(any(field in f for f in findings), findings)
+
     def test_an_encoder_winner_outside_the_pair_is_caught(self):
         item = build(families.ENCODER_FAMILY)
         pair = item["scenario"]["encoding_pair"]
@@ -411,12 +442,61 @@ class FamilyInvariants(unittest.TestCase):
         findings = record.validate_record(item, check_declared_status=False)
         self.assertTrue(any("not one of the compared encodings" in f for f in findings))
 
+    def test_encoder_tiebreak_and_tie_winners_are_recomputed(self):
+        item = next(
+            build(families.ENCODER_FAMILY, index)
+            for index in range(200)
+            if build(families.ENCODER_FAMILY, index)["result"]["measured"][
+                "winner_basis"
+            ]
+            == "spike_count_tiebreak"
+        )
+        measured = item["result"]["measured"]
+        pair = item["scenario"]["encoding_pair"]
+        measured["winner"] = pair[1] if measured["winner"] == pair[0] else pair[0]
+        item["result_hash"] = canon.digest(item["result"])
+        findings = record.validate_record(item, check_declared_status=False)
+        self.assertTrue(any("spike_count_tiebreak" in f for f in findings), findings)
+
+        item = build(families.ENCODER_FAMILY)
+        measured = item["result"]["measured"]
+        measured["encoding_b"]["information_retention"] = measured["encoding_a"][
+            "information_retention"
+        ]
+        measured["encoding_b"]["spike_count"] = measured["encoding_a"]["spike_count"]
+        measured["retention_margin"] = 0.0
+        measured["winner_basis"] = "tie"
+        measured["winner"] = item["scenario"]["encoding_pair"][0]
+        item["result_hash"] = canon.digest(item["result"])
+        findings = record.validate_record(item, check_declared_status=False)
+        self.assertTrue(any("measured tie decision" in f for f in findings), findings)
+
+    def test_an_unknown_encoder_winner_basis_is_rejected(self):
+        item = build(families.ENCODER_FAMILY)
+        item["result"]["measured"]["winner_basis"] = "trust-me"
+        item["result_hash"] = canon.digest(item["result"])
+        findings = record.validate_record(item, check_declared_status=False)
+        self.assertTrue(any("winner_basis" in f for f in findings), findings)
+
     def test_a_broken_weight_identity_is_caught(self):
         item = build(families.CREDIT_FAMILY)
         item["result"]["measured"]["plasticity"]["weights_after"][0] += 0.5
         item["result_hash"] = canon.digest(item["result"])
         findings = record.validate_record(item, check_declared_status=False)
         self.assertTrue(any("after = before + delta" in f for f in findings), findings)
+
+    def test_every_plasticity_behavior_delta_is_recomputed(self):
+        for field in (
+            "spike_count_delta",
+            "output_rate_delta_hz",
+            "first_spike_shift_ms",
+        ):
+            item = build(families.CREDIT_FAMILY)
+            item["result"]["measured"]["plasticity"]["behavior_delta"][field] = 999
+            item["result_hash"] = canon.digest(item["result"])
+            findings = record.validate_record(item, check_declared_status=False)
+            with self.subTest(field=field):
+                self.assertTrue(any(field in f for f in findings), findings)
 
     def test_a_forged_update_applied_flag_is_caught(self):
         item = build(families.CREDIT_FAMILY)
@@ -443,12 +523,36 @@ class FamilyInvariants(unittest.TestCase):
         findings = record.validate_record(item, check_declared_status=False)
         self.assertTrue(any("sink_reached" in f for f in findings), findings)
 
+    def test_mesh_propagation_delays_are_derived_from_arrival_times(self):
+        item = build(families.MESH_FAMILY)
+        measured = item["result"]["measured"]
+        measured["before"]["propagation_delay_ms"] = 999.0
+        measured["after"]["propagation_delay_ms"] = 998.0
+        measured["delta"]["propagation_delay_delta_ms"] = -1.0
+        item["result_hash"] = canon.digest(item["result"])
+        findings = record.validate_record(item, check_declared_status=False)
+        self.assertTrue(
+            any("sink minus source arrival" in f for f in findings), findings
+        )
+
+        item = build(families.MESH_FAMILY)
+        item["result"]["measured"]["delta"]["propagation_delay_delta_ms"] = 999.0
+        item["result_hash"] = canon.digest(item["result"])
+        findings = record.validate_record(item, check_declared_status=False)
+        self.assertTrue(any("before/after delays" in f for f in findings), findings)
+
     def test_family_checks_survive_a_structurally_odd_record(self):
         item = build(families.MESH_FAMILY)
         item["result"]["measured"]["before"] = {}
         item["result_hash"] = canon.digest(item["result"])
         layers = record.classify(item)
         self.assertTrue(layers["envelope"] or layers["family"])
+
+    def test_attribute_errors_from_malformed_family_shapes_become_findings(self):
+        item = build(families.NEURON_FAMILY)
+        item["oracle"]["configuration"]["after"] = []
+        layers = record.classify(item)
+        self.assertTrue(any("family checks could not run" in f for f in layers["envelope"]))
 
 
 class Reproducibility(unittest.TestCase):

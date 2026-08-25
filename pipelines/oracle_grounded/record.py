@@ -285,7 +285,7 @@ def classify(record, require_named_runtime=False):
 
     try:
         family_findings = families.spec_for(family).checks(record)
-    except (KeyError, TypeError, IndexError) as exc:
+    except (AttributeError, KeyError, TypeError, IndexError, ValueError) as exc:
         return {
             "envelope": [f"family checks could not run on this record: {exc}"],
             "family": [],

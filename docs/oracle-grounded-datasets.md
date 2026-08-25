@@ -111,6 +111,7 @@ The environment variable name is derived mechanically:
 | Curation fails closed | a missing, empty, or unattributed `result` is an error, never a warning |
 | A generator's guess is never truth | `candidate_prediction.kind` must be `non_authoritative_guess`; it is scored against the oracle into `validation.candidate_prediction_correct` |
 | A rejected record cannot rewrite its own reason | stored `validation.reasons` must equal the recomputed findings |
+| A redundant training label cannot drift from its evidence | encoder winners, neuron deltas, mesh delays, plasticity behavior deltas, and temporal dependence are recomputed from the stored primitive measurements |
 
 ## Reproducibility and provenance
 
