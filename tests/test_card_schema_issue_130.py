@@ -97,6 +97,8 @@ class QueueBackpressureDeclarationTests(unittest.TestCase):
         self.assertIn("`qbp-r09-huey-immediate-false-7b22`", self.card)
         self.assertIn("`qbp-r2-sqs-inflight-p3`", self.card)
         self.assertIn("`qbp-r3-rabbit-prefetch-p13`", self.card)
+        self.assertIn("define the shape datasets-server inferred", self.card)
+        self.assertIn("cast fails on the later 268 designed records", self.card)
         self.assertIn("| `steps[].reflection` | optional |", self.card)
         self.assertIn("| `plan` | present on every record |", self.card)
 
@@ -129,4 +131,3 @@ class QueueBackpressureDeclarationTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-

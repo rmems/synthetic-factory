@@ -54,7 +54,7 @@
   "disclosures": [
     "Every one of the 282 records is stamped `meta.factory` `queue-backpressure-factory` and `meta.generator` `grok-4.6`, and every record is an episode (`id`/`goal`/`plan`/`steps`/`outcome`/`reward`/`meta`). There is no unstamped payload and no kind mix.",
     {
-      "summary": "14 records carry a thin `meta` of `{factory, generator, round}` only, with no `kind`/`seed`/`designed`/`domain`/`stack`. They sit in `batch-r01` and `batch-r04`-`batch-r09` and are the records the inferred schema died on; they are kept exactly as generated.",
+      "summary": "14 records carry a thin `meta` of `{factory, generator, round}` only, with no `kind`/`seed`/`designed`/`domain`/`stack`. They sit in `batch-r01` and `batch-r04`-`batch-r09` and define the shape datasets-server inferred; the cast fails on the later 268 designed records that add those fields. The thin records are kept exactly as generated.",
       "ids": [
         "qbp-r01-amqp-prefetch-unbounded",
         "qbp-r01-kafka-max-poll-interval",
