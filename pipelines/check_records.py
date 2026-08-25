@@ -406,7 +406,13 @@ def check_record(obj, where, factory_staging=False):
     return errors, warnings, kind, record_id
 
 
-def check_jsonl(path, rel, seen_ids=None, factory_staging=False):
+def check_jsonl(
+    path,
+    rel,
+    seen_ids=None,
+    factory_staging=False,
+    factory_staging_exempt_lines=frozenset(),
+):
     errors, warnings = [], []
     kinds = {}
     records = 0
@@ -426,7 +432,12 @@ def check_jsonl(path, rel, seen_ids=None, factory_staging=False):
             errors.append(f"{where}: JSON parse error: {exc}")
             continue
         rec_errs, rec_warns, kind, record_id = check_record(
-            obj, where, factory_staging=factory_staging
+            obj,
+            where,
+            factory_staging=(
+                factory_staging
+                and lineno not in factory_staging_exempt_lines
+            ),
         )
         records += 1
         kinds[kind] = kinds.get(kind, 0) + 1

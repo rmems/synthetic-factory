@@ -316,14 +316,20 @@ EPISODE_ITEM = {
 
 
 def episode_side(goal="repair the leftover vfs image id"):
+    phases = (
+        "review the patch diff",
+        "find the incorrect bug risk",
+        "prefer the better correction",
+        "verify tests are correct and safe",
+    )
     return {
         "goal": goal,
         "steps": [
             {
                 "n": index,
-                "decision_basis": "Observation: inspect the leftover object",
+                "decision_basis": f"Observation: {phases[index - 1]}",
                 "tool_call": {"name": "bash", "args": {"command": f"echo {index}"}},
-                "observation": f"inspected step {index}",
+                "observation": phases[index - 1],
             }
             for index in range(1, 5)
         ],
@@ -342,6 +348,7 @@ def preference_record(record_id):
         "rejected": rejected,
         "critique": "the rejected patch never re-reads the leftover object",
         "reward_delta": 0.4,
+        "reward": {"success": True},
         "meta": {"factory": CODE_REVIEW_SLUG, "round": 1, "generator": "grok-4.6"},
     }
 
@@ -378,12 +385,17 @@ def stage_legacy_baseline(source, records, *, raw_text=None):
         batch.write_text(raw_text)
     notes = source / "NOTES-r01.md"
     notes.write_text("Novel coverage: 80%\n")
-    baseline_state = (
-        1,
-        {},
-        {path.name: publisher.file_sha256(path) for path in (batch, notes)},
+    (source / ".round-marker-mode.json").write_text(
+        json.dumps(
+            {
+                "version": 1,
+                "legacy_baseline": 1,
+                "commit_point": "ROUND-rNN.complete.json",
+            }
+        )
+        + "\n"
     )
-    return batch, baseline_state
+    return batch
 
 
 class LedgerContract(unittest.TestCase):
@@ -517,15 +529,11 @@ class KindMixDetection(unittest.TestCase):
 class PreferencePublishGate(unittest.TestCase):
     def _snapshot(self, root, item, records, *, raw_text=None):
         source = root / "raw" / item["slug"]
-        _batch, baseline_state = stage_legacy_baseline(
-            source, records, raw_text=raw_text
-        )
+        stage_legacy_baseline(source, records, raw_text=raw_text)
         with mock.patch.object(
             publisher, "FACTORY_ROOT", root / "raw"
         ), mock.patch.object(
             publisher, "HF_ROOT", root / "hf"
-        ), mock.patch.object(
-            publisher, "marker_mode_state", return_value=baseline_state
         ):
             return publisher.snapshot_one(item)
 
@@ -638,11 +646,32 @@ class PreferencePublishGate(unittest.TestCase):
             source = root / "raw" / PREFERENCE_ITEM["slug"] / "batch-r01.jsonl"
             self.assertEqual(raw.read_bytes(), source.read_bytes())
 
+            dest = (
+                root
+                / "hf"
+                / publisher.HF_DATASETS_DIRNAME
+                / PREFERENCE_ITEM["hub"]
+            )
+            with mock.patch.object(
+                publisher, "FACTORY_ROOT", root / "raw"
+            ), mock.patch.object(
+                publisher, "HF_ROOT", root / "hf"
+            ):
+                publisher.validate_upload_snapshot(
+                    PREFERENCE_ITEM, dest
+                )
+
     def test_clean_preference_snapshot_has_no_quarantine_section(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
             stats = self._snapshot(
-                root, PREFERENCE_ITEM, [preference_record("crp-r01-a")]
+                root,
+                PREFERENCE_ITEM,
+                [
+                    preference_record("crp-r01-a"),
+                    preference_record("crp-r01-b"),
+                    preference_record("crp-r01-c"),
+                ],
             )
             self.assertEqual(stats["quarantined"], 0)
             self.assertNotIn("Leftover-mill quarantine", self._card(root, PREFERENCE_ITEM))
@@ -652,10 +681,15 @@ class PreferencePublishGate(unittest.TestCase):
         # separate detectors; this gate must not reach into them.
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
-            stats = self._snapshot(
-                root, EPISODE_ITEM, [preference_record("crp-r01-foreign")]
+            source = root / "batch-r01.jsonl"
+            write_jsonl(
+                source, [preference_record("crp-r01-foreign")]
             )
-            self.assertEqual(stats["quarantined"], 0)
-            self.assertNotIn("Leftover-mill quarantine", self._card(root, EPISODE_ITEM))
+            self.assertEqual(
+                publisher.gate_leftover_mill(
+                    EPISODE_ITEM, [(source, source.name)]
+                ),
+                [],
+            )
 if __name__ == "__main__":
     unittest.main()

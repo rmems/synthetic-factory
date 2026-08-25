@@ -481,9 +481,32 @@ def file_sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
-def completed_manifests(src: Path) -> dict[int, dict]:
+def acknowledged_kind_mix_lines(
+    kind_mix: list[leftover_mill.KindMixFinding] | None,
+) -> dict[str, dict[int, str]]:
+    """Return exact legacy lines allowed through strict kind validation."""
+    quarantined_kinds: dict[str, dict[int, str]] = {}
+    for finding in kind_mix or ():
+        if not finding.acknowledged:
+            continue
+        quarantined_kinds.setdefault(finding.source_name, {})[
+            finding.source_line
+        ] = finding.record_kind
+    return quarantined_kinds
+
+
+def completed_manifests(
+    src: Path,
+    kind_mix: list[leftover_mill.KindMixFinding] | None = None,
+) -> dict[int, dict]:
     """Validate completion markers once via the transaction source of truth."""
+    quarantined_kinds = acknowledged_kind_mix_lines(kind_mix)
     try:
+        if quarantined_kinds:
+            return transaction_completed_manifests(
+                src,
+                quarantined_kinds=quarantined_kinds,
+            )
         return transaction_completed_manifests(src)
     except TransactionError as exc:
         raise SystemExit(str(exc)) from exc
@@ -494,12 +517,31 @@ def discovered_legacy_frontier(src: Path) -> tuple[int, int]:
     return transaction_legacy_frontier(src), transaction_legacy_named_baseline(src)
 
 
-def validate_legacy_baseline_payloads(src: Path, baseline: int) -> None:
+def validate_legacy_baseline_payloads(
+    src: Path,
+    baseline: int,
+    kind_mix: list[leftover_mill.KindMixFinding] | None = None,
+) -> None:
     """Translate the allocator's baseline validation into publisher errors."""
     try:
-        transaction_validate_legacy_baseline_payloads(src, baseline)
+        transaction_validate_legacy_baseline_payloads(
+            src,
+            baseline,
+            quarantined_kinds=acknowledged_kind_mix_lines(kind_mix),
+        )
     except TransactionError as exc:
         raise SystemExit(str(exc)) from exc
+
+
+def legacy_kind_mix(
+    src: Path, baseline: int
+) -> list[leftover_mill.KindMixFinding]:
+    """Gate visible legacy payloads before strict destination-kind checks."""
+    payloads = transaction_legacy_baseline_jsonl_paths(src, baseline)
+    item = {"slug": src.name, "hub": src.name}
+    return gate_leftover_mill(
+        item, [(path, path.name) for path in payloads]
+    )
 
 
 def legacy_snapshot_paths(src: Path, baseline: int) -> list[Path]:
@@ -546,10 +588,12 @@ def marker_mode_state(
         paths = legacy_snapshot_paths(src, max(rounds)) if rounds else []
         before = {path.name: file_sha256(path) for path in paths}
         if rounds:
-            validate_legacy_baseline_payloads(src, max(rounds))
+            baseline = max(rounds)
+            kind_mix = legacy_kind_mix(src, baseline)
+            validate_legacy_baseline_payloads(src, baseline, kind_mix)
             after = {
                 path.name: file_sha256(path)
-                for path in legacy_snapshot_paths(src, max(rounds))
+                for path in legacy_snapshot_paths(src, baseline)
             }
         else:
             after = {}
@@ -569,6 +613,11 @@ def marker_mode_state(
     baseline = mode.get("legacy_baseline")
     if not isinstance(baseline, int) or isinstance(baseline, bool) or baseline < 0:
         raise SystemExit(f"invalid legacy_baseline in {mode_path}")
+    # Detect and block an unacknowledged mixed-kind payload before the generic
+    # frontier check can reject that same historical payload as merely
+    # incomplete.  Acknowledged rows are passed into the strict legacy
+    # validator below as narrow, line-scoped staging exemptions.
+    kind_mix = legacy_kind_mix(src, baseline)
     legacy_frontier, legacy_named_baseline = discovered_legacy_frontier(src)
     if baseline > legacy_frontier:
         raise SystemExit(
@@ -579,14 +628,14 @@ def marker_mode_state(
         raise SystemExit(f"legacy_baseline in {mode_path} excludes legacy r01 payloads")
     legacy_paths = legacy_snapshot_paths(src, baseline)
     legacy_sha256 = {path.name: file_sha256(path) for path in legacy_paths}
-    validate_legacy_baseline_payloads(src, baseline)
+    validate_legacy_baseline_payloads(src, baseline, kind_mix)
     validated_legacy_sha256 = {
         path.name: file_sha256(path)
         for path in legacy_snapshot_paths(src, baseline)
     }
     if legacy_sha256 != validated_legacy_sha256:
         raise SystemExit(f"legacy baseline changed during validation: {src}")
-    manifests = completed_manifests(src)
+    manifests = completed_manifests(src, kind_mix)
     return baseline, manifests, validated_legacy_sha256
 
 
@@ -1169,6 +1218,9 @@ def validate_upload_snapshot(item: dict, dest: Path) -> None:
 
     records = sum(count_jsonl_lines(raw / batch.name) for batch in batches)
     bytes_ = sum((raw / batch.name).stat().st_size for batch in batches)
+    kind_mix = gate_leftover_mill(
+        item, [(raw / batch.name, batch.name) for batch in batches]
+    )
     labels = [
         (batch, label)
         for batch in batches
@@ -1186,6 +1238,7 @@ def validate_upload_snapshot(item: dict, dest: Path) -> None:
         first=first,
         last=last,
         payload_names=[batch.name for batch in batches],
+        kind_mix=kind_mix,
     )
     try:
         card = (dest / "README.md").read_text()
