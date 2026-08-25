@@ -19,12 +19,17 @@ frontier advancement on that taxonomy. Never promote `cannot-verify` to
 
 Thalamic records require `state.sim_or_real ∈ {designed, simulated, hil}`,
 non-empty `safety_decision.rationale`, and a `future_outcome` with
-`timeline` / `observed_effects` / `new_state`. Episode steps require
+well-formed observable evidence: `timeline` is a non-empty array of objects,
+`observed_effects` is a non-empty array of strings or objects, and `new_state`
+is a non-empty object. A present observable field with the wrong type is a
+structural failure; empty or absent observable fields are inconclusive.
+Episode steps require
 `tool_call` with known tool name, non-empty `observation`, and
 `decision_basis` when `thought` is present. Preference pairs take the
-minimum of both sides; a side that carries its own `steps` while the pair
-owns the `goal` is verified as an episode. Bridge records delegate to
-`language_view.trajectory`.
+minimum of both sides. Episode-sided pairs must use episodes on both sides;
+each side is checked against the repository episode envelope before its step
+evidence is considered, and may inherit the pair's shared `goal`. Bridge
+records delegate to `language_view.trajectory`.
 
 ## Integration with `pipelines/round_txn.py` Frontier Gate
 
@@ -74,8 +79,9 @@ Every publish writes an `execution_verification` block into
 
 `override` is `null` when nothing was waived. The reason is normalized to
 single-line printable text between 8 and 500 characters. A publish retry
-re-derives the verdict but keeps the first recorded waiver, so the marker
-carries the waiver that was in force at the commit point.
+re-derives the verdict but keeps and reuses the first recorded waiver, so a
+mid-publish recovery does not require the operator to repeat the flag and the
+marker carries the waiver that was in force at the commit point.
 
 Separation of concerns:
 
@@ -165,8 +171,10 @@ clauses this spec requires:
    `ALLOWED_PROVENANCE` → inconclusive, counted as non-training.
 8. **Thalamic failed: missing rationale** → failed.
 9. **Thalamic inconclusive: future_outcome lacks observables** → inconclusive.
+   A truthy observable with the wrong type is `failed`, never `verified`.
 10. **Preference pair** — both sides verified → verified; any side failed →
-    failed; any side inconclusive → inconclusive.
+    failed; any side inconclusive → inconclusive. Mixed Thalamic/episode sides
+    and episode sides missing their required envelope are `failed`.
 11. **Bridge pair** — delegates to `language_view.trajectory`; missing
     trajectory → inconclusive.
 12. **Unrecognized shape** → inconclusive with key listing.
@@ -192,7 +200,7 @@ clauses this spec requires:
     `TransactionError` when `verify_execution` cannot be imported.
 21. **Retry keeps the first waiver** — a publish interrupted after the
     publishing marker is written keeps the originally recorded reason when it
-    is retried with different wording.
+    is retried with different wording or without repeating the waiver flag.
 22. **CLI plumbing** — `round_txn.py publish --allow-inconclusive REASON`
     returns 1 while blocked and 0 once waived.
 

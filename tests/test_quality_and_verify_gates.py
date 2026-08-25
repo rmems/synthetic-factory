@@ -119,6 +119,17 @@ class VerifyExecution(unittest.TestCase):
         )
         self.assertEqual(status, "failed")
 
+    def test_malformed_observable_fields_are_not_verified(self):
+        for field, value in (("timeline", "narrative"), ("new_state", True)):
+            with self.subTest(field=field):
+                record = thalamic(f"malformed-{field}")
+                record["future_outcome"] = {field: value}
+                status, reason = verify_execution.verify_record_execution(
+                    record, "where"
+                )
+                self.assertEqual(status, "failed")
+                self.assertIn(f"future_outcome.{field} must be", reason)
+
     def test_bridge_with_non_object_trajectory_returns_verdict(self):
         status, reason = verify_execution.verify_record_execution(
             {"language_view": {"trajectory": "oops"}, "spike_events": [1]},
@@ -127,7 +138,7 @@ class VerifyExecution(unittest.TestCase):
         self.assertEqual(status, "inconclusive")
         self.assertIn("not an object", reason)
 
-    def test_preference_side_with_steps_but_no_goal_is_verified_by_step(self):
+    def test_preference_side_inherits_the_pair_goal_and_is_verified_by_step(self):
         # The pair owns `goal`; each side owns its own `steps`. That side is an
         # episode, not an unrecognized shape.
         side = {
@@ -142,13 +153,47 @@ class VerifyExecution(unittest.TestCase):
             "outcome": "edited safely",
             "reward": {"success": True},
         }
+        pair = {
+            "goal": "edit a.txt safely",
+            "chosen": side,
+            "rejected": json.loads(json.dumps(side)),
+        }
         self.assertEqual(
-            verify_execution.verify_record_execution(side, "where")[0], "verified"
+            verify_execution.verify_record_execution(pair, "where")[0], "verified"
         )
-        side["steps"][0]["observation"] = ""
-        status, reason = verify_execution.verify_record_execution(side, "where")
+        pair["chosen"]["steps"][0]["observation"] = ""
+        status, reason = verify_execution.verify_record_execution(pair, "where")
         self.assertEqual(status, "inconclusive")
         self.assertIn("missing observation", reason)
+
+    def test_malformed_or_mixed_preference_sides_are_not_verified(self):
+        valid_side = {
+            "steps": [
+                {
+                    "n": 1,
+                    "decision_basis": "read before editing",
+                    "tool_call": {"name": "read_file", "args": {"path": "a.txt"}},
+                    "observation": "three lines",
+                }
+            ],
+            "outcome": "edited safely",
+            "reward": {"success": True},
+        }
+        missing_envelope = {"steps": valid_side["steps"]}
+        status, reason = verify_execution.verify_record_execution(
+            missing_envelope, "standalone"
+        )
+        self.assertEqual(status, "failed")
+        self.assertIn("episode missing 'goal'", reason)
+
+        pair = {
+            "goal": "edit a.txt safely",
+            "chosen": thalamic("mixed-thalamic"),
+            "rejected": valid_side,
+        }
+        status, reason = verify_execution.verify_record_execution(pair, "mixed")
+        self.assertEqual(status, "failed")
+        self.assertIn("mix episode and Thalamic", reason)
 
     def test_refusal_step_is_verifiable_evidence(self):
         status, _ = verify_execution.verify_episode_steps(
@@ -353,6 +398,26 @@ class FrontierPublishGate(unittest.TestCase):
             manifest = round_txn.publish(
                 factory, 1, reservation["token"], "reworded on retry, same batch"
             )
+
+            self.assertEqual(
+                manifest["execution_verification"]["override"]["reason"], reason
+            )
+            self.assertTrue((factory / "ROUND-r01.complete.json").is_file())
+
+    def test_publish_retry_reuses_the_recorded_waiver_without_a_new_flag(self):
+        with tempfile.TemporaryDirectory() as td:
+            factory = self.factory(td)
+            reservation = round_txn.reserve(factory, 1, 1)
+            self.stage(reservation, [thalamic("gate-resume", observable=False)])
+            reason = "sensor replay pending; waived for this window"
+
+            with mock.patch.object(
+                round_txn, "copy_verified_exclusive", side_effect=OSError("boom")
+            ):
+                with self.assertRaises(OSError):
+                    round_txn.publish(factory, 1, reservation["token"], reason)
+
+            manifest = round_txn.publish(factory, 1, reservation["token"])
 
             self.assertEqual(
                 manifest["execution_verification"]["override"]["reason"], reason
