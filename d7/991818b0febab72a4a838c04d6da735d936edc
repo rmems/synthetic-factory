@@ -1,0 +1,26 @@
+pipelines/curate_rewards.py
+  s_940326c4ee4215::t_a43f481139cb51 75-87,159-166,282-430,482-485,551
+  s_940326c4ee4215::t_5d46f3e19e2539 662-663,668,1579-1582,1589-1590
+  s_940326c4ee4215::t_4e7d5140ce9879 936-949,967,971,976,978,983,985,998-1004,1010,1019-1020,1029,1032,1035,1037,1043,1045-1048
+  s_940326c4ee4215::t_e5c1acf004f4bf 1098,1192-1193,1197-1199,1350-1376,1386
+tests/test_curate_rewards.py
+  s_940326c4ee4215::t_5cb93eb3749fa4 347-373,646-665,742-771,805-833,980-1002
+schemas/reward-ontology-v1.schema.json
+  s_940326c4ee4215::t_6df8af706c0a73 269-274,286-323,389,396,400-420,424,470,475-477
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "d7991818b0febab72a4a838c04d6da735d936edc",
+  "prompts": {},
+  "sessions": {
+    "s_940326c4ee4215": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a032e4-1904-7a82-8c8b-1ad3cfbeb0b0",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Raul Montoya Cardenas <montoyaraul34@gmail.com>"
+    }
+  }
+}
