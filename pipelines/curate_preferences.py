@@ -88,27 +88,41 @@ def _sha256(payload: bytes) -> str:
     return hashlib.sha256(payload).hexdigest()
 
 
-def _is_under_raw(path: Path) -> bool:
-    """Whether ``path`` resolves to somewhere inside an ``outputs/raw`` tree."""
+def _has_raw_tree_components(path: Path) -> bool:
+    """Whether normalized ``path`` names an ``outputs/raw`` tree."""
 
-    parts = path.resolve(strict=False).parts
+    parts = path.parts
     return any(
         parts[index : index + 2] == ("outputs", "raw")
         for index in range(len(parts) - 1)
     )
 
 
+def _is_under_raw(path: Path) -> bool:
+    """Whether ``path`` lexically names or resolves inside ``outputs/raw``."""
+
+    # Keep the normalized lexical spelling as well as the resolved target.
+    # Resolving ``outputs/raw`` when it is itself a symlink removes those path
+    # components and would otherwise let a write through the immutable tree.
+    lexical_path = Path(os.path.abspath(path))
+    return _has_raw_tree_components(lexical_path) or _has_raw_tree_components(
+        path.resolve(strict=False)
+    )
+
+
 def _is_canonicalizable(value: Any) -> bool:
-    """Whether ``value`` survives canonical JSON encoding.
+    """Whether ``value`` survives canonical JSON and UTF-8 encoding.
 
     ``json.loads`` accepts the non-standard ``NaN``/``Infinity`` literals, so a
     raw JSONL line can carry floats that cannot be re-encoded. Such a pair is
     excluded with a reason code instead of aborting the whole corpus scan.
+    Escaped lone surrogates also pass JSON parsing but cannot be written to the
+    UTF-8 JSONL destination, so exercise the actual output encoding here too.
     """
 
     try:
-        canonical_json(value)
-    except (ValueError, TypeError):
+        canonical_json(value).encode("utf-8")
+    except (UnicodeEncodeError, ValueError, TypeError):
         return False
     return True
 
