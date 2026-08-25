@@ -98,6 +98,8 @@ class QueueBackpressureDeclarationTests(unittest.TestCase):
         self.assertIn("`qbp-r2-sqs-inflight-p3`", self.card)
         self.assertIn("`qbp-r3-rabbit-prefetch-p13`", self.card)
         self.assertIn("define the shape datasets-server inferred", self.card)
+        self.assertIn("later designed records", self.declaration["note"])
+        self.assertNotIn("every later shard", self.declaration["note"])
         self.assertIn("cast fails on the later 268 designed records", self.card)
         self.assertIn("| `steps[].reflection` | optional |", self.card)
         self.assertIn("| `plan` | present on every record |", self.card)

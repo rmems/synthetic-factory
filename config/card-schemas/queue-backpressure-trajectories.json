@@ -2,7 +2,7 @@
   "version": 1,
   "dataset": "queue-backpressure-trajectories",
   "issues": [70],
-  "note": "The viewer schema is declared by hand because `meta` is a key-bag whose shape changes between rounds: the datasets-server infers `meta` from the thin `{factory, generator, round}` of `batch-r01.jsonl`, then dies casting the designed-episode `{..., kind, seed, designed, domain, stack}` of every later shard, so the parquet index is never built. Declaring the union fixes the index without rewriting a single historical raw record.",
+  "note": "The viewer schema is declared by hand because `meta` is a key-bag whose shape changes between rounds: the datasets-server infers `meta` from the thin `{factory, generator, round}` of `batch-r01.jsonl`, then dies casting later designed records with `{..., kind, seed, designed, domain, stack}`, so the parquet index is never built. Declaring the union fixes the index without rewriting a single historical raw record.",
   "config_name": "default",
   "split": "train",
   "data_files": ["data/raw/batch-*.jsonl"],
