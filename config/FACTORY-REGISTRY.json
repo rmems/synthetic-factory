@@ -1,7 +1,7 @@
 {
   "schema_version": "factory-registry-v0.1",
   "lookup_key": "path_id",
-  "notes": "Reviewed factory authority table. pipelines/curate_identity.py loads this file from config/FACTORY-REGISTRY.json. Lookup is exact path_id then exact payload_factory; there is no *-trajectories suffix rewrite or glob. Unknown path → identity.unknown_factory; registered path with missing or different meta.factory → identity.factory_path_payload_mismatch; kind not in the row's record_kinds → identity.factory_not_authorized_for_kind. Onboard a generator by adding a reviewed row. Identity retain is not publication and not training_ready.",
+  "notes": "Reviewed factory authority table. pipelines/curate_identity.py loads this file from config/FACTORY-REGISTRY.json. Lookup is exact raw source-directory path_id then exact payload_factory; Hub publication names remain separate in the publisher and are not lookup aliases. There is no suffix rewrite or glob. Unknown path → identity.unknown_factory; registered path with missing or different meta.factory → identity.factory_path_payload_mismatch; kind not in the row's record_kinds → identity.factory_not_authorized_for_kind. Onboard a generator by adding a reviewed row. Identity retain is not publication and not training_ready.",
   "factories": [
     {
       "path_id": "agentic-coding-trajectory-factory",
@@ -79,7 +79,25 @@
       }
     },
     {
-      "path_id": "agent-memory-compaction-trajectories",
+      "path_id": "multi-agent-ouroboros-swarm",
+      "payload_factory": "multi-agent-ouroboros-swarm",
+      "generator": "fable-5",
+      "generator_version": "fable-5",
+      "record_kinds": [
+        "thalamic"
+      ],
+      "identity_authoritative": true,
+      "publication_target": null,
+      "training_ready_policy": "never",
+      "allowed_curation_lanes": [
+        "curate_identity"
+      ],
+      "provenance_contract_by_kind": {
+        "thalamic": "require_state_claim"
+      }
+    },
+    {
+      "path_id": "agent-memory-compaction-factory",
       "payload_factory": "agent-memory-compaction-factory",
       "generator": "grok-4.6",
       "generator_version": "grok-4.6",
@@ -98,7 +116,7 @@
       }
     },
     {
-      "path_id": "api-contract-migration-trajectories",
+      "path_id": "api-contract-migration-factory",
       "payload_factory": "api-contract-migration-factory",
       "generator": "grok-4.6",
       "generator_version": "grok-4.6",
@@ -117,7 +135,7 @@
       }
     },
     {
-      "path_id": "authz-regression-trajectories",
+      "path_id": "authz-regression-factory",
       "payload_factory": "authz-regression-factory",
       "generator": "grok-4.6",
       "generator_version": "grok-4.6",
@@ -136,7 +154,7 @@
       }
     },
     {
-      "path_id": "browser-tool-use-trajectories",
+      "path_id": "browser-tool-use-factory",
       "payload_factory": "browser-tool-use-factory",
       "generator": "grok-4.6",
       "generator_version": "grok-4.6",
@@ -155,7 +173,7 @@
       }
     },
     {
-      "path_id": "cache-stampede-trajectories",
+      "path_id": "cache-stampede-factory",
       "payload_factory": "cache-stampede-factory",
       "generator": "grok-4.6",
       "generator_version": "grok-4.6",
@@ -174,7 +192,7 @@
       }
     },
     {
-      "path_id": "cascading-error-recovery-trajectories",
+      "path_id": "cascading-error-recovery-factory",
       "payload_factory": "cascading-error-recovery-factory",
       "generator": "grok-4.6",
       "generator_version": "grok-4.6",
@@ -193,7 +211,7 @@
       }
     },
     {
-      "path_id": "code-review-preference-pairs",
+      "path_id": "code-review-preference-factory",
       "payload_factory": "code-review-preference-factory",
       "generator": "grok-4.6",
       "generator_version": "grok-4.6",
@@ -215,7 +233,7 @@
       }
     },
     {
-      "path_id": "csv-excel-ingest-trajectories",
+      "path_id": "csv-excel-ingest-factory",
       "payload_factory": "csv-excel-ingest-factory",
       "generator": "grok-4.6",
       "generator_version": "grok-4.6",
@@ -234,7 +252,7 @@
       }
     },
     {
-      "path_id": "data-pipeline-repair-trajectories",
+      "path_id": "data-pipeline-repair-factory",
       "payload_factory": "data-pipeline-repair-factory",
       "generator": "grok-4.6",
       "generator_version": "grok-4.6",
@@ -253,7 +271,7 @@
       }
     },
     {
-      "path_id": "db-migration-repair-trajectories",
+      "path_id": "db-migration-repair-factory",
       "payload_factory": "db-migration-repair-factory",
       "generator": "grok-4.6",
       "generator_version": "grok-4.6",
@@ -272,7 +290,7 @@
       }
     },
     {
-      "path_id": "distributed-lock-trajectories",
+      "path_id": "distributed-lock-factory",
       "payload_factory": "distributed-lock-factory",
       "generator": "grok-4.6",
       "generator_version": "grok-4.6",
@@ -291,7 +309,7 @@
       }
     },
     {
-      "path_id": "docker-build-cache-trajectories",
+      "path_id": "docker-build-cache-factory",
       "payload_factory": "docker-build-cache-factory",
       "generator": "grok-4.6",
       "generator_version": "grok-4.6",
@@ -310,7 +328,7 @@
       }
     },
     {
-      "path_id": "email-webhook-retry-trajectories",
+      "path_id": "email-webhook-retry-factory",
       "payload_factory": "email-webhook-retry-factory",
       "generator": "grok-4.6",
       "generator_version": "grok-4.6",
@@ -329,7 +347,7 @@
       }
     },
     {
-      "path_id": "eval-harness-trajectories",
+      "path_id": "eval-harness-trajectory-factory",
       "payload_factory": "eval-harness-trajectory-factory",
       "generator": "grok-4.6",
       "generator_version": "grok-4.6",
@@ -348,7 +366,7 @@
       }
     },
     {
-      "path_id": "feature-flag-debug-trajectories",
+      "path_id": "feature-flag-debug-factory",
       "payload_factory": "feature-flag-debug-factory",
       "generator": "grok-4.6",
       "generator_version": "grok-4.6",
@@ -367,7 +385,7 @@
       }
     },
     {
-      "path_id": "flaky-test-quarantine-trajectories",
+      "path_id": "flaky-test-quarantine-factory",
       "payload_factory": "flaky-test-quarantine-factory",
       "generator": "grok-4.6",
       "generator_version": "grok-4.6",
@@ -386,7 +404,7 @@
       }
     },
     {
-      "path_id": "git-ops-recovery-trajectories",
+      "path_id": "git-ops-recovery-factory",
       "payload_factory": "git-ops-recovery-factory",
       "generator": "grok-4.6",
       "generator_version": "grok-4.6",
@@ -405,7 +423,7 @@
       }
     },
     {
-      "path_id": "graphql-nplusone-trajectories",
+      "path_id": "graphql-nplusone-factory",
       "payload_factory": "graphql-nplusone-factory",
       "generator": "grok-4.6",
       "generator_version": "grok-4.6",
@@ -424,7 +442,7 @@
       }
     },
     {
-      "path_id": "incident-response-oncall-trajectories",
+      "path_id": "incident-response-oncall-factory",
       "payload_factory": "incident-response-oncall-factory",
       "generator": "grok-4.6",
       "generator_version": "grok-4.6",
@@ -443,7 +461,7 @@
       }
     },
     {
-      "path_id": "infra-as-code-trajectories",
+      "path_id": "infra-as-code-factory",
       "payload_factory": "infra-as-code-factory",
       "generator": "grok-4.6",
       "generator_version": "grok-4.6",
@@ -462,7 +480,7 @@
       }
     },
     {
-      "path_id": "k8s-crashloop-trajectories",
+      "path_id": "k8s-crashloop-factory",
       "payload_factory": "k8s-crashloop-factory",
       "generator": "grok-4.6",
       "generator_version": "grok-4.6",
@@ -481,7 +499,7 @@
       }
     },
     {
-      "path_id": "llm-eval-flakiness-trajectories",
+      "path_id": "llm-eval-flakiness-factory",
       "payload_factory": "llm-eval-flakiness-factory",
       "generator": "grok-4.6",
       "generator_version": "grok-4.6",
@@ -500,7 +518,7 @@
       }
     },
     {
-      "path_id": "log-redaction-trajectories",
+      "path_id": "log-redaction-factory",
       "payload_factory": "log-redaction-factory",
       "generator": "grok-4.6",
       "generator_version": "grok-4.6",
@@ -519,7 +537,7 @@
       }
     },
     {
-      "path_id": "long-horizon-coding-trajectories",
+      "path_id": "long-horizon-coding-factory",
       "payload_factory": "long-horizon-coding-factory",
       "generator": "grok-4.6",
       "generator_version": "grok-4.6",
@@ -538,7 +556,7 @@
       }
     },
     {
-      "path_id": "mcp-tool-schema-drift-trajectories",
+      "path_id": "mcp-tool-schema-drift-factory",
       "payload_factory": "mcp-tool-schema-drift-factory",
       "generator": "grok-4.6",
       "generator_version": "grok-4.6",
@@ -557,7 +575,7 @@
       }
     },
     {
-      "path_id": "monorepo-dep-bump-trajectories",
+      "path_id": "monorepo-dep-bump-factory",
       "payload_factory": "monorepo-dep-bump-factory",
       "generator": "grok-4.6",
       "generator_version": "grok-4.6",
@@ -576,7 +594,7 @@
       }
     },
     {
-      "path_id": "multi-agent-coordination-transcripts",
+      "path_id": "multi-agent-coordination-factory",
       "payload_factory": "multi-agent-coordination-factory",
       "generator": "grok-4.6",
       "generator_version": "grok-4.6",
@@ -595,7 +613,7 @@
       }
     },
     {
-      "path_id": "notebook-to-pipeline-trajectories",
+      "path_id": "notebook-to-pipeline-factory",
       "payload_factory": "notebook-to-pipeline-factory",
       "generator": "grok-4.6",
       "generator_version": "grok-4.6",
@@ -614,7 +632,7 @@
       }
     },
     {
-      "path_id": "observability-debug-trajectories",
+      "path_id": "observability-debug-factory",
       "payload_factory": "observability-debug-factory",
       "generator": "grok-4.6",
       "generator_version": "grok-4.6",
@@ -633,7 +651,7 @@
       }
     },
     {
-      "path_id": "package-release-trajectories",
+      "path_id": "package-release-factory",
       "payload_factory": "package-release-factory",
       "generator": "grok-4.6",
       "generator_version": "grok-4.6",
@@ -652,7 +670,7 @@
       }
     },
     {
-      "path_id": "payment-idempotency-trajectories",
+      "path_id": "payment-idempotency-factory",
       "payload_factory": "payment-idempotency-factory",
       "generator": "grok-4.6",
       "generator_version": "grok-4.6",
@@ -671,7 +689,7 @@
       }
     },
     {
-      "path_id": "prompt-cache-invalidation-trajectories",
+      "path_id": "prompt-cache-invalidation-factory",
       "payload_factory": "prompt-cache-invalidation-factory",
       "generator": "grok-4.6",
       "generator_version": "grok-4.6",
@@ -690,7 +708,7 @@
       }
     },
     {
-      "path_id": "proto-breaking-change-trajectories",
+      "path_id": "proto-breaking-change-factory",
       "payload_factory": "proto-breaking-change-factory",
       "generator": "grok-4.6",
       "generator_version": "grok-4.6",
@@ -709,7 +727,7 @@
       }
     },
     {
-      "path_id": "queue-backpressure-trajectories",
+      "path_id": "queue-backpressure-factory",
       "payload_factory": "queue-backpressure-factory",
       "generator": "grok-4.6",
       "generator_version": "grok-4.6",
@@ -728,7 +746,7 @@
       }
     },
     {
-      "path_id": "rag-retrieval-debug-trajectories",
+      "path_id": "rag-retrieval-debug-factory",
       "payload_factory": "rag-retrieval-debug-factory",
       "generator": "grok-4.6",
       "generator_version": "grok-4.6",
@@ -747,7 +765,7 @@
       }
     },
     {
-      "path_id": "rate-limit-backoff-trajectories",
+      "path_id": "rate-limit-backoff-factory",
       "payload_factory": "rate-limit-backoff-factory",
       "generator": "grok-4.6",
       "generator_version": "grok-4.6",
@@ -766,7 +784,7 @@
       }
     },
     {
-      "path_id": "safety-calibration-cases",
+      "path_id": "safety-calibration-factory",
       "payload_factory": "safety-calibration-factory",
       "generator": "grok-4.6",
       "generator_version": "grok-4.6",
@@ -785,7 +803,7 @@
       }
     },
     {
-      "path_id": "sandbox-refusal-trajectories",
+      "path_id": "sandbox-refusal-factory",
       "payload_factory": "sandbox-refusal-factory",
       "generator": "grok-4.6",
       "generator_version": "grok-4.6",
@@ -804,7 +822,7 @@
       }
     },
     {
-      "path_id": "search-index-rebuild-trajectories",
+      "path_id": "search-index-rebuild-factory",
       "payload_factory": "search-index-rebuild-factory",
       "generator": "grok-4.6",
       "generator_version": "grok-4.6",
@@ -823,7 +841,7 @@
       }
     },
     {
-      "path_id": "secret-scan-remediation-trajectories",
+      "path_id": "secret-scan-remediation-factory",
       "payload_factory": "secret-scan-remediation-factory",
       "generator": "grok-4.6",
       "generator_version": "grok-4.6",
@@ -842,7 +860,7 @@
       }
     },
     {
-      "path_id": "sparse-reward-long-tasks",
+      "path_id": "sparse-reward-long-task-factory",
       "payload_factory": "sparse-reward-long-task-factory",
       "generator": "grok-4.6",
       "generator_version": "grok-4.6",
@@ -861,7 +879,7 @@
       }
     },
     {
-      "path_id": "ssl-cert-rotation-trajectories",
+      "path_id": "ssl-cert-rotation-factory",
       "payload_factory": "ssl-cert-rotation-factory",
       "generator": "grok-4.6",
       "generator_version": "grok-4.6",
@@ -880,7 +898,7 @@
       }
     },
     {
-      "path_id": "tool-use-preference-pairs",
+      "path_id": "tool-use-preference-factory",
       "payload_factory": "tool-use-preference-factory",
       "generator": "grok-4.6",
       "generator_version": "grok-4.6",
@@ -899,7 +917,7 @@
       }
     },
     {
-      "path_id": "websocket-reconnect-trajectories",
+      "path_id": "websocket-reconnect-factory",
       "payload_factory": "websocket-reconnect-factory",
       "generator": "grok-4.6",
       "generator_version": "grok-4.6",
