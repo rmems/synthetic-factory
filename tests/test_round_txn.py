@@ -551,6 +551,27 @@ class RoundTransaction(unittest.TestCase):
                 round_txn.publish(factory, 1, reservation["token"])
             self.assertFalse((factory / "ROUND-r01.complete.json").exists())
 
+    def test_publish_rejects_duplicate_novel_coverage_lines(self):
+        for values in (("3.1", "3.1"), ("3.1", "80")):
+            with self.subTest(values=values), tempfile.TemporaryDirectory() as td:
+                factory = self.factory(td)
+                reservation = round_txn.reserve(factory, 1, 1)
+                stage = Path(reservation["staging_dir"])
+                write_records(
+                    stage / reservation["batch_file"],
+                    [thalamic(f"txn-duplicate-{values[1]}")],
+                )
+                (stage / reservation["notes_file"]).write_text(
+                    f"Novel coverage: {values[0]}%\n"
+                    f"Novel coverage: {values[1]}%\n"
+                )
+
+                with self.assertRaisesRegex(
+                    round_txn.TransactionError, "exactly one unambiguous"
+                ):
+                    round_txn.publish(factory, 1, reservation["token"])
+                self.assertFalse((factory / "ROUND-r01.complete.json").exists())
+
     def test_read_path_does_not_retroactively_reject_pre_contract_notes(self):
         """Committed legacy rounds predate the contract and must stay readable.
 

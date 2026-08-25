@@ -360,20 +360,22 @@ def count_nonblank_lines(path):
 
 
 def parse_novel_coverage(text: str):
-    """Extract 'Novel coverage: N%' from NOTES text. Returns float or None.
+    """Extract one unambiguous ``Novel coverage: N%`` from NOTES.
 
     Line-anchored parsing — matches only the labeled line (case-insensitive),
     same regex as workflow novelCoveragePct, so unrelated percentages in
-    prose never match. Valid range 0–100; out-of-range values treated as
-    unparseable to avoid false stops.
+    prose never match. Exactly one labeled line is required: duplicate lines,
+    even when numerically identical, are ambiguous audit evidence. Valid range
+    0–100; ambiguous or out-of-range values are treated as unparseable to avoid
+    false stops.
     """
     if not text:
         return None
-    match = NOVEL_COVERAGE_RE.search(text)
-    if not match:
+    matches = list(NOVEL_COVERAGE_RE.finditer(text))
+    if len(matches) != 1:
         return None
     try:
-        value = float(match.group(1))
+        value = float(matches[0].group(1))
     except ValueError:
         return None
     if not (0 <= value <= 100):

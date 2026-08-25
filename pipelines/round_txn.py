@@ -2230,10 +2230,12 @@ def validate_novel_coverage(
             notes_text = notes.read_text()
         except (OSError, UnicodeError) as exc:
             return f"cannot read notes as UTF-8: {notes}: {exc}"
-    match = NOVEL_COVERAGE_RE.search(notes_text)
-    if match is None:
+    matches = list(NOVEL_COVERAGE_RE.finditer(notes_text))
+    if not matches:
         return f"notes need a 'Novel coverage: <N>%' line: {notes}"
-    value = float(match.group(1))
+    if len(matches) != 1:
+        return f"notes need exactly one unambiguous Novel coverage line: {notes}"
+    value = float(matches[0].group(1))
     if not 0 <= value <= 100:
         return f"Novel coverage must be between 0% and 100%: {notes}"
     return None

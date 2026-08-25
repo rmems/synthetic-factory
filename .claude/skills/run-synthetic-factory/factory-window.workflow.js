@@ -164,9 +164,10 @@ function novelCoveragePct(notesText) {
   // "...feel novel; Jaccard overlap peaked at 45%" can never match.
   // An optional parenthetical annotation is documented as valid
   // (docs/token-efficiency.md): "Novel coverage (estimated): 12.5 %".
-  const m = notesText.match(/^\s*novel[ _-]?coverage\s*(?:\([^)\n]*\))?\s*[:=]?\s*(\d+(?:\.\d+)?)\s*%/im)
-  if (!m) return null
-  const v = parseFloat(m[1])
+  const matches = [...notesText.matchAll(/^\s*novel[ _-]?coverage\s*(?:\([^)\n]*\))?\s*[:=]?\s*(\d+(?:\.\d+)?)\s*%/gim)]
+  // More than one labeled line is ambiguous, even if both values agree.
+  if (matches.length !== 1) return null
+  const v = parseFloat(matches[0][1])
   if (!Number.isFinite(v)) return null
   // Clamp to valid percentage range; out-of-range treated as unparseable.
   if (v < 0 || v > 100) return null
