@@ -266,7 +266,12 @@
               "required": [
                 "canonical_unit",
                 "canonical_unit_usd",
-                "aggregation"
+                "aggregation",
+                "required_semantics_substring",
+                "structured_unit_field",
+                "text_unit_field",
+                "usd_unit_pattern",
+                "external_calibration"
               ],
               "properties": {
                 "canonical_unit": {
@@ -278,6 +283,44 @@
                 },
                 "aggregation": {
                   "const": "linear_unit_conversion_only"
+                },
+                "required_semantics_substring": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "structured_unit_field": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "text_unit_field": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "usd_unit_pattern": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "external_calibration": {
+                  "type": "object",
+                  "required": [
+                    "record_id_pattern",
+                    "factor_field",
+                    "scope_field"
+                  ],
+                  "properties": {
+                    "record_id_pattern": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "factor_field": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "scope_field": {
+                      "type": "string",
+                      "minLength": 1
+                    }
+                  }
                 }
               }
             },
@@ -343,20 +386,42 @@
             "run",
             "unique_component_keys",
             "unique_shapes",
+            "dispositions",
             "component_keys",
             "shapes"
           ],
           "properties": {
             "unique_component_keys": {
               "type": "integer",
-              "minimum": 0
+              "minimum": 1
             },
             "unique_shapes": {
               "type": "integer",
-              "minimum": 0
+              "minimum": 1
+            },
+            "dispositions": {
+              "type": "object",
+              "minProperties": 7,
+              "maxProperties": 7,
+              "propertyNames": {
+                "enum": [
+                  "declared_total",
+                  "unit_calibration",
+                  "narrative_annotation",
+                  "component_container",
+                  "magnitude_term",
+                  "structural_context",
+                  "ambiguous_preserve_only"
+                ]
+              },
+              "additionalProperties": {
+                "type": "integer",
+                "minimum": 0
+              }
             },
             "component_keys": {
               "type": "object",
+              "minProperties": 1,
               "additionalProperties": {
                 "type": "object",
                 "required": [
@@ -402,11 +467,14 @@
             },
             "shapes": {
               "type": "array",
+              "minItems": 1,
               "items": {
                 "type": "object",
                 "required": [
                   "signature",
-                  "occurrences"
+                  "occurrences",
+                  "arithmetic_status",
+                  "arithmetic_method"
                 ],
                 "properties": {
                   "signature": {
