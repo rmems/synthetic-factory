@@ -9,6 +9,7 @@ import tempfile
 import unittest
 from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
+from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO / "pipelines"))
@@ -132,9 +133,7 @@ class PayloadKindClassification(unittest.TestCase):
         self.assertEqual(audit["summary"]["thalamic_records_wrapping_a_coding_episode"], 2)
         self.assertEqual(audit["summary"]["coding_episodes_reachable_at_top_level"], 1)
         self.assertEqual(audit["summary"]["coding_episodes_including_wrapped"], 3)
-        self.assertEqual(
-            audit["summary"]["coding_steps"], {"native": 2, "wrapped": 3, "total": 5}
-        )
+        self.assertEqual(audit["summary"]["coding_steps"], {"native": 2, "wrapped": 3, "total": 5})
         self.assertEqual(
             audit["summary"]["coding_steps_by_reasoning_field"],
             {"decision_basis": 2, "reflection": 0, "thought": 3},
@@ -155,11 +154,7 @@ class PayloadKindClassification(unittest.TestCase):
 
     def test_a_gate_record_without_a_wrapped_episode_is_reported_as_such(self):
         audit = self._audit(
-            {
-                "batch-r02.jsonl": [
-                    _thalamic("act-r02-001", {"summary": "no episode was executed"})
-                ]
-            }
+            {"batch-r02.jsonl": [_thalamic("act-r02-001", {"summary": "no episode was executed"})]}
         )
         row = audit["records"][0]
         self.assertEqual(row["kind"], "thalamic")
@@ -167,6 +162,129 @@ class PayloadKindClassification(unittest.TestCase):
         self.assertEqual(row["coding_steps"], 0)
         self.assertEqual(audit["summary"]["thalamic_records_wrapping_a_coding_episode"], 0)
         self.assertEqual(audit["summary"]["coding_episodes_including_wrapped"], 0)
+
+    def test_steps_without_a_goal_are_not_counted_as_a_wrapped_episode(self):
+        audit = self._audit({"batch-r02.jsonl": [_thalamic("act-r02-001", {"steps": [_step(1)]})]})
+        self.assertFalse(audit["records"][0]["wraps_coding_episode"])
+        self.assertEqual(audit["records"][0]["coding_steps"], 0)
+        self.assertEqual(
+            audit["summary"]["coding_steps"],
+            {"native": 0, "wrapped": 0, "total": 0},
+        )
+
+    def test_malformed_episode_step_containers_fail_closed(self):
+        malformed = (
+            _episode("not-a-list"),
+            _episode([_step(1), "not-an-object"]),
+        )
+        for record in malformed:
+            with self.subTest(steps=record["steps"]):
+                with tempfile.TemporaryDirectory() as raw:
+                    directory = Path(raw)
+                    _write_corpus(directory, {"episodes.jsonl": [record]})
+                    with self.assertRaises(payload_kind_audit.PayloadKindAuditError) as caught:
+                        payload_kind_audit.build_audit(directory)
+                self.assertIn("episodes.jsonl:1.steps", str(caught.exception))
+
+    def test_other_valid_curation_kinds_are_rejected_not_misreported_as_episodes(self):
+        preference = {
+            "id": "pair-1",
+            "chosen": _episode([_step(1)]),
+            "rejected": _episode([_step(1)]),
+        }
+        bridge = {
+            "language_view": {"trajectory": _thalamic("bridge-1", _episode([_step(1)]))},
+            "spike_events": [],
+        }
+        for record, kind in ((preference, "preference"), (bridge, "bridge_pair")):
+            with self.subTest(kind=kind):
+                with tempfile.TemporaryDirectory() as raw:
+                    directory = Path(raw)
+                    _write_corpus(directory, {"batch-r01.jsonl": [record]})
+                    with self.assertRaises(payload_kind_audit.PayloadKindAuditError) as caught:
+                        payload_kind_audit.build_audit(directory)
+                self.assertIn(f"payload kind '{kind}'", str(caught.exception))
+
+    def test_unicode_line_separator_inside_json_string_is_not_a_record_boundary(self):
+        with tempfile.TemporaryDirectory() as raw:
+            directory = Path(raw)
+            record = _episode([_step(1)])
+            record["goal"] = "first\u2028second"
+            (directory / "episodes.jsonl").write_text(
+                json.dumps(record, ensure_ascii=False) + "\n", encoding="utf-8"
+            )
+            audit = payload_kind_audit.build_audit(directory)
+        self.assertEqual(audit["summary"]["records"], 1)
+
+    def test_non_standard_json_constants_are_rejected(self):
+        with tempfile.TemporaryDirectory() as raw:
+            directory = Path(raw)
+            (directory / "episodes.jsonl").write_text(
+                '{"goal":"g","steps":[],"meta":{"score":NaN}}\n',
+                encoding="utf-8",
+            )
+            with self.assertRaises(payload_kind_audit.PayloadKindAuditError) as caught:
+                payload_kind_audit.build_audit(directory)
+        self.assertIn("non-standard JSON constant", str(caught.exception))
+
+    def test_invalid_utf8_and_read_failures_are_controlled_audit_errors(self):
+        with tempfile.TemporaryDirectory() as raw:
+            directory = Path(raw)
+            payload = directory / "episodes.jsonl"
+            payload.write_bytes(b'{"goal":"\xff","steps":[]}\n')
+            with self.assertRaises(payload_kind_audit.PayloadKindAuditError) as caught:
+                payload_kind_audit.build_audit(directory)
+            self.assertIn("not valid UTF-8", str(caught.exception))
+
+            payload.write_text(json.dumps(_episode([])) + "\n", encoding="utf-8")
+            with patch.object(Path, "read_bytes", side_effect=OSError("denied")):
+                with self.assertRaises(payload_kind_audit.PayloadKindAuditError) as caught:
+                    payload_kind_audit.build_audit(directory)
+            self.assertIn("cannot read payload", str(caught.exception))
+
+    def test_empty_or_payload_free_corpora_are_rejected(self):
+        for empty_file in (False, True):
+            with self.subTest(empty_file=empty_file):
+                with tempfile.TemporaryDirectory() as raw:
+                    directory = Path(raw)
+                    if empty_file:
+                        (directory / "episodes.jsonl").write_text("\n", encoding="utf-8")
+                    with self.assertRaises(payload_kind_audit.PayloadKindAuditError) as caught:
+                        payload_kind_audit.build_audit(directory)
+                expected = "no auditable records" if empty_file else "no *.jsonl payloads"
+                self.assertIn(expected, str(caught.exception))
+
+    def test_documented_json_flag_is_an_explicit_alias_for_the_default(self):
+        with tempfile.TemporaryDirectory() as raw:
+            directory = Path(raw)
+            _write_corpus(directory, {"episodes.jsonl": [_episode([])]})
+            default_out = io.StringIO()
+            with redirect_stdout(default_out):
+                self.assertEqual(payload_kind_audit.main([str(directory)]), 0)
+            explicit_out = io.StringIO()
+            with redirect_stdout(explicit_out):
+                self.assertEqual(payload_kind_audit.main([str(directory), "--json"]), 0)
+        self.assertEqual(default_out.getvalue(), explicit_out.getvalue())
+
+    def test_markdown_escapes_dynamic_table_values(self):
+        audit = {
+            "records": [
+                {
+                    "source_file": "batch|name.jsonl",
+                    "source_line": 1,
+                    "kind": "thalamic",
+                    "id": "id|`tick`\nnext",
+                    "supervisor_id": "gate|one",
+                    "gate_decision": "MODIFY\nNOW",
+                    "wraps_coding_episode": True,
+                    "coding_steps": 2,
+                }
+            ]
+        }
+        rendered = payload_kind_audit.render_markdown(audit)
+        self.assertIn("batch&#124;name.jsonl", rendered)
+        self.assertIn("id&#124;`tick`<br>next", rendered)
+        self.assertIn("gate&#124;one / MODIFY<br>NOW", rendered)
 
     def test_a_record_the_lane_cannot_classify_fails_loudly_with_its_coordinate(self):
         with tempfile.TemporaryDirectory() as raw:
@@ -225,6 +343,44 @@ class PayloadKindClassification(unittest.TestCase):
             self.assertEqual(code, 1)
             self.assertIn("summary differs from the published audit", err.getvalue())
 
+    def test_expect_reaudits_the_named_snapshot_not_later_appends(self):
+        with tempfile.TemporaryDirectory() as raw:
+            directory = Path(raw)
+            _write_corpus(
+                directory,
+                {"episodes.jsonl": [_episode([_step(1, thought="published")])]},
+            )
+            published = payload_kind_audit.build_audit(directory)
+            expected = directory / "audit.json"
+            expected.write_text(json.dumps(published), encoding="utf-8")
+
+            _write_corpus(
+                directory,
+                {"batch-r10.jsonl": [_episode([_step(1, thought="later")])]},
+            )
+            self.assertEqual(payload_kind_audit.build_audit(directory)["summary"]["records"], 2)
+            out = io.StringIO()
+            with redirect_stdout(out):
+                code = payload_kind_audit.main([str(directory), "--expect", str(expected)])
+            self.assertEqual(code, 0, out.getvalue())
+
+    def test_expect_rejects_unsafe_or_duplicate_snapshot_names(self):
+        with tempfile.TemporaryDirectory() as raw:
+            directory = Path(raw)
+            _write_corpus(directory, {"episodes.jsonl": [_episode([])]})
+            base = payload_kind_audit.build_audit(directory)
+            for paths in (("episodes.jsonl", "episodes.jsonl"), ("../escape.jsonl",)):
+                with self.subTest(paths=paths):
+                    published = dict(base)
+                    published["files"] = [{"path": path} for path in paths]
+                    expected = directory / "audit.json"
+                    expected.write_text(json.dumps(published), encoding="utf-8")
+                    err = io.StringIO()
+                    with redirect_stderr(err):
+                        code = payload_kind_audit.main([str(directory), "--expect", str(expected)])
+                    self.assertEqual(code, 2)
+                    self.assertIn("payload-kind audit failed", err.getvalue())
+
 
 class PublishedAgenticCodingPayloadKindAudit(unittest.TestCase):
     """Pin the #74 finding from the committed evidence alone.
@@ -245,9 +401,7 @@ class PublishedAgenticCodingPayloadKindAudit(unittest.TestCase):
         self.assertEqual(summary["files"], len(self.audit["files"]))
         self.assertEqual(summary["records"], len(self.audit["records"]))
         self.assertEqual(sum(summary["kinds"].values()), summary["records"])
-        self.assertEqual(
-            sum(entry["records"] for entry in self.audit["files"]), summary["records"]
-        )
+        self.assertEqual(sum(entry["records"] for entry in self.audit["files"]), summary["records"])
         steps = summary["coding_steps"]
         self.assertEqual(steps["native"] + steps["wrapped"], steps["total"])
         self.assertEqual(
@@ -274,18 +428,12 @@ class PublishedAgenticCodingPayloadKindAudit(unittest.TestCase):
         self.assertEqual([row["id"] for row in episodes], [None, None, None])
         # A batch-only glob would drop the one file that holds every coding
         # episode: no batch shard contributes a single episode record.
-        batch_files = [
-            entry for entry in self.audit["files"] if entry["path"].startswith("batch-")
-        ]
+        batch_files = [entry for entry in self.audit["files"] if entry["path"].startswith("batch-")]
         self.assertEqual(len(batch_files), 8)
-        self.assertEqual(
-            sum(entry["kinds"].get("episode", 0) for entry in batch_files), 0
-        )
+        self.assertEqual(sum(entry["kinds"].get("episode", 0) for entry in batch_files), 0)
 
     def test_the_gate_record_ids_are_the_sixteen_the_issue_lists(self):
-        gate_ids = tuple(
-            row["id"] for row in self.audit["records"] if row["kind"] == "thalamic"
-        )
+        gate_ids = tuple(row["id"] for row in self.audit["records"] if row["kind"] == "thalamic")
         self.assertEqual(gate_ids, ISSUE_74_THALAMIC_IDS)
         self.assertTrue(
             all(
@@ -359,9 +507,7 @@ class PublishedAgenticCodingPayloadKindAudit(unittest.TestCase):
         self.assertIn("Nothing was uploaded to the Hugging Face Hub", self.doc)
 
 
-RAW_AGENTIC_CODING = (
-    REPO / "outputs" / "raw" / "2026-08-17" / "agentic-coding-trajectory-factory"
-)
+RAW_AGENTIC_CODING = REPO / "outputs" / "raw" / "2026-08-17" / "agentic-coding-trajectory-factory"
 
 
 @unittest.skipUnless(
@@ -370,21 +516,24 @@ RAW_AGENTIC_CODING = (
     "the published audit is re-derived only where the immutable raw tree exists",
 )
 class AgenticCodingRawCorpusFidelity(unittest.TestCase):
-    """Re-derive the published audit from the immutable raw tree, read-only."""
+    """Re-derive the published snapshot from its append-only source, read-only."""
 
     def test_the_published_audit_is_a_fresh_scan_of_the_raw_corpus(self):
         before = {
             path.name: hashlib.sha256(path.read_bytes()).hexdigest()
             for path in sorted(RAW_AGENTIC_CODING.glob("*.jsonl"))
         }
-        derived = payload_kind_audit.build_audit(RAW_AGENTIC_CODING)
+        published = json.loads(AUDIT_JSON.read_text(encoding="utf-8"))
+        derived = payload_kind_audit.build_audit(
+            RAW_AGENTIC_CODING,
+            payload_names=[entry["path"] for entry in published["files"]],
+        )
         after = {
             path.name: hashlib.sha256(path.read_bytes()).hexdigest()
             for path in sorted(RAW_AGENTIC_CODING.glob("*.jsonl"))
         }
         self.assertEqual(before, after, "the audit must never write to the raw corpus")
 
-        published = json.loads(AUDIT_JSON.read_text(encoding="utf-8"))
         self.assertEqual(
             {key: derived[key] for key in DERIVED_KEYS},
             {key: published[key] for key in DERIVED_KEYS},
