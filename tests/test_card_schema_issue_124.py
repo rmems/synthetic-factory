@@ -18,6 +18,16 @@ LONG_HORIZON = _shared.LONG_HORIZON
 MINIMAL = _shared.MINIMAL
 write_declaration = _shared.write_declaration
 
+DOCKER_BUILD_CACHE_MIRROR = (
+    Path.home()
+    / "rmems"
+    / "hf"
+    / "grok-4.6"
+    / "docker-build-cache-trajectories"
+    / "data"
+    / "raw"
+)
+
 
 class DockerBuildCacheDeclarationTests(unittest.TestCase):
     """Issue #61: thin `meta` vs the `plant` / `designed` leftover shapes.
@@ -49,6 +59,34 @@ class DockerBuildCacheDeclarationTests(unittest.TestCase):
         )
 
     def test_declaration_matches_the_observed_union_schema(self):
+        expected_yaml_features = [
+            {"name": "id", "dtype": "string"},
+            {"name": "goal", "dtype": "string"},
+            {"name": "plan", "dtype": "string"},
+            {
+                "name": "steps",
+                "list": [
+                    {"name": "n", "dtype": "int64"},
+                    {"name": "decision_basis", "dtype": "string"},
+                    {
+                        "name": "tool_call",
+                        "struct": [
+                            {"name": "name", "dtype": "string"},
+                            {"name": "args", "dtype": "json"},
+                        ],
+                    },
+                    {"name": "observation", "dtype": "string"},
+                    {"name": "reflection", "dtype": "string"},
+                ],
+            },
+            {"name": "outcome", "dtype": "string"},
+            {"name": "reward", "dtype": "json"},
+            {"name": "meta", "dtype": "json"},
+        ]
+        self.assertEqual(
+            card_schema.yaml_features(self.declaration["features"]),
+            expected_yaml_features,
+        )
         names = {feature["name"]: feature for feature in self.declaration["features"]}
         self.assertEqual(
             set(names),
@@ -83,6 +121,27 @@ class DockerBuildCacheDeclarationTests(unittest.TestCase):
         self.assertTrue(sibling_plan["optional"])
         self.assertIn("| `plan` | present on every record |", self.card)
 
+    @unittest.skipUnless(
+        DOCKER_BUILD_CACHE_MIRROR.is_dir(),
+        "read-only published mirror is not available",
+    )
+    def test_published_mirror_has_a_nonempty_plan_on_every_record(self):
+        """Recheck the declaration's nullability claim when the mirror is present."""
+        payloads = sorted(DOCKER_BUILD_CACHE_MIRROR.glob("batch-*.jsonl"))
+        self.assertEqual(len(payloads), 1028)
+        records = 0
+        for payload in payloads:
+            with payload.open(encoding="utf-8") as handle:
+                for line_number, line in enumerate(handle, start=1):
+                    if not line.strip():
+                        continue
+                    record = json.loads(line)
+                    plan = record.get("plan")
+                    self.assertIsInstance(plan, str, f"{payload.name}:{line_number}")
+                    self.assertTrue(plan.strip(), f"{payload.name}:{line_number}")
+                    records += 1
+        self.assertEqual(records, 2056)
+
     def test_key_bag_columns_are_declared_json(self):
         self.assertEqual(
             card_schema.json_columns(self.declaration["features"]),
@@ -91,6 +150,13 @@ class DockerBuildCacheDeclarationTests(unittest.TestCase):
 
     def test_card_front_matter_declares_the_default_config_over_raw_batches(self):
         front_matter = self.card.split("---", 2)[1]
+        # Parent tests pin the stdlib YAML emitter byte-for-byte. This leaf
+        # asserts that the complete structurally validated block is inserted
+        # once, at the end of the card front matter.
+        emitted = card_schema.metadata_yaml(self.declaration)
+        self.assertEqual(front_matter.count("configs:\n"), 1)
+        self.assertEqual(front_matter.count("dataset_info:\n"), 1)
+        self.assertTrue(front_matter.endswith(emitted))
         self.assertIn("configs:\n- config_name: default\n", front_matter)
         self.assertIn('    path: "data/raw/batch-*.jsonl"\n', front_matter)
         self.assertIn("dataset_info:\n  features:\n", front_matter)
@@ -138,4 +204,3 @@ class DockerBuildCacheDeclarationTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-
