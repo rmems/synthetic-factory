@@ -159,7 +159,7 @@ class Taxonomy:
                         f"{source}: every term in facet {facet_id} must be an object"
                     )
                 tag = _require_str(term, "tag", source)
-                if not self._canonical_re.match(tag):
+                if self._canonical_re.fullmatch(tag) is None:
                     raise TagTaxonomyError(
                         f"{source}: canonical tag {tag!r} does not match "
                         f"canonical_tag_pattern"
@@ -235,6 +235,14 @@ class Taxonomy:
             raise TagTaxonomyError(
                 f"{source}: transform_emitted_tags must be an array"
             )
+        if not all(isinstance(tag, str) and tag for tag in emitted):
+            raise TagTaxonomyError(
+                f"{source}: transform_emitted_tags must contain nonempty strings"
+            )
+        if len(emitted) != len(set(emitted)):
+            raise TagTaxonomyError(
+                f"{source}: transform_emitted_tags must not contain duplicates"
+            )
         for tag in emitted:
             if tag not in self.facet_of:
                 raise TagTaxonomyError(
@@ -244,6 +252,11 @@ class Taxonomy:
         if UNMAPPED_MARKER_TAG not in self.facet_of:
             raise TagTaxonomyError(
                 f"{source}: taxonomy must declare {UNMAPPED_MARKER_TAG!r}"
+            )
+        if UNMAPPED_MARKER_TAG not in self.transform_emitted_tags:
+            raise TagTaxonomyError(
+                f"{source}: transform_emitted_tags must include "
+                f"{UNMAPPED_MARKER_TAG!r}"
             )
 
     @property
@@ -404,6 +417,11 @@ def _existing_provenance(
     if stored is None:
         return {}, False, False
     if not isinstance(stored, dict):
+        return {}, True, True
+    if (
+        stored.get("transform") != TRANSFORM_NAME
+        or stored.get("transform_version") != TRANSFORM_VERSION
+    ):
         return {}, True, True
     if stored.get("taxonomy_version") != taxonomy.version:
         return {}, True, True
@@ -685,6 +703,19 @@ def curate_jsonl(
                     )
                 )
                 continue
+            try:
+                canonical_json(record).encode("utf-8")
+            except (TypeError, ValueError, UnicodeEncodeError):
+                manifests.append(
+                    _excluded_line_manifest(
+                        source_path=str(source),
+                        source_line=line_number,
+                        source_hash=line_hash,
+                        taxonomy_version=vocabulary.version,
+                        reason=REASON_INVALID_JSON,
+                    )
+                )
+                continue
 
             curated, manifest = curate_record(
                 record,
@@ -758,11 +789,20 @@ def curate_jsonl(
     }
 
 
-def _is_under_raw(path: Path) -> bool:
-    parts = path.resolve(strict=False).parts
+def _has_raw_tree_components(path: Path) -> bool:
+    """Whether normalized ``path`` names an ``outputs/raw`` tree."""
+    parts = path.parts
     return any(
         parts[index : index + 2] == ("outputs", "raw")
         for index in range(len(parts) - 1)
+    )
+
+
+def _is_under_raw(path: Path) -> bool:
+    """Whether ``path`` lexically names or resolves inside ``outputs/raw``."""
+    lexical_path = Path(os.path.abspath(path))
+    return _has_raw_tree_components(lexical_path) or _has_raw_tree_components(
+        path.resolve(strict=False)
     )
 
 
