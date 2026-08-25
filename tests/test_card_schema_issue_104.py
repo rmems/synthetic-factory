@@ -19,14 +19,70 @@ MINIMAL = _shared.MINIMAL
 write_declaration = _shared.write_declaration
 
 
+EXPECTED_FEATURE_MANIFEST = (
+    ("id", "string", False),
+    ("lesson_category", "string", True),
+    ("goal", "string", False),
+    ("outcome", "string", True),
+    ("chosen", "struct", False),
+    ("chosen.steps", "list", False),
+    ("chosen.steps[].n", "int64", False),
+    ("chosen.steps[].decision_basis", "string", False),
+    ("chosen.steps[].tool_call", "struct", False),
+    ("chosen.steps[].tool_call.name", "string", False),
+    ("chosen.steps[].tool_call.args", "json", False),
+    ("chosen.steps[].observation", "string", False),
+    ("chosen.steps[].reflection", "string", True),
+    ("chosen.outcome", "string", False),
+    ("chosen.reward", "json", False),
+    ("rejected", "struct", False),
+    ("rejected.steps", "list", False),
+    ("rejected.steps[].n", "int64", False),
+    ("rejected.steps[].decision_basis", "string", False),
+    ("rejected.steps[].tool_call", "struct", False),
+    ("rejected.steps[].tool_call.name", "string", False),
+    ("rejected.steps[].tool_call.args", "json", False),
+    ("rejected.steps[].observation", "string", False),
+    ("rejected.steps[].reflection", "string", True),
+    ("rejected.outcome", "string", False),
+    ("rejected.reward", "json", False),
+    ("critique", "string", False),
+    ("reward", "json", False),
+    ("meta", "json", False),
+)
+
+
+def feature_manifest(features, prefix=""):
+    """Flatten a declaration without consulting the independent expected manifest."""
+    manifest = []
+    for feature in features:
+        path = f"{prefix}{feature['name']}"
+        encodings = [key for key in ("dtype", "list", "struct") if key in feature]
+        if len(encodings) != 1:
+            raise AssertionError(f"{path} has {len(encodings)} feature encodings")
+        encoding = encodings[0]
+        manifest.append(
+            (
+                path,
+                feature[encoding] if encoding == "dtype" else encoding,
+                feature.get("optional", False),
+            )
+        )
+        if encoding == "list":
+            manifest.extend(feature_manifest(feature["list"], f"{path}[]."))
+        elif encoding == "struct":
+            manifest.extend(feature_manifest(feature["struct"], f"{path}."))
+    return tuple(manifest)
+
+
 class ToolUsePreferenceDeclarationTests(unittest.TestCase):
     """Issue #37: a preference triple whose steps are nested one branch deep.
 
     Unlike #36 the step struct is not a top-level column: `chosen` and
     `rejected` each carry their own `steps` / `outcome` / `reward`, so the
     union has to be declared twice and `reward` exists at two levels with two
-    different key bags. Counts here are the ones observed on the published
-    mirror (6192 records, 147471 steps).
+    different key bags. The top-level union spans the published mirror (6192
+    records, 147471 steps) and the current producer contract.
     """
 
     DATASET = "tool-use-preference-pairs"
@@ -55,14 +111,36 @@ class ToolUsePreferenceDeclarationTests(unittest.TestCase):
     def _by_name(features):
         return {feature["name"]: feature for feature in features}
 
-    def test_declaration_matches_the_observed_union_schema(self):
+    def test_complete_feature_manifest_matches_the_independent_contract_scan(self):
+        # This oracle is intentionally separate from the declaration: it combines
+        # the read-only published-data census with the current producer contract,
+        # so omitted paths, wrong fixed dtypes, and incorrect optional flags fail.
+        self.assertEqual(feature_manifest(self.declaration["features"]), EXPECTED_FEATURE_MANIFEST)
+
+    def test_declaration_matches_the_published_and_producer_union_schema(self):
         names = self._by_name(self.declaration["features"])
         self.assertEqual(
             set(names),
-            {"id", "goal", "outcome", "chosen", "rejected", "critique", "reward", "meta"},
+            {
+                "id",
+                "lesson_category",
+                "goal",
+                "outcome",
+                "chosen",
+                "rejected",
+                "critique",
+                "reward",
+                "meta",
+            },
         )
-        # Every top-level column is on all 6192 records; only `reflection` is not.
-        self.assertEqual([n for n, f in names.items() if f.get("optional")], [])
+        # Historical rows omit lesson_category; the current producer omits the
+        # historical record-level outcome. Branch outcomes remain required.
+        self.assertEqual(
+            [name for name, feature in names.items() if feature.get("optional")],
+            ["lesson_category", "outcome"],
+        )
+        self.assertEqual(names["lesson_category"]["dtype"], "string")
+        self.assertEqual(names["outcome"]["dtype"], "string")
         self.assertEqual(names["reward"]["dtype"], "json")
         self.assertEqual(names["meta"]["dtype"], "json")
         self.assertEqual(self.declaration["issues"], [37])
@@ -103,13 +181,11 @@ class ToolUsePreferenceDeclarationTests(unittest.TestCase):
         self.assertIn("configs:\n- config_name: default\n", front_matter)
         self.assertIn('    path: "data/raw/batch-*.jsonl"\n', front_matter)
         self.assertIn("dataset_info:\n  features:\n", front_matter)
+        self.assertIn("  - name: lesson_category\n    dtype: string\n", front_matter)
+        self.assertIn("  - name: outcome\n    dtype: string\n", front_matter)
         # The two fields the datasets-server could not cast, once per branch.
-        self.assertEqual(
-            front_matter.count("      - name: reflection\n        dtype: string\n"), 2
-        )
-        self.assertEqual(
-            front_matter.count("        - name: args\n          dtype: json\n"), 2
-        )
+        self.assertEqual(front_matter.count("      - name: reflection\n        dtype: string\n"), 2)
+        self.assertEqual(front_matter.count("        - name: args\n          dtype: json\n"), 2)
         # Bare `n` is a YAML 1.1 boolean, so the step index must stay quoted.
         self.assertIn('      - name: "n"\n        dtype: int64\n', front_matter)
         # Card-only annotations never reach the feature encoding.
@@ -130,6 +206,8 @@ class ToolUsePreferenceDeclarationTests(unittest.TestCase):
         )
         self.assertIn("`chosen.steps[].tool_call.args`", self.card)
         self.assertIn("`rejected.steps[].tool_call.args`", self.card)
+        self.assertIn("| `lesson_category` | optional |", self.card)
+        self.assertIn("| `outcome` | optional |", self.card)
         for record_id in (
             "tup-r03-diatool-slot-fill",
             "tup-r03-diatool-oos-reject",
@@ -137,9 +215,9 @@ class ToolUsePreferenceDeclarationTests(unittest.TestCase):
         ):
             self.assertIn(f"`{record_id}`", self.card)
         self.assertIn("no leftover-mill mix", self.card)
+        self.assertIn("Current valid batches require a non-empty `lesson_category`", self.card)
         self.assertNotIn("**Not declared yet.**", self.card)
 
 
 if __name__ == "__main__":
     unittest.main()
-
