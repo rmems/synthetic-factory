@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Shared-detector reporting and payload-first kind-mix quarantine tests."""
 
+import hashlib
 import json
 import re
 import subprocess
@@ -400,14 +401,19 @@ def stage_legacy_baseline(source, records, *, raw_text=None):
 
 class LedgerContract(unittest.TestCase):
     def test_ledger_names_the_twelve_published_code_review_episodes(self):
-        ids = leftover_mill.KIND_MIX_QUARANTINE[CODE_REVIEW_SLUG]
-        self.assertEqual(len(ids), 12)
-        self.assertEqual(len(set(ids)), 12)
+        provenance = leftover_mill.KIND_MIX_QUARANTINE[CODE_REVIEW_SLUG]
+        ids = [entry.record_id for entry in provenance]
+        self.assertEqual(len(provenance), 12)
+        self.assertEqual(len(set(provenance)), 12)
         self.assertEqual(
             sorted({identifier.split("-")[1] for identifier in ids}),
             ["r723", "r724", "r725", "r726", "r727", "r728"],
         )
         self.assertEqual(leftover_mill.quarantined_ids(CODE_REVIEW_SLUG), set(ids))
+        self.assertTrue(all(entry.record_kind == "episode" for entry in provenance))
+        self.assertTrue(
+            all(re.fullmatch(r"[0-9a-f]{64}", entry.source_sha256) for entry in provenance)
+        )
 
     def test_only_the_code_review_preference_lane_has_acknowledged_records(self):
         self.assertEqual(list(leftover_mill.KIND_MIX_QUARANTINE), [CODE_REVIEW_SLUG])
@@ -419,9 +425,11 @@ class LedgerContract(unittest.TestCase):
         text = QUARANTINE_DOC.read_text()
         documented = set(re.findall(r"`(dbc-r7\d\d-[a-z0-9-]+)`", text))
         self.assertEqual(
-            documented, set(leftover_mill.KIND_MIX_QUARANTINE[CODE_REVIEW_SLUG])
+            documented, leftover_mill.quarantined_ids(CODE_REVIEW_SLUG)
         )
         self.assertIn("payload-first", text)
+        for entry in leftover_mill.KIND_MIX_QUARANTINE[CODE_REVIEW_SLUG]:
+            self.assertIn(entry.source_sha256, text)
 
     def test_destination_kind_comes_from_the_factory_registry(self):
         self.assertEqual(leftover_mill.destination_kind(CODE_REVIEW_SLUG), "preference")
@@ -481,18 +489,29 @@ class KindMixDetection(unittest.TestCase):
     def test_scan_marks_ledger_records_acknowledged_and_others_not(self):
         with tempfile.TemporaryDirectory() as td:
             path = Path(td) / "batch-r723.jsonl"
-            known = leftover_mill.KIND_MIX_QUARANTINE[CODE_REVIEW_SLUG][0]
-            write_jsonl(
-                path,
-                [
-                    episode_record(known),
-                    preference_record("crp-r723-ok"),
-                    episode_record("crp-r723-brand-new-mill-leak"),
-                ],
+            known = "dbc-r723-buildah-layers-vfs-id-leftover"
+            records = [
+                episode_record(known),
+                preference_record("crp-r723-ok"),
+                episode_record("crp-r723-brand-new-mill-leak"),
+            ]
+            raw_lines = [json.dumps(record) + "\n" for record in records]
+            path.write_text("".join(raw_lines))
+            provenance = leftover_mill.KindMixProvenance(
+                source_name=path.name,
+                source_line=1,
+                record_id=known,
+                record_kind="episode",
+                source_sha256=hashlib.sha256(raw_lines[0].encode()).hexdigest(),
             )
-            findings = leftover_mill.scan_jsonl_kind_mix(
-                path, "preference", slug=CODE_REVIEW_SLUG
-            )
+            with mock.patch.dict(
+                leftover_mill.KIND_MIX_QUARANTINE,
+                {CODE_REVIEW_SLUG: (provenance,)},
+                clear=True,
+            ):
+                findings = leftover_mill.scan_jsonl_kind_mix(
+                    path, "preference", slug=CODE_REVIEW_SLUG
+                )
             self.assertEqual([f.source_line for f in findings], [1, 3])
             self.assertEqual([f.acknowledged for f in findings], [True, False])
             self.assertEqual(
@@ -500,6 +519,59 @@ class KindMixDetection(unittest.TestCase):
                 ["crp-r723-brand-new-mill-leak"],
             )
             self.assertIn("is 'episode'", findings[0].describe())
+
+    def test_acknowledgement_requires_exact_source_line_kind_and_bytes(self):
+        with tempfile.TemporaryDirectory() as td:
+            path = Path(td) / "batch-r723.jsonl"
+            record = episode_record("dbc-r723-buildah-layers-vfs-id-leftover")
+            raw_line = json.dumps(record) + "\n"
+            path.write_text(raw_line)
+            exact = leftover_mill.KindMixProvenance(
+                source_name=path.name,
+                source_line=1,
+                record_id=record["id"],
+                record_kind="episode",
+                source_sha256=hashlib.sha256(raw_line.encode()).hexdigest(),
+            )
+
+            def acknowledged(*, source_name=path.name):
+                return leftover_mill.scan_jsonl_kind_mix(
+                    path,
+                    "preference",
+                    slug=CODE_REVIEW_SLUG,
+                    source_name=source_name,
+                )[0].acknowledged
+
+            with mock.patch.dict(
+                leftover_mill.KIND_MIX_QUARANTINE,
+                {CODE_REVIEW_SLUG: (exact,)},
+                clear=True,
+            ):
+                self.assertTrue(acknowledged())
+                self.assertFalse(acknowledged(source_name="batch-r724.jsonl"))
+
+                path.write_text("\n" + raw_line)
+                self.assertFalse(acknowledged())
+
+                changed = dict(record)
+                changed["outcome"] = "same id, different bytes"
+                path.write_text(json.dumps(changed) + "\n")
+                self.assertFalse(acknowledged())
+
+                wrong_kind = leftover_mill.KindMixProvenance(
+                    source_name=exact.source_name,
+                    source_line=exact.source_line,
+                    record_id=exact.record_id,
+                    record_kind="multi_agent",
+                    source_sha256=exact.source_sha256,
+                )
+                path.write_text(raw_line)
+                with mock.patch.dict(
+                    leftover_mill.KIND_MIX_QUARANTINE,
+                    {CODE_REVIEW_SLUG: (wrong_kind,)},
+                    clear=True,
+                ):
+                    self.assertFalse(acknowledged())
 
     def test_undecodable_lines_are_reported_and_never_acknowledged(self):
         with tempfile.TemporaryDirectory() as td:
@@ -558,6 +630,14 @@ class PreferencePublishGate(unittest.TestCase):
             self.assertIn("unquarantined leftover-mill", message)
             self.assertIn("crp-r01-fresh-mill-leak", message)
             self.assertIn("batch-r01.jsonl:2", message)
+            self.assertFalse(
+                (
+                    root
+                    / "hf"
+                    / publisher.HF_DATASETS_DIRNAME
+                    / PREFERENCE_ITEM["hub"]
+                ).exists()
+            )
 
     def test_a_blocked_snapshot_leaves_the_mirror_untouched(self):
         with tempfile.TemporaryDirectory() as td:
@@ -613,53 +693,62 @@ class PreferencePublishGate(unittest.TestCase):
     def test_ledger_records_publish_with_a_disclosed_corrected_count(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
-            known = leftover_mill.KIND_MIX_QUARANTINE[CODE_REVIEW_SLUG][0]
-            stats = self._snapshot(
-                root,
-                PREFERENCE_ITEM,
-                [
-                    preference_record("crp-r01-a"),
-                    preference_record("crp-r01-b"),
-                    episode_record(known),
-                ],
+            known = "dbc-r723-buildah-layers-vfs-id-leftover"
+            records = [
+                preference_record("crp-r01-a"),
+                preference_record("crp-r01-b"),
+                episode_record(known),
+            ]
+            known_line = json.dumps(records[2]) + "\n"
+            provenance = leftover_mill.KindMixProvenance(
+                source_name="batch-r01.jsonl",
+                source_line=3,
+                record_id=known,
+                record_kind="episode",
+                source_sha256=hashlib.sha256(known_line.encode()).hexdigest(),
             )
-            self.assertEqual(stats["records"], 3)
-            self.assertEqual(stats["quarantined"], 1)
-
-            card = self._card(root, PREFERENCE_ITEM)
-            self.assertIn("## Leftover-mill quarantine", card)
-            self.assertIn(f"`{known}`", card)
-            self.assertIn("Quarantined: 1 of the 3 published raw records", card)
-            self.assertIn("**2**, not 3", card)
-            self.assertIn("raw JSONL is published unmodified", card)
-
-            # Raw evidence is mirrored byte-for-byte; nothing is rewritten.
-            raw = (
-                root
-                / "hf"
-                / publisher.HF_DATASETS_DIRNAME
-                / PREFERENCE_ITEM["hub"]
-                / "data"
-                / "raw"
-                / "batch-r01.jsonl"
-            )
-            source = root / "raw" / PREFERENCE_ITEM["slug"] / "batch-r01.jsonl"
-            self.assertEqual(raw.read_bytes(), source.read_bytes())
-
-            dest = (
-                root
-                / "hf"
-                / publisher.HF_DATASETS_DIRNAME
-                / PREFERENCE_ITEM["hub"]
-            )
-            with mock.patch.object(
-                publisher, "FACTORY_ROOT", root / "raw"
-            ), mock.patch.object(
-                publisher, "HF_ROOT", root / "hf"
+            with mock.patch.dict(
+                leftover_mill.KIND_MIX_QUARANTINE,
+                {CODE_REVIEW_SLUG: (provenance,)},
+                clear=True,
             ):
-                publisher.validate_upload_snapshot(
-                    PREFERENCE_ITEM, dest
+                stats = self._snapshot(root, PREFERENCE_ITEM, records)
+                self.assertEqual(stats["records"], 3)
+                self.assertEqual(stats["quarantined"], 1)
+
+                card = self._card(root, PREFERENCE_ITEM)
+                self.assertIn("## Leftover-mill quarantine", card)
+                self.assertIn(f"`{known}`", card)
+                self.assertIn(provenance.source_sha256, card)
+                self.assertIn("Quarantined: 1 of the 3 published raw records", card)
+                self.assertIn("**2**, not 3", card)
+                self.assertIn("raw JSONL is published unmodified", card)
+
+                # Raw evidence is mirrored byte-for-byte; nothing is rewritten.
+                raw = (
+                    root
+                    / "hf"
+                    / publisher.HF_DATASETS_DIRNAME
+                    / PREFERENCE_ITEM["hub"]
+                    / "data"
+                    / "raw"
+                    / "batch-r01.jsonl"
                 )
+                source = root / "raw" / PREFERENCE_ITEM["slug"] / "batch-r01.jsonl"
+                self.assertEqual(raw.read_bytes(), source.read_bytes())
+
+                dest = (
+                    root
+                    / "hf"
+                    / publisher.HF_DATASETS_DIRNAME
+                    / PREFERENCE_ITEM["hub"]
+                )
+                with mock.patch.object(
+                    publisher, "FACTORY_ROOT", root / "raw"
+                ), mock.patch.object(
+                    publisher, "HF_ROOT", root / "hf"
+                ):
+                    publisher.validate_upload_snapshot(PREFERENCE_ITEM, dest)
 
     def test_clean_preference_snapshot_has_no_quarantine_section(self):
         with tempfile.TemporaryDirectory() as td:
@@ -691,5 +780,49 @@ class PreferencePublishGate(unittest.TestCase):
                 ),
                 [],
             )
+
+
+RAW_CODE_REVIEW = (
+    REPO
+    / "outputs"
+    / "raw"
+    / "2026-08-19-agentic"
+    / "code-review-preference-factory"
+)
+
+
+@unittest.skipUnless(
+    RAW_CODE_REVIEW.is_dir(),
+    "raw code-review corpus not present in this checkout (gitignored); "
+    "fidelity is re-derived only where immutable raw evidence exists",
+)
+class KindMixRawCorpusFidelity(unittest.TestCase):
+    def test_frozen_provenance_matches_exact_raw_lines(self):
+        expected = leftover_mill.quarantine_provenance(CODE_REVIEW_SLUG)
+        findings = []
+        for source_name in sorted({entry.source_name for entry in expected}):
+            findings.extend(
+                leftover_mill.scan_jsonl_kind_mix(
+                    RAW_CODE_REVIEW / source_name,
+                    "preference",
+                    slug=CODE_REVIEW_SLUG,
+                )
+            )
+        actual = {
+            leftover_mill.KindMixProvenance(
+                source_name=finding.source_name,
+                source_line=finding.source_line,
+                record_id=finding.record_id,
+                record_kind=finding.record_kind,
+                source_sha256=finding.source_sha256,
+            )
+            for finding in findings
+            if finding.record_id is not None
+            and finding.source_sha256 is not None
+        }
+        self.assertEqual(actual, expected)
+        self.assertTrue(all(finding.acknowledged for finding in findings))
+
+
 if __name__ == "__main__":
     unittest.main()

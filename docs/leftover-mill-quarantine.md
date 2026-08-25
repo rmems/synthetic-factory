@@ -42,20 +42,25 @@ carries episode keys (`id`, `goal`, `plan`, `steps`, `outcome`, `reward`,
 `meta`), `meta.factory` = `code-review-preference-factory`, generator
 `grok-4.6`, and 17–18 steps. None has `chosen`/`rejected`.
 
-| raw file | line | id |
-| --- | ---: | --- |
-| `batch-r723.jsonl` | 1 | `dbc-r723-buildah-layers-vfs-id-leftover` |
-| `batch-r723.jsonl` | 2 | `dbc-r723-buildah-vfs-graphroot-leftover` |
-| `batch-r724.jsonl` | 1 | `dbc-r724-podman-sqlite-diff-leftover` |
-| `batch-r724.jsonl` | 2 | `dbc-r724-podman-boltdb-compat-leftover` |
-| `batch-r725.jsonl` | 1 | `dbc-r725-nerdctl-namespace-snapshot-leftover` |
-| `batch-r725.jsonl` | 2 | `dbc-r725-nerdctl-cni-cache-leftover` |
-| `batch-r726.jsonl` | 1 | `dbc-r726-containerd-content-lease-leftover` |
-| `batch-r726.jsonl` | 2 | `dbc-r726-containerd-gc-label-leftover` |
-| `batch-r727.jsonl` | 1 | `dbc-r727-crio-imagestore-pin-leftover` |
-| `batch-r727.jsonl` | 2 | `dbc-r727-crio-overlay-mounts-leftover` |
-| `batch-r728.jsonl` | 1 | `dbc-r728-buildx-builder-driver-opt-leftover` |
-| `batch-r728.jsonl` | 2 | `dbc-r728-buildx-provenance-mode-leftover` |
+Acknowledgement requires every column below to match. The SHA-256 is over the
+exact physical JSONL line, including its terminating newline; reusing an id,
+moving a record, changing its kind, or changing one byte does not inherit the
+historical acknowledgement.
+
+| raw file | line | kind | id | exact-line sha256 |
+| --- | ---: | --- | --- | --- |
+| `batch-r723.jsonl` | 1 | `episode` | `dbc-r723-buildah-layers-vfs-id-leftover` | `f66b76a6d2bf9d6b95ba10a02a11ce69fd445745708c8aa75379066dfef58ea8` |
+| `batch-r723.jsonl` | 2 | `episode` | `dbc-r723-buildah-vfs-graphroot-leftover` | `38fa7eb0880c270179487b273cd7e08fd05c47c438a19d396ee12f98c8e6e66d` |
+| `batch-r724.jsonl` | 1 | `episode` | `dbc-r724-podman-sqlite-diff-leftover` | `ebc411ccf4093a84edeb6779a32036155311e838477e62bcdc33b897036a79be` |
+| `batch-r724.jsonl` | 2 | `episode` | `dbc-r724-podman-boltdb-compat-leftover` | `eca3b3c110a21f2d995dd9ff5f1fc0e6e2500e95857f86a32c3889e34dfa35dd` |
+| `batch-r725.jsonl` | 1 | `episode` | `dbc-r725-nerdctl-namespace-snapshot-leftover` | `1ca3983e511d56eae8f23ee235ab3e7304b118b74ca5bbc9afac3d6394fb17cc` |
+| `batch-r725.jsonl` | 2 | `episode` | `dbc-r725-nerdctl-cni-cache-leftover` | `46b259d13994b8bd3122ef29f563d8c830600eca9d3b6fe5d075052ce8de6e8b` |
+| `batch-r726.jsonl` | 1 | `episode` | `dbc-r726-containerd-content-lease-leftover` | `f4606247c917480c7d34efb8b852759f0aeb7556a71287cd9abc875668be77ce` |
+| `batch-r726.jsonl` | 2 | `episode` | `dbc-r726-containerd-gc-label-leftover` | `4dfb0c4591cce8971d0697eeaa5a045505e39adfc23596af7d40bc8c8dec4a23` |
+| `batch-r727.jsonl` | 1 | `episode` | `dbc-r727-crio-imagestore-pin-leftover` | `062876ad679109cda5dda7fdaa4f6177de30e932abc5b3d8fe3974bda1a67f39` |
+| `batch-r727.jsonl` | 2 | `episode` | `dbc-r727-crio-overlay-mounts-leftover` | `7acb3ed0f3710d574c49feb4d6bb35e1baa7b9218cc4c1e1b53e2ef5049063e2` |
+| `batch-r728.jsonl` | 1 | `episode` | `dbc-r728-buildx-builder-driver-opt-leftover` | `9ac3346ea6f4595f776cb6a1d9102aa4c305942653217dc80b41376b16931eef` |
+| `batch-r728.jsonl` | 2 | `episode` | `dbc-r728-buildx-provenance-mode-leftover` | `7df9a381bae5b4cedb0c722e2190575d184231ac6e0cd756951ea1420fe3c2b1` |
 
 `tool-use-preference-factory`, the other preference destination, has no
 kind-mix records.

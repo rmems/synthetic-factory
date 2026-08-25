@@ -845,7 +845,6 @@ def snapshot_one(item: dict) -> dict:
     dest = hf_datasets_root() / item["hub"]
     if not LICENSE_SRC.is_file():
         raise SystemExit(f"missing repository LICENSE at {LICENSE_SRC}")
-    raw, meta = snapshot_directories(dest)
     marker_state = marker_mode_state(src)
     batches = published_batches(src, marker_state)
     notes = published_notes(src, batches, marker_state)
@@ -853,6 +852,7 @@ def snapshot_one(item: dict) -> dict:
     # leftover-mill leak leaves the mirror untouched, and again on the copies
     # below, so the card describes the bytes that actually landed.
     gate_leftover_mill(item, [(batch, batch.name) for batch in batches])
+    raw, meta = snapshot_directories(dest)
     records = 0
     bytes_ = 0
     labels = []
@@ -930,7 +930,8 @@ def render_quarantine_section(
         return ""
     ids = "\n".join(
         f"- `{finding.record_id}` (`data/raw/{finding.source_name}` line "
-        f"{finding.source_line}, payload kind `{finding.record_kind}`)"
+        f"{finding.source_line}, payload kind `{finding.record_kind}`, sha256 "
+        f"`{finding.source_sha256}`)"
         for finding in kind_mix
     )
     return f"""
