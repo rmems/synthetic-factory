@@ -67,6 +67,9 @@ class AuthzRegressionDeclarationTests(unittest.TestCase):
         self.assertIn("7181 of 59188 steps", steps["reflection"]["note"])
         tool_call = {feature["name"]: feature for feature in steps["tool_call"]["struct"]}
         self.assertEqual(tool_call["args"]["dtype"], "json")
+        self.assertIn("7 distinct key sets across 6 tools", tool_call["args"]["note"])
+        self.assertIn("`read` uses `{path}` on 14678 steps", tool_call["args"]["note"])
+        self.assertIn("`{offset, path}` on 3", tool_call["args"]["note"])
         self.assertEqual(self.declaration["issues"], [56])
 
     def test_state_is_optional_and_declared_as_a_uniform_struct(self):
@@ -118,8 +121,8 @@ class AuthzRegressionDeclarationTests(unittest.TestCase):
         # is the key that is confined to the 5 dest-stamped rebuild rows.
         self.assertIn("575 of those 580 are ordinary `azr-*`", self.card)
         self.assertIn("5 `sir-*-rebuild` rows", self.card)
+        self.assertIn("no dest-stamped record has only the base reward key set", self.card)
 
 
 if __name__ == "__main__":
     unittest.main()
-

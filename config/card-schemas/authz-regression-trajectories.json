@@ -30,7 +30,7 @@
             {
               "name": "args",
               "dtype": "json",
-              "note": "always an object; 7 distinct key sets across the 59188 steps, one per tool shape"
+              "note": "always an object; 7 distinct key sets across 6 tools: `read` uses `{path}` on 14678 steps and `{offset, path}` on 3, while each other tool has one key set"
             }
           ]
         },
@@ -91,7 +91,7 @@
     },
     "On those 10 records `meta.kind` is the literal string `episode`, `meta.designed` is `true`, and `meta.seed` is a slug string equal to `meta.domain` rather than a numeric seed. No record in this dataset carries a top-level `kind`.",
     "`reward` is a three-way key-bag, not a fixed struct: 2933 records carry `{cost_steps, plan_changes, success, tests_passed}`, 580 add `handoff` and `xfailed` (both always the integer 1, never co-absent), and 5 add `retries` (always the integer 2). The `handoff` / `xfailed` pair is an exact complement of the success flag: all 580 records that carry it have `reward.success=false` and all 2938 that do not have `reward.success=true`. It is not a leftover-mill marker: 575 of those 580 are ordinary `azr-*` authorization episodes.",
-    "`retries` is the one reward key confined to the dest-stamped leftovers: the 5 records that carry it are exactly the 5 `sir-*-rebuild` rows of rounds 1459-1463. Their 5 `sir-*-handoff` siblings carry `handoff` / `xfailed` instead, so no dest-stamped record has the base reward key set.",
+    "`retries` is the one reward key confined to the dest-stamped leftovers: the 5 records that carry it are exactly the 5 `sir-*-rebuild` rows of rounds 1459-1463. Their 5 `sir-*-handoff` siblings carry `handoff` / `xfailed` instead, so no dest-stamped record has only the base reward key set; every one carries an extra key set.",
     "The optional top-level `state` object is a constant round-level marker rather than per-record data: it is `{\"sim_or_real\": \"designed\", \"domain\": \"authz-regression\"}` on every one of the 480 records that carry it, and it is emitted for both records of a round or for neither. It covers 240 whole rounds in two contiguous blocks, 1435-1458 and 1544-1759; the 85-round gap between them opens at round 1459, the first round of the dest-stamped leftover mill. All 480 are `azr-*` records.",
     "All 3518 records are stamped `meta.factory=authz-regression-factory` and `meta.generator=grok-4.6`. 3508 are authorization IDOR / BFLA leftover-mechanic episodes (`id` prefix `azr-*`); the same-factory leftover phrasing on those rows is the advertised mechanic, not a foreign dump. The payload spans 1759 shards with no gaps: rounds 1 through 1759, exactly two records per round, and `meta.round` always matches the shard filename.",
     "Every one of the 59188 steps publishes a public `decision_basis` alongside its `tool_call` and `observation`. There are no hidden `thought` or `internal_reasoning` fields. `reflection` is the only optional step key: it is present on 7016 of the 59023 `azr-*` steps and on all 165 steps of the 10 dest-stamped `sir-*` records."
