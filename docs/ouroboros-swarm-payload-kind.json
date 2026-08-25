@@ -1,5 +1,5 @@
 {
-  "schema_version": "1.0.0",
+  "schema_version": "1.1.0",
   "dataset_id": "rmems/multi-agent-ouroboros-swarm",
   "issue": "https://github.com/rmems/synthetic-factory/issues/75",
   "finding": "PAYLOAD_KIND_MISMATCH",
@@ -88,6 +88,7 @@
     "total_jsonl_bytes": 328743,
     "gate_wrap_records": 14,
     "swarm_trajectory_records": 0,
+    "swarm_trajectory_definition": "a recursively discovered conversation/messages/transcript/turns array with at least two content-bearing turns from distinct actors",
     "distinct_top_level_key_sets": 1,
     "safety_decisions": {
       "ACCEPT": 3,
@@ -192,7 +193,7 @@
           "safety_decision",
           "state"
         ],
-        "swarm_shaped_top_level_keys": [],
+        "swarm_trajectory_paths": [],
         "safety_decision": "ACCEPT",
         "multi_actor_state_keys": [],
         "state_agent_ids": [],
@@ -220,7 +221,7 @@
           "safety_decision",
           "state"
         ],
-        "swarm_shaped_top_level_keys": [],
+        "swarm_trajectory_paths": [],
         "safety_decision": "MODIFY",
         "multi_actor_state_keys": [
           "multi_agent"
@@ -250,7 +251,7 @@
           "safety_decision",
           "state"
         ],
-        "swarm_shaped_top_level_keys": [],
+        "swarm_trajectory_paths": [],
         "safety_decision": "REJECT",
         "multi_actor_state_keys": [
           "agents"
@@ -260,9 +261,7 @@
           "CC-1",
           "PO-1",
           "RC-1",
-          "TG-1",
-          "protocol",
-          "quorum_rule"
+          "TG-1"
         ],
         "hidden_supervision_field": "internal_reasoning",
         "public_decision_basis": false,
@@ -288,7 +287,7 @@
           "safety_decision",
           "state"
         ],
-        "swarm_shaped_top_level_keys": [],
+        "swarm_trajectory_paths": [],
         "safety_decision": "ACCEPT",
         "multi_actor_state_keys": [
           "agents"
@@ -299,8 +298,7 @@
           "F1-A",
           "F2-A",
           "SUB-A",
-          "TG-2",
-          "quorum_rule"
+          "TG-2"
         ],
         "hidden_supervision_field": "internal_reasoning",
         "public_decision_basis": false,
@@ -327,7 +325,7 @@
           "safety_decision",
           "state"
         ],
-        "swarm_shaped_top_level_keys": [],
+        "swarm_trajectory_paths": [],
         "safety_decision": "MODIFY",
         "multi_actor_state_keys": [
           "agents"
@@ -366,7 +364,7 @@
           "safety_decision",
           "state"
         ],
-        "swarm_shaped_top_level_keys": [],
+        "swarm_trajectory_paths": [],
         "safety_decision": "REJECT",
         "multi_actor_state_keys": [
           "agents"
@@ -403,7 +401,7 @@
           "safety_decision",
           "state"
         ],
-        "swarm_shaped_top_level_keys": [],
+        "swarm_trajectory_paths": [],
         "safety_decision": "MODIFY",
         "multi_actor_state_keys": [
           "agents"
@@ -440,7 +438,7 @@
           "safety_decision",
           "state"
         ],
-        "swarm_shaped_top_level_keys": [],
+        "swarm_trajectory_paths": [],
         "safety_decision": "ACCEPT",
         "multi_actor_state_keys": [
           "agents"
@@ -478,7 +476,7 @@
           "safety_decision",
           "state"
         ],
-        "swarm_shaped_top_level_keys": [],
+        "swarm_trajectory_paths": [],
         "safety_decision": "REJECT",
         "multi_actor_state_keys": [
           "agents"
@@ -517,7 +515,7 @@
           "safety_decision",
           "state"
         ],
-        "swarm_shaped_top_level_keys": [],
+        "swarm_trajectory_paths": [],
         "safety_decision": "MODIFY",
         "multi_actor_state_keys": [],
         "state_agent_ids": [],
@@ -545,7 +543,7 @@
           "safety_decision",
           "state"
         ],
-        "swarm_shaped_top_level_keys": [],
+        "swarm_trajectory_paths": [],
         "safety_decision": "REJECT",
         "multi_actor_state_keys": [],
         "state_agent_ids": [],
@@ -574,7 +572,7 @@
           "safety_decision",
           "state"
         ],
-        "swarm_shaped_top_level_keys": [],
+        "swarm_trajectory_paths": [],
         "safety_decision": "MODIFY",
         "multi_actor_state_keys": [],
         "state_agent_ids": [],
@@ -603,7 +601,7 @@
           "safety_decision",
           "state"
         ],
-        "swarm_shaped_top_level_keys": [],
+        "swarm_trajectory_paths": [],
         "safety_decision": "MODIFY",
         "multi_actor_state_keys": [
           "fleet",
@@ -634,7 +632,7 @@
           "safety_decision",
           "state"
         ],
-        "swarm_shaped_top_level_keys": [],
+        "swarm_trajectory_paths": [],
         "safety_decision": "REJECT",
         "multi_actor_state_keys": [],
         "state_agent_ids": [],

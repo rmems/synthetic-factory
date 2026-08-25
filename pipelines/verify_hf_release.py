@@ -176,6 +176,19 @@ REQUIRED_PAYLOAD_DISCLOSURE = {
     ),
 }
 
+# Known-bad claims from issue #75.  Requiring replacement prose is insufficient
+# if an operator leaves the contradictory old sentence in the same owned
+# section, so reject those rendered claims explicitly.
+FORBIDDEN_CARD_CLAIMS = {
+    "rmems/multi-agent-ouroboros-swarm": {
+        "__preamble__": (
+            "Synthetic multi-agent trajectories for delegation, critique, "
+            "conflict resolution",
+        ),
+        "## Published raw payload": ("14 raw multi-agent records",),
+    }
+}
+
 
 @dataclass(frozen=True)
 class CheckResult:
@@ -329,11 +342,19 @@ def _card_section_errors(card: str, repo: str) -> list[str]:
         errors.append(f"README missing Spikenaut classification: {target}")
 
     payload_section = _normalized_text(
-        _markdown_section(card, "## Published raw payload") or ""
+        _markdown_section(rendered_card, "## Published raw payload") or ""
     )
     for marker in REQUIRED_PAYLOAD_DISCLOSURE.get(repo, ()):
         if _normalized_text(marker) not in payload_section:
             errors.append(f"README missing payload-kind disclosure: {marker}")
+
+    for section, markers in FORBIDDEN_CARD_CLAIMS.get(repo, {}).items():
+        section_text = _normalized_text(
+            _markdown_section(rendered_card, section) or ""
+        )
+        for marker in markers:
+            if _normalized_text(marker) in section_text:
+                errors.append(f"README retains obsolete payload-kind claim: {marker}")
     return errors
 
 

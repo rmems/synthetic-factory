@@ -111,6 +111,10 @@ verbatim field under `future_outcome`. No record publishes a `decision_basis`.
 This is evidence, not a public rationale field, and it is one reason the
 payload is not training-ready.
 
+**Training warning.** Do not train on `thought` or `internal_reasoning*`. This
+raw Hub copy is evidence only. A curated training view must remove those fields
+and use observable `decision_basis` evidence instead.
+
 ## Planned curated release
 
 The first payload release will separate the structured gate-adjudication

@@ -58,9 +58,11 @@ immutable. Nothing under `outputs/raw/` or `~/rmems/hf/` was written.
 Every record has exactly these seven top-level keys: `executed_action`,
 `future_outcome`, `meta`, `proposed_action`, `reward_components`,
 `safety_decision`, `state`. That is the wrap family published by
-`rmems/thalamic-relay-trajectories`. No record carries any swarm-shaped
-top-level key (`messages`, `turns`, `transcript`, `roles`, `episode`,
-`conversation`, `steps`, `task`, or a top-level `agents`).
+`rmems/thalamic-relay-trajectories`. The trajectory classifier does not infer
+shape from arbitrary key names: it recursively searches `conversation`,
+`messages`, `transcript`, and `turns` arrays and requires at least two
+content-bearing turns from distinct actors. None of the 14 records contains
+such an exchange.
 
 All 14 are dest-stamped `meta.factory = "multi-agent-ouroboros-swarm"`, so this
 is a labelling defect at the destination, not foreign leftover-mill records.
@@ -76,8 +78,8 @@ Gate outcomes: **3 ACCEPT, 6 MODIFY, 5 REJECT.**
 | --- | --- | --- | --- | --- | --- |
 | `batch-r02.jsonl#L1` | 2 | ACCEPT | — | — | `internal_reasoning` |
 | `batch-r03.jsonl#L1` | 3 | MODIFY | `multi_agent` | — | `internal_reasoning` |
-| `batch-r04.jsonl#L1` | 4 | REJECT | `agents` (7) | TG-1 | `internal_reasoning` |
-| `batch-r05.jsonl#L1` | 5 | ACCEPT | `agents` (7) | TG-2 | `internal_reasoning` |
+| `batch-r04.jsonl#L1` | 4 | REJECT | `agents` (5) | TG-1 | `internal_reasoning` |
+| `batch-r05.jsonl#L1` | 5 | ACCEPT | `agents` (6) | TG-2 | `internal_reasoning` |
 | `batch-r06.jsonl#L1` | 6 | MODIFY | `agents` (6) | TG-3 | `internal_reasoning_verbatim` |
 | `batch-r07.jsonl#L1` | 7 | REJECT | `agents` (4) | TG-S1 | `internal_reasoning_verbatim` |
 | `batch-r08.jsonl#L1` | 8 | MODIFY | `agents` (4) | TG-Z1 | `internal_reasoning_verbatim` |
@@ -92,9 +94,10 @@ Gate outcomes: **3 ACCEPT, 6 MODIFY, 5 REJECT.**
 The 7 records with `state.agents` name peer agents and a quorum rule — for
 example `batch-r05.jsonl#L1` lists `F1-A`, `F2-A`, `SUB-A`, `DER-A`, `CREW-D`,
 the gate `TG-2`, and a `quorum_rule` requiring three consents before escalation.
-That is real coordination content. It is still one gate adjudication per
-record, and the negotiation that produced it is narrated in prose fields, not
-recorded as agent turns.
+The census excludes structural `protocol` and `quorum_rule` mapping entries
+from participant IDs. The remaining entries are real coordination content. It
+is still one gate adjudication per record, and the negotiation that produced it
+is narrated in prose fields, not recorded as agent turns.
 
 ## Where the swarm content actually lives
 

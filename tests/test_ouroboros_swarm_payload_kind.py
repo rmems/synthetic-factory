@@ -52,20 +52,22 @@ GATE_WRAP_KEYS = (
     "state",
 )
 
-# Top-level keys a genuine swarm/multi-agent trajectory record would carry: a
-# turn-by-turn dialogue, a roster, or an episode envelope.  None of them occur.
-SWARM_SHAPED_KEYS = frozenset(
-    {
-        "agents",
-        "conversation",
-        "episode",
-        "messages",
-        "roles",
-        "steps",
-        "task",
-        "transcript",
-        "turns",
-    }
+# Structural entries mixed into the published ``state.agents`` mappings.  They
+# describe the coordination protocol, not participants.
+AGENT_METADATA_KEYS = frozenset({"protocol", "quorum_rule"})
+
+# A swarm trajectory is a content-bearing exchange between distinct actors,
+# not merely a record that happens to carry a key such as ``task`` or
+# ``agents``.  Search these recognized dialogue containers recursively so a
+# real exchange inside ``state.multi_agent`` or another envelope is found.
+SWARM_TURN_CONTAINER_KEYS = frozenset(
+    {"conversation", "messages", "transcript", "turns"}
+)
+TURN_ACTOR_KEYS = ("agent", "agent_id", "author", "from", "role", "sender", "speaker")
+TURN_CONTENT_KEYS = ("content", "message", "text", "utterance")
+SWARM_TRAJECTORY_DEFINITION = (
+    "a recursively discovered conversation/messages/transcript/turns array "
+    "with at least two content-bearing turns from distinct actors"
 )
 
 # ``state`` sub-keys that carry a multi-actor scenario framing.  Their presence
@@ -78,7 +80,12 @@ def _agent_ids(agents):
     """Return sorted participant ids for whichever shape ``agents`` uses."""
 
     if isinstance(agents, dict):
-        return sorted(agents)
+        return sorted(
+            identifier
+            for identifier in agents
+            if identifier.casefold().replace("-", "_").replace(" ", "_")
+            not in AGENT_METADATA_KEYS
+        )
     if isinstance(agents, list):
         ids = []
         for entry in agents:
@@ -88,6 +95,63 @@ def _agent_ids(agents):
                 ids.append(str(entry))
         return sorted(identifier for identifier in ids if identifier)
     return []
+
+
+def _turn_actor(turn):
+    """Return one normalized actor label from a structured dialogue turn."""
+
+    for key in TURN_ACTOR_KEYS:
+        actor = turn.get(key)
+        if isinstance(actor, str) and actor.strip():
+            return actor.strip()
+        if isinstance(actor, dict):
+            for nested_key in ("id", "name", "role"):
+                nested = actor.get(nested_key)
+                if isinstance(nested, str) and nested.strip():
+                    return nested.strip()
+    return None
+
+
+def _has_turn_content(turn):
+    """Return whether a turn carries rendered dialogue content."""
+
+    for key in TURN_CONTENT_KEYS:
+        content = turn.get(key)
+        if isinstance(content, str) and content.strip():
+            return True
+        if isinstance(content, (dict, list)) and content:
+            return True
+    return False
+
+
+def _is_multi_actor_turn_sequence(value):
+    if not isinstance(value, list):
+        return False
+    actors = [
+        actor
+        for turn in value
+        if isinstance(turn, dict) and _has_turn_content(turn)
+        if (actor := _turn_actor(turn)) is not None
+    ]
+    return len(actors) >= 2 and len(set(actors)) >= 2
+
+
+def _swarm_trajectory_paths(value, path=""):
+    """Return paths to recursively nested, genuine multi-actor exchanges."""
+
+    paths = []
+    if isinstance(value, dict):
+        for key, item in value.items():
+            child_path = f"{path}.{key}" if path else key
+            if key.casefold() in SWARM_TURN_CONTAINER_KEYS and (
+                _is_multi_actor_turn_sequence(item)
+            ):
+                paths.append(child_path)
+            paths.extend(_swarm_trajectory_paths(item, child_path))
+    elif isinstance(value, list):
+        for index, item in enumerate(value):
+            paths.extend(_swarm_trajectory_paths(item, f"{path}[{index}]"))
+    return sorted(set(paths))
 
 
 def census_from_raw(root: Path) -> dict:
@@ -128,6 +192,7 @@ def census_from_raw(root: Path) -> dict:
                 else {}
             )
             weights = reward.get("weights") if isinstance(reward.get("weights"), dict) else {}
+            swarm_trajectory_paths = _swarm_trajectory_paths(record)
             records.append(
                 {
                     "id": f"{path.name}#L{line_number}",
@@ -139,7 +204,7 @@ def census_from_raw(root: Path) -> dict:
                         else "other"
                     ),
                     "top_level_keys": sorted(keys),
-                    "swarm_shaped_top_level_keys": sorted(keys & SWARM_SHAPED_KEYS),
+                    "swarm_trajectory_paths": swarm_trajectory_paths,
                     "safety_decision": decision.get("decision"),
                     "multi_actor_state_keys": [
                         key for key in MULTI_ACTOR_STATE_KEYS if key in state
@@ -179,8 +244,9 @@ def census_from_raw(root: Path) -> dict:
             1 for record in records if record["payload_kind"] == "thalamic-gate-wrap"
         ),
         "swarm_trajectory_records": sum(
-            1 for record in records if record["swarm_shaped_top_level_keys"]
+            1 for record in records if record["swarm_trajectory_paths"]
         ),
+        "swarm_trajectory_definition": SWARM_TRAJECTORY_DEFINITION,
         "distinct_top_level_key_sets": len(
             {tuple(record["top_level_keys"]) for record in records}
         ),
@@ -215,7 +281,54 @@ class CommittedCensusContract(unittest.TestCase):
         self.assertEqual(self.derived["parse_failures"], 0)
         self.assertEqual(self.derived["gate_wrap_records"], 14)
         self.assertEqual(self.derived["swarm_trajectory_records"], 0)
+        self.assertEqual(
+            self.derived["swarm_trajectory_definition"],
+            SWARM_TRAJECTORY_DEFINITION,
+        )
+        self.assertTrue(
+            all(not row["swarm_trajectory_paths"] for row in self.derived["records_detail"])
+        )
         self.assertEqual(self.derived["distinct_top_level_key_sets"], 1)
+
+    def test_participant_ids_exclude_agent_mapping_metadata(self) -> None:
+        rows = {row["id"]: row for row in self.derived["records_detail"]}
+        self.assertEqual(
+            rows["batch-r04.jsonl#L1"]["state_agent_ids"],
+            ["BS-1", "CC-1", "PO-1", "RC-1", "TG-1"],
+        )
+        self.assertEqual(
+            rows["batch-r05.jsonl#L1"]["state_agent_ids"],
+            ["CREW-D", "DER-A", "F1-A", "F2-A", "SUB-A", "TG-2"],
+        )
+        self.assertEqual(
+            _agent_ids(
+                {
+                    "A-1": {"role": "planner"},
+                    "TG-1": {"role": "gate"},
+                    "protocol": "consensus",
+                    "quorum_rule": {"minimum": 2},
+                }
+            ),
+            ["A-1", "TG-1"],
+        )
+
+    def test_swarm_classifier_requires_a_multi_actor_turn_exchange(self) -> None:
+        self.assertEqual(_swarm_trajectory_paths({"task": "plan only"}), [])
+        self.assertEqual(
+            _swarm_trajectory_paths(
+                {
+                    "state": {
+                        "multi_agent": {
+                            "turns": [
+                                {"role": "planner", "content": "proposal"},
+                                {"speaker": "critic", "message": "challenge"},
+                            ]
+                        }
+                    }
+                }
+            ),
+            ["state.multi_agent.turns"],
+        )
 
     def test_census_totals_agree_with_the_per_record_rows(self) -> None:
         rows = self.derived["records_detail"]
@@ -277,6 +390,45 @@ class CommittedCensusContract(unittest.TestCase):
         )
         self.assertEqual(
             verify_hf_release._front_matter(self.card).get("license"), "apache-2.0"
+        )
+
+    def test_verifier_rejects_obsolete_claims_even_with_new_disclosures(self) -> None:
+        cards = (
+            (
+                self.card.replace(
+                    "## Intended model target",
+                    "Synthetic multi-agent trajectories for delegation, critique, "
+                    "conflict resolution.\n\n## Intended model target",
+                    1,
+                ),
+                "Synthetic multi-agent trajectories for delegation, critique, "
+                "conflict resolution",
+            ),
+            (
+                self.card.replace(
+                    "The release contains 14 raw records",
+                    "The release contains 14 raw multi-agent records",
+                    1,
+                ),
+                "14 raw multi-agent records",
+            ),
+        )
+        for card, obsolete_claim in cards:
+            with self.subTest(obsolete_claim=obsolete_claim):
+                self.assertIn(
+                    f"README retains obsolete payload-kind claim: {obsolete_claim}",
+                    verify_hf_release._card_section_errors(card, DATASET_REPO),
+                )
+
+    def test_payload_disclosure_in_an_html_comment_does_not_count(self) -> None:
+        card = self.card.replace(
+            "thalamic-gate wrap schema",
+            "gate-wrap schema <!-- thalamic-gate wrap schema -->",
+            1,
+        )
+        self.assertIn(
+            "README missing payload-kind disclosure: thalamic-gate wrap schema",
+            verify_hf_release._card_section_errors(card, DATASET_REPO),
         )
 
     def test_verifier_no_longer_pins_the_mislabelled_purpose(self) -> None:
