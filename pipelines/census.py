@@ -21,6 +21,7 @@ if str(_PIPELINES) not in sys.path:
     sys.path.insert(0, str(_PIPELINES))
 
 from mill_family import MillIndex, summarize as summarize_mill_mix  # noqa: E402
+from round_txn import FACTORY_QUOTAS  # noqa: E402
 
 THALAMIC_REQUIRED = (
     "state",
@@ -104,7 +105,17 @@ def census_dir(run_dir):
 
     for path in sorted(run_dir.rglob("*.jsonl")):
         files += 1
-        factory = path.parent.name
+        relative = path.relative_to(run_dir)
+        # The run's first directory component is the factory root. Recursive
+        # work/archive directories are storage detail, not factory identity.
+        if run_dir.name in FACTORY_QUOTAS or run_dir.name.endswith("-factory"):
+            factory = run_dir.name
+        else:
+            factory = (
+                relative.parts[0]
+                if len(relative.parts) > 1
+                else run_dir.name
+            )
         for lineno, line in enumerate(
             path.read_text(encoding="utf-8").splitlines(), 1
         ):
@@ -117,7 +128,7 @@ def census_dir(run_dir):
                 continue
             records += 1
             by_factory[factory] += 1
-            mills.add(factory, obj, (str(path.relative_to(run_dir)), lineno))
+            mills.add(factory, obj, (relative.as_posix(), lineno))
             by_kind[classify_kind(obj)] += 1
             found = list(iter_sim_or_real(obj))
             if not found:

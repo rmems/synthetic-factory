@@ -40,6 +40,7 @@ from curate_agentic import (  # noqa: E402
     REASON_SIDES_NOT_OBJECTS,
     REASON_SAFETY_CASE_TYPE_INVALID,
     REASON_THOUGHT_REMOVED,
+    TRANSFORM_VERSION,
     classify_record,
     contains_hidden_thought_key,
     curate_record,
@@ -650,7 +651,28 @@ class CurateAgenticTests(unittest.TestCase):
             report = json.loads(result.stdout)
             self.assertTrue(report["dry_run"])
             self.assertEqual(report["output_records"], 1)
+            self.assertFalse(report["mill_family"]["context_complete"])
+            self.assertFalse(report["mill_family"]["quarantine_applied"])
             self.assertEqual(list(root.rglob("*")), before)
+
+    def test_cleaned_output_refuses_single_file_or_factory_context(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            factory = root / "cache-stampede-factory"
+            factory.mkdir()
+            source = factory / "batch-r01.jsonl"
+            source.write_text(json.dumps(episode_fixture()) + "\n")
+
+            for partial_source in (source, factory):
+                with self.subTest(source=partial_source):
+                    run = curate_source(partial_source)
+                    self.assertFalse(
+                        run["summary"]["mill_family"]["context_complete"]
+                    )
+                    with self.assertRaisesRegex(ValueError, "multi-factory"):
+                        curate_agentic.write_cleaned_tree(
+                            run, root / f"out-{partial_source.name}"
+                        )
 
     def test_cli_out_writes_new_tree_and_refuses_raw_and_clobber(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -661,6 +683,11 @@ class CurateAgenticTests(unittest.TestCase):
             (factory / "batch-r01.jsonl").write_text(
                 json.dumps(safety_case_fixture(steps=[_step(1, thought="no")]))
                 + "\n"
+            )
+            second_factory = source_dir / "long-horizon-coding-factory"
+            second_factory.mkdir()
+            (second_factory / "batch-r01.jsonl").write_text(
+                json.dumps(episode_fixture()) + "\n"
             )
             dest = root / "cleaned"
 
@@ -866,6 +893,10 @@ class ForeignMillQuarantine(unittest.TestCase):
 
         self.assertEqual(run["summary"]["input_records"], 5)
         self.assertEqual(run["summary"]["output_records"], 4)
+        self.assertEqual(run["summary"]["transform"]["version"], "2")
+        self.assertEqual(TRANSFORM_VERSION, "2")
+        self.assertTrue(run["summary"]["mill_family"]["context_complete"])
+        self.assertTrue(run["summary"]["mill_family"]["quarantine_applied"])
         self.assertEqual(run["summary"]["quarantined_foreign_mill_records"], 1)
         emitted = {
             record["id"]
@@ -875,6 +906,76 @@ class ForeignMillQuarantine(unittest.TestCase):
         self.assertNotIn(DEST_STAMPED_MILL["id"], emitted)
         for control in STAMPEDE_CONTROLS + GRAPHQL_NATIVE:
             self.assertIn(control["id"], emitted)
+
+    def test_nested_batches_use_the_enclosing_factory_root(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary) / "run"
+            root.mkdir()
+            self._write_run(
+                root, list(STAMPEDE_CONTROLS) + [DEST_STAMPED_MILL]
+            )
+            for factory in (
+                "cache-stampede-factory",
+                "graphql-nplusone-factory",
+            ):
+                directory = root / factory
+                archive = directory / "archive"
+                archive.mkdir()
+                (directory / "batch-r01.jsonl").rename(
+                    archive / "batch-r01.jsonl"
+                )
+            run = curate_source(root)
+
+        self.assertEqual(
+            run["summary"]["mill_family"]["context_factories"],
+            ["cache-stampede-factory", "graphql-nplusone-factory"],
+        )
+        self.assertEqual(run["summary"]["quarantined_foreign_mill_records"], 1)
+        self.assertNotIn(
+            DEST_STAMPED_MILL["id"],
+            {
+                record["id"]
+                for records in run["records_by_rel"].values()
+                for record in records
+            },
+        )
+
+    def test_skipped_records_do_not_teach_factory_identity(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary) / "run"
+            root.mkdir()
+            self._write_run(root, [STAMPEDE_CONTROLS[0]])
+            cache_batch = root / "cache-stampede-factory" / "batch-r01.jsonl"
+            skipped = []
+            for index in range(2):
+                record = thalamic_fixture()
+                record["id"] = f"legacy-{index}"
+                record["meta"] = {"factory": "docker-build-cache-factory"}
+                skipped.append(record)
+            with cache_batch.open("a", encoding="utf-8") as handle:
+                for record in skipped:
+                    handle.write(json.dumps(record) + "\n")
+            run = curate_source(root)
+
+        control_id = STAMPEDE_CONTROLS[0]["id"]
+        control_decision = next(
+            item
+            for item in run["decisions"]
+            if item["output_id"] == control_id
+        )
+        self.assertNotIn(
+            REASON_FOREIGN_PAYLOAD_FACTORY,
+            control_decision["reason_codes"],
+        )
+        self.assertEqual(run["summary"]["skipped_records"], 2)
+        self.assertIn(
+            control_id,
+            {
+                record["id"]
+                for records in run["records_by_rel"].values()
+                for record in records
+            },
+        )
 
     def test_quarantine_decision_names_the_home_mill(self):
         run = self._curate(list(STAMPEDE_CONTROLS) + [DEST_STAMPED_MILL])

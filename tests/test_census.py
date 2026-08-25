@@ -189,6 +189,35 @@ class CensusMillMix(unittest.TestCase):
         # The mix is invisible to a factory-mix check: it is dest-stamped.
         self.assertNotIn("FOREIGN_PAYLOAD_FACTORY", mix["reason_codes"])
 
+    def test_nested_batches_keep_their_enclosing_factory_identity(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary) / "run"
+            root.mkdir()
+            self._run_tree(root)
+            for factory in (
+                "cache-stampede-factory",
+                "graphql-nplusone-factory",
+            ):
+                directory = root / factory
+                archive = directory / "archive"
+                archive.mkdir()
+                (directory / "batch-r01.jsonl").rename(
+                    archive / "batch-r01.jsonl"
+                )
+            result = _invoke(str(root))
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        report = json.loads(result.stdout)
+        self.assertEqual(
+            report["by_factory"],
+            {
+                "cache-stampede-factory": 3,
+                "graphql-nplusone-factory": 2,
+            },
+        )
+        self.assertNotIn("archive", report["by_factory"])
+        self.assertEqual(report["mill_mix"]["records"], 1)
+
 
 class CensusBuckets(unittest.TestCase):
     def setUp(self):

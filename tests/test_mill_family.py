@@ -33,6 +33,7 @@ CACHE_STAMPEDE = "cache-stampede-factory"
 GRAPHQL = "graphql-nplusone-factory"
 DOCKER = "docker-build-cache-factory"
 K8S = "k8s-crashloop-factory"
+SEARCH = "search-index-rebuild-factory"
 
 
 def episode(record_id_value, goal, factory, **overrides):
@@ -103,6 +104,19 @@ GRAPHQL_NATIVE = [
         "Fix EdgeDB GraphQL globals leftover after access-policy rewrite: "
         "leftover globalYard after bind to globalBerth.",
         GRAPHQL,
+    ),
+]
+
+SEARCH_NATIVE = [
+    episode(
+        "sir-r1300-vespa-index-handoff",
+        "Repair Vespa index rebuild handoff after schema generation rollover",
+        SEARCH,
+    ),
+    episode(
+        "sir-r1301-elasticsearch-alias-swap",
+        "Repair Elasticsearch index rebuild alias swap after shard recovery",
+        SEARCH,
     ),
 ]
 
@@ -221,6 +235,23 @@ class DestStampedMill(unittest.TestCase):
         self.assertIn("leftover", STAMPEDE_CONTROLS[2]["id"])
         self.assertNotIn(STAMPEDE_CONTROLS[2]["id"], self.findings)
 
+    def test_foreign_native_prefix_is_detected_even_with_leftover_in_id(self):
+        stray = episode(
+            "sir-r1400-leftover3c-vespa-handoff",
+            "Repair Vespa index rebuild handoff after schema generation rollover",
+            CACHE_STAMPEDE,
+        )
+        mills = index_of(
+            (CACHE_STAMPEDE, STAMPEDE_CONTROLS + [stray]),
+            (SEARCH, SEARCH_NATIVE),
+        )
+        finding = next(
+            item for item in mills.findings() if item.record_id == stray["id"]
+        )
+        self.assertIn("leftover", stray["id"])
+        self.assertIn(REASON_FOREIGN_MILL_ID_PREFIX, finding.reason_codes)
+        self.assertEqual(finding.home_factories, (SEARCH,))
+
     def test_no_destination_family_field_is_required(self):
         """Generic episode slugs: nothing but goal/steps, so absence proves nothing."""
         for record in DEST_STAMPED_MILL + STAMPEDE_CONTROLS:
@@ -278,6 +309,25 @@ class OwnershipResolution(unittest.TestCase):
             [],
         )
 
+    def test_foreign_prefix_home_survives_a_larger_destination_batch(self):
+        strays = [
+            episode(
+                f"gql-r150{index}-foreign-{index}",
+                "Fix PostGraphile makeWrapResolvers wrapMass bind wrapPull unions",
+                CACHE_STAMPEDE,
+            )
+            for index in range(3)
+        ]
+        mills = index_of(
+            (CACHE_STAMPEDE, list(STAMPEDE_CONTROLS[:2]) + strays),
+            (GRAPHQL, list(GRAPHQL_NATIVE[:2])),
+        )
+        findings = {item.record_id: item for item in mills.findings()}
+        for stray in strays:
+            finding = findings[stray["id"]]
+            self.assertIn(REASON_FOREIGN_MILL_ID_PREFIX, finding.reason_codes)
+            self.assertEqual(finding.home_factories, (GRAPHQL,))
+
     def test_empty_index_has_no_findings(self):
         self.assertEqual(MillIndex().findings(), ())
         self.assertEqual(summarize(())["records"], 0)
@@ -309,6 +359,19 @@ class PayloadFactoryAxis(unittest.TestCase):
         """A snapshot directory with an off-slug name must not flag everything."""
         mills = index_of(("staging-copy", STAMPEDE_CONTROLS))
         self.assertEqual(mills.findings(), ())
+
+    def test_native_prefix_is_not_reported_as_foreign_for_payload_only_mix(self):
+        stray = episode(
+            "cst-r04-stray-declaration",
+            "Resolve TTL expiry thundering herd with singleflight",
+            DOCKER,
+        )
+        report = summarize(
+            index_of((CACHE_STAMPEDE, STAMPEDE_CONTROLS + [stray])).findings()
+        )
+        self.assertEqual(
+            report["by_factory"][CACHE_STAMPEDE]["foreign_prefixes"], {}
+        )
 
 
 class GoalFamilyAxis(unittest.TestCase):
@@ -347,6 +410,30 @@ class GoalFamilyAxis(unittest.TestCase):
         self.assertNotIn(
             stray["id"], {finding.record_id for finding in mills.findings()}
         )
+
+    def test_repeated_strays_do_not_teach_the_destination_vocabulary(self):
+        strays = [
+            episode(
+                f"cst-r1{index}-postgraphile-wrap",
+                "PostGraphile makeWrapResolvers wrapMass bind wrapPull unions",
+                CACHE_STAMPEDE,
+            )
+            for index in range(2)
+        ]
+        mills = index_of(
+            (CACHE_STAMPEDE, STAMPEDE_CONTROLS + strays),
+            (GRAPHQL, GRAPHQL_NATIVE),
+        )
+        findings = {item.record_id: item for item in mills.findings()}
+        for stray in strays:
+            self.assertEqual(
+                findings[stray["id"]].reason_codes,
+                (REASON_FOREIGN_MILL_GOAL_FAMILY,),
+            )
+            self.assertEqual(
+                findings[stray["id"]].goal_family_home,
+                GRAPHQL,
+            )
 
     def test_a_destination_without_vocabulary_is_not_judged(self):
         lone = episode("kcl-r01-crashloop", "resolve CrashLoopBackOff probe", K8S)

@@ -14,7 +14,8 @@ it is deliberately not keyed on ``leftover`` appearing in a record id, nor on
 a destination-specific field being absent.
 
 Never writes into ``outputs/raw/``. Default is a ``--dry-run`` JSON report
-on stdout. ``--out DIR`` writes a brand-new cleaned tree only when passed.
+on stdout. ``--out DIR`` writes a brand-new cleaned tree only when passed and
+the source supplies at least two factories for mill-ownership resolution.
 
 Inspired by ToolMind turn-level filtering (Yang et al., 2025) and DPO
 prefix sharing (Wang & Hegde, 2024): drop hidden CoT, flag ungrounded
@@ -43,11 +44,16 @@ from mill_family import (
     MillIndex,
     summarize as summarize_mill_mix,
 )
-from round_txn import TransactionError, committed_jsonl_paths, marker_mode_path
+from round_txn import (
+    FACTORY_QUOTAS,
+    TransactionError,
+    committed_jsonl_paths,
+    marker_mode_path,
+)
 
 
 TRANSFORM_NAME = "agentic_observability"
-TRANSFORM_VERSION = "1"
+TRANSFORM_VERSION = "2"
 
 HIDDEN_THOUGHT_KEYS = frozenset(
     {"thought", "chain_of_thought", "scratch", "inner_monologue"}
@@ -436,7 +442,9 @@ def curate_record(
     return cleaned, decision
 
 
-def _source_jsonl_files(source: Path) -> tuple[Path, ...]:
+def _source_jsonl_entries(source: Path) -> tuple[tuple[Path, str, bool], ...]:
+    """Return visible JSONL paths paired with their enclosing factory names."""
+
     if not source.exists():
         return ()
     if source.is_file():
@@ -483,7 +491,27 @@ def _source_jsonl_files(source: Path) -> tuple[Path, ...]:
             }
         return path.resolve() in visible_by_factory[factory]
 
-    return tuple(path for path in paths if visible(path))
+    def factory_identity(path: Path) -> tuple[str, bool]:
+        marker_root = marker_factory(path)
+        if marker_root is not None:
+            return marker_root.name, True
+        if source.is_file():
+            return path.parent.name, False
+        relative = path.relative_to(source)
+        source_is_factory = (
+            source.name in FACTORY_QUOTAS or source.name.endswith("-factory")
+        )
+        if source_is_factory or len(relative.parts) == 1:
+            return source.name, source_is_factory
+        # A run directory encloses one directory per factory. Nested work,
+        # archive, and batch directories remain attributed to that first root.
+        factory = relative.parts[0]
+        verified = factory in FACTORY_QUOTAS or factory.endswith("-factory")
+        return factory, verified
+
+    return tuple(
+        (path, *factory_identity(path)) for path in paths if visible(path)
+    )
 
 
 def _relative_source_path(source: Path, path: Path) -> str:
@@ -493,7 +521,7 @@ def _relative_source_path(source: Path, path: Path) -> str:
 
 
 def _quarantine_foreign_mills(
-    kept: list[tuple[str, int, dict[str, Any]]],
+    kept: list[tuple[str, int, dict[str, Any], str, bool]],
     decisions: list[dict[str, Any]],
     mills: MillIndex,
     actions: Counter[str],
@@ -505,7 +533,10 @@ def _quarantine_foreign_mills(
     so this runs after the per-record pass and rewrites the affected decisions
     in place. Records this pass already excluded keep their original reason.
     """
-    survivors = {index for _relative, index, _curated in kept}
+    survivors = {
+        index
+        for _relative, index, _curated, _factory, _verified in kept
+    }
     quarantined = []
     for finding in mills.findings():
         if finding.ref not in survivors:
@@ -533,7 +564,7 @@ def curate_source(source: Path) -> dict[str, Any]:
     # (relative source file, index into ``decisions``, curated record) for every
     # record that survived per-record curation. The cleaned tree is assembled
     # from this only after the cross-record mill-family pass has run.
-    kept: list[tuple[str, int, dict[str, Any]]] = []
+    kept: list[tuple[str, int, dict[str, Any], str, bool]] = []
     mills = MillIndex()
     actions: Counter[str] = Counter()
     kinds: Counter[str] = Counter()
@@ -548,10 +579,9 @@ def curate_source(source: Path) -> dict[str, Any]:
     files = 0
     input_records = 0
 
-    for path in _source_jsonl_files(source):
+    for path, factory, factory_verified in _source_jsonl_entries(source):
         files += 1
         relative = _relative_source_path(source, path)
-        factory = path.parent.name
         payload = path.read_bytes()
         for line_number, raw_line in enumerate(payload.splitlines(), 1):
             if not raw_line.strip():
@@ -593,9 +623,6 @@ def curate_source(source: Path) -> dict[str, Any]:
                 source_line=line_number,
                 source_hash=source_hash,
             )
-            # Every decoded object teaches the index which mill owns which
-            # signals, including records this pass already excluded.
-            mills.add(factory, record, len(decisions))
             decisions.append(decision)
             actions[decision["action"]] += 1
             kinds[decision["kind"]] += 1
@@ -618,11 +645,36 @@ def curate_source(source: Path) -> dict[str, Any]:
                 if overlap and not overlap.get("noted"):
                     overlap_zero += 1
             if curated is not None:
-                kept.append((relative, len(decisions) - 1, curated))
+                decision_index = len(decisions) - 1
+                # Only records that survive ordinary curation may teach mill
+                # identity. Skipped or already-excluded objects are not native
+                # ownership evidence and cannot poison the cross-record model.
+                mills.add(factory, curated, decision_index)
+                kept.append(
+                    (
+                        relative,
+                        decision_index,
+                        curated,
+                        factory,
+                        factory_verified,
+                    )
+                )
 
-    quarantined = _quarantine_foreign_mills(kept, decisions, mills, actions, reasons)
+    context_factories = sorted(
+        {
+            factory
+            for _relative, _index, _curated, factory, verified in kept
+            if verified
+        }
+    )
+    context_complete = len(context_factories) >= 2
+    quarantined = (
+        _quarantine_foreign_mills(kept, decisions, mills, actions, reasons)
+        if context_complete
+        else []
+    )
     dropped = {finding.ref for finding in quarantined}
-    for relative, index, curated in kept:
+    for relative, index, curated, _factory, _verified in kept:
         if index not in dropped:
             records_by_rel[relative].append(curated)
     records_by_rel = {
@@ -632,6 +684,14 @@ def curate_source(source: Path) -> dict[str, Any]:
     }
 
     output_records = sum(len(items) for items in records_by_rel.values())
+    mill_summary = summarize_mill_mix(quarantined)
+    mill_summary.update(
+        {
+            "context_complete": context_complete,
+            "context_factories": context_factories,
+            "quarantine_applied": context_complete,
+        }
+    )
     summary = {
         "transform": {"name": TRANSFORM_NAME, "version": TRANSFORM_VERSION},
         "source": str(source),
@@ -648,7 +708,7 @@ def curate_source(source: Path) -> dict[str, Any]:
             action: count for action, count in sorted(actions.items()) if count
         },
         "reason_codes": dict(sorted(reasons.items())),
-        "mill_family": summarize_mill_mix(quarantined),
+        "mill_family": mill_summary,
         "preference": {
             "pairs": preference_pairs,
             "shared_goal": preference_shared,
@@ -713,6 +773,14 @@ def _write_new_json(path: Path, value: Any) -> None:
 
 def write_cleaned_tree(run: dict[str, Any], out: Path) -> None:
     """Write retained JSONL plus scanner-safe JSON metadata in a new directory."""
+    mill_summary = run.get("summary", {}).get("mill_family")
+    if (
+        isinstance(mill_summary, dict)
+        and mill_summary.get("quarantine_applied") is False
+    ):
+        raise ValueError(
+            "refusing cleaned output without multi-factory mill ownership context"
+        )
     out = Path(out)
     created: list[Path] = []
     try:
@@ -756,7 +824,10 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "source",
         type=Path,
-        help="JSONL file or run directory (missing/empty is a zero report)",
+        help=(
+            "JSONL file or run directory (missing/empty is a zero report; "
+            "cleaned output requires multi-factory context)"
+        ),
     )
     parser.add_argument(
         "--dry-run",

@@ -31,6 +31,7 @@ from __future__ import annotations
 import re
 from collections import Counter, defaultdict
 from dataclasses import dataclass, field
+from fractions import Fraction
 from typing import Any, Hashable, Iterable, Mapping
 
 # ``<mill>-r<round>[<suffix>]-<slug>``: the id shape every agentic factory
@@ -221,17 +222,30 @@ class MillIndex:
     # -- resolution ---------------------------------------------------
 
     def _prefix_homes(self) -> dict[str, frozenset[str]]:
-        """Map each mill prefix to the destinations that publish the most of it."""
+        """Map prefixes to the destinations where they are most characteristic.
+
+        Raw counts are unsafe here: a large foreign batch can outnumber the
+        native batch and teach the destination that the foreign prefix is its
+        own.  Compare each prefix's share of a destination's prefix-bearing
+        records instead.  A native lane can therefore remain the unique home
+        even when a larger absolute spill lands in another destination.
+        """
 
         counts: dict[str, Counter[str]] = defaultdict(Counter)
+        totals: Counter[str] = Counter()
         for entry in self._entries:
             if entry.mill_prefix is not None:
                 counts[entry.mill_prefix][entry.factory] += 1
+                totals[entry.factory] += 1
         homes: dict[str, frozenset[str]] = {}
         for prefix, per_factory in counts.items():
-            top = max(per_factory.values())
+            shares = {
+                factory: Fraction(seen, totals[factory])
+                for factory, seen in per_factory.items()
+            }
+            top = max(shares.values())
             homes[prefix] = frozenset(
-                factory for factory, seen in per_factory.items() if seen == top
+                factory for factory, share in shares.items() if share == top
             )
         return homes
 
@@ -249,31 +263,75 @@ class MillIndex:
                 counts[entry.factory][entry.declared_factory] += 1
         identity: dict[str, str | None] = {}
         for factory, per_declared in counts.items():
+            # A declaration matching the enclosing factory is independent
+            # native evidence. Prefer it over a majority that may consist of
+            # foreign or otherwise poisoned records. Snapshot/off-slug roots
+            # fall back to the unique most common declaration below.
+            if factory in per_declared:
+                identity[factory] = factory
+                continue
             top = max(per_declared.values())
             winners = [name for name, seen in per_declared.items() if seen == top]
             identity[factory] = winners[0] if len(winners) == 1 else None
         return identity
 
     def _goal_vocabulary(
-        self, homes: Mapping[str, frozenset[str]]
+        self,
+        homes: Mapping[str, frozenset[str]],
+        identity: Mapping[str, str | None],
     ) -> dict[str, frozenset[str]]:
-        """Map each destination to the goal tokens its own mill recurs on."""
+        """Map each destination to goal tokens uniquely characteristic of it.
+
+        A repeated stray must not teach the destination its foreign vocabulary.
+        Token ownership therefore uses within-destination prevalence, not just
+        a minimum raw count. Prefix- or payload-foreign records are excluded
+        from the teaching set entirely, and tied tokens are non-discriminating.
+        """
 
         counts: dict[str, Counter[str]] = defaultdict(Counter)
+        totals: Counter[str] = Counter()
         for entry in self._entries:
             prefix = entry.mill_prefix
             if prefix is not None and entry.factory not in homes.get(prefix, ()):
                 # A record already known to come from elsewhere must not teach
                 # this destination its vocabulary.
                 continue
-            counts[entry.factory].update(entry.goal_family)
-        return {
-            factory: frozenset(
-                token
-                for token, seen in per_token.items()
+            expected = identity.get(entry.factory)
+            if (
+                entry.declared_factory is not None
+                and expected is not None
+                and entry.declared_factory != expected
+            ):
+                continue
+            totals[entry.factory] += 1
+            for token in entry.goal_family:
+                counts[token][entry.factory] += 1
+
+        vocabulary: dict[str, set[str]] = defaultdict(set)
+        for token, per_factory in counts.items():
+            supported = {
+                factory: seen
+                for factory, seen in per_factory.items()
                 if seen >= GOAL_FAMILY_MIN_SUPPORT
-            )
-            for factory, per_token in counts.items()
+            }
+            if not supported:
+                continue
+            prevalence = {
+                factory: Fraction(seen, totals[factory])
+                for factory, seen in supported.items()
+                if totals[factory]
+            }
+            if not prevalence:
+                continue
+            top = max(prevalence.values())
+            winners = [
+                factory for factory, share in prevalence.items() if share == top
+            ]
+            if len(winners) == 1:
+                vocabulary[winners[0]].add(token)
+        return {
+            factory: frozenset(tokens)
+            for factory, tokens in vocabulary.items()
         }
 
     def _goal_family_home(
@@ -284,8 +342,9 @@ class MillIndex:
         """Return the one other destination this goal clearly belongs to."""
 
         own = vocabulary.get(entry.factory, frozenset())
-        if not own or not entry.goal_family or entry.goal_family & own:
+        if not own or not entry.goal_family:
             return None
+        own_score = len(entry.goal_family & own)
         scored = sorted(
             (
                 (len(entry.goal_family & tokens), factory)
@@ -299,6 +358,8 @@ class MillIndex:
         best_score, best_factory = scored[0]
         if best_score < GOAL_FAMILY_MIN_FOREIGN_TOKENS:
             return None
+        if best_score <= own_score:
+            return None
         if len(scored) > 1 and scored[1][0] == best_score:
             return None
         return best_factory
@@ -308,7 +369,7 @@ class MillIndex:
 
         homes = self._prefix_homes()
         identity = self._declared_identity()
-        vocabulary = self._goal_vocabulary(homes)
+        vocabulary = self._goal_vocabulary(homes, identity)
 
         results: list[MillFinding] = []
         for entry in self._entries:
@@ -358,6 +419,7 @@ class MillIndex:
             )
         return tuple(results)
 
+
 def summarize(findings: Iterable[MillFinding], id_limit: int = 200) -> dict[str, Any]:
     """Build the JSON-safe mill-mix block shared by census and curation."""
 
@@ -370,7 +432,7 @@ def summarize(findings: Iterable[MillFinding], id_limit: int = 200) -> dict[str,
             finding.factory, {"records": 0, "foreign_prefixes": Counter()}
         )
         bucket["records"] += 1
-        if finding.mill_prefix is not None:
+        if REASON_FOREIGN_MILL_ID_PREFIX in finding.reason_codes:
             bucket["foreign_prefixes"][finding.mill_prefix] += 1
 
     identifiers = sorted(

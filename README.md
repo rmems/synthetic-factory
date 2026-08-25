@@ -98,6 +98,9 @@ belong to a different factory than the directory they were published under.
 `curate_agentic.py` quarantines the same records instead of composing them
 into a cleaned tree. Neither keys on `leftover` appearing in a record id, nor
 on a destination-specific field being absent: published mixes defeat both.
+Because prefix and goal ownership are cross-factory properties, a single file
+or one-factory source remains dry-run only; cleaned output fails closed until
+the source provides multi-factory ownership context.
 
 Tests: `python3 -m unittest discover -s tests -p 'test_*.py' -q`
 
