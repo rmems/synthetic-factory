@@ -5,11 +5,13 @@ import hashlib
 import importlib.util
 import io
 import json
+import os
 import sys
 import tempfile
 import unittest
 from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
+from unittest import mock
 
 TESTS = Path(__file__).resolve().parent
 REPO = TESTS.parents[0]
@@ -163,8 +165,16 @@ class ExportHf(unittest.TestCase):
             protocol = (export / export_hf.PROTOCOL_PATH).read_text(encoding="utf-8")
             self.assertIn("# Evaluation protocol", protocol)
             self.assertIn("No trainer is launched", protocol)
+            self.assertIn("deterministic post-curation snapshot", protocol)
+            self.assertIn("held out only from a future trainer", protocol)
+            self.assertIn("not tuning-independent evidence for curation", protocol)
+            self.assertNotIn("never touched by curation tuning", protocol)
             self.assertIn(export_hf.TRAIN_PATH, protocol)
             self.assertIn(export_hf.EVAL_PATH, protocol)
+            self.assertEqual(
+                provenance["splits"]["scope"],
+                "post_curation_snapshot_future_trainer_holdout",
+            )
             self.assertEqual(
                 provenance["splits"]["protocol_sha256"],
                 hashlib.sha256(
@@ -180,17 +190,18 @@ class ExportHf(unittest.TestCase):
     def test_refuses_a_corpus_that_is_not_training_ready(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
-            curated = root / "curated"
-            records = curated / compose_curated.RECORDS_DIRNAME
-            unidentified = thalamic("blocked")
-            unidentified.pop("id")
-            write_jsonl(
-                records / "thalamic-trajectory-factory" / "batch-r01.jsonl",
-                [unidentified, thalamic("other")],
-            )
+            curated = compose_fixture(root)
+            blocked_report = {
+                "training_ready": False,
+                "blockers": ["adversarial audit blocker"],
+                "totals": {"records": 7, "by_kind": {}},
+            }
 
-            with self.assertRaises(export_hf.ExportError) as caught:
-                export_hf.export_run(curated, root / "export")
+            with mock.patch.object(
+                export_hf.training_audit, "audit_run", return_value=blocked_report
+            ):
+                with self.assertRaises(export_hf.ExportError) as caught:
+                    export_hf.export_run(curated, root / "export")
             self.assertIn("not training_ready", str(caught.exception))
             self.assertFalse((root / "export").exists())
 
@@ -224,13 +235,13 @@ class ExportHf(unittest.TestCase):
             records = root / "curated" / compose_curated.RECORDS_DIRNAME
             factory = records / "thalamic-trajectory-factory"
             factory.mkdir(parents=True)
-            # U+2028 is a line boundary for ``str.splitlines`` but not for JSONL.
-            separator = "\u2028"
+            # U+2028/U+2029 are boundaries for splitlines, but not for JSONL.
+            separator = "\u2028middle\u2029"
             first = thalamic("sep")
             first["state"]["domain"] = f"line{separator}separator"
             write_jsonl(factory / "batch-r01.jsonl", [first, thalamic("plain")])
             physical = (factory / "batch-r01.jsonl").read_text(encoding="utf-8")
-            self.assertEqual(len(physical.splitlines()), 3)
+            self.assertGreater(len(physical.splitlines()), 2)
 
             rows = export_hf.collect_rows(records)
             self.assertEqual([row.source_line for row in rows], [1, 2])
@@ -259,6 +270,26 @@ class ExportHf(unittest.TestCase):
                 export_hf.export_run(curated, curated / "nested-export")
             with self.assertRaises(export_hf.ExportError):
                 export_hf.export_run(curated, root / "missing-parent" / "export")
+
+    def test_refuses_export_destinations_lexically_or_resolved_under_raw(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            curated = compose_fixture(root)
+            raw = root / "outputs" / "raw"
+            raw.mkdir(parents=True)
+            safe = root / "safe"
+            safe.mkdir()
+
+            lexical = raw / ".." / ".." / "safe" / "lexical-export"
+            with self.assertRaisesRegex(export_hf.ExportError, "immutable raw"):
+                export_hf.export_run(curated, lexical)
+            self.assertFalse((safe / "lexical-export").exists())
+
+            raw_link = root / "raw-link"
+            raw_link.symlink_to(raw, target_is_directory=True)
+            with self.assertRaisesRegex(export_hf.ExportError, "immutable raw"):
+                export_hf.export_run(curated, raw_link / "resolved-export")
+            self.assertFalse((raw / "resolved-export").exists())
 
     def test_split_is_deterministic_and_salt_sensitive(self):
         with tempfile.TemporaryDirectory() as td:
@@ -299,6 +330,375 @@ class ExportHf(unittest.TestCase):
             self.assertTrue(multi)
             self.assertTrue(multi.issubset(factories(train)))
             self.assertTrue(multi.issubset(factories(evaluate)))
+
+    def test_singleton_per_factory_snapshots_use_a_deterministic_global_fallback(self):
+        rows = [
+            export_hf.ViewerRow("data/curated/a/r1.jsonl", 1, '{"id":"a"}'),
+            export_hf.ViewerRow("data/curated/b/r1.jsonl", 1, '{"id":"b"}'),
+        ]
+        for bucket in (0.0, 0.99):
+            with self.subTest(bucket=bucket), mock.patch.object(
+                export_hf, "split_bucket", return_value=bucket
+            ):
+                first = export_hf.split_rows(rows, eval_fraction=0.1, salt="snapshot")
+                second = export_hf.split_rows(rows, eval_fraction=0.1, salt="snapshot")
+            self.assertEqual(first, second)
+            train, evaluate = first
+            self.assertEqual(len(train), 1)
+            self.assertEqual(len(evaluate), 1)
+            self.assertEqual(
+                {(row.source_file, row.source_line) for row in train + evaluate},
+                {(row.source_file, row.source_line) for row in rows},
+            )
+
+    def test_compose_paths_digests_coordinates_and_sidecars_are_authenticated(self):
+        mutations = (
+            "output_digest",
+            "manifest_digest",
+            "sidecar_digest",
+            "unsafe_output_path",
+            "coordinated_manifest_coordinate",
+            "coordinated_manifest_output_id",
+            "malformed_sidecar_reference",
+            "excluded_sidecar_reference",
+            "boolean_compose_count",
+            "coordinated_sidecar_content",
+        )
+        for mutation in mutations:
+            with self.subTest(mutation=mutation), tempfile.TemporaryDirectory() as td:
+                root = Path(td)
+                curated = compose_fixture(root)
+                summary_path = curated / compose_curated.SUMMARY_FILENAME
+                summary = json.loads(summary_path.read_text(encoding="utf-8"))
+                manifest_path = curated / summary["manifest"]["path"]
+                sidecar_path = curated / summary["reward_sidecars"]["path"]
+
+                if mutation == "output_digest":
+                    output = curated / summary["outputs"][0]["path"]
+                    payload = output.read_bytes()
+                    output.write_bytes(payload.replace(b"\n", b" \n", 1))
+                elif mutation == "manifest_digest":
+                    manifest_path.write_bytes(manifest_path.read_bytes() + b" \n")
+                elif mutation == "sidecar_digest":
+                    sidecar_path.write_bytes(sidecar_path.read_bytes() + b" \n")
+                elif mutation == "unsafe_output_path":
+                    summary["outputs"][0]["path"] = "../escaped.jsonl"
+                    summary_path.write_text(
+                        json.dumps(summary, indent=2, sort_keys=True) + "\n",
+                        encoding="utf-8",
+                    )
+                elif mutation == "coordinated_manifest_coordinate":
+                    documents = [
+                        json.loads(line)
+                        for line in manifest_path.read_text(encoding="utf-8").split("\n")
+                        if line
+                    ]
+                    retained = next(item for item in documents if item["action"] == "retained")
+                    retained["output_sha256"] = "0" * 64
+                    payload = "".join(
+                        json.dumps(item, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+                        + "\n"
+                        for item in documents
+                    ).encode("utf-8")
+                    manifest_path.write_bytes(payload)
+                    summary["manifest"]["sha256"] = hashlib.sha256(payload).hexdigest()
+                    summary_path.write_text(
+                        json.dumps(summary, indent=2, sort_keys=True) + "\n",
+                        encoding="utf-8",
+                    )
+                elif mutation in {
+                    "coordinated_manifest_output_id",
+                    "malformed_sidecar_reference",
+                    "excluded_sidecar_reference",
+                }:
+                    documents = [
+                        json.loads(line)
+                        for line in manifest_path.read_text(encoding="utf-8").split("\n")
+                        if line
+                    ]
+                    if mutation == "coordinated_manifest_output_id":
+                        retained = next(
+                            item for item in documents if item["action"] == "retained"
+                        )
+                        retained["output_id"] = "sfcur-forged"
+                    elif mutation == "malformed_sidecar_reference":
+                        retained = next(
+                            item
+                            for item in documents
+                            if item["action"] == "retained"
+                            and "reward_sidecar_id" in item
+                        )
+                        retained["reward_sidecar_id"] = []
+                    else:
+                        excluded = next(
+                            item for item in documents if item["action"] == "excluded"
+                        )
+                        excluded["reward_sidecar_id"] = "0" * 64
+                    payload = "".join(
+                        json.dumps(
+                            item,
+                            ensure_ascii=False,
+                            sort_keys=True,
+                            separators=(",", ":"),
+                        )
+                        + "\n"
+                        for item in documents
+                    ).encode("utf-8")
+                    manifest_path.write_bytes(payload)
+                    summary["manifest"]["sha256"] = hashlib.sha256(payload).hexdigest()
+                    summary_path.write_text(
+                        json.dumps(summary, indent=2, sort_keys=True) + "\n",
+                        encoding="utf-8",
+                    )
+                elif mutation == "boolean_compose_count":
+                    summary["counts"]["excluded"] = True
+                    summary_path.write_text(
+                        json.dumps(summary, indent=2, sort_keys=True) + "\n",
+                        encoding="utf-8",
+                    )
+                else:
+                    documents = [
+                        json.loads(line)
+                        for line in sidecar_path.read_text(encoding="utf-8").split("\n")
+                        if line
+                    ]
+                    documents[0]["classification"]["reason_codes"].append("tampered")
+                    payload = "".join(
+                        json.dumps(item, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+                        + "\n"
+                        for item in documents
+                    ).encode("utf-8")
+                    sidecar_path.write_bytes(payload)
+                    summary["reward_sidecars"]["sha256"] = hashlib.sha256(
+                        payload
+                    ).hexdigest()
+                    summary_path.write_text(
+                        json.dumps(summary, indent=2, sort_keys=True) + "\n",
+                        encoding="utf-8",
+                    )
+
+                with self.assertRaises(export_hf.ExportError):
+                    export_hf.export_run(curated, root / "export")
+                self.assertFalse((root / "export").exists())
+
+    def test_refuses_self_resealed_source_history_and_aggregate_claims(self):
+        mutations = (
+            "source_run_object",
+            "source_run_lexical_alias",
+            "source_digest_types",
+            "fabricated_stages",
+            "dropped_exclusion",
+            "excluded_source_mapping",
+            "fabricated_aggregates",
+            "fabricated_calibration",
+            "fabricated_compose_audit",
+        )
+        for mutation in mutations:
+            with self.subTest(mutation=mutation), tempfile.TemporaryDirectory() as td:
+                root = Path(td)
+                curated = compose_fixture(root)
+                summary_path = curated / compose_curated.SUMMARY_FILENAME
+                summary = json.loads(summary_path.read_text(encoding="utf-8"))
+                manifest_path = curated / summary["manifest"]["path"]
+                documents = [
+                    json.loads(line)
+                    for line in manifest_path.read_text(encoding="utf-8").split("\n")
+                    if line
+                ]
+
+                if mutation == "source_run_object":
+                    summary["source_run"] = {"forged": True}
+                elif mutation == "source_run_lexical_alias":
+                    source_root = Path(summary["source_run"])
+                    alias_parent = source_root.parent / "source-alias"
+                    alias_parent.mkdir()
+                    summary["source_run"] = (
+                        f"{alias_parent.as_posix()}/../{source_root.name}"
+                    )
+                elif mutation == "source_digest_types":
+                    documents[0]["source_sha256"] = []
+                    documents[0]["source_file_sha256"] = False
+                elif mutation == "fabricated_stages":
+                    documents[0]["stages"] = [
+                        {
+                            "lane": "identity",
+                            "transform_name": "forged",
+                            "transform_version": "forged-v1",
+                            "action": "retained",
+                            "reason_codes": [],
+                        }
+                    ]
+                elif mutation == "dropped_exclusion":
+                    documents = [
+                        entry for entry in documents if entry["action"] == "retained"
+                    ]
+                    summary["counts"]["source_records"] = len(documents)
+                    summary["counts"]["excluded"] = 0
+                    summary["exclusions"] = {}
+                elif mutation == "excluded_source_mapping":
+                    excluded = next(
+                        entry for entry in documents if entry["action"] == "excluded"
+                    )
+                    excluded["source_path"] = "forged/batch-r99.jsonl"
+                    excluded["source_line"] = 999
+                    excluded["source_sha256"] = "f" * 64
+                    excluded["source_file_sha256"] = "e" * 64
+                elif mutation == "fabricated_aggregates":
+                    summary["counts"]["source_files"] = 999
+                    summary["lane_actions"] = {}
+                    summary["exclusions"] = {"forged": 1}
+                    summary["transforms"] = {"identity": {"name": "forged"}}
+                elif mutation == "fabricated_calibration":
+                    summary["calibration"] = {
+                        "mode": "none",
+                        "path": None,
+                        "sha256": None,
+                        "records": 1,
+                    }
+                    summary["calibrated_records"] = 1
+                else:
+                    summary["audit"]["training_ready"] = False
+                    summary["audit"]["blockers"] = ["forged historical blocker"]
+
+                if mutation in {
+                    "source_digest_types",
+                    "fabricated_stages",
+                    "dropped_exclusion",
+                    "excluded_source_mapping",
+                }:
+                    manifest_payload = "".join(
+                        json.dumps(
+                            entry,
+                            ensure_ascii=False,
+                            sort_keys=True,
+                            separators=(",", ":"),
+                        )
+                        + "\n"
+                        for entry in documents
+                    ).encode("utf-8")
+                    manifest_path.write_bytes(manifest_payload)
+                    summary["manifest"]["entries"] = len(documents)
+                    summary["manifest"]["sha256"] = hashlib.sha256(
+                        manifest_payload
+                    ).hexdigest()
+                summary_path.write_text(
+                    json.dumps(summary, indent=2, sort_keys=True) + "\n",
+                    encoding="utf-8",
+                )
+
+                with self.assertRaises(export_hf.ExportError):
+                    export_hf.export_run(curated, root / "export")
+                self.assertFalse((root / "export").exists())
+
+    def test_rejects_symlink_and_hardlink_aliases_for_every_compose_member(self):
+        mutations = (
+            "summary_symlink",
+            "manifest_symlink",
+            "output_lexical_alias",
+            "output_symlink",
+            "output_hardlink",
+            "source_symlink",
+        )
+        for mutation in mutations:
+            with self.subTest(mutation=mutation), tempfile.TemporaryDirectory() as td:
+                root = Path(td)
+                curated = compose_fixture(root)
+                summary_path = curated / compose_curated.SUMMARY_FILENAME
+                summary = json.loads(summary_path.read_text(encoding="utf-8"))
+                if mutation == "summary_symlink":
+                    target = root / "outside-COMPOSE.json"
+                    summary_path.replace(target)
+                    summary_path.symlink_to(target)
+                elif mutation == "manifest_symlink":
+                    path = curated / summary["manifest"]["path"]
+                    target = root / "outside-manifest.jsonl"
+                    path.replace(target)
+                    path.symlink_to(target)
+                elif mutation == "source_symlink":
+                    source_root = Path(summary["source_run"])
+                    path = next(source_root.rglob("*.jsonl"))
+                    target = root / "outside-source.jsonl"
+                    path.replace(target)
+                    path.symlink_to(target)
+                elif mutation == "output_lexical_alias":
+                    summary["outputs"][0]["path"] = summary["outputs"][0][
+                        "path"
+                    ].replace("/", "//", 1)
+                    summary_path.write_text(
+                        json.dumps(summary, indent=2, sort_keys=True) + "\n",
+                        encoding="utf-8",
+                    )
+                else:
+                    path = curated / summary["outputs"][0]["path"]
+                    target = curated / "aliased-output.bin"
+                    path.replace(target)
+                    if mutation == "output_symlink":
+                        path.symlink_to(target)
+                    else:
+                        os.link(target, path)
+
+                with self.assertRaises(export_hf.ExportError):
+                    export_hf.export_run(curated, root / "export")
+                self.assertFalse((root / "export").exists())
+
+    def test_audit_uses_captured_bytes_when_output_changes_before_the_gate(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            source = root / "run" / "multi-agent-coordination-factory"
+            records = [
+                {
+                    "id": "multi-a",
+                    "agents": ["a", "b"],
+                    "transcript": [{"agent": "a", "message": "coordinate"}],
+                    "thought": "hidden payload captured before the audit",
+                    "meta": {
+                        "factory": "multi-agent-coordination-factory",
+                        "round": 1,
+                    },
+                },
+                {
+                    "id": "multi-b",
+                    "agents": ["a", "b"],
+                    "transcript": [{"agent": "b", "message": "verify"}],
+                    "meta": {
+                        "factory": "multi-agent-coordination-factory",
+                        "round": 1,
+                    },
+                },
+            ]
+            write_jsonl(source / "batch-r01.jsonl", records)
+            curated = root / "curated"
+            compose_curated.compose_run(root / "run", curated)
+            output = (
+                curated
+                / compose_curated.RECORDS_DIRNAME
+                / "multi-agent-coordination-factory"
+                / "batch-r01.jsonl"
+            )
+            unsafe_documents = [
+                json.loads(line)
+                for line in output.read_text(encoding="utf-8").split("\n")
+                if line
+            ]
+            safe_documents = json.loads(json.dumps(unsafe_documents))
+            safe_documents[0].pop("thought")
+            safe_payload = "".join(
+                compose_curated.canonical_json(record) + "\n"
+                for record in safe_documents
+            ).encode("utf-8")
+            real_collect = export_hf.collect_files
+
+            def capture_then_replace(records_dir):
+                captured = real_collect(records_dir)
+                output.write_bytes(safe_payload)
+                return captured
+
+            with mock.patch.object(
+                export_hf, "collect_files", side_effect=capture_then_replace
+            ):
+                with self.assertRaisesRegex(export_hf.ExportError, "hidden-thought"):
+                    export_hf.export_run(curated, root / "export")
+            self.assertFalse((root / "export").exists())
 
     def test_cli_prints_provenance_and_reports_refusals(self):
         with tempfile.TemporaryDirectory() as td:

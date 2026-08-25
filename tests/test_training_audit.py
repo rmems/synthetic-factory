@@ -61,6 +61,28 @@ def episode_preference(record_id, *, pair_goal=None, chosen_goal=None, rejected_
 
 
 class TrainingAudit(unittest.TestCase):
+    def test_jsonl_framing_preserves_literal_unicode_line_separators(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            first = thalamic("unicode-separators")
+            first["state"]["domain"] = "line\u2028separator\u2029paragraph"
+            records = [first, thalamic("plain")]
+            path = root / "thalamic-trajectory-factory" / "batch-r01.jsonl"
+            path.parent.mkdir(parents=True)
+            path.write_text(
+                "".join(
+                    json.dumps(record, ensure_ascii=False) + "\n" for record in records
+                ),
+                encoding="utf-8",
+            )
+            self.assertGreater(len(path.read_text(encoding="utf-8").splitlines()), 2)
+
+            report = training_audit.audit_run(root)
+
+        self.assertEqual(report["totals"]["records"], 2)
+        self.assertEqual(report["record_invariants"]["errors"], 0)
+        self.assertTrue(report["training_ready"], report["blockers"])
+
     def test_clean_corpus_is_training_ready(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)

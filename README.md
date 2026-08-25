@@ -138,9 +138,13 @@ The five curation lanes (`curate_identity`, `curate_bridge`,
 `curate_preferences`, `curate_rewards`, `curate_coding`) are record-level and
 independent. `compose_curated.py` applies them in one documented order and
 `export_hf.py` turns the result into a lossless export plus a tiny split.
+Preference sides are classified explicitly: same-state Thalamic pairs use the
+same-context gate, homogeneous episode pairs use the reviewed trajectory gate
+(or its fail-closed compatible core until that sibling module is stacked), and
+mixed side families are excluded with an explicit reason code.
 
 ```bash
-# 1. Compose: identity -> bridge -> preferences -> rewards -> coding
+# 1. Compose: identity -> bridge -> preferences -> coding -> rewards
 #    (tag normalization is not composed yet). Never overwrites a destination.
 python3 pipelines/compose_curated.py outputs/raw/2026-08-17 outputs/curated/2026-08-23
 python3 pipelines/compose_curated.py --strict <source_run> <destination>   # exit 1 unless training_ready
@@ -162,9 +166,21 @@ Export writes `data/curated/…` (byte-identical payload),
 `data/viewer/records.parquet` (`{source_file, source_line, record_json}`,
 uncompressed PLAIN, written and read back with the standard library),
 `data/splits/train.jsonl`, `data/splits/eval.jsonl`, `provenance.json` carrying
-`training_ready` from the audit, and a one-page `EVAL_PROTOCOL.md`. The split is
-a pure function of `(salt, source_file, source_line)`, so it reproduces exactly
-and appending records never reshuffles the existing ones.
+`training_ready` from the audit, and a one-page `EVAL_PROTOCOL.md`. Before
+export, every `COMPOSE.json` output, manifest, and reward-sidecar path, digest,
+count, coordinate, and annotation link is checked against the emitted bytes.
+The exporter also replays the deterministic compose contract from every current
+source line and requires exact agreement with stages, exclusions, source/output
+mappings, and sidecars. This authenticates the source snapshot available at
+export time; it does **not** claim that a mutable source directory remained
+unchanged between the original compose and that replay. Symlink and hard-link
+aliases are refused, and the strict audit consumes the same in-memory bytes the
+export writes rather than reopening mutable paths.
+The split is deterministic for one immutable post-curation snapshot. A global
+hash-order fallback keeps both sides nonempty for any corpus with at least two
+records, so changing the snapshot can change the fallback-selected row. The
+eval side is held out from a future trainer; it is not tuning-independent
+evidence for the curation rules that produced the snapshot.
 
 **No trainer.** Neither command launches local or cloud training, and neither
 creates or uploads a Hugging Face repository. They produce split files and an

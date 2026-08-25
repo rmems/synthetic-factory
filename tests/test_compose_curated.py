@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Tests for composing the five curation lanes into one curated destination."""
 
+import copy
 import hashlib
 import io
 import json
@@ -18,6 +19,7 @@ import compose_curated  # noqa: E402
 import curate_bridge  # noqa: E402
 import curate_coding  # noqa: E402
 import curate_preferences  # noqa: E402
+import curate_rewards  # noqa: E402
 import training_audit  # noqa: E402
 
 
@@ -38,6 +40,7 @@ def trajectory(action="noop", provenance="designed", domain="compose-test"):
 def thalamic(tag):
     record = trajectory(domain=f"compose-{tag}")
     record["id"] = f"legacy-{tag}"
+    record["meta"]["factory"] = "thalamic-trajectory-factory"
     return record
 
 
@@ -61,7 +64,11 @@ def bridge_pair(*, unsorted=False):
             ),
         },
         "spike_events": [spike(value, index) for index, value in enumerate(times)],
-        "meta": {"tags": ["bridge"], "round": 1},
+        "meta": {
+            "factory": "neuromorphic-event-language-bridge",
+            "tags": ["bridge"],
+            "round": 1,
+        },
     }
 
 
@@ -71,7 +78,11 @@ def preference_pair(*, pure=True):
         "chosen": trajectory(action="noop", domain="pref"),
         "rejected": trajectory(action="noop" if pure else "other", domain="pref"),
         "critique": "chosen is safer",
-        "meta": {"tags": ["preference"], "round": 1},
+        "meta": {
+            "factory": "failure-as-fuel-preference-cascade",
+            "tags": ["preference"],
+            "round": 1,
+        },
     }
 
 
@@ -89,7 +100,51 @@ def episode(tag="1"):
         ],
         "outcome": "test fixed",
         "reward": {"success": True},
-        "meta": {"tags": ["coding"], "round": 1},
+        "meta": {
+            "factory": "agentic-coding-trajectory-factory",
+            "tags": ["coding"],
+            "round": 1,
+        },
+    }
+
+
+def trajectory_preference_pair():
+    """A homogeneous episode pair satisfying the reviewed trajectory gate."""
+
+    shared_step = {
+        "n": 1,
+        "decision_basis": "Inspect the shared failure.",
+        "tool_call": {"name": "read", "args": {"path": "failing.py"}},
+        "observation": "The same failing assertion is visible.",
+    }
+
+    def side(label, success):
+        return {
+            "steps": [
+                copy.deepcopy(shared_step),
+                {
+                    "n": 2,
+                    "decision_basis": f"Take the {label} branch.",
+                    "tool_call": {
+                        "name": "edit",
+                        "args": {"path": "failing.py", "branch": label},
+                    },
+                    "observation": f"{label} outcome",
+                },
+            ],
+            "outcome": f"{label} outcome",
+            "reward": {"success": success},
+        }
+
+    return {
+        "id": "trajectory-pref-1",
+        "goal": "Fix the shared failing assertion",
+        "chosen": side("fixed", True),
+        "rejected": side("failed", False),
+        "meta": {
+            "factory": "tool-use-preference-factory",
+            "round": 1,
+        },
     }
 
 
@@ -143,6 +198,14 @@ class ComposeCurated(unittest.TestCase):
             self.assertEqual(summary["counts"]["retained"], 7)
             self.assertEqual(summary["counts"]["excluded"], 1)
             self.assertEqual(summary["lane_order"], list(compose_curated.LANE_ORDER))
+            self.assertEqual(
+                summary["transforms"]["preferences"]["trajectory"]["implementation"],
+                (
+                    "reviewed_module"
+                    if compose_curated.curate_trajectory_preferences is not None
+                    else "compatible_core"
+                ),
+            )
             self.assertTrue(summary["audit"]["training_ready"], summary["audit"]["blockers"])
             self.assertEqual(summary["audit"]["blockers"], [])
             self.assertEqual(summary["audit"]["records"], 7)
@@ -263,6 +326,20 @@ class ComposeCurated(unittest.TestCase):
         self.assertEqual(actions["identity"], compose_curated.ACTION_RETAINED)
         self.assertEqual(actions["rewards"], compose_curated.ACTION_RETAINED)
 
+        unstamped = thalamic("unstamped")
+        unstamped["meta"].pop("factory")
+        refused = compose_curated.compose_record(
+            unstamped,
+            source_path="thalamic-trajectory-factory/batch-r01.jsonl",
+            source_line=1,
+            source_sha256="0" * 64,
+        )
+        self.assertEqual(refused.action, compose_curated.ACTION_EXCLUDED)
+        self.assertEqual(
+            refused.reason_codes,
+            ("identity.factory_path_payload_mismatch",),
+        )
+
         # The compose gates must agree with the gates the lanes apply themselves.
         samples = [
             thalamic("x"),
@@ -300,6 +377,258 @@ class ComposeCurated(unittest.TestCase):
                 compose_curated.is_episode_record(sample),
                 not rejected_as_episode,
                 sample,
+            )
+
+    def test_episode_preference_pairs_are_retained_and_mixed_families_are_explicit(self):
+        pair = trajectory_preference_pair()
+        decision = compose_curated.compose_record(
+            pair,
+            source_path="tool-use-preference-factory/batch-r01.jsonl",
+            source_line=1,
+            source_sha256="0" * 64,
+        )
+
+        self.assertEqual(decision.action, compose_curated.ACTION_RETAINED)
+        preference_stage = next(
+            stage for stage in decision.stages if stage["lane"] == "preferences"
+        )
+        self.assertEqual(preference_stage["side_kinds"], ["episode", "episode"])
+        self.assertEqual(
+            preference_stage["classification"], "trajectory_pair_gate_passed"
+        )
+        self.assertEqual(
+            preference_stage["implementation"],
+            (
+                "reviewed_module"
+                if compose_curated.curate_trajectory_preferences is not None
+                else "compatible_core"
+            ),
+        )
+        self.assertIn(
+            compose_curated.REASON_TRAJECTORY_GATE_PASSED,
+            preference_stage["reason_codes"],
+        )
+
+        mixed = trajectory_preference_pair()
+        mixed["rejected"] = trajectory(action="reject", domain="mixed")
+        rejected = compose_curated.compose_record(
+            mixed,
+            source_path="tool-use-preference-factory/batch-r01.jsonl",
+            source_line=2,
+            source_sha256="1" * 64,
+        )
+        self.assertEqual(rejected.action, compose_curated.ACTION_EXCLUDED)
+        self.assertEqual(
+            rejected.reason_codes,
+            (compose_curated.REASON_MIXED_PREFERENCE_FAMILIES,),
+        )
+        self.assertEqual(
+            rejected.stages[0]["detail"]["preference_side_kinds"],
+            ["episode", "thalamic"],
+        )
+
+        malformed = trajectory_preference_pair()
+        malformed.pop("rejected")
+        malformed_decision = compose_curated.compose_record(
+            malformed,
+            source_path="tool-use-preference-factory/batch-r01.jsonl",
+            source_line=3,
+            source_sha256="2" * 64,
+        )
+        self.assertEqual(malformed_decision.action, compose_curated.ACTION_EXCLUDED)
+        self.assertNotIn(
+            compose_curated.REASON_MIXED_PREFERENCE_FAMILIES,
+            malformed_decision.reason_codes,
+        )
+        self.assertEqual(
+            malformed_decision.stages[0]["detail"]["preference_side_kinds"],
+            ["episode", "unknown"],
+        )
+
+        whitespace = trajectory_preference_pair()
+        whitespace["goal"] = "Fix shared assertion"
+        whitespace["chosen"]["goal"] = " Fix  shared assertion "
+        whitespace["rejected"]["goal"] = "Fix\tshared assertion"
+        repaired = compose_curated.compose_record(
+            whitespace,
+            source_path="tool-use-preference-factory/batch-r01.jsonl",
+            source_line=4,
+            source_sha256="3" * 64,
+        )
+        preference_stage = next(
+            stage for stage in repaired.stages if stage["lane"] == "preferences"
+        )
+        self.assertEqual(preference_stage["lane_action"], "repaired")
+        self.assertIn(
+            compose_curated.REASON_TRAJECTORY_GOAL_NORMALIZED,
+            preference_stage["reason_codes"],
+        )
+        self.assertEqual(repaired.record["goal"], "Fix shared assertion")
+        self.assertEqual(repaired.record["chosen"]["goal"], "Fix shared assertion")
+        self.assertEqual(repaired.record["rejected"]["goal"], "Fix shared assertion")
+
+    def test_same_state_schema_precedes_episode_fields_and_matches_pr93(self):
+        impure = trajectory_preference_pair()
+        impure["chosen"].update(
+            {
+                "state": {"tick": 1},
+                "proposed_action": {"action": "chosen"},
+            }
+        )
+        impure["rejected"].update(
+            {
+                "state": {"tick": 2},
+                "proposed_action": {"action": "rejected"},
+            }
+        )
+        direct = curate_preferences.curate_preference_record(impure)
+        decision = compose_curated.compose_record(
+            impure,
+            source_path="tool-use-preference-factory/batch-r01.jsonl",
+            source_line=1,
+            source_sha256="4" * 64,
+        )
+
+        self.assertIsNone(direct.record)
+        self.assertEqual(decision.action, compose_curated.ACTION_EXCLUDED)
+        self.assertEqual(decision.reason_codes, direct.reason_codes)
+        preference_stage = next(
+            stage for stage in decision.stages if stage["lane"] == "preferences"
+        )
+        self.assertEqual(preference_stage["schema"], "same_state_pair")
+        self.assertEqual(
+            preference_stage["transform_name"], curate_preferences.TRANSFORM_NAME
+        )
+        self.assertEqual(
+            preference_stage["classification"], direct.classification
+        )
+        self.assertNotIn("implementation", preference_stage)
+
+        pure = copy.deepcopy(impure)
+        pure["rejected"]["state"] = copy.deepcopy(pure["chosen"]["state"])
+        pure["rejected"]["proposed_action"] = copy.deepcopy(
+            pure["chosen"]["proposed_action"]
+        )
+        retained = compose_curated.compose_record(
+            pure,
+            source_path="tool-use-preference-factory/batch-r01.jsonl",
+            source_line=2,
+            source_sha256="5" * 64,
+        )
+        retained_stage = next(
+            stage for stage in retained.stages if stage["lane"] == "preferences"
+        )
+        direct_pure = curate_preferences.curate_preference_record(pure)
+        self.assertEqual(retained.action, compose_curated.ACTION_RETAINED)
+        self.assertEqual(retained_stage["schema"], "same_state_pair")
+        self.assertEqual(
+            retained_stage["classification"], direct_pure.classification
+        )
+
+    def test_reviewed_trajectory_module_is_used_when_the_stack_provides_it(self):
+        pair = trajectory_preference_pair()
+
+        class ReviewedModule:
+            TRANSFORM_NAME = "reviewed-trajectory-contract"
+            TRANSFORM_VERSION = "reviewed-v1"
+
+            @staticmethod
+            def curate_trajectory_pair(record):
+                return compose_curated._TrajectoryPreferenceDecision(
+                    action="retained",
+                    classification="reviewed_contract_called",
+                    reason_codes=(compose_curated.REASON_TRAJECTORY_GATE_PASSED,),
+                    record=copy.deepcopy(record),
+                    shared_goal=True,
+                    overlap={"shared_steps": 1},
+                )
+
+        with mock.patch.object(
+            compose_curated, "curate_trajectory_preferences", ReviewedModule
+        ):
+            decision = compose_curated.compose_record(
+                pair,
+                source_path="tool-use-preference-factory/batch-r01.jsonl",
+                source_line=1,
+                source_sha256="0" * 64,
+            )
+
+        stage = next(item for item in decision.stages if item["lane"] == "preferences")
+        self.assertEqual(stage["transform_name"], ReviewedModule.TRANSFORM_NAME)
+        self.assertEqual(stage["transform_version"], ReviewedModule.TRANSFORM_VERSION)
+        self.assertEqual(stage["implementation"], "reviewed_module")
+        self.assertEqual(stage["classification"], "reviewed_contract_called")
+
+    def test_rewardless_record_adopts_the_curators_annotation_stripped_result(self):
+        stale, _sidecar = curate_rewards.curate_record({"payload": "now removed"})
+        record = {
+            "id": "legacy-multi-agent",
+            "transcript": [{"agent": "a", "message": "coordinate"}],
+            "agents": ["a", "b"],
+            "meta": {"factory": "multi-agent-coordination-factory", "round": 1},
+            "reward_training": stale["reward_training"],
+        }
+
+        decision = compose_curated.compose_record(
+            record,
+            source_path="multi-agent-coordination-factory/batch-r01.jsonl",
+            source_line=1,
+            source_sha256="0" * 64,
+        )
+
+        self.assertEqual(decision.action, compose_curated.ACTION_RETAINED)
+        self.assertNotIn(curate_rewards.ANNOTATION_FIELD, decision.record)
+        self.assertIsNone(decision.reward_sidecar)
+        rewards = next(stage for stage in decision.stages if stage["lane"] == "rewards")
+        self.assertEqual(rewards["action"], compose_curated.ACTION_NOT_APPLICABLE)
+        self.assertEqual(rewards["source_reward_count"], 0)
+
+    def test_reward_sidecar_restores_the_final_post_coding_record(self):
+        decision = compose_curated.compose_record(
+            episode("final-hash"),
+            source_path="agentic-coding-trajectory-factory/batch-r01.jsonl",
+            source_line=1,
+            source_sha256="0" * 64,
+        )
+
+        self.assertEqual(decision.stages[-1]["lane"], "rewards")
+        self.assertNotIn("thought", decision.record["steps"][0])
+        expected = copy.deepcopy(decision.record)
+        expected.pop(curate_rewards.ANNOTATION_FIELD)
+        self.assertEqual(
+            curate_rewards.restore_source_record(
+                decision.record, decision.reward_sidecar
+            ),
+            expected,
+        )
+
+    def test_source_jsonl_uses_lf_only_and_preserves_unicode_separators(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            source = root / "run" / "thalamic-trajectory-factory"
+            source.mkdir(parents=True)
+            first = thalamic("unicode-separators")
+            first["state"]["domain"] = "line\u2028separator\u2029paragraph"
+            write_jsonl(source / "batch-r01.jsonl", [first, thalamic("plain")])
+
+            summary = compose_curated.compose_run(root / "run", root / "curated")
+            output = (
+                root
+                / "curated"
+                / compose_curated.RECORDS_DIRNAME
+                / "thalamic-trajectory-factory"
+                / "batch-r01.jsonl"
+            ).read_text(encoding="utf-8")
+            records = [json.loads(line) for line in output.split("\n") if line]
+
+            self.assertEqual(summary["counts"]["source_records"], 2)
+            self.assertEqual(summary["audit"]["records"], 2)
+            self.assertTrue(
+                summary["audit"]["training_ready"], summary["audit"]["blockers"]
+            )
+            self.assertEqual(len(records), 2)
+            self.assertEqual(
+                records[0]["state"]["domain"], first["state"]["domain"]
             )
 
     def test_unsupported_and_unparseable_lines_are_excluded_with_reasons(self):
@@ -388,6 +717,17 @@ class ComposeCurated(unittest.TestCase):
                 compose_curated.compose_run(source, root / "missing-parent" / "dest")
             with self.assertRaises(compose_curated.ComposeError):
                 compose_curated.compose_run(root / "absent-run", root / "other")
+
+            raw = root / "outputs" / "raw"
+            raw.mkdir(parents=True)
+            safe = root / "safe"
+            safe.mkdir()
+            lexical_alias = raw / ".." / ".." / "safe" / "lexical-curated"
+            with self.assertRaisesRegex(
+                compose_curated.ComposeError, "immutable raw"
+            ):
+                compose_curated.compose_run(source, lexical_alias)
+            self.assertFalse((safe / "lexical-curated").exists())
 
     def test_a_failed_composition_removes_the_new_destination(self):
         with tempfile.TemporaryDirectory() as td:

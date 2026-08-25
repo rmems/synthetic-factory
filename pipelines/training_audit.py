@@ -19,6 +19,8 @@ import statistics
 import sys
 from collections import Counter, defaultdict
 from pathlib import Path
+from pathlib import PurePosixPath
+from typing import Mapping
 
 _PIPELINES = Path(__file__).resolve().parent
 if str(_PIPELINES) not in sys.path:
@@ -204,9 +206,40 @@ def hidden_thought_paths(value, path=""):
             yield from hidden_thought_paths(item, f"{path}[{index}]")
 
 
-def audit_run(run_dir: Path):
+def audit_run(
+    run_dir: Path,
+    *,
+    snapshot: Mapping[str, bytes] | None = None,
+):
+    """Audit one immutable byte snapshot.
+
+    Normal callers get a snapshot captured from ``run_dir`` once at entry.
+    Exporters may pass the already-authenticated bytes they will publish, which
+    prevents the audit and writer from observing different filesystem states.
+    """
+
     run_dir = Path(run_dir).resolve()
-    files = sorted(run_dir.rglob("*.jsonl"))
+    if snapshot is None:
+        files = [
+            (path.relative_to(run_dir), path.read_bytes())
+            for path in sorted(run_dir.rglob("*.jsonl"))
+            if path.is_file()
+        ]
+    else:
+        files = []
+        for raw_relative, payload in sorted(snapshot.items()):
+            if not isinstance(raw_relative, str) or not raw_relative:
+                raise ValueError("audit snapshot paths must be nonempty strings")
+            relative = PurePosixPath(raw_relative)
+            if relative.is_absolute() or any(
+                part in {"", ".", ".."} for part in relative.parts
+            ):
+                raise ValueError(f"unsafe audit snapshot path: {raw_relative!r}")
+            if not isinstance(payload, bytes):
+                raise TypeError(
+                    f"audit snapshot payload for {raw_relative!r} must be bytes"
+                )
+            files.append((Path(*relative.parts), payload))
     factories = defaultdict(
         lambda: {
             "files": 0,
@@ -253,24 +286,23 @@ def audit_run(run_dir: Path):
     bridge = Counter()
     episodes = Counter()
 
-    for path in files:
-        rel = path.relative_to(run_dir)
+    for rel, raw_text in files:
         factory = rel.parts[0] if len(rel.parts) > 1 else "_root"
-        payload_bytes = path.stat().st_size
+        payload_bytes = len(raw_text)
         bucket = factories[factory]
         bucket["files"] += 1
         bucket["bytes"] += payload_bytes
         totals["files"] += 1
         totals["bytes"] += payload_bytes
 
-        raw_text = path.read_bytes()
         try:
             text = raw_text.decode("utf-8")
         except UnicodeDecodeError as exc:
             record_errors.append(f"{rel}: invalid UTF-8: {exc}")
             text = raw_text.decode("utf-8", errors="replace")
-        # Split JSONL only at literal LF.  ``splitlines`` incorrectly treats
-        # U+2028/U+2029 embedded in JSON strings as record boundaries.
+        # JSONL is framed by LF bytes only. ``splitlines`` also treats literal
+        # U+2028/U+2029 characters inside otherwise valid JSON strings as
+        # record boundaries, which creates phantom rows and parse failures.
         for line_number, line in enumerate(text.split("\n"), 1):
             if not line.strip():
                 continue

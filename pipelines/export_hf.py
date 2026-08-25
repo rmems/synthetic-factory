@@ -35,21 +35,24 @@ import hashlib
 import json
 import os
 import shutil
+import stat
 import struct
 import sys
+from collections import Counter
 from dataclasses import dataclass
-from pathlib import Path
-from typing import Any, Iterable, Sequence
+from pathlib import Path, PurePosixPath
+from typing import Any, Iterable, Mapping, Sequence
 
 _PIPELINES = Path(__file__).resolve().parent
 if str(_PIPELINES) not in sys.path:
     sys.path.insert(0, str(_PIPELINES))
 
 import compose_curated  # noqa: E402
+import curate_rewards  # noqa: E402
 import training_audit  # noqa: E402
 
 EXPORT_NAME = "export_hf"
-EXPORT_VERSION = "export-hf-v1"
+EXPORT_VERSION = "export-hf-v2"
 CREATED_BY = f"synthetic-factory {EXPORT_NAME} ({EXPORT_VERSION})"
 
 CURATED_DIRNAME = "data/curated"
@@ -63,9 +66,10 @@ VIEWER_COLUMNS = ("source_file", "source_line", "record_json")
 DEFAULT_EVAL_FRACTION = 0.1
 DEFAULT_SPLIT_SALT = "spikenaut.synthetic-factory.split-v1"
 SPLIT_POLICY = (
-    "sha256(salt|source_file|source_line) mapped to [0,1); a row is eval when "
-    "its value is below eval_fraction. Every factory with at least two rows "
-    "contributes at least one row to each split."
+    "deterministic snapshot split: sha256(salt|source_file|source_line) maps each "
+    "row to [0,1); rows below eval_fraction are eval, every factory with at least "
+    "two rows contributes to both sides, and a global hash-order fallback keeps "
+    "every corpus of at least two records two-sided"
 )
 
 # Thrift compact protocol field types.
@@ -471,11 +475,24 @@ def read_viewer_parquet(payload: bytes) -> list[ViewerRow]:
 # ── Export ────────────────────────────────────────────────────────────
 
 
-def _read_curated_file(path: Path, relative: str) -> CuratedFile:
+def _reject_json_constant(value: str) -> None:
+    raise ValueError(f"non-finite JSON constant {value!r}")
+
+
+def _loads_json(payload: str, label: str) -> Any:
+    try:
+        return json.loads(payload, parse_constant=_reject_json_constant)
+    except (json.JSONDecodeError, ValueError) as exc:
+        raise ExportError(f"{label}: invalid JSON: {exc}") from exc
+
+
+def _read_curated_file(
+    path: Path, relative: str, *, payload: bytes | None = None
+) -> CuratedFile:
     """Read one curated JSONL file and prove its lines reproduce its bytes."""
 
     source_file = f"{CURATED_DIRNAME}/{relative}"
-    payload = path.read_bytes()
+    payload = path.read_bytes() if payload is None else payload
     try:
         text = payload.decode("utf-8")
     except UnicodeDecodeError as exc:
@@ -490,12 +507,7 @@ def _read_curated_file(path: Path, relative: str) -> CuratedFile:
     for line_number, line in enumerate(lines, 1):
         if not line.strip():
             raise ExportError(f"{relative}:{line_number}: curated JSONL has a blank line")
-        try:
-            json.loads(line)
-        except json.JSONDecodeError as exc:
-            raise ExportError(
-                f"{relative}:{line_number}: curated line is not JSON: {exc}"
-            ) from exc
+        _loads_json(line, f"{relative}:{line_number}: curated line")
         rows.append(
             ViewerRow(
                 source_file=source_file, source_line=line_number, record_json=line
@@ -511,9 +523,11 @@ def collect_files(records_dir: Path) -> list[CuratedFile]:
 
     files: list[CuratedFile] = []
     for path in sorted(records_dir.rglob("*.jsonl")):
-        if not path.is_file():
-            continue
-        files.append(_read_curated_file(path, path.relative_to(records_dir).as_posix()))
+        relative = path.relative_to(records_dir).as_posix()
+        exact_path, payload = _read_exact_regular_file(
+            records_dir, relative, f"curated payload {relative}"
+        )
+        files.append(_read_curated_file(exact_path, relative, payload=payload))
     return files
 
 
@@ -535,7 +549,7 @@ def split_bucket(row: ViewerRow, salt: str) -> float:
 def split_rows(
     rows: Sequence[ViewerRow], *, eval_fraction: float, salt: str
 ) -> tuple[list[ViewerRow], list[ViewerRow]]:
-    """Partition rows into train and eval deterministically, per factory."""
+    """Partition one immutable snapshot deterministically, with two-sided fallback."""
 
     if not 0 < eval_fraction < 1:
         raise ExportError("eval_fraction must be between 0 and 1 exclusive")
@@ -549,7 +563,8 @@ def split_rows(
         by_factory.setdefault(factory, []).append((split_bucket(row, salt), row))
 
     evaluation: set[tuple[str, int]] = set()
-    for group in by_factory.values():
+    for factory in sorted(by_factory):
+        group = by_factory[factory]
         ordered = sorted(
             group,
             key=lambda item: (item[0], item[1].source_file, item[1].source_line),
@@ -562,10 +577,21 @@ def split_rows(
                 chosen = ordered[:-1]
         evaluation.update((row.source_file, row.source_line) for _bucket, row in chosen)
 
+    globally_ordered = sorted(
+        ((split_bucket(row, salt), row) for row in rows),
+        key=lambda item: (item[0], item[1].source_file, item[1].source_line),
+    )
+    if not evaluation:
+        _bucket, row = globally_ordered[0]
+        evaluation.add((row.source_file, row.source_line))
+    elif len(evaluation) == len(rows):
+        _bucket, row = globally_ordered[-1]
+        evaluation.remove((row.source_file, row.source_line))
+
     train = [row for row in rows if (row.source_file, row.source_line) not in evaluation]
     evaluate = [row for row in rows if (row.source_file, row.source_line) in evaluation]
-    if not train or not evaluate:
-        raise ExportError("split produced an empty train or eval file")
+    if not train or not evaluate:  # defensive: len(rows) >= 2 makes this unreachable
+        raise ExportError("deterministic fallback failed to produce both split sides")
     return train, evaluate
 
 
@@ -585,23 +611,685 @@ def _jsonl_payload(rows: Sequence[ViewerRow]) -> bytes:
     return "".join(row.record_json + "\n" for row in rows).encode("utf-8")
 
 
-def _compose_metadata(curated_root: Path) -> dict[str, Any]:
-    summary_path = curated_root / compose_curated.SUMMARY_FILENAME
-    if not summary_path.is_file():
-        return {"present": False}
+def _contains_raw_segments(parts: tuple[str, ...]) -> bool:
+    return any(
+        parts[index : index + 2] == ("outputs", "raw")
+        for index in range(len(parts) - 1)
+    )
+
+
+def _is_under_raw(path: Path) -> bool:
+    """Reject both a lexical raw path and a symlink-resolved raw destination."""
+
+    return _contains_raw_segments(path.parts) or _contains_raw_segments(
+        path.resolve(strict=False).parts
+    )
+
+
+def _compose_member_path(curated_root: Path, raw_path: Any, label: str) -> Path:
+    """Resolve one exact regular COMPOSE member without aliases or tree escape."""
+
+    if not isinstance(raw_path, str) or not raw_path or "\\" in raw_path:
+        raise ExportError(f"{label}: path must be a nonempty POSIX string")
+    relative = PurePosixPath(raw_path)
+    if (
+        relative.as_posix() != raw_path
+        or relative.is_absolute()
+        or any(part in {"", ".", ".."} for part in relative.parts)
+    ):
+        raise ExportError(f"{label}: unsafe relative path {raw_path!r}")
+    candidate = curated_root.joinpath(*relative.parts)
     try:
-        summary = json.loads(summary_path.read_text(encoding="utf-8"))
-    except json.JSONDecodeError as exc:
-        raise ExportError(f"{summary_path}: invalid compose summary: {exc}") from exc
+        root_resolved = curated_root.resolve(strict=True)
+        resolved = candidate.resolve(strict=True)
+    except FileNotFoundError as exc:
+        raise ExportError(f"{label}: declared file is missing: {raw_path}") from exc
+    expected = root_resolved.joinpath(*relative.parts)
+    if resolved != expected or root_resolved not in resolved.parents:
+        raise ExportError(f"{label}: path is a symlink alias or escapes its root: {raw_path}")
+    try:
+        metadata = candidate.lstat()
+    except FileNotFoundError as exc:
+        raise ExportError(f"{label}: declared file is missing: {raw_path}") from exc
+    if not stat.S_ISREG(metadata.st_mode):
+        raise ExportError(f"{label}: path is not an exact regular file: {raw_path}")
+    if metadata.st_nlink != 1:
+        raise ExportError(f"{label}: hard-link aliases are not accepted: {raw_path}")
+    return candidate
+
+
+def _read_exact_regular_file(root: Path, raw_path: Any, label: str) -> tuple[Path, bytes]:
+    """Read one path through a pinned descriptor and reject identity changes."""
+
+    path = _compose_member_path(root, raw_path, label)
+    before = path.lstat()
+    flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
+    try:
+        descriptor = os.open(path, flags)
+    except OSError as exc:
+        raise ExportError(f"{label}: cannot open exact regular file {raw_path!r}: {exc}") from exc
+    try:
+        opened = os.fstat(descriptor)
+        if not stat.S_ISREG(opened.st_mode) or opened.st_nlink != 1:
+            raise ExportError(f"{label}: opened identity is not a unique regular file")
+        if (before.st_dev, before.st_ino) != (opened.st_dev, opened.st_ino):
+            raise ExportError(f"{label}: path identity changed while opening")
+        chunks: list[bytes] = []
+        while True:
+            chunk = os.read(descriptor, 1024 * 1024)
+            if not chunk:
+                break
+            chunks.append(chunk)
+    finally:
+        os.close(descriptor)
+    after = path.lstat()
+    if (after.st_dev, after.st_ino) != (opened.st_dev, opened.st_ino):
+        raise ExportError(f"{label}: path identity changed while reading")
+    if path.resolve(strict=True) != root.resolve(strict=True).joinpath(
+        *PurePosixPath(str(raw_path)).parts
+    ):
+        raise ExportError(f"{label}: path became a symlink alias while reading")
+    return path, b"".join(chunks)
+
+
+def _lf_jsonl_documents(payload: bytes, label: str) -> list[Any]:
+    """Parse JSONL with LF as the only record separator."""
+
+    try:
+        text = payload.decode("utf-8")
+    except UnicodeDecodeError as exc:
+        raise ExportError(f"{label}: payload is not UTF-8: {exc}") from exc
+    if text and not text.endswith("\n"):
+        raise ExportError(f"{label}: JSONL must end with a newline")
+    lines = text.split("\n")
+    if lines and lines[-1] == "":
+        lines.pop()
+    documents: list[Any] = []
+    for line_number, line in enumerate(lines, 1):
+        if not line.strip():
+            raise ExportError(f"{label}:{line_number}: JSONL has a blank line")
+        documents.append(_loads_json(line, f"{label}:{line_number}"))
+    return documents
+
+
+def _authenticated_descriptor(
+    curated_root: Path,
+    summary: dict[str, Any],
+    key: str,
+    expected_path: str,
+) -> tuple[dict[str, Any], list[Any]]:
+    descriptor = summary.get(key)
+    if not isinstance(descriptor, dict):
+        raise ExportError(f"COMPOSE.json: {key} descriptor must be an object")
+    if descriptor.get("path") != expected_path:
+        raise ExportError(
+            f"COMPOSE.json: {key} path must be {expected_path!r}, "
+            f"got {descriptor.get('path')!r}"
+        )
+    _path, payload = _read_exact_regular_file(
+        curated_root, descriptor["path"], f"COMPOSE {key}"
+    )
+    digest = hashlib.sha256(payload).hexdigest()
+    if descriptor.get("sha256") != digest:
+        raise ExportError(f"COMPOSE.json: {key} digest mismatch")
+    documents = _lf_jsonl_documents(payload, descriptor["path"])
+    entries = descriptor.get("entries")
+    if isinstance(entries, bool) or not isinstance(entries, int) or entries < 0:
+        raise ExportError(f"COMPOSE.json: {key}.entries must be nonnegative")
+    if entries != len(documents):
+        raise ExportError(
+            f"COMPOSE.json: {key} entry count {entries} != {len(documents)}"
+        )
+    return dict(descriptor), documents
+
+
+def _require_exact_directory(path: Path, label: str) -> Path:
+    """Require a real directory reached without a symlinked path alias."""
+
+    try:
+        metadata = path.lstat()
+        resolved = path.resolve(strict=True)
+    except FileNotFoundError as exc:
+        raise ExportError(f"{label}: directory is missing: {path}") from exc
+    absolute = Path(os.path.abspath(path))
+    if not stat.S_ISDIR(metadata.st_mode) or resolved != absolute:
+        raise ExportError(f"{label}: directory path must be an exact non-symlink identity")
+    return resolved
+
+
+def _load_calibration_payload(payload: bytes, path: Path) -> dict[str, Any]:
+    """Load reward calibration from pinned bytes while preserving evidence labels."""
+
+    try:
+        text = payload.decode("utf-8")
+    except UnicodeDecodeError as exc:
+        raise ExportError(f"calibration {path}: payload is not UTF-8: {exc}") from exc
+    document = _loads_json(text, f"calibration {path}")
+    records = document.get("records") if isinstance(document, dict) else None
+    if not isinstance(records, list):
+        raise ExportError(f"calibration {path}: records must be a list")
+
+    catalog: dict[str, Any] = {}
+    for index, entry in enumerate(records):
+        if not isinstance(entry, dict):
+            continue
+        factor = curate_rewards._decimal(entry.get("usd_conversion_factor"))
+        if factor is None or factor <= 0:
+            continue
+        scope = entry.get("scope")
+        if not isinstance(scope, str):
+            continue
+        for record_id in sorted(set(curate_rewards.RECORD_ID_RE.findall(scope))):
+            calibration = {
+                "source_unit_usd": curate_rewards._json_number(
+                    factor * curate_rewards.CANONICAL_UNIT_USD
+                ),
+                "canonical_factor": curate_rewards._json_number(factor),
+                "evidence_ref": f"{path.as_posix()}#/records/{index}",
+            }
+            key = record_id.lower()
+            previous = catalog.get(key)
+            if previous is not None and previous != calibration:
+                raise ExportError(
+                    f"calibration {path}: conflicting calibrations for {record_id}"
+                )
+            catalog[key] = calibration
+    return catalog
+
+
+def _authenticated_calibration(
+    summary: dict[str, Any], source_root: Path
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    descriptor = summary.get("calibration")
+    if not isinstance(descriptor, dict) or set(descriptor) != {
+        "mode",
+        "path",
+        "sha256",
+        "records",
+    }:
+        raise ExportError("COMPOSE.json: calibration descriptor is incomplete")
+    mode = descriptor.get("mode")
+    records = descriptor.get("records")
+    if isinstance(records, bool) or not isinstance(records, int) or records < 0:
+        raise ExportError("COMPOSE.json: calibration.records must be nonnegative")
+    if mode == "none":
+        if descriptor.get("path") is not None or descriptor.get("sha256") is not None:
+            raise ExportError("COMPOSE.json: absent calibration must not name a file")
+        catalog: dict[str, Any] = {}
+    elif mode in {"source_run", "explicit"}:
+        raw_path = descriptor.get("path")
+        if not isinstance(raw_path, str) or not raw_path:
+            raise ExportError("COMPOSE.json: calibration.path must be an absolute string")
+        path = Path(raw_path)
+        if not path.is_absolute():
+            raise ExportError("COMPOSE.json: calibration.path must be absolute")
+        if mode == "source_run" and path != source_root / compose_curated.FFPC_UNITS_MIGRATION:
+            raise ExportError("COMPOSE.json: source-run calibration path is not canonical")
+        _path, payload = _read_exact_regular_file(
+            path.parent, path.name, "COMPOSE calibration"
+        )
+        digest = hashlib.sha256(payload).hexdigest()
+        if descriptor.get("sha256") != digest:
+            raise ExportError("COMPOSE.json: calibration digest mismatch")
+        catalog = _load_calibration_payload(payload, path)
+    else:
+        raise ExportError(f"COMPOSE.json: unsupported calibration mode {mode!r}")
+    if len(catalog) != records or summary.get("calibrated_records") != records:
+        raise ExportError("COMPOSE.json: calibrated record count does not authenticate")
+    return catalog, dict(descriptor)
+
+
+def _authenticate_source_replay(
+    curated_root: Path,
+    summary: dict[str, Any],
+    actual_outputs: dict[str, CuratedFile],
+    manifest_documents: Sequence[Any],
+    sidecar_documents: Sequence[Any],
+) -> dict[str, Any]:
+    """Replay current source bytes and authenticate the complete compose mapping.
+
+    This proves that the currently available source snapshot deterministically
+    produces the declared outputs.  It deliberately does not claim that the
+    source directory was immutable between the original compose and this replay.
+    """
+
+    raw_source_root = summary.get("source_run")
+    if not isinstance(raw_source_root, str) or not Path(raw_source_root).is_absolute():
+        raise ExportError("COMPOSE.json: source_run must be an absolute directory string")
+    source_root = _require_exact_directory(Path(raw_source_root), "COMPOSE source_run")
+    if raw_source_root != str(source_root):
+        raise ExportError("COMPOSE.json: source_run must use its exact canonical path")
+    catalog, calibration_descriptor = _authenticated_calibration(summary, source_root)
+
+    counts: Counter[str] = Counter()
+    exclusions: Counter[str] = Counter()
+    lane_actions: dict[str, Counter[str]] = {
+        lane: Counter() for lane in compose_curated.LANE_ORDER
+    }
+    expected_manifest: list[dict[str, Any]] = []
+    expected_sidecars: list[dict[str, Any]] = []
+    expected_outputs: list[dict[str, Any]] = []
+    expected_payloads: dict[str, bytes] = {}
+    emitted_ids: dict[str, str] = {}
+    source_files: list[dict[str, Any]] = []
+
+    for source_file in sorted(source_root.rglob("*.jsonl")):
+        relative = source_file.relative_to(source_root).as_posix()
+        _path, raw_file = _read_exact_regular_file(
+            source_root, relative, f"compose source {relative}"
+        )
+        source_file_sha256 = hashlib.sha256(raw_file).hexdigest()
+        source_files.append(
+            {
+                "path": relative,
+                "bytes": len(raw_file),
+                "sha256": source_file_sha256,
+            }
+        )
+        counts["source_files"] += 1
+        emitted: list[str] = []
+
+        physical_lines = raw_file.split(b"\n")
+        if physical_lines and physical_lines[-1] == b"":
+            physical_lines.pop()
+        for line_number, physical_line in enumerate(physical_lines, 1):
+            if not physical_line.strip():
+                counts["blank_lines"] += 1
+                continue
+            counts["source_records"] += 1
+            source_sha256 = hashlib.sha256(physical_line).hexdigest()
+            decision = compose_curated.compose_source_line(
+                physical_line,
+                source_path=relative,
+                source_line=line_number,
+                source_file_sha256=source_file_sha256,
+                calibration_catalog=catalog,
+            )
+            entry: dict[str, Any] = {
+                "compose_name": compose_curated.COMPOSE_NAME,
+                "compose_version": compose_curated.COMPOSE_VERSION,
+                "lane_order": list(compose_curated.LANE_ORDER),
+                "source_path": relative,
+                "source_line": line_number,
+                "source_sha256": source_sha256,
+                "source_file_sha256": source_file_sha256,
+                "action": decision.action,
+                "reason_codes": list(decision.reason_codes),
+                "stages": [dict(stage) for stage in decision.stages],
+            }
+            for stage in decision.stages:
+                lane = stage["lane"]
+                if lane in lane_actions:
+                    lane_actions[lane][stage["action"]] += 1
+
+            if (
+                decision.action == compose_curated.ACTION_RETAINED
+                and decision.record is not None
+            ):
+                line = compose_curated.canonical_json(decision.record)
+                output_id = decision.output_id
+                if output_id is not None:
+                    previous = emitted_ids.get(output_id)
+                    if previous is not None:
+                        raise ExportError(
+                            f"replayed canonical ID collision {output_id!r}: "
+                            f"{previous} and {relative}:{line_number}"
+                        )
+                    emitted_ids[output_id] = f"{relative}:{line_number}"
+                emitted.append(line)
+                entry.update(
+                    {
+                        "output_path": f"{compose_curated.RECORDS_DIRNAME}/{relative}",
+                        "output_line": len(emitted),
+                        "output_id": output_id,
+                        "output_sha256": hashlib.sha256(line.encode("utf-8")).hexdigest(),
+                    }
+                )
+                counts["retained"] += 1
+                if decision.reward_sidecar is not None:
+                    entry["reward_sidecar_id"] = decision.reward_sidecar["sidecar_id"]
+                    expected_sidecars.append(decision.reward_sidecar)
+            else:
+                entry.update(
+                    {
+                        "output_path": None,
+                        "output_line": None,
+                        "output_id": None,
+                        "output_sha256": None,
+                    }
+                )
+                counts["excluded"] += 1
+                for reason in decision.reason_codes or ("compose.unspecified",):
+                    exclusions[reason] += 1
+            expected_manifest.append(entry)
+
+        if emitted:
+            output_path = f"{compose_curated.RECORDS_DIRNAME}/{relative}"
+            payload = "".join(line + "\n" for line in emitted).encode("utf-8")
+            expected_payloads[output_path] = payload
+            expected_outputs.append(
+                {
+                    "path": output_path,
+                    "records": len(emitted),
+                    "sha256": hashlib.sha256(payload).hexdigest(),
+                }
+            )
+            counts["output_files"] += 1
+
+    counts["reward_sidecars"] = len(expected_sidecars)
+    if list(manifest_documents) != expected_manifest:
+        raise ExportError(
+            "compose manifest does not reproduce from the authenticated current source snapshot"
+        )
+    if list(sidecar_documents) != expected_sidecars:
+        raise ExportError(
+            "reward sidecars do not reproduce from the authenticated current source snapshot"
+        )
+    if summary.get("outputs") != expected_outputs:
+        raise ExportError("COMPOSE.json: output declarations do not reproduce from source")
+    if set(actual_outputs) != set(expected_payloads):
+        raise ExportError("curated output paths do not reproduce from the source snapshot")
+    for output_path, payload in expected_payloads.items():
+        if actual_outputs[output_path].payload != payload:
+            raise ExportError(f"curated output bytes do not reproduce: {output_path}")
+
+    expected_counts = {
+        "source_files": counts["source_files"],
+        "source_records": counts["source_records"],
+        "blank_lines": counts["blank_lines"],
+        "retained": counts["retained"],
+        "excluded": counts["excluded"],
+        "output_files": counts["output_files"],
+        "reward_sidecars": counts["reward_sidecars"],
+    }
+    if summary.get("counts") != expected_counts:
+        raise ExportError("COMPOSE.json: source/output counts do not reproduce")
+    expected_lane_actions = {
+        lane: dict(sorted(actions.items())) for lane, actions in lane_actions.items()
+    }
+    if summary.get("lane_actions") != expected_lane_actions:
+        raise ExportError("COMPOSE.json: lane action counts do not reproduce")
+    if summary.get("exclusions") != dict(sorted(exclusions.items())):
+        raise ExportError("COMPOSE.json: exclusions do not reproduce")
+    if summary.get("transforms") != compose_curated.transform_contract():
+        raise ExportError("COMPOSE.json: transform declarations do not match this contract")
+
+    snapshot_digest = hashlib.sha256(
+        compose_curated.canonical_json(source_files).encode("utf-8")
+    ).hexdigest()
+    return {
+        "path": str(source_root),
+        "authentication_scope": "current_source_snapshot_replayed",
+        "historical_immutability_proven": False,
+        "files": counts["source_files"],
+        "records": counts["source_records"],
+        "blank_lines": counts["blank_lines"],
+        "snapshot_index_sha256": snapshot_digest,
+        "calibration": calibration_descriptor,
+    }
+
+
+def _compose_metadata(
+    curated_root: Path,
+    curated_files: Sequence[CuratedFile],
+    audit_report: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Authenticate COMPOSE paths, bytes, coordinates, and reward links."""
+
+    summary_path, summary_payload = _read_exact_regular_file(
+        curated_root,
+        compose_curated.SUMMARY_FILENAME,
+        "COMPOSE summary",
+    )
+    try:
+        summary_text = summary_payload.decode("utf-8")
+    except UnicodeDecodeError as exc:
+        raise ExportError(f"{summary_path}: compose summary is not UTF-8: {exc}") from exc
+    summary = _loads_json(summary_text, str(summary_path))
     if not isinstance(summary, dict):
         raise ExportError(f"{summary_path}: compose summary must be an object")
+
+    if summary.get("compose_name") != compose_curated.COMPOSE_NAME:
+        raise ExportError("COMPOSE.json: unexpected compose_name")
+    if summary.get("compose_version") != compose_curated.COMPOSE_VERSION:
+        raise ExportError(
+            "COMPOSE.json: compose_version does not match this export contract"
+        )
+    if summary.get("lane_order") != list(compose_curated.LANE_ORDER):
+        raise ExportError("COMPOSE.json: lane_order does not match the compose contract")
+    if summary.get("destination") != str(curated_root.resolve()):
+        raise ExportError("COMPOSE.json: destination does not name this curated root")
+
+    actual_outputs: dict[str, CuratedFile] = {}
+    for curated in curated_files:
+        prefix = f"{CURATED_DIRNAME}/"
+        if not curated.source_file.startswith(prefix):
+            raise ExportError(f"invalid curated source path: {curated.source_file}")
+        compose_path = (
+            f"{compose_curated.RECORDS_DIRNAME}/"
+            f"{curated.source_file.removeprefix(prefix)}"
+        )
+        actual_outputs[compose_path] = curated
+
+    declared_outputs = summary.get("outputs")
+    if not isinstance(declared_outputs, list):
+        raise ExportError("COMPOSE.json: outputs must be a list")
+    authenticated_outputs: list[dict[str, Any]] = []
+    seen_output_paths: set[str] = set()
+    for index, entry in enumerate(declared_outputs):
+        if not isinstance(entry, dict):
+            raise ExportError(f"COMPOSE.json: outputs[{index}] must be an object")
+        raw_path = entry.get("path")
+        _path, current_payload = _read_exact_regular_file(
+            curated_root, raw_path, f"COMPOSE outputs[{index}]"
+        )
+        if raw_path in seen_output_paths:
+            raise ExportError(f"COMPOSE.json: duplicate output path {raw_path!r}")
+        seen_output_paths.add(raw_path)
+        curated = actual_outputs.get(raw_path)
+        if curated is None:
+            raise ExportError(f"COMPOSE.json: undeclared or non-payload output {raw_path!r}")
+        if current_payload != curated.payload:
+            raise ExportError(
+                f"COMPOSE.json: output identity changed after snapshot capture: {raw_path}"
+            )
+        # Bind the descriptor to the same immutable snapshot already parsed
+        # into ``curated`` and later written to the export, avoiding a second
+        # file read with different bytes under a concurrent source mutation.
+        digest = hashlib.sha256(curated.payload).hexdigest()
+        if entry.get("sha256") != digest:
+            raise ExportError(f"COMPOSE.json: output digest mismatch for {raw_path}")
+        records = entry.get("records")
+        if isinstance(records, bool) or not isinstance(records, int) or records < 1:
+            raise ExportError(f"COMPOSE.json: invalid record count for {raw_path}")
+        if records != len(curated.rows):
+            raise ExportError(
+                f"COMPOSE.json: output record count mismatch for {raw_path}"
+            )
+        authenticated_outputs.append(
+            {"path": raw_path, "records": records, "sha256": digest}
+        )
+    if seen_output_paths != set(actual_outputs):
+        missing = sorted(set(actual_outputs) - seen_output_paths)
+        raise ExportError(f"COMPOSE.json: payload outputs missing from summary: {missing}")
+
+    manifest, manifest_documents = _authenticated_descriptor(
+        curated_root,
+        summary,
+        "manifest",
+        f"{compose_curated.MANIFEST_DIRNAME}/{compose_curated.MANIFEST_FILENAME}",
+    )
+    reward_sidecars, sidecar_documents = _authenticated_descriptor(
+        curated_root,
+        summary,
+        "reward_sidecars",
+        (
+            f"{compose_curated.MANIFEST_DIRNAME}/"
+            f"{compose_curated.REWARD_SIDECAR_FILENAME}"
+        ),
+    )
+
+    sidecars_by_id: dict[str, dict[str, Any]] = {}
+    for index, document in enumerate(sidecar_documents):
+        try:
+            curate_rewards.validate_ontology_document(document)
+        except curate_rewards.RewardOntologyError as exc:
+            raise ExportError(f"reward sidecar {index + 1} is invalid: {exc}") from exc
+        sidecar_id = document["sidecar_id"]
+        if sidecar_id in sidecars_by_id:
+            raise ExportError(f"duplicate reward sidecar id {sidecar_id}")
+        sidecars_by_id[sidecar_id] = document
+
+    expected_coordinates = {
+        (path, row.source_line)
+        for path, curated in actual_outputs.items()
+        for row in curated.rows
+    }
+    manifest_coordinates: set[tuple[str, int]] = set()
+    referenced_sidecars: set[str] = set()
+    for index, entry in enumerate(manifest_documents):
+        if not isinstance(entry, dict):
+            raise ExportError(f"compose manifest entry {index + 1} must be an object")
+        if entry.get("compose_name") != compose_curated.COMPOSE_NAME:
+            raise ExportError(
+                f"compose manifest entry {index + 1} has an unexpected compose_name"
+            )
+        if entry.get("compose_version") != compose_curated.COMPOSE_VERSION:
+            raise ExportError(
+                f"compose manifest entry {index + 1} has an unexpected compose_version"
+            )
+        if entry.get("lane_order") != list(compose_curated.LANE_ORDER):
+            raise ExportError(
+                f"compose manifest entry {index + 1} has an unexpected lane_order"
+            )
+        if entry.get("action") != compose_curated.ACTION_RETAINED:
+            if any(
+                entry.get(field) is not None
+                for field in (
+                    "output_path",
+                    "output_line",
+                    "output_id",
+                    "output_sha256",
+                    "reward_sidecar_id",
+                )
+            ):
+                raise ExportError(
+                    f"compose manifest entry {index + 1} gives an excluded row output"
+                )
+            continue
+        output_path = entry.get("output_path")
+        output_line = entry.get("output_line")
+        if (
+            not isinstance(output_path, str)
+            or isinstance(output_line, bool)
+            or not isinstance(output_line, int)
+        ):
+            raise ExportError(
+                f"compose manifest entry {index + 1} has an invalid output coordinate"
+            )
+        coordinate = (output_path, output_line)
+        if coordinate in manifest_coordinates:
+            raise ExportError(f"duplicate compose manifest coordinate {coordinate}")
+        manifest_coordinates.add(coordinate)
+        curated = actual_outputs.get(output_path)
+        if curated is None or not 1 <= output_line <= len(curated.rows):
+            raise ExportError(f"compose manifest coordinate does not resolve: {coordinate}")
+        row = curated.rows[output_line - 1]
+        digest = hashlib.sha256(row.record_json.encode("utf-8")).hexdigest()
+        if entry.get("output_sha256") != digest:
+            raise ExportError(f"compose manifest output digest mismatch: {coordinate}")
+        record = _loads_json(row.record_json, f"compose output {coordinate}")
+        output_id = record.get("id") if isinstance(record, dict) else None
+        if not isinstance(output_id, str) or entry.get("output_id") != output_id:
+            raise ExportError(f"compose manifest output id mismatch: {coordinate}")
+        sidecar_id = entry.get("reward_sidecar_id")
+        if sidecar_id is not None:
+            if not isinstance(sidecar_id, str):
+                raise ExportError(
+                    f"compose manifest entry {index + 1} has an invalid reward sidecar id"
+                )
+            if sidecar_id not in sidecars_by_id:
+                raise ExportError(
+                    f"compose manifest references missing reward sidecar {sidecar_id}"
+                )
+            sidecar_source = sidecars_by_id[sidecar_id]["source"]
+            if (
+                sidecar_source.get("path") != entry.get("source_path")
+                or sidecar_source.get("line") != entry.get("source_line")
+            ):
+                raise ExportError(
+                    f"compose manifest and reward sidecar source disagree: {coordinate}"
+                )
+            try:
+                curate_rewards.restore_source_record(
+                    record, sidecars_by_id[sidecar_id]
+                )
+            except curate_rewards.RewardOntologyError as exc:
+                raise ExportError(
+                    f"compose output {coordinate} does not authenticate its reward "
+                    f"sidecar: {exc}"
+                ) from exc
+            referenced_sidecars.add(sidecar_id)
+        elif (
+            isinstance(record, dict)
+            and curate_rewards.ANNOTATION_FIELD in record
+        ):
+            raise ExportError(
+                f"compose output {coordinate} has an unmanifested reward annotation"
+            )
+
+    if manifest_coordinates != expected_coordinates:
+        missing = sorted(expected_coordinates - manifest_coordinates)
+        extra = sorted(manifest_coordinates - expected_coordinates)
+        raise ExportError(
+            f"compose manifest/output coordinate mismatch; missing={missing}, extra={extra}"
+        )
+    if referenced_sidecars != set(sidecars_by_id):
+        raise ExportError("compose manifest and reward sidecar sets do not match")
+
+    counts = summary.get("counts")
+    if not isinstance(counts, dict):
+        raise ExportError("COMPOSE.json: counts must be an object")
+    expected_counts = {
+        "source_records": len(manifest_documents),
+        "retained": len(expected_coordinates),
+        "excluded": len(manifest_documents) - len(expected_coordinates),
+        "output_files": len(actual_outputs),
+        "reward_sidecars": len(sidecar_documents),
+    }
+    for key, expected in expected_counts.items():
+        value = counts.get(key)
+        if isinstance(value, bool) or not isinstance(value, int) or value != expected:
+            raise ExportError(
+                f"COMPOSE.json: counts.{key} {value!r} != {expected}"
+            )
+
+    source_snapshot = _authenticate_source_replay(
+        curated_root,
+        summary,
+        actual_outputs,
+        manifest_documents,
+        sidecar_documents,
+    )
+    expected_audit = compose_curated.compact_audit_report(
+        audit_report, len(expected_coordinates)
+    )
+    if summary.get("audit") != expected_audit:
+        raise ExportError("COMPOSE.json: audit declaration does not match exported bytes")
+
     return {
         "present": True,
+        "summary": {
+            "path": compose_curated.SUMMARY_FILENAME,
+            "sha256": hashlib.sha256(summary_payload).hexdigest(),
+        },
         "compose_version": summary.get("compose_version"),
         "lane_order": summary.get("lane_order"),
-        "transforms": summary.get("transforms"),
-        "source_run": summary.get("source_run"),
-        "manifest": summary.get("manifest"),
+        "transforms": compose_curated.transform_contract(),
+        "source": source_snapshot,
+        "outputs": authenticated_outputs,
+        "manifest": manifest,
+        "reward_sidecars": reward_sidecars,
     }
 
 
@@ -619,10 +1307,12 @@ def render_eval_protocol(provenance: dict[str, Any]) -> str:
         "",
         "## What this is",
         "",
-        "A tiny held-out split over one curated, audited corpus. It exists so a",
-        "future training run has a fixed evaluation set that was never touched by",
-        "curation tuning. **No trainer is launched from this repository.** These",
-        "files are inputs for a separate, explicitly approved training decision.",
+        "A deterministic post-curation snapshot split over one audited corpus.",
+        "The source records and curation rules already existed before this split,",
+        "so the eval side is **not tuning-independent evidence for curation**. It is",
+        "held out only from a future trainer that consumes this exact export.",
+        "**No trainer is launched from this repository.** These files are inputs",
+        "for a separate, explicitly approved training decision.",
         "",
         "## Gate that produced it",
         "",
@@ -635,9 +1325,9 @@ def render_eval_protocol(provenance: dict[str, Any]) -> str:
         f"- Policy: {splits['policy']}",
         f"- Eval fraction: `{splits['eval_fraction']}`",
         f"- Salt: `{splits['salt']}`",
-        "- The rule is a pure function of `(salt, source_file, source_line)`, so",
-        "  re-exporting the same corpus reproduces the same split, and appending",
-        "  new records never reshuffles the existing ones.",
+        "- Re-exporting the identical snapshot with the same salt reproduces the",
+        "  same split. The two-sided fallback is snapshot-dependent; adding or",
+        "  removing records can change which fallback row is selected.",
         "",
         "## How to evaluate",
         "",
@@ -678,13 +1368,21 @@ def export_run(
 
     curated_root = Path(curated_root)
     destination = Path(destination)
+    curated_root = _require_exact_directory(curated_root, "curated root")
     records_dir = curated_root / compose_curated.RECORDS_DIRNAME
-    if not records_dir.is_dir():
+    try:
+        records_dir = _require_exact_directory(records_dir, "curated records")
+    except ExportError as exc:
         raise ExportError(
-            f"curated root has no {compose_curated.RECORDS_DIRNAME}/ payload: {curated_root}"
-        )
+            f"curated root has no exact {compose_curated.RECORDS_DIRNAME}/ payload: "
+            f"{curated_root}"
+        ) from exc
     if destination.exists():
         raise ExportError(f"refusing to overwrite an existing destination: {destination}")
+    if _is_under_raw(destination):
+        raise ExportError(
+            f"refusing to write inside immutable raw evidence: {destination}"
+        )
     if not destination.parent.is_dir():
         raise ExportError(f"destination parent does not exist: {destination.parent}")
     resolved_root = curated_root.resolve()
@@ -692,13 +1390,21 @@ def export_run(
     if resolved_root == resolved_destination or resolved_root in resolved_destination.parents:
         raise ExportError("destination cannot be written inside the curated root")
 
-    compose_metadata = _compose_metadata(curated_root)
     curated_files = collect_files(records_dir)
     rows = [row for curated in curated_files for row in curated.rows]
     if not rows:
         raise ExportError("refusing to export an empty curated corpus")
+    snapshot: dict[str, bytes] = {}
+    prefix = f"{CURATED_DIRNAME}/"
+    for curated in curated_files:
+        if not curated.source_file.startswith(prefix):
+            raise ExportError(f"invalid curated source path: {curated.source_file}")
+        relative = curated.source_file.removeprefix(prefix)
+        if relative in snapshot:
+            raise ExportError(f"duplicate curated snapshot path: {relative}")
+        snapshot[relative] = curated.payload
 
-    report = training_audit.audit_run(records_dir)
+    report = training_audit.audit_run(records_dir, snapshot=snapshot)
     audit = {
         "training_ready": bool(report["training_ready"]),
         "blockers": list(report["blockers"]),
@@ -710,6 +1416,7 @@ def export_run(
             "refusing to export a corpus that is not training_ready: "
             + "; ".join(audit["blockers"])
         )
+    compose_metadata = _compose_metadata(curated_root, curated_files, report)
 
     train, evaluate = split_rows(rows, eval_fraction=eval_fraction, salt=split_salt)
 
@@ -758,6 +1465,7 @@ def export_run(
             },
             "splits": {
                 "policy": SPLIT_POLICY,
+                "scope": "post_curation_snapshot_future_trainer_holdout",
                 "eval_fraction": eval_fraction,
                 "salt": split_salt,
                 "train": {"path": TRAIN_PATH, "records": len(train), "sha256": train_digest},
