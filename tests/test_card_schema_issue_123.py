@@ -81,6 +81,19 @@ class EvalHarnessDeclarationTests(unittest.TestCase):
             card_schema.json_columns(self.declaration["features"]),
             ["plan", "steps[].tool_call.args", "reward", "meta"],
         )
+        self.assertIn("record-varying JSON shapes", self.card)
+        self.assertNotIn("Key-bag columns are declared", self.card)
+
+    def test_reward_note_accounts_for_the_four_twice_occurring_keys(self):
+        reward = next(
+            feature
+            for feature in self.declaration["features"]
+            if feature["name"] == "reward"
+        )
+        for key in ("val_mean_after", "invent_after", "ok_after", "clean_after"):
+            with self.subTest(key=key):
+                self.assertIn(key, reward["note"])
+        self.assertIn("69 keys appear on exactly one record", reward["note"])
 
     def test_declared_data_files_cover_the_published_batches(self):
         self.assertEqual(self.declaration["data_files"], ["data/raw/batch-*.jsonl"])
@@ -117,9 +130,9 @@ class EvalHarnessDeclarationTests(unittest.TestCase):
         self.assertIn("issues/43", self.card)
         self.assertIn("| `plan` | present on every record |", self.card)
         self.assertIn("| `steps[].reflection` | optional |", self.card)
-        self.assertIn("eval_harness_unique_mill", self.card)
+        self.assertNotIn("scripts/eval_harness_unique_mill", self.card)
+        self.assertIn("same-factory `evh-*` records", self.card)
 
 
 if __name__ == "__main__":
     unittest.main()
-

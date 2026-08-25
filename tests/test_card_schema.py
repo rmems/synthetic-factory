@@ -376,6 +376,8 @@ class BodySectionTests(unittest.TestCase):
         self.assertIn("## Dataset viewer schema", body)
         self.assertIn("issues/36", body)
         self.assertIn("`meta`", body)
+        self.assertIn("record-varying JSON shapes", body)
+        self.assertNotIn("Key-bag columns are declared", body)
         self.assertIn("| `plan` | optional | half |", body)
         self.assertIn("### Known payload disclosures", body)
         self.assertIn("Record ids: `a-1`.", body)

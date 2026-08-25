@@ -38,9 +38,10 @@ two card-only annotations that are stripped before the YAML is emitted::
     {"name": "tool_call", "struct": [ <feature>, ... ]}
     {"name": "steps", "list": [ <feature>, ... ]}
 
-``dtype: json`` maps to the ``datasets`` ``Json()`` feature, which is what a
-key-bag column (``meta``, ``reward``, ``tool_call.args``) needs: keys may differ
-per record without an Arrow cast error. Every declared field is nullable --
+``dtype: json`` maps to the ``datasets`` ``Json()`` feature. It supports both
+key-bag columns (``meta``, ``reward``, ``tool_call.args``), whose keys may differ
+per record, and type unions such as a value that is sometimes a string and
+sometimes a list. Every declared field is nullable --
 ``datasets`` sets all struct fields nullable -- so declaring an optional field
 makes it read back as ``null`` where the raw record omits it. ``optional`` is
 therefore documentation: it drives the card's field table, not the Arrow schema.
@@ -72,7 +73,7 @@ DEFAULT_SPLIT = "train"
 DEFAULT_DATA_FILES = ("data/raw/batch-*.jsonl",)
 
 # Value dtypes this repository declares. ``json`` is the ``datasets`` Json()
-# feature and is the only correct choice for a key-bag column.
+# feature and is the correct choice for a key-bag or type-union column.
 SCALAR_DTYPES = frozenset(
     {"string", "bool", "int32", "int64", "float32", "float64", "json"}
 )
@@ -563,8 +564,9 @@ def body_section(declaration: dict) -> str:
         if columns:
             listed = ", ".join(f"`{column}`" for column in columns)
             lines.append(
-                f"Key-bag columns are declared as `json` so their keys may differ "
-                f"per record without an Arrow cast error: {listed}."
+                "Columns with record-varying JSON shapes are declared as `json` "
+                "so object keys or value types can differ per record without an "
+                f"Arrow cast error: {listed}."
             )
             lines.append("")
     else:
