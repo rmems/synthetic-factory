@@ -27,7 +27,11 @@ from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import Any, Iterable, Mapping
 
-from record_kind import classify_kind
+from record_kind import (
+    PREFERENCE_SIDE_KINDS,
+    classify_kind,
+    preference_side_kinds,
+)
 
 TRANSFORM_NAME = "curate_identity"
 TRANSFORM_VERSION = "identity-provenance-v2"
@@ -422,6 +426,15 @@ def _owner_specs(record: Mapping[str, Any], kind: str) -> list[tuple[str, Mappin
             if not isinstance(owner, Mapping):
                 raise IdentityCurationError(f"preference {side} must be an object")
             owners.append((f"/{side}", owner))
+        side_kinds = preference_side_kinds(record)
+        if (
+            side_kinds[0] != side_kinds[1]
+            or side_kinds[0] not in PREFERENCE_SIDE_KINDS
+        ):
+            raise IdentityCurationError(
+                "preference sides must be a homogeneous episode or thalamic pair "
+                f"(got chosen={side_kinds[0]}, rejected={side_kinds[1]})"
+            )
         return owners
     if kind == "bridge_pair":
         language_view = record.get("language_view")

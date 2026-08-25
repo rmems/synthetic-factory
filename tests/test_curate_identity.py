@@ -382,6 +382,21 @@ class TestSupportedRecordShapes(unittest.TestCase):
             ["identity.invalid_nested_shape"],
         )
 
+    def test_mixed_preference_side_families_are_excluded(self):
+        pair = grok_pref()
+        pair["chosen"] = thalamic(None)
+        pair["chosen"]["state"].pop("sim_or_real")
+
+        result = identity.curate_record(
+            source(pair, "tool-use-preference-factory/batch.jsonl", 1)
+        )
+
+        self.assertEqual(result.action, "exclude")
+        self.assertEqual(
+            result.mapping["reason_codes"],
+            ["identity.invalid_nested_shape"],
+        )
+
     def test_excluded_nested_record_still_maps_recoverable_legacy_ids(self):
         pair = {
             "chosen": thalamic(None, meta={"id": "chosen-legacy"}),
@@ -988,7 +1003,7 @@ class TestIdentityWriterExcludeAndPin(unittest.TestCase):
                 ["identity.factory_contract_invalid"],
             )
 
-    def test_invalid_bridge_and_missing_state_object_exclude(self):
+    def test_invalid_bridge_and_preference_shapes_exclude(self):
         bad_view = {
             "language_view": "not-an-object",
             "spike_events": [],
@@ -1018,8 +1033,8 @@ class TestIdentityWriterExcludeAndPin(unittest.TestCase):
         result = identity.curate_record(source(pair, f"{FABLE_FFPC}/batch.jsonl", 1))
         self.assertEqual(result.action, "exclude")
         self.assertEqual(
-            result.mapping["unresolved_provenance"][0]["reason"],
-            "missing_or_non_object_state",
+            result.mapping["reason_codes"],
+            ["identity.invalid_nested_shape"],
         )
 
     def test_preference_mixed_claims_and_state_wins_on_sides(self):
