@@ -714,6 +714,36 @@ class ConversionPolicyMappingTests(unittest.TestCase):
             {"records", "comparability", "reason_codes"},
         )
 
+    def test_schema_constrains_the_runtime_policy_routing_fields(self):
+        schema = json.loads(SCHEMA.read_text(encoding="utf-8"))
+        properties = schema["$defs"]["conversionPolicy"]["properties"][
+            "policy"
+        ]["properties"]
+
+        self.assertEqual(properties["annotation_field"]["type"], "string")
+        self.assertEqual(properties["annotation_field"]["minLength"], 1)
+        self.assertEqual(properties["reward_keys"]["type"], "array")
+        self.assertTrue(properties["reward_keys"]["uniqueItems"])
+        self.assertEqual(
+            properties["reward_keys"]["items"],
+            {"type": "string", "minLength": 1},
+        )
+        self.assertEqual(properties["canonical_scope"]["pattern"], "^/.+")
+        preference = properties["preference_scope"]
+        self.assertEqual(
+            set(preference["required"]),
+            {"preferred", "dispreferred", "relation"},
+        )
+        self.assertEqual(
+            preference["properties"]["relation"]["const"],
+            "preferred_gt_dispreferred",
+        )
+        for side in ("preferred", "dispreferred"):
+            self.assertEqual(
+                preference["properties"][side],
+                {"type": "string", "pattern": "^/.+"},
+            )
+
     def test_every_declared_reason_code_is_cited_by_a_declared_rule(self):
         policy = curate_rewards.CONVERSION_POLICY["policy"]
         cited = set()
@@ -852,6 +882,36 @@ class ConversionPolicyMappingTests(unittest.TestCase):
                 curate_rewards.EXCLUDE, ["multiple_reward_scopes"], "R00"
             )
 
+    def test_policy_requires_every_runtime_classification_rule_id(self):
+        document = copy.deepcopy(curate_rewards.CONVERSION_POLICY)
+        r00 = next(
+            rule
+            for rule in document["policy"]["comparability_rules"]
+            if rule["id"] == "R00"
+        )
+        r00["id"] = "renamed-R00"
+
+        with self.assertRaisesRegex(
+            curate_rewards.RewardOntologyError,
+            "missing runtime-required ids.*R00",
+        ):
+            curate_rewards.validate_conversion_policy(document)
+
+    def test_comparability_rule_returns_a_defensive_copy(self):
+        stored = next(
+            rule for rule in curate_rewards.COMPARABILITY_RULES if rule["id"] == "S08"
+        )
+        original = copy.deepcopy(stored)
+        try:
+            exposed = curate_rewards.comparability_rule("S08")
+            exposed["comparability"] = curate_rewards.SIGN_ORDER_ONLY
+            exposed["reason_codes"].append("no_source_reward")
+            self.assertEqual(curate_rewards.comparability_rule("S08"), original)
+            self.assertEqual(stored, original)
+        finally:
+            stored.clear()
+            stored.update(original)
+
     def test_classification_verdicts_are_read_from_the_matched_rule(self):
         rules = copy.deepcopy(list(curate_rewards.COMPARABILITY_RULES))
         p01 = next(rule for rule in rules if rule["id"] == "P01")
@@ -945,6 +1005,39 @@ class SourceVocabularyMappingTests(unittest.TestCase):
                 self.assertTrue(
                     method.startswith("unweighted_component_sum"), row["signature"]
                 )
+
+    def test_policy_rejects_shape_methods_incompatible_with_the_signature(self):
+        document = curate_rewards.CONVERSION_POLICY
+        cases = []
+        for expected_method, incompatible_method in (
+            ("no_numeric_total", "declared_weighted_sum"),
+            ("declared_weighted_sum", "unweighted_component_sum"),
+            ("unweighted_component_sum", "declared_weighted_sum"),
+        ):
+            shape = next(
+                copy.deepcopy(row)
+                for row in document["source_vocabulary"]["shapes"]
+                if row.get("arithmetic_method") == expected_method
+            )
+            shape["arithmetic_method"] = incompatible_method
+            cases.append((expected_method, shape))
+
+        for name, shape in cases:
+            with self.subTest(name=name):
+                malformed = copy.deepcopy(document)
+                index = next(
+                    index
+                    for index, row in enumerate(
+                        malformed["source_vocabulary"]["shapes"]
+                    )
+                    if row["signature"] == shape["signature"]
+                )
+                malformed["source_vocabulary"]["shapes"][index] = shape
+                with self.assertRaisesRegex(
+                    curate_rewards.RewardOntologyError,
+                    "incompatible with signature",
+                ):
+                    curate_rewards.validate_conversion_policy(malformed)
 
     def test_census_emits_and_policy_accepts_plural_arithmetic_outcomes(self):
         census = curate_rewards.reward_census(

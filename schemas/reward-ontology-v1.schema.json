@@ -357,6 +357,44 @@
             "comparability_rules"
           ],
           "properties": {
+            "annotation_field": {
+              "type": "string",
+              "minLength": 1
+            },
+            "reward_keys": {
+              "type": "array",
+              "minItems": 1,
+              "uniqueItems": true,
+              "items": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "canonical_scope": {
+              "type": "string",
+              "pattern": "^/.+"
+            },
+            "preference_scope": {
+              "type": "object",
+              "required": [
+                "preferred",
+                "dispreferred",
+                "relation"
+              ],
+              "properties": {
+                "preferred": {
+                  "type": "string",
+                  "pattern": "^/.+"
+                },
+                "dispreferred": {
+                  "type": "string",
+                  "pattern": "^/.+"
+                },
+                "relation": {
+                  "const": "preferred_gt_dispreferred"
+                }
+              }
+            },
             "arithmetic": {
               "$ref": "#/$defs/policyArithmetic"
             },

@@ -87,6 +87,11 @@ VALUE_TYPES = frozenset(
 
 ARITHMETIC_STATUSES = frozenset({"valid", "invalid", "unsupported"})
 RULE_SCOPES = frozenset({"any", "preference", "single"})
+REQUIRED_CLASSIFICATION_RULE_IDS = frozenset(
+    {"R00"}
+    | {f"P{index:02d}" for index in range(1, 9)}
+    | {f"S{index:02d}" for index in range(1, 9)}
+)
 REQUIRED_ARITHMETIC_METHODS = frozenset(
     {
         "declared_weighted_sum",
@@ -273,10 +278,45 @@ def _validate_rule_block(policy, where, classes, reason_codes):
             raise _policy_error(where, f"rule {rule_id} cites uncatalogued reason codes {unknown}")
         covered.update(codes)
         covered.update(optional)
+    missing_runtime_rules = sorted(REQUIRED_CLASSIFICATION_RULE_IDS - seen_ids)
+    if missing_runtime_rules:
+        raise _policy_error(
+            where,
+            "comparability_rules is missing runtime-required ids "
+            f"{missing_runtime_rules}",
+        )
     orphans = sorted(set(reason_codes) - covered)
     if orphans:
         raise _policy_error(where, f"reason codes cited by no rule: {orphans}")
     return tuple(rules)
+
+
+def _arithmetic_methods_for_signature(signature, arithmetic, where):
+    """Return the arithmetic methods the structural signature can select."""
+    if signature == "":
+        return frozenset({"no_numeric_total"})
+    if ":" not in signature:
+        return frozenset({"non_object_reward"})
+
+    members = {}
+    for part in signature.split("|"):
+        if ":" not in part:
+            raise _policy_error(where, "signature contains an invalid member")
+        key, value_type = part.rsplit(":", 1)
+        if not value_type or key in members:
+            raise _policy_error(where, "signature contains an invalid member")
+        members[key] = value_type
+
+    total_type = members.get(arithmetic["declared_total_field"])
+    if total_type not in {"int", "float"}:
+        return frozenset({"no_numeric_total"})
+    if members.get(arithmetic["weights_field"]) == "object":
+        return frozenset(
+            {"declared_weighted_sum", "declared_weighted_sum_unresolved"}
+        )
+    return frozenset(
+        {"unweighted_component_sum", "unweighted_component_sum_unresolved"}
+    )
 
 
 def _policy_disposition(key, observed_types, arithmetic):
@@ -386,6 +426,9 @@ def _validate_source_vocabulary(document, arithmetic, where):
         if signature in signatures:
             raise _policy_error(shape_where, f"duplicate shape signature {signature!r}")
         signatures.add(signature)
+        allowed_methods = _arithmetic_methods_for_signature(
+            signature, arithmetic, shape_where
+        )
         _mapping_integer(shape, "occurrences", shape_where, minimum=1)
         has_singular = (
             "arithmetic_status" in shape or "arithmetic_method" in shape
@@ -422,6 +465,11 @@ def _validate_source_vocabulary(document, arithmetic, where):
             if method not in arithmetic["methods"]:
                 raise _policy_error(
                     outcome_where, f"unknown arithmetic method {method!r}"
+                )
+            if method not in allowed_methods:
+                raise _policy_error(
+                    outcome_where,
+                    f"arithmetic method {method!r} is incompatible with signature",
                 )
             pair = (status, method)
             if pair in seen_outcomes:
@@ -1442,7 +1490,7 @@ def comparability_rule(rule_id):
     """Return one declared comparability rule from the conversion policy."""
     for rule in COMPARABILITY_RULES:
         if rule["id"] == rule_id:
-            return rule
+            return copy.deepcopy(rule)
     raise RewardOntologyError(f"undeclared comparability rule: {rule_id!r}")
 
 

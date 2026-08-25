@@ -32,6 +32,8 @@ from curate_tags import (  # noqa: E402
     REASON_TAGS_PROVENANCE_REUSED,
     REASON_TAGS_UNMAPPED,
     TAG_PROVENANCE_FIELD,
+    TRANSFORM_NAME,
+    TRANSFORM_VERSION,
     UNMAPPED_MARKER_TAG,
     Taxonomy,
     TagTaxonomyError,
@@ -168,11 +170,24 @@ class TaxonomyDocumentTests(unittest.TestCase):
         with self.assertRaises(TagTaxonomyError):
             Taxonomy(document, source="<test>")
 
+    def test_canonical_pattern_must_match_the_entire_tag(self):
+        document = minimal_taxonomy()
+        document["facets"][0]["terms"][0]["tag"] = "decision:accept\n"
+        with self.assertRaisesRegex(TagTaxonomyError, "does not match"):
+            Taxonomy(document, source="<test>")
+
     def test_taxonomy_without_unmapped_marker_is_rejected(self):
         document = minimal_taxonomy()
         document["facets"] = document["facets"][:1]
         document["transform_emitted_tags"] = []
         with self.assertRaises(TagTaxonomyError):
+            Taxonomy(document, source="<test>")
+
+    def test_unmapped_marker_must_be_declared_as_transform_emitted(self):
+        document = minimal_taxonomy(transform_emitted_tags=[])
+        with self.assertRaisesRegex(
+            TagTaxonomyError, "transform_emitted_tags must include"
+        ):
             Taxonomy(document, source="<test>")
 
     def test_loading_a_non_object_document_is_rejected(self):
@@ -407,6 +422,37 @@ class CurateRecordTests(unittest.TestCase):
 
         self.assertIsNone(curated)
         self.assertEqual(manifest["reason_codes"], [REASON_PROVENANCE_CONFLICT])
+
+    def test_provenance_requires_matching_transform_identity(self):
+        curated, _ = curate_record(record(["MODIFY"]), taxonomy=TAXONOMY)
+        mutations = {
+            "missing transform": lambda stored: stored.pop("transform"),
+            "foreign transform": lambda stored: stored.__setitem__(
+                "transform", "foreign_transform"
+            ),
+            "missing version": lambda stored: stored.pop("transform_version"),
+            "foreign version": lambda stored: stored.__setitem__(
+                "transform_version", "999"
+            ),
+        }
+        for name, mutate in mutations.items():
+            with self.subTest(name=name):
+                tampered = copy.deepcopy(curated)
+                stored = tampered[TAG_PROVENANCE_FIELD]
+                mutate(stored)
+                again, manifest = curate_record(tampered, taxonomy=TAXONOMY)
+                self.assertIsNone(again)
+                self.assertEqual(
+                    manifest["reason_codes"], [REASON_PROVENANCE_CONFLICT]
+                )
+
+        self.assertEqual(
+            curated[TAG_PROVENANCE_FIELD]["transform"], TRANSFORM_NAME
+        )
+        self.assertEqual(
+            curated[TAG_PROVENANCE_FIELD]["transform_version"],
+            TRANSFORM_VERSION,
+        )
 
     def test_provenance_with_noncanonical_tags_is_a_conflict(self):
         source = record(["decision:modify"])
@@ -726,6 +772,22 @@ class CurateJsonlTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             canonical_json({"metric": math.nan})
 
+    def test_lone_surrogate_is_excluded_without_aborting_the_batch(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            source = Path(temporary) / "corpus.jsonl"
+            source.write_bytes(
+                b'{"id":"bad","meta":{"tags":["\\ud800"]}}\n'
+                b'{"id":"good","meta":{"tags":["MODIFY"]}}\n'
+            )
+            result = curate_jsonl(source, TAXONOMY)
+
+        self.assertEqual(result["summary"]["input_records"], 2)
+        self.assertEqual(result["summary"]["output_records"], 1)
+        self.assertEqual(
+            result["manifest"][0]["reason_codes"], [REASON_INVALID_JSON]
+        )
+        self.assertEqual(result["records"][0]["id"], "good")
+
     def test_manifest_carries_source_identity_for_every_line(self):
         with tempfile.TemporaryDirectory() as temporary:
             source = Path(temporary) / "corpus.jsonl"
@@ -871,6 +933,33 @@ class CliTests(unittest.TestCase):
 
             self.assertNotEqual(result.returncode, 0)
             self.assertFalse(output.exists())
+
+    def test_cli_refuses_a_lexical_raw_path_through_a_symlink(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            source = self._source(root)
+            external = root / "external-raw"
+            external.mkdir()
+            raw = root / "outputs" / "raw"
+            raw.parent.mkdir()
+            raw.symlink_to(external, target_is_directory=True)
+            output = raw / "forbidden.jsonl"
+
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    str(PIPELINES / "curate_tags.py"),
+                    str(source),
+                    "--output-jsonl",
+                    str(output),
+                ],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+
+            self.assertNotEqual(result.returncode, 0)
+            self.assertFalse((external / "forbidden.jsonl").exists())
 
     def test_cli_refuses_to_overwrite_its_source(self):
         with tempfile.TemporaryDirectory() as temporary:
