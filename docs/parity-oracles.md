@@ -88,13 +88,17 @@ A record whose deployment-side `execution_target` is `fpga_hardware` or
 
 - `hardware.revision` and `hardware.board_serial`
 - `bitstream.sha256` and `bitstream.toolchain`
-- `capture.manifest_sha256`
+- the stored capture source plus matching source, manifest, and payload digests
 - a latency with `measured: true` and a numeric `value_ms`
 - at least two repeats, so determinism is measured rather than assumed
 
-None of these can be produced without an actual run. That is the point: the
-reason-code path is easier to satisfy honestly than the hardware path is to
-satisfy dishonestly.
+The validator also requires a capture adapter (or a physical-hardware runtime
+class), re-hashes the retained source, manifest, and payload, binds the input
+fixture, hardware, bitstream, quantization, latency, repeats, spike events,
+membrane trace, and action back to that payload, and rejects a reference-model
+record that was merely relabelled and decorated with metadata. These checks
+establish the capture file's internal integrity. They do not establish that a
+physical run happened; that separate limitation is stated below.
 
 ### To add a real hardware leg later
 
@@ -108,9 +112,10 @@ satisfy dishonestly.
    `manifest` carrying `payload_sha256` and `input_fixture_sha256`, and a
    `payload` holding the observed spikes, action, membrane, and latency. The
    adapter verifies both digests and refuses a capture taken against a
-   different input fixture, so a *hand-edited* capture cannot be replayed —
-   though, per the section above, a wholly fabricated but internally consistent
-   one is outside what this repository can detect.
+   different input fixture. The emitted record retains that source and the
+   validator independently re-checks the chain and each projected observation.
+   A wholly fabricated but internally consistent capture remains outside what
+   this repository can detect, as described below.
 
 No capture is committed to this repository. Committing a synthetic one would
 be indistinguishable from committing a fabricated hardware result.
@@ -173,7 +178,8 @@ outright, because such a claim is unfalsifiable rather than merely unverified.
 A run on physical silicon is not reproducible from software; that is the point
 of running it on hardware. So for a `fpga_hardware` or `recorded_capture`
 target, the deployment traces rest on two things this repository *can* check —
-the capture's internal digest chain and the board/bitstream provenance — and on
+the retained capture's internal digest chain and the binding from its payload
+to every recorded observation and board/bitstream field — and on
 one it cannot: that the capture describes a run that actually happened. A
 capture file is trusted input. Nothing here can distinguish a genuine capture
 from a well-formed fabricated one without an out-of-band trust anchor such as a

@@ -236,6 +236,18 @@ class DeepLayer(unittest.TestCase):
             totals = json.loads(result.stdout)
             self.assertEqual(totals["records"], 2)
 
+    def test_shape_failure_stops_before_the_family_validator(self):
+        record = copy.deepcopy(_records(HARDWARE_BATCH)[0])
+        record["scenario"] = "bad"
+        try:
+            errors, _warnings, kind, _id = check_records.check_record(
+                record, "unit:1"
+            )
+        except Exception as exc:  # noqa: BLE001 - this is the crash regression
+            self.fail(f"shape failure escaped as {type(exc).__name__}: {exc}")
+        self.assertEqual(kind, "hardware_parity")
+        self.assertTrue(errors)
+
     def test_duplicate_ids_across_the_run_are_caught(self):
         with tempfile.TemporaryDirectory() as tmp:
             run_dir = Path(tmp) / "run" / "hardware-parity-spike-trajectories"

@@ -670,9 +670,16 @@ class RecordedCaptureAdapter(OracleAdapter):
             "bitstream": capture.get("bitstream"),
             "capture": {
                 "path": self.capture_path.name,
+                # Keep the replay source on the record so validation can
+                # re-check the same digest chain the adapter checked.  A bare
+                # manifest label is not evidence: without these source bytes a
+                # fixed-point record could be relabelled as a capture and
+                # decorated with plausible-looking hashes.
+                "source_sha256": digest(capture),
                 "manifest_sha256": digest(manifest),
                 "payload_sha256": actual,
                 "recorded_at": manifest.get("recorded_at"),
+                "source": capture,
             },
         }
 

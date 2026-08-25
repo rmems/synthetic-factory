@@ -196,6 +196,22 @@ class Generation(unittest.TestCase):
         self.assertIn("ORACLE_UNAVAILABLE", record["result"]["reason_codes"])
         self.assertEqual(hp.validate_record(record, WHERE), [])
 
+    def test_unpaired_record_still_reexecutes_the_software_leg(self):
+        scenario = hp.build_scenarios(steps=4)[0]
+        adapter = oracle.FpgaHardwareAdapter(env={})
+        software, deployment, unavailable = hp.run_pair(scenario, adapter, repeats=2)
+        record = hp.build_record(
+            scenario,
+            software,
+            deployment,
+            unavailable,
+            1,
+            oracle.availability_report(env={})["spikenaut_fpga"],
+        )
+        record["oracle"]["software"]["spikes"][0][0] ^= 1
+        errors = hp.validate_record(record, WHERE)
+        self.assertTrue(any("re-simulation" in error for error in errors), errors)
+
 
 class Validation(unittest.TestCase):
     def setUp(self):
@@ -247,6 +263,25 @@ class Validation(unittest.TestCase):
         errors = hp.validate_record(record, WHERE)
         self.assertTrue(any("Q88_PROVENANCE_MISMATCH" in error for error in errors))
 
+    def test_every_quantization_provenance_field_is_bound_to_the_model(self):
+        mutations = (
+            lambda block: block.__setitem__("max_abs_error", 123.0),
+            lambda block: block.__setitem__("mean_abs_error", 123.0),
+            lambda block: block.__setitem__("source_model_sha256", "sha256:" + "0" * 64),
+            lambda block: block["parameters"][0].__setitem__("float", 123.0),
+            lambda block: block["parameters"][0].__setitem__("q88_value", 123.0),
+            lambda block: block["parameters"][0].__setitem__("abs_error", 123.0),
+        )
+        for mutate in mutations:
+            with self.subTest(mutation=mutate):
+                record = copy.deepcopy(self.records[0])
+                mutate(record["oracle"]["deployment"]["quantization"])
+                errors = hp.validate_record(record, WHERE)
+                self.assertTrue(
+                    any("Q88_PROVENANCE_MISMATCH" in error for error in errors),
+                    errors,
+                )
+
     def test_missing_quantization_provenance_is_caught(self):
         record = copy.deepcopy(self.records[0])
         del record["oracle"]["deployment"]["quantization"]
@@ -274,6 +309,18 @@ class Validation(unittest.TestCase):
         self.assertTrue(
             any("GENERATOR_SUBSTITUTED_FOR_ORACLE" in error for error in errors)
         )
+
+    def test_extra_reason_code_is_rejected(self):
+        record = copy.deepcopy(self.records[0])
+        record["result"]["reason_codes"].append("QUANTIZATION_SATURATION")
+        errors = hp.validate_record(record, WHERE)
+        self.assertTrue(any("PARITY_VERDICT_INCONSISTENT" in error for error in errors))
+
+    def test_fabricated_summary_is_rejected(self):
+        record = copy.deepcopy(self.records[0])
+        record["result"]["summary"] = "the outputs matched perfectly"
+        errors = hp.validate_record(record, WHERE)
+        self.assertTrue(any("result.summary" in error for error in errors), errors)
 
 
 class ReSimulationGate(unittest.TestCase):
@@ -329,6 +376,18 @@ class ReSimulationGate(unittest.TestCase):
         record["oracle"]["software"]["spikes"][0][0] ^= 1
         errors = hp.validate_record(record, WHERE)
         self.assertTrue(any("re-simulation" in error for error in errors))
+
+    def test_edited_spike_events_are_caught(self):
+        record = copy.deepcopy(self.records[0])
+        record["oracle"]["deployment"]["spike_events"][0]["neuron_id"] += 1
+        errors = hp.validate_record(record, WHERE)
+        self.assertTrue(any("spike_events" in error for error in errors), errors)
+
+    def test_edited_raw_q88_membrane_trace_is_caught(self):
+        record = copy.deepcopy(self.records[0])
+        record["oracle"]["deployment"]["membrane"]["trace_q88_raw"][0][0] += 1
+        errors = hp.validate_record(record, WHERE)
+        self.assertTrue(any("membrane" in error for error in errors), errors)
 
     def test_forged_output_digest_is_caught(self):
         record = copy.deepcopy(self.records[0])
@@ -487,6 +546,15 @@ class RecordedCapturePath(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             self.assertEqual(self._record(tmp)["provenance"]["kind"], "hil")
 
+    def test_capture_digest_chain_is_rechecked_from_stored_source(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            record = self._record(tmp)
+            record["oracle"]["deployment"]["capture"]["source"]["payload"][
+                "spikes"
+            ][0][0] ^= 1
+            errors = hp.validate_record(record, WHERE)
+            self.assertTrue(any("capture" in error.lower() for error in errors), errors)
+
     def test_a_hardware_claim_is_never_unqualified(self):
         # The deployment traces of a physical run cannot be re-derived, so the
         # record must say so rather than reading as fully corroborated.
@@ -566,16 +634,13 @@ class PhysicalTargetClaims(unittest.TestCase):
                     f"{section}.{key} was not demanded",
                 )
 
-    def test_a_fully_attributed_claim_clears_the_provenance_gate(self):
-        # The parity metrics still have to hold up; this asserts only that the
-        # board/bitstream/capture gate itself is satisfiable.
+    def test_labels_alone_cannot_turn_a_reference_run_into_hardware(self):
+        # Even a fully decorated reference-model record lacks the capture
+        # source bytes and adapter binding needed for a physical claim.
         errors = hp.validate_record(self._promoted(**self._fully_attributed()), WHERE)
-        self.assertFalse(
-            [
-                error
-                for error in errors
-                if "HW_PROVENANCE_MISSING" in error or "REPEATABILITY_UNPROVEN" in error
-            ],
+        self.assertTrue(
+            any("capture.source" in error or "cannot come from adapter" in error
+                for error in errors),
             errors,
         )
 
@@ -616,6 +681,26 @@ class PhysicalTargetClaims(unittest.TestCase):
         records = hp.generate_records(round_number=1, steps=4, repeats=2)
         self.assertEqual(hp.validate_records(records), [])
 
+    def test_reference_model_cannot_claim_measured_latency(self):
+        record = copy.deepcopy(hp.generate_records(round_number=1, steps=4, repeats=2)[0])
+        record["oracle"]["deployment"]["latency"] = {
+            "measured": True,
+            "value_ms": 0.001,
+        }
+        parity, verdict, codes = hp.compute_parity(
+            record["scenario"],
+            record["oracle"]["software"],
+            record["oracle"]["deployment"],
+        )
+        record["result"]["parity"] = parity
+        record["result"]["verdict"] = verdict
+        record["result"]["reason_codes"] = codes
+        record["result"]["summary"] = hp._summarize(
+            record["scenario"], parity, verdict, record["oracle"]["deployment"]
+        )
+        errors = hp.validate_record(record, WHERE)
+        self.assertTrue(any("LATENCY_NOT_MEASURED" in error for error in errors), errors)
+
 
 class TrainingViews(unittest.TestCase):
     def test_views_preserve_every_record(self):
@@ -648,6 +733,12 @@ class TrainingViews(unittest.TestCase):
         ]
         errors = contract.view_set_errors(records, views)
         self.assertTrue(any("TRAINING_VIEW_HIDES_FAILURE" in error for error in errors))
+
+    def test_completion_is_rederived_instead_of_copying_summary(self):
+        record = copy.deepcopy(_fixture_records()[0])
+        record["result"]["summary"] = "fabricated completion"
+        view = hp.training_view(record)
+        self.assertNotEqual(view["completion"], "fabricated completion")
 
 
 class Cli(unittest.TestCase):
@@ -686,7 +777,23 @@ class Cli(unittest.TestCase):
             path.write_text("not json\n", encoding="utf-8")
             result = _cli(["validate", str(path)])
             self.assertEqual(result.returncode, 1)
-            self.assertIn("JSON parse error", result.stderr)
+        self.assertIn("JSON parse error", result.stderr)
+
+    def test_training_view_refuses_an_invalid_record(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "batch.jsonl"
+            record = copy.deepcopy(
+                next(
+                    item
+                    for item in _fixture_records()
+                    if item["result"]["verdict"] == contract.VERDICT_MISMATCH
+                )
+            )
+            record["result"]["verdict"] = contract.VERDICT_MATCH
+            path.write_text(json.dumps(record) + "\n", encoding="utf-8")
+            result = _cli(["training-view", str(path)])
+            self.assertEqual(result.returncode, 1)
+            self.assertIn("PARITY_VERDICT_INCONSISTENT", result.stderr)
 
     def test_unknown_target_is_rejected(self):
         with tempfile.TemporaryDirectory() as tmp:

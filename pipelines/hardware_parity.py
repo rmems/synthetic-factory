@@ -778,12 +778,7 @@ def build_record(scenario, software_run, deployment_run, unavailable, round_numb
             "reason_codes": ["ORACLE_UNAVAILABLE"],
             "derived_from": [software_run["output_digest"]],
             "parity": None,
-            "summary": (
-                "no paired run: the deployment-side oracle did not execute "
-                f"({unavailable['reason_code'] if unavailable else 'unknown'}). "
-                "This record carries the software leg as evidence and makes no "
-                "parity claim."
-            ),
+            "summary": _summarize_unpaired(unavailable),
         }
         return record
 
@@ -813,6 +808,34 @@ def _summarize(scenario, parity, verdict, deployment_run):
         f"action {parity['action']['software']!r} vs {parity['action']['deployment']!r}, "
         f"max membrane error {parity['membrane'].get('max_abs_error')}, "
         f"verdict {verdict}."
+    )
+
+
+def _summarize_unpaired(unavailable):
+    reason = unavailable.get("reason_code") if isinstance(unavailable, dict) else "unknown"
+    return (
+        "no paired run: the deployment-side oracle did not execute "
+        f"({reason}). This record carries the software leg as evidence and makes no "
+        "parity claim."
+    )
+
+
+def _expected_summary(record):
+    """Re-derive supervised prose from structured, validated evidence."""
+    oracle = record.get("oracle") or {}
+    result = record.get("result") or {}
+    deployment = oracle.get("deployment")
+    if deployment is None:
+        unavailable = oracle.get("unavailable") or []
+        return _summarize_unpaired(unavailable[0] if unavailable else None)
+    parity = result.get("parity")
+    if not isinstance(parity, dict) or not isinstance(deployment, dict):
+        return None
+    return _summarize(
+        record.get("scenario") or {},
+        parity,
+        result.get("verdict"),
+        deployment,
     )
 
 
@@ -890,6 +913,7 @@ def _check_input_fixture(record, where):
     stimulus = scenario.get("stimulus")
     fixture = scenario.get("input_fixture") or {}
     oracle_fixture = (record.get("oracle") or {}).get("input_fixture") or {}
+    identical = (record.get("oracle") or {}).get("identical_input_fixture")
     if not isinstance(stimulus, dict) or not isinstance(stimulus.get("events"), list):
         return [f"{where}: scenario.stimulus.events missing [INPUT_FIXTURE_MISMATCH]"]
     recomputed = digest(stimulus["events"])
@@ -902,6 +926,11 @@ def _check_input_fixture(record, where):
         errors.append(
             f"{where}: oracle.input_fixture.sha256 does not match the recorded events; "
             "the two sides cannot be shown to have run the same input "
+            "[INPUT_FIXTURE_MISMATCH]"
+        )
+    if identical is not True:
+        errors.append(
+            f"{where}: oracle.identical_input_fixture must be exactly true "
             "[INPUT_FIXTURE_MISMATCH]"
         )
     if stimulus.get("steps") != len(stimulus["events"]):
@@ -938,38 +967,127 @@ def _check_quantization(record, where):
         _, recomputed = quantize_model(model)
     except ValueError as exc:
         return [f"{where}: scenario.model_float is not simulable: {exc}"]
+    errors = _metrics_equal(
+        recorded,
+        recomputed,
+        "oracle.deployment.quantization",
+        where,
+    )
+    return [
+        error.replace("[PARITY_METRIC_MISMATCH]", "[Q88_PROVENANCE_MISMATCH]")
+        for error in errors
+    ]
+
+
+def _check_capture_chain(record, deployment, where):
+    """Bind a physical claim to the replay source stored by the adapter.
+
+    This verifies the record-level digest chain and catches a reference-model
+    record relabelled as hardware.  It deliberately does not claim to prove
+    that the source file came from a real board; that still requires the
+    out-of-band attestation documented in ``docs/parity-oracles.md``.
+    """
     errors = []
-    for key in (
-        "parameter_count",
-        "saturated_parameter_count",
-        "rounding",
-        "saturation_policy",
-        "step",
+    capture = deployment.get("capture")
+    if not isinstance(capture, dict):
+        return [
+            f"{where}: a physical target needs a capture object with replay source "
+            "bytes [HW_PROVENANCE_MISSING]"
+        ]
+    source = capture.get("source")
+    if not isinstance(source, dict):
+        return [
+            f"{where}: oracle.deployment.capture.source is required to re-check the "
+            "capture digest chain [HW_PROVENANCE_MISSING]"
+        ]
+    try:
+        source_sha = digest(source)
+    except (TypeError, ValueError) as exc:
+        return [f"{where}: capture source is not canonical JSON: {exc}"]
+    if capture.get("source_sha256") != source_sha:
+        errors.append(
+            f"{where}: capture.source_sha256 does not identify capture.source "
+            "[HW_PROVENANCE_MISSING]"
+        )
+
+    manifest = source.get("manifest")
+    payload = source.get("payload")
+    if not isinstance(manifest, dict) or not isinstance(payload, dict):
+        return errors + [
+            f"{where}: capture.source must contain object-valued manifest and payload "
+            "[HW_PROVENANCE_MISSING]"
+        ]
+    if capture.get("manifest_sha256") != digest(manifest):
+        errors.append(
+            f"{where}: capture.manifest_sha256 does not identify the stored manifest "
+            "[HW_PROVENANCE_MISSING]"
+        )
+    payload_sha = digest(payload)
+    if (
+        capture.get("payload_sha256") != payload_sha
+        or manifest.get("payload_sha256") != payload_sha
     ):
-        if recorded.get(key) != recomputed[key]:
+        errors.append(
+            f"{where}: capture payload digest is not bound to the stored manifest "
+            "[HW_PROVENANCE_MISSING]"
+        )
+    fixture_sha = ((record.get("scenario") or {}).get("input_fixture") or {}).get(
+        "sha256"
+    )
+    if manifest.get("input_fixture_sha256") != fixture_sha:
+        errors.append(
+            f"{where}: capture manifest names a different input fixture "
+            "[INPUT_FIXTURE_MISMATCH]"
+        )
+    if source.get("execution_target") != deployment.get("execution_target"):
+        errors.append(
+            f"{where}: capture source execution_target disagrees with the deployment "
+            "[HW_TARGET_UNKNOWN]"
+        )
+    for key in ("hardware", "bitstream"):
+        if source.get(key) != deployment.get(key):
             errors.append(
-                f"{where}: quantization.{key} recorded {recorded.get(key)!r} but "
-                f"re-deriving from the float model gives {recomputed[key]!r} "
-                "[Q88_PROVENANCE_MISMATCH]"
+                f"{where}: oracle.deployment.{key} does not match capture.source.{key} "
+                "[HW_PROVENANCE_MISSING]"
             )
-    recorded_params = {
-        entry.get("parameter"): entry for entry in recorded.get("parameters", [])
+    source_quantization = source.get("quantization") or payload.get("quantization")
+    if source_quantization != deployment.get("quantization"):
+        errors.append(
+            f"{where}: deployment quantization is not the conversion stored with the "
+            "capture [Q88_PROVENANCE_MISMATCH]"
+        )
+
+    normalized_payload = {
+        "spikes": payload.get("spikes"),
+        "spike_events": payload.get("spike_events", []),
+        "membrane": payload.get(
+            "membrane", {"observable": False, "units": "mV_model", "trace": None}
+        ),
+        "action": payload.get("action"),
+        "arithmetic": payload.get("arithmetic", {"format": "Q8.8"}),
+        "latency": payload.get("latency"),
     }
-    for entry in recomputed["parameters"]:
-        stored = recorded_params.get(entry["parameter"])
-        if stored is None:
+    for key, expected in normalized_payload.items():
+        if deployment.get(key) != expected:
             errors.append(
-                f"{where}: quantization provenance omits {entry['parameter']} "
-                "[Q88_PROVENANCE_MISMATCH]"
+                f"{where}: oracle.deployment.{key} is not the observation stored in "
+                "capture.source.payload [HW_PROVENANCE_MISSING]"
             )
-            continue
-        if stored.get("q88_raw") != entry["q88_raw"] or stored.get("saturated") != entry[
-            "saturated"
-        ]:
+    try:
+        payload_output_digest = run_digest(payload)
+    except (KeyError, TypeError, AttributeError) as exc:
+        errors.append(f"{where}: capture payload is malformed: {exc}")
+    else:
+        if deployment.get("output_digest") != payload_output_digest:
             errors.append(
-                f"{where}: quantization of {entry['parameter']} recorded "
-                f"{stored.get('q88_raw')!r}/{stored.get('saturated')!r} but re-derives to "
-                f"{entry['q88_raw']!r}/{entry['saturated']!r} [Q88_PROVENANCE_MISMATCH]"
+                f"{where}: deployment output_digest is not derived from the captured "
+                "payload [HW_PROVENANCE_MISSING]"
+            )
+        expected_repeats = list(payload.get("repeat_digests") or [payload_output_digest])
+        if deployment.get("repeat_digests") != expected_repeats:
+            errors.append(
+                f"{where}: deployment repeat_digests are not the captured repeats "
+                "[REPEATABILITY_UNPROVEN]"
             )
     return errors
 
@@ -987,8 +1105,31 @@ def _check_physical_claim(record, where):
             f"{where}: unknown deployment execution_target {target!r} [HW_TARGET_UNKNOWN]"
         ]
     if target not in PHYSICAL_TARGETS:
+        latency = deployment.get("latency")
+        if target == TARGET_FIXED_POINT_MODEL and (
+            not isinstance(latency, dict)
+            or latency.get("measured") is not False
+            or latency.get("value_ms") is not None
+            or latency.get("reason_code") != "LATENCY_NOT_MEASURED_REFERENCE_MODEL"
+        ):
+            return [
+                f"{where}: the fixed-point reference model cannot report measured "
+                "hardware latency [LATENCY_NOT_MEASURED]"
+            ]
         return []
     errors = []
+    if deployment.get("adapter") == RecordedCaptureAdapter.name:
+        if deployment.get("runtime_class") != RecordedCaptureAdapter.runtime_class:
+            errors.append(
+                f"{where}: a recorded capture must declare runtime_class "
+                f"{RecordedCaptureAdapter.runtime_class!r} [HW_PROVENANCE_MISSING]"
+            )
+    elif deployment.get("runtime_class") != "physical_hardware":
+        errors.append(
+            f"{where}: physical target {target!r} cannot come from adapter "
+            f"{deployment.get('adapter')!r}/{deployment.get('runtime_class')!r} "
+            "[HW_PROVENANCE_MISSING]"
+        )
     for section, key in REQUIRED_HARDWARE_FIELDS:
         block = deployment.get(section)
         if not isinstance(block, dict) or not block.get(key):
@@ -1020,6 +1161,7 @@ def _check_physical_claim(record, where):
             f"{where}: a {target} claim requires provenance.kind 'hil', got {kind!r} "
             "[HW_PROVENANCE_MISSING]"
         )
+    errors += _check_capture_chain(record, deployment, where)
     return errors
 
 
@@ -1031,6 +1173,11 @@ def _compare_side(recorded, fresh, label, where):
             f"{where}: oracle.{label}.spikes does not match a re-simulation of the "
             "recorded model and stimulus [PARITY_METRIC_MISMATCH]"
         )
+    if recorded.get("spike_events") != fresh["spike_events"]:
+        errors.append(
+            f"{where}: oracle.{label}.spike_events does not match a re-simulation "
+            "[PARITY_METRIC_MISMATCH]"
+        )
     recorded_action = recorded.get("action") or {}
     for key in ("label", "counts"):
         if recorded_action.get(key) != fresh["action"][key]:
@@ -1038,10 +1185,9 @@ def _compare_side(recorded, fresh, label, where):
                 f"{where}: oracle.{label}.action.{key} does not match a re-simulation "
                 "[PARITY_METRIC_MISMATCH]"
             )
-    recorded_trace = (recorded.get("membrane") or {}).get("trace")
-    if recorded_trace != fresh["membrane"]["trace"]:
+    if recorded.get("membrane") != fresh["membrane"]:
         errors.append(
-            f"{where}: oracle.{label}.membrane.trace does not match a re-simulation "
+            f"{where}: oracle.{label}.membrane does not match a re-simulation "
             "[MEMBRANE_DIVERGENCE]"
         )
     expected = run_digest(fresh)
@@ -1181,6 +1327,11 @@ def validate_record(record, where):
     deployment = (oracle or {}).get("deployment")
 
     if deployment is None:
+        if not isinstance(software, dict):
+            errors.append(f"{where}: oracle.software missing [ENVELOPE_MALFORMED]")
+            return errors
+        errors += _reexecute_reference_sides(record, where)
+        errors += _check_determinism(software, "software", where)
         if result.get("verdict") != contract.VERDICT_INCONCLUSIVE:
             errors.append(
                 f"{where}: no deployment-side run, so the verdict must be "
@@ -1191,15 +1342,21 @@ def validate_record(record, where):
                 f"{where}: parity metrics present without a deployment-side run "
                 "[GENERATOR_SUBSTITUTED_FOR_ORACLE]"
             )
-        if "ORACLE_UNAVAILABLE" not in (result.get("reason_codes") or []):
+        if result.get("reason_codes") != ["ORACLE_UNAVAILABLE"]:
             errors.append(
-                f"{where}: an unpaired record must carry ORACLE_UNAVAILABLE "
+                f"{where}: an unpaired record must carry exactly ORACLE_UNAVAILABLE "
                 "[ORACLE_UNAVAILABLE]"
             )
         if not (oracle or {}).get("unavailable"):
             errors.append(
                 f"{where}: oracle.unavailable must explain why no pair executed "
                 "[ORACLE_UNAVAILABLE]"
+            )
+        expected_summary = _expected_summary(record)
+        if result.get("summary") != expected_summary:
+            errors.append(
+                f"{where}: result.summary is not derived from the unavailable-oracle "
+                "evidence [PARITY_METRIC_MISMATCH]"
             )
         return errors
 
@@ -1243,11 +1400,17 @@ def validate_record(record, where):
             f"{where}: result.verdict is {result.get('verdict')!r} but the recorded "
             f"traces support {verdict!r} [PARITY_VERDICT_INCONSISTENT]"
         )
-    missing_codes = sorted(set(reason_codes) - set(result.get("reason_codes") or []))
-    if missing_codes:
+    recorded_codes = result.get("reason_codes")
+    if recorded_codes != reason_codes:
         errors.append(
-            f"{where}: result.reason_codes omits {missing_codes} that the traces "
-            "require [PARITY_VERDICT_INCONSISTENT]"
+            f"{where}: result.reason_codes records {recorded_codes!r} but re-deriving "
+            f"gives {reason_codes!r} [PARITY_VERDICT_INCONSISTENT]"
+        )
+    expected_summary = _expected_summary(record)
+    if result.get("summary") != expected_summary:
+        errors.append(
+            f"{where}: result.summary is not derived from the validated parity evidence "
+            "[PARITY_METRIC_MISMATCH]"
         )
     return errors
 
@@ -1265,7 +1428,6 @@ def validate_records(records, source="record"):
 def training_view(record):
     """A supervised view that carries the parity verdict on its face."""
     scenario = record.get("scenario") or {}
-    result = record.get("result") or {}
     oracle = record.get("oracle") or {}
     targets = [
         side.get("execution_target")
@@ -1278,7 +1440,7 @@ def training_view(record):
         f"input fixture {(scenario.get('input_fixture') or {}).get('sha256')}. "
         "Does the behaviour survive the export?"
     )
-    completion = result.get("summary")
+    completion = _expected_summary(record)
     view = contract.build_training_view(record, prompt, completion, targets)
     view["stress"] = scenario.get("stress")
     view["scenario_id"] = scenario.get("id")
@@ -1287,6 +1449,9 @@ def training_view(record):
 
 def build_training_views(records, source="record"):
     """Build views for every record and prove none of them softened a failure."""
+    validation_errors = validate_records(records, source=source)
+    if validation_errors:
+        return [], validation_errors
     views = [training_view(record) for record in records]
     errors = []
     for index, (record, view) in enumerate(zip(records, views), 1):

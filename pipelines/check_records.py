@@ -385,8 +385,13 @@ def check_record(obj, where, factory_staging=False):
         # streams in the legacy shapes, so the generic passes below would only
         # produce noise. Their own validator is the whole deep check. Record id
         # still flows through so cross-file duplicate detection covers them.
-        deep = check_parity_record(obj, kind, where)
-        errors.extend(error for error in deep if error not in errors)
+        # The family validators assume the shared envelope members have the
+        # shapes enforced above.  Running them after a shape failure both adds
+        # noise and lets one truthy malformed member raise deep in a helper,
+        # aborting diagnostics for the rest of the JSONL file.
+        if not shape_errs:
+            deep = check_parity_record(obj, kind, where)
+            errors.extend(error for error in deep if error not in errors)
         # The publish-time provenance scan is repository-wide and owns every
         # nested 'real' claim. Skipping it for these kinds would make a parity
         # record the one place in the factory where a buried real-world claim

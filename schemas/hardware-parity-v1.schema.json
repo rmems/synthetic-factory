@@ -360,11 +360,29 @@
         },
         "capture": {
           "type": "object",
-          "description": "Required for a physical target.",
+          "description": "Required for a physical target. The replay source is retained so the validator can re-check the adapter's manifest/payload digest chain and bind every stored observation to the capture payload. This establishes internal integrity, not out-of-band proof that a board really ran.",
+          "required": [
+            "source_sha256",
+            "manifest_sha256",
+            "payload_sha256",
+            "source"
+          ],
           "properties": {
+            "source_sha256": { "type": "string" },
             "manifest_sha256": { "type": "string" },
             "payload_sha256": { "type": "string" },
-            "recorded_at": { "type": "string" }
+            "recorded_at": { "type": "string" },
+            "source": {
+              "type": "object",
+              "required": [
+                "execution_target",
+                "quantization",
+                "hardware",
+                "bitstream",
+                "manifest",
+                "payload"
+              ]
+            }
           }
         },
         "output_digest": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" }
