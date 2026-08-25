@@ -1,0 +1,21 @@
+pipelines/curate_tags.py
+  s_940326c4ee4215::t_ffa0bc84d1d97d 93,100-104,319-323,423-431,522,556,590,604,676-677,769-781,786-794,801,803,810-813,821-838,869-888
+tests/test_curate_tags.py
+  s_940326c4ee4215::t_ffa0bc84d1d97d 38-40,439-465,667-668,709-728,814-851
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "72243de45ef861eb9a656245c5d593f2ed17cd9f",
+  "prompts": {},
+  "sessions": {
+    "s_940326c4ee4215": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a032e4-1904-7a82-8c8b-1ad3cfbeb0b0",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Raul Montoya Cardenas <montoyaraul34@gmail.com>"
+    }
+  }
+}
