@@ -1,0 +1,23 @@
+config/card-schemas/rag-retrieval-debug-trajectories.json
+  s_940326c4ee4215::t_c47c56251da78d 15,19,21,25,31,33,37,39,43,45
+  s_940326c4ee4215::t_8671c49941a648 27
+tests/test_card_schema_issue_131.py
+  s_940326c4ee4215::t_c4edb1e25d8124 170
+  s_940326c4ee4215::t_c65d3937762ad8 23-31,37-57,61-70,72-76,78,85,119-150,152,154-161,165-168,172,175-184,193-194,196,203-207,214-250
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "198c2b8abff2d79e0abf79f996af7aa99871af25",
+  "prompts": {},
+  "sessions": {
+    "s_940326c4ee4215": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a032e4-1904-7a82-8c8b-1ad3cfbeb0b0",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Raul Montoya Cardenas <montoyaraul34@gmail.com>"
+    }
+  }
+}
