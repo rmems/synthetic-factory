@@ -53,7 +53,7 @@
   ],
   "disclosures": [
     {
-      "summary": "Four records carry a thin `meta` of `{factory, generator, round}` with no `kind` / `plant` / `sim_or_real`. They are the earliest `dmr-*` episodes, in `batch-r01.jsonl` and `batch-r02.jsonl`, and they are the records the inferred schema dies on. They are kept exactly as generated.",
+      "summary": "Four records carry a thin `meta` of `{factory, generator, round}` with no `kind` / `plant` / `sim_or_real`. They are the earliest `dmr-*` episodes, in `batch-r01.jsonl` and `batch-r02.jsonl`, and seed the datasets-server's inferred schema. The 2722 later records add `kind` / `plant` / `sim_or_real` (and 1092 also add `surface`), so those richer later rows are the cast failures. The four source records are kept exactly as generated.",
       "ids": [
         "dmr-r01-alembic-notnull-no-default",
         "dmr-r01-pg-invalid-concurrent-index",

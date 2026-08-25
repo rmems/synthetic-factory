@@ -109,6 +109,9 @@ class DbMigrationRepairDeclarationTests(unittest.TestCase):
         ):
             with self.subTest(record_id=record_id):
                 self.assertIn(f"`{record_id}`", self.card)
+        self.assertIn("seed the datasets-server's inferred schema", self.card)
+        self.assertIn("The 2722 later records add", self.card)
+        self.assertIn("those richer later rows are the cast failures", self.card)
         self.assertIn("| `steps[].reflection` | optional |", self.card)
 
     def test_card_body_separates_the_own_leftover_mechanic_from_a_foreign_mill(self):
