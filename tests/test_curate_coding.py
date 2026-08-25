@@ -14,6 +14,7 @@ if str(PIPELINES) not in sys.path:
     sys.path.insert(0, str(PIPELINES))
 
 from curate_coding import (  # noqa: E402
+    HIDDEN_THOUGHT_KEYS,
     MAX_DECISION_BASIS_CHARS,
     REASON_BASIS_FROM_OBSERVATION,
     REASON_BASIS_FROM_PLAN,
@@ -29,6 +30,7 @@ from curate_coding import (  # noqa: E402
     curate_episode,
     curate_jsonl,
     curate_step,
+    hash_value,
     verify_curation,
     verify_manifest,
 )
@@ -173,6 +175,29 @@ class CurateCodingTests(unittest.TestCase):
         self.assertFalse(contains_thought_key(curated))
         self.assertEqual(curated["tool_call"]["args"], {"path": "visible.txt"})
         self.assertEqual(manifest["thought_fields_removed"], 2)
+
+    def test_all_hidden_reasoning_aliases_are_removed_recursively(self):
+        source = visible_step(
+            chain_of_thought="private",
+            tool_call={
+                "name": "inspect",
+                "args": {
+                    "scratch": "private",
+                    "innerMonologue": "private",
+                    "visible": "keep",
+                },
+            },
+        )
+
+        curated, manifest = curate_step(source, 1)
+
+        self.assertEqual(
+            HIDDEN_THOUGHT_KEYS,
+            {"thought", "chain_of_thought", "scratch", "inner_monologue"},
+        )
+        self.assertFalse(contains_thought_key(curated))
+        self.assertEqual(curated["tool_call"]["args"], {"visible": "keep"})
+        self.assertEqual(manifest["thought_fields_removed"], 4)
 
     def test_step_without_visible_evidence_is_excluded_with_reason(self):
         source = {"n": 1, "thought": "the only possible source"}
@@ -434,7 +459,132 @@ class VerifyCurationTests(unittest.TestCase):
         self.assertTrue(
             any("is not a coding_observability manifest" in item for item in violations)
         )
-        self.assertTrue(any("records no source hash" in item for item in violations))
+        self.assertTrue(
+            any("records no valid source hash" in item for item in violations)
+        )
+
+    def test_malformed_count_types_are_violations_instead_of_exceptions(self):
+        result = curated_result([[visible_step()]])
+        counts = result["manifest"][0]["step_counts"]
+        counts.update(
+            {"source": "1", "retained": None, "migrated": True, "excluded": -1}
+        )
+
+        violations = verify_manifest(result["manifest"])
+
+        for key in ("source", "retained", "migrated", "excluded"):
+            self.assertTrue(
+                any(f"step_counts.{key}" in item for item in violations),
+                violations,
+            )
+
+    def test_non_object_step_actions_are_violations_instead_of_exceptions(self):
+        result = curated_result([[visible_step()]])
+        result["manifest"][0]["step_actions"][0] = None
+
+        violations = verify_manifest(result["manifest"])
+
+        self.assertTrue(any("is not an object" in item for item in violations))
+
+    def test_invalid_reason_code_values_are_violations_instead_of_exceptions(self):
+        result = curated_result([[visible_step()]])
+        result["manifest"][0]["step_actions"][0]["reason_codes"] = [{}]
+
+        violations = verify_manifest(result["manifest"])
+
+        self.assertTrue(any("invalid reason codes" in item for item in violations))
+
+    def test_decision_basis_must_equal_derived_visible_evidence(self):
+        result = curated_result([[visible_step(plan="inspect the real failure")]])
+        step = result["records"][0]["steps"][0]
+        step["decision_basis"] = "Plan: invented evidence"
+        result["manifest"][0]["output_hash"] = hash_value(result["records"][0])
+
+        violations = verify_curation(result)
+
+        self.assertTrue(any("not grounded" in item for item in violations))
+
+    def test_curated_record_must_match_its_manifest_output_hash(self):
+        result = curated_result(
+            [
+                [visible_step(reflection="first visible result")],
+                [visible_step(reflection="second visible result")],
+            ]
+        )
+        result["records"].reverse()
+
+        violations = verify_curation(result)
+
+        self.assertEqual(
+            sum("output hash does not match" in item for item in violations), 2
+        )
+
+    def test_record_exclusion_requires_an_exclusion_reason(self):
+        _, manifest = curate_episode(episode([]))
+        manifest["reason_codes"] = [REASON_THOUGHT_REMOVED]
+
+        violations = verify_manifest([manifest])
+
+        self.assertTrue(
+            any(
+                "record excluded without an exclusion reason" in item
+                for item in violations
+            )
+        )
+
+    def test_migrated_count_must_match_step_actions(self):
+        result = curated_result([[visible_step()]])
+        result["manifest"][0]["step_counts"]["migrated"] = 0
+
+        violations = verify_manifest(result["manifest"])
+
+        self.assertTrue(
+            any("disagree with the recorded step actions" in item for item in violations)
+        )
+
+    def test_hidden_reasoning_alias_is_a_curation_violation(self):
+        result = curated_result([[visible_step()]])
+        result["records"][0]["steps"][0]["chain_of_thought"] = "private"
+        result["manifest"][0]["output_hash"] = hash_value(result["records"][0])
+
+        violations = verify_curation(result)
+
+        self.assertTrue(
+            any("still exposes a thought key" in item for item in violations)
+        )
+
+    def test_source_and_output_step_indexes_must_be_sequential(self):
+        result = curated_result([[visible_step(), visible_step(n=2)]])
+        actions = result["manifest"][0]["step_actions"]
+        actions[1]["source_step_index"] = 1
+        actions[1]["output_step_index"] = 1
+
+        violations = verify_manifest(result["manifest"])
+
+        self.assertTrue(any("source step indexes" in item for item in violations))
+        self.assertTrue(
+            any("retained output step indexes" in item for item in violations)
+        )
+
+    def test_manifest_evidence_source_must_match_the_curated_step(self):
+        result = curated_result([[visible_step()]])
+        action = result["manifest"][0]["step_actions"][0]
+        action["evidence_source"] = "plan"
+        action["reason_codes"].append(REASON_BASIS_FROM_PLAN)
+
+        violations = verify_curation(result)
+
+        self.assertTrue(
+            any("does not match its manifest action" in item for item in violations)
+        )
+
+    def test_summary_must_reconcile_with_manifest_totals(self):
+        result = curated_result([[visible_step()]])
+        result["summary"]["migrated_steps"] = 0
+
+        violations = verify_curation(result)
+
+        self.assertTrue(any("summary migrated_steps" in item for item in violations))
 
 
 class LegacyCodingManifestFixtureTests(unittest.TestCase):
