@@ -551,6 +551,32 @@ class CuratedViewHasNoHiddenReasoning(unittest.TestCase):
                 )
                 self.assertFalse(report["training_ready"])
 
+    def test_wrap_episode_missing_steps_receives_structural_validation(self):
+        source = coding_wrap("wrap-missing-steps")
+        source["proposed_action"].pop("internal_reasoning")
+        source["proposed_action"].pop("internal_reasoning_verbatim")
+        source["executed_action"].pop("steps")
+
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            write(
+                root / "agentic-coding-trajectory-factory" / "batch-r02.jsonl",
+                [source],
+            )
+            report = training_audit.audit_run(root)
+
+        self.assertIn(
+            "agentic-coding-trajectory-factory/batch-r02.jsonl:1."
+            "executed_action: episode missing 'steps'",
+            report["record_invariants"]["error_examples"],
+        )
+        self.assertIn(
+            "agentic-coding-trajectory-factory/batch-r02.jsonl:1."
+            "executed_action: steps must be a non-empty array",
+            report["record_invariants"]["error_examples"],
+        )
+        self.assertFalse(report["training_ready"])
+
     def test_undelimited_internal_reasoning_suffixes_block_training(self):
         source = thalamic("wrap-reasoning-prefix")
         source["proposed_action"]["internal_reasoning2"] = "private numbered trace"

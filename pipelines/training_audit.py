@@ -39,7 +39,12 @@ from curate_coding import (  # noqa: E402
     HIDDEN_REASONING_PREFIX,
     normalized_key_name,
 )
-from validate_run import HIDDEN_THOUGHT_KEYS, _episode_like, event_time  # noqa: E402
+from validate_run import (  # noqa: E402
+    HIDDEN_THOUGHT_KEYS,
+    _episode_like,
+    check_episode,
+    event_time,
+)
 
 # A curated training view may expose neither the scratch-pad vocabulary the
 # structural validator already knows about nor the ``internal_reasoning*``
@@ -87,7 +92,9 @@ def wrapped_agentic_episodes(obj, kind):
         executed_action = trajectory.get("executed_action")
         if not isinstance(executed_action, dict):
             continue
-        if "steps" not in executed_action:
+        if "steps" not in executed_action and not all(
+            key in executed_action for key in ("goal", "outcome", "reward")
+        ):
             continue
         path = (
             "executed_action"
@@ -359,11 +366,20 @@ def audit_run(run_dir: Path):
             # episode. Validate that nested episode explicitly with the same
             # strict agentic contract used for top-level staged episodes.
             for embedded_path, embedded in wrapped_agentic_episodes(obj, kind):
-                embedded_errors, _embedded_kind = shape_check(
-                    embedded,
-                    f"{where}.{embedded_path}",
-                    factory_staging=True,
-                )
+                embedded_where = f"{where}.{embedded_path}"
+                if "steps" in embedded:
+                    embedded_errors, _embedded_kind = shape_check(
+                        embedded,
+                        embedded_where,
+                        factory_staging=True,
+                    )
+                else:
+                    embedded_errors = check_episode(
+                        embedded,
+                        embedded_where,
+                        forbid_hidden_thought=True,
+                        enforce_terminal_outcome=True,
+                    )
                 record_errors.extend(embedded_errors)
             unresolved_record_warnings.extend(
                 warning
