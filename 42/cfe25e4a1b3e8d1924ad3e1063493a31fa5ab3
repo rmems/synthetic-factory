@@ -1,0 +1,58 @@
+pipelines/leftover_mill.py
+  s_002cddb1a70571::t_323a0fa8ce92c8 1,3-4,7-10,20,22-28,30,32-36,40-152,330
+  s_002cddb1a70571::t_619ff00541eaec 21
+  s_002cddb1a70571::t_fe600b7411782b 29,31,38-39,153-171,175,188-206,208-262,264-276,278-305,308-318,320-327
+pipelines/curate_preferences.py
+  s_002cddb1a70571::t_9f4a9057dc0cfd 23-28
+  s_002cddb1a70571::t_17fd71f7c87224 405-431
+  s_002cddb1a70571::t_ff7cf89183bc57 442
+  s_940326c4ee4215::t_7a5314ba67b706 465-466
+  s_002cddb1a70571::t_b5c0aaaa366fe1 535-539
+  s_002cddb1a70571::t_a790ee971dcf5e 617
+scripts/publish_grok46_hub.py
+  s_002cddb1a70571::t_b7dd1d6c1d04f6 50
+  s_940326c4ee4215::t_af6e4c1b3319bf 503-504
+  s_002cddb1a70571::t_15f8781d8a80a7 762-793,803-806,828
+  s_002cddb1a70571::t_d8f58597fde80a 848
+  s_002cddb1a70571::t_7ed20cdb8585cd 872,876-883,885-889,895-897,901-905,914
+  s_002cddb1a70571::t_670069c8e59e4a 890-894,898-900
+  s_002cddb1a70571::t_9afed4dc9fc1ef 937
+  s_002cddb1a70571::t_a31d0ee1dd980a 977
+  s_002cddb1a70571::t_ac104bb28c4810 1003-1008
+docs/leftover-mill-quarantine.md
+  s_002cddb1a70571::t_24c4f82aa485f8 1-44,59-93
+tests/test_curate_preferences.py
+  s_002cddb1a70571::t_6883f98978dd21 344-433
+tests/test_leftover_mill.py
+  s_002cddb1a70571::t_f61781327cef77 1,3-4,6-10,12-14,16-17,19-248
+  s_002cddb1a70571::t_2870522fab3312 5,11,15,18,270-294,296,298-335,344,346-349,356,358-361,365-380,382-442,451,455-461,463-490,494-495,501-524,564-574,576-578,580,617-625
+  s_940326c4ee4215::t_afe44b54b21202 249-265
+  s_002cddb1a70571::t_fb2cb84d484047 336-343,345,350-351,496-497,500
+  s_002cddb1a70571::t_6c6d1da301e1a2 525-562
+  s_940326c4ee4215::t_af6e4c1b3319bf 581-585,587
+  s_940326c4ee4215::t_b665d1fad79693 628
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "42cfe25e4a1b3e8d1924ad3e1063493a31fa5ab3",
+  "prompts": {},
+  "sessions": {
+    "s_002cddb1a70571": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "abd260ba-6a6c-45a6-9db3-a4e0988ad60e",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Raul Montoya Cardenas <montoyaraul34@gmail.com>"
+    },
+    "s_940326c4ee4215": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a032e4-1904-7a82-8c8b-1ad3cfbeb0b0",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Raul Montoya Cardenas <montoyaraul34@gmail.com>"
+    }
+  }
+}
