@@ -171,16 +171,43 @@ class DeclarationLoadingTests(unittest.TestCase):
             with self.assertRaisesRegex(card_schema.CardSchemaError, "cannot read"):
                 card_schema.load("example-trajectories", root)
 
-    def test_a_symlinked_declaration_is_not_loaded(self):
+    def test_a_symlinked_declaration_is_rejected(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td) / "card-schemas"
             root.mkdir()
             outside = Path(td) / "outside.json"
             outside.write_text(json.dumps(MINIMAL), encoding="utf-8")
             (root / "example-trajectories.json").symlink_to(outside)
-            self.assertIsNone(card_schema.load("example-trajectories", root))
+            with self.assertRaisesRegex(card_schema.CardSchemaError, "unsafe card schema entry"):
+                card_schema.load("example-trajectories", root)
             with self.assertRaisesRegex(card_schema.CardSchemaError, "unsafe card schema"):
                 card_schema.declared_datasets(root)
+
+    def test_an_unsafe_schema_root_is_rejected_by_discovery_and_loading(self):
+        with tempfile.TemporaryDirectory() as td:
+            base = Path(td)
+            outside = base / "outside"
+            outside.mkdir()
+            write_declaration(outside, "example-trajectories", MINIMAL)
+            linked = base / "linked"
+            linked.symlink_to(outside, target_is_directory=True)
+            regular_file = base / "not-a-directory"
+            regular_file.write_text("x", encoding="utf-8")
+
+            for root in (linked, regular_file):
+                with self.subTest(root=root):
+                    with self.assertRaisesRegex(
+                        card_schema.CardSchemaError, "unsafe card schema root"
+                    ):
+                        card_schema.declared_datasets(root)
+                    with self.assertRaisesRegex(
+                        card_schema.CardSchemaError, "unsafe card schema root"
+                    ):
+                        card_schema.load("example-trajectories", root)
+
+            missing = base / "missing"
+            self.assertEqual(card_schema.declared_datasets(missing), [])
+            self.assertIsNone(card_schema.load("example-trajectories", missing))
 
     def test_declared_datasets_refuses_a_misnamed_file(self):
         with tempfile.TemporaryDirectory() as td:
@@ -283,6 +310,15 @@ class YamlEmissionTests(unittest.TestCase):
             card_schema.metadata_yaml(declaration),
         )
 
+    def test_named_config_is_repeated_in_dataset_info(self):
+        declaration = card_schema.validate(
+            {**MINIMAL, "config_name": "research"},
+            "example-trajectories",
+        )
+        yaml = card_schema.metadata_yaml(declaration)
+        self.assertIn("configs:\n- config_name: research\n", yaml)
+        self.assertIn("dataset_info:\n  config_name: research\n  features:\n", yaml)
+
     def test_reserved_and_unsafe_yaml_scalars_are_quoted_or_refused(self):
         self.assertEqual(card_schema._yaml_scalar("n"), '"n"')
         self.assertEqual(card_schema._yaml_scalar("no"), '"no"')
@@ -337,10 +373,11 @@ class BodySectionTests(unittest.TestCase):
         self.assertIn("Record ids: `a-1`.", body)
         self.assertIn("issues/43", body)
 
-    def test_undeclared_section_states_the_defect_instead_of_staying_silent(self):
+    def test_undeclared_section_states_the_risk_without_claiming_live_status(self):
         body = card_schema.undeclared_body_section("example-trajectories")
         self.assertIn("**Not declared yet.**", body)
-        self.assertIn("`viewer`, `search`, `filter`, and `statistics` stay false", body)
+        self.assertIn("index availability is unverified here", body)
+        self.assertNotIn("stay false", body)
         self.assertIn("config/card-schemas/example-trajectories.json", body)
 
 
