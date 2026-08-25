@@ -1,0 +1,39 @@
+README.md
+  s_940326c4ee4215::t_1a100ce98aa781 101-103
+pipelines/census.py
+  s_940326c4ee4215::t_5a99d8e2f8904a 24,111-118
+  s_940326c4ee4215::t_78e42e1de8cc24 108-110,131
+pipelines/curate_agentic.py
+  s_940326c4ee4215::t_4997b8a69c3cf5 17-18,827-830
+  s_940326c4ee4215::t_818db6f48b7c5e 648-652,670-675,687-694,711
+  s_940326c4ee4215::t_0fe5701f672c51 56,446-447,495-496,498,500,506-507,511-512,514
+  s_940326c4ee4215::t_13272003e27704 47-52,445,494,497,499,501-505,508-510,513,524,536-539,567,582,653-661,663-669,677
+  s_940326c4ee4215::t_bfbe0bde5c83de 776-783
+tests/test_mill_family.py
+  s_940326c4ee4215::t_b226e5456e8242 36,110-122,238-254,312-330,363-375,414-436
+pipelines/mill_family.py
+  s_940326c4ee4215::t_b0a113df92ff85 34,225-232,235,239,242-246,248,266-272,279-281,283-289,292,299-314,316-334,372,422,435
+  s_940326c4ee4215::t_990a8010a8571a 345,347,361
+tests/test_curate_agentic.py
+  s_940326c4ee4215::t_11148034e92497 654-655,658-676,687-690
+  s_940326c4ee4215::t_cc1db978f5fc7b 43
+  s_940326c4ee4215::t_48cfc27faadd22 896-899,910-978
+tests/test_census.py
+  s_940326c4ee4215::t_dda5094b7c8497 192-220
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "d8051b787fde426e999a9acbe87d8020d351b1ad",
+  "prompts": {},
+  "sessions": {
+    "s_940326c4ee4215": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a032e4-1904-7a82-8c8b-1ad3cfbeb0b0",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Raul Montoya Cardenas <montoyaraul34@gmail.com>"
+    }
+  }
+}
