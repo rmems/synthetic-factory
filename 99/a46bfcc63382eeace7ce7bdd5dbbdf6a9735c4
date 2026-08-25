@@ -1,0 +1,23 @@
+pipelines/curate_gate.py
+  s_940326c4ee4215::t_93d9d1b1daac05 1180-1184
+  s_940326c4ee4215::t_69ee5b299529c0 125,511-516,524-525,528-540,542,550-551,570,574,576-578,586-587,644-676,680-683,685,701,709-736,740,748,753,761,766,996,1018-1025,1056-1058
+  s_940326c4ee4215::t_53107a518afd44 1118-1140,1167-1179,1185-1188,1218-1222,1224-1246
+tests/test_curate_gate.py
+  s_940326c4ee4215::t_9ac736a5bd3c2c 327-399,608,624-639,691,699-700,713-718,777-790
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "99a46bfcc63382eeace7ce7bdd5dbbdf6a9735c4",
+  "prompts": {},
+  "sessions": {
+    "s_940326c4ee4215": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a032e4-1904-7a82-8c8b-1ad3cfbeb0b0",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Raul Montoya Cardenas <montoyaraul34@gmail.com>"
+    }
+  }
+}
