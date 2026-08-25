@@ -8,6 +8,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO / "pipelines"))
@@ -542,6 +543,65 @@ class CuratePreferenceSource(unittest.TestCase):
 
             self.assertFalse((external_raw / "curated.jsonl").exists())
             self.assertEqual(list(outside.iterdir()), [])
+
+    def test_writer_refuses_resolved_target_of_symlinked_outputs_raw(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            source = root / "source.jsonl"
+            write_jsonl(source, [pair("resolved-raw-alias-guard")])
+            outputs = root / "outputs"
+            external_raw = root / "mounted-raw"
+            outside = root / "cleaned"
+            outputs.mkdir()
+            external_raw.mkdir()
+            outside.mkdir()
+            raw_root = outputs / "raw"
+            raw_root.symlink_to(external_raw, target_is_directory=True)
+
+            run = curate_preferences.curate_source(source)
+            destination = external_raw / "curated.jsonl"
+            with mock.patch.object(curate_preferences, "RAW_OUTPUT_ROOT", raw_root):
+                with self.assertRaisesRegex(
+                    curate_preferences.PreferenceCurationError,
+                    "immutable raw evidence",
+                ):
+                    curate_preferences.write_run(
+                        run, source, destination, outside / "manifest.jsonl"
+                    )
+
+            self.assertFalse(destination.exists())
+            self.assertFalse((raw_root / destination.name).exists())
+            self.assertEqual(list(outside.iterdir()), [])
+
+    def test_writer_refuses_alternate_alias_of_symlinked_outputs_raw(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            source = root / "source.jsonl"
+            write_jsonl(source, [pair("second-raw-alias-guard")])
+            outputs = root / "outputs"
+            external_raw = root / "mounted-raw"
+            alternate_alias = root / "raw-alias"
+            outside = root / "cleaned"
+            outputs.mkdir()
+            external_raw.mkdir()
+            outside.mkdir()
+            raw_root = outputs / "raw"
+            raw_root.symlink_to(external_raw, target_is_directory=True)
+            alternate_alias.symlink_to(external_raw, target_is_directory=True)
+
+            run = curate_preferences.curate_source(source)
+            output = outside / "curated.jsonl"
+            manifest = alternate_alias / "manifest.jsonl"
+            with mock.patch.object(curate_preferences, "RAW_OUTPUT_ROOT", raw_root):
+                with self.assertRaisesRegex(
+                    curate_preferences.PreferenceCurationError,
+                    "immutable raw evidence",
+                ):
+                    curate_preferences.write_run(run, source, output, manifest)
+
+            self.assertFalse(output.exists())
+            self.assertFalse(manifest.exists())
+            self.assertFalse((raw_root / manifest.name).exists())
 
     def test_non_encodable_record_is_excluded_without_aborting_the_scan(self):
         with tempfile.TemporaryDirectory() as td:
