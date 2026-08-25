@@ -58,15 +58,21 @@ rate are never averaged into one figure.
 A pair is `retained` when all of the following hold, on the thought-stripped
 copy:
 
-1. **Shared goal.** Every present goal string (top-level, `chosen.goal`,
+1. **Valid episode sides.** Both `chosen` and `rejected` satisfy
+   `validate_run.check_episode(..., require_goal=False)`. Mixed Thalamic /
+   episode pairs, malformed step elements, non-text outcomes, and invalid
+   reward objects are rejected before they can enter the training view.
+2. **Shared goal.** Every present goal string (top-level, `chosen.goal`,
    `rejected.goal`) is identical after whitespace normalization, and either the
    top-level `goal` is present or both side goals are.
-2. **Shared step prefix > 0.** The leading steps of both sides are byte-equal
+3. **Shared step prefix > 0.** The leading steps of both sides are byte-equal
    under canonical JSON (`curate_agentic.prefix_overlap`).
-3. **Trajectories are not identical.** A pair with the same `steps` on both
+4. **Trajectories are not identical.** A pair with the same `steps` on both
    sides carries no preference signal.
-4. **`outcome` diverges.** Both sides have an `outcome` and they differ.
-5. **`reward` diverges.** Both sides have a `reward` and they differ.
+5. **`outcome` diverges.** Both sides have a non-empty text `outcome` and they
+   differ.
+6. **`reward` diverges.** Both sides have a valid episode reward and they
+   differ.
 
 Reason code on the keep path: `TRAJECTORY_PAIR_SHARED_GOAL_AND_PREFIX`.
 
@@ -90,17 +96,20 @@ fails its own gate. Repair is idempotent: re-curating a repaired record yields
 |---|---|
 | `TRAJECTORY_RECORD_NOT_AN_OBJECT` | Line is not a JSON object |
 | `TRAJECTORY_PAIR_SIDES_NOT_OBJECTS` | `chosen` / `rejected` present but not objects |
-| `TRAJECTORY_STEPS_MISSING_OR_INVALID` | A side has no `steps` list |
+| `TRAJECTORY_PAIR_SIDE_EPISODE_INVALID` | At least one side fails the canonical episode validator; exact per-side errors are in `side_validation_errors` |
+| `TRAJECTORY_STEPS_MISSING_OR_INVALID` | A side has no `steps` list or contains a malformed step |
 | `TRAJECTORY_STEPS_EMPTY` | A side has an empty `steps` list |
 | `PREFERENCE_GOAL_MISSING` / `PREFERENCE_GOAL_NOT_TEXT` / `PREFERENCE_GOAL_DIVERGES` | Goal rules (vocabulary shared with `curate_agentic.py`) |
 | `TRAJECTORY_PAIR_IDENTICAL` | Both sides have identical `steps` |
 | `TRAJECTORY_PREFIX_OVERLAP_ABSENT` | Zero shared leading steps |
 | `FIRST_STEP_DIFFERS_BY_BRANCH_LABEL_ONLY` | Disclosure note on a zero-prefix reject (Section 6) |
-| `TRAJECTORY_OUTCOME_MISSING` / `TRAJECTORY_OUTCOME_DOES_NOT_DIVERGE` | Outcome rules |
-| `TRAJECTORY_REWARD_MISSING` / `TRAJECTORY_REWARD_DOES_NOT_DIVERGE` | Reward rules |
+| `TRAJECTORY_OUTCOME_MISSING` / `TRAJECTORY_OUTCOME_INVALID` / `TRAJECTORY_OUTCOME_DOES_NOT_DIVERGE` | Outcome rules |
+| `TRAJECTORY_REWARD_MISSING` / `TRAJECTORY_REWARD_INVALID` / `TRAJECTORY_REWARD_DOES_NOT_DIVERGE` | Reward rules |
 
 Every applicable reason is reported for one record, in a fixed order, so a
-manifest entry is fully diagnostic and byte-stable across runs.
+manifest entry is fully diagnostic and byte-stable across runs. Invalid steps
+do not suppress independent outcome or reward findings; the manifest also
+preserves the exact `check_episode` messages under each side name.
 
 ## 6. The zero-prefix tool-use pairs
 

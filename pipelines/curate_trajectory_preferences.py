@@ -61,10 +61,11 @@ from curate_agentic import (
     strip_hidden_thought_keys,
 )
 from curate_preferences import PreferenceCurationError, write_run
+from validate_run import THALAMIC_CORE_KEYS, check_episode
 
 
 TRANSFORM_NAME = "trajectory-pair-preference-curation"
-TRANSFORM_VERSION = "1.0.0"
+TRANSFORM_VERSION = "1.1.0"
 
 ACTION_RETAINED = "retained"
 ACTION_REPAIRED = "repaired"
@@ -75,14 +76,17 @@ REASON_RECORD_NOT_OBJECT = "TRAJECTORY_RECORD_NOT_AN_OBJECT"
 REASON_NOT_A_PAIR = "NOT_A_PREFERENCE_PAIR_RECORD"
 REASON_SIDES_NOT_OBJECTS = "TRAJECTORY_PAIR_SIDES_NOT_OBJECTS"
 REASON_SAME_STATE_SCHEMA = "SAME_STATE_PAIR_DEFERRED_TO_CURATE_PREFERENCES"
+REASON_SIDE_EPISODE_INVALID = "TRAJECTORY_PAIR_SIDE_EPISODE_INVALID"
 REASON_STEPS_INVALID = "TRAJECTORY_STEPS_MISSING_OR_INVALID"
 REASON_STEPS_EMPTY = "TRAJECTORY_STEPS_EMPTY"
 REASON_PAIR_IDENTICAL = "TRAJECTORY_PAIR_IDENTICAL"
 REASON_PREFIX_ABSENT = "TRAJECTORY_PREFIX_OVERLAP_ABSENT"
 REASON_BRANCH_LABEL_ONLY = "FIRST_STEP_DIFFERS_BY_BRANCH_LABEL_ONLY"
 REASON_OUTCOME_MISSING = "TRAJECTORY_OUTCOME_MISSING"
+REASON_OUTCOME_INVALID = "TRAJECTORY_OUTCOME_INVALID"
 REASON_OUTCOME_NOT_DIVERGENT = "TRAJECTORY_OUTCOME_DOES_NOT_DIVERGE"
 REASON_REWARD_MISSING = "TRAJECTORY_REWARD_MISSING"
+REASON_REWARD_INVALID = "TRAJECTORY_REWARD_INVALID"
 REASON_REWARD_NOT_DIVERGENT = "TRAJECTORY_REWARD_DOES_NOT_DIVERGE"
 REASON_GATE_PASSED = "TRAJECTORY_PAIR_SHARED_GOAL_AND_PREFIX"
 REASON_GOAL_WHITESPACE_NORMALIZED = "TRAJECTORY_GOAL_WHITESPACE_NORMALIZED"
@@ -116,6 +120,7 @@ class TrajectoryDecision:
     shared_goal: bool | None = None
     overlap: dict[str, Any] | None = None
     changed_fields: tuple[str, ...] = ()
+    side_validation_errors: dict[str, tuple[str, ...]] | None = None
 
 
 @dataclass(frozen=True)
@@ -153,6 +158,26 @@ def _steps(side: Any) -> list[Any] | None:
     return steps if isinstance(steps, list) else None
 
 
+def _side_episode_validation_errors(
+    record: dict[str, Any],
+) -> dict[str, tuple[str, ...]]:
+    """Return canonical episode-shape errors for each preference side."""
+
+    found: dict[str, tuple[str, ...]] = {}
+    for side_name in ("chosen", "rejected"):
+        side = record.get(side_name)
+        if not isinstance(side, dict):
+            continue
+        errors = check_episode(side, side_name, require_goal=False)
+        if all(key in side for key in THALAMIC_CORE_KEYS):
+            errors.append(
+                f"{side_name}: Thalamic trajectory side is not an episode"
+            )
+        if errors:
+            found[side_name] = tuple(errors)
+    return found
+
+
 def classify_pair_schema(record: Any) -> str:
     """Route one record to the lane that owns it."""
 
@@ -164,6 +189,8 @@ def classify_pair_schema(record: Any) -> str:
         return "sides_not_objects"
     if _is_same_state_pair(record):
         return "same_state_pair"
+    if _side_episode_validation_errors(record):
+        return "malformed_trajectory_pair"
     return "trajectory_pair"
 
 
@@ -192,18 +219,42 @@ def first_step_differs_by_branch_label_only(
     )
 
 
-def _side_field_failures(record: dict[str, Any]) -> list[str]:
+def _field_has_validation_error(
+    errors: dict[str, tuple[str, ...]], side_name: str, field_name: str
+) -> bool:
+    marker = f"{side_name}: {field_name}"
+    return any(error.startswith(marker) for error in errors.get(side_name, ()))
+
+
+def _side_field_failures(
+    record: dict[str, Any], errors: dict[str, tuple[str, ...]]
+) -> list[str]:
     """Reject reasons for missing or non-divergent ``outcome`` / ``reward``."""
 
     failures: list[str] = []
-    for name, missing, not_divergent in (
-        ("outcome", REASON_OUTCOME_MISSING, REASON_OUTCOME_NOT_DIVERGENT),
-        ("reward", REASON_REWARD_MISSING, REASON_REWARD_NOT_DIVERGENT),
+    for name, missing, invalid, not_divergent in (
+        (
+            "outcome",
+            REASON_OUTCOME_MISSING,
+            REASON_OUTCOME_INVALID,
+            REASON_OUTCOME_NOT_DIVERGENT,
+        ),
+        (
+            "reward",
+            REASON_REWARD_MISSING,
+            REASON_REWARD_INVALID,
+            REASON_REWARD_NOT_DIVERGENT,
+        ),
     ):
         chosen = record["chosen"].get(name)
         rejected = record["rejected"].get(name)
         if chosen is None or rejected is None:
             failures.append(missing)
+        elif any(
+            _field_has_validation_error(errors, side_name, name)
+            for side_name in ("chosen", "rejected")
+        ):
+            failures.append(invalid)
         elif canonical_json(chosen) == canonical_json(rejected):
             failures.append(not_divergent)
     return failures
@@ -212,10 +263,10 @@ def _side_field_failures(record: dict[str, Any]) -> list[str]:
 def gate_failures(record: dict[str, Any]) -> tuple[str, ...]:
     """Return every reason a well-shaped trajectory pair fails the gate.
 
-    ``record`` must already be routed by :func:`classify_pair_schema` to
-    ``trajectory_pair``. Reasons accumulate in a fixed order so manifests are
-    byte-stable across runs; a step-shape failure short-circuits the checks
-    that read those steps.
+    ``record`` must have object-valued sides. Reasons accumulate in a fixed
+    order so manifests are byte-stable across runs. Step-dependent checks are
+    skipped when the steps are unsafe to inspect, but independent outcome and
+    reward findings are still reported in the same pass.
     """
 
     failures: list[str] = []
@@ -227,24 +278,32 @@ def gate_failures(record: dict[str, Any]) -> tuple[str, ...]:
             goal_reason if goal_reason in GOAL_REASONS else REASON_SIDES_NOT_OBJECTS
         )
 
+    side_errors = _side_episode_validation_errors(record)
+    if side_errors:
+        failures.append(REASON_SIDE_EPISODE_INVALID)
+
     chosen_steps = _steps(record.get("chosen"))
     rejected_steps = _steps(record.get("rejected"))
     if chosen_steps is None or rejected_steps is None:
         failures.append(REASON_STEPS_INVALID)
-        return tuple(failures)
-    if not chosen_steps or not rejected_steps:
+    elif not chosen_steps or not rejected_steps:
         failures.append(REASON_STEPS_EMPTY)
-        return tuple(failures)
+    elif any(
+        error.startswith((f"{side_name}: steps", f"{side_name} step "))
+        for side_name, errors in side_errors.items()
+        for error in errors
+    ):
+        failures.append(REASON_STEPS_INVALID)
+    else:
+        if canonical_json(chosen_steps) == canonical_json(rejected_steps):
+            failures.append(REASON_PAIR_IDENTICAL)
+        overlap = prefix_overlap(record["chosen"], record["rejected"])
+        if not overlap["shared_steps"]:
+            failures.append(REASON_PREFIX_ABSENT)
+            if first_step_differs_by_branch_label_only(chosen_steps, rejected_steps):
+                failures.append(REASON_BRANCH_LABEL_ONLY)
 
-    if canonical_json(chosen_steps) == canonical_json(rejected_steps):
-        failures.append(REASON_PAIR_IDENTICAL)
-    overlap = prefix_overlap(record["chosen"], record["rejected"])
-    if not overlap["shared_steps"]:
-        failures.append(REASON_PREFIX_ABSENT)
-        if first_step_differs_by_branch_label_only(chosen_steps, rejected_steps):
-            failures.append(REASON_BRANCH_LABEL_ONLY)
-
-    failures.extend(_side_field_failures(record))
+    failures.extend(_side_field_failures(record, side_errors))
     return tuple(failures)
 
 
@@ -345,6 +404,18 @@ def curate_trajectory_pair(record: Any) -> TrajectoryDecision:
             record=None,
         )
 
+    if schema == "malformed_trajectory_pair":
+        side_errors = _side_episode_validation_errors(record)
+        return TrajectoryDecision(
+            action=ACTION_EXCLUDED,
+            classification="malformed_trajectory_pair",
+            reason_codes=gate_failures(record),
+            record=None,
+            shared_goal=shared_preference_goal(record)[0],
+            overlap=prefix_overlap(record.get("chosen"), record.get("rejected")),
+            side_validation_errors=side_errors,
+        )
+
     repairs: list[str] = []
     curated, removed_thoughts = strip_hidden_thought_keys(record)
     if removed_thoughts:
@@ -356,6 +427,7 @@ def curate_trajectory_pair(record: Any) -> TrajectoryDecision:
         repairs.append(REASON_GOAL_WHITESPACE_NORMALIZED)
 
     failures = gate_failures(curated)
+    side_errors = _side_episode_validation_errors(curated)
     shared_goal, _ = shared_preference_goal(curated)
     overlap = prefix_overlap(curated.get("chosen"), curated.get("rejected"))
     if failures:
@@ -366,6 +438,7 @@ def curate_trajectory_pair(record: Any) -> TrajectoryDecision:
             record=None,
             shared_goal=shared_goal,
             overlap=overlap,
+            side_validation_errors=side_errors or None,
         )
 
     if repairs:
@@ -479,6 +552,12 @@ def curate_source(source: Path) -> CurationRun:
                     "shared_goal": decision.shared_goal,
                     "prefix_overlap": decision.overlap,
                     "changed_fields": list(decision.changed_fields),
+                    "side_validation_errors": {
+                        side: list(errors)
+                        for side, errors in (
+                            decision.side_validation_errors or {}
+                        ).items()
+                    },
                     "output_id": output_id,
                     "output_sha256": output_hash,
                 }

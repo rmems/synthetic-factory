@@ -191,6 +191,26 @@ class GateRejectPath(unittest.TestCase):
 
         self.assert_excluded(source, ctp.REASON_STEPS_INVALID)
 
+    def test_step_elements_must_satisfy_the_episode_contract(self):
+        source = trajectory_pair()
+        source["chosen"]["steps"] = ["shared", "chosen"]
+        source["rejected"]["steps"] = ["shared", "rejected"]
+
+        decision = self.assert_excluded(
+            source,
+            ctp.REASON_SIDE_EPISODE_INVALID,
+            ctp.REASON_STEPS_INVALID,
+        )
+
+        self.assertIn("chosen", decision.side_validation_errors)
+        self.assertIn("rejected", decision.side_validation_errors)
+        self.assertTrue(
+            any(
+                "must be an object" in error
+                for error in decision.side_validation_errors["chosen"]
+            )
+        )
+
     def test_empty_steps_are_excluded(self):
         source = trajectory_pair()
         source["chosen"]["steps"] = []
@@ -218,11 +238,62 @@ class GateRejectPath(unittest.TestCase):
             source, ctp.REASON_OUTCOME_MISSING, ctp.REASON_REWARD_MISSING
         )
 
+    def test_invalid_outcome_and_reward_types_are_rejected(self):
+        source = trajectory_pair()
+        source["chosen"]["outcome"] = 1
+        source["rejected"]["outcome"] = 2
+        source["chosen"]["reward"] = ["high"]
+        source["rejected"]["reward"] = ["low"]
+
+        decision = self.assert_excluded(
+            source,
+            ctp.REASON_SIDE_EPISODE_INVALID,
+            ctp.REASON_OUTCOME_INVALID,
+            ctp.REASON_REWARD_INVALID,
+        )
+
+        self.assertTrue(
+            any(
+                "outcome must be a non-empty string" in error
+                for error in decision.side_validation_errors["chosen"]
+            )
+        )
+        self.assertTrue(
+            any(
+                "reward must be an object" in error
+                for error in decision.side_validation_errors["chosen"]
+            )
+        )
+
     def test_sides_must_be_objects(self):
         self.assert_excluded(
             {"id": "x", "chosen": ["steps"], "rejected": {"steps": []}},
             ctp.REASON_SIDES_NOT_OBJECTS,
         )
+
+    def test_mixed_thalamic_and_episode_sides_are_not_routed_as_dpo(self):
+        source = trajectory_pair()
+        source["chosen"] = {
+            "state": {},
+            "proposed_action": {},
+            "safety_decision": {},
+            "executed_action": {},
+            "future_outcome": {},
+            "reward_components": {},
+        }
+
+        decision = self.assert_excluded(
+            source,
+            ctp.REASON_SIDE_EPISODE_INVALID,
+            ctp.REASON_STEPS_INVALID,
+            ctp.REASON_OUTCOME_MISSING,
+            ctp.REASON_REWARD_MISSING,
+        )
+
+        self.assertEqual(
+            ctp.classify_pair_schema(source), "malformed_trajectory_pair"
+        )
+        self.assertIn("chosen", decision.side_validation_errors)
 
     def test_non_object_record_is_excluded(self):
         decision = ctp.curate_trajectory_pair(["not", "a", "record"])
@@ -246,6 +317,22 @@ class GateRejectPath(unittest.TestCase):
                 ctp.REASON_OUTCOME_NOT_DIVERGENT,
             ),
         )
+
+    def test_bad_steps_do_not_hide_independent_missing_fields(self):
+        source = trajectory_pair()
+        source["chosen"]["steps"] = "bad"
+        source["chosen"].pop("outcome")
+        source["rejected"].pop("reward")
+
+        decision = self.assert_excluded(
+            source,
+            ctp.REASON_SIDE_EPISODE_INVALID,
+            ctp.REASON_STEPS_INVALID,
+            ctp.REASON_OUTCOME_MISSING,
+            ctp.REASON_REWARD_MISSING,
+        )
+
+        self.assertEqual(decision.reason_codes.count(ctp.REASON_STEPS_INVALID), 1)
 
 
 class GateRepairPath(unittest.TestCase):
@@ -375,6 +462,33 @@ class SourceScan(unittest.TestCase):
         self.assertEqual(len(retained["source_sha256"]), 64)
         self.assertEqual(len(retained["output_sha256"]), 64)
         self.assertEqual(retained["prefix_overlap"]["shared_steps"], 2)
+        self.assertEqual(retained["side_validation_errors"], {})
+
+    def test_manifest_surfaces_each_side_episode_shape_error(self):
+        source_record = trajectory_pair("malformed-sides")
+        source_record["chosen"]["outcome"] = 1
+        source_record["rejected"]["steps"] = ["not-a-step"]
+        with tempfile.TemporaryDirectory() as td:
+            source = Path(td) / "batch-r01.jsonl"
+            source.write_text(json.dumps(source_record) + "\n")
+
+            entry = ctp.curate_source(source).manifest[0]
+
+        self.assertEqual(entry["action"], ctp.ACTION_EXCLUDED)
+        self.assertIn("chosen", entry["side_validation_errors"])
+        self.assertIn("rejected", entry["side_validation_errors"])
+        self.assertTrue(
+            any(
+                "outcome must be a non-empty string" in error
+                for error in entry["side_validation_errors"]["chosen"]
+            )
+        )
+        self.assertTrue(
+            any(
+                "must be an object" in error
+                for error in entry["side_validation_errors"]["rejected"]
+            )
+        )
 
     def test_scan_does_not_touch_the_source_corpus(self):
         path = FIXTURE_DIR / "batch-r01.jsonl"

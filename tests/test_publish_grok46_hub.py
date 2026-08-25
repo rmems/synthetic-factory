@@ -267,6 +267,35 @@ class PublishGrok46HubTests(unittest.TestCase):
             # The YAML tag block must still be the first --- delimited section.
             self.assertEqual(len(card.split("---", 2)), 3)
 
+    def test_code_review_card_discloses_leftover_episode_lines(self):
+        kind_mix = [
+            SimpleNamespace(
+                record_id=f"leftover-{index}",
+                source_name="batch-r723.jsonl",
+                source_line=index + 1,
+                record_kind="episode",
+                source_sha256=f"{index:064x}",
+            )
+            for index in range(12)
+        ]
+        card = publisher.render_card(
+            {
+                **ITEM,
+                "slug": "code-review-preference-factory",
+                "hub": "code-review-preference-pairs",
+            },
+            records=2976,
+            bytes_=4096,
+            first="r01",
+            last="r02",
+            kind_mix=kind_mix,
+        )
+
+        self.assertIn("2,964 trajectory", card)
+        self.assertIn("12 quarantined\nleftover-mill episode records", card)
+        self.assertIn("without `chosen` / `rejected`\nobjects", card)
+        self.assertNotIn("Each line is a **trajectory preference pair**", card)
+
     def test_trajectory_cards_omit_the_preference_pair_disclosure(self):
         card = publisher.render_card(
             ITEM, records=1, bytes_=1024, first="r01", last="r01"
