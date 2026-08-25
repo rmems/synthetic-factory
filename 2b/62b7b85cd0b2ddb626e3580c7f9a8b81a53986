@@ -1,0 +1,33 @@
+.claude/skills/run-synthetic-factory/SKILL.md
+  s_940326c4ee4215::t_5336c90faa4166 156-160
+tests/test_promote.py
+  s_940326c4ee4215::t_4be618b8982633 355-366,376-417
+docs/quality-gate.md
+  s_940326c4ee4215::t_61869f44489ef1 11-12,14,50-56,68-78,114-117,141,184-187,214-219,272-273,276,280,282,315-318,322,325-328,331-333,342-343
+tests/test_quality_and_verify_gates.py
+  s_940326c4ee4215::t_848a6b0507f56c 98-135,221,223-311,313,494-499
+  s_940326c4ee4215::t_aece9380e30ee5 500-501
+pipelines/quality_gate.py
+  s_940326c4ee4215::t_000c6ae390738e 44-49,125,143,145,247-250,252,254-261,264-265,269,272,274,276-283,288-289,378-380,384,554-557,568-570,576-587,594-595,598
+  s_940326c4ee4215::t_74fb5dd1a04ac2 424-484,638-639,704-706,708,757-768
+  s_940326c4ee4215::t_c384d7c2da9a33 253,266,270
+pipelines/promote.py
+  s_940326c4ee4215::t_e619b58f15043b 52,453-462
+  s_940326c4ee4215::t_c457794e5080da 10-15,17-21,45,61,362-365,369-424,435-451,464-470,474-483,485-489
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "2b62b7b85cd0b2ddb626e3580c7f9a8b81a53986",
+  "prompts": {},
+  "sessions": {
+    "s_940326c4ee4215": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a032e4-1904-7a82-8c8b-1ad3cfbeb0b0",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Raul Montoya Cardenas <montoyaraul34@gmail.com>"
+    }
+  }
+}
