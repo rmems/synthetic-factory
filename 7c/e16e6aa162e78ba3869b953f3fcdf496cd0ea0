@@ -1,0 +1,24 @@
+schemas/raster.schema.json
+  s_002cddb1a70571::t_66f1149e64ebeb 5,9,12,14-15
+  s_002cddb1a70571::t_d48026d119cd97 87-89,91-116,135-155,20,22,36-39
+  s_002cddb1a70571::t_4361575bc8e404 211,221-223,225-251,28-29,31-32,125,132
+tests/test_curate_bridge.py
+  s_002cddb1a70571::t_cc09c090696e6c 511-582,614-627,632-652,706-739,751-759,764,767,772,774,777-778,784,790-791
+  s_002cddb1a70571::t_83d1588949bfe6 628-631
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "7ce16e6aa162e78ba3869b953f3fcdf496cd0ea0",
+  "prompts": {},
+  "sessions": {
+    "s_002cddb1a70571": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "abd260ba-6a6c-45a6-9db3-a4e0988ad60e",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Raul Montoya Cardenas <montoyaraul34@gmail.com>"
+    }
+  }
+}
