@@ -1,0 +1,34 @@
+pipelines/export_hf.py
+  s_940326c4ee4215::t_e895c804691b62 875,877-881,911
+tests/test_export_hf.py
+  s_940326c4ee4215::t_413999c773ccc5 638-639,662-673
+  s_940326c4ee4215::t_ef15644d26a420 190-226
+tests/test_compose_curated.py
+  s_940326c4ee4215::t_a9fa283cdd39c5 745,747
+  s_940326c4ee4215::t_b7ef45f9bd32b3 477,694-697,709-714
+  s_940326c4ee4215::t_4e00e5eda8e7f3 8,471-476,478-502,667-693,698-708,715-740
+  s_940326c4ee4215::t_65615c18c0b1ec 742-744,746,748-768
+pipelines/compose_curated.py
+  s_940326c4ee4215::t_7cab1229fd5239 49,53-54,94,385-446
+  s_940326c4ee4215::t_8f127941b46d6d 995-1105,1108-1130
+  s_940326c4ee4215::t_9e4842f65f5afc 625-662,664-669,679-683,692-693
+  s_940326c4ee4215::t_b6f3d3a2c9e1c8 856,901-926
+  s_940326c4ee4215::t_294ea47391ad9f 1235-1237,1252,1258-1263,1296
+  s_940326c4ee4215::t_8d21ce609685a8 1106-1107
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "9190e4b0baf256f34c24345d46a61b584966d995",
+  "prompts": {},
+  "sessions": {
+    "s_940326c4ee4215": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a032e4-1904-7a82-8c8b-1ad3cfbeb0b0",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Raul Montoya Cardenas <montoyaraul34@gmail.com>"
+    }
+  }
+}
