@@ -456,6 +456,20 @@ class LeftoverMillQuarantine(unittest.TestCase):
             [curate_preferences.ACTION_RETAINED],
         )
 
+    def test_public_audit_excludes_quarantine_rows(self):
+        run = self._run(
+            [
+                leftover_mill_episode("dbc-r723-buildah-vfs-audit-leftover"),
+                pair("crp-r723-real-pair"),
+            ]
+        )
+
+        audit = curate_preferences.build_audit(run)
+        self.assertEqual(audit["summary"]["preference_pairs"], 1)
+        self.assertEqual(audit["summary"]["impure_pairs"], 0)
+        self.assertEqual(audit["impure_pairs"], [])
+        self.assertEqual(audit["transform"]["version"], "1.1.0")
+
     def test_human_report_names_the_quarantined_count(self):
         run = self._run(
             [

@@ -737,7 +737,7 @@ def build_audit(run: CurationRun) -> dict[str, Any]:
             "context_diff_paths": list(entry["context_diff_paths"]),
         }
         for entry in run.manifest
-        if entry["action"] != ACTION_RETAINED
+        if entry["action"] in (ACTION_REPAIRED, ACTION_EXCLUDED)
     ]
     balanced = (
         summary["state_only_divergent_pairs"]
