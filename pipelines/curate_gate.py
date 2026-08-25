@@ -82,7 +82,6 @@ _REPO = _PIPELINES.parent
 if str(_PIPELINES) not in sys.path:
     sys.path.insert(0, str(_PIPELINES))
 
-import promote as promote_module  # noqa: E402
 import training_audit  # noqa: E402
 from check_records import canonical_record_id, reject_json_constant  # noqa: E402
 from validate_run import check_line  # noqa: E402
@@ -123,6 +122,7 @@ DECISION_ROLE_PRIORITY = ("record", "chosen", "language_view.trajectory", "rejec
 
 EXCLUSION_ACTIONS = frozenset({"excluded", "exclude", "dropped", "drop"})
 QUARANTINE_ACTIONS = frozenset({"quarantine", "quarantined"})
+REPAIR_ACTIONS = frozenset({"changed", "modified", "modify", "repair", "repaired", "transformed"})
 
 ACCEPT_VERDICTS = frozenset({"accept", "accepted", "pass"})
 REJECT_VERDICTS = frozenset({"reject", "rejected", "fail", "block"})
@@ -508,6 +508,12 @@ def _manifest_entries(path: Path) -> list[dict[str, Any]]:
 
 
 def _normalize_entry(entry: dict[str, Any], lane: dict[str, Any]) -> dict[str, Any]:
+    source = entry.get("source")
+    if not isinstance(source, dict):
+        source = {}
+    transform = entry.get("transform")
+    if not isinstance(transform, dict):
+        transform = {}
     reasons = entry.get("reason_codes")
     if isinstance(reasons, str):
         reasons = [reasons]
@@ -515,15 +521,25 @@ def _normalize_entry(entry: dict[str, Any], lane: dict[str, Any]) -> dict[str, A
         reasons = []
     return {
         "lane_order": lane["order"],
-        "transform": entry.get("transform_name") or lane["transform"],
-        "version": entry.get("transform_version") or lane["version"],
+        "transform": entry.get("transform_name") or transform.get("name") or lane["transform"],
+        "version": entry.get("transform_version") or transform.get("version") or lane["version"],
         "action": entry.get("action"),
         "reason_codes": [str(reason) for reason in reasons],
-        "source_path": entry.get("source_path"),
-        "source_line": entry.get("source_line"),
-        "source_hash": entry.get("source_hash"),
+        "source_path": entry.get("source_path") or source.get("path"),
+        "source_line": (
+            entry.get("source_line")
+            if entry.get("source_line") is not None
+            else source.get("line")
+        ),
+        "source_hash": (
+            entry.get("source_hash")
+            or entry.get("source_sha256")
+            or source.get("sha256")
+        ),
+        "record_kind": entry.get("record_kind"),
+        "classification": entry.get("classification"),
         "output_id": entry.get("output_id"),
-        "output_hash": entry.get("output_hash"),
+        "output_hash": entry.get("output_hash") or entry.get("output_sha256"),
     }
 
 
@@ -531,6 +547,8 @@ def collect_lane_manifests(plan: dict[str, Any]) -> dict[str, Any]:
     """Fold every lane's record-level manifest into exclusions and counts."""
     exclusions: list[dict[str, Any]] = []
     quarantines: list[dict[str, Any]] = []
+    repairs: list[dict[str, Any]] = []
+    review_candidates: list[dict[str, Any]] = []
     actions_by_lane: dict[str, dict[str, int]] = {}
     reason_counts: Counter[str] = Counter()
     missing: list[str] = []
@@ -549,10 +567,15 @@ def collect_lane_manifests(plan: dict[str, Any]) -> dict[str, Any]:
             lowered = key.strip().lower()
             if lowered in EXCLUSION_ACTIONS:
                 exclusions.append(normalized)
+                review_candidates.append(normalized)
                 reason_counts.update(normalized["reason_codes"] or ["UNSPECIFIED"])
             elif lowered in QUARANTINE_ACTIONS:
                 quarantines.append(normalized)
+                review_candidates.append(normalized)
                 reason_counts.update(normalized["reason_codes"] or ["UNSPECIFIED"])
+            elif lowered in REPAIR_ACTIONS:
+                repairs.append(normalized)
+                review_candidates.append(normalized)
         actions_by_lane[lane["transform"]] = dict(sorted(counts.items()))
 
     return {
@@ -560,6 +583,8 @@ def collect_lane_manifests(plan: dict[str, Any]) -> dict[str, Any]:
         "lanes_without_manifest": missing,
         "exclusions": exclusions,
         "quarantines": quarantines,
+        "repairs": repairs,
+        "review_candidates": review_candidates,
         "reason_codes": dict(sorted(reason_counts.items())),
     }
 
@@ -616,13 +641,48 @@ def iter_records(root: Path) -> Iterable[tuple[str, int, Any]]:
             yield rel, number, obj
 
 
-def build_sample(cleaned: Path, per_stratum: int = DEFAULT_PER_STRATUM) -> dict[str, Any]:
-    """Stratify by factory x record kind x safety decision, sample deterministically."""
+def _review_candidates_from_manifest(cleaned: Path) -> list[dict[str, Any]]:
+    manifest_path = cleaned / MANIFEST_FILENAME
+    if not manifest_path.is_file():
+        return []
+    manifest = _load_json(manifest_path)
+    if not isinstance(manifest, dict):
+        raise GateError(f"{manifest_path}: manifest must be a JSON object")
+    candidates = manifest.get("review_candidates", [])
+    if not isinstance(candidates, list) or not all(
+        isinstance(candidate, dict) for candidate in candidates
+    ):
+        raise GateError(f"{manifest_path}: review_candidates must be a list of objects")
+    return candidates
+
+
+def _manifest_factory(source_path: Any, transform: Any) -> str:
+    if isinstance(source_path, str) and source_path.strip():
+        parts = Path(source_path).parts
+        if "raw" in parts:
+            index = parts.index("raw")
+            if len(parts) > index + 2:
+                return parts[index + 2]
+        if len(parts) > 1:
+            return parts[0]
+    return str(transform or "_manifest")
+
+
+def build_sample(
+    cleaned: Path,
+    per_stratum: int = DEFAULT_PER_STRATUM,
+    review_candidates: Sequence[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    """Stratify corpus and manifest decisions, then sample deterministically."""
     cleaned = Path(cleaned).resolve()
     if per_stratum < 1:
         raise GateError("--per-stratum must be at least 1")
+    if review_candidates is None:
+        review_candidates = _review_candidates_from_manifest(cleaned)
+    if not all(isinstance(candidate, dict) for candidate in review_candidates):
+        raise GateError("review candidates must be objects")
 
-    buckets: dict[tuple[str, str, str, str], list[dict[str, Any]]] = defaultdict(list)
+    buckets: dict[tuple[str, str, str, str, str, str], list[dict[str, Any]]] = defaultdict(list)
     for rel, number, obj in iter_records(cleaned):
         where = f"{rel}:{number}"
         factory = rel.split("/")[0] if "/" in rel else "_root"
@@ -638,7 +698,7 @@ def build_sample(cleaned: Path, per_stratum: int = DEFAULT_PER_STRATUM) -> dict[
             repair = _repair_action(obj)
             digest = sha256_hex(training_audit.canonical_blob(obj).encode("utf-8"))
             record_id = canonical_record_id(obj) if isinstance(obj, dict) else None
-        buckets[(factory, kind, decision, repair)].append(
+        buckets[("corpus", factory, kind, decision, repair, "none")].append(
             {
                 "source": where,
                 "record_id": record_id,
@@ -646,10 +706,38 @@ def build_sample(cleaned: Path, per_stratum: int = DEFAULT_PER_STRATUM) -> dict[
             }
         )
 
+    for candidate in review_candidates:
+        action = str(candidate.get("action") or "unspecified").strip().lower()
+        reasons = candidate.get("reason_codes")
+        if not isinstance(reasons, list):
+            reasons = []
+        exclusion_reason = "none"
+        if action in EXCLUSION_ACTIONS or action in QUARANTINE_ACTIONS:
+            exclusion_reason = "+".join(sorted(str(reason) for reason in reasons)) or "UNSPECIFIED"
+        transform = candidate.get("transform")
+        source_path = candidate.get("source_path")
+        source_line = candidate.get("source_line")
+        digest = sha256_hex(training_audit.canonical_blob(candidate).encode("utf-8"))
+        source = (
+            f"manifest:{candidate.get('lane_order')}:{transform}:"
+            f"{source_path}:{source_line}:{digest[:16]}"
+        )
+        repair = action if action in REPAIR_ACTIONS else "none"
+        factory = _manifest_factory(source_path, transform)
+        kind = str(candidate.get("record_kind") or "manifest_decision")
+        buckets[("manifest", factory, kind, action, repair, exclusion_reason)].append(
+            {
+                "source": source,
+                "record_id": candidate.get("output_id"),
+                "record_sha256": digest,
+                "manifest_entry": candidate,
+            }
+        )
+
     strata: list[dict[str, Any]] = []
     items: list[dict[str, Any]] = []
     for key in sorted(buckets):
-        factory, kind, decision, repair = key
+        evidence, factory, kind, decision, repair, exclusion_reason = key
         population = buckets[key]
         # Content-derived order: stable across runs, independent of file order.
         chosen = sorted(population, key=lambda item: (item["record_sha256"], item["source"]))[
@@ -657,10 +745,12 @@ def build_sample(cleaned: Path, per_stratum: int = DEFAULT_PER_STRATUM) -> dict[
         ]
         strata.append(
             {
+                "evidence": evidence,
                 "factory": factory,
                 "kind": kind,
                 "decision": decision,
                 "repair_action": repair,
+                "exclusion_reason": exclusion_reason,
                 "population": len(population),
                 "sampled": len(chosen),
             }
@@ -668,10 +758,12 @@ def build_sample(cleaned: Path, per_stratum: int = DEFAULT_PER_STRATUM) -> dict[
         for item in chosen:
             items.append(
                 {
+                    "evidence": evidence,
                     "factory": factory,
                     "kind": kind,
                     "decision": decision,
                     "repair_action": repair,
+                    "exclusion_reason": exclusion_reason,
                     **item,
                 }
             )
@@ -901,6 +993,7 @@ def build_manifest(
     counts["lane_actions"] = lane_manifests["actions_by_lane"]
     counts["exclusions"] = len(lane_manifests["exclusions"])
     counts["quarantines"] = len(lane_manifests["quarantines"])
+    counts["repairs"] = len(lane_manifests["repairs"])
     counts["sampled_for_review"] = sample["sampled_records"]
     counts["review_strata"] = sample["strata_count"]
 
@@ -922,6 +1015,14 @@ def build_manifest(
         "supersessions": composition["supersessions"],
         "exclusions": lane_manifests["exclusions"],
         "quarantines": lane_manifests["quarantines"],
+        "repairs": lane_manifests["repairs"],
+        "review_candidates": lane_manifests["review_candidates"],
+        "review_sampling": {
+            "per_stratum": sample["per_stratum"],
+            "sample_sha256": sha256_hex(
+                training_audit.canonical_blob(sample).encode("utf-8")
+            ),
+        },
         "exclusion_reason_codes": lane_manifests["reason_codes"],
         "lanes_without_record_manifest": lane_manifests["lanes_without_manifest"],
         "gates": gate_result["gates"],
@@ -952,7 +1053,9 @@ def cmd_integrate(args: argparse.Namespace) -> int:
         composition = compose(plan, staged, logical_destination=destination)
         lane_manifests = collect_lane_manifests(plan)
         gate_result = run_gates(staged)
-        sample = build_sample(staged, args.per_stratum)
+        sample = build_sample(
+            staged, args.per_stratum, lane_manifests["review_candidates"]
+        )
         sample["cleaned_dir"] = str(destination)
 
         blockers = list(gate_result["blockers"])
@@ -1012,6 +1115,29 @@ def _promotion_outputs(curated: Path) -> list[dict[str, Any]]:
     return entries
 
 
+def _copy_reviewed_corpus(cleaned: Path, destination: Path) -> dict[str, int]:
+    """Copy the already-reviewed JSONL bytes without another transform."""
+    paths = jsonl_paths(cleaned)
+    if not paths:
+        raise GateError(f"no JSONL corpus files under {cleaned}")
+    destination.mkdir(parents=True)
+    records = 0
+    for source in paths:
+        walked = cleaned
+        for part in source.relative_to(cleaned).parts:
+            walked = walked / part
+            if walked.is_symlink():
+                raise GateError(f"cleaned corpus contains a symlinked path: {walked}")
+        relative = source.relative_to(cleaned)
+        target = destination / relative
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(source, target)
+        if file_sha256(target) != file_sha256(source):
+            raise GateError(f"promotion copy hash mismatch: {relative}")
+        records += count_records(source)
+    return {"files": len(paths), "records": records, "resorted": 0}
+
+
 def cmd_promote(args: argparse.Namespace) -> int:
     cleaned = Path(args.cleaned).resolve()
     curated = Path(args.curated_out).resolve()
@@ -1038,7 +1164,28 @@ def cmd_promote(args: argparse.Namespace) -> int:
     review = _load_json(Path(args.review))
     digest = corpus_digest(cleaned)
     gate_result = run_gates(cleaned)
-    review_blockers, review_summary = check_review(sample, review, digest)
+    sampling = manifest.get("review_sampling")
+    if not isinstance(sampling, dict):
+        raise GateError(f"{manifest_path}: review_sampling must be an object")
+    per_stratum = sampling.get("per_stratum")
+    if not isinstance(per_stratum, int) or isinstance(per_stratum, bool) or per_stratum < 1:
+        raise GateError(f"{manifest_path}: review_sampling.per_stratum must be at least 1")
+    candidates = manifest.get("review_candidates")
+    if not isinstance(candidates, list) or not all(
+        isinstance(candidate, dict) for candidate in candidates
+    ):
+        raise GateError(f"{manifest_path}: review_candidates must be a list of objects")
+    expected_sample = build_sample(cleaned, per_stratum, candidates)
+    review_blockers, review_summary = check_review(expected_sample, review, digest)
+    expected_sample_hash = sha256_hex(
+        training_audit.canonical_blob(expected_sample).encode("utf-8")
+    )
+    if sampling.get("sample_sha256") != expected_sample_hash:
+        review_blockers.append("SAMPLE_MANIFEST_MISMATCH")
+    if sample.get("corpus_digest") != digest:
+        review_blockers.append("SAMPLE_CORPUS_MISMATCH")
+    if sample != expected_sample:
+        review_blockers.append("SAMPLE_SELECTION_MISMATCH")
 
     blockers = list(gate_result["blockers"]) + review_blockers
     manifest["corpus_digest"] = digest
@@ -1068,27 +1215,37 @@ def cmd_promote(args: argparse.Namespace) -> int:
         )
         return 1
 
+    curated.parent.mkdir(parents=True, exist_ok=True)
+    stage_root = Path(
+        tempfile.mkdtemp(prefix=f".{curated.name}.staging-", dir=curated.parent)
+    )
+    staged = stage_root / "tree"
     try:
-        promotion = promote_module.promote_run(cleaned, curated)
-    except ValueError as exc:
-        raise GateError(str(exc)) from exc
+        promotion = _copy_reviewed_corpus(cleaned, staged)
+        promoted_digest = corpus_digest(staged)
+        if promoted_digest != digest:
+            raise GateError("promoted corpus digest differs from the reviewed corpus")
+        manifest["promotion"] = {
+            "curated_dir": str(curated),
+            "promoter": "pipelines/curate_gate.py exact-copy",
+            "files": promotion["files"],
+            "records": promotion["records"],
+            "resorted": promotion["resorted"],
+            "outputs": _promotion_outputs(staged),
+            "corpus_digest": promoted_digest,
+        }
 
-    manifest["promotion"] = {
-        "curated_dir": str(curated),
-        "promoter": "pipelines/promote.py",
-        "files": promotion["files"],
-        "records": promotion["records"],
-        "resorted": promotion["resorted"],
-        "outputs": _promotion_outputs(curated),
-    }
-    manifest["promotion"]["corpus_digest"] = corpus_digest(curated)
+        # Hashes cover the exact promoted corpus bytes and are taken before the
+        # governance sidecars land, so the manifest never hashes itself.
+        _write_json(staged / MANIFEST_FILENAME, manifest)
+        _write_json(staged / SAMPLE_FILENAME, expected_sample)
+        _write_json(staged / REVIEW_FILENAME, review)
+        _assert_new_destination(curated, "curated destination")
+        staged.rename(curated)
+    finally:
+        shutil.rmtree(stage_root, ignore_errors=True)
 
-    # Hashes are taken before the review evidence lands, so the manifest never
-    # has to hash itself.
     _write_json(manifest_path, manifest)
-    _write_json(curated / MANIFEST_FILENAME, manifest)
-    _write_json(curated / SAMPLE_FILENAME, sample)
-    _write_json(curated / REVIEW_FILENAME, review)
 
     print(
         json.dumps(

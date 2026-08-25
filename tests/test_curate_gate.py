@@ -324,6 +324,79 @@ class IntegrationTests(unittest.TestCase):
             ],
         )
 
+    def test_manifest_normalizes_nested_identity_provenance_fields(self):
+        fixture = GateFixture(self.root)
+        identity_manifest = fixture.lane_core / "IDENTITY-MANIFEST.json"
+        identity_manifest.write_text(
+            json.dumps(
+                [
+                    {
+                        "transform": {
+                            "name": "curate_identity",
+                            "version": "identity-provenance-v1",
+                        },
+                        "source": {
+                            "path": "thalamic-mini/batch-r02.jsonl",
+                            "line": 7,
+                            "sha256": "source-identity-sha",
+                        },
+                        "record_kind": "thalamic",
+                        "action": "exclude",
+                        "reason_codes": ["IDENTITY_UNRESOLVED"],
+                        "output_sha256": "output-identity-sha",
+                    }
+                ]
+            )
+        )
+        plan = json.loads(fixture.plan_path.read_text())
+        plan["lanes"][1]["manifest"] = "lane-core/IDENTITY-MANIFEST.json"
+        fixture.plan_path.write_text(json.dumps(plan))
+
+        self.assertEqual(fixture.integrate(), 0)
+        entry = next(
+            item
+            for item in fixture.manifest()["exclusions"]
+            if item["transform"] == "curate_identity"
+        )
+        self.assertEqual(entry["source_path"], "thalamic-mini/batch-r02.jsonl")
+        self.assertEqual(entry["source_line"], 7)
+        self.assertEqual(entry["source_hash"], "source-identity-sha")
+        self.assertEqual(entry["output_hash"], "output-identity-sha")
+
+    def test_manifest_preserves_repaired_record_provenance(self):
+        fixture = GateFixture(self.root)
+        repair_manifest = fixture.lane_preference / "manifest.jsonl"
+        repair_manifest.write_text(
+            json.dumps(
+                {
+                    "source_path": "thalamic-mini/preferences.jsonl",
+                    "source_line": 4,
+                    "source_sha256": "source-preference-sha",
+                    "transform": {
+                        "name": "same-context-preference-curation",
+                        "version": "1.0.0",
+                    },
+                    "action": "repaired",
+                    "reason_codes": ["BRANCH_ONLY_PROPOSAL_ANNOTATION_REMOVED"],
+                    "output_id": "pref-repaired",
+                    "output_sha256": "output-preference-sha",
+                }
+            )
+            + "\n"
+        )
+        plan = json.loads(fixture.plan_path.read_text())
+        plan["lanes"][2]["manifest"] = "lane-preference/manifest.jsonl"
+        fixture.plan_path.write_text(json.dumps(plan))
+
+        self.assertEqual(fixture.integrate(), 0)
+        manifest = fixture.manifest()
+        self.assertEqual(len(manifest["repairs"]), 1)
+        repair = manifest["repairs"][0]
+        self.assertEqual(repair["source_hash"], "source-preference-sha")
+        self.assertEqual(repair["output_hash"], "output-preference-sha")
+        self.assertEqual(manifest["counts"]["repairs"], 1)
+        self.assertIn(repair, manifest["review_candidates"])
+
     def test_later_lane_supersedes_earlier_lane_at_the_same_path(self):
         fixture = GateFixture(self.root)
         # The second lane in plan order also emits the bridge factory's file.
@@ -532,6 +605,7 @@ class ReviewSampleTests(unittest.TestCase):
 
         strata = {
             (row["factory"], row["kind"], row["decision"]) for row in sample["strata"]
+            if row["evidence"] == "corpus"
         }
         self.assertEqual(
             strata,
@@ -546,6 +620,22 @@ class ReviewSampleTests(unittest.TestCase):
         self.assertEqual(sample["sampled_records"], len(sample["items"]))
         self.assertEqual(sample["schema"], curate_gate.SAMPLE_SCHEMA)
         self.assertTrue(sample["corpus_digest"].startswith("sha256:"))
+
+    def test_sample_stratifies_manifest_evidence_by_exclusion_reason(self):
+        fixture = GateFixture(self.root)
+        fixture.integrate()
+        sample = fixture.sample()
+
+        manifest_strata = [
+            row for row in sample["strata"] if row["evidence"] == "manifest"
+        ]
+        self.assertEqual(
+            {row["exclusion_reason"] for row in manifest_strata},
+            {"AMBIGUOUS_EVENT_ORDER", "INVALID_JSON"},
+        )
+        self.assertTrue(
+            all(item.get("manifest_entry") for item in sample["items"] if item["evidence"] == "manifest")
+        )
 
     def test_sample_caps_each_stratum_and_is_deterministic(self):
         records = [_thalamic(f"t-{index}") for index in range(6)]
@@ -598,7 +688,7 @@ class PromotionTests(unittest.TestCase):
 
         curated = self.fixture.curated
         self.assertTrue((curated / "thalamic-mini" / "batch-r02.jsonl").is_file())
-        self.assertTrue((curated / "PROVENANCE.md").is_file())
+        self.assertFalse((curated / "PROVENANCE.md").exists())
 
         manifest = json.loads((curated / curate_gate.MANIFEST_FILENAME).read_text())
         self.assertTrue(manifest["training_ready"])
@@ -606,6 +696,8 @@ class PromotionTests(unittest.TestCase):
         promotion = manifest["promotion"]
         self.assertEqual(promotion["curated_dir"], str(curated))
         self.assertEqual(promotion["records"], 4)
+        self.assertEqual(promotion["promoter"], "pipelines/curate_gate.py exact-copy")
+        self.assertEqual(promotion["resorted"], 0)
         self.assertTrue(promotion["corpus_digest"].startswith("sha256:"))
         emitted = {entry["path"] for entry in promotion["outputs"]}
         self.assertIn("thalamic-mini/batch-r02.jsonl", emitted)
@@ -618,6 +710,12 @@ class PromotionTests(unittest.TestCase):
         # Review evidence travels with the curated corpus.
         self.assertTrue((curated / curate_gate.SAMPLE_FILENAME).is_file())
         self.assertTrue((curated / curate_gate.REVIEW_FILENAME).is_file())
+        for cleaned_path in curate_gate.jsonl_paths(self.fixture.cleaned):
+            relative = cleaned_path.relative_to(self.fixture.cleaned)
+            self.assertEqual(
+                curate_gate.file_sha256(cleaned_path),
+                curate_gate.file_sha256(curated / relative),
+            )
 
     def test_promotion_refuses_an_existing_curated_destination(self):
         review = self.fixture.accepted_review()
@@ -675,6 +773,21 @@ class PromotionTests(unittest.TestCase):
         manifest = self.fixture.manifest()
         self.assertIn("REVIEW_CORPUS_MISMATCH", manifest["blockers"])
         self.assertIn("SAMPLE_CORPUS_MISMATCH", manifest["blockers"])
+
+    def test_promotion_recomputes_and_rejects_a_reduced_review_sample(self):
+        review_path = self.fixture.accepted_review()
+        sample_path = self.fixture.cleaned / curate_gate.SAMPLE_FILENAME
+        sample = json.loads(sample_path.read_text())
+        removed = sample["items"].pop()
+        sample["sampled_records"] -= 1
+        sample_path.write_text(json.dumps(sample))
+        review = json.loads(review_path.read_text())
+        review["verdicts"].pop(removed["source"])
+        review_path.write_text(json.dumps(review))
+
+        self.assertEqual(self.fixture.promote(review_path), 1)
+        self.assertFalse(self.fixture.curated.exists())
+        self.assertIn("SAMPLE_SELECTION_MISMATCH", self.fixture.manifest()["blockers"])
 
     def test_promotion_requires_an_integrated_cleaned_destination(self):
         review = self.fixture.accepted_review()
