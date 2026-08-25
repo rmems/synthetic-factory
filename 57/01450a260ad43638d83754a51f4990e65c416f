@@ -1,0 +1,26 @@
+docs/agentic-coding-payload-kind.json
+  s_940326c4ee4215::t_9c8589b9f8e940 8-31
+docs/agentic-coding-payload-kind.md
+  s_940326c4ee4215::t_9c8589b9f8e940 236
+tests/test_payload_kind_audit.py
+  s_940326c4ee4215::t_30e0325c2b9908 203-205
+  s_940326c4ee4215::t_9c8589b9f8e940 166-183,467-482
+pipelines/payload_kind_audit.py
+  s_940326c4ee4215::t_9c8589b9f8e940 34-38,92-99,125-128
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "5701450a260ad43638d83754a51f4990e65c416f",
+  "prompts": {},
+  "sessions": {
+    "s_940326c4ee4215": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a032e4-1904-7a82-8c8b-1ad3cfbeb0b0",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Raul Montoya Cardenas <montoyaraul34@gmail.com>"
+    }
+  }
+}
