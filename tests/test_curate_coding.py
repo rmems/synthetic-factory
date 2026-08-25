@@ -183,6 +183,7 @@ class CurateCodingTests(unittest.TestCase):
                 "name": "inspect",
                 "args": {
                     "scratch": "private",
+                    "reasoning": "private",
                     "innerMonologue": "private",
                     "visible": "keep",
                 },
@@ -193,11 +194,29 @@ class CurateCodingTests(unittest.TestCase):
 
         self.assertEqual(
             HIDDEN_THOUGHT_KEYS,
-            {"thought", "chain_of_thought", "scratch", "inner_monologue"},
+            {
+                "thought",
+                "chain_of_thought",
+                "scratch",
+                "reasoning",
+                "inner_monologue",
+            },
         )
         self.assertFalse(contains_thought_key(curated))
         self.assertEqual(curated["tool_call"]["args"], {"visible": "keep"})
-        self.assertEqual(manifest["thought_fields_removed"], 4)
+        self.assertEqual(manifest["thought_fields_removed"], 5)
+
+    def test_record_level_hidden_field_can_raise_manifest_removal_total(self):
+        source = episode([visible_step()])
+        source["reasoning"] = "private record-level text"
+
+        curated, manifest = curate_episode(source)
+
+        self.assertIsNotNone(curated)
+        self.assertFalse(contains_thought_key(curated))
+        self.assertEqual(manifest["thought_fields_removed"], 2)
+        self.assertEqual(manifest["step_actions"][0]["thought_fields_removed"], 1)
+        self.assertEqual(verify_manifest([manifest]), [])
 
     def test_step_without_visible_evidence_is_excluded_with_reason(self):
         source = {"n": 1, "thought": "the only possible source"}
@@ -585,6 +604,67 @@ class VerifyCurationTests(unittest.TestCase):
         violations = verify_curation(result)
 
         self.assertTrue(any("summary migrated_steps" in item for item in violations))
+
+    def test_excluded_record_cannot_claim_retained_steps(self):
+        result = curated_result([[visible_step()]])
+        manifest = result["manifest"][0]
+        manifest.update(
+            {
+                "action": "excluded",
+                "reason_codes": [REASON_NO_RETAINABLE_STEPS],
+                "output_hash": None,
+                "output_id": None,
+            }
+        )
+
+        violations = verify_manifest([manifest])
+
+        self.assertTrue(
+            any("excluded record retains 1 step" in item for item in violations),
+            violations,
+        )
+
+    def test_duplicate_manifest_source_locations_are_rejected(self):
+        result = curated_result([[visible_step()], [visible_step()]])
+        result["manifest"][1] = copy.deepcopy(result["manifest"][0])
+        result["records"][1] = copy.deepcopy(result["records"][0])
+
+        violations = verify_curation(result, expected_source_steps=2)
+
+        self.assertTrue(
+            any("duplicate manifest source location" in item for item in violations),
+            violations,
+        )
+
+    def test_manifest_thought_removal_count_matches_step_actions(self):
+        result = curated_result([[visible_step()]])
+        result["manifest"][0]["thought_fields_removed"] = 0
+
+        violations = verify_manifest(result["manifest"])
+
+        self.assertTrue(
+            any(
+                "thought_fields_removed does not account for the step actions" in item
+                for item in violations
+            ),
+            violations,
+        )
+
+    def test_summary_reconciles_thought_removals_and_evidence_sources(self):
+        result = curated_result([[visible_step()]])
+        result["summary"]["thought_fields_removed"] = 0
+        result["summary"]["decision_basis_sources"] = {"plan": 1}
+
+        violations = verify_curation(result)
+
+        self.assertTrue(
+            any("summary thought_fields_removed" in item for item in violations),
+            violations,
+        )
+        self.assertTrue(
+            any("summary decision_basis_sources" in item for item in violations),
+            violations,
+        )
 
     def test_manifest_collection_and_entry_shapes_are_reported(self):
         self.assertEqual(

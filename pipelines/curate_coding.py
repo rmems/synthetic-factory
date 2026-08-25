@@ -61,11 +61,11 @@ _EVIDENCE_REASON = {
     "tool_call": REASON_BASIS_FROM_TOOL_CALL,
 }
 
-# Keep this vocabulary aligned with the strict publication validator.  Key
-# spelling is normalized before comparison so aliases such as
+# Keep this vocabulary aligned with the coding-factory prompt's publication
+# boundary.  Key spelling is normalized before comparison so aliases such as
 # ``chainOfThought`` cannot bypass the curation boundary.
 HIDDEN_THOUGHT_KEYS = frozenset(
-    {"thought", "chain_of_thought", "scratch", "inner_monologue"}
+    {"thought", "chain_of_thought", "scratch", "reasoning", "inner_monologue"}
 )
 
 # The literal labels a retained ``decision_basis`` may open with.  Each one
@@ -543,6 +543,7 @@ def verify_manifest(
     if not isinstance(manifests, list):
         return ["manifest collection is not a list"]
     total_source = 0
+    seen_source_locations = set()
     for manifest in manifests:
         if not isinstance(manifest, dict):
             violations.append(f"manifest entry {manifest!r} is not an object")
@@ -554,6 +555,12 @@ def verify_manifest(
             violations.append(f"{where}: manifest records no source path")
         if not _is_positive_int(source_line):
             violations.append(f"{where}: source line must be a positive integer")
+        if isinstance(source_path, str) and source_path and _is_positive_int(source_line):
+            source_location = (source_path, source_line)
+            if source_location in seen_source_locations:
+                violations.append(f"{where}: duplicate manifest source location")
+            else:
+                seen_source_locations.add(source_location)
         if manifest.get("transform") != TRANSFORM_NAME:
             violations.append(f"{where}: manifest is not a {TRANSFORM_NAME} manifest")
         if manifest.get("transform_version") != TRANSFORM_VERSION:
@@ -584,7 +591,8 @@ def verify_manifest(
         else:
             violations.append(f"{where}: unknown record action {action!r}")
 
-        if not _is_nonnegative_int(manifest.get("thought_fields_removed")):
+        thought_fields_removed = manifest.get("thought_fields_removed")
+        if not _is_nonnegative_int(thought_fields_removed):
             violations.append(
                 f"{where}: thought_fields_removed must be a non-negative integer"
             )
@@ -629,6 +637,23 @@ def verify_manifest(
         excluded = sum(entry.get("action") == "excluded" for entry in valid_actions)
         if retained + excluded != len(actions):
             violations.append(f"{where}: step actions are neither retained nor excluded")
+        if action == "excluded" and retained:
+            retained_label = "step" if retained == 1 else "steps"
+            violations.append(
+                f"{where}: excluded record retains {retained} {retained_label}"
+            )
+        action_thought_counts = [
+            entry.get("thought_fields_removed") for entry in valid_actions
+        ]
+        if (
+            _is_nonnegative_int(thought_fields_removed)
+            and len(valid_actions) == len(actions)
+            and all(_is_nonnegative_int(value) for value in action_thought_counts)
+            and thought_fields_removed < sum(action_thought_counts)
+        ):
+            violations.append(
+                f"{where}: thought_fields_removed does not account for the step actions"
+            )
         expected_counts = {
             "source": len(actions),
             "retained": retained,
@@ -794,14 +819,30 @@ def verify_curation(
                 )
 
     manifest_totals = Counter()
+    manifest_thought_fields_removed = 0
+    manifest_evidence_sources = Counter()
     for manifest in manifests:
-        counts = manifest.get("step_counts") if isinstance(manifest, dict) else None
-        if not isinstance(counts, dict):
+        if not isinstance(manifest, dict):
             continue
-        for key in ("source", "retained", "migrated", "excluded"):
-            value = counts.get(key)
-            if _is_nonnegative_int(value):
-                manifest_totals[key] += value
+        counts = manifest.get("step_counts")
+        if isinstance(counts, dict):
+            for key in ("source", "retained", "migrated", "excluded"):
+                value = counts.get(key)
+                if _is_nonnegative_int(value):
+                    manifest_totals[key] += value
+        removed = manifest.get("thought_fields_removed")
+        if _is_nonnegative_int(removed):
+            manifest_thought_fields_removed += removed
+        actions = manifest.get("step_actions")
+        if isinstance(actions, list):
+            for entry in actions:
+                if not isinstance(entry, dict):
+                    continue
+                if entry.get("action") not in {"migrated", "retained"}:
+                    continue
+                evidence = entry.get("evidence_source")
+                if isinstance(evidence, str) and evidence:
+                    manifest_evidence_sources[evidence] += 1
 
     retained = sum(
         len(record["steps"])
@@ -829,6 +870,8 @@ def verify_curation(
             "retained_steps": manifest_totals["retained"],
             "migrated_steps": manifest_totals["migrated"],
             "excluded_steps": manifest_totals["excluded"],
+            "thought_fields_removed": manifest_thought_fields_removed,
+            "decision_basis_sources": dict(sorted(manifest_evidence_sources.items())),
         }
         for key, expected in expected_summary.items():
             if summary.get(key) != expected:
