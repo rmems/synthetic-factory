@@ -60,7 +60,15 @@ class ProtoBreakingChangeDeclarationTests(unittest.TestCase):
         self.assertEqual(names["plan"]["dtype"], "string")
         self.assertNotIn("optional", names["plan"])
         self.assertEqual(names["reward"]["dtype"], "json")
-        self.assertEqual(names["meta"]["dtype"], "json")
+        meta = {feature["name"]: feature for feature in names["meta"]["struct"]}
+        self.assertEqual(
+            meta,
+            {
+                "factory": {"name": "factory", "dtype": "string"},
+                "generator": {"name": "generator", "dtype": "string"},
+                "round": {"name": "round", "dtype": "int64"},
+            },
+        )
         steps = {feature["name"]: feature for feature in names["steps"]["list"]}
         self.assertEqual(
             set(steps), {"n", "decision_basis", "tool_call", "observation", "reflection"}
@@ -79,7 +87,7 @@ class ProtoBreakingChangeDeclarationTests(unittest.TestCase):
         # `reward` is one `json` column, and the variants live in its note.
         self.assertEqual(
             card_schema.json_columns(self.declaration["features"]),
-            ["steps[].tool_call.args", "reward", "meta"],
+            ["steps[].tool_call.args", "reward"],
         )
         reward = next(
             feature
@@ -95,7 +103,17 @@ class ProtoBreakingChangeDeclarationTests(unittest.TestCase):
         self.assertIn('    path: "data/raw/batch-*.jsonl"\n', front_matter)
         self.assertIn("dataset_info:\n  features:\n", front_matter)
         self.assertIn("  - name: reward\n    dtype: json\n", front_matter)
-        self.assertIn("  - name: meta\n    dtype: json\n", front_matter)
+        self.assertIn(
+            "  - name: meta\n"
+            "    struct:\n"
+            "    - name: factory\n"
+            "      dtype: string\n"
+            "    - name: generator\n"
+            "      dtype: string\n"
+            "    - name: round\n"
+            "      dtype: int64\n",
+            front_matter,
+        )
         # Card-only annotations must not leak into the HF feature encoding.
         self.assertNotIn("optional:", front_matter)
         self.assertNotIn("note:", front_matter)
@@ -109,7 +127,8 @@ class ProtoBreakingChangeDeclarationTests(unittest.TestCase):
         self.assertIn("| `steps[].reflection` | optional |", self.card)
         self.assertIn("| `reward` | present on every record |", self.card)
         self.assertIn("### Known payload disclosures", self.card)
-        self.assertIn("1686 are `{buf_breaking, cost_steps, success, tests_passed, xfailed}`", self.card)
+        self.assertIn("3414-record published snapshot audited for issue #49", self.card)
+        self.assertIn("1686 `{buf_breaking, cost_steps, success, tests_passed, xfailed}`", self.card)
         self.assertIn("`skipped` (10), `ignored` (7), `disabled` (2) or `pending` (2)", self.card)
         self.assertIn("no dest-stamped foreign payload", self.card)
         self.assertIn("https://github.com/rmems/synthetic-factory/issues/49", self.card)
@@ -117,4 +136,3 @@ class ProtoBreakingChangeDeclarationTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-
