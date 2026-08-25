@@ -55,6 +55,10 @@ class DbMigrationRepairDeclarationTests(unittest.TestCase):
             ["id", "goal", "plan", "steps", "outcome", "reward", "meta"],
         )
         self.assertEqual(self.declaration["issues"], [60])
+        note = self.declaration["note"]
+        self.assertIn("can read the equally thin `batch-r02.jsonl`", note)
+        self.assertIn("richer rows beginning in `batch-r03.jsonl`", note)
+        self.assertNotIn("any later shard", note)
         self.assertEqual(names["meta"]["dtype"], "json")
         self.assertEqual(names["reward"]["dtype"], "json")
         steps = {feature["name"]: feature for feature in names["steps"]["list"]}
