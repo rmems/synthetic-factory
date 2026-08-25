@@ -24,6 +24,7 @@ FABLE_ACT = "agentic-coding-trajectory-factory"
 FABLE_THALAMIC = "thalamic-trajectory-factory"
 FABLE_FFPC = "failure-as-fuel-preference-cascade"
 FABLE_BRIDGE = "neuromorphic-event-language-bridge"
+FABLE_OUROBOROS = "multi-agent-ouroboros-swarm"
 
 
 def thalamic(claim="real", **overrides):
@@ -139,7 +140,7 @@ class TestCanonicalIdentity(unittest.TestCase):
         )
         right = source(
             episode("long-horizon-coding-factory"),
-            "long-horizon-coding-trajectories/batch-r08.jsonl",
+            "long-horizon-coding-factory/batch-r08.jsonl",
             1,
         )
 
@@ -433,13 +434,13 @@ class TestFactoryRegistryAuthority(unittest.TestCase):
         result = identity.curate_record(
             source(
                 episode("long-horizon-coding-factory"),
-                "long-horizon-coding-trajectories/batch.jsonl",
+                "long-horizon-coding-factory/batch.jsonl",
                 1,
             )
         )
         self.assertEqual(result.action, "retained")
         self.assertEqual(result.mapping["record_kind"], "episode")
-        self.assertEqual(result.mapping["path_id"], "long-horizon-coding-trajectories")
+        self.assertEqual(result.mapping["path_id"], "long-horizon-coding-factory")
         self.assertEqual(result.mapping["factory_id"], "long-horizon-coding-factory")
         self.assertEqual(
             result.mapping["provenance_contract"],
@@ -456,7 +457,7 @@ class TestFactoryRegistryAuthority(unittest.TestCase):
         result = identity.curate_record(
             source(
                 safety_case(),
-                "safety-calibration-cases/cases.jsonl",
+                "safety-calibration-factory/cases.jsonl",
                 1,
             )
         )
@@ -474,7 +475,7 @@ class TestFactoryRegistryAuthority(unittest.TestCase):
         result = identity.curate_record(
             source(
                 multi_agent(),
-                "multi-agent-coordination-transcripts/batch.jsonl",
+                "multi-agent-coordination-factory/batch.jsonl",
                 1,
             )
         )
@@ -485,6 +486,20 @@ class TestFactoryRegistryAuthority(unittest.TestCase):
             result.record["provenance"]["basis"],
             "synthetic_factory_multi_agent_shape",
         )
+
+    def test_existing_fable_ouroboros_factory_retains_thalamic_records(self):
+        raw = thalamic(
+            "designed",
+            meta={"factory": FABLE_OUROBOROS, "round": 1},
+        )
+        result = identity.curate_record(
+            source(raw, f"{FABLE_OUROBOROS}/batch-r01.jsonl", 1)
+        )
+        self.assertEqual(result.action, "retained")
+        self.assertEqual(result.mapping["record_kind"], "thalamic")
+        self.assertEqual(result.mapping["path_id"], FABLE_OUROBOROS)
+        self.assertEqual(result.mapping["factory_id"], FABLE_OUROBOROS)
+        self.assertEqual(result.mapping["provenance_contract"], "require_state_claim")
 
     def test_unregistered_factory_is_unknown_factory(self):
         result = identity.curate_record(
@@ -654,33 +669,33 @@ class TestFactoryRegistryAuthority(unittest.TestCase):
             with self.assertRaises(identity.IdentityTreeError):
                 identity.validate_identity_tree(dest)
 
-    def test_eval_harness_is_explicit_pair_not_a_glob_rewrite(self):
+    def test_eval_harness_uses_exact_raw_slug_without_hub_rewrite(self):
         retain = identity.curate_record(
+            source(
+                episode("eval-harness-trajectory-factory"),
+                "eval-harness-trajectory-factory/batch.jsonl",
+                1,
+            )
+        )
+        self.assertEqual(retain.action, "retained")
+        hub_named = identity.curate_record(
             source(
                 episode("eval-harness-trajectory-factory"),
                 "eval-harness-trajectories/batch.jsonl",
                 1,
             )
         )
-        self.assertEqual(retain.action, "retained")
-        rewritten = identity.curate_record(
-            source(
-                episode("eval-harness-factory"),
-                "eval-harness-trajectories/batch.jsonl",
-                1,
-            )
-        )
-        self.assertEqual(rewritten.action, "exclude")
+        self.assertEqual(hub_named.action, "exclude")
         self.assertEqual(
-            rewritten.mapping["reason_codes"],
-            ["identity.factory_path_payload_mismatch"],
+            hub_named.mapping["reason_codes"],
+            ["identity.unknown_factory"],
         )
 
     def test_grok_trajectory_preference_without_state_retains(self):
         result = identity.curate_record(
             source(
                 grok_pref(),
-                "tool-use-preference-pairs/batch.jsonl",
+                "tool-use-preference-factory/batch.jsonl",
                 1,
             )
         )
@@ -698,17 +713,23 @@ class TestFactoryRegistryAuthority(unittest.TestCase):
 
     def test_registry_onboard_rows_are_not_training_ready(self):
         payload = json.loads(identity.FACTORY_REGISTRY_PATH.read_text(encoding="utf-8"))
-        self.assertEqual(len(payload["factories"]), 50)
+        self.assertEqual(len(payload["factories"]), 51)
         self.assertEqual(payload["lookup_key"], "path_id")
         for row in payload["factories"]:
             self.assertNotIn("training_ready", row)
             self.assertIsNone(row["publication_target"])
             self.assertEqual(row["training_ready_policy"], "never")
             self.assertTrue(row["identity_authoritative"])
+        grok_rows = [
+            row for row in payload["factories"] if row["generator"] == "grok-4.6"
+        ]
+        self.assertEqual(len(grok_rows), 44)
+        for row in grok_rows:
+            self.assertEqual(row["path_id"], row["payload_factory"])
         eval_row = next(
             item
             for item in payload["factories"]
-            if item["path_id"] == "eval-harness-trajectories"
+            if item["path_id"] == "eval-harness-trajectory-factory"
         )
         self.assertEqual(eval_row["payload_factory"], "eval-harness-trajectory-factory")
         ffpc = next(
@@ -720,7 +741,7 @@ class TestFactoryRegistryAuthority(unittest.TestCase):
         grok_pref_row = next(
             item
             for item in payload["factories"]
-            if item["path_id"] == "tool-use-preference-pairs"
+            if item["path_id"] == "tool-use-preference-factory"
         )
         self.assertNotIn("curate_preferences", grok_pref_row["allowed_curation_lanes"])
 
@@ -1015,7 +1036,7 @@ class TestIdentityWriterExcludeAndPin(unittest.TestCase):
         pref["chosen"]["state"] = {"sim_or_real": "designed"}
         pref["rejected"]["state"] = {"sim_or_real": "designed"}
         result = identity.curate_record(
-            source(pref, "tool-use-preference-pairs/batch.jsonl", 1)
+            source(pref, "tool-use-preference-factory/batch.jsonl", 1)
         )
         self.assertEqual(result.action, "retained")
         self.assertEqual(result.record["provenance"]["kind"], "designed")
@@ -1165,9 +1186,41 @@ class TestIdentityWriterExcludeAndPin(unittest.TestCase):
                 identity.validate_identity_tree(dest)
             self.assertTrue(sidecar.is_file())
 
+    def test_validate_identity_tree_reconciles_output_paths_and_hashes(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            src = Path(tmp) / "src"
+            dest = Path(tmp) / "dest"
+            (src / FABLE_ACT).mkdir(parents=True)
+            (src / FABLE_ACT / "episodes.jsonl").write_text(
+                identity.canonical_json(episode(FABLE_ACT)) + "\n",
+                encoding="utf-8",
+            )
+            identity.write_run(src, dest)
+            output = dest / FABLE_ACT / "episodes.jsonl"
+            original = output.read_bytes()
+
+            output.write_text(
+                identity.canonical_json(episode(FABLE_ACT, goal="tampered")) + "\n",
+                encoding="utf-8",
+            )
+            with self.assertRaisesRegex(identity.IdentityTreeError, "output hashes"):
+                identity.validate_identity_tree(dest)
+
+            output.write_bytes(original)
+            output.unlink()
+            with self.assertRaisesRegex(identity.IdentityTreeError, "output paths"):
+                identity.validate_identity_tree(dest)
+
+            output.write_bytes(original)
+            extra = dest / FABLE_ACT / "extra.jsonl"
+            extra.write_bytes(original)
+            with self.assertRaisesRegex(identity.IdentityTreeError, "output paths"):
+                identity.validate_identity_tree(dest)
+
     def test_iter_source_records_file_blank_lines_and_parse_error(self):
         with tempfile.TemporaryDirectory() as tmp:
-            path = Path(tmp) / "episodes.jsonl"
+            path = Path(tmp) / FABLE_ACT / "episodes.jsonl"
+            path.parent.mkdir()
             path.write_text(
                 identity.canonical_json(episode(FABLE_ACT)) + "\n\nnot-json\n",
                 encoding="utf-8",
@@ -1180,7 +1233,46 @@ class TestIdentityWriterExcludeAndPin(unittest.TestCase):
             )
             records = identity.iter_source_records(path)
             self.assertEqual(len(records), 1)
-            self.assertEqual(records[0].source_path, "episodes.jsonl")
+            self.assertEqual(records[0].source_path, f"{FABLE_ACT}/episodes.jsonl")
+            factory_records = identity.iter_source_records(path.parent)
+            self.assertEqual(factory_records[0].source_path, records[0].source_path)
+            run_records = identity.iter_source_records(Path(tmp))
+            self.assertEqual(run_records[0].source_path, records[0].source_path)
+
+    def test_iter_source_records_rejects_missing_non_jsonl_and_empty_sources(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            with self.assertRaisesRegex(identity.IdentityCurationError, "does not exist"):
+                identity.iter_source_records(root / "missing")
+
+            text_file = root / FABLE_ACT / "records.txt"
+            text_file.parent.mkdir()
+            text_file.write_text("{}\n", encoding="utf-8")
+            with self.assertRaisesRegex(identity.IdentityCurationError, "not a JSONL file"):
+                identity.iter_source_records(text_file)
+
+            empty = root / "empty"
+            empty.mkdir()
+            with self.assertRaisesRegex(identity.IdentityCurationError, "no JSONL files"):
+                identity.iter_source_records(empty)
+
+    def test_write_run_preserves_factory_segment_for_file_and_factory_inputs(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            factory = root / FABLE_ACT
+            factory.mkdir()
+            source_file = factory / "episodes.jsonl"
+            source_file.write_text(
+                identity.canonical_json(episode(FABLE_ACT)) + "\n",
+                encoding="utf-8",
+            )
+            for index, source_input in enumerate((source_file, factory), 1):
+                with self.subTest(source_input=source_input):
+                    dest = root / f"dest-{index}"
+                    results = identity.write_run(source_input, dest)
+                    self.assertEqual(results[0].action, "retained")
+                    self.assertTrue((dest / FABLE_ACT / "episodes.jsonl").is_file())
+                    identity.validate_identity_tree(dest)
 
     def test_write_exclusive_unlinks_partial_file(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -1216,6 +1308,18 @@ class TestIdentityWriterExcludeAndPin(unittest.TestCase):
             with mock.patch("sys.stderr", stderr):
                 self.assertEqual(identity.main([str(src), "--out", str(dest)]), 1)
             self.assertIn("already exists", stderr.getvalue())
+
+            missing_dest = Path(tmp) / "missing-dest"
+            stderr = io.StringIO()
+            with mock.patch("sys.stderr", stderr):
+                self.assertEqual(
+                    identity.main(
+                        [str(Path(tmp) / "missing-source"), "--out", str(missing_dest)]
+                    ),
+                    1,
+                )
+            self.assertIn("source does not exist", stderr.getvalue())
+            self.assertFalse(missing_dest.exists())
 
     def test_internal_empty_owner_and_root_shape_designed_paths(self):
         self.assertEqual(identity._curated_resolve_owners({}, "episode", []), [])

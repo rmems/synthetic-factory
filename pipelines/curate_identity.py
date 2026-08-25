@@ -985,7 +985,7 @@ def _write_exclusive(path: Path, payload: bytes) -> None:
 
 
 def validate_identity_tree(dest: Path) -> FactoryRegistry:
-    """Fail closed when the identity pin or manifest is missing or mismatched."""
+    """Fail closed when the identity pin, manifest, or emitted records differ."""
 
     dest = Path(dest)
     sidecar = dest / FACTORY_REGISTRY_SIDECAR
@@ -1001,6 +1001,7 @@ def validate_identity_tree(dest: Path) -> FactoryRegistry:
         raise IdentityTreeError(f"IDENTITY-MANIFEST.json is not readable JSON: {exc}") from exc
     if not isinstance(manifest, list):
         raise IdentityTreeError("IDENTITY-MANIFEST.json must be a list of mappings")
+    expected_outputs: dict[str, list[str]] = {}
     for index, mapping in enumerate(manifest):
         if not isinstance(mapping, Mapping):
             raise IdentityTreeError(f"IDENTITY-MANIFEST.json[{index}] must be an object")
@@ -1012,19 +1013,99 @@ def validate_identity_tree(dest: Path) -> FactoryRegistry:
             raise IdentityTreeError(
                 f"IDENTITY-MANIFEST.json[{index}] registry.sha256 does not match sidecar pin"
             )
+        action = mapping.get("action")
+        if action not in {"retained", "exclude"}:
+            raise IdentityTreeError(
+                f"IDENTITY-MANIFEST.json[{index}].action must be retained or exclude"
+            )
+        if action != "retained":
+            continue
+        source_meta = mapping.get("source")
+        if not isinstance(source_meta, Mapping):
+            raise IdentityTreeError(
+                f"IDENTITY-MANIFEST.json[{index}].source must be an object"
+            )
+        try:
+            output_path, _factory = _normalize_source_path(source_meta.get("path"))
+        except IdentityCurationError as exc:
+            raise IdentityTreeError(
+                f"IDENTITY-MANIFEST.json[{index}].source.path is invalid: {exc}"
+            ) from exc
+        output_sha256 = mapping.get("output_sha256")
+        if not isinstance(output_sha256, str) or not SHA256_RE.fullmatch(output_sha256):
+            raise IdentityTreeError(
+                f"IDENTITY-MANIFEST.json[{index}].output_sha256 must be a SHA-256"
+            )
+        expected_outputs.setdefault(output_path, []).append(output_sha256)
+
+    actual_paths = {
+        path.relative_to(dest).as_posix(): path
+        for path in sorted(dest.rglob("*.jsonl"))
+        if path.is_file()
+    }
+    expected_paths = set(expected_outputs)
+    if set(actual_paths) != expected_paths:
+        missing = sorted(expected_paths - set(actual_paths))
+        extra = sorted(set(actual_paths) - expected_paths)
+        raise IdentityTreeError(
+            "identity output paths do not match manifest: "
+            f"missing={missing}, extra={extra}"
+        )
+    for rel, expected_hashes in sorted(expected_outputs.items()):
+        actual_hashes: list[str] = []
+        try:
+            output_text = actual_paths[rel].read_text(encoding="utf-8")
+            for line_no, line in enumerate(output_text.splitlines(), 1):
+                if not line.strip():
+                    continue
+                try:
+                    output_record = json.loads(line)
+                except json.JSONDecodeError as exc:
+                    raise IdentityTreeError(
+                        f"identity output JSON parse error at {rel}:{line_no}: {exc}"
+                    ) from exc
+                actual_hashes.append(_sha256_json(output_record))
+        except (OSError, UnicodeError) as exc:
+            raise IdentityTreeError(f"identity output is unreadable: {rel}: {exc}") from exc
+        except IdentityCurationError as exc:
+            raise IdentityTreeError(
+                f"identity output is not canonical JSON data: {rel}: {exc}"
+            ) from exc
+        if actual_hashes != expected_hashes:
+            raise IdentityTreeError(
+                f"identity output hashes do not match manifest: {rel}"
+            )
     return registry
 
 
-def iter_source_records(source: Path) -> list[SourceRecord]:
+def iter_source_records(
+    source: Path,
+    registry: FactoryRegistry | None = None,
+) -> list[SourceRecord]:
     """Read JSONL records under ``source`` as identity source coordinates."""
 
     source = Path(source)
+    registry = default_registry() if registry is None else registry
+    if not source.exists():
+        raise IdentityCurationError(f"source does not exist: {source}")
     if source.is_file():
+        if source.suffix != ".jsonl":
+            raise IdentityCurationError(f"source is not a JSONL file: {source}")
+        if not source.parent.name:
+            raise IdentityCurationError(
+                f"JSONL source must be inside a factory directory: {source}"
+            )
         files = [source]
-        root = source.parent
-    else:
+        root = source.parent.parent
+    elif source.is_dir():
         files = sorted(path for path in source.rglob("*.jsonl") if path.is_file())
-        root = source
+        if not files:
+            raise IdentityCurationError(f"no JSONL files under source: {source}")
+        has_direct_jsonl = any(path.parent == source for path in files)
+        is_factory_dir = source.name in registry.by_path_id
+        root = source.parent if is_factory_dir or has_direct_jsonl else source
+    else:
+        raise IdentityCurationError(f"source is not a JSONL file or directory: {source}")
     records: list[SourceRecord] = []
     for path in files:
         rel = path.relative_to(root).as_posix()
@@ -1059,7 +1140,10 @@ def write_run(
             f"refusing to write inside immutable raw evidence: {dest}"
         )
     registry = default_registry() if registry is None else registry
-    results = curate_records(iter_source_records(source), registry=registry)
+    results = curate_records(
+        iter_source_records(source, registry=registry),
+        registry=registry,
+    )
     created: list[Path] = []
     try:
         dest.mkdir(parents=True, exist_ok=False)
@@ -1147,7 +1231,10 @@ def main(argv: list[str] | None = None) -> int:
     try:
         registry = default_registry()
         if args.out is None:
-            results = curate_records(iter_source_records(args.source), registry=registry)
+            results = curate_records(
+                iter_source_records(args.source, registry=registry),
+                registry=registry,
+            )
         else:
             results = write_run(args.source, args.out, registry=registry)
         print(json.dumps(_summary(results, registry), ensure_ascii=False, indent=2))
