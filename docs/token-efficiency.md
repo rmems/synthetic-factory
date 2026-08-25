@@ -60,10 +60,12 @@ Parsing is case-insensitive and tolerant:
 - `novel_coverage 3%` ✓
 - `Novel coverage (estimated): 12.5 %` ✓
 
-Regex: `^\s*novel[ _-]?coverage\s*(?:\([^)\n]*\))?\s*[:=]?\s*(\d+(?:\.\d+)?)\s*%`,
+Regex: `^[^\S\r\n]*novel[ _-]?coverage[^\S\r\n]*(?:\([^)\r\n]*\))?[^\S\r\n]*[:=]?[^\S\r\n]*(\d+(?:\.\d+)?)[^\S\r\n]*%`,
 matched case-insensitively and per line (`/…/im` in JS, `re.IGNORECASE |
 re.MULTILINE` in Python — JS and Python share the same pattern; see
-`round_txn.NOVEL_COVERAGE_RE` and `novelCoveragePct` in the workflow).
+`round_txn.NOVEL_COVERAGE_RE` and `novelCoveragePct` in the workflow). The
+label, optional annotation, separator, number, and percent sign must appear on
+one physical line; only horizontal spaces and tabs are accepted between them.
 The label is anchored at the start of its own line, so prose percentages
 elsewhere in the notes can never be misread as this round's novel coverage:
 neither `Test coverage: 80%` nor `…the edges feel novel; Jaccard overlap peaked
@@ -129,18 +131,18 @@ python3 .claude/skills/run-synthetic-factory/driver.py \
 ```
 
 `thalamic-trajectory-factory` there reports 4.2% then 3.1% and early-stops at
-r06; `agentic-coding-trajectory-factory` reports 4.8% then 12.0% and keeps
+r02; `agentic-coding-trajectory-factory` reports 4.8% then 12.0% and keeps
 running. `tests/test_factory_driver.py` asserts both.
 
 Example output:
 
 ```
-thalamic-trajectory-factory: EARLY-STOP at r07 — 2 consecutive NOTES <5% novel coverage (40% saving mode)
-  r06 NOTES-r06.md: 4.2% LOW
-  r07 NOTES-r07.md: 3.1% LOW
+thalamic-trajectory-factory: EARLY-STOP at r02 — 2 consecutive NOTES <5% novel coverage (40% saving mode)
+  r01 NOTES-r01.md: 4.2% LOW
+  r02 NOTES-r02.md: 3.1% LOW
 agentic-coding-trajectory-factory: no early-stop (1 low round(s), need 2 consecutive <5%)
-  r02 NOTES-r02.md: 4.8% LOW
-  r03 NOTES-r03.md: 12.0%
+  r01 NOTES-r01.md: 4.8% LOW
+  r02 NOTES-r02.md: 12.0%
 ```
 
 ### 4. Interaction with verification

@@ -551,26 +551,49 @@ class RoundTransaction(unittest.TestCase):
                 round_txn.publish(factory, 1, reservation["token"])
             self.assertFalse((factory / "ROUND-r01.complete.json").exists())
 
-    def test_publish_rejects_duplicate_novel_coverage_lines(self):
-        for values in (("3.1", "3.1"), ("3.1", "80")):
-            with self.subTest(values=values), tempfile.TemporaryDirectory() as td:
+    def test_publish_rejects_ambiguous_novel_coverage_lines(self):
+        for suffix, notes_text in (
+            ("duplicate-same", "Novel coverage: 3.1%\nNovel coverage: 3.1%\n"),
+            ("duplicate-different", "Novel coverage: 3.1%\nNovel coverage: 80%\n"),
+            ("malformed-second", "Novel coverage: 3.1%\nNovel coverage: malformed\n"),
+            ("same-line-second", "Novel coverage: 3.1% Novel coverage: 80%\n"),
+            ("trailing-prose", "Novel coverage: 3.1% trailing prose\n"),
+        ):
+            with self.subTest(suffix=suffix), tempfile.TemporaryDirectory() as td:
                 factory = self.factory(td)
                 reservation = round_txn.reserve(factory, 1, 1)
                 stage = Path(reservation["staging_dir"])
                 write_records(
                     stage / reservation["batch_file"],
-                    [thalamic(f"txn-duplicate-{values[1]}")],
+                    [thalamic(f"txn-ambiguous-{suffix}")],
                 )
-                (stage / reservation["notes_file"]).write_text(
-                    f"Novel coverage: {values[0]}%\n"
-                    f"Novel coverage: {values[1]}%\n"
-                )
+                (stage / reservation["notes_file"]).write_text(notes_text)
 
                 with self.assertRaisesRegex(
                     round_txn.TransactionError, "exactly one unambiguous"
                 ):
                     round_txn.publish(factory, 1, reservation["token"])
                 self.assertFalse((factory / "ROUND-r01.complete.json").exists())
+
+    def test_publish_rejects_coverage_split_across_physical_lines(self):
+        with tempfile.TemporaryDirectory() as td:
+            factory = self.factory(td)
+            reservation = round_txn.reserve(factory, 1, 1)
+            stage = Path(reservation["staging_dir"])
+            write_records(
+                stage / reservation["batch_file"],
+                [thalamic("txn-split-line")],
+            )
+            (stage / reservation["notes_file"]).write_text(
+                "Novel coverage:\n80% of tests passed.\n"
+            )
+
+            with self.assertRaisesRegex(
+                round_txn.TransactionError,
+                "exactly one unambiguous",
+            ):
+                round_txn.publish(factory, 1, reservation["token"])
+            self.assertFalse((factory / "ROUND-r01.complete.json").exists())
 
     def test_read_path_does_not_retroactively_reject_pre_contract_notes(self):
         """Committed legacy rounds predate the contract and must stay readable.

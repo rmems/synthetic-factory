@@ -196,18 +196,28 @@ class FactoryTokenEfficiency(unittest.TestCase):
             self.assertEqual(info["early_stop_at_round"], 3)
 
     def test_duplicate_novel_coverage_lines_are_ambiguous(self):
-        self.assertIsNone(
-            factory_driver.parse_novel_coverage(
-                "Novel coverage: 4%\nNovel coverage: 4%\n"
-            )
+        for notes in (
+            "Novel coverage: 4%\nNovel coverage: 4%\n",
+            "Novel coverage: 4%\nNovel coverage: 80%\n",
+            "Novel coverage: 4%\nNovel coverage: malformed\n",
+            "Novel coverage: 4% Novel coverage: 80%\n",
+            "Novel coverage: 4% trailing prose\n",
+        ):
+            with self.subTest(notes=notes):
+                self.assertIsNone(factory_driver.parse_novel_coverage(notes))
+        self.assertEqual(
+            factory_driver.parse_novel_coverage("Novel coverage: 4%\n"), 4.0
         )
+
+    def test_coverage_label_and_value_must_share_one_physical_line(self):
         self.assertIsNone(
             factory_driver.parse_novel_coverage(
-                "Novel coverage: 4%\nNovel coverage: 80%\n"
+                "Novel coverage:\n80% of tests passed.\n"
             )
         )
         self.assertEqual(
-            factory_driver.parse_novel_coverage("Novel coverage: 4%\n"), 4.0
+            factory_driver.parse_novel_coverage("\tNovel coverage:\t4 %\n"),
+            4.0,
         )
 
     def test_unparseable_notes_hold_but_do_not_latch_past_recovery(self):

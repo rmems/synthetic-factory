@@ -71,9 +71,15 @@ TOKEN_EFFICIENCY_DOCS = "docs/token-efficiency.md"
 # be misread as coverage. Mirrors factory-window.workflow.js novelCoveragePct.
 # An optional parenthetical annotation is documented as valid
 # (docs/token-efficiency.md): "Novel coverage (estimated): 12.5 %".
+NOVEL_COVERAGE_LABEL_RE = re.compile(
+    r"^[^\S\r\n]*novel[ _-]?coverage\b",
+    re.IGNORECASE,
+)
 NOVEL_COVERAGE_RE = re.compile(
-    r"^\s*novel[ _-]?coverage\s*(?:\([^)\n]*\))?\s*[:=]?\s*(\d+(?:\.\d+)?)\s*%",
-    re.IGNORECASE | re.MULTILINE,
+    r"^[^\S\r\n]*novel[ _-]?coverage[^\S\r\n]*"
+    r"(?:\([^)\r\n]*\))?[^\S\r\n]*[:=]?[^\S\r\n]*"
+    r"(\d+(?:\.\d+)?)[^\S\r\n]*%[^\S\r\n]*$",
+    re.IGNORECASE,
 )
 NOTES_ROUND_RE = re.compile(r"^NOTES-r(\d+)([a-z]*)\.md$")
 BATCH_ROUND_RE = re.compile(r"^batch-r(\d+)[a-z]*\.jsonl$")
@@ -366,16 +372,21 @@ def parse_novel_coverage(text: str):
     same regex as workflow novelCoveragePct, so unrelated percentages in
     prose never match. Exactly one labeled line is required: duplicate lines,
     even when numerically identical, are ambiguous audit evidence. Valid range
-    0–100; ambiguous or out-of-range values are treated as unparseable to avoid
+    0-100; ambiguous or out-of-range values are treated as unparseable to avoid
     false stops.
     """
     if not text:
         return None
-    matches = list(NOVEL_COVERAGE_RE.finditer(text))
-    if len(matches) != 1:
+    labeled_lines = [
+        line for line in text.splitlines() if NOVEL_COVERAGE_LABEL_RE.search(line)
+    ]
+    if len(labeled_lines) != 1:
+        return None
+    match = NOVEL_COVERAGE_RE.fullmatch(labeled_lines[0])
+    if match is None:
         return None
     try:
-        value = float(matches[0].group(1))
+        value = float(match.group(1))
     except ValueError:
         return None
     if not (0 <= value <= 100):

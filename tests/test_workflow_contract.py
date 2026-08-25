@@ -104,9 +104,22 @@ class NovelCoverageNotesContract(unittest.TestCase):
     def test_the_contract_example_parses_with_the_shipped_regex(self):
         example = "Novel coverage: 12.3%"
         self.assertIn(example, self.prompts["_factory-contract.md"])
-        match = round_txn.NOVEL_COVERAGE_RE.search(example + "\n")
+        match = round_txn.NOVEL_COVERAGE_RE.fullmatch(example)
         self.assertIsNotNone(match)
         self.assertEqual(float(match.group(1)), 12.3)
+
+    def test_all_three_parsers_require_one_physical_line(self):
+        split_claim = "Novel coverage:\n80% of tests passed.\n"
+        self.assertIsNone(round_txn.NOVEL_COVERAGE_RE.search(split_claim))
+        workflow = WORKFLOW.read_text()
+        self.assertIn(r"^[^\S\r\n]*novel", workflow)
+        self.assertNotIn(r"/^\s*novel", workflow)
+
+    def test_workflow_parser_requires_one_complete_labeled_line(self):
+        workflow = WORKFLOW.read_text()
+        self.assertIn(r".split(/\r\n|\n|\r/)", workflow)
+        self.assertIn(r"%[^\S\r\n]*$/i", workflow)
+        self.assertIn("labeledLines.length !== 1", workflow)
 
     def test_docs_and_prompts_agree_on_the_threshold(self):
         docs = DOCS.read_text()
