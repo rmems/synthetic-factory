@@ -1,0 +1,23 @@
+tests/test_card_schema_issue_132.py
+  s_940326c4ee4215::t_963aae64a4b7a8 2,23-61,85,97-100,114,164-175,187-192,245-254,282-288,291-309,313-359,364-380,384
+  s_940326c4ee4215::t_6964aa65f3bbca 289-290
+  s_940326c4ee4215::t_c3b879620540e5 310-312,360-363,381-383
+config/card-schemas/incident-response-oncall-trajectories.json
+  s_940326c4ee4215::t_c3b879620540e5 131
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "799e951ea378d82002eb9640ec25e593a6fbc045",
+  "prompts": {},
+  "sessions": {
+    "s_940326c4ee4215": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a032e4-1904-7a82-8c8b-1ad3cfbeb0b0",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Raul Montoya Cardenas <montoyaraul34@gmail.com>"
+    }
+  }
+}
