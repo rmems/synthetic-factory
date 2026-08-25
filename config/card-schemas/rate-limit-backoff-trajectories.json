@@ -2,7 +2,7 @@
   "version": 1,
   "dataset": "rate-limit-backoff-trajectories",
   "issues": [53],
-  "note": "The viewer schema is declared by hand because `meta` is a key-bag whose shape changes between shards: the datasets-server infers `{factory, generator, round}` from the eight thin records in `batch-r01.jsonl` / `batch-r02.jsonl`, then cannot cast the later records that add `kind`, `seed`, `designed`, `domain`, `stack`, `lane`, and `plant`. `reward` varies the same way — 136 of 312 records add `mid_reward` and 7 add `handoff` / `xfailed` — so declaring the union fixes the index without rewriting a single historical raw record.",
+  "note": "The viewer schema is declared by hand because `meta` is a key-bag whose shape changes between shards: the datasets-server encounters eight thin records in `batch-r01.jsonl`, `batch-r02.jsonl`, `batch-r07.jsonl`, and `batch-r08.jsonl` that carry only `{factory, generator, round}`, while later records add `kind`, `seed`, `designed`, `domain`, `stack`, `lane`, and `plant`. `reward` varies the same way — 136 of 312 records add `mid_reward` and 7 add `handoff` / `xfailed` — so declaring the union fixes the index without rewriting a single historical raw record.",
   "config_name": "default",
   "split": "train",
   "data_files": ["data/raw/batch-*.jsonl"],

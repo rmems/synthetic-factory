@@ -144,6 +144,12 @@ class RateLimitBackoffDeclarationTests(unittest.TestCase):
         self.assertIn("`plant` on 10", names["meta"]["note"])
         self.assertIn("`lane` on 8", names["meta"]["note"])
 
+    def test_schema_note_attributes_thin_meta_to_all_four_batches(self):
+        note = self.declaration["note"]
+        for batch in ("r01", "r02", "r07", "r08"):
+            with self.subTest(batch=batch):
+                self.assertIn(f"`batch-{batch}.jsonl`", note)
+
     def test_card_front_matter_declares_the_default_config_over_raw_batches(self):
         front_matter = self.card.split("---", 2)[1]
         self.assertIn("configs:\n- config_name: default\n", front_matter)
@@ -177,4 +183,3 @@ class RateLimitBackoffDeclarationTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-
