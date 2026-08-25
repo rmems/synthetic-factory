@@ -34,7 +34,7 @@ const SUMMARY = {
   ],
   properties: {
     factory: { type: 'string' },
-    round: { type: 'number' },
+    round: { type: 'integer' },
     files: { type: 'array', items: { type: 'string' } },
     trajectory_count: { type: 'number' },
     completion_marker: { type: 'string' },
@@ -93,21 +93,27 @@ const PREF_STAGE = {
       minItems: 3,
       maxItems: 3,
       uniqueItems: true,
-      items: { type: 'string', pattern: '^diagnosis-[0-9]{2}-r[0-9]{2}\\.md$' },
+      items: {
+        type: 'string',
+        pattern: '^diagnosis-[0-9]{2}-r(0[1-9]|[1-9][0-9]+)\\.md$',
+      },
     },
   },
 }
 
-// A fourth, read-only context executes the repository verifier and returns
-// only bounded file metadata. Session B opens only files in this receipt.
+// A fourth, arm-payload-blind control context executes the repository verifier
+// and returns only bounded file metadata. Session B opens only files in this
+// receipt.
 const PREF_DIAGNOSIS_VERIFICATION = {
   type: 'object',
-  required: ['factory', 'round', 'staging_dir', 'diagnosis_files'],
+  required: ['version', 'factory', 'round', 'staging_dir', 'reservation_token', 'diagnosis_files'],
   additionalProperties: false,
   properties: {
+    version: { type: 'integer' },
     factory: { type: 'string' },
     round: { type: 'number' },
     staging_dir: { type: 'string', minLength: 1 },
+    reservation_token: { type: 'string', pattern: '^[0-9a-f]{32}$' },
     diagnosis_files: {
       type: 'array',
       minItems: 3,
@@ -117,8 +123,11 @@ const PREF_DIAGNOSIS_VERIFICATION = {
         required: ['name', 'bytes', 'sha256'],
         additionalProperties: false,
         properties: {
-          name: { type: 'string', pattern: '^diagnosis-[0-9]{2}-r[0-9]{2}\\.md$' },
-          bytes: { type: 'number', minimum: 1 },
+          name: {
+            type: 'string',
+            pattern: '^diagnosis-[0-9]{2}-r(0[1-9]|[1-9][0-9]+)\\.md$',
+          },
+          bytes: { type: 'integer', minimum: 1 },
           sha256: { type: 'string', pattern: '^[0-9a-f]{64}$' },
         },
       },
@@ -175,7 +184,7 @@ const FACTORIES = [
     file: '05-failure-as-fuel-preference-cascade.md',
     count: 3,
     quota: 'Generate 3 new preference records. Chosen and rejected must share the exact same state and proposed action; vary only the gate/execution/recovery quality needed to teach the preference. Cover distinct failure modes and recovery strategies across the 3 records.',
-    extra: ' Put the diagnoses in diagnosis-r{RR}.md inside the staging directory.',
+    extra: ' Put diagnoses in diagnosis-01-r{RR}.md through diagnosis-03-r{RR}.md inside staging.',
   },
   {
     slug: 'agentic-coding-trajectory-factory',
@@ -251,7 +260,9 @@ function preferenceHandoffIsValid(handoff, reservation, factory, round, rr) {
 
 function preferenceDiagnosisVerificationIsValid(receipt, reservation, factory, round, rr) {
   if (!receipt || receipt.factory !== factory.slug || receipt.round !== round) return false
+  if (receipt.version !== 2) return false
   if (receipt.staging_dir !== reservation.staging_dir) return false
+  if (receipt.reservation_token !== reservation.reserve_token) return false
   const expected = preferenceDiagnosisFiles(factory.count, rr)
   if (!Array.isArray(receipt.diagnosis_files) || receipt.diagnosis_files.length !== expected.length) return false
   return receipt.diagnosis_files.every((item, index) => (
@@ -398,7 +409,7 @@ FILE-SAFETY — highest priority: NEVER write, edit, rename, truncate, or delete
 
 Read and obey ${args.root}/prompts/_factory-contract.md and the "Session A" section of ${args.root}/prompts/${factory.file}, plus ${args.root}/schemas/thalamic-trajectory-v2.schema.json and ${args.root}/schemas/provenance.md.
 
-Produce EXACTLY ${factory.count} rejected ThalamicTrajectories and their diagnoses in staging: rejected-01-r${rr}.json, rejected-02-r${rr}.json, rejected-03-r${rr}.json scratch files (one JSON object each; never .jsonl) and diagnosis-01-r${rr}.md, diagnosis-02-r${rr}.md, diagnosis-03-r${rr}.md files, each diagnosis containing the Shared-context state/proposed_action JSON block, root cause, cascade effects, supervisor catch, repair sketch, and target reward delta per the prompt. Do NOT write batch-r${rr}.jsonl, do NOT publish, and do NOT draft any chosen content.
+Produce EXACTLY ${factory.count} rejected ThalamicTrajectories and their diagnoses in staging: rejected-01-r${rr}.json, rejected-02-r${rr}.json, rejected-03-r${rr}.json scratch files (one JSON object each; never .jsonl) and diagnosis-01-r${rr}.md, diagnosis-02-r${rr}.md, diagnosis-03-r${rr}.md files. Each diagnosis must use the prompt's exact bounded six-section Markdown structure with only the Shared-context state/proposed_action JSON block and Target reward delta JSON block; never paste or serialize the rejected gate/execution/outcome/reward payload. Do NOT write batch-r${rr}.jsonl, do NOT publish, and do NOT draft any chosen content.
 
 Return the structured handoff: factory="${factory.slug}", round=${round}, staging_dir="${reservation.staging_dir}", reserve_token="${reservation.reserve_token}", and diagnosis_files exactly ${JSON.stringify(preferenceDiagnosisFiles(factory.count, rr))}.`, {
         label: `${factory.slug}:r${rr}-sessionA`,
@@ -411,10 +422,10 @@ Return the structured handoff: factory="${factory.slug}", round=${round}, stagin
         await releaseReservation(factory, round, rr, reservation.reserve_token)
         break
       }
-      const diagnosisVerification = await agent(`You are the read-only diagnosis handoff verifier for the "${factory.name}" two-session protocol, run ${args.date}, round ${round}. You are a separate context from Sessions A and B. Generate no arm content and do not open, summarize, or quote any diagnosis or rejected-arm file yourself.
+      const diagnosisVerification = await agent(`You are the arm-payload-blind diagnosis handoff verifier for the "${factory.name}" two-session protocol, run ${args.date}, round ${round}. You are a separate control context from Sessions A and B. Generate no arm content and do not open, summarize, or quote any diagnosis or rejected-arm file yourself.
 
-Run exactly this repository verifier, which reads only the allowlisted diagnosis files and emits names, byte counts, and SHA-256 digests — never file content:
-  python3 ${args.root}/pipelines/preference_arms.py verify-handoff ${reservation.staging_dir} ${preferenceDiagnosisFiles(factory.count, rr).map((name) => `--file ${name}`).join(' ')}
+Run exactly this repository verifier. It parses only the allowlisted diagnoses' bounded envelopes, never opens rejected-arm files, and emits names, byte counts, and SHA-256 digests rather than file content:
+  python3 ${args.root}/pipelines/preference_arms.py verify-handoff ${reservation.staging_dir} ${preferenceDiagnosisFiles(factory.count, rr).map((name) => `--file ${name}`).join(' ')} --write-receipt
 If it exits nonzero, stop. Otherwise return its stdout JSON exactly.`, {
         label: `${factory.slug}:r${rr}-diagnosis-verify`,
         phase: 'Verify',

@@ -2,6 +2,7 @@
 """Tests for transactional round reservation and publication."""
 
 import contextlib
+import hashlib
 import json
 import sys
 import tempfile
@@ -40,14 +41,13 @@ def write_records(path, records):
     path.write_text("".join(json.dumps(record) + "\n" for record in records))
 
 
-def ffpc_record(fixture="batch-r11.jsonl", round_number=1):
-    record = json.loads(
-        next(
-            line
-            for line in (PREFERENCE_FIXTURES / fixture).read_text().splitlines()
-            if line.strip()
-        )
-    )
+def ffpc_record(fixture="batch-r11.jsonl", round_number=1, index=0):
+    records = [
+        json.loads(line)
+        for line in (PREFERENCE_FIXTURES / fixture).read_text().splitlines()
+        if line.strip()
+    ]
+    record = records[index]
     record["id"] = record["id"].replace("r11", f"r{round_number:02d}")
     record["goal"] = "repair one failed action without changing its context"
     for holder in (record, record["chosen"], record["rejected"]):
@@ -57,6 +57,33 @@ def ffpc_record(fixture="batch-r11.jsonl", round_number=1):
     for arm_name in ("chosen", "rejected"):
         record[arm_name]["id"] = record[arm_name]["id"].replace("r11", f"r{round_number:02d}")
     return record
+
+
+def diagnosis_document(index, *, root_cause=None):
+    context = {
+        "state": {"sim_or_real": "designed", "case": index},
+        "proposed_action": {"action": "hold", "case": index},
+    }
+    target = {"per_component": {"safety": 0.5, "task_progress": 0.25}, "total": 0.75}
+    return (
+        "# Diagnosis\n\n"
+        "## Shared context\n\n"
+        "```json\n"
+        f"{json.dumps(context, sort_keys=True)}\n"
+        "```\n\n"
+        "## Root cause\n\n"
+        f"{root_cause or f'The gate skipped the required check for case {index}.'}\n\n"
+        "## Cascade effects\n\n"
+        "The gate error propagated through execution, outcome, and reward.\n\n"
+        "## Supervisor catch\n\n"
+        "Require the missing evidence before allowing execution.\n\n"
+        "## Repair sketch\n\n"
+        "Add the bounded check and use the safe fallback on failure.\n\n"
+        "## Target reward delta\n\n"
+        "```json\n"
+        f"{json.dumps(target, sort_keys=True)}\n"
+        "```\n"
+    )
 
 
 class RoundTransaction(unittest.TestCase):
@@ -1236,17 +1263,62 @@ class PreferencePublicationGate(unittest.TestCase):
         return round_txn.reserve(
             factory,
             round_number,
-            1,
+            round_txn.FACTORY_QUOTAS[round_txn.PREFERENCE_ISOLATION_FACTORY],
             round_txn.PREFERENCE_TWO_SESSION,
         )
 
-    def fill_stage(self, reservation, record):
+    def fill_stage(self, reservation, record, *, include_handoff=True):
         stage = Path(reservation["staging_dir"])
-        write_records(stage / reservation["batch_file"], [record])
+        round_number = reservation["round"]
+        records = [
+            record,
+            ffpc_record(round_number=round_number, index=1),
+            ffpc_record(round_number=round_number, index=2),
+        ]
+        if include_handoff:
+            names = preference_arms.diagnosis_filenames(round_number, len(records))
+            for index, name in enumerate(names, 1):
+                (stage / name).write_text(
+                    diagnosis_document(index),
+                    encoding="utf-8",
+                )
+            preference_arms.write_diagnosis_handoff_receipt(stage, names)
+        write_records(stage / reservation["batch_file"], records)
         (stage / reservation["notes_file"]).write_text(
             "# Critique\n\nIndependent arms were checked before publication.\n"
         )
         return stage
+
+    def write_v1_completion(self, factory, round_number=1, *, version=1):
+        batch = factory / f"batch-r{round_number:02d}.jsonl"
+        notes = factory / f"NOTES-r{round_number:02d}.md"
+        write_records(batch, [ffpc_record(round_number=round_number)])
+        notes.write_text("# Critique\n\nHistorical pre-v2 preference evidence.\n")
+        marker = factory / f"ROUND-r{round_number:02d}.complete.json"
+        marker.write_text(
+            json.dumps(
+                {
+                    "version": version,
+                    "factory": factory.name,
+                    "round": round_number,
+                    "records": 1,
+                    "expected_records": 1,
+                    "commit_point": marker.name,
+                    "files": [
+                        {
+                            "name": batch.name,
+                            "sha256": round_txn.file_sha256(batch),
+                        },
+                        {
+                            "name": notes.name,
+                            "sha256": round_txn.file_sha256(notes),
+                        },
+                    ],
+                }
+            )
+            + "\n"
+        )
+        return marker
 
     def test_ffpc_reservation_requires_the_publisher_isolation_marker(self):
         with tempfile.TemporaryDirectory() as td:
@@ -1257,6 +1329,20 @@ class PreferencePublicationGate(unittest.TestCase):
             ):
                 round_txn.reserve(factory, 1, 1)
             self.assertFalse((factory / "ROUND-r01.reserved.json").exists())
+
+    def test_ffpc_reservation_requires_the_fixed_three_record_quota(self):
+        with tempfile.TemporaryDirectory() as td:
+            factory = self.factory(td)
+            with self.assertRaisesRegex(
+                round_txn.TransactionError,
+                "requires exactly 3 records",
+            ):
+                round_txn.reserve(
+                    factory,
+                    1,
+                    1,
+                    round_txn.PREFERENCE_TWO_SESSION,
+                )
 
     def test_unrelated_factory_rejects_the_preference_isolation_flag(self):
         with tempfile.TemporaryDirectory() as td:
@@ -1324,6 +1410,153 @@ class PreferencePublicationGate(unittest.TestCase):
                 round_txn.publish(factory, 1, reservation["token"])
             self.assertFalse((factory / "ROUND-r01.complete.json").exists())
 
+    def test_direct_publish_requires_the_persisted_diagnosis_handoff(self):
+        with tempfile.TemporaryDirectory() as td:
+            factory = self.factory(td)
+            reservation = self.reserve(factory)
+            stage = self.fill_stage(
+                reservation,
+                ffpc_record(),
+                include_handoff=False,
+            )
+
+            with self.assertRaisesRegex(
+                round_txn.TransactionError,
+                "missing diagnosis artifact",
+            ):
+                round_txn.publish(factory, 1, reservation["token"])
+
+            self.assertTrue(stage.is_dir())
+            self.assertTrue((factory / "ROUND-r01.reserved.json").is_file())
+            self.assertFalse((factory / "ROUND-r01.complete.json").exists())
+
+    def test_post_verification_diagnosis_tampering_blocks_publication(self):
+        with tempfile.TemporaryDirectory() as td:
+            factory = self.factory(td)
+            reservation = self.reserve(factory)
+            stage = self.fill_stage(reservation, ffpc_record())
+            diagnosis = stage / preference_arms.diagnosis_filenames(1, 3)[1]
+            diagnosis.write_text(
+                diagnosis_document(2, root_cause="Changed after the verifier ran."),
+                encoding="utf-8",
+            )
+
+            with self.assertRaisesRegex(
+                round_txn.TransactionError,
+                "does not match receipt",
+            ):
+                round_txn.publish(factory, 1, reservation["token"])
+
+            self.assertFalse((factory / "ROUND-r01.complete.json").exists())
+
+    def test_forged_receipt_cannot_smuggle_a_rejected_trajectory(self):
+        with tempfile.TemporaryDirectory() as td:
+            factory = self.factory(td)
+            reservation = self.reserve(factory)
+            stage = self.fill_stage(reservation, ffpc_record())
+            diagnosis_name = preference_arms.diagnosis_filenames(1, 3)[0]
+            diagnosis = stage / diagnosis_name
+            malicious = diagnosis_document(1) + (
+                "\n```json\n"
+                '{"safety_decision":{},"executed_action":{},'
+                '"future_outcome":{},"reward_components":{}}\n'
+                "```\n"
+            )
+            diagnosis.write_text(malicious, encoding="utf-8")
+
+            receipt_path = stage / preference_arms.diagnosis_receipt_filename(1)
+            receipt = json.loads(receipt_path.read_text())
+            entry = next(
+                item for item in receipt["diagnosis_files"] if item["name"] == diagnosis_name
+            )
+            payload = diagnosis.read_bytes()
+            entry["bytes"] = len(payload)
+            entry["sha256"] = hashlib.sha256(payload).hexdigest()
+            receipt_path.chmod(0o600)
+            receipt_path.write_text(json.dumps(receipt) + "\n")
+
+            with self.assertRaisesRegex(
+                round_txn.TransactionError,
+                "diagnosis handoff receipt validation failed",
+            ):
+                round_txn.publish(factory, 1, reservation["token"])
+
+            self.assertFalse((factory / "ROUND-r01.complete.json").exists())
+
+    def test_receipt_identity_and_file_metadata_forgery_block_publication(self):
+        mutations = {
+            "version": lambda receipt: receipt.__setitem__("version", True),
+            "old-version": lambda receipt: receipt.__setitem__("version", 1),
+            "factory": lambda receipt: receipt.__setitem__("factory", "other-factory"),
+            "round": lambda receipt: receipt.__setitem__("round", True),
+            "stage": lambda receipt: receipt.__setitem__("staging_dir", "/tmp/other"),
+            "token": lambda receipt: receipt.__setitem__("reservation_token", "0" * 32),
+            "name": lambda receipt: receipt["diagnosis_files"][0].__setitem__(
+                "name", "diagnosis-03-r01.md"
+            ),
+            "bytes": lambda receipt: receipt["diagnosis_files"][0].__setitem__("bytes", True),
+            "digest": lambda receipt: receipt["diagnosis_files"][0].__setitem__("sha256", "0" * 64),
+        }
+        for label, mutate in mutations.items():
+            with self.subTest(label=label), tempfile.TemporaryDirectory() as td:
+                factory = self.factory(td)
+                reservation = self.reserve(factory)
+                stage = self.fill_stage(reservation, ffpc_record())
+                receipt_path = stage / preference_arms.diagnosis_receipt_filename(1)
+                receipt = json.loads(receipt_path.read_text())
+                mutate(receipt)
+                receipt_path.chmod(0o600)
+                receipt_path.write_text(json.dumps(receipt) + "\n")
+
+                with self.assertRaisesRegex(
+                    round_txn.TransactionError,
+                    "diagnosis handoff receipt validation failed",
+                ):
+                    round_txn.publish(factory, 1, reservation["token"])
+
+                self.assertFalse((factory / "ROUND-r01.complete.json").exists())
+
+    def test_diagnosis_artifact_set_is_exact(self):
+        for mutation in ("missing", "extra", "legacy-single"):
+            with self.subTest(mutation=mutation), tempfile.TemporaryDirectory() as td:
+                factory = self.factory(td)
+                reservation = self.reserve(factory)
+                stage = self.fill_stage(reservation, ffpc_record())
+                if mutation == "missing":
+                    (stage / preference_arms.diagnosis_filenames(1, 3)[2]).unlink()
+                elif mutation == "extra":
+                    (stage / "diagnosis-04-r01.md").write_text("extra\n")
+                else:
+                    (stage / "diagnosis-r01.md").write_text("ambiguous legacy name\n")
+
+                with self.assertRaisesRegex(
+                    round_txn.TransactionError,
+                    "diagnosis artifact",
+                ):
+                    round_txn.publish(factory, 1, reservation["token"])
+
+                self.assertFalse((factory / "ROUND-r01.complete.json").exists())
+
+    def test_cosmetic_identifier_edit_with_nested_padding_cannot_publish(self):
+        for edit in (str.upper, lambda value: value + "/"):
+            with self.subTest(edit=edit), tempfile.TemporaryDirectory() as td:
+                factory = self.factory(td)
+                reservation = self.reserve(factory)
+                record = ffpc_record("gate-label-only-r11.jsonl")
+                record["chosen"]["executed_action"]["padding"] = (
+                    "alpha beta gamma delta epsilon zeta eta theta iota kappa lambda"
+                )
+                action = record["chosen"]["executed_action"]["action"]
+                record["chosen"]["executed_action"]["action"] = edit(action)
+                self.fill_stage(reservation, record)
+
+                with self.assertRaisesRegex(
+                    round_txn.TransactionError,
+                    preference_arms.REASON_OBSERVABLES_IDENTICAL,
+                ):
+                    round_txn.publish(factory, 1, reservation["token"])
+                self.assertFalse((factory / "ROUND-r01.complete.json").exists())
+
     def test_reservation_version_downgrade_is_rejected(self):
         with tempfile.TemporaryDirectory() as td:
             factory = self.factory(td)
@@ -1389,9 +1622,88 @@ class PreferencePublicationGate(unittest.TestCase):
                 manifest["preference_isolation"],
                 round_txn.PREFERENCE_TWO_SESSION,
             )
-            self.assertEqual(manifest["preference_arm_gate"]["preference_pairs"], 1)
+            self.assertEqual(manifest["preference_arm_gate"]["preference_pairs"], 3)
             self.assertEqual(manifest["preference_arm_gate"]["blocked_pairs"], 0)
+            self.assertEqual(
+                manifest["preference_diagnosis_handoff"]["reservation_token"],
+                reservation["token"],
+            )
+            manifest_names = {item["name"] for item in manifest["files"]}
+            self.assertIn("diagnosis-handoff-receipt-r01.json", manifest_names)
+            self.assertTrue(set(preference_arms.diagnosis_filenames(1, 3)).issubset(manifest_names))
+            self.assertEqual(
+                (factory / "ROUND-r01.complete.json").stat().st_mode & 0o222,
+                0,
+            )
             self.assertEqual(round_txn.frontier_status(factory)["next_round"], 2)
+
+    def test_historical_v1_completion_marker_remains_visible(self):
+        with tempfile.TemporaryDirectory() as td:
+            factory = self.factory(td)
+            round_txn.ensure_marker_mode(factory)
+            marker = self.write_v1_completion(factory)
+
+            with self.assertRaisesRegex(
+                round_txn.TransactionError,
+                "migrate-preference-v1",
+            ):
+                round_txn.frontier_status(factory)
+
+            migration = round_txn.migrate_preference_v1_markers(factory)
+            marker_digest = round_txn.file_sha256(marker)
+            ledger = factory / round_txn.PREFERENCE_V1_LEDGER_FILE
+
+            self.assertEqual(round_txn.frontier_status(factory)["next_round"], 2)
+            self.assertEqual(ledger.stat().st_mode & 0o222, 0)
+            reservation = self.reserve(factory, round_number=2)
+
+        self.assertEqual(migration["markers"], [{"round": 1, "sha256": marker_digest}])
+        self.assertEqual(reservation["round"], 2)
+        self.assertEqual(reservation["version"], 1)
+
+    def test_v1_migration_ledger_does_not_expand_to_later_markers(self):
+        with tempfile.TemporaryDirectory() as td:
+            factory = self.factory(td)
+            round_txn.ensure_marker_mode(factory)
+            self.write_v1_completion(factory, round_number=1)
+            migration = round_txn.migrate_preference_v1_markers(factory)
+            self.write_v1_completion(factory, round_number=2)
+
+            with self.assertRaisesRegex(
+                round_txn.TransactionError,
+                "not in the frozen migration ledger",
+            ):
+                round_txn.frontier_status(factory)
+
+        self.assertEqual([entry["round"] for entry in migration["markers"]], [1])
+
+    def test_v1_migration_ledger_must_remain_read_only(self):
+        with tempfile.TemporaryDirectory() as td:
+            factory = self.factory(td)
+            round_txn.ensure_marker_mode(factory)
+            self.write_v1_completion(factory)
+            round_txn.migrate_preference_v1_markers(factory)
+            ledger = factory / round_txn.PREFERENCE_V1_LEDGER_FILE
+            ledger.chmod(0o600)
+
+            with self.assertRaisesRegex(
+                round_txn.TransactionError,
+                "migration ledger is writable",
+            ):
+                round_txn.frontier_status(factory)
+
+    def test_historical_completion_marker_version_must_be_an_integer(self):
+        for invalid_version in (True, 1.0):
+            with self.subTest(version=invalid_version), tempfile.TemporaryDirectory() as td:
+                factory = self.factory(td)
+                round_txn.ensure_marker_mode(factory)
+                self.write_v1_completion(factory, version=invalid_version)
+
+                with self.assertRaisesRegex(
+                    round_txn.TransactionError,
+                    "unsupported completion marker version",
+                ):
+                    round_txn.migrate_preference_v1_markers(factory)
 
     def test_completion_marker_cannot_forge_the_recorded_gate_result(self):
         with tempfile.TemporaryDirectory() as td:
@@ -1402,7 +1714,9 @@ class PreferencePublicationGate(unittest.TestCase):
             marker = factory / "ROUND-r01.complete.json"
             manifest = json.loads(marker.read_text())
             manifest["preference_arm_gate"]["blocked_pairs"] = 1
+            marker.chmod(0o600)
             marker.write_text(json.dumps(manifest) + "\n")
+            marker.chmod(0o400)
 
             with self.assertRaisesRegex(
                 round_txn.TransactionError,
@@ -1410,18 +1724,39 @@ class PreferencePublicationGate(unittest.TestCase):
             ):
                 round_txn.frontier_status(factory)
 
+    def test_frontier_requires_the_committed_diagnosis_receipt_set(self):
+        for omitted in (
+            "diagnosis-handoff-receipt-r01.json",
+            "diagnosis-02-r01.md",
+        ):
+            with self.subTest(omitted=omitted), tempfile.TemporaryDirectory() as td:
+                factory = self.factory(td)
+                reservation = self.reserve(factory)
+                self.fill_stage(reservation, ffpc_record())
+                round_txn.publish(factory, 1, reservation["token"])
+                marker = factory / "ROUND-r01.complete.json"
+                manifest = json.loads(marker.read_text())
+                manifest["files"] = [
+                    entry for entry in manifest["files"] if entry["name"] != omitted
+                ]
+                marker.chmod(0o600)
+                marker.write_text(json.dumps(manifest) + "\n")
+                marker.chmod(0o400)
+
+                with self.assertRaisesRegex(
+                    round_txn.TransactionError,
+                    "diagnosis artifact set",
+                ):
+                    round_txn.frontier_status(factory)
+
     def test_gate_version_only_change_does_not_hide_a_completed_round(self):
         with tempfile.TemporaryDirectory() as td:
             factory = self.factory(td)
             reservation = self.reserve(factory)
             self.fill_stage(reservation, ffpc_record())
             round_txn.publish(factory, 1, reservation["token"])
-            marker = factory / "ROUND-r01.complete.json"
-            manifest = json.loads(marker.read_text())
-            manifest["preference_arm_gate"]["gate"]["version"] = "1.1.0"
-            marker.write_text(json.dumps(manifest) + "\n")
-
-            self.assertEqual(round_txn.frontier_status(factory)["next_round"], 2)
+            with mock.patch.object(preference_arms, "GATE_VERSION", "1.1.0"):
+                self.assertEqual(round_txn.frontier_status(factory)["next_round"], 2)
 
     def test_gate_version_only_change_does_not_wedge_an_inflight_retry(self):
         with tempfile.TemporaryDirectory() as td:
@@ -1429,11 +1764,9 @@ class PreferencePublicationGate(unittest.TestCase):
             reservation = self.reserve(factory)
             self.fill_stage(reservation, ffpc_record())
             real_link = round_txn.os.link
-            calls = {"count": 0}
 
             def interrupt_completion_link(*args, **kwargs):
-                calls["count"] += 1
-                if calls["count"] == 3:
+                if Path(args[1]).name == "ROUND-r01.complete.json":
                     raise OSError("simulated interruption")
                 return real_link(*args, **kwargs)
 
@@ -1446,17 +1779,111 @@ class PreferencePublicationGate(unittest.TestCase):
                     round_txn.publish(factory, 1, reservation["token"])
 
             publishing = factory / "ROUND-r01.publishing.json"
-            plan = json.loads(publishing.read_text())
-            plan["preference_arm_gate"]["gate"]["version"] = "1.1.0"
-            publishing.write_text(json.dumps(plan) + "\n")
+            original_gate_version = json.loads(publishing.read_text())["preference_arm_gate"][
+                "gate"
+            ]["version"]
+            self.assertEqual(publishing.stat().st_mode & 0o222, 0)
 
-            manifest = round_txn.publish(factory, 1, reservation["token"])
+            with mock.patch.object(preference_arms, "GATE_VERSION", "1.1.0"):
+                manifest = round_txn.publish(factory, 1, reservation["token"])
 
             self.assertEqual(
                 manifest["preference_arm_gate"]["gate"]["version"],
-                "1.1.0",
+                original_gate_version,
             )
             self.assertEqual(round_txn.frontier_status(factory)["next_round"], 2)
+
+    def test_writable_inflight_publish_plan_cannot_resume(self):
+        with tempfile.TemporaryDirectory() as td:
+            factory = self.factory(td)
+            reservation = self.reserve(factory)
+            self.fill_stage(reservation, ffpc_record())
+
+            with mock.patch.object(
+                round_txn.os,
+                "link",
+                side_effect=OSError("simulated interruption"),
+            ):
+                with self.assertRaisesRegex(OSError, "simulated interruption"):
+                    round_txn.publish(factory, 1, reservation["token"])
+
+            publishing = factory / "ROUND-r01.publishing.json"
+            publishing.chmod(0o600)
+            with self.assertRaisesRegex(
+                round_txn.TransactionError,
+                "publishing plan is writable",
+            ):
+                round_txn.publish(factory, 1, reservation["token"])
+
+            self.assertFalse((factory / "ROUND-r01.complete.json").exists())
+
+    def test_publish_plan_replacement_during_link_preserves_recovery_state(self):
+        with tempfile.TemporaryDirectory() as td:
+            factory = self.factory(td)
+            reservation = self.reserve(factory)
+            stage = self.fill_stage(reservation, ffpc_record())
+            publishing = factory / "ROUND-r01.publishing.json"
+            complete = factory / "ROUND-r01.complete.json"
+            real_link = round_txn.os.link
+
+            def replace_plan_before_link(source, destination, *args, **kwargs):
+                if Path(destination).name == complete.name:
+                    Path(source).unlink()
+                    Path(source).write_text('{"attacker":true}\n', encoding="utf-8")
+                    Path(source).chmod(0o400)
+                return real_link(source, destination, *args, **kwargs)
+
+            with (
+                mock.patch.object(
+                    round_txn.os,
+                    "link",
+                    side_effect=replace_plan_before_link,
+                ),
+                self.assertRaisesRegex(
+                    round_txn.TransactionError,
+                    "publishing plan changed while linking",
+                ),
+            ):
+                round_txn.publish(factory, 1, reservation["token"])
+
+            self.assertTrue(stage.is_dir())
+            self.assertTrue((factory / "ROUND-r01.reserved.json").is_file())
+            self.assertTrue(publishing.is_file())
+            self.assertFalse(complete.exists())
+
+    def test_completion_marker_replacement_after_read_preserves_recovery_state(self):
+        with tempfile.TemporaryDirectory() as td:
+            factory = self.factory(td)
+            reservation = self.reserve(factory)
+            stage = self.fill_stage(reservation, ffpc_record())
+            publishing = factory / "ROUND-r01.publishing.json"
+            complete = factory / "ROUND-r01.complete.json"
+            real_read = round_txn._read_json_from_expected_inode
+
+            def replace_marker_after_read(path, **kwargs):
+                value = real_read(path, **kwargs)
+                Path(path).unlink()
+                Path(path).write_text('{"attacker":true}\n', encoding="utf-8")
+                Path(path).chmod(0o400)
+                return value
+
+            with (
+                mock.patch.object(
+                    round_txn,
+                    "_read_json_from_expected_inode",
+                    side_effect=replace_marker_after_read,
+                ),
+                self.assertRaisesRegex(
+                    round_txn.TransactionError,
+                    "completion marker changed during commit",
+                ),
+            ):
+                round_txn.publish(factory, 1, reservation["token"])
+
+            self.assertTrue(stage.is_dir())
+            self.assertTrue((factory / "ROUND-r01.reserved.json").is_file())
+            self.assertTrue(publishing.is_file())
+            self.assertFalse(complete.exists())
 
 
 if __name__ == "__main__":

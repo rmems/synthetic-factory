@@ -48,10 +48,8 @@ trajectory is produced in this session.
    - `diagnosis-01-rNN.md`, `diagnosis-02-rNN.md`, `diagnosis-03-rNN.md`
      (where `NN` is the zero-padded round number from the reservation,
      e.g. round 5 → `diagnosis-01-r05.md`).
-   - Alternatively a single `diagnosis-rNN.md` with clearly delimited
-     `## Record 01` / `## Record 02` / `## Record 03` sections is accepted
-     if the three sections are independently parseable. The per-file form is
-     preferred.
+   - No aggregate `diagnosis-rNN.md` form is accepted. The indexed files are
+     the canonical transaction-bound handoff.
 
 2. For each of the exactly 3 preference records, author one deliberately
    imperfect / failed / hallucinated / unsafe / inefficient `rejected`
@@ -70,7 +68,46 @@ trajectory is produced in this session.
 
 3. For each rejected trajectory, write its diagnosis to the corresponding
    indexed file (`diagnosis-01-rNN.md`, `diagnosis-02-rNN.md`, or
-   `diagnosis-03-rNN.md`). Each diagnosis MUST contain:
+   `diagnosis-03-rNN.md`). Each diagnosis MUST use exactly this heading/fence
+   order; no additional heading or code fence is allowed:
+
+   ````markdown
+   # Diagnosis
+
+   ## Shared context
+
+   ```json
+   {"state": {"...": "..."}, "proposed_action": {"...": "..."}}
+   ```
+
+   ## Root cause
+
+   Bounded prose.
+
+   ## Cascade effects
+
+   Bounded prose.
+
+   ## Supervisor catch
+
+   Bounded prose.
+
+   ## Repair sketch
+
+   Bounded prose.
+
+   ## Target reward delta
+
+   ```json
+   {"per_component": {"component": 0.5}, "total": 0.5}
+   ```
+   ````
+
+   The structured handoff validator enforces a 64-KiB document limit and a
+   4-KiB limit on each prose section. It rejects extra fences/headings,
+   duplicate or non-finite JSON, extra shared-context keys, inconsistent
+   reward totals, and serialized trajectory mappings in prose. Within that
+   exact structure, each diagnosis MUST contain:
    - **Shared context** — the exact `state` and `proposed_action` JSON of
      the rejected trajectory, embedded verbatim as a fenced JSON block.
      This block (and only this block) is what Session B copies
@@ -218,10 +255,12 @@ also attest `meta.isolation: "two-session"`. See
 `docs/preference-isolation.md` §3.6 for the lexical metric and reason codes.
 Publication additionally requires the two-session value from the reservation;
 the launcher obtains that reservation in a separate content-blind context. A
-fourth read-only context runs `preference_arms.py verify-handoff`, binding
-Session A's exact diagnosis basenames, real non-empty UTF-8 files, sizes, and
-SHA-256 digests before Session B opens them. Mutable record metadata is not
-trusted as proof of the protocol.
+fourth, arm-payload-blind context runs `preference_arms.py verify-handoff
+--write-receipt`. The repository verifier parses only the bounded diagnosis
+envelope and emits only its exact basenames, byte counts, and SHA-256 digests
+before Session B opens those diagnoses. The publisher requires that canonical
+receipt and revalidates both structure and digests against captured diagnosis
+bytes; mutable record metadata is not trusted as proof of the protocol.
 
 ## Purity check command
 
@@ -233,7 +272,7 @@ path and `rNN` with the zero-padded round (e.g. `r05`):
 # Before Session B: independently bind its exact diagnosis-only input
 python3 pipelines/preference_arms.py verify-handoff <staging_dir> \
   --file diagnosis-01-rNN.md --file diagnosis-02-rNN.md \
-  --file diagnosis-03-rNN.md
+  --file diagnosis-03-rNN.md --write-receipt
 
 # 1. Standard record checks (schema, reward arithmetic, spike order)
 python3 pipelines/check_records.py <staging_dir>
@@ -244,9 +283,6 @@ import json, pathlib, sys
 
 batch = pathlib.Path('<staging_dir>/batch-rNN.jsonl')
 diags = sorted(pathlib.Path('<staging_dir>').glob('diagnosis-*-rNN.md'))
-if not diags:
-    single = pathlib.Path('<staging_dir>/diagnosis-rNN.md')
-    diags = [single] if single.exists() else []
 if not diags:
     # Fail CLOSED: no diagnosis files means the glob is wrong (un-replaced
     # rNN?) or Session A never ran — the safety-text check cannot be skipped.

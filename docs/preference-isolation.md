@@ -33,7 +33,7 @@ Concretely, for every round generated from this point on:
 | `rejected` + diagnosis come from Session A only | `prompts/05-…md` Session A isolation rule; the launcher runs it as its own agent |
 | `chosen` comes from a fresh Session B whose only bridge is the diagnosis | `prompts/05-…md` Session B isolation rule; the launcher runs it as a separate agent |
 | A content-blind controller reserves with `--preference-isolation two-session` before Session A starts | The launcher validates the exact receipt, staging path, token, and diagnosis-only handoff; record metadata cannot substitute for the reservation assertion |
-| A separate read-only verifier binds the diagnosis handoff before Session B starts | `preference_arms.py verify-handoff` requires the exact contiguous basenames, real non-empty UTF-8 files, byte counts, and SHA-256 digests |
+| A separate arm-payload-blind verifier binds the diagnosis handoff before Session B starts | `preference_arms.py verify-handoff --write-receipt` validates the bounded six-section diagnosis format, rejects full-trajectory payload mappings, and exclusively persists exact basenames, byte counts, and SHA-256 digests; publication revalidates structure and receipt against captured bytes |
 | Each record also declares `meta.isolation: "two-session"` | `pipelines/preference_arms.py` rejects a missing, conflicting, or non-`two-session` declaration |
 | The two arms are not one arm restated | `round_txn.py publish` runs `preference_arms.py` over captured bytes before the commit point |
 
@@ -48,7 +48,7 @@ for the round. Both sessions operate inside that directory, but they MUST
 NOT share generation context.
 
 ```
-reserve ─► Session A (rejected + diagnosis) ─► read-only verifier ─► Session B
+reserve ─► Session A (rejected + diagnosis) ─► arm-payload-blind verifier ─► Session B
               │                                      │                  │
               ▼                                      ▼                  ▼
          rejected-0i-rNN.json                 names/bytes/SHA-256   batch-rNN.jsonl
@@ -73,7 +73,15 @@ allowlist and are publishable, but they are not the final batch.
 Each `diagnosis-0i-rNN.md` must be self-contained: a reader who has never
 seen the rejected JSON can reconstruct the intended repair from the
 diagnosis alone. It must not paste the full rejected trajectory — only a
-narrative repair sketch.
+narrative repair sketch. The machine-enforced document is at most 64 KiB and
+uses exactly these headings, in order: `# Diagnosis`, `## Shared context`,
+`## Root cause`, `## Cascade effects`, `## Supervisor catch`, `## Repair
+sketch`, and `## Target reward delta`. Shared context is one fenced JSON object
+with exactly `state` and `proposed_action`; target delta is one fenced JSON
+object with exactly `per_component` and a reconciled `total`. The four prose
+sections are non-empty and at most 4 KiB each. Extra headings/fences and
+serialized trajectory mappings are rejected, so the receipt cannot bless a
+full rejected payload hidden in the Markdown.
 
 ### 2.2 Session B — Chosen from Diagnosis Only
 
@@ -95,18 +103,18 @@ understanding the failure class. Forcing reconstruction from the diagnosis
 ensures the repair is grounded in causal analysis and generalizes to new
 failures of the same class.
 
-### 2.3 Session handoff checklist
+### 2.3 Session handoff requirements
 
-- [ ] Session A produced exactly 3 diagnoses and 3 rejected scratch files
-- [ ] No `batch-rNN.jsonl` exists after Session A
-- [ ] `verify-handoff` bound the exact three diagnosis basenames, sizes, and SHA-256 digests
-- [ ] Session B context was reset (new conversation / cleared history)
-- [ ] Session B did not open any `rejected-rNN*.json` file
-- [ ] Final `batch-rNN.jsonl` has exactly 3 lines, each with `chosen` + `rejected` + non-empty `critique`
-- [ ] Every record attests `meta.isolation: "two-session"`
-- [ ] Same-context purity gate passes (Section 3)
-- [ ] Independent-arm gate passes (Section 3.6)
-- [ ] `NOTES-rNN.md` names residual weaknesses and next densification target
+- Session A produces exactly 3 diagnoses and 3 rejected scratch files.
+- No `batch-rNN.jsonl` exists after Session A.
+- `verify-handoff --write-receipt` validates the bounded six-section format and exclusively binds the exact three diagnosis basenames, sizes, and SHA-256 digests before Session B.
+- Session B starts with reset context (new conversation / cleared history).
+- Session B does not open any `rejected-rNN*.json` file.
+- Final `batch-rNN.jsonl` has exactly 3 lines, each with `chosen` + `rejected` + non-empty `critique`.
+- Every record attests `meta.isolation: "two-session"`.
+- The same-context purity gate passes (Section 3).
+- The independent-arm gate passes (Section 3.6).
+- `NOTES-rNN.md` names residual weaknesses and the next densification target.
 
 ## 3. Same-context purity gate
 
@@ -339,7 +347,8 @@ python3 pipelines/round_txn.py reserve outputs/raw/2026-08-17/failure-as-fuel-pr
 python3 pipelines/preference_arms.py verify-handoff \
   outputs/staging/2026-08-17/failure-as-fuel-preference-cascade/r05-<token> \
   --file diagnosis-01-r05.md --file diagnosis-02-r05.md \
-  --file diagnosis-03-r05.md
+  --file diagnosis-03-r05.md --write-receipt
+# → diagnosis-handoff-receipt-r05.json (required and revalidated by publish)
 
 # Session B (fresh context): read only diagnosis-*-r05.md, synthesize chosen
 #   staging/r05-<token>/batch-r05.jsonl      (3 preference records)
@@ -373,11 +382,21 @@ python3 pipelines/round_txn.py publish outputs/raw/2026-08-17/failure-as-fuel-pr
   `round_txn.py publish` requires both, runs the same-context and independent-
   arm decisions, and stores their deterministic summary in the completion
   marker. The launcher obtains that reservation in a separate content-blind
-  context and validates the exact diagnosis allowlist, regular-file type,
-  non-empty UTF-8 bytes, sizes, and SHA-256 digests before opening Session B.
-  This is auditable orchestration evidence, not a cryptographic attestation of
-  what happened inside an external model session; a manual operator invoking
-  the reserve command is explicitly making the same protocol assertion.
+  context. An arm-payload-blind verifier parses the bounded diagnosis envelope,
+  refuses Session-B outputs immediately before and after its exclusive receipt
+  write, and binds the exact allowlist, regular-file type, bytes, sizes, and
+  SHA-256 digests before opening Session B. This is auditable orchestration
+  evidence, not a cryptographic attestation of what happened inside an external
+  model session; a manual operator invoking the reserve command is explicitly
+  making the same protocol assertion. Read-only receipt and publishing-plan
+  modes make accidental mutation visible, but do not defend against the same OS
+  user deliberately changing permissions, rewriting content, and resealing it.
+  The receipt file and staging-directory `fsync` are the ordering point: a
+  Session-B output created after that point is later than the receipt even if
+  the verifier has not yet returned its bounded JSON summary. Final inode/path
+  checks catch accidental overlap before cleanup; they cannot make an
+  owner-writable directory immutable against a hostile same-user process that
+  deliberately mutates it after the last check.
 - No generated content is ever written directly into `outputs/raw/`; all
   writes go through the reserved `staging_dir` and are atomically linked
   on `publish`.

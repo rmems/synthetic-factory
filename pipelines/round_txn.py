@@ -11,6 +11,7 @@ Usage:
   round_txn.py reserve <factory_dir> --round N --expected N \
       [--preference-isolation two-session]
   round_txn.py publish <factory_dir> --round N --token TOKEN
+  round_txn.py migrate-preference-v1 <factory_dir>
 
 ``--preference-isolation two-session`` is mandatory when reserving the
 ``failure-as-fuel-preference-cascade`` lane.
@@ -43,6 +44,7 @@ from validate_run import THALAMIC_CORE_KEYS, terminal_outcome_agrees  # noqa: E4
 
 
 MODE_FILE = ".round-marker-mode.json"
+PREFERENCE_V1_LEDGER_FILE = ".preference-v1-marker-ledger.json"
 BATCH_RE = re.compile(r"^batch-r(\d+)([a-z]*)\.jsonl$")
 COMPLETE_RE = re.compile(r"^ROUND-r(\d+)\.complete\.json$")
 PUBLISHING_RE = re.compile(r"^ROUND-r(\d+)\.publishing\.json$")
@@ -338,12 +340,12 @@ def utc_now():
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
 
-def write_exclusive_json(path: Path, payload: dict):
+def write_exclusive_json(path: Path, payload: dict, *, mode: int = 0o644):
     """Create a JSON file without following or replacing an existing path."""
     flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
     if hasattr(os, "O_NOFOLLOW"):
         flags |= os.O_NOFOLLOW
-    fd = os.open(path, flags, 0o644)
+    fd = os.open(path, flags, mode)
     try:
         with os.fdopen(fd, "w") as handle:
             json.dump(payload, handle, indent=2, sort_keys=True)
@@ -368,6 +370,20 @@ def read_json(path: Path):
     return value
 
 
+def read_readonly_json(path: Path, *, label: str):
+    """Read a regular transaction plan only after its write bits are sealed."""
+
+    try:
+        path_stat = path.lstat()
+    except OSError as exc:
+        raise TransactionError(f"cannot inspect {label}: {path}: {exc}") from exc
+    if stat.S_ISLNK(path_stat.st_mode) or not stat.S_ISREG(path_stat.st_mode):
+        raise TransactionError(f"unsafe {label}: {path}")
+    if path_stat.st_mode & 0o222:
+        raise TransactionError(f"{label} is writable: {path}")
+    return read_json(path)
+
+
 def marker_mode_path(factory_dir: Path) -> Path | None:
     """Return a safe marker-mode file, or ``None`` when marker mode is absent."""
     mode_path = factory_dir / MODE_FILE
@@ -376,6 +392,53 @@ def marker_mode_path(factory_dir: Path) -> Path | None:
     if not mode_path.is_file() or mode_path.is_symlink():
         raise TransactionError(f"unsafe marker mode file: {mode_path}")
     return mode_path
+
+
+def validated_preference_v1_ledger(factory_dir: Path) -> tuple[dict, dict[int, str]]:
+    """Return the read-only digest ledger for explicitly migrated FFPC v1 markers."""
+
+    path = factory_dir / PREFERENCE_V1_LEDGER_FILE
+    if not path.exists() and not path.is_symlink():
+        raise TransactionError(
+            "historical FFPC v1 markers require `round_txn.py "
+            f"migrate-preference-v1 {factory_dir}` before they become visible"
+        )
+    if not path.is_file() or path.is_symlink():
+        raise TransactionError(f"unsafe FFPC v1 migration ledger: {path}")
+    if path.stat().st_mode & 0o222:
+        raise TransactionError(f"FFPC v1 migration ledger is writable: {path}")
+    payload = read_json(path)
+    if type(payload.get("version")) is not int or payload["version"] != 1:
+        raise TransactionError(f"unsupported FFPC v1 migration ledger version: {path}")
+    if payload.get("factory") != factory_dir.name:
+        raise TransactionError(f"FFPC v1 migration ledger identity mismatch: {path}")
+    mode_path = marker_mode_path(factory_dir)
+    if mode_path is None:
+        raise TransactionError(f"FFPC v1 migration ledger has no marker mode: {path}")
+    mode_digest = payload.get("marker_mode_sha256")
+    if not isinstance(mode_digest, str) or SHA256_RE.fullmatch(mode_digest) is None:
+        raise TransactionError(f"FFPC v1 migration ledger has invalid marker-mode hash: {path}")
+    if file_sha256(mode_path) != mode_digest:
+        raise TransactionError(f"FFPC v1 migration ledger marker-mode hash mismatch: {path}")
+    entries = payload.get("markers")
+    if not isinstance(entries, list):
+        raise TransactionError(f"FFPC v1 migration ledger markers must be an array: {path}")
+    markers: dict[int, str] = {}
+    for entry in entries:
+        if not isinstance(entry, dict):
+            raise TransactionError(f"FFPC v1 migration ledger has an invalid entry: {path}")
+        round_number = entry.get("round")
+        digest = entry.get("sha256")
+        if (
+            type(round_number) is not int
+            or round_number < 1
+            or round_number in markers
+            or not isinstance(digest, str)
+            or SHA256_RE.fullmatch(digest) is None
+        ):
+            raise TransactionError(f"FFPC v1 migration ledger has an invalid entry: {path}")
+        markers[round_number] = digest
+    return payload, markers
 
 
 def regular_file_metadata(path: Path):
@@ -779,6 +842,7 @@ def completed_manifests(
     factory_dir: Path,
     *,
     quarantined_kinds: dict[str, dict[int, str]] | None = None,
+    _allow_unmigrated_preference_v1: bool = False,
 ) -> dict[int, dict]:
     """Return only completion manifests safe to use for batch visibility.
 
@@ -846,10 +910,37 @@ def completed_manifests(
             raise TransactionError(f"completion marker has no unique batch entry: {path}")
         if notes_name not in names:
             raise TransactionError(f"completion marker has no unique notes entry: {path}")
+        if factory_dir.name == PREFERENCE_ISOLATION_FACTORY and payload.get("version") == 2:
+            if path.stat().st_mode & 0o222:
+                raise TransactionError(f"FFPC v2 completion marker is writable: {path}")
+            from preference_arms import diagnosis_filenames, diagnosis_receipt_filename
+
+            expected_handoff_names = {
+                *diagnosis_filenames(
+                    round_number,
+                    FACTORY_QUOTAS[PREFERENCE_ISOLATION_FACTORY],
+                ),
+                diagnosis_receipt_filename(round_number),
+            }
+            round_suffix = f"-r{round_number:02d}."
+            declared_handoff_names = {
+                name for name in names if name.startswith("diagnosis-") and round_suffix in name
+            }
+            if declared_handoff_names != expected_handoff_names:
+                raise TransactionError(
+                    f"completion marker diagnosis artifact set does not match r{round_number:02d}: "
+                    f"{path}"
+                )
         coverage_error = validate_novel_coverage(factory_dir / notes_name, factory_dir)
         if coverage_error:
             raise TransactionError(coverage_error)
-        validate_completed_batch(factory_dir, round_number, payload, seen_ids=seen_ids)
+        validate_completed_batch(
+            factory_dir,
+            round_number,
+            payload,
+            seen_ids=seen_ids,
+            allow_unmigrated_preference_v1=_allow_unmigrated_preference_v1,
+        )
         # The semantic validators reopen the committed artifacts.  Recheck
         # every manifest-bound byte afterwards so content swapped during
         # validation cannot advance the visible frontier.
@@ -1324,6 +1415,70 @@ def validated_marker_mode(
     return mode
 
 
+def migrate_preference_v1_markers(factory_dir: Path) -> dict:
+    """Freeze the already-visible FFPC v1 prefix into a one-shot digest ledger."""
+
+    factory_dir = Path(factory_dir).resolve()
+    if factory_dir.name != PREFERENCE_ISOLATION_FACTORY:
+        raise TransactionError(
+            f"v1 preference migration is only valid for {PREFERENCE_ISOLATION_FACTORY}"
+        )
+    if not factory_dir.is_dir():
+        raise TransactionError(f"not a factory directory: {factory_dir}")
+    with run_publish_lock(factory_dir):
+        mode_path = marker_mode_path(factory_dir)
+        if mode_path is None:
+            raise TransactionError(f"marker mode is not enabled for {factory_dir}")
+        mode = validated_marker_mode(factory_dir, mode_path)
+        ledger_path = factory_dir / PREFERENCE_V1_LEDGER_FILE
+        if ledger_path.exists() or ledger_path.is_symlink():
+            payload, _ = validated_preference_v1_ledger(factory_dir)
+            return payload
+
+        manifests = completed_manifests(
+            factory_dir,
+            _allow_unmigrated_preference_v1=True,
+        )
+        v1_rounds = sorted(
+            round_number
+            for round_number, manifest in manifests.items()
+            if manifest.get("version") == 1
+        )
+        if v1_rounds:
+            expected_prefix = list(range(mode["legacy_baseline"] + 1, v1_rounds[-1] + 1))
+            if v1_rounds != expected_prefix:
+                raise TransactionError(
+                    "FFPC v1 migration requires one contiguous historical marker prefix"
+                )
+            v2_rounds = sorted(
+                round_number
+                for round_number, manifest in manifests.items()
+                if manifest.get("version") == 2
+            )
+            if v2_rounds and min(v2_rounds) < v1_rounds[-1]:
+                raise TransactionError("FFPC v1 markers cannot follow a v2 completion marker")
+
+        payload = {
+            "version": 1,
+            "factory": factory_dir.name,
+            "created_at": utc_now(),
+            "marker_mode_sha256": file_sha256(mode_path),
+            "markers": [
+                {
+                    "round": round_number,
+                    "sha256": file_sha256(factory_dir / f"ROUND-r{round_number:02d}.complete.json"),
+                }
+                for round_number in v1_rounds
+            ],
+        }
+        try:
+            write_exclusive_json(ledger_path, payload, mode=0o400)
+        except FileExistsError:
+            existing, _ = validated_preference_v1_ledger(factory_dir)
+            return existing
+        return payload
+
+
 def staging_dir(factory_dir: Path, round_number: int, token: str):
     """Return the private transaction stage for one validated reservation token."""
     if not isinstance(token, str) or TOKEN_RE.fullmatch(token) is None:
@@ -1421,7 +1576,10 @@ def reserve(
             f"--preference-isolation is only valid for {PREFERENCE_ISOLATION_FACTORY}"
         )
     configured_quota = FACTORY_QUOTAS.get(factory_dir.name)
-    if factory_dir.name in AGENTIC_FACTORY_KINDS and expected != configured_quota:
+    if (
+        factory_dir.name in AGENTIC_FACTORY_KINDS
+        or factory_dir.name == PREFERENCE_ISOLATION_FACTORY
+    ) and expected != configured_quota:
         raise TransactionError(
             f"{factory_dir.name} requires exactly {configured_quota} records; "
             f"got --expected {expected}"
@@ -2189,6 +2347,35 @@ def validate_preference_arm_gate(
     return summary
 
 
+def validate_preference_diagnosis_handoff(
+    artifact_dir: Path,
+    *,
+    factory_dir: Path,
+    round_number: int,
+    expected_records: int,
+    reservation_token: str,
+    expected_staging_dir: Path,
+) -> dict:
+    """Bind FFPC publication to its persisted pre-Session-B receipt."""
+
+    from preference_arms import (
+        PreferenceArmsError,
+        validate_diagnosis_handoff_receipt,
+    )
+
+    try:
+        return validate_diagnosis_handoff_receipt(
+            artifact_dir,
+            factory=factory_dir.name,
+            round_number=round_number,
+            staging_dir=expected_staging_dir,
+            reservation_token=reservation_token,
+            expected_count=expected_records,
+        )
+    except (OSError, PreferenceArmsError, ValueError) as exc:
+        raise TransactionError(f"diagnosis handoff receipt validation failed: {exc}") from exc
+
+
 def _stable_preference_gate_evidence(summary: dict) -> dict:
     """Return gate evidence whose identity survives a code-only version bump.
 
@@ -2217,7 +2404,146 @@ def _stable_publish_plan(manifest: dict) -> dict:
     return plan
 
 
-def validate_completed_batch(factory_dir: Path, round_number: int, manifest: dict, seen_ids=None):
+def _same_file_identity(left: os.stat_result, right: os.stat_result) -> bool:
+    return (left.st_dev, left.st_ino) == (right.st_dev, right.st_ino)
+
+
+def _read_json_from_expected_inode(
+    path: Path,
+    *,
+    label: str,
+    expected_stat: os.stat_result,
+    require_readonly: bool,
+) -> dict:
+    """Read JSON through a descriptor bound to one already-verified inode."""
+
+    flags = os.O_RDONLY
+    if hasattr(os, "O_NOFOLLOW"):
+        flags |= os.O_NOFOLLOW
+    fd = -1
+    try:
+        fd = os.open(path, flags)
+        opened_stat = os.fstat(fd)
+        if not stat.S_ISREG(opened_stat.st_mode) or not _same_file_identity(
+            expected_stat, opened_stat
+        ):
+            raise TransactionError(f"{label} changed while it was opened: {path}")
+        if require_readonly and opened_stat.st_mode & 0o222:
+            raise TransactionError(f"{label} is writable: {path}")
+        with os.fdopen(fd, "r", encoding="utf-8") as handle:
+            fd = -1
+            value = json.load(handle)
+    except TransactionError:
+        raise
+    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+        raise TransactionError(f"cannot read {label} {path}: {exc}") from exc
+    finally:
+        if fd >= 0:
+            os.close(fd)
+    if not isinstance(value, dict):
+        raise TransactionError(f"{label} must contain an object: {path}")
+    return value
+
+
+def _require_expected_path_identity(
+    path: Path,
+    expected_stat: os.stat_result,
+    *,
+    label: str,
+) -> None:
+    try:
+        current_stat = path.lstat()
+    except OSError as exc:
+        raise TransactionError(f"cannot inspect {label}: {path}") from exc
+    if (
+        stat.S_ISLNK(current_stat.st_mode)
+        or not stat.S_ISREG(current_stat.st_mode)
+        or not _same_file_identity(expected_stat, current_stat)
+    ):
+        raise TransactionError(f"{label} changed during commit: {path}")
+
+
+def link_verified_completion_marker(
+    publishing: Path,
+    complete: Path,
+    manifest: dict,
+    *,
+    require_readonly: bool,
+) -> None:
+    """Link exactly the plan inode and bytes that publication validated."""
+
+    try:
+        expected_stat = publishing.lstat()
+    except OSError as exc:
+        raise TransactionError(
+            f"cannot inspect publishing plan before commit: {publishing}"
+        ) from exc
+    if stat.S_ISLNK(expected_stat.st_mode) or not stat.S_ISREG(expected_stat.st_mode):
+        raise TransactionError(f"unsafe publishing plan before commit: {publishing}")
+    if require_readonly and expected_stat.st_mode & 0o222:
+        raise TransactionError(f"publishing plan is writable: {publishing}")
+
+    linked = False
+    try:
+        os.link(publishing, complete, follow_symlinks=False)
+        linked = True
+        publishing_stat = publishing.lstat()
+        complete_stat = complete.lstat()
+        if (
+            not _same_file_identity(expected_stat, publishing_stat)
+            or not _same_file_identity(expected_stat, complete_stat)
+            or stat.S_ISLNK(complete_stat.st_mode)
+            or not stat.S_ISREG(complete_stat.st_mode)
+        ):
+            raise TransactionError(
+                f"publishing plan changed while linking the completion marker: {publishing}"
+            )
+        committed = _read_json_from_expected_inode(
+            complete,
+            label="completion marker",
+            expected_stat=expected_stat,
+            require_readonly=require_readonly,
+        )
+        if committed != manifest:
+            raise TransactionError(
+                f"completion marker bytes differ from the validated publishing plan: {complete}"
+            )
+        # Re-check both pathnames after the descriptor read. The completion
+        # marker is the visibility point, so recovery state is retained unless
+        # both names still identify the exact plan inode at helper return.
+        _require_expected_path_identity(
+            publishing,
+            expected_stat,
+            label="publishing plan",
+        )
+        _require_expected_path_identity(
+            complete,
+            expected_stat,
+            label="completion marker",
+        )
+        # These are final accidental-concurrency checks, not an owner-level
+        # immutable-file claim. A same-UID process can always mutate the parent
+        # directory after the final check; the documented protocol treats that
+        # as hostile operator action outside its orchestration attestation.
+    except FileExistsError as exc:
+        raise TransactionError(f"completion marker already exists: {complete}") from exc
+    except (OSError, TransactionError):
+        if linked:
+            try:
+                complete.unlink()
+            except FileNotFoundError:
+                pass
+        raise
+
+
+def validate_completed_batch(
+    factory_dir: Path,
+    round_number: int,
+    manifest: dict,
+    seen_ids=None,
+    *,
+    allow_unmigrated_preference_v1: bool = False,
+):
     """Re-run publication record, quota, and envelope checks for one marker."""
     batch = factory_dir / f"batch-r{round_number:02d}.jsonl"
     factory_staging = factory_dir.name in AGENTIC_FACTORY_KINDS
@@ -2247,10 +2573,26 @@ def validate_completed_batch(factory_dir: Path, round_number: int, manifest: dic
     if "kinds" in manifest and manifest["kinds"] != kinds:
         raise TransactionError(f"completion marker kinds do not match batch: {batch}")
     manifest_version = manifest.get("version")
-    supported_versions = {2} if factory_dir.name == PREFERENCE_ISOLATION_FACTORY else {1}
-    if manifest_version not in supported_versions:
+    supported_versions = {1, 2} if factory_dir.name == PREFERENCE_ISOLATION_FACTORY else {1}
+    if type(manifest_version) is not int or manifest_version not in supported_versions:
         raise TransactionError(f"unsupported completion marker version for {batch}")
-    if factory_dir.name == PREFERENCE_ISOLATION_FACTORY:
+    if (
+        factory_dir.name == PREFERENCE_ISOLATION_FACTORY
+        and manifest_version == 1
+        and not allow_unmigrated_preference_v1
+    ):
+        _, migrated_markers = validated_preference_v1_ledger(factory_dir)
+        marker = factory_dir / f"ROUND-r{round_number:02d}.complete.json"
+        if migrated_markers.get(round_number) != file_sha256(marker):
+            raise TransactionError(
+                f"FFPC v1 completion marker is not in the frozen migration ledger: {marker}"
+            )
+    if factory_dir.name == PREFERENCE_ISOLATION_FACTORY and manifest_version == 2:
+        if records != FACTORY_QUOTAS[PREFERENCE_ISOLATION_FACTORY]:
+            raise TransactionError(
+                f"committed batch has {records} records; {PREFERENCE_ISOLATION_FACTORY} "
+                f"requires exactly {FACTORY_QUOTAS[PREFERENCE_ISOLATION_FACTORY]}: {batch}"
+            )
         trusted_isolation = manifest.get("preference_isolation")
         if trusted_isolation != PREFERENCE_TWO_SESSION:
             raise TransactionError(
@@ -2267,6 +2609,21 @@ def validate_completed_batch(factory_dir: Path, round_number: int, manifest: dic
         ):
             raise TransactionError(
                 f"completion marker preference arm gate does not match batch: {batch}"
+            )
+        token = manifest.get("token")
+        if not isinstance(token, str) or TOKEN_RE.fullmatch(token) is None:
+            raise TransactionError(f"completion marker has an invalid reservation token: {batch}")
+        current_handoff = validate_preference_diagnosis_handoff(
+            factory_dir,
+            factory_dir=factory_dir,
+            round_number=round_number,
+            expected_records=records,
+            reservation_token=token,
+            expected_staging_dir=staging_dir(factory_dir, round_number, token),
+        )
+        if manifest.get("preference_diagnosis_handoff") != current_handoff:
+            raise TransactionError(
+                f"completion marker diagnosis handoff does not match committed evidence: {batch}"
             )
     if factory_staging:
         expected_kind = AGENTIC_FACTORY_KINDS[factory_dir.name]
@@ -2312,6 +2669,7 @@ def validate_stage(
     stage: Path,
     round_number: int,
     expected: int,
+    reservation_token: str,
     preference_isolation: str | None = None,
 ):
     if not stage.is_dir() or stage.is_symlink():
@@ -2344,6 +2702,7 @@ def validate_stage(
         raise TransactionError(f"required staged notes missing or unsafe: {stage / notes_name}")
 
     preference_arm_gate = None
+    preference_diagnosis_handoff = None
     with tempfile.TemporaryDirectory(prefix="round-validate-") as temporary:
         captured_dir = Path(temporary)
         captured_files = {
@@ -2403,6 +2762,14 @@ def validate_stage(
             )
         if factory_dir.name == PREFERENCE_ISOLATION_FACTORY:
             preference_arm_gate = validate_preference_arm_gate(batch, records, preference_isolation)
+            preference_diagnosis_handoff = validate_preference_diagnosis_handoff(
+                captured_dir,
+                factory_dir=factory_dir,
+                round_number=round_number,
+                expected_records=expected,
+                reservation_token=reservation_token,
+                expected_staging_dir=stage,
+            )
 
     files = [
         {
@@ -2412,7 +2779,7 @@ def validate_stage(
         }
         for path in initial_paths
     ]
-    return files, kinds, records, preference_arm_gate
+    return files, kinds, records, preference_arm_gate, preference_diagnosis_handoff
 
 
 def publish(factory_dir: Path, round_number: int, token: str):
@@ -2442,7 +2809,12 @@ def finish_completed_publish(factory_dir: Path, round_number: int, token: str, p
             raise TransactionError(
                 f"unsafe publishing marker for completed round: {paths['publishing']}"
             )
-        if read_json(paths["publishing"]) != manifest:
+        persisted_plan = (
+            read_readonly_json(paths["publishing"], label="publishing plan")
+            if factory_dir.name == PREFERENCE_ISOLATION_FACTORY
+            else read_json(paths["publishing"])
+        )
+        if persisted_plan != manifest:
             raise TransactionError(
                 f"publishing marker conflicts with completed round: {paths['publishing']}"
             )
@@ -2505,7 +2877,10 @@ def _publish_locked(factory_dir: Path, round_number: int, token: str):
     if not isinstance(expected, int) or isinstance(expected, bool) or expected < 1:
         raise TransactionError("reservation has an invalid expected_records value")
     configured_quota = FACTORY_QUOTAS.get(factory_dir.name)
-    if factory_dir.name in AGENTIC_FACTORY_KINDS and expected != configured_quota:
+    if (
+        factory_dir.name in AGENTIC_FACTORY_KINDS
+        or factory_dir.name == PREFERENCE_ISOLATION_FACTORY
+    ) and expected != configured_quota:
         raise TransactionError(
             f"reservation for {factory_dir.name} requires exactly "
             f"{configured_quota} records; found {expected}"
@@ -2517,11 +2892,12 @@ def _publish_locked(factory_dir: Path, round_number: int, token: str):
     elif preference_isolation is not None:
         raise TransactionError("reservation carries preference isolation for an unrelated factory")
 
-    files, kinds, records, preference_arm_gate = validate_stage(
+    files, kinds, records, preference_arm_gate, preference_diagnosis_handoff = validate_stage(
         factory_dir,
         stage,
         round_number,
         expected,
+        token,
         preference_isolation,
     )
     manifest = {
@@ -2539,10 +2915,15 @@ def _publish_locked(factory_dir: Path, round_number: int, token: str):
     if factory_dir.name == PREFERENCE_ISOLATION_FACTORY:
         manifest["preference_isolation"] = preference_isolation
         manifest["preference_arm_gate"] = preference_arm_gate
+        manifest["preference_diagnosis_handoff"] = preference_diagnosis_handoff
 
-    resumed = paths["publishing"].exists()
+    resumed = paths["publishing"].exists() or paths["publishing"].is_symlink()
     if resumed:
-        existing = read_json(paths["publishing"])
+        existing = (
+            read_readonly_json(paths["publishing"], label="publishing plan")
+            if factory_dir.name == PREFERENCE_ISOLATION_FACTORY
+            else read_json(paths["publishing"])
+        )
         # Timestamps and the installed gate implementation version may differ
         # across retries. Every semantic field remains immutable.
         existing_plan = _stable_publish_plan(existing)
@@ -2553,7 +2934,11 @@ def _publish_locked(factory_dir: Path, round_number: int, token: str):
             )
         manifest = existing
     else:
-        write_exclusive_json(paths["publishing"], manifest)
+        write_exclusive_json(
+            paths["publishing"],
+            manifest,
+            mode=0o400 if factory_dir.name == PREFERENCE_ISOLATION_FACTORY else 0o644,
+        )
 
     for item in manifest["files"]:
         source = stage / item["name"]
@@ -2570,11 +2955,15 @@ def _publish_locked(factory_dir: Path, round_number: int, token: str):
             continue
         copy_verified_exclusive(source, destination, item["sha256"])
 
-    # Linking this marker is the atomic visibility point for the whole round.
-    try:
-        os.link(paths["publishing"], paths["complete"], follow_symlinks=False)
-    except FileExistsError as exc:
-        raise TransactionError(f"completion marker already exists: {paths['complete']}") from exc
+    # Linking this exact, revalidated inode is the atomic visibility point for
+    # the whole round. Recovery state is removed only after the linked marker
+    # is proven to carry the in-memory plan bytes.
+    link_verified_completion_marker(
+        paths["publishing"],
+        paths["complete"],
+        manifest,
+        require_readonly=factory_dir.name == PREFERENCE_ISOLATION_FACTORY,
+    )
 
     paths["publishing"].unlink(missing_ok=True)
     paths["reservation"].unlink(missing_ok=True)
@@ -2632,6 +3021,8 @@ def parse_args(argv=None):
     sub = parser.add_subparsers(dest="command", required=True)
     front = sub.add_parser("frontier")
     front.add_argument("factory_dir")
+    migrate = sub.add_parser("migrate-preference-v1")
+    migrate.add_argument("factory_dir")
     res = sub.add_parser("reserve")
     res.add_argument("factory_dir")
     res.add_argument("--round", type=int, required=True, dest="round_number")
@@ -2660,6 +3051,8 @@ def main(argv=None):
     try:
         if args.command == "frontier":
             result = frontier_status(Path(args.factory_dir))
+        elif args.command == "migrate-preference-v1":
+            result = migrate_preference_v1_markers(Path(args.factory_dir))
         elif args.command == "reserve":
             result = reserve(
                 Path(args.factory_dir),

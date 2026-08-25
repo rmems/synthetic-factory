@@ -6,10 +6,12 @@ import hashlib
 import io
 import json
 import contextlib
+import os
 import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO / "pipelines"))
@@ -58,6 +60,34 @@ def check(record, **kwargs):
     return preference_arms.check_pair(record, source_path="memory.jsonl", source_line=1, **kwargs)
 
 
+def diagnosis_document(index, *, root_cause=None, context=None):
+    if context is None:
+        context = {
+            "state": {"sim_or_real": "designed", "case": index},
+            "proposed_action": {"action": "hold", "case": index},
+        }
+    target = {"per_component": {"safety": 0.5, "task_progress": 0.25}, "total": 0.75}
+    return (
+        "# Diagnosis\n\n"
+        "## Shared context\n\n"
+        "```json\n"
+        f"{json.dumps(context, sort_keys=True)}\n"
+        "```\n\n"
+        "## Root cause\n\n"
+        f"{root_cause or f'The gate skipped the required check for case {index}.'}\n\n"
+        "## Cascade effects\n\n"
+        "The gate error propagated through execution, outcome, and reward.\n\n"
+        "## Supervisor catch\n\n"
+        "Require the missing evidence before allowing execution.\n\n"
+        "## Repair sketch\n\n"
+        "Add the bounded check and use the safe fallback on failure.\n\n"
+        "## Target reward delta\n\n"
+        "```json\n"
+        f"{json.dumps(target, sort_keys=True)}\n"
+        "```\n"
+    )
+
+
 class ArmDistanceMetric(unittest.TestCase):
     def test_default_floor_is_owned_by_the_lexical_gate(self):
         self.assertEqual(preference_arms.DEFAULT_MIN_ARM_DISTANCE, 0.03)
@@ -86,15 +116,52 @@ class ArmDistanceMetric(unittest.TestCase):
         right = {"future_outcome": {"latency_ms": 200}}
         self.assertGreater(preference_arms.arm_distance(left, right), 0.0)
 
+    def test_equal_numeric_spellings_do_not_manufacture_distance(self):
+        for left_value, right_value in ((0, 0.0), (-0.0, 0.0), (20, 20.0)):
+            with self.subTest(left=left_value, right=right_value):
+                left = {"future_outcome": {"latency_ms": left_value}}
+                right = {"future_outcome": {"latency_ms": right_value}}
+                self.assertEqual(preference_arms.arm_distance(left, right), 0.0)
+                self.assertEqual(preference_arms.machine_observable_deltas(left, right), ())
+
+    def test_observable_paths_require_their_declared_scalar_type(self):
+        invalid_pairs = (
+            ("latency_ms", True, False),
+            ("estop", 1, 0),
+            ("near_miss", "yes", "no"),
+        )
+        for key, left_value, right_value in invalid_pairs:
+            with self.subTest(key=key):
+                left = {"future_outcome": {key: left_value}}
+                right = {"future_outcome": {key: right_value}}
+                self.assertEqual(preference_arms.arm_distance(left, right), 0.0)
+                self.assertEqual(preference_arms.machine_observable_deltas(left, right), ())
+
+    def test_per_arm_goal_is_known_bookkeeping_not_contrast(self):
+        left = {"goal": "restore service", "future_outcome": {"status": "recovered"}}
+        right = {"goal": "delete production", "future_outcome": {"status": "recovered"}}
+        self.assertEqual(preference_arms.arm_distance(left, right), 0.0)
+
+        record = copy.deepcopy(first(TWO_SESSION_ROUND))
+        record["chosen"]["goal"] = "restore service"
+        record["rejected"]["goal"] = "restore service"
+        self.assertNotIn(preference_arms.REASON_EXTENSION_FIELDS, check(record).reason_codes)
+
+    def test_one_sided_nested_values_do_not_contribute_distance(self):
+        left = {"executed_action": {"action": "validate"}}
+        right = copy.deepcopy(left)
+        left["executed_action"]["padding"] = "alpha beta gamma delta epsilon"
+        self.assertEqual(preference_arms.arm_distance(left, right), 0.0)
+
     def test_list_order_is_not_a_difference(self):
         left = {"spike_events": ["alpha", "omega"]}
         right = {"spike_events": ["omega", "alpha"]}
         self.assertEqual(preference_arms.arm_distance(left, right), 0.0)
 
-    def test_wordless_strings_stay_atomic(self):
+    def test_unapproved_wordless_strings_do_not_create_distance(self):
         left = {"future_outcome": {"incident": "—"}}
         right = {"future_outcome": {"incident": "…"}}
-        self.assertEqual(preference_arms.arm_distance(left, right), 1.0)
+        self.assertEqual(preference_arms.arm_distance(left, right), 0.0)
         self.assertEqual(preference_arms.arm_distance(left, copy.deepcopy(left)), 0.0)
 
     def test_empty_contrast_surfaces_are_degenerate_not_distant(self):
@@ -111,15 +178,14 @@ class ArmDistanceMetric(unittest.TestCase):
         self.assertGreaterEqual(forward, 0.0)
         self.assertLessEqual(forward, 1.0)
 
-    def test_unspaced_unicode_edit_is_proportional_not_an_opaque_replacement(self):
+    def test_unapproved_unspaced_unicode_narrative_is_ignored(self):
         shared = "保持制动直到传感器确认安全并且现场操作员明确批准恢复运行" * 4
         changed = shared.replace("安全", "危险", 1)
         distance = preference_arms.arm_distance(
             {"future_outcome": {"summary": shared}},
             {"future_outcome": {"summary": changed}},
         )
-        self.assertGreater(distance, 0.0)
-        self.assertLessEqual(distance, preference_arms.DEFAULT_MIN_ARM_DISTANCE)
+        self.assertEqual(distance, 0.0)
 
     def test_accent_only_edits_do_not_manufacture_arm_independence(self):
         self.assertEqual(
@@ -248,6 +314,142 @@ class CorrelatedArmsAreBlocked(unittest.TestCase):
         self.assertEqual(decision.arm_distance, 0.0)
         self.assertIn(preference_arms.REASON_NEAR_VERBATIM, decision.reason_codes)
 
+    def test_timestamp_only_spike_edit_cannot_establish_independence(self):
+        record = copy.deepcopy(first(TWO_SESSION_ROUND))
+        record["chosen"] = copy.deepcopy(record["rejected"])
+        record["chosen"]["spike_events"][0]["t"] += 0.01
+
+        decision = check(record)
+
+        self.assertIn(
+            preference_arms.REASON_OBSERVABLES_IDENTICAL,
+            decision.reason_codes,
+        )
+
+    def test_spike_unit_change_remains_a_machine_observable_delta(self):
+        record = copy.deepcopy(first(TWO_SESSION_ROUND))
+        record["chosen"] = copy.deepcopy(record["rejected"])
+        record["chosen"]["spike_events"][0]["unit"] = "clearance_confirmed"
+
+        deltas = preference_arms.machine_observable_deltas(
+            record["chosen"],
+            record["rejected"],
+        )
+
+        self.assertIn("spike_events.[].unit", deltas)
+
+    def test_arbitrary_nested_scalar_is_not_observable(self):
+        record = copy.deepcopy(first(NEAR_VERBATIM))
+        record["chosen"] = copy.deepcopy(record["rejected"])
+        record["chosen"]["executed_action"]["nonce"] = 1
+        record["rejected"]["executed_action"]["nonce"] = 0
+
+        decision = check(record)
+
+        self.assertEqual(decision.arm_distance, 0.0)
+        self.assertIn(preference_arms.REASON_OBSERVABLES_IDENTICAL, decision.reason_codes)
+
+    def test_one_sided_spike_insertion_cannot_shift_aligned_evidence(self):
+        for insertion in (0, 1, 3):
+            with self.subTest(insertion=insertion):
+                record = copy.deepcopy(first(TWO_SESSION_ROUND))
+                record["chosen"] = copy.deepcopy(record["rejected"])
+                record["chosen"]["spike_events"].insert(
+                    insertion,
+                    {"t": 0.25, "unit": "inserted_only", "amplitude": 0.5},
+                )
+
+                decision = check(record)
+
+                self.assertEqual(decision.arm_distance, 0.0)
+                self.assertIn(
+                    preference_arms.REASON_OBSERVABLES_IDENTICAL,
+                    decision.reason_codes,
+                )
+
+    def test_duplicate_spike_insertion_cancels_as_an_unordered_multiset(self):
+        record = copy.deepcopy(first(TWO_SESSION_ROUND))
+        record["chosen"] = copy.deepcopy(record["rejected"])
+        record["chosen"]["spike_events"].insert(
+            1,
+            copy.deepcopy(record["chosen"]["spike_events"][0]),
+        )
+
+        decision = check(record)
+
+        self.assertEqual(decision.arm_distance, 0.0)
+        self.assertIn(preference_arms.REASON_OBSERVABLES_IDENTICAL, decision.reason_codes)
+
+    def test_approved_numeric_metric_remains_observable(self):
+        record = copy.deepcopy(first(TWO_SESSION_ROUND))
+        record["chosen"] = copy.deepcopy(record["rejected"])
+        record["chosen"]["future_outcome"]["latency_ms"] = 20
+        record["rejected"]["future_outcome"]["latency_ms"] = 200
+
+        decision = check(record)
+
+        self.assertGreater(decision.arm_distance, preference_arms.DEFAULT_MIN_ARM_DISTANCE)
+        self.assertNotIn(
+            preference_arms.REASON_OBSERVABLES_IDENTICAL,
+            decision.reason_codes,
+        )
+
+    def test_boolean_values_cannot_impersonate_a_numeric_metric(self):
+        record = copy.deepcopy(first(NEAR_VERBATIM))
+        record["chosen"]["future_outcome"]["latency_ms"] = True
+        record["rejected"]["future_outcome"]["latency_ms"] = False
+
+        decision = check(record)
+
+        self.assertTrue(decision.blocked)
+        self.assertEqual(decision.arm_distance, 0.0)
+        self.assertIn(preference_arms.REASON_OBSERVABLES_IDENTICAL, decision.reason_codes)
+
+    def test_oversized_unordered_evidence_fails_closed(self):
+        record = copy.deepcopy(first(TWO_SESSION_ROUND))
+        record["chosen"] = copy.deepcopy(record["rejected"])
+        events = [
+            {"t": index / 1000, "unit": f"event_{index}", "amplitude": 0.5}
+            for index in range(preference_arms.MAX_ALIGNMENT_LIST_ITEMS + 1)
+        ]
+        record["chosen"]["spike_events"] = copy.deepcopy(events)
+        record["rejected"]["spike_events"] = copy.deepcopy(events)
+
+        decision = check(record)
+
+        self.assertIn(preference_arms.REASON_LIST_ALIGNMENT, decision.reason_codes)
+
+    def test_unicode_machine_identifiers_are_observable(self):
+        record = copy.deepcopy(first(TWO_SESSION_ROUND))
+        record["chosen"] = copy.deepcopy(record["rejected"])
+        record["chosen"]["executed_action"]["action"] = "停止"
+        record["rejected"]["executed_action"]["action"] = "继续"
+        record["chosen"]["future_outcome"]["outcome"] = "安全完成"
+        record["rejected"]["future_outcome"]["outcome"] = "发生事故"
+
+        decision = check(record)
+
+        self.assertNotIn(
+            preference_arms.REASON_OBSERVABLES_IDENTICAL,
+            decision.reason_codes,
+        )
+        self.assertEqual(decision.reason_codes, ())
+
+    def test_mixed_script_identifier_cannot_unlock_narrative_padding(self):
+        record = copy.deepcopy(first(GATE_LABEL_ONLY))
+        record["chosen"]["executed_action"]["action"] = "pᎪss"
+        record["rejected"]["executed_action"]["action"] = "pass"
+        record["chosen"]["executed_action"]["padding"] = (
+            "alpha beta gamma delta epsilon zeta eta theta iota kappa"
+        )
+
+        decision = check(record)
+
+        self.assertIn(
+            preference_arms.REASON_OBSERVABLES_IDENTICAL,
+            decision.reason_codes,
+        )
+
     def test_unknown_extension_padding_is_blocked_and_cannot_add_distance(self):
         record = copy.deepcopy(first(GATE_LABEL_ONLY))
         record["chosen"]["padding"] = (
@@ -270,11 +472,44 @@ class CorrelatedArmsAreBlocked(unittest.TestCase):
 
         decision = check(record)
 
-        self.assertGreater(decision.arm_distance, 0.0)
+        self.assertEqual(decision.arm_distance, 0.0)
         self.assertIn(
             preference_arms.REASON_OBSERVABLES_IDENTICAL,
             decision.reason_codes,
         )
+
+    def test_case_only_identifier_edit_cannot_unlock_nested_padding(self):
+        record = copy.deepcopy(first(GATE_LABEL_ONLY))
+        record["chosen"]["executed_action"]["padding"] = (
+            "alpha beta gamma delta epsilon zeta eta theta iota kappa lambda"
+        )
+        action = record["chosen"]["executed_action"]["action"]
+        record["chosen"]["executed_action"]["action"] = action.upper()
+
+        decision = check(record)
+
+        self.assertEqual(decision.arm_distance, 0.0)
+        self.assertIn(
+            preference_arms.REASON_OBSERVABLES_IDENTICAL,
+            decision.reason_codes,
+        )
+        self.assertIn(preference_arms.REASON_NEAR_VERBATIM, decision.reason_codes)
+
+    def test_punctuation_only_identifier_edit_cannot_unlock_nested_padding(self):
+        record = copy.deepcopy(first(GATE_LABEL_ONLY))
+        record["chosen"]["executed_action"]["padding"] = (
+            "alpha beta gamma delta epsilon zeta eta theta iota kappa lambda"
+        )
+        record["chosen"]["executed_action"]["action"] += "/"
+
+        decision = check(record)
+
+        self.assertEqual(decision.arm_distance, 0.0)
+        self.assertIn(
+            preference_arms.REASON_OBSERVABLES_IDENTICAL,
+            decision.reason_codes,
+        )
+        self.assertIn(preference_arms.REASON_NEAR_VERBATIM, decision.reason_codes)
 
     def test_safety_rationale_padding_cannot_establish_independence(self):
         record = copy.deepcopy(first(GATE_LABEL_ONLY))
@@ -464,21 +699,22 @@ class ContextPurityIsDelegatedAndEnforced(unittest.TestCase):
 class DiagnosisHandoffVerification(unittest.TestCase):
     TOKEN = "a" * 32
 
-    def stage(self, root, *, count=3):
+    def stage(self, root, *, count=3, round_number=11):
+        round_text = f"{round_number:02d}"
         stage = (
             Path(root)
             / "outputs"
             / "staging"
             / "2026-08-17"
             / "failure-as-fuel-preference-cascade"
-            / f"r11-{self.TOKEN}"
+            / f"r{round_text}-{self.TOKEN}"
         )
         stage.mkdir(parents=True)
         names = []
         for index in range(1, count + 1):
-            name = f"diagnosis-{index:02d}-r11.md"
+            name = f"diagnosis-{index:02d}-r{round_text}.md"
             (stage / name).write_text(
-                f"root cause {index}\nrepair sketch {index}\n",
+                diagnosis_document(index),
                 encoding="utf-8",
             )
             names.append(name)
@@ -491,6 +727,8 @@ class DiagnosisHandoffVerification(unittest.TestCase):
 
         self.assertEqual(receipt["factory"], "failure-as-fuel-preference-cascade")
         self.assertEqual(receipt["round"], 11)
+        self.assertEqual(receipt["version"], preference_arms.HANDOFF_RECEIPT_VERSION)
+        self.assertEqual(receipt["reservation_token"], self.TOKEN)
         self.assertEqual(
             [item["name"] for item in receipt["diagnosis_files"]],
             names,
@@ -516,6 +754,243 @@ class DiagnosisHandoffVerification(unittest.TestCase):
         )
         self.assertNotIn("root cause", out)
 
+    def test_cli_exclusively_writes_the_canonical_receipt(self):
+        with tempfile.TemporaryDirectory() as td:
+            stage, names = self.stage(td)
+            argv = ["verify-handoff", str(stage)]
+            for name in names:
+                argv.extend(("--file", name))
+            argv.append("--write-receipt")
+
+            code, out, err = run_cli(argv)
+            receipt_path = stage / preference_arms.diagnosis_receipt_filename(11)
+            persisted = json.loads(receipt_path.read_text())
+            receipt_mode = receipt_path.stat().st_mode
+            second_code, _, second_err = run_cli(argv)
+
+        self.assertEqual(code, 0)
+        self.assertEqual(err, "")
+        self.assertEqual(persisted, json.loads(out))
+        self.assertEqual(receipt_mode & 0o222, 0)
+        self.assertEqual(second_code, 1)
+        self.assertIn("cannot be created exclusively", second_err)
+
+    def test_receipt_must_precede_session_b_outputs(self):
+        with tempfile.TemporaryDirectory() as td:
+            stage, names = self.stage(td)
+            (stage / "batch-r11.jsonl").write_text("{}\n", encoding="utf-8")
+
+            with self.assertRaisesRegex(
+                preference_arms.PreferenceArmsError,
+                "before Session B outputs",
+            ):
+                preference_arms.write_diagnosis_handoff_receipt(stage, names)
+
+            self.assertFalse((stage / preference_arms.diagnosis_receipt_filename(11)).exists())
+
+    def test_session_b_output_race_removes_the_uncommitted_receipt(self):
+        with tempfile.TemporaryDirectory() as td:
+            stage, names = self.stage(td)
+            receipt_name = preference_arms.diagnosis_receipt_filename(11)
+            real_open = os.open
+
+            def create_batch_before_receipt(path, flags, *args, **kwargs):
+                if Path(path).name == receipt_name:
+                    (stage / "batch-r11.jsonl").write_text("{}\n", encoding="utf-8")
+                return real_open(path, flags, *args, **kwargs)
+
+            with (
+                mock.patch.object(
+                    preference_arms.os,
+                    "open",
+                    side_effect=create_batch_before_receipt,
+                ),
+                self.assertRaisesRegex(
+                    preference_arms.PreferenceArmsError,
+                    "appeared during diagnosis receipt creation",
+                ),
+            ):
+                preference_arms.write_diagnosis_handoff_receipt(stage, names)
+
+            self.assertFalse((stage / receipt_name).exists())
+
+    def test_parent_swap_cannot_redirect_receipt_creation(self):
+        with tempfile.TemporaryDirectory() as td:
+            stage, names = self.stage(td)
+            receipt_name = preference_arms.diagnosis_receipt_filename(11)
+            parked = Path(td) / "parked-stage"
+            outside = Path(td) / "outside"
+            outside.mkdir()
+            real_open = os.open
+
+            def swap_parent_before_receipt(path, flags, *args, **kwargs):
+                if Path(path).name == receipt_name:
+                    stage.rename(parked)
+                    stage.symlink_to(outside, target_is_directory=True)
+                return real_open(path, flags, *args, **kwargs)
+
+            with (
+                mock.patch.object(
+                    preference_arms.os,
+                    "open",
+                    side_effect=swap_parent_before_receipt,
+                ),
+                self.assertRaisesRegex(
+                    preference_arms.PreferenceArmsError,
+                    "staging directory changed",
+                ),
+            ):
+                preference_arms.write_diagnosis_handoff_receipt(stage, names)
+
+            self.assertFalse((outside / receipt_name).exists())
+            self.assertFalse((parked / receipt_name).exists())
+
+    def test_stage_path_swap_after_verification_cannot_rebind_receipt(self):
+        with tempfile.TemporaryDirectory() as td:
+            stage, names = self.stage(td)
+            receipt_name = preference_arms.diagnosis_receipt_filename(11)
+            parked = Path(td) / "parked-stage"
+            real_verify = preference_arms.verify_diagnosis_handoff
+
+            def swap_after_verification(*args, **kwargs):
+                receipt = real_verify(*args, **kwargs)
+                stage.rename(parked)
+                stage.mkdir()
+                return receipt
+
+            with (
+                mock.patch.object(
+                    preference_arms,
+                    "verify_diagnosis_handoff",
+                    side_effect=swap_after_verification,
+                ),
+                self.assertRaisesRegex(
+                    preference_arms.PreferenceArmsError,
+                    "staging directory changed",
+                ),
+            ):
+                preference_arms.write_diagnosis_handoff_receipt(stage, names)
+
+            self.assertFalse((stage / receipt_name).exists())
+            self.assertFalse((parked / receipt_name).exists())
+
+    def test_late_session_b_output_is_caught_by_finalization_scan(self):
+        with tempfile.TemporaryDirectory() as td:
+            stage, names = self.stage(td)
+            receipt_name = preference_arms.diagnosis_receipt_filename(11)
+            real_require = preference_arms._require_open_directory_identity
+            identity_checks = 0
+
+            def create_batch_after_post_create_scan(*args, **kwargs):
+                nonlocal identity_checks
+                real_require(*args, **kwargs)
+                identity_checks += 1
+                if identity_checks == 4:
+                    (stage / "batch-r11.jsonl").write_text("{}\n", encoding="utf-8")
+
+            with (
+                mock.patch.object(
+                    preference_arms,
+                    "_require_open_directory_identity",
+                    side_effect=create_batch_after_post_create_scan,
+                ),
+                self.assertRaisesRegex(
+                    preference_arms.PreferenceArmsError,
+                    "appeared during diagnosis receipt finalization",
+                ),
+            ):
+                preference_arms.write_diagnosis_handoff_receipt(stage, names)
+
+            self.assertFalse((stage / receipt_name).exists())
+
+    def test_failed_document_validation_leaves_no_receipt(self):
+        with tempfile.TemporaryDirectory() as td:
+            stage, names = self.stage(td)
+            (stage / names[0]).write_text("# Diagnosis\n", encoding="utf-8")
+
+            with self.assertRaises(preference_arms.PreferenceArmsError):
+                preference_arms.write_diagnosis_handoff_receipt(stage, names)
+
+            self.assertFalse((stage / preference_arms.diagnosis_receipt_filename(11)).exists())
+
+    def test_persisted_receipt_revalidates_against_the_bound_bytes(self):
+        with tempfile.TemporaryDirectory() as td:
+            stage, names = self.stage(td)
+            receipt = preference_arms.write_diagnosis_handoff_receipt(stage, names)
+
+            validated = preference_arms.validate_diagnosis_handoff_receipt(
+                stage,
+                factory="failure-as-fuel-preference-cascade",
+                round_number=11,
+                staging_dir=stage,
+                reservation_token=self.TOKEN,
+                expected_count=3,
+            )
+
+        self.assertEqual(validated, receipt)
+
+    def test_persisted_receipt_detects_post_verification_tampering(self):
+        with tempfile.TemporaryDirectory() as td:
+            stage, names = self.stage(td)
+            preference_arms.write_diagnosis_handoff_receipt(stage, names)
+            (stage / names[1]).write_text(
+                diagnosis_document(2, root_cause="Changed after verification."),
+                encoding="utf-8",
+            )
+
+            with self.assertRaisesRegex(
+                preference_arms.PreferenceArmsError,
+                "does not match receipt",
+            ):
+                preference_arms.validate_diagnosis_handoff_receipt(
+                    stage,
+                    factory="failure-as-fuel-preference-cascade",
+                    round_number=11,
+                    staging_dir=stage,
+                    reservation_token=self.TOKEN,
+                    expected_count=3,
+                )
+
+    def test_invalid_receipt_name_is_rejected_before_any_outside_read(self):
+        with tempfile.TemporaryDirectory() as td:
+            stage, names = self.stage(td)
+            preference_arms.write_diagnosis_handoff_receipt(stage, names)
+            outside = Path(td) / "outside.md"
+            outside.write_text(diagnosis_document(1), encoding="utf-8")
+            receipt_path = stage / preference_arms.diagnosis_receipt_filename(11)
+            receipt = json.loads(receipt_path.read_text())
+            receipt["diagnosis_files"][0]["name"] = str(outside)
+            receipt_path.chmod(0o600)
+            receipt_path.write_text(json.dumps(receipt) + "\n", encoding="utf-8")
+            receipt_path.chmod(0o400)
+
+            with (
+                mock.patch.object(preference_arms.os, "open", wraps=os.open) as open_spy,
+                self.assertRaisesRegex(
+                    preference_arms.PreferenceArmsError,
+                    "invalid name",
+                ),
+            ):
+                preference_arms.validate_diagnosis_handoff_receipt(
+                    stage,
+                    factory="failure-as-fuel-preference-cascade",
+                    round_number=11,
+                    staging_dir=stage,
+                    reservation_token=self.TOKEN,
+                    expected_count=3,
+                )
+
+            opened_paths = [Path(call.args[0]) for call in open_spy.call_args_list]
+            self.assertNotIn(outside, opened_paths)
+
+    def test_round_one_hundred_handoff_uses_the_transaction_round_range(self):
+        with tempfile.TemporaryDirectory() as td:
+            stage, names = self.stage(td, round_number=100)
+            receipt = preference_arms.verify_diagnosis_handoff(stage, names)
+
+        self.assertEqual(receipt["round"], 100)
+        self.assertTrue(all("-r100.md" in name for name in names))
+
     def test_missing_empty_symlink_and_invalid_utf8_files_fail_closed(self):
         mutations = ("missing", "empty", "whitespace", "symlink", "invalid-utf8")
         for mutation in mutations:
@@ -535,6 +1010,105 @@ class DiagnosisHandoffVerification(unittest.TestCase):
                     target.symlink_to(real.name)
                 else:
                     target.write_bytes(b"\xff\xfe")
+
+                with self.assertRaises(preference_arms.PreferenceArmsError):
+                    preference_arms.verify_diagnosis_handoff(stage, names)
+
+    def test_full_rejected_trajectory_cannot_enter_the_diagnosis_bridge(self):
+        malicious = {
+            "extra-fence": diagnosis_document(1)
+            + "\n```json\n"
+            + json.dumps({"executed_action": {"action": "copied"}})
+            + "\n```\n",
+            "extra-context-key": diagnosis_document(1).replace(
+                '"state":', '"executed_action": {"action": "copied"}, "state":', 1
+            ),
+            "serialized-narrative": diagnosis_document(
+                1,
+                root_cause='The copied payload was {"executed_action": {"action": "unsafe"}}.',
+            ),
+        }
+        for label, document in malicious.items():
+            with self.subTest(label=label), tempfile.TemporaryDirectory() as td:
+                stage, names = self.stage(td)
+                (stage / names[0]).write_text(document, encoding="utf-8")
+
+                with self.assertRaisesRegex(
+                    preference_arms.PreferenceArmsError,
+                    "(?:code fence|shared context keys|serialized trajectory mapping|object syntax)",
+                ):
+                    preference_arms.verify_diagnosis_handoff(stage, names)
+
+    def test_nested_encoded_and_structured_payload_channels_fail_closed(self):
+        nested = {"leaf": "safe"}
+        for _ in range(preference_arms.MAX_DIAGNOSIS_DEPTH + 2):
+            nested = {"nested": nested}
+        malicious = {
+            "nested-rejected": diagnosis_document(
+                1,
+                context={
+                    "state": {"debug_payload": {"executed_action": {"action": "unsafe"}}},
+                    "proposed_action": {"action": "hold"},
+                },
+            ),
+            "case-variant-rejected": diagnosis_document(
+                1,
+                context={
+                    "state": {
+                        "Executed_Action": {"action": "unsafe"},
+                        "executedAction": {"action": "unsafe"},
+                        "Future-Outcome": {"status": "destroyed"},
+                        "Reward Components": {"safety": -1},
+                    },
+                    "proposed_action": {"action": "hold"},
+                },
+            ),
+            "serialized-context-string": diagnosis_document(
+                1,
+                context={
+                    "state": {"notes": '"future_outcome": {"success": false}'},
+                    "proposed_action": {"action": "hold"},
+                },
+            ),
+            "base64-narrative": diagnosis_document(1, root_cause="base64 " + "A" * 300),
+            "yaml-narrative": diagnosis_document(
+                1,
+                root_cause="executed_action = unsafe\nfuture_outcome = failed",
+            ),
+            "raw-html": diagnosis_document(1, root_cause="<!-- hidden trajectory -->"),
+            "nonfinite-context": diagnosis_document(1).replace('"case": 1', '"case": 1e999', 1),
+            "excessive-depth": diagnosis_document(
+                1,
+                context={
+                    "state": nested,
+                    "proposed_action": {"action": "hold"},
+                },
+            ),
+        }
+        for label, document in malicious.items():
+            with self.subTest(label=label), tempfile.TemporaryDirectory() as td:
+                stage, names = self.stage(td)
+                (stage / names[0]).write_text(document, encoding="utf-8")
+
+                with self.assertRaises(preference_arms.PreferenceArmsError):
+                    preference_arms.verify_diagnosis_handoff(stage, names)
+
+    def test_malformed_bounded_diagnosis_structure_fails_closed(self):
+        valid = diagnosis_document(1)
+        malformed = {
+            "wrong-heading": valid.replace("## Root cause", "## Failure analysis", 1),
+            "duplicate-context-key": valid.replace('"state":', '"state": {}, "state":', 1),
+            "nonfinite-target": valid.replace('"total": 0.75', '"total": NaN', 1),
+            "unreconciled-target": valid.replace('"total": 0.75', '"total": 0.5', 1),
+            "oversized-prose": diagnosis_document(
+                1,
+                root_cause="x" * (preference_arms.MAX_DIAGNOSIS_NARRATIVE_CHARS + 1),
+            ),
+        }
+        for label, document in malformed.items():
+            with self.subTest(label=label), tempfile.TemporaryDirectory() as td:
+                stage, names = self.stage(td)
+                (stage / names[0]).write_text(document, encoding="utf-8")
 
                 with self.assertRaises(preference_arms.PreferenceArmsError):
                     preference_arms.verify_diagnosis_handoff(stage, names)
@@ -701,6 +1275,9 @@ class ProtocolIsDocumentedAndWired(unittest.TestCase):
         for text in (self.doc, self.prompt):
             self.assertIn("pipelines/preference_arms.py", text)
 
+    def test_protocol_docs_do_not_create_markdown_work_items(self):
+        self.assertNotRegex(self.doc, r"(?m)^\s*[-*]\s+\[[ xX]\]")
+
     def test_session_b_runs_the_arm_gate_before_publishing(self):
         session_b = self.workflow.split("You are Session B", 1)[1]
         gate = session_b.index("preference_arms.py")
@@ -711,6 +1288,8 @@ class ProtocolIsDocumentedAndWired(unittest.TestCase):
         self.assertIn("validate_preference_arm_gate", self.publisher)
         self.assertIn("preference_arm_gate", self.publisher)
         self.assertIn("require_trusted_isolation=True", self.publisher)
+        self.assertIn("validate_preference_diagnosis_handoff", self.publisher)
+        self.assertIn("preference_diagnosis_handoff", self.publisher)
 
     def test_workflow_stamps_the_two_session_attestation(self):
         self.assertIn(f'meta.isolation="{preference_arms.TWO_SESSION}"', self.workflow)
@@ -744,7 +1323,10 @@ class ProtocolIsDocumentedAndWired(unittest.TestCase):
         session_b = self.workflow.index("You are Session B")
         self.assertLess(validation, session_b)
         self.assertIn("preferenceDiagnosisFiles(factory.count, rr)", self.workflow)
-        self.assertIn("^diagnosis-[0-9]{2}-r[0-9]{2}\\\\.md$", self.workflow)
+        self.assertIn(
+            "^diagnosis-[0-9]{2}-r(0[1-9]|[1-9][0-9]+)\\\\.md$",
+            self.workflow,
+        )
 
     def test_read_only_verifier_runs_after_session_a_and_before_session_b(self):
         session_a = self.workflow.index("const sessionA = await agent")
@@ -753,8 +1335,10 @@ class ProtocolIsDocumentedAndWired(unittest.TestCase):
         self.assertLess(session_a, verification)
         self.assertLess(verification, session_b)
         self.assertIn("preference_arms.py verify-handoff", self.workflow)
+        self.assertIn("--write-receipt", self.workflow)
         self.assertIn("preferenceDiagnosisVerificationIsValid(", self.workflow)
         self.assertIn("Number.isSafeInteger(item.bytes)", self.workflow)
+        self.assertIn("receipt.reservation_token !== reservation.reserve_token", self.workflow)
         self.assertIn("verifiedDiagnosisFiles", self.workflow)
 
 
