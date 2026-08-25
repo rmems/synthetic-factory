@@ -26,11 +26,12 @@ where it differs from the executed public release.
   repositories do not execute GitHub Actions, so a central GitHub Action
   verifies their public cards, provenance, license, and viewer projection.
 - Apache License 2.0 is explicitly authorized for each public dataset
-  repository. Each card declares `license: apache-2.0`, each repository
-  contains the full `LICENSE` text, and each `release-status.json` records
-  `"license": "apache-2.0"`. Central verification treats the `LICENSE` digest
-  as the anchor and fails closed when any of the three disagrees or is left
-  undeclared.
+  repository. Each card declares `license: apache-2.0` and each repository
+  contains the full `LICENSE` text. The required operator amendment to the five
+  live `release-status.json` files is still pending: they record
+  `"license": "not_yet_declared"` and must be changed to `"apache-2.0"`.
+  Central verification treats the `LICENSE` digest as the anchor and fails
+  closed until all three declarations agree.
 - Each provenance record pins a `raw_snapshot`: the immutable Hub commit that
   contains its raw JSONL evidence plus a SHA-256 identity for every declared
   raw file. Central verification fetches those files through the pinned commit,

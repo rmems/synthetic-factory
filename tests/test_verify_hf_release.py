@@ -238,6 +238,15 @@ class ReleaseVerifierTests(unittest.TestCase):
             errors,
         )
 
+    def test_duplicate_release_status_license_fails(self) -> None:
+        self.values["release-status.json"] = (
+            '{"license":"not_yet_declared","license":"apache-2.0"}'
+        )
+        self.assertIn(
+            "release-status.json must not contain duplicate license keys",
+            self.verify().errors,
+        )
+
     def test_unrecognized_license_text_still_pins_the_expected_family(self) -> None:
         self.values["LICENSE"] = "Some other license\n"
         self.values["README.md"] = _card(license_name="mit")

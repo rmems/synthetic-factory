@@ -298,16 +298,31 @@ def _license_family(license_text: str) -> str | None:
     return LICENSE_HASH_FAMILIES.get(_normalized_sha256(license_text))
 
 
+class _JSONObject(dict[str, object]):
+    """JSON object that retains duplicate-key evidence for strict checks."""
+
+    def __init__(self, pairs: list[tuple[str, object]]) -> None:
+        super().__init__()
+        self.duplicate_keys: set[str] = set()
+        for key, value in pairs:
+            if key in self:
+                self.duplicate_keys.add(key)
+            self[key] = value
+
+
 def _release_status_license(text: str, errors: list[str]) -> str | None:
     """Return the release-status license, recording structural problems."""
 
     try:
-        status = json.loads(text)
+        status = json.loads(text, object_pairs_hook=_JSONObject)
     except json.JSONDecodeError as error:
         errors.append(f"release-status.json is invalid JSON: {error.msg}")
         return None
     if not isinstance(status, dict):
         errors.append("release-status.json must contain a JSON object")
+        return None
+    if isinstance(status, _JSONObject) and "license" in status.duplicate_keys:
+        errors.append("release-status.json must not contain duplicate license keys")
         return None
     declared = status.get("license")
     if not isinstance(declared, str):

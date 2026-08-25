@@ -30,11 +30,11 @@ All five repositories are organized in the public
 
 **Raw is public; curated is still empty.** All five repositories publish their
 raw, uncurated JSONL payload under `data/raw/` plus a lossless Parquet viewer
-projection, under a declared Apache-2.0 license (see License below). They are
-no longer metadata-only shells. Visibility is not a claim of training
-readiness: `outputs/curated/` is empty here and no curated corpus is published,
-because that still depends on deterministic curation, strict audit, and sampled
-review.
+projection. Their cards and `LICENSE` files declare Apache-2.0; the still-pending
+`release-status.json` alignment is documented below. They are no longer
+metadata-only shells. Visibility is not a claim of training readiness:
+`outputs/curated/` is empty here and no curated corpus is published, because
+that still depends on deterministic curation, strict audit, and sampled review.
 
 ## License
 
@@ -42,14 +42,16 @@ This repository is licensed under the [Apache License 2.0](LICENSE) — see
 [`NOTICE`](NOTICE) for attribution. This covers the repository's contents:
 factory prompts, schemas, pipelines, skills, tests, and documentation.
 
-**The published dataset payloads carry the same license.** Apache-2.0 is the
-declared license for the public raw releases as well. Each Hugging Face dataset
-repository ships the identical Apache-2.0 `LICENSE` file, declares
-`license: apache-2.0` in its card front matter and Hub tag, and records
-`"license": "apache-2.0"` in its `release-status.json`.
+**Apache-2.0 is the authorized payload license, but the live release metadata
+is not yet fully aligned.** Each Hugging Face dataset repository ships the
+identical Apache-2.0 `LICENSE` file and declares `license: apache-2.0` in its
+card front matter and Hub tag. The five live `release-status.json` files still
+record `"license": "not_yet_declared"`; changing that value to `"apache-2.0"`
+is a required operator action.
 
-`python3 pipelines/verify_hf_release.py` fails closed if those three
-declarations disagree — including if any of them is left undeclared.
+Until those external updates occur, `python3 pipelines/verify_hf_release.py`
+deliberately fails closed. Afterward, it requires the card, `LICENSE`, and
+`release-status.json` declarations to agree.
 
 ## Development environment
 
