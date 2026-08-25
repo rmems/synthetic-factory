@@ -1,0 +1,23 @@
+pipelines/curate_coding.py
+  s_940326c4ee4215::t_355dd2aa58559b 64-65,68,546,558-563,594-595,640-651,653-654,656,822-823,825,827-832,836-845,873-874
+  s_940326c4ee4215::t_375b8f67ad3282 652,655,833-835
+tests/test_curate_coding.py
+  s_940326c4ee4215::t_375b8f67ad3282 209-219,647
+  s_940326c4ee4215::t_5ff26deb91f651 186,197-203,207,608-646,648-667
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "05c1c334d7ae283aab3112ded43f2dbd3307cfdc",
+  "prompts": {},
+  "sessions": {
+    "s_940326c4ee4215": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a032e4-1904-7a82-8c8b-1ad3cfbeb0b0",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Raul Montoya Cardenas <montoyaraul34@gmail.com>"
+    }
+  }
+}
