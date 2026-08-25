@@ -20,6 +20,7 @@ from curate_tags import (  # noqa: E402
     REASON_INVALID_UTF8,
     REASON_PROVENANCE_CONFLICT,
     REASON_RECORD_NOT_OBJECT,
+    REASON_RECORD_TOO_DEEP,
     REASON_TAG_ALIAS,
     REASON_TAG_CANONICAL,
     REASON_TAG_EMPTY,
@@ -176,6 +177,34 @@ class TaxonomyDocumentTests(unittest.TestCase):
         with self.assertRaisesRegex(TagTaxonomyError, "does not match"):
             Taxonomy(document, source="<test>")
 
+    def test_taxonomy_rejects_surrogate_strings_that_can_reach_output(self):
+        version = minimal_taxonomy()
+        version["version"] = "bad\ud800"
+
+        rule_id = minimal_taxonomy(
+            pattern_rules=[
+                {
+                    "id": "bad\ud800",
+                    "tag": "decision:accept",
+                    "pattern": "^accept_[0-9]+$",
+                }
+            ]
+        )
+
+        canonical_tag = minimal_taxonomy(
+            canonical_tag_pattern="^[a-z]+:.+$"
+        )
+        canonical_tag["facets"][0]["terms"][0]["tag"] = "decision:accept\ud800"
+
+        for label, document in (
+            ("version", version),
+            ("pattern rule id", rule_id),
+            ("canonical tag", canonical_tag),
+        ):
+            with self.subTest(label=label):
+                with self.assertRaisesRegex(TagTaxonomyError, "valid UTF-8"):
+                    Taxonomy(document, source="<test>")
+
     def test_taxonomy_without_unmapped_marker_is_rejected(self):
         document = minimal_taxonomy()
         document["facets"] = document["facets"][:1]
@@ -221,10 +250,34 @@ class NormalizationTests(unittest.TestCase):
 
 class MapTagTests(unittest.TestCase):
     def test_canonical_tags_map_to_themselves(self):
-        for tag in sorted(TAXONOMY.canonical_tags):
+        source_readable = TAXONOMY.canonical_tags.difference(
+            TAXONOMY.transform_emitted_tags
+        )
+        for tag in sorted(source_readable):
             mapping = TAXONOMY.map_tag(tag)
             self.assertEqual(mapping["canonical"], tag)
             self.assertEqual(mapping["reason"], REASON_TAG_CANONICAL)
+
+    def test_transform_emitted_marker_is_unmapped_from_source_but_reusable(self):
+        source = record([UNMAPPED_MARKER_TAG])
+
+        mapping = TAXONOMY.map_tag(UNMAPPED_MARKER_TAG)
+        self.assertIsNone(mapping["canonical"])
+        self.assertEqual(mapping["reason"], REASON_TAG_UNMAPPED)
+
+        once, manifest = curate_record(source, taxonomy=TAXONOMY)
+        container = once[TAG_PROVENANCE_FIELD]["containers"][0]
+        self.assertEqual(once["meta"]["tags"], [UNMAPPED_MARKER_TAG])
+        self.assertEqual(manifest["tag_counts"]["unmapped_uses"], 1)
+        self.assertIn(REASON_TAGS_UNMAPPED, manifest["reason_codes"])
+        self.assertEqual(container["mappings"][0]["canonical"], None)
+        self.assertEqual(container["mappings"][-1]["rule"], "transform")
+
+        twice, second_manifest = curate_record(once, taxonomy=TAXONOMY)
+        self.assertEqual(twice, once)
+        self.assertIn(
+            REASON_TAGS_PROVENANCE_REUSED, second_manifest["reason_codes"]
+        )
 
     def test_alias_pattern_and_unmapped_decisions_are_explained(self):
         alias = TAXONOMY.map_tag("preference_pair")
@@ -264,6 +317,23 @@ class MapTagTests(unittest.TestCase):
             TAXONOMY.map_tag("gap1-closure")["canonical"], "process:gap_closure"
         )
         self.assertIsNone(TAXONOMY.map_tag("r3b_gap6_closed_tables")["canonical"])
+
+    def test_pattern_rule_matches_the_whole_normalized_tag(self):
+        taxonomy = Taxonomy(
+            minimal_taxonomy(
+                pattern_rules=[
+                    {
+                        "id": "alternation",
+                        "tag": "decision:accept",
+                        "pattern": "^foo|bar$",
+                    }
+                ]
+            ),
+            source="<test>",
+        )
+
+        self.assertEqual(taxonomy.map_tag("bar")["canonical"], "decision:accept")
+        self.assertIsNone(taxonomy.map_tag("foo-extra")["canonical"])
 
     def test_non_string_and_empty_tags_are_reported_not_guessed(self):
         not_string = TAXONOMY.map_tag(17)
@@ -423,6 +493,19 @@ class CurateRecordTests(unittest.TestCase):
         self.assertIsNone(curated)
         self.assertEqual(manifest["reason_codes"], [REASON_PROVENANCE_CONFLICT])
 
+    def test_explicit_null_tag_provenance_is_a_conflict(self):
+        sources = (
+            record(["MODIFY"], tag_provenance=None),
+            {"id": "tagless", TAG_PROVENANCE_FIELD: None},
+        )
+        for source in sources:
+            with self.subTest(record=source["id"]):
+                curated, manifest = curate_record(source, taxonomy=TAXONOMY)
+                self.assertIsNone(curated)
+                self.assertEqual(
+                    manifest["reason_codes"], [REASON_PROVENANCE_CONFLICT]
+                )
+
     def test_provenance_requires_matching_transform_identity(self):
         curated, _ = curate_record(record(["MODIFY"]), taxonomy=TAXONOMY)
         mutations = {
@@ -508,6 +591,16 @@ class CurateRecordTests(unittest.TestCase):
                 self.assertEqual(
                     manifest["reason_codes"], [REASON_PROVENANCE_CONFLICT]
                 )
+
+    def test_provenance_replay_compares_json_numeric_types_strictly(self):
+        curated, _ = curate_record(record([1]), taxonomy=TAXONOMY)
+        entry = curated[TAG_PROVENANCE_FIELD]["containers"][0]
+        entry["source_tags"] = [True]
+
+        again, manifest = curate_record(curated, taxonomy=TAXONOMY)
+
+        self.assertIsNone(again)
+        self.assertEqual(manifest["reason_codes"], [REASON_PROVENANCE_CONFLICT])
 
     def test_provenance_missing_a_container_is_a_conflict(self):
         curated, _ = curate_record(record(["MODIFY"]), taxonomy=TAXONOMY)
@@ -709,7 +802,9 @@ class CurateJsonlTests(unittest.TestCase):
             curated["meta"]["tags"], [UNMAPPED_MARKER_TAG, "decision:modify"]
         )
         self.assertEqual(result["summary"]["nonstring_tag_uses"], 2)
+        self.assertEqual(result["summary"]["source_tag_uses"], 3)
         self.assertEqual(result["summary"]["unmapped_unique_tags"], 0)
+        self.assertEqual(result["manifest"][0]["tag_counts"]["source_uses"], 3)
         self.assertEqual(result["manifest"][0]["tag_counts"]["unmapped_uses"], 2)
         self.assertIn(REASON_TAGS_UNMAPPED, result["manifest"][0]["reason_codes"])
         self.assertEqual(
@@ -721,6 +816,20 @@ class CurateJsonlTests(unittest.TestCase):
             for mapping in curated[TAG_PROVENANCE_FIELD]["containers"][0]["mappings"]
         }
         self.assertIn(REASON_TAG_NOT_STRING, reasons)
+
+    def test_summary_unmapped_total_includes_nonstring_entries(self):
+        rows = [record([17, None], id="a")]
+        with tempfile.TemporaryDirectory() as temporary:
+            source = Path(temporary) / "corpus.jsonl"
+            source.write_text(
+                "".join(json.dumps(row, sort_keys=True) + "\n" for row in rows),
+                encoding="utf-8",
+            )
+            summary = curate_jsonl(source, TAXONOMY)["summary"]
+
+        self.assertEqual(summary["nonstring_tag_uses"], 2)
+        self.assertEqual(summary["unmapped_tag_uses"], 2)
+        self.assertEqual(summary["unmapped_unique_tags"], 0)
 
     def test_every_retained_record_carries_only_canonical_tags(self):
         rows = [
@@ -785,6 +894,29 @@ class CurateJsonlTests(unittest.TestCase):
         self.assertEqual(result["summary"]["output_records"], 1)
         self.assertEqual(
             result["manifest"][0]["reason_codes"], [REASON_INVALID_JSON]
+        )
+        self.assertEqual(result["records"][0]["id"], "good")
+
+    def test_deep_record_is_excluded_without_aborting_the_batch(self):
+        depth = 600
+        deep_line = (
+            '{"id":"deep","payload":'
+            + "[" * depth
+            + "0"
+            + "]" * depth
+            + "}\n"
+        )
+        good_line = json.dumps(record(["MODIFY"], id="good")) + "\n"
+        with tempfile.TemporaryDirectory() as temporary:
+            source = Path(temporary) / "corpus.jsonl"
+            source.write_text(deep_line + good_line, encoding="utf-8")
+            result = curate_jsonl(source, TAXONOMY)
+
+        self.assertEqual(result["summary"]["input_records"], 2)
+        self.assertEqual(result["summary"]["output_records"], 1)
+        self.assertEqual(result["summary"]["excluded_records"], 1)
+        self.assertEqual(
+            result["manifest"][0]["reason_codes"], [REASON_RECORD_TOO_DEEP]
         )
         self.assertEqual(result["records"][0]["id"], "good")
 
