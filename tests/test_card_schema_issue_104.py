@@ -22,9 +22,10 @@ write_declaration = _shared.write_declaration
 EXPECTED_FEATURE_MANIFEST = (
     ("id", "string", False),
     ("lesson_category", "string", True),
-    ("goal", "string", False),
+    ("goal", "string", True),
     ("outcome", "string", True),
     ("chosen", "struct", False),
+    ("chosen.goal", "string", True),
     ("chosen.steps", "list", False),
     ("chosen.steps[].n", "int64", False),
     ("chosen.steps[].decision_basis", "string", False),
@@ -36,6 +37,7 @@ EXPECTED_FEATURE_MANIFEST = (
     ("chosen.outcome", "string", False),
     ("chosen.reward", "json", False),
     ("rejected", "struct", False),
+    ("rejected.goal", "string", True),
     ("rejected.steps", "list", False),
     ("rejected.steps[].n", "int64", False),
     ("rejected.steps[].decision_basis", "string", False),
@@ -133,13 +135,14 @@ class ToolUsePreferenceDeclarationTests(unittest.TestCase):
                 "meta",
             },
         )
-        # Historical rows omit lesson_category; the current producer omits the
-        # historical record-level outcome. Branch outcomes remain required.
+        # Historical rows omit lesson_category; current rows omit the historical
+        # record-level outcome and may move the shared goal into both branches.
         self.assertEqual(
             [name for name, feature in names.items() if feature.get("optional")],
-            ["lesson_category", "outcome"],
+            ["lesson_category", "goal", "outcome"],
         )
         self.assertEqual(names["lesson_category"]["dtype"], "string")
+        self.assertEqual(names["goal"]["dtype"], "string")
         self.assertEqual(names["outcome"]["dtype"], "string")
         self.assertEqual(names["reward"]["dtype"], "json")
         self.assertEqual(names["meta"]["dtype"], "json")
@@ -149,7 +152,9 @@ class ToolUsePreferenceDeclarationTests(unittest.TestCase):
         names = self._by_name(self.declaration["features"])
         for side in ("chosen", "rejected"):
             branch = self._by_name(names[side]["struct"])
-            self.assertEqual(set(branch), {"steps", "outcome", "reward"}, side)
+            self.assertEqual(set(branch), {"goal", "steps", "outcome", "reward"}, side)
+            self.assertEqual(branch["goal"]["dtype"], "string", side)
+            self.assertTrue(branch["goal"]["optional"], side)
             self.assertEqual(branch["outcome"]["dtype"], "string", side)
             # The per-branch reward is its own key bag, not the record-level one.
             self.assertEqual(branch["reward"]["dtype"], "json", side)
@@ -183,6 +188,7 @@ class ToolUsePreferenceDeclarationTests(unittest.TestCase):
         self.assertIn("dataset_info:\n  features:\n", front_matter)
         self.assertIn("  - name: lesson_category\n    dtype: string\n", front_matter)
         self.assertIn("  - name: outcome\n    dtype: string\n", front_matter)
+        self.assertEqual(front_matter.count("- name: goal\n"), 3)
         # The two fields the datasets-server could not cast, once per branch.
         self.assertEqual(front_matter.count("      - name: reflection\n        dtype: string\n"), 2)
         self.assertEqual(front_matter.count("        - name: args\n          dtype: json\n"), 2)
@@ -207,7 +213,10 @@ class ToolUsePreferenceDeclarationTests(unittest.TestCase):
         self.assertIn("`chosen.steps[].tool_call.args`", self.card)
         self.assertIn("`rejected.steps[].tool_call.args`", self.card)
         self.assertIn("| `lesson_category` | optional |", self.card)
+        self.assertIn("| `goal` | optional |", self.card)
         self.assertIn("| `outcome` | optional |", self.card)
+        self.assertIn("| `chosen.goal` | optional |", self.card)
+        self.assertIn("| `rejected.goal` | optional |", self.card)
         for record_id in (
             "tup-r03-diatool-slot-fill",
             "tup-r03-diatool-oos-reject",
