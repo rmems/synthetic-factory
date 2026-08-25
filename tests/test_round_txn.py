@@ -14,6 +14,7 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO / "pipelines"))
 
 import round_txn  # noqa: E402
+import preference_arms  # noqa: E402
 
 PREFERENCE_FIXTURES = REPO / "tests" / "fixtures" / "preference-arms"
 
@@ -54,9 +55,7 @@ def ffpc_record(fixture="batch-r11.jsonl", round_number=1):
         holder["meta"]["factory"] = round_txn.PREFERENCE_ISOLATION_FACTORY
         holder["meta"]["isolation"] = round_txn.PREFERENCE_TWO_SESSION
     for arm_name in ("chosen", "rejected"):
-        record[arm_name]["id"] = record[arm_name]["id"].replace(
-            "r11", f"r{round_number:02d}"
-        )
+        record[arm_name]["id"] = record[arm_name]["id"].replace("r11", f"r{round_number:02d}")
     return record
 
 
@@ -100,9 +99,7 @@ class RoundTransaction(unittest.TestCase):
             staging_root = Path(td) / "outputs" / "staging"
             staging_root.symlink_to(outside, target_is_directory=True)
 
-            with self.assertRaisesRegex(
-                round_txn.TransactionError, "staging directory is unsafe"
-            ):
+            with self.assertRaisesRegex(round_txn.TransactionError, "staging directory is unsafe"):
                 round_txn.reserve(factory, 1, 1)
 
             self.assertEqual(list(outside.iterdir()), [])
@@ -220,9 +217,7 @@ class RoundTransaction(unittest.TestCase):
             stage.rmdir()
             stage.symlink_to(outside, target_is_directory=True)
 
-            with self.assertRaisesRegex(
-                round_txn.TransactionError, "staging directory is unsafe"
-            ):
+            with self.assertRaisesRegex(round_txn.TransactionError, "staging directory is unsafe"):
                 round_txn.publish(factory, 1, reservation["token"])
 
             self.assertEqual(sentinel.read_text(), "do not delete\n")
@@ -352,9 +347,7 @@ class RoundTransaction(unittest.TestCase):
                         raise OSError("simulated interruption")
                     return real_link(*args, **kwargs)
 
-                with mock.patch.object(
-                    round_txn.os, "link", side_effect=interrupt_completion_link
-                ):
+                with mock.patch.object(round_txn.os, "link", side_effect=interrupt_completion_link):
                     with self.assertRaisesRegex(OSError, "simulated interruption"):
                         round_txn.publish(factory, 1, reservation["token"])
 
@@ -406,10 +399,9 @@ class RoundTransaction(unittest.TestCase):
                 with real_lock(lock_factory):
                     yield
 
-            with mock.patch.object(
-                round_txn, "validate_stage", side_effect=pause_validation
-            ), mock.patch.object(
-                round_txn, "run_publish_lock", side_effect=observed_publish_lock
+            with (
+                mock.patch.object(round_txn, "validate_stage", side_effect=pause_validation),
+                mock.patch.object(round_txn, "run_publish_lock", side_effect=observed_publish_lock),
             ):
                 publisher = threading.Thread(target=publish_round, name="publisher")
                 publisher.start()
@@ -557,12 +549,8 @@ class RoundTransaction(unittest.TestCase):
                     batch.write_text("{not-json\n")
                 return result
 
-            with mock.patch.object(
-                round_txn, "check_jsonl", side_effect=mutate_after_check
-            ):
-                with self.assertRaisesRegex(
-                    round_txn.TransactionError, "changed while publishing"
-                ):
+            with mock.patch.object(round_txn, "check_jsonl", side_effect=mutate_after_check):
+                with self.assertRaisesRegex(round_txn.TransactionError, "changed while publishing"):
                     round_txn.publish(factory, 1, reservation["token"])
 
             self.assertFalse((factory / "ROUND-r01.complete.json").exists())
@@ -573,9 +561,7 @@ class RoundTransaction(unittest.TestCase):
             outside = Path(td) / "outside-factory"
             outside.mkdir()
             write_records(outside / "records.jsonl", [thalamic("shared-id")])
-            (factory.parent / "symlinked-sibling").symlink_to(
-                outside, target_is_directory=True
-            )
+            (factory.parent / "symlinked-sibling").symlink_to(outside, target_is_directory=True)
             reservation = round_txn.reserve(factory, 1, 1)
             self.fill_stage(reservation, [thalamic("shared-id")])
 
@@ -604,9 +590,7 @@ class RoundTransaction(unittest.TestCase):
             round_txn.ensure_marker_mode(factory)
             (factory / "ROUND-r01.complete.json").write_bytes(b"{\xff}\n")
 
-            with self.assertRaisesRegex(
-                round_txn.TransactionError, "cannot read transaction file"
-            ):
+            with self.assertRaisesRegex(round_txn.TransactionError, "cannot read transaction file"):
                 round_txn.frontier_status(factory)
 
     def test_invalid_utf8_staged_notes_report_a_transaction_error(self):
@@ -708,7 +692,9 @@ class RoundTransaction(unittest.TestCase):
             self.assertEqual(status["highest_flushed"], 2)
             self.assertEqual(status["next_round"], 3)
             reservation = round_txn.reserve(factory, 3, 5)
-            self.assertEqual(json.loads((factory / round_txn.MODE_FILE).read_text())["legacy_baseline"], 2)
+            self.assertEqual(
+                json.loads((factory / round_txn.MODE_FILE).read_text())["legacy_baseline"], 2
+            )
             self.assertEqual(reservation["round"], 3)
 
     def test_marker_baseline_rejects_malformed_lower_legacy_payload(self):
@@ -740,9 +726,7 @@ class RoundTransaction(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             factory = self.factory(td)
             legacy_records = [thalamic("shared-id")]
-            legacy_records.extend(
-                thalamic(f"legacy-{index}") for index in range(1, 5)
-            )
+            legacy_records.extend(thalamic(f"legacy-{index}") for index in range(1, 5))
             write_records(factory / "trajectories.jsonl", legacy_records)
             (factory / round_txn.MODE_FILE).write_text(
                 json.dumps(
@@ -878,7 +862,7 @@ class RoundTransaction(unittest.TestCase):
                             {
                                 "name": notes.name,
                                 "sha256": round_txn.file_sha256(notes),
-                            }
+                            },
                         ],
                     }
                 )
@@ -1243,11 +1227,7 @@ class RoundTransaction(unittest.TestCase):
 class PreferencePublicationGate(unittest.TestCase):
     def factory(self, root):
         path = (
-            Path(root)
-            / "outputs"
-            / "raw"
-            / "2099-01-01"
-            / round_txn.PREFERENCE_ISOLATION_FACTORY
+            Path(root) / "outputs" / "raw" / "2099-01-01" / round_txn.PREFERENCE_ISOLATION_FACTORY
         )
         path.mkdir(parents=True)
         return path
@@ -1324,10 +1304,77 @@ class PreferencePublicationGate(unittest.TestCase):
 
             with self.assertRaisesRegex(
                 round_txn.TransactionError,
-                "lacks publisher-controlled two-session isolation",
+                "lacks the two-session orchestration assertion",
             ):
                 round_txn.publish(factory, 1, reservation["token"])
             self.assertFalse((factory / "ROUND-r01.complete.json").exists())
+
+    def test_unknown_arm_extension_cannot_reach_the_commit_point(self):
+        with tempfile.TemporaryDirectory() as td:
+            factory = self.factory(td)
+            reservation = self.reserve(factory)
+            record = ffpc_record("gate-label-only-r11.jsonl")
+            record["chosen"]["padding"] = "alpha beta gamma delta epsilon"
+            self.fill_stage(reservation, record)
+
+            with self.assertRaisesRegex(
+                round_txn.TransactionError,
+                preference_arms.REASON_EXTENSION_FIELDS,
+            ):
+                round_txn.publish(factory, 1, reservation["token"])
+            self.assertFalse((factory / "ROUND-r01.complete.json").exists())
+
+    def test_reservation_version_downgrade_is_rejected(self):
+        with tempfile.TemporaryDirectory() as td:
+            factory = self.factory(td)
+            reservation = self.reserve(factory)
+            marker = factory / "ROUND-r01.reserved.json"
+            payload = json.loads(marker.read_text())
+            payload["version"] = 0
+            marker.write_text(json.dumps(payload) + "\n")
+            self.fill_stage(reservation, ffpc_record())
+
+            with self.assertRaisesRegex(
+                round_txn.TransactionError,
+                "unsupported version",
+            ):
+                round_txn.publish(factory, 1, reservation["token"])
+            self.assertFalse((factory / "ROUND-r01.complete.json").exists())
+
+    def test_json_bool_and_float_are_not_reservation_version_one(self):
+        for invalid_version in (True, 1.0):
+            with self.subTest(version=invalid_version), tempfile.TemporaryDirectory() as td:
+                factory = self.factory(td)
+                reservation = self.reserve(factory)
+                marker = factory / "ROUND-r01.reserved.json"
+                payload = json.loads(marker.read_text())
+                payload["version"] = invalid_version
+                marker.write_text(json.dumps(payload) + "\n")
+                self.fill_stage(reservation, ffpc_record())
+
+                with self.assertRaisesRegex(
+                    round_txn.TransactionError,
+                    "unsupported version",
+                ):
+                    round_txn.publish(factory, 1, reservation["token"])
+                self.assertFalse((factory / "ROUND-r01.complete.json").exists())
+
+    def test_completed_publish_cleanup_rejects_non_integer_reservation_version(self):
+        with tempfile.TemporaryDirectory() as td:
+            factory = self.factory(td)
+            reservation = self.reserve(factory)
+            marker = factory / "ROUND-r01.reserved.json"
+            reservation_payload = json.loads(marker.read_text())
+            self.fill_stage(reservation, ffpc_record())
+            round_txn.publish(factory, 1, reservation["token"])
+
+            reservation_payload["version"] = True
+            marker.write_text(json.dumps(reservation_payload) + "\n")
+            with self.assertRaisesRegex(
+                round_txn.TransactionError,
+                "reservation conflicts with completed round",
+            ):
+                round_txn.publish(factory, 1, reservation["token"])
 
     def test_valid_pair_records_and_revalidates_the_gate(self):
         with tempfile.TemporaryDirectory() as td:
@@ -1342,12 +1389,8 @@ class PreferencePublicationGate(unittest.TestCase):
                 manifest["preference_isolation"],
                 round_txn.PREFERENCE_TWO_SESSION,
             )
-            self.assertEqual(
-                manifest["preference_arm_gate"]["preference_pairs"], 1
-            )
-            self.assertEqual(
-                manifest["preference_arm_gate"]["blocked_pairs"], 0
-            )
+            self.assertEqual(manifest["preference_arm_gate"]["preference_pairs"], 1)
+            self.assertEqual(manifest["preference_arm_gate"]["blocked_pairs"], 0)
             self.assertEqual(round_txn.frontier_status(factory)["next_round"], 2)
 
     def test_completion_marker_cannot_forge_the_recorded_gate_result(self):
@@ -1366,6 +1409,54 @@ class PreferencePublicationGate(unittest.TestCase):
                 "preference arm gate does not match batch",
             ):
                 round_txn.frontier_status(factory)
+
+    def test_gate_version_only_change_does_not_hide_a_completed_round(self):
+        with tempfile.TemporaryDirectory() as td:
+            factory = self.factory(td)
+            reservation = self.reserve(factory)
+            self.fill_stage(reservation, ffpc_record())
+            round_txn.publish(factory, 1, reservation["token"])
+            marker = factory / "ROUND-r01.complete.json"
+            manifest = json.loads(marker.read_text())
+            manifest["preference_arm_gate"]["gate"]["version"] = "1.1.0"
+            marker.write_text(json.dumps(manifest) + "\n")
+
+            self.assertEqual(round_txn.frontier_status(factory)["next_round"], 2)
+
+    def test_gate_version_only_change_does_not_wedge_an_inflight_retry(self):
+        with tempfile.TemporaryDirectory() as td:
+            factory = self.factory(td)
+            reservation = self.reserve(factory)
+            self.fill_stage(reservation, ffpc_record())
+            real_link = round_txn.os.link
+            calls = {"count": 0}
+
+            def interrupt_completion_link(*args, **kwargs):
+                calls["count"] += 1
+                if calls["count"] == 3:
+                    raise OSError("simulated interruption")
+                return real_link(*args, **kwargs)
+
+            with mock.patch.object(
+                round_txn.os,
+                "link",
+                side_effect=interrupt_completion_link,
+            ):
+                with self.assertRaisesRegex(OSError, "simulated interruption"):
+                    round_txn.publish(factory, 1, reservation["token"])
+
+            publishing = factory / "ROUND-r01.publishing.json"
+            plan = json.loads(publishing.read_text())
+            plan["preference_arm_gate"]["gate"]["version"] = "1.1.0"
+            publishing.write_text(json.dumps(plan) + "\n")
+
+            manifest = round_txn.publish(factory, 1, reservation["token"])
+
+            self.assertEqual(
+                manifest["preference_arm_gate"]["gate"]["version"],
+                "1.1.0",
+            )
+            self.assertEqual(round_txn.frontier_status(factory)["next_round"], 2)
 
 
 if __name__ == "__main__":

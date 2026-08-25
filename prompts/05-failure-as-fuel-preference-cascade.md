@@ -209,12 +209,19 @@ preview cannot bypass publication.
 
 Same context is necessary but not sufficient: two arms that share a problem
 can still be one arm restated. `pipelines/preference_arms.py` requires that
-each pair's contrast surface (everything except `state`, `proposed_action`,
-`id`, and `meta`) sit more than the arm-distance floor apart, and that the
-record attest `meta.isolation: "two-session"`. See
+each pair's allowlisted behavioral surface (`executed_action`,
+`future_outcome`, and `spike_events`) sit more than the arm-distance floor
+apart, rejects unknown arm extensions, and requires at least one changed
+machine-observable leaf present on both arms. Safety prose, one-sided nested
+padding, and reward relabeling cannot establish independence. The record must
+also attest `meta.isolation: "two-session"`. See
 `docs/preference-isolation.md` §3.6 for the lexical metric and reason codes.
 Publication additionally requires the two-session value from the reservation;
-mutable record metadata is not trusted as proof of the protocol.
+the launcher obtains that reservation in a separate content-blind context. A
+fourth read-only context runs `preference_arms.py verify-handoff`, binding
+Session A's exact diagnosis basenames, real non-empty UTF-8 files, sizes, and
+SHA-256 digests before Session B opens them. Mutable record metadata is not
+trusted as proof of the protocol.
 
 ## Purity check command
 
@@ -223,6 +230,11 @@ Run from the repo root after assembling `batch-rNN.jsonl` and before
 path and `rNN` with the zero-padded round (e.g. `r05`):
 
 ```bash
+# Before Session B: independently bind its exact diagnosis-only input
+python3 pipelines/preference_arms.py verify-handoff <staging_dir> \
+  --file diagnosis-01-rNN.md --file diagnosis-02-rNN.md \
+  --file diagnosis-03-rNN.md
+
 # 1. Standard record checks (schema, reward arithmetic, spike order)
 python3 pipelines/check_records.py <staging_dir>
 
@@ -291,7 +303,7 @@ else:
 python3 pipelines/preference_arms.py scan <staging_dir>/batch-rNN.jsonl
 ```
 
-All three preview steps must exit 0 before publish, and publish independently
+All preview steps must exit 0 before publish, and publish independently
 re-runs the same-context plus arm gate over captured bytes. Fix violations by editing only
 staged files (make `chosen.state`/`proposed_action` byte-identical to
 `rejected`, and rewrite chosen safety rationale in original wording); never
@@ -300,6 +312,9 @@ by re-synthesizing that `chosen` from its diagnosis in a fresh context, not
 by widening the wording until the floor clears. A
 `PREFERENCE_ARMS_LABEL_ONLY_COPY` finding likewise requires a substantive
 execution, evidence, or outcome contrast rather than a different gate label.
+`PREFERENCE_ARMS_OBSERVABLES_IDENTICAL` requires re-synthesizing an actual
+execution, outcome, or spike-stream difference; adding prose or a field to
+only one arm is not a repair.
 
 ---
 

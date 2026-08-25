@@ -27,9 +27,7 @@ SINGLE_SESSION = ARM_FIXTURES / "single-session-r11.jsonl"
 # verify itself against a baseline it just produced.
 GOLDEN_FIXTURE_SHA256 = {
     "batch-r11.jsonl": "5f24db6543f41782ac61aadfddab707cf5c1cac4249adadaf056d99bbb677a5c",
-    "near-verbatim-r11.jsonl": (
-        "3e08181a1aa61772edc9fb780d7ea2a76a0892ffa9451e1e0e14c1898f6e5546"
-    ),
+    "near-verbatim-r11.jsonl": ("3e08181a1aa61772edc9fb780d7ea2a76a0892ffa9451e1e0e14c1898f6e5546"),
     "gate-label-only-r11.jsonl": (
         "75e85ca69792a78c953ab91a4a9585d8b860398317739ffc3a143d711a3aff9c"
     ),
@@ -57,9 +55,7 @@ def run_cli(argv):
 
 
 def check(record, **kwargs):
-    return preference_arms.check_pair(
-        record, source_path="memory.jsonl", source_line=1, **kwargs
-    )
+    return preference_arms.check_pair(record, source_path="memory.jsonl", source_line=1, **kwargs)
 
 
 class ArmDistanceMetric(unittest.TestCase):
@@ -85,23 +81,21 @@ class ArmDistanceMetric(unittest.TestCase):
         twin["meta"] = {"tags": ["rejected", "extra"]}
         self.assertEqual(preference_arms.arm_distance(arm, twin), 0.0)
 
-    def test_numeric_leaves_stay_atomic(self):
-        left = {"reward_components": {"safety": 0.2, "total": 0.2}}
-        right = {"reward_components": {"safety": -0.2, "total": -0.2}}
+    def test_observable_numeric_leaves_stay_atomic(self):
+        left = {"future_outcome": {"latency_ms": 20}}
+        right = {"future_outcome": {"latency_ms": 200}}
         self.assertGreater(preference_arms.arm_distance(left, right), 0.0)
 
     def test_list_order_is_not_a_difference(self):
-        left = {"safety_decision": {"evidence": ["alpha", "omega"]}}
-        right = {"safety_decision": {"evidence": ["omega", "alpha"]}}
+        left = {"spike_events": ["alpha", "omega"]}
+        right = {"spike_events": ["omega", "alpha"]}
         self.assertEqual(preference_arms.arm_distance(left, right), 0.0)
 
     def test_wordless_strings_stay_atomic(self):
         left = {"future_outcome": {"incident": "—"}}
         right = {"future_outcome": {"incident": "…"}}
         self.assertEqual(preference_arms.arm_distance(left, right), 1.0)
-        self.assertEqual(
-            preference_arms.arm_distance(left, copy.deepcopy(left)), 0.0
-        )
+        self.assertEqual(preference_arms.arm_distance(left, copy.deepcopy(left)), 0.0)
 
     def test_empty_contrast_surfaces_are_degenerate_not_distant(self):
         bare = {"state": {"sim_or_real": "designed"}, "meta": {}}
@@ -121,8 +115,8 @@ class ArmDistanceMetric(unittest.TestCase):
         shared = "保持制动直到传感器确认安全并且现场操作员明确批准恢复运行" * 4
         changed = shared.replace("安全", "危险", 1)
         distance = preference_arms.arm_distance(
-            {"safety_decision": {"rationale": shared}},
-            {"safety_decision": {"rationale": changed}},
+            {"future_outcome": {"summary": shared}},
+            {"future_outcome": {"summary": changed}},
         )
         self.assertGreater(distance, 0.0)
         self.assertLessEqual(distance, preference_arms.DEFAULT_MIN_ARM_DISTANCE)
@@ -130,8 +124,8 @@ class ArmDistanceMetric(unittest.TestCase):
     def test_accent_only_edits_do_not_manufacture_arm_independence(self):
         self.assertEqual(
             preference_arms.arm_distance(
-                {"safety_decision": {"rationale": "mantén la acción segura"}},
-                {"safety_decision": {"rationale": "manten la accion segura"}},
+                {"future_outcome": {"summary": "mantén la acción segura"}},
+                {"future_outcome": {"summary": "manten la accion segura"}},
             ),
             0.0,
         )
@@ -166,6 +160,16 @@ class TwoSessionRoundClearsTheGate(unittest.TestCase):
         self.assertIn("arm gate: PASS", err)
         self.assertIn("Blocked: 0", out)
 
+    def test_every_fixture_pair_has_a_shared_machine_observable_delta(self):
+        for record in load(TWO_SESSION_ROUND):
+            with self.subTest(record=record["id"]):
+                self.assertTrue(
+                    preference_arms.machine_observable_deltas(
+                        record["chosen"],
+                        record["rejected"],
+                    )
+                )
+
     def test_strict_audit_reports_full_preference_purity(self):
         with tempfile.TemporaryDirectory() as td:
             run_dir = Path(td) / "run"
@@ -199,17 +203,19 @@ class CorrelatedArmsAreBlocked(unittest.TestCase):
         self.assertTrue(decision.same_context)
         self.assertEqual(decision.isolation, "two-session")
         self.assertEqual(
-            decision.reason_codes, (preference_arms.REASON_NEAR_VERBATIM,)
+            decision.reason_codes,
+            (
+                preference_arms.REASON_OBSERVABLES_IDENTICAL,
+                preference_arms.REASON_NEAR_VERBATIM,
+            ),
         )
 
     def test_gate_label_only_repair(self):
         scan = preference_arms.scan_source(GATE_LABEL_ONLY)
         self.assertTrue(scan.blocked)
         decision = scan.decisions[0]
-        self.assertGreater(decision.arm_distance, 0.0)
-        self.assertLessEqual(
-            decision.arm_distance, preference_arms.DEFAULT_MIN_ARM_DISTANCE
-        )
+        self.assertEqual(decision.arm_distance, 0.0)
+        self.assertLessEqual(decision.arm_distance, preference_arms.DEFAULT_MIN_ARM_DISTANCE)
         self.assertIn(preference_arms.REASON_NEAR_VERBATIM, decision.reason_codes)
         self.assertIn(preference_arms.REASON_LABEL_ONLY_COPY, decision.reason_codes)
 
@@ -228,10 +234,104 @@ class CorrelatedArmsAreBlocked(unittest.TestCase):
                 "meta": arm["meta"],
             }
         decision = check(record)
-        self.assertGreater(
-            decision.arm_distance, preference_arms.DEFAULT_MIN_ARM_DISTANCE
-        )
+        self.assertEqual(decision.arm_distance, 0.0)
         self.assertIn(preference_arms.REASON_LABEL_ONLY_COPY, decision.reason_codes)
+
+    def test_reward_relabeling_cannot_turn_a_label_copy_into_independence(self):
+        record = copy.deepcopy(first(GATE_LABEL_ONLY))
+        chosen_reward = record["chosen"]["reward_components"]
+        chosen_reward["task_progress"] += 0.1
+        chosen_reward["total"] += 0.1
+
+        decision = check(record)
+
+        self.assertEqual(decision.arm_distance, 0.0)
+        self.assertIn(preference_arms.REASON_NEAR_VERBATIM, decision.reason_codes)
+
+    def test_unknown_extension_padding_is_blocked_and_cannot_add_distance(self):
+        record = copy.deepcopy(first(GATE_LABEL_ONLY))
+        record["chosen"]["padding"] = (
+            "unrelated filler alpha beta gamma delta epsilon zeta eta theta"
+        )
+
+        decision = check(record)
+
+        self.assertEqual(decision.arm_distance, 0.0)
+        self.assertIn(
+            preference_arms.REASON_EXTENSION_FIELDS,
+            decision.reason_codes,
+        )
+
+    def test_nested_behavior_padding_cannot_establish_independence(self):
+        record = copy.deepcopy(first(GATE_LABEL_ONLY))
+        record["chosen"]["executed_action"]["padding"] = (
+            "alpha beta gamma delta epsilon zeta eta theta iota kappa lambda"
+        )
+
+        decision = check(record)
+
+        self.assertGreater(decision.arm_distance, 0.0)
+        self.assertIn(
+            preference_arms.REASON_OBSERVABLES_IDENTICAL,
+            decision.reason_codes,
+        )
+
+    def test_safety_rationale_padding_cannot_establish_independence(self):
+        record = copy.deepcopy(first(GATE_LABEL_ONLY))
+        record["chosen"]["safety_decision"]["rationale"] += (
+            " alpha beta gamma delta epsilon zeta eta theta iota kappa"
+        )
+
+        decision = check(record)
+
+        self.assertEqual(decision.arm_distance, 0.0)
+        self.assertIn(
+            preference_arms.REASON_OBSERVABLES_IDENTICAL,
+            decision.reason_codes,
+        )
+
+    def test_cross_script_homoglyph_does_not_inflate_copy_distance(self):
+        record = copy.deepcopy(first(GATE_LABEL_ONLY))
+        action = record["chosen"]["executed_action"]["action"]
+        record["chosen"]["executed_action"]["action"] = action.replace("v", "ν", 1)
+
+        decision = check(record)
+
+        self.assertEqual(decision.arm_distance, 0.0)
+        self.assertIn(preference_arms.REASON_NEAR_VERBATIM, decision.reason_codes)
+        self.assertIn(
+            preference_arms.REASON_OBSERVABLES_IDENTICAL,
+            decision.reason_codes,
+        )
+
+    def test_cyrillic_palochka_does_not_inflate_copy_distance(self):
+        record = copy.deepcopy(first(GATE_LABEL_ONLY))
+        action = record["chosen"]["executed_action"]["action"]
+        record["chosen"]["executed_action"]["action"] = action.replace("l", "ӏ", 1)
+
+        decision = check(record)
+
+        self.assertEqual(decision.arm_distance, 0.0)
+        self.assertIn(
+            preference_arms.REASON_OBSERVABLES_IDENTICAL,
+            decision.reason_codes,
+        )
+
+    def test_invisible_format_marks_do_not_inflate_copy_distance(self):
+        record = copy.deepcopy(first(NEAR_VERBATIM))
+        chosen = copy.deepcopy(record["rejected"])
+        action = chosen["executed_action"]["action"]
+        chosen["executed_action"]["action"] = "\u200d".join(action)
+        record["chosen"] = chosen
+
+        decision = check(record)
+
+        self.assertEqual(decision.arm_distance, 0.0)
+        self.assertIn(preference_arms.REASON_NEAR_VERBATIM, decision.reason_codes)
+        self.assertIn(
+            preference_arms.REASON_OBSERVABLES_IDENTICAL,
+            decision.reason_codes,
+        )
 
     def test_cli_exits_nonzero_on_a_blocked_pair(self):
         code, _, err = run_cli(["scan", str(NEAR_VERBATIM)])
@@ -256,12 +356,8 @@ class IsolationAttestation(unittest.TestCase):
         self.assertTrue(scan.blocked)
         decision = scan.decisions[0]
         self.assertEqual(decision.isolation, "single-session")
-        self.assertEqual(
-            decision.reason_codes, (preference_arms.REASON_SINGLE_SESSION,)
-        )
-        self.assertGreater(
-            decision.arm_distance, preference_arms.DEFAULT_MIN_ARM_DISTANCE
-        )
+        self.assertEqual(decision.reason_codes, (preference_arms.REASON_SINGLE_SESSION,))
+        self.assertGreater(decision.arm_distance, preference_arms.DEFAULT_MIN_ARM_DISTANCE)
 
     def test_legacy_scan_reports_but_does_not_block_on_attestation(self):
         scan = preference_arms.scan_source(SINGLE_SESSION, require_isolation=False)
@@ -272,9 +368,7 @@ class IsolationAttestation(unittest.TestCase):
     def test_cli_flag_relaxes_the_attestation(self):
         code, _, _ = run_cli(["scan", str(SINGLE_SESSION)])
         self.assertEqual(code, 1)
-        code, _, _ = run_cli(
-            ["scan", str(SINGLE_SESSION), "--no-require-isolation"]
-        )
+        code, _, _ = run_cli(["scan", str(SINGLE_SESSION), "--no-require-isolation"])
         self.assertEqual(code, 0)
 
     def test_undeclared_isolation_is_blocked(self):
@@ -352,25 +446,127 @@ class ContextPurityIsDelegatedAndEnforced(unittest.TestCase):
         record["chosen"]["state"]["environment"]["observed_c"] = -70.0
         decision = check(record)
         self.assertFalse(decision.same_context)
-        self.assertIn(
-            preference_arms.REASON_CONTEXT_DIVERGES, decision.reason_codes
-        )
+        self.assertIn(preference_arms.REASON_CONTEXT_DIVERGES, decision.reason_codes)
 
     def test_proposal_drift_is_blocked(self):
         record = copy.deepcopy(first(TWO_SESSION_ROUND))
         record["chosen"]["proposed_action"]["arguments"]["silence_minutes"] = 5
         decision = check(record)
         self.assertFalse(decision.same_context)
-        self.assertIn(
-            preference_arms.REASON_CONTEXT_DIVERGES, decision.reason_codes
-        )
+        self.assertIn(preference_arms.REASON_CONTEXT_DIVERGES, decision.reason_codes)
 
     def test_malformed_pair_is_reported_once(self):
         decision = check({"id": "broken", "chosen": "not an object", "rejected": {}})
-        self.assertEqual(
-            decision.reason_codes, (preference_arms.REASON_MALFORMED,)
-        )
+        self.assertEqual(decision.reason_codes, (preference_arms.REASON_MALFORMED,))
         self.assertIsNone(decision.arm_distance)
+
+
+class DiagnosisHandoffVerification(unittest.TestCase):
+    TOKEN = "a" * 32
+
+    def stage(self, root, *, count=3):
+        stage = (
+            Path(root)
+            / "outputs"
+            / "staging"
+            / "2026-08-17"
+            / "failure-as-fuel-preference-cascade"
+            / f"r11-{self.TOKEN}"
+        )
+        stage.mkdir(parents=True)
+        names = []
+        for index in range(1, count + 1):
+            name = f"diagnosis-{index:02d}-r11.md"
+            (stage / name).write_text(
+                f"root cause {index}\nrepair sketch {index}\n",
+                encoding="utf-8",
+            )
+            names.append(name)
+        return stage, names
+
+    def test_receipt_binds_names_sizes_and_digests(self):
+        with tempfile.TemporaryDirectory() as td:
+            stage, names = self.stage(td)
+            receipt = preference_arms.verify_diagnosis_handoff(stage, names)
+
+        self.assertEqual(receipt["factory"], "failure-as-fuel-preference-cascade")
+        self.assertEqual(receipt["round"], 11)
+        self.assertEqual(
+            [item["name"] for item in receipt["diagnosis_files"]],
+            names,
+        )
+        self.assertTrue(all(item["bytes"] > 0 for item in receipt["diagnosis_files"]))
+        self.assertTrue(all(len(item["sha256"]) == 64 for item in receipt["diagnosis_files"]))
+
+    def test_cli_emits_the_same_bounded_receipt(self):
+        with tempfile.TemporaryDirectory() as td:
+            stage, names = self.stage(td)
+            argv = ["verify-handoff", str(stage)]
+            for name in names:
+                argv.extend(("--file", name))
+            code, out, err = run_cli(argv)
+
+        self.assertEqual(code, 0)
+        self.assertEqual(err, "")
+        receipt = json.loads(out)
+        self.assertEqual(receipt["round"], 11)
+        self.assertEqual(
+            [item["name"] for item in receipt["diagnosis_files"]],
+            names,
+        )
+        self.assertNotIn("root cause", out)
+
+    def test_missing_empty_symlink_and_invalid_utf8_files_fail_closed(self):
+        mutations = ("missing", "empty", "whitespace", "symlink", "invalid-utf8")
+        for mutation in mutations:
+            with self.subTest(mutation=mutation), tempfile.TemporaryDirectory() as td:
+                stage, names = self.stage(td)
+                target = stage / names[0]
+                if mutation == "missing":
+                    target.unlink()
+                elif mutation == "empty":
+                    target.write_bytes(b"")
+                elif mutation == "whitespace":
+                    target.write_text(" \n\t", encoding="utf-8")
+                elif mutation == "symlink":
+                    target.unlink()
+                    real = stage / "not-allowlisted.txt"
+                    real.write_text("diagnosis", encoding="utf-8")
+                    target.symlink_to(real.name)
+                else:
+                    target.write_bytes(b"\xff\xfe")
+
+                with self.assertRaises(preference_arms.PreferenceArmsError):
+                    preference_arms.verify_diagnosis_handoff(stage, names)
+
+    def test_traversal_duplicates_wrong_round_and_gaps_fail_closed(self):
+        with tempfile.TemporaryDirectory() as td:
+            stage, names = self.stage(td)
+            invalid_lists = (
+                ["../diagnosis-01-r11.md"],
+                [names[0], names[0]],
+                ["diagnosis-01-r10.md"],
+                [names[0], names[2]],
+            )
+            for invalid in invalid_lists:
+                with (
+                    self.subTest(files=invalid),
+                    self.assertRaises(preference_arms.PreferenceArmsError),
+                ):
+                    preference_arms.verify_diagnosis_handoff(stage, invalid)
+
+    def test_cli_reports_a_missing_file_without_a_traceback(self):
+        with tempfile.TemporaryDirectory() as td:
+            stage, names = self.stage(td)
+            (stage / names[1]).unlink()
+            argv = ["verify-handoff", str(stage)]
+            for name in names:
+                argv.extend(("--file", name))
+            code, out, err = run_cli(argv)
+
+        self.assertEqual(code, 1)
+        self.assertEqual(out, "")
+        self.assertIn("diagnosis handoff verification failed", err)
 
 
 class SourceHandling(unittest.TestCase):
@@ -408,8 +604,7 @@ class SourceHandling(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             path = Path(td) / "empty.jsonl"
             path.write_text(
-                json.dumps({"id": "solo", "state": {"sim_or_real": "designed"}})
-                + "\n",
+                json.dumps({"id": "solo", "state": {"sim_or_real": "designed"}}) + "\n",
                 encoding="utf-8",
             )
             code, _, err = run_cli(["scan", str(path)])
@@ -474,9 +669,7 @@ class ScanIsReadOnly(unittest.TestCase):
     def test_check_pair_does_not_mutate_its_record(self):
         record = first(TWO_SESSION_ROUND)
         before = json.dumps(record, sort_keys=True)
-        preference_arms.check_pair(
-            record, source_path="memory.jsonl", source_line=1
-        )
+        preference_arms.check_pair(record, source_path="memory.jsonl", source_line=1)
         self.assertEqual(json.dumps(record, sort_keys=True), before)
 
     def test_json_report_is_serializable_and_complete(self):
@@ -494,15 +687,9 @@ class ProtocolIsDocumentedAndWired(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.doc = (REPO / "docs" / "preference-isolation.md").read_text()
-        cls.prompt = (
-            REPO / "prompts" / "05-failure-as-fuel-preference-cascade.md"
-        ).read_text()
+        cls.prompt = (REPO / "prompts" / "05-failure-as-fuel-preference-cascade.md").read_text()
         cls.workflow = (
-            REPO
-            / ".claude"
-            / "skills"
-            / "run-synthetic-factory"
-            / "factory-window.workflow.js"
+            REPO / ".claude" / "skills" / "run-synthetic-factory" / "factory-window.workflow.js"
         ).read_text()
         cls.publisher = (REPO / "pipelines" / "round_txn.py").read_text()
 
@@ -526,15 +713,49 @@ class ProtocolIsDocumentedAndWired(unittest.TestCase):
         self.assertIn("require_trusted_isolation=True", self.publisher)
 
     def test_workflow_stamps_the_two_session_attestation(self):
-        self.assertIn(
-            f'meta.isolation="{preference_arms.TWO_SESSION}"', self.workflow
-        )
+        self.assertIn(f'meta.isolation="{preference_arms.TWO_SESSION}"', self.workflow)
 
     def test_workflow_reservation_carries_the_publisher_marker(self):
         self.assertIn(
             f"--preference-isolation {preference_arms.TWO_SESSION}",
             self.workflow,
         )
+
+    def test_content_blind_controller_reserves_before_session_a(self):
+        reservation = self.workflow.index("const reservation = await agent")
+        session_a = self.workflow.index("const sessionA = await agent")
+        self.assertLess(reservation, session_a)
+        self.assertIn(
+            "outputs/staging/${args.date}/${factory.slug}/r${rr}-",
+            self.workflow,
+        )
+        self.assertNotIn("outputs/raw/${args.date}/.staging", self.workflow)
+        invalid_receipt = self.workflow.split("if (!preferenceReservationIsValid", 1)[1].split(
+            "const sessionA", 1
+        )[0]
+        self.assertIn("releaseReservation(factory, round, rr, null)", invalid_receipt)
+        session_a_prompt = self.workflow.split("You are Session A", 1)[1].split(
+            "You are Session B", 1
+        )[0]
+        self.assertNotIn("round_txn.py reserve", session_a_prompt)
+
+    def test_workflow_validates_the_exact_diagnosis_only_handoff(self):
+        validation = self.workflow.index("preferenceHandoffIsValid(")
+        session_b = self.workflow.index("You are Session B")
+        self.assertLess(validation, session_b)
+        self.assertIn("preferenceDiagnosisFiles(factory.count, rr)", self.workflow)
+        self.assertIn("^diagnosis-[0-9]{2}-r[0-9]{2}\\\\.md$", self.workflow)
+
+    def test_read_only_verifier_runs_after_session_a_and_before_session_b(self):
+        session_a = self.workflow.index("const sessionA = await agent")
+        verification = self.workflow.index("const diagnosisVerification = await agent")
+        session_b = self.workflow.index("You are Session B")
+        self.assertLess(session_a, verification)
+        self.assertLess(verification, session_b)
+        self.assertIn("preference_arms.py verify-handoff", self.workflow)
+        self.assertIn("preferenceDiagnosisVerificationIsValid(", self.workflow)
+        self.assertIn("Number.isSafeInteger(item.bytes)", self.workflow)
+        self.assertIn("verifiedDiagnosisFiles", self.workflow)
 
 
 if __name__ == "__main__":

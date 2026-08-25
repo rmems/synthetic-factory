@@ -10,22 +10,28 @@ and lightly edited, so every staged round must clear two invariants:
    identical ``state`` and ``proposed_action``. This delegates to the
    canonical implementation in ``curate_preferences.context_is_pure``; it is
    re-checked here so one command gates a round.
-2. **Independent arms** — the *contrastive* surfaces of the two arms (every
-   field except the shared context and bookkeeping ``meta``) must sit more
-   than ``--min-distance`` apart. Distance is ``1 - cosine_similarity`` over
+2. **Independent arms** — the allowlisted machine-behavior surfaces
+   (``executed_action``, ``future_outcome``, and ``spike_events``) must sit
+   more than ``--min-distance`` apart and share at least one changed
+   machine-observable leaf. Distance is ``1 - cosine_similarity`` over
    path-scoped lexical term-frequency vectors. This metric has its own
    fixture-calibrated floor; it is not presented as equivalent to an
-   embedding model. A separate structural check rejects copies that differ
-   only in a gate label, independent of vector length.
+   embedding model. Separate structural checks reject gate-label copies,
+   narrative padding, and unknown top-level arm extensions.
 
 The read-only gate requires each pair to declare
 ``meta.isolation == "two-session"``. Publication additionally requires a
-publisher-controlled isolation value recorded in the exclusive reservation
-marker; record metadata alone is never treated as proof of the protocol.
+reservation-bound orchestration assertion; record metadata alone is never
+treated as proof of the protocol.
 
 Read-only scan (exit 1 when any pair is blocked)::
 
     python3 pipelines/preference_arms.py scan <batch-or-dir> [--json]
+
+Verify that Session A actually wrote the diagnosis-only handoff it names::
+
+    python3 pipelines/preference_arms.py verify-handoff <staging-dir> \
+        --file diagnosis-01-rNN.md --file diagnosis-02-rNN.md
 
 ``source`` may be one JSONL file or a directory scanned recursively for
 ``*.jsonl``. Records without preference-pair fields are counted and skipped.
@@ -34,22 +40,26 @@ Read-only scan (exit 1 when any pair is blocked)::
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import math
+import re
+import stat
 import sys
 import unicodedata
 from collections import Counter
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, Sequence
 
 _PIPELINES = Path(__file__).resolve().parent
 if str(_PIPELINES) not in sys.path:
     sys.path.insert(0, str(_PIPELINES))
 
 from curate_preferences import canonical_json, context_is_pure  # noqa: E402
+
 GATE_NAME = "independent-preference-arms"
-GATE_VERSION = "1.1.0"
+GATE_VERSION = "1.2.0"
 
 #: Minimum lexical ``1 - cosine_similarity`` between the two arms'
 #: contrastive surfaces. This is calibrated against the committed passing,
@@ -61,12 +71,41 @@ DEFAULT_MIN_ARM_DISTANCE: float = 0.03
 #: deprecated single-context generation path.
 TWO_SESSION = "two-session"
 
-#: Fields excluded from the contrastive surface. ``state`` and
-#: ``proposed_action`` are identical by the purity gate and would swamp the
-#: metric; ``id`` and ``meta`` are bookkeeping whose per-side identifiers and
-#: ``chosen``/``rejected`` tags would manufacture distance no learner sees.
+#: The published arm contract. Unknown top-level extensions cannot be used as
+#: lexical padding to manufacture distance.
+ARM_FIELDS = frozenset(
+    {
+        "id",
+        "state",
+        "proposed_action",
+        "safety_decision",
+        "executed_action",
+        "future_outcome",
+        "reward_components",
+        "spike_events",
+        "provenance",
+        "meta",
+    }
+)
+
+#: Fields that carry measured behavioral contrast. Producer-authored safety
+#: rationale is deliberately absent: prose length, padding, or homoglyphs may
+#: not establish independence when the executed behavior did not change.
 CONTEXT_FIELDS = ("state", "proposed_action")
-EXCLUDED_FROM_CONTRAST = frozenset(CONTEXT_FIELDS + ("id", "meta"))
+CONTRAST_FIELDS = frozenset({"executed_action", "future_outcome", "spike_events"})
+LABEL_COPY_FIELDS = frozenset((*CONTRAST_FIELDS, "safety_decision"))
+
+# Common leaf paths under these fields must carry at least one machine-
+# observable delta on both arms. Keys present on only one side are ignored so
+# an extension cannot manufacture independence. Free-form narrative strings
+# are also ignored; compact identifier-like values such as action/unit names
+# count only when both sides use a machine-token spelling.
+MACHINE_OBSERVABLE_FIELDS = ("executed_action", "future_outcome", "spike_events")
+MACHINE_IDENTIFIER_KEYS = frozenset({"action", "outcome", "result", "status", "unit"})
+_MACHINE_IDENTIFIER_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.:/-]*\Z")
+_DIAGNOSIS_NAME_RE = re.compile(r"diagnosis-(?P<index>[0-9]{2})-r(?P<round>[0-9]{2})\.md\Z")
+_STAGING_NAME_RE = re.compile(r"r(?P<round>[0-9]{2})-[0-9a-f]{32}\Z")
+_FACTORY_SLUG_RE = re.compile(r"[a-z0-9][a-z0-9-]*\Z")
 
 REASON_MALFORMED = "PREFERENCE_PAIR_MALFORMED"
 REASON_CONTEXT_DIVERGES = "PREFERENCE_CONTEXT_DIVERGES"
@@ -77,8 +116,51 @@ REASON_ISOLATION_CONFLICT = "PREFERENCE_ARMS_ISOLATION_CONFLICT"
 REASON_SINGLE_SESSION = "PREFERENCE_ARMS_SINGLE_SESSION_PATH"
 REASON_ISOLATION_UNTRUSTED = "PREFERENCE_ARMS_ISOLATION_UNTRUSTED"
 REASON_LABEL_ONLY_COPY = "PREFERENCE_ARMS_LABEL_ONLY_COPY"
+REASON_EXTENSION_FIELDS = "PREFERENCE_ARM_EXTENSION_FIELDS"
+REASON_OBSERVABLES_IDENTICAL = "PREFERENCE_ARMS_OBSERVABLES_IDENTICAL"
 
 _GATE_LABEL_PATHS = frozenset({("safety_decision", "decision")})
+
+# Common cross-script lookalikes that are routinely used to make a copied
+# Latin token appear lexically different. NFKD already folds compatibility
+# forms such as full-width and mathematical letters; this closes the remaining
+# high-value Greek/Cyrillic homoglyph path without pretending to implement the
+# complete Unicode confusables table.
+_CONFUSABLE_ASCII = str.maketrans(
+    {
+        "а": "a",
+        "ɑ": "a",
+        "α": "a",
+        "в": "b",
+        "β": "b",
+        "с": "c",
+        "ϲ": "c",
+        "е": "e",
+        "ε": "e",
+        "һ": "h",
+        "н": "h",
+        "і": "i",
+        "ι": "i",
+        "ј": "j",
+        "к": "k",
+        "κ": "k",
+        "м": "m",
+        "μ": "m",
+        "о": "o",
+        "ο": "o",
+        "р": "p",
+        "ρ": "p",
+        "ѕ": "s",
+        "т": "t",
+        "τ": "t",
+        "у": "y",
+        "υ": "y",
+        "ν": "v",
+        "х": "x",
+        "χ": "x",
+        "ӏ": "l",
+    }
+)
 
 
 class PreferenceArmsError(RuntimeError):
@@ -130,12 +212,74 @@ class ArmScan:
         return bool(self.summary.get("blocked_pairs"))
 
 
-def _contrast_surface(arm: dict[str, Any]) -> dict[str, Any]:
-    """Return the arm fields that carry the preference signal."""
+def _behavior_surface(arm: dict[str, Any]) -> dict[str, Any]:
+    """Return fields used by the explicit gate-label-copy check."""
 
-    return {
-        key: value for key, value in arm.items() if key not in EXCLUDED_FROM_CONTRAST
-    }
+    return {key: arm[key] for key in arm if key in LABEL_COPY_FIELDS}
+
+
+def _contrast_surface(arm: dict[str, Any]) -> dict[str, Any]:
+    """Return measured behavior, excluding producer-authored narrative."""
+
+    return {key: arm[key] for key in arm if key in CONTRAST_FIELDS}
+
+
+def _machine_observable_leaf(path: tuple[str, ...], left: Any, right: Any) -> bool:
+    """Whether a shared changed leaf is machine-observable rather than prose."""
+
+    if isinstance(left, str) and isinstance(right, str):
+        return bool(
+            path
+            and path[-1] in MACHINE_IDENTIFIER_KEYS
+            and _MACHINE_IDENTIFIER_RE.fullmatch(left)
+            and _MACHINE_IDENTIFIER_RE.fullmatch(right)
+        )
+    scalar_types = (bool, int, float, type(None))
+    return isinstance(left, scalar_types) and isinstance(right, scalar_types)
+
+
+def _common_machine_deltas(
+    left: Any,
+    right: Any,
+    path: tuple[str, ...],
+) -> list[tuple[str, ...]]:
+    """Return changed machine leaves that exist in both comparison trees."""
+
+    if isinstance(left, dict) and isinstance(right, dict):
+        result: list[tuple[str, ...]] = []
+        for key in sorted(set(left) & set(right)):
+            result.extend(_common_machine_deltas(left[key], right[key], (*path, str(key))))
+        return result
+    if isinstance(left, list) and isinstance(right, list):
+        result = []
+        for index, (left_item, right_item) in enumerate(zip(left, right)):
+            result.extend(
+                _common_machine_deltas(
+                    left_item,
+                    right_item,
+                    (*path, f"[{index}]"),
+                )
+            )
+        return result
+    if canonical_json(left) == canonical_json(right):
+        return []
+    return [path] if _machine_observable_leaf(path, left, right) else []
+
+
+def machine_observable_deltas(chosen: dict[str, Any], rejected: dict[str, Any]) -> tuple[str, ...]:
+    """Return shared machine-observable paths whose values actually differ."""
+
+    paths: list[tuple[str, ...]] = []
+    for field_name in MACHINE_OBSERVABLE_FIELDS:
+        if field_name in chosen and field_name in rejected:
+            paths.extend(
+                _common_machine_deltas(
+                    chosen[field_name],
+                    rejected[field_name],
+                    (field_name,),
+                )
+            )
+    return tuple(".".join(path) for path in paths)
 
 
 def _unicode_terms(value: str) -> tuple[str, ...]:
@@ -148,7 +292,7 @@ def _unicode_terms(value: str) -> tuple[str, ...]:
     changes one term instead of replacing the entire rationale.
     """
 
-    normalized = unicodedata.normalize("NFKD", value.casefold())
+    normalized = unicodedata.normalize("NFKD", value.casefold()).translate(_CONFUSABLE_ASCII)
     terms: list[str] = []
     ascii_word: list[str] = []
 
@@ -158,7 +302,12 @@ def _unicode_terms(value: str) -> tuple[str, ...]:
             ascii_word.clear()
 
     for character in normalized:
-        if unicodedata.combining(character):
+        category = unicodedata.category(character)
+        if unicodedata.combining(character) or category.startswith("M"):
+            continue
+        if category == "Cf":
+            # Zero-width joiners, bidi controls, and other invisible format
+            # marks must not split one visible word into distant fragments.
             continue
         if character.isascii() and character.isalnum():
             ascii_word.append(character)
@@ -187,13 +336,11 @@ def _without_gate_labels(value: Any, path: tuple[str, ...] = ()) -> Any:
     return value
 
 
-def differs_only_by_gate_label(
-    chosen: dict[str, Any], rejected: dict[str, Any]
-) -> bool:
+def differs_only_by_gate_label(chosen: dict[str, Any], rejected: dict[str, Any]) -> bool:
     """Whether the sole contrastive change is a safety gate decision label."""
 
-    chosen_surface = _contrast_surface(chosen)
-    rejected_surface = _contrast_surface(rejected)
+    chosen_surface = _behavior_surface(chosen)
+    rejected_surface = _behavior_surface(rejected)
     if canonical_json(chosen_surface) == canonical_json(rejected_surface):
         return False
     return canonical_json(_without_gate_labels(chosen_surface)) == canonical_json(
@@ -308,6 +455,9 @@ def check_pair(
         )
 
     reasons: list[str] = []
+    extension_fields = sorted((set(chosen) | set(rejected)) - ARM_FIELDS)
+    if extension_fields:
+        reasons.append(REASON_EXTENSION_FIELDS)
     same_context = context_is_pure(record)
     if not same_context:
         reasons.append(REASON_CONTEXT_DIVERGES)
@@ -329,6 +479,8 @@ def check_pair(
         reasons.append(REASON_CONTRAST_EMPTY)
     if differs_only_by_gate_label(chosen, rejected):
         reasons.append(REASON_LABEL_ONLY_COPY)
+    if not machine_observable_deltas(chosen, rejected):
+        reasons.append(REASON_OBSERVABLES_IDENTICAL)
     similarity = cosine_similarity(chosen_terms, rejected_terms)
     distance = 1.0 - similarity
     if distance <= min_distance:
@@ -383,12 +535,8 @@ def scan_source(
     skipped = 0
 
     for path in _source_files(source):
-        relative = (
-            path.relative_to(source).as_posix() if source.is_dir() else path.name
-        )
-        for line_number, raw_line in enumerate(
-            path.read_bytes().splitlines(), 1
-        ):
+        relative = path.relative_to(source).as_posix() if source.is_dir() else path.name
+        for line_number, raw_line in enumerate(path.read_bytes().splitlines(), 1):
             if not raw_line.strip():
                 continue
             try:
@@ -432,9 +580,7 @@ def scan_source(
             1 for d in decisions if d.trusted_isolation == TWO_SESSION
         ),
         "context_purity_pct": (
-            round(100 * sum(1 for d in decisions if d.same_context) / pairs, 1)
-            if pairs
-            else 0.0
+            round(100 * sum(1 for d in decisions if d.same_context) / pairs, 1) if pairs else 0.0
         ),
         "observed_min_arm_distance": min(distances) if distances else None,
         "observed_max_arm_distance": max(distances) if distances else None,
@@ -447,10 +593,9 @@ def render_human(scan: ArmScan) -> str:
     summary = scan.summary
     lines = [
         f"Preference pairs: {summary['preference_pairs']}",
-        f"Same-context: {summary['same_context_pairs']}"
-        f" ({summary['context_purity_pct']}%)",
+        f"Same-context: {summary['same_context_pairs']} ({summary['context_purity_pct']}%)",
         f"Two-session attested: {summary['two_session_pairs']}",
-        f"Publisher-trusted two-session: {summary['trusted_two_session_pairs']}",
+        f"Reservation-bound two-session: {summary['trusted_two_session_pairs']}",
         f"Min arm distance required: > {summary['min_arm_distance']}",
         f"Observed arm distance: {summary['observed_min_arm_distance']}"
         f" .. {summary['observed_max_arm_distance']}",
@@ -459,14 +604,8 @@ def render_human(scan: ArmScan) -> str:
     for decision in scan.decisions:
         location = f"{decision.source_path}:{decision.source_line}"
         record_id = decision.record_id or "<no-id>"
-        verdict = (
-            "BLOCKED [" + ",".join(decision.reason_codes) + "]"
-            if decision.blocked
-            else "ok"
-        )
-        lines.append(
-            f"- {location} {record_id}: distance={decision.arm_distance} {verdict}"
-        )
+        verdict = "BLOCKED [" + ",".join(decision.reason_codes) + "]" if decision.blocked else "ok"
+        lines.append(f"- {location} {record_id}: distance={decision.arm_distance} {verdict}")
     return "\n".join(lines)
 
 
@@ -475,9 +614,7 @@ def _validated_distance_floor(value: Any) -> float:
         raise ValueError(f"arm-distance floor must be numeric: {value!r}")
     value = float(value)
     if not math.isfinite(value) or not 0.0 <= value < 1.0:
-        raise ValueError(
-            f"arm-distance floor must be a finite value in [0, 1): {value!r}"
-        )
+        raise ValueError(f"arm-distance floor must be a finite value in [0, 1): {value!r}")
     return value
 
 
@@ -494,13 +631,119 @@ def _min_distance(raw: str) -> float:
         ) from exc
 
 
+def verify_diagnosis_handoff(
+    staging_dir: Path,
+    diagnosis_files: Sequence[str],
+) -> dict[str, Any]:
+    """Verify one bounded diagnosis-only bridge without reading arm payloads.
+
+    The returned receipt contains names, byte counts, and SHA-256 digests only.
+    It deliberately never returns diagnosis content or inspects rejected-arm
+    scratch files, so the verifier remains a content-blind bridge between the
+    two generation sessions.
+    """
+
+    stage = Path(staging_dir)
+    if not stage.is_absolute():
+        raise PreferenceArmsError("staging directory must be an absolute path")
+    try:
+        stage_stat = stage.lstat()
+    except OSError as exc:
+        raise PreferenceArmsError(f"staging directory cannot be inspected: {stage}: {exc}") from exc
+    if stat.S_ISLNK(stage_stat.st_mode) or not stat.S_ISDIR(stage_stat.st_mode):
+        raise PreferenceArmsError(f"staging directory is not a real directory: {stage}")
+    try:
+        resolved_stage = stage.resolve(strict=True)
+    except OSError as exc:
+        raise PreferenceArmsError(f"staging directory cannot be resolved: {stage}: {exc}") from exc
+    if resolved_stage != stage:
+        raise PreferenceArmsError(
+            f"staging directory contains a symlink or non-canonical path: {stage}"
+        )
+
+    stage_match = _STAGING_NAME_RE.fullmatch(stage.name)
+    if stage_match is None:
+        raise PreferenceArmsError("staging directory must end in rNN-<32 lowercase hex token>")
+    factory = stage.parent.name
+    if _FACTORY_SLUG_RE.fullmatch(factory) is None:
+        raise PreferenceArmsError(f"invalid factory slug in staging path: {factory!r}")
+    round_number = int(stage_match.group("round"))
+    round_text = f"{round_number:02d}"
+
+    if isinstance(diagnosis_files, (str, bytes)):
+        raise PreferenceArmsError("diagnosis files must be a sequence of basenames")
+    names = tuple(diagnosis_files)
+    if not names:
+        raise PreferenceArmsError("at least one diagnosis file is required")
+    if len(set(names)) != len(names):
+        raise PreferenceArmsError("diagnosis filenames must be unique")
+
+    for name in names:
+        if not isinstance(name, str) or Path(name).name != name:
+            raise PreferenceArmsError(f"diagnosis filename must be a basename: {name!r}")
+        name_match = _DIAGNOSIS_NAME_RE.fullmatch(name)
+        if name_match is None or name_match.group("round") != round_text:
+            raise PreferenceArmsError(
+                f"diagnosis filename does not match staging round r{round_text}: {name!r}"
+            )
+
+    expected_names = tuple(
+        f"diagnosis-{index:02d}-r{round_text}.md" for index in range(1, len(names) + 1)
+    )
+    if names != expected_names:
+        raise PreferenceArmsError(
+            "diagnosis filenames must be the contiguous ordered allowlist "
+            + ", ".join(expected_names)
+        )
+
+    verified: list[dict[str, Any]] = []
+    for name in names:
+        path = stage / name
+        try:
+            file_stat = path.lstat()
+        except OSError as exc:
+            raise PreferenceArmsError(f"diagnosis file cannot be inspected: {name}: {exc}") from exc
+        if stat.S_ISLNK(file_stat.st_mode) or not stat.S_ISREG(file_stat.st_mode):
+            raise PreferenceArmsError(f"diagnosis file is not a real file: {name}")
+        try:
+            if path.resolve(strict=True) != path:
+                raise PreferenceArmsError(
+                    f"diagnosis file resolves outside the canonical stage: {name}"
+                )
+            payload = path.read_bytes()
+        except PreferenceArmsError:
+            raise
+        except OSError as exc:
+            raise PreferenceArmsError(f"diagnosis file cannot be read: {name}: {exc}") from exc
+        if not payload:
+            raise PreferenceArmsError(f"diagnosis file is empty: {name}")
+        try:
+            text = payload.decode("utf-8")
+        except UnicodeDecodeError as exc:
+            raise PreferenceArmsError(f"diagnosis file is not valid UTF-8: {name}: {exc}") from exc
+        if not text.strip():
+            raise PreferenceArmsError(f"diagnosis file contains only whitespace: {name}")
+        verified.append(
+            {
+                "name": name,
+                "bytes": len(payload),
+                "sha256": hashlib.sha256(payload).hexdigest(),
+            }
+        )
+
+    return {
+        "factory": factory,
+        "round": round_number,
+        "staging_dir": str(stage),
+        "diagnosis_files": verified,
+    }
+
+
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     subparsers = parser.add_subparsers(dest="command", required=True)
 
-    scan = subparsers.add_parser(
-        "scan", help="gate preference arms without writing anything"
-    )
+    scan = subparsers.add_parser("scan", help="gate preference arms without writing anything")
     scan.add_argument("source", type=Path)
     scan.add_argument("--json", action="store_true", help="emit the full report")
     scan.add_argument(
@@ -521,11 +764,35 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
             "(legacy corpora predating the two-session protocol)"
         ),
     )
+    verify_handoff = subparsers.add_parser(
+        "verify-handoff",
+        help="verify diagnosis basenames, regular files, bytes, and SHA-256 digests",
+    )
+    verify_handoff.add_argument("staging_dir", type=Path)
+    verify_handoff.add_argument(
+        "--file",
+        dest="diagnosis_files",
+        action="append",
+        required=True,
+        help="expected diagnosis basename; repeat in contiguous numeric order",
+    )
     return parser.parse_args(argv)
 
 
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
+    if args.command == "verify-handoff":
+        try:
+            receipt = verify_diagnosis_handoff(
+                args.staging_dir,
+                args.diagnosis_files,
+            )
+        except (OSError, PreferenceArmsError, ValueError) as exc:
+            print(f"diagnosis handoff verification failed: {exc}", file=sys.stderr)
+            return 1
+        print(json.dumps(receipt, sort_keys=True, ensure_ascii=False))
+        return 0
+
     try:
         scan = scan_source(
             args.source,

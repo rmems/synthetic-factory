@@ -32,7 +32,8 @@ Concretely, for every round generated from this point on:
 |---|---|
 | `rejected` + diagnosis come from Session A only | `prompts/05-…md` Session A isolation rule; the launcher runs it as its own agent |
 | `chosen` comes from a fresh Session B whose only bridge is the diagnosis | `prompts/05-…md` Session B isolation rule; the launcher runs it as a separate agent |
-| The operator reserves with `--preference-isolation two-session` | `round_txn.py reserve` records the publisher-controlled protocol marker; record metadata cannot substitute for it |
+| A content-blind controller reserves with `--preference-isolation two-session` before Session A starts | The launcher validates the exact receipt, staging path, token, and diagnosis-only handoff; record metadata cannot substitute for the reservation assertion |
+| A separate read-only verifier binds the diagnosis handoff before Session B starts | `preference_arms.py verify-handoff` requires the exact contiguous basenames, real non-empty UTF-8 files, byte counts, and SHA-256 digests |
 | Each record also declares `meta.isolation: "two-session"` | `pipelines/preference_arms.py` rejects a missing, conflicting, or non-`two-session` declaration |
 | The two arms are not one arm restated | `round_txn.py publish` runs `preference_arms.py` over captured bytes before the commit point |
 
@@ -47,12 +48,12 @@ for the round. Both sessions operate inside that directory, but they MUST
 NOT share generation context.
 
 ```
-reserve  ──►  Session A (rejected + diagnosis)  ──►  Session B (chosen from diagnosis)
-                │                                     │
-                ▼                                     ▼
-           rejected-rNN-0i.json                   batch-rNN.jsonl (chosen+rejected)
-           diagnosis-rNN-0i.md                    NOTES-rNN.md
-                                                  diagnosis-rNN-0i.md (retained)
+reserve ─► Session A (rejected + diagnosis) ─► read-only verifier ─► Session B
+              │                                      │                  │
+              ▼                                      ▼                  ▼
+         rejected-0i-rNN.json                 names/bytes/SHA-256   batch-rNN.jsonl
+         diagnosis-0i-rNN.md                                      NOTES-rNN.md
+                                                                  diagnoses retained
 ```
 
 ### 2.1 Session A — Rejected + Diagnosis
@@ -65,12 +66,11 @@ reserve  ──►  Session A (rejected + diagnosis)  ──►  Session B (chos
 | **Diagnosis per record** | Root cause, cascade effects, supervisor-catch, repair sketch |
 | **Batch file** | MUST NOT be written yet |
 
-Scratch rejected artifacts are staged as `rejected-rNN-01.json` (or
-`rejected-rNN.jsonl`) — one ThalamicTrajectory JSON object per file/line —
-so they satisfy the `artifact_re` allowlist (`*-rNN.(md|json|txt)`) and are
-publishable, but they are not the final batch.
+Scratch rejected artifacts are staged as `rejected-01-rNN.json` — one
+ThalamicTrajectory JSON object per file — so they satisfy the artifact
+allowlist and are publishable, but they are not the final batch.
 
-Each `diagnosis-rNN-0i.md` must be self-contained: a reader who has never
+Each `diagnosis-0i-rNN.md` must be self-contained: a reader who has never
 seen the rejected JSON can reconstruct the intended repair from the
 diagnosis alone. It must not paste the full rejected trajectory — only a
 narrative repair sketch.
@@ -79,8 +79,8 @@ narrative repair sketch.
 
 | Aspect | Requirement |
 |---|---|
-| **Input** | `diagnosis-rNN-0i.md` files ONLY (plus the `state`/`proposed_action` they describe) |
-| **Forbidden** | Reading `rejected-rNN*.json`, copying rejected JSON, or reusing Session A context |
+| **Input** | Independently verified `diagnosis-0i-rNN.md` files ONLY (plus the `state`/`proposed_action` they describe) |
+| **Forbidden** | Reading `rejected-*-rNN.json`, copying rejected JSON, or reusing Session A context |
 | **Output** | 3 repaired `chosen` ThalamicTrajectories |
 | **Assembly** | Merge each `chosen` with its verbatim `rejected` (from Session A scratch) into `batch-rNN.jsonl` as `{id, chosen, rejected, critique, reward_delta}` |
 
@@ -99,6 +99,7 @@ failures of the same class.
 
 - [ ] Session A produced exactly 3 diagnoses and 3 rejected scratch files
 - [ ] No `batch-rNN.jsonl` exists after Session A
+- [ ] `verify-handoff` bound the exact three diagnosis basenames, sizes, and SHA-256 digests
 - [ ] Session B context was reset (new conversation / cleared history)
 - [ ] Session B did not open any `rejected-rNN*.json` file
 - [ ] Final `batch-rNN.jsonl` has exactly 3 lines, each with `chosen` + `rejected` + non-empty `critique`
@@ -263,17 +264,18 @@ python3 pipelines/preference_arms.py scan <staging_dir-or-batch> --json
 The command is a read-only preview; it exits non-zero when any pair is blocked,
 and it fails closed when a source contains no preference pairs at all. For new
 FFPC rounds, `round_txn.py publish` invokes the same check against captured
-bytes, requires the reservation's publisher-controlled isolation marker, and
+bytes, requires the reservation's orchestrator-issued isolation assertion, and
 records a path-independent gate result in the v2 completion marker.
 
-**What it measures.** For each side it builds the *contrast surface* — every
-arm field except `state`, `proposed_action` (identical by Section 3, so they
-would swamp any metric), `id`, and `meta` (per-side bookkeeping that would
-manufacture distance no learner ever sees). Each surface becomes a
-path-scoped term-frequency vector: string leaves contribute one term per
-normalized ASCII word or non-ASCII code point, non-string leaves stay atomic
-so `0.2` and `-0.2` never collide, and list positions are collapsed so a
-reordered list is not a different arm.
+**What it measures.** For each side it builds an allowlisted behavioral
+*contrast surface*: `executed_action`, `future_outcome`, and `spike_events`.
+Shared context, safety prose, IDs, metadata, provenance labels, reward labels,
+and unknown extension fields cannot manufacture distance. Unknown top-level
+arm fields block the pair.
+Each surface becomes a path-scoped term-frequency vector: string leaves
+contribute normalized lexical terms, non-string leaves stay atomic so `0.2`
+and `-0.2` never collide, and list positions are collapsed so a reordered list
+is not a different arm.
 The arm distance is then
 
 ```
@@ -283,11 +285,17 @@ arm_distance = 1 - cosine_similarity(terms(chosen), terms(rejected))
 This is a deterministic, stdlib-only lexical metric, not an embedding-model
 surrogate. Its independent, fixture-calibrated default floor is 0.03; the
 separate corpus near-duplicate threshold in `quality_gate.py` makes no claim
-of metric equivalence. ASCII words remain intact, while normalized non-ASCII
-letters and digits are emitted as code-point terms so unspaced CJK edits are
-measured proportionally. A structural check also rejects arms whose only
-contrast is `safety_decision.decision`, even when a short record would sit
-above the lexical floor. Observed distance on an honest two-session round
+of metric equivalence. Compatibility decomposition removes accent-only
+inflation, common Greek/Cyrillic homoglyphs are folded, and invisible Unicode
+format marks cannot split visible words. Other non-ASCII letters and digits
+are emitted as code-point terms so unspaced CJK edits are measured
+proportionally. A structural check also rejects arms whose only behavioral
+contrast is `safety_decision.decision`; reward-only changes remain
+near-verbatim. Independently of the lexical score, at least one scalar or
+bounded identifier leaf present in both arms must differ under
+`executed_action`, `future_outcome`, or `spike_events`; one-sided nested
+padding and free-form rationale edits cannot satisfy that invariant. Observed
+distance on an honest two-session round
 runs ~0.7; `--min-distance` tightens the preview when a round wants more
 headroom than "not a copy".
 
@@ -302,8 +310,10 @@ headroom than "not a copy".
 | `PREFERENCE_ARMS_ISOLATION_UNDECLARED` | No `meta.isolation` on the record or either arm |
 | `PREFERENCE_ARMS_ISOLATION_CONFLICT` | Record and arms disagree about how the pair was generated |
 | `PREFERENCE_ARMS_SINGLE_SESSION_PATH` | The attestation names the deprecated single-context path |
-| `PREFERENCE_ARMS_ISOLATION_UNTRUSTED` | Publication lacks the reservation's publisher-controlled two-session marker |
-| `PREFERENCE_ARMS_LABEL_ONLY_COPY` | Removing only the gate decision label makes the two contrast surfaces identical |
+| `PREFERENCE_ARMS_ISOLATION_UNTRUSTED` | Publication lacks the reservation's orchestrator-issued two-session assertion |
+| `PREFERENCE_ARMS_LABEL_ONLY_COPY` | Removing the gate decision label leaves identical observable behavior; reward relabeling cannot clear it |
+| `PREFERENCE_ARM_EXTENSION_FIELDS` | An arm carries an unknown top-level field that could manufacture lexical distance |
+| `PREFERENCE_ARMS_OBSERVABLES_IDENTICAL` | No shared machine-observable leaf differs; prose edits or one-sided nested padding are not independent behavior |
 
 **Repair on failure.** A near-verbatim pair is not a formatting defect — it
 means Session B did not actually reason from the diagnosis. Re-run Session B
@@ -313,19 +323,25 @@ arms to clear the floor.
 ## 4. End-to-end example (round r05)
 
 ```
-# One-time reservation (covers both sessions)
+# Content-blind controller reservation (before either arm-producing session)
 python3 pipelines/round_txn.py reserve outputs/raw/2026-08-17/failure-as-fuel-preference-cascade --round 5 --expected 3 --preference-isolation two-session
 # → staging_dir = outputs/staging/2026-08-17/failure-as-fuel-preference-cascade/r05-<token>
 
 # Session A: write failures + diagnoses
-#   staging/r05-<token>/rejected-r05-01.json
-#   staging/r05-<token>/rejected-r05-02.json
-#   staging/r05-<token>/rejected-r05-03.json
-#   staging/r05-<token>/diagnosis-r05-01.md
-#   staging/r05-<token>/diagnosis-r05-02.md
-#   staging/r05-<token>/diagnosis-r05-03.md
+#   staging/r05-<token>/rejected-01-r05.json
+#   staging/r05-<token>/rejected-02-r05.json
+#   staging/r05-<token>/rejected-03-r05.json
+#   staging/r05-<token>/diagnosis-01-r05.md
+#   staging/r05-<token>/diagnosis-02-r05.md
+#   staging/r05-<token>/diagnosis-03-r05.md
 
-# Session B (fresh context): read only diagnosis-r05-*.md, synthesize chosen
+# Separate read-only context: bind the only files Session B may open
+python3 pipelines/preference_arms.py verify-handoff \
+  outputs/staging/2026-08-17/failure-as-fuel-preference-cascade/r05-<token> \
+  --file diagnosis-01-r05.md --file diagnosis-02-r05.md \
+  --file diagnosis-03-r05.md
+
+# Session B (fresh context): read only diagnosis-*-r05.md, synthesize chosen
 #   staging/r05-<token>/batch-r05.jsonl      (3 preference records)
 #   staging/r05-<token>/NOTES-r05.md
 
@@ -339,7 +355,7 @@ python3 pipelines/preference_arms.py scan outputs/staging/2026-08-17/failure-as-
 # Publish
 python3 pipelines/round_txn.py publish outputs/raw/2026-08-17/failure-as-fuel-preference-cascade --round 5 --token <token>
 # → outputs/raw/2026-08-17/failure-as-fuel-preference-cascade/batch-r05.jsonl
-# → outputs/raw/2026-08-17/failure-as-fuel-preference-cascade/diagnosis-r05-*.md
+# → outputs/raw/2026-08-17/failure-as-fuel-preference-cascade/diagnosis-*-r05.md
 # → outputs/raw/2026-08-17/failure-as-fuel-preference-cascade/NOTES-r05.md
 # → outputs/raw/2026-08-17/failure-as-fuel-preference-cascade/ROUND-r05.complete.json
 ```
@@ -353,11 +369,15 @@ python3 pipelines/round_txn.py publish outputs/raw/2026-08-17/failure-as-fuel-pr
   document the repair rationale for audit and for training the next round's
   densification.
 - Every published record carries `meta.isolation: "two-session"`, and the
-  reservation separately carries the publisher-controlled protocol marker.
+  reservation separately carries the orchestrator-issued protocol assertion.
   `round_txn.py publish` requires both, runs the same-context and independent-
   arm decisions, and stores their deterministic summary in the completion
-  marker. The reservation marker is operator-controlled evidence, not a
-  cryptographic attestation of what happened inside an external model session.
+  marker. The launcher obtains that reservation in a separate content-blind
+  context and validates the exact diagnosis allowlist, regular-file type,
+  non-empty UTF-8 bytes, sizes, and SHA-256 digests before opening Session B.
+  This is auditable orchestration evidence, not a cryptographic attestation of
+  what happened inside an external model session; a manual operator invoking
+  the reserve command is explicitly making the same protocol assertion.
 - No generated content is ever written directly into `outputs/raw/`; all
   writes go through the reserved `staging_dir` and are atomically linked
   on `publish`.

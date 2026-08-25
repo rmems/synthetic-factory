@@ -64,16 +64,65 @@ const VERIFICATION = {
   required: ['factory', 'round', 'verified', 'next_round', 'records', 'completion_marker', 'reason', 'novel_coverage_pct'],
 }
 
+// Reservation controller receipt for the failure-as-fuel protocol. The
+// controller is a separate context that generates no arm content.
+const PREF_RESERVATION = {
+  type: 'object',
+  required: ['factory', 'round', 'staging_dir', 'reserve_token'],
+  additionalProperties: false,
+  properties: {
+    factory: { type: 'string' },
+    round: { type: 'number' },
+    staging_dir: { type: 'string', minLength: 1 },
+    reserve_token: { type: 'string', pattern: '^[0-9a-f]{32}$' },
+  },
+}
+
 // Session-A staging handoff for the failure-as-fuel two-session protocol.
 const PREF_STAGE = {
   type: 'object',
   required: ['factory', 'round', 'staging_dir', 'reserve_token', 'diagnosis_files'],
+  additionalProperties: false,
   properties: {
     factory: { type: 'string' },
     round: { type: 'number' },
-    staging_dir: { type: 'string' },
-    reserve_token: { type: 'string' },
-    diagnosis_files: { type: 'array', items: { type: 'string' } },
+    staging_dir: { type: 'string', minLength: 1 },
+    reserve_token: { type: 'string', pattern: '^[0-9a-f]{32}$' },
+    diagnosis_files: {
+      type: 'array',
+      minItems: 3,
+      maxItems: 3,
+      uniqueItems: true,
+      items: { type: 'string', pattern: '^diagnosis-[0-9]{2}-r[0-9]{2}\\.md$' },
+    },
+  },
+}
+
+// A fourth, read-only context executes the repository verifier and returns
+// only bounded file metadata. Session B opens only files in this receipt.
+const PREF_DIAGNOSIS_VERIFICATION = {
+  type: 'object',
+  required: ['factory', 'round', 'staging_dir', 'diagnosis_files'],
+  additionalProperties: false,
+  properties: {
+    factory: { type: 'string' },
+    round: { type: 'number' },
+    staging_dir: { type: 'string', minLength: 1 },
+    diagnosis_files: {
+      type: 'array',
+      minItems: 3,
+      maxItems: 3,
+      items: {
+        type: 'object',
+        required: ['name', 'bytes', 'sha256'],
+        additionalProperties: false,
+        properties: {
+          name: { type: 'string', pattern: '^diagnosis-[0-9]{2}-r[0-9]{2}\\.md$' },
+          bytes: { type: 'number', minimum: 1 },
+          sha256: { type: 'string', pattern: '^[0-9a-f]{64}$' },
+        },
+      },
+    },
   },
 }
 
@@ -177,6 +226,43 @@ function isLowNovel(pct) {
   return pct !== null && pct < TOKEN_EFFICIENCY.novelThresholdPct
 }
 
+function preferenceDiagnosisFiles(count, rr) {
+  return Array.from(
+    { length: count },
+    (_, index) => `diagnosis-${String(index + 1).padStart(2, '0')}-r${rr}.md`,
+  )
+}
+
+function preferenceReservationIsValid(receipt, factory, round, rr) {
+  if (!receipt || receipt.factory !== factory.slug || receipt.round !== round) return false
+  if (!/^[0-9a-f]{32}$/.test(receipt.reserve_token || '')) return false
+  const root = String(args.root).replace(/\/+$/, '')
+  const expectedStage = `${root}/outputs/staging/${args.date}/${factory.slug}/r${rr}-${receipt.reserve_token}`
+  return receipt.staging_dir === expectedStage
+}
+
+function preferenceHandoffIsValid(handoff, reservation, factory, round, rr) {
+  if (!handoff || handoff.factory !== factory.slug || handoff.round !== round) return false
+  if (handoff.reserve_token !== reservation.reserve_token) return false
+  if (handoff.staging_dir !== reservation.staging_dir) return false
+  const expected = preferenceDiagnosisFiles(factory.count, rr)
+  return JSON.stringify(handoff.diagnosis_files) === JSON.stringify(expected)
+}
+
+function preferenceDiagnosisVerificationIsValid(receipt, reservation, factory, round, rr) {
+  if (!receipt || receipt.factory !== factory.slug || receipt.round !== round) return false
+  if (receipt.staging_dir !== reservation.staging_dir) return false
+  const expected = preferenceDiagnosisFiles(factory.count, rr)
+  if (!Array.isArray(receipt.diagnosis_files) || receipt.diagnosis_files.length !== expected.length) return false
+  return receipt.diagnosis_files.every((item, index) => (
+    item
+    && item.name === expected[index]
+    && Number.isSafeInteger(item.bytes)
+    && item.bytes > 0
+    && /^[0-9a-f]{64}$/.test(item.sha256 || '')
+  ))
+}
+
 const END_ROUND = (args && args.end) || 26
 const STARTS = (args && args.starts) || {}
 log(`Transactional factory window: starts ${JSON.stringify(STARTS)}, backstop r${END_ROUND}.`)
@@ -278,47 +364,85 @@ Data contract:
 - Return only the structured summary after successful publication. Set completion_marker exactly to "${expectedMarker}".`
 
     let result
-    // Preference Session A owns the reservation; hoist the token so Session B
-    // identity failure AND later verification/circuit-break can still abort.
+    // A content-blind controller owns the reservation; hoist the token so any
+    // later identity, handoff, verification, or circuit-break failure can abort.
     let reserveToken = null
     if (factory.slug === 'failure-as-fuel-preference-cascade') {
       // Two-session isolation (docs/preference-isolation.md): Session A and
       // Session B are SEPARATE agents with independent generation contexts —
       // the only inter-session bridge is the diagnosis artifacts.
-      const sessionA = await agent(`You are Session A (failure mining) of the "${factory.name}" two-session protocol, run ${args.date}, round ${round}.
+      // A third, content-blind context owns reservation so neither arm producer
+      // self-issues the orchestration marker used by the publisher.
+      const reservation = await agent(`You are the reservation controller for the "${factory.name}" two-session protocol, run ${args.date}, round ${round}. Generate no record, diagnosis, chosen arm, or rejected arm. Run exactly this reservation command:
 
-FILE-SAFETY — highest priority: NEVER write, edit, rename, truncate, or delete any existing file under ${outDir}. Reserve exactly this round first; the publisher-controlled isolation marker is mandatory and cannot be replaced by record metadata:
+FILE-SAFETY — highest priority: NEVER write, edit, rename, truncate, or delete any existing file under ${outDir}:
   python3 ${args.root}/pipelines/round_txn.py reserve ${outDir} --round ${round} --expected ${factory.count} --preference-isolation two-session
-Parse its JSON; write ONLY inside the returned staging_dir. If reservation fails, stop without writing.
+If reservation fails, stop. Otherwise return only factory="${factory.slug}", round=${round}, and the command's exact staging_dir and token as reserve_token.`, {
+        label: `${factory.slug}:r${rr}-reserve`,
+        phase: 'Generate',
+        schema: PREF_RESERVATION,
+      })
+      if (!preferenceReservationIsValid(reservation, factory, round, rr)) {
+        stoppedReason = `r${rr} reservation controller returned an invalid receipt`
+        log(`${factory.slug}: ${stoppedReason}; circuit open`)
+        // The returned token is part of the invalid receipt and cannot be
+        // trusted for cleanup. Read the actual token from the exclusive marker.
+        await releaseReservation(factory, round, rr, null)
+        break
+      }
+      reserveToken = reservation.reserve_token
+
+      const sessionA = await agent(`You are Session A (failure mining) of the "${factory.name}" two-session protocol, run ${args.date}, round ${round}. A separate content-blind controller already reserved this round. Do not call reserve again.
+
+FILE-SAFETY — highest priority: NEVER write, edit, rename, truncate, or delete any existing file under ${outDir}. Write ONLY inside this exact reserved staging directory: ${reservation.staging_dir}.
 
 Read and obey ${args.root}/prompts/_factory-contract.md and the "Session A" section of ${args.root}/prompts/${factory.file}, plus ${args.root}/schemas/thalamic-trajectory-v2.schema.json and ${args.root}/schemas/provenance.md.
 
 Produce EXACTLY ${factory.count} rejected ThalamicTrajectories and their diagnoses in staging: rejected-01-r${rr}.json, rejected-02-r${rr}.json, rejected-03-r${rr}.json scratch files (one JSON object each; never .jsonl) and diagnosis-01-r${rr}.md, diagnosis-02-r${rr}.md, diagnosis-03-r${rr}.md files, each diagnosis containing the Shared-context state/proposed_action JSON block, root cause, cascade effects, supervisor catch, repair sketch, and target reward delta per the prompt. Do NOT write batch-r${rr}.jsonl, do NOT publish, and do NOT draft any chosen content.
 
-Return the structured handoff: factory="${factory.slug}", round=${round}, the reservation's staging_dir and token (reserve_token), and the diagnosis filenames.`, {
+Return the structured handoff: factory="${factory.slug}", round=${round}, staging_dir="${reservation.staging_dir}", reserve_token="${reservation.reserve_token}", and diagnosis_files exactly ${JSON.stringify(preferenceDiagnosisFiles(factory.count, rr))}.`, {
         label: `${factory.slug}:r${rr}-sessionA`,
         phase: 'Generate',
         schema: PREF_STAGE,
       })
-      if (!sessionA || sessionA.factory !== factory.slug || sessionA.round !== round) {
-        stoppedReason = `r${rr} session A failed or returned mismatched identity`
+      if (!preferenceHandoffIsValid(sessionA, reservation, factory, round, rr)) {
+        stoppedReason = `r${rr} session A failed or returned an invalid diagnosis-only handoff`
         log(`${factory.slug}: ${stoppedReason}; circuit open`)
-        // sessionA may be null after a successful reserve (agent/session error);
-        // pass any token we have, otherwise abort reads ROUND-rNN.reserved.json.
-        await releaseReservation(factory, round, rr, sessionA && sessionA.reserve_token)
+        await releaseReservation(factory, round, rr, reservation.reserve_token)
         break
       }
-      reserveToken = sessionA.reserve_token
+      const diagnosisVerification = await agent(`You are the read-only diagnosis handoff verifier for the "${factory.name}" two-session protocol, run ${args.date}, round ${round}. You are a separate context from Sessions A and B. Generate no arm content and do not open, summarize, or quote any diagnosis or rejected-arm file yourself.
+
+Run exactly this repository verifier, which reads only the allowlisted diagnosis files and emits names, byte counts, and SHA-256 digests — never file content:
+  python3 ${args.root}/pipelines/preference_arms.py verify-handoff ${reservation.staging_dir} ${preferenceDiagnosisFiles(factory.count, rr).map((name) => `--file ${name}`).join(' ')}
+If it exits nonzero, stop. Otherwise return its stdout JSON exactly.`, {
+        label: `${factory.slug}:r${rr}-diagnosis-verify`,
+        phase: 'Verify',
+        schema: PREF_DIAGNOSIS_VERIFICATION,
+      })
+      if (!preferenceDiagnosisVerificationIsValid(
+        diagnosisVerification,
+        reservation,
+        factory,
+        round,
+        rr,
+      )) {
+        stoppedReason = `r${rr} diagnosis files failed the read-only handoff verification`
+        log(`${factory.slug}: ${stoppedReason}; circuit open`)
+        await releaseReservation(factory, round, rr, reservation.reserve_token)
+        break
+      }
+      const verifiedDiagnosisFiles = diagnosisVerification.diagnosis_files.map((item) => item.name)
       result = await agent(`You are Session B (repair synthesis) of the "${factory.name}" two-session protocol, run ${args.date}, round ${round} — a FRESH context with no Session A memory.
 
-FILE-SAFETY — highest priority: NEVER write, edit, rename, truncate, or delete any existing file under ${outDir}. Session A already reserved this round; its staging_dir is ${sessionA.staging_dir} and the publish token is ${sessionA.reserve_token}.
+FILE-SAFETY — highest priority: NEVER write, edit, rename, truncate, or delete any existing file under ${outDir}. The content-blind controller reserved this round; its staging_dir is ${diagnosisVerification.staging_dir} and the publish token is ${reservation.reserve_token}.
 
 Read and obey ${args.root}/prompts/_factory-contract.md and the "Session B" section of ${args.root}/prompts/${factory.file}, plus ${args.root}/schemas/thalamic-trajectory-v2.schema.json.
 
-ISOLATION RULE (absolute): read ONLY these diagnosis files from staging: ${JSON.stringify(sessionA.diagnosis_files)}. NEVER read any rejected-*-r${rr}.json into your context. Synthesize one repaired chosen ThalamicTrajectory per diagnosis (byte-identical state/proposed_action from each Shared-context block, fresh safety rationale), then assemble batch-r${rr}.jsonl MECHANICALLY via a python3 script that json-loads each rejected scratch file and injects it (with your chosen, a critique, script-computed reward_delta = chosen - rejected per component, and meta.isolation="two-session") without printing the rejected content. Write the staged NOTES-r${rr}.md self-critique including the "Novel coverage: <N>%" line. Run the prompt's purity checks and independent-arm scan as a local preview:
-  python3 ${args.root}/pipelines/preference_arms.py scan ${sessionA.staging_dir}/batch-r${rr}.jsonl
+ISOLATION RULE (absolute): read ONLY these independently verified diagnosis files from staging: ${JSON.stringify(verifiedDiagnosisFiles)}. Their bounded verification receipt is ${JSON.stringify(diagnosisVerification.diagnosis_files)}. NEVER read any rejected-*-r${rr}.json into your context. Synthesize one repaired chosen ThalamicTrajectory per diagnosis (byte-identical state/proposed_action from each Shared-context block, fresh safety rationale), then assemble batch-r${rr}.jsonl MECHANICALLY via a python3 script that json-loads each rejected scratch file and injects it (with your chosen, a critique, script-computed reward_delta = chosen - rejected per component, and meta.isolation="two-session") without printing the rejected content. Write the staged NOTES-r${rr}.md self-critique including the "Novel coverage: <N>%" line. Run the prompt's purity checks and independent-arm scan as a local preview:
+  python3 ${args.root}/pipelines/preference_arms.py scan ${diagnosisVerification.staging_dir}/batch-r${rr}.jsonl
 A PREFERENCE_ARMS_NEAR_VERBATIM or PREFERENCE_ARMS_LABEL_ONLY_COPY block means the repair restated the rejected arm — re-synthesize that chosen from its diagnosis rather than rewording it. Then publish; publish re-runs the same gate against captured bytes and records its result in the completion marker, so skipping the preview cannot bypass it:
-  python3 ${args.root}/pipelines/round_txn.py publish ${outDir} --round ${round} --token ${sessionA.reserve_token}
+  python3 ${args.root}/pipelines/round_txn.py publish ${outDir} --round ${round} --token ${reservation.reserve_token}
 A round exists only if publish succeeds and creates ${expectedMarker}. Repeat the identical "Novel coverage: <N>%" line verbatim inside your returned coverage_notes. Return only the structured summary after successful publication; set completion_marker exactly to "${expectedMarker}".`, {
         label: `${factory.slug}:r${rr}-sessionB`,
         phase: 'Generate',
