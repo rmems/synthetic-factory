@@ -1,0 +1,21 @@
+pipelines/curate_agentic.py
+  s_940326c4ee4215::t_1831c6e271b560 533,548,678,680-682,697-699,800-805
+tests/test_curate_agentic.py
+  s_940326c4ee4215::t_1831c6e271b560 764-768,777-805,1038-1067
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "2a8444ad556aa6eecb0a986e901ba0b508f455c7",
+  "prompts": {},
+  "sessions": {
+    "s_940326c4ee4215": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a032e4-1904-7a82-8c8b-1ad3cfbeb0b0",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Raul Montoya Cardenas <montoyaraul34@gmail.com>"
+    }
+  }
+}
