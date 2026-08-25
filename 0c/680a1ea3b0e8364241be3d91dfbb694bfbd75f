@@ -1,5 +1,5 @@
 tests/test_card_schema_issue_101.py
-  s_940326c4ee4215::t_0c3af00658463e 1-169
+  s_940326c4ee4215::t_0c3af00658463e 1-86,88-168
 ---
 {
   "schema_version": "authorship/3.0.0",
