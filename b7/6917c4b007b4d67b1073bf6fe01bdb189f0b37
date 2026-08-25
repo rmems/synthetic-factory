@@ -1,0 +1,74 @@
+tests/test_preference_arms.py
+  s_002cddb1a70571::t_2c43cab70d416a 1-17,19-23,25-30,37-60,64-66,72-88,92,94,97-98,107-111,115-119,121-138,140,143-176,178-180,182-183,190-212,219-228,232-248,250-259,272-278,282-287,291-293,298-308,311-334,337-364,376,379,386-400,404-420,424,430-446,451-453
+  s_002cddb1a70571::t_17e1c87da30a91 24,34-36,181,309
+  s_940326c4ee4215::t_bf7f7b137b4bc3 93
+  s_002cddb1a70571::t_65a01fc15e3ee9 99-102,106
+  s_002cddb1a70571::t_e40ca3186a455e 112-114
+  s_940326c4ee4215::t_8fb04374543d41 120
+  s_002cddb1a70571::t_3a5da4b0ea3ac7 139,141-142
+  s_940326c4ee4215::t_442f678cba6c8b 187-188
+  s_002cddb1a70571::t_db720e0271916d 249
+  s_002cddb1a70571::t_43488472880755 260-269
+  s_940326c4ee4215::t_a43fb6811fd8c6 270-271
+  s_940326c4ee4215::t_88417891f5c312 294,296
+  s_002cddb1a70571::t_919286499292df 310
+  s_002cddb1a70571::t_0e00a51871a38b 365-375,377-378,380-385
+  s_940326c4ee4215::t_2313c0af90cd88 447,449
+prompts/05-failure-as-fuel-preference-cascade.md
+  s_002cddb1a70571::t_ba4b4fdff410e4 18-25
+  s_002cddb1a70571::t_5618bd35bab1e2 168-173
+  s_002cddb1a70571::t_292012265edc68 207-210
+  s_002cddb1a70571::t_5a36ea474cff8d 285-290,292-295
+pipelines/preference_arms.py
+  s_002cddb1a70571::t_b0cab75eaa7f16 1-12,26-39,41-44,46-51,55,57,62-66,71,73-80,84-129,132,140-150,152-158,161-178,182-184,186,188-208,210,214-224,226-254,257-308,315-350,354-365,368-376,385-392,394-395,400-403,407-413,417-426,428-457,460-470,475-479
+  s_940326c4ee4215::t_7175e8c038fc97 40
+  s_940326c4ee4215::t_13bc9f1671b1c1 83,131
+  s_940326c4ee4215::t_1158fe7884caa8 134,138-139
+  s_940326c4ee4215::t_bf7f7b137b4bc3 159-160
+  s_002cddb1a70571::t_d477eb035126e1 179-181
+  s_002cddb1a70571::t_42dfd5ff72f220 209,211-213
+  s_940326c4ee4215::t_8fb04374543d41 225
+  s_940326c4ee4215::t_4950931c20403d 396,398-399,427
+  s_002cddb1a70571::t_c987a943f930e2 458-459,471-474
+tests/fixtures/preference-arms/single-session-r11.jsonl
+  s_002cddb1a70571::t_0454de143238a1 1
+.claude/skills/run-synthetic-factory/factory-window.workflow.js
+  s_940326c4ee4215::t_c83a24ec869087 71-73,302
+  s_940326c4ee4215::t_a6ce7e4f2a83d1 178-179,289
+tests/fixtures/preference-arms/near-verbatim-r11.jsonl
+  s_002cddb1a70571::t_0454de143238a1 1
+tests/fixtures/preference-arms/batch-r11.jsonl
+  s_002cddb1a70571::t_0454de143238a1 1-3
+docs/preference-isolation.md
+  s_002cddb1a70571::t_012b41be251658 1
+  s_002cddb1a70571::t_d8e151c35d8071 15-34,37-40
+  s_002cddb1a70571::t_382295a5be1b78 104,106
+  s_002cddb1a70571::t_f0fad6e45a6057 207-218
+  s_940326c4ee4215::t_79c746fe1fc35d 219-223
+  s_002cddb1a70571::t_de5fd5f6c29d02 244-256,267-272,281-298
+  s_002cddb1a70571::t_7942a1572eb7fb 322
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "b76917c4b007b4d67b1073bf6fe01bdb189f0b37",
+  "prompts": {},
+  "sessions": {
+    "s_002cddb1a70571": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "abd260ba-6a6c-45a6-9db3-a4e0988ad60e",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Raul Montoya Cardenas <montoyaraul34@gmail.com>"
+    },
+    "s_940326c4ee4215": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a032e4-1904-7a82-8c8b-1ad3cfbeb0b0",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Raul Montoya Cardenas <montoyaraul34@gmail.com>"
+    }
+  }
+}
