@@ -133,6 +133,9 @@ class FlakyTestQuarantineDeclarationTests(unittest.TestCase):
             with self.subTest(record_id=record_id):
                 self.assertIn(f"`{record_id}`", self.card)
         self.assertIn("| `steps[].reflection` | optional |", self.card)
+        self.assertIn("98 calls total: 42 `pytest` and 56 `fetch`", self.card)
+        self.assertIn("across the 231 steps in those episodes", self.card)
+        self.assertNotIn("tool calls (231 of", self.card)
 
     def test_disclosures_keep_ownership_and_separate_the_advertised_mechanic(self):
         summaries = [d["summary"] for d in self.declaration["disclosures"]]
@@ -150,4 +153,3 @@ class FlakyTestQuarantineDeclarationTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-
