@@ -339,6 +339,20 @@ def card_schema_audit() -> tuple[list[str], list[str], list[str]]:
     return declared, undeclared, orphaned
 
 
+def card_declaration_for_payload(hub: str, payload_names: list[str]) -> dict | None:
+    """Load one declaration and fail if it does not cover the source payload."""
+    declaration = card_declaration(hub)
+    if declaration is None:
+        return None
+    errors = card_schema.payload_coverage_errors(declaration, payload_names)
+    if errors:
+        raise SystemExit(
+            f"card schema for {hub} does not cover the published payload: "
+            + "; ".join(errors)
+        )
+    return declaration
+
+
 def factory_source(slug: str) -> Path:
     """Return one in-tree, non-symlinked factory directory."""
     if FACTORY_ROOT.is_symlink() or not FACTORY_ROOT.is_dir():
@@ -806,7 +820,6 @@ def snapshot_one(item: dict) -> dict:
     dest = hf_datasets_root() / item["hub"]
     if not LICENSE_SRC.is_file():
         raise SystemExit(f"missing repository LICENSE at {LICENSE_SRC}")
-    raw, meta = snapshot_directories(dest)
     marker_state = marker_mode_state(src)
     batches = published_batches(src, marker_state)
     notes = published_notes(src, batches, marker_state)
@@ -815,6 +828,10 @@ def snapshot_one(item: dict) -> dict:
     labels = []
     desired_batch_names = {batch.name for batch in batches}
     desired_note_names = {note.name for note in notes}
+    # Validate against source names before creating, deleting, or copying any
+    # destination entry. A rejected schema must leave the previous mirror whole.
+    card_declaration_for_payload(item["hub"], sorted(desired_batch_names))
+    raw, meta = snapshot_directories(dest)
     reconcile_snapshot_entries(
         dest,
         {"data", "README.md", "LICENSE", "ATTRIBUTION.md"},
@@ -887,17 +904,11 @@ def render_card(
 ) -> str:
     tags = "\n".join(f"- {t}" for t in item["tags"])
     kb = max(1, bytes_ // 1024)
-    declaration = card_declaration(item["hub"])
+    declaration = card_declaration_for_payload(item["hub"], payload_names or [])
     if declaration is None:
         schema_block = ""
         schema_section = card_schema.undeclared_body_section(item["hub"])
     else:
-        errors = card_schema.payload_coverage_errors(declaration, payload_names or [])
-        if errors:
-            raise SystemExit(
-                f"card schema for {item['hub']} does not cover the published payload: "
-                + "; ".join(errors)
-            )
         try:
             schema_block = card_schema.metadata_yaml(declaration)
             schema_section = card_schema.body_section(declaration)

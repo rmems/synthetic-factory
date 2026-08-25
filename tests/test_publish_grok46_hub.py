@@ -156,6 +156,61 @@ def write_valid_completed_long_horizon(path, round_number):
 
 
 class PublishGrok46HubTests(unittest.TestCase):
+    def test_schema_coverage_failure_preserves_the_existing_mirror(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            source = root / "raw" / ITEM["slug"]
+            source.mkdir(parents=True)
+            write_valid_legacy(source / "batch-r01.jsonl")
+
+            destination_root = root / "hf"
+            mirror = destination_root / publisher.HF_DATASETS_DIRNAME / ITEM["hub"]
+            mirror.mkdir(parents=True)
+            readme = mirror / "README.md"
+            sentinel = mirror / "previous-snapshot.json"
+            readme.write_text("previous card\n", encoding="utf-8")
+            sentinel.write_text('{"state":"complete"}\n', encoding="utf-8")
+            before = {
+                path.relative_to(mirror): path.read_bytes()
+                for path in mirror.rglob("*")
+                if path.is_file()
+            }
+
+            schema_root = root / "card-schemas"
+            schema_root.mkdir()
+            (schema_root / f"{ITEM['hub']}.json").write_text(
+                json.dumps(
+                    {
+                        "version": 1,
+                        "dataset": ITEM["hub"],
+                        "note": "Fixture declaration deliberately misses the source batch.",
+                        "data_files": ["data/raw/episodes.jsonl"],
+                        "features": [{"name": "id", "dtype": "string"}],
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            with mock.patch.object(
+                publisher, "FACTORY_ROOT", root / "raw"
+            ), mock.patch.object(
+                publisher, "HF_ROOT", destination_root
+            ), mock.patch.object(
+                publisher.card_schema, "SCHEMA_ROOT", schema_root
+            ):
+                with self.assertRaisesRegex(
+                    SystemExit, "does not cover the published payload"
+                ):
+                    publisher.snapshot_one(ITEM)
+
+            after = {
+                path.relative_to(mirror): path.read_bytes()
+                for path in mirror.rglob("*")
+                if path.is_file()
+            }
+            self.assertEqual(after, before)
+            self.assertFalse((mirror / "data").exists())
+
     def test_factory_discovery_and_snapshot_reject_symlinked_factory_roots(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)

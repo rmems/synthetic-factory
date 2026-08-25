@@ -139,10 +139,25 @@ def declaration_path(dataset: str, root: Path | None = None) -> Path:
     return (root if root is not None else schema_root()) / f"{dataset}.json"
 
 
+def _declaration_root(root: Path | None = None) -> Path:
+    """Return a safe declaration root, whether or not it exists yet."""
+    directory = root if root is not None else schema_root()
+    _require(
+        not directory.is_symlink(),
+        f"unsafe card schema root: {directory}",
+    )
+    if directory.exists():
+        _require(
+            directory.is_dir(),
+            f"unsafe card schema root: {directory}",
+        )
+    return directory
+
+
 def declared_datasets(root: Path | None = None) -> list[str]:
     """Return every dataset name that owns a declaration file."""
-    directory = root if root is not None else schema_root()
-    if directory.is_symlink() or not directory.is_dir():
+    directory = _declaration_root(root)
+    if not directory.exists():
         return []
     names = []
     for path in sorted(directory.iterdir()):
@@ -170,9 +185,16 @@ def load(dataset: str, root: Path | None = None) -> dict | None:
     A file that exists but does not validate raises ``CardSchemaError``. A
     declaration is never silently ignored.
     """
-    path = declaration_path(dataset, root)
-    if path.is_symlink() or not path.is_file():
+    directory = _declaration_root(root)
+    if not directory.exists():
         return None
+    path = declaration_path(dataset, directory)
+    if not path.exists() and not path.is_symlink():
+        return None
+    _require(
+        path.is_file() and not path.is_symlink(),
+        f"unsafe card schema entry: {path}",
+    )
     try:
         payload = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, UnicodeError, json.JSONDecodeError) as exc:
@@ -470,7 +492,13 @@ def metadata_yaml(declaration: dict) -> str:
     lines = ["configs:"]
     lines.extend(_yaml_block(configs, 0))
     lines.append("dataset_info:")
-    lines.extend(_yaml_block({"features": yaml_features(declaration["features"])}, 2))
+    dataset_info: dict = {"features": yaml_features(declaration["features"])}
+    if declaration["config_name"] != DEFAULT_CONFIG_NAME:
+        dataset_info = {
+            "config_name": declaration["config_name"],
+            **dataset_info,
+        }
+    lines.extend(_yaml_block(dataset_info, 2))
     return "\n".join(lines) + "\n"
 
 
@@ -581,11 +609,12 @@ def undeclared_body_section(dataset: str) -> str:
             "## Dataset viewer schema",
             "",
             "**Not declared yet.** This card carries no `configs` / `dataset_info` "
-            "block, so the datasets-server cannot build a parquet index for the raw "
-            "payload: `viewer`, `search`, `filter`, and `statistics` stay false on "
-            "`/is-valid` even where the streaming preview works. The published raw "
-            "payload described above is complete and unmodified; only the card-side "
-            "schema declaration is missing.",
+            "block, so index availability is unverified here: the datasets-server "
+            "may infer a working schema for a homogeneous payload, while a later "
+            "heterogeneous shard can still make `viewer`, `search`, `filter`, or "
+            "`statistics` fail even where the streaming preview works. The published "
+            "raw payload described above is complete and unmodified; only the "
+            "card-side schema declaration is missing.",
             "",
             f"Declaring it is tracked per dataset at {ISSUE_URL} (search "
             f"`{dataset}`). The declaration is one JSON file at "
