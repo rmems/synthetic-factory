@@ -74,7 +74,7 @@ class GraphqlNPlusOneDeclarationTests(unittest.TestCase):
             ["steps[].tool_call.args", "reward", "meta"],
         )
 
-    def test_reward_note_records_the_optional_handoff_and_xfailed_counts(self):
+    def test_reward_note_records_the_conditional_handoff_and_xfailed_counts(self):
         names = {feature["name"]: feature for feature in self.declaration["features"]}
         note = names["reward"]["note"]
         for fragment in (
@@ -105,4 +105,3 @@ class GraphqlNPlusOneDeclarationTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-
