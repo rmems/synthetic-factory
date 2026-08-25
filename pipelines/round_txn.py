@@ -355,8 +355,9 @@ PUBLISH_PLAN_VOLATILE_KEYS = frozenset({"published_at", "execution_verification"
 def normalized_execution_override(reason):
     """Validate and normalize an operator waiver for cannot-verify records.
 
-    The waiver is recorded verbatim in ``ROUND-rNN.complete.json``, so it must
-    be short, printable, single-line text that a later auditor can read.
+    The canonicalized waiver is recorded in ``ROUND-rNN.complete.json``.
+    Whitespace is collapsed so the marker contains short, printable,
+    single-line text that a later auditor can read.
     """
     if reason is None:
         return None
@@ -380,6 +381,28 @@ def normalized_execution_override(reason):
             f"{EXECUTION_OVERRIDE_MAX_CHARS} characters"
         )
     return text
+
+
+def recorded_execution_override(manifest):
+    """Return a canonical waiver already persisted in a publishing marker."""
+    verification = manifest.get("execution_verification")
+    if not isinstance(verification, dict):
+        raise TransactionError("publishing marker has invalid execution verification")
+    override = verification.get("override")
+    if override is None:
+        return None
+    if not isinstance(override, dict):
+        raise TransactionError("publishing marker has invalid execution override")
+    reason = override.get("reason")
+    normalized = normalized_execution_override(reason)
+    if normalized != reason:
+        raise TransactionError("publishing marker execution override is not canonical")
+    waived = override.get("waived_inconclusive")
+    if not isinstance(waived, int) or isinstance(waived, bool) or waived < 1:
+        raise TransactionError(
+            "publishing marker has invalid waived_inconclusive count"
+        )
+    return normalized
 
 
 def load_execution_verifier():
@@ -2591,6 +2614,27 @@ def _publish_locked(
             f"{configured_quota} records; found {expected}"
         )
 
+    publishing_exists = (
+        paths["publishing"].exists() or paths["publishing"].is_symlink()
+    )
+    existing = None
+    if publishing_exists:
+        if not paths["publishing"].is_file() or paths["publishing"].is_symlink():
+            raise TransactionError(
+                f"unsafe publishing marker: {paths['publishing']}"
+            )
+        existing = read_json(paths["publishing"])
+        if (
+            existing.get("factory") != factory_dir.name
+            or existing.get("round") != round_number
+            or existing.get("token") != token
+        ):
+            raise TransactionError(
+                f"publishing marker identity mismatch: {paths['publishing']}"
+            )
+        if execution_override is None:
+            execution_override = recorded_execution_override(existing)
+
     files, kinds, records, verification = validate_stage(
         factory_dir,
         stage,
@@ -2612,9 +2656,8 @@ def _publish_locked(
         "commit_point": paths["complete"].name,
     }
 
-    resumed = paths["publishing"].exists()
+    resumed = existing is not None
     if resumed:
-        existing = read_json(paths["publishing"])
         # Timestamps differ across retries. The execution verdict is derived
         # from the manifest-hashed batch and carries operator prose, so a retry
         # may reword the waiver without changing the plan. Every other field is

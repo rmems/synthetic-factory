@@ -40,6 +40,19 @@ except ImportError:  # pragma: no cover - depends on sys.path of the caller
     )
     ALLOWED_SIM_OR_REAL = frozenset({"designed", "simulated", "hil"})
 
+try:
+    from validate_run import THALAMIC_CORE_KEYS, check_episode
+except ImportError:  # pragma: no cover - publish imports from the repo tree
+    THALAMIC_CORE_KEYS = (
+        "state",
+        "proposed_action",
+        "safety_decision",
+        "executed_action",
+        "future_outcome",
+        "reward_components",
+    )
+    check_episode = None
+
 
 KNOWN_TOOLS = frozenset({
     "bash", "read_file", "edit_file", "write_file", "search",
@@ -121,6 +134,28 @@ def verify_episode_steps(steps, _where):
     return "verified", "all steps have tool_call + observation + decision_basis"
 
 
+def verify_episode(obj, where, *, require_goal=True):
+    """Validate an episode envelope before accepting its step evidence.
+
+    ``validate_run.check_episode`` owns the repository's episode shape. Its
+    per-step execution-evidence findings remain the responsibility of
+    ``verify_episode_steps`` so a missing observation stays ``inconclusive``
+    rather than being promoted to a structural failure.
+    """
+    if not isinstance(obj, dict):
+        return "failed", f"{where} episode is not an object"
+    if check_episode is None:
+        return "failed", "episode shape checker unavailable"
+    shape_errors = [
+        error
+        for error in check_episode(obj, where, require_goal=require_goal)
+        if not error.startswith(f"{where} step ")
+    ]
+    if shape_errors:
+        return "failed", f"episode shape invalid: {shape_errors[0]}"
+    return verify_episode_steps(obj.get("steps"), where)
+
+
 def verify_thalamic(obj, where):
     """Thalamic record: needs provenance + gate rationale + future outcome that is not hallucinated."""
     # Callers include the bridge path, which can hand us a non-object
@@ -141,8 +176,40 @@ def verify_thalamic(obj, where):
     fo = obj.get("future_outcome")
     if not isinstance(fo, dict):
         return "inconclusive", "future_outcome not an object — cannot verify outcome"
-    # If future_outcome has only narrative without timeline/events, mark inconclusive
-    if not fo.get("timeline") and not fo.get("observed_effects") and not fo.get("new_state"):
+    observable_fields = []
+    for field in ("timeline", "observed_effects", "new_state"):
+        if field not in fo:
+            continue
+        value = fo[field]
+        if field == "timeline":
+            if not isinstance(value, list):
+                return "failed", "future_outcome.timeline must be an array"
+            if value and any(not isinstance(event, dict) or not event for event in value):
+                return "failed", "future_outcome.timeline entries must be objects"
+        elif field == "observed_effects":
+            if not isinstance(value, list):
+                return "failed", "future_outcome.observed_effects must be an array"
+            if value and any(
+                not (
+                    isinstance(effect, dict)
+                    and effect
+                    or isinstance(effect, str)
+                    and effect.strip()
+                )
+                for effect in value
+            ):
+                return (
+                    "failed",
+                    "future_outcome.observed_effects entries must be non-empty "
+                    "strings or objects",
+                )
+        else:
+            if not isinstance(value, dict):
+                return "failed", "future_outcome.new_state must be an object"
+        if value:
+            observable_fields.append(field)
+    # Narrative-only or empty outcome containers are cannot-verify, not proof.
+    if not observable_fields:
         return "inconclusive", "future_outcome lacks observable timeline/effects"
     return "verified", "thalamic checks pass"
 
@@ -151,16 +218,40 @@ def verify_record_execution(obj, where="record"):
     """Return (status, reason) in {verified, inconclusive, failed}."""
     if not isinstance(obj, dict):
         return "failed", "not an object"
-    # Episode
-    if "goal" in obj and "steps" in obj:
-        return verify_episode_steps(obj.get("steps"), where)
     # Thalamic top-level
-    if all(k in obj for k in ("state", "proposed_action", "safety_decision", "executed_action", "future_outcome", "reward_components")):
+    if all(k in obj for k in THALAMIC_CORE_KEYS):
         return verify_thalamic(obj, where)
     # Preference pair: both sides must be verified independently, status = min
     if "chosen" in obj and "rejected" in obj:
-        s1, r1 = verify_record_execution(obj["chosen"], f"{where}.chosen")
-        s2, r2 = verify_record_execution(obj["rejected"], f"{where}.rejected")
+        chosen = obj.get("chosen")
+        rejected = obj.get("rejected")
+        if not isinstance(chosen, dict) or not isinstance(rejected, dict):
+            return "failed", "preference sides must both be objects"
+        chosen_thalamic = all(key in chosen for key in THALAMIC_CORE_KEYS)
+        rejected_thalamic = all(key in rejected for key in THALAMIC_CORE_KEYS)
+        chosen_episode = "steps" in chosen and not chosen_thalamic
+        rejected_episode = "steps" in rejected and not rejected_thalamic
+        if chosen_episode or rejected_episode:
+            if not (chosen_episode and rejected_episode):
+                return "failed", "preference sides mix episode and Thalamic shapes"
+            if "goal" in obj and (
+                not isinstance(obj["goal"], str) or not obj["goal"].strip()
+            ):
+                return "failed", "preference shared goal must be a non-empty string"
+            require_side_goal = "goal" not in obj
+            s1, r1 = verify_episode(
+                chosen, f"{where}.chosen", require_goal=require_side_goal
+            )
+            s2, r2 = verify_episode(
+                rejected, f"{where}.rejected", require_goal=require_side_goal
+            )
+        elif chosen_thalamic or rejected_thalamic:
+            if not (chosen_thalamic and rejected_thalamic):
+                return "failed", "preference sides mix or omit required shape fields"
+            s1, r1 = verify_record_execution(chosen, f"{where}.chosen")
+            s2, r2 = verify_record_execution(rejected, f"{where}.rejected")
+        else:
+            return "failed", "preference sides are not episode or Thalamic records"
         if "failed" in (s1, s2):
             return "failed", f"preference side failed: {r1 if s1=='failed' else r2}"
         if "inconclusive" in (s1, s2):
@@ -172,13 +263,11 @@ def verify_record_execution(obj, where="record"):
         if traj:
             return verify_thalamic(traj, f"{where}.language_view.trajectory")
         return "inconclusive", "bridge missing language_view.trajectory"
-    # Episode side of a preference pair: the pair owns `goal` while each side
-    # owns its own `steps`. round_txn.validate_agentic_envelope requires exactly
-    # that shape ("chosen/rejected must be an episode side with steps"), so
-    # route it to the step verifier instead of reporting an unrecognized shape —
-    # the execution evidence is right there in the steps.
-    if isinstance(obj.get("steps"), list):
-        return verify_episode_steps(obj.get("steps"), where)
+    # Safety-calibration records own prompt/rationale fields rather than goal;
+    # ordinary standalone episodes must carry their own goal. Preference sides
+    # are routed above with the wrapper's shared-goal context.
+    if "steps" in obj:
+        return verify_episode(obj, where, require_goal="case_type" not in obj)
     return "inconclusive", f"unrecognized shape keys {sorted(obj)[:6]}"
 
 
