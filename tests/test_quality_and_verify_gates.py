@@ -248,6 +248,24 @@ class EmbeddingDedup(unittest.TestCase):
         )
         self.assertEqual(report["duplicates"], [])
 
+    def test_numeric_features_preserve_sign_and_type(self):
+        records = [
+            {"executed_action": {"setpoint": -5}},
+            {"executed_action": {"setpoint": 5}},
+            {"executed_action": {"setpoint": "5"}},
+        ]
+        token_sets = [quality_gate.embedding_tokens(record) for record in records]
+        self.assertEqual(len({frozenset(tokens) for tokens in token_sets}), 3)
+        self.assertTrue(any("int:-5" in token for token in token_sets[0]))
+        self.assertTrue(any("int:5" in token for token in token_sets[1]))
+        self.assertTrue(any("str:5" in token for token in token_sets[2]))
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            write(root / "batch.jsonl", records)
+            report = quality_gate.audit_run(root)
+
+        self.assertEqual(report["duplicates"], [])
+
     def test_mapping_insertion_order_does_not_change_embedding_tokens(self):
         keys = [f"field_{index:03d}" for index in range(120)]
         forward = {key: f"value_{index:03d}" for index, key in enumerate(keys)}
@@ -499,6 +517,37 @@ class CuratedManifest(unittest.TestCase):
             code = self.run_cli([str(missing), "--manifest", str(manifest)])
             self.assertEqual(code, 2)
             self.assertFalse(manifest.exists())
+
+    def test_cli_refuses_to_overwrite_an_audited_jsonl_with_manifest(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td) / "run"
+            batch = root / "batch.jsonl"
+            write(batch, mix_records(synthetic=1, real=4))
+            before = batch.read_bytes()
+
+            code = self.run_cli([str(root), "--manifest", str(batch)])
+
+            self.assertEqual(code, 2)
+            self.assertEqual(batch.read_bytes(), before)
+
+    def test_cli_refuses_existing_or_in_run_manifest_targets(self):
+        with tempfile.TemporaryDirectory() as td:
+            base = Path(td)
+            root = base / "run"
+            write(root / "batch.jsonl", mix_records(synthetic=1, real=4))
+            existing = base / "existing.json"
+            existing.write_text("sentinel\n")
+
+            existing_code = self.run_cli(
+                [str(root), "--manifest", str(existing)]
+            )
+            in_run = root / "quality-manifest.json"
+            in_run_code = self.run_cli([str(root), "--manifest", str(in_run)])
+
+            self.assertEqual(existing_code, 2)
+            self.assertEqual(existing.read_text(), "sentinel\n")
+            self.assertEqual(in_run_code, 2)
+            self.assertFalse(in_run.exists())
 
     def test_cli_does_not_write_a_manifest_unless_asked(self):
         with tempfile.TemporaryDirectory() as td:

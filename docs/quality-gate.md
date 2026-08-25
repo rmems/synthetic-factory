@@ -65,7 +65,7 @@ first.
 This repository is stdlib-only (see ``AGENTS.md``), so the encoder is
 lexical, not learned:
 
-- **``EMBEDDING_ENCODER = "lexical-tfidf/2"``** — TF-IDF over Unicode word
+- **``EMBEDDING_ENCODER = "lexical-tfidf/3"``** — TF-IDF over Unicode word
   unigrams *and* bigrams of every **path-qualified leaf value** in the same
   view the hash uses. A feature combines the full field path with the leaf
   word, so shared schema alone contributes nothing while the same value under
@@ -76,6 +76,10 @@ lexical, not learned:
   retained in the bigrams.
 - Unicode tokenization preserves non-ASCII scripts instead of reducing two
   unrelated multilingual records to their shared ASCII metadata.
+- Numeric and Boolean scalars are atomic, typed features (for example,
+  ``int:-5``, ``float:5.0`` and ``bool:true``). Signs and scalar types are not
+  discarded by word tokenization, so opposite control values cannot become
+  identical embeddings merely because punctuation was stripped.
 - Sublinear term frequency (``1 + log tf``) times smoothed IDF
   (``log((N+1)/(df+1)) + 1``), L2-normalized, so the dot product **is**
   the cosine.
@@ -215,8 +219,12 @@ exist so an unlabeled-heavy tree cannot look compliant by accident.
 to the curated tree. The standalone gate remains read-only unless that flag is
 passed. The established ``promote.py`` command always writes promotion
 evidence, defaulting to ``<cleaned_out>/quality-manifest.json``; use
-``--quality-manifest <path>`` to select another non-raw location. Parent
-directories are created.
+``--quality-manifest <path>`` to select another non-raw location. Standalone
+manifest targets must be absent and outside the audited run tree; ``.jsonl``
+targets are rejected. Files are created exclusively rather than overwritten,
+so a typo can never replace an audited input or an earlier manifest. Promotion
+may place its default inside ``cleaned_out`` because that destination is newly
+created and raw input is separately protected. Parent directories are created.
 
 ```bash
 python3 pipelines/quality_gate.py outputs/cleaned/2026-08-17 \
@@ -270,16 +278,16 @@ JSON output fields:
     {"file": "batch-r03.jsonl", "line": 8, "kind": "embedding", "similarity": 0.9889,
      "duplicate_of": {"file": "batch-r03.jsonl", "line": 7},
      "matched_with": {"file": "batch-r03.jsonl", "line": 7},
-     "reason": "embedding near-duplicate: cosine 0.9889 > 0.97 vs retained representative batch-r03.jsonl:7 (encoder lexical-tfidf/2)"}
+     "reason": "embedding near-duplicate: cosine 0.9889 > 0.97 vs retained representative batch-r03.jsonl:7 (encoder lexical-tfidf/3)"}
   ],
   "duplicate_clusters": [
-    {"kind": "embedding", "size": 2, "threshold": 0.97, "encoder": "lexical-tfidf/2",
+    {"kind": "embedding", "size": 2, "threshold": 0.97, "encoder": "lexical-tfidf/3",
      "max_similarity": 0.9889,
      "representative": {"file": "batch-r03.jsonl", "line": 7},
      "members": [{"file": "batch-r03.jsonl", "line": 7}, {"file": "batch-r03.jsonl", "line": 8}],
      "reason": "1 excluded record(s) linked by cosine > 0.97; representative batch-r03.jsonl:7 is retained"}
   ],
-  "embedding": {"enabled": true, "encoder": "lexical-tfidf/2", "threshold": 0.97,
+  "embedding": {"enabled": true, "encoder": "lexical-tfidf/3", "threshold": 0.97,
                 "compared_records": 1230, "candidate_pairs": 418, "truncated": false},
   "reward_shapes": {"records_with_reward_components": 1180, "unique_component_keys": 510,
                     "unique_shapes": 140, "top_component_keys": [], "top_shapes": []},

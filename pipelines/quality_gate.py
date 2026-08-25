@@ -43,10 +43,11 @@ Dedup signals
    Encoder: this repository is stdlib-only, so the shipped encoder is a
    deterministic lexical one (``EMBEDDING_ENCODER``) — TF-IDF over
    Unicode word unigrams and bigrams of path-qualified leaf values in a
-   canonical traversal of the same view the hash uses, L2-normalized, so
-   the dot product *is* the cosine. It has no model weights, no download
-   and no randomness, which is what keeps the gate reproducible in CI.
-   Candidate pairs come from a banded
+   canonical traversal of the same view the hash uses; numeric/Boolean
+   scalars are atomic typed features so signs and types survive. Features
+   are L2-normalized, so the dot product *is* the cosine. It has no model
+   weights, no download and no randomness, which is what keeps the gate
+   reproducible in CI. Candidate pairs come from a banded
    one-permutation MinHash sketch and every candidate is then scored
    exactly, so precision is exact and only recall is approximate (see
    ``EMBEDDING_LSH_BANDS``).
@@ -122,7 +123,7 @@ missing label) lands in the separate ``unlabeled`` bucket."""
 MAX_ERROR_EXAMPLES = 10
 """Cap on per-category read/parse failure examples kept in the report."""
 
-EMBEDDING_ENCODER = "lexical-tfidf/2"
+EMBEDDING_ENCODER = "lexical-tfidf/3"
 """Identifier of the shipped deterministic encoder, recorded in the report so
 a corpus embedded by a different encoder is never compared against one of
 these runs on threshold alone."""
@@ -269,16 +270,21 @@ def _leaf_words(value, out, path="$"):
             _leaf_words(item, out, f"{path}/[]")
         return
     elif isinstance(value, bool):
-        text = "true" if value else "false"
-    elif isinstance(value, (int, float)):
-        text = repr(value)
+        out.append(f"{path}{_PATH_SEP}bool:{'true' if value else 'false'}")
+        return
+    elif isinstance(value, int):
+        out.append(f"{path}{_PATH_SEP}int:{value}")
+        return
+    elif isinstance(value, float):
+        out.append(f"{path}{_PATH_SEP}float:{value!r}")
+        return
     elif isinstance(value, str):
         text = value
     else:
         # None and unsupported objects carry no lexical content.
         return
     out.extend(
-        f"{path}{_PATH_SEP}{word}"
+        f"{path}{_PATH_SEP}str:{word}"
         for word in _WORD_RE.findall(text.casefold())
     )
 
@@ -856,17 +862,45 @@ def audit_run(
             "blocked": bool(blockers), "threshold": threshold}
 
 
-def write_manifest(path, run_dir, result):
-    """Write the curated sidecar manifest: mix report + duplicate clusters."""
+def validate_manifest_target(path, run_dir, *, allow_within_run=False):
+    """Validate that a manifest target cannot overwrite audited evidence."""
     path = Path(path)
-    path.parent.mkdir(parents=True, exist_ok=True)
+    run_dir = Path(run_dir)
+    resolved_path = path.resolve()
+    resolved_run = run_dir.resolve()
+    if path.suffix.lower() == ".jsonl":
+        raise ValueError(f"manifest path must not be a JSONL input: {path}")
+    if path.exists() or path.is_symlink():
+        raise ValueError(f"refusing to overwrite existing manifest path: {path}")
+    if (
+        not allow_within_run
+        and (resolved_path == resolved_run or resolved_run in resolved_path.parents)
+    ):
+        raise ValueError(
+            f"manifest path must be outside the audited run directory: {path}"
+        )
+    return path
+
+
+def write_manifest(path, run_dir, result, *, allow_within_run=False):
+    """Create the curated sidecar manifest without overwriting any path."""
+    path = validate_manifest_target(
+        path, run_dir, allow_within_run=allow_within_run
+    )
     manifest = {
         "schema": "quality-manifest/1",
         "generated_by": "pipelines/quality_gate.py",
         "run_dir": str(run_dir),
         **result,
     }
-    path.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with path.open("x", encoding="utf-8") as handle:
+            handle.write(json.dumps(manifest, indent=2) + "\n")
+    except OSError as exc:
+        raise ValueError(
+            f"could not create manifest {path}: {type(exc).__name__}: {exc}"
+        ) from exc
     return path
 
 
@@ -947,7 +981,10 @@ def main(argv=None):
         max_unlabeled_ratio=args.max_unlabeled_ratio,
     )
     run_dir = Path(args.run_dir)
+    written = None
     try:
+        if args.manifest:
+            validate_manifest_target(args.manifest, run_dir)
         result = audit_run(
             run_dir,
             threshold=args.threshold,
@@ -955,10 +992,11 @@ def main(argv=None):
             embedding_dedup=args.embedding_dedup,
             max_embedding_pairs=args.max_embedding_pairs,
         )
+        if args.manifest:
+            written = write_manifest(args.manifest, run_dir, result)
     except ValueError as exc:
         p.error(str(exc))  # exits 2
-    if args.manifest:
-        written = write_manifest(args.manifest, run_dir, result)
+    if written is not None:
         print(f"MANIFEST: {written}", file=sys.stderr)
     if args.json:
         print(json.dumps(result, indent=2))

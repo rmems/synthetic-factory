@@ -450,6 +450,9 @@ def main(argv=None):
         max_unlabeled_ratio=args.max_unlabeled_ratio,
     )
     try:
+        quality_gate.validate_manifest_target(
+            manifest_path, cleaned_out, allow_within_run=True
+        )
         policy.validate()
         if not math.isfinite(args.threshold) or not -1.0 <= args.threshold <= 1.0:
             raise ValueError(
@@ -468,10 +471,12 @@ def main(argv=None):
             embedding_dedup=args.embedding_dedup,
             max_embedding_pairs=args.max_embedding_pairs,
         )
+        written = quality_gate.write_manifest(
+            manifest_path, cleaned_out, report, allow_within_run=True
+        )
     except ValueError as exc:
         print(f"error: {exc}", file=sys.stderr)
         sys.exit(2)
-    written = quality_gate.write_manifest(manifest_path, cleaned_out, report)
     summary["quality_gate"] = {
         "blocked": report["blocked"],
         "blockers": report["blockers"],
