@@ -1,0 +1,44 @@
+schemas/tag-taxonomy-v1.json
+  s_002cddb1a70571::t_3c3845c3e96c00 1-221
+pipelines/curate_tags.py
+  s_002cddb1a70571::t_a69481019c4b7b 1-155,157-230,232-240,242-271,273-284,286-312,315-384,397,399,401-402,404-406,408,416,418-486,488-495,500-516,524-571,573-580,582-585,587-635,637-656,670,678-692,695-715,717-722,724,726-742,745-747,752-755,757-762,764-807,815-819
+  s_940326c4ee4215::t_91c4e28f7fda8d 231,241,398,657,660-669
+  s_002cddb1a70571::t_5c05676eb6f2a4 385-393,396,400,403,407,409-413,417
+  s_002cddb1a70571::t_18ab39a06f0896 487,496-499
+  s_002cddb1a70571::t_b950a5dc4a2312 517-518,520-523
+  s_002cddb1a70571::t_2c305675feb1f3 636
+  s_002cddb1a70571::t_da471f185a4335 693-694
+  s_002cddb1a70571::t_032302c21a542c 725
+tests/test_curate_tags.py
+  s_002cddb1a70571::t_992bc459dfb392 1-205,207-209,211-248,250-406,408-426,445-452,454,456,458-459,476-620,647-675,677-760,762-782,784-830
+  s_940326c4ee4215::t_760a8254e166db 210
+  s_940326c4ee4215::t_08687667fab321 249,430-435
+  s_940326c4ee4215::t_468bad866939fb 407,676
+  s_002cddb1a70571::t_e634e7a3c4115d 427-429,436-444
+  s_002cddb1a70571::t_0bf80a9c093ffd 453,455,457,460-475
+  s_002cddb1a70571::t_e3b57e4ed3c2b1 621-645
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "e32823e59a9d8f860630d67f5f84d4c88c25f5e6",
+  "prompts": {},
+  "sessions": {
+    "s_002cddb1a70571": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "abd260ba-6a6c-45a6-9db3-a4e0988ad60e",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Raul Montoya Cardenas <montoyaraul34@gmail.com>"
+    },
+    "s_940326c4ee4215": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a032e4-1904-7a82-8c8b-1ad3cfbeb0b0",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Raul Montoya Cardenas <montoyaraul34@gmail.com>"
+    }
+  }
+}
