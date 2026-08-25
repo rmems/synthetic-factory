@@ -454,6 +454,38 @@ class SpikeOrderHasOneOwner(unittest.TestCase):
         self.assertIn("future_outcome.spike_events", mixed[0])
         self.assertEqual(order, [], errors)
 
+    def test_nested_stream_validates_array_and_every_event(self):
+        cases = (
+            ({"t_rel_ms": 1}, "spike_events must be an array"),
+            ([None], "spike_events[0] must be an object"),
+            ([{}], "needs finite t_rel_ms or t_ms"),
+            (
+                [{"t_rel_ms": 1, "t_ms": 1}],
+                "must use exactly one of t_rel_ms or t_ms",
+            ),
+            ([{"t_rel_ms": 10**400}], "t_rel_ms must be a finite number"),
+            (
+                [{"t_rel_ms": 1, "channel": False}],
+                "channel must be a non-empty string",
+            ),
+            (
+                [{"t_rel_ms": 1, "amplitude": "bad"}],
+                "amplitude must be a finite number",
+            ),
+        )
+        for events, marker in cases:
+            with self.subTest(marker=marker):
+                record = _thalamic(
+                    future_outcome={
+                        "success": "full",
+                        "spike_events": events,
+                    }
+                )
+                errors = self._errors(record)
+                self.assertEqual(len(errors), 1, errors)
+                self.assertIn("future_outcome.spike_events", errors[0])
+                self.assertIn(marker, errors[0])
+
     def test_large_integer_timestamp_order_preserves_precision(self):
         events = [
             {"t_rel_ms": 9007199254740993},

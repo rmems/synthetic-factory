@@ -22,12 +22,12 @@ if str(_PIPELINES) not in sys.path:
     sys.path.insert(0, str(_PIPELINES))
 from validate_run import (  # noqa: E402
     ALLOWED_SIM_OR_REAL,
+    BRIDGE_SPIKE_EVENT_KEYS,
     REWARD_ARITHMETIC_MARKERS,
     REWARD_NON_COMPONENT_KEYS,
-    SPIKE_ORDER_MISMATCH,
-    SPIKE_TIME_KEY_MISMATCH,
     _episode_like,
     check_line,
+    check_spike_order,
     event_time,
     reject_json_constant,
 )
@@ -95,16 +95,29 @@ def walk_key(obj, name, path=""):
             yield from walk_key(item, name, f"{path}[{i}]")
 
 
-def check_spikes(events, where, *, report_mixed_clock=False):
+def check_spikes(
+    events,
+    where,
+    *,
+    validate_events=False,
+    require_keys=(),
+    require_nonempty=False,
+):
     """Require non-decreasing times when one comparable clock key is present.
 
-    The deep record checker opts into mixed-key reporting because it discovers
+    The deep record checker opts into full event validation because it discovers
     nested streams that the shape layer cannot see. Other callers, especially
-    promotion's safe sorter, leave ``report_mixed_clock`` false so incomparable
+    promotion's safe sorter, leave ``validate_events`` false so incomparable
     clocks are neither compared nor resorted.
     """
     if not isinstance(events, list):
+        if validate_events:
+            return [f"{where}: spike_events must be an array"]
         return []
+    if validate_events:
+        if require_nonempty and not events:
+            return [f"{where}: spike_events must be a non-empty array"]
+        return check_spike_order(events, where, require_keys=require_keys)
     timed = []
     for i, event in enumerate(events):
         got = event_time(event)
@@ -114,11 +127,6 @@ def check_spikes(events, where, *, report_mixed_clock=False):
         return []
     time_keys = {key for _, key, _ in timed}
     if len(time_keys) > 1:
-        if report_mixed_clock:
-            return [
-                f"{where}: {SPIKE_TIME_KEY_MISMATCH}; found "
-                f"{', '.join(sorted(time_keys))}"
-            ]
         return []
     for (i0, key0, t0), (i1, key1, t1) in zip(timed, timed[1:]):
         if t1 < t0:
@@ -287,14 +295,11 @@ _SHAPE_REWARD_ARITHMETIC = REWARD_ARITHMETIC_MARKERS
 # Same layering for publish-time 'real' claims: validate_run already emits
 # them, and check_provenance_publish is the single owner here.
 _SHAPE_REAL_PROVENANCE = "must not be 'real'"
-# And the same for spike clock/order. The shape layer checks the bridge stream
-# and any trajectory-level stream; this layer walks every nested stream, so it
-# is the single owner of mixed-clock and inversion errors and drops the shape
-# layer's copies.
-# Per-event shape errors (missing channel/amplitude/timestamp) are not
-# duplicated here, so they are kept.
-_SHAPE_SPIKE_ORDER = SPIKE_ORDER_MISMATCH
-_SHAPE_SPIKE_TIME_KEY = SPIKE_TIME_KEY_MISMATCH
+# And the same for spike stream validity. The shape layer checks the bridge
+# stream and direct trajectory streams; this layer walks every nested stream,
+# so it is the single owner of array, event, clock, and order errors. Bridge-only
+# required fields are supplied below when the walked path is the bridge root.
+_SHAPE_SPIKE_STREAM = ": spike_events"
 
 
 def shape_check(obj, where, factory_staging=False):
@@ -308,8 +313,7 @@ def shape_check(obj, where, factory_staging=False):
         e for e in errs
         if not any(marker in e for marker in _SHAPE_REWARD_ARITHMETIC)
         and _SHAPE_REAL_PROVENANCE not in e
-        and _SHAPE_SPIKE_ORDER not in e
-        and _SHAPE_SPIKE_TIME_KEY not in e
+        and _SHAPE_SPIKE_STREAM not in e
     ]
     return errs, kind
 
@@ -387,14 +391,18 @@ def check_record(obj, where, factory_staging=False):
 
     if isinstance(obj, dict):
         for path, events in walk_key(obj, "spike_events"):
-            # Single owner of stream clock/order: shape_check drops the shape
+            # Single owner of stream validity: shape_check drops the shape
             # layer's copies, so every stream — top-level, bridge, or nested —
-            # is reported exactly once, from here.
+            # is reported exactly once from here. Only the bridge root requires
+            # channel/amplitude and a non-empty array.
+            bridge_root = kind == "bridge_pair" and path == "spike_events"
             errors.extend(
                 check_spikes(
                     events,
                     f"{where}: {path}",
-                    report_mixed_clock=True,
+                    validate_events=True,
+                    require_keys=(BRIDGE_SPIKE_EVENT_KEYS if bridge_root else ()),
+                    require_nonempty=bridge_root,
                 )
             )
         for path, rc in walk_key(obj, "reward_components"):
