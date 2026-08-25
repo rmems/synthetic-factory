@@ -517,6 +517,32 @@ class CuratePreferenceSource(unittest.TestCase):
                 ["ok-manifest.jsonl", "ok.jsonl"],
             )
 
+    def test_writer_refuses_symlinked_outputs_raw_destination(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            source = root / "source.jsonl"
+            write_jsonl(source, [pair("symlinked-raw-guard")])
+            outputs = root / "outputs"
+            external_raw = root / "mounted-raw"
+            outside = root / "cleaned"
+            outputs.mkdir()
+            external_raw.mkdir()
+            outside.mkdir()
+            (outputs / "raw").symlink_to(external_raw, target_is_directory=True)
+
+            run = curate_preferences.curate_source(source)
+            destination = outputs / "raw" / "curated.jsonl"
+            with self.assertRaisesRegex(
+                curate_preferences.PreferenceCurationError,
+                "immutable raw evidence",
+            ):
+                curate_preferences.write_run(
+                    run, source, destination, outside / "manifest.jsonl"
+                )
+
+            self.assertFalse((external_raw / "curated.jsonl").exists())
+            self.assertEqual(list(outside.iterdir()), [])
+
     def test_non_encodable_record_is_excluded_without_aborting_the_scan(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
@@ -556,6 +582,44 @@ class CuratePreferenceSource(unittest.TestCase):
             # The unencodable id is dropped; path, line, and hash still point
             # at the preserved source line.
             self.assertIsNone(bad["source_record_id"])
+            self.assertIsNone(bad["output_sha256"])
+
+            output = destination / "preferences.jsonl"
+            curate_preferences.write_run(
+                run, source, output, destination / "manifest.jsonl"
+            )
+            emitted = [json.loads(line) for line in output.read_text().splitlines()]
+            self.assertEqual([item["id"] for item in emitted], ["good"])
+
+    def test_lone_surrogate_record_is_excluded_without_aborting_the_scan(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            source = root / "source.jsonl"
+            destination = root / "destination"
+            destination.mkdir()
+            source.write_bytes(
+                json.dumps(pair("good")).encode("utf-8")
+                + b"\n"
+                + b'{"id":"lone-surrogate","chosen":{"state":{"value":"\\ud800"},'
+                + b'"proposed_action":{}},"rejected":{"state":{"value":"\\ud800"},'
+                + b'"proposed_action":{}}}\n'
+            )
+
+            run = curate_preferences.curate_source(source)
+
+            self.assertEqual(run.summary["preference_records"], 2)
+            self.assertEqual(run.summary["retained_pairs"], 1)
+            self.assertEqual(run.summary["excluded_pairs"], 1)
+            self.assertEqual(
+                run.summary["reason_codes"][
+                    "PREFERENCE_RECORD_NOT_JSON_SERIALIZABLE"
+                ],
+                1,
+            )
+            bad = run.manifest[1]
+            self.assertEqual(bad["action"], curate_preferences.ACTION_EXCLUDED)
+            self.assertEqual(bad["source_record_id"], "lone-surrogate")
+            self.assertEqual(bad["source_line"], 2)
             self.assertIsNone(bad["output_sha256"])
 
             output = destination / "preferences.jsonl"
