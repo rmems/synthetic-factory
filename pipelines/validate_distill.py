@@ -70,7 +70,7 @@ def jsonl_paths(root: Path) -> list[Path]:
     return sorted(path for path in root.rglob("*.jsonl") if path.is_file())
 
 
-def validate_path(root: Path, strict: bool = False) -> dict[str, Any]:
+def validate_path(root: Path, strict: bool = False, stamp: bool = False) -> dict[str, Any]:
     """Validate every record under ``root``. Returns a report dict."""
 
     if not root.exists():
@@ -117,11 +117,10 @@ def validate_path(root: Path, strict: bool = False) -> dict[str, Any]:
                         preference.get("preferred"), str
                     ):
                         preferences[preference["preferred"]] += 1
-            for error in errors:
-                findings.append({"file": str(path), "line": lineno, "error": error})
-            if not errors:
-                valid += 1
-            if isinstance(obj, dict):
+                for error in errors:
+                    findings.append({"file": str(path), "line": lineno, "error": error})
+                if not errors:
+                    valid += 1
                 # Eligibility is decided on the findings this validator just
                 # produced, never on a validation block the record shipped with.
                 ok, reasons = oc.curation_eligible(obj, errors)
@@ -130,15 +129,18 @@ def validate_path(root: Path, strict: bool = False) -> dict[str, Any]:
                 elif not errors:
                     for reason in reasons:
                         ineligible[reason] += 1
-            if isinstance(obj, dict):
-                stamped.append(
-                    oc.stamp_validation(
-                        obj,
-                        validator=VALIDATOR_NAME,
-                        version=VALIDATOR_VERSION,
-                        findings=errors,
+                if stamp:
+                    stamped.append(
+                        oc.stamp_validation(
+                            obj,
+                            validator=VALIDATOR_NAME,
+                            version=VALIDATOR_VERSION,
+                            findings=errors,
+                        )
                     )
-                )
+            else:
+                for error in errors:
+                    findings.append({"file": str(path), "line": lineno, "error": error})
 
     report = {
         "path": str(root),
@@ -176,12 +178,12 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     try:
-        report = validate_path(Path(args.path), strict=args.strict)
+        report = validate_path(Path(args.path), strict=args.strict, stamp=bool(args.stamp_output))
     except FileNotFoundError as exc:
         print(json.dumps({"error": str(exc)}, indent=2), file=sys.stderr)
         return 2
 
-    stamped = report.pop("_stamped")
+    stamped = report.pop("_stamped", [])
 
     # Report first. Writing the stamp output can fail (the destination must not
     # already exist), and losing the findings to that failure would be the

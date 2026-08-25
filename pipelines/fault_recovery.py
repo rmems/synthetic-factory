@@ -725,6 +725,23 @@ def check_family(record: dict[str, Any], where: str) -> list[str]:
             f"{where}.intervention.kind must be one of {sorted(DISTURBANCES)}, "
             f"got {intervention.get('kind')!r}"
         )
+    else:
+        kind = intervention.get("kind")
+        parameters = intervention.get("parameters")
+        if not isinstance(parameters, dict):
+            errors.append(f"{where}.intervention.parameters must be an object")
+        else:
+            required, optional = PARAMETER_SPEC[kind]
+            missing = [key for key in required if key not in parameters]
+            if missing:
+                errors.append(
+                    f"{where}.intervention.parameters: {kind} requires {sorted(missing)}"
+                )
+            unknown = sorted(set(parameters) - set(required) - set(optional))
+            if unknown:
+                errors.append(
+                    f"{where}.intervention.parameters: {kind} does not use {unknown}"
+                )
     prediction = record.get("candidate_prediction")
     if isinstance(prediction, dict):
         predicted = prediction.get("predicted_outcome")

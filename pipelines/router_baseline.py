@@ -496,15 +496,19 @@ def main(argv: list[str] | None = None) -> int:
     evaluate.add_argument("--min-lift", type=float, default=0.05)
 
     args = parser.parse_args(argv)
-    records = [obj for _, obj in oc.read_jsonl(args.records) if isinstance(obj, dict)]
-    samples = dataset_from_records(records, target=args.target)
-    report = evaluate_baselines(
-        samples,
-        holdout_pct=args.holdout_pct,
-        logistic_iterations=args.iterations,
-        mlp_iterations=args.iterations,
-        min_lift=args.min_lift,
-    )
+    try:
+        records = [obj for _, obj in oc.read_jsonl(args.records) if isinstance(obj, dict)]
+        samples = dataset_from_records(records, target=args.target)
+        report = evaluate_baselines(
+            samples,
+            holdout_pct=args.holdout_pct,
+            logistic_iterations=args.iterations,
+            mlp_iterations=args.iterations,
+            min_lift=args.min_lift,
+        )
+    except BaselineError as exc:
+        print(json.dumps({"error": str(exc)}, indent=2), file=sys.stderr)
+        return 2
     report["target"] = args.target
     report["escalation"] = escalation_gate(report)
     print(json.dumps(report, indent=2, sort_keys=True))

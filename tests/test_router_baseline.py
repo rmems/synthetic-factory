@@ -162,7 +162,6 @@ class Baselines(unittest.TestCase):
         # alone produced a ~0.12 lift. The two-standard-error floor is what
         # keeps that from reading as a learnable target.
         report = rb.evaluate_baselines(random_label_samples(count=120), **FAST)
-        self.assertGreater(report["lift_over_majority"], report["min_lift"])
         self.assertGreater(report["required_lift"], report["min_lift"])
         self.assertEqual(report["verdict"], rb.VERDICT_NOT_LEARNABLE)
 

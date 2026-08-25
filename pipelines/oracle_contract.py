@@ -822,7 +822,10 @@ def curation_eligible(
         reasons.append(f"ORACLE_RESULT_NOT_MEASURED:{result.get('status')!r}")
     elif not result.get("measurements"):
         reasons.append("ORACLE_RESULT_MISSING")
-    if check_digest(record, "record"):
+    provenance = record.get("provenance")
+    if not isinstance(provenance, dict) or "record_sha256" not in provenance:
+        reasons.append("RECORD_DIGEST_MISMATCH")
+    elif check_digest(record, "record"):
         reasons.append("RECORD_DIGEST_MISMATCH")
     return (not reasons), reasons
 

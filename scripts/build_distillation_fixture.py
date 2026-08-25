@@ -53,13 +53,18 @@ def build(out: Path, force: bool = False) -> dict[str, Any]:
     if out.exists():
         if not force:
             raise SystemExit(f"{out} exists; pass --force to rebuild it")
+        if not out.is_dir():
+            raise SystemExit(f"{out} exists but is not a directory; refusing to delete")
+        contents = list(out.iterdir())
+        if contents and not (len(contents) == 1 and contents[0].name == "MANIFEST.json"):
+            raise SystemExit(f"{out} is not empty and does not contain only MANIFEST.json; refusing to delete")
         shutil.rmtree(out)
 
     fault_records = fault_recovery.build_records(FAULT_SEED, FAULT_COUNT)
 
     meter, meter_probe = energy_preferences.select_meter(prefer_energy=True)
     energy_records = energy_preferences.build_records(
-        ENERGY_SEED, ENERGY_COUNT, meter=meter, repeats=5
+        ENERGY_SEED, ENERGY_COUNT, meter=meter, meter_probe=meter_probe, repeats=5
     )
 
     router_oracle = moe_router.ReferenceMoERouter()

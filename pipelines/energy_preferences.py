@@ -12,19 +12,20 @@ The preference is **not** "cheapest wins". It is::
 so a wrong-but-cheap policy and a fast-but-unsafe policy are both rejected
 even when they are the cheapest thing measured.
 
-Meters, in preference order:
+Meters:
 
 ``RaplEnergyMeter``
     Reads ``/sys/class/powercap/intel-rapl:*/energy_uj`` around the executed
     workload and reports real joules. Requires read access to the powercap
     counters (root on most distributions).
-``RecordedEnergyMeter``
-    Replays a measurement recorded by a real metered run elsewhere. Fails
-    closed on an unknown key; it never interpolates or synthesises.
 ``ProcessResourceMeter``
     Always available. Measures CPU time, wall time and RSS of the executed
     workload. These are real measurements, but they are **not** energy: a
     record metered this way is denominated in ``cpu_time_s`` and says so.
+``RecordedEnergyMeter``
+    Replays a measurement recorded by a real metered run elsewhere. Fails
+    closed on an unknown key; it never interpolates or synthesises. API-only;
+    excluded from automatic selection by ``select_meter``.
 
 There is deliberately no "estimate joules from CPU seconds" path. Turning a
 measured second into a joule requires a power model, and a modelled joule is
@@ -164,7 +165,7 @@ class ProcessResourceMeter(EnergyOracle):
         ]
         if rss_after is not None and rss_before is not None:
             extra.append(
-                oc.new_measurement("max_rss_kb", float(rss_after), self.name)
+                oc.new_measurement("max_rss_kb", float(rss_after - rss_before), self.name)
             )
         if switches_after is not None and switches_before is not None:
             extra.append(
@@ -240,6 +241,8 @@ class RaplEnergyMeter(EnergyOracle):
     def measure(
         self, workload: Callable[[], Any], *, repeats: int, warmup: int
     ) -> MeterReading:
+        if repeats < 1:
+            raise oc.ContractError("repeats must be >= 1")
         ok, detail = self.available()
         if not ok:
             raise oc.OracleUnavailable(self.name, detail)
@@ -653,6 +656,7 @@ def build_records(
     count: int,
     *,
     meter: EnergyOracle | None = None,
+    meter_probe: dict[str, Any] | None = None,
     repeats: int = 5,
     warmup: int = 1,
     fine_steps: int = 48,
@@ -664,20 +668,24 @@ def build_records(
     if meter is None:
         meter, probe = select_meter(prefer_energy=True)
     else:
+        if meter_probe is not None:
+            probe = meter_probe
+        else:
+            ok, detail = meter.available()
+            probe = {
+                "probed": [
+                    {
+                        "meter": meter.name,
+                        "measures_energy": meter.measures_energy,
+                        "available": ok,
+                        "detail": detail,
+                    }
+                ],
+                "selected": meter.name,
+                "cost_quantity": meter.cost_quantity,
+                "cost_is_energy": meter.measures_energy,
+            }
         ok, detail = meter.available()
-        probe = {
-            "probed": [
-                {
-                    "meter": meter.name,
-                    "measures_energy": meter.measures_energy,
-                    "available": ok,
-                    "detail": detail,
-                }
-            ],
-            "selected": meter.name,
-            "cost_quantity": meter.cost_quantity,
-            "cost_is_energy": meter.measures_energy,
-        }
         if not ok:
             raise oc.OracleUnavailable(meter.name, detail)
 
@@ -855,7 +863,7 @@ def check_family(record: dict[str, Any], where: str) -> list[str]:
 
     # Keyed by a tuple, not a joined string, so a candidate id containing the
     # separator cannot be made to collide with another candidate's reading.
-    measured_costs: dict[tuple[str, str], float] = {}
+    measured_costs: dict[tuple[str, str], tuple[float, str]] = {}
     measurements = result.get("measurements")
     measurements = measurements if isinstance(measurements, list) else []
     for item in measurements:
@@ -864,12 +872,14 @@ def check_family(record: dict[str, Any], where: str) -> list[str]:
         detail = item.get("detail")
         candidate_id = detail.get("candidate") if isinstance(detail, dict) else None
         quantity = item.get("quantity")
+        meter = item.get("meter")
         if (
             isinstance(candidate_id, str)
             and isinstance(quantity, str)
             and oc.is_number(item.get("value"))
+            and isinstance(meter, str)
         ):
-            measured_costs.setdefault((candidate_id, quantity), item["value"])
+            measured_costs.setdefault((candidate_id, quantity), (item["value"], meter))
 
     for index, candidate in enumerate(candidates):
         spot = f"{where}.result.candidates[{index}]"
@@ -896,17 +906,37 @@ def check_family(record: dict[str, Any], where: str) -> list[str]:
         if not oc.is_number(candidate.get("cost_value")):
             errors.append(f"{spot}.cost_value must be a number")
             continue
+        candidate_meter = candidate.get("cost_meter")
+        if not isinstance(candidate_meter, str) or not candidate_meter:
+            errors.append(f"{spot}.cost_meter must be a non-empty string")
+            continue
+        oracle_name = record.get("oracle", {}).get("name") if isinstance(record.get("oracle"), dict) else None
+        selected_meter = result.get("meter_probe", {}).get("selected") if isinstance(result.get("meter_probe"), dict) else None
+        if candidate_meter != oracle_name:
+            errors.append(
+                f"{spot}.cost_meter is {candidate_meter!r} but oracle.name is {oracle_name!r}"
+            )
+        if candidate_meter != selected_meter:
+            errors.append(
+                f"{spot}.cost_meter is {candidate_meter!r} but meter_probe.selected is {selected_meter!r}"
+            )
         key = (candidate_id, quantity)
         if key not in measured_costs:
             errors.append(
                 f"{spot}: UNMEASURED_COST — no oracle measurement of {quantity} "
                 f"for candidate {candidate_id!r}"
             )
-        elif abs(measured_costs[key] - float(candidate["cost_value"])) > 1e-12:
-            errors.append(
-                f"{spot}.cost_value disagrees with the oracle measurement "
-                f"({candidate['cost_value']} vs {measured_costs[key]})"
-            )
+        else:
+            measured_value, measured_meter = measured_costs[key]
+            if abs(measured_value - float(candidate["cost_value"])) > 1e-12:
+                errors.append(
+                    f"{spot}.cost_value disagrees with the oracle measurement "
+                    f"({candidate['cost_value']} vs {measured_value})"
+                )
+            if measured_meter != candidate_meter:
+                errors.append(
+                    f"{spot}.cost_meter is {candidate_meter!r} but the measurement meter is {measured_meter!r}"
+                )
 
     status = result.get("status")
     preference = result.get("preference")
@@ -1013,7 +1043,7 @@ def main(argv: list[str] | None = None) -> int:
     measure = sub.add_parser("measure", help="execute and meter candidate policies")
     measure.add_argument("--seed", type=int, default=20260823)
     measure.add_argument("--count", type=int, default=4)
-    measure.add_argument("--repeats", type=int, default=5)
+    measure.add_argument("--repeats", type=int, default=5, choices=range(1, 1001), metavar="1-1000")
     measure.add_argument("--output", help="destination JSONL (must not exist)")
 
     meters = sub.add_parser("meters", help="probe meter availability")
