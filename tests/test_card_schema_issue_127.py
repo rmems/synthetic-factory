@@ -78,15 +78,28 @@ class K8sCrashloopDeclarationTests(unittest.TestCase):
             {"id", "goal", "plan", "steps", "outcome", "reward", "meta"},
         )
         self.assertEqual(self.declaration["issues"], [68])
+        for scalar in ("id", "goal", "plan", "outcome"):
+            with self.subTest(scalar=scalar):
+                self.assertEqual(names[scalar]["dtype"], "string")
+                self.assertNotIn("optional", names[scalar])
         self.assertEqual(names["meta"]["dtype"], "json")
         self.assertEqual(names["reward"]["dtype"], "json")
+        self.assertIn("list", names["steps"])
+        self.assertNotIn("dtype", names["steps"])
         steps = {feature["name"]: feature for feature in names["steps"]["list"]}
         self.assertEqual(
             set(steps), {"n", "decision_basis", "tool_call", "observation", "reflection"}
         )
+        self.assertEqual(steps["n"]["dtype"], "int64")
+        for scalar in ("decision_basis", "observation", "reflection"):
+            with self.subTest(step_scalar=scalar):
+                self.assertEqual(steps[scalar]["dtype"], "string")
         self.assertTrue(steps["reflection"]["optional"])
+        self.assertIn("struct", steps["tool_call"])
+        self.assertNotIn("dtype", steps["tool_call"])
         tool_call = {feature["name"]: feature for feature in steps["tool_call"]["struct"]}
         self.assertEqual(set(tool_call), {"name", "args"})
+        self.assertEqual(tool_call["name"]["dtype"], "string")
         self.assertEqual(tool_call["args"]["dtype"], "json")
 
     def test_plan_is_mandatory_here_unlike_the_worked_example(self):
@@ -148,4 +161,3 @@ class K8sCrashloopDeclarationTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-
