@@ -677,16 +677,44 @@ class CurateAgenticTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             source_dir = root / "src"
-            factory = source_dir / "safety-calibration-factory"
+            factory = source_dir / "cache-stampede-factory"
             factory.mkdir(parents=True)
             (factory / "batch-r01.jsonl").write_text(
-                json.dumps(safety_case_fixture(steps=[_step(1, thought="no")]))
-                + "\n"
+                "".join(
+                    json.dumps(
+                        episode_fixture(
+                            f"cst-r0{index}-singleflight",
+                            goal="Fix the singleflight TTL stampede",
+                            steps=[_step(1, thought="no")],
+                            meta={
+                                "factory": "cache-stampede-factory",
+                                "round": index,
+                                "generator": "grok-4.6",
+                            },
+                        )
+                    )
+                    + "\n"
+                    for index in (1, 2)
+                )
             )
-            second_factory = source_dir / "long-horizon-coding-factory"
+            second_factory = source_dir / "graphql-nplusone-factory"
             second_factory.mkdir()
             (second_factory / "batch-r01.jsonl").write_text(
-                json.dumps(episode_fixture()) + "\n"
+                "".join(
+                    json.dumps(
+                        episode_fixture(
+                            f"gql-r0{index}-projection",
+                            goal="Fix the PostGraphile analyzer projection",
+                            meta={
+                                "factory": "graphql-nplusone-factory",
+                                "round": index,
+                                "generator": "grok-4.6",
+                            },
+                        )
+                    )
+                    + "\n"
+                    for index in (1, 2)
+                )
             )
             dest = root / "cleaned"
 
@@ -702,7 +730,7 @@ class CurateAgenticTests(unittest.TestCase):
 
             self.assertEqual(first.returncode, 0, first.stderr)
             self.assertNotEqual(second.returncode, 0)
-            cleaned = dest / "safety-calibration-factory" / "batch-r01.jsonl"
+            cleaned = dest / "cache-stampede-factory" / "batch-r01.jsonl"
             self.assertTrue(cleaned.is_file())
             emitted = json.loads(cleaned.read_text().splitlines()[0])
             self.assertFalse(contains_hidden_thought_key(emitted))
@@ -750,7 +778,11 @@ class CurateAgenticTests(unittest.TestCase):
         self.assertEqual(result.returncode, 2)
 
     def test_write_cleanup_preserves_the_primary_failure(self):
-        run = {"records_by_rel": {"nested/batch.jsonl": [episode_fixture()]}}
+        run = {
+            "records_by_rel": {"nested/batch.jsonl": [episode_fixture()]},
+            "decisions": [],
+            "summary": {"mill_family": {"quarantine_applied": True}},
+        }
         with tempfile.TemporaryDirectory() as temporary:
             out = Path(temporary) / "cleaned"
             with mock.patch.object(
@@ -758,6 +790,35 @@ class CurateAgenticTests(unittest.TestCase):
             ), mock.patch.object(Path, "rmdir", side_effect=OSError("cleanup failed")):
                 with self.assertRaisesRegex(RuntimeError, "writer failed"):
                     curate_agentic.write_cleaned_tree(run, out)
+
+    def test_write_requires_a_positive_mill_quarantine_gate(self):
+        malformed_summaries = {
+            "missing": object(),
+            "null": None,
+            "not-a-mapping": [],
+            "missing-mill-family": {},
+            "null-mill-family": {"mill_family": None},
+            "missing-decision": {"mill_family": {}},
+            "false-decision": {
+                "mill_family": {"quarantine_applied": False}
+            },
+            "truthy-non-boolean": {
+                "mill_family": {"quarantine_applied": "true"}
+            },
+        }
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            for index, (name, summary) in enumerate(
+                malformed_summaries.items()
+            ):
+                with self.subTest(name=name):
+                    run = {"records_by_rel": {}, "decisions": []}
+                    if name != "missing":
+                        run["summary"] = summary
+                    out = root / f"cleaned-{index}"
+                    with self.assertRaisesRegex(ValueError, "multi-factory"):
+                        curate_agentic.write_cleaned_tree(run, out)
+                    self.assertFalse(out.exists())
 
     def test_missing_basis_paths_cover_preference_sides(self):
         record = preference_fixture(
@@ -895,6 +956,9 @@ class ForeignMillQuarantine(unittest.TestCase):
         self.assertEqual(run["summary"]["transform"]["version"], "2")
         self.assertEqual(TRANSFORM_VERSION, "2")
         self.assertTrue(run["summary"]["mill_family"]["context_complete"])
+        self.assertFalse(
+            run["summary"]["mill_family"]["reference_scope_complete"]
+        )
         self.assertTrue(run["summary"]["mill_family"]["quarantine_applied"])
         self.assertEqual(run["summary"]["quarantined_foreign_mill_records"], 1)
         emitted = {
@@ -954,12 +1018,118 @@ class ForeignMillQuarantine(unittest.TestCase):
         )
         self.assertEqual(run["summary"]["quarantined_foreign_mill_records"], 1)
 
+    def test_tied_snapshot_identity_refuses_cleaned_output(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary) / "run"
+            root.mkdir()
+            self._write_run(root, list(STAMPEDE_CONTROLS))
+            snapshot = root / "staging-copy"
+            snapshot.mkdir()
+            (snapshot / "batch-r01.jsonl").write_text(
+                "".join(
+                    json.dumps(record) + "\n"
+                    for record in (
+                        _mill_episode(
+                            "snapshot-cache",
+                            "fix verify",
+                            "cache-stampede-factory",
+                        ),
+                        _mill_episode(
+                            "snapshot-graphql",
+                            "fix verify",
+                            "graphql-nplusone-factory",
+                        ),
+                    )
+                ),
+                encoding="utf-8",
+            )
+            run = curate_source(root)
+            out = Path(temporary) / "cleaned"
+
+            mill_summary = run["summary"]["mill_family"]
+            self.assertFalse(mill_summary["context_complete"])
+            self.assertEqual(
+                mill_summary["unresolved_destinations"], ["staging-copy"]
+            )
+            with self.assertRaisesRegex(ValueError, "multi-factory"):
+                curate_agentic.write_cleaned_tree(run, out)
+            self.assertFalse(out.exists())
+
+    def test_unverified_resolved_snapshot_identity_refuses_cleaned_output(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary) / "run"
+            root.mkdir()
+            self._write_run(root, list(STAMPEDE_CONTROLS))
+            snapshot = root / "staging-copy"
+            snapshot.mkdir()
+            absent = "unknown-absent-factory"
+            record = _mill_episode(
+                "snapshot-unknown",
+                "fix verify",
+                absent,
+            )
+            (snapshot / "batch-r01.jsonl").write_text(
+                json.dumps(record) + "\n",
+                encoding="utf-8",
+            )
+            run = curate_source(root)
+            out = Path(temporary) / "cleaned"
+
+            mill_summary = run["summary"]["mill_family"]
+            self.assertFalse(mill_summary["context_complete"])
+            self.assertFalse(mill_summary["quarantine_applied"])
+            self.assertEqual(
+                mill_summary["missing_home_factories"], [absent]
+            )
+            self.assertIn(
+                record["id"],
+                {
+                    item["id"]
+                    for records in run["records_by_rel"].values()
+                    for item in records
+                },
+            )
+            with self.assertRaisesRegex(ValueError, "multi-factory"):
+                curate_agentic.write_cleaned_tree(run, out)
+            self.assertFalse(out.exists())
+
+    def test_partial_context_reports_foreign_payload_without_quarantine(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            factory = Path(temporary) / "cache-stampede-factory"
+            factory.mkdir()
+            record = _mill_episode(
+                "foreign-payload",
+                "fix verify",
+                "graphql-nplusone-factory",
+            )
+            (factory / "batch-r01.jsonl").write_text(
+                json.dumps(record) + "\n", encoding="utf-8"
+            )
+
+            run = curate_source(factory)
+
+        mill_summary = run["summary"]["mill_family"]
+        self.assertFalse(mill_summary["context_complete"])
+        self.assertFalse(mill_summary["quarantine_applied"])
+        self.assertEqual(mill_summary["records"], 1)
+        self.assertEqual(
+            mill_summary["reason_codes"],
+            {REASON_FOREIGN_PAYLOAD_FACTORY: 1},
+        )
+        self.assertEqual(mill_summary["record_ids"], [record["id"]])
+        self.assertEqual(
+            run["summary"]["quarantined_foreign_mill_records"], 0
+        )
+        self.assertEqual(run["summary"]["output_records"], 1)
+        self.assertEqual(run["decisions"][0]["action"], ACTION_RETAINED)
+        self.assertNotIn("mill_family", run["decisions"][0])
+
     def test_partial_context_with_ambiguous_prefix_refuses_output(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary) / "run"
             for factory, identifier in (
-                ("cache-stampede-factory", "gql-r1405-cache-copy"),
-                ("k8s-crashloop-factory", "gql-r1406-k8s-copy"),
+                ("cache-stampede-factory", "xyz-r1405-cache-copy"),
+                ("k8s-crashloop-factory", "xyz-r1406-k8s-copy"),
             ):
                 directory = root / factory
                 directory.mkdir(parents=True)
@@ -975,7 +1145,83 @@ class ForeignMillQuarantine(unittest.TestCase):
             )
             self.assertEqual(
                 run["summary"]["mill_family"]["unresolved_prefixes"],
-                ["gql"],
+                ["xyz"],
+            )
+            self.assertFalse(
+                run["summary"]["mill_family"]["quarantine_applied"]
+            )
+            with self.assertRaisesRegex(ValueError, "multi-factory"):
+                curate_agentic.write_cleaned_tree(run, out)
+            self.assertFalse(out.exists())
+
+    def test_partial_context_with_unique_unknown_prefix_refuses_output(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary) / "run"
+            for factory, identifier in (
+                ("cache-stampede-factory", "xyz-r1405-cache-copy"),
+                ("k8s-crashloop-factory", "kcl-r1406-k8s-native"),
+            ):
+                directory = root / factory
+                directory.mkdir(parents=True)
+                record = _mill_episode(identifier, "fix verify", factory)
+                (directory / "batch-r01.jsonl").write_text(
+                    json.dumps(record) + "\n", encoding="utf-8"
+                )
+            run = curate_source(root)
+            out = Path(temporary) / "cleaned"
+
+            mill_summary = run["summary"]["mill_family"]
+            self.assertFalse(mill_summary["context_complete"])
+            self.assertEqual(mill_summary["unresolved_prefixes"], ["xyz"])
+            self.assertFalse(mill_summary["quarantine_applied"])
+            with self.assertRaisesRegex(ValueError, "multi-factory"):
+                curate_agentic.write_cleaned_tree(run, out)
+            self.assertFalse(out.exists())
+
+    def test_partial_context_with_native_terms_and_unknown_goal_refuses_output(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary) / "run"
+            cache = root / "cache-stampede-factory"
+            cache.mkdir(parents=True)
+            strays = [
+                _mill_episode(
+                    "cst-r99-unregistered-expiry-family",
+                    "TTL expiry QuuxAlpha quuxBeta quuxGamma",
+                    "cache-stampede-factory",
+                )
+            ]
+            (cache / "batch-r01.jsonl").write_text(
+                "".join(
+                    json.dumps(record) + "\n"
+                    for record in (*STAMPEDE_CONTROLS, *strays)
+                ),
+                encoding="utf-8",
+            )
+            k8s = root / "k8s-crashloop-factory"
+            k8s.mkdir()
+            (k8s / "batch-r01.jsonl").write_text(
+                "".join(
+                    json.dumps(
+                        _mill_episode(
+                            f"kcl-r0{index}-probe",
+                            "CrashLoopBackOff liveness probe container restart",
+                            "k8s-crashloop-factory",
+                        )
+                    )
+                    + "\n"
+                    for index in (1, 2)
+                ),
+                encoding="utf-8",
+            )
+            run = curate_source(root)
+            out = Path(temporary) / "cleaned"
+
+            self.assertFalse(
+                run["summary"]["mill_family"]["context_complete"]
+            )
+            self.assertEqual(
+                run["summary"]["mill_family"]["unresolved_goal_records"],
+                sorted(record["id"] for record in strays),
             )
             self.assertFalse(
                 run["summary"]["mill_family"]["quarantine_applied"]

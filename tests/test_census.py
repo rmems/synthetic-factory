@@ -261,6 +261,35 @@ class CensusMillMix(unittest.TestCase):
         self.assertEqual(report["by_factory"], {"custom-experiment-factory": 1})
         self.assertEqual(report["mill_mix"]["records"], 0)
 
+    def test_suffix_only_snapshot_root_infers_payload_identity(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary) / "staging-copy-factory"
+            root.mkdir()
+            (root / "batch-r01.jsonl").write_text(
+                "".join(
+                    json.dumps(record) + "\n"
+                    for record in (
+                        _episode(
+                            "cst-r01-cache-control",
+                            "Resolve cache thundering herd with singleflight",
+                            "cache-stampede-factory",
+                        ),
+                        _episode(
+                            "cst-r02-cache-control",
+                            "Resolve cache thundering herd with singleflight",
+                            "cache-stampede-factory",
+                        ),
+                    )
+                ),
+                encoding="utf-8",
+            )
+            result = _invoke(str(root))
+            self.assertEqual(result.returncode, 0, result.stderr)
+            report = json.loads(result.stdout)
+
+        self.assertEqual(report["by_factory"], {"staging-copy-factory": 2})
+        self.assertEqual(report["mill_mix"]["records"], 0)
+
     def test_all_foreign_known_destination_uses_directory_identity(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary) / "email-webhook-retry-factory"
@@ -358,6 +387,30 @@ class CensusMillMix(unittest.TestCase):
         self.assertEqual(report["files"], 1)
         self.assertEqual(report["records"], 1)
         self.assertEqual(report["mill_mix"]["records"], 0)
+
+    def test_cli_bounds_unsafe_marker_mode_transaction_error(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            factory = Path(temporary) / "agentic-factory"
+            factory.mkdir()
+            (factory / "batch-r01.jsonl").write_text(
+                json.dumps(
+                    _episode(
+                        "agt-r01-unsafe-marker",
+                        "fix verify",
+                        factory.name,
+                    )
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            (factory / ".round-marker-mode.json").mkdir()
+
+            result = _invoke(str(factory))
+
+        self.assertEqual(result.returncode, 1)
+        self.assertEqual(result.stdout, "")
+        self.assertIn("census failed: unsafe marker mode file", result.stderr)
+        self.assertNotIn("Traceback", result.stderr)
 
 
 class CensusBuckets(unittest.TestCase):

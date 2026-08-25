@@ -20,9 +20,14 @@ _PIPELINES = Path(__file__).resolve().parent
 if str(_PIPELINES) not in sys.path:
     sys.path.insert(0, str(_PIPELINES))
 
-from mill_family import MillIndex, summarize as summarize_mill_mix  # noqa: E402
+from mill_family import (  # noqa: E402
+    MillIndex,
+    factory_identity_for_path as shared_factory_identity_for_path,
+    summarize as summarize_mill_mix,
+)
 from round_txn import (  # noqa: E402
     FACTORY_QUOTAS,
+    TransactionError,
     committed_jsonl_paths,
     marker_mode_path,
 )
@@ -154,26 +159,12 @@ def factory_identity_for_path(
 ) -> tuple[str, bool]:
     """Return factory name plus independent root-verification evidence."""
 
-    relative = path.relative_to(run_dir)
-    marker_root = _enclosing_marker_root(run_dir, path)
-    if marker_root is not None:
-        return marker_root.name, True
-    if run_dir.name in FACTORY_QUOTAS:
-        return run_dir.name, True
-    if run_dir.name.endswith("-factory"):
-        # A direct off-registry legacy factory may store JSONL under archive/
-        # or work/. A suffixed outer snapshot is distinguishable when its
-        # first child is itself shaped like a factory root.
-        if len(relative.parts) == 1:
-            return run_dir.name, True
-        nested_root = relative.parts[0]
-        if nested_root not in FACTORY_QUOTAS and not nested_root.endswith(
-            "-factory"
-        ):
-            return run_dir.name, True
-    factory = relative.parts[0] if len(relative.parts) > 1 else run_dir.name
-    verified = factory in FACTORY_QUOTAS or factory.endswith("-factory")
-    return factory, verified
+    return shared_factory_identity_for_path(
+        run_dir,
+        path,
+        marker_root=_enclosing_marker_root(run_dir, path),
+        known_factories=FACTORY_QUOTAS,
+    )
 
 
 def factory_for_path(run_dir: Path, path: Path) -> str:
@@ -243,7 +234,12 @@ def main(argv=None):
     if not run_dir.is_dir():
         print(f"census: not a directory: {run_dir}", file=sys.stderr)
         return 2
-    print(json.dumps(census_dir(run_dir), indent=2))
+    try:
+        report = census_dir(run_dir)
+    except TransactionError as exc:
+        print(f"census failed: {exc}", file=sys.stderr)
+        return 1
+    print(json.dumps(report, indent=2))
     return 0
 
 

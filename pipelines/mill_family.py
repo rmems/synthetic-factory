@@ -30,9 +30,10 @@ from __future__ import annotations
 
 import re
 from collections import Counter, defaultdict
+from collections.abc import Hashable, Iterable, Mapping
 from dataclasses import dataclass, field
-from fractions import Fraction
-from typing import Any, Hashable, Iterable, Mapping
+from pathlib import Path
+from typing import Any
 
 # ``<mill>-r<round>[<suffix>]-<slug>``: the id shape every agentic factory
 # emits. ``r4_29``-style round tokens occur in a handful of published rounds
@@ -58,6 +59,179 @@ GOAL_FAMILY_MIN_SUPPORT = 2
 # destination, and a single other destination that shares at least this many
 # tokens. Below that, a short or unusual goal is not evidence of a foreign mill.
 GOAL_FAMILY_MIN_FOREIGN_TOKENS = 3
+# Reviewed generator aliases are independent ownership evidence. The registry
+# freezes every prefix observed in the read-only 2026-08-19 agentic census,
+# including native aliases and the known cross-destination spills. Unknown
+# aliases remain useful for report-only inference, but can never authorize a
+# cleaned output until their ownership is reviewed and added here.
+REVIEWED_MILL_PREFIX_HOMES = {
+    "acm": "api-contract-migration-factory",
+    "amc": "agent-memory-compaction-factory",
+    "azr": "authz-regression-factory",
+    "brw": "browser-tool-use-factory",
+    "cei": "csv-excel-ingest-factory",
+    "cer": "cascading-error-recovery-factory",
+    "crp": "code-review-preference-factory",
+    "cst": "cache-stampede-factory",
+    "dbc": "docker-build-cache-factory",
+    "dbm": "db-migration-repair-factory",
+    "dlk": "distributed-lock-factory",
+    "dmr": "db-migration-repair-factory",
+    "dpr": "data-pipeline-repair-factory",
+    "evh": "eval-harness-trajectory-factory",
+    "ewr": "email-webhook-retry-factory",
+    "ffd": "feature-flag-debug-factory",
+    "flk": "flaky-test-quarantine-factory",
+    "ftq": "flaky-test-quarantine-factory",
+    "gor": "git-ops-recovery-factory",
+    "gql": "graphql-nplusone-factory",
+    "iac": "infra-as-code-factory",
+    "irc": "incident-response-oncall-factory",
+    "kcl": "k8s-crashloop-factory",
+    "lef": "llm-eval-flakiness-factory",
+    "lhc": "long-horizon-coding-factory",
+    "lrd": "log-redaction-factory",
+    "mac": "multi-agent-coordination-factory",
+    "mdb": "monorepo-dep-bump-factory",
+    "msd": "mcp-tool-schema-drift-factory",
+    "ntp": "notebook-to-pipeline-factory",
+    "obs": "observability-debug-factory",
+    "pay": "payment-idempotency-factory",
+    "pbc": "proto-breaking-change-factory",
+    "pci": "prompt-cache-invalidation-factory",
+    "pid": "payment-idempotency-factory",
+    "pkg": "package-release-factory",
+    "qbp": "queue-backpressure-factory",
+    "rag": "rag-retrieval-debug-factory",
+    "rlb": "rate-limit-backoff-factory",
+    "saf": "safety-calibration-factory",
+    "sbox": "sandbox-refusal-factory",
+    "scr": "ssl-cert-rotation-factory",
+    "sir": "search-index-rebuild-factory",
+    "srl": "sparse-reward-long-task-factory",
+    "ssl": "ssl-cert-rotation-factory",
+    "ssr": "secret-scan-remediation-factory",
+    "tup": "tool-use-preference-factory",
+    "wsr": "websocket-reconnect-factory",
+}
+
+# Distinctive vocabulary from the source and destination mills in the frozen
+# #44 census. Generic words stay corpus-derived; only generator/product terms
+# whose ownership was independently reviewed are pinned here. These signatures
+# are also the closed-world boundary for authorizing cleaned output: novel goal
+# families in one of these lanes stay unresolved instead of teaching
+# themselves through repetition.
+REVIEWED_GOAL_TOKEN_HOMES = {
+    "crashloopbackoff": "k8s-crashloop-factory",
+    "expiry": "cache-stampede-factory",
+    "herd": "cache-stampede-factory",
+    "liveness": "k8s-crashloop-factory",
+    "probe": "k8s-crashloop-factory",
+    "refills": "cache-stampede-factory",
+    "restart": "k8s-crashloop-factory",
+    "singleflight": "cache-stampede-factory",
+    "stampede": "cache-stampede-factory",
+    "throttling": "rate-limit-backoff-factory",
+    "thundering": "cache-stampede-factory",
+    "ttl": "cache-stampede-factory",
+    "backoff": "rate-limit-backoff-factory",
+    "jitter": "rate-limit-backoff-factory",
+    "ratelimit": "rate-limit-backoff-factory",
+    "retry": "rate-limit-backoff-factory",
+    "buildkit": "docker-build-cache-factory",
+    "blobcache": "docker-build-cache-factory",
+    "cachemount": "docker-build-cache-factory",
+    "estargz": "docker-build-cache-factory",
+    "exporter": "docker-build-cache-factory",
+    "layers": "docker-build-cache-factory",
+    "nydus": "docker-build-cache-factory",
+    "overlayfs": "docker-build-cache-factory",
+    "rafs": "docker-build-cache-factory",
+    "solver": "docker-build-cache-factory",
+    "stargz": "docker-build-cache-factory",
+    "toc": "docker-build-cache-factory",
+    "whiteout": "docker-build-cache-factory",
+    "analyzer": "graphql-nplusone-factory",
+    "costnew": "graphql-nplusone-factory",
+    "costold": "graphql-nplusone-factory",
+    "edgedb": "graphql-nplusone-factory",
+    "globalberth": "graphql-nplusone-factory",
+    "globals": "graphql-nplusone-factory",
+    "globalyard": "graphql-nplusone-factory",
+    "hotchocolate": "graphql-nplusone-factory",
+    "makewrapresolvers": "graphql-nplusone-factory",
+    "postgraphile": "graphql-nplusone-factory",
+    "projection": "graphql-nplusone-factory",
+    "wrapmass": "graphql-nplusone-factory",
+    "wrappull": "graphql-nplusone-factory",
+}
+
+# One record can legitimately cross domain boundaries: a Git recovery task can
+# mention retry jitter, an on-call incident can involve stargz, and a coding
+# task can repair a cache stampede. These strong anchors distinguish a reviewed
+# product signature from generic reviewed words. They never convict a different
+# home by themselves: goal-only foreign evidence must still recur as an
+# independently clean cohort.
+REVIEWED_GOAL_STRONG_ANCHORS = frozenset(
+    {
+        "singleflight",
+        "crashloopbackoff",
+        "ratelimit",
+        "blobcache",
+        "buildkit",
+        "cachemount",
+        "estargz",
+        "nydus",
+        "overlayfs",
+        "rafs",
+        "costnew",
+        "costold",
+        "edgedb",
+        "globalberth",
+        "globalyard",
+        "hotchocolate",
+        "makewrapresolvers",
+        "postgraphile",
+        "wrapmass",
+        "wrappull",
+    }
+)
+
+
+def factory_identity_for_path(
+    run_dir: Path,
+    path: Path,
+    *,
+    marker_root: Path | None = None,
+    known_factories: Iterable[str] = (),
+) -> tuple[str, bool]:
+    """Return one shared factory identity and independent verification flag.
+
+    Marker-mode roots are verified directly. A known outer factory root is
+    also verified, while off-registry direct roots and standalone files remain
+    unverified. Multi-factory runs attribute nested archive/work paths to the
+    first enclosing factory-shaped component.
+    """
+
+    run_dir = Path(run_dir)
+    path = Path(path)
+    if marker_root is not None:
+        return Path(marker_root).name, True
+    if run_dir.is_file():
+        return path.parent.name, False
+
+    factories = frozenset(known_factories)
+    relative = path.relative_to(run_dir)
+    if run_dir.name in factories:
+        return run_dir.name, True
+    if run_dir.name.endswith("-factory"):
+        if len(relative.parts) == 1:
+            return run_dir.name, False
+        nested_root = relative.parts[0]
+        if nested_root not in factories and not nested_root.endswith("-factory"):
+            return run_dir.name, False
+    factory = relative.parts[0] if len(relative.parts) > 1 else run_dir.name
+    return factory, factory in factories
 
 # Vocabulary shared by every lane in this corpus: the leftover mechanic itself,
 # the fix/verify arc, and episode scaffolding nouns. These words say nothing
@@ -192,10 +366,11 @@ class _Entry:
 class MillIndex:
     """Accumulate records per destination, then resolve mill ownership.
 
-    Ownership is resolved from the corpus rather than from a hand-maintained
-    table, so a new lane needs no registration.  Every axis resolves ties by
-    reporting nothing: a signal that does not clearly belong somewhere else is
-    not evidence that it is foreign here.
+    Reviewed aliases are resolved from independent registry evidence. Unknown
+    signals are inferred only when corpus evidence is unambiguous; conflicting
+    declarations or cross-factory goal vocabularies remain unresolved. A
+    signal that does not clearly belong somewhere else is never evidence that
+    it is foreign here.
     """
 
     def __init__(self) -> None:
@@ -243,14 +418,13 @@ class MillIndex:
 
         A maximum share is not ownership: one rare native alias can have a
         lower within-factory share than one spill in a smaller destination.
-        Prefer one consistent payload declaration.  Otherwise, a prefix seen
-        in several factories resolves only when exactly one factory is pure
-        for that prefix.  Ambiguous aliases intentionally have no home and
-        therefore cannot quarantine either side.
+        Prefer a reviewed alias or one consistent payload declaration. A
+        prefix observed in only one factory is local. Conflicting declarations
+        across factories intentionally have no inferred home; destination
+        purity is not independent evidence and cannot resolve the conflict.
         """
 
         counts: dict[str, Counter[str]] = defaultdict(Counter)
-        totals: Counter[str] = Counter()
         declarations: dict[str, set[str]] = defaultdict(set)
         for entry in self._entries:
             if entry.mill_prefix is not None:
@@ -258,11 +432,14 @@ class MillIndex:
                     identity.get(entry.factory) if identity is not None else None
                 ) or entry.factory
                 counts[entry.mill_prefix][factory] += 1
-                totals[factory] += 1
                 if entry.declared_factory is not None:
                     declarations[entry.mill_prefix].add(entry.declared_factory)
         homes: dict[str, frozenset[str]] = {}
         for prefix, per_factory in counts.items():
+            reviewed_home = REVIEWED_MILL_PREFIX_HOMES.get(prefix)
+            if reviewed_home is not None:
+                homes[prefix] = frozenset({reviewed_home})
+                continue
             declared = declarations[prefix]
             if len(declared) == 1:
                 homes[prefix] = frozenset(declared)
@@ -270,12 +447,7 @@ class MillIndex:
             if len(per_factory) == 1:
                 homes[prefix] = frozenset(per_factory)
                 continue
-            pure = {
-                factory
-                for factory, seen in per_factory.items()
-                if seen == totals[factory]
-            }
-            homes[prefix] = frozenset(pure) if len(pure) == 1 else frozenset()
+            homes[prefix] = frozenset()
         return homes
 
     def _declared_identity(self) -> dict[str, str | None]:
@@ -315,24 +487,86 @@ class MillIndex:
         """Describe whether cross-factory ownership is safe for output.
 
         Curation may report an incomplete source, but it must not write a
-        cleaned tree when a cross-factory prefix is ambiguous or when a signal
-        names a home factory absent from the verified source context.
+        cleaned tree when any ownership axis is unresolved or when a signal
+        names a home factory absent from the verified source context. Partial
+        sources apply the stricter reviewed-signature boundary; a source that
+        contains every reviewed factory may use the complete corpus as its
+        reference index.
         """
 
         verified = {
             entry.factory for entry in self._entries if entry.factory_verified
         }
+        reviewed_prefix_coverage = {
+            (entry.mill_prefix, entry.factory)
+            for entry in self._entries
+            if entry.factory_verified
+            and entry.mill_prefix is not None
+            and REVIEWED_MILL_PREFIX_HOMES.get(entry.mill_prefix)
+            == entry.factory
+        }
+        reference_scope_complete = all(
+            (prefix, home) in reviewed_prefix_coverage
+            for prefix, home in REVIEWED_MILL_PREFIX_HOMES.items()
+        )
         prefix_factories: dict[str, set[str]] = defaultdict(set)
         for entry in self._entries:
             if entry.mill_prefix is not None:
                 prefix_factories[entry.mill_prefix].add(entry.factory)
 
         identity = self._declared_identity()
+        destinations = {entry.factory for entry in self._entries}
+        unresolved_destinations = sorted(
+            factory
+            for factory in destinations
+            if identity.get(factory) is None
+        )
         homes = self._prefix_homes(identity)
+        goal_token_counts = self._goal_token_counts(homes, identity)
+        vocabulary = self._goal_vocabulary(
+            homes, identity, goal_token_counts=goal_token_counts
+        )
+        goal_homes = self._goal_family_homes(vocabulary, homes, identity)
+        raw_goal_candidates: dict[
+            _Entry, tuple[str, frozenset[str]]
+        ] = {}
+        raw_goal_candidate_support: Counter[
+            tuple[str, str, frozenset[str]]
+        ] = Counter()
+        for entry in self._entries:
+            factory = identity.get(entry.factory) or entry.factory
+            candidate = self._raw_goal_family_home(
+                entry,
+                vocabulary,
+                factory,
+                require_independent_anchor=False,
+            )
+            if candidate is None:
+                continue
+            candidate_signature = frozenset(
+                entry.goal_family & vocabulary[candidate]
+            )
+            raw_goal_candidates[entry] = (candidate, candidate_signature)
+            prefix_homes = homes.get(entry.mill_prefix, frozenset())
+            payload_foreign = (
+                entry.declared_factory is not None
+                and identity.get(entry.factory) is not None
+                and entry.declared_factory != identity.get(entry.factory)
+            )
+            prefix_foreign = (
+                entry.mill_prefix is not None
+                and prefix_homes
+                and factory not in prefix_homes
+            )
+            if not payload_foreign and not prefix_foreign:
+                raw_goal_candidate_support[
+                    (factory, candidate, candidate_signature)
+                ] += 1
         unresolved_prefixes = sorted(
             prefix
             for prefix, factories in prefix_factories.items()
-            if len(factories) > 1 and not homes.get(prefix)
+            if prefix not in REVIEWED_MILL_PREFIX_HOMES
+            or (len(factories) > 1 and not homes.get(prefix))
         )
         missing_homes = {
             home
@@ -341,6 +575,11 @@ class MillIndex:
             if home not in verified
         }
         missing_homes.update(
+            expected
+            for expected in identity.values()
+            if expected is not None and expected not in verified
+        )
+        missing_homes.update(
             entry.declared_factory
             for entry in self._entries
             if entry.factory_verified
@@ -348,41 +587,205 @@ class MillIndex:
             and entry.declared_factory != entry.factory
             and entry.declared_factory not in verified
         )
+        unresolved_goal_records: set[str] = set()
+        reviewed_goal_tokens = frozenset(REVIEWED_GOAL_TOKEN_HOMES)
+        ambiguous_goal_tokens = frozenset(
+            token
+            for token, per_factory in goal_token_counts.items()
+            if token not in reviewed_goal_tokens
+            and len(per_factory) >= 2
+            and any(
+                seen >= GOAL_FAMILY_MIN_SUPPORT
+                for seen in per_factory.values()
+            )
+        )
+        ambiguous_goal_signatures: dict[
+            _Entry, frozenset[str]
+        ] = {}
+        ambiguous_signature_support: dict[
+            frozenset[str], Counter[str]
+        ] = defaultdict(Counter)
+        for entry in self._entries:
+            expected = identity.get(entry.factory)
+            effective_factory = expected or entry.factory
+            prefix_homes = homes.get(entry.mill_prefix, frozenset())
+            payload_foreign = (
+                entry.declared_factory is not None
+                and expected is not None
+                and entry.declared_factory != expected
+            )
+            prefix_foreign = (
+                entry.mill_prefix is not None
+                and prefix_homes
+                and effective_factory not in prefix_homes
+            )
+            signature = frozenset(
+                entry.goal_family & ambiguous_goal_tokens
+            )
+            if (
+                payload_foreign
+                or prefix_foreign
+                or len(signature) < GOAL_FAMILY_MIN_FOREIGN_TOKENS
+            ):
+                continue
+            ambiguous_goal_signatures[entry] = signature
+            ambiguous_signature_support[signature][effective_factory] += 1
+        unresolved_ambiguous_signatures = frozenset(
+            signature
+            for signature, per_factory in ambiguous_signature_support.items()
+            if len(per_factory) >= 2
+            and any(
+                seen >= GOAL_FAMILY_MIN_SUPPORT
+                for seen in per_factory.values()
+            )
+        )
+        for entry in self._entries:
+            expected = identity.get(entry.factory)
+            effective_factory = expected or entry.factory
+            prefix_homes = homes.get(entry.mill_prefix, frozenset())
+            payload_foreign = (
+                entry.declared_factory is not None
+                and expected is not None
+                and entry.declared_factory != expected
+            )
+            prefix_foreign = (
+                entry.mill_prefix is not None
+                and prefix_homes
+                and effective_factory not in prefix_homes
+            )
+            if payload_foreign or prefix_foreign:
+                continue
+
+            goal_home = goal_homes.get(entry)
+            if goal_home is not None:
+                if goal_home not in verified:
+                    missing_homes.add(goal_home)
+                continue
+
+            raw_goal_candidate = raw_goal_candidates.get(entry)
+            independently_anchored_candidate = self._raw_goal_family_home(
+                entry, vocabulary, effective_factory
+            )
+            if (
+                raw_goal_candidate is not None
+                and independently_anchored_candidate is None
+                and raw_goal_candidate_support[
+                    (
+                        effective_factory,
+                        raw_goal_candidate[0],
+                        raw_goal_candidate[1],
+                    )
+                ]
+                >= GOAL_FAMILY_MIN_SUPPORT
+            ):
+                # Repeated generic reviewed terms are insufficient to
+                # quarantine a record, but they are also not permission to
+                # export it. Preserve that distinction by keeping the cohort
+                # unresolved until stronger ownership evidence exists.
+                unresolved_goal_records.add(
+                    entry.record_id
+                    or (
+                        str(entry.ref)
+                        if entry.ref is not None
+                        else "<unknown>"
+                    )
+                )
+                if raw_goal_candidate[0] not in verified:
+                    missing_homes.add(raw_goal_candidate[0])
+                continue
+
+            if reference_scope_complete:
+                # Full reviewed-prefix coverage does not resolve a novel goal
+                # family repeated in multiple factories. Those tokens were
+                # deliberately omitted from ``vocabulary`` as ambiguous; keep
+                # their records unresolved instead of treating the omission as
+                # permission to export them.
+                if (
+                    ambiguous_goal_signatures.get(entry)
+                    in unresolved_ambiguous_signatures
+                ):
+                    unresolved_goal_records.add(
+                        entry.record_id
+                        or (
+                            str(entry.ref)
+                            if entry.ref is not None
+                            else "<unknown>"
+                        )
+                    )
+                continue
+
+            # A singleton can resemble a reviewed foreign family while still
+            # being a legitimate cross-domain task. Do not quarantine it on
+            # that resemblance alone, but do fail a partial export closed: the
+            # complete audited reference scope is what establishes that the
+            # singleton is not part of a repeated foreign cohort.
+            raw_goal_home = self._raw_goal_family_home(
+                entry, vocabulary, effective_factory
+            )
+            if raw_goal_home is not None:
+                unresolved_goal_records.add(
+                    entry.record_id
+                    or (str(entry.ref) if entry.ref is not None else "<unknown>")
+                )
+                if raw_goal_home not in verified:
+                    missing_homes.add(raw_goal_home)
+                continue
+
+            has_native_strong_anchor = any(
+                token in REVIEWED_GOAL_STRONG_ANCHORS
+                and REVIEWED_GOAL_TOKEN_HOMES.get(token) == effective_factory
+                for token in entry.goal_family
+            )
+            unknown_score = len(entry.goal_family - reviewed_goal_tokens)
+            if (
+                unknown_score >= GOAL_FAMILY_MIN_FOREIGN_TOKENS
+                and not has_native_strong_anchor
+            ):
+                unresolved_goal_records.add(
+                    entry.record_id
+                    or (str(entry.ref) if entry.ref is not None else "<unknown>")
+                )
         missing_homes.discard(None)
         complete = (
             len(verified) >= 2
+            and not unresolved_destinations
             and not unresolved_prefixes
             and not missing_homes
+            and not unresolved_goal_records
         )
         return {
             "complete": complete,
+            "reference_scope_complete": reference_scope_complete,
             "verified_factories": sorted(verified),
+            "unresolved_destinations": unresolved_destinations,
             "unresolved_prefixes": unresolved_prefixes,
+            "unresolved_goal_records": sorted(unresolved_goal_records),
             "missing_home_factories": sorted(missing_homes),
         }
 
-    def _goal_vocabulary(
+    def _goal_token_counts(
         self,
         homes: Mapping[str, frozenset[str]],
         identity: Mapping[str, str | None],
-    ) -> dict[str, frozenset[str]]:
-        """Map each destination to goal tokens uniquely characteristic of it.
-
-        A repeated stray must not teach the destination its foreign vocabulary.
-        Token ownership therefore uses within-destination prevalence, not just
-        a minimum raw count. Prefix- or payload-foreign records are excluded
-        from the teaching set entirely, and tied tokens are non-discriminating.
-        """
+    ) -> dict[str, Counter[str]]:
+        """Count goal tokens using only records not known to be foreign."""
 
         counts: dict[str, Counter[str]] = defaultdict(Counter)
-        totals: Counter[str] = Counter()
         for entry in self._entries:
             prefix = entry.mill_prefix
             expected = identity.get(entry.factory)
             factory = expected or entry.factory
-            if prefix is not None and factory not in homes.get(prefix, ()):
+            prefix_homes = (
+                homes.get(prefix, frozenset())
+                if prefix is not None
+                else frozenset()
+            )
+            if prefix_homes and factory not in prefix_homes:
                 # A record already known to come from elsewhere must not teach
-                # this destination its vocabulary.
+                # this destination its vocabulary. An empty home set means the
+                # prefix is unresolved, not foreign; it may still teach the
+                # destination for report-only analysis while output remains
+                # blocked by ``unresolved_prefixes``.
                 continue
             if (
                 entry.declared_factory is not None
@@ -390,55 +793,68 @@ class MillIndex:
                 and entry.declared_factory != expected
             ):
                 continue
-            totals[factory] += 1
             for token in entry.goal_family:
                 counts[token][factory] += 1
+        return counts
+
+    def _goal_vocabulary(
+        self,
+        homes: Mapping[str, frozenset[str]],
+        identity: Mapping[str, str | None],
+        *,
+        goal_token_counts: Mapping[str, Counter[str]] | None = None,
+    ) -> dict[str, frozenset[str]]:
+        """Map each destination to goal tokens uniquely characteristic of it.
+
+        Reviewed product terms are independent evidence. For other tokens,
+        prefix- or payload-foreign records are excluded from the teaching set
+        and ownership requires support in exactly one factory. A token observed
+        in more than one factory remains ambiguous regardless of prevalence:
+        contaminated records cannot win ownership merely by becoming denser.
+        """
+
+        counts = (
+            self._goal_token_counts(homes, identity)
+            if goal_token_counts is None
+            else goal_token_counts
+        )
 
         vocabulary: dict[str, set[str]] = defaultdict(set)
         for token, per_factory in counts.items():
-            supported = {
-                factory: seen
-                for factory, seen in per_factory.items()
-                if seen >= GOAL_FAMILY_MIN_SUPPORT
-            }
-            if not supported:
+            reviewed_home = REVIEWED_GOAL_TOKEN_HOMES.get(token)
+            if reviewed_home is not None:
+                vocabulary[reviewed_home].add(token)
                 continue
-            prevalence = {
-                factory: Fraction(seen, totals[factory])
-                for factory, seen in supported.items()
-                if totals[factory]
-            }
-            if not prevalence:
+            if len(per_factory) != 1:
                 continue
-            top = max(prevalence.values())
-            winners = [
-                factory for factory, share in prevalence.items() if share == top
-            ]
-            if len(winners) == 1:
-                vocabulary[winners[0]].add(token)
+            factory, seen = next(iter(per_factory.items()))
+            if seen >= GOAL_FAMILY_MIN_SUPPORT:
+                vocabulary[factory].add(token)
         return {
             factory: frozenset(tokens)
             for factory, tokens in vocabulary.items()
         }
 
-    def _goal_family_home(
+    def _raw_goal_family_home(
         self,
         entry: _Entry,
         vocabulary: Mapping[str, frozenset[str]],
         factory: str | None = None,
+        *,
+        require_independent_anchor: bool = True,
     ) -> str | None:
         """Return the one other destination this goal clearly belongs to."""
 
         own_factory = factory or entry.factory
         own = vocabulary.get(own_factory, frozenset())
-        if not own or not entry.goal_family:
+        if not entry.goal_family:
             return None
         own_score = len(entry.goal_family & own)
         scored = sorted(
             (
-                (len(entry.goal_family & tokens), factory)
-                for factory, tokens in vocabulary.items()
-                if factory != own_factory
+                (len(entry.goal_family & tokens), other_factory)
+                for other_factory, tokens in vocabulary.items()
+                if other_factory != own_factory
             ),
             reverse=True,
         )
@@ -451,7 +867,87 @@ class MillIndex:
             return None
         if len(scored) > 1 and scored[1][0] == best_score:
             return None
+        best_tokens = entry.goal_family & vocabulary[best_factory]
+        # Reviewed generic terms such as retry/backoff/jitter are useful only
+        # when the same goal also carries a strong reviewed anchor for that
+        # home. A goal may alternatively rely on corpus-derived unique tokens.
+        # Without either form of independent evidence, repeated native records
+        # can be falsely quarantined merely for using common operational words.
+        has_strong_anchor = bool(
+            best_tokens & REVIEWED_GOAL_STRONG_ANCHORS
+        )
+        has_corpus_derived_anchor = bool(
+            best_tokens - frozenset(REVIEWED_GOAL_TOKEN_HOMES)
+        )
+        if (
+            require_independent_anchor
+            and not has_strong_anchor
+            and not has_corpus_derived_anchor
+        ):
+            return None
         return best_factory
+
+    def _goal_family_homes(
+        self,
+        vocabulary: Mapping[str, frozenset[str]],
+        homes: Mapping[str, frozenset[str]],
+        identity: Mapping[str, str | None],
+    ) -> dict[_Entry, str]:
+        """Return supported foreign goal homes without convicting one overlap.
+
+        The same clean destination-to-home signal must recur on at least
+        ``GOAL_FAMILY_MIN_SUPPORT`` records. Each candidate independently
+        matches at least ``GOAL_FAMILY_MIN_FOREIGN_TOKENS`` terms; tokens are
+        never pooled across partial matches. Prefix- or payload-foreign records
+        already carry independent ownership evidence, so their goal-family
+        detail is retained without this extra support threshold and they never
+        contribute support for a goal-only finding against a native record.
+        """
+
+        candidates: dict[_Entry, str] = {}
+        support: Counter[tuple[str, str]] = Counter()
+        for entry in self._entries:
+            factory = identity.get(entry.factory) or entry.factory
+            goal_home = self._raw_goal_family_home(entry, vocabulary, factory)
+            if goal_home is None:
+                continue
+            candidates[entry] = goal_home
+            prefix_homes = homes.get(entry.mill_prefix, frozenset())
+            payload_foreign = (
+                entry.declared_factory is not None
+                and identity.get(entry.factory) is not None
+                and entry.declared_factory != identity.get(entry.factory)
+            )
+            prefix_foreign = (
+                entry.mill_prefix is not None
+                and prefix_homes
+                and factory not in prefix_homes
+            )
+            if not payload_foreign and not prefix_foreign:
+                support[(factory, goal_home)] += 1
+
+        supported: dict[_Entry, str] = {}
+        for entry, goal_home in candidates.items():
+            factory = identity.get(entry.factory) or entry.factory
+            prefix_homes = homes.get(entry.mill_prefix, frozenset())
+            prefix_foreign = (
+                entry.mill_prefix is not None
+                and prefix_homes
+                and factory not in prefix_homes
+            )
+            expected = identity.get(entry.factory)
+            payload_foreign = (
+                entry.declared_factory is not None
+                and expected is not None
+                and entry.declared_factory != expected
+            )
+            if (
+                prefix_foreign
+                or payload_foreign
+                or support[(factory, goal_home)] >= GOAL_FAMILY_MIN_SUPPORT
+            ):
+                supported[entry] = goal_home
+        return supported
 
     def findings(self) -> tuple[MillFinding, ...]:
         """Return every indexed record whose mill signals are foreign, in order."""
@@ -459,6 +955,7 @@ class MillIndex:
         identity = self._declared_identity()
         homes = self._prefix_homes(identity)
         vocabulary = self._goal_vocabulary(homes, identity)
+        goal_homes = self._goal_family_homes(vocabulary, homes, identity)
 
         results: list[MillFinding] = []
         for entry in self._entries:
@@ -480,9 +977,7 @@ class MillIndex:
             ):
                 reasons.append(REASON_FOREIGN_MILL_ID_PREFIX)
 
-            goal_home = self._goal_family_home(
-                entry, vocabulary, effective_factory
-            )
+            goal_home = goal_homes.get(entry)
             if goal_home is not None:
                 reasons.append(REASON_FOREIGN_MILL_GOAL_FAMILY)
 

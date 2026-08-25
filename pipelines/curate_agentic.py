@@ -42,6 +42,7 @@ from mill_family import (
     REASON_FOREIGN_PAYLOAD_FACTORY,
     MillFinding,
     MillIndex,
+    factory_identity_for_path,
     summarize as summarize_mill_mix,
 )
 from round_txn import (
@@ -492,29 +493,12 @@ def _source_jsonl_entries(source: Path) -> tuple[tuple[Path, str, bool], ...]:
         return path.resolve() in visible_by_factory[factory]
 
     def factory_identity(path: Path) -> tuple[str, bool]:
-        marker_root = marker_factory(path)
-        if marker_root is not None:
-            return marker_root.name, True
-        if source.is_file():
-            return path.parent.name, False
-        relative = path.relative_to(source)
-        if source.name in FACTORY_QUOTAS:
-            return source.name, True
-        if source.name.endswith("-factory"):
-            if len(relative.parts) == 1:
-                return source.name, True
-            nested_root = relative.parts[0]
-            if nested_root not in FACTORY_QUOTAS and not nested_root.endswith(
-                "-factory"
-            ):
-                return source.name, True
-        if len(relative.parts) == 1:
-            return source.name, False
-        # A run directory encloses one directory per factory. Nested work,
-        # archive, and batch directories remain attributed to that first root.
-        factory = relative.parts[0]
-        verified = factory in FACTORY_QUOTAS or factory.endswith("-factory")
-        return factory, verified
+        return factory_identity_for_path(
+            source,
+            path,
+            marker_root=marker_factory(path),
+            known_factories=FACTORY_QUOTAS,
+        )
 
     return tuple(
         (path, *factory_identity(path)) for path in paths if visible(path)
@@ -530,7 +514,7 @@ def _relative_source_path(source: Path, path: Path) -> str:
 def _quarantine_foreign_mills(
     kept: list[tuple[str, int, dict[str, Any], str, bool]],
     decisions: list[dict[str, Any]],
-    mills: MillIndex,
+    findings: tuple[MillFinding, ...],
     actions: Counter[str],
     reasons: Counter[str],
 ) -> list[MillFinding]:
@@ -545,7 +529,7 @@ def _quarantine_foreign_mills(
         for _relative, index, _curated, _factory, _verified in kept
     }
     quarantined = []
-    for finding in mills.findings():
+    for finding in findings:
         if finding.ref not in survivors:
             continue
         decision = decisions[finding.ref]
@@ -568,9 +552,10 @@ def curate_source(source: Path) -> dict[str, Any]:
     source = Path(source)
     records_by_rel: dict[str, list[dict[str, Any]]] = defaultdict(list)
     decisions: list[dict[str, Any]] = []
-    # (relative source file, index into ``decisions``, curated record) for every
-    # record that survived per-record curation. The cleaned tree is assembled
-    # from this only after the cross-record mill-family pass has run.
+    # (relative source file, index into ``decisions``, curated record,
+    # enclosing factory, factory-verified flag) for every record that survived
+    # per-record curation. The cleaned tree is assembled from this only after
+    # the cross-record mill-family pass has run.
     kept: list[tuple[str, int, dict[str, Any], str, bool]] = []
     mills = MillIndex()
     actions: Counter[str] = Counter()
@@ -675,8 +660,11 @@ def curate_source(source: Path) -> dict[str, Any]:
     ownership_context = mills.ownership_context()
     context_factories = ownership_context["verified_factories"]
     context_complete = ownership_context["complete"]
+    mill_findings = mills.findings()
     quarantined = (
-        _quarantine_foreign_mills(kept, decisions, mills, actions, reasons)
+        _quarantine_foreign_mills(
+            kept, decisions, mill_findings, actions, reasons
+        )
         if context_complete
         else []
     )
@@ -691,13 +679,24 @@ def curate_source(source: Path) -> dict[str, Any]:
     }
 
     output_records = sum(len(items) for items in records_by_rel.values())
-    mill_summary = summarize_mill_mix(quarantined)
+    # A partial dry run cannot safely mutate records, but it must still report
+    # every foreign-mill finding that is independently determinable.
+    mill_summary = summarize_mill_mix(mill_findings)
     mill_summary.update(
         {
             "context_complete": context_complete,
+            "reference_scope_complete": ownership_context[
+                "reference_scope_complete"
+            ],
             "context_factories": context_factories,
+            "unresolved_destinations": ownership_context[
+                "unresolved_destinations"
+            ],
             "unresolved_prefixes": ownership_context[
                 "unresolved_prefixes"
+            ],
+            "unresolved_goal_records": ownership_context[
+                "unresolved_goal_records"
             ],
             "missing_home_factories": ownership_context[
                 "missing_home_factories"
@@ -786,10 +785,12 @@ def _write_new_json(path: Path, value: Any) -> None:
 
 def write_cleaned_tree(run: dict[str, Any], out: Path) -> None:
     """Write retained JSONL plus scanner-safe JSON metadata in a new directory."""
-    mill_summary = run.get("summary", {}).get("mill_family")
-    if (
-        isinstance(mill_summary, dict)
-        and mill_summary.get("quarantine_applied") is False
+    summary = run.get("summary")
+    mill_summary = (
+        summary.get("mill_family") if isinstance(summary, dict) else None
+    )
+    if not isinstance(mill_summary, dict) or (
+        mill_summary.get("quarantine_applied") is not True
     ):
         raise ValueError(
             "refusing cleaned output without multi-factory mill ownership context"
