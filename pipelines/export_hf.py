@@ -872,9 +872,13 @@ def _authenticate_source_replay(
     expected_payloads: dict[str, bytes] = {}
     emitted_ids: dict[str, str] = {}
     source_files: list[dict[str, Any]] = []
+    seen_source_semantics: dict[str, tuple[str, int]] = {}
 
-    for source_file in sorted(source_root.rglob("*.jsonl")):
-        relative = source_file.relative_to(source_root).as_posix()
+    try:
+        source_members = compose_curated.source_jsonl_members(source_root)
+    except compose_curated.ComposeError as exc:
+        raise ExportError(f"COMPOSE source tree cannot be replayed safely: {exc}") from exc
+    for relative in source_members:
         _path, raw_file = _read_exact_regular_file(
             source_root, relative, f"compose source {relative}"
         )
@@ -904,6 +908,7 @@ def _authenticate_source_replay(
                 source_line=line_number,
                 source_file_sha256=source_file_sha256,
                 calibration_catalog=catalog,
+                seen_source_semantics=seen_source_semantics,
             )
             entry: dict[str, Any] = {
                 "compose_name": compose_curated.COMPOSE_NAME,

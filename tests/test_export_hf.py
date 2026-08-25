@@ -187,6 +187,43 @@ class ExportHf(unittest.TestCase):
             )
             self.assertEqual(stored, provenance)
 
+    def test_export_replays_pre_identity_semantic_duplicate_exclusions(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            source = build_source_run(root / "run")
+            source_file = (
+                source / "thalamic-trajectory-factory" / "batch-r01.jsonl"
+            )
+            duplicate = json.dumps(
+                thalamic("a"),
+                ensure_ascii=False,
+                sort_keys=True,
+                separators=(",", ":"),
+            )
+            with source_file.open("a", encoding="utf-8") as handle:
+                handle.write(duplicate + "\n")
+
+            curated = root / "curated"
+            summary = compose_curated.compose_run(source, curated)
+            provenance = export_hf.export_run(curated, root / "export")
+            train = (root / "export" / export_hf.TRAIN_PATH).read_text(
+                encoding="utf-8"
+            ).splitlines()
+            evaluate = (root / "export" / export_hf.EVAL_PATH).read_text(
+                encoding="utf-8"
+            ).splitlines()
+
+            self.assertEqual(
+                summary["exclusions"][
+                    compose_curated.REASON_DUPLICATE_SOURCE_RECORD
+                ],
+                1,
+            )
+            self.assertEqual(provenance["compose"]["source"]["records"], 9)
+            self.assertEqual(provenance["records"], 7)
+            self.assertEqual(len(train) + len(evaluate), 7)
+            self.assertEqual(len(set(train + evaluate)), 7)
+
     def test_refuses_a_corpus_that_is_not_training_ready(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
@@ -598,6 +635,8 @@ class ExportHf(unittest.TestCase):
             "output_symlink",
             "output_hardlink",
             "source_symlink",
+            "source_hardlink",
+            "source_directory_symlink",
         )
         for mutation in mutations:
             with self.subTest(mutation=mutation), tempfile.TemporaryDirectory() as td:
@@ -620,6 +659,18 @@ class ExportHf(unittest.TestCase):
                     target = root / "outside-source.jsonl"
                     path.replace(target)
                     path.symlink_to(target)
+                elif mutation == "source_hardlink":
+                    source_root = Path(summary["source_run"])
+                    path = next(source_root.rglob("*.jsonl"))
+                    target = root / "outside-source.jsonl"
+                    path.replace(target)
+                    os.link(target, path)
+                elif mutation == "source_directory_symlink":
+                    source_root = Path(summary["source_run"])
+                    path = next(source_root.rglob("*.jsonl")).parent
+                    target = root / "outside-source-directory"
+                    path.replace(target)
+                    path.symlink_to(target, target_is_directory=True)
                 elif mutation == "output_lexical_alias":
                     summary["outputs"][0]["path"] = summary["outputs"][0][
                         "path"

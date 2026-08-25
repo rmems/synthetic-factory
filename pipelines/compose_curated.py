@@ -46,11 +46,12 @@ import hashlib
 import json
 import os
 import shutil
+import stat
 import sys
 from collections import Counter
 from dataclasses import dataclass
-from pathlib import Path
-from typing import Any, Mapping
+from pathlib import Path, PurePosixPath
+from typing import Any, Mapping, MutableMapping
 
 _PIPELINES = Path(__file__).resolve().parent
 if str(_PIPELINES) not in sys.path:
@@ -90,6 +91,7 @@ ACTION_NOT_APPLICABLE = "not_applicable"
 
 REASON_INVALID_UTF8 = "compose.source_line_invalid_utf8"
 REASON_INVALID_JSON = "compose.source_line_invalid_json"
+REASON_DUPLICATE_SOURCE_RECORD = "compose.source_record_semantic_duplicate"
 REASON_REWARD_ONTOLOGY = "compose.reward_ontology_refused"
 REASON_MIXED_PREFERENCE_FAMILIES = "compose.preference_side_families_mixed"
 REASON_TRAJECTORY_SIDE_INVALID = "TRAJECTORY_PAIR_SIDE_EPISODE_INVALID"
@@ -380,6 +382,71 @@ def _trajectory_preference(
     )
 
 
+def _trajectory_side_needs_coding(side: Any) -> bool:
+    """Whether an episode side needs the coding lane before preference checks."""
+
+    if not isinstance(side, dict):
+        return False
+    if curate_coding.contains_thought_key(side):
+        return True
+    steps = side.get("steps")
+    return isinstance(steps, list) and any(
+        isinstance(step, dict)
+        and (
+            not isinstance(step.get("decision_basis"), str)
+            or not step["decision_basis"].strip()
+        )
+        for step in steps
+    )
+
+
+def _curate_trajectory_sides(
+    record: dict[str, Any],
+    *,
+    source_path: str,
+    source_line: int,
+) -> tuple[dict[str, Any] | None, dict[str, dict[str, Any]], list[str], bool]:
+    """Migrate repairable episode sides before the trajectory preference gate."""
+
+    curated = copy.deepcopy(record)
+    manifests: dict[str, dict[str, Any]] = {}
+    reasons: list[str] = []
+    changed = False
+    failed = False
+    for side_name in ("chosen", "rejected"):
+        side = curated.get(side_name)
+        if not _trajectory_side_needs_coding(side):
+            manifests[side_name] = {
+                "transform_name": curate_coding.TRANSFORM_NAME,
+                "transform_version": curate_coding.TRANSFORM_VERSION,
+                "action": ACTION_NOT_APPLICABLE,
+                "reason_codes": [],
+            }
+            continue
+        curated_side, manifest = curate_coding.curate_episode(
+            side,
+            source_path=f"{source_path}#{side_name}",
+            source_line=source_line,
+            source_hash=_canonical_sha256(side),
+        )
+        detail = copy.deepcopy(manifest)
+        detail["transform_name"] = curate_coding.TRANSFORM_NAME
+        detail["transform_version"] = curate_coding.TRANSFORM_VERSION
+        manifests[side_name] = detail
+        reasons.extend(detail.get("reason_codes", []))
+        if curated_side is None:
+            failed = True
+            continue
+        changed = changed or curated_side != side
+        curated[side_name] = curated_side
+    return (
+        None if failed else curated,
+        manifests,
+        list(dict.fromkeys(reasons)),
+        changed,
+    )
+
+
 def _stage(lane: str, name: str, version: str, action: str, **extra: Any) -> dict[str, Any]:
     stage: dict[str, Any] = {
         "lane": lane,
@@ -555,10 +622,52 @@ def compose_record(
             )
 
         elif side_kinds == ("episode", "episode"):
-            preference_decision, transform_name, transform_version, implementation = (
-                _trajectory_preference(current)
+            (
+                curated_sides,
+                side_curation,
+                side_curation_reasons,
+                side_curation_changed,
+            ) = _curate_trajectory_sides(
+                current,
+                source_path=source_path,
+                source_line=source_line,
             )
-            preference_reasons = list(preference_decision.reason_codes)
+            if curated_sides is None:
+                preference_reasons = list(
+                    dict.fromkeys(
+                        [REASON_TRAJECTORY_SIDE_INVALID, *side_curation_reasons]
+                    )
+                )
+                stages.append(
+                    _stage(
+                        "preferences",
+                        COMPOSE_NAME,
+                        COMPOSE_VERSION,
+                        ACTION_EXCLUDED,
+                        reason_codes=preference_reasons,
+                        lane_action=ACTION_EXCLUDED,
+                        classification="trajectory_side_curation_failed",
+                        side_kinds=list(side_kinds),
+                        side_curation=side_curation,
+                        side_curation_changed=side_curation_changed,
+                    )
+                )
+                return ComposeDecision(
+                    ACTION_EXCLUDED,
+                    None,
+                    tuple(preference_reasons),
+                    tuple(stages),
+                    None,
+                    None,
+                )
+            preference_decision, transform_name, transform_version, implementation = (
+                _trajectory_preference(curated_sides)
+            )
+            preference_reasons = list(
+                dict.fromkeys(
+                    [*side_curation_reasons, *preference_decision.reason_codes]
+                )
+            )
             retained = preference_decision.record is not None
             stages.append(
                 _stage(
@@ -567,7 +676,11 @@ def compose_record(
                     transform_version,
                     ACTION_RETAINED if retained else ACTION_EXCLUDED,
                     reason_codes=preference_reasons,
-                    lane_action=preference_decision.action,
+                    lane_action=(
+                        "repaired"
+                        if retained and side_curation_changed
+                        else preference_decision.action
+                    ),
                     classification=preference_decision.classification,
                     side_kinds=list(side_kinds),
                     implementation=implementation,
@@ -576,6 +689,8 @@ def compose_record(
                     side_validation_errors=(
                         preference_decision.side_validation_errors or {}
                     ),
+                    side_curation=side_curation,
+                    side_curation_changed=side_curation_changed,
                 )
             )
         else:
@@ -738,6 +853,7 @@ def compose_source_line(
     source_line: int,
     source_file_sha256: str,
     calibration_catalog: Mapping[str, Any] | None = None,
+    seen_source_semantics: MutableMapping[str, tuple[str, int]] | None = None,
 ) -> ComposeDecision:
     """Compose one LF-framed source line using the run writer's exact contract."""
 
@@ -782,6 +898,32 @@ def compose_source_line(
             None,
             None,
         )
+    semantic_sha256 = _canonical_sha256(record)
+    if seen_source_semantics is not None:
+        first_coordinate = seen_source_semantics.get(semantic_sha256)
+        if first_coordinate is not None:
+            return ComposeDecision(
+                ACTION_EXCLUDED,
+                None,
+                (REASON_DUPLICATE_SOURCE_RECORD,),
+                (
+                    _stage(
+                        "source",
+                        COMPOSE_NAME,
+                        COMPOSE_VERSION,
+                        ACTION_EXCLUDED,
+                        reason_codes=[REASON_DUPLICATE_SOURCE_RECORD],
+                        detail={
+                            "semantic_sha256": semantic_sha256,
+                            "first_source_path": first_coordinate[0],
+                            "first_source_line": first_coordinate[1],
+                        },
+                    ),
+                ),
+                None,
+                None,
+            )
+        seen_source_semantics[semantic_sha256] = (source_path, source_line)
     return compose_record(
         record,
         source_path=source_path,
@@ -848,6 +990,142 @@ def _is_under_raw(path: Path) -> bool:
     return _contains_raw_segments(path.parts) or _contains_raw_segments(
         path.resolve(strict=False).parts
     )
+
+
+def _require_exact_directory(path: Path, label: str) -> Path:
+    """Require a real directory reached without a symlinked path alias."""
+
+    try:
+        metadata = path.lstat()
+        resolved = path.resolve(strict=True)
+    except FileNotFoundError as exc:
+        raise ComposeError(f"{label} is missing: {path}") from exc
+    absolute = Path(os.path.abspath(path))
+    if not stat.S_ISDIR(metadata.st_mode) or resolved != absolute:
+        raise ComposeError(f"{label} must be an exact non-symlink directory: {path}")
+    return resolved
+
+
+def _source_member_path(root: Path, raw_path: Any, label: str) -> Path:
+    """Resolve one exact regular source member without aliases or tree escape."""
+
+    if not isinstance(raw_path, str) or not raw_path or "\\" in raw_path:
+        raise ComposeError(f"{label}: path must be a nonempty POSIX string")
+    relative = PurePosixPath(raw_path)
+    if (
+        relative.as_posix() != raw_path
+        or relative.is_absolute()
+        or any(part in {"", ".", ".."} for part in relative.parts)
+    ):
+        raise ComposeError(f"{label}: unsafe relative path {raw_path!r}")
+    root_resolved = root.resolve(strict=True)
+    candidate = root_resolved.joinpath(*relative.parts)
+    try:
+        resolved = candidate.resolve(strict=True)
+        metadata = candidate.lstat()
+    except FileNotFoundError as exc:
+        raise ComposeError(f"{label}: source member is missing: {raw_path}") from exc
+    expected = root_resolved.joinpath(*relative.parts)
+    if resolved != expected or root_resolved not in resolved.parents:
+        raise ComposeError(f"{label}: source member is a symlink alias: {raw_path}")
+    if not stat.S_ISREG(metadata.st_mode):
+        raise ComposeError(f"{label}: source member is not a regular file: {raw_path}")
+    if metadata.st_nlink != 1:
+        raise ComposeError(f"{label}: hard-link aliases are not accepted: {raw_path}")
+    return candidate
+
+
+def _stable_file_identity(metadata: os.stat_result) -> tuple[int, ...]:
+    """Fields that must remain stable while one source member is read."""
+
+    return (
+        metadata.st_dev,
+        metadata.st_ino,
+        metadata.st_mode,
+        metadata.st_nlink,
+        metadata.st_size,
+        metadata.st_mtime_ns,
+        metadata.st_ctime_ns,
+    )
+
+
+def _read_exact_regular_file(root: Path, raw_path: Any, label: str) -> tuple[Path, bytes]:
+    """Read one unique source file through a pinned descriptor."""
+
+    path = _source_member_path(root, raw_path, label)
+    before = path.lstat()
+    flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
+    try:
+        descriptor = os.open(path, flags)
+    except OSError as exc:
+        raise ComposeError(f"{label}: cannot open exact source file: {exc}") from exc
+    opened_before: os.stat_result | None = None
+    opened_after: os.stat_result | None = None
+    try:
+        opened_before = os.fstat(descriptor)
+        if not stat.S_ISREG(opened_before.st_mode) or opened_before.st_nlink != 1:
+            raise ComposeError(f"{label}: opened identity is not a unique regular file")
+        if _stable_file_identity(before) != _stable_file_identity(opened_before):
+            raise ComposeError(f"{label}: source identity changed while opening")
+        chunks: list[bytes] = []
+        while True:
+            chunk = os.read(descriptor, 1024 * 1024)
+            if not chunk:
+                break
+            chunks.append(chunk)
+        opened_after = os.fstat(descriptor)
+        if _stable_file_identity(opened_before) != _stable_file_identity(opened_after):
+            raise ComposeError(f"{label}: source identity changed while reading")
+    finally:
+        os.close(descriptor)
+    try:
+        after = path.lstat()
+    except FileNotFoundError as exc:
+        raise ComposeError(f"{label}: source member disappeared while reading") from exc
+    if opened_after is None or _stable_file_identity(after) != _stable_file_identity(
+        opened_after
+    ):
+        raise ComposeError(f"{label}: source path identity changed while reading")
+    expected = root.resolve(strict=True).joinpath(*PurePosixPath(str(raw_path)).parts)
+    if path.resolve(strict=True) != expected:
+        raise ComposeError(f"{label}: source path became a symlink alias while reading")
+    return path, b"".join(chunks)
+
+
+def source_jsonl_members(root: Path) -> tuple[str, ...]:
+    """Enumerate a source tree without silently following filesystem aliases."""
+
+    root = _require_exact_directory(root, "source run")
+    members: list[str] = []
+    pending = [root]
+    while pending:
+        directory = pending.pop()
+        if _require_exact_directory(directory, "source directory") != directory:
+            raise ComposeError(f"source directory identity changed: {directory}")
+        try:
+            with os.scandir(directory) as scan:
+                entries = sorted(scan, key=lambda entry: entry.name)
+        except OSError as exc:
+            raise ComposeError(f"cannot enumerate source directory {directory}: {exc}") from exc
+        child_directories: list[Path] = []
+        for entry in entries:
+            path = Path(entry.path)
+            try:
+                metadata = entry.stat(follow_symlinks=False)
+            except OSError as exc:
+                raise ComposeError(f"cannot inspect source member {path}: {exc}") from exc
+            if stat.S_ISLNK(metadata.st_mode):
+                raise ComposeError(f"source tree contains a symlink alias: {path}")
+            if stat.S_ISDIR(metadata.st_mode):
+                child_directories.append(path)
+                continue
+            if not entry.name.endswith(".jsonl"):
+                continue
+            relative = path.relative_to(root).as_posix()
+            _source_member_path(root, relative, f"compose source {relative}")
+            members.append(relative)
+        pending.extend(reversed(child_directories))
+    return tuple(sorted(members))
 
 
 def _assert_new_destination(source_run: Path, destination: Path) -> None:
@@ -954,11 +1232,9 @@ def compose_run(
 
     source_run = Path(source_run)
     destination = Path(destination)
-    if not source_run.is_dir():
-        raise ComposeError(f"source run is not a directory: {source_run}")
-    _assert_new_destination(source_run, destination)
-
-    resolved_source = source_run.resolve()
+    resolved_source = _require_exact_directory(source_run, "source run")
+    _assert_new_destination(resolved_source, destination)
+    source_members = source_jsonl_members(resolved_source)
     catalog, calibration_descriptor = _load_calibration(
         resolved_source,
         Path(units_migration) if units_migration is not None else None,
@@ -973,16 +1249,18 @@ def compose_run(
     sidecar_lines: list[str] = []
     outputs: list[dict[str, Any]] = []
     emitted_ids: dict[str, str] = {}
+    seen_source_semantics: dict[str, tuple[str, int]] = {}
 
     destination.mkdir(parents=True)
     try:
         records_dir.mkdir()
         manifest_dir.mkdir()
-        for source_file in sorted(resolved_source.rglob("*.jsonl")):
-            if not source_file.is_file():
-                continue
-            relative = source_file.relative_to(resolved_source).as_posix()
-            raw_file = source_file.read_bytes()
+        for relative in source_members:
+            _source_file, raw_file = _read_exact_regular_file(
+                resolved_source,
+                relative,
+                f"compose source {relative}",
+            )
             source_file_sha256 = sha256_hex(raw_file)
             counts["source_files"] += 1
             emitted: list[str] = []
@@ -1015,6 +1293,7 @@ def compose_run(
                     source_line=line_number,
                     source_file_sha256=source_file_sha256,
                     calibration_catalog=catalog,
+                    seen_source_semantics=seen_source_semantics,
                 )
 
                 entry["action"] = decision.action

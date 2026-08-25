@@ -5,6 +5,7 @@ import copy
 import hashlib
 import io
 import json
+import os
 import sys
 import tempfile
 import unittest
@@ -467,6 +468,38 @@ class ComposeCurated(unittest.TestCase):
         self.assertEqual(repaired.record["chosen"]["goal"], "Fix shared assertion")
         self.assertEqual(repaired.record["rejected"]["goal"], "Fix shared assertion")
 
+    def test_episode_preference_sides_migrate_legacy_thought_before_validation(self):
+        pair = trajectory_preference_pair()
+        for side_name in ("chosen", "rejected"):
+            for index, step in enumerate(pair[side_name]["steps"], 1):
+                step.pop("decision_basis")
+                step["thought"] = f"hidden {side_name} reasoning {index}"
+        source = copy.deepcopy(pair)
+
+        decision = compose_curated.compose_record(
+            pair,
+            source_path="tool-use-preference-factory/batch-r01.jsonl",
+            source_line=1,
+            source_sha256="6" * 64,
+        )
+
+        self.assertEqual(decision.action, compose_curated.ACTION_RETAINED)
+        self.assertEqual(pair, source)
+        for side_name in ("chosen", "rejected"):
+            for step in decision.record[side_name]["steps"]:
+                self.assertNotIn("thought", step)
+                self.assertTrue(step["decision_basis"].startswith("Observation:"))
+        stage = next(item for item in decision.stages if item["lane"] == "preferences")
+        self.assertTrue(stage["side_curation_changed"])
+        self.assertEqual(stage["lane_action"], "repaired")
+        self.assertIn(curate_coding.REASON_THOUGHT_REMOVED, stage["reason_codes"])
+        self.assertIn(curate_coding.REASON_STEPS_MIGRATED, stage["reason_codes"])
+        for side_name in ("chosen", "rejected"):
+            self.assertEqual(stage["side_curation"][side_name]["action"], "modified")
+            self.assertGreater(
+                stage["side_curation"][side_name]["thought_fields_removed"], 0
+            )
+
     def test_same_state_schema_precedes_episode_fields_and_matches_pr93(self):
         impure = trajectory_preference_pair()
         impure["chosen"].update(
@@ -630,6 +663,108 @@ class ComposeCurated(unittest.TestCase):
             self.assertEqual(
                 records[0]["state"]["domain"], first["state"]["domain"]
             )
+
+    def test_semantic_source_duplicates_are_excluded_before_identity(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            source = root / "run" / "thalamic-trajectory-factory"
+            source.mkdir(parents=True)
+            record = thalamic("semantic-duplicate")
+            first = json.dumps(record, ensure_ascii=False)
+            duplicate = json.dumps(
+                record,
+                ensure_ascii=False,
+                sort_keys=True,
+                separators=(",", ":"),
+            )
+            (source / "batch-r01.jsonl").write_text(
+                first + "\n" + duplicate + "\n", encoding="utf-8"
+            )
+
+            summary = compose_curated.compose_run(root / "run", root / "curated")
+            manifest = read_jsonl(root / "curated" / summary["manifest"]["path"])
+
+            self.assertEqual(summary["counts"]["source_records"], 2)
+            self.assertEqual(summary["counts"]["retained"], 1)
+            self.assertEqual(summary["counts"]["excluded"], 1)
+            self.assertEqual(
+                summary["exclusions"],
+                {compose_curated.REASON_DUPLICATE_SOURCE_RECORD: 1},
+            )
+            self.assertEqual(
+                manifest[1]["reason_codes"],
+                [compose_curated.REASON_DUPLICATE_SOURCE_RECORD],
+            )
+            duplicate_stage = manifest[1]["stages"][0]
+            self.assertEqual(duplicate_stage["lane"], "source")
+            self.assertEqual(
+                duplicate_stage["detail"]["first_source_path"],
+                "thalamic-trajectory-factory/batch-r01.jsonl",
+            )
+            self.assertEqual(duplicate_stage["detail"]["first_source_line"], 1)
+            output = read_jsonl(root / "curated" / manifest[0]["output_path"])
+            self.assertEqual(len(output), 1)
+
+    def test_composition_rejects_source_symlink_and_hardlink_aliases(self):
+        for mutation in (
+            "source_root_symlink",
+            "directory_symlink",
+            "file_symlink",
+            "file_hardlink",
+        ):
+            with self.subTest(mutation=mutation), tempfile.TemporaryDirectory() as td:
+                root = Path(td)
+                source = build_source_run(root / "run")
+                source_argument = source
+                if mutation == "source_root_symlink":
+                    source_argument = root / "source-alias"
+                    source_argument.symlink_to(source, target_is_directory=True)
+                elif mutation == "directory_symlink":
+                    factory = source / "thalamic-trajectory-factory"
+                    target = root / "outside-factory"
+                    factory.replace(target)
+                    factory.symlink_to(target, target_is_directory=True)
+                else:
+                    path = source / "thalamic-trajectory-factory" / "batch-r01.jsonl"
+                    target = root / "outside-source.jsonl"
+                    path.replace(target)
+                    if mutation == "file_symlink":
+                        path.symlink_to(target)
+                    else:
+                        os.link(target, path)
+
+                with self.assertRaisesRegex(
+                    compose_curated.ComposeError, "symlink|hard-link"
+                ):
+                    compose_curated.compose_run(source_argument, root / "curated")
+                self.assertFalse((root / "curated").exists())
+
+    def test_composition_rejects_a_source_file_changed_during_pinned_read(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            source = root / "run"
+            target = source / "thalamic-trajectory-factory" / "batch-r01.jsonl"
+            write_jsonl(target, [thalamic("pinned-read")])
+            original = target.read_bytes()
+            real_read = compose_curated.os.read
+            mutated = False
+
+            def read_then_mutate(descriptor, size):
+                nonlocal mutated
+                chunk = real_read(descriptor, size)
+                if chunk and not mutated:
+                    mutated = True
+                    target.write_bytes(original + b" ")
+                return chunk
+
+            with mock.patch.object(
+                compose_curated.os, "read", side_effect=read_then_mutate
+            ):
+                with self.assertRaisesRegex(
+                    compose_curated.ComposeError, "identity changed while reading"
+                ):
+                    compose_curated.compose_run(source, root / "curated")
+            self.assertFalse((root / "curated").exists())
 
     def test_unsupported_and_unparseable_lines_are_excluded_with_reasons(self):
         with tempfile.TemporaryDirectory() as td:
