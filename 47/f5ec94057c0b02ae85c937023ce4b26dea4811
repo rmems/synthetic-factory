@@ -1,0 +1,21 @@
+schemas/raster.schema.json
+  s_940326c4ee4215::t_d88b734e29a0c8 19-39,90,117-134,204,214,224
+tests/test_curate_bridge.py
+  s_940326c4ee4215::t_7e345dc49b7993 23,762-789
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "47f5ec94057c0b02ae85c937023ce4b26dea4811",
+  "prompts": {},
+  "sessions": {
+    "s_940326c4ee4215": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a032e4-1904-7a82-8c8b-1ad3cfbeb0b0",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Raul Montoya Cardenas <montoyaraul34@gmail.com>"
+    }
+  }
+}
