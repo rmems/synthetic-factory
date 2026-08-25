@@ -19,6 +19,47 @@ MINIMAL = _shared.MINIMAL
 write_declaration = _shared.write_declaration
 
 
+EXPECTED_FEATURE_MANIFEST = (
+    ("id", "string", False),
+    ("goal", "string", False),
+    ("plan", "string", False),
+    ("steps", "list", False),
+    ("steps[].n", "int64", False),
+    ("steps[].decision_basis", "string", False),
+    ("steps[].tool_call", "struct", False),
+    ("steps[].tool_call.name", "string", False),
+    ("steps[].tool_call.args", "json", False),
+    ("steps[].observation", "string", False),
+    ("steps[].reflection", "string", True),
+    ("outcome", "string", False),
+    ("reward", "json", False),
+    ("meta", "json", False),
+)
+
+
+def feature_manifest(features, prefix=""):
+    """Flatten a declaration without consulting the independent expected manifest."""
+    manifest = []
+    for feature in features:
+        path = f"{prefix}{feature['name']}"
+        encodings = [key for key in ("dtype", "list", "struct") if key in feature]
+        if len(encodings) != 1:
+            raise AssertionError(f"{path} has {len(encodings)} feature encodings")
+        encoding = encodings[0]
+        manifest.append(
+            (
+                path,
+                feature[encoding] if encoding == "dtype" else encoding,
+                feature.get("optional", False),
+            )
+        )
+        if encoding == "list":
+            manifest.extend(feature_manifest(feature["list"], f"{path}[]."))
+        elif encoding == "struct":
+            manifest.extend(feature_manifest(feature["struct"], f"{path}."))
+    return tuple(manifest)
+
+
 class LogRedactionDeclarationTests(unittest.TestCase):
     """Issue #47: thin `meta` vs `designed` / `domain` / `stack`, plus reward extras."""
 
@@ -42,6 +83,12 @@ class LogRedactionDeclarationTests(unittest.TestCase):
             last="r172",
             payload_names=["batch-r01.jsonl", "batch-r172.jsonl"],
         )
+
+    def test_complete_feature_manifest_matches_the_independent_data_scan(self):
+        # This oracle was derived from the read-only 344-record scan. It is
+        # intentionally separate from the declaration so omitted fields, wrong
+        # fixed dtypes, and incorrect required/optional flags cannot self-validate.
+        self.assertEqual(feature_manifest(self.declaration["features"]), EXPECTED_FEATURE_MANIFEST)
 
     def test_declaration_matches_the_observed_union_schema(self):
         names = {feature["name"]: feature for feature in self.declaration["features"]}
@@ -96,18 +143,13 @@ class LogRedactionDeclarationTests(unittest.TestCase):
 
     def test_disclosures_name_every_record_the_inferred_cast_trips_on(self):
         by_summary = {
-            disclosure["summary"]: disclosure
-            for disclosure in self.declaration["disclosures"]
+            disclosure["summary"]: disclosure for disclosure in self.declaration["disclosures"]
         }
         thin = [
-            disclosure
-            for summary, disclosure in by_summary.items()
-            if "thin `meta`" in summary
+            disclosure for summary, disclosure in by_summary.items() if "thin `meta`" in summary
         ]
         lane = [
-            disclosure
-            for summary, disclosure in by_summary.items()
-            if "`meta.lane`" in summary
+            disclosure for summary, disclosure in by_summary.items() if "`meta.lane`" in summary
         ]
         self.assertEqual((len(thin), len(lane)), (1, 1))
         self.assertEqual(len(thin[0]["ids"]), 36)
@@ -119,4 +161,3 @@ class LogRedactionDeclarationTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-
