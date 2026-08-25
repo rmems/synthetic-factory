@@ -319,6 +319,29 @@ class CensusMillMix(unittest.TestCase):
         )
         self.assertNotIn("pre-window-factory", report["by_factory"])
 
+    def test_off_registry_factory_root_keeps_nested_legacy_identity(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary) / "custom-experiment-factory"
+            path = root / "archive" / "batch-r01.jsonl"
+            path.parent.mkdir(parents=True)
+            path.write_text(
+                json.dumps(
+                    _episode(
+                        "cex-r01-legacy",
+                        "preserve the custom experiment identity",
+                        root.name,
+                    )
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            result = _invoke(str(root))
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        report = json.loads(result.stdout)
+        self.assertEqual(report["by_factory"], {"custom-experiment-factory": 1})
+        self.assertNotIn("archive", report["by_factory"])
+
     def test_marker_mode_hides_uncommitted_batch_from_denominators(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary) / "run"
@@ -395,7 +418,11 @@ class CensusMillMix(unittest.TestCase):
         mix = report["mill_mix"]
         self.assertEqual(mix["records"], 1)
         self.assertEqual(
-            mix["reason_codes"], {"FOREIGN_PAYLOAD_FACTORY": 1}
+            mix["reason_codes"],
+            {
+                "FOREIGN_MILL_ID_PREFIX": 1,
+                "FOREIGN_PAYLOAD_FACTORY": 1,
+            },
         )
         self.assertEqual(
             [row["record_id"] for row in mix["quarantined_records"]],

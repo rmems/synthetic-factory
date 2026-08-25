@@ -143,6 +143,15 @@ class TrainingAudit(unittest.TestCase):
         )
         self.assertNotIn("pre-window-factory", report["factories"])
 
+    def test_off_registry_factory_root_keeps_nested_legacy_identity(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td) / "custom-experiment-factory"
+            write(root / "archive" / "batch-r01.jsonl", [thalamic("clean-1")])
+            report = training_audit.audit_run(root)
+
+        self.assertEqual(set(report["factories"]), {"custom-experiment-factory"})
+        self.assertNotIn("archive", report["factories"])
+
     def test_marked_gate_errors_are_counted(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
@@ -544,7 +553,11 @@ class LeftoverMillDenominator(unittest.TestCase):
         mill = report["mill_mix"]
         self.assertEqual(mill["records"], 1)
         self.assertEqual(
-            mill["reason_codes"], {"FOREIGN_PAYLOAD_FACTORY": 1}
+            mill["reason_codes"],
+            {
+                "FOREIGN_MILL_ID_PREFIX": 1,
+                "FOREIGN_PAYLOAD_FACTORY": 1,
+            },
         )
         self.assertEqual(
             [row["record_id"] for row in mill["quarantined_records"]],

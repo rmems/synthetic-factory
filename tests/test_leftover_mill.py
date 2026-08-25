@@ -133,7 +133,11 @@ class AuditRun(unittest.TestCase):
         self.assertEqual(report["quarantined"], 2)
         self.assertEqual(report["eligible_records"], 1)
         self.assertEqual(
-            report["reason_codes"], {"FOREIGN_PAYLOAD_FACTORY": 2}
+            report["reason_codes"],
+            {
+                "FOREIGN_MILL_ID_PREFIX": 2,
+                "FOREIGN_PAYLOAD_FACTORY": 2,
+            },
         )
         self.assertEqual(
             report["by_factory"]["email-webhook-retry-factory"],
