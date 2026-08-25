@@ -744,18 +744,10 @@ def canonical_magnitudes(record):
     }
 
 
-def load_units_migration(path):
-    """Load only explicit, positive per-record conversions from an FFPC sidecar.
+def units_migration_catalog(document, evidence_path):
+    """Build explicit per-record conversions from authenticated JSON evidence."""
 
-    Null factors and the documented coarse affine guess are deliberately
-    ignored. Broad filename scopes without explicit record IDs are also
-    ignored because the record itself already carries structured units there.
-    """
-    path = Path(path)
-    try:
-        document = json.loads(path.read_text(encoding="utf-8"))
-    except json.JSONDecodeError as exc:
-        raise RewardOntologyError(f"{path}: invalid calibration JSON: {exc}") from exc
+    path = Path(evidence_path)
     records = document.get("records") if isinstance(document, dict) else None
     if not isinstance(records, list):
         raise RewardOntologyError(f"{path}: calibration records must be a list")
@@ -784,6 +776,21 @@ def load_units_migration(path):
                 )
             catalog[key] = calibration
     return catalog
+
+
+def load_units_migration(path):
+    """Load only explicit, positive per-record conversions from an FFPC sidecar.
+
+    Null factors and the documented coarse affine guess are deliberately
+    ignored. Broad filename scopes without explicit record IDs are also
+    ignored because the record itself already carries structured units there.
+    """
+    path = Path(path)
+    try:
+        document = json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        raise RewardOntologyError(f"{path}: invalid calibration JSON: {exc}") from exc
+    return units_migration_catalog(document, path)
 
 
 def _record_calibration(record, catalog):

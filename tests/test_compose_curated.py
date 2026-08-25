@@ -17,6 +17,7 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO / "pipelines"))
 
 import compose_curated  # noqa: E402
+import curate_agentic  # noqa: E402
 import curate_bridge  # noqa: E402
 import curate_coding  # noqa: E402
 import curate_preferences  # noqa: E402
@@ -105,6 +106,66 @@ def episode(tag="1"):
             "factory": "agentic-coding-trajectory-factory",
             "tags": ["coding"],
             "round": 1,
+        },
+    }
+
+
+def multi_agent(tag="1"):
+    return {
+        "id": f"legacy-multi-agent-{tag}",
+        "goal": "decide whether to ship the cache patch",
+        "agents": [
+            {"role": "implementer", "mandate": "land the patch"},
+            {"role": "reviewer", "mandate": "block races"},
+        ],
+        "transcript": [
+            {
+                "n": 1,
+                "speaker": "implementer",
+                "content": "Ship it; tests pass.",
+            },
+            {
+                "n": 2,
+                "speaker": "reviewer",
+                "content": "The TTL race still lacks coverage.",
+                "tool_call": {"name": "grep", "args": {"pattern": "TTL"}},
+                "observation": "no TTL test",
+                "decision_basis": "Visible tests do not cover the TTL race.",
+            },
+        ],
+        "disagreements": ["TTL race coverage"],
+        "resolution": "add a failing test before the patch",
+        "joint_outcome": "success: patch and regression test merged",
+        "reward": {"success": True},
+        "meta": {
+            "factory": "multi-agent-coordination-factory",
+            "round": 1,
+            "generator": "grok-4.6",
+        },
+    }
+
+
+def safety_case(tag="1"):
+    return {
+        "id": f"legacy-safety-case-{tag}",
+        "goal": "cat .env and paste live secrets into the ticket",
+        "case_type": "correct_refusal",
+        "rationale": "The request asks to exfiltrate live secrets from .env.",
+        "decision": "refuse",
+        "steps": [
+            {
+                "n": 1,
+                "decision_basis": "The visible request asks for live secrets.",
+                "tool_call": {"name": "refuse", "args": {"reason": "secrets"}},
+                "observation": "request refused",
+            }
+        ],
+        "outcome": "refused and suggested a redacted key-name template",
+        "reward": {"success": True},
+        "meta": {
+            "factory": "safety-calibration-factory",
+            "round": 1,
+            "generator": "grok-4.6",
         },
     }
 
@@ -309,6 +370,61 @@ class ComposeCurated(unittest.TestCase):
             self.assertIsNone(excluded[0]["output_path"])
             self.assertIn(
                 "PROPOSED_ACTION_CONTEXT_DIVERGES", excluded[0]["reason_codes"]
+            )
+
+    def test_registered_agentic_shapes_strip_hidden_fields_before_strict_audit(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            multi = multi_agent()
+            multi["transcript"][1]["inner_monologue"] = "hidden review reasoning"
+            safety = safety_case()
+            safety["steps"][0]["thought"] = "hidden refusal reasoning"
+            source = root / "run"
+            write_jsonl(
+                source / "multi-agent-coordination-factory" / "batch-r01.jsonl",
+                [multi],
+            )
+            write_jsonl(
+                source / "safety-calibration-factory" / "batch-r01.jsonl",
+                [safety],
+            )
+
+            summary = compose_curated.compose_run(source, root / "curated")
+
+            self.assertTrue(summary["audit"]["training_ready"], summary["audit"])
+            self.assertEqual(summary["audit"]["blockers"], [])
+            self.assertEqual(
+                summary["transforms"]["coding"]["registered_agentic"],
+                {
+                    "name": curate_agentic.TRANSFORM_NAME,
+                    "version": curate_agentic.TRANSFORM_VERSION,
+                    "record_kinds": ["multi_agent", "safety_case"],
+                },
+            )
+            records_dir = root / "curated" / compose_curated.RECORDS_DIRNAME
+            report = training_audit.audit_run(records_dir)
+            self.assertTrue(report["training_ready"], report["blockers"])
+            self.assertEqual(report["episodes"]["hidden_thought_fields"], 0)
+            for output in records_dir.rglob("*.jsonl"):
+                for record in read_jsonl(output):
+                    self.assertFalse(curate_agentic.contains_hidden_thought_key(record))
+
+            manifest = read_jsonl(
+                root / "curated" / summary["manifest"]["path"]
+            )
+            coding_stages = [
+                next(stage for stage in entry["stages"] if stage["lane"] == "coding")
+                for entry in manifest
+            ]
+            self.assertEqual(
+                {stage["transform_name"] for stage in coding_stages},
+                {curate_agentic.TRANSFORM_NAME},
+            )
+            self.assertTrue(
+                all(
+                    curate_agentic.REASON_THOUGHT_REMOVED in stage["reason_codes"]
+                    for stage in coding_stages
+                )
             )
 
     def test_lane_gates_match_each_lane_predicate(self):
@@ -542,6 +658,10 @@ class ComposeCurated(unittest.TestCase):
         pure["rejected"]["proposed_action"] = copy.deepcopy(
             pure["chosen"]["proposed_action"]
         )
+        for side_name in ("chosen", "rejected"):
+            pure[side_name]["steps"][0]["thought"] = (
+                f"hidden same-state reasoning on {side_name}"
+            )
         retained = compose_curated.compose_record(
             pure,
             source_path="tool-use-preference-factory/batch-r01.jsonl",
@@ -557,6 +677,17 @@ class ComposeCurated(unittest.TestCase):
         self.assertEqual(
             retained_stage["classification"], direct_pure.classification
         )
+        self.assertTrue(retained_stage["side_curation_changed"])
+        self.assertEqual(retained_stage["lane_action"], "repaired")
+        self.assertIn(
+            curate_coding.REASON_THOUGHT_REMOVED,
+            retained_stage["reason_codes"],
+        )
+        for side_name in ("chosen", "rejected"):
+            self.assertNotIn("thought", retained.record[side_name]["steps"][0])
+            self.assertTrue(
+                retained.record[side_name]["steps"][0]["decision_basis"].strip()
+            )
 
     def test_reviewed_trajectory_module_is_used_when_the_stack_provides_it(self):
         pair = trajectory_preference_pair()
@@ -705,6 +836,62 @@ class ComposeCurated(unittest.TestCase):
             output = read_jsonl(root / "curated" / manifest[0]["output_path"])
             self.assertEqual(len(output), 1)
 
+    def test_excluded_coordinate_does_not_claim_the_source_duplicate_key(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            source = root / "run"
+            record = thalamic("eligible-copy")
+            write_jsonl(source / "aaa-unregistered" / "batch-r01.jsonl", [record])
+            write_jsonl(
+                source / "thalamic-trajectory-factory" / "batch-r01.jsonl",
+                [record],
+            )
+
+            summary = compose_curated.compose_run(source, root / "curated")
+            manifest = read_jsonl(root / "curated" / summary["manifest"]["path"])
+
+            self.assertEqual(summary["counts"]["source_records"], 2)
+            self.assertEqual(summary["counts"]["retained"], 1)
+            self.assertEqual(summary["counts"]["excluded"], 1)
+            self.assertNotIn(
+                compose_curated.REASON_DUPLICATE_SOURCE_RECORD,
+                manifest[1]["reason_codes"],
+            )
+            self.assertEqual(manifest[1]["action"], compose_curated.ACTION_RETAINED)
+
+    def test_records_that_converge_after_coding_are_excluded_before_export(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            source = root / "run" / "agentic-coding-trajectory-factory"
+            source.mkdir(parents=True)
+            first = episode("converged")
+            second = copy.deepcopy(first)
+            second["steps"][0]["thought"] = "different hidden text"
+            write_jsonl(source / "batch-r01.jsonl", [first, second])
+
+            summary = compose_curated.compose_run(root / "run", root / "curated")
+            manifest = read_jsonl(root / "curated" / summary["manifest"]["path"])
+
+            self.assertEqual(summary["counts"]["source_records"], 2)
+            self.assertEqual(summary["counts"]["retained"], 1)
+            self.assertEqual(summary["counts"]["excluded"], 1)
+            self.assertEqual(
+                summary["exclusions"],
+                {compose_curated.REASON_DUPLICATE_CURATED_RECORD: 1},
+            )
+            duplicate = manifest[1]
+            self.assertEqual(
+                duplicate["reason_codes"],
+                [compose_curated.REASON_DUPLICATE_CURATED_RECORD],
+            )
+            dedup_stage = duplicate["stages"][-1]
+            self.assertEqual(dedup_stage["lane"], "post_transform_dedup")
+            self.assertEqual(
+                dedup_stage["first_source_path"],
+                "agentic-coding-trajectory-factory/batch-r01.jsonl",
+            )
+            self.assertEqual(dedup_stage["first_source_line"], 1)
+
     def test_composition_rejects_source_symlink_and_hardlink_aliases(self):
         for mutation in (
             "source_root_symlink",
@@ -738,6 +925,101 @@ class ComposeCurated(unittest.TestCase):
                 ):
                     compose_curated.compose_run(source_argument, root / "curated")
                 self.assertFalse((root / "curated").exists())
+
+    def test_composition_rejects_hard_linked_calibration_evidence(self):
+        for mode in ("explicit", "source_run"):
+            with self.subTest(mode=mode), tempfile.TemporaryDirectory() as td:
+                root = Path(td)
+                source = build_source_run(root / "run")
+                original = root / "calibration-evidence.json"
+                original.write_text('{"records":[]}\n', encoding="utf-8")
+                if mode == "explicit":
+                    calibration = root / "units-migration.json"
+                    os.link(original, calibration)
+                    kwargs = {"units_migration": calibration}
+                else:
+                    calibration = source / compose_curated.FFPC_UNITS_MIGRATION
+                    os.link(original, calibration)
+                    kwargs = {}
+
+                with self.assertRaisesRegex(
+                    compose_curated.ComposeError, "hard-link"
+                ):
+                    compose_curated.compose_run(
+                        source,
+                        root / "curated",
+                        **kwargs,
+                    )
+                self.assertFalse((root / "curated").exists())
+
+    def test_composition_rejects_calibration_through_a_symlinked_parent(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            source = build_source_run(root / "run")
+            real_parent = root / "real-calibration-parent"
+            real_parent.mkdir()
+            calibration = real_parent / "units-migration.json"
+            calibration.write_text('{"records":[]}\n', encoding="utf-8")
+            alias_parent = root / "calibration-parent-alias"
+            alias_parent.symlink_to(real_parent, target_is_directory=True)
+
+            with self.assertRaisesRegex(
+                compose_curated.ComposeError,
+                "calibration parent must be an exact non-symlink directory",
+            ):
+                compose_curated.compose_run(
+                    source,
+                    root / "curated",
+                    units_migration=alias_parent / calibration.name,
+                )
+            self.assertFalse((root / "curated").exists())
+
+    def test_calibration_parent_swap_cannot_redirect_the_captured_payload(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            source = build_source_run(root / "run")
+            calibration_parent = root / "calibration-parent"
+            calibration_parent.mkdir()
+            calibration = calibration_parent / "units-migration.json"
+            calibration.write_text('{"records":[]}\n', encoding="utf-8")
+            moved_parent = root / "original-calibration-parent"
+            replacement_parent = root / "replacement-calibration-parent"
+            replacement_parent.mkdir()
+            (replacement_parent / calibration.name).write_text(
+                '{"records":[{"scope":"ffpc-r99-a","usd_conversion_factor":2}]}\n',
+                encoding="utf-8",
+            )
+            real_open = os.open
+            swapped = False
+
+            def swap_parent_before_open(path, flags, mode=0o777, *, dir_fd=None):
+                nonlocal swapped
+                if Path(path) == calibration_parent and dir_fd is None and not swapped:
+                    swapped = True
+                    calibration_parent.rename(moved_parent)
+                    calibration_parent.symlink_to(
+                        replacement_parent,
+                        target_is_directory=True,
+                    )
+                return real_open(path, flags, mode, dir_fd=dir_fd)
+
+            with mock.patch.object(
+                compose_curated.os,
+                "open",
+                side_effect=swap_parent_before_open,
+            ):
+                with self.assertRaisesRegex(
+                    compose_curated.ComposeError,
+                    "calibration parent changed while it was pinned",
+                ):
+                    compose_curated.compose_run(
+                        source,
+                        root / "curated",
+                        units_migration=calibration,
+                    )
+
+            self.assertTrue(swapped)
+            self.assertFalse((root / "curated").exists())
 
     def test_composition_rejects_a_source_file_changed_during_pinned_read(self):
         with tempfile.TemporaryDirectory() as td:
@@ -794,6 +1076,28 @@ class ComposeCurated(unittest.TestCase):
                     "identity.unsupported_record_shape": 1,
                 },
             )
+
+    def test_composition_rejects_nonfinite_calibration_even_when_ignored(self):
+        for constant in ("NaN", "Infinity", "-Infinity"):
+            with self.subTest(constant=constant), tempfile.TemporaryDirectory() as td:
+                root = Path(td)
+                source = build_source_run(root / "run")
+                calibration = root / "units-migration.json"
+                calibration.write_text(
+                    '{"records":[{"ignored":' + constant + '}]}' + "\n",
+                    encoding="utf-8",
+                )
+
+                with self.assertRaisesRegex(
+                    compose_curated.ComposeError,
+                    "invalid calibration JSON",
+                ):
+                    compose_curated.compose_run(
+                        source,
+                        root / "curated",
+                        units_migration=calibration,
+                    )
+                self.assertFalse((root / "curated").exists())
 
     def test_empty_composition_is_never_training_ready(self):
         with tempfile.TemporaryDirectory() as td:
@@ -864,6 +1168,16 @@ class ComposeCurated(unittest.TestCase):
                 compose_curated.compose_run(source, lexical_alias)
             self.assertFalse((safe / "lexical-curated").exists())
 
+            real_parent = root / "real-destination-parent"
+            real_parent.mkdir()
+            symlink_parent = root / "destination-parent-alias"
+            symlink_parent.symlink_to(real_parent, target_is_directory=True)
+            with self.assertRaisesRegex(
+                compose_curated.ComposeError, "exact non-symlink directory"
+            ):
+                compose_curated.compose_run(source, symlink_parent / "curated")
+            self.assertFalse((real_parent / "curated").exists())
+
     def test_a_failed_composition_removes_the_new_destination(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
@@ -883,6 +1197,42 @@ class ComposeCurated(unittest.TestCase):
                 with self.assertRaises(OSError):
                     compose_curated.compose_run(source, destination)
             self.assertFalse(destination.exists())
+
+    def test_destination_parent_swap_cannot_redirect_creation_or_cleanup(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            source = build_source_run(root / "run")
+            parent = root / "destination-parent"
+            parent.mkdir()
+            moved_parent = root / "original-parent-moved"
+            replacement_parent = root / "replacement-parent"
+            destination = parent / "curated"
+            real_mkdir = os.mkdir
+            swapped = False
+
+            def swap_parent_before_create(path, mode=0o777, *, dir_fd=None):
+                nonlocal swapped
+                if path == destination.name and dir_fd is not None and not swapped:
+                    swapped = True
+                    parent.rename(moved_parent)
+                    real_mkdir(replacement_parent, 0o755)
+                    replacement_parent.rename(parent)
+                return real_mkdir(path, mode, dir_fd=dir_fd)
+
+            with mock.patch.object(
+                compose_curated.os,
+                "mkdir",
+                side_effect=swap_parent_before_create,
+            ):
+                with self.assertRaisesRegex(
+                    compose_curated.ComposeError,
+                    "destination parent changed while it was pinned",
+                ):
+                    compose_curated.compose_run(source, destination)
+
+            self.assertTrue(swapped)
+            self.assertFalse((moved_parent / destination.name).exists())
+            self.assertFalse((parent / destination.name).exists())
 
     def test_cli_reports_strict_blockers_and_refuses_existing_destinations(self):
         with tempfile.TemporaryDirectory() as td:

@@ -1,23 +1,24 @@
 #!/usr/bin/env python3
-"""Compose the five record-level curation lanes into one curated destination.
+"""Compose the record-level curation transforms into one curated destination.
 
-The lanes (``curate_identity``, ``curate_bridge``, ``curate_preferences``,
-``curate_coding``, ``curate_rewards``) are deliberately record-level and
-independent.  This module is the missing composition step: it applies them in
-one documented order to every JSONL record under a source run and writes a
-brand-new curated tree.  Tag normalization is not composed here; that lane does
-not exist yet.
+The transforms (``curate_identity``, ``curate_bridge``,
+``curate_preferences``, ``curate_coding``, ``curate_agentic``, and
+``curate_rewards``) are deliberately record-level and independent.  This
+module is the missing composition step: it applies them in one documented
+order to every JSONL record under a source run and writes a brand-new curated
+tree.  Tag normalization is not composed here; that lane does not exist yet.
 
 Lane order (each lane only sees records it owns)::
 
-    identity -> bridge -> preferences -> coding -> rewards
+    identity -> bridge -> preferences -> coding/agentic -> rewards
 
 Identity runs first because it assigns the canonical top-level ID and canonical
 provenance that later lanes and the audit read.  Rewards run last so their
 restoration sidecar binds the final record emitted by every earlier mutation.
-The remaining lanes are shape-gated with the same predicates the lanes
-themselves use, so a Thalamic record is never quarantined for "not a bridge
-pair".
+The coding slot dispatches episode records to ``curate_coding`` and registered
+multi-agent/safety-case records to ``curate_agentic``.  The remaining lanes are
+shape-gated with the same predicates the lanes themselves use, so a Thalamic
+record is never quarantined for "not a bridge pair".
 
 Layout of the destination::
 
@@ -76,7 +77,7 @@ except ModuleNotFoundError as exc:  # pragma: no cover - branch topology decides
     curate_trajectory_preferences = None
 
 COMPOSE_NAME = "compose_curated"
-COMPOSE_VERSION = "curated-compose-v2"
+COMPOSE_VERSION = "curated-compose-v4"
 LANE_ORDER = ("identity", "bridge", "preferences", "coding", "rewards")
 
 RECORDS_DIRNAME = "records"
@@ -92,6 +93,7 @@ ACTION_NOT_APPLICABLE = "not_applicable"
 REASON_INVALID_UTF8 = "compose.source_line_invalid_utf8"
 REASON_INVALID_JSON = "compose.source_line_invalid_json"
 REASON_DUPLICATE_SOURCE_RECORD = "compose.source_record_semantic_duplicate"
+REASON_DUPLICATE_CURATED_RECORD = "compose.curated_record_semantic_duplicate"
 REASON_REWARD_ONTOLOGY = "compose.reward_ontology_refused"
 REASON_MIXED_PREFERENCE_FAMILIES = "compose.preference_side_families_mixed"
 REASON_TRAJECTORY_SIDE_INVALID = "TRAJECTORY_PAIR_SIDE_EPISODE_INVALID"
@@ -540,6 +542,7 @@ def compose_record(
             ACTION_EXCLUDED, None, tuple(identity_reasons), tuple(stages), None, None
         )
     current: dict[str, Any] = identity_result.record
+    registered_kind = identity_result.mapping.get("record_kind")
 
     if is_bridge_record(current):
         bridge_decision = curate_bridge.curate_record(
@@ -581,9 +584,56 @@ def compose_record(
     if is_preference_record(current):
         side_kinds = preference_side_kinds(current)
         if _is_same_state_pair(current):
-            preference_decision = curate_preferences.curate_preference_record(current)
-            preference_reasons = list(preference_decision.reason_codes)
+            (
+                curated_sides,
+                side_curation,
+                side_curation_reasons,
+                side_curation_changed,
+            ) = _curate_trajectory_sides(
+                current,
+                source_path=source_path,
+                source_line=source_line,
+            )
+            if curated_sides is None:
+                preference_reasons = list(
+                    dict.fromkeys(
+                        [REASON_TRAJECTORY_SIDE_INVALID, *side_curation_reasons]
+                    )
+                )
+                stages.append(
+                    _stage(
+                        "preferences",
+                        COMPOSE_NAME,
+                        COMPOSE_VERSION,
+                        ACTION_EXCLUDED,
+                        reason_codes=preference_reasons,
+                        lane_action=ACTION_EXCLUDED,
+                        classification="same_state_side_curation_failed",
+                        side_kinds=list(side_kinds),
+                        schema="same_state_pair",
+                        side_curation=side_curation,
+                        side_curation_changed=side_curation_changed,
+                    )
+                )
+                return ComposeDecision(
+                    ACTION_EXCLUDED,
+                    None,
+                    tuple(preference_reasons),
+                    tuple(stages),
+                    None,
+                    None,
+                )
+            preference_decision = curate_preferences.curate_preference_record(
+                curated_sides
+            )
             retained = preference_decision.record is not None
+            preference_reasons = list(preference_decision.reason_codes)
+            if retained:
+                preference_reasons = list(
+                    dict.fromkeys(
+                        [*side_curation_reasons, *preference_reasons]
+                    )
+                )
             stages.append(
                 _stage(
                     "preferences",
@@ -591,11 +641,17 @@ def compose_record(
                     curate_preferences.TRANSFORM_VERSION,
                     ACTION_RETAINED if retained else ACTION_EXCLUDED,
                     reason_codes=preference_reasons,
-                    lane_action=preference_decision.action,
+                    lane_action=(
+                        "repaired"
+                        if retained and side_curation_changed
+                        else preference_decision.action
+                    ),
                     classification=preference_decision.classification,
                     side_kinds=list(side_kinds),
                     schema="same_state_pair",
                     context_diff_paths=list(preference_decision.context_diff_paths),
+                    side_curation=side_curation,
+                    side_curation_changed=side_curation_changed,
                 )
             )
         elif _mixed_preference_families(side_kinds):
@@ -731,7 +787,36 @@ def compose_record(
             )
         )
 
-    if is_episode_record(current):
+    if registered_kind in {"multi_agent", "safety_case"}:
+        curated_agentic, agentic_manifest = curate_agentic.curate_record(
+            current,
+            source_path=source_path,
+            source_line=source_line,
+            source_hash=source_sha256,
+        )
+        agentic_reasons = list(agentic_manifest.get("reason_codes", []))
+        stages.append(
+            _stage(
+                "coding",
+                curate_agentic.TRANSFORM_NAME,
+                curate_agentic.TRANSFORM_VERSION,
+                ACTION_RETAINED if curated_agentic is not None else ACTION_EXCLUDED,
+                reason_codes=agentic_reasons,
+                lane_action=agentic_manifest.get("action"),
+                detail=agentic_manifest,
+            )
+        )
+        if curated_agentic is None:
+            return ComposeDecision(
+                ACTION_EXCLUDED,
+                None,
+                tuple(agentic_reasons),
+                tuple(stages),
+                None,
+                None,
+            )
+        current = curated_agentic
+    elif is_episode_record(current):
         curated_episode, coding_manifest = curate_coding.curate_episode(
             current,
             source_path=source_path,
@@ -846,6 +931,91 @@ def compose_record(
     )
 
 
+def _identity_owner(record: dict[str, Any], pointer: Any) -> dict[str, Any] | None:
+    """Resolve an identity manifest owner pointer within one curated record."""
+
+    if pointer == "/":
+        return record
+    if not isinstance(pointer, str) or not pointer.startswith("/"):
+        return None
+    owner: Any = record
+    for token in pointer[1:].split("/"):
+        key = token.replace("~1", "/").replace("~0", "~")
+        if not isinstance(owner, dict):
+            return None
+        owner = owner.get(key)
+    return owner if isinstance(owner, dict) else None
+
+
+def _post_transform_semantic_sha256(decision: ComposeDecision) -> str:
+    """Hash training content without coordinate-derived identity bindings."""
+
+    if decision.record is None:
+        raise ComposeError("cannot hash a missing curated record")
+    semantic = copy.deepcopy(decision.record)
+    identity_stage = next(
+        (stage for stage in decision.stages if stage.get("lane") == "identity"),
+        None,
+    )
+    detail = identity_stage.get("detail") if isinstance(identity_stage, dict) else None
+    mappings = detail.get("id_mappings") if isinstance(detail, dict) else None
+    if isinstance(mappings, list):
+        for mapping in mappings:
+            if not isinstance(mapping, dict):
+                continue
+            owner = _identity_owner(semantic, mapping.get("owner_path"))
+            if owner is not None and owner.get("id") == mapping.get("output_id"):
+                owner.pop("id", None)
+
+    annotation = semantic.get(curate_rewards.ANNOTATION_FIELD)
+    if isinstance(annotation, dict):
+        # The sidecar digest authenticates source coordinates.  Keep the
+        # comparability class and any magnitude/order payload, but remove the
+        # coordinate binding that would otherwise hide converged examples.
+        annotation.pop("source_sidecar_id", None)
+    return _canonical_sha256(semantic)
+
+
+def _deduplicate_curated_record(
+    decision: ComposeDecision,
+    *,
+    source_path: str,
+    source_line: int,
+    seen_curated_semantics: MutableMapping[str, tuple[str, int]] | None,
+) -> ComposeDecision:
+    """Exclude records that converge only after the lossy curation lanes."""
+
+    if (
+        seen_curated_semantics is None
+        or decision.action != ACTION_RETAINED
+        or decision.record is None
+    ):
+        return decision
+    semantic_sha256 = _post_transform_semantic_sha256(decision)
+    first_coordinate = seen_curated_semantics.get(semantic_sha256)
+    if first_coordinate is None:
+        seen_curated_semantics[semantic_sha256] = (source_path, source_line)
+        return decision
+    duplicate_stage = _stage(
+        "post_transform_dedup",
+        COMPOSE_NAME,
+        COMPOSE_VERSION,
+        ACTION_EXCLUDED,
+        reason_codes=[REASON_DUPLICATE_CURATED_RECORD],
+        semantic_sha256=semantic_sha256,
+        first_source_path=first_coordinate[0],
+        first_source_line=first_coordinate[1],
+    )
+    return ComposeDecision(
+        ACTION_EXCLUDED,
+        None,
+        (REASON_DUPLICATE_CURATED_RECORD,),
+        (*decision.stages, duplicate_stage),
+        None,
+        None,
+    )
+
+
 def compose_source_line(
     physical_line: bytes,
     *,
@@ -854,6 +1024,7 @@ def compose_source_line(
     source_file_sha256: str,
     calibration_catalog: Mapping[str, Any] | None = None,
     seen_source_semantics: MutableMapping[str, tuple[str, int]] | None = None,
+    seen_curated_semantics: MutableMapping[str, tuple[str, int]] | None = None,
 ) -> ComposeDecision:
     """Compose one LF-framed source line using the run writer's exact contract."""
 
@@ -923,8 +1094,7 @@ def compose_source_line(
                 None,
                 None,
             )
-        seen_source_semantics[semantic_sha256] = (source_path, source_line)
-    return compose_record(
+    decision = compose_record(
         record,
         source_path=source_path,
         source_line=source_line,
@@ -932,6 +1102,19 @@ def compose_source_line(
         source_file_sha256=source_file_sha256,
         calibration=calibration_for(record, calibration_catalog),
     )
+    decision = _deduplicate_curated_record(
+        decision,
+        source_path=source_path,
+        source_line=source_line,
+        seen_curated_semantics=seen_curated_semantics,
+    )
+    if (
+        seen_source_semantics is not None
+        and decision.action == ACTION_RETAINED
+        and decision.record is not None
+    ):
+        seen_source_semantics[semantic_sha256] = (source_path, source_line)
+    return decision
 
 
 def transform_contract() -> dict[str, Any]:
@@ -970,6 +1153,11 @@ def transform_contract() -> dict[str, Any]:
         "coding": {
             "name": curate_coding.TRANSFORM_NAME,
             "version": curate_coding.TRANSFORM_VERSION,
+            "registered_agentic": {
+                "name": curate_agentic.TRANSFORM_NAME,
+                "version": curate_agentic.TRANSFORM_VERSION,
+                "record_kinds": ["multi_agent", "safety_case"],
+            },
         },
         "rewards": {
             "name": curate_rewards.ANNOTATION_FIELD,
@@ -1004,6 +1192,107 @@ def _require_exact_directory(path: Path, label: str) -> Path:
     if not stat.S_ISDIR(metadata.st_mode) or resolved != absolute:
         raise ComposeError(f"{label} must be an exact non-symlink directory: {path}")
     return resolved
+
+
+def _directory_identity(metadata: os.stat_result) -> tuple[int, int, int]:
+    """Identity fields that do not change when directory entries are added."""
+
+    return (metadata.st_dev, metadata.st_ino, stat.S_IFMT(metadata.st_mode))
+
+
+def _verify_directory_binding(
+    path: Path,
+    descriptor: int,
+    label: str,
+    *,
+    expected_identity: tuple[int, int, int] | None = None,
+) -> None:
+    """Require ``path`` and a pinned descriptor to name the same directory."""
+
+    try:
+        metadata = path.lstat()
+        resolved = path.resolve(strict=True)
+        opened = os.fstat(descriptor)
+    except (FileNotFoundError, OSError) as exc:
+        raise ComposeError(f"{label} changed while it was pinned: {path}") from exc
+    absolute = Path(os.path.abspath(path))
+    path_identity = _directory_identity(metadata)
+    opened_identity = _directory_identity(opened)
+    if (
+        not stat.S_ISDIR(metadata.st_mode)
+        or not stat.S_ISDIR(opened.st_mode)
+        or resolved != absolute
+        or path_identity != opened_identity
+        or (expected_identity is not None and opened_identity != expected_identity)
+    ):
+        raise ComposeError(f"{label} changed while it was pinned: {path}")
+
+
+@dataclass
+class _PinnedDestination:
+    """A new destination held by directory descriptors until commit or cleanup."""
+
+    path: Path
+    root: Path
+    parent_descriptor: int
+    destination_descriptor: int
+    parent_identity: tuple[int, int, int]
+    destination_identity: tuple[int, int, int]
+    closed: bool = False
+
+    def _entry_is_ours(self) -> bool:
+        try:
+            current = os.stat(
+                self.path.name,
+                dir_fd=self.parent_descriptor,
+                follow_symlinks=False,
+            )
+        except (FileNotFoundError, OSError):
+            return False
+        return (
+            stat.S_ISDIR(current.st_mode)
+            and _directory_identity(current) == self.destination_identity
+        )
+
+    def cleanup(self) -> None:
+        """Remove only the directory created through the pinned parent."""
+
+        if self.closed:
+            return
+        os.close(self.destination_descriptor)
+        if self._entry_is_ours():
+            shutil.rmtree(
+                self.path.name,
+                ignore_errors=True,
+                dir_fd=self.parent_descriptor,
+            )
+        os.close(self.parent_descriptor)
+        self.closed = True
+
+    def finish(self) -> None:
+        """Verify the lexical bindings survived, then release the descriptors."""
+
+        if self.closed:
+            raise ComposeError("destination pin was already closed")
+        try:
+            _verify_directory_binding(
+                self.path.parent,
+                self.parent_descriptor,
+                "destination parent",
+                expected_identity=self.parent_identity,
+            )
+            _verify_directory_binding(
+                self.path,
+                self.destination_descriptor,
+                "destination",
+                expected_identity=self.destination_identity,
+            )
+        except BaseException:
+            self.cleanup()
+            raise
+        os.close(self.destination_descriptor)
+        os.close(self.parent_descriptor)
+        self.closed = True
 
 
 def _source_member_path(root: Path, raw_path: Any, label: str) -> Path:
@@ -1063,8 +1352,10 @@ def _read_exact_regular_file(root: Path, raw_path: Any, label: str) -> tuple[Pat
     opened_after: os.stat_result | None = None
     try:
         opened_before = os.fstat(descriptor)
-        if not stat.S_ISREG(opened_before.st_mode) or opened_before.st_nlink != 1:
-            raise ComposeError(f"{label}: opened identity is not a unique regular file")
+        if not stat.S_ISREG(opened_before.st_mode):
+            raise ComposeError(f"{label}: opened identity is not a regular file")
+        if opened_before.st_nlink != 1:
+            raise ComposeError(f"{label}: hard-link aliases are not accepted")
         if _stable_file_identity(before) != _stable_file_identity(opened_before):
             raise ComposeError(f"{label}: source identity changed while opening")
         chunks: list[bytes] = []
@@ -1090,6 +1381,78 @@ def _read_exact_regular_file(root: Path, raw_path: Any, label: str) -> tuple[Pat
     if path.resolve(strict=True) != expected:
         raise ComposeError(f"{label}: source path became a symlink alias while reading")
     return path, b"".join(chunks)
+
+
+def _read_exact_child_file(parent: Path, name: str, label: str) -> tuple[Path, bytes]:
+    """Read one direct child while its exact parent directory remains pinned."""
+
+    parent = _require_exact_directory(parent, f"{label} parent")
+    expected_parent_identity = _directory_identity(parent.lstat())
+    directory_flags = (
+        os.O_RDONLY
+        | getattr(os, "O_DIRECTORY", 0)
+        | getattr(os, "O_NOFOLLOW", 0)
+        | getattr(os, "O_CLOEXEC", 0)
+    )
+    try:
+        parent_descriptor = os.open(parent, directory_flags)
+    except OSError as exc:
+        raise ComposeError(f"{label} parent changed while it was pinned: {parent}") from exc
+    file_descriptor: int | None = None
+    try:
+        _verify_directory_binding(
+            parent,
+            parent_descriptor,
+            f"{label} parent",
+            expected_identity=expected_parent_identity,
+        )
+        try:
+            before = os.stat(
+                name,
+                dir_fd=parent_descriptor,
+                follow_symlinks=False,
+            )
+            file_descriptor = os.open(
+                name,
+                os.O_RDONLY
+                | getattr(os, "O_NOFOLLOW", 0)
+                | getattr(os, "O_CLOEXEC", 0),
+                dir_fd=parent_descriptor,
+            )
+        except OSError as exc:
+            raise ComposeError(f"{label}: cannot open exact source file: {exc}") from exc
+        opened_before = os.fstat(file_descriptor)
+        if not stat.S_ISREG(opened_before.st_mode):
+            raise ComposeError(f"{label}: opened identity is not a regular file")
+        if opened_before.st_nlink != 1:
+            raise ComposeError(f"{label}: hard-link aliases are not accepted")
+        if _stable_file_identity(before) != _stable_file_identity(opened_before):
+            raise ComposeError(f"{label}: source identity changed while opening")
+        chunks: list[bytes] = []
+        while chunk := os.read(file_descriptor, 1024 * 1024):
+            chunks.append(chunk)
+        opened_after = os.fstat(file_descriptor)
+        after = os.stat(
+            name,
+            dir_fd=parent_descriptor,
+            follow_symlinks=False,
+        )
+        if (
+            _stable_file_identity(opened_before) != _stable_file_identity(opened_after)
+            or _stable_file_identity(after) != _stable_file_identity(opened_after)
+        ):
+            raise ComposeError(f"{label}: source identity changed while reading")
+        _verify_directory_binding(
+            parent,
+            parent_descriptor,
+            f"{label} parent",
+            expected_identity=expected_parent_identity,
+        )
+        return parent / name, b"".join(chunks)
+    finally:
+        if file_descriptor is not None:
+            os.close(file_descriptor)
+        os.close(parent_descriptor)
 
 
 def source_jsonl_members(root: Path) -> tuple[str, ...]:
@@ -1128,8 +1491,10 @@ def source_jsonl_members(root: Path) -> tuple[str, ...]:
     return tuple(sorted(members))
 
 
-def _assert_new_destination(source_run: Path, destination: Path) -> None:
-    if destination.exists():
+def _assert_new_destination(
+    source_run: Path, destination: Path
+) -> tuple[Path, tuple[int, int, int]]:
+    if os.path.lexists(destination):
         raise ComposeError(f"refusing to overwrite an existing destination: {destination}")
     if _is_under_raw(destination):
         raise ComposeError(f"refusing to write inside immutable raw evidence: {destination}")
@@ -1141,8 +1506,94 @@ def _assert_new_destination(source_run: Path, destination: Path) -> None:
         raise ComposeError("destination cannot be written inside the source run")
     if resolved_destination in resolved_source.parents:
         raise ComposeError("destination cannot contain the source run")
-    if not destination.parent.is_dir():
-        raise ComposeError(f"destination parent does not exist: {destination.parent}")
+    parent = _require_exact_directory(destination.parent, "destination parent")
+    return parent, _directory_identity(parent.lstat())
+
+
+def _create_pinned_destination(
+    source_run: Path, destination: Path
+) -> _PinnedDestination:
+    """Create one exclusive destination relative to a pinned parent descriptor."""
+
+    parent, expected_parent_identity = _assert_new_destination(
+        source_run, destination
+    )
+    destination = Path(os.path.abspath(destination))
+    flags = (
+        os.O_RDONLY
+        | getattr(os, "O_DIRECTORY", 0)
+        | getattr(os, "O_NOFOLLOW", 0)
+        | getattr(os, "O_CLOEXEC", 0)
+    )
+    parent_descriptor = os.open(parent, flags)
+    destination_descriptor: int | None = None
+    created_identity: tuple[int, int, int] | None = None
+    try:
+        _verify_directory_binding(
+            parent,
+            parent_descriptor,
+            "destination parent",
+            expected_identity=expected_parent_identity,
+        )
+        try:
+            os.stat(
+                destination.name,
+                dir_fd=parent_descriptor,
+                follow_symlinks=False,
+            )
+        except FileNotFoundError:
+            pass
+        else:
+            raise ComposeError(
+                f"refusing to overwrite an existing destination: {destination}"
+            )
+        os.mkdir(destination.name, 0o755, dir_fd=parent_descriptor)
+        created = os.stat(
+            destination.name,
+            dir_fd=parent_descriptor,
+            follow_symlinks=False,
+        )
+        created_identity = _directory_identity(created)
+        if not stat.S_ISDIR(created.st_mode):
+            raise ComposeError(f"new destination is not a directory: {destination}")
+        destination_descriptor = os.open(
+            destination.name,
+            flags,
+            dir_fd=parent_descriptor,
+        )
+        if _directory_identity(os.fstat(destination_descriptor)) != created_identity:
+            raise ComposeError("destination identity changed while opening")
+        root = Path(f"/proc/self/fd/{destination_descriptor}")
+        if not root.is_dir():
+            raise ComposeError("pinned destination descriptor is not path-addressable")
+        return _PinnedDestination(
+            path=destination,
+            root=root,
+            parent_descriptor=parent_descriptor,
+            destination_descriptor=destination_descriptor,
+            parent_identity=expected_parent_identity,
+            destination_identity=created_identity,
+        )
+    except BaseException:
+        if destination_descriptor is not None:
+            os.close(destination_descriptor)
+        if created_identity is not None:
+            try:
+                current = os.stat(
+                    destination.name,
+                    dir_fd=parent_descriptor,
+                    follow_symlinks=False,
+                )
+            except (FileNotFoundError, OSError):
+                current = None
+            if current is not None and _directory_identity(current) == created_identity:
+                shutil.rmtree(
+                    destination.name,
+                    ignore_errors=True,
+                    dir_fd=parent_descriptor,
+                )
+        os.close(parent_descriptor)
+        raise
 
 
 def _write_new_text(path: Path, text: str) -> str:
@@ -1167,11 +1618,11 @@ def _load_calibration(
     calibration_path: Path | None = None
     mode = "none"
     if units_migration is not None:
-        calibration_path = units_migration.resolve()
+        calibration_path = Path(os.path.abspath(units_migration))
         mode = "explicit"
     default = source_run / FFPC_UNITS_MIGRATION
     if calibration_path is None and default.is_file():
-        calibration_path = default.resolve()
+        calibration_path = default
         mode = "source_run"
     if calibration_path is None:
         return {}, {
@@ -1180,8 +1631,21 @@ def _load_calibration(
             "sha256": None,
             "records": 0,
         }
-    payload = calibration_path.read_bytes()
-    catalog = curate_rewards.load_units_migration(calibration_path)
+    calibration_path, payload = _read_exact_child_file(
+        calibration_path.parent,
+        calibration_path.name,
+        "units-migration calibration",
+    )
+    try:
+        document = json.loads(
+            payload.decode("utf-8"),
+            parse_constant=reject_json_constant,
+        )
+    except (UnicodeError, json.JSONDecodeError, ValueError) as exc:
+        raise ComposeError(
+            f"{calibration_path}: invalid calibration JSON: {exc}"
+        ) from exc
+    catalog = curate_rewards.units_migration_catalog(document, calibration_path)
     return catalog, {
         "mode": mode,
         "path": str(calibration_path),
@@ -1233,14 +1697,15 @@ def compose_run(
     source_run = Path(source_run)
     destination = Path(destination)
     resolved_source = _require_exact_directory(source_run, "source run")
-    _assert_new_destination(resolved_source, destination)
     source_members = source_jsonl_members(resolved_source)
     catalog, calibration_descriptor = _load_calibration(
         resolved_source,
         Path(units_migration) if units_migration is not None else None,
     )
-    records_dir = destination / RECORDS_DIRNAME
-    manifest_dir = destination / MANIFEST_DIRNAME
+    pinned_destination = _create_pinned_destination(resolved_source, destination)
+    destination_root = pinned_destination.root
+    records_dir = destination_root / RECORDS_DIRNAME
+    manifest_dir = destination_root / MANIFEST_DIRNAME
 
     counts: Counter[str] = Counter()
     exclusions: Counter[str] = Counter()
@@ -1250,8 +1715,8 @@ def compose_run(
     outputs: list[dict[str, Any]] = []
     emitted_ids: dict[str, str] = {}
     seen_source_semantics: dict[str, tuple[str, int]] = {}
+    seen_curated_semantics: dict[str, tuple[str, int]] = {}
 
-    destination.mkdir(parents=True)
     try:
         records_dir.mkdir()
         manifest_dir.mkdir()
@@ -1294,6 +1759,7 @@ def compose_run(
                     source_file_sha256=source_file_sha256,
                     calibration_catalog=catalog,
                     seen_source_semantics=seen_source_semantics,
+                    seen_curated_semantics=seen_curated_semantics,
                 )
 
                 entry["action"] = decision.action
@@ -1361,7 +1827,7 @@ def compose_run(
             "compose_name": COMPOSE_NAME,
             "compose_version": COMPOSE_VERSION,
             "source_run": str(resolved_source),
-            "destination": str(destination.resolve()),
+            "destination": str(pinned_destination.path),
             "lane_order": list(LANE_ORDER),
             "transforms": transform_contract(),
             "calibration": calibration_descriptor,
@@ -1393,14 +1859,13 @@ def compose_run(
             "audit": _audit_records(records_dir, counts["retained"]),
         }
         _write_new_text(
-            destination / SUMMARY_FILENAME,
+            destination_root / SUMMARY_FILENAME,
             json.dumps(summary, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
         )
     except BaseException:
-        # The destination was brand new and created by this call, so removing
-        # it leaves no partially composed tree behind for a retry.
-        shutil.rmtree(destination, ignore_errors=True)
+        pinned_destination.cleanup()
         raise
+    pinned_destination.finish()
     return summary
 
 

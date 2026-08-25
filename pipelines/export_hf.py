@@ -52,7 +52,7 @@ import curate_rewards  # noqa: E402
 import training_audit  # noqa: E402
 
 EXPORT_NAME = "export_hf"
-EXPORT_VERSION = "export-hf-v2"
+EXPORT_VERSION = "export-hf-v3"
 CREATED_BY = f"synthetic-factory {EXPORT_NAME} ({EXPORT_VERSION})"
 
 CURATED_DIRNAME = "data/curated"
@@ -873,6 +873,7 @@ def _authenticate_source_replay(
     emitted_ids: dict[str, str] = {}
     source_files: list[dict[str, Any]] = []
     seen_source_semantics: dict[str, tuple[str, int]] = {}
+    seen_curated_semantics: dict[str, tuple[str, int]] = {}
 
     try:
         source_members = compose_curated.source_jsonl_members(source_root)
@@ -909,6 +910,7 @@ def _authenticate_source_replay(
                 source_file_sha256=source_file_sha256,
                 calibration_catalog=catalog,
                 seen_source_semantics=seen_source_semantics,
+                seen_curated_semantics=seen_curated_semantics,
             )
             entry: dict[str, Any] = {
                 "compose_name": compose_curated.COMPOSE_NAME,
@@ -1337,18 +1339,24 @@ def render_eval_protocol(provenance: dict[str, Any]) -> str:
         "## How to evaluate",
         "",
         "1. Train only on `data/splits/train.jsonl`. Never fit on the eval file.",
-        "2. Score `data/splits/eval.jsonl` record by record, grouped by factory",
-        "   (the path segment after `data/curated/` in `source_file`).",
+        "2. Score `data/splits/eval.jsonl` record by record, grouped by the",
+        "   `meta.factory` value carried in each split record.",
         "3. Report per-record-kind metrics separately; the corpus mixes Thalamic",
         "   trajectories, bridge pairs, preference pairs, and coding episodes, and",
         "   a single averaged number hides a collapsed lane.",
         "4. Suggested per-kind measures:",
         "   - Thalamic: safety-gate decision agreement and reward-sign agreement.",
+        "     Exclude safety-gate agreement rows where",
+        "     `safety_decision.correctness == \"incorrect\"` or",
+        "     `meta.supervisor_error_type` is present; those rows deliberately",
+        "     carry supervisor-error labels rather than gold gate decisions.",
         "   - Bridge: event-order fidelity of the generated language view.",
         "   - Preference: chosen-vs-rejected ranking accuracy on same-context pairs.",
         "   - Coding: step-level `decision_basis` groundedness in visible evidence.",
-        "5. Reward magnitudes are only comparable where `reward_training.comparability`",
-        "   is `magnitude_comparable`; otherwise compare sign and order only.",
+        "5. Follow `reward_training.comparability` exactly:",
+        "   - `magnitude_comparable`: compare canonical magnitudes.",
+        "   - `sign_order_only`: compare sign and order only.",
+        "   - `exclude_from_reward_training`: omit reward-derived metrics.",
         "",
         "## Losslessness",
         "",

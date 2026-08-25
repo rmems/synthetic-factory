@@ -22,7 +22,12 @@ import compose_curated  # noqa: E402
 import export_hf  # noqa: E402
 import verify_hf_release  # noqa: E402
 
-from test_compose_curated import build_source_run, thalamic, write_jsonl  # noqa: E402
+from test_compose_curated import (  # noqa: E402
+    build_source_run,
+    episode,
+    thalamic,
+    write_jsonl,
+)
 
 HAS_PYARROW = importlib.util.find_spec("pyarrow") is not None
 
@@ -105,6 +110,7 @@ class ExportHf(unittest.TestCase):
             export = root / "export"
 
             self.assertTrue(provenance["training_ready"])
+            self.assertEqual(provenance["export_version"], "export-hf-v3")
             self.assertEqual(provenance["audit"]["blockers"], [])
             self.assertEqual(provenance["records"], 7)
             self.assertIs(provenance["payload_published"], False)
@@ -171,6 +177,19 @@ class ExportHf(unittest.TestCase):
             self.assertNotIn("never touched by curation tuning", protocol)
             self.assertIn(export_hf.TRAIN_PATH, protocol)
             self.assertIn(export_hf.EVAL_PATH, protocol)
+            self.assertIn("`meta.factory` value", protocol)
+            self.assertNotIn("in `source_file`", protocol)
+            self.assertIn(
+                '`safety_decision.correctness == "incorrect"`',
+                protocol,
+            )
+            self.assertIn("`meta.supervisor_error_type` is present", protocol)
+            self.assertIn("rather than gold gate decisions", protocol)
+            self.assertIn("`sign_order_only`: compare sign and order only", protocol)
+            self.assertIn(
+                "`exclude_from_reward_training`: omit reward-derived metrics",
+                protocol,
+            )
             self.assertEqual(
                 provenance["splits"]["scope"],
                 "post_curation_snapshot_future_trainer_holdout",
@@ -216,6 +235,41 @@ class ExportHf(unittest.TestCase):
             self.assertEqual(
                 summary["exclusions"][
                     compose_curated.REASON_DUPLICATE_SOURCE_RECORD
+                ],
+                1,
+            )
+            self.assertEqual(provenance["compose"]["source"]["records"], 9)
+            self.assertEqual(provenance["records"], 7)
+            self.assertEqual(len(train) + len(evaluate), 7)
+            self.assertEqual(len(set(train + evaluate)), 7)
+
+    def test_export_replays_post_curation_semantic_duplicate_exclusions(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            source = build_source_run(root / "run")
+            source_file = (
+                source
+                / "agentic-coding-trajectory-factory"
+                / "batch-r01.jsonl"
+            )
+            converged = episode("1")
+            converged["steps"][0]["thought"] = "different hidden text"
+            with source_file.open("a", encoding="utf-8") as handle:
+                handle.write(json.dumps(converged) + "\n")
+
+            curated = root / "curated"
+            summary = compose_curated.compose_run(source, curated)
+            provenance = export_hf.export_run(curated, root / "export")
+            train = (root / "export" / export_hf.TRAIN_PATH).read_text(
+                encoding="utf-8"
+            ).splitlines()
+            evaluate = (root / "export" / export_hf.EVAL_PATH).read_text(
+                encoding="utf-8"
+            ).splitlines()
+
+            self.assertEqual(
+                summary["exclusions"][
+                    compose_curated.REASON_DUPLICATE_CURATED_RECORD
                 ],
                 1,
             )
@@ -726,17 +780,18 @@ class ExportHf(unittest.TestCase):
                 / "multi-agent-coordination-factory"
                 / "batch-r01.jsonl"
             )
+            safe_payload = output.read_bytes()
             unsafe_documents = [
                 json.loads(line)
-                for line in output.read_text(encoding="utf-8").split("\n")
+                for line in safe_payload.decode("utf-8").split("\n")
                 if line
             ]
-            safe_documents = json.loads(json.dumps(unsafe_documents))
-            safe_documents[0].pop("thought")
-            safe_payload = "".join(
+            unsafe_documents[0]["thought"] = "hidden payload captured before the audit"
+            unsafe_payload = "".join(
                 compose_curated.canonical_json(record) + "\n"
-                for record in safe_documents
+                for record in unsafe_documents
             ).encode("utf-8")
+            output.write_bytes(unsafe_payload)
             real_collect = export_hf.collect_files
 
             def capture_then_replace(records_dir):
