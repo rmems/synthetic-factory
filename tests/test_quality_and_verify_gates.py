@@ -210,7 +210,9 @@ class FrontierPublishGate(unittest.TestCase):
     def stage(self, reservation, records):
         stage = Path(reservation["staging_dir"])
         write(stage / reservation["batch_file"], records)
-        (stage / reservation["notes_file"]).write_text("# Critique\n\nConcrete gap.\n")
+        (stage / reservation["notes_file"]).write_text(
+            "# Critique\n\nConcrete gap.\n\nNovel coverage: 42%\n"
+        )
         return stage
 
     def test_inconclusive_record_blocks_publish_and_the_frontier(self):
