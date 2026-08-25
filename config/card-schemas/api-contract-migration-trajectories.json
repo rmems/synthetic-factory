@@ -2,7 +2,7 @@
   "version": 1,
   "dataset": "api-contract-migration-trajectories",
   "issues": [46],
-  "note": "The viewer schema is declared by hand because raw `meta` shapes vary between rounds: the datasets-server infers `meta` as `{factory, generator, round}` from the six thin-meta records in `batch-r01.jsonl`, then cannot cast the later shards whose `meta` also carries `domain`, `stack`, `theme`, `kind`, `seed`, `designed` and `lane`. Declaring the union fixes the index without rewriting a single historical raw record.",
+  "note": "The viewer schema is declared by hand because raw `meta` shapes vary between rounds: the datasets-server infers `meta` as `{factory, generator, round}` from the two records in `batch-r01.jsonl`; four more thin-meta records appear in `batch-r02.jsonl` and `batch-r98.jsonl`, while later shards also carry `domain`, `stack`, `theme`, `kind`, `seed`, `designed` and `lane`. Declaring the union fixes the index without rewriting a single historical raw record.",
   "config_name": "default",
   "split": "train",
   "data_files": ["data/raw/batch-*.jsonl"],
@@ -44,7 +44,7 @@
     {
       "name": "meta",
       "dtype": "json",
-      "note": "key-bag: `factory`, `generator`, `round` on every record, plus `domain`, `stack` (8004), `kind` (6332), `seed`, `designed` (6330), `lane` (5440), `theme` (1674) and `product`, `mechanic` (2) on subsets"
+      "note": "key-bag: `factory`, `generator`, `round` on every record, plus `domain`, `stack` (8004), `kind` (6332), `seed` (6330), `designed` (6330), `lane` (5440), `theme` (1674) and `product`, `mechanic` (2) on subsets"
     }
   ],
   "disclosures": [
@@ -57,7 +57,7 @@
       "issues": [46]
     },
     {
-      "summary": "Six early records are genuine contract-migration episodes with a thinner `meta` of only `factory`, `generator` and `round`. They are the records the schema was inferred from, and the reason the cast against later shards failed. They are kept exactly as generated.",
+      "summary": "Six early records, two each in `batch-r01.jsonl`, `batch-r02.jsonl` and `batch-r98.jsonl`, are genuine contract-migration episodes with a thinner `meta` of only `factory`, `generator` and `round`. The two in `batch-r01.jsonl` are the schema-inference source; the other four share the same thin shape. Together they explain why the cast against wider later shards failed. They are kept exactly as generated.",
       "ids": [
         "acm-r01-disc-wallet-map-b7e2",
         "acm-r01-orders-v2-email-req-4c91",
