@@ -69,6 +69,7 @@ REASON_TAGS_NOT_LIST = "tag_container_not_list"
 REASON_PROVENANCE_CONFLICT = "tag_provenance_conflict"
 REASON_INVALID_JSON = "tag_invalid_json"
 REASON_INVALID_UTF8 = "tag_invalid_utf8"
+REASON_RECORD_TOO_DEEP = "tag_record_too_deep"
 
 _NON_ALNUM_RE = re.compile(r"[^a-z0-9]+")
 
@@ -95,6 +96,14 @@ def canonical_json(value: Any) -> str:
         separators=(",", ":"),
         sort_keys=True,
     )
+
+
+def _canonical_json_equal(left: Any, right: Any) -> bool:
+    """Compare JSON values without Python's bool/number coercion."""
+    try:
+        return canonical_json(left) == canonical_json(right)
+    except (TypeError, ValueError):
+        return False
 
 
 def _reject_json_constant(value: str) -> None:
@@ -185,6 +194,7 @@ class Taxonomy:
                         raise TagTaxonomyError(
                             f"{source}: alias for {tag!r} must be a nonempty string"
                         )
+                    _require_utf8(alias, f"alias for {tag!r}", source)
                     key = normalize_tag(alias)
                     if not key:
                         raise TagTaxonomyError(
@@ -239,6 +249,8 @@ class Taxonomy:
             raise TagTaxonomyError(
                 f"{source}: transform_emitted_tags must contain nonempty strings"
             )
+        for tag in emitted:
+            _require_utf8(tag, "transform_emitted_tags entry", source)
         if len(emitted) != len(set(emitted)):
             raise TagTaxonomyError(
                 f"{source}: transform_emitted_tags must not contain duplicates"
@@ -288,7 +300,7 @@ class Taxonomy:
                 "reason": REASON_TAG_EMPTY,
             }
         canonical = self.alias_index.get(normalized)
-        if canonical is not None:
+        if canonical is not None and canonical not in self.transform_emitted_tags:
             reason = (
                 REASON_TAG_CANONICAL if tag == canonical else REASON_TAG_ALIAS
             )
@@ -301,7 +313,10 @@ class Taxonomy:
                 "reason": reason,
             }
         for rule_id, mapped, compiled in self.pattern_rules:
-            if compiled.match(normalized):
+            if (
+                mapped not in self.transform_emitted_tags
+                and compiled.fullmatch(normalized)
+            ):
                 return {
                     "source": tag,
                     "normalized": normalized,
@@ -322,6 +337,14 @@ def _require_str(container: dict[str, Any], key: str, source: str) -> str:
     value = container.get(key)
     if not isinstance(value, str) or not value.strip():
         raise TagTaxonomyError(f"{source}: {key} must be a nonempty string")
+    return _require_utf8(value, key, source)
+
+
+def _require_utf8(value: str, label: str, source: str) -> str:
+    try:
+        value.encode("utf-8")
+    except UnicodeEncodeError as exc:
+        raise TagTaxonomyError(f"{source}: {label} must be valid UTF-8") from exc
     return value
 
 
@@ -413,9 +436,9 @@ def _existing_provenance(
     vocabulary, so a stale or malformed sidecar is a conflict, not an invitation
     to guess.
     """
-    stored = record.get(TAG_PROVENANCE_FIELD)
-    if stored is None:
+    if TAG_PROVENANCE_FIELD not in record:
         return {}, False, False
+    stored = record[TAG_PROVENANCE_FIELD]
     if not isinstance(stored, dict):
         return {}, True, True
     if (
@@ -445,7 +468,7 @@ def _existing_provenance(
             "unmapped_tags",
             "duplicates_collapsed",
         ):
-            if entry.get(key) != expected[key]:
+            if not _canonical_json_equal(entry.get(key), expected[key]):
                 return {}, True, True
         reusable[pointer] = entry
     return reusable, False, True
@@ -551,7 +574,7 @@ def curate_record(
 
         prior = reusable.get(pointer)
         if prior is not None:
-            if prior["canonical_tags"] != tags:
+            if not _canonical_json_equal(prior["canonical_tags"], tags):
                 # The stored sidecar no longer describes this container, so the
                 # original tags are not recoverable from the record.
                 manifest["reason_codes"] = [REASON_PROVENANCE_CONFLICT]
@@ -692,6 +715,17 @@ def curate_jsonl(
                 continue
             try:
                 record = json.loads(text, parse_constant=_reject_json_constant)
+            except RecursionError:
+                manifests.append(
+                    _excluded_line_manifest(
+                        source_path=str(source),
+                        source_line=line_number,
+                        source_hash=line_hash,
+                        taxonomy_version=vocabulary.version,
+                        reason=REASON_RECORD_TOO_DEEP,
+                    )
+                )
+                continue
             except ValueError:
                 manifests.append(
                     _excluded_line_manifest(
@@ -705,6 +739,17 @@ def curate_jsonl(
                 continue
             try:
                 canonical_json(record).encode("utf-8")
+            except RecursionError:
+                manifests.append(
+                    _excluded_line_manifest(
+                        source_path=str(source),
+                        source_line=line_number,
+                        source_hash=line_hash,
+                        taxonomy_version=vocabulary.version,
+                        reason=REASON_RECORD_TOO_DEEP,
+                    )
+                )
+                continue
             except (TypeError, ValueError, UnicodeEncodeError):
                 manifests.append(
                     _excluded_line_manifest(
@@ -717,13 +762,25 @@ def curate_jsonl(
                 )
                 continue
 
-            curated, manifest = curate_record(
-                record,
-                taxonomy=vocabulary,
-                source_path=str(source),
-                source_line=line_number,
-                source_hash=line_hash,
-            )
+            try:
+                curated, manifest = curate_record(
+                    record,
+                    taxonomy=vocabulary,
+                    source_path=str(source),
+                    source_line=line_number,
+                    source_hash=line_hash,
+                )
+            except RecursionError:
+                manifests.append(
+                    _excluded_line_manifest(
+                        source_path=str(source),
+                        source_line=line_number,
+                        source_hash=line_hash,
+                        taxonomy_version=vocabulary.version,
+                        reason=REASON_RECORD_TOO_DEEP,
+                    )
+                )
+                continue
             manifests.append(manifest)
             if curated is None:
                 continue
@@ -769,7 +826,7 @@ def curate_jsonl(
         "mapped_tag_uses": sum(
             count for rule, count in rule_uses.items() if rule != RULE_TRANSFORM
         ),
-        "unmapped_tag_uses": sum(unmapped_uses.values()),
+        "unmapped_tag_uses": sum(unmapped_uses.values()) + nonstring_uses,
         "unmapped_unique_tags": len(unmapped_uses),
         "nonstring_tag_uses": nonstring_uses,
         "entropy_bits": {
