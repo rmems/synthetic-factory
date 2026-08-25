@@ -48,7 +48,7 @@ start factories 06 or 07 from this contract.
 
 Every staged `NOTES-rNN.md` must contain one line of the form:
 
-```
+```text
 Novel coverage: 12.3%
 ```
 

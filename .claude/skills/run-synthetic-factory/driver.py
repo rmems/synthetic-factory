@@ -66,13 +66,12 @@ TOKEN_EFFICIENCY_THRESHOLD_PCT = 5.0
 TOKEN_EFFICIENCY_CONSECUTIVE = 2
 TOKEN_EFFICIENCY_SAVING_PCT = 40
 TOKEN_EFFICIENCY_DOCS = "docs/token-efficiency.md"
-# Line-anchored to the labeled "Novel coverage: N%" line only, so unrelated
-# percentages in NOTES prose (e.g. "Jaccard overlap peaked at 45%") can never
-# be misread as coverage. Mirrors factory-window.workflow.js novelCoveragePct.
-# An optional parenthetical annotation is documented as valid
-# (docs/token-efficiency.md): "Novel coverage (estimated): 12.5 %".
-NOVEL_COVERAGE_RE = re.compile(
-    r"^\s*novel[ _-]?coverage\s*(?:\([^)\n]*\))?\s*[:=]?\s*(\d+(?:\.\d+)?)\s*%",
+# Historical read parser: this is the exact multiline grammar used before the
+# forward-only strict publication contract in round_txn.py. It intentionally
+# preserves first-match suffix, duplicate-label, and split-line compatibility.
+LEGACY_NOVEL_COVERAGE_RE = re.compile(
+    r"^\s*novel[ _-]?coverage\s*"
+    r"(?:\([^)\n]*\))?\s*[:=]?\s*(\d+(?:\.\d+)?)\s*%",
     re.IGNORECASE | re.MULTILINE,
 )
 NOTES_ROUND_RE = re.compile(r"^NOTES-r(\d+)([a-z]*)\.md$")
@@ -360,22 +359,21 @@ def count_nonblank_lines(path):
 
 
 def parse_novel_coverage(text: str):
-    """Extract one unambiguous ``Novel coverage: N%`` from NOTES.
+    """Extract the first historically valid ``Novel coverage: N%`` claim.
 
-    Line-anchored parsing — matches only the labeled line (case-insensitive),
-    same regex as workflow novelCoveragePct, so unrelated percentages in
-    prose never match. Exactly one labeled line is required: duplicate lines,
-    even when numerically identical, are ambiguous audit evidence. Valid range
-    0–100; ambiguous or out-of-range values are treated as unparseable to avoid
-    false stops.
+    This command audits immutable committed NOTES, so it retains the former
+    prefix grammar and first-valid-match behavior. New publication uses the
+    strict, exactly-one-line contract in ``round_txn.validate_novel_coverage``.
+    The label remains anchored at a line start so unrelated prose percentages
+    cannot become coverage evidence.
     """
     if not text:
         return None
-    matches = list(NOVEL_COVERAGE_RE.finditer(text))
-    if len(matches) != 1:
+    match = LEGACY_NOVEL_COVERAGE_RE.search(text)
+    if match is None:
         return None
     try:
-        value = float(matches[0].group(1))
+        value = float(match.group(1))
     except ValueError:
         return None
     if not (0 <= value <= 100):
