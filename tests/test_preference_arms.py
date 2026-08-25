@@ -15,7 +15,6 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO / "pipelines"))
 
 import preference_arms  # noqa: E402
-import quality_gate  # noqa: E402
 import training_audit  # noqa: E402
 
 ARM_FIXTURES = REPO / "tests" / "fixtures" / "preference-arms"
@@ -64,11 +63,11 @@ def check(record, **kwargs):
 
 
 class ArmDistanceMetric(unittest.TestCase):
-    def test_default_floor_tracks_the_single_embedding_threshold(self):
-        self.assertAlmostEqual(
-            preference_arms.DEFAULT_MIN_ARM_DISTANCE,
-            1.0 - quality_gate.DEFAULT_EMBEDDING_THRESHOLD,
-            places=9,
+    def test_default_floor_is_owned_by_the_lexical_gate(self):
+        self.assertEqual(preference_arms.DEFAULT_MIN_ARM_DISTANCE, 0.03)
+        self.assertNotIn(
+            "DEFAULT_EMBEDDING_THRESHOLD",
+            (REPO / "pipelines" / "preference_arms.py").read_text(),
         )
 
     def test_shared_context_and_bookkeeping_do_not_create_distance(self):
@@ -117,6 +116,32 @@ class ArmDistanceMetric(unittest.TestCase):
         self.assertAlmostEqual(forward, backward, places=12)
         self.assertGreaterEqual(forward, 0.0)
         self.assertLessEqual(forward, 1.0)
+
+    def test_unspaced_unicode_edit_is_proportional_not_an_opaque_replacement(self):
+        shared = "保持制动直到传感器确认安全并且现场操作员明确批准恢复运行" * 4
+        changed = shared.replace("安全", "危险", 1)
+        distance = preference_arms.arm_distance(
+            {"safety_decision": {"rationale": shared}},
+            {"safety_decision": {"rationale": changed}},
+        )
+        self.assertGreater(distance, 0.0)
+        self.assertLessEqual(distance, preference_arms.DEFAULT_MIN_ARM_DISTANCE)
+
+    def test_accent_only_edits_do_not_manufacture_arm_independence(self):
+        self.assertEqual(
+            preference_arms.arm_distance(
+                {"safety_decision": {"rationale": "mantén la acción segura"}},
+                {"safety_decision": {"rationale": "manten la accion segura"}},
+            ),
+            0.0,
+        )
+
+    def test_programmatic_distance_floor_rejects_non_finite_or_out_of_range_values(self):
+        record = first(TWO_SESSION_ROUND)
+        for value in (float("nan"), float("inf"), -0.01, 1.0, True, "0.03"):
+            with self.subTest(value=value):
+                with self.assertRaisesRegex(ValueError, "arm-distance floor"):
+                    check(record, min_distance=value)
 
 
 class TwoSessionRoundClearsTheGate(unittest.TestCase):
@@ -186,6 +211,27 @@ class CorrelatedArmsAreBlocked(unittest.TestCase):
             decision.arm_distance, preference_arms.DEFAULT_MIN_ARM_DISTANCE
         )
         self.assertIn(preference_arms.REASON_NEAR_VERBATIM, decision.reason_codes)
+        self.assertIn(preference_arms.REASON_LABEL_ONLY_COPY, decision.reason_codes)
+
+    def test_short_label_only_copy_is_blocked_even_above_the_lexical_floor(self):
+        record = copy.deepcopy(first(TWO_SESSION_ROUND))
+        for name, decision_label in (("chosen", "REJECT"), ("rejected", "ACCEPT")):
+            arm = record[name]
+            record[name] = {
+                "id": arm["id"],
+                "state": arm["state"],
+                "proposed_action": arm["proposed_action"],
+                "safety_decision": {
+                    "decision": decision_label,
+                    "rationale": "same bounded rationale",
+                },
+                "meta": arm["meta"],
+            }
+        decision = check(record)
+        self.assertGreater(
+            decision.arm_distance, preference_arms.DEFAULT_MIN_ARM_DISTANCE
+        )
+        self.assertIn(preference_arms.REASON_LABEL_ONLY_COPY, decision.reason_codes)
 
     def test_cli_exits_nonzero_on_a_blocked_pair(self):
         code, _, err = run_cli(["scan", str(NEAR_VERBATIM)])
@@ -267,6 +313,36 @@ class IsolationAttestation(unittest.TestCase):
         self.assertEqual(
             decision.reason_codes,
             (preference_arms.REASON_ISOLATION_UNDECLARED,),
+        )
+
+    def test_record_attestation_is_not_a_trusted_publication_marker(self):
+        decision = check(
+            first(TWO_SESSION_ROUND),
+            require_trusted_isolation=True,
+        )
+        self.assertIn(
+            preference_arms.REASON_ISOLATION_UNTRUSTED,
+            decision.reason_codes,
+        )
+
+    def test_publisher_controlled_two_session_marker_clears_the_gate(self):
+        scan = preference_arms.scan_source(
+            TWO_SESSION_ROUND,
+            trusted_isolation=preference_arms.TWO_SESSION,
+            require_trusted_isolation=True,
+        )
+        self.assertFalse(scan.blocked)
+        self.assertEqual(scan.summary["trusted_two_session_pairs"], 3)
+
+    def test_relabelled_record_cannot_override_a_conflicting_publisher_marker(self):
+        decision = check(
+            first(TWO_SESSION_ROUND),
+            trusted_isolation="single-session",
+            require_trusted_isolation=True,
+        )
+        self.assertIn(
+            preference_arms.REASON_ISOLATION_UNTRUSTED,
+            decision.reason_codes,
         )
 
 
@@ -428,6 +504,7 @@ class ProtocolIsDocumentedAndWired(unittest.TestCase):
             / "run-synthetic-factory"
             / "factory-window.workflow.js"
         ).read_text()
+        cls.publisher = (REPO / "pipelines" / "round_txn.py").read_text()
 
     def test_single_session_path_is_deprecated_in_docs_and_prompt(self):
         self.assertIn("single-session path is deprecated", self.doc.lower())
@@ -443,9 +520,20 @@ class ProtocolIsDocumentedAndWired(unittest.TestCase):
         publish = session_b.index("round_txn.py publish")
         self.assertLess(gate, publish)
 
+    def test_round_publisher_is_the_mandatory_gate(self):
+        self.assertIn("validate_preference_arm_gate", self.publisher)
+        self.assertIn("preference_arm_gate", self.publisher)
+        self.assertIn("require_trusted_isolation=True", self.publisher)
+
     def test_workflow_stamps_the_two_session_attestation(self):
         self.assertIn(
             f'meta.isolation="{preference_arms.TWO_SESSION}"', self.workflow
+        )
+
+    def test_workflow_reservation_carries_the_publisher_marker(self):
+        self.assertIn(
+            f"--preference-isolation {preference_arms.TWO_SESSION}",
+            self.workflow,
         )
 
 

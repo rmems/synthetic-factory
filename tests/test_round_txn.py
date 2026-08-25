@@ -15,6 +15,8 @@ sys.path.insert(0, str(REPO / "pipelines"))
 
 import round_txn  # noqa: E402
 
+PREFERENCE_FIXTURES = REPO / "tests" / "fixtures" / "preference-arms"
+
 
 def thalamic(record_id, round_number=1):
     return {
@@ -35,6 +37,27 @@ def thalamic(record_id, round_number=1):
 
 def write_records(path, records):
     path.write_text("".join(json.dumps(record) + "\n" for record in records))
+
+
+def ffpc_record(fixture="batch-r11.jsonl", round_number=1):
+    record = json.loads(
+        next(
+            line
+            for line in (PREFERENCE_FIXTURES / fixture).read_text().splitlines()
+            if line.strip()
+        )
+    )
+    record["id"] = record["id"].replace("r11", f"r{round_number:02d}")
+    record["goal"] = "repair one failed action without changing its context"
+    for holder in (record, record["chosen"], record["rejected"]):
+        holder["meta"]["round"] = round_number
+        holder["meta"]["factory"] = round_txn.PREFERENCE_ISOLATION_FACTORY
+        holder["meta"]["isolation"] = round_txn.PREFERENCE_TWO_SESSION
+    for arm_name in ("chosen", "rejected"):
+        record[arm_name]["id"] = record[arm_name]["id"].replace(
+            "r11", f"r{round_number:02d}"
+        )
+    return record
 
 
 class RoundTransaction(unittest.TestCase):
@@ -1215,6 +1238,134 @@ class RoundTransaction(unittest.TestCase):
 
             with self.assertRaisesRegex(round_txn.TransactionError, "identity mismatch"):
                 round_txn.reserve(factory, 2, 1)
+
+
+class PreferencePublicationGate(unittest.TestCase):
+    def factory(self, root):
+        path = (
+            Path(root)
+            / "outputs"
+            / "raw"
+            / "2099-01-01"
+            / round_txn.PREFERENCE_ISOLATION_FACTORY
+        )
+        path.mkdir(parents=True)
+        return path
+
+    def reserve(self, factory, round_number=1):
+        return round_txn.reserve(
+            factory,
+            round_number,
+            1,
+            round_txn.PREFERENCE_TWO_SESSION,
+        )
+
+    def fill_stage(self, reservation, record):
+        stage = Path(reservation["staging_dir"])
+        write_records(stage / reservation["batch_file"], [record])
+        (stage / reservation["notes_file"]).write_text(
+            "# Critique\n\nIndependent arms were checked before publication.\n"
+        )
+        return stage
+
+    def test_ffpc_reservation_requires_the_publisher_isolation_marker(self):
+        with tempfile.TemporaryDirectory() as td:
+            factory = self.factory(td)
+            with self.assertRaisesRegex(
+                round_txn.TransactionError,
+                "--preference-isolation two-session",
+            ):
+                round_txn.reserve(factory, 1, 1)
+            self.assertFalse((factory / "ROUND-r01.reserved.json").exists())
+
+    def test_unrelated_factory_rejects_the_preference_isolation_flag(self):
+        with tempfile.TemporaryDirectory() as td:
+            factory = RoundTransaction().factory(td)
+            with self.assertRaisesRegex(
+                round_txn.TransactionError,
+                "only valid for failure-as-fuel-preference-cascade",
+            ):
+                round_txn.reserve(
+                    factory,
+                    1,
+                    1,
+                    round_txn.PREFERENCE_TWO_SESSION,
+                )
+
+    def test_near_verbatim_pair_cannot_reach_the_commit_point(self):
+        with tempfile.TemporaryDirectory() as td:
+            factory = self.factory(td)
+            reservation = self.reserve(factory)
+            stage = self.fill_stage(
+                reservation,
+                ffpc_record("near-verbatim-r11.jsonl"),
+            )
+
+            with self.assertRaisesRegex(
+                round_txn.TransactionError,
+                "preference arm gate blocked publication",
+            ):
+                round_txn.publish(factory, 1, reservation["token"])
+
+            self.assertTrue(stage.is_dir())
+            self.assertTrue((factory / "ROUND-r01.reserved.json").is_file())
+            self.assertFalse((factory / "batch-r01.jsonl").exists())
+            self.assertFalse((factory / "ROUND-r01.complete.json").exists())
+
+    def test_record_relabel_cannot_replace_the_reservation_marker(self):
+        with tempfile.TemporaryDirectory() as td:
+            factory = self.factory(td)
+            reservation = self.reserve(factory)
+            marker = factory / "ROUND-r01.reserved.json"
+            edited = json.loads(marker.read_text())
+            edited.pop("preference_isolation")
+            marker.write_text(json.dumps(edited) + "\n")
+            self.fill_stage(reservation, ffpc_record())
+
+            with self.assertRaisesRegex(
+                round_txn.TransactionError,
+                "lacks publisher-controlled two-session isolation",
+            ):
+                round_txn.publish(factory, 1, reservation["token"])
+            self.assertFalse((factory / "ROUND-r01.complete.json").exists())
+
+    def test_valid_pair_records_and_revalidates_the_gate(self):
+        with tempfile.TemporaryDirectory() as td:
+            factory = self.factory(td)
+            reservation = self.reserve(factory)
+            self.fill_stage(reservation, ffpc_record())
+
+            manifest = round_txn.publish(factory, 1, reservation["token"])
+
+            self.assertEqual(manifest["version"], 2)
+            self.assertEqual(
+                manifest["preference_isolation"],
+                round_txn.PREFERENCE_TWO_SESSION,
+            )
+            self.assertEqual(
+                manifest["preference_arm_gate"]["preference_pairs"], 1
+            )
+            self.assertEqual(
+                manifest["preference_arm_gate"]["blocked_pairs"], 0
+            )
+            self.assertEqual(round_txn.frontier_status(factory)["next_round"], 2)
+
+    def test_completion_marker_cannot_forge_the_recorded_gate_result(self):
+        with tempfile.TemporaryDirectory() as td:
+            factory = self.factory(td)
+            reservation = self.reserve(factory)
+            self.fill_stage(reservation, ffpc_record())
+            round_txn.publish(factory, 1, reservation["token"])
+            marker = factory / "ROUND-r01.complete.json"
+            manifest = json.loads(marker.read_text())
+            manifest["preference_arm_gate"]["blocked_pairs"] = 1
+            marker.write_text(json.dumps(manifest) + "\n")
+
+            with self.assertRaisesRegex(
+                round_txn.TransactionError,
+                "preference arm gate does not match batch",
+            ):
+                round_txn.frontier_status(factory)
 
 
 if __name__ == "__main__":

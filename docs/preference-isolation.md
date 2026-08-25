@@ -32,8 +32,9 @@ Concretely, for every round generated from this point on:
 |---|---|
 | `rejected` + diagnosis come from Session A only | `prompts/05-…md` Session A isolation rule; the launcher runs it as its own agent |
 | `chosen` comes from a fresh Session B whose only bridge is the diagnosis | `prompts/05-…md` Session B isolation rule; the launcher runs it as a separate agent |
-| Each record attests `meta.isolation: "two-session"` | `pipelines/preference_arms.py` — a missing or non-`two-session` attestation blocks the round |
-| The two arms are not one arm restated | `pipelines/preference_arms.py` arm-distance floor (Section 3.6) |
+| The operator reserves with `--preference-isolation two-session` | `round_txn.py reserve` records the publisher-controlled protocol marker; record metadata cannot substitute for it |
+| Each record also declares `meta.isolation: "two-session"` | `pipelines/preference_arms.py` rejects a missing, conflicting, or non-`two-session` declaration |
+| The two arms are not one arm restated | `round_txn.py publish` runs `preference_arms.py` over captured bytes before the commit point |
 
 Legacy corpora that predate the protocol carry no attestation. Scan those
 with `--no-require-isolation`, which reports the attestation but does not
@@ -145,9 +146,12 @@ quality** — the intended training signal.
 
 ### 3.3 Canonical validator
 
-The gate is enforced at `publish` time by `pipelines/check_records.py` and
-`pipelines/validate_run.py` shape checks plus the additional same-context
-equality check below. A round that fails this gate is not training-ready.
+The gate is enforced at publish time by `round_txn.py`, which runs
+`preference_arms.py` over a captured copy of the staged batch before the
+completion marker is linked. The arm gate delegates its same-context
+decision to `curate_preferences.context_is_pure`; `check_records.py` and
+`validate_run.py` continue to own the shape checks. A round that fails any
+part of this gate never reaches the commit point.
 
 Reference implementation (pure Python, no external deps):
 
@@ -202,7 +206,9 @@ python3 pipelines/curate_preferences.py scan <batch-or-staging-dir> --json
 Its `summary.impure_pairs` counts same-context violations, and each impure
 `decisions[]` entry names the offending `source_line`, `reason_codes`
 (e.g. `STATE_CONTEXT_DIVERGES`) and `context_diff_paths`. Run it in CI before
-`round_txn.py publish`; any non-zero `impure_pairs` blocks publication.
+`round_txn.py publish` as an audit preview. Publication independently re-runs
+the canonical equality through `preference_arms.py`; skipping this preview
+cannot bypass the publisher.
 
 `summary` also splits the violations by field — `state_divergent_pairs`,
 `proposed_action_divergent_pairs`, and `proposed_action_only_divergent_pairs`
@@ -254,30 +260,36 @@ swapped in the rationale — passes Section 3 and still teaches nothing.
 python3 pipelines/preference_arms.py scan <staging_dir-or-batch> --json
 ```
 
-The command is a read-only gate; it exits non-zero when any pair is blocked,
-and it fails closed when a source contains no preference pairs at all.
+The command is a read-only preview; it exits non-zero when any pair is blocked,
+and it fails closed when a source contains no preference pairs at all. For new
+FFPC rounds, `round_txn.py publish` invokes the same check against captured
+bytes, requires the reservation's publisher-controlled isolation marker, and
+records a path-independent gate result in the v2 completion marker.
 
 **What it measures.** For each side it builds the *contrast surface* — every
 arm field except `state`, `proposed_action` (identical by Section 3, so they
 would swamp any metric), `id`, and `meta` (per-side bookkeeping that would
 manufacture distance no learner ever sees). Each surface becomes a
 path-scoped term-frequency vector: string leaves contribute one term per
-word, non-string leaves stay atomic so `0.2` and `-0.2` never collide, and
-list positions are collapsed so a reordered list is not a different arm.
+normalized ASCII word or non-ASCII code point, non-string leaves stay atomic
+so `0.2` and `-0.2` never collide, and list positions are collapsed so a
+reordered list is not a different arm.
 The arm distance is then
 
 ```
 arm_distance = 1 - cosine_similarity(terms(chosen), terms(rejected))
 ```
 
-This is a deterministic, stdlib-only stand-in for the embedding distance
-described in `docs/quality-gate.md`, which remains unimplemented. The
-default floor is `1 - quality_gate.DEFAULT_EMBEDDING_THRESHOLD` (0.03),
-imported from that single source of truth so the arm gate and the corpus
-near-duplicate sweep cannot drift apart: a pair the near-duplicate sweep
-would collapse is exactly the pair this gate rejects. Observed distance on
-an honest two-session round runs ~0.7; `--min-distance` tightens the floor
-when a round wants more headroom than "not a copy".
+This is a deterministic, stdlib-only lexical metric, not an embedding-model
+surrogate. Its independent, fixture-calibrated default floor is 0.03; the
+separate corpus near-duplicate threshold in `quality_gate.py` makes no claim
+of metric equivalence. ASCII words remain intact, while normalized non-ASCII
+letters and digits are emitted as code-point terms so unspaced CJK edits are
+measured proportionally. A structural check also rejects arms whose only
+contrast is `safety_decision.decision`, even when a short record would sit
+above the lexical floor. Observed distance on an honest two-session round
+runs ~0.7; `--min-distance` tightens the preview when a round wants more
+headroom than "not a copy".
 
 **Reason codes.**
 
@@ -290,6 +302,8 @@ when a round wants more headroom than "not a copy".
 | `PREFERENCE_ARMS_ISOLATION_UNDECLARED` | No `meta.isolation` on the record or either arm |
 | `PREFERENCE_ARMS_ISOLATION_CONFLICT` | Record and arms disagree about how the pair was generated |
 | `PREFERENCE_ARMS_SINGLE_SESSION_PATH` | The attestation names the deprecated single-context path |
+| `PREFERENCE_ARMS_ISOLATION_UNTRUSTED` | Publication lacks the reservation's publisher-controlled two-session marker |
+| `PREFERENCE_ARMS_LABEL_ONLY_COPY` | Removing only the gate decision label makes the two contrast surfaces identical |
 
 **Repair on failure.** A near-verbatim pair is not a formatting defect — it
 means Session B did not actually reason from the diagnosis. Re-run Session B
@@ -300,7 +314,7 @@ arms to clear the floor.
 
 ```
 # One-time reservation (covers both sessions)
-python3 pipelines/round_txn.py reserve outputs/raw/2026-08-17/failure-as-fuel-preference-cascade --round 5 --expected 3
+python3 pipelines/round_txn.py reserve outputs/raw/2026-08-17/failure-as-fuel-preference-cascade --round 5 --expected 3 --preference-isolation two-session
 # → staging_dir = outputs/staging/2026-08-17/failure-as-fuel-preference-cascade/r05-<token>
 
 # Session A: write failures + diagnoses
@@ -320,7 +334,7 @@ python3 pipelines/check_records.py outputs/staging/2026-08-17/failure-as-fuel-pr
 python3 pipelines/curate_preferences.py scan outputs/staging/2026-08-17/failure-as-fuel-preference-cascade/r05-<token>/batch-r05.jsonl --json
 # purity gate: summary.impure_pairs must be 0
 python3 pipelines/preference_arms.py scan outputs/staging/2026-08-17/failure-as-fuel-preference-cascade/r05-<token>/batch-r05.jsonl
-# arm gate: must exit 0 (independent arms + two-session attestation)
+# preview: must exit 0 (publish re-runs it against captured bytes)
 
 # Publish
 python3 pipelines/round_txn.py publish outputs/raw/2026-08-17/failure-as-fuel-preference-cascade --round 5 --token <token>
@@ -338,10 +352,12 @@ python3 pipelines/round_txn.py publish outputs/raw/2026-08-17/failure-as-fuel-pr
 - The diagnosis files are retained on publish as round artifacts; they
   document the repair rationale for audit and for training the next round's
   densification.
-- Every published record carries `meta.isolation: "two-session"`. The value
-  is the round's attestation that the deprecated single-session path
-  (Section 1.1) was not used, and `pipelines/preference_arms.py` blocks any
-  round that cannot produce it.
+- Every published record carries `meta.isolation: "two-session"`, and the
+  reservation separately carries the publisher-controlled protocol marker.
+  `round_txn.py publish` requires both, runs the same-context and independent-
+  arm decisions, and stores their deterministic summary in the completion
+  marker. The reservation marker is operator-controlled evidence, not a
+  cryptographic attestation of what happened inside an external model session.
 - No generated content is ever written directly into `outputs/raw/`; all
   writes go through the reserved `staging_dir` and are atomically linked
   on `publish`.

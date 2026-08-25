@@ -13,16 +13,15 @@ and lightly edited, so every staged round must clear two invariants:
 2. **Independent arms** — the *contrastive* surfaces of the two arms (every
    field except the shared context and bookkeeping ``meta``) must sit more
    than ``--min-distance`` apart. Distance is ``1 - cosine_similarity`` over
-   path-scoped term-frequency vectors: a deterministic, stdlib-only stand-in
-   for the embedding distance described in ``docs/quality-gate.md``. The
-   default floor is ``1 - quality_gate.DEFAULT_EMBEDDING_THRESHOLD``, so an
-   arm pair that a near-duplicate embedding sweep would collapse is exactly
-   the pair this gate rejects.
+   path-scoped lexical term-frequency vectors. This metric has its own
+   fixture-calibrated floor; it is not presented as equivalent to an
+   embedding model. A separate structural check rejects copies that differ
+   only in a gate label, independent of vector length.
 
-The gate also requires each pair to attest ``meta.isolation == "two-session"``.
-The deprecated single-session path — where one context produced failure,
-diagnosis, and repair — is rejected rather than warned about, because its
-correlated arms are the collapse vector this factory exists to avoid.
+The read-only gate requires each pair to declare
+``meta.isolation == "two-session"``. Publication additionally requires a
+publisher-controlled isolation value recorded in the exclusive reservation
+marker; record metadata alone is never treated as proof of the protocol.
 
 Read-only scan (exit 1 when any pair is blocked)::
 
@@ -37,8 +36,8 @@ from __future__ import annotations
 import argparse
 import json
 import math
-import re
 import sys
+import unicodedata
 from collections import Counter
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -49,16 +48,14 @@ if str(_PIPELINES) not in sys.path:
     sys.path.insert(0, str(_PIPELINES))
 
 from curate_preferences import canonical_json, context_is_pure  # noqa: E402
-from quality_gate import DEFAULT_EMBEDDING_THRESHOLD  # noqa: E402
-
-
 GATE_NAME = "independent-preference-arms"
-GATE_VERSION = "1.0.0"
+GATE_VERSION = "1.1.0"
 
-#: Minimum ``1 - cosine_similarity`` between the two arms' contrastive
-#: surfaces. Derived from the single embedding-dedup source of truth so this
-#: gate and the corpus near-duplicate sweep cannot drift apart.
-DEFAULT_MIN_ARM_DISTANCE: float = round(1.0 - DEFAULT_EMBEDDING_THRESHOLD, 6)
+#: Minimum lexical ``1 - cosine_similarity`` between the two arms'
+#: contrastive surfaces. This is calibrated against the committed passing,
+#: verbatim, light-edit, and multilingual fixtures. It intentionally does not
+#: reuse the unrelated embedding threshold from ``quality_gate``.
+DEFAULT_MIN_ARM_DISTANCE: float = 0.03
 
 #: The only accepted ``meta.isolation`` value. Anything else is the
 #: deprecated single-context generation path.
@@ -78,8 +75,10 @@ REASON_CONTRAST_EMPTY = "PREFERENCE_ARM_CONTRAST_EMPTY"
 REASON_ISOLATION_UNDECLARED = "PREFERENCE_ARMS_ISOLATION_UNDECLARED"
 REASON_ISOLATION_CONFLICT = "PREFERENCE_ARMS_ISOLATION_CONFLICT"
 REASON_SINGLE_SESSION = "PREFERENCE_ARMS_SINGLE_SESSION_PATH"
+REASON_ISOLATION_UNTRUSTED = "PREFERENCE_ARMS_ISOLATION_UNTRUSTED"
+REASON_LABEL_ONLY_COPY = "PREFERENCE_ARMS_LABEL_ONLY_COPY"
 
-_WORD_RE = re.compile(r"[a-z0-9]+")
+_GATE_LABEL_PATHS = frozenset({("safety_decision", "decision")})
 
 
 class PreferenceArmsError(RuntimeError):
@@ -95,6 +94,7 @@ class ArmDecision:
     record_id: str | None
     same_context: bool
     isolation: str | None
+    trusted_isolation: str | None
     arm_distance: float | None
     cosine_similarity: float | None
     reason_codes: tuple[str, ...] = ()
@@ -110,6 +110,7 @@ class ArmDecision:
             "record_id": self.record_id,
             "same_context": self.same_context,
             "isolation": self.isolation,
+            "trusted_isolation": self.trusted_isolation,
             "arm_distance": self.arm_distance,
             "cosine_similarity": self.cosine_similarity,
             "reason_codes": list(self.reason_codes),
@@ -137,6 +138,69 @@ def _contrast_surface(arm: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _unicode_terms(value: str) -> tuple[str, ...]:
+    """Tokenize words without turning unspaced Unicode into one atom.
+
+    Compatibility decomposition keeps accented and unaccented spellings on
+    the same lexical stem; combining marks do not manufacture independence.
+    ASCII words stay intact. Other letters and digits are emitted as
+    normalized code-point terms, so a one-character edit in unspaced CJK
+    changes one term instead of replacing the entire rationale.
+    """
+
+    normalized = unicodedata.normalize("NFKD", value.casefold())
+    terms: list[str] = []
+    ascii_word: list[str] = []
+
+    def flush_ascii() -> None:
+        if ascii_word:
+            terms.append("".join(ascii_word))
+            ascii_word.clear()
+
+    for character in normalized:
+        if unicodedata.combining(character):
+            continue
+        if character.isascii() and character.isalnum():
+            ascii_word.append(character)
+        elif character.isalnum():
+            flush_ascii()
+            terms.append(character)
+        else:
+            flush_ascii()
+    flush_ascii()
+    return tuple(terms)
+
+
+def _without_gate_labels(value: Any, path: tuple[str, ...] = ()) -> Any:
+    """Return a comparison value with only recognized gate labels removed."""
+
+    if isinstance(value, dict):
+        result = {}
+        for key, item in value.items():
+            child_path = (*path, str(key))
+            if child_path in _GATE_LABEL_PATHS:
+                continue
+            result[key] = _without_gate_labels(item, child_path)
+        return result
+    if isinstance(value, list):
+        return [_without_gate_labels(item, path) for item in value]
+    return value
+
+
+def differs_only_by_gate_label(
+    chosen: dict[str, Any], rejected: dict[str, Any]
+) -> bool:
+    """Whether the sole contrastive change is a safety gate decision label."""
+
+    chosen_surface = _contrast_surface(chosen)
+    rejected_surface = _contrast_surface(rejected)
+    if canonical_json(chosen_surface) == canonical_json(rejected_surface):
+        return False
+    return canonical_json(_without_gate_labels(chosen_surface)) == canonical_json(
+        _without_gate_labels(rejected_surface)
+    )
+
+
 def _collect_terms(value: Any, path: str, terms: Counter[str]) -> None:
     if isinstance(value, dict):
         for key in sorted(value):
@@ -148,7 +212,7 @@ def _collect_terms(value: Any, path: str, terms: Counter[str]) -> None:
             _collect_terms(item, f"{path}[]", terms)
         return
     if isinstance(value, str):
-        words = _WORD_RE.findall(value.lower())
+        words = _unicode_terms(value)
         if words:
             for word in words:
                 terms[f"{path}:{word}"] += 1
@@ -220,8 +284,12 @@ def check_pair(
     source_line: int,
     min_distance: float = DEFAULT_MIN_ARM_DISTANCE,
     require_isolation: bool = True,
+    trusted_isolation: str | None = None,
+    require_trusted_isolation: bool = False,
 ) -> ArmDecision:
     """Gate one preference record without mutating it."""
+
+    min_distance = _validated_distance_floor(min_distance)
 
     record_id = record.get("id") if isinstance(record.get("id"), str) else None
     chosen = record.get("chosen")
@@ -233,6 +301,7 @@ def check_pair(
             record_id=record_id,
             same_context=False,
             isolation=None,
+            trusted_isolation=trusted_isolation,
             arm_distance=None,
             cosine_similarity=None,
             reason_codes=(REASON_MALFORMED,),
@@ -251,11 +320,15 @@ def check_pair(
             reasons.append(REASON_ISOLATION_CONFLICT)
         elif isolation != TWO_SESSION:
             reasons.append(REASON_SINGLE_SESSION)
+    if require_trusted_isolation and trusted_isolation != TWO_SESSION:
+        reasons.append(REASON_ISOLATION_UNTRUSTED)
 
     chosen_terms = arm_terms(chosen)
     rejected_terms = arm_terms(rejected)
     if not chosen_terms or not rejected_terms:
         reasons.append(REASON_CONTRAST_EMPTY)
+    if differs_only_by_gate_label(chosen, rejected):
+        reasons.append(REASON_LABEL_ONLY_COPY)
     similarity = cosine_similarity(chosen_terms, rejected_terms)
     distance = 1.0 - similarity
     if distance <= min_distance:
@@ -267,6 +340,7 @@ def check_pair(
         record_id=record_id,
         same_context=same_context,
         isolation=isolation,
+        trusted_isolation=trusted_isolation,
         arm_distance=round(distance, 6),
         cosine_similarity=round(similarity, 6),
         reason_codes=tuple(reasons),
@@ -297,10 +371,13 @@ def scan_source(
     *,
     min_distance: float = DEFAULT_MIN_ARM_DISTANCE,
     require_isolation: bool = True,
+    trusted_isolation: str | None = None,
+    require_trusted_isolation: bool = False,
 ) -> ArmScan:
     """Gate every preference pair under ``source``."""
 
     source = Path(source)
+    min_distance = _validated_distance_floor(min_distance)
     decisions: list[ArmDecision] = []
     reasons: Counter[str] = Counter()
     skipped = 0
@@ -329,6 +406,8 @@ def scan_source(
                 source_line=line_number,
                 min_distance=min_distance,
                 require_isolation=require_isolation,
+                trusted_isolation=trusted_isolation,
+                require_trusted_isolation=require_trusted_isolation,
             )
             reasons.update(decision.reason_codes)
             decisions.append(decision)
@@ -341,12 +420,17 @@ def scan_source(
         "source": str(source),
         "min_arm_distance": min_distance,
         "require_isolation": require_isolation,
+        "require_trusted_isolation": require_trusted_isolation,
+        "trusted_isolation": trusted_isolation,
         "preference_pairs": pairs,
         "skipped_non_preference_records": skipped,
         "blocked_pairs": len(blocked),
         "independent_pairs": pairs - len(blocked),
         "same_context_pairs": sum(1 for d in decisions if d.same_context),
         "two_session_pairs": sum(1 for d in decisions if d.isolation == TWO_SESSION),
+        "trusted_two_session_pairs": sum(
+            1 for d in decisions if d.trusted_isolation == TWO_SESSION
+        ),
         "context_purity_pct": (
             round(100 * sum(1 for d in decisions if d.same_context) / pairs, 1)
             if pairs
@@ -366,6 +450,7 @@ def render_human(scan: ArmScan) -> str:
         f"Same-context: {summary['same_context_pairs']}"
         f" ({summary['context_purity_pct']}%)",
         f"Two-session attested: {summary['two_session_pairs']}",
+        f"Publisher-trusted two-session: {summary['trusted_two_session_pairs']}",
         f"Min arm distance required: > {summary['min_arm_distance']}",
         f"Observed arm distance: {summary['observed_min_arm_distance']}"
         f" .. {summary['observed_max_arm_distance']}",
@@ -385,16 +470,28 @@ def render_human(scan: ArmScan) -> str:
     return "\n".join(lines)
 
 
+def _validated_distance_floor(value: Any) -> float:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise ValueError(f"arm-distance floor must be numeric: {value!r}")
+    value = float(value)
+    if not math.isfinite(value) or not 0.0 <= value < 1.0:
+        raise ValueError(
+            f"arm-distance floor must be a finite value in [0, 1): {value!r}"
+        )
+    return value
+
+
 def _min_distance(raw: str) -> float:
     try:
         value = float(raw)
     except ValueError as exc:
         raise argparse.ArgumentTypeError(f"not a number: {raw}") from exc
-    if not math.isfinite(value) or not 0.0 <= value < 1.0:
+    try:
+        return _validated_distance_floor(value)
+    except ValueError as exc:
         raise argparse.ArgumentTypeError(
             f"--min-distance must be a finite value in [0, 1): {raw}"
-        )
-    return value
+        ) from exc
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -411,9 +508,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         type=_min_distance,
         default=DEFAULT_MIN_ARM_DISTANCE,
         help=(
-            "arm distance floor; a pair must exceed it. Default "
-            f"{DEFAULT_MIN_ARM_DISTANCE} = 1 - quality_gate."
-            "DEFAULT_EMBEDDING_THRESHOLD"
+            "lexical arm-distance floor; a pair must exceed it "
+            f"(fixture-calibrated default: {DEFAULT_MIN_ARM_DISTANCE})"
         ),
     )
     scan.add_argument(

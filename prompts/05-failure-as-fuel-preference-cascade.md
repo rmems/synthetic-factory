@@ -197,12 +197,13 @@ Preference `chosen` and `rejected` MUST satisfy:
 as JSON values (key order irrelevant, value equality strict). The contrast
 must teach gate/execution/recovery quality, not reward a changed problem.
 See `docs/preference-isolation.md` for the canonical validator and the
-failure taxonomy. **Enforcement:** `round_txn.py publish` checks record
-shape only — it performs NO chosen/rejected comparison. The gate is
-enforced pre-publish by the mandatory purity command below (all three
-steps must exit 0 before publish) and post-publish by
-`pipelines/curate_preferences.py` and `pipelines/training_audit.py`;
-a round with a same-context violation is not training-ready.
+failure taxonomy. **Enforcement:** reserve this factory with
+`--preference-isolation two-session`. `round_txn.py publish` then runs the
+canonical same-context and independent-arm checks against captured staged
+bytes before linking the completion marker. The commands below are useful
+previews, and post-publish `pipelines/curate_preferences.py` plus
+`pipelines/training_audit.py` remain independent audits, but skipping a
+preview cannot bypass publication.
 
 ## Independent-arm gate (summary)
 
@@ -211,7 +212,9 @@ can still be one arm restated. `pipelines/preference_arms.py` requires that
 each pair's contrast surface (everything except `state`, `proposed_action`,
 `id`, and `meta`) sit more than the arm-distance floor apart, and that the
 record attest `meta.isolation: "two-session"`. See
-`docs/preference-isolation.md` §3.6 for the metric and the reason codes.
+`docs/preference-isolation.md` §3.6 for the lexical metric and reason codes.
+Publication additionally requires the two-session value from the reservation;
+mutable record metadata is not trusted as proof of the protocol.
 
 ## Purity check command
 
@@ -288,12 +291,15 @@ else:
 python3 pipelines/preference_arms.py scan <staging_dir>/batch-rNN.jsonl
 ```
 
-All three steps must exit 0 before publish. Fix violations by editing only
+All three preview steps must exit 0 before publish, and publish independently
+re-runs the same-context plus arm gate over captured bytes. Fix violations by editing only
 staged files (make `chosen.state`/`proposed_action` byte-identical to
 `rejected`, and rewrite chosen safety rationale in original wording); never
 hand-edit committed raw files. `PREFERENCE_ARMS_NEAR_VERBATIM` is repaired
 by re-synthesizing that `chosen` from its diagnosis in a fresh context, not
-by widening the wording until the floor clears.
+by widening the wording until the floor clears. A
+`PREFERENCE_ARMS_LABEL_ONLY_COPY` finding likewise requires a substantive
+execution, evidence, or outcome contrast rather than a different gate label.
 
 ---
 

@@ -102,6 +102,8 @@ FACTORY_QUOTAS = {
     "distributed-lock-factory": 2,
     "cache-stampede-factory": 2,
 }
+PREFERENCE_ISOLATION_FACTORY = "failure-as-fuel-preference-cascade"
+PREFERENCE_TWO_SESSION = "two-session"
 
 # The original five lanes deliberately allow an operator-selected ``expected``
 # count. Every later Grok 4.6 factory is documented with a fixed quota and
@@ -1437,7 +1439,12 @@ def create_reservation_stage(factory_dir: Path, round_number: int, token: str):
     return expected
 
 
-def reserve(factory_dir: Path, round_number: int, expected: int):
+def reserve(
+    factory_dir: Path,
+    round_number: int,
+    expected: int,
+    preference_isolation: str | None = None,
+):
     factory_dir = Path(factory_dir).resolve()
     if (
         not isinstance(round_number, int)
@@ -1447,6 +1454,17 @@ def reserve(factory_dir: Path, round_number: int, expected: int):
         raise TransactionError("round number must be at least 1")
     if not isinstance(expected, int) or isinstance(expected, bool) or expected < 1:
         raise TransactionError("expected record count must be at least 1")
+    if factory_dir.name == PREFERENCE_ISOLATION_FACTORY:
+        if preference_isolation != PREFERENCE_TWO_SESSION:
+            raise TransactionError(
+                f"{PREFERENCE_ISOLATION_FACTORY} reservations require "
+                f"--preference-isolation {PREFERENCE_TWO_SESSION}"
+            )
+    elif preference_isolation is not None:
+        raise TransactionError(
+            "--preference-isolation is only valid for "
+            f"{PREFERENCE_ISOLATION_FACTORY}"
+        )
     configured_quota = FACTORY_QUOTAS.get(factory_dir.name)
     if factory_dir.name in AGENTIC_FACTORY_KINDS and expected != configured_quota:
         raise TransactionError(
@@ -1478,6 +1496,8 @@ def reserve(factory_dir: Path, round_number: int, expected: int):
         "notes_file": f"NOTES-r{round_number:02d}.md",
         "reserved_at": utc_now(),
     }
+    if preference_isolation is not None:
+        payload["preference_isolation"] = preference_isolation
     try:
         write_exclusive_json(paths["reservation"], payload)
     except BaseException:
@@ -2208,6 +2228,50 @@ def validate_agentic_envelope(
     return errors
 
 
+def validate_preference_arm_gate(
+    batch: Path,
+    records: int,
+    trusted_isolation: str | None,
+) -> dict:
+    """Run the FFPC gate and return a path-independent manifest summary."""
+
+    # Lazy import avoids the existing curation -> census -> round_txn import
+    # cycle while keeping the publisher as the mandatory enforcement point.
+    from preference_arms import PreferenceArmsError, scan_source
+
+    try:
+        scan = scan_source(
+            batch,
+            trusted_isolation=trusted_isolation,
+            require_trusted_isolation=True,
+        )
+    except (OSError, PreferenceArmsError) as exc:
+        raise TransactionError(f"preference arm gate failed: {exc}") from exc
+
+    summary = {key: value for key, value in scan.summary.items() if key != "source"}
+    if summary["preference_pairs"] != records:
+        raise TransactionError(
+            "preference arm gate did not inspect every staged record: "
+            f"{summary['preference_pairs']} preference pairs for {records} records"
+        )
+    if summary["skipped_non_preference_records"]:
+        raise TransactionError(
+            "preference arm gate skipped non-preference records in the FFPC batch"
+        )
+    if scan.blocked:
+        blocked = [
+            f"{decision.source_path}:{decision.source_line} "
+            f"{decision.record_id or '<no-id>'}: "
+            + ", ".join(decision.reason_codes)
+            for decision in scan.decisions
+            if decision.blocked
+        ]
+        raise TransactionError(
+            "preference arm gate blocked publication:\n" + "\n".join(blocked)
+        )
+    return summary
+
+
 def validate_completed_batch(
     factory_dir: Path, round_number: int, manifest: dict, seen_ids=None
 ):
@@ -2239,8 +2303,30 @@ def validate_completed_batch(
             )
     if "kinds" in manifest and manifest["kinds"] != kinds:
         raise TransactionError(f"completion marker kinds do not match batch: {batch}")
-    if manifest.get("version") != 1:
+    manifest_version = manifest.get("version")
+    supported_versions = (
+        {2} if factory_dir.name == PREFERENCE_ISOLATION_FACTORY else {1}
+    )
+    if manifest_version not in supported_versions:
         raise TransactionError(f"unsupported completion marker version for {batch}")
+    if factory_dir.name == PREFERENCE_ISOLATION_FACTORY:
+        trusted_isolation = manifest.get("preference_isolation")
+        if trusted_isolation != PREFERENCE_TWO_SESSION:
+            raise TransactionError(
+                f"completion marker lacks trusted two-session isolation: {batch}"
+            )
+        recorded_gate = manifest.get("preference_arm_gate")
+        if not isinstance(recorded_gate, dict):
+            raise TransactionError(
+                f"completion marker lacks the preference arm gate result: {batch}"
+            )
+        current_gate = validate_preference_arm_gate(
+            batch, records, trusted_isolation
+        )
+        if recorded_gate != current_gate:
+            raise TransactionError(
+                f"completion marker preference arm gate does not match batch: {batch}"
+            )
     if factory_staging:
         expected_kind = AGENTIC_FACTORY_KINDS[factory_dir.name]
         if set(kinds) != {expected_kind}:
@@ -2285,6 +2371,7 @@ def validate_stage(
     stage: Path,
     round_number: int,
     expected: int,
+    preference_isolation: str | None = None,
 ):
     if not stage.is_dir() or stage.is_symlink():
         raise TransactionError(f"staging directory missing or unsafe: {stage}")
@@ -2321,6 +2408,7 @@ def validate_stage(
             f"required staged notes missing or unsafe: {stage / notes_name}"
         )
 
+    preference_arm_gate = None
     with tempfile.TemporaryDirectory(prefix="round-validate-") as temporary:
         captured_dir = Path(temporary)
         captured_files = {
@@ -2382,6 +2470,10 @@ def validate_stage(
                 "staged batch violates the agentic factory envelope:\n"
                 + "\n".join(f"ERROR: {error}" for error in envelope_errors)
             )
+        if factory_dir.name == PREFERENCE_ISOLATION_FACTORY:
+            preference_arm_gate = validate_preference_arm_gate(
+                batch, records, preference_isolation
+            )
 
     files = [
         {
@@ -2391,7 +2483,7 @@ def validate_stage(
         }
         for path in initial_paths
     ]
-    return files, kinds, records
+    return files, kinds, records, preference_arm_gate
 
 
 def publish(factory_dir: Path, round_number: int, token: str):
@@ -2438,6 +2530,14 @@ def finish_completed_publish(
             raise TransactionError(
                 f"reservation conflicts with completed round: {paths['reservation']}"
             )
+        if (
+            manifest.get("version") == 2
+            and reservation.get("preference_isolation")
+            != manifest.get("preference_isolation")
+        ):
+            raise TransactionError(
+                f"reservation isolation conflicts with completed round: {paths['reservation']}"
+            )
         stage_text = reservation.get("staging_dir")
     else:
         stage_text = str(staging_dir(factory_dir, round_number, token))
@@ -2479,15 +2579,26 @@ def _publish_locked(factory_dir: Path, round_number: int, token: str):
             f"reservation for {factory_dir.name} requires exactly "
             f"{configured_quota} records; found {expected}"
         )
+    preference_isolation = reservation.get("preference_isolation")
+    if factory_dir.name == PREFERENCE_ISOLATION_FACTORY:
+        if preference_isolation != PREFERENCE_TWO_SESSION:
+            raise TransactionError(
+                "reservation lacks publisher-controlled two-session isolation"
+            )
+    elif preference_isolation is not None:
+        raise TransactionError(
+            "reservation carries preference isolation for an unrelated factory"
+        )
 
-    files, kinds, records = validate_stage(
+    files, kinds, records, preference_arm_gate = validate_stage(
         factory_dir,
         stage,
         round_number,
         expected,
+        preference_isolation,
     )
     manifest = {
-        "version": 1,
+        "version": 2 if factory_dir.name == PREFERENCE_ISOLATION_FACTORY else 1,
         "factory": factory_dir.name,
         "round": round_number,
         "token": token,
@@ -2498,6 +2609,9 @@ def _publish_locked(factory_dir: Path, round_number: int, token: str):
         "published_at": utc_now(),
         "commit_point": paths["complete"].name,
     }
+    if factory_dir.name == PREFERENCE_ISOLATION_FACTORY:
+        manifest["preference_isolation"] = preference_isolation
+        manifest["preference_arm_gate"] = preference_arm_gate
 
     resumed = paths["publishing"].exists()
     if resumed:
@@ -2601,6 +2715,14 @@ def parse_args(argv=None):
     res.add_argument("factory_dir")
     res.add_argument("--round", type=int, required=True, dest="round_number")
     res.add_argument("--expected", type=int, required=True)
+    res.add_argument(
+        "--preference-isolation",
+        choices=(PREFERENCE_TWO_SESSION,),
+        help=(
+            "publisher-controlled generation protocol marker required by "
+            f"{PREFERENCE_ISOLATION_FACTORY}"
+        ),
+    )
     pub = sub.add_parser("publish")
     pub.add_argument("factory_dir")
     pub.add_argument("--round", type=int, required=True, dest="round_number")
@@ -2618,7 +2740,12 @@ def main(argv=None):
         if args.command == "frontier":
             result = frontier_status(Path(args.factory_dir))
         elif args.command == "reserve":
-            result = reserve(Path(args.factory_dir), args.round_number, args.expected)
+            result = reserve(
+                Path(args.factory_dir),
+                args.round_number,
+                args.expected,
+                args.preference_isolation,
+            )
         elif args.command == "abort":
             result = abort(Path(args.factory_dir), args.round_number, args.token)
         else:

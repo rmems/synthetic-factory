@@ -287,8 +287,8 @@ Data contract:
       // the only inter-session bridge is the diagnosis artifacts.
       const sessionA = await agent(`You are Session A (failure mining) of the "${factory.name}" two-session protocol, run ${args.date}, round ${round}.
 
-FILE-SAFETY — highest priority: NEVER write, edit, rename, truncate, or delete any existing file under ${outDir}. Reserve exactly this round first:
-  python3 ${args.root}/pipelines/round_txn.py reserve ${outDir} --round ${round} --expected ${factory.count}
+FILE-SAFETY — highest priority: NEVER write, edit, rename, truncate, or delete any existing file under ${outDir}. Reserve exactly this round first; the publisher-controlled isolation marker is mandatory and cannot be replaced by record metadata:
+  python3 ${args.root}/pipelines/round_txn.py reserve ${outDir} --round ${round} --expected ${factory.count} --preference-isolation two-session
 Parse its JSON; write ONLY inside the returned staging_dir. If reservation fails, stop without writing.
 
 Read and obey ${args.root}/prompts/_factory-contract.md and the "Session A" section of ${args.root}/prompts/${factory.file}, plus ${args.root}/schemas/thalamic-trajectory-v2.schema.json and ${args.root}/schemas/provenance.md.
@@ -315,9 +315,9 @@ FILE-SAFETY — highest priority: NEVER write, edit, rename, truncate, or delete
 
 Read and obey ${args.root}/prompts/_factory-contract.md and the "Session B" section of ${args.root}/prompts/${factory.file}, plus ${args.root}/schemas/thalamic-trajectory-v2.schema.json.
 
-ISOLATION RULE (absolute): read ONLY these diagnosis files from staging: ${JSON.stringify(sessionA.diagnosis_files)}. NEVER read any rejected-*-r${rr}.json into your context. Synthesize one repaired chosen ThalamicTrajectory per diagnosis (byte-identical state/proposed_action from each Shared-context block, fresh safety rationale), then assemble batch-r${rr}.jsonl MECHANICALLY via a python3 script that json-loads each rejected scratch file and injects it (with your chosen, a critique, script-computed reward_delta = chosen - rejected per component, and meta.isolation="two-session") without printing the rejected content. Write the staged NOTES-r${rr}.md self-critique including the "Novel coverage: <N>%" line, run the prompt's purity check commands AND the independent-arm gate (all three must exit 0):
+ISOLATION RULE (absolute): read ONLY these diagnosis files from staging: ${JSON.stringify(sessionA.diagnosis_files)}. NEVER read any rejected-*-r${rr}.json into your context. Synthesize one repaired chosen ThalamicTrajectory per diagnosis (byte-identical state/proposed_action from each Shared-context block, fresh safety rationale), then assemble batch-r${rr}.jsonl MECHANICALLY via a python3 script that json-loads each rejected scratch file and injects it (with your chosen, a critique, script-computed reward_delta = chosen - rejected per component, and meta.isolation="two-session") without printing the rejected content. Write the staged NOTES-r${rr}.md self-critique including the "Novel coverage: <N>%" line. Run the prompt's purity checks and independent-arm scan as a local preview:
   python3 ${args.root}/pipelines/preference_arms.py scan ${sessionA.staging_dir}/batch-r${rr}.jsonl
-A PREFERENCE_ARMS_NEAR_VERBATIM block means the repair restated the rejected arm — re-synthesize that chosen from its diagnosis rather than rewording it. Then publish:
+A PREFERENCE_ARMS_NEAR_VERBATIM or PREFERENCE_ARMS_LABEL_ONLY_COPY block means the repair restated the rejected arm — re-synthesize that chosen from its diagnosis rather than rewording it. Then publish; publish re-runs the same gate against captured bytes and records its result in the completion marker, so skipping the preview cannot bypass it:
   python3 ${args.root}/pipelines/round_txn.py publish ${outDir} --round ${round} --token ${sessionA.reserve_token}
 A round exists only if publish succeeds and creates ${expectedMarker}. Repeat the identical "Novel coverage: <N>%" line verbatim inside your returned coverage_notes. Return only the structured summary after successful publication; set completion_marker exactly to "${expectedMarker}".`, {
         label: `${factory.slug}:r${rr}-sessionB`,
