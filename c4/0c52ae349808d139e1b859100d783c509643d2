@@ -1,0 +1,25 @@
+tests/test_training_audit.py
+  s_940326c4ee4215::t_2df42573816b91 505-528,545
+tests/test_curate_coding.py
+  s_940326c4ee4215::t_2df42573816b91 36,355,357,368-388
+pipelines/curate_coding.py
+  s_940326c4ee4215::t_2df42573816b91 5-9,38-39,42-44,50-51,109-111
+pipelines/training_audit.py
+  s_940326c4ee4215::t_2df42573816b91 34,84-99,213-214,353-363
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "c40c52ae349808d139e1b859100d783c509643d2",
+  "prompts": {},
+  "sessions": {
+    "s_940326c4ee4215": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a032e4-1904-7a82-8c8b-1ad3cfbeb0b0",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Raul Montoya Cardenas <montoyaraul34@gmail.com>"
+    }
+  }
+}
