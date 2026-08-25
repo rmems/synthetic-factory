@@ -3,6 +3,7 @@
 
 import hashlib
 import json
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -108,6 +109,16 @@ class TrainingAudit(unittest.TestCase):
         self.assertEqual(report["rewards"]["unique_shapes"], 1)
         self.assertGreater(report["totals"]["approx_tokens"], 0)
 
+    def test_empty_corpus_is_not_training_ready(self):
+        with tempfile.TemporaryDirectory() as td:
+            report = training_audit.audit_run(Path(td))
+
+        self.assertFalse(report["training_ready"])
+        self.assertIn(
+            "corpus contains 0 eligible training records",
+            report["blockers"],
+        )
+
     def test_marker_mode_hides_uncommitted_batches(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td) / "run"
@@ -123,6 +134,27 @@ class TrainingAudit(unittest.TestCase):
         self.assertEqual(report["totals"]["records"], 1)
         self.assertEqual(report["totals"]["eligible_records"], 1)
         self.assertTrue(report["training_ready"], report["blockers"])
+
+    def test_cli_bounds_unsafe_marker_mode_transaction_error(self):
+        with tempfile.TemporaryDirectory() as td:
+            factory = Path(td) / "thalamic-trajectory-factory"
+            write(factory / "batch-r01.jsonl", [thalamic("unsafe-marker")])
+            (factory / ".round-marker-mode.json").mkdir()
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    str(REPO / "pipelines" / "training_audit.py"),
+                    str(factory),
+                ],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+
+        self.assertEqual(result.returncode, 1)
+        self.assertEqual(result.stdout, "")
+        self.assertIn("training_audit failed: unsafe marker mode file", result.stderr)
+        self.assertNotIn("Traceback", result.stderr)
 
     def test_suffixed_snapshot_root_keeps_factory_directories_distinct(self):
         with tempfile.TemporaryDirectory() as td:
@@ -496,12 +528,18 @@ class TrainingAudit(unittest.TestCase):
             root = Path(td)
             path = root / "f" / "bad.jsonl"
             path.parent.mkdir(parents=True)
-            path.write_bytes(b'{"id":"bad-\xff"}\n')
+            valid = json.dumps(thalamic("valid-after-bad")).encode("utf-8")
+            path.write_bytes(b'{"id":"bad-\xff"}\n' + valid + b"\n")
             report = training_audit.audit_run(root)
 
         self.assertFalse(report["training_ready"])
+        self.assertEqual(report["totals"]["records"], 1)
+        self.assertEqual(report["totals"]["eligible_records"], 1)
         self.assertTrue(
-            any("invalid UTF-8" in item for item in report["record_invariants"]["error_examples"]),
+            any(
+                "bad.jsonl:1: invalid UTF-8" in item
+                for item in report["record_invariants"]["error_examples"]
+            ),
             report["record_invariants"],
         )
 
@@ -567,6 +605,98 @@ class LeftoverMillDenominator(unittest.TestCase):
         self.assertEqual(report["episodes"]["episodes"], 1)
         self.assertEqual(report["episodes"]["missing_decision_basis_steps"], 0)
         self.assertEqual(report["identity"]["coverage_pct"], 100.0)
+
+    def test_quarantined_record_is_excluded_from_token_metrics(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            foreign = self._episode(
+                "evh-r21-cite-orphan-c3e8",
+                "eval-harness-trajectory-factory",
+            )
+            foreign["steps"][0]["observation"] = "foreign payload " * 1_000
+            eligible = self._episode(
+                "rag-r21-chunk-leftover-cite",
+                "rag-retrieval-debug-factory",
+            )
+            write(
+                root / "rag-retrieval-debug-factory" / "batch-r21.jsonl",
+                [foreign, eligible],
+            )
+            report = training_audit.audit_run(root)
+
+        expected = max(1, (len(json.dumps(eligible).encode("utf-8")) + 3) // 4)
+        bucket = report["factories"]["rag-retrieval-debug-factory"]
+        self.assertEqual(report["totals"]["approx_tokens"], expected)
+        self.assertEqual(bucket["approx_tokens"], expected)
+        self.assertEqual(
+            bucket["length_tokens"],
+            {"median": float(expected), "p95": expected, "max": expected},
+        )
+
+    def test_all_foreign_registered_destination_keeps_verified_identity(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            write(
+                root / "email-webhook-retry-factory" / "batch-r56.jsonl",
+                [
+                    self._episode(
+                        "sir-r56-meili-swap-leftover3c-rebuild",
+                        "search-index-rebuild-factory",
+                    )
+                ],
+            )
+            report = training_audit.audit_run(root)
+            strict = subprocess.run(
+                [
+                    sys.executable,
+                    str(REPO / "pipelines" / "training_audit.py"),
+                    "--strict",
+                    str(root),
+                ],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+
+        self.assertEqual(report["totals"]["records"], 1)
+        self.assertEqual(report["totals"]["eligible_records"], 0)
+        self.assertEqual(report["mill_mix"]["records"], 1)
+        self.assertFalse(report["training_ready"])
+        self.assertIn(
+            "0 eligible training records remain after foreign-mill quarantine",
+            report["blockers"],
+        )
+        self.assertEqual(strict.returncode, 1, strict.stdout)
+        self.assertEqual(
+            report["mill_mix"]["reason_codes"],
+            {
+                "FOREIGN_MILL_ID_PREFIX": 1,
+                "FOREIGN_PAYLOAD_FACTORY": 1,
+            },
+        )
+
+    def test_invalid_utf8_line_does_not_hide_a_foreign_sibling(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            path = root / "email-webhook-retry-factory" / "batch-r56.jsonl"
+            path.parent.mkdir(parents=True)
+            foreign = json.dumps(
+                self._episode(
+                    "sir-r56-meili-swap-leftover3c-rebuild",
+                    "search-index-rebuild-factory",
+                )
+            ).encode("utf-8")
+            path.write_bytes(b'{"id":"bad-\xff"}\n' + foreign + b"\n")
+            report = training_audit.audit_run(root)
+
+        self.assertEqual(report["totals"]["records"], 1)
+        self.assertEqual(report["totals"]["eligible_records"], 0)
+        self.assertEqual(report["mill_mix"]["records"], 1)
+        self.assertEqual(
+            report["mill_mix"]["quarantined_records"][0]["line"],
+            2,
+        )
+        self.assertFalse(report["training_ready"])
 
     def test_clean_corpus_reports_a_full_eligible_denominator(self):
         with tempfile.TemporaryDirectory() as td:

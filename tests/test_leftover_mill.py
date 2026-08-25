@@ -233,19 +233,65 @@ class Cli(unittest.TestCase):
             root = Path(temporary)
             path = root / "email-webhook-retry-factory" / "bad.jsonl"
             path.parent.mkdir(parents=True)
-            path.write_bytes(b'{"id":"bad","goal":"\xff","steps":[]}\n')
+            valid = json.dumps(
+                episode(
+                    "ewh-r01-valid-after-bad",
+                    "email-webhook-retry-factory",
+                )
+            ).encode("utf-8")
+            path.write_bytes(
+                b'{"id":"bad","goal":"\xff","steps":[]}\n' + valid + b"\n"
+            )
+            result = self._invoke("--strict", str(root))
+
+        self.assertEqual(result.returncode, 1, result.stdout)
+        report = json.loads(result.stdout)
+        self.assertEqual(report["records"], 1)
+        self.assertEqual(report["decode_failures"], 1)
+        self.assertEqual(report["eligible_records"], 1)
+        self.assertEqual(report["unreadable_files"][0]["line"], 1)
+
+    def test_strict_rejects_non_standard_json_constants(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            path = root / "email-webhook-retry-factory" / "bad.jsonl"
+            path.parent.mkdir(parents=True)
+            path.write_text(
+                '{"id":"bad","goal":"x","steps":[],"reward":{"x":Infinity}}\n',
+                encoding="utf-8",
+            )
             result = self._invoke("--strict", str(root))
 
         self.assertEqual(result.returncode, 1, result.stdout)
         report = json.loads(result.stdout)
         self.assertEqual(report["records"], 0)
-        self.assertEqual(report["decode_failures"], 1)
+        self.assertEqual(report["parse_failures"], 1)
         self.assertEqual(report["eligible_records"], 0)
 
     def test_missing_directory_is_a_usage_error(self):
         result = self._invoke(str(REPO / "pipelines" / "not-a-directory"))
         self.assertEqual(result.returncode, 2)
         self.assertIn("not a directory", result.stderr)
+
+    def test_marker_error_is_a_bounded_cli_failure(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            factory = Path(temporary) / "email-webhook-retry-factory"
+            write(
+                factory / "batch-r01.jsonl",
+                [
+                    episode(
+                        "ewh-r01-native",
+                        "email-webhook-retry-factory",
+                    )
+                ],
+            )
+            (factory / ".round-marker-mode.json").mkdir()
+            result = self._invoke(str(factory))
+
+        self.assertEqual(result.returncode, 1)
+        self.assertEqual(result.stdout, "")
+        self.assertIn("leftover_mill failed: unsafe marker mode file", result.stderr)
+        self.assertNotIn("Traceback", result.stderr)
 
 
 if __name__ == "__main__":

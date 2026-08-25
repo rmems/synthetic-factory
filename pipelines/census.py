@@ -34,6 +34,7 @@ from round_txn import (  # noqa: E402
     committed_jsonl_paths,
     marker_mode_path,
 )
+from validate_run import reject_json_constant  # noqa: E402
 
 THALAMIC_REQUIRED = (
     "state",
@@ -207,21 +208,25 @@ def census_dir(run_dir):
         files += 1
         relative = path.relative_to(run_dir)
         factory, factory_verified = factory_identity_for_path(run_dir, path)
-        try:
-            payload = path.read_text(encoding="utf-8")
-        except UnicodeDecodeError as exc:
-            decode_failures += 1
-            unreadable_files.append(
-                {"source": relative.as_posix(), "error": str(exc)}
-            )
-            continue
-
-        for lineno, line in enumerate(payload.splitlines(), 1):
-            if not line.strip():
+        payload = path.read_bytes()
+        for lineno, raw_line in enumerate(payload.splitlines(), 1):
+            if not raw_line.strip():
                 continue
             try:
-                obj = json.loads(line)
-            except json.JSONDecodeError:
+                line = raw_line.decode("utf-8")
+            except UnicodeDecodeError as exc:
+                decode_failures += 1
+                unreadable_files.append(
+                    {
+                        "source": relative.as_posix(),
+                        "line": lineno,
+                        "error": str(exc),
+                    }
+                )
+                continue
+            try:
+                obj = json.loads(line, parse_constant=reject_json_constant)
+            except (json.JSONDecodeError, ValueError):
                 parse_failures += 1
                 continue
             records += 1

@@ -26,6 +26,7 @@ if str(_PIPELINES) not in sys.path:
     sys.path.insert(0, str(_PIPELINES))
 
 from census import census_dir  # noqa: E402
+from round_txn import TransactionError  # noqa: E402
 
 # Frozen issue #43 census: destination factory -> {record id: declared factory}.
 # Detection never consults this table. Tests re-derive each finding through the
@@ -129,7 +130,11 @@ def main(argv=None):
     if not run_dir.is_dir():
         print(f"leftover_mill: not a directory: {run_dir}", file=sys.stderr)
         return 2
-    report = audit_run(run_dir)
+    try:
+        report = audit_run(run_dir)
+    except TransactionError as exc:
+        print(f"leftover_mill failed: {exc}", file=sys.stderr)
+        return 1
     print(json.dumps(report, indent=2, sort_keys=True))
     failed = (
         report["quarantined"]

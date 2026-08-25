@@ -449,6 +449,23 @@ class CensusMillMix(unittest.TestCase):
             ["email-webhook-retry-factory/bad.jsonl"],
         )
 
+    def test_non_standard_json_constant_is_a_parse_failure(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary) / "run"
+            destination = root / "email-webhook-retry-factory"
+            destination.mkdir(parents=True)
+            (destination / "bad.jsonl").write_text(
+                '{"id":"bad","goal":"x","steps":[],"reward":{"x":NaN}}\n',
+                encoding="utf-8",
+            )
+            result = _invoke(str(root))
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        report = json.loads(result.stdout)
+        self.assertEqual(report["records"], 0)
+        self.assertEqual(report["eligible_records"], 0)
+        self.assertEqual(report["parse_failures"], 1)
+
     def test_suffixed_outer_snapshot_keeps_child_factory_identities(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary) / "pre-window-factory"

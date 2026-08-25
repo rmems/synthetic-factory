@@ -33,12 +33,17 @@ from check_records import (  # noqa: E402
     root_record_id,
     walk_key,
 )
-from census import factory_for_path, visible_jsonl_paths  # noqa: E402
+from census import (  # noqa: E402
+    factory_for_path,
+    factory_identity_for_path,
+    visible_jsonl_paths,
+)
 from mill_family import (  # noqa: E402
     MillFinding,
     MillIndex,
     summarize as summarize_mill_mix,
 )
+from round_txn import TransactionError  # noqa: E402
 from validate_run import HIDDEN_THOUGHT_KEYS, _episode_like, event_time  # noqa: E402
 
 
@@ -226,19 +231,25 @@ def _index_mill_findings(run_dir: Path, files: list[Path]):
     mills = MillIndex()
     for path in files:
         rel = path.relative_to(run_dir)
-        factory = factory_for_path(run_dir, path)
-        try:
-            payload = path.read_bytes().decode("utf-8")
-        except UnicodeDecodeError:
-            continue
-        for line_number, line in enumerate(payload.splitlines(), 1):
-            if not line.strip():
+        factory, factory_verified = factory_identity_for_path(run_dir, path)
+        payload = path.read_bytes()
+        for line_number, raw_line in enumerate(payload.splitlines(), 1):
+            if not raw_line.strip():
+                continue
+            try:
+                line = raw_line.decode("utf-8")
+            except UnicodeDecodeError:
                 continue
             try:
                 obj = json.loads(line, parse_constant=reject_json_constant)
             except (json.JSONDecodeError, ValueError):
                 continue
-            mills.add(factory, obj, (rel.as_posix(), line_number))
+            mills.add(
+                factory,
+                obj,
+                (rel.as_posix(), line_number),
+                factory_verified=factory_verified,
+            )
     return mills.findings()
 
 
@@ -308,25 +319,28 @@ def audit_run(run_dir: Path):
         totals["files"] += 1
         totals["bytes"] += payload_bytes
 
-        raw_text = path.read_bytes()
-        try:
-            text = raw_text.decode("utf-8")
-        except UnicodeDecodeError as exc:
-            record_errors.append(f"{rel}: invalid UTF-8: {exc}")
-            continue
-        for line_number, line in enumerate(text.splitlines(), 1):
-            if not line.strip():
+        raw_payload = path.read_bytes()
+        for line_number, raw_line in enumerate(raw_payload.splitlines(), 1):
+            if not raw_line.strip():
                 continue
             where = f"{rel}:{line_number}"
+            try:
+                line = raw_line.decode("utf-8")
+            except UnicodeDecodeError as exc:
+                record_errors.append(f"{where}: invalid UTF-8: {exc}")
+                continue
             totals["records"] += 1
             bucket["records"] += 1
             token_estimate = max(1, math.ceil(len(line.encode("utf-8")) / 4))
-            totals["approx_tokens"] += token_estimate
-            bucket["approx_tokens"] += token_estimate
-            bucket["record_tokens"].append(token_estimate)
             try:
                 obj = json.loads(line, parse_constant=reject_json_constant)
             except (json.JSONDecodeError, ValueError) as exc:
+                # Preserve the existing raw-input accounting for malformed
+                # records; unlike a proven mill quarantine, they have not been
+                # classified as belonging to another destination.
+                totals["approx_tokens"] += token_estimate
+                bucket["approx_tokens"] += token_estimate
+                bucket["record_tokens"].append(token_estimate)
                 record_errors.append(f"{where}: JSON parse error: {exc}")
                 kinds["unknown"] += 1
                 bucket["by_kind"]["unknown"] += 1
@@ -339,6 +353,9 @@ def audit_run(run_dir: Path):
                 # duplicate, reward, provenance, and corpus metric below.
                 totals["quarantined"] += 1
                 continue
+            totals["approx_tokens"] += token_estimate
+            bucket["approx_tokens"] += token_estimate
+            bucket["record_tokens"].append(token_estimate)
             totals["eligible_records"] += 1
             bucket["eligible_records"] += 1
 
@@ -506,6 +523,13 @@ def audit_run(run_dir: Path):
     blockers = []
     if record_errors:
         blockers.append(f"{len(record_errors)} record shape/invariant errors")
+    if not eligible_records:
+        if totals["quarantined"]:
+            blockers.append(
+                "0 eligible training records remain after foreign-mill quarantine"
+            )
+        else:
+            blockers.append("corpus contains 0 eligible training records")
     if unresolved_record_warnings:
         blockers.append(
             f"{len(unresolved_record_warnings)} unresolved record-invariant warnings"
@@ -699,7 +723,11 @@ def parse_args(argv=None):
 
 def main(argv=None):
     args = parse_args(argv)
-    report = audit_run(Path(args.run_dir))
+    try:
+        report = audit_run(Path(args.run_dir))
+    except TransactionError as exc:
+        print(f"training_audit failed: {exc}", file=sys.stderr)
+        return 1
     if args.markdown:
         print(render_markdown(report), end="")
     else:
