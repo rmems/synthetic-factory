@@ -35,6 +35,9 @@ from curate_tags import (  # noqa: E402
     UNMAPPED_MARKER_TAG,
     Taxonomy,
     TagTaxonomyError,
+    _preflight_destinations,
+    _write_destinations,
+    canonical_json,
     curate_jsonl,
     curate_record,
     load_taxonomy,
@@ -433,6 +436,33 @@ class CurateRecordTests(unittest.TestCase):
         self.assertIsNone(again)
         self.assertEqual(manifest["reason_codes"], [REASON_PROVENANCE_CONFLICT])
 
+    def test_provenance_contents_must_recompute_from_source_tags(self):
+        curated, _ = curate_record(
+            record(["MODIFY", "modify", "tokamak"]), taxonomy=TAXONOMY
+        )
+        mutations = {
+            "source tags": lambda entry: entry.__setitem__("source_tags", ["ACCEPT"]),
+            "scalar mapping": lambda entry: entry["mappings"].__setitem__(0, 17),
+            "mapping contents": lambda entry: entry["mappings"][0].__setitem__(
+                "canonical", "decision:accept"
+            ),
+            "unmapped tags": lambda entry: entry.__setitem__("unmapped_tags", []),
+            "duplicate count": lambda entry: entry.__setitem__(
+                "duplicates_collapsed", 0
+            ),
+        }
+
+        for label, mutate in mutations.items():
+            with self.subTest(label=label):
+                tampered = copy.deepcopy(curated)
+                entry = tampered[TAG_PROVENANCE_FIELD]["containers"][0]
+                mutate(entry)
+                again, manifest = curate_record(tampered, taxonomy=TAXONOMY)
+                self.assertIsNone(again)
+                self.assertEqual(
+                    manifest["reason_codes"], [REASON_PROVENANCE_CONFLICT]
+                )
+
     def test_provenance_missing_a_container_is_a_conflict(self):
         curated, _ = curate_record(record(["MODIFY"]), taxonomy=TAXONOMY)
         curated["chosen"] = {"meta": {"tags": ["ACCEPT"]}}
@@ -634,6 +664,8 @@ class CurateJsonlTests(unittest.TestCase):
         )
         self.assertEqual(result["summary"]["nonstring_tag_uses"], 2)
         self.assertEqual(result["summary"]["unmapped_unique_tags"], 0)
+        self.assertEqual(result["manifest"][0]["tag_counts"]["unmapped_uses"], 2)
+        self.assertIn(REASON_TAGS_UNMAPPED, result["manifest"][0]["reason_codes"])
         self.assertEqual(
             curated[TAG_PROVENANCE_FIELD]["containers"][0]["source_tags"],
             ["MODIFY", 17, None],
@@ -673,6 +705,26 @@ class CurateJsonlTests(unittest.TestCase):
         self.assertEqual(result["summary"]["output_records"], 0)
         self.assertEqual(result["manifest"][0]["reason_codes"], [REASON_INVALID_JSON])
         self.assertEqual(result["manifest"][1]["reason_codes"], [REASON_INVALID_UTF8])
+
+    def test_nonstandard_numeric_constants_are_invalid_json(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            source = Path(temporary) / "corpus.jsonl"
+            source.write_text(
+                "".join(
+                    f'{{"id":"{index}","metric":{constant},"tags":["MODIFY"]}}\n'
+                    for index, constant in enumerate(("NaN", "Infinity", "-Infinity"))
+                ),
+                encoding="utf-8",
+            )
+            result = curate_jsonl(source, TAXONOMY)
+
+        self.assertEqual(result["summary"]["output_records"], 0)
+        self.assertEqual(
+            [entry["reason_codes"] for entry in result["manifest"]],
+            [[REASON_INVALID_JSON]] * 3,
+        )
+        with self.assertRaises(ValueError):
+            canonical_json({"metric": math.nan})
 
     def test_manifest_carries_source_identity_for_every_line(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -758,6 +810,45 @@ class CliTests(unittest.TestCase):
             self.assertNotEqual(result.returncode, 0)
             self.assertFalse(output.exists())
             self.assertEqual(manifest.read_text(), "sentinel\n")
+
+    def test_destination_race_preserves_competitor_and_rolls_back(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            output = root / "output.jsonl"
+            manifest = root / "manifest.jsonl"
+            _preflight_destinations([output, manifest])
+            manifest.write_text("competitor\n", encoding="utf-8")
+
+            with self.assertRaises(FileExistsError):
+                _write_destinations([(output, [{"id": "x"}]), (manifest, [])])
+
+            self.assertFalse(output.exists())
+            self.assertEqual(manifest.read_text(encoding="utf-8"), "competitor\n")
+
+    def test_cli_rejects_destinations_that_contain_one_another(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            source = self._source(root)
+            output = root / "artifact"
+            manifest = output / "manifest.jsonl"
+
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    str(PIPELINES / "curate_tags.py"),
+                    str(source),
+                    "--output-jsonl",
+                    str(output),
+                    "--manifest-jsonl",
+                    str(manifest),
+                ],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+
+            self.assertNotEqual(result.returncode, 0)
+            self.assertFalse(output.exists())
 
     def test_cli_refuses_any_destination_under_outputs_raw(self):
         with tempfile.TemporaryDirectory() as temporary:

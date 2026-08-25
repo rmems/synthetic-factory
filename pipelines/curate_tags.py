@@ -90,10 +90,16 @@ def canonical_json(value: Any) -> str:
     """Return the stable JSON representation used for output hashes."""
     return json.dumps(
         value,
+        allow_nan=False,
         ensure_ascii=False,
         separators=(",", ":"),
         sort_keys=True,
     )
+
+
+def _reject_json_constant(value: str) -> None:
+    """Reject Python-only numeric constants accepted by ``json.loads``."""
+    raise ValueError(f"non-standard JSON numeric constant: {value}")
 
 
 def hash_value(value: Any) -> str:
@@ -310,8 +316,11 @@ def load_taxonomy(path: str | Path | None = None) -> Taxonomy:
     """Load and validate a taxonomy document."""
     resolved = Path(path) if path is not None else DEFAULT_TAXONOMY_PATH
     try:
-        document = json.loads(resolved.read_text(encoding="utf-8"))
-    except json.JSONDecodeError as exc:
+        document = json.loads(
+            resolved.read_text(encoding="utf-8"),
+            parse_constant=_reject_json_constant,
+        )
+    except ValueError as exc:
         raise TagTaxonomyError(f"{resolved}: invalid JSON: {exc}") from exc
     if not isinstance(document, dict):
         raise TagTaxonomyError(f"{resolved}: taxonomy document must be an object")
@@ -411,8 +420,15 @@ def _existing_provenance(
         for key in ("source_tags", "canonical_tags", "mappings", "unmapped_tags"):
             if not isinstance(entry.get(key), list):
                 return {}, True, True
-        if not all(taxonomy.is_canonical(tag) for tag in entry["canonical_tags"]):
-            return {}, True, True
+        expected = map_tags(entry["source_tags"], taxonomy)
+        for key in (
+            "canonical_tags",
+            "mappings",
+            "unmapped_tags",
+            "duplicates_collapsed",
+        ):
+            if entry.get(key) != expected[key]:
+                return {}, True, True
         reusable[pointer] = entry
     return reusable, False, True
 
@@ -503,6 +519,7 @@ def curate_record(
     source_uses = Counter()
     canonical_uses = Counter()
     unmapped_uses = Counter()
+    unmapped_total = 0
     mapped_total = 0
     duplicates_total = 0
     reused_any = False
@@ -536,6 +553,7 @@ def curate_record(
         for tag in entry["canonical_tags"]:
             canonical_uses[tag] += 1
         for tag in entry["unmapped_tags"]:
+            unmapped_total += 1
             if isinstance(tag, str):
                 unmapped_uses[tag] += 1
         mapped_total += sum(
@@ -569,7 +587,7 @@ def curate_record(
     reasons: list[str] = []
     if mapped_total:
         reasons.append(REASON_TAGS_MAPPED)
-    if unmapped_uses:
+    if unmapped_total:
         reasons.append(REASON_TAGS_UNMAPPED)
     if duplicates_total:
         reasons.append(REASON_TAGS_DEDUPLICATED)
@@ -583,7 +601,7 @@ def curate_record(
         "canonical_uses": sum(canonical_uses.values()),
         "canonical_unique": len(canonical_uses),
         "mapped_uses": mapped_total,
-        "unmapped_uses": sum(unmapped_uses.values()),
+        "unmapped_uses": unmapped_total,
     }
     manifest["unmapped_tags"] = sorted(unmapped_uses)
     manifest["containers"] = container_manifests
@@ -655,8 +673,8 @@ def curate_jsonl(
                 )
                 continue
             try:
-                record = json.loads(text)
-            except json.JSONDecodeError:
+                record = json.loads(text, parse_constant=_reject_json_constant)
+            except ValueError:
                 manifests.append(
                     _excluded_line_manifest(
                         source_path=str(source),
@@ -748,31 +766,74 @@ def _is_under_raw(path: Path) -> bool:
     )
 
 
-def _write_new_jsonl(path: Path, values: list[dict[str, Any]]) -> None:
+def _unlink_created_file(path: Path, identity: tuple[int, int]) -> None:
+    """Remove ``path`` only when it still names the file this run created."""
+    try:
+        current = path.lstat()
+    except FileNotFoundError:
+        return
+    if (current.st_dev, current.st_ino) == identity:
+        path.unlink()
+
+
+def _write_new_jsonl(
+    path: Path, values: list[dict[str, Any]]
+) -> tuple[int, int]:
     """Write one JSONL file without replacing any pre-existing path."""
     if _is_under_raw(path):
         raise ValueError(f"refusing to write inside immutable raw evidence: {path}")
     path.parent.mkdir(parents=True, exist_ok=True)
-    descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o644)
+    # O_EXCL is the atomic no-clobber gate; preflight is only an early diagnostic.
+    try:
+        descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o644)
+    except FileExistsError as exc:
+        raise FileExistsError(
+            f"refusing to replace existing destination: {path}"
+        ) from exc
+    state = os.fstat(descriptor)
+    identity = (state.st_dev, state.st_ino)
     try:
         with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
             for value in values:
                 handle.write(canonical_json(value))
                 handle.write("\n")
     except BaseException:
-        path.unlink(missing_ok=True)
+        _unlink_created_file(path, identity)
         raise
+    return identity
 
 
 def _preflight_destinations(paths: list[Path]) -> None:
     resolved = [path.resolve(strict=False) for path in paths]
     if len(set(resolved)) != len(resolved):
         raise ValueError("output destinations must be distinct")
+    for index, path in enumerate(resolved):
+        for other in resolved[index + 1 :]:
+            if path in other.parents or other in path.parents:
+                raise ValueError("output destinations must not contain one another")
     for path in paths:
         if _is_under_raw(path):
             raise ValueError(f"refusing to write inside immutable raw evidence: {path}")
         if path.exists():
             raise FileExistsError(f"refusing to replace existing destination: {path}")
+
+
+def _write_destinations(
+    destinations: list[tuple[Path, list[dict[str, Any]]]],
+) -> None:
+    """Publish a destination set, rolling back this run's files on failure."""
+    for path, _values in destinations:
+        path.parent.mkdir(parents=True, exist_ok=True)
+
+    created: list[tuple[Path, tuple[int, int]]] = []
+    try:
+        for path, values in destinations:
+            identity = _write_new_jsonl(path, values)
+            created.append((path, identity))
+    except BaseException:
+        for path, identity in reversed(created):
+            _unlink_created_file(path, identity)
+        raise
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -805,13 +866,26 @@ def main(argv: list[str] | None = None) -> int:
         parser.error(str(exc))
 
     result = curate_jsonl(args.source, taxonomy)
-    if args.output_jsonl is not None:
-        _write_new_jsonl(args.output_jsonl, result["records"])
-    if args.manifest_jsonl is not None:
-        _write_new_jsonl(args.manifest_jsonl, result["manifest"])
-    if args.unmapped_jsonl is not None:
-        _write_new_jsonl(args.unmapped_jsonl, result["unmapped"])
-    print(json.dumps(result["summary"], ensure_ascii=False, indent=2, sort_keys=True))
+    _write_destinations(
+        [
+            (path, values)
+            for path, values in (
+                (args.output_jsonl, result["records"]),
+                (args.manifest_jsonl, result["manifest"]),
+                (args.unmapped_jsonl, result["unmapped"]),
+            )
+            if path is not None
+        ]
+    )
+    print(
+        json.dumps(
+            result["summary"],
+            allow_nan=False,
+            ensure_ascii=False,
+            indent=2,
+            sort_keys=True,
+        )
+    )
     return 0
 
 
