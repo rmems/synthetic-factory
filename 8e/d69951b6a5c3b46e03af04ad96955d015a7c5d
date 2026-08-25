@@ -1,0 +1,31 @@
+pipelines/compose_curated.py
+  s_940326c4ee4215::t_35a25d32834bdf 105-106,143-144,288,399-400,406-407,468-469
+  s_940326c4ee4215::t_659226e74b4668 284-286
+  s_940326c4ee4215::t_0d3bafd178a98b 287
+  s_940326c4ee4215::t_82fd19f2fb9bda 398,405,486
+tests/test_compose_curated.py
+  s_940326c4ee4215::t_ea336941777b63 265,303-304,391
+tests/test_export_hf.py
+  s_940326c4ee4215::t_2613a4e2612dac 168
+  s_940326c4ee4215::t_d9109ec62e2040 262,302
+README.md
+  s_940326c4ee4215::t_c844e6ffde7bd0 70,72,135-142,144-164,168-172
+pipelines/export_hf.py
+  s_940326c4ee4215::t_98b9f3ee3d105e 564,586-587
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "8ed69951b6a5c3b46e03af04ad96955d015a7c5d",
+  "prompts": {},
+  "sessions": {
+    "s_940326c4ee4215": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a032e4-1904-7a82-8c8b-1ad3cfbeb0b0",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": null
+    }
+  }
+}
