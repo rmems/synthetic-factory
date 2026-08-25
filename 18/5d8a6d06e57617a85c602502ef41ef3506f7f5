@@ -1,0 +1,31 @@
+.claude/skills/run-synthetic-factory/SKILL.md
+  s_940326c4ee4215::t_90bdf8e3d07ebb 99-102
+docs/token-efficiency.md
+  s_940326c4ee4215::t_90bdf8e3d07ebb 47-55
+pipelines/round_txn.py
+  s_940326c4ee4215::t_90bdf8e3d07ebb 2218-2221,2308-2311,2313-2316
+tests/test_round_txn.py
+  s_940326c4ee4215::t_90bdf8e3d07ebb 494,521-536
+.claude/skills/run-synthetic-factory/driver.py
+  s_940326c4ee4215::t_8d4bb924134554 680-682
+tests/test_factory_driver.py
+  s_940326c4ee4215::t_8d4bb924134554 39-48,53-70
+  s_940326c4ee4215::t_cc9211a3d6f9da 49-52
+  s_940326c4ee4215::t_90bdf8e3d07ebb 27-38,71
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "185d8a6d06e57617a85c602502ef41ef3506f7f5",
+  "prompts": {},
+  "sessions": {
+    "s_940326c4ee4215": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a032e4-1904-7a82-8c8b-1ad3cfbeb0b0",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Raul Montoya Cardenas <montoyaraul34@gmail.com>"
+    }
+  }
+}
