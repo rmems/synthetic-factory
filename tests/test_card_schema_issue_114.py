@@ -148,6 +148,18 @@ class MultiAgentCoordinationDeclarationTests(unittest.TestCase):
                 )
             ],
         )
+        summary = designed[0]["summary"]
+        self.assertIn(
+            "each of the fourteen has 3 agents and 10 transcript turns "
+            "while using the dataset's standard `agents` / `transcript` field schema",
+            summary,
+        )
+        self.assertIn("Corpus-wide cardinality is not uniform", summary)
+        self.assertNotIn(
+            "same 3-agent / 10-turn transcript shape as the rest of the dataset",
+            summary,
+        )
+        self.assertIn(summary, self.card)
         # #43 froze the published factory_mix census; none of the 30 ids it
         # names is in this dataset, so these 14 are same-factory phrasing.
         self.assertEqual(designed[0]["issues"], [43])
