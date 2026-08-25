@@ -233,7 +233,7 @@ Alongside it, these lines should change:
 
 ## Re-deriving this
 
-```
+```bash
 python3 pipelines/payload_kind_audit.py \
   outputs/raw/2026-08-17/agentic-coding-trajectory-factory
 

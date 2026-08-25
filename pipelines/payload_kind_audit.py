@@ -31,7 +31,11 @@ from typing import Any, Iterable, Mapping
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from curate_identity import IdentityCurationError, record_kind  # noqa: E402
+from curate_identity import (  # noqa: E402
+    LEGACY_ID_KEYS,
+    IdentityCurationError,
+    record_kind,
+)
 
 SCHEMA_VERSION = "1.0.0"
 
@@ -85,6 +89,14 @@ def _coding_steps(record: Mapping[str, Any], kind: str, where: str) -> list[Mapp
     )
 
 
+def _first_legacy_id(record: Mapping[str, Any]) -> Any:
+    """Return the first present identifier supported by identity curation."""
+    for key in LEGACY_ID_KEYS:
+        if key in record:
+            return record[key]
+    return None
+
+
 def _record_row(
     record: Mapping[str, Any],
     kind: str,
@@ -110,10 +122,10 @@ def _record_row(
         row["wraps_coding_episode"] = _is_episode_shaped(executed)
         row["coding_steps"] = len(steps)
     else:
-        # Episode records in this lane carry no top-level identifier; they are
-        # addressable only by ``source_file:source_line``. That is reported,
-        # never invented.
-        row["id"] = record.get("id")
+        # The published episodes in this lane carry no top-level identifier,
+        # but other episode corpora use legacy aliases. Report the first alias
+        # the identity curation contract recognizes; never invent one.
+        row["id"] = _first_legacy_id(record)
         row["domain"] = None
         row["wraps_coding_episode"] = False
         row["coding_steps"] = len(steps)

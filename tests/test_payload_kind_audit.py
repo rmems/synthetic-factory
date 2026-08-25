@@ -163,6 +163,24 @@ class PayloadKindClassification(unittest.TestCase):
         self.assertEqual(audit["summary"]["thalamic_records_wrapping_a_coding_episode"], 0)
         self.assertEqual(audit["summary"]["coding_episodes_including_wrapped"], 0)
 
+    def test_episode_identity_uses_every_supported_legacy_key(self):
+        for key in payload_kind_audit.LEGACY_ID_KEYS:
+            with self.subTest(key=key):
+                record = _episode([])
+                record[key] = f"{key}-value"
+                audit = self._audit({"episodes.jsonl": [record]})
+                self.assertEqual(audit["records"][0]["id"], f"{key}-value")
+
+    def test_episode_identity_uses_the_first_present_supported_key(self):
+        record = _episode([])
+        for key in reversed(payload_kind_audit.LEGACY_ID_KEYS):
+            record[key] = f"{key}-value"
+        audit = self._audit({"episodes.jsonl": [record]})
+        self.assertEqual(
+            audit["records"][0]["id"],
+            f"{payload_kind_audit.LEGACY_ID_KEYS[0]}-value",
+        )
+
     def test_steps_without_a_goal_are_not_counted_as_a_wrapped_episode(self):
         audit = self._audit({"batch-r02.jsonl": [_thalamic("act-r02-001", {"steps": [_step(1)]})]})
         self.assertFalse(audit["records"][0]["wraps_coding_episode"])
@@ -182,7 +200,9 @@ class PayloadKindClassification(unittest.TestCase):
                     _write_corpus(directory, {"batch-r02.jsonl": [record]})
                     with self.assertRaises(payload_kind_audit.PayloadKindAuditError) as caught:
                         payload_kind_audit.build_audit(directory)
-                self.assertIn(f"batch-r02.jsonl:1.{field} must be a JSON object", str(caught.exception))
+                self.assertIn(
+                    f"batch-r02.jsonl:1.{field} must be a JSON object", str(caught.exception)
+                )
 
     def test_malformed_episode_step_containers_fail_closed(self):
         malformed = (
@@ -442,6 +462,24 @@ class PublishedAgenticCodingPayloadKindAudit(unittest.TestCase):
             summary["coding_episodes_including_wrapped"],
             summary["coding_episodes_reachable_at_top_level"]
             + summary["thalamic_records_wrapping_a_coding_episode"],
+        )
+
+    def test_generated_audit_and_supplementary_evidence_are_distinct(self):
+        provenance = self.audit["document_provenance"]
+        generated = provenance["generated_audit"]
+        supplementary = provenance["supplementary_evidence"]
+
+        self.assertNotIn("generated_by", self.audit)
+        self.assertEqual(generated["generated_by"], "pipelines/payload_kind_audit.py")
+        self.assertEqual(tuple(generated["fields"]), DERIVED_KEYS)
+        self.assertIn("not emitted by the audit pipeline", supplementary["description"])
+
+        generated_fields = set(generated["fields"])
+        supplementary_fields = set(supplementary["fields"])
+        self.assertTrue(generated_fields.isdisjoint(supplementary_fields))
+        self.assertEqual(
+            generated_fields | supplementary_fields,
+            set(self.audit) - {"document_provenance"},
         )
 
     def test_the_payload_kind_split_is_three_episodes_and_sixteen_gate_records(self):

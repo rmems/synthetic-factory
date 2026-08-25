@@ -4,8 +4,31 @@
   "issues": [
     74
   ],
-  "generated_by": "pipelines/payload_kind_audit.py",
   "source_tree": "outputs/raw/2026-08-17/agentic-coding-trajectory-factory",
+  "document_provenance": {
+    "generated_audit": {
+      "generated_by": "pipelines/payload_kind_audit.py",
+      "fields": [
+        "schema_version",
+        "source",
+        "summary",
+        "files",
+        "records"
+      ]
+    },
+    "supplementary_evidence": {
+      "description": "Evidence assembled outside the corpus scanner from issue #74 and the cited Hugging Face revision; these fields are not emitted by the audit pipeline.",
+      "fields": [
+        "audit",
+        "dataset_id",
+        "issues",
+        "source_tree",
+        "hub",
+        "card_disclosure",
+        "card_corrections"
+      ]
+    }
+  },
   "schema_version": "1.0.0",
   "source": "agentic-coding-trajectory-factory",
   "summary": {
