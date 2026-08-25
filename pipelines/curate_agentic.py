@@ -29,7 +29,10 @@ from pathlib import Path
 from typing import Any
 
 from check_records import reject_json_constant
-from record_kind import classify_kind as classify_payload_kind
+from record_kind import (
+    classify_kind as classify_payload_kind,
+    preference_side_kinds,
+)
 from round_txn import TransactionError, committed_jsonl_paths, marker_mode_path
 
 
@@ -38,14 +41,6 @@ TRANSFORM_VERSION = "1"
 
 HIDDEN_THOUGHT_KEYS = frozenset(
     {"thought", "chain_of_thought", "scratch", "inner_monologue"}
-)
-THALAMIC_CORE_KEYS = (
-    "state",
-    "proposed_action",
-    "safety_decision",
-    "executed_action",
-    "future_outcome",
-    "reward_components",
 )
 SAFETY_CASE_TYPES = frozenset(
     {"correct_refusal", "incorrect_refusal", "missed_refusal"}
@@ -66,6 +61,7 @@ REASON_GOAL_DIVERGES = "PREFERENCE_GOAL_DIVERGES"
 REASON_GOAL_MISSING = "PREFERENCE_GOAL_MISSING"
 REASON_GOAL_NOT_TEXT = "PREFERENCE_GOAL_NOT_TEXT"
 REASON_SIDES_NOT_OBJECTS = "PREFERENCE_SIDES_NOT_OBJECTS"
+REASON_SIDE_SHAPE_INVALID = "PREFERENCE_SIDE_SHAPE_INVALID"
 REASON_PREFERENCE_COLLAPSED = "PREFERENCE_COLLAPSED_AFTER_THOUGHT_STRIP"
 REASON_SAFETY_CASE_TYPE_INVALID = "SAFETY_CASE_TYPE_INVALID"
 REASON_PREFIX_OVERLAP = "PREFIX_OVERLAP_NOTED"
@@ -73,6 +69,8 @@ REASON_RECORD_NOT_OBJECT = "RECORD_NOT_OBJECT"
 REASON_INVALID_JSON = "INVALID_JSON"
 REASON_INVALID_UTF8 = "INVALID_UTF8"
 REASON_SKIPPED_KIND = "SKIPPED_NON_AGENTIC"
+
+INVALID_PREFERENCE_KIND = "invalid_preference"
 
 
 def canonical_json(value: Any) -> str:
@@ -155,21 +153,18 @@ def classify_record(obj: Any) -> str:
     if kind != "preference":
         return kind
     sides = (obj.get("chosen"), obj.get("rejected"))
-    if any(
-        isinstance(side, dict)
-        and "steps" in side
-        and not all(key in side for key in THALAMIC_CORE_KEYS)
-        for side in sides
-    ):
+    if not all(isinstance(side, dict) for side in sides):
         return "preference"
-    if all(
-        isinstance(side, dict) and all(key in side for key in THALAMIC_CORE_KEYS)
-        for side in sides
-    ):
+    side_kinds = preference_side_kinds(obj)
+    if side_kinds == ("thalamic", "thalamic"):
         # Legacy Thalamic preference pairs deliberately have chosen/rejected
         # trajectory objects rather than agentic episode sides. They belong
         # in the skipped bucket, not in the agentic goal-impurity statistics.
         return "legacy_preference"
+    if side_kinds == ("episode", "episode"):
+        return "preference"
+    if any(side_kind != "unknown" for side_kind in side_kinds):
+        return INVALID_PREFERENCE_KIND
     return "preference"
 
 
@@ -348,6 +343,9 @@ def curate_record(
     if not isinstance(record, dict):
         decision["reason_codes"] = [REASON_RECORD_NOT_OBJECT]
         return None, decision
+    if kind == INVALID_PREFERENCE_KIND:
+        decision["reason_codes"] = [REASON_SIDE_SHAPE_INVALID]
+        return None, decision
     if kind not in AGENTIC_KINDS:
         decision["action"] = ACTION_SKIPPED
         decision["reason_codes"] = [REASON_SKIPPED_KIND]
@@ -363,6 +361,9 @@ def curate_record(
         ok, goal_reason = shared_preference_goal(record)
         if not ok:
             decision["reason_codes"] = reasons + [goal_reason]
+            return None, decision
+        if preference_side_kinds(record) != ("episode", "episode"):
+            decision["reason_codes"] = reasons + [REASON_SIDE_SHAPE_INVALID]
             return None, decision
         cleaned_chosen = cleaned.get("chosen")
         cleaned_rejected = cleaned.get("rejected")

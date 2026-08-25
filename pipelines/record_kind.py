@@ -2,8 +2,8 @@
 """Shared payload-first record-kind classifier.
 
 Census, identity, and agentic consume this one order so overlapping keys do
-not grow a fourth classifier. ``legacy_preference`` is an agentic skip
-subkind applied after this function returns ``preference``.
+not grow a fourth classifier. Agentic preference subkinds are applied after
+this function returns ``preference``.
 """
 
 from __future__ import annotations
@@ -28,6 +28,8 @@ KIND_ORDER = (
     "episode",
     "unknown",
 )
+
+PREFERENCE_SIDE_KINDS = frozenset({"episode", "thalamic"})
 
 
 def classify_kind(obj: Any) -> str:
@@ -59,3 +61,30 @@ def classify_kind(obj: Any) -> str:
     if "goal" in obj and "steps" in obj:
         return "episode"
     return "unknown"
+
+
+def preference_side_kinds(record: Any) -> tuple[str, str]:
+    """Classify chosen/rejected trajectories within a preference wrapper.
+
+    Agentic preference records may keep their shared goal on the wrapper, so
+    a side with ``steps`` inherits that goal for shape classification.  The
+    caller remains responsible for validating the goal value and requiring a
+    homogeneous pair.
+    """
+
+    if not isinstance(record, Mapping):
+        return ("unknown", "unknown")
+    wrapper_has_goal = "goal" in record
+    kinds: list[str] = []
+    for name in ("chosen", "rejected"):
+        side = record.get(name)
+        kind = classify_kind(side)
+        if (
+            kind == "unknown"
+            and wrapper_has_goal
+            and isinstance(side, Mapping)
+            and "steps" in side
+        ):
+            kind = "episode"
+        kinds.append(kind)
+    return (kinds[0], kinds[1])
