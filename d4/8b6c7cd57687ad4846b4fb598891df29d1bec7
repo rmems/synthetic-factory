@@ -1,0 +1,55 @@
+tests/test_verify_hf_release.py
+  s_002cddb1a70571::t_829274d5131048 64-65
+  s_002cddb1a70571::t_74d5dce7a60391 176-204
+pipelines/curate_coding.py
+  s_002cddb1a70571::t_15c3bc686bd555 2,5-7,11-18,31,38-40,43-53,64
+  s_002cddb1a70571::t_fbc2c83fb25eee 93-115,120,123,131,138-139,141-143,145
+  s_002cddb1a70571::t_0dcda0c1aeb838 230,236-237,242,252
+  s_002cddb1a70571::t_cb4aba799c06a8 264-265
+  s_002cddb1a70571::t_45dec92a4435b7 299-300,311-329
+  s_002cddb1a70571::t_e9c5a772894b8a 350-351,354-355,357-358
+  s_002cddb1a70571::t_0474b77dd97a16 384,386-389
+  s_002cddb1a70571::t_8c85e6ed70aa45 404-405
+  s_002cddb1a70571::t_5c1fcfc12713b6 470,473-474,489-490,492
+scripts/publish_grok46_hub.py
+  s_002cddb1a70571::t_50b5c937ed07aa 906-912
+tests/test_publish_grok46_hub.py
+  s_002cddb1a70571::t_780de80e7dcbcc 231-249
+tests/test_training_audit.py
+  s_002cddb1a70571::t_affe73adcef1a4 4-5
+  s_002cddb1a70571::t_73f9e522bb4a55 15
+  s_002cddb1a70571::t_51656f99f2db7e 189-192,209-215
+  s_002cddb1a70571::t_fcab615bcd3e72 442-497,504-525
+  s_002cddb1a70571::t_c4116b4758dfd9 498-503
+pipelines/verify_hf_release.py
+  s_002cddb1a70571::t_343177d7f60319 102-103
+  s_002cddb1a70571::t_d1acf21bc49cec 131-134
+pipelines/training_audit.py
+  s_002cddb1a70571::t_ac0e1fc07b8c36 36-40,43-46
+  s_002cddb1a70571::t_10a424ce0ddad2 204-212,214-217,219,223
+  s_002cddb1a70571::t_da42ddcd661b37 213
+  s_002cddb1a70571::t_d00a88f00f2e79 279
+  s_002cddb1a70571::t_5b80d25ab8b16c 437-443
+  s_002cddb1a70571::t_66a8ca623ce02a 516-517
+  s_002cddb1a70571::t_56925b78014e7b 587
+tests/test_curate_coding.py
+  s_002cddb1a70571::t_fb168abd9939f3 27,29,34,60-79
+  s_002cddb1a70571::t_4cc60cca248420 28,30,91,104,158,197,199,209
+  s_002cddb1a70571::t_e5dd80674a65d2 353-511
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "d48b6c7cd57687ad4846b4fb598891df29d1bec7",
+  "prompts": {},
+  "sessions": {
+    "s_002cddb1a70571": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "abd260ba-6a6c-45a6-9db3-a4e0988ad60e",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Raul Montoya Cardenas <montoyaraul34@gmail.com>"
+    }
+  }
+}
