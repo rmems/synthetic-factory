@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Tests for corpus-level training readiness metrics."""
 
+import hashlib
 import json
 import sys
 import tempfile
@@ -29,6 +30,39 @@ def thalamic(record_id, provenance="designed", decision="ACCEPT"):
 def write(path, records):
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text("".join(json.dumps(record) + "\n" for record in records))
+
+
+def commit_marker_batch(factory: Path, batch: Path):
+    """Put ``batch`` behind a valid marker-mode completion point."""
+
+    (factory / ".round-marker-mode.json").write_text(
+        '{"version":1,"legacy_baseline":0,"commit_point":"ROUND-rNN.complete.json"}\n'
+    )
+    notes = factory / "NOTES-r01.md"
+    notes.write_text("Novel coverage: fixture\n")
+    (factory / "ROUND-r01.complete.json").write_text(
+        json.dumps(
+            {
+                "version": 1,
+                "factory": factory.name,
+                "round": 1,
+                "records": 1,
+                "expected_records": 1,
+                "commit_point": "ROUND-r01.complete.json",
+                "files": [
+                    {
+                        "name": batch.name,
+                        "sha256": hashlib.sha256(batch.read_bytes()).hexdigest(),
+                    },
+                    {
+                        "name": notes.name,
+                        "sha256": hashlib.sha256(notes.read_bytes()).hexdigest(),
+                    },
+                ],
+            }
+        )
+        + "\n"
+    )
 
 
 def episode_preference(record_id, *, pair_goal=None, chosen_goal=None, rejected_goal=None):
@@ -73,6 +107,41 @@ class TrainingAudit(unittest.TestCase):
         self.assertEqual(report["provenance"]["canonical_pct"], 100.0)
         self.assertEqual(report["rewards"]["unique_shapes"], 1)
         self.assertGreater(report["totals"]["approx_tokens"], 0)
+
+    def test_marker_mode_hides_uncommitted_batches(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td) / "run"
+            factory = root / "agentic-factory"
+            committed = factory / "batch-r01.jsonl"
+            write(committed, [thalamic("committed")])
+            commit_marker_batch(factory, committed)
+            (factory / "batch-r02.jsonl").write_text("{not json}\n")
+            (factory / "ROUND-r02.publishing.json").write_text("{}\n")
+            report = training_audit.audit_run(root)
+
+        self.assertEqual(report["totals"]["files"], 1)
+        self.assertEqual(report["totals"]["records"], 1)
+        self.assertEqual(report["totals"]["eligible_records"], 1)
+        self.assertTrue(report["training_ready"], report["blockers"])
+
+    def test_suffixed_snapshot_root_keeps_factory_directories_distinct(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td) / "pre-window-factory"
+            write(
+                root / "thalamic-trajectory-factory" / "batch-r01.jsonl",
+                [thalamic("clean-1")],
+            )
+            write(
+                root / "safety-calibration-factory" / "batch-r01.jsonl",
+                [thalamic("clean-2")],
+            )
+            report = training_audit.audit_run(root)
+
+        self.assertEqual(
+            set(report["factories"]),
+            {"safety-calibration-factory", "thalamic-trajectory-factory"},
+        )
+        self.assertNotIn("pre-window-factory", report["factories"])
 
     def test_marked_gate_errors_are_counted(self):
         with tempfile.TemporaryDirectory() as td:

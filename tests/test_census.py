@@ -93,6 +93,41 @@ def _invoke(*args):
     )
 
 
+def _commit_marker_batch(factory: Path, batch: Path):
+    """Put ``batch`` behind a valid marker-mode completion point."""
+
+    (factory / ".round-marker-mode.json").write_text(
+        '{"version":1,"legacy_baseline":0,"commit_point":"ROUND-rNN.complete.json"}\n',
+        encoding="utf-8",
+    )
+    notes = factory / "NOTES-r01.md"
+    notes.write_text("Novel coverage: fixture\n", encoding="utf-8")
+    (factory / "ROUND-r01.complete.json").write_text(
+        json.dumps(
+            {
+                "version": 1,
+                "factory": factory.name,
+                "round": 1,
+                "records": 1,
+                "expected_records": 1,
+                "commit_point": "ROUND-r01.complete.json",
+                "files": [
+                    {
+                        "name": batch.name,
+                        "sha256": hashlib.sha256(batch.read_bytes()).hexdigest(),
+                    },
+                    {
+                        "name": notes.name,
+                        "sha256": hashlib.sha256(notes.read_bytes()).hexdigest(),
+                    },
+                ],
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+
 class CensusMiniRun(unittest.TestCase):
     def test_fixture_counts_and_histogram(self):
         result = _invoke(str(MINI_RUN))
@@ -245,6 +280,85 @@ class CensusMillMix(unittest.TestCase):
                 "graphql-nplusone-factory": 2,
             },
         )
+
+    def test_suffixed_snapshot_root_does_not_collapse_factory_directories(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary) / "pre-window-factory"
+            write_specs = (
+                (
+                    "cache-stampede-factory",
+                    _episode(
+                        "cst-r01-cache-refill",
+                        "refill the cache with singleflight",
+                        "cache-stampede-factory",
+                    ),
+                ),
+                (
+                    "graphql-nplusone-factory",
+                    _episode(
+                        "gql-r01-batch-resolver",
+                        "batch the GraphQL resolver",
+                        "graphql-nplusone-factory",
+                    ),
+                ),
+            )
+            for factory, record in write_specs:
+                path = root / factory / "batch-r01.jsonl"
+                path.parent.mkdir(parents=True)
+                path.write_text(json.dumps(record) + "\n", encoding="utf-8")
+            result = _invoke(str(root))
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        report = json.loads(result.stdout)
+        self.assertEqual(
+            report["by_factory"],
+            {
+                "cache-stampede-factory": 1,
+                "graphql-nplusone-factory": 1,
+            },
+        )
+        self.assertNotIn("pre-window-factory", report["by_factory"])
+
+    def test_marker_mode_hides_uncommitted_batch_from_denominators(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary) / "run"
+            factory = root / "agentic-factory"
+            factory.mkdir(parents=True)
+            committed = factory / "batch-r01.jsonl"
+            committed.write_text(
+                json.dumps(
+                    _episode(
+                        "agt-r01-committed",
+                        "keep the committed record visible",
+                        factory.name,
+                    )
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            _commit_marker_batch(factory, committed)
+            (factory / "batch-r02.jsonl").write_text(
+                json.dumps(
+                    _episode(
+                        "agt-r02-uncommitted",
+                        "hide the interrupted publish",
+                        factory.name,
+                    )
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            (factory / "ROUND-r02.publishing.json").write_text(
+                "{}\n", encoding="utf-8"
+            )
+            result = _invoke(str(root))
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        report = json.loads(result.stdout)
+        self.assertEqual(report["files"], 1)
+        self.assertEqual(report["records"], 1)
+        self.assertEqual(report["eligible_records"], 1)
+        self.assertEqual(report["by_factory"], {"agentic-factory": 1})
 
     def test_issue_43_factory_mix_is_named_and_subtracted(self):
         with tempfile.TemporaryDirectory() as temporary:

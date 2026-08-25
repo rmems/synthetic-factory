@@ -129,13 +129,18 @@ def _enclosing_marker_root(run_dir: Path, path: Path) -> Path | None:
         if current == run_dir:
             return None
         parent = current.parent
-        if parent == current:  # Defensive: ``relative_to`` should prevent it.
+        if parent == current:  # Defensive: ``relative_to`` should prevent this.
             return None
         current = parent
 
 
 def visible_jsonl_paths(run_dir: Path) -> list[Path]:
-    """Return JSONL visible under the round transaction contract."""
+    """Return JSONL visible under the round transaction contract.
+
+    Legacy trees without marker mode remain recursively visible. Once an
+    enclosing factory has entered marker mode, only paths returned by
+    ``committed_jsonl_paths`` may contribute to census or audit denominators.
+    """
 
     run_dir = Path(run_dir)
     visible_by_marker_root: dict[Path, set[Path]] = {}

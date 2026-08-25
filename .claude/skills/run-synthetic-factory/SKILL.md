@@ -151,7 +151,9 @@ same `mill_family.py` ownership result and subtract proven foreign-mill
 records. `leftover` inside a record id is a goal-naming convention, never
 grounds for quarantine; those records stay eligible unless payload-factory,
 mill-prefix, or goal-family evidence proves that they belong elsewhere. Raw
-JSONL is named and skipped, never rewritten or deleted.
+JSONL is named and skipped, never rewritten or deleted. In marker mode these
+readers count only transactionally visible batches; a linked batch does not
+enter an eligible denominator before its completion marker exists.
 
 Never estimate agent-token usage from output bytes without labeling the method.
 Output-token estimates (`bytes / 4`) and model usage tokens are different units.

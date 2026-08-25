@@ -33,7 +33,7 @@ from check_records import (  # noqa: E402
     root_record_id,
     walk_key,
 )
-from census import factory_for_path  # noqa: E402
+from census import factory_for_path, visible_jsonl_paths  # noqa: E402
 from mill_family import (  # noqa: E402
     MillFinding,
     MillIndex,
@@ -244,7 +244,7 @@ def _index_mill_findings(run_dir: Path, files: list[Path]):
 
 def audit_run(run_dir: Path):
     run_dir = Path(run_dir).resolve()
-    files = sorted(run_dir.rglob("*.jsonl"))
+    files = visible_jsonl_paths(run_dir)
     mill_findings = _index_mill_findings(run_dir, files)
     mill_findings_by_ref = {finding.ref: finding for finding in mill_findings}
     mill_mix = summarize_mill_mix(mill_findings)
