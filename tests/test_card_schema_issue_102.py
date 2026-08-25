@@ -123,9 +123,7 @@ class BrowserToolUseDeclarationTests(unittest.TestCase):
             ),
             [],
         )
-        self.assertTrue(
-            card_schema.payload_coverage_errors(self.declaration, ["episodes.jsonl"])
-        )
+        self.assertTrue(card_schema.payload_coverage_errors(self.declaration, ["episodes.jsonl"]))
 
     def test_card_front_matter_declares_the_default_config_over_raw_batches(self):
         front_matter = self.card.split("---", 2)[1]
@@ -159,4 +157,3 @@ class BrowserToolUseDeclarationTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-
