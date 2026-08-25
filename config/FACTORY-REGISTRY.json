@@ -216,8 +216,7 @@
       "generator": "grok-4.6",
       "generator_version": "grok-4.6",
       "record_kinds": [
-        "preference",
-        "episode"
+        "preference"
       ],
       "identity_authoritative": true,
       "publication_target": null,
@@ -228,8 +227,7 @@
         "curate_trajectory_preferences"
       ],
       "provenance_contract_by_kind": {
-        "preference": "synthetic_shape_implies_designed",
-        "episode": "synthetic_shape_implies_designed"
+        "preference": "synthetic_shape_implies_designed"
       }
     },
     {
@@ -808,7 +806,7 @@
       "generator": "grok-4.6",
       "generator_version": "grok-4.6",
       "record_kinds": [
-        "safety_case"
+        "episode"
       ],
       "identity_authoritative": true,
       "publication_target": null,
@@ -818,7 +816,7 @@
         "curate_coding"
       ],
       "provenance_contract_by_kind": {
-        "safety_case": "synthetic_shape_implies_designed"
+        "episode": "synthetic_shape_implies_designed"
       }
     },
     {
