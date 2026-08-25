@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Issue #72 leaf tests for the per-dataset card schema declaration."""
+"""PR #133 / issue #72 leaf tests for the per-dataset card schema declaration."""
 
 import test_card_schema as _shared
 
@@ -43,7 +43,7 @@ SIR_LANE_IDS = (
 
 
 class SearchIndexRebuildDeclarationTests(unittest.TestCase):
-    """Issue #72: thin `meta` vs the designed/lane union schema.
+    """PR #133 / issue #72: thin `meta` vs the designed/lane union schema.
 
     Numbers below are the counted union over the 250 published records in
     ``data/raw/batch-r01.jsonl`` .. ``batch-r125.jsonl`` (4123 steps).
@@ -51,7 +51,10 @@ class SearchIndexRebuildDeclarationTests(unittest.TestCase):
 
     def setUp(self):
         self.declaration = card_schema.load(SEARCH_INDEX_REBUILD)
-        self.assertIsNotNone(self.declaration, "config/card-schemas is missing #72")
+        self.assertIsNotNone(
+            self.declaration,
+            "PR #133 is missing the config/card-schemas declaration for issue #72",
+        )
         self.item = {
             "slug": "search-index-rebuild-factory",
             "hub": SEARCH_INDEX_REBUILD,
@@ -151,4 +154,3 @@ class SearchIndexRebuildDeclarationTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-
