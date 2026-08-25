@@ -20,6 +20,7 @@ import curate_bridge  # noqa: E402
 import training_audit  # noqa: E402
 
 FIXTURES = REPO / "tests" / "fixtures"
+RASTER_SCHEMA = REPO / "schemas" / "raster.schema.json"
 R02_FIXTURE = "bridge-r02-defects.jsonl"
 R03_FIXTURE = "bridge-r03-defects.jsonl"
 QUARANTINE_FIXTURE = "bridge-quarantine.jsonl"
@@ -756,6 +757,36 @@ class RasterAndGateSnnCuration(unittest.TestCase):
         self.assertEqual(
             status["reason_codes"], [curate_bridge.REASON_RASTER_MISSING]
         )
+
+
+class RasterSchemaParity(unittest.TestCase):
+    """Every runtime-supported sidecar carrier shares one schema definition."""
+
+    def setUp(self):
+        self.schema = json.loads(RASTER_SCHEMA.read_text(encoding="utf-8"))
+
+    def test_nested_gate_snn_carriers_reference_the_canonical_definition(self):
+        trajectory = self.schema["properties"]["language_view"]["properties"][
+            "trajectory"
+        ]["properties"]
+
+        self.assertEqual(trajectory["gate_snn"], {"$ref": "#/$defs/gate_snn"})
+        self.assertEqual(
+            trajectory["safety_decision"]["properties"]["gate_snn"],
+            {"$ref": "#/$defs/gate_snn"},
+        )
+
+    def test_schema_pins_the_runtime_gate_and_routing_requirements(self):
+        gate = self.schema["$defs"]["gate_snn"]
+        raster = self.schema["$defs"]["raster"]
+        routing = raster["properties"]["routing"]
+        table_entry = routing["properties"]["table"]["items"]
+
+        self.assertEqual(gate["required"], ["decision", "populations"])
+        self.assertIn("third_factor", routing["required"])
+        self.assertEqual(table_entry["required"], ["from", "to"])
+        population = gate["properties"]["populations"]["items"]
+        self.assertTrue(population["allOf"])
 
 
 if __name__ == "__main__":

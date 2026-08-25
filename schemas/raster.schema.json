@@ -16,6 +16,27 @@
       },
       "additionalProperties": true
     },
+    "language_view": {
+      "type": "object",
+      "description": "Structured language carrier for a Bridge trajectory. Nested gate_snn declarations use the same definition as top-level and meta sidecars.",
+      "properties": {
+        "trajectory": {
+          "type": "object",
+          "properties": {
+            "gate_snn": { "$ref": "#/$defs/gate_snn" },
+            "safety_decision": {
+              "type": "object",
+              "properties": {
+                "gate_snn": { "$ref": "#/$defs/gate_snn" }
+              },
+              "additionalProperties": true
+            }
+          },
+          "additionalProperties": true
+        }
+      },
+      "additionalProperties": true
+    },
     "gate_compute": {
       "type": "object",
       "description": "Alternative carrier for spike-budget checks: per-check neurons/rate/window/spikes entries",
@@ -66,7 +87,7 @@
     "gate_snn": {
       "type": "object",
       "description": "Spike-implemented safety gate head. The gate decision is expressed as neuron populations with firing thresholds integrated over a decision window, so a distillation probe reads neuron counts instead of prose margins. A population that also declares mean_rate_hz and spikes is held to the same spikes = round(neurons * mean_rate_hz * decision_window_s) budget as a raster. Accepted carriers: top-level gate_snn, meta.gate_snn, language_view.trajectory.gate_snn, language_view.trajectory.safety_decision.gate_snn.",
-      "required": ["populations"],
+      "required": ["decision", "populations"],
       "anyOf": [
         { "required": ["decision_window_ms"] },
         { "required": ["decision_window_s"] }
@@ -93,6 +114,24 @@
           "items": {
             "type": "object",
             "required": ["name", "neurons", "threshold"],
+            "allOf": [
+              {
+                "if": {
+                  "anyOf": [
+                    { "required": ["mean_rate_hz"] },
+                    { "required": ["rate_hz"] },
+                    { "required": ["spikes"] }
+                  ]
+                },
+                "then": {
+                  "required": ["spikes"],
+                  "anyOf": [
+                    { "required": ["mean_rate_hz"] },
+                    { "required": ["rate_hz"] }
+                  ]
+                }
+              }
+            ],
             "properties": {
               "name": { "type": "string", "minLength": 1 },
               "neurons": { "type": "integer", "minimum": 1 },
@@ -162,7 +201,7 @@
         },
         "routing": {
           "type": "object",
-          "required": ["source", "target"],
+          "required": ["source", "target", "third_factor"],
           "description": "Address-event routing for this raster population",
           "properties": {
             "source": { "type": "string", "minLength": 1 },
@@ -172,6 +211,7 @@
               "description": "Per-population routing table. Optional to this schema, but pipelines/training_audit.py blocks a run whose rasters carry no table entries.",
               "items": {
                 "type": "object",
+                "required": ["from", "to"],
                 "properties": {
                   "from": { "type": "string" },
                   "to": { "type": "string" },
@@ -181,7 +221,7 @@
             },
             "third_factor": {
               "type": "object",
-              "description": "Third-factor (neuromodulatory) routing for this population: the eligibility channel that gates plasticity. Optional, but when present the curator requires a named modulator and a positive eligibility time constant.",
+              "description": "Required third-factor (neuromodulatory) routing for this population: the eligibility channel that gates plasticity. The curator requires a named modulator and a positive eligibility time constant.",
               "required": ["modulator"],
               "anyOf": [
                 { "required": ["tau_e_s"] },
