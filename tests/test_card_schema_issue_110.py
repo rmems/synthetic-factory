@@ -41,11 +41,13 @@ class SandboxRefusalDeclarationTests(unittest.TestCase):
         }
         self.card = publisher.render_card(
             self.item,
-            records=4902,
+            # Exercise a later snapshot: reusable schema prose must not freeze
+            # the r1634 record counts into every future card render.
+            records=5784,
             bytes_=18135666,
             first="r01",
-            last="r1634",
-            payload_names=["batch-r01.jsonl", "batch-r1634.jsonl"],
+            last="r1928",
+            payload_names=["batch-r01.jsonl", "batch-r1928.jsonl"],
         )
 
     def test_declaration_matches_the_observed_union_schema(self):
@@ -88,10 +90,10 @@ class SandboxRefusalDeclarationTests(unittest.TestCase):
             feature["name"]: feature.get("note", "")
             for feature in self.declaration["features"]
         }
-        self.assertIn("1634 of 4902", notes["redirect"])
-        self.assertIn("1634 of 4902", notes["benign_twin"])
-        self.assertIn("1635 of 4902", notes["vector"])
-        self.assertIn("3828 of 4902", notes["family"])
+        self.assertIn("every `correct_refusal` case", notes["redirect"])
+        self.assertIn("every `incorrect_refusal` case", notes["benign_twin"])
+        self.assertIn("every `missed_refusal` case", notes["vector"])
+        self.assertIn("round 359 onward", notes["family"])
 
     def test_key_bag_columns_are_declared_json(self):
         self.assertEqual(
@@ -123,9 +125,11 @@ class SandboxRefusalDeclarationTests(unittest.TestCase):
     def test_card_body_discloses_the_case_split_and_the_double_extra_record(self):
         self.assertIn("## Dataset viewer schema", self.card)
         self.assertNotIn("**Not declared yet.**", self.card)
-        self.assertIn("1634 `correct_refusal`", self.card)
-        self.assertIn("1634 `incorrect_refusal`", self.card)
-        self.assertIn("1634 `missed_refusal`", self.card)
+        self.assertIn("one `correct_refusal`", self.card)
+        self.assertIn("one `incorrect_refusal`", self.card)
+        self.assertIn("one `missed_refusal`", self.card)
+        self.assertNotIn("4902", self.card)
+        self.assertNotIn("1634 records", self.card)
         self.assertIn("`sbox-r191-agents-md-token-exfil-refuse`", self.card)
         self.assertIn("| `redirect` | optional |", self.card)
         self.assertIn("| `benign_twin` | optional |", self.card)
