@@ -1,0 +1,31 @@
+docs/ouroboros-swarm-payload-kind.card.md
+  s_002cddb1a70571::t_a26ba059f58486 1-133
+docs/ouroboros-swarm-payload-kind.json
+  s_002cddb1a70571::t_a1b5707d2f6621 1-84,87,90,99,652-653
+  s_002cddb1a70571::t_52ecd40510d42f 85-86,88-89,91-98,100-651
+docs/ouroboros-swarm-payload-kind.md
+  s_002cddb1a70571::t_b154cb1892a457 1-176
+tests/test_ouroboros_swarm_payload_kind.py
+  s_002cddb1a70571::t_572d7a49f6caf2 1-260,265,271-319
+  s_002cddb1a70571::t_be34db0fc82ef2 261-264,266-270
+pipelines/verify_hf_release.py
+  s_002cddb1a70571::t_59a99ca6fb2751 151
+  s_002cddb1a70571::t_7206d1e3ef3a45 164-178
+  s_002cddb1a70571::t_fa8a916c9c681f 330-336
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "fbcbd171d290ff9a817b50fd0eda1580af24ef02",
+  "prompts": {},
+  "sessions": {
+    "s_002cddb1a70571": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "abd260ba-6a6c-45a6-9db3-a4e0988ad60e",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Raul Montoya Cardenas <montoyaraul34@gmail.com>"
+    }
+  }
+}
