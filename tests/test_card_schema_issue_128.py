@@ -64,6 +64,11 @@ class ObservabilityDebugDeclarationTests(unittest.TestCase):
             ],
         )
         names = {feature["name"]: feature for feature in features}
+        for scalar in ("id", "goal", "outcome"):
+            with self.subTest(scalar=scalar):
+                self.assertEqual(names[scalar]["dtype"], "string")
+                self.assertNotIn("optional", names[scalar])
+                self.assertIn("present on all 1749 records", names[scalar]["note"])
         # `plan` is a string on all 1749 records here, unlike #36 where it is optional.
         self.assertNotIn("optional", names["plan"])
         self.assertEqual(names["plan"]["dtype"], "string")
@@ -135,4 +140,3 @@ class ObservabilityDebugDeclarationTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-

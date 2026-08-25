@@ -7,8 +7,16 @@
   "split": "train",
   "data_files": ["data/raw/batch-*.jsonl"],
   "features": [
-    {"name": "id", "dtype": "string"},
-    {"name": "goal", "dtype": "string"},
+    {
+      "name": "id",
+      "dtype": "string",
+      "note": "present on all 1749 records and always a string"
+    },
+    {
+      "name": "goal",
+      "dtype": "string",
+      "note": "present on all 1749 records and always a string"
+    },
     {
       "name": "plan",
       "dtype": "string",
@@ -90,7 +98,11 @@
         }
       ]
     },
-    {"name": "outcome", "dtype": "string"},
+    {
+      "name": "outcome",
+      "dtype": "string",
+      "note": "present on all 1749 records and always a string"
+    },
     {
       "name": "reward",
       "dtype": "json",
