@@ -1,0 +1,23 @@
+tests/test_curate_trajectory_preferences.py
+  s_940326c4ee4215::t_4cb3366f8cb02b 49-53,235-280,312-341,565
+docs/trajectory-preference-gate.md
+  s_940326c4ee4215::t_4cb3366f8cb02b 61-63,68-70,83-86,110,120,124-126
+pipelines/curate_trajectory_preferences.py
+  s_940326c4ee4215::t_4cb3366f8cb02b 45,69,80,126,165-198,215,234,302,309-324,346-349,474,483,498,510,623
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "06c84c8e596c3f3d132dc21a851b8931a742001f",
+  "prompts": {},
+  "sessions": {
+    "s_940326c4ee4215": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a032e4-1904-7a82-8c8b-1ad3cfbeb0b0",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Raul Montoya Cardenas <montoyaraul34@gmail.com>"
+    }
+  }
+}
