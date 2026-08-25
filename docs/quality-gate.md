@@ -8,9 +8,10 @@ raw JSONL (append-only SoT)
     │
     ▼
 pipelines/promote.py  ──►  cleaned/<date>/   (provenance remapped, spike trains sorted)
-    │
+    │                         │
+    │                         └── quality-manifest.json
     ▼
-pipelines/quality_gate.py --threshold 0.97 --manifest <curated>/quality-manifest.json
+pipelines/quality_gate.py (invoked automatically; standalone CLI also available)
     │
     ▼
 blocked?  ──►  train / fix
@@ -46,10 +47,13 @@ cosine_sim(a, b) > threshold
 Near-duplicate pairs are merged into clusters (union-find). The
 **first record in file/line order is the representative and is kept**;
 every other cluster member appears in ``duplicates`` with
-``kind="embedding"``, its ``similarity``, the ``duplicate_of`` record it
-collided with, and a human-readable ``reason``. The cluster itself is
-emitted in ``duplicate_clusters``. Exact-hash duplicates use the same
-shape with ``kind="exact"``, so one ``blocked`` semantics covers both.
+``kind="embedding"``, its ``similarity``, ``duplicate_of`` pointing to the
+retained representative, ``matched_with`` identifying the scored edge that
+put it in the cluster, and a human-readable ``reason``. Keeping those two
+references separate matters for transitive clusters: C may match excluded B
+even when retained A is below threshold. The cluster itself is emitted in
+``duplicate_clusters``. Exact-hash duplicates use the same blocking semantics
+with ``kind="exact"``.
 
 Every ``duplicates`` entry still carries ``file``, ``line`` and
 ``reason``. ``hash`` appears only on ``kind="exact"`` entries and
@@ -61,11 +65,17 @@ first.
 This repository is stdlib-only (see ``AGENTS.md``), so the encoder is
 lexical, not learned:
 
-- **``EMBEDDING_ENCODER = "lexical-tfidf/1"``** — TF-IDF over word
-  unigrams *and* bigrams of every **leaf value** in the same view the
-  hash uses. Dict keys are skipped: keys are schema, and including them
-  would drag two unrelated records that merely share a factory schema
-  toward each other.
+- **``EMBEDDING_ENCODER = "lexical-tfidf/2"``** — TF-IDF over Unicode word
+  unigrams *and* bigrams of every **path-qualified leaf value** in the same
+  view the hash uses. A feature combines the full field path with the leaf
+  word, so shared schema alone contributes nothing while the same value under
+  semantically different fields stays distinct.
+- Mapping keys are traversed in canonical sorted order before bigrams are
+  formed. Equivalent JSON objects therefore embed identically regardless of
+  insertion order. List elements share a path marker while their sequence is
+  retained in the bigrams.
+- Unicode tokenization preserves non-ASCII scripts instead of reducing two
+  unrelated multilingual records to their shared ASCII metadata.
 - Sublinear term frequency (``1 + log tf``) times smoothed IDF
   (``log((N+1)/(df+1)) + 1``), L2-normalized, so the dot product **is**
   the cosine.
@@ -101,9 +111,10 @@ is ever held in memory. Consequences:
   that band. The committed regression plants clones that differ in one
   field and requires every one of them back; an ad-hoc sweep at 200
   clones in 2,200 records also recovered 200/200 with no false positives.
-- ``--max-embedding-pairs`` (default 2,000,000) caps candidate pairs. If
-  the cap is hit, ``embedding.truncated`` is ``true`` and a warning says
-  recall is partial for that run — it never truncates silently.
+- ``--max-embedding-pairs`` (default 2,000,000) caps candidate pairs. The
+  report sets ``embedding.truncated`` only after observing an additional
+  distinct pair that would be omitted; producing exactly the cap is complete
+  and does not raise a false partial-recall warning.
 - Cost is roughly linear in records: ~2s and ~270 MB over baseline for
   5,000 narrative records with an adversarially unique vocabulary. Peak
   memory holds one term-count map per retained record; parsed records are
@@ -127,7 +138,7 @@ is ever held in memory. Consequences:
 - ``tests/fixtures/embedding-dedup/`` is the regression case: seven
   records, six distinct (max pairwise cosine 0.06) and one planted
   near-duplicate that differs only in ``state.tick`` — invisible to
-  exact hashing, 0.9889 to the encoder.
+  exact hashing and above 0.97 to the encoder.
 
 ### Tuning
 
@@ -170,7 +181,10 @@ still harms diversity.
   unlabeled == total``, and ``synthetic_ratio`` stays ``synthetic /
   total`` over that same population.
 - Promotion already normalizes ``sim_or_real → provenance.kind`` so mix
-  counting is consistent between raw and cleaned trees.
+  counting is consistent between raw and cleaned trees. For preference pairs,
+  matching ``chosen``/``rejected`` provenance is counted once per pair; a
+  partial or conflicting pair remains unlabeled. Bridge wrappers use their
+  nested trajectory provenance before a generic top-level ``unknown`` stamp.
 
 ### The policy is blocking
 
@@ -197,10 +211,12 @@ exist so an unlabeled-heavy tree cannot look compliant by accident.
 
 ## Curated manifest (sidecar)
 
-``--manifest <path>`` writes the full report as a sidecar next to the
-curated tree. Nothing is written unless the flag is passed — the gate is
-read-only by default, the same contract ``validate_run.py --write``
-follows. Parent directories are created.
+``quality_gate.py --manifest <path>`` writes the full report as a sidecar next
+to the curated tree. The standalone gate remains read-only unless that flag is
+passed. The established ``promote.py`` command always writes promotion
+evidence, defaulting to ``<cleaned_out>/quality-manifest.json``; use
+``--quality-manifest <path>`` to select another non-raw location. Parent
+directories are created.
 
 ```bash
 python3 pipelines/quality_gate.py outputs/cleaned/2026-08-17 \
@@ -253,16 +269,17 @@ JSON output fields:
      "reason": "exact content hash a1b2c3d4e5f60123 already seen at batch-r02.jsonl:12"},
     {"file": "batch-r03.jsonl", "line": 8, "kind": "embedding", "similarity": 0.9889,
      "duplicate_of": {"file": "batch-r03.jsonl", "line": 7},
-     "reason": "embedding near-duplicate: cosine 0.9889 > 0.97 vs batch-r03.jsonl:7 (encoder lexical-tfidf/1)"}
+     "matched_with": {"file": "batch-r03.jsonl", "line": 7},
+     "reason": "embedding near-duplicate: cosine 0.9889 > 0.97 vs retained representative batch-r03.jsonl:7 (encoder lexical-tfidf/2)"}
   ],
   "duplicate_clusters": [
-    {"kind": "embedding", "size": 2, "threshold": 0.97, "encoder": "lexical-tfidf/1",
+    {"kind": "embedding", "size": 2, "threshold": 0.97, "encoder": "lexical-tfidf/2",
      "max_similarity": 0.9889,
      "representative": {"file": "batch-r03.jsonl", "line": 7},
      "members": [{"file": "batch-r03.jsonl", "line": 7}, {"file": "batch-r03.jsonl", "line": 8}],
-     "reason": "1 record(s) within cosine 0.97 of batch-r03.jsonl:7"}
+     "reason": "1 excluded record(s) linked by cosine > 0.97; representative batch-r03.jsonl:7 is retained"}
   ],
-  "embedding": {"enabled": true, "encoder": "lexical-tfidf/1", "threshold": 0.97,
+  "embedding": {"enabled": true, "encoder": "lexical-tfidf/2", "threshold": 0.97,
                 "compared_records": 1230, "candidate_pairs": 418, "truncated": false},
   "reward_shapes": {"records_with_reward_components": 1180, "unique_component_keys": 510,
                     "unique_shapes": 140, "top_component_keys": [], "top_shapes": []},
@@ -295,19 +312,25 @@ offending files and re-run the gate.
 
 ## Integration with ``pipelines/promote.py``
 
-``promote.py`` writes ``cleaned_out`` but does **not** gate it. The
-intended pipeline is:
+``promote.py`` writes ``cleaned_out`` and immediately runs this gate over that
+new tree. The command exits 1 when blocked and retains both the diagnostic
+cleaned tree and its manifest as evidence; that output is not curated or
+training-ready. The default pipeline is:
 
 ```bash
 python3 pipelines/promote.py outputs/raw/2026-08-17 outputs/cleaned/2026-08-17
-python3 pipelines/quality_gate.py outputs/cleaned/2026-08-17 --threshold 0.97 \
-  --manifest outputs/curated/2026-08-17/quality-manifest.json --json
-# only promote to curated / train if exit 0
+# exit 0 = gate passed; exit 1 = blocked, inspect quality-manifest.json
 ```
+
+The promotion CLI accepts the gate's threshold, embedding-cap and mix-policy
+flags, plus ``--quality-manifest``. The standalone command remains useful for
+re-auditing an existing tree or writing a separately located curated sidecar.
 
 CI should:
 
-- Run the gate as a required check after promotion.
+- Treat the integrated promotion command as the required gate; an explicit
+  standalone re-audit is still valid when CI separates transform and audit
+  jobs.
 - Treat ``blocked == true`` as a hard failure (do not train). It now
   covers exact duplicates, embedding near-duplicates, unreadable or
   malformed input, and a synthetic/real mix outside policy.
@@ -316,9 +339,8 @@ CI should:
   share, truncated embedding recall) as soft failures requiring review
   and an explicit override comment.
 
-See ``pipelines/promote.py`` module docstring for the same contract
-and ``pipelines/quality_gate.py`` for the authoritative threshold
-documentation.
+See ``pipelines/promote.py`` for the integrated exit-code contract and
+``pipelines/quality_gate.py`` for the authoritative threshold documentation.
 
 ## References
 

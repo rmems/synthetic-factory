@@ -378,7 +378,18 @@ class TestPromoteRun(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             raw = Path(td) / "raw"
             cleaned = Path(td) / "cleaned"
-            _write_jsonl(raw / "f" / "a.jsonl", [_thalamic()])
+            records = []
+            for index in range(5):
+                record = _thalamic(
+                    sim_or_real="real" if index == 0 else "unknown",
+                    meta={"id": f"t-{index}"},
+                )
+                record["state"]["domain"] = f"distinct-domain-{index}"
+                record["state"]["note"] = f"independent scenario vocabulary {index}"
+                record["proposed_action"]["action_type"] = f"proposal-{index}"
+                record["executed_action"]["action_type"] = f"execution-{index}"
+                records.append(record)
+            _write_jsonl(raw / "f" / "a.jsonl", records)
             proc = _cli([str(raw), str(cleaned)])
             self.assertEqual(proc.returncode, 0, proc.stderr)
             note = (cleaned / "PROVENANCE.md").read_text()
@@ -388,6 +399,48 @@ class TestPromoteRun(unittest.TestCase):
             payload = json.loads(proc.stdout)
             self.assertGreaterEqual(payload.get("files", 0), 1)
             self.assertGreaterEqual(payload.get("records", 0), 1)
+            self.assertFalse(payload["quality_gate"]["blocked"])
+            manifest = cleaned / "quality-manifest.json"
+            self.assertTrue(manifest.is_file())
+            self.assertFalse(json.loads(manifest.read_text())["blocked"])
+
+    def test_cli_returns_one_and_keeps_manifest_when_quality_gate_blocks(self):
+        with tempfile.TemporaryDirectory() as td:
+            raw = Path(td) / "raw"
+            cleaned = Path(td) / "cleaned"
+            record = _thalamic(meta={"id": "duplicate"})
+            _write_jsonl(raw / "f" / "a.jsonl", [record, record])
+
+            proc = _cli([str(raw), str(cleaned)])
+
+            self.assertEqual(proc.returncode, 1, proc.stderr)
+            payload = json.loads(proc.stdout)
+            self.assertTrue(payload["quality_gate"]["blocked"])
+            self.assertTrue(any("duplicate" in b for b in payload["quality_gate"]["blockers"]))
+            manifest = cleaned / "quality-manifest.json"
+            self.assertTrue(manifest.is_file())
+            report = json.loads(manifest.read_text())
+            self.assertTrue(report["blocked"])
+            self.assertEqual(report["counts"]["excluded_records"], 1)
+
+    def test_cli_rejects_manifest_inside_raw_before_writing_cleaned_output(self):
+        with tempfile.TemporaryDirectory() as td:
+            raw = Path(td) / "raw"
+            cleaned = Path(td) / "cleaned"
+            _write_jsonl(raw / "f" / "a.jsonl", [_thalamic()])
+
+            proc = _cli(
+                [
+                    str(raw),
+                    str(cleaned),
+                    "--quality-manifest",
+                    str(raw / "quality-manifest.json"),
+                ]
+            )
+
+            self.assertEqual(proc.returncode, 2)
+            self.assertFalse(cleaned.exists())
+            self.assertFalse((raw / "quality-manifest.json").exists())
 
 
 if __name__ == "__main__":

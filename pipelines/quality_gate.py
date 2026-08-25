@@ -41,11 +41,12 @@ Dedup signals
      re-runs). Record the chosen value in the run's ``quality_report``.
 
    Encoder: this repository is stdlib-only, so the shipped encoder is a
-   deterministic lexical one (``EMBEDDING_ENCODER``) — TF-IDF over word
-   unigrams and bigrams of every leaf value in the same view the hash
-   uses, L2-normalized, so the dot product *is* the cosine. It has no
-   model weights, no download and no randomness, which is what keeps the
-   gate reproducible in CI. Candidate pairs come from a banded
+   deterministic lexical one (``EMBEDDING_ENCODER``) — TF-IDF over
+   Unicode word unigrams and bigrams of path-qualified leaf values in a
+   canonical traversal of the same view the hash uses, L2-normalized, so
+   the dot product *is* the cosine. It has no model weights, no download
+   and no randomness, which is what keeps the gate reproducible in CI.
+   Candidate pairs come from a banded
    one-permutation MinHash sketch and every candidate is then scored
    exactly, so precision is exact and only recall is approximate (see
    ``EMBEDDING_LSH_BANDS``).
@@ -121,7 +122,7 @@ missing label) lands in the separate ``unlabeled`` bucket."""
 MAX_ERROR_EXAMPLES = 10
 """Cap on per-category read/parse failure examples kept in the report."""
 
-EMBEDDING_ENCODER = "lexical-tfidf/1"
+EMBEDDING_ENCODER = "lexical-tfidf/2"
 """Identifier of the shipped deterministic encoder, recorded in the report so
 a corpus embedded by a different encoder is never compared against one of
 these runs on threshold alone."""
@@ -139,8 +140,9 @@ DEFAULT_MAX_EMBEDDING_PAIRS = 2_000_000
 """Safety cap on candidate pairs. Hitting it is reported (and warned about)
 rather than silently truncating recall."""
 
-_WORD_RE = re.compile(r"[a-z0-9]+")
+_WORD_RE = re.compile(r"\w+", re.UNICODE)
 _BIGRAM_SEP = "\x00"
+_PATH_SEP = "\x1f"
 
 
 class MixPolicy(NamedTuple):
@@ -242,32 +244,49 @@ def record_hash(obj):
     return hashlib.sha256(blob.encode("utf-8")).hexdigest()[:16]
 
 
-def _leaf_strings(value, out):
-    """Collect every leaf value of ``value`` as text, ignoring dict keys.
+def _path_child(path, key):
+    """Return an unambiguous JSON-pointer-like child path."""
+    escaped = str(key).replace("~", "~0").replace("/", "~1")
+    return f"{path}/k:{escaped}"
 
-    Keys are schema, not content: including them would push two unrelated
-    records that merely share a factory schema toward each other.
+
+def _leaf_words(value, out, path="$"):
+    """Collect canonical, path-qualified Unicode words from leaf values.
+
+    Qualifying values by their full field path prevents equal words under
+    semantically different fields from becoming identical features. Mapping
+    keys are traversed in sorted order so JSON insertion order cannot change
+    cross-leaf bigrams. List positions deliberately share an ``[]`` path;
+    sequence order is still represented by the bigrams without making an
+    insertion shift every downstream feature.
     """
     if isinstance(value, dict):
-        for item in value.values():
-            _leaf_strings(item, out)
+        for key in sorted(value):
+            _leaf_words(value[key], out, _path_child(path, key))
+        return
     elif isinstance(value, (list, tuple)):
         for item in value:
-            _leaf_strings(item, out)
+            _leaf_words(item, out, f"{path}/[]")
+        return
     elif isinstance(value, bool):
-        out.append("true" if value else "false")
+        text = "true" if value else "false"
     elif isinstance(value, (int, float)):
-        out.append(repr(value))
+        text = repr(value)
     elif isinstance(value, str):
-        out.append(value)
-    # None carries no content and contributes no token.
+        text = value
+    else:
+        # None and unsupported objects carry no lexical content.
+        return
+    out.extend(
+        f"{path}{_PATH_SEP}{word}"
+        for word in _WORD_RE.findall(text.casefold())
+    )
 
 
 def embedding_tokens(obj):
     """Term counts (unigrams + bigrams) for the near-duplicate encoder."""
-    parts: list = []
-    _leaf_strings(dedup_view(obj), parts)
-    words = _WORD_RE.findall(" ".join(parts).lower())
+    words: list = []
+    _leaf_words(dedup_view(obj), words)
     tokens = Counter(words)
     tokens.update(
         f"{first}{_BIGRAM_SEP}{second}" for first, second in zip(words, words[1:])
@@ -356,10 +375,13 @@ def _candidate_pairs(signatures, max_pairs):
             continue
         for offset, left in enumerate(members):
             for right in members[offset + 1:]:
-                pairs.add((left, right))
+                pair = (left, right)
+                if pair in pairs:
+                    continue
                 if len(pairs) >= max_pairs:
                     truncated = True
                     break
+                pairs.add(pair)
             if truncated:
                 break
     return sorted(pairs), truncated
@@ -397,6 +419,67 @@ class _Union:
 
 def _where(record):
     return {"file": record["file"], "line": record["line"]}
+
+
+def _state_provenance_kind(state):
+    """Return the provenance label carried by a state object, if any."""
+    if not isinstance(state, dict):
+        return None
+    kind = state.get("sim_or_real")
+    if kind:
+        return str(kind)
+    nested = state.get("provenance")
+    if isinstance(nested, dict) and nested.get("kind"):
+        return str(nested["kind"])
+    return None
+
+
+def _owner_provenance_kind(owner):
+    """Return one record owner's state/top-level provenance label."""
+    if not isinstance(owner, dict):
+        return None
+    kind = _state_provenance_kind(owner.get("state"))
+    if kind:
+        return kind
+    provenance = owner.get("provenance")
+    if isinstance(provenance, dict) and provenance.get("kind"):
+        return str(provenance["kind"])
+    return None
+
+
+def _record_provenance_kind(record):
+    """Resolve one mix label per record, including nested record shapes.
+
+    Preference pairs are one training record, so equal labels on both sides
+    count once. A partial or conflicting pair stays unlabeled instead of being
+    guessed from one side. Bridge trajectories likewise take precedence over
+    a wrapper's generic top-level ``unknown`` promotion stamp.
+    """
+    if not isinstance(record, dict):
+        return None
+
+    state_kind = _state_provenance_kind(record.get("state"))
+    if state_kind:
+        return state_kind
+
+    if "chosen" in record or "rejected" in record:
+        chosen = _owner_provenance_kind(record.get("chosen"))
+        rejected = _owner_provenance_kind(record.get("rejected"))
+        if chosen and rejected and chosen == rejected:
+            return chosen
+        if chosen or rejected:
+            return None
+
+    view = record.get("language_view")
+    trajectory = view.get("trajectory") if isinstance(view, dict) else None
+    trajectory_kind = _owner_provenance_kind(trajectory)
+    if trajectory_kind:
+        return trajectory_kind
+
+    provenance = record.get("provenance")
+    if isinstance(provenance, dict) and provenance.get("kind"):
+        return str(provenance["kind"])
+    return None
 
 
 def _embedding_duplicates(records, threshold, max_pairs):
@@ -468,9 +551,10 @@ def _embedding_duplicates(records, threshold, max_pairs):
     clusters = []
     for members in union.groups():
         keeper = records[members[0]]
-        cluster_similarity = max(
-            best_match[index][0] for index in members if index in best_match
-        )
+        # ``union`` is updated only for an accepted pair, and that same branch
+        # writes ``best_match`` for both endpoints. Therefore every member of
+        # every multi-record union group has at least one accepted match.
+        cluster_similarity = max(best_match[index][0] for index in members)
         clusters.append(
             {
                 "kind": "embedding",
@@ -481,24 +565,37 @@ def _embedding_duplicates(records, threshold, max_pairs):
                 "representative": _where(keeper),
                 "members": [_where(records[index]) for index in members],
                 "reason": (
-                    f"{len(members) - 1} record(s) within cosine {threshold} of "
-                    f"{keeper['file']}:{keeper['line']}"
+                    f"{len(members) - 1} excluded record(s) linked by cosine > "
+                    f"{threshold}; representative {keeper['file']}:{keeper['line']} "
+                    "is retained"
                 ),
             }
         )
         for index in members[1:]:
             similarity, other = best_match[index]
-            origin = records[other]
+            match = records[other]
+            representative = _where(keeper)
+            matched_with = _where(match)
+            if other == members[0]:
+                relationship = (
+                    f"vs retained representative {keeper['file']}:{keeper['line']}"
+                )
+            else:
+                relationship = (
+                    f"vs cluster member {match['file']}:{match['line']}; retained "
+                    f"representative is {keeper['file']}:{keeper['line']}"
+                )
             duplicates.append(
                 {
                     "file": records[index]["file"],
                     "line": records[index]["line"],
                     "kind": "embedding",
                     "similarity": round(similarity, 6),
-                    "duplicate_of": _where(origin),
+                    "duplicate_of": representative,
+                    "matched_with": matched_with,
                     "reason": (
                         f"embedding near-duplicate: cosine {similarity:.4f} > "
-                        f"{threshold} vs {origin['file']}:{origin['line']} "
+                        f"{threshold} {relationship} "
                         f"(encoder {EMBEDDING_ENCODER})"
                     ),
                 }
@@ -538,6 +635,8 @@ def audit_run(
         raise ValueError(f"max_embedding_pairs must be >= 1, got {max_embedding_pairs!r}")
     policy = (mix_policy or MixPolicy()).validate()
     run_dir = Path(run_dir)
+    if not run_dir.is_dir():
+        raise ValueError(f"run directory does not exist or is not a directory: {run_dir}")
     hashes = Counter()
     first_seen = {}
     provenance = Counter()
@@ -602,27 +701,11 @@ def audit_run(
                     # are all the embedding pass needs, so a large tree never
                     # holds both the corpus and its encodings at once.
                     kept.append({**where, "tokens": embedding_tokens(obj)})
-            # Provenance: collect sim_or_real or provenance.kind. A JSONL line
-            # that parses to a scalar or array has no fields to read — guard the
-            # lookups, because this gate runs over untrusted generated JSONL.
-            fields = obj if isinstance(obj, dict) else {}
-            state = fields.get("state") if isinstance(fields.get("state"), dict) else {}
-            # Parenthesize: the ternary previously bound to the whole `or`
-            # expression, so a record without a top-level provenance object
-            # discarded its state.sim_or_real entirely.
-            provenance_obj = fields.get("provenance")
-            prov = state.get("sim_or_real") or (
-                provenance_obj.get("kind") if isinstance(provenance_obj, dict) else None
-            )
+            # Count one provenance label per record. Nested preference and
+            # bridge shapes are resolved before generic wrapper provenance.
+            prov = _record_provenance_kind(obj)
             if prov:
-                provenance[str(prov)] += 1
-            elif "language_view" in fields:
-                view = fields.get("language_view")
-                traj = view.get("trajectory") if isinstance(view, dict) else None
-                traj_state = traj.get("state") if isinstance(traj, dict) else None
-                prov2 = traj_state.get("sim_or_real") if isinstance(traj_state, dict) else None
-                if prov2:
-                    provenance[str(prov2)] += 1
+                provenance[prov] += 1
             # Reward-shape entropy is reported, never blocked on, and never
             # aggregated across magnitudes (issue #5 owns the ontology fix).
             seen_reward = False
@@ -671,13 +754,18 @@ def audit_run(
     real_unknown = sum(v for k, v in provenance.items() if k in REAL_KINDS)
     unlabeled = total - synthetic - real_unknown
     labeled = synthetic + real_unknown
-    mix = {"synthetic": synthetic, "real_unknown": real_unknown, "unlabeled": unlabeled,
-           "total": total, "provenance": dict(provenance)}
-    mix["synthetic_ratio"] = synthetic / total if total else 0.0
-    mix["unlabeled_ratio"] = unlabeled / total if total else 0.0
-    # Reported, never enforced: an unlabeled-heavy corpus makes this ratio loud
-    # and the enforced (total-denominator) one quiet, so both are surfaced.
-    mix["labeled_synthetic_ratio"] = synthetic / labeled if labeled else 0.0
+    mix = {
+        "synthetic": synthetic,
+        "real_unknown": real_unknown,
+        "unlabeled": unlabeled,
+        "total": total,
+        "provenance": dict(provenance),
+        "synthetic_ratio": synthetic / total if total else 0.0,
+        "unlabeled_ratio": unlabeled / total if total else 0.0,
+        # Reported, never enforced: an unlabeled-heavy corpus makes this ratio
+        # loud and the enforced (total-denominator) one quiet.
+        "labeled_synthetic_ratio": synthetic / labeled if labeled else 0.0,
+    }
 
     errors = {
         "unreadable_files": unreadable_files,
@@ -869,7 +957,6 @@ def main(argv=None):
         )
     except ValueError as exc:
         p.error(str(exc))  # exits 2
-        raise  # unreachable; keeps `result` provably bound below
     if args.manifest:
         written = write_manifest(args.manifest, run_dir, result)
         print(f"MANIFEST: {written}", file=sys.stderr)

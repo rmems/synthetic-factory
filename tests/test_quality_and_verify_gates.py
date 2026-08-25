@@ -95,6 +95,44 @@ class QualityGate(unittest.TestCase):
         self.assertEqual(report["counts"]["total"], 3)
         self.assertEqual(report["mix"]["unlabeled"], 3)
 
+    def test_preference_side_provenance_counts_once_per_pair(self):
+        pair = {
+            # A promoted wrapper can carry a generic top-level unknown stamp;
+            # the shared side provenance is the record's meaningful label.
+            "provenance": {"kind": "unknown"},
+            "chosen": {
+                "state": {"sim_or_real": "designed", "note": "preferred"},
+            },
+            "rejected": {
+                "state": {"sim_or_real": "designed", "note": "unsafe"},
+            },
+        }
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            write(root / "preferences.jsonl", [pair])
+            report = quality_gate.audit_run(root)
+
+        self.assertEqual(report["mix"]["synthetic"], 1)
+        self.assertEqual(report["mix"]["unlabeled"], 0)
+        self.assertEqual(report["mix"]["provenance"], {"designed": 1})
+        self.assertTrue(report["blocked"])
+        self.assertTrue(any("synthetic_ratio 1.00" in b for b in report["blockers"]))
+
+    def test_bridge_trajectory_provenance_precedes_wrapper_unknown(self):
+        bridge = {
+            "provenance": {"kind": "unknown"},
+            "language_view": {
+                "trajectory": {"state": {"sim_or_real": "hil", "note": "rig"}},
+            },
+        }
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            write(root / "bridges.jsonl", [bridge])
+            report = quality_gate.audit_run(root)
+
+        self.assertEqual(report["mix"]["provenance"], {"hil": 1})
+        self.assertEqual(report["mix"]["synthetic"], 1)
+
 
 class ExactDedup(unittest.TestCase):
     def test_exact_duplicate_is_excluded_with_a_reason(self):
@@ -180,12 +218,99 @@ class EmbeddingDedup(unittest.TestCase):
             report["warnings"],
         )
 
-    def test_candidate_cap_is_reported_not_silent(self):
+    def test_candidate_cap_is_not_truncated_when_exactly_full(self):
         report = quality_gate.audit_run(EMBEDDING_FIXTURE, max_embedding_pairs=1)
-        self.assertTrue(report["embedding"]["truncated"])
-        self.assertTrue(
-            any("recall is partial" in warning for warning in report["warnings"])
+        self.assertEqual(report["embedding"]["candidate_pairs"], 1)
+        self.assertFalse(report["embedding"]["truncated"])
+        self.assertFalse(any("recall is partial" in w for w in report["warnings"]))
+
+    def test_candidate_cap_reports_only_when_an_extra_pair_is_omitted(self):
+        signature = tuple(range(quality_gate.EMBEDDING_MINHASH_SLOTS))
+        pairs, truncated = quality_gate._candidate_pairs(
+            [(0, signature), (1, signature), (2, signature)], max_pairs=1
         )
+        self.assertEqual(len(pairs), 1)
+        self.assertTrue(truncated)
+
+    def test_field_paths_distinguish_equal_values_under_different_keys(self):
+        records = [
+            {"state": {"sim_or_real": "unknown", "pressure_status": "critical"}},
+            {"state": {"sim_or_real": "unknown", "temperature_status": "critical"}},
+        ]
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            write(root / "batch.jsonl", records)
+            report = quality_gate.audit_run(root)
+
+        self.assertNotEqual(
+            quality_gate.embedding_tokens(records[0]),
+            quality_gate.embedding_tokens(records[1]),
+        )
+        self.assertEqual(report["duplicates"], [])
+
+    def test_mapping_insertion_order_does_not_change_embedding_tokens(self):
+        keys = [f"field_{index:03d}" for index in range(120)]
+        forward = {key: f"value_{index:03d}" for index, key in enumerate(keys)}
+        reverse = {
+            key: f"value_{index:03d}"
+            for index, key in reversed(list(enumerate(keys)))
+        }
+        self.assertEqual(
+            quality_gate.embedding_tokens({"state": forward}),
+            quality_gate.embedding_tokens({"state": reverse}),
+        )
+
+        reverse[keys[60]] = "one_minor_change"
+        records = [{"state": forward}, {"state": reverse}]
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            write(root / "batch.jsonl", records)
+            report = quality_gate.audit_run(root)
+
+        self.assertEqual(report["counts"]["embedding_duplicate_groups"], 1)
+        self.assertGreater(
+            report["duplicates"][0]["similarity"],
+            quality_gate.DEFAULT_EMBEDDING_THRESHOLD,
+        )
+
+    def test_unicode_text_is_preserved_in_embedding_tokens(self):
+        records = [
+            {"state": {"sim_or_real": "unknown", "note": "冷却水温度上昇"}},
+            {"state": {"sim_or_real": "unknown", "note": "港口起重机故障"}},
+        ]
+        token_sets = [quality_gate.embedding_tokens(record) for record in records]
+        self.assertTrue(any("冷却水温度上昇" in token for token in token_sets[0]))
+        self.assertTrue(any("港口起重机故障" in token for token in token_sets[1]))
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            write(root / "batch.jsonl", records)
+            report = quality_gate.audit_run(root)
+
+        self.assertEqual(report["duplicates"], [])
+
+    def test_transitive_cluster_points_every_exclusion_at_retained_record(self):
+        common = " ".join(f"common_{index:03d}" for index in range(80))
+        records = [
+            {"state": {"note": common + " alpha alpha"}},
+            {"state": {"note": common + " alpha beta"}},
+            {"state": {"note": common + " beta beta"}},
+        ]
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            write(root / "batch.jsonl", records)
+            report = quality_gate.audit_run(root, threshold=0.90)
+
+        self.assertEqual(report["counts"]["embedding_duplicate_groups"], 1)
+        self.assertEqual(len(report["duplicates"]), 2)
+        for duplicate in report["duplicates"]:
+            self.assertEqual(
+                duplicate["duplicate_of"], {"file": "batch.jsonl", "line": 1}
+            )
+        self.assertEqual(
+            report["duplicates"][1]["matched_with"],
+            {"file": "batch.jsonl", "line": 2},
+        )
+        self.assertIn("linked by cosine", report["duplicate_clusters"][0]["reason"])
 
     def test_invalid_threshold_is_rejected(self):
         with self.assertRaises(ValueError):
@@ -365,6 +490,15 @@ class CuratedManifest(unittest.TestCase):
     def test_cli_rejects_an_unsatisfiable_policy(self):
         code = self.run_cli([str(EMBEDDING_FIXTURE), "--min-synthetic-ratio", "0.9"])
         self.assertEqual(code, 2)
+
+    def test_cli_rejects_missing_run_without_writing_manifest(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            missing = root / "missing-run"
+            manifest = root / "curated" / "quality-manifest.json"
+            code = self.run_cli([str(missing), "--manifest", str(manifest)])
+            self.assertEqual(code, 2)
+            self.assertFalse(manifest.exists())
 
     def test_cli_does_not_write_a_manifest_unless_asked(self):
         with tempfile.TemporaryDirectory() as td:

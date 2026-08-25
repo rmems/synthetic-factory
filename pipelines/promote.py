@@ -7,13 +7,18 @@ designed|simulated|hil|unknown, and sorts unsorted spike trains
 (setting meta.spike_events_resorted). Writes reward-scale.json and
 PROVENANCE.md. Never mutates raw_run.
 
-Quality Gate — call ``pipelines/quality_gate.py`` after promotion
-------------------------------------------------------------------
-Promotion is **not** a training-ready signal. After this script
-writes ``cleaned_out``, run the quality gate before volume training:
+Quality Gate — enforced by this CLI after promotion
+----------------------------------------------------
+Promotion is **not** a training-ready signal. After this script writes
+``cleaned_out``, it invokes ``pipelines/quality_gate.py`` in-process, writes
+``quality-manifest.json`` inside the cleaned tree by default, and exits 1
+when the gate blocks:
 
-    python3 pipelines/quality_gate.py <cleaned_out> --threshold 0.97 \
-        --manifest <curated>/quality-manifest.json --json
+    python3 pipelines/promote.py <raw_run> <cleaned_out>
+
+Use ``--quality-manifest PATH`` to place the sidecar elsewhere. The gate's
+threshold and mix-policy flags are accepted here too, so an explicit,
+auditable policy can be pinned on the established promotion command.
 
 Gate contract (see ``pipelines/quality_gate.py`` and
 ``docs/quality-gate.md``):
@@ -37,13 +42,14 @@ Gate contract (see ``pipelines/quality_gate.py`` and
   should treat ``blocked`` as a hard fail and ``warnings`` as soft fails
   requiring review.
 
-Usage: python3 pipelines/promote.py <raw_run> <cleaned_out>
+Usage: python3 pipelines/promote.py <raw_run> <cleaned_out> [gate options]
 
 Co-authored-by: Muse Code powered by Muse Spark <muse-spark@meta.com>
 """
 
 import argparse
 import json
+import math
 import re
 import sys
 from pathlib import Path
@@ -52,6 +58,7 @@ _PIPELINES = Path(__file__).resolve().parent
 if str(_PIPELINES) not in sys.path:
     sys.path.insert(0, str(_PIPELINES))
 from check_records import check_spikes, event_time  # noqa: E402
+import quality_gate  # noqa: E402
 
 FFPC = "failure-as-fuel-preference-cascade"
 ALLOWED_KINDS = frozenset({"designed", "simulated", "hil", "unknown"})
@@ -352,10 +359,69 @@ def promote_run(raw_run, cleaned_out):
 
 def parse_args(argv=None):
     parser = argparse.ArgumentParser(
-        description="Promote raw factory JSONL into cleaned/ with provenance.",
+        description=(
+            "Promote raw factory JSONL into cleaned/ with provenance, then run "
+            "the blocking quality gate."
+        ),
     )
     parser.add_argument("raw_run", help="raw run directory (read-only)")
     parser.add_argument("cleaned_out", help="destination cleaned directory")
+    parser.add_argument(
+        "--quality-manifest",
+        default=None,
+        help=(
+            "quality-gate manifest path (default: "
+            "<cleaned_out>/quality-manifest.json)"
+        ),
+    )
+    parser.add_argument(
+        "--threshold",
+        type=float,
+        default=quality_gate.DEFAULT_EMBEDDING_THRESHOLD,
+        help="embedding near-duplicate cosine threshold (default: %(default)s)",
+    )
+    parser.add_argument(
+        "--no-embedding-dedup",
+        dest="embedding_dedup",
+        action="store_false",
+        help="skip embedding near-duplicate detection (exact dedup remains on)",
+    )
+    parser.add_argument(
+        "--max-embedding-pairs",
+        type=int,
+        default=quality_gate.DEFAULT_MAX_EMBEDDING_PAIRS,
+        help="cap on LSH candidate pairs (default: %(default)s)",
+    )
+    parser.add_argument(
+        "--mix-target",
+        type=float,
+        default=quality_gate.DEFAULT_TARGET_SYNTHETIC_RATIO,
+        help="target synthetic share (default: %(default)s)",
+    )
+    parser.add_argument(
+        "--mix-tolerance",
+        type=float,
+        default=quality_gate.DEFAULT_MIX_TOLERANCE,
+        help="slack above the target before blocking (default: %(default)s)",
+    )
+    parser.add_argument(
+        "--max-synthetic-ratio",
+        type=float,
+        default=None,
+        help="explicit blocking synthetic-share ceiling",
+    )
+    parser.add_argument(
+        "--min-synthetic-ratio",
+        type=float,
+        default=None,
+        help="optional blocking synthetic-share floor",
+    )
+    parser.add_argument(
+        "--max-unlabeled-ratio",
+        type=float,
+        default=None,
+        help="optional blocking ceiling for unlabeled records",
+    )
     return parser.parse_args(argv)
 
 
@@ -366,13 +432,61 @@ def main(argv=None):
     if not raw_run.is_dir():
         print(f"error: not a directory: {raw_run}", file=sys.stderr)
         sys.exit(2)
+    manifest_path = (
+        Path(args.quality_manifest)
+        if args.quality_manifest
+        else cleaned_out / "quality-manifest.json"
+    )
+    resolved_raw = raw_run.resolve()
+    resolved_manifest = manifest_path.resolve()
+    if resolved_manifest == resolved_raw or resolved_raw in resolved_manifest.parents:
+        print("error: quality manifest must not be written inside raw_run", file=sys.stderr)
+        sys.exit(2)
+    policy = quality_gate.MixPolicy(
+        target=args.mix_target,
+        tolerance=args.mix_tolerance,
+        max_synthetic_ratio=args.max_synthetic_ratio,
+        min_synthetic_ratio=args.min_synthetic_ratio,
+        max_unlabeled_ratio=args.max_unlabeled_ratio,
+    )
     try:
+        policy.validate()
+        if not math.isfinite(args.threshold) or not -1.0 <= args.threshold <= 1.0:
+            raise ValueError(
+                f"threshold must be a finite cosine in [-1, 1], got {args.threshold!r}"
+            )
+        if args.max_embedding_pairs < 1:
+            raise ValueError(
+                "max_embedding_pairs must be >= 1, got "
+                f"{args.max_embedding_pairs!r}"
+            )
         summary = promote_run(raw_run, cleaned_out)
+        report = quality_gate.audit_run(
+            cleaned_out,
+            threshold=args.threshold,
+            mix_policy=policy,
+            embedding_dedup=args.embedding_dedup,
+            max_embedding_pairs=args.max_embedding_pairs,
+        )
     except ValueError as exc:
         print(f"error: {exc}", file=sys.stderr)
         sys.exit(2)
+    written = quality_gate.write_manifest(manifest_path, cleaned_out, report)
+    summary["quality_gate"] = {
+        "blocked": report["blocked"],
+        "blockers": report["blockers"],
+        "warnings": report["warnings"],
+        "counts": report["counts"],
+        "mix": report["mix"],
+        "threshold": report["threshold"],
+        "manifest": str(written),
+    }
     print(json.dumps(summary, indent=2))
-    sys.exit(0)
+    for blocker in report["blockers"]:
+        print(f"BLOCKED: {blocker}", file=sys.stderr)
+    for warning in report["warnings"]:
+        print(f"WARN: {warning}", file=sys.stderr)
+    sys.exit(1 if report["blocked"] else 0)
 
 
 if __name__ == "__main__":
