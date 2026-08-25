@@ -84,7 +84,14 @@ class CascadingErrorRecoveryDeclarationTests(unittest.TestCase):
         names = {feature["name"]: feature for feature in features}
         # Absent on the 8 leftover-mill rows (error_introduced/diagnosis) or on
         # the 2158-record family that publishes only a string diagnosis.
-        for name in ("plan", "error_introduced", "propagation", "diagnosis", "recovery", "verification"):
+        for name in (
+            "plan",
+            "error_introduced",
+            "propagation",
+            "diagnosis",
+            "recovery",
+            "verification",
+        ):
             with self.subTest(field=name):
                 self.assertTrue(names[name]["optional"], f"{name} is not on every record")
         # String on the majority, object on the 182-record family: json is the
@@ -166,4 +173,3 @@ class CascadingErrorRecoveryDeclarationTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-
