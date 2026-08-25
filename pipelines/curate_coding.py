@@ -2,14 +2,22 @@
 """Curate legacy coding episodes into observable, thought-free records.
 
 The transform is deliberately record-level and side-effect free by default.
-It removes every mapping key named ``thought`` and derives a concise
-``decision_basis`` only from fields that are visible in the source record:
-plan, reflection, observation, or tool call.
+It removes every mapping key reserved for hidden reasoning and derives a
+concise ``decision_basis`` only from fields that are visible in the source
+record: plan, reflection, observation, or tool call.
 Steps without usable visible evidence are excluded with machine-readable
 reason codes; the transform never consults the removed thought text.
 
 ``curate_jsonl`` returns curated records, a reversible manifest, and summary
 counts.  The optional CLI writes only to new, non-raw files.
+
+``verify_curation`` (CLI: ``--verify`` / ``--expect-source-steps N``) turns the
+lane acceptance contract into a gate: every source step is migrated or excluded
+with a reason code, every retained step carries a bounded ``decision_basis``
+that opens with a visible evidence label, and no curated record still exposes a
+hidden-reasoning key.  ``verify_manifest`` runs the accounting half against a
+stored manifest alone, so a run can be audited without republishing raw
+episodes.
 """
 
 from __future__ import annotations
@@ -19,6 +27,8 @@ import copy
 import hashlib
 import json
 import os
+import re
+import sys
 from collections import Counter
 from pathlib import Path
 from typing import Any
@@ -51,6 +61,31 @@ _EVIDENCE_REASON = {
     "tool_call": REASON_BASIS_FROM_TOOL_CALL,
 }
 
+# Keep this vocabulary aligned with the coding-factory prompt's publication
+# boundary.  Key spelling is normalized before comparison so aliases such as
+# ``chainOfThought`` cannot bypass the curation boundary.
+HIDDEN_THOUGHT_KEYS = frozenset(
+    {"thought", "chain_of_thought", "scratch", "reasoning", "inner_monologue"}
+)
+
+# The literal labels a retained ``decision_basis`` may open with.  Each one
+# names the visible field the basis was read from, so an auditor can trace the
+# sentence back to source evidence without consulting removed thought text.
+VISIBLE_BASIS_LABELS = ("Plan: ", "Reflection: ", "Observation: ", "Tool call: ")
+
+# Reason codes that justify dropping a step, a record, or an unusable line.
+EXCLUSION_REASONS = frozenset(
+    {
+        REASON_STEP_NOT_OBJECT,
+        REASON_NO_VISIBLE_EVIDENCE,
+        REASON_NO_RETAINABLE_STEPS,
+        REASON_RECORD_NOT_OBJECT,
+        REASON_STEPS_NOT_ARRAY,
+        REASON_INVALID_JSON,
+        REASON_INVALID_UTF8,
+    }
+)
+
 
 def canonical_json(value: Any) -> str:
     """Return the stable JSON representation used for output hashes."""
@@ -67,13 +102,18 @@ def hash_value(value: Any) -> str:
     return hashlib.sha256(canonical_json(value).encode("utf-8")).hexdigest()
 
 
+def _normalized_key(value: Any) -> str:
+    camel_split = re.sub(r"(?<=[a-z0-9])(?=[A-Z])", "_", str(value)).casefold()
+    return re.sub(r"[^a-z0-9]+", "_", camel_split).strip("_")
+
+
 def _strip_thought_keys(value: Any) -> tuple[Any, int]:
-    """Deep-copy ``value`` while removing every mapping key named thought."""
+    """Deep-copy ``value`` while removing every hidden-reasoning key."""
     if isinstance(value, dict):
         cleaned = {}
         removed = 0
         for key, item in value.items():
-            if key == "thought":
+            if _normalized_key(key) in HIDDEN_THOUGHT_KEYS:
                 removed += 1
                 continue
             clean_item, nested_removed = _strip_thought_keys(item)
@@ -92,9 +132,11 @@ def _strip_thought_keys(value: Any) -> tuple[Any, int]:
 
 
 def contains_thought_key(value: Any) -> bool:
-    """Return whether any nested mapping exposes a key named thought."""
+    """Return whether any nested mapping exposes hidden reasoning."""
     if isinstance(value, dict):
-        return "thought" in value or any(contains_thought_key(v) for v in value.values())
+        return any(_normalized_key(key) in HIDDEN_THOUGHT_KEYS for key in value) or any(
+            contains_thought_key(item) for item in value.values()
+        )
     if isinstance(value, list):
         return any(contains_thought_key(item) for item in value)
     return False
@@ -419,6 +461,426 @@ def curate_jsonl(source_path: str | Path) -> dict[str, Any]:
     return {"records": records, "manifest": manifests, "summary": summary}
 
 
+def _is_nonnegative_int(value: Any) -> bool:
+    return isinstance(value, int) and not isinstance(value, bool) and value >= 0
+
+
+def _is_positive_int(value: Any) -> bool:
+    return isinstance(value, int) and not isinstance(value, bool) and value > 0
+
+
+def _is_sha256(value: Any) -> bool:
+    return (
+        isinstance(value, str)
+        and len(value) == 64
+        and all(character in "0123456789abcdef" for character in value)
+    )
+
+
+def _reason_code_set(value: Any, where: str, violations: list[str]) -> set[str]:
+    if not isinstance(value, list):
+        violations.append(f"{where}: reason codes are not a list")
+        return set()
+    invalid = [item for item in value if not isinstance(item, str) or not item]
+    if invalid:
+        violations.append(f"{where}: invalid reason codes {invalid!r}")
+    return {item for item in value if isinstance(item, str) and item}
+
+
+def _step_action_violations(entry: dict[str, Any], where: str) -> list[str]:
+    """Return acceptance violations for one step-level manifest entry."""
+    violations = []
+    index = entry.get("source_step_index")
+    step_where = f"{where} step {index}"
+    action = entry.get("action")
+    reasons = _reason_code_set(entry.get("reason_codes"), step_where, violations)
+    if not reasons:
+        violations.append(f"{step_where}: no reason codes recorded")
+    evidence = entry.get("evidence_source")
+
+    if not _is_positive_int(index):
+        violations.append(f"{step_where}: source step index must be a positive integer")
+    if not _is_nonnegative_int(entry.get("thought_fields_removed")):
+        violations.append(
+            f"{step_where}: thought_fields_removed must be a non-negative integer"
+        )
+
+    if action == "excluded":
+        if not EXCLUSION_REASONS.intersection(reasons):
+            violations.append(f"{step_where}: excluded without an exclusion reason code")
+        if entry.get("output_step_index") is not None:
+            violations.append(f"{step_where}: excluded step keeps an output index")
+    elif action == "migrated" or action == "retained":
+        if not _is_positive_int(entry.get("output_step_index")):
+            violations.append(
+                f"{step_where}: retained output step index must be a positive integer"
+            )
+        if not isinstance(evidence, str) or evidence not in _EVIDENCE_REASON:
+            violations.append(
+                f"{step_where}: retained without a visible evidence source"
+            )
+        elif _EVIDENCE_REASON[evidence] not in reasons:
+            violations.append(
+                f"{step_where}: reason codes do not record the {evidence} evidence source"
+            )
+    else:
+        violations.append(f"{step_where}: unknown step action {action!r}")
+    return violations
+
+
+def verify_manifest(
+    manifests: Any,
+    *,
+    expected_source_steps: int | None = None,
+) -> list[str]:
+    """Return acceptance violations found in a curation manifest.
+
+    The manifest alone proves the migration accounting: every source step is
+    either migrated/retained with a visible evidence source or excluded with a
+    reason code, and the per-record counts reconcile with the step actions.
+    """
+    violations = []
+    if not isinstance(manifests, list):
+        return ["manifest collection is not a list"]
+    total_source = 0
+    seen_source_locations = set()
+    for manifest in manifests:
+        if not isinstance(manifest, dict):
+            violations.append(f"manifest entry {manifest!r} is not an object")
+            continue
+        source_path = manifest.get("source_path")
+        source_line = manifest.get("source_line")
+        where = f"{source_path}:{source_line}"
+        if not isinstance(source_path, str) or not source_path:
+            violations.append(f"{where}: manifest records no source path")
+        if not _is_positive_int(source_line):
+            violations.append(f"{where}: source line must be a positive integer")
+        if isinstance(source_path, str) and source_path and _is_positive_int(source_line):
+            source_location = (source_path, source_line)
+            if source_location in seen_source_locations:
+                violations.append(f"{where}: duplicate manifest source location")
+            else:
+                seen_source_locations.add(source_location)
+        if manifest.get("transform") != TRANSFORM_NAME:
+            violations.append(f"{where}: manifest is not a {TRANSFORM_NAME} manifest")
+        if manifest.get("transform_version") != TRANSFORM_VERSION:
+            violations.append(
+                f"{where}: manifest transform version is not {TRANSFORM_VERSION}"
+            )
+        if not _is_sha256(manifest.get("source_hash")):
+            violations.append(f"{where}: manifest records no valid source hash")
+
+        action = manifest.get("action")
+        reasons = _reason_code_set(manifest.get("reason_codes"), where, violations)
+        if action == "excluded":
+            if not EXCLUSION_REASONS.intersection(reasons):
+                violations.append(
+                    f"{where}: record excluded without an exclusion reason code"
+                )
+            if manifest.get("output_hash") is not None:
+                violations.append(
+                    f"{where}: excluded record still records an output hash"
+                )
+            if manifest.get("output_id") is not None:
+                violations.append(f"{where}: excluded record still records an output ID")
+        elif action == "modified" or action == "unchanged":
+            if not _is_sha256(manifest.get("output_hash")):
+                violations.append(
+                    f"{where}: retained record records no valid output hash"
+                )
+        else:
+            violations.append(f"{where}: unknown record action {action!r}")
+
+        thought_fields_removed = manifest.get("thought_fields_removed")
+        if not _is_nonnegative_int(thought_fields_removed):
+            violations.append(
+                f"{where}: thought_fields_removed must be a non-negative integer"
+            )
+
+        counts = manifest.get("step_counts")
+        actions = manifest.get("step_actions")
+        if not isinstance(counts, dict) or not isinstance(actions, list):
+            violations.append(f"{where}: manifest records no step accounting")
+            continue
+        recorded_counts = {}
+        for key in ("source", "retained", "migrated", "excluded"):
+            value = counts.get(key)
+            if not _is_nonnegative_int(value):
+                violations.append(
+                    f"{where}: step_counts.{key} must be a non-negative integer"
+                )
+                recorded_counts[key] = None
+            else:
+                recorded_counts[key] = value
+
+        source_count = recorded_counts["source"]
+        if source_count is not None:
+            total_source += source_count
+        if source_count is not None and source_count != len(actions):
+            violations.append(
+                f"{where}: {source_count} source steps but {len(actions)} step actions"
+            )
+
+        valid_actions = []
+        for entry in actions:
+            if not isinstance(entry, dict):
+                violations.append(f"{where}: step action {entry!r} is not an object")
+                continue
+            valid_actions.append(entry)
+            violations.extend(_step_action_violations(entry, where))
+
+        retained = sum(
+            entry.get("action") == "migrated" or entry.get("action") == "retained"
+            for entry in valid_actions
+        )
+        migrated = sum(entry.get("action") == "migrated" for entry in valid_actions)
+        excluded = sum(entry.get("action") == "excluded" for entry in valid_actions)
+        if retained + excluded != len(actions):
+            violations.append(f"{where}: step actions are neither retained nor excluded")
+        if action == "excluded" and retained:
+            retained_label = "step" if retained == 1 else "steps"
+            violations.append(
+                f"{where}: excluded record retains {retained} {retained_label}"
+            )
+        action_thought_counts = [
+            entry.get("thought_fields_removed") for entry in valid_actions
+        ]
+        if (
+            _is_nonnegative_int(thought_fields_removed)
+            and len(valid_actions) == len(actions)
+            and all(_is_nonnegative_int(value) for value in action_thought_counts)
+            and thought_fields_removed < sum(action_thought_counts)
+        ):
+            violations.append(
+                f"{where}: thought_fields_removed does not account for the step actions"
+            )
+        expected_counts = {
+            "source": len(actions),
+            "retained": retained,
+            "migrated": migrated,
+            "excluded": excluded,
+        }
+        if any(
+            recorded_counts[key] is not None
+            and recorded_counts[key] != expected_counts[key]
+            for key in expected_counts
+        ):
+            violations.append(
+                f"{where}: step counts {counts} disagree with the recorded step actions"
+            )
+
+        source_indexes = [entry.get("source_step_index") for entry in valid_actions]
+        expected_source_indexes = list(range(1, len(actions) + 1))
+        if source_indexes != expected_source_indexes:
+            violations.append(
+                f"{where}: source step indexes {source_indexes} are not sequential "
+                f"{expected_source_indexes}"
+            )
+        output_indexes = [
+            entry.get("output_step_index")
+            for entry in valid_actions
+            if entry.get("action") == "migrated" or entry.get("action") == "retained"
+        ]
+        expected_output_indexes = list(range(1, retained + 1))
+        if output_indexes != expected_output_indexes:
+            violations.append(
+                f"{where}: retained output step indexes {output_indexes} are not "
+                f"sequential {expected_output_indexes}"
+            )
+
+    if expected_source_steps is not None and total_source != expected_source_steps:
+        violations.append(
+            f"expected {expected_source_steps} source steps, manifest accounts for "
+            f"{total_source}"
+        )
+    return violations
+
+
+def _curated_record_violations(record: Any, where: str) -> list[str]:
+    """Return acceptance violations for one curated output record."""
+    violations = []
+    if contains_thought_key(record):
+        violations.append(f"{where}: curated record still exposes a thought key")
+    steps = record.get("steps") if isinstance(record, dict) else None
+    if not isinstance(steps, list) or not steps:
+        violations.append(f"{where}: curated record has no retained steps")
+        return violations
+    for index, step in enumerate(steps, 1):
+        step_where = f"{where} step {index}"
+        if not isinstance(step, dict):
+            violations.append(f"{step_where}: curated step is not an object")
+            continue
+        basis = step.get("decision_basis")
+        if not isinstance(basis, str) or not basis.strip():
+            violations.append(f"{step_where}: missing a non-empty decision_basis")
+            continue
+        if not basis.startswith(VISIBLE_BASIS_LABELS):
+            violations.append(
+                f"{step_where}: decision_basis does not open with a visible evidence label"
+            )
+        expected_basis, _, _ = _derive_decision_basis(step)
+        if expected_basis is None:
+            violations.append(
+                f"{step_where}: decision_basis has no visible evidence to ground it"
+            )
+        elif basis != expected_basis:
+            violations.append(
+                f"{step_where}: decision_basis is not grounded in its visible evidence"
+            )
+        if len(basis) > MAX_DECISION_BASIS_CHARS:
+            violations.append(
+                f"{step_where}: decision_basis exceeds {MAX_DECISION_BASIS_CHARS} chars"
+            )
+    return violations
+
+
+def verify_curation(
+    result: Any,
+    *,
+    expected_source_steps: int | None = None,
+) -> list[str]:
+    """Return every acceptance violation in a :func:`curate_jsonl` result.
+
+    A clean run proves the lane contract: no curated step exposes a thought
+    field, every retained step carries a concise decision_basis grounded in a
+    visible label, and every source step is migrated or excluded with a reason
+    code.
+    """
+    if not isinstance(result, dict):
+        return ["curation result is not an object"]
+
+    manifest_value = result.get("manifest")
+    violations = verify_manifest(
+        manifest_value, expected_source_steps=expected_source_steps
+    )
+    manifests = manifest_value if isinstance(manifest_value, list) else []
+
+    record_value = result.get("records")
+    if not isinstance(record_value, list):
+        violations.append("curated records are not a list")
+        records = []
+    else:
+        records = record_value
+    for index, record in enumerate(records, 1):
+        violations.extend(_curated_record_violations(record, f"record {index}"))
+
+    emitting_manifests = [
+        manifest
+        for manifest in manifests
+        if isinstance(manifest, dict)
+        and (
+            manifest.get("action") == "modified"
+            or manifest.get("action") == "unchanged"
+        )
+    ]
+    if len(records) != len(emitting_manifests):
+        violations.append(
+            f"curated output has {len(records)} records but the manifest emits "
+            f"{len(emitting_manifests)}"
+        )
+
+    for index, (record, manifest) in enumerate(
+        zip(records, emitting_manifests), 1
+    ):
+        try:
+            actual_hash = hash_value(record)
+        except (TypeError, ValueError, RecursionError):
+            violations.append(f"record {index}: curated record is not JSON-serializable")
+            continue
+        if manifest.get("output_hash") != actual_hash:
+            violations.append(
+                f"record {index}: output hash does not match its manifest entry"
+            )
+        if manifest.get("output_id") != _record_id(record):
+            violations.append(
+                f"record {index}: output ID does not match its manifest entry"
+            )
+
+        steps = record.get("steps") if isinstance(record, dict) else None
+        actions = manifest.get("step_actions")
+        if not isinstance(steps, list) or not isinstance(actions, list):
+            continue
+        for entry in actions:
+            if not isinstance(entry, dict) or not (
+                entry.get("action") == "migrated" or entry.get("action") == "retained"
+            ):
+                continue
+            output_index = entry.get("output_step_index")
+            if not _is_positive_int(output_index) or output_index > len(steps):
+                continue
+            step = steps[output_index - 1]
+            if not isinstance(step, dict):
+                continue
+            _, evidence_source, _ = _derive_decision_basis(step)
+            if entry.get("evidence_source") != evidence_source:
+                violations.append(
+                    f"record {index} step {output_index}: visible evidence source "
+                    "does not match its manifest action"
+                )
+
+    manifest_totals = Counter()
+    manifest_thought_fields_removed = 0
+    manifest_evidence_sources = Counter()
+    for manifest in manifests:
+        if not isinstance(manifest, dict):
+            continue
+        counts = manifest.get("step_counts")
+        if isinstance(counts, dict):
+            for key in ("source", "retained", "migrated", "excluded"):
+                value = counts.get(key)
+                if _is_nonnegative_int(value):
+                    manifest_totals[key] += value
+        removed = manifest.get("thought_fields_removed")
+        if _is_nonnegative_int(removed):
+            manifest_thought_fields_removed += removed
+        actions = manifest.get("step_actions")
+        if isinstance(actions, list):
+            for entry in actions:
+                if not isinstance(entry, dict):
+                    continue
+                if entry.get("action") not in {"migrated", "retained"}:
+                    continue
+                evidence = entry.get("evidence_source")
+                if isinstance(evidence, str) and evidence:
+                    manifest_evidence_sources[evidence] += 1
+
+    retained = sum(
+        len(record["steps"])
+        for record in records
+        if isinstance(record, dict) and isinstance(record.get("steps"), list)
+    )
+    if retained != manifest_totals["retained"]:
+        violations.append(
+            f"curated output has {retained} steps but the manifest retains "
+            f"{manifest_totals['retained']}"
+        )
+
+    summary = result.get("summary")
+    if not isinstance(summary, dict):
+        violations.append("curation summary is not an object")
+    else:
+        expected_summary = {
+            "input_records": len(manifests),
+            "output_records": len(emitting_manifests),
+            "excluded_records": sum(
+                isinstance(manifest, dict) and manifest.get("action") == "excluded"
+                for manifest in manifests
+            ),
+            "source_steps": manifest_totals["source"],
+            "retained_steps": manifest_totals["retained"],
+            "migrated_steps": manifest_totals["migrated"],
+            "excluded_steps": manifest_totals["excluded"],
+            "thought_fields_removed": manifest_thought_fields_removed,
+            "decision_basis_sources": dict(sorted(manifest_evidence_sources.items())),
+        }
+        for key, expected in expected_summary.items():
+            if summary.get(key) != expected:
+                violations.append(
+                    f"summary {key} {summary.get(key)!r} does not match {expected}"
+                )
+    return violations
+
+
 def _is_under_raw(path: Path) -> bool:
     parts = path.resolve(strict=False).parts
     return any(
@@ -459,7 +921,21 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("source", type=Path, help="legacy episode JSONL to inspect")
     parser.add_argument("--output-jsonl", type=Path)
     parser.add_argument("--manifest-jsonl", type=Path)
+    parser.add_argument(
+        "--verify",
+        action="store_true",
+        help="fail when any curated step or manifest entry breaks the lane contract",
+    )
+    parser.add_argument(
+        "--expect-source-steps",
+        type=int,
+        help="require the manifest to account for exactly this many source steps",
+    )
     args = parser.parse_args(argv)
+
+    if args.expect_source_steps is not None and args.expect_source_steps < 0:
+        parser.error("--expect-source-steps must not be negative")
+    verifying = args.verify or args.expect_source_steps is not None
 
     if args.output_jsonl is not None and args.output_jsonl.resolve(strict=False) == args.source.resolve():
         parser.error("output must not replace the source")
@@ -474,11 +950,29 @@ def main(argv: list[str] | None = None) -> int:
         parser.error(str(exc))
 
     result = curate_jsonl(args.source)
+    summary = result["summary"]
+    if verifying:
+        violations = verify_curation(
+            result, expected_source_steps=args.expect_source_steps
+        )
+        summary = dict(summary)
+        summary["verification"] = {
+            "expected_source_steps": args.expect_source_steps,
+            "violations": violations,
+        }
+        if violations:
+            # A failed gate must not leave a curated artifact behind for the
+            # integration lane to pick up as if it had passed.
+            print(json.dumps(summary, ensure_ascii=False, indent=2, sort_keys=True))
+            for violation in violations:
+                print(f"VIOLATION: {violation}", file=sys.stderr)
+            return 2
+
     if args.output_jsonl is not None:
         _write_new_jsonl(args.output_jsonl, result["records"])
     if args.manifest_jsonl is not None:
         _write_new_jsonl(args.manifest_jsonl, result["manifest"])
-    print(json.dumps(result["summary"], ensure_ascii=False, indent=2, sort_keys=True))
+    print(json.dumps(summary, ensure_ascii=False, indent=2, sort_keys=True))
     return 0
 
 
