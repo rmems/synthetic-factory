@@ -1,0 +1,51 @@
+.claude/skills/run-synthetic-factory/driver.py
+  s_002cddb1a70571::t_01d551cb586d4b 582-589
+.claude/skills/run-synthetic-factory/SKILL.md
+  s_002cddb1a70571::t_c91308e64b6f4d 134-148
+pipelines/round_txn.py
+  s_002cddb1a70571::t_1e6826c5e7dc4d 9-15,20
+  s_002cddb1a70571::t_8a82000e1f3f21 341-343,347-387,389-412,414-451
+  s_002cddb1a70571::t_7c943bdf486b87 344,413
+  s_002cddb1a70571::t_9c1130592b09ed 345-346
+  s_002cddb1a70571::t_aacef62693b4cd 388
+  s_002cddb1a70571::t_80780e43f69a7a 2366
+  s_002cddb1a70571::t_e725155c5d0feb 2471-2475
+  s_002cddb1a70571::t_a29cc5d561acee 2485,2488-2491,2494
+  s_002cddb1a70571::t_a9b52c79cc9444 2556-2558
+  s_002cddb1a70571::t_2e9d3fb29311d8 2579,2584,2595,2603-2607,2609-2611,2614-2616
+  s_002cddb1a70571::t_baa606743befde 2713-2721
+  s_002cddb1a70571::t_6f8f015ef8e985 2739-2744
+pipelines/verify_execution.py
+  s_002cddb1a70571::t_7444793ef65425 9-14
+  s_002cddb1a70571::t_03b28897683647 47-50
+  s_002cddb1a70571::t_944bc985a3221f 54,58-73,78-80,82-83
+  s_002cddb1a70571::t_cc52512c97676c 175,180-181
+  s_002cddb1a70571::t_53ce9ff007439c 176-179
+tests/test_quality_and_verify_gates.py
+  s_002cddb1a70571::t_9db59e40c55b01 7-12,20,26,35-65
+  s_002cddb1a70571::t_da4d0b825bcc6c 130-187,189-359
+  s_002cddb1a70571::t_61d8b3944956c0 188
+tests/test_round_txn.py
+  s_002cddb1a70571::t_24fcc2fa6cd5b5 26-33
+docs/verify-execution.md
+  s_002cddb1a70571::t_c6e9052e7789f9 4
+  s_002cddb1a70571::t_ec3e14d7d7bfa6 14-18,25-26,33-35,38-39,42-78
+  s_002cddb1a70571::t_0631a093d87b46 106-108,121-148
+  s_002cddb1a70571::t_5286b61524cf62 178-197,205-207
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "e108b662200945ded45d4cfb85415a05245d22a2",
+  "prompts": {},
+  "sessions": {
+    "s_002cddb1a70571": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "abd260ba-6a6c-45a6-9db3-a4e0988ad60e",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Raul Montoya Cardenas <montoyaraul34@gmail.com>"
+    }
+  }
+}
