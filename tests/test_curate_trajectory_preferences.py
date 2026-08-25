@@ -46,7 +46,11 @@ def trajectory_pair(record_id: str = "tpf-1") -> dict:
         "id": record_id,
         "goal": "Publish manifest.json so readers never observe a partial object.",
         "outcome": "Chosen renamed a temp file; rejected truncated in place.",
-        "reward": {"delta": 0.7},
+        "reward": {
+            "success": True,
+            "preference_margin": 0.7,
+            "same_goal": 1.0,
+        },
         "meta": {"round": 1},
         "chosen": {
             "steps": copy.deepcopy(shared) + [step(2, "Plan: fsync a temp file, then rename.")],
@@ -228,6 +232,52 @@ class GateRejectPath(unittest.TestCase):
                     )
                 )
 
+    def test_step_ordinals_are_exact_one_based_integers(self):
+        mutations = (
+            ("missing", lambda steps: steps[0].pop("n")),
+            ("boolean", lambda steps: steps[0].__setitem__("n", False)),
+            ("string", lambda steps: steps[0].__setitem__("n", "1")),
+            ("list", lambda steps: steps[0].__setitem__("n", [1])),
+            ("gap", lambda steps: steps[0].__setitem__("n", 99)),
+            ("duplicate", lambda steps: steps[1].__setitem__("n", 1)),
+        )
+        for label, mutate in mutations:
+            with self.subTest(label=label):
+                source = trajectory_pair()
+                mutate(source["chosen"]["steps"])
+
+                decision = self.assert_excluded(
+                    source,
+                    ctp.REASON_SIDE_EPISODE_INVALID,
+                    ctp.REASON_STEPS_INVALID,
+                )
+
+                self.assertTrue(
+                    any(
+                        "n must be the integer" in error
+                        for error in decision.side_validation_errors["chosen"]
+                    )
+                )
+
+    def test_pair_envelope_fields_are_validated_before_emission(self):
+        mutations = (
+            ("id", {"not": "text"}, "id must be a non-empty string"),
+            ("outcome", ["not", "text"], "outcome must be a non-empty string"),
+            ("reward", "not-an-object", "reward must be an object"),
+            ("meta", "not-an-object", "meta must be an object"),
+            ("critique", 42, "critique must be a non-empty string"),
+        )
+        for field, value, expected_error in mutations:
+            with self.subTest(field=field):
+                source = trajectory_pair()
+                source[field] = value
+
+                decision = self.assert_excluded(source, ctp.REASON_PAIR_ENVELOPE_INVALID)
+
+                self.assertTrue(
+                    any(expected_error in error for error in decision.pair_validation_errors)
+                )
+
     def test_empty_steps_are_excluded(self):
         source = trajectory_pair()
         source["chosen"]["steps"] = []
@@ -258,6 +308,60 @@ class GateRejectPath(unittest.TestCase):
         decision = self.assert_excluded(source, ctp.REASON_PREFERENCE_DIRECTION_INVALID)
 
         self.assertNotIn(ctp.REASON_SIDE_EPISODE_INVALID, decision.reason_codes)
+
+    def test_side_success_labels_are_required_exact_booleans(self):
+        mutations = (("chosen", None), ("chosen", 1), ("rejected", None), ("rejected", 0))
+        for side_name, value in mutations:
+            with self.subTest(side=side_name, value=value):
+                source = trajectory_pair()
+                if value is None:
+                    source[side_name]["reward"].pop("success")
+                else:
+                    source[side_name]["reward"]["success"] = value
+
+                self.assert_excluded(source, ctp.REASON_PREFERENCE_DIRECTION_INVALID)
+
+    def test_pair_level_direction_metadata_must_agree_with_labels(self):
+        mutations = (
+            ("success", False),
+            ("preference_margin", 0.0),
+            ("preference_margin", -0.7),
+            ("preference_margin", float("nan")),
+            ("preference_margin", float("inf")),
+            ("same_goal", 0.0),
+            ("same_goal", False),
+            ("delta", -0.7),
+        )
+        for field, value in mutations:
+            with self.subTest(field=field, value=value):
+                source = trajectory_pair()
+                source["reward"][field] = value
+
+                self.assert_excluded(source, ctp.REASON_PREFERENCE_DIRECTION_INVALID)
+
+    def test_direction_metadata_handles_arbitrarily_large_json_integers(self):
+        huge = 10**400
+        cases = (
+            ("preference_margin", huge, ctp.ACTION_RETAINED),
+            ("delta", huge, ctp.ACTION_RETAINED),
+            ("preference_margin", -huge, ctp.ACTION_EXCLUDED),
+            ("delta", -huge, ctp.ACTION_EXCLUDED),
+            ("same_goal", huge, ctp.ACTION_EXCLUDED),
+        )
+        for field, value, expected_action in cases:
+            with self.subTest(field=field, positive=value > 0):
+                source = trajectory_pair(f"large-integer-{field}")
+                source["reward"][field] = value
+                parsed = json.loads(json.dumps(source))
+
+                decision = ctp.curate_trajectory_pair(parsed)
+
+                self.assertEqual(decision.action, expected_action)
+                if expected_action == ctp.ACTION_EXCLUDED:
+                    self.assertIn(
+                        ctp.REASON_PREFERENCE_DIRECTION_INVALID,
+                        decision.reason_codes,
+                    )
 
     def test_missing_outcome_or_reward_is_named(self):
         source = trajectory_pair()
@@ -482,6 +586,7 @@ class SourceScan(unittest.TestCase):
         self.assertEqual(len(retained["source_sha256"]), 64)
         self.assertEqual(len(retained["output_sha256"]), 64)
         self.assertEqual(retained["prefix_overlap"]["shared_steps"], 2)
+        self.assertEqual(retained["pair_validation_errors"], [])
         self.assertEqual(retained["side_validation_errors"], {})
 
     def test_manifest_surfaces_each_side_episode_shape_error(self):
@@ -532,6 +637,25 @@ class SourceScan(unittest.TestCase):
             source.write_text('{"id": "x", "reward": NaN}\n')
 
             with self.assertRaises(ctp.TrajectoryCurationError):
+                ctp.curate_source(source)
+
+    def test_finite_token_overflow_is_rejected_at_parse_time(self):
+        record = trajectory_pair("finite-overflow")
+        record["meta"] = {"unchecked_score": 0.5}
+        payload = ctp.canonical_json(record).replace(
+            '"unchecked_score":0.5',
+            '"unchecked_score":1e999',
+        )
+        self.assertIn('"unchecked_score":1e999', payload)
+
+        with tempfile.TemporaryDirectory() as td:
+            source = Path(td) / "batch-r01.jsonl"
+            source.write_text(payload + "\n")
+
+            with self.assertRaisesRegex(
+                ctp.TrajectoryCurationError,
+                "non-finite JSON number 1e999",
+            ):
                 ctp.curate_source(source)
 
     def test_non_jsonl_source_file_is_refused(self):

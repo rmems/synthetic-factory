@@ -42,6 +42,7 @@ import argparse
 import copy
 import hashlib
 import json
+import math
 import re
 import sys
 from collections import Counter
@@ -65,7 +66,7 @@ from validate_run import THALAMIC_CORE_KEYS, check_episode
 
 
 TRANSFORM_NAME = "trajectory-pair-preference-curation"
-TRANSFORM_VERSION = "1.1.0"
+TRANSFORM_VERSION = "1.2.0"
 
 ACTION_RETAINED = "retained"
 ACTION_REPAIRED = "repaired"
@@ -76,6 +77,7 @@ REASON_RECORD_NOT_OBJECT = "TRAJECTORY_RECORD_NOT_AN_OBJECT"
 REASON_NOT_A_PAIR = "NOT_A_PREFERENCE_PAIR_RECORD"
 REASON_SIDES_NOT_OBJECTS = "TRAJECTORY_PAIR_SIDES_NOT_OBJECTS"
 REASON_SAME_STATE_SCHEMA = "SAME_STATE_PAIR_DEFERRED_TO_CURATE_PREFERENCES"
+REASON_PAIR_ENVELOPE_INVALID = "TRAJECTORY_PAIR_ENVELOPE_INVALID"
 REASON_SIDE_EPISODE_INVALID = "TRAJECTORY_PAIR_SIDE_EPISODE_INVALID"
 REASON_STEPS_INVALID = "TRAJECTORY_STEPS_MISSING_OR_INVALID"
 REASON_STEPS_EMPTY = "TRAJECTORY_STEPS_EMPTY"
@@ -110,6 +112,21 @@ class TrajectoryCurationError(PreferenceCurationError):
     """Raised when trajectory-pair source or destination handling is unsafe."""
 
 
+def _parse_finite_json_float(text: str) -> float:
+    """Decode one JSON float without accepting finite-token overflow."""
+
+    value = float(text)
+    if not math.isfinite(value):
+        raise ValueError(f"non-finite JSON number {text}")
+    return value
+
+
+def _is_finite_json_number(value: Any) -> bool:
+    """Accept arbitrary-size JSON integers and finite floats, but not booleans."""
+
+    return type(value) is int or (type(value) is float and math.isfinite(value))
+
+
 @dataclass(frozen=True)
 class TrajectoryDecision:
     """One deterministic record-level trajectory-pair decision."""
@@ -121,6 +138,7 @@ class TrajectoryDecision:
     shared_goal: bool | None = None
     overlap: dict[str, Any] | None = None
     changed_fields: tuple[str, ...] = ()
+    pair_validation_errors: tuple[str, ...] | None = None
     side_validation_errors: dict[str, tuple[str, ...]] | None = None
 
 
@@ -159,6 +177,40 @@ def _steps(side: Any) -> list[Any] | None:
     return steps if isinstance(steps, list) else None
 
 
+def _pair_envelope_validation_errors(record: dict[str, Any]) -> tuple[str, ...]:
+    """Return errors for the trajectory-pair fields outside its two arms."""
+
+    errors: list[str] = []
+    for field_name in ("id", "outcome"):
+        value = record.get(field_name)
+        if not isinstance(value, str) or not value.strip():
+            errors.append(f"pair: {field_name} must be a non-empty string")
+    for field_name in ("reward", "meta"):
+        if not isinstance(record.get(field_name), dict):
+            errors.append(f"pair: {field_name} must be an object")
+    if "critique" in record and (
+        not isinstance(record["critique"], str) or not record["critique"].strip()
+    ):
+        errors.append("pair: critique must be a non-empty string when present")
+    return tuple(errors)
+
+
+def _step_number_errors(side: dict[str, Any], side_name: str) -> tuple[str, ...]:
+    """Require exact, one-based step ordinals without bool-as-int coercion."""
+
+    steps = side.get("steps")
+    if not isinstance(steps, list):
+        return ()
+    errors: list[str] = []
+    for index, step in enumerate(steps, 1):
+        if not isinstance(step, dict):
+            continue
+        ordinal = step.get("n")
+        if type(ordinal) is not int or ordinal != index:
+            errors.append(f"{side_name} step {index - 1}: n must be the integer {index}")
+    return tuple(errors)
+
+
 def _side_episode_validation_errors(
     record: dict[str, Any],
 ) -> dict[str, tuple[str, ...]]:
@@ -175,6 +227,7 @@ def _side_episode_validation_errors(
             require_goal=False,
             forbid_hidden_thought=True,
         )
+        errors.extend(_step_number_errors(side, side_name))
         if all(key in side for key in THALAMIC_CORE_KEYS):
             errors.append(f"{side_name}: Thalamic trajectory side is not an episode")
         if errors:
@@ -193,7 +246,7 @@ def classify_pair_schema(record: Any) -> str:
         return "sides_not_objects"
     if _is_same_state_pair(record):
         return "same_state_pair"
-    if _side_episode_validation_errors(record):
+    if _pair_envelope_validation_errors(record) or _side_episode_validation_errors(record):
         return "malformed_trajectory_pair"
     return "trajectory_pair"
 
@@ -261,14 +314,30 @@ def _side_field_failures(record: dict[str, Any], errors: dict[str, tuple[str, ..
 
 
 def _preference_direction_failures(record: dict[str, Any]) -> list[str]:
-    """Require DPO labels to point from a failed arm to a successful arm."""
+    """Bind side labels and pair-level directional evidence to one ordering."""
 
     expected = (("chosen", True), ("rejected", False))
     for side_name, required_success in expected:
         side = record[side_name]
         reward = side.get("reward") if isinstance(side, dict) else None
         success = reward.get("success") if isinstance(reward, dict) else None
-        if isinstance(success, bool) and success is not required_success:
+        if success is not required_success:
+            return [REASON_PREFERENCE_DIRECTION_INVALID]
+
+    pair_reward = record.get("reward")
+    if not isinstance(pair_reward, dict):
+        return []
+    if "success" in pair_reward and pair_reward["success"] is not True:
+        return [REASON_PREFERENCE_DIRECTION_INVALID]
+    for field_name in ("preference_margin", "delta"):
+        if field_name not in pair_reward:
+            continue
+        value = pair_reward[field_name]
+        if not _is_finite_json_number(value) or value <= 0:
+            return [REASON_PREFERENCE_DIRECTION_INVALID]
+    if "same_goal" in pair_reward:
+        same_goal = pair_reward["same_goal"]
+        if not _is_finite_json_number(same_goal) or same_goal != 1.0:
             return [REASON_PREFERENCE_DIRECTION_INVALID]
     return []
 
@@ -288,6 +357,10 @@ def gate_failures(record: dict[str, Any]) -> tuple[str, ...]:
         # Sides are known objects here, so a goal failure is always a goal code;
         # the side-shape reason is mapped back to this lane's vocabulary anyway.
         failures.append(goal_reason if goal_reason in GOAL_REASONS else REASON_SIDES_NOT_OBJECTS)
+
+    pair_errors = _pair_envelope_validation_errors(record)
+    if pair_errors:
+        failures.append(REASON_PAIR_ENVELOPE_INVALID)
 
     side_errors = _side_episode_validation_errors(record)
     if side_errors:
@@ -413,6 +486,7 @@ def curate_trajectory_pair(record: Any) -> TrajectoryDecision:
         )
 
     if schema == "malformed_trajectory_pair":
+        pair_errors = _pair_envelope_validation_errors(record)
         side_errors = _side_episode_validation_errors(record)
         return TrajectoryDecision(
             action=ACTION_EXCLUDED,
@@ -421,6 +495,7 @@ def curate_trajectory_pair(record: Any) -> TrajectoryDecision:
             record=None,
             shared_goal=shared_preference_goal(record)[0],
             overlap=prefix_overlap(record.get("chosen"), record.get("rejected")),
+            pair_validation_errors=pair_errors or None,
             side_validation_errors=side_errors,
         )
 
@@ -435,6 +510,7 @@ def curate_trajectory_pair(record: Any) -> TrajectoryDecision:
         repairs.append(REASON_GOAL_WHITESPACE_NORMALIZED)
 
     failures = gate_failures(curated)
+    pair_errors = _pair_envelope_validation_errors(curated)
     side_errors = _side_episode_validation_errors(curated)
     shared_goal, _ = shared_preference_goal(curated)
     overlap = prefix_overlap(curated.get("chosen"), curated.get("rejected"))
@@ -446,6 +522,7 @@ def curate_trajectory_pair(record: Any) -> TrajectoryDecision:
             record=None,
             shared_goal=shared_goal,
             overlap=overlap,
+            pair_validation_errors=pair_errors or None,
             side_validation_errors=side_errors or None,
         )
 
@@ -514,9 +591,15 @@ def curate_source(source: Path) -> CurationRun:
                     f"{relative_path}:{line_number}: invalid UTF-8: {exc}"
                 ) from exc
             try:
-                # ``parse_constant`` refuses NaN/Infinity, which JSON does not
-                # define and which no canonical serializer here will emit.
-                record = json.loads(text, parse_constant=reject_json_constant)
+                # ``parse_constant`` refuses explicit NaN/Infinity tokens.
+                # ``parse_float`` additionally refuses finite-looking JSON
+                # numbers such as ``1e999`` that overflow Python's float and
+                # would otherwise reappear as an invalid Infinity token.
+                record = json.loads(
+                    text,
+                    parse_constant=reject_json_constant,
+                    parse_float=_parse_finite_json_float,
+                )
             except (json.JSONDecodeError, ValueError) as exc:
                 raise TrajectoryCurationError(
                     f"{relative_path}:{line_number}: invalid JSON: {exc}"
@@ -558,6 +641,7 @@ def curate_source(source: Path) -> CurationRun:
                     "shared_goal": decision.shared_goal,
                     "prefix_overlap": decision.overlap,
                     "changed_fields": list(decision.changed_fields),
+                    "pair_validation_errors": list(decision.pair_validation_errors or ()),
                     "side_validation_errors": {
                         side: list(errors)
                         for side, errors in (decision.side_validation_errors or {}).items()

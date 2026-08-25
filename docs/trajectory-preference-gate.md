@@ -58,12 +58,16 @@ rate are never averaged into one figure.
 A pair is `retained` when all of the following hold, on the thought-stripped
 copy:
 
-1. **Valid episode sides.** Both `chosen` and `rejected` satisfy the strict
+1. **Valid pair envelope and episode sides.** The pair has a non-empty text
+   `id` and `outcome`, object-valued `reward` and `meta`, and a non-empty text
+   `critique` when present. Both `chosen` and `rejected` satisfy the strict
    structured-step mode of
    `validate_run.check_episode(..., require_goal=False)`. Mixed Thalamic /
    episode pairs, malformed observable fields, non-text outcomes, invalid
    reward objects, and invalid reward labels are rejected before they can enter
-   the training view.
+   the training view. Every step also has an exact integer `n` equal to its
+   one-based position; booleans, strings, missing ordinals, gaps, and duplicates
+   are rejected.
 2. **Shared goal.** Every present goal string (top-level, `chosen.goal`,
    `rejected.goal`) is identical after whitespace normalization, and either the
    top-level `goal` is present or both side goals are.
@@ -76,7 +80,10 @@ copy:
    review outcomes routinely name the failure that was caught.
 6. **`reward` diverges in the right direction.** Both sides have a valid
    episode reward, they differ, `chosen.reward.success` is `true`, and
-   `rejected.reward.success` is `false`.
+   `rejected.reward.success` is `false`. Pair-level direction metadata cannot
+   contradict those labels: when present, `reward.success` is `true`,
+   `preference_margin` / `delta` are finite and positive, and `same_goal` is
+   numeric `1.0`.
 
 Reason code on the keep path: `TRAJECTORY_PAIR_SHARED_GOAL_AND_PREFIX`.
 
@@ -100,6 +107,7 @@ fails its own gate. Repair is idempotent: re-curating a repaired record yields
 |---|---|
 | `TRAJECTORY_RECORD_NOT_AN_OBJECT` | Line is not a JSON object |
 | `TRAJECTORY_PAIR_SIDES_NOT_OBJECTS` | `chosen` / `rejected` present but not objects |
+| `TRAJECTORY_PAIR_ENVELOPE_INVALID` | Pair-level `id`, `outcome`, `reward`, `meta`, or optional `critique` has the wrong shape; exact errors are in `pair_validation_errors` |
 | `TRAJECTORY_PAIR_SIDE_EPISODE_INVALID` | At least one side fails the canonical episode validator; exact per-side errors are in `side_validation_errors` |
 | `TRAJECTORY_STEPS_MISSING_OR_INVALID` | A side has no `steps` list or contains a malformed step |
 | `TRAJECTORY_STEPS_EMPTY` | A side has an empty `steps` list |
@@ -109,12 +117,13 @@ fails its own gate. Repair is idempotent: re-curating a repaired record yields
 | `FIRST_STEP_DIFFERS_BY_BRANCH_LABEL_ONLY` | Disclosure note on a zero-prefix reject (Section 6) |
 | `TRAJECTORY_OUTCOME_MISSING` / `TRAJECTORY_OUTCOME_INVALID` / `TRAJECTORY_OUTCOME_DOES_NOT_DIVERGE` | Outcome rules |
 | `TRAJECTORY_REWARD_MISSING` / `TRAJECTORY_REWARD_INVALID` / `TRAJECTORY_REWARD_DOES_NOT_DIVERGE` | Reward rules |
-| `TRAJECTORY_PREFERENCE_DIRECTION_INVALID` | The chosen arm is not successful or the rejected arm is not unsuccessful |
+| `TRAJECTORY_PREFERENCE_DIRECTION_INVALID` | A side success label is missing / non-boolean / inverted, or pair-level direction metadata contradicts the chosen/rejected ordering |
 
 Every applicable reason is reported for one record, in a fixed order, so a
 manifest entry is fully diagnostic and byte-stable across runs. Invalid steps
-do not suppress independent outcome or reward findings; the manifest also
-preserves the exact `check_episode` messages under each side name.
+do not suppress independent outcome or reward findings; the manifest preserves
+the exact pair-envelope errors and `check_episode` messages under their own
+fields.
 
 ## 6. The zero-prefix tool-use pairs
 
