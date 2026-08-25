@@ -30,7 +30,7 @@ def _record(**overrides):
         "scenario": {"id": "sc-001"},
         "intervention": None,
         "candidate_prediction": {"source": "generator", "authoritative": False},
-        "oracle": {"software": {}},
+        "oracle": {"software": {"execution_target": "software_float"}},
         "result": {
             "oracle_backed": True,
             "verdict": contract.VERDICT_MATCH,
@@ -72,6 +72,10 @@ class Envelope(unittest.TestCase):
     def test_unknown_record_kind_rejected(self):
         errors = contract.check_envelope(_record(record_kind="something_else"), WHERE)
         self.assertTrue(any("record_kind must be" in error for error in errors))
+
+    def test_unsupported_schema_version_rejected(self):
+        errors = contract.check_envelope(_record(schema_version="2.0.0"), WHERE)
+        self.assertTrue(any("schema_version must be '1.0.0'" in error for error in errors))
 
     def test_meta_round_must_be_an_integer(self):
         errors = contract.check_envelope(
@@ -139,7 +143,19 @@ class CandidatePrediction(unittest.TestCase):
         )
 
     def test_prediction_may_not_carry_oracle_only_fields(self):
-        for key in ("spikes", "membrane", "latency", "parity", "bitstream", "capture"):
+        for key in (
+            "spikes",
+            "membrane",
+            "latency",
+            "parity",
+            "bitstream",
+            "capture",
+            "output_trace",
+            "spike_count",
+            "final_membrane",
+            "roundtrip",
+            "comparison",
+        ):
             with self.subTest(key=key):
                 errors = contract.check_candidate_prediction(
                     {"source": "generator", "authoritative": False, key: "anything"},
@@ -187,6 +203,22 @@ class Result(unittest.TestCase):
             _record(), WHERE, oracle_digests=["sha256:aa", "sha256:bb"]
         )
         self.assertTrue(any("omits executed oracle digests" in error for error in errors))
+
+    def test_derived_from_must_preserve_oracle_order(self):
+        record = _record()
+        record["result"]["derived_from"] = ["sha256:bb", "sha256:aa"]
+        errors = contract.check_envelope(
+            record, WHERE, oracle_digests=["sha256:aa", "sha256:bb"]
+        )
+        self.assertTrue(any("ordered oracle evidence" in error for error in errors), errors)
+
+    def test_derived_from_must_preserve_duplicate_occurrences(self):
+        record = _record()
+        record["result"]["derived_from"] = ["sha256:aa"]
+        errors = contract.check_envelope(
+            record, WHERE, oracle_digests=["sha256:aa", "sha256:aa"]
+        )
+        self.assertTrue(any("duplicate occurrences" in error for error in errors), errors)
 
     def test_empty_derived_from_rejected(self):
         record = _record()
@@ -268,6 +300,22 @@ class TrainingViews(unittest.TestCase):
         errors = contract.training_view_errors(record, view, WHERE)
         self.assertTrue(any("TRAINING_VIEW_HIDES_FAILURE" in error for error in errors))
 
+    def test_view_identity_must_match_its_paired_source_record(self):
+        record = _record()
+        for key, value in (
+            ("id", "another-record"),
+            ("record_kind", contract.KIND_NIR_EQUIVALENCE),
+            ("dataset", "another-dataset"),
+        ):
+            with self.subTest(key=key):
+                view = self._view(record)
+                view[key] = value
+                errors = contract.training_view_errors(record, view, WHERE)
+                self.assertTrue(
+                    any(f"view {key} must exactly match" in error for error in errors),
+                    errors,
+                )
+
     def test_softened_failure_flag_is_rejected(self):
         record = _record()
         record["result"]["verdict"] = contract.VERDICT_MISMATCH
@@ -280,7 +328,19 @@ class TrainingViews(unittest.TestCase):
         record["result"]["reason_codes"] = ["ACTION_DISAGREEMENT", "MEMBRANE_DIVERGENCE"]
         view = self._view(record, reason_codes=["ACTION_DISAGREEMENT"])
         errors = contract.training_view_errors(record, view, WHERE)
-        self.assertTrue(any("drops reason codes" in error for error in errors))
+        self.assertTrue(any("exactly match" in error for error in errors))
+
+    def test_added_reason_codes_are_rejected_even_when_known(self):
+        record = _record()
+        view = self._view(record, reason_codes=["ACTION_DISAGREEMENT"])
+        errors = contract.training_view_errors(record, view, WHERE)
+        self.assertTrue(any("exactly match" in error for error in errors), errors)
+
+    def test_fabricated_reason_code_is_rejected(self):
+        record = _record()
+        view = self._view(record, reason_codes=["FABRICATED_VIEW_REASON"])
+        errors = contract.training_view_errors(record, view, WHERE)
+        self.assertTrue(any("unknown reason code" in error for error in errors), errors)
 
     def test_view_must_name_its_execution_targets(self):
         record = _record()
@@ -288,11 +348,32 @@ class TrainingViews(unittest.TestCase):
         errors = contract.training_view_errors(record, view, WHERE)
         self.assertTrue(any("execution targets" in error for error in errors))
 
+    def test_view_may_not_relabel_its_execution_target(self):
+        record = _record()
+        view = self._view(record, execution_targets=["fpga_hardware"])
+        errors = contract.training_view_errors(record, view, WHERE)
+        self.assertTrue(any("exactly match" in error for error in errors), errors)
+
     def test_view_must_carry_evidence_digests(self):
         record = _record()
         view = self._view(record, evidence_digests=[])
         errors = contract.training_view_errors(record, view, WHERE)
         self.assertTrue(any("RESULT_DIGEST_UNLINKED" in error for error in errors))
+
+    def test_view_may_not_substitute_fabricated_evidence_digests(self):
+        record = _record()
+        view = self._view(record, evidence_digests=["sha256:fabricated"])
+        errors = contract.training_view_errors(record, view, WHERE)
+        self.assertTrue(any("exactly match" in error for error in errors), errors)
+
+    def test_malformed_reason_code_containers_report_instead_of_crashing(self):
+        for value in (None, "ACTION_DISAGREEMENT", [None]):
+            with self.subTest(value=value):
+                record = _record()
+                record["result"]["reason_codes"] = value
+                view = self._view(record)
+                errors = contract.training_view_errors(record, view, WHERE)
+                self.assertTrue(any("reason_codes" in error for error in errors), errors)
 
     def test_view_must_stay_oracle_backed(self):
         record = _record()
@@ -330,6 +411,13 @@ class TrainingViews(unittest.TestCase):
         errors = contract.view_set_errors(records, views)
         self.assertTrue(any("rec-invented" in error for error in errors))
 
+    def test_non_string_view_id_is_rejected_explicitly(self):
+        errors = contract.view_set_errors([], [{"id": None}])
+        self.assertTrue(
+            any("invalid non-string view IDs" in error for error in errors),
+            errors,
+        )
+
     def test_unavailable_oracle_makes_the_view_incomplete(self):
         # `parity_failed: false` means the oracles that ran agreed. It does not
         # mean the intended oracles ran, and a consumer must be able to tell.
@@ -360,6 +448,11 @@ class ReasonCodeVocabulary(unittest.TestCase):
     def test_check_reason_codes_requires_a_list(self):
         errors = contract.check_reason_codes("ACTION_DISAGREEMENT", WHERE, "codes")
         self.assertTrue(any("must be an array" in error for error in errors))
+
+    def test_check_reason_codes_rejects_non_string_entries_without_crashing(self):
+        errors = contract.check_reason_codes([None, 3, {}], WHERE, "codes")
+        self.assertEqual(len(errors), 3)
+        self.assertTrue(all("must be strings" in error for error in errors), errors)
 
 
 if __name__ == "__main__":

@@ -28,9 +28,11 @@ import hashlib
 import json
 import math
 import os
+import stat
 from pathlib import Path
 
 SCHEMA_VERSION = "1.0.0"
+MAX_CAPTURE_BYTES = 16 * 1024 * 1024
 
 # ── Q8.8 fixed-point format ───────────────────────────────────────────
 # Signed 16-bit, 8 fractional bits: value = raw / 256, raw in [-32768, 32767].
@@ -458,8 +460,13 @@ def simulate_fixed_point(q_model, stimulus):
 
 
 def run_digest(outcome):
-    """The behavioural fingerprint compared across repeats and across sides."""
-    return digest({"spikes": outcome["spikes"], "action": outcome["action"]["label"]})
+    """Fingerprint the complete retained behavioural observation."""
+    return digest(
+        {
+            key: outcome[key]
+            for key in ("spikes", "spike_events", "membrane", "action")
+        }
+    )
 
 
 class OracleAdapter:
@@ -574,9 +581,46 @@ class RecordedCaptureAdapter(OracleAdapter):
         self._capture = None
         self._error = None
         try:
-            self._capture = json.loads(self.capture_path.read_text(encoding="utf-8"))
+            path_metadata = self.capture_path.lstat()
+            if not stat.S_ISREG(path_metadata.st_mode):
+                raise OSError("capture path is not a regular file")
+            if path_metadata.st_size > MAX_CAPTURE_BYTES:
+                raise OSError(
+                    f"capture is {path_metadata.st_size} bytes; limit is "
+                    f"{MAX_CAPTURE_BYTES}"
+                )
+            flags = os.O_RDONLY | getattr(os, "O_NONBLOCK", 0) | getattr(
+                os, "O_NOFOLLOW", 0
+            )
+            descriptor = os.open(self.capture_path, flags)
+            try:
+                metadata = os.fstat(descriptor)
+                if not stat.S_ISREG(metadata.st_mode):
+                    raise OSError("capture path is not a regular file")
+                if (metadata.st_dev, metadata.st_ino) != (
+                    path_metadata.st_dev,
+                    path_metadata.st_ino,
+                ):
+                    raise OSError("capture path changed while it was being opened")
+                if metadata.st_size > MAX_CAPTURE_BYTES:
+                    raise OSError(
+                        f"capture is {metadata.st_size} bytes; limit is "
+                        f"{MAX_CAPTURE_BYTES}"
+                    )
+                with os.fdopen(descriptor, "rb", closefd=False) as handle:
+                    payload = handle.read(MAX_CAPTURE_BYTES + 1)
+                if len(payload) > MAX_CAPTURE_BYTES:
+                    raise OSError(f"capture exceeds {MAX_CAPTURE_BYTES} bytes")
+            finally:
+                os.close(descriptor)
+            self._capture = json.loads(payload.decode("utf-8"))
         except FileNotFoundError:
             self._error = ("CAPTURE_FILE_ABSENT", f"no capture at {self.capture_path}")
+        except OSError as exc:
+            self._error = (
+                "CAPTURE_UNREADABLE",
+                f"cannot read {self.capture_path}: {exc}",
+            )
         except (json.JSONDecodeError, UnicodeDecodeError) as exc:
             self._error = ("CAPTURE_UNREADABLE", str(exc))
         if self._capture is not None:
@@ -605,7 +649,17 @@ class RecordedCaptureAdapter(OracleAdapter):
         capture = self._capture
         manifest = capture.get("manifest") or {}
         payload = capture.get("payload")
-        actual = digest(payload)
+        if not isinstance(payload, dict):
+            raise OracleUnavailable(
+                "CAPTURE_UNREADABLE", "capture payload must be a JSON object"
+            )
+        try:
+            actual = digest(payload)
+        except (TypeError, ValueError, OverflowError) as exc:
+            raise OracleUnavailable(
+                "CAPTURE_UNREADABLE",
+                f"capture payload is not canonical finite JSON: {exc}",
+            ) from exc
         if manifest.get("payload_sha256") != actual:
             raise OracleUnavailable(
                 "CAPTURE_DIGEST_MISMATCH",
@@ -619,24 +673,31 @@ class RecordedCaptureAdapter(OracleAdapter):
                 "CAPTURE_INPUT_FIXTURE_MISMATCH",
                 "capture was taken against a different encoded input fixture",
             )
-        if not isinstance(payload, dict):
-            raise OracleUnavailable(
-                "CAPTURE_UNREADABLE", "capture payload must be a JSON object"
-            )
-        missing = [key for key in ("spikes", "action") if key not in payload]
-        if missing:
-            raise OracleUnavailable(
-                "CAPTURE_UNREADABLE", f"capture payload is missing {missing}"
-            )
-        # The Q8.8 export is what was loaded onto the board, so a capture that
-        # omits it cannot support a parity claim -- and without this the
-        # validator's Q88_PROVENANCE_MISSING gate makes every capture-derived
-        # record unwritable.
+        # The Q8.8 export is what was loaded onto the board. Report its absence
+        # before checking the retained observation so the failure identifies
+        # the actual missing provenance rather than a secondary shape detail.
         quantization = capture.get("quantization") or payload.get("quantization")
         if not quantization:
             raise OracleUnavailable(
                 "CAPTURE_QUANTIZATION_MISSING",
                 "capture must record the Q8.8 conversion that produced the bitstream",
+            )
+        missing = [
+            key
+            for key in (
+                "spikes",
+                "spike_events",
+                "membrane",
+                "action",
+                "arithmetic",
+                "repeat_outputs",
+                "repeat_digests",
+            )
+            if key not in payload
+        ]
+        if missing:
+            raise OracleUnavailable(
+                "CAPTURE_UNREADABLE", f"capture payload is missing {missing}"
             )
         try:
             fingerprint = run_digest(payload)
@@ -644,7 +705,66 @@ class RecordedCaptureAdapter(OracleAdapter):
             raise OracleUnavailable(
                 "CAPTURE_UNREADABLE", f"capture payload is malformed: {exc}"
             ) from exc
-        repeat_digests = list(payload.get("repeat_digests") or [fingerprint])
+        repeat_outputs = payload["repeat_outputs"]
+        repeat_digests = payload["repeat_digests"]
+        if (
+            not isinstance(repeat_outputs, list)
+            or not repeat_outputs
+            or not isinstance(repeat_digests, list)
+            or len(repeat_outputs) != len(repeat_digests)
+        ):
+            raise OracleUnavailable(
+                "CAPTURE_UNREADABLE",
+                "capture repeat_outputs and repeat_digests must be nonempty arrays "
+                "with identical cardinality",
+            )
+        for index, (repeat_output, recorded_digest) in enumerate(
+            zip(repeat_outputs, repeat_digests)
+        ):
+            try:
+                expected_digest = run_digest(repeat_output)
+            except (KeyError, TypeError, ValueError, AttributeError) as exc:
+                raise OracleUnavailable(
+                    "CAPTURE_UNREADABLE",
+                    f"capture repeat_outputs[{index}] is malformed: {exc}",
+                ) from exc
+            if recorded_digest != expected_digest:
+                raise OracleUnavailable(
+                    "CAPTURE_DIGEST_MISMATCH",
+                    f"capture repeat_digests[{index}] is not derived from "
+                    f"repeat_outputs[{index}]",
+                )
+        primary = {
+            key: payload.get(key)
+            for key in ("spikes", "spike_events", "membrane", "action", "arithmetic")
+        }
+        first = (
+            {
+                key: repeat_outputs[0].get(key)
+                for key in (
+                    "spikes",
+                    "spike_events",
+                    "membrane",
+                    "action",
+                    "arithmetic",
+                )
+            }
+            if isinstance(repeat_outputs[0], dict)
+            else None
+        )
+        try:
+            first_json = canonical_json(first)
+            primary_json = canonical_json(primary)
+        except (TypeError, ValueError, OverflowError) as exc:
+            raise OracleUnavailable(
+                "CAPTURE_UNREADABLE",
+                f"capture retained observation is not canonical finite JSON: {exc}",
+            ) from exc
+        if first_json != primary_json:
+            raise OracleUnavailable(
+                "CAPTURE_DIGEST_MISMATCH",
+                "capture payload does not match its first retained repeat output",
+            )
         return {
             "quantization": quantization,
             "adapter": self.name,
@@ -660,12 +780,10 @@ class RecordedCaptureAdapter(OracleAdapter):
             "latency": payload.get("latency"),
             "output_digest": fingerprint,
             "spikes": payload["spikes"],
-            "spike_events": payload.get("spike_events", []),
-            "membrane": payload.get(
-                "membrane", {"observable": False, "units": "mV_model", "trace": None}
-            ),
+            "spike_events": payload["spike_events"],
+            "membrane": payload["membrane"],
             "action": payload["action"],
-            "arithmetic": payload.get("arithmetic", {"format": "Q8.8"}),
+            "arithmetic": payload["arithmetic"],
             "hardware": capture.get("hardware"),
             "bitstream": capture.get("bitstream"),
             "capture": {

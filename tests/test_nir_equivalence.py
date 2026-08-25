@@ -42,6 +42,30 @@ def _cli(args):
     )
 
 
+def _refresh_result(record):
+    comparison = nir.compare_runtimes(
+        record["scenario"], record["oracle"]["runtimes"]
+    )
+    verdict, reason_codes = nir.verdict_for(comparison)
+    record["result"]["comparison"] = comparison
+    record["result"]["verdict"] = verdict
+    record["result"]["reason_codes"] = reason_codes
+    record["result"]["derived_from"] = nir._evidence_lineage(
+        record["oracle"]["runtimes"]
+    )
+    record["result"]["summary"] = nir._summarize(
+        record["scenario"], comparison, verdict
+    )
+
+
+def _rebuild_scenario(scenario, round_number=1):
+    entries = [
+        nir.execute_runtime(runtime, scenario)
+        for runtime in (*nir.IN_REPO_RUNTIMES, *nir.UPSTREAM_RUNTIMES)
+    ]
+    return nir.build_record(scenario, entries, round_number)
+
+
 def _linear_graph():
     return {
         "name": "unit",
@@ -425,6 +449,30 @@ class Validation(unittest.TestCase):
             if record["result"]["verdict"] == contract.VERDICT_MISMATCH
         )
 
+    def _assert_lineage_rejected_everywhere(self, record):
+        direct_errors = nir.validate_record(record, WHERE)
+        self.assertTrue(
+            any("ordered runtime lineage" in error for error in direct_errors),
+            direct_errors,
+        )
+
+        import check_records
+
+        deep_errors, _warnings, _kind, _record_id = check_records.check_record(
+            record, WHERE
+        )
+        self.assertTrue(
+            any("ordered runtime lineage" in error for error in deep_errors),
+            deep_errors,
+        )
+
+        views, view_errors = nir.build_training_views([record], source="tampered")
+        self.assertEqual(views, [])
+        self.assertTrue(
+            any("ordered runtime lineage" in error for error in view_errors),
+            view_errors,
+        )
+
     def test_fixture_validates(self):
         self.assertEqual(nir.validate_records(_fixture_records()), [])
 
@@ -549,6 +597,14 @@ class Validation(unittest.TestCase):
                     any("COMPARISON_MISMATCH" in error for error in errors), errors
                 )
 
+    def test_comparison_rejects_boolean_fields_retyped_as_integers(self):
+        record = copy.deepcopy(self.records[0])
+        record["result"]["comparison"]["output_parity"]["agree"] = 1
+        errors = nir.validate_record(record, WHERE)
+        self.assertTrue(
+            any("COMPARISON_MISMATCH" in error for error in errors), errors
+        )
+
     def test_oracle_fixture_and_identical_flag_are_load_bearing(self):
         record = copy.deepcopy(self.records[0])
         record["oracle"]["input_fixture"]["sha256"] = "sha256:" + "0" * 64
@@ -561,6 +617,283 @@ class Validation(unittest.TestCase):
         record["result"]["summary"] = "all runtimes agree"
         errors = nir.validate_record(record, WHERE)
         self.assertTrue(any("result.summary" in error for error in errors), errors)
+
+    def test_zero_execution_lineage_is_recomputed_from_diagnostics(self):
+        record = copy.deepcopy(
+            next(
+                item
+                for item in self.records
+                if not any(
+                    entry["status"] == nir.STATUS_EXECUTED
+                    for entry in item["oracle"]["runtimes"]
+                )
+            )
+        )
+        record["result"]["derived_from"] = ["fabricated"]
+        errors = nir.validate_record(record, WHERE)
+        self.assertTrue(any("derived_from" in error for error in errors), errors)
+
+    def test_reversed_lineage_is_rejected_everywhere(self):
+        record = copy.deepcopy(self.records[0])
+        record["result"]["derived_from"].reverse()
+        self._assert_lineage_rejected_everywhere(record)
+
+    def test_duplicate_lineage_occurrence_cannot_be_removed(self):
+        record = copy.deepcopy(
+            next(
+                item
+                for item in self.records
+                if item["scenario"]["id"] == "nir-feedforward-threshold"
+            )
+        )
+        derived = record["result"]["derived_from"]
+        duplicate_digests = [
+            item["digest"]
+            for item in derived
+            if sum(other["digest"] == item["digest"] for other in derived) > 1
+        ]
+        self.assertTrue(duplicate_digests, derived)
+        duplicate_digest = duplicate_digests[0]
+        duplicate_index = next(
+            index
+            for index, item in enumerate(derived)
+            if item["digest"] == duplicate_digest
+        )
+        derived.pop(duplicate_index)
+        self._assert_lineage_rejected_everywhere(record)
+
+    def test_partial_execution_lineage_includes_unsupported_diagnostic(self):
+        record = next(
+            item
+            for item in self.records
+            if item["scenario"]["id"] == "nir-partial-coverage-li"
+        )
+        expected_digests = []
+        for entry in record["oracle"]["runtimes"]:
+            if entry["status"] == nir.STATUS_EXECUTED:
+                expected_digests.append(entry["output_digest"])
+                continue
+            if entry["status"] == nir.STATUS_UNSUPPORTED:
+                diagnostic = {
+                    "evidence_kind": "runtime_diagnostic",
+                    "runtime": entry["runtime"],
+                    "runtime_class": entry["runtime_class"],
+                    "status": entry["status"],
+                    "reason_code": entry["reason_code"],
+                    "detail": entry["detail"],
+                    "unsupported_node": entry["unsupported_node"],
+                    "unsupported_type": entry["unsupported_type"],
+                }
+            else:
+                capability = nir._runtime_capability(entry["runtime"])
+                diagnostic = {
+                    "evidence_kind": "runtime_capability",
+                    "runtime": entry["runtime"],
+                    "runtime_class": entry["runtime_class"],
+                    "status": entry["status"],
+                    "available": capability["available"],
+                    "reason_code": capability["reason_code"],
+                }
+            expected_digests.append(nir.digest(diagnostic))
+
+        lineage = nir._evidence_lineage(record["oracle"]["runtimes"])
+        self.assertEqual(record["result"]["derived_from"], lineage)
+        self.assertEqual(
+            [(item["runtime"], item["status"]) for item in lineage],
+            [
+                (entry["runtime"], entry["status"])
+                for entry in record["oracle"]["runtimes"]
+            ],
+        )
+        self.assertEqual(
+            [item["digest"] for item in lineage],
+            expected_digests,
+        )
+        unsupported_index = next(
+            index
+            for index, entry in enumerate(record["oracle"]["runtimes"])
+            if entry["status"] == nir.STATUS_UNSUPPORTED
+        )
+        self.assertEqual(
+            record["result"]["derived_from"][unsupported_index]["digest"],
+            expected_digests[unsupported_index],
+        )
+
+    def test_graph_class_is_bound_to_validated_graph(self):
+        record = copy.deepcopy(self.records[0])
+        record["scenario"]["class"] = "coverage_gap"
+        record["candidate_prediction"]["expected_verdict"] = contract.VERDICT_UNSUPPORTED
+        errors = nir.validate_record(record, WHERE)
+        self.assertTrue(
+            any("scenario.class" in error and "graph catalog" in error for error in errors),
+            errors,
+        )
+
+    def test_rebuilt_record_cannot_rename_a_catalog_scenario(self):
+        spec = nir.GRAPH_SPECS[0]
+        scenario = nir.build_scenario(spec, steps=6)
+        scenario["name"] = "forged scenario identity"
+        record = _rebuild_scenario(scenario)
+
+        errors = nir.validate_record(record, WHERE)
+        self.assertTrue(
+            any("scenario.name" in error and "graph catalog" in error for error in errors),
+            errors,
+        )
+        view = nir.training_view(record)
+        self.assertIn(spec["name"], view["prompt"])
+        self.assertNotIn("forged scenario identity", view["prompt"])
+        self.assertNotIn("forged scenario identity", view["completion"])
+        self.assertEqual(view["graph_class"], spec["class"])
+
+    def test_rebuilt_record_cannot_change_any_catalog_stimulus_field(self):
+        mutations = {
+            "name": lambda stimulus: stimulus.__setitem__("name", "forged-stimulus"),
+            "encoding": lambda stimulus: stimulus.__setitem__("encoding", "forged"),
+            "event": lambda stimulus: stimulus["events"][0].__setitem__(0, 0.25),
+        }
+        for field, mutate in mutations.items():
+            with self.subTest(field=field):
+                scenario = nir.build_scenario(nir.GRAPH_SPECS[0], steps=6)
+                mutate(scenario["stimulus"])
+                stimulus = scenario["stimulus"]
+                scenario["input_fixture"] = {
+                    "name": stimulus["name"],
+                    "steps": stimulus["steps"],
+                    "channels": stimulus["channels"],
+                    "sha256": nir.digest(stimulus["events"]),
+                }
+                record = _rebuild_scenario(scenario)
+                errors = nir.validate_record(record, WHERE)
+                self.assertTrue(
+                    any("scenario.stimulus" in error for error in errors),
+                    errors,
+                )
+
+    def test_all_catalog_identity_fields_are_bound_to_scenario_id(self):
+        mutations = (
+            lambda record: record["scenario"].__setitem__("family", "forged"),
+            lambda record: record["scenario"].__setitem__("description", "forged"),
+            lambda record: record["intervention"].__setitem__("detail", "forged"),
+            lambda record: record["candidate_prediction"].__setitem__(
+                "hypothesis", "forged"
+            ),
+        )
+        base = next(
+            record
+            for record in self.records
+            if isinstance(record["intervention"], dict)
+        )
+        for mutate in mutations:
+            with self.subTest(mutation=mutate):
+                record = copy.deepcopy(base)
+                mutate(record)
+                errors = nir.validate_record(record, WHERE)
+                self.assertTrue(
+                    any("graph catalog" in error for error in errors), errors
+                )
+
+    def test_unavailable_detail_must_match_the_runtime_probe(self):
+        record = copy.deepcopy(self.records[0])
+        original_lineage = copy.deepcopy(record["result"]["derived_from"])
+        entry = next(
+            item
+            for item in record["oracle"]["runtimes"]
+            if item["runtime"] == "nir_rs"
+        )
+        entry["detail"] = "host-specific diagnostic wording"
+        _refresh_result(record)
+        self.assertEqual(record["result"]["derived_from"], original_lineage)
+        errors = nir.validate_record(record, WHERE)
+        self.assertTrue(
+            any("diagnostic detail does not match" in error for error in errors),
+            errors,
+        )
+
+    def test_unavailable_reason_cannot_switch_and_self_rehash(self):
+        record = copy.deepcopy(self.records[0])
+        original_lineage = copy.deepcopy(record["result"]["derived_from"])
+        entry = next(
+            item
+            for item in record["oracle"]["runtimes"]
+            if item["runtime"] == "nir_rs"
+        )
+        actual_reason = nir._ALL_RUNTIME_BY_NAME["nir_rs"].availability()[
+            "reason_code"
+        ]
+        alternate_reason = next(
+            code for code in nir.UNAVAILABLE_REASON_CODES if code != actual_reason
+        )
+        entry["reason_code"] = alternate_reason
+        entry["detail"] = "self-authenticated alternate capability"
+        _refresh_result(record)
+        self.assertEqual(record["result"]["derived_from"], original_lineage)
+
+        errors = nir.validate_record(record, WHERE)
+        self.assertTrue(
+            any("does not match the runtime probe" in error for error in errors),
+            errors,
+        )
+
+    def test_unavailable_diagnostic_rejects_an_unknown_reason_code(self):
+        record = copy.deepcopy(self.records[0])
+        entry = next(
+            item
+            for item in record["oracle"]["runtimes"]
+            if item["runtime"] == "nir_rs"
+        )
+        entry["reason_code"] = "FABRICATED_RUNTIME_FAILURE"
+        errors = nir.validate_record(record, WHERE)
+        self.assertTrue(any("unavailable reason_code" in error for error in errors), errors)
+
+    def test_provenance_digest_is_bound_to_graph_and_stimulus(self):
+        record = copy.deepcopy(self.records[0])
+        record["provenance"]["scenario_sha256"] = "sha256:" + "0" * 64
+        errors = nir.validate_record(record, WHERE)
+        self.assertTrue(any("scenario_sha256" in error for error in errors), errors)
+
+    def test_family_identity_and_validator_provenance_are_bound(self):
+        mutations = (
+            lambda record: record.__setitem__("id", "another-scenario-r01"),
+            lambda record: record["meta"].__setitem__("factory", "another-factory"),
+            lambda record: record["generator"].__setitem__("name", "another-generator"),
+            lambda record: record["provenance"].__setitem__("tool", "another-tool"),
+            lambda record: record["provenance"].__setitem__(
+                "tool_version", "999"
+            ),
+            lambda record: record["validation"].__setitem__(
+                "validator", "another-validator"
+            ),
+            lambda record: record["validation"].__setitem__(
+                "validator_version", "999"
+            ),
+        )
+        for mutate in mutations:
+            with self.subTest(mutation=mutate):
+                record = copy.deepcopy(self.records[0])
+                mutate(record)
+                errors = nir.validate_record(record, WHERE)
+                self.assertTrue(
+                    any("ENVELOPE_MALFORMED" in error for error in errors), errors
+                )
+
+    def test_recorded_output_uses_strict_numeric_types(self):
+        record = copy.deepcopy(self.records[0])
+        entry = next(
+            item
+            for item in record["oracle"]["runtimes"]
+            if item["status"] == nir.STATUS_EXECUTED
+        )
+        trace = entry["outputs"]["output_trace"]
+        row_index, value_index = next(
+            (row_index, value_index)
+            for row_index, row in enumerate(trace)
+            for value_index, value in enumerate(row)
+            if value == 0.0 and not isinstance(value, bool)
+        )
+        trace[row_index][value_index] = False
+        errors = nir.validate_record(record, WHERE)
+        self.assertTrue(any("COMPARISON_MISMATCH" in error for error in errors), errors)
 
 
 class UnfalsifiableClaims(unittest.TestCase):
@@ -784,6 +1117,17 @@ class MalformedRecordsDoNotCrash(unittest.TestCase):
 
         self._assert_reports(mutate)
 
+    def test_executed_entry_missing_output_digest_is_reported_not_raised(self):
+        def mutate(record):
+            entry = next(
+                item
+                for item in record["oracle"]["runtimes"]
+                if item["status"] == nir.STATUS_EXECUTED
+            )
+            entry.pop("output_digest")
+
+        self._assert_reports(mutate)
+
     def test_non_dict_runtime_entry(self):
         self._assert_reports(
             lambda record: record["oracle"]["runtimes"].append("not an object")
@@ -795,6 +1139,60 @@ class MalformedRecordsDoNotCrash(unittest.TestCase):
     def test_nodes_array_is_reported_instead_of_crashing(self):
         self._assert_reports(
             lambda record: record["scenario"]["graph"].__setitem__("nodes", [])
+        )
+
+    def test_missing_stimulus_steps_is_reported_instead_of_crashing(self):
+        self._assert_reports(
+            lambda record: record["scenario"]["stimulus"].pop("steps")
+        )
+
+    def test_nonfinite_unavailable_diagnostic_is_reported_not_hashed(self):
+        def mutate(record):
+            entry = next(
+                item
+                for item in record["oracle"]["runtimes"]
+                if item["status"] == nir.STATUS_UNAVAILABLE
+            )
+            entry["detail"] = float("nan")
+
+        self._assert_reports(mutate)
+
+    def test_wrong_nested_lineage_container_types_are_local_findings(self):
+        mutations = (
+            lambda record: record["oracle"]["runtimes"][2].__setitem__(
+                "runtime", []
+            ),
+            lambda record: record["scenario"].__setitem__("id", []),
+            lambda record: record["oracle"].__setitem__("input_fixture", ["bad"]),
+            lambda record: record["result"].__setitem__(
+                "derived_from", {"not": "an array"}
+            ),
+        )
+        for mutate in mutations:
+            with self.subTest(mutation=mutate):
+                self._assert_reports(mutate)
+
+    def test_non_array_runtime_inventory_is_a_local_finding(self):
+        for value in (1, True):
+            with self.subTest(value=value):
+                self._assert_reports(
+                    lambda record, value=value: record["oracle"].__setitem__(
+                        "runtimes", value
+                    )
+                )
+
+    def test_nonfinite_nested_graph_value_is_reported_not_raised(self):
+        self._assert_reports(
+            lambda record: record["scenario"]["graph"].__setitem__(
+                "dt_s", float("nan")
+            )
+        )
+
+    def test_oversized_integer_stimulus_is_reported_not_raised(self):
+        self._assert_reports(
+            lambda record: record["scenario"]["stimulus"]["events"][0].__setitem__(
+                0, 10**10_000
+            )
         )
 
 
@@ -816,6 +1214,39 @@ class TrainingViews(unittest.TestCase):
         views, _ = nir.build_training_views(_fixture_records())
         for view in views:
             self.assertIn("in-repo", view["evidence_scope"])
+
+    def test_training_view_evidence_parity(self):
+        record = next(
+            item
+            for item in nir.generate_records(round_number=1, steps=4)
+            if item["scenario"]["id"] == "nir-partial-coverage-li"
+        )
+        view = nir.training_view(record)
+        self.assertEqual(view["evidence_digests"], record["result"]["derived_from"])
+
+        view["evidence_digests"] = view["evidence_digests"][:-1]
+        errors = nir.training_view_errors(record, view, WHERE)
+        self.assertTrue(any("exactly match" in error for error in errors), errors)
+
+    def test_every_nir_specific_training_field_is_rederived(self):
+        record = copy.deepcopy(_fixture_records()[0])
+        mutations = {
+            "prompt": "fabricated prompt",
+            "completion": "all upstream runtimes executed and matched",
+            "graph_class": "fabricated-class",
+            "scenario_id": "fabricated-scenario",
+            "executed_runtimes": ["nir_rs"],
+            "evidence_scope": "all intended runtimes executed",
+        }
+        for key, value in mutations.items():
+            with self.subTest(key=key):
+                view = nir.training_view(record)
+                view[key] = value
+                errors = nir.training_view_errors(record, view, WHERE)
+                self.assertTrue(
+                    any("validator-derived NIR projection" in error for error in errors),
+                    errors,
+                )
 
     def test_view_names_unavailable_runtimes_too(self):
         views, _ = nir.build_training_views(_fixture_records())
@@ -867,6 +1298,17 @@ class Cli(unittest.TestCase):
             validated = _cli(["validate", str(out)])
             self.assertEqual(validated.returncode, 0, validated.stderr)
 
+    def test_generate_refuses_to_overwrite_an_existing_round(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            first = _cli(["generate", tmp, "--round", "3", "--steps", "4"])
+            self.assertEqual(first.returncode, 0, first.stderr)
+            out = Path(json.loads(first.stdout)["written"])
+            before = out.read_bytes()
+            second = _cli(["generate", tmp, "--round", "3", "--steps", "6"])
+            self.assertEqual(second.returncode, 2, second.stderr)
+            self.assertIn("refusing to overwrite", second.stderr)
+            self.assertEqual(out.read_bytes(), before)
+
     def test_validate_rejects_a_suppressed_divergence(self):
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "batch.jsonl"
@@ -896,6 +1338,24 @@ class Cli(unittest.TestCase):
             result = _cli(["training-view", str(path)])
             self.assertEqual(result.returncode, 1)
             self.assertIn("result.summary", result.stderr)
+
+    def test_validate_reports_an_unreadable_path(self):
+        result = _cli(["validate", "/definitely/missing/nir.jsonl"])
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("cannot read file", result.stderr)
+
+    def test_jsonl_framing_uses_lf_not_unicode_line_separators(self):
+        for separator in ("\u2028", "\u2029"):
+            with self.subTest(separator=ord(separator)), tempfile.TemporaryDirectory() as tmp:
+                path = Path(tmp) / "batch.jsonl"
+                path.write_text(
+                    json.dumps({"id": f"left{separator}right"}, ensure_ascii=False)
+                    + "\n",
+                    encoding="utf-8",
+                )
+                records, errors = nir.read_jsonl(path)
+                self.assertEqual(errors, [])
+                self.assertEqual(records, [{"id": f"left{separator}right"}])
 
 
 if __name__ == "__main__":

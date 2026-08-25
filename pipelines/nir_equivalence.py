@@ -46,6 +46,7 @@ import argparse
 import copy
 import importlib.util
 import json
+import math
 import shutil
 import sys
 from pathlib import Path
@@ -68,6 +69,17 @@ STATUS_EXECUTED = "executed"
 STATUS_UNSUPPORTED = "unsupported"
 STATUS_UNAVAILABLE = "unavailable"
 RUNTIME_STATUSES = (STATUS_EXECUTED, STATUS_UNSUPPORTED, STATUS_UNAVAILABLE)
+UNAVAILABLE_REASON_CODES = frozenset(
+    {"RUNTIME_NOT_INSTALLED", "RUNTIME_ADAPTER_NOT_IMPLEMENTED"}
+)
+CANONICAL_DATA_ERRORS = (
+    TypeError,
+    ValueError,
+    OverflowError,
+    RecursionError,
+    UnicodeEncodeError,
+)
+VALIDATION_DATA_ERRORS = CANONICAL_DATA_ERRORS + (KeyError, IndexError, AttributeError)
 # `in_repo_reference` results are re-executed during validation.
 # `upstream_runtime` results cannot be, which is why only the former may ever
 # be marked executed here.
@@ -876,6 +888,58 @@ GRAPH_SPECS = (
     },
 )
 
+_GRAPH_CATALOG_BY_ID = {
+    spec["id"]: {
+        "name": spec["name"],
+        "family": FACTORY_SLUG,
+        "class": spec["class"],
+        "description": spec["description"],
+        "hypothesis": spec["hypothesis"],
+        "graph_sha256": digest(spec["graph"]),
+        "channels": spec["graph"]["nodes"]["in"]["shape"][0],
+        "pattern": tuple(spec["pattern"]),
+        "intervention": copy.deepcopy(spec["intervention"]),
+    }
+    for spec in GRAPH_SPECS
+}
+
+
+def _catalog_entry(scenario_id):
+    if not isinstance(scenario_id, str):
+        return None
+    return _GRAPH_CATALOG_BY_ID.get(scenario_id)
+
+
+def _catalog_stimulus(scenario_id, steps):
+    catalog = _catalog_entry(scenario_id)
+    if (
+        catalog is None
+        or not isinstance(steps, int)
+        or isinstance(steps, bool)
+        or steps < 1
+    ):
+        return None
+    return _stimulus(
+        f"{scenario_id}-stimulus",
+        steps,
+        catalog["channels"],
+        catalog["pattern"],
+    )
+
+
+def _strict_json_equal(recorded, expected):
+    try:
+        return contract.strict_json_equal(recorded, expected)
+    except RecursionError:
+        return False
+
+
+def _safe_digest(value):
+    try:
+        return digest(value)
+    except CANONICAL_DATA_ERRORS:
+        return None
+
 
 def build_scenario(spec, steps=10):
     graph = json.loads(json.dumps(spec["graph"]))
@@ -1273,7 +1337,7 @@ def verdict_for(comparison):
 
 
 def _evidence_scope(entries):
-    executed = [entry["runtime"] for entry in _executed(entries)]
+    executed = [entry.get("runtime") for entry in _executed(entries)]
     if len(executed) >= 2:
         execution = f"executed in-repo runtimes {executed!r}"
     elif len(executed) == 1:
@@ -1287,10 +1351,87 @@ def _evidence_scope(entries):
     )
 
 
+def _runtime_capability(runtime_name):
+    runtime = (
+        _ALL_RUNTIME_BY_NAME.get(runtime_name)
+        if isinstance(runtime_name, str)
+        else None
+    )
+    if runtime is None:
+        return {"available": None, "reason_code": None}
+    try:
+        availability = runtime.availability()
+    except Exception:  # noqa: BLE001 - validation reports the probe failure separately
+        return {"available": None, "reason_code": None}
+    if not isinstance(availability, dict):
+        return {"available": None, "reason_code": None}
+    available = availability.get("available")
+    if available is not True and available is not False:
+        available = None
+    return {
+        "available": available,
+        "reason_code": availability.get("reason_code"),
+    }
+
+
+def _evidence_lineage(entries):
+    """Derive one ordered identity-bearing lineage item per runtime entry.
+
+    Each persisted item binds the runtime, status, and evidence digest. For an
+    unavailable runtime the digest comes from this validator's adapter probe,
+    not record-authored prose, so changing a capability code cannot authenticate
+    itself by recomputing the record.
+    """
+    lineage = []
+    for entry in entries:
+        if not isinstance(entry, dict):
+            continue
+        status = entry.get("status")
+        if status == STATUS_EXECUTED:
+            evidence_digest = entry.get("output_digest")
+        elif status == STATUS_UNSUPPORTED:
+            diagnostic = {
+                "evidence_kind": "runtime_diagnostic",
+                "runtime": entry.get("runtime"),
+                "runtime_class": entry.get("runtime_class"),
+                "status": status,
+                "reason_code": entry.get("reason_code"),
+                "detail": entry.get("detail"),
+                "unsupported_node": entry.get("unsupported_node"),
+                "unsupported_type": entry.get("unsupported_type"),
+            }
+            evidence_digest = _safe_digest(diagnostic)
+        elif status == STATUS_UNAVAILABLE:
+            capability = _runtime_capability(entry.get("runtime"))
+            diagnostic = {
+                "evidence_kind": "runtime_capability",
+                "runtime": entry.get("runtime"),
+                "runtime_class": entry.get("runtime_class"),
+                "status": status,
+                "available": capability["available"],
+                "reason_code": capability["reason_code"],
+            }
+            evidence_digest = _safe_digest(diagnostic)
+        else:
+            continue
+        lineage.append(
+            {
+                "runtime": entry.get("runtime"),
+                "status": status,
+                "digest": evidence_digest,
+            }
+        )
+    return lineage
+
+
+def _evidence_digests(entries):
+    """Project exact ordered lineage to digests for diagnostics and migration."""
+    return [item["digest"] for item in _evidence_lineage(entries)]
+
+
 def build_record(scenario, entries, round_number):
     comparison = compare_runtimes(scenario, entries)
     verdict, reason_codes = verdict_for(comparison)
-    executed = _executed(entries)
     prediction = {
         "source": "generator",
         "authoritative": False,
@@ -1331,7 +1472,7 @@ def build_record(scenario, entries, round_number):
             "oracle_backed": True,
             "verdict": verdict,
             "reason_codes": reason_codes,
-            "derived_from": [entry["output_digest"] for entry in executed],
+            "derived_from": _evidence_lineage(entries),
             "comparison": comparison,
             "summary": _summarize(scenario, comparison, verdict),
         },
@@ -1362,11 +1503,6 @@ def build_record(scenario, entries, round_number):
         },
         "meta": {"round": round_number, "factory": FACTORY_SLUG},
     }
-    if not executed:
-        record["result"]["derived_from"] = [
-            digest({"runtime": entry["runtime"], "reason": entry.get("reason_code")})
-            for entry in entries
-        ]
     return record
 
 
@@ -1439,7 +1575,9 @@ def _check_runtimes(record, where):
         if not isinstance(entry, dict):
             errors.append(f"{where}: every runtime entry must be an object")
             continue
-        expected_runtime = _ALL_RUNTIME_BY_NAME.get(name)
+        expected_runtime = (
+            _ALL_RUNTIME_BY_NAME.get(name) if isinstance(name, str) else None
+        )
         if expected_runtime is None:
             errors.append(
                 f"{label}: runtime is outside the declared inventory "
@@ -1475,10 +1613,17 @@ def _check_runtimes(record, where):
                     f"{label}: a runtime that did not execute must not carry outputs "
                     "[UNAVAILABLE_RUNTIME_HAS_OUTPUT]"
                 )
-            if not entry.get("reason_code"):
+            if not isinstance(entry.get("reason_code"), str) or not entry[
+                "reason_code"
+            ].strip():
                 errors.append(
                     f"{label}: a runtime that did not execute needs a reason code "
                     "[RUNTIME_STATUS_UNKNOWN]"
+                )
+            if not isinstance(entry.get("detail"), str) or not entry["detail"].strip():
+                errors.append(
+                    f"{label}: a runtime that did not execute needs a finite text "
+                    "diagnostic [ENVELOPE_MALFORMED]"
                 )
         if entry.get("status") == STATUS_EXECUTED:
             outputs = entry.get("outputs")
@@ -1507,32 +1652,121 @@ def _check_runtimes(record, where):
                     f"marked {STATUS_EXECUTED!r}; {entry.get('runtime')!r} is not one "
                     f"of {sorted(_RUNTIME_BY_NAME)} [RUNTIME_STATUS_UNKNOWN]"
                 )
-        availability = expected_runtime.availability()
-        if not availability["available"]:
+        try:
+            availability = expected_runtime.availability()
+        except Exception as exc:  # noqa: BLE001 - adapter failures are local findings
+            errors.append(
+                f"{label}: runtime availability probe failed locally: {exc} "
+                "[RUNTIME_STATUS_UNKNOWN]"
+            )
+            continue
+        available = availability.get("available") if isinstance(availability, dict) else None
+        if not isinstance(availability, dict) or (
+            available is not True and available is not False
+        ):
+            errors.append(
+                f"{label}: runtime availability probe returned a malformed capability "
+                "[RUNTIME_STATUS_UNKNOWN]"
+            )
+            continue
+        if available is False:
             if entry.get("status") != STATUS_UNAVAILABLE:
                 errors.append(
                     f"{label}: unavailable runtime must be recorded as "
                     f"{STATUS_UNAVAILABLE!r}, not {entry.get('status')!r} "
                     "[RUNTIME_STATUS_UNKNOWN]"
                 )
-            if entry.get("reason_code") not in {
-                "RUNTIME_NOT_INSTALLED",
-                "RUNTIME_ADAPTER_NOT_IMPLEMENTED",
-            }:
+            expected_reason = availability.get("reason_code")
+            if expected_reason not in UNAVAILABLE_REASON_CODES:
                 errors.append(
-                    f"{label}: unavailable upstream runtime has an invalid reason_code "
+                    f"{label}: runtime probe returned unsupported reason_code "
+                    f"{expected_reason!r} [RUNTIME_STATUS_UNKNOWN]"
+                )
+            elif entry.get("reason_code") != expected_reason:
+                errors.append(
+                    f"{label}: unavailable reason_code {entry.get('reason_code')!r} "
+                    f"does not match the runtime probe {expected_reason!r} "
                     "[RUNTIME_STATUS_UNKNOWN]"
                 )
-            if not isinstance(entry.get("detail"), str) or not entry["detail"].strip():
+            expected_detail = availability.get("detail")
+            if entry.get("detail") != expected_detail:
                 errors.append(
-                    f"{label}: unavailable upstream runtime needs a non-empty detail "
-                    "[RUNTIME_STATUS_UNKNOWN]"
+                    f"{label}: unavailable diagnostic detail does not match the "
+                    "runtime probe [RUNTIME_STATUS_UNKNOWN]"
                 )
             if entry.get("roundtrip") is not None:
                 errors.append(
                     f"{label}: an unavailable runtime cannot claim parse/write evidence "
                     "[RUNTIME_STATUS_UNKNOWN]"
                 )
+    return errors
+
+
+def _check_stimulus_shape(stimulus, where):
+    """Validate the execution window before any runtime indexes into it."""
+    if not isinstance(stimulus, dict):
+        return [f"{where}: scenario.stimulus must be an object [ENVELOPE_MALFORMED]"]
+    errors = []
+    name = stimulus.get("name")
+    encoding = stimulus.get("encoding")
+    steps = stimulus.get("steps")
+    channels = stimulus.get("channels")
+    events = stimulus.get("events")
+    if not isinstance(name, str) or not name.strip():
+        errors.append(
+            f"{where}: scenario.stimulus.name must be a non-empty string "
+            "[ENVELOPE_MALFORMED]"
+        )
+    if encoding != "binary_event_grid":
+        errors.append(
+            f"{where}: scenario.stimulus.encoding must be 'binary_event_grid' "
+            "[ENVELOPE_MALFORMED]"
+        )
+    if not isinstance(steps, int) or isinstance(steps, bool) or steps < 1:
+        errors.append(
+            f"{where}: scenario.stimulus.steps must be an integer >= 1 "
+            "[ENVELOPE_MALFORMED]"
+        )
+    if not isinstance(channels, int) or isinstance(channels, bool) or channels < 1:
+        errors.append(
+            f"{where}: scenario.stimulus.channels must be an integer >= 1 "
+            "[ENVELOPE_MALFORMED]"
+        )
+    if not isinstance(events, list):
+        errors.append(
+            f"{where}: scenario.stimulus.events must be an array [ENVELOPE_MALFORMED]"
+        )
+        return errors
+    if isinstance(steps, int) and not isinstance(steps, bool) and len(events) != steps:
+        errors.append(
+            f"{where}: scenario.stimulus.steps disagrees with len(events) "
+            "[ENVELOPE_MALFORMED]"
+        )
+    for index, row in enumerate(events):
+        if not isinstance(row, list):
+            errors.append(
+                f"{where}: scenario.stimulus.events[{index}] must be an array "
+                "[ENVELOPE_MALFORMED]"
+            )
+            continue
+        if (
+            isinstance(channels, int)
+            and not isinstance(channels, bool)
+            and len(row) != channels
+        ):
+            errors.append(
+                f"{where}: scenario.stimulus.events[{index}] must have {channels} "
+                "channels [ENVELOPE_MALFORMED]"
+            )
+        if any(
+            type(value) not in (int, float)
+            or (type(value) is float and not math.isfinite(value))
+            for value in row
+        ):
+            errors.append(
+                f"{where}: scenario.stimulus.events[{index}] must contain finite "
+                "numbers [ENVELOPE_MALFORMED]"
+            )
     return errors
 
 
@@ -1553,7 +1787,12 @@ def _reexecute_in_repo_runtimes(record, where):
     for entry in ((record.get("oracle") or {}).get("runtimes")) or []:
         if not isinstance(entry, dict):
             continue
-        runtime = _RUNTIME_BY_NAME.get(entry.get("runtime"))
+        runtime_name = entry.get("runtime")
+        runtime = (
+            _RUNTIME_BY_NAME.get(runtime_name)
+            if isinstance(runtime_name, str)
+            else None
+        )
         if runtime is None:
             continue
         label = f"{where}.oracle.runtimes[{entry.get('runtime')!r}]"
@@ -1587,6 +1826,16 @@ def _reexecute_in_repo_runtimes(record, where):
         except GraphError as exc:
             errors.append(f"{label}: graph is not executable: {exc}")
             continue
+        except (
+            KeyError,
+            TypeError,
+            ValueError,
+            IndexError,
+            AttributeError,
+            OverflowError,
+        ) as exc:
+            errors.append(f"{label}: scenario is not executable: {exc}")
+            continue
         if entry.get("status") != STATUS_EXECUTED:
             errors.append(
                 f"{label}: runtime executes this graph but the record says "
@@ -1605,15 +1854,30 @@ def _reexecute_in_repo_runtimes(record, where):
         # `final_membrane` also feed the comparison, so checking only the trace
         # would leave both editable -- and editing them deletes divergence
         # diagnostics from a family whose entire product is divergence.
-        if entry.get("outputs") != outputs:
-            differing = sorted(
-                key
-                for key in set(outputs) | set(entry.get("outputs") or {})
-                if (entry.get("outputs") or {}).get(key) != outputs.get(key)
-            )
+        recorded_outputs = entry.get("outputs")
+        if isinstance(recorded_outputs, dict):
+            try:
+                recorded_digest = digest(
+                    {
+                        "trace": recorded_outputs["output_trace"],
+                        "events": recorded_outputs["spike_events"],
+                    }
+                )
+            except (KeyError, TypeError, ValueError, OverflowError) as exc:
+                errors.append(
+                    f"{label}: recorded outputs are not digestible: {exc} "
+                    "[COMPARISON_MISMATCH]"
+                )
+            else:
+                if entry.get("output_digest") != recorded_digest:
+                    errors.append(
+                        f"{label}: output_digest does not identify the recorded outputs "
+                        "[COMPARISON_MISMATCH]"
+                    )
+        if not contract.strict_json_equal(recorded_outputs, outputs):
             errors.append(
-                f"{label}: recorded outputs do not match a re-execution; differing "
-                f"fields {differing} [COMPARISON_MISMATCH]"
+                f"{label}: recorded outputs do not match a re-execution under strict "
+                "JSON numeric typing [COMPARISON_MISMATCH]"
             )
         fresh_roundtrip = runtime.roundtrip_graph(graph)
         if entry.get("roundtrip") != fresh_roundtrip:
@@ -1625,18 +1889,12 @@ def _reexecute_in_repo_runtimes(record, where):
     return errors
 
 
-def validate_record(record, where):
+def _validate_record(record, where):
     oracle = record.get("oracle") if isinstance(record, dict) else None
-    digests = None
+    lineage = None
     if isinstance(oracle, dict) and isinstance(oracle.get("runtimes"), list):
-        executed = [
-            entry
-            for entry in oracle["runtimes"]
-            if isinstance(entry, dict) and entry.get("status") == STATUS_EXECUTED
-        ]
-        if executed:
-            digests = [entry.get("output_digest") for entry in executed]
-    errors = contract.check_envelope(record, where, oracle_digests=digests)
+        lineage = _evidence_lineage(oracle["runtimes"])
+    errors = contract.check_envelope(record, where, oracle_digests=lineage)
     if not isinstance(record, dict) or record.get("record_kind") != RECORD_KIND:
         return errors
     # A truthy non-dict `oracle` would sail past every `(x or {}).get(...)`
@@ -1644,16 +1902,113 @@ def validate_record(record, where):
     if not isinstance(oracle, dict):
         return errors + [f"{where}: oracle must be an object [ENVELOPE_MALFORMED]"]
     errors += _check_runtimes(record, where)
+    result = record.get("result")
+    if isinstance(result, dict) and lineage is not None:
+        recorded_lineage = result.get("derived_from")
+        if not _strict_json_equal(recorded_lineage, lineage):
+            errors.append(
+                f"{where}: result.derived_from must exactly match the rederived "
+                "ordered runtime lineage, including duplicate occurrences "
+                "[RESULT_DIGEST_UNLINKED]"
+            )
 
     scenario = record.get("scenario") or {}
     if not isinstance(scenario, dict):
         return errors + [f"{where}: scenario must be an object [ENVELOPE_MALFORMED]"]
+    meta = record.get("meta")
+    round_number = meta.get("round") if isinstance(meta, dict) else None
+    scenario_id = scenario.get("id")
+    if isinstance(round_number, int) and not isinstance(round_number, bool):
+        expected_id = f"{scenario_id}-r{round_number:02d}"
+        if record.get("id") != expected_id:
+            errors.append(
+                f"{where}: id must be {expected_id!r} for this scenario and round "
+                "[ENVELOPE_MALFORMED]"
+            )
+    expected_meta = {"round": round_number, "factory": FACTORY_SLUG}
+    if not _strict_json_equal(meta, expected_meta):
+        errors.append(
+            f"{where}: meta must exactly identify factory {FACTORY_SLUG!r} and its "
+            "round [ENVELOPE_MALFORMED]"
+        )
+    if not _strict_json_equal(record.get("generator"), GENERATOR_BLOCK):
+        errors.append(
+            f"{where}: generator does not match the NIR catalog identity "
+            "[ENVELOPE_MALFORMED]"
+        )
+    provenance = record.get("provenance")
+    expected_provenance_identity = {
+        "kind": "simulated",
+        "tool": VALIDATOR,
+        "tool_version": SCHEMA_VERSION,
+        "contract_version": contract.CONTRACT_VERSION,
+        "units": {"time": "timesteps", "dt": "s", "membrane": "V_model"},
+    }
+    if not isinstance(provenance, dict) or any(
+        not _strict_json_equal(provenance.get(key), value)
+        for key, value in expected_provenance_identity.items()
+    ):
+        errors.append(
+            f"{where}: provenance identity does not match the NIR validator "
+            "[ENVELOPE_MALFORMED]"
+        )
+    validation = record.get("validation")
+    expected_validation = {
+        "validator": VALIDATOR,
+        "validator_version": SCHEMA_VERSION,
+        "checks": [
+            "envelope_contract",
+            "structure_digest_recomputed_from_graph",
+            "in_repo_runtime_outputs_re_executed",
+            "comparison_recomputed_from_outputs",
+            "divergence_preserved",
+        ],
+        "status": "revalidate_on_read",
+    }
+    if not _strict_json_equal(validation, expected_validation):
+        errors.append(
+            f"{where}: validation block does not match the NIR validator contract "
+            "[ENVELOPE_MALFORMED]"
+        )
+    try:
+        expected_scenario_digest = digest(
+            {"graph": scenario.get("graph"), "stimulus": scenario.get("stimulus")}
+        )
+    except CANONICAL_DATA_ERRORS as exc:
+        errors.append(
+            f"{where}: scenario is not canonical JSON: {exc} [ENVELOPE_MALFORMED]"
+        )
+    else:
+        provenance = record.get("provenance")
+        if (
+            not isinstance(provenance, dict)
+            or provenance.get("scenario_sha256") != expected_scenario_digest
+        ):
+            errors.append(
+                f"{where}: provenance.scenario_sha256 does not identify the recorded "
+                "graph and stimulus [STRUCTURE_DIGEST_MISMATCH]"
+            )
     graph = scenario.get("graph")
     graph_shape_valid = False
     if isinstance(graph, dict):
         try:
+            fresh_graph_sha256 = digest(graph)
+        except CANONICAL_DATA_ERRORS as exc:
+            errors.append(
+                f"{where}: scenario.graph is not canonical JSON: {exc} "
+                "[ENVELOPE_MALFORMED]"
+            )
+            fresh_graph_sha256 = None
+        try:
             fresh_structure_digest = structural_digest(graph)
-        except GraphError as exc:
+        except (
+            GraphError,
+            TypeError,
+            ValueError,
+            OverflowError,
+            RecursionError,
+            UnicodeEncodeError,
+        ) as exc:
             errors.append(f"{where}: malformed scenario.graph: {exc} [ENVELOPE_MALFORMED]")
             fresh_structure_digest = None
         else:
@@ -1666,29 +2021,88 @@ def validate_record(record, where):
                 f"{where}: scenario.structure_digest does not match the recorded graph "
                 "[STRUCTURE_DIGEST_MISMATCH]"
             )
-        if scenario.get("graph_sha256") != digest(graph):
+        if (
+            fresh_graph_sha256 is not None
+            and scenario.get("graph_sha256") != fresh_graph_sha256
+        ):
             errors.append(
                 f"{where}: scenario.graph_sha256 does not match the recorded graph "
                 "[STRUCTURE_DIGEST_MISMATCH]"
             )
+        catalog_entry = _catalog_entry(scenario.get("id"))
+        if catalog_entry is None:
+            errors.append(
+                f"{where}: scenario.id {scenario.get('id')!r} is not in the validated "
+                "graph catalog [STRUCTURE_DIGEST_MISMATCH]"
+            )
+        else:
+            if fresh_graph_sha256 != catalog_entry["graph_sha256"]:
+                errors.append(
+                    f"{where}: scenario.graph does not match the validated catalog "
+                    f"digest for {scenario.get('id')!r} [STRUCTURE_DIGEST_MISMATCH]"
+                )
+            for key in ("name", "family", "class", "description"):
+                if not _strict_json_equal(scenario.get(key), catalog_entry[key]):
+                    errors.append(
+                        f"{where}: scenario.{key} {scenario.get(key)!r} does not match "
+                        f"the validated graph catalog value {catalog_entry[key]!r} for "
+                        f"{scenario.get('id')!r} [COMPARISON_MISMATCH]"
+                    )
+            if not _strict_json_equal(
+                record.get("intervention"), catalog_entry["intervention"]
+            ):
+                errors.append(
+                    f"{where}: intervention does not match the validated graph catalog "
+                    f"for {scenario.get('id')!r} [COMPARISON_MISMATCH]"
+                )
+            prediction = record.get("candidate_prediction")
+            if isinstance(prediction, dict):
+                expected_prediction = {
+                    "hypothesis": catalog_entry["hypothesis"],
+                    "expected_verdict": _expected_verdict(catalog_entry["class"]),
+                }
+                for key, expected in expected_prediction.items():
+                    if not _strict_json_equal(prediction.get(key), expected):
+                        errors.append(
+                            f"{where}: candidate_prediction.{key} does not match the "
+                            f"validated graph catalog for {scenario.get('id')!r} "
+                            "[COMPARISON_MISMATCH]"
+                        )
     else:
         errors.append(f"{where}: scenario.graph must be an object [ENVELOPE_MALFORMED]")
     stimulus = scenario.get("stimulus")
-    if isinstance(stimulus, dict):
-        fixture = scenario.get("input_fixture") or {}
-        oracle_fixture = oracle.get("input_fixture") or {}
-        recomputed_fixture = digest(stimulus.get("events"))
-        if not isinstance(fixture, dict) or fixture.get("sha256") != recomputed_fixture:
-            errors.append(
-                f"{where}: scenario.input_fixture.sha256 does not match the recorded "
-                "stimulus [INPUT_FIXTURE_MISMATCH]"
-            )
-        if (
-            not isinstance(oracle_fixture, dict)
-            or oracle_fixture.get("sha256") != recomputed_fixture
+    stimulus_errors = _check_stimulus_shape(stimulus, where)
+    errors += stimulus_errors
+    stimulus_shape_valid = not stimulus_errors
+    if stimulus_shape_valid:
+        expected_stimulus = _catalog_stimulus(
+            scenario.get("id"), stimulus.get("steps")
+        )
+        if expected_stimulus is None or not _strict_json_equal(
+            stimulus, expected_stimulus
         ):
             errors.append(
-                f"{where}: oracle.input_fixture.sha256 does not match the executed "
+                f"{where}: scenario.stimulus does not match the complete validated "
+                f"catalog stimulus for {scenario.get('id')!r} "
+                "[INPUT_FIXTURE_MISMATCH]"
+            )
+        fixture = scenario.get("input_fixture") or {}
+        oracle_fixture = oracle.get("input_fixture") or {}
+        recomputed_fixture = digest(stimulus["events"])
+        expected_fixture = {
+            "name": stimulus["name"],
+            "steps": stimulus["steps"],
+            "channels": stimulus["channels"],
+            "sha256": recomputed_fixture,
+        }
+        if not _strict_json_equal(fixture, expected_fixture):
+            errors.append(
+                f"{where}: scenario.input_fixture does not exactly describe the "
+                "recorded stimulus [INPUT_FIXTURE_MISMATCH]"
+            )
+        if not _strict_json_equal(oracle_fixture, expected_fixture):
+            errors.append(
+                f"{where}: oracle.input_fixture does not exactly describe the executed "
                 "stimulus [INPUT_FIXTURE_MISMATCH]"
             )
         if oracle.get("identical_input_fixture") is not True:
@@ -1696,11 +2110,8 @@ def validate_record(record, where):
                 f"{where}: oracle.identical_input_fixture must be exactly true "
                 "[INPUT_FIXTURE_MISMATCH]"
             )
-    else:
-        errors.append(
-            f"{where}: scenario.stimulus must be an object [ENVELOPE_MALFORMED]"
-        )
-    runtimes = oracle.get("runtimes") or []
+    recorded_runtimes = oracle.get("runtimes")
+    runtimes = recorded_runtimes if isinstance(recorded_runtimes, list) else []
     if oracle.get("evidence_scope") != _evidence_scope(
         [entry for entry in runtimes if isinstance(entry, dict)]
     ):
@@ -1709,7 +2120,7 @@ def validate_record(record, where):
             "actually executed [COMPARISON_MISMATCH]"
         )
 
-    if not graph_shape_valid:
+    if not graph_shape_valid or not stimulus_shape_valid:
         return errors
     errors += _reexecute_in_repo_runtimes(record, where)
     if errors:
@@ -1726,7 +2137,7 @@ def validate_record(record, where):
     recorded = result.get("comparison")
     if not isinstance(recorded, dict):
         errors.append(f"{where}: result.comparison must be an object [COMPARISON_MISMATCH]")
-    elif recorded != recomputed:
+    elif not _strict_json_equal(recorded, recomputed):
         errors.append(
             f"{where}: result.comparison does not exactly match the re-executed "
             "runtime evidence [COMPARISON_MISMATCH]"
@@ -1756,6 +2167,17 @@ def validate_record(record, where):
     return errors
 
 
+def validate_record(record, where):
+    """Validate one record without letting malformed JSON abort a corpus scan."""
+    try:
+        return _validate_record(record, where)
+    except VALIDATION_DATA_ERRORS as exc:
+        return [
+            f"{where}: record contains malformed evidence: {exc} "
+            "[ENVELOPE_MALFORMED]"
+        ]
+
+
 def validate_records(records, source="record"):
     errors = []
     for index, record in enumerate(records, 1):
@@ -1764,6 +2186,31 @@ def validate_records(records, source="record"):
 
 
 # ── Training view ─────────────────────────────────────────────────────
+
+
+def _catalog_prompt_identity(scenario):
+    """Return prompt identity from the catalog, never mutable record prose."""
+    scenario_id = scenario.get("id") if isinstance(scenario, dict) else None
+    catalog = _catalog_entry(scenario_id)
+    if catalog is None:
+        return {
+            "name": scenario.get("name") if isinstance(scenario, dict) else None,
+            "class": scenario.get("class") if isinstance(scenario, dict) else None,
+            "fixture_sha256": None,
+        }
+    stimulus = scenario.get("stimulus")
+    steps = stimulus.get("steps") if isinstance(stimulus, dict) else None
+    expected_stimulus = _catalog_stimulus(scenario_id, steps)
+    fixture_sha256 = (
+        _safe_digest(expected_stimulus["events"])
+        if isinstance(expected_stimulus, dict)
+        else None
+    )
+    return {
+        "name": catalog["name"],
+        "class": catalog["class"],
+        "fixture_sha256": fixture_sha256,
+    }
 
 
 def training_view(record):
@@ -1783,25 +2230,47 @@ def training_view(record):
         execution_claim = f"executed on only one runtime, {executed[0]!r}"
     else:
         execution_claim = "did not execute on any runtime"
+    prompt_identity = _catalog_prompt_identity(scenario)
     prompt = (
-        f"NIR graph '{scenario.get('name')}' (class {scenario.get('class')}) "
+        f"NIR graph '{prompt_identity['name']}' (class {prompt_identity['class']}) "
         f"{execution_claim} against stimulus "
-        f"{(scenario.get('input_fixture') or {}).get('sha256')}. "
+        f"{prompt_identity['fixture_sha256']}. "
         "What does the available evidence establish about runtime equivalence?"
     )
+    catalog_scenario = dict(scenario) if isinstance(scenario, dict) else {}
+    catalog_scenario["name"] = prompt_identity["name"]
+    catalog_scenario["class"] = prompt_identity["class"]
     completion = _summarize(
-        scenario,
+        catalog_scenario,
         result.get("comparison") or {},
         result.get("verdict"),
     )
     view = contract.build_training_view(record, prompt, completion, targets)
-    view["graph_class"] = scenario.get("class")
+    view["graph_class"] = prompt_identity["class"]
     view["scenario_id"] = scenario.get("id")
     view["executed_runtimes"] = list(
         (result.get("comparison") or {}).get("executed_runtimes") or []
     )
     view["evidence_scope"] = oracle.get("evidence_scope")
     return view
+
+
+def training_view_errors(record, view, where):
+    """Authenticate the complete NIR projection, including family fields."""
+    errors = contract.training_view_errors(record, view, where)
+    try:
+        expected = training_view(record)
+    except VALIDATION_DATA_ERRORS as exc:
+        return errors + [
+            f"{where}: cannot rederive the NIR training view: {exc} "
+            "[TRAINING_VIEW_HIDES_FAILURE]"
+        ]
+    if not _strict_json_equal(view, expected):
+        errors.append(
+            f"{where}: training view must exactly match the validator-derived NIR "
+            "projection [TRAINING_VIEW_HIDES_FAILURE]"
+        )
+    return errors
 
 
 def build_training_views(records, source="record"):
@@ -1811,7 +2280,7 @@ def build_training_views(records, source="record"):
     views = [training_view(record) for record in records]
     errors = []
     for index, (record, view) in enumerate(zip(records, views), 1):
-        errors += contract.training_view_errors(record, view, f"{source}:{index}")
+        errors += training_view_errors(record, view, f"{source}:{index}")
     errors += contract.view_set_errors(records, views, source)
     return views, errors
 
@@ -1822,7 +2291,13 @@ def build_training_views(records, source="record"):
 def read_jsonl(path):
     records = []
     errors = []
-    for lineno, line in enumerate(Path(path).read_text(encoding="utf-8").splitlines(), 1):
+    source = Path(path)
+    try:
+        text = source.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError) as exc:
+        return [], [f"{source}: cannot read file: {exc}"]
+    for lineno, raw_line in enumerate(text.split("\n"), 1):
+        line = raw_line[:-1] if raw_line.endswith("\r") else raw_line
         if not line.strip():
             continue
         try:
@@ -1835,10 +2310,9 @@ def read_jsonl(path):
 def write_jsonl(path, records):
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(
-        "".join(json.dumps(record, sort_keys=True) + "\n" for record in records),
-        encoding="utf-8",
-    )
+    payload = "".join(json.dumps(record, sort_keys=True) + "\n" for record in records)
+    with path.open("x", encoding="utf-8") as handle:
+        handle.write(payload)
 
 
 def parse_args(argv=None):
@@ -1862,6 +2336,13 @@ def main(argv=None):
         print(json.dumps(availability_report(), indent=2, sort_keys=True))
         return 0
     if args.command == "generate":
+        out = Path(args.out_dir) / FACTORY_SLUG / f"batch-r{args.round:02d}.jsonl"
+        if out.exists():
+            print(
+                f"nir_equivalence: refusing to overwrite existing round {out}",
+                file=sys.stderr,
+            )
+            return 2
         records = generate_records(round_number=args.round, steps=args.steps)
         errors = validate_records(records, source="generated")
         if errors:
@@ -1869,8 +2350,14 @@ def main(argv=None):
                 print("ERROR:", error, file=sys.stderr)
             print("nir_equivalence: refusing to write invalid records", file=sys.stderr)
             return 1
-        out = Path(args.out_dir) / FACTORY_SLUG / f"batch-r{args.round:02d}.jsonl"
-        write_jsonl(out, records)
+        try:
+            write_jsonl(out, records)
+        except FileExistsError:
+            print(
+                f"nir_equivalence: refusing to overwrite existing round {out}",
+                file=sys.stderr,
+            )
+            return 2
         verdicts = {}
         for record in records:
             verdict = record["result"]["verdict"]

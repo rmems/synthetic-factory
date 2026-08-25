@@ -616,5 +616,38 @@ class FactoryDriverAudit(unittest.TestCase):
                 self.assertEqual(factory_driver.cmd_audit(run), 0)
 
 
+class FactoryDriverParitySmoke(unittest.TestCase):
+    def test_available_external_runtime_is_not_itself_a_smoke_failure(self):
+        import hardware_parity
+        import neuro_oracle
+        import nir_equivalence
+
+        fpga_report = neuro_oracle.availability_report()
+        fpga_report["spikenaut_fpga"] = {
+            "available": True,
+            "reason_code": None,
+            "detail": "test board transport",
+            "execution_target": "fpga_hardware",
+            "runtime_class": "physical_hardware",
+        }
+        nir_report = nir_equivalence.availability_report()
+        nir_report["nir_rs"] = {
+            "available": True,
+            "reason_code": None,
+            "detail": "test upstream runtime",
+            "runtime_class": "upstream_nir",
+        }
+        with mock.patch.object(
+            neuro_oracle, "availability_report", return_value=fpga_report
+        ), mock.patch.object(
+            hardware_parity, "availability_report", return_value=fpga_report
+        ), mock.patch.object(
+            nir_equivalence, "availability_report", return_value=nir_report
+        ):
+            failures = factory_driver.smoke_parity_families()
+
+        self.assertEqual(failures, [])
+
+
 if __name__ == "__main__":
     unittest.main()

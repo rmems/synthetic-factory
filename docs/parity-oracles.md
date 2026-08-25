@@ -90,7 +90,8 @@ A record whose deployment-side `execution_target` is `fpga_hardware` or
 - `bitstream.sha256` and `bitstream.toolchain`
 - the stored capture source plus matching source, manifest, and payload digests
 - a latency with `measured: true` and a numeric `value_ms`
-- at least two repeats, so determinism is measured rather than assumed
+- at least two retained repeat observations plus their derived digests, so
+  determinism is measured rather than assumed
 
 The validator also requires a capture adapter (or a physical-hardware runtime
 class), re-hashes the retained source, manifest, and payload, binds the input
@@ -99,6 +100,23 @@ membrane trace, and action back to that payload, and rejects a reference-model
 record that was merely relabelled and decorated with metadata. These checks
 establish the capture file's internal integrity. They do not establish that a
 physical run happened; that separate limitation is stated below.
+
+Validation probes FPGA availability again instead of trusting the availability
+snapshot stored by the producer. It accepts only the exact recorded-capture or
+live-board adapter/runtime identity for the declared target. A live-board
+identity is accepted only when the current adapter probe reports an available
+transport; the adapter in this revision always reports unavailable because its
+board driver is not implemented. Validation also requires canonical lowercase
+`sha256:<64-hex>` bitstream identifiers and checks every primary and repeated
+spike and membrane matrix against the catalog neuron count and stimulus window.
+Spike cells must be integer zero or one; spike events and the complete decoded
+action must exactly restate that bitmap. Every repeat digest is derived again
+from the complete retained observation (spikes, events, membrane, and action),
+and the first repeat must equal the primary observation. For the two
+re-executable in-repo targets, latency, exact repeat digests, and adapter
+identity are independently re-derived. The complete scenario identity is also
+rebuilt from its catalog entry: name, model, full stimulus, stress, hypothesis,
+and intervention cannot be relabelled separately.
 
 ### To add a real hardware leg later
 
@@ -110,10 +128,12 @@ physical run happened; that separate limitation is stated below.
    A capture is a JSON object with `execution_target`, `quantization` (the Q8.8
    conversion that produced the bitstream), `hardware`, `bitstream`, a
    `manifest` carrying `payload_sha256` and `input_fixture_sha256`, and a
-   `payload` holding the observed spikes, action, membrane, and latency. The
-   adapter verifies both digests and refuses a capture taken against a
-   different input fixture. The emitted record retains that source and the
-   validator independently re-checks the chain and each projected observation.
+   `payload` holding the observed spikes, spike events, action, membrane,
+   latency, and a `repeat_outputs`/`repeat_digests` pair. The adapter verifies
+   both manifest digests, each repeat digest, the primary-to-first-repeat tie,
+   and refuses a capture taken against a different input fixture. The emitted
+   record retains that source and the validator independently re-checks the
+   chain, dimensions, value domains, and every projected observation.
    A wholly fabricated but internally consistent capture remains outside what
    this repository can detect, as described below.
 
@@ -162,6 +182,14 @@ missing names. An unavailable upstream runtime cannot be relabelled as
 `executed` or `unsupported`, and an in-repo unsupported diagnostic is checked
 against the exception raised on re-execution.
 
+The selected graph is likewise bound to the catalog entry with the same id,
+class, and canonical graph digest; editing only the class label or replacing
+the graph under a known id fails validation. `result.derived_from` preserves
+runtime-inventory order and names every executed output digest plus every
+unsupported or unavailable diagnostic digest. The training view must reproduce
+that complete lineage exactly, so a consumer cannot silently retain only the
+successful legs.
+
 Parse/write evidence is produced and rechecked through each in-repo runtime's
 declared codec adapter. Output event streams are compared exactly; numerical
 traces use `NUMERIC_TOL`, so harmless within-tolerance floating-point noise is
@@ -174,8 +202,8 @@ Neither family trusts the numbers written on the record.
 
 | Family | Re-derived during validation |
 |---|---|
-| hardware parity | the input-fixture digest, from the stored event grid; the entire Q8.8 conversion, from `scenario.model_float`; **a full re-simulation of both in-repo oracles**, compared against the recorded spikes, action, membrane trace, and output digest; the declared determinism, against its own repeat digests; every metric in `result.parity`, from the stored traces; and the verdict those traces support |
-| NIR equivalence | the structure digest and graph digest, from `scenario.graph`; the input-fixture digest; **a full re-execution of every in-repo runtime**, compared against the recorded outputs *in their entirety* and the round-trip block; and the comparison and verdict, from the recorded outputs |
+| hardware parity | the input-fixture digest, from the stored event grid; the scenario name/model/full stimulus/stress/hypothesis/intervention against the catalog; the entire Q8.8 conversion, from `scenario.model_float`; adapter identity and a fresh FPGA availability probe; **a full re-simulation of both in-repo oracles**, compared against the recorded spikes, action, membrane trace, output digest, latency, and exact repeat digests; every captured and repeated matrix dimension and value domain, event/action projection, retained-repeat digest, and canonical bitstream identity; every metric in `result.parity`, from the stored traces; and the verdict those traces support |
+| NIR equivalence | the scenario id, graph class, structure digest, and graph digest against the catalog; the input-fixture digest; the fixed runtime inventory and complete output/diagnostic lineage; **a full re-execution of every in-repo runtime**, compared against the recorded outputs *in their entirety* and the round-trip block; and the comparison and verdict, from the recorded outputs |
 
 A record whose result does not follow from its own evidence fails validation.
 Recomputing the metrics from a record's own traces would not be enough on its

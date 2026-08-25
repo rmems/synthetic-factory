@@ -27,6 +27,9 @@ enforcement.
 
 from __future__ import annotations
 
+from collections import Counter
+import math
+
 CONTRACT_VERSION = "1.0.0"
 
 KIND_HARDWARE_PARITY = "hardware_parity"
@@ -36,6 +39,11 @@ RECORD_KINDS = (KIND_HARDWARE_PARITY, KIND_NIR_EQUIVALENCE)
 DATASET_FOR_KIND = {
     KIND_HARDWARE_PARITY: "hardware-parity-spike-trajectories",
     KIND_NIR_EQUIVALENCE: "nir-cross-runtime-equivalence",
+}
+
+SCHEMA_VERSION_FOR_KIND = {
+    KIND_HARDWARE_PARITY: "1.0.0",
+    KIND_NIR_EQUIVALENCE: "1.0.0",
 }
 
 # `match` and `mismatch` are the two evidence-bearing verdicts. `unsupported`
@@ -67,6 +75,11 @@ ORACLE_ONLY_KEYS = frozenset(
         "parity_metrics",
         "outputs",
         "output_digest",
+        "output_trace",
+        "spike_count",
+        "final_membrane",
+        "roundtrip",
+        "comparison",
         "repeat_digests",
         "quantization",
         "bitstream",
@@ -148,6 +161,24 @@ def _is_object(value):
     return isinstance(value, dict)
 
 
+def strict_json_equal(recorded, expected):
+    """Compare JSON-shaped evidence without Python's bool/number coercions."""
+    if type(recorded) is not type(expected):
+        return False
+    if isinstance(expected, float):
+        return math.isfinite(recorded) and math.isfinite(expected) and recorded == expected
+    if isinstance(expected, dict):
+        return recorded.keys() == expected.keys() and all(
+            strict_json_equal(recorded[key], expected[key]) for key in expected
+        )
+    if isinstance(expected, list):
+        return len(recorded) == len(expected) and all(
+            strict_json_equal(left, right)
+            for left, right in zip(recorded, expected)
+        )
+    return recorded == expected
+
+
 def _nonempty_str(value):
     return isinstance(value, str) and bool(value.strip())
 
@@ -158,7 +189,9 @@ def check_reason_codes(codes, where, field):
     if not isinstance(codes, list):
         return [f"{where}: {field} must be an array"]
     for code in codes:
-        if code not in REASON_CODES:
+        if not isinstance(code, str):
+            errors.append(f"{where}: {field} entries must be strings, got {code!r}")
+        elif code not in REASON_CODES:
             errors.append(f"{where}: {field} has unknown reason code {code!r}")
     return errors
 
@@ -244,6 +277,12 @@ def check_result(result, where, oracle_digests):
                 f"{where}.result.derived_from omits executed oracle digests {missing} "
                 f"[RESULT_DIGEST_UNLINKED]"
             )
+        if not strict_json_equal(derived, oracle_digests):
+            errors.append(
+                f"{where}.result.derived_from must exactly match the ordered oracle "
+                f"evidence, including duplicate occurrences; expected "
+                f"{oracle_digests!r}, got {derived!r} [RESULT_DIGEST_UNLINKED]"
+            )
     return errors
 
 
@@ -302,8 +341,16 @@ def check_envelope(record, where, oracle_digests=None):
         errors.append(
             f"{where}.dataset must be {DATASET_FOR_KIND[kind]!r} for record_kind {kind!r}"
         )
-    if not _nonempty_str(record.get("schema_version")):
+    schema_version = record.get("schema_version")
+    if not _nonempty_str(schema_version):
         errors.append(f"{where}.schema_version must be a non-empty string")
+    elif kind in SCHEMA_VERSION_FOR_KIND:
+        expected_version = SCHEMA_VERSION_FOR_KIND[kind]
+        if schema_version != expected_version:
+            errors.append(
+                f"{where}.schema_version must be {expected_version!r} for "
+                f"record_kind {kind!r}, got {schema_version!r}"
+            )
     errors += check_generator(record.get("generator"), where)
     if not _is_object(record.get("scenario")):
         errors.append(f"{where}.scenario must be an object")
@@ -361,7 +408,10 @@ def build_training_view(record, prompt, completion, execution_targets):
     """
     result = record.get("result") or {}
     verdict = result.get("verdict")
-    reason_codes = list(result.get("reason_codes", []))
+    raw_reason_codes = result.get("reason_codes")
+    reason_codes = list(raw_reason_codes) if isinstance(raw_reason_codes, list) else []
+    raw_evidence = result.get("derived_from")
+    evidence_digests = list(raw_evidence) if isinstance(raw_evidence, list) else []
     return {
         "id": record.get("id"),
         "record_kind": record.get("record_kind"),
@@ -379,8 +429,43 @@ def build_training_view(record, prompt, completion, execution_targets):
         "reason_codes": reason_codes,
         "oracle_backed": result.get("oracle_backed"),
         "execution_targets": list(execution_targets),
-        "evidence_digests": list(result.get("derived_from", [])),
+        "evidence_digests": evidence_digests,
     }
+
+
+def _record_execution_targets(record):
+    """Re-derive the exact target list copied into a training view."""
+    oracle = record.get("oracle")
+    if not isinstance(oracle, dict):
+        return None
+    kind = record.get("record_kind")
+    if kind == KIND_HARDWARE_PARITY:
+        targets = []
+        for side_name in ("software", "deployment"):
+            side = oracle.get(side_name)
+            if side is None:
+                continue
+            if not isinstance(side, dict) or not _nonempty_str(
+                side.get("execution_target")
+            ):
+                return None
+            targets.append(side["execution_target"])
+        return targets
+    if kind == KIND_NIR_EQUIVALENCE:
+        runtimes = oracle.get("runtimes")
+        if not isinstance(runtimes, list):
+            return None
+        targets = []
+        for entry in runtimes:
+            if (
+                not isinstance(entry, dict)
+                or not _nonempty_str(entry.get("runtime"))
+                or not _nonempty_str(entry.get("status"))
+            ):
+                return None
+            targets.append(f"{entry['runtime']}:{entry['status']}")
+        return targets
+    return None
 
 
 def training_view_errors(record, view, where):
@@ -393,6 +478,12 @@ def training_view_errors(record, view, where):
         errors.append(
             f"{where}: training view missing {missing} [TRAINING_VIEW_HIDES_FAILURE]"
         )
+    for key in ("id", "record_kind", "dataset"):
+        if not strict_json_equal(view.get(key), record.get(key)):
+            errors.append(
+                f"{where}: training view {key} must exactly match the source record "
+                "[TRAINING_VIEW_HIDES_FAILURE]"
+            )
     result = record.get("result") or {}
     verdict = result.get("verdict")
     if view.get("verdict") != verdict:
@@ -406,31 +497,73 @@ def training_view_errors(record, view, where):
             f"{where}: training view parity_failed must be {expected_failed} for verdict "
             f"{verdict!r} [TRAINING_VIEW_HIDES_FAILURE]"
         )
-    expected_complete = "ORACLE_UNAVAILABLE" not in set(result.get("reason_codes", []))
+    raw_record_codes = result.get("reason_codes")
+    record_codes = (
+        [code for code in raw_record_codes if isinstance(code, str)]
+        if isinstance(raw_record_codes, list)
+        else []
+    )
+    if not isinstance(raw_record_codes, list) or len(record_codes) != len(
+        raw_record_codes
+    ):
+        errors.append(
+            f"{where}: record reason_codes are malformed "
+            "[TRAINING_VIEW_HIDES_FAILURE]"
+        )
+    errors += [
+        f"{error} [TRAINING_VIEW_HIDES_FAILURE]"
+        for error in check_reason_codes(
+            raw_record_codes, where, "record reason_codes"
+        )
+    ]
+    expected_complete = "ORACLE_UNAVAILABLE" not in record_codes
     if view.get("oracle_complete") is not expected_complete:
         errors.append(
             f"{where}: training view oracle_complete must be {expected_complete} for "
             f"this record's reason codes [TRAINING_VIEW_HIDES_FAILURE]"
         )
-    record_codes = set(result.get("reason_codes", []))
-    view_codes = set(view.get("reason_codes") or [])
-    if record_codes - view_codes:
+    raw_view_codes = view.get("reason_codes")
+    view_codes = (
+        [code for code in raw_view_codes if isinstance(code, str)]
+        if isinstance(raw_view_codes, list)
+        else []
+    )
+    if not isinstance(raw_view_codes, list) or len(view_codes) != len(raw_view_codes):
         errors.append(
-            f"{where}: training view drops reason codes {sorted(record_codes - view_codes)} "
+            f"{where}: training view reason_codes must be an array of strings "
+            "[TRAINING_VIEW_HIDES_FAILURE]"
+        )
+    errors += [
+        f"{error} [TRAINING_VIEW_HIDES_FAILURE]"
+        for error in check_reason_codes(raw_view_codes, where, "training view reason_codes")
+    ]
+    if not strict_json_equal(raw_view_codes, raw_record_codes):
+        errors.append(
+            f"{where}: training view reason_codes must exactly match the record's "
+            "ordered reason_codes, with no additions, omissions, or reordering "
             f"[TRAINING_VIEW_HIDES_FAILURE]"
         )
     if view.get("oracle_backed") is not True:
         errors.append(
             f"{where}: training view must stay oracle-backed [RESULT_NOT_ORACLE_BACKED]"
         )
-    if not view.get("execution_targets"):
+    expected_targets = _record_execution_targets(record)
+    if expected_targets is None:
         errors.append(
-            f"{where}: training view must name the execution targets it rests on "
+            f"{where}: record execution targets are malformed and cannot support a "
+            "training view [TRAINING_VIEW_HIDES_FAILURE]"
+        )
+    elif not strict_json_equal(view.get("execution_targets"), expected_targets):
+        errors.append(
+            f"{where}: training view execution targets must exactly match "
+            f"validator-derived targets {expected_targets!r} "
             f"[TRAINING_VIEW_HIDES_FAILURE]"
         )
-    if not view.get("evidence_digests"):
+    expected_digests = result.get("derived_from")
+    if not strict_json_equal(view.get("evidence_digests"), expected_digests):
         errors.append(
-            f"{where}: training view must carry evidence digests [RESULT_DIGEST_UNLINKED]"
+            f"{where}: training view evidence_digests must exactly match "
+            "result.derived_from [RESULT_DIGEST_UNLINKED]"
         )
     return errors
 
@@ -445,19 +578,27 @@ def view_set_errors(records, views, where="training-view"):
     errors = []
     record_ids = [record.get("id") for record in records]
     view_ids = [view.get("id") for view in views]
-    dropped = [rid for rid in record_ids if rid not in set(view_ids)]
+    record_id_set = {rid for rid in record_ids if isinstance(rid, str)}
+    invalid_view_ids = [view_id for view_id in view_ids if not isinstance(view_id, str)]
+    if invalid_view_ids:
+        errors.append(
+            f"{where}: training view set contains invalid non-string view IDs "
+            f"{invalid_view_ids!r} [TRAINING_VIEW_HIDES_FAILURE]"
+        )
+    view_id_counts = Counter(vid for vid in view_ids if isinstance(vid, str))
+    dropped = [rid for rid in record_ids if rid not in view_id_counts]
     if dropped:
         errors.append(
             f"{where}: training view set drops records {dropped} "
             f"[TRAINING_VIEW_HIDES_FAILURE]"
         )
-    orphans = sorted({vid for vid in view_ids if vid not in set(record_ids)})
+    orphans = sorted(vid for vid in view_id_counts if vid not in record_id_set)
     if orphans:
         errors.append(
             f"{where}: training view set contains views with no record behind them: "
             f"{orphans} [TRAINING_VIEW_HIDES_FAILURE]"
         )
-    duplicates = sorted({vid for vid in view_ids if view_ids.count(vid) > 1})
+    duplicates = sorted(vid for vid, count in view_id_counts.items() if count > 1)
     if duplicates:
         errors.append(
             f"{where}: training view set repeats {duplicates}, which reweights the "

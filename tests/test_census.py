@@ -81,13 +81,17 @@ class CensusMiniRun(unittest.TestCase):
 
 class CensusBuckets(unittest.TestCase):
     def setUp(self):
-        sys.path.insert(0, str(REPO / "pipelines"))
+        pipeline_path = str(REPO / "pipelines")
+        self._inserted_pipeline_path = pipeline_path not in sys.path
+        if self._inserted_pipeline_path:
+            sys.path.insert(0, pipeline_path)
         import census  # noqa: E402
 
         self.census = census
 
     def tearDown(self):
-        sys.path[:] = [p for p in sys.path if p != str(REPO / "pipelines")]
+        if self._inserted_pipeline_path:
+            sys.path.remove(str(REPO / "pipelines"))
         sys.modules.pop("census", None)
 
     def test_kind_routing(self):
@@ -118,6 +122,14 @@ class CensusBuckets(unittest.TestCase):
             "episode",
         )
         self.assertEqual(self.census.classify_kind({"meta": {}}), "unknown")
+
+    def test_unhashable_declared_kind_is_unknown_instead_of_crashing(self):
+        for malformed in ([], {}):
+            with self.subTest(malformed=malformed):
+                self.assertEqual(
+                    self.census.classify_kind({"record_kind": malformed}),
+                    "unknown",
+                )
 
     def test_sim_or_real_buckets(self):
         bucket = self.census.bucket_sim_or_real

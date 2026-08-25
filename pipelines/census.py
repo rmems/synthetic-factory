@@ -41,8 +41,9 @@ SIM_BUCKETS = ("real", "real*", "sim*", "hil*", "other", "<missing>")
 def classify_kind(obj):
     if not isinstance(obj, dict):
         return "unknown"
-    if obj.get("record_kind") in DECLARED_KINDS:
-        return obj["record_kind"]
+    declared_kind = obj.get("record_kind")
+    if isinstance(declared_kind, str) and declared_kind in DECLARED_KINDS:
+        return declared_kind
     if all(k in obj for k in THALAMIC_REQUIRED):
         return "thalamic"
     if "chosen" in obj and "rejected" in obj:

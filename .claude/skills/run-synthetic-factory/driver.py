@@ -711,13 +711,13 @@ def smoke_parity_families():
     failures = []
 
     fpga = neuro_oracle.availability_report()["spikenaut_fpga"]
-    if fpga["available"] or not fpga["reason_code"]:
+    if not fpga["available"] and not fpga.get("reason_code"):
         failures.append(
             "FPGA adapter must report unavailability with a reason code unless a "
             "board transport exists"
         )
     nir_status = nir_equivalence.availability_report()["nir_rs"]
-    if nir_status["available"] or not nir_status["reason_code"]:
+    if not nir_status["available"] and not nir_status.get("reason_code"):
         failures.append("nir_rs must report unavailability with a reason code")
 
     hardware = hardware_parity.generate_records(round_number=1, steps=6, repeats=2)

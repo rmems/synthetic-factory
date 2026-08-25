@@ -37,7 +37,7 @@ def _stimulus(steps=4, channels=2):
     return {
         "name": "unit-stim",
         "steps": steps,
-        "events": [[1, 0] for _ in range(steps)],
+        "events": [[1] + [0] * (channels - 1) for _ in range(steps)],
         "dt_ms": 1.0,
     }
 
@@ -80,6 +80,10 @@ class Q88Format(unittest.TestCase):
 
 
 class ModelValidation(unittest.TestCase):
+    def test_stimulus_helper_honors_requested_channel_count(self):
+        stimulus = _stimulus(steps=3, channels=4)
+        self.assertEqual(stimulus["events"], [[1, 0, 0, 0]] * 3)
+
     def test_missing_keys_rejected(self):
         with self.assertRaises(ValueError):
             oracle.normalize_model({"name": "x", "neurons": 1})
@@ -268,10 +272,24 @@ class RecordedCapture(unittest.TestCase):
         model = _model()
         stimulus = oracle.normalize_stimulus(_stimulus(), model["inputs"])
         _, quantization = oracle.quantize_model(model)
-        payload = {
-            "spikes": [[1, 0], [0, 0], [0, 0], [0, 0]],
+        spikes = [[1, 0], [0, 0], [0, 0], [0, 0]]
+        primary = {
+            "spikes": spikes,
+            "spike_events": oracle._spike_events(spikes, model["dt_ms"]),
             "action": {"index": 0, "label": "hold", "counts": [1, 0], "rule": "argmax_count"},
+            "membrane": {
+                "observable": True,
+                "units": "mV_model",
+                "trace": [[0.0, 0.0] for _ in spikes],
+            },
+            "arithmetic": {"format": "Q8.8", "saturation_events": 0},
+        }
+        repeat_outputs = [json.loads(json.dumps(primary)) for _ in range(3)]
+        payload = {
+            **primary,
             "latency": {"measured": True, "value_ms": 0.42},
+            "repeat_outputs": repeat_outputs,
+            "repeat_digests": [oracle.run_digest(run) for run in repeat_outputs],
         }
         capture = {
             "execution_target": oracle.TARGET_RECORDED_CAPTURE,
@@ -304,6 +322,9 @@ class RecordedCapture(unittest.TestCase):
             self.assertEqual(run["execution_target"], oracle.TARGET_RECORDED_CAPTURE)
             self.assertEqual(run["hardware"]["board_serial"], "SN-1")
             self.assertTrue(run["latency"]["measured"])
+            self.assertEqual(
+                run["arithmetic"], {"format": "Q8.8", "saturation_events": 0}
+            )
 
     def test_tampered_payload_is_refused(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -341,6 +362,11 @@ class RecordedCapture(unittest.TestCase):
             adapter = oracle.RecordedCaptureAdapter(path)
             self.assertEqual(adapter.availability()["reason_code"], "CAPTURE_UNREADABLE")
 
+    def test_capture_path_that_is_a_directory_is_refused(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            adapter = oracle.RecordedCaptureAdapter(tmp)
+            self.assertEqual(adapter.availability()["reason_code"], "CAPTURE_UNREADABLE")
+
     def test_capture_without_quantization_is_refused(self):
         # The Q8.8 export is what was loaded onto the board; a capture that
         # omits it cannot support a parity claim.
@@ -356,6 +382,19 @@ class RecordedCapture(unittest.TestCase):
             self.assertEqual(
                 caught.exception.reason_code, "CAPTURE_QUANTIZATION_MISSING"
             )
+
+    def test_capture_without_arithmetic_attestation_is_refused(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = self._capture(tmp)
+            capture = json.loads(path.read_text())
+            del capture["payload"]["arithmetic"]
+            capture["manifest"]["payload_sha256"] = oracle.digest(capture["payload"])
+            path.write_text(json.dumps(capture), encoding="utf-8")
+            adapter = oracle.RecordedCaptureAdapter(path)
+            with self.assertRaises(oracle.OracleUnavailable) as caught:
+                adapter.run(_model(), _stimulus())
+            self.assertEqual(caught.exception.reason_code, "CAPTURE_UNREADABLE")
+            self.assertIn("arithmetic", caught.exception.detail)
 
     def test_malformed_payload_raises_oracle_unavailable_not_keyerror(self):
         # run_pair only catches OracleUnavailable; anything else crashes
