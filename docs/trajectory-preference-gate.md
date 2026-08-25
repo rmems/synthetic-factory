@@ -58,10 +58,12 @@ rate are never averaged into one figure.
 A pair is `retained` when all of the following hold, on the thought-stripped
 copy:
 
-1. **Valid episode sides.** Both `chosen` and `rejected` satisfy
+1. **Valid episode sides.** Both `chosen` and `rejected` satisfy the strict
+   structured-step mode of
    `validate_run.check_episode(..., require_goal=False)`. Mixed Thalamic /
-   episode pairs, malformed step elements, non-text outcomes, and invalid
-   reward objects are rejected before they can enter the training view.
+   episode pairs, malformed observable fields, non-text outcomes, invalid
+   reward objects, and invalid reward labels are rejected before they can enter
+   the training view.
 2. **Shared goal.** Every present goal string (top-level, `chosen.goal`,
    `rejected.goal`) is identical after whitespace normalization, and either the
    top-level `goal` is present or both side goals are.
@@ -70,9 +72,11 @@ copy:
 4. **Trajectories are not identical.** A pair with the same `steps` on both
    sides carries no preference signal.
 5. **`outcome` diverges.** Both sides have a non-empty text `outcome` and they
-   differ.
-6. **`reward` diverges.** Both sides have a valid episode reward and they
-   differ.
+   differ. The gate does not infer success from domain prose: successful code
+   review outcomes routinely name the failure that was caught.
+6. **`reward` diverges in the right direction.** Both sides have a valid
+   episode reward, they differ, `chosen.reward.success` is `true`, and
+   `rejected.reward.success` is `false`.
 
 Reason code on the keep path: `TRAJECTORY_PAIR_SHARED_GOAL_AND_PREFIX`.
 
@@ -105,6 +109,7 @@ fails its own gate. Repair is idempotent: re-curating a repaired record yields
 | `FIRST_STEP_DIFFERS_BY_BRANCH_LABEL_ONLY` | Disclosure note on a zero-prefix reject (Section 6) |
 | `TRAJECTORY_OUTCOME_MISSING` / `TRAJECTORY_OUTCOME_INVALID` / `TRAJECTORY_OUTCOME_DOES_NOT_DIVERGE` | Outcome rules |
 | `TRAJECTORY_REWARD_MISSING` / `TRAJECTORY_REWARD_INVALID` / `TRAJECTORY_REWARD_DOES_NOT_DIVERGE` | Reward rules |
+| `TRAJECTORY_PREFERENCE_DIRECTION_INVALID` | The chosen arm is not successful or the rejected arm is not unsuccessful |
 
 Every applicable reason is reported for one record, in a fixed order, so a
 manifest entry is fully diagnostic and byte-stable across runs. Invalid steps

@@ -88,6 +88,7 @@ REASON_OUTCOME_NOT_DIVERGENT = "TRAJECTORY_OUTCOME_DOES_NOT_DIVERGE"
 REASON_REWARD_MISSING = "TRAJECTORY_REWARD_MISSING"
 REASON_REWARD_INVALID = "TRAJECTORY_REWARD_INVALID"
 REASON_REWARD_NOT_DIVERGENT = "TRAJECTORY_REWARD_DOES_NOT_DIVERGE"
+REASON_PREFERENCE_DIRECTION_INVALID = "TRAJECTORY_PREFERENCE_DIRECTION_INVALID"
 REASON_GATE_PASSED = "TRAJECTORY_PAIR_SHARED_GOAL_AND_PREFIX"
 REASON_GOAL_WHITESPACE_NORMALIZED = "TRAJECTORY_GOAL_WHITESPACE_NORMALIZED"
 
@@ -168,11 +169,14 @@ def _side_episode_validation_errors(
         side = record.get(side_name)
         if not isinstance(side, dict):
             continue
-        errors = check_episode(side, side_name, require_goal=False)
+        errors = check_episode(
+            side,
+            side_name,
+            require_goal=False,
+            forbid_hidden_thought=True,
+        )
         if all(key in side for key in THALAMIC_CORE_KEYS):
-            errors.append(
-                f"{side_name}: Thalamic trajectory side is not an episode"
-            )
+            errors.append(f"{side_name}: Thalamic trajectory side is not an episode")
         if errors:
             found[side_name] = tuple(errors)
     return found
@@ -214,9 +218,7 @@ def first_step_differs_by_branch_label_only(
     left, right = chosen_steps[0], rejected_steps[0]
     if canonical_json(left) == canonical_json(right):
         return False
-    return canonical_json(_mask_branch_labels(left)) == canonical_json(
-        _mask_branch_labels(right)
-    )
+    return canonical_json(_mask_branch_labels(left)) == canonical_json(_mask_branch_labels(right))
 
 
 def _field_has_validation_error(
@@ -226,9 +228,7 @@ def _field_has_validation_error(
     return any(error.startswith(marker) for error in errors.get(side_name, ()))
 
 
-def _side_field_failures(
-    record: dict[str, Any], errors: dict[str, tuple[str, ...]]
-) -> list[str]:
+def _side_field_failures(record: dict[str, Any], errors: dict[str, tuple[str, ...]]) -> list[str]:
     """Reject reasons for missing or non-divergent ``outcome`` / ``reward``."""
 
     failures: list[str] = []
@@ -260,6 +260,19 @@ def _side_field_failures(
     return failures
 
 
+def _preference_direction_failures(record: dict[str, Any]) -> list[str]:
+    """Require DPO labels to point from a failed arm to a successful arm."""
+
+    expected = (("chosen", True), ("rejected", False))
+    for side_name, required_success in expected:
+        side = record[side_name]
+        reward = side.get("reward") if isinstance(side, dict) else None
+        success = reward.get("success") if isinstance(reward, dict) else None
+        if isinstance(success, bool) and success is not required_success:
+            return [REASON_PREFERENCE_DIRECTION_INVALID]
+    return []
+
+
 def gate_failures(record: dict[str, Any]) -> tuple[str, ...]:
     """Return every reason a well-shaped trajectory pair fails the gate.
 
@@ -274,9 +287,7 @@ def gate_failures(record: dict[str, Any]) -> tuple[str, ...]:
     if not ok:
         # Sides are known objects here, so a goal failure is always a goal code;
         # the side-shape reason is mapped back to this lane's vocabulary anyway.
-        failures.append(
-            goal_reason if goal_reason in GOAL_REASONS else REASON_SIDES_NOT_OBJECTS
-        )
+        failures.append(goal_reason if goal_reason in GOAL_REASONS else REASON_SIDES_NOT_OBJECTS)
 
     side_errors = _side_episode_validation_errors(record)
     if side_errors:
@@ -304,15 +315,14 @@ def gate_failures(record: dict[str, Any]) -> tuple[str, ...]:
                 failures.append(REASON_BRANCH_LABEL_ONLY)
 
     failures.extend(_side_field_failures(record, side_errors))
+    failures.extend(_preference_direction_failures(record))
     return tuple(failures)
 
 
 def pair_passes_gate(record: Any) -> bool:
     """Whether ``record`` is a trajectory pair that satisfies the gate."""
 
-    return classify_pair_schema(record) == "trajectory_pair" and not gate_failures(
-        record
-    )
+    return classify_pair_schema(record) == "trajectory_pair" and not gate_failures(record)
 
 
 def _normalize_goal_whitespace(record: dict[str, Any]) -> dict[str, Any] | None:
@@ -357,9 +367,7 @@ def _goal_owner(record: dict[str, Any], path: tuple[str, ...]) -> dict[str, Any]
     return owner if isinstance(owner, dict) else None
 
 
-def _changed_top_level_fields(
-    source: dict[str, Any], curated: dict[str, Any]
-) -> tuple[str, ...]:
+def _changed_top_level_fields(source: dict[str, Any], curated: dict[str, Any]) -> tuple[str, ...]:
     """Top-level keys whose canonical value a repair changed."""
 
     return tuple(
@@ -539,9 +547,7 @@ def curate_source(source: Path) -> CurationRun:
                     # Hash excludes the JSONL line terminator by definition.
                     "source_sha256": _sha256(raw_line),
                     "source_file_sha256": file_hash,
-                    "source_record_id": record.get("id")
-                    if isinstance(record, dict)
-                    else None,
+                    "source_record_id": record.get("id") if isinstance(record, dict) else None,
                     "transform": {
                         "name": TRANSFORM_NAME,
                         "version": TRANSFORM_VERSION,
@@ -554,18 +560,14 @@ def curate_source(source: Path) -> CurationRun:
                     "changed_fields": list(decision.changed_fields),
                     "side_validation_errors": {
                         side: list(errors)
-                        for side, errors in (
-                            decision.side_validation_errors or {}
-                        ).items()
+                        for side, errors in (decision.side_validation_errors or {}).items()
                     },
                     "output_id": output_id,
                     "output_sha256": output_hash,
                 }
             )
 
-    considered = (
-        actions[ACTION_RETAINED] + actions[ACTION_REPAIRED] + actions[ACTION_EXCLUDED]
-    )
+    considered = actions[ACTION_RETAINED] + actions[ACTION_REPAIRED] + actions[ACTION_EXCLUDED]
     retained = actions[ACTION_RETAINED] + actions[ACTION_REPAIRED]
     summary = {
         "transform": {"name": TRANSFORM_NAME, "version": TRANSFORM_VERSION},
@@ -582,9 +584,7 @@ def curate_source(source: Path) -> CurationRun:
         "actions": dict(sorted(actions.items())),
         "classifications": dict(sorted(classifications.items())),
         "reason_codes": dict(sorted(reasons.items())),
-        "retained_gate_pass_pct": round(100.0 * retained / considered, 4)
-        if considered
-        else 0.0,
+        "retained_gate_pass_pct": round(100.0 * retained / considered, 4) if considered else 0.0,
     }
     return CurationRun(tuple(output_records), tuple(manifest), summary)
 
@@ -597,9 +597,7 @@ def _reject_raw_destination(destination: Path, label: str) -> None:
     """
 
     parts = destination.resolve(strict=False).parts
-    if any(
-        parts[index : index + 2] == ("outputs", "raw") for index in range(len(parts) - 1)
-    ):
+    if any(parts[index : index + 2] == ("outputs", "raw") for index in range(len(parts) - 1)):
         raise TrajectoryCurationError(
             f"{label} must not be written under outputs/raw/: {destination}"
         )
@@ -609,15 +607,13 @@ def _render_human(run: CurationRun) -> str:
     summary = run.summary
     lines = [
         f"Trajectory pairs considered: {summary['trajectory_pairs_considered']}",
-        f"Retained: {summary['retained_pairs']} "
-        f"(repaired {summary['repaired_pairs']})",
+        f"Retained: {summary['retained_pairs']} (repaired {summary['repaired_pairs']})",
         f"Excluded: {summary['excluded_pairs']}",
         f"No shared prefix: {summary['prefix_overlap_absent_pairs']} "
         f"(branch-label-only first step: "
         f"{summary['branch_label_only_first_step_pairs']})",
         f"Skipped same-state pairs: {summary['skipped_same_state_pairs']}",
-        f"Skipped non-preference records: "
-        f"{summary['skipped_non_preference_records']}",
+        f"Skipped non-preference records: {summary['skipped_non_preference_records']}",
         f"Gate pass rate: {summary['retained_gate_pass_pct']:.1f}%",
         "Decisions:",
     ]
@@ -635,13 +631,9 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
     scan = subparsers.add_parser("scan", help="classify pairs without writing")
     scan.add_argument("source", type=Path)
-    scan.add_argument(
-        "--json", action="store_true", help="emit summary and decisions as JSON"
-    )
+    scan.add_argument("--json", action="store_true", help="emit summary and decisions as JSON")
 
-    curate = subparsers.add_parser(
-        "curate", help="write gate-passing pairs and a manifest"
-    )
+    curate = subparsers.add_parser("curate", help="write gate-passing pairs and a manifest")
     curate.add_argument("source", type=Path)
     curate.add_argument("--output", type=Path, required=True)
     curate.add_argument("--manifest", type=Path, required=True)

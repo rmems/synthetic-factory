@@ -68,7 +68,7 @@ import leftover_mill  # noqa: E402
 
 
 TRANSFORM_NAME = "same-context-preference-curation"
-TRANSFORM_VERSION = "1.2.0"
+TRANSFORM_VERSION = "1.3.0"
 
 AUDIT_NAME = "same-context-preference-audit"
 AUDIT_SCHEMA_VERSION = "1.1.0"
@@ -188,10 +188,7 @@ def _is_trajectory_pair(record: dict[str, Any]) -> bool:
     """
 
     sides = (record.get("chosen"), record.get("rejected"))
-    return all(
-        isinstance(side, dict) and isinstance(side.get("steps"), list)
-        for side in sides
-    )
+    return all(isinstance(side, dict) and isinstance(side.get("steps"), list) for side in sides)
 
 
 def context_is_pure(record: dict[str, Any]) -> bool:
@@ -719,9 +716,7 @@ def curate_source(source: Path) -> CurationRun:
         "proposed_action_only_divergent_pairs": agreement["proposed_action_only_divergent"],
         "both_context_fields_divergent_pairs": agreement["both_divergent"],
         "context_undetermined_pairs": agreement["undetermined"],
-        "out_of_scope_trajectory_pairs": classifications[
-            CLASSIFICATION_TRAJECTORY_PAIR
-        ],
+        "out_of_scope_trajectory_pairs": classifications[CLASSIFICATION_TRAJECTORY_PAIR],
         "actions": dict(sorted(actions.items())),
         "classifications": dict(sorted(classifications.items())),
         "reason_codes": dict(sorted(reasons.items())),

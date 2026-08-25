@@ -4,7 +4,7 @@
 > Dataset: [`rmems/failure-as-fuel-preference-cascade`](https://huggingface.co/datasets/rmems/failure-as-fuel-preference-cascade)
 > Audited payload: `data/raw/` at Hub revision `a9eaacfbeae4f66b94ddda5df3b793fda74fd39d`
 > Machine-readable audit: [`ffpc-same-state-audit.json`](ffpc-same-state-audit.json)
-> Transform: `same-context-preference-curation` 1.2.0
+> Transform: `same-context-preference-curation` 1.3.0
 > Contract: [`preference-isolation.md`](preference-isolation.md) §3
 
 **Do not train on the raw payload.** 17 of its 42 published pairs do not hold

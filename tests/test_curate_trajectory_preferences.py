@@ -49,14 +49,12 @@ def trajectory_pair(record_id: str = "tpf-1") -> dict:
         "reward": {"delta": 0.7},
         "meta": {"round": 1},
         "chosen": {
-            "steps": copy.deepcopy(shared)
-            + [step(2, "Plan: fsync a temp file, then rename.")],
+            "steps": copy.deepcopy(shared) + [step(2, "Plan: fsync a temp file, then rename.")],
             "outcome": "Readers only ever see a complete object.",
             "reward": {"success": True, "process_quality": 0.9},
         },
         "rejected": {
-            "steps": copy.deepcopy(shared)
-            + [step(2, "Plan: truncate the destination in place.")],
+            "steps": copy.deepcopy(shared) + [step(2, "Plan: truncate the destination in place.")],
             "outcome": "A half-written destination broke the harvest parser.",
             "reward": {"success": False, "process_quality": 0.2},
         },
@@ -103,9 +101,7 @@ class GateKeepPath(unittest.TestCase):
         source["chosen"]["goal"] = goal
         source["rejected"]["goal"] = goal
 
-        self.assertEqual(
-            ctp.curate_trajectory_pair(source).action, ctp.ACTION_RETAINED
-        )
+        self.assertEqual(ctp.curate_trajectory_pair(source).action, ctp.ACTION_RETAINED)
 
     def test_truncated_rejected_branch_still_contrasts(self):
         source = trajectory_pair()
@@ -205,11 +201,32 @@ class GateRejectPath(unittest.TestCase):
         self.assertIn("chosen", decision.side_validation_errors)
         self.assertIn("rejected", decision.side_validation_errors)
         self.assertTrue(
-            any(
-                "must be an object" in error
-                for error in decision.side_validation_errors["chosen"]
-            )
+            any("must be an object" in error for error in decision.side_validation_errors["chosen"])
         )
+
+    def test_observable_step_field_types_are_enforced(self):
+        mutations = (
+            ("decision_basis", False, "decision_basis must be a non-empty string"),
+            ("tool_call", "bash --version", "tool_call must be an object"),
+            ("observation", 42, "observation must be a non-empty string"),
+        )
+        for field, value, expected_error in mutations:
+            with self.subTest(field=field):
+                source = trajectory_pair()
+                source["chosen"]["steps"][0][field] = value
+
+                decision = self.assert_excluded(
+                    source,
+                    ctp.REASON_SIDE_EPISODE_INVALID,
+                    ctp.REASON_STEPS_INVALID,
+                )
+
+                self.assertTrue(
+                    any(
+                        expected_error in error
+                        for error in decision.side_validation_errors["chosen"]
+                    )
+                )
 
     def test_empty_steps_are_excluded(self):
         source = trajectory_pair()
@@ -219,7 +236,9 @@ class GateRejectPath(unittest.TestCase):
 
     def test_outcome_must_diverge(self):
         source = trajectory_pair()
-        source["rejected"]["outcome"] = source["chosen"]["outcome"]
+        neutral_outcome = "The operation produced an observed terminal state."
+        source["chosen"]["outcome"] = neutral_outcome
+        source["rejected"]["outcome"] = neutral_outcome
 
         self.assert_excluded(source, ctp.REASON_OUTCOME_NOT_DIVERGENT)
 
@@ -229,14 +248,23 @@ class GateRejectPath(unittest.TestCase):
 
         self.assert_excluded(source, ctp.REASON_REWARD_NOT_DIVERGENT)
 
+    def test_inverted_preference_direction_is_excluded(self):
+        source = trajectory_pair()
+        source["chosen"]["reward"]["success"] = False
+        source["chosen"]["outcome"] = "The publish failed and remained broken."
+        source["rejected"]["reward"]["success"] = True
+        source["rejected"]["outcome"] = "The publish completed and passed verification."
+
+        decision = self.assert_excluded(source, ctp.REASON_PREFERENCE_DIRECTION_INVALID)
+
+        self.assertNotIn(ctp.REASON_SIDE_EPISODE_INVALID, decision.reason_codes)
+
     def test_missing_outcome_or_reward_is_named(self):
         source = trajectory_pair()
         source["chosen"].pop("outcome")
         source["rejected"].pop("reward")
 
-        self.assert_excluded(
-            source, ctp.REASON_OUTCOME_MISSING, ctp.REASON_REWARD_MISSING
-        )
+        self.assert_excluded(source, ctp.REASON_OUTCOME_MISSING, ctp.REASON_REWARD_MISSING)
 
     def test_invalid_outcome_and_reward_types_are_rejected(self):
         source = trajectory_pair()
@@ -290,9 +318,7 @@ class GateRejectPath(unittest.TestCase):
             ctp.REASON_REWARD_MISSING,
         )
 
-        self.assertEqual(
-            ctp.classify_pair_schema(source), "malformed_trajectory_pair"
-        )
+        self.assertEqual(ctp.classify_pair_schema(source), "malformed_trajectory_pair")
         self.assertIn("chosen", decision.side_validation_errors)
 
     def test_non_object_record_is_excluded(self):
@@ -305,7 +331,9 @@ class GateRejectPath(unittest.TestCase):
         source = trajectory_pair()
         source.pop("goal")
         source["rejected"]["steps"][0] = step(1, "Plan: a different opening move.")
-        source["rejected"]["outcome"] = source["chosen"]["outcome"]
+        neutral_outcome = "The operation produced an observed terminal state."
+        source["chosen"]["outcome"] = neutral_outcome
+        source["rejected"]["outcome"] = neutral_outcome
 
         decision = ctp.curate_trajectory_pair(source)
 
@@ -358,9 +386,7 @@ class GateRepairPath(unittest.TestCase):
         self.assertEqual(decision.action, ctp.ACTION_REPAIRED)
         self.assertIn(ctp.REASON_GOAL_WHITESPACE_NORMALIZED, decision.reason_codes)
         self.assertEqual(decision.changed_fields, ("rejected",))
-        self.assertEqual(
-            decision.record["rejected"]["goal"], decision.record["chosen"]["goal"]
-        )
+        self.assertEqual(decision.record["rejected"]["goal"], decision.record["chosen"]["goal"])
 
     def test_a_single_goal_string_is_left_alone(self):
         source = trajectory_pair()
@@ -405,9 +431,7 @@ class LaneBoundary(unittest.TestCase):
 
         self.assertEqual(run.summary["trajectory_pairs_considered"], 0)
         self.assertEqual(run.records, ())
-        self.assertEqual(
-            run.summary["skipped_same_state_pairs"], run.summary["json_records_seen"]
-        )
+        self.assertEqual(run.summary["skipped_same_state_pairs"], run.summary["json_records_seen"])
 
     def test_same_state_gate_names_trajectory_pairs_out_of_scope(self):
         # Lives here because it pins the boundary this lane depends on: the
@@ -419,18 +443,14 @@ class LaneBoundary(unittest.TestCase):
             decision.classification,
             curate_preferences.CLASSIFICATION_TRAJECTORY_PAIR,
         )
-        self.assertEqual(
-            decision.reason_codes, (curate_preferences.REASON_TRAJECTORY_PAIR,)
-        )
+        self.assertEqual(decision.reason_codes, (curate_preferences.REASON_TRAJECTORY_PAIR,))
 
     def test_same_state_gate_still_flags_genuinely_malformed_pairs(self):
         decision = curate_preferences.curate_preference_record(
             {"id": "bad", "chosen": {}, "rejected": {}, "reward_delta": {}}
         )
 
-        self.assertEqual(
-            decision.reason_codes, ("PREFERENCE_CONTEXT_MISSING_OR_INVALID",)
-        )
+        self.assertEqual(decision.reason_codes, ("PREFERENCE_CONTEXT_MISSING_OR_INVALID",))
 
 
 class SourceScan(unittest.TestCase):
