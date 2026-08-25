@@ -526,6 +526,54 @@ class CuratedViewHasNoHiddenReasoning(unittest.TestCase):
         )
         self.assertFalse(report["training_ready"])
 
+    def test_non_array_wrap_steps_receive_structural_validation(self):
+        for malformed_steps in (None, "not-an-array", {"n": 1}):
+            with self.subTest(malformed_steps=malformed_steps):
+                source = coding_wrap("wrap-structural-container")
+                source["proposed_action"].pop("internal_reasoning")
+                source["proposed_action"].pop("internal_reasoning_verbatim")
+                source["executed_action"]["steps"] = malformed_steps
+
+                with tempfile.TemporaryDirectory() as td:
+                    root = Path(td)
+                    write(
+                        root
+                        / "agentic-coding-trajectory-factory"
+                        / "batch-r02.jsonl",
+                        [source],
+                    )
+                    report = training_audit.audit_run(root)
+
+                self.assertIn(
+                    "agentic-coding-trajectory-factory/batch-r02.jsonl:1."
+                    "executed_action: steps must be a non-empty array",
+                    report["record_invariants"]["error_examples"],
+                )
+                self.assertFalse(report["training_ready"])
+
+    def test_undelimited_internal_reasoning_suffixes_block_training(self):
+        source = thalamic("wrap-reasoning-prefix")
+        source["proposed_action"]["internal_reasoning2"] = "private numbered trace"
+        source["proposed_action"]["internal_reasoningverbatim"] = "private verbatim trace"
+
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            write(
+                root / "agentic-coding-trajectory-factory" / "batch-r02.jsonl",
+                [source],
+            )
+            report = training_audit.audit_run(root)
+
+        self.assertEqual(report["episodes"]["hidden_thought_fields"], 2)
+        self.assertEqual(
+            sorted(path.split(":", 2)[2] for path in report["hidden_thought_examples"]),
+            [
+                "proposed_action.internal_reasoning2",
+                "proposed_action.internal_reasoningverbatim",
+            ],
+        )
+        self.assertFalse(report["training_ready"])
+
     def test_strict_cli_passes_once_curate_coding_has_run(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)

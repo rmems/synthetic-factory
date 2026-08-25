@@ -115,7 +115,7 @@ def is_hidden_reasoning_key(key: Any) -> bool:
     """
     normalized = normalized_key_name(key)
     return normalized in HIDDEN_REASONING_KEYS or normalized.startswith(
-        f"{HIDDEN_REASONING_PREFIX}_"
+        HIDDEN_REASONING_PREFIX
     )
 
 

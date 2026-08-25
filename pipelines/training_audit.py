@@ -87,7 +87,7 @@ def wrapped_agentic_episodes(obj, kind):
         executed_action = trajectory.get("executed_action")
         if not isinstance(executed_action, dict):
             continue
-        if not isinstance(executed_action.get("steps"), list):
+        if "steps" not in executed_action:
             continue
         path = (
             "executed_action"
@@ -211,7 +211,9 @@ def agentic_turns(obj, kind):
             if isinstance(turn, dict) and "tool_call" in turn:
                 yield turn
     for _path, episode in wrapped_agentic_episodes(obj, kind):
-        yield from episode["steps"]
+        steps = episode.get("steps")
+        if isinstance(steps, list):
+            yield from steps
 
 
 def has_observable_decision_basis(turn):
@@ -230,7 +232,7 @@ def is_hidden_thought_key(key):
     """
     normalized = normalized_key_name(key)
     return normalized in CURATED_FORBIDDEN_REASONING_KEYS or normalized.startswith(
-        f"{HIDDEN_REASONING_PREFIX}_"
+        HIDDEN_REASONING_PREFIX
     )
 
 

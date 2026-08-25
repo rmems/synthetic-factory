@@ -202,6 +202,24 @@ class ReleaseVerifierTests(unittest.TestCase):
             self.verify().errors,
         )
 
+    def test_hidden_reasoning_warning_in_html_comment_does_not_count(self) -> None:
+        self.values["README.md"] = _card().replace(
+            "Do not train on `thought` or `internal_reasoning*`; this raw Hub copy is\n"
+            "evidence only.\n",
+            "<!-- Do not train on `thought` or `internal_reasoning*`; this raw Hub "
+            "copy is\nevidence only. -->\n",
+        )
+        errors = self.verify().errors
+        self.assertIn(
+            "README missing required card marker: "
+            "Do not train on `thought` or `internal_reasoning*`",
+            errors,
+        )
+        self.assertIn(
+            "README missing required card marker: raw Hub copy is evidence only",
+            errors,
+        )
+
     def test_missing_provenance_role_fails(self) -> None:
         provenance = json.loads(_provenance())
         for contributor in provenance["contributors"]:
@@ -243,6 +261,36 @@ class ReleaseVerifierTests(unittest.TestCase):
             license_name="  Apache-2.0  "
         )
         self.assertTrue(self.verify().ok, self.verify().errors)
+
+    def test_release_status_must_match_raw_publication_contract(self) -> None:
+        cases = (
+            (
+                "release_stage",
+                "curated_public",
+                "release-status.json must declare release_stage: raw_uncurated_public",
+            ),
+            (
+                "visibility",
+                "private",
+                "release-status.json must declare visibility: public",
+            ),
+            (
+                "payload_published",
+                False,
+                "release-status.json must mark payload_published true",
+            ),
+            (
+                "training_ready",
+                True,
+                "release-status.json must mark training_ready false",
+            ),
+        )
+        for field, invalid, expected_error in cases:
+            with self.subTest(field=field):
+                status = json.loads(_release_status())
+                status[field] = invalid
+                self.values["release-status.json"] = json.dumps(status)
+                self.assertIn(expected_error, self.verify().errors)
 
     def test_missing_release_status_license_fails(self) -> None:
         self.values["release-status.json"] = _release_status(license_name=None)

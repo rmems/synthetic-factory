@@ -611,9 +611,31 @@ class HiddenReasoningKeyTests(unittest.TestCase):
             "internal_reasoning_verbatim",
             "internal_reasoning_optimizer",
             "internal_reasoning_as_stated",
+            "internal_reasoning2",
+            "internal_reasoningverbatim",
         ):
             with self.subTest(key=key):
                 self.assertTrue(is_hidden_reasoning_key(key))
+
+    def test_undelimited_internal_reasoning_suffixes_are_stripped(self):
+        source = episode(
+            [
+                visible_step(
+                    internal_reasoning2="private numbered trace",
+                    internal_reasoningverbatim="private verbatim trace",
+                )
+            ]
+        )
+
+        curated, manifest = curate_episode(source)
+
+        self.assertIsNotNone(curated)
+        self.assertFalse(contains_hidden_reasoning_key(curated))
+        self.assertNotIn("internal_reasoning2", curated["steps"][0])
+        self.assertNotIn("internal_reasoningverbatim", curated["steps"][0])
+        self.assertEqual(
+            manifest["step_actions"][0]["hidden_reasoning_fields_removed"], 3
+        )
 
     def test_complete_audit_vocabulary_is_stripped_from_a_wrap_record(self):
         source = wrap_record(

@@ -82,6 +82,12 @@ UNDECLARED_LICENSE_VALUES = frozenset(
         "unlicensed",
     }
 )
+RAW_RELEASE_STATUS = {
+    "release_stage": "raw_uncurated_public",
+    "visibility": "public",
+    "payload_published": True,
+    "training_ready": False,
+}
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 REVISION_RE = re.compile(r"^[0-9a-f]{40}$")
 
@@ -267,17 +273,26 @@ def _markdown_section(text: str, heading: str) -> str | None:
     return match.group(2) if match else None
 
 
+def _rendered_markdown_source(text: str) -> str:
+    """Remove HTML comments, which Hugging Face readers cannot see."""
+
+    return re.sub(r"(?s)<!--.*?(?:-->|\Z)", "", text)
+
+
 def _card_section_errors(card: str, repo: str) -> list[str]:
     """Require release declarations in their owned Markdown/YAML sections."""
 
     errors: list[str] = []
-    normalized_front_matter = _normalized_text(card.split("\n---\n", 1)[0])
+    rendered_card = _rendered_markdown_source(card)
+    normalized_front_matter = _normalized_text(
+        rendered_card.split("\n---\n", 1)[0]
+    )
     for marker in ("name: source_file", "name: source_line", "name: record_json"):
         if _normalized_text(marker) not in normalized_front_matter:
             errors.append(f"README missing required card marker: {marker}")
 
     for section, markers in CARD_SECTION_MARKERS.items():
-        section_text = _markdown_section(card, section)
+        section_text = _markdown_section(rendered_card, section)
         if section != "__preamble__" and section_text is None:
             errors.append(f"README missing required section: {section}")
         normalized_section = _normalized_text(section_text or "")
@@ -287,9 +302,11 @@ def _card_section_errors(card: str, repo: str) -> list[str]:
 
     purpose = REQUIRED_PURPOSE_TEXT[repo]
     target = REQUIRED_TARGET_TEXT[repo]
-    preamble = _normalized_text(_markdown_section(card, "__preamble__") or "")
+    preamble = _normalized_text(
+        _markdown_section(rendered_card, "__preamble__") or ""
+    )
     target_section = _normalized_text(
-        _markdown_section(card, "## Intended model target") or ""
+        _markdown_section(rendered_card, "## Intended model target") or ""
     )
     if _normalized_text(purpose) not in preamble:
         errors.append(f"README missing repository purpose marker: {purpose}")
@@ -317,7 +334,7 @@ class _JSONObject(dict[str, object]):
 
 
 def _release_status_license(text: str, errors: list[str]) -> str | None:
-    """Return the release-status license, recording structural problems."""
+    """Validate raw-publication status and return its license declaration."""
 
     try:
         status = json.loads(text, object_pairs_hook=_JSONObject)
@@ -327,7 +344,23 @@ def _release_status_license(text: str, errors: list[str]) -> str | None:
     if not isinstance(status, dict):
         errors.append("release-status.json must contain a JSON object")
         return None
-    if isinstance(status, _JSONObject) and "license" in status.duplicate_keys:
+    duplicate_keys = status.duplicate_keys if isinstance(status, _JSONObject) else set()
+    for field in sorted(duplicate_keys & RAW_RELEASE_STATUS.keys()):
+        errors.append(f"release-status.json must not contain duplicate {field} keys")
+
+    for field, expected in RAW_RELEASE_STATUS.items():
+        actual = status.get(field)
+        valid = actual is expected if isinstance(expected, bool) else actual == expected
+        if valid:
+            continue
+        if isinstance(expected, bool):
+            errors.append(
+                f"release-status.json must mark {field} {str(expected).lower()}"
+            )
+        else:
+            errors.append(f"release-status.json must declare {field}: {expected}")
+
+    if "license" in duplicate_keys:
         errors.append("release-status.json must not contain duplicate license keys")
         return None
     declared = status.get("license")
