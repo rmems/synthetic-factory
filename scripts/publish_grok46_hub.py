@@ -613,10 +613,14 @@ def marker_mode_state(
     baseline = mode.get("legacy_baseline")
     if not isinstance(baseline, int) or isinstance(baseline, bool) or baseline < 0:
         raise SystemExit(f"invalid legacy_baseline in {mode_path}")
-    # Detect and block an unacknowledged mixed-kind payload before the generic
-    # frontier check can reject that same historical payload as merely
-    # incomplete.  Acknowledged rows are passed into the strict legacy
-    # validator below as narrow, line-scoped staging exemptions.
+    legacy_paths = legacy_snapshot_paths(src, baseline)
+    legacy_sha256 = {path.name: file_sha256(path) for path in legacy_paths}
+    # Pin the complete legacy snapshot before deriving any line-scoped
+    # quarantine exemptions. A writer that replaces an acknowledged row after
+    # the scan is caught by the post-validation digest check below, so stale
+    # findings can never exempt different bytes from strict staging checks.
+    # Keep this gate ahead of the generic frontier check so an unacknowledged
+    # mixed-kind row is reported as the actionable publication failure.
     kind_mix = legacy_kind_mix(src, baseline)
     legacy_frontier, legacy_named_baseline = discovered_legacy_frontier(src)
     if baseline > legacy_frontier:
@@ -626,8 +630,6 @@ def marker_mode_state(
         )
     if baseline < legacy_named_baseline:
         raise SystemExit(f"legacy_baseline in {mode_path} excludes legacy r01 payloads")
-    legacy_paths = legacy_snapshot_paths(src, baseline)
-    legacy_sha256 = {path.name: file_sha256(path) for path in legacy_paths}
     validate_legacy_baseline_payloads(src, baseline, kind_mix)
     validated_legacy_sha256 = {
         path.name: file_sha256(path)

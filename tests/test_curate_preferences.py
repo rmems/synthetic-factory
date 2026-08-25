@@ -408,6 +408,31 @@ class LeftoverMillQuarantine(unittest.TestCase):
         self.assertIsNone(entry["output_id"])
         self.assertIsNone(entry["output_sha256"])
 
+    def test_episode_with_reward_delta_still_bypasses_pair_denominator(self):
+        episode = leftover_mill_episode(
+            "dbc-r723-buildah-layers-vfs-id-leftover"
+        )
+        episode["reward_delta"] = 0.4
+        run = self._run([episode])
+
+        self.assertEqual(run.summary["preference_records"], 0)
+        self.assertEqual(run.summary["skipped_non_preference_records"], 1)
+        self.assertEqual(run.summary["leftover_mill_records"], 1)
+        self.assertEqual(run.summary["actions"], {})
+        self.assertEqual(len(run.manifest), 1)
+        self.assertEqual(
+            run.manifest[0]["action"],
+            curate_preferences.ACTION_QUARANTINED,
+        )
+        self.assertEqual(
+            run.manifest[0]["transform"],
+            {
+                "name": "same-context-preference-curation",
+                "version": "1.1.0",
+            },
+        )
+        self.assertEqual(run.summary["transform"], run.manifest[0]["transform"])
+
     def test_unclassifiable_skips_are_not_reported_as_leftover_mill(self):
         run = self._run([{"id": "ordinary", "state": {}}, pair("crp-r723-real-pair")])
 

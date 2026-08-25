@@ -49,7 +49,7 @@ import leftover_mill  # noqa: E402
 
 
 TRANSFORM_NAME = "same-context-preference-curation"
-TRANSFORM_VERSION = "1.0.0"
+TRANSFORM_VERSION = "1.1.0"
 
 ACTION_RETAINED = "retained"
 ACTION_REPAIRED = "repaired"
@@ -462,24 +462,27 @@ def curate_source(source: Path) -> CurationRun:
                 raise PreferenceCurationError(
                     f"{relative_path}:{line_number}: invalid JSON: {exc}"
                 ) from exc
+            mill_kind = leftover_mill.kind_mix_kind(record, "preference")
+            if mill_kind is not None:
+                # A concrete foreign generation kind takes precedence over the
+                # loose candidate heuristic. An episode carrying reward_delta,
+                # for example, is still an episode and must never enter the
+                # preference denominator as a malformed pair.
+                skipped_non_preferences += 1
+                leftover_mill_kinds[mill_kind] += 1
+                manifest.append(
+                    _skipped_manifest_entry(
+                        relative_path,
+                        line_number,
+                        raw_line,
+                        file_hash,
+                        record,
+                        mill_kind,
+                    )
+                )
+                continue
             if not _is_preference_candidate(record):
                 skipped_non_preferences += 1
-                mill_kind = leftover_mill.kind_mix_kind(record, "preference")
-                if mill_kind is not None:
-                    # A leftover-mill record is evidence, not a silent drop: it
-                    # gets a manifest row so the exclusion is auditable, but it
-                    # never enters the preference counters.
-                    leftover_mill_kinds[mill_kind] += 1
-                    manifest.append(
-                        _skipped_manifest_entry(
-                            relative_path,
-                            line_number,
-                            raw_line,
-                            file_hash,
-                            record,
-                            mill_kind,
-                        )
-                    )
                 continue
 
             decision = curate_preference_record(record)

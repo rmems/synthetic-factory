@@ -277,23 +277,6 @@ class Cli(unittest.TestCase):
         result = self._invoke(str(REPO / "pipelines" / "not-a-directory"))
         self.assertEqual(result.returncode, 2)
         self.assertIn("not a directory", result.stderr)
-QUARANTINE_DOC = REPO / "docs" / "leftover-mill-quarantine.md"
-CODE_REVIEW_SLUG = "code-review-preference-factory"
-
-PREFERENCE_ITEM = {
-    "slug": CODE_REVIEW_SLUG,
-    "hub": "code-review-preference-pairs",
-    "pretty": "Code Review Preference Pairs",
-    "blurb": "Code-review chosen/rejected/critique preference pairs.",
-    "tags": ["synthetic-data", "preference-data"],
-}
-EPISODE_ITEM = {
-    "slug": "long-horizon-coding-factory",
-    "hub": "long-horizon-coding-trajectories",
-    "pretty": "Long Horizon Coding Trajectories",
-    "blurb": "Test factory.",
-    "tags": ["synthetic-data"],
-}
 
     def test_marker_error_is_a_bounded_cli_failure(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -314,6 +297,25 @@ EPISODE_ITEM = {
         self.assertEqual(result.stdout, "")
         self.assertIn("leftover_mill failed: unsafe marker mode file", result.stderr)
         self.assertNotIn("Traceback", result.stderr)
+
+
+QUARANTINE_DOC = REPO / "docs" / "leftover-mill-quarantine.md"
+CODE_REVIEW_SLUG = "code-review-preference-factory"
+
+PREFERENCE_ITEM = {
+    "slug": CODE_REVIEW_SLUG,
+    "hub": "code-review-preference-pairs",
+    "pretty": "Code Review Preference Pairs",
+    "blurb": "Code-review chosen/rejected/critique preference pairs.",
+    "tags": ["synthetic-data", "preference-data"],
+}
+EPISODE_ITEM = {
+    "slug": "long-horizon-coding-factory",
+    "hub": "long-horizon-coding-trajectories",
+    "pretty": "Long Horizon Coding Trajectories",
+    "blurb": "Test factory.",
+    "tags": ["synthetic-data"],
+}
 
 
 def episode_side(goal="repair the leftover vfs image id"):
@@ -749,6 +751,58 @@ class PreferencePublishGate(unittest.TestCase):
                     publisher, "HF_ROOT", root / "hf"
                 ):
                     publisher.validate_upload_snapshot(PREFERENCE_ITEM, dest)
+
+    def test_marker_snapshot_pins_bytes_before_deriving_exemptions(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            source = root / "raw" / PREFERENCE_ITEM["slug"]
+            known = episode_record("dbc-r723-buildah-layers-vfs-id-leftover")
+            native_a = preference_record("crp-r01-native-a")
+            native_b = preference_record("crp-r01-native-b")
+            batch = stage_legacy_baseline(source, [known, native_a, native_b])
+            known_line = json.dumps(known) + "\n"
+            provenance = leftover_mill.KindMixProvenance(
+                source_name=batch.name,
+                source_line=1,
+                record_id=known["id"],
+                record_kind="episode",
+                source_sha256=hashlib.sha256(known_line.encode()).hexdigest(),
+            )
+            real_legacy_kind_mix = publisher.legacy_kind_mix
+
+            def replace_after_scan(src, baseline):
+                findings = real_legacy_kind_mix(src, baseline)
+                replacement = preference_record("crp-r01-replaced-after-scan")
+                replacement["chosen"]["steps"][0]["thought"] = "private scratch"
+                write_jsonl(batch, [replacement, native_a, native_b])
+                return findings
+
+            with mock.patch.dict(
+                leftover_mill.KIND_MIX_QUARANTINE,
+                {CODE_REVIEW_SLUG: (provenance,)},
+                clear=True,
+            ), mock.patch.object(
+                publisher, "FACTORY_ROOT", root / "raw"
+            ), mock.patch.object(
+                publisher, "HF_ROOT", root / "hf"
+            ), mock.patch.object(
+                publisher, "legacy_kind_mix", side_effect=replace_after_scan
+            ):
+                with self.assertRaisesRegex(
+                    SystemExit, "legacy baseline changed during validation"
+                ):
+                    publisher.snapshot_one(PREFERENCE_ITEM)
+
+            copied = (
+                root
+                / "hf"
+                / publisher.HF_DATASETS_DIRNAME
+                / PREFERENCE_ITEM["hub"]
+                / "data"
+                / "raw"
+                / batch.name
+            )
+            self.assertFalse(copied.exists())
 
     def test_clean_preference_snapshot_has_no_quarantine_section(self):
         with tempfile.TemporaryDirectory() as td:
