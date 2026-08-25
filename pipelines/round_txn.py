@@ -294,8 +294,19 @@ RESTART_LANE_SCENARIO_TERMS = {
         ("verify", "cannot commit", "reject"),
     ),
 }
+NOVEL_COVERAGE_LABEL_RE = re.compile(
+    r"^[^\S\r\n]*novel[ _-]?coverage\b",
+    re.IGNORECASE,
+)
 NOVEL_COVERAGE_RE = re.compile(
-    r"^\s*novel[ _-]?coverage\s*(?:\([^)\n]*\))?\s*[:=]?\s*(\d+(?:\.\d+)?)\s*%",
+    r"^[^\S\r\n]*novel[ _-]?coverage[^\S\r\n]*"
+    r"(?:\([^)\r\n]*\))?[^\S\r\n]*[:=]?[^\S\r\n]*"
+    r"(\d+(?:\.\d+)?)[^\S\r\n]*%[^\S\r\n]*$",
+    re.IGNORECASE,
+)
+LEGACY_NOVEL_COVERAGE_RE = re.compile(
+    r"^\s*novel[ _-]?coverage\s*"
+    r"(?:\([^)\n]*\))?\s*[:=]?\s*(\d+(?:\.\d+)?)\s*%",
     re.IGNORECASE | re.MULTILINE,
 )
 CASCADE_GENERIC_TERMS = frozenset(
@@ -2221,6 +2232,7 @@ def validate_novel_coverage(
     custom transaction directories retain the generic nonempty-NOTES contract
     (``docs/token-efficiency.md``).
     """
+    strict_new_publish = required is True
     if required is None:
         required = factory_dir.name in AGENTIC_FACTORY_KINDS
     if not required:
@@ -2230,12 +2242,27 @@ def validate_novel_coverage(
             notes_text = notes.read_text()
         except (OSError, UnicodeError) as exc:
             return f"cannot read notes as UTF-8: {notes}: {exc}"
-    matches = list(NOVEL_COVERAGE_RE.finditer(notes_text))
-    if not matches:
+    if strict_new_publish:
+        labeled_lines = [
+            line
+            for line in notes_text.splitlines()
+            if NOVEL_COVERAGE_LABEL_RE.search(line)
+        ]
+        if not labeled_lines:
+            return f"notes need a 'Novel coverage: <N>%' line: {notes}"
+        if len(labeled_lines) != 1:
+            return f"notes need exactly one unambiguous Novel coverage line: {notes}"
+        match = NOVEL_COVERAGE_RE.fullmatch(labeled_lines[0])
+    else:
+        # Historical NOTES were accepted by this multiline prefix search.
+        # Preserve its first-match behavior, including split claims, suffixes,
+        # and duplicate labels that new publication rejects.
+        match = LEGACY_NOVEL_COVERAGE_RE.search(notes_text)
+    if match is None:
+        if strict_new_publish:
+            return f"notes need exactly one unambiguous Novel coverage line: {notes}"
         return f"notes need a 'Novel coverage: <N>%' line: {notes}"
-    if len(matches) != 1:
-        return f"notes need exactly one unambiguous Novel coverage line: {notes}"
-    value = float(matches[0].group(1))
+    value = float(match.group(1))
     if not 0 <= value <= 100:
         return f"Novel coverage must be between 0% and 100%: {notes}"
     return None
