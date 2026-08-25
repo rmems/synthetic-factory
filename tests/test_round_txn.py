@@ -1459,6 +1459,16 @@ class BridgeRasterEnvelope(unittest.TestCase):
             ):
                 round_txn.publish(factory, 1, reservation["token"])
 
+    def test_non_bridge_record_cannot_be_published_by_the_bridge_factory(self):
+        with tempfile.TemporaryDirectory() as td:
+            factory = self.factory(td)
+            reservation = self.stage(factory, [thalamic("not-bridge")])
+
+            with self.assertRaisesRegex(
+                round_txn.TransactionError, "requires only paired Bridge records"
+            ):
+                round_txn.publish(factory, 1, reservation["token"])
+
     def test_other_factories_are_untouched_by_the_bridge_envelope(self):
         with tempfile.TemporaryDirectory() as td:
             factory = (

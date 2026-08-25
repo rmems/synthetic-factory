@@ -1776,6 +1776,10 @@ def validate_bridge_envelope(batch: Path, factory_dir: Path):
         except json.JSONDecodeError:
             continue
         if not is_bridge_record(record):
+            errors.append(
+                f"{batch.name}:{lineno}: {BRIDGE_FACTORY_SLUG} requires only "
+                "paired Bridge records with an object language_view.trajectory"
+            )
             continue
         bridge_records += 1
         where = f"{batch.name}:{lineno}"

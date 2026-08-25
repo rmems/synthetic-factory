@@ -462,6 +462,8 @@ class DistillationRasterAudit(unittest.TestCase):
         self.assertEqual(bridge["third_factor_pairs"], 1)
         self.assertEqual(bridge["gate_snn_records"], 1)
         self.assertEqual(bridge["gate_snn_valid_records"], 1)
+        self.assertEqual(bridge["gate_snn_covered_batches"], 1)
+        self.assertEqual(bridge["gate_snn_missing_batches"], 0)
         self.assertIn("Distillation rasters", markdown)
 
     def test_bridge_pairs_without_rasters_block_training(self):
@@ -554,6 +556,35 @@ class DistillationRasterAudit(unittest.TestCase):
         self.assertTrue(report["training_ready"], report["blockers"])
         self.assertEqual(report["bridge"]["pairs"], 2)
         self.assertEqual(report["bridge"]["gate_snn_records"], 1)
+
+    def test_gate_snn_coverage_is_required_in_every_bridge_batch(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            write(
+                root / "neuromorphic-event-language-bridge" / "batch-r01.jsonl",
+                [gate_snn_bridge("gate-1")],
+            )
+            plain = gate_snn_bridge("plain-2")
+            del plain["gate_snn"]
+            write(
+                root / "neuromorphic-event-language-bridge" / "batch-r02.jsonl",
+                [plain],
+            )
+            report = training_audit.audit_run(root)
+
+        self.assertFalse(report["training_ready"])
+        bridge = report["bridge"]
+        self.assertEqual(bridge["gate_snn_batches"], 2)
+        self.assertEqual(bridge["gate_snn_covered_batches"], 1)
+        self.assertEqual(bridge["gate_snn_missing_batches"], 1)
+        self.assertEqual(
+            bridge["gate_snn_missing_batch_examples"],
+            ["neuromorphic-event-language-bridge/batch-r02.jsonl"],
+        )
+        self.assertTrue(
+            any("1/2 bridge batches" in blocker for blocker in report["blockers"]),
+            report["blockers"],
+        )
 
     def test_invalid_gate_snn_spec_is_a_blocker(self):
         with tempfile.TemporaryDirectory() as td:

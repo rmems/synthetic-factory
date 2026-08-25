@@ -268,6 +268,7 @@ def audit_run(run_dir: Path):
         gate_snn_records=0,
         gate_snn_valid_records=0,
     )
+    bridge_batches = defaultdict(Counter)
     raster_missing_examples = []
     raster_defect_examples = []
     raster_defect_codes = Counter()
@@ -420,7 +421,9 @@ def audit_run(run_dir: Path):
                     tags.update(value for value in values if isinstance(value, str))
 
             if kind == "bridge_pair":
+                bridge_batch = bridge_batches[str(rel)]
                 bridge["pairs"] += 1
+                bridge_batch["pairs"] += 1
                 events = obj.get("spike_events")
                 if isinstance(events, list):
                     bridge["events"] += len(events)
@@ -452,6 +455,10 @@ def audit_run(run_dir: Path):
                 if raster["gate_snn_present"]:
                     bridge["gate_snn_records"] += 1
                     bridge["gate_snn_valid_records"] += int(raster["gate_snn_valid"])
+                    bridge_batch["gate_snn_records"] += 1
+                    bridge_batch["gate_snn_valid_records"] += int(
+                        raster["gate_snn_valid"]
+                    )
             if kind == "episode":
                 episodes["episodes"] += 1
             agentic_hidden_thoughts = kind in {"episode", "multi_agent", "safety_case"}
@@ -520,6 +527,13 @@ def audit_run(run_dir: Path):
     if unsorted_pairs:
         blockers.append(f"{unsorted_pairs}/{bridge['pairs']} bridge pairs have invalid event ordering")
     bridge_pairs = bridge.get("pairs", 0)
+    bridge_batch_count = len(bridge_batches)
+    gate_snn_missing_batches = sorted(
+        path
+        for path, counts in bridge_batches.items()
+        if not counts.get("gate_snn_records", 0)
+    )
+    gate_snn_covered_batches = bridge_batch_count - len(gate_snn_missing_batches)
     missing_rasters = bridge.get("raster_missing_pairs", 0)
     defect_rasters = bridge.get("raster_defect_pairs", 0)
     missing_tables = bridge.get("raster_routing_table_missing_pairs", 0)
@@ -538,10 +552,10 @@ def audit_run(run_dir: Path):
         blockers.append(
             f"{missing_tables}/{bridge_pairs} bridge rasters lack a routing table"
         )
-    if bridge_pairs and not bridge.get("gate_snn_records", 0):
+    if gate_snn_missing_batches:
         blockers.append(
-            f"0/{bridge_pairs} bridge pairs carry a spike-implemented gate "
-            "(gate_snn neuron/threshold spec)"
+            f"{len(gate_snn_missing_batches)}/{bridge_batch_count} bridge batches "
+            "do not carry a spike-implemented gate (gate_snn neuron/threshold spec)"
         )
     invalid_gate_snn = bridge.get("gate_snn_records", 0) - bridge.get(
         "gate_snn_valid_records", 0
@@ -639,6 +653,10 @@ def audit_run(run_dir: Path):
         },
         "bridge": {
             **dict(bridge),
+            "gate_snn_batches": bridge_batch_count,
+            "gate_snn_covered_batches": gate_snn_covered_batches,
+            "gate_snn_missing_batches": len(gate_snn_missing_batches),
+            "gate_snn_missing_batch_examples": gate_snn_missing_batches[:10],
             "raster_coverage_pct": round(
                 100 * bridge.get("raster_valid_pairs", 0) / bridge_pairs, 1
             ) if bridge_pairs else 0,
@@ -706,7 +724,9 @@ def render_markdown(report):
             f"{report['bridge'].get('raster_spikes', 0)} budgeted spikes, "
             f"{report['bridge'].get('third_factor_pairs', 0)} third-factor routes, "
             f"{report['bridge'].get('gate_snn_valid_records', 0)} valid "
-            "spike-implemented gate specs.",
+            "spike-implemented gate specs across "
+            f"{report['bridge'].get('gate_snn_covered_batches', 0)}/"
+            f"{report['bridge'].get('gate_snn_batches', 0)} bridge batches.",
             f"- Intentional gate-error records (marked): {report['gate_errors']['marked']} "
             f"`{json.dumps(report['gate_errors']['by_type'], sort_keys=True)}` — "
             "exclude from gate-rationale supervision lanes.",

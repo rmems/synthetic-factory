@@ -11,8 +11,9 @@ from structured JSON; no free text is ever inspected.
 
 Records whose raster sidecar is missing or fails ``curate_bridge``'s spike
 arithmetic are reported as problems instead of being silently emitted, so a
-probe never trains on a raster it could not verify.  Unparsable JSONL lines
-are skipped rather than reported here: ``validate_run.py`` owns parse errors.
+probe never trains on a raster it could not verify.  Missing, unreadable,
+invalid-UTF-8, and unparsable inputs are also named problems, which makes
+``--strict`` fail closed even when ``validate_run.py`` was not run first.
 
 Usage::
 
@@ -33,6 +34,8 @@ if str(_PIPELINES) not in sys.path:
 
 from curate_bridge import (  # noqa: E402
     RASTER_ENERGY_PJ_PER_SPIKE,
+    REASON_INVALID_JSON,
+    REASON_INVALID_UTF8,
     gate_snn_sidecar,
     is_bridge_record,
     raster_sidecar,
@@ -42,6 +45,7 @@ from curate_bridge import (  # noqa: E402
 # Rasters are declared in milliseconds; probes want integer microseconds so a
 # 1 ms refractory window and a 1 ms Loihi barrier stay exactly representable.
 US_PER_MS = 1000
+REASON_INPUT_UNREADABLE = "BRIDGE_SOURCE_UNREADABLE"
 
 
 def _finite(value: Any) -> bool:
@@ -163,23 +167,26 @@ def jsonl_paths(targets: Iterable[str | Path]) -> list[Path]:
     return paths
 
 
-def iter_records(paths: Iterable[Path]) -> Iterator[tuple[str, Any]]:
-    """Yield ``(where, record)`` for every parsable JSONL record."""
+def iter_records(paths: Iterable[Path]) -> Iterator[tuple[str, Any, str | None]]:
+    """Yield ``(where, record, problem_code)`` for every JSONL input line."""
 
     for path in paths:
         try:
             text = path.read_text(encoding="utf-8")
-        except (OSError, UnicodeDecodeError):
-            yield f"{path}:0", None
+        except UnicodeDecodeError:
+            yield f"{path}:0", None, REASON_INVALID_UTF8
+            continue
+        except OSError:
+            yield f"{path}:0", None, REASON_INPUT_UNREADABLE
             continue
         for line_number, line in enumerate(text.splitlines(), 1):
             if not line.strip():
                 continue
             where = f"{path}:{line_number}"
             try:
-                yield where, json.loads(line)
+                yield where, json.loads(line), None
             except json.JSONDecodeError:
-                yield where, None
+                yield where, None, REASON_INVALID_JSON
 
 
 def load_rasters(
@@ -189,7 +196,17 @@ def load_rasters(
 
     rasters: list[dict[str, Any]] = []
     problems: list[dict[str, Any]] = []
-    for where, record in iter_records(jsonl_paths(targets)):
+    for where, record, input_problem in iter_records(jsonl_paths(targets)):
+        if input_problem is not None:
+            problems.append(
+                {
+                    "source": where,
+                    "record_id": None,
+                    "scope": "input",
+                    "reason_codes": [input_problem],
+                }
+            )
+            continue
         if not is_bridge_record(record):
             continue
         normalized = normalize_raster(record, source=where)
@@ -199,6 +216,7 @@ def load_rasters(
                 {
                     "source": where,
                     "record_id": _record_id(record),
+                    "scope": "bridge_record",
                     "reason_codes": status["reason_codes"],
                 }
             )
@@ -215,11 +233,16 @@ def summarize(rasters, problems, targets):
         for raster in rasters
         if isinstance(raster["spikes"], int) and not isinstance(raster["spikes"], bool)
     )
+    bridge_problems = [
+        problem for problem in problems if problem.get("scope") == "bridge_record"
+    ]
+    input_problems = [problem for problem in problems if problem.get("scope") == "input"]
     return {
         "targets": [str(target) for target in targets],
-        "bridge_records": len(rasters) + len(problems),
+        "bridge_records": len(rasters) + len(bridge_problems),
         "loaded": len(rasters),
-        "unloadable": len(problems),
+        "unloadable": len(bridge_problems),
+        "input_errors": len(input_problems),
         "events": sum(len(raster["events"]) for raster in rasters),
         "spikes": spikes,
         "energy_pJ": spikes * RASTER_ENERGY_PJ_PER_SPIKE,
@@ -244,7 +267,7 @@ def parse_args(argv=None):
     parser.add_argument(
         "--strict",
         action="store_true",
-        help="exit 1 when any bridge record has no loadable raster",
+        help="exit 1 when any input is unreadable or any bridge record is unloadable",
     )
     parser.add_argument("targets", nargs="+", help="run directories or JSONL files")
     return parser.parse_args(argv)

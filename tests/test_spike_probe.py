@@ -133,7 +133,7 @@ class LoadRasters(unittest.TestCase):
 
         self.assertEqual((rasters, problems), ([], []))
 
-    def test_unparsable_lines_do_not_crash_the_probe(self):
+    def test_unparsable_lines_are_reported_without_crashing_the_probe(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
             path = root / "bridge" / "batch-r01.jsonl"
@@ -142,7 +142,24 @@ class LoadRasters(unittest.TestCase):
             rasters, problems = spike_probe.load_rasters([root])
 
         self.assertEqual(len(rasters), 1)
-        self.assertEqual(problems, [])
+        self.assertEqual(len(problems), 1)
+        self.assertEqual(problems[0]["scope"], "input")
+        self.assertEqual(
+            problems[0]["reason_codes"], ["BRIDGE_SOURCE_JSON_INVALID"]
+        )
+
+    def test_invalid_utf8_is_reported_as_an_input_problem(self):
+        with tempfile.TemporaryDirectory() as td:
+            path = Path(td) / "bridge.jsonl"
+            path.write_bytes(b'{"id":"bad-\xff"}\n')
+
+            rasters, problems = spike_probe.load_rasters([path])
+
+        self.assertEqual(rasters, [])
+        self.assertEqual(problems[0]["scope"], "input")
+        self.assertEqual(
+            problems[0]["reason_codes"], ["BRIDGE_SOURCE_UTF8_INVALID"]
+        )
 
 
 class ProbeCli(unittest.TestCase):
@@ -184,6 +201,20 @@ class ProbeCli(unittest.TestCase):
 
         self.assertEqual(lenient, 0)
         self.assertEqual(strict, 1)
+
+    def test_strict_mode_fails_on_missing_and_invalid_inputs(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            invalid = root / "invalid.jsonl"
+            invalid.write_text("not json\n")
+            missing = root / "missing.jsonl"
+            stdout = io.StringIO()
+            with redirect_stdout(stdout):
+                invalid_code = spike_probe.main(["--strict", str(invalid)])
+                missing_code = spike_probe.main(["--strict", str(missing)])
+
+        self.assertEqual(invalid_code, 1)
+        self.assertEqual(missing_code, 1)
 
 
 if __name__ == "__main__":
