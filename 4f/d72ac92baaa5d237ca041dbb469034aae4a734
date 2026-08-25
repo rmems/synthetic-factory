@@ -1,0 +1,59 @@
+tests/test_curate_rewards.py
+  s_002cddb1a70571::t_ce1d58365913be 4,6,416-1134
+schemas/reward-ontology-v1.mapping.json
+  s_002cddb1a70571::t_1bcb00f67187c3 1-31,35-321,325,332-1095
+  s_002cddb1a70571::t_2f29c00fb2af00 32-34,322-324,326-331
+tests/fixtures/reward-ontology/thalamic-trajectories.jsonl
+  s_002cddb1a70571::t_4563ea5e61b224 8
+  s_002cddb1a70571::t_d38aea57fe3a63 1-7
+tests/fixtures/reward-ontology/coding-episodes.jsonl
+  s_002cddb1a70571::t_d38aea57fe3a63 1-4
+pipelines/curate_rewards.py
+  s_002cddb1a70571::t_08a6299200d01b 1153-1158
+  s_002cddb1a70571::t_d18d06803b03ef 12-14
+  s_002cddb1a70571::t_241f192d3279ba 344-345
+  s_002cddb1a70571::t_db05cc6a609ead 548-558,568-574
+  s_002cddb1a70571::t_a2dfcb3d40fb22 186
+  s_002cddb1a70571::t_f52134d44cdb4e 479-485
+  s_002cddb1a70571::t_a023446fde8978 1159-1187
+  s_002cddb1a70571::t_9a5ea7d39a2285 1188-1275,1277-1313
+  s_002cddb1a70571::t_84918693a1652a 1276
+  s_002cddb1a70571::t_4e269388e77d32 1408-1419
+  s_002cddb1a70571::t_e51cb240e7b107 286-297
+  s_002cddb1a70571::t_c66f1bfb9cf018 763-768,779,783,788,790,795,797,825,831,834,837-847,850,853,856,858,864,866-867,876
+  s_002cddb1a70571::t_b052e4bcd8303c 478,486-547,559-567,575-581
+  s_002cddb1a70571::t_75288d5e1419cd 46-52,58-72,74-77,79-84,90-91,101-175,179-185,187-207,217-285,298-343,346-377
+  s_002cddb1a70571::t_4a98cf8fa3ab5d 208-216
+  s_002cddb1a70571::t_749177ff0c9107 911-912,920
+  s_002cddb1a70571::t_9610417bcd828f 583,586,632,637,668,672,727,734-737,757,852,899,939,1334,1337
+  s_002cddb1a70571::t_2b5b2fb2df3e77 20-28,1511-1526,1533-1540
+  s_002cddb1a70571::t_0ed39f021ed488 1016-1025
+  s_002cddb1a70571::t_4f9967807fae08 1064,1069
+  s_002cddb1a70571::t_6a52b1083cebe5 406-408,414,416,419
+  s_002cddb1a70571::t_9d15563946a33a 176-178
+tests/fixtures/reward-ontology/bridge-pairs.jsonl
+  s_002cddb1a70571::t_d38aea57fe3a63 1-2
+tests/fixtures/reward-ontology/swarm-trajectories.jsonl
+  s_002cddb1a70571::t_d38aea57fe3a63 1-5
+tests/fixtures/reward-ontology/ffpc-preferences.jsonl
+  s_002cddb1a70571::t_d38aea57fe3a63 1-9
+schemas/reward-ontology-v1.schema.json
+  s_002cddb1a70571::t_ff953e7a9e6150 5,12-14
+  s_002cddb1a70571::t_88913762d4b5ee 204-465
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "4fd72ac92baaa5d237ca041dbb469034aae4a734",
+  "prompts": {},
+  "sessions": {
+    "s_002cddb1a70571": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "abd260ba-6a6c-45a6-9db3-a4e0988ad60e",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Raul Montoya Cardenas <montoyaraul34@gmail.com>"
+    }
+  }
+}
