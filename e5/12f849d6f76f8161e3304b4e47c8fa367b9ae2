@@ -1,0 +1,43 @@
+prompts/_factory-contract.md
+  s_940326c4ee4215::t_d422db85de8a79 51
+docs/token-efficiency.md
+  s_940326c4ee4215::t_19030ec1efe58e 63
+  s_940326c4ee4215::t_cf4458f1ac1c42 66-68
+  s_940326c4ee4215::t_91c018ce4ff7c1 134,140-142,144-145
+tests/test_round_txn.py
+  s_940326c4ee4215::t_cf4458f1ac1c42 578-592,594-597
+  s_940326c4ee4215::t_a9ebe5795b829d 554-562,568,570
+  s_940326c4ee4215::t_b2a4e310e6b64b 593
+pipelines/round_txn.py
+  s_940326c4ee4215::t_762894ae3c7552 297-300,304-305,2239-2244,2246-2249,2251
+  s_940326c4ee4215::t_e1f9a443cd5976 302-303
+tests/test_factory_driver.py
+  s_940326c4ee4215::t_c7fd2807e91f4d 208-209,211
+  s_940326c4ee4215::t_cf4458f1ac1c42 212,215,219-220
+  s_940326c4ee4215::t_a9ebe5795b829d 199-207
+.claude/skills/run-synthetic-factory/factory-window.workflow.js
+  s_940326c4ee4215::t_96be5aa51664f2 167-176
+.claude/skills/run-synthetic-factory/driver.py
+  s_940326c4ee4215::t_606d04f580388f 74-77,81-82,375,380-386,389
+  s_940326c4ee4215::t_e1f9a443cd5976 79-80
+tests/test_workflow_contract.py
+  s_940326c4ee4215::t_cf4458f1ac1c42 111-113,123
+  s_940326c4ee4215::t_adf73a0e613c91 107,117-122
+  s_940326c4ee4215::t_7a1519eb48520a 114-116
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "e512f849d6f76f8161e3304b4e47c8fa367b9ae2",
+  "prompts": {},
+  "sessions": {
+    "s_940326c4ee4215": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a032e4-1904-7a82-8c8b-1ad3cfbeb0b0",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": null
+    }
+  }
+}
