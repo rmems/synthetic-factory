@@ -952,7 +952,7 @@ class TestIdentityWriterExcludeAndPin(unittest.TestCase):
         )
 
     def test_exclude_not_authoritative_and_invalid_contract(self):
-        with tempfile.TemporaryDirectory() as tmp:
+        with tempfile.TemporaryDirectory():
             not_auth = identity.FactoryRow(
                 path_id=FABLE_THALAMIC,
                 payload_factory=FABLE_THALAMIC,
@@ -1246,6 +1246,20 @@ class TestIdentityWriterExcludeAndPin(unittest.TestCase):
             output = dest / FABLE_ACT / "episodes.jsonl"
             original = output.read_bytes()
 
+            output.write_bytes(original.replace(b"\n", b"\r\n"))
+            identity.validate_identity_tree(dest)
+
+            output.write_bytes(b" " + original)
+            with self.assertRaisesRegex(identity.IdentityTreeError, "output hashes"):
+                identity.validate_identity_tree(dest)
+
+            output.write_bytes(b"\xff\n")
+            with self.assertRaisesRegex(
+                identity.IdentityTreeError,
+                r"not UTF-8.*episodes\.jsonl:1",
+            ):
+                identity.validate_identity_tree(dest)
+
             output.write_text(
                 identity.canonical_json(episode(FABLE_ACT, goal="tampered")) + "\n",
                 encoding="utf-8",
@@ -1285,6 +1299,62 @@ class TestIdentityWriterExcludeAndPin(unittest.TestCase):
             self.assertEqual(factory_records[0].source_path, records[0].source_path)
             run_records = identity.iter_source_records(Path(tmp))
             self.assertEqual(run_records[0].source_path, records[0].source_path)
+
+    def test_literal_unicode_separators_round_trip_with_crlf_framing(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            src = Path(tmp) / "src"
+            dest = Path(tmp) / "dest"
+            source_path = src / FABLE_ACT / "episodes.jsonl"
+            source_path.parent.mkdir(parents=True)
+            source_records = [
+                episode(FABLE_ACT, goal=f"left{separator}right")
+                for separator in ("\u2028", "\u2029")
+            ]
+            record_bytes = [
+                identity.canonical_json(record).encode("utf-8")
+                for record in source_records
+            ]
+            source_path.write_bytes(b"\r\n".join(record_bytes) + b"\r\n")
+
+            records = identity.iter_source_records(src)
+
+            self.assertEqual(
+                [record.record["goal"] for record in records],
+                [record["goal"] for record in source_records],
+            )
+            self.assertEqual([record.source_line for record in records], [1, 2])
+            self.assertEqual(
+                [record.source_sha256 for record in records],
+                [hashlib.sha256(raw).hexdigest() for raw in record_bytes],
+            )
+
+            identity.write_run(src, dest)
+            output = (dest / FABLE_ACT / "episodes.jsonl").read_bytes()
+            self.assertIn("\u2028".encode(), output)
+            self.assertIn("\u2029".encode(), output)
+            emitted_records = [
+                json.loads(raw.decode("utf-8"))
+                for raw in output.split(b"\n")
+                if raw
+            ]
+            self.assertEqual(
+                [record["goal"] for record in emitted_records],
+                [record["goal"] for record in source_records],
+            )
+            identity.validate_identity_tree(dest)
+
+    def test_iter_source_records_wraps_malformed_utf8(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / FABLE_ACT / "episodes.jsonl"
+            path.parent.mkdir()
+            valid = identity.canonical_json(episode(FABLE_ACT)).encode("utf-8")
+            path.write_bytes(valid + b"\n" + b'{"goal":"\xff"}\n')
+
+            with self.assertRaisesRegex(
+                identity.IdentityCurationError,
+                r"not UTF-8.*episodes\.jsonl:2",
+            ):
+                identity.iter_source_records(path)
 
     def test_iter_source_records_rejects_missing_non_jsonl_and_empty_sources(self):
         with tempfile.TemporaryDirectory() as tmp:

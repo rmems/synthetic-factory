@@ -157,6 +157,15 @@ def _sha256_bytes(payload: bytes) -> str:
     return hashlib.sha256(payload).hexdigest()
 
 
+def _iter_jsonl_record_bytes(payload: bytes) -> Iterable[tuple[int, bytes]]:
+    """Yield records framed only by LF, excluding one CR from a CRLF ending."""
+
+    for line_no, record_bytes in enumerate(payload.split(b"\n"), 1):
+        if record_bytes.endswith(b"\r"):
+            record_bytes = record_bytes[:-1]
+        yield line_no, record_bytes
+
+
 def _reject_training_ready_true(value: Any, path: str = "$") -> None:
     if isinstance(value, Mapping):
         if value.get("training_ready"):
@@ -1077,23 +1086,31 @@ def validate_identity_tree(dest: Path) -> FactoryRegistry:
     for rel, expected_hashes in sorted(expected_outputs.items()):
         actual_hashes: list[str] = []
         try:
-            output_text = actual_paths[rel].read_text(encoding="utf-8")
-            for line_no, line in enumerate(output_text.splitlines(), 1):
-                if not line.strip():
-                    continue
-                try:
-                    output_record = json.loads(line)
-                except json.JSONDecodeError as exc:
-                    raise IdentityTreeError(
-                        f"identity output JSON parse error at {rel}:{line_no}: {exc}"
-                    ) from exc
-                actual_hashes.append(_sha256_json(output_record))
-        except (OSError, UnicodeError) as exc:
+            output_bytes = actual_paths[rel].read_bytes()
+        except OSError as exc:
             raise IdentityTreeError(f"identity output is unreadable: {rel}: {exc}") from exc
-        except IdentityCurationError as exc:
-            raise IdentityTreeError(
-                f"identity output is not canonical JSON data: {rel}: {exc}"
-            ) from exc
+        for line_no, record_bytes in _iter_jsonl_record_bytes(output_bytes):
+            try:
+                line = record_bytes.decode("utf-8")
+            except UnicodeDecodeError as exc:
+                raise IdentityTreeError(
+                    f"identity output is not UTF-8 at {rel}:{line_no}: {exc}"
+                ) from exc
+            if not line.strip():
+                continue
+            try:
+                output_record = json.loads(line)
+            except json.JSONDecodeError as exc:
+                raise IdentityTreeError(
+                    f"identity output JSON parse error at {rel}:{line_no}: {exc}"
+                ) from exc
+            try:
+                canonical_json(output_record)
+            except IdentityCurationError as exc:
+                raise IdentityTreeError(
+                    f"identity output is not canonical JSON data: {rel}: {exc}"
+                ) from exc
+            actual_hashes.append(_sha256_bytes(record_bytes))
         if actual_hashes != expected_hashes:
             raise IdentityTreeError(
                 f"identity output hashes do not match manifest: {rel}"
@@ -1198,8 +1215,19 @@ def iter_source_records(
     records: list[SourceRecord] = []
     for path in files:
         rel = path.relative_to(root).as_posix()
-        text = path.read_text(encoding="utf-8")
-        for line_no, line in enumerate(text.splitlines(), 1):
+        try:
+            source_bytes = path.read_bytes()
+        except OSError as exc:
+            raise IdentityCurationError(
+                f"source JSONL is unreadable: {rel}: {exc}"
+            ) from exc
+        for line_no, record_bytes in _iter_jsonl_record_bytes(source_bytes):
+            try:
+                line = record_bytes.decode("utf-8")
+            except UnicodeDecodeError as exc:
+                raise IdentityCurationError(
+                    f"source JSONL is not UTF-8 at {rel}:{line_no}: {exc}"
+                ) from exc
             if not line.strip():
                 continue
             try:
@@ -1208,7 +1236,7 @@ def iter_source_records(
                 raise IdentityCurationError(
                     f"JSON parse error at {rel}:{line_no}: {exc}"
                 ) from exc
-            digest = hashlib.sha256(line.encode("utf-8")).hexdigest()
+            digest = _sha256_bytes(record_bytes)
             records.append(SourceRecord(obj, rel, line_no, digest))
     return records
 

@@ -108,6 +108,9 @@ The composition order is data, not code: it lives in an integration plan
 produced a corpus. Lane outputs are overlaid in plan order — bridge timing,
 identity/provenance, preference purity, reward ontology, coding observability,
 tag taxonomy — and every supersession is recorded in the manifest.
+In a production plan, `source_run: outputs/raw/<run>` resolves from the
+repository root even when the plan itself lives under `outputs/curation/`;
+lane output, manifest, and artifact paths remain relative to the plan.
 
 ```bash
 python3 pipelines/curate_gate.py integrate \

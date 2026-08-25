@@ -3,8 +3,10 @@
 
 from __future__ import annotations
 
+import contextlib
 import copy
 import hashlib
+import io
 import json
 import sys
 import tempfile
@@ -17,6 +19,7 @@ sys.path.insert(0, str(REPO / "pipelines"))
 
 import check_records  # noqa: E402
 import curate_bridge  # noqa: E402
+import curate_gate  # noqa: E402
 import training_audit  # noqa: E402
 
 FIXTURES = REPO / "tests" / "fixtures"
@@ -319,6 +322,152 @@ class BridgeTimingCuration(unittest.TestCase):
             decision.manifest["output_id_status"], "pending_identity_transform"
         )
         self.assertEqual(decision.manifest["source_record_locator"], "bridge-fixture")
+
+    def test_jsonl_framing_preserves_unicode_line_separators_inside_strings(self):
+        record = bridge([event(1, "line\u2028separator\u2029payload")], "unicode-lines")
+        payload = json.dumps(record, ensure_ascii=False).encode("utf-8") + b"\r\n"
+
+        with tempfile.TemporaryDirectory() as td:
+            source = Path(td) / "batch.jsonl"
+            source.write_bytes(payload)
+            decisions = curate_bridge.curate_jsonl(source)
+
+        self.assertEqual(len(decisions), 1)
+        self.assertEqual(decisions[0].action, "retain")
+        self.assertEqual(
+            decisions[0].output_record["spike_events"][0]["channel"],
+            "line\u2028separator\u2029payload",
+        )
+        self.assertEqual(
+            decisions[0].manifest["source_hash"],
+            hashlib.sha256(payload[:-2]).hexdigest(),
+        )
+
+
+class BridgeMaterialization(unittest.TestCase):
+    def _source_tree(self, root):
+        first = root / "factory-a" / "batch-r01.jsonl"
+        second = root / "factory-b" / "batch-r02.jsonl"
+        first.parent.mkdir(parents=True)
+        second.parent.mkdir(parents=True)
+        first.write_text(
+            "\n".join(
+                (
+                    json.dumps(bridge([event(1, "already")], "retain")),
+                    json.dumps(bridge([event(2, "late"), event(1, "early")], "repair")),
+                    "",
+                )
+            ),
+            encoding="utf-8",
+        )
+        second.write_text(
+            json.dumps({"id": "quarantine", "not_bridge": True}) + "\n",
+            encoding="utf-8",
+        )
+        return first, second
+
+    def test_cli_materializes_a_gate_compatible_multi_file_lane_tree(self):
+        with tempfile.TemporaryDirectory() as td:
+            temporary = Path(td)
+            source_root = temporary / "source"
+            output = temporary / "lane-bridge"
+            sources = self._source_tree(source_root)
+            stdout = io.StringIO()
+            with contextlib.redirect_stdout(stdout):
+                exit_code = curate_bridge.main(
+                    [
+                        "--source-root",
+                        str(source_root),
+                        "--out-dir",
+                        str(output),
+                        *(str(path) for path in sources),
+                    ]
+                )
+
+            self.assertEqual(exit_code, 0)
+            self.assertEqual(json.loads(stdout.getvalue())["records"], 3)
+            manifest_path = output / curate_bridge.MANIFEST_NAME
+            entries = [
+                json.loads(line)
+                for line in manifest_path.read_text(encoding="utf-8").splitlines()
+            ]
+            self.assertEqual(
+                [entry["action"] for entry in entries],
+                ["retain", "repair", "quarantine"],
+            )
+            self.assertTrue((output / "factory-a" / "batch-r01.jsonl").is_file())
+            self.assertFalse((output / "factory-b" / "batch-r02.jsonl").exists())
+
+            lane = {
+                "order": 1,
+                "bead": "sf-c5l.1",
+                "transform": curate_bridge.TRANSFORM_NAME,
+                "version": curate_bridge.TRANSFORM_VERSION,
+                "outputs_dir": output,
+                "manifest_path": manifest_path,
+                "manifest_format": "jsonl",
+                "artifacts": [],
+            }
+            prepared = curate_gate._prepare_lane(
+                lane,
+                curate_gate._load_source_records(source_root),
+            )
+
+        self.assertEqual(len(prepared["entries"]), 3)
+        self.assertEqual(len(prepared["records"]), 2)
+        self.assertEqual(
+            {record["output_id"] for record in prepared["records"]},
+            {"retain", "repair"},
+        )
+
+    def test_materialization_refuses_clobber_and_preserves_existing_tree(self):
+        with tempfile.TemporaryDirectory() as td:
+            temporary = Path(td)
+            source_root = temporary / "source"
+            sources = self._source_tree(source_root)
+            output = temporary / "lane-bridge"
+            output.mkdir()
+            marker = output / "owned-by-someone-else"
+            marker.write_text("preserve", encoding="utf-8")
+
+            with self.assertRaisesRegex(
+                curate_bridge.BridgeCurationError, "already exists"
+            ):
+                curate_bridge.materialize_paths(
+                    sources,
+                    source_root=source_root,
+                    output_dir=output,
+                )
+
+            self.assertEqual(marker.read_text(encoding="utf-8"), "preserve")
+            self.assertEqual(sorted(path.name for path in output.iterdir()), [marker.name])
+
+    def test_materialization_refuses_raw_destination_and_symlink_source(self):
+        with tempfile.TemporaryDirectory() as td:
+            temporary = Path(td)
+            source_root = temporary / "source"
+            sources = self._source_tree(source_root)
+            raw_parent = temporary / "outputs" / "raw" / "run"
+            raw_parent.mkdir(parents=True)
+            with self.assertRaisesRegex(
+                curate_bridge.BridgeCurationError, "immutable raw evidence"
+            ):
+                curate_bridge.materialize_paths(
+                    sources,
+                    source_root=source_root,
+                    output_dir=raw_parent / "lane-bridge",
+                )
+
+            linked = source_root / "linked.jsonl"
+            linked.symlink_to(sources[0])
+            with self.assertRaisesRegex(
+                curate_bridge.BridgeCurationError, "real JSONL file"
+            ):
+                curate_bridge.materialize_paths(
+                    [linked],
+                    source_root=source_root,
+                    output_dir=temporary / "linked-output",
+                )
 
 
 def fixture_decisions(name):
