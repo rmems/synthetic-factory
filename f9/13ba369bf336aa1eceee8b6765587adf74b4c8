@@ -1,0 +1,22 @@
+config/card-schemas/multi-agent-coordination-transcripts.json
+  s_940326c4ee4215::t_94000faa56c722 5,16,27,38,43,58,63,67,69,88-89
+tests/test_card_schema_issue_114.py
+  s_940326c4ee4215::t_2b0dc49f0010f6 165
+  s_940326c4ee4215::t_94000faa56c722 53-60,79,101,131,177-203
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "f913ba369bf336aa1eceee8b6765587adf74b4c8",
+  "prompts": {},
+  "sessions": {
+    "s_940326c4ee4215": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a032e4-1904-7a82-8c8b-1ad3cfbeb0b0",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Raul Montoya Cardenas <montoyaraul34@gmail.com>"
+    }
+  }
+}
