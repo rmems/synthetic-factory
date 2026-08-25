@@ -491,7 +491,7 @@ class RoundTransaction(unittest.TestCase):
             self.assertFalse((sibling / "ROUND-r01.complete.json").exists())
 
     def test_publish_requires_a_novel_coverage_line_on_the_legacy_lane(self):
-        """The NOTES latch line gates every new round, legacy lanes included.
+        """The NOTES latch line gates every registered round, legacy included.
 
         Without it the token-efficiency early-stop has nothing to read, which
         is why the 2026-08-19 harvest saw 0/49 parseable NOTES.
@@ -515,6 +515,25 @@ class RoundTransaction(unittest.TestCase):
 
             notes.write_text("# Critique\n\nDensified the tail.\n\nNovel coverage: 3.1%\n")
             manifest = round_txn.publish(factory, 1, reservation["token"])
+            self.assertEqual(manifest["records"], 1)
+            self.assertTrue((factory / "ROUND-r01.complete.json").is_file())
+
+    def test_publish_preserves_the_generic_notes_contract_for_custom_lanes(self):
+        with tempfile.TemporaryDirectory() as td:
+            factory = Path(td) / "outputs" / "raw" / "2099-01-01" / "custom-factory"
+            factory.mkdir(parents=True)
+            self.assertNotIn(factory.name, round_txn.FACTORY_QUOTAS)
+            reservation = round_txn.reserve(factory, 1, 1)
+            stage = Path(reservation["staging_dir"])
+            record = thalamic("custom-txn")
+            record["meta"]["factory"] = factory.name
+            write_records(stage / reservation["batch_file"], [record])
+            (stage / reservation["notes_file"]).write_text(
+                "# Custom critique\n\nNo registered token-efficiency policy.\n"
+            )
+
+            manifest = round_txn.publish(factory, 1, reservation["token"])
+
             self.assertEqual(manifest["records"], 1)
             self.assertTrue((factory / "ROUND-r01.complete.json").is_file())
 

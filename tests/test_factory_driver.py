@@ -24,6 +24,51 @@ from round_txn import TransactionError  # noqa: E402
 FIXTURES = REPO / "tests" / "fixtures"
 
 
+class FactoryDriverSmoke(unittest.TestCase):
+    def test_smoke_exercises_the_notes_gate_and_plateau_latch(self):
+        buffer = StringIO()
+
+        with redirect_stdout(buffer):
+            code = factory_driver.cmd_smoke()
+
+        self.assertEqual(code, 0)
+        report = buffer.getvalue()
+        self.assertIn("NOTES without a 'Novel coverage: <N>%' line cannot publish", report)
+        self.assertIn("two consecutive sub-5% rounds early-stop the lane", report)
+
+    def test_smoke_reports_an_unexpected_publish_rejection(self):
+        buffer = StringIO()
+        with mock.patch.object(
+            factory_driver,
+            "publish",
+            side_effect=[TransactionError("unexpected transaction defect"), {"records": 1}],
+        ), redirect_stdout(buffer):
+            code = factory_driver.cmd_smoke()
+
+        self.assertEqual(code, 1)
+        self.assertIn(
+            "unexpected publish rejection: unexpected transaction defect",
+            buffer.getvalue(),
+        )
+
+    def test_smoke_reports_each_failed_notes_gate_invariant(self):
+        buffer = StringIO()
+        with mock.patch.object(
+            factory_driver, "publish", side_effect=[{}, {"records": 0}]
+        ), mock.patch.object(
+            factory_driver,
+            "factory_token_efficiency",
+            return_value={"early_stop": False, "early_stop_at_round": None},
+        ), redirect_stdout(buffer):
+            code = factory_driver.cmd_smoke()
+
+        self.assertEqual(code, 1)
+        report = buffer.getvalue()
+        self.assertIn("publish accepted NOTES without a 'Novel coverage' line", report)
+        self.assertIn("transaction reserve/publish did not commit exactly one round", report)
+        self.assertIn("coverage plateau did not early-stop", report)
+
+
 class TokenEfficiencyFixtureLatch(unittest.TestCase):
     """The committed convergence fixture must drive the documented latch.
 
