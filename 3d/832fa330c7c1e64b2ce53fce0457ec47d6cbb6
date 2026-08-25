@@ -1,10 +1,10 @@
-tests/test_card_schema_issue_106.py
-  s_940326c4ee4215::t_c3bb5d68ac307a 1-120
+tests/test_card_schema_issue_107.py
+  s_940326c4ee4215::t_b0e452dea39482 1-76,78-107
 ---
 {
   "schema_version": "authorship/3.0.0",
   "git_ai_version": "1.5.2",
-  "base_commit_sha": "0d4c9deabc48d74fac41a91c7d388507ef76d4d9",
+  "base_commit_sha": "3d832fa330c7c1e64b2ce53fce0457ec47d6cbb6",
   "prompts": {},
   "sessions": {
     "s_940326c4ee4215": {
