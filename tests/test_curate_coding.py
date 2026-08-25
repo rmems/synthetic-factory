@@ -39,6 +39,7 @@ from curate_coding import (  # noqa: E402
     curate_step,
     is_hidden_reasoning_key,
 )
+from validate_run import HIDDEN_THOUGHT_KEYS  # noqa: E402
 
 
 def visible_step(**overrides):
@@ -601,9 +602,9 @@ class CurateCodingTests(unittest.TestCase):
 
 
 class HiddenReasoningKeyTests(unittest.TestCase):
-    def test_thought_and_every_internal_reasoning_variant_is_hidden(self):
+    def test_audit_vocabulary_and_every_internal_reasoning_variant_is_hidden(self):
         for key in (
-            "thought",
+            *sorted(HIDDEN_THOUGHT_KEYS),
             "Thought",
             "internal_reasoning",
             "internalReasoning",
@@ -613,6 +614,28 @@ class HiddenReasoningKeyTests(unittest.TestCase):
         ):
             with self.subTest(key=key):
                 self.assertTrue(is_hidden_reasoning_key(key))
+
+    def test_complete_audit_vocabulary_is_stripped_from_a_wrap_record(self):
+        source = wrap_record(
+            [
+                visible_step(
+                    chain_of_thought="private chain",
+                    scratch="private scratch",
+                    inner_monologue="private monologue",
+                )
+            ]
+        )
+
+        curated, manifest = curate_episode(source)
+
+        self.assertIsNotNone(curated)
+        self.assertFalse(contains_hidden_reasoning_key(curated))
+        step = curated["executed_action"]["steps"][0]
+        for key in HIDDEN_THOUGHT_KEYS:
+            self.assertNotIn(key, step)
+        # Two gate-level internal_reasoning fields plus all four scratch-pad
+        # keys on the embedded coding step.
+        self.assertEqual(manifest["hidden_reasoning_fields_removed"], 6)
 
     def test_visible_evidence_keys_are_not_hidden(self):
         for key in (

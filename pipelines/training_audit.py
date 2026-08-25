@@ -31,6 +31,7 @@ from check_records import (  # noqa: E402
     expected_states,
     reject_json_constant,
     root_record_id,
+    shape_check,
     walk_key,
 )
 from curate_coding import (  # noqa: E402
@@ -78,6 +79,22 @@ def thalamic_views(obj, kind):
         view = obj.get("language_view")
         if isinstance(view, dict) and isinstance(view.get("trajectory"), dict):
             yield "language_view.trajectory", view["trajectory"]
+
+
+def wrapped_agentic_episodes(obj, kind):
+    """Yield coding episodes embedded in any supported Thalamic view."""
+    for view_path, trajectory in thalamic_views(obj, kind):
+        executed_action = trajectory.get("executed_action")
+        if not isinstance(executed_action, dict):
+            continue
+        if not isinstance(executed_action.get("steps"), list):
+            continue
+        path = (
+            "executed_action"
+            if view_path == "record"
+            else f"{view_path}.executed_action"
+        )
+        yield path, executed_action
 
 
 def reward_shape(value):
@@ -193,6 +210,8 @@ def agentic_turns(obj, kind):
         for turn in transcript if isinstance(transcript, list) else ():
             if isinstance(turn, dict) and "tool_call" in turn:
                 yield turn
+    for _path, episode in wrapped_agentic_episodes(obj, kind):
+        yield from episode["steps"]
 
 
 def has_observable_decision_basis(turn):
@@ -333,6 +352,17 @@ def audit_run(run_dir: Path):
             kinds[kind] += 1
             bucket["by_kind"][kind] += 1
             record_errors.extend(errors)
+            # The outer record routes as Thalamic, preference, or bridge data,
+            # so its ordinary shape check cannot validate an embedded coding
+            # episode. Validate that nested episode explicitly with the same
+            # strict agentic contract used for top-level staged episodes.
+            for embedded_path, embedded in wrapped_agentic_episodes(obj, kind):
+                embedded_errors, _embedded_kind = shape_check(
+                    embedded,
+                    f"{where}.{embedded_path}",
+                    factory_staging=True,
+                )
+                record_errors.extend(embedded_errors)
             unresolved_record_warnings.extend(
                 warning
                 for warning in warnings

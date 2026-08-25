@@ -502,6 +502,30 @@ class CuratedViewHasNoHiddenReasoning(unittest.TestCase):
         self.assertEqual(code, 1)
         self.assertIn("internal_reasoning*", captured.getvalue())
 
+    def test_wrap_steps_receive_strict_agentic_structural_validation(self):
+        source = coding_wrap("wrap-structural-1")
+        source["executed_action"]["steps"][0]["tool_call"] = "not-object"
+        curated, _manifest = curate_coding.curate_episode(source)
+        self.assertIsNotNone(curated)
+
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            write(
+                root / "agentic-coding-trajectory-factory" / "batch-r02.jsonl",
+                [curated],
+            )
+            report = training_audit.audit_run(root)
+
+        self.assertEqual(report["episodes"]["steps"], 1)
+        self.assertTrue(
+            any(
+                "executed_action step 0: tool_call must be an object" in error
+                for error in report["record_invariants"]["error_examples"]
+            ),
+            report["record_invariants"],
+        )
+        self.assertFalse(report["training_ready"])
+
     def test_strict_cli_passes_once_curate_coding_has_run(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
@@ -518,6 +542,7 @@ class CuratedViewHasNoHiddenReasoning(unittest.TestCase):
             report = training_audit.audit_run(root / "curated")
 
         self.assertEqual(report["episodes"].get("hidden_thought_fields", 0), 0)
+        self.assertEqual(report["episodes"]["steps"], 1)
         self.assertEqual(report["hidden_thought_examples"], [])
         self.assertEqual(report["blockers"], [])
         self.assertTrue(report["training_ready"])

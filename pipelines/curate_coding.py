@@ -2,9 +2,11 @@
 """Curate legacy coding episodes into observable, reasoning-free records.
 
 The transform is deliberately record-level and side-effect free by default.
-It removes every mapping key that carries model-private reasoning --
-``thought``, ``internal_reasoning``, ``internal_reasoning_verbatim`` and any
-other ``internal_reasoning*`` variant -- and derives a concise
+It removes every mapping key that carries model-private reasoning -- the
+shared scratch-pad vocabulary (``thought``, ``chain_of_thought``, ``scratch``,
+and ``inner_monologue``), ``internal_reasoning``,
+``internal_reasoning_verbatim``, and any other ``internal_reasoning*`` variant
+-- and derives a concise
 ``decision_basis`` only from fields that are visible in the source record:
 plan, reflection, observation, or tool call.
 Steps without usable visible evidence are excluded with machine-readable
@@ -35,19 +37,21 @@ from collections import Counter
 from pathlib import Path
 from typing import Any
 
+from validate_run import HIDDEN_THOUGHT_KEYS
+
 
 TRANSFORM_NAME = "coding_observability"
-# Version 2 additionally removes ``internal_reasoning*`` keys and curates
-# Thalamic wrap records whose coding steps live under ``executed_action``.
-TRANSFORM_VERSION = "2"
+# Version 3 keeps the version-2 wrap support and additionally aligns the
+# transform with the structural audit's complete hidden-thought vocabulary.
+TRANSFORM_VERSION = "3"
 MAX_DECISION_BASIS_CHARS = 240
 RUN_MANIFEST_FILENAME = "manifest.jsonl"
 
 # Exact key names that never reach a curated record, plus the
 # ``internal_reasoning`` prefix that covers ``internal_reasoning_verbatim``,
 # ``internal_reasoning_optimizer``, and every other published variant.
-HIDDEN_REASONING_KEYS = frozenset(
-    {"thought", "internal_reasoning", "internal_reasoning_verbatim"}
+HIDDEN_REASONING_KEYS = HIDDEN_THOUGHT_KEYS | frozenset(
+    {"internal_reasoning", "internal_reasoning_verbatim"}
 )
 HIDDEN_REASONING_PREFIX = "internal_reasoning"
 
@@ -105,8 +109,9 @@ def normalized_key_name(value: Any) -> str:
 def is_hidden_reasoning_key(key: Any) -> bool:
     """Return whether ``key`` names model-private reasoning text.
 
-    Matches ``thought`` and the whole ``internal_reasoning*`` family so a new
-    published variant cannot slip into a curated record unnoticed.
+    Matches the structural audit's scratch-pad vocabulary and the whole
+    ``internal_reasoning*`` family so a published private-reasoning variant
+    cannot slip into a curated record unnoticed.
     """
     normalized = normalized_key_name(key)
     return normalized in HIDDEN_REASONING_KEYS or normalized.startswith(
