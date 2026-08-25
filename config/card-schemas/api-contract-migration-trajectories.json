@@ -1,0 +1,73 @@
+{
+  "version": 1,
+  "dataset": "api-contract-migration-trajectories",
+  "issues": [46],
+  "note": "The viewer schema is declared by hand because raw `meta` shapes vary between rounds: the datasets-server infers `meta` as `{factory, generator, round}` from the six thin-meta records in `batch-r01.jsonl`, then cannot cast the later shards whose `meta` also carries `domain`, `stack`, `theme`, `kind`, `seed`, `designed` and `lane`. Declaring the union fixes the index without rewriting a single historical raw record.",
+  "config_name": "default",
+  "split": "train",
+  "data_files": ["data/raw/batch-*.jsonl"],
+  "features": [
+    {"name": "id", "dtype": "string"},
+    {"name": "goal", "dtype": "string"},
+    {"name": "plan", "dtype": "string"},
+    {
+      "name": "steps",
+      "list": [
+        {"name": "n", "dtype": "int64"},
+        {"name": "decision_basis", "dtype": "string"},
+        {
+          "name": "tool_call",
+          "struct": [
+            {"name": "name", "dtype": "string"},
+            {
+              "name": "args",
+              "dtype": "json",
+              "note": "always an object; keys differ per tool"
+            }
+          ]
+        },
+        {"name": "observation", "dtype": "string"},
+        {
+          "name": "reflection",
+          "dtype": "string",
+          "optional": true,
+          "note": "present on 129909 of 130021 steps; the 112 without it are in `batch-r01.jsonl`, `batch-r02.jsonl` and `batch-r98.jsonl`"
+        }
+      ]
+    },
+    {"name": "outcome", "dtype": "string"},
+    {
+      "name": "reward",
+      "dtype": "json",
+      "note": "key-bag: `success`, `tests_passed`, `cost_steps` on every record, `duration_min`, `retries`, `wasted_calls` on 8004, plus `breaking_oasdiff` (5), `xfailed` (3), `skipped` (1) and `handoff` (1)"
+    },
+    {
+      "name": "meta",
+      "dtype": "json",
+      "note": "key-bag: `factory`, `generator`, `round` on every record, plus `domain`, `stack` (8004), `kind` (6332), `seed`, `designed` (6330), `lane` (5440), `theme` (1674) and `product`, `mechanic` (2) on subsets"
+    }
+  ],
+  "disclosures": [
+    {
+      "summary": "Two records are leftover-mill BuildKit cache-mount episodes that were published into this dataset by mistake: their ids use the `dbc-` prefix, their `meta.kind` is `designed`, and they carry `meta.product` / `meta.mechanic` keys no other record has. Their `meta.factory` is dest-stamped `api-contract-migration-factory`, so a factory-stamp check cannot see them. They are kept exactly as generated; the other 8010 records are API contract-migration episodes.",
+      "ids": [
+        "dbc-r3714-buildkit-cache-mount-id-leftover",
+        "dbc-r3714-buildkit-cache-mount-sharing-locked-leftover"
+      ],
+      "issues": [46]
+    },
+    {
+      "summary": "Six early records are genuine contract-migration episodes with a thinner `meta` of only `factory`, `generator` and `round`. They are the records the schema was inferred from, and the reason the cast against later shards failed. They are kept exactly as generated.",
+      "ids": [
+        "acm-r01-disc-wallet-map-b7e2",
+        "acm-r01-orders-v2-email-req-4c91",
+        "acm-r02-addprop-reqid-a61e",
+        "acm-r02-callback-hmac256-9b30",
+        "acm-r98-oas31-null-phone-d4a2",
+        "acm-r98-idem-header-sunset-7e19"
+      ]
+    },
+    "All 8012 records are stamped `meta.generator` `grok-4.6` and `meta.factory` `api-contract-migration-factory`, over rounds 1 through 4006.",
+    "Every step publishes a public `decision_basis`. There are no hidden `thought` or `internal_reasoning` fields."
+  ]
+}
