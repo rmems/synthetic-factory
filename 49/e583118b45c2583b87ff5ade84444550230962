@@ -1,0 +1,29 @@
+pipelines/curate_preferences.py
+  s_002cddb1a70571::t_0efb1fb1cb65d3 466-470
+  s_002cddb1a70571::t_e4c4be19692706 538-544
+  s_002cddb1a70571::t_4a9611f38a3806 23-25
+  s_002cddb1a70571::t_66a480447e02ba 512-515
+  s_002cddb1a70571::t_98b40a2fbe359c 494
+  s_002cddb1a70571::t_3b68ecd6ff05f5 91-115
+  s_002cddb1a70571::t_a9d78911c33778 528-530
+  s_002cddb1a70571::t_85ffd74719bfbf 356-366
+tests/test_curate_preferences.py
+  s_002cddb1a70571::t_3c403946655880 474-578
+  s_002cddb1a70571::t_5f49b151cf59c6 343-386
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "49e583118b45c2583b87ff5ade84444550230962",
+  "prompts": {},
+  "sessions": {
+    "s_002cddb1a70571": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "abd260ba-6a6c-45a6-9db3-a4e0988ad60e",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Raul Montoya Cardenas <montoyaraul34@gmail.com>"
+    }
+  }
+}
