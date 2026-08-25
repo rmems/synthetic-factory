@@ -9,6 +9,7 @@ import tempfile
 import unittest
 from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
+from unittest import mock
 
 REPO = Path(__file__).resolve().parents[1]
 PIPELINES = REPO / "pipelines"
@@ -103,22 +104,33 @@ def _lane_manifest_entry(action, line, reasons=(), transform="bridge_event_time_
 
 
 class GateFixture:
-    """A two-lane curation scenario laid out under one temporary root."""
+    """A six-lane curation scenario laid out under one temporary root."""
 
     def __init__(self, root, bridge_records=None, thalamic_records=None):
         self.root = Path(root)
         self.lane_bridge = self.root / "lane-bridge"
         self.lane_core = self.root / "lane-core"
+        self.lane_preference = self.root / "lane-preference"
+        self.lane_reward = self.root / "lane-reward"
+        self.lane_coding = self.root / "lane-coding"
+        self.lane_tag = self.root / "lane-tag"
         _write_jsonl(
             self.lane_bridge / "bridge-factory" / "batch-r02.jsonl",
             bridge_records if bridge_records is not None else [_bridge()],
         )
-        _write_jsonl(
-            self.lane_core / "thalamic-mini" / "batch-r02.jsonl",
+        core_records = (
             thalamic_records
             if thalamic_records is not None
-            else [_thalamic("t-1"), _preference(), _episode()],
+            else [_thalamic("t-1"), _preference(), _episode()]
         )
+        for lane_dir in (
+            self.lane_core,
+            self.lane_preference,
+            self.lane_reward,
+            self.lane_coding,
+            self.lane_tag,
+        ):
+            _write_jsonl(lane_dir / "thalamic-mini" / "batch-r02.jsonl", core_records)
         (self.lane_bridge / "manifest.jsonl").write_text(
             "".join(
                 json.dumps(entry) + "\n"
@@ -148,6 +160,30 @@ class GateFixture:
                             "transform": "curate_identity",
                             "version": "identity-provenance-v1",
                             "outputs": "lane-core",
+                        },
+                        {
+                            "bead": "sf-c5l.3",
+                            "transform": "same-context-preference-curation",
+                            "version": "1.0.0",
+                            "outputs": "lane-preference",
+                        },
+                        {
+                            "bead": "sf-c5l.4",
+                            "transform": "reward_ontology",
+                            "version": "reward-ontology-v1",
+                            "outputs": "lane-reward",
+                        },
+                        {
+                            "bead": "sf-c5l.5",
+                            "transform": "coding_observability",
+                            "version": "1",
+                            "outputs": "lane-coding",
+                        },
+                        {
+                            "bead": "sf-c5l.6",
+                            "transform": "tag_taxonomy",
+                            "version": "1",
+                            "outputs": "lane-tag",
                         },
                     ],
                 },
@@ -214,13 +250,17 @@ class IntegrationTests(unittest.TestCase):
         self.assertTrue(manifest["training_ready"])
         self.assertEqual(
             [lane["transform"] for lane in manifest["composition_order"]],
-            ["bridge_event_time_order", "curate_identity"],
+            [transform for _bead, transform in curate_gate.REQUIRED_LANES],
         )
         self.assertEqual(
             manifest["transform_versions"],
             {
                 "bridge_event_time_order": "1.0.0",
+                "coding_observability": "1",
                 "curate_identity": "identity-provenance-v1",
+                "reward_ontology": "reward-ontology-v1",
+                "same-context-preference-curation": "1.0.0",
+                "tag_taxonomy": "1",
             },
         )
         self.assertEqual(manifest["counts"]["records"], 4)
@@ -273,7 +313,16 @@ class IntegrationTests(unittest.TestCase):
             manifest["counts"]["lane_actions"]["bridge_event_time_order"],
             {"excluded": 1, "quarantine": 1, "retained": 1},
         )
-        self.assertEqual(manifest["lanes_without_record_manifest"], ["curate_identity"])
+        self.assertEqual(
+            manifest["lanes_without_record_manifest"],
+            [
+                "curate_identity",
+                "same-context-preference-curation",
+                "reward_ontology",
+                "coding_observability",
+                "tag_taxonomy",
+            ],
+        )
 
     def test_later_lane_supersedes_earlier_lane_at_the_same_path(self):
         fixture = GateFixture(self.root)
@@ -285,8 +334,11 @@ class IntegrationTests(unittest.TestCase):
         self.assertEqual(fixture.integrate(), 0)
         manifest = fixture.manifest()
 
-        self.assertEqual(len(manifest["supersessions"]), 1)
-        supersession = manifest["supersessions"][0]
+        supersession = next(
+            item
+            for item in manifest["supersessions"]
+            if item["path"] == "bridge-factory/batch-r02.jsonl"
+        )
         self.assertEqual(supersession["path"], "bridge-factory/batch-r02.jsonl")
         self.assertEqual(supersession["superseded_transform"], "bridge_event_time_order")
         self.assertEqual(supersession["winning_transform"], "curate_identity")
@@ -328,6 +380,50 @@ class IntegrationTests(unittest.TestCase):
         self.assertEqual(fixture.integrate(), 2)
         self.assertFalse(fixture.cleaned.exists())
 
+    def test_plan_rejects_a_symlinked_outputs_directory_before_resolving(self):
+        fixture = GateFixture(self.root)
+        outside = self.root / "outside-lane"
+        _write_jsonl(outside / "factory" / "batch.jsonl", [_thalamic("outside")])
+        linked = self.root / "linked-lane"
+        try:
+            linked.symlink_to(outside, target_is_directory=True)
+        except (OSError, NotImplementedError):
+            self.skipTest("symlinks are unavailable on this platform")
+        plan = json.loads(fixture.plan_path.read_text())
+        plan["lanes"][1]["outputs"] = linked.name
+        fixture.plan_path.write_text(json.dumps(plan))
+
+        self.assertEqual(fixture.integrate(), 2)
+        self.assertFalse(fixture.cleaned.exists())
+
+    def test_plan_requires_all_six_lane_contracts_in_order(self):
+        fixture = GateFixture(self.root)
+        plan = json.loads(fixture.plan_path.read_text())
+        plan["lanes"].pop(3)
+        fixture.plan_path.write_text(json.dumps(plan))
+
+        with self.assertRaises(curate_gate.GateError) as ctx:
+            curate_gate.load_plan(fixture.plan_path)
+        self.assertIn("six required contracts in order", str(ctx.exception))
+
+    def test_integrate_rejects_a_lane_with_zero_records(self):
+        fixture = GateFixture(self.root)
+        tag_output = fixture.lane_tag / "thalamic-mini" / "batch-r02.jsonl"
+        tag_output.write_text("\n")
+
+        self.assertEqual(fixture.integrate(), 2)
+        self.assertFalse(fixture.cleaned.exists())
+
+    def test_destinations_beneath_raw_output_are_rejected(self):
+        fixture = GateFixture(self.root)
+        raw_root = self.root / "outputs" / "raw"
+        raw_root.mkdir(parents=True)
+        fixture.cleaned = raw_root / "cleaned-attempt"
+
+        with mock.patch.object(curate_gate, "RAW_OUTPUT_ROOT", raw_root.resolve()):
+            self.assertEqual(fixture.integrate(), 2)
+        self.assertFalse(fixture.cleaned.exists())
+
     def test_integrate_rejects_a_non_positive_sample_size(self):
         fixture = GateFixture(self.root)
         self.assertEqual(fixture.integrate("--per-stratum", "0"), 2)
@@ -343,10 +439,20 @@ class IntegrationTests(unittest.TestCase):
 
     def test_a_failed_plan_leaves_no_partial_destination(self):
         fixture = GateFixture(self.root)
-        for path in (fixture.lane_core / "thalamic-mini").glob("*.jsonl"):
+        for path in (fixture.lane_tag / "thalamic-mini").glob("*.jsonl"):
             path.unlink()
         self.assertEqual(fixture.integrate(), 2)
         self.assertFalse(fixture.cleaned.exists())
+
+    def test_integration_failure_removes_the_staged_destination(self):
+        fixture = GateFixture(self.root)
+        with mock.patch.object(
+            curate_gate, "run_gates", side_effect=curate_gate.GateError("gate exploded")
+        ):
+            self.assertEqual(fixture.integrate(), 2)
+
+        self.assertFalse(fixture.cleaned.exists())
+        self.assertEqual(list(self.root.glob(".cleaned-v1.staging-*")), [])
 
 
 class CorpusGateTests(unittest.TestCase):

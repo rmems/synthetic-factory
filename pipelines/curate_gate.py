@@ -72,11 +72,13 @@ import json
 import shutil
 import subprocess
 import sys
+import tempfile
 from collections import Counter, defaultdict
 from pathlib import Path
 from typing import Any, Iterable, Sequence
 
 _PIPELINES = Path(__file__).resolve().parent
+_REPO = _PIPELINES.parent
 if str(_PIPELINES) not in sys.path:
     sys.path.insert(0, str(_PIPELINES))
 
@@ -101,6 +103,20 @@ VALIDATOR = _PIPELINES / "validate_run.py"
 CHECKER = _PIPELINES / "check_records.py"
 
 DEFAULT_PER_STRATUM = 2
+
+RAW_OUTPUT_ROOT = (_REPO / "outputs" / "raw").resolve()
+
+# The integration gate is meaningful only after every upstream lane has run.
+# Bead IDs fix the dependency order; transform names bind each position to the
+# reviewed implementation contract rather than accepting an arbitrary subset.
+REQUIRED_LANES = (
+    ("sf-c5l.1", "bridge_event_time_order"),
+    ("sf-c5l.2", "curate_identity"),
+    ("sf-c5l.3", "same-context-preference-curation"),
+    ("sf-c5l.4", "reward_ontology"),
+    ("sf-c5l.5", "coding_observability"),
+    ("sf-c5l.6", "tag_taxonomy"),
+)
 
 # Which Thalamic view speaks for a record when stratifying by safety gate.
 DECISION_ROLE_PRIORITY = ("record", "chosen", "language_view.trajectory", "rejected")
@@ -173,6 +189,26 @@ def _load_json(path: Path) -> Any:
         raise GateError(f"{path}: invalid JSON: {exc}") from exc
 
 
+def _resolve_declared_path(base: Path, value: str, label: str) -> Path:
+    """Resolve one plan-relative path without erasing symlink evidence."""
+    declared = Path(value)
+    if declared.is_absolute() or ".." in declared.parts:
+        raise GateError(f"{label} must stay within the plan directory: {value!r}")
+
+    walked = base
+    for part in declared.parts:
+        if part in {"", "."}:
+            continue
+        walked = walked / part
+        if walked.is_symlink():
+            raise GateError(f"{label} contains a symlinked path component: {walked}")
+
+    resolved = (base / declared).resolve()
+    if resolved != base and base not in resolved.parents:
+        raise GateError(f"{label} resolves outside the plan directory: {resolved}")
+    return resolved
+
+
 # ---------------------------------------------------------------------------
 # integration plan
 # ---------------------------------------------------------------------------
@@ -212,7 +248,9 @@ def load_plan(plan_path: Path) -> dict[str, Any]:
             )
         versions[transform] = version
 
-        outputs_path = (base / outputs).resolve()
+        outputs_path = _resolve_declared_path(
+            base, outputs, f"{plan_path}: lane {index} ({transform}) outputs"
+        )
         if not outputs_path.is_dir():
             raise GateError(
                 f"{plan_path}: lane {index} ({transform}) outputs directory is missing: "
@@ -230,7 +268,9 @@ def load_plan(plan_path: Path) -> dict[str, Any]:
         if manifest is not None:
             if not isinstance(manifest, str) or not manifest.strip():
                 raise GateError(f"{plan_path}: lane {index} 'manifest' must be a non-empty string")
-            manifest_path = (base / manifest).resolve()
+            manifest_path = _resolve_declared_path(
+                base, manifest, f"{plan_path}: lane {index} ({transform}) manifest"
+            )
             if not manifest_path.is_file():
                 raise GateError(
                     f"{plan_path}: lane {index} ({transform}) manifest is missing: {manifest_path}"
@@ -245,6 +285,15 @@ def load_plan(plan_path: Path) -> dict[str, Any]:
                 "outputs_dir": outputs_path,
                 "manifest_path": manifest_path,
             }
+        )
+
+    declared_lanes = tuple((lane["bead"], lane["transform"]) for lane in resolved)
+    if declared_lanes != REQUIRED_LANES:
+        expected = ", ".join(f"{bead}:{transform}" for bead, transform in REQUIRED_LANES)
+        actual = ", ".join(f"{bead}:{transform}" for bead, transform in declared_lanes)
+        raise GateError(
+            f"{plan_path}: lanes must be the six required contracts in order; "
+            f"expected [{expected}], got [{actual}]"
         )
 
     return {
@@ -262,23 +311,32 @@ def load_plan(plan_path: Path) -> dict[str, Any]:
 
 
 def _assert_new_destination(destination: Path, label: str) -> None:
+    destination = Path(destination).resolve(strict=False)
+    if destination == RAW_OUTPUT_ROOT or RAW_OUTPUT_ROOT in destination.parents:
+        raise GateError(f"refusing to write {label} beneath immutable raw output: {destination}")
     if destination.exists():
         raise GateError(f"refusing to overwrite an existing {label}: {destination}")
 
 
-def compose(plan: dict[str, Any], destination: Path) -> dict[str, Any]:
+def compose(
+    plan: dict[str, Any],
+    destination: Path,
+    *,
+    logical_destination: Path | None = None,
+) -> dict[str, Any]:
     """Overlay lane outputs into a brand-new ``destination`` in plan order."""
     destination = Path(destination).resolve()
+    logical_destination = Path(logical_destination or destination).resolve()
     _assert_new_destination(destination, "cleaned destination")
 
     for lane in plan["lanes"]:
         outputs_dir = lane["outputs_dir"]
-        if outputs_dir == destination or destination in outputs_dir.parents:
+        if outputs_dir == logical_destination or logical_destination in outputs_dir.parents:
             raise GateError(
                 f"lane {lane['order']} ({lane['transform']}) outputs live inside the "
                 f"cleaned destination: {outputs_dir}"
             )
-        if outputs_dir in destination.parents:
+        if outputs_dir in logical_destination.parents:
             raise GateError(
                 f"cleaned destination is nested inside lane {lane['order']} "
                 f"({lane['transform']}) outputs: {outputs_dir}"
@@ -311,6 +369,11 @@ def compose(plan: dict[str, Any], destination: Path) -> dict[str, Any]:
                         f"lane {lane['order']} ({lane['transform']}) contains a "
                         f"symlinked path: {walked}"
                     )
+        if sum(count_records(path) for path in paths) == 0:
+            raise GateError(
+                f"lane {lane['order']} ({lane['transform']}) contributed zero records: "
+                f"{outputs_dir}"
+            )
         lane_paths.append((lane, paths))
 
     try:
@@ -393,7 +456,7 @@ def compose(plan: dict[str, Any], destination: Path) -> dict[str, Any]:
         )
 
     return {
-        "destination": destination,
+        "destination": logical_destination,
         "composition_order": lane_summaries,
         "inputs": inputs,
         "outputs": outputs,
@@ -879,26 +942,41 @@ def cmd_integrate(args: argparse.Namespace) -> int:
         raise GateError("--per-stratum must be at least 1")
     plan = load_plan(Path(args.plan))
     destination = Path(args.cleaned_out).resolve()
-    composition = compose(plan, destination)
-    lane_manifests = collect_lane_manifests(plan)
-    gate_result = run_gates(destination)
-    sample = build_sample(destination, args.per_stratum)
-
-    blockers = list(gate_result["blockers"])
-    blockers.append("REVIEW_NOT_RECORDED")
-
-    manifest = build_manifest(
-        plan=plan,
-        composition=composition,
-        lane_manifests=lane_manifests,
-        gate_result=gate_result,
-        sample=sample,
-        review=None,
-        blockers=blockers,
+    _assert_new_destination(destination, "cleaned destination")
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    stage_root = Path(
+        tempfile.mkdtemp(prefix=f".{destination.name}.staging-", dir=destination.parent)
     )
-    _write_json(destination / MANIFEST_FILENAME, manifest)
-    _write_json(destination / SAMPLE_FILENAME, sample)
-    _write_json(destination / REVIEW_FILENAME, review_template(sample))
+    staged = stage_root / "tree"
+    try:
+        composition = compose(plan, staged, logical_destination=destination)
+        lane_manifests = collect_lane_manifests(plan)
+        gate_result = run_gates(staged)
+        sample = build_sample(staged, args.per_stratum)
+        sample["cleaned_dir"] = str(destination)
+
+        blockers = list(gate_result["blockers"])
+        blockers.append("REVIEW_NOT_RECORDED")
+
+        manifest = build_manifest(
+            plan=plan,
+            composition=composition,
+            lane_manifests=lane_manifests,
+            gate_result=gate_result,
+            sample=sample,
+            review=None,
+            blockers=blockers,
+        )
+        _write_json(staged / MANIFEST_FILENAME, manifest)
+        _write_json(staged / SAMPLE_FILENAME, sample)
+        _write_json(staged / REVIEW_FILENAME, review_template(sample))
+
+        # Publish only a complete tree. A copy, manifest, gate, or sidecar
+        # failure leaves the requested destination absent and retryable.
+        _assert_new_destination(destination, "cleaned destination")
+        staged.rename(destination)
+    finally:
+        shutil.rmtree(stage_root, ignore_errors=True)
 
     summary = {
         "cleaned_out": str(destination),
