@@ -4,7 +4,7 @@
 > Dataset: [`rmems/failure-as-fuel-preference-cascade`](https://huggingface.co/datasets/rmems/failure-as-fuel-preference-cascade)
 > Audited payload: `data/raw/` at Hub revision `a9eaacfbeae4f66b94ddda5df3b793fda74fd39d`
 > Machine-readable audit: [`ffpc-same-state-audit.json`](ffpc-same-state-audit.json)
-> Transform: `same-context-preference-curation` 1.0.0
+> Transform: `same-context-preference-curation` 1.2.0
 > Contract: [`preference-isolation.md`](preference-isolation.md) §3
 
 **Do not train on the raw payload.** 17 of its 42 published pairs do not hold
@@ -78,9 +78,11 @@ python3 pipelines/curate_preferences.py reconcile \
 # → "<hub-data-raw> and outputs/... scan identically" (exit 0)
 ```
 
-`reconcile` fails on three classes of disagreement: records one copy has and
-the other does not, curation verdicts that differ, and identical verdicts
-reached from different source bytes.
+`reconcile` fails on three classes of disagreement: files or records one copy
+has and the other does not, curation verdicts that differ, and source bytes
+that differ. Its relative-path plus whole-file SHA-256 inventory covers every
+JSONL file, including skipped non-preference rows, line-ending changes, and
+trailing blank lines.
 
 `preferences.jsonl` is the round-1 file and carries a second, thinner schema:
 its 6 rows have no top-level `id`, so they are addressed by source line
@@ -222,6 +224,8 @@ python3 pipelines/curate_preferences.py audit <source> \
 python3 pipelines/curate_preferences.py reconcile <source-a> <source-b>
 ```
 
-`audit --expect` compares the summary, the impure-pair set, and every pair's
-source sha256, record id, action, classification, reason codes, and diverging
-field paths. It exits non-zero and names each difference on drift.
+`audit --expect` compares the complete source-file SHA-256 inventory, summary,
+impure-pair set, and every impure pair's source sha256, record id, action,
+classification, reason codes, and diverging field paths. Retained-pair and
+skipped-record byte drift therefore fail closed too. It exits non-zero and
+names each difference on drift.

@@ -191,6 +191,11 @@ python3 pipelines/curate_preferences.py audit <source> --expect docs/ffpc-same-s
 python3 pipelines/curate_preferences.py reconcile <source-a> <source-b>
 ```
 
+The audit embeds a relative-path plus whole-file SHA-256 inventory. Both
+`audit --expect` and `reconcile` therefore cover retained pairs, skipped JSON
+records, non-preference-only files, line endings, and trailing blank lines in
+addition to the per-pair decisions.
+
 ### 3.4 Failure taxonomy
 
 | Class | Example | Detection |

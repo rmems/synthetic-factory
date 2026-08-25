@@ -528,7 +528,49 @@
       "source_sha256": "7fafbdf776d369dc85b3fc7c856977e68a60aaadb6899bc14509164b7e84bdb7"
     }
   ],
-  "schema_version": "1.0.0",
+  "schema_version": "1.1.0",
+  "source_files": [
+    {
+      "source_file_sha256": "0bf326678afb9710616cbad12f9b1ddf807bdb1dda6e29775423a6f3c047db42",
+      "source_path": "batch-r02.jsonl"
+    },
+    {
+      "source_file_sha256": "cde810a867708751c4a82ab3b3ba808b09c271d903f69a4d4a249666ef246d61",
+      "source_path": "batch-r03.jsonl"
+    },
+    {
+      "source_file_sha256": "9b7fca02378b50063cc8a2fbf71e7a017051138bececa53eefc98d6ab96bdb25",
+      "source_path": "batch-r04.jsonl"
+    },
+    {
+      "source_file_sha256": "9a9d54921f73c4eb59cb293c12366eef985a03d410ed77aa44229b7b3fe49a95",
+      "source_path": "batch-r05.jsonl"
+    },
+    {
+      "source_file_sha256": "5b85ba725e09f68b613359591e4e79d596cac2538b13a938212068af2820589d",
+      "source_path": "batch-r06.jsonl"
+    },
+    {
+      "source_file_sha256": "1241a25e351d23545a0ef851f346cba234b9b0d35f199f58a4938e1a7e528dc7",
+      "source_path": "batch-r07.jsonl"
+    },
+    {
+      "source_file_sha256": "9c5f6bf02a161258ea1f775188934f167927f423331c77207a03f1f4a5796799",
+      "source_path": "batch-r08.jsonl"
+    },
+    {
+      "source_file_sha256": "06541964901f9b173dea0d1772320433896d105e1d5cf6d40d9668c81917a091",
+      "source_path": "batch-r09.jsonl"
+    },
+    {
+      "source_file_sha256": "973d8e101c863cf386a11b793783cf42354f2006f4db4951dc3307d3e8c5836a",
+      "source_path": "batch-r10.jsonl"
+    },
+    {
+      "source_file_sha256": "7bc6f5f549c5ab77996341b6ad9783b1681df8ccfbc35d2f43ee8307556904de",
+      "source_path": "preferences.jsonl"
+    }
+  ],
   "summary": {
     "both_context_fields_divergent_pairs": 12,
     "context_undetermined_pairs": 0,
@@ -539,13 +581,15 @@
     "preference_pairs": 42,
     "proposed_action_divergent_pairs": 14,
     "proposed_action_only_divergent_pairs": 2,
+    "proposed_action_undetermined_pairs": 0,
     "retained_context_purity_pct": 100.0,
     "same_state_pairs": 25,
     "state_divergent_pairs": 17,
-    "state_only_divergent_pairs": 5
+    "state_only_divergent_pairs": 5,
+    "state_undetermined_pairs": 0
   },
   "transform": {
     "name": "same-context-preference-curation",
-    "version": "1.1.0"
+    "version": "1.2.0"
   }
 }
