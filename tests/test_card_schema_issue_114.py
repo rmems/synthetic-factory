@@ -50,6 +50,14 @@ class MultiAgentCoordinationDeclarationTests(unittest.TestCase):
             last="r3784",
             payload_names=["batch-r01.jsonl", "batch-r3784.jsonl"],
         )
+        self.grown_card = publisher.render_card(
+            self.item,
+            records=4390,
+            bytes_=11854000,
+            first="r01",
+            last="r4390",
+            payload_names=["batch-r01.jsonl", "batch-r4390.jsonl"],
+        )
 
     def test_declaration_matches_the_observed_union_schema(self):
         names = {feature["name"]: feature for feature in self.declaration["features"]}
@@ -68,7 +76,7 @@ class MultiAgentCoordinationDeclarationTests(unittest.TestCase):
                 "meta",
             ],
         )
-        # `outcome` is the only optional top-level column: 2766 of 3784.
+        # `outcome` is the only optional top-level column.
         self.assertTrue(names["outcome"]["optional"])
         self.assertEqual(names["outcome"]["dtype"], "string")
         self.assertEqual(
@@ -90,7 +98,7 @@ class MultiAgentCoordinationDeclarationTests(unittest.TestCase):
     def test_narrative_columns_are_not_declared_as_key_bags(self):
         """The issue text asked for `resolution` / `agents` as json; the data disagrees.
 
-        `resolution` and `joint_outcome` are a plain string on all 3784 records,
+        `resolution` and `joint_outcome` are plain strings on every audited record,
         `disagreements` is a list of plain strings, and `agents` is a uniform
         struct list. Only `reward` and `meta` are real key bags, so only those
         two give up their columns to `json`.
@@ -120,7 +128,7 @@ class MultiAgentCoordinationDeclarationTests(unittest.TestCase):
         self.assertNotIn("**Not declared yet.**", self.card)
         self.assertIn("| `outcome` | optional |", self.card)
         self.assertIn("| `agents[].name` | optional |", self.card)
-        self.assertIn("2766 of 3784 records", self.card)
+        self.assertIn("Top-level `outcome` is a genuine optional field", self.card)
         designed = [feature for feature in self.declaration["disclosures"] if feature["ids"]]
         self.assertEqual(len(designed), 1)
         self.assertEqual(
@@ -154,7 +162,7 @@ class MultiAgentCoordinationDeclarationTests(unittest.TestCase):
             "while using the dataset's standard `agents` / `transcript` field schema",
             summary,
         )
-        self.assertIn("Corpus-wide cardinality is not uniform", summary)
+        self.assertIn("Cardinality is not uniform outside this fixed subset", summary)
         self.assertNotIn(
             "same 3-agent / 10-turn transcript shape as the rest of the dataset",
             summary,
@@ -165,6 +173,34 @@ class MultiAgentCoordinationDeclarationTests(unittest.TestCase):
         self.assertEqual(designed[0]["issues"], [43])
         for record_id in designed[0]["ids"]:
             self.assertIn(f"`{record_id}`", self.card)
+
+    def test_schema_prose_remains_truthful_when_the_snapshot_grows(self):
+        self.assertIn("The release contains 3784 raw records", self.card)
+        self.assertIn("`data/raw/batch-r3784.jsonl`", self.card)
+        self.assertIn("The release contains 4390 raw records", self.grown_card)
+        self.assertIn("`data/raw/batch-r4390.jsonl`", self.grown_card)
+
+        section = card_schema.body_section(self.declaration)
+        self.assertIn(section, self.card)
+        self.assertIn(section, self.grown_card)
+        for stale_literal in (
+            "2766 of 3784",
+            "1018",
+            "11361",
+            "45303",
+            "3902",
+            "3639",
+            "3775",
+            "2766 of 4390",
+            "1624",
+            "13179",
+            "51363",
+            "4508",
+            "4245",
+            "4381",
+        ):
+            with self.subTest(stale_literal=stale_literal):
+                self.assertNotIn(stale_literal, section)
 
 
 if __name__ == "__main__":
