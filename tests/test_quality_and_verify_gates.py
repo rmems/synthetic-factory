@@ -133,8 +133,44 @@ class QualityGate(unittest.TestCase):
         self.assertEqual(report["mix"]["provenance"], {"hil": 1})
         self.assertEqual(report["mix"]["synthetic"], 1)
 
+    def test_stateless_factory_record_is_counted_as_designed(self):
+        record = {
+            "id": "agentic-1",
+            "goal": "repair the queue consumer without dropping work",
+            "steps": [],
+            "outcome": "recovered",
+            "meta": {"factory": "agentic-coding-trajectory-factory"},
+            "provenance": {"kind": "unknown", "claimed": None},
+        }
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            write(root / "episodes.jsonl", [record])
+            report = quality_gate.audit_run(
+                root,
+                mix_policy=quality_gate.MixPolicy(max_synthetic_ratio=1.0),
+            )
+
+        self.assertEqual(report["mix"]["provenance"], {"designed": 1})
+        self.assertEqual(report["mix"]["synthetic"], 1)
+        self.assertEqual(report["mix"]["unlabeled"], 0)
+
 
 class ExactDedup(unittest.TestCase):
+    @staticmethod
+    def _agentic_episode(tool_name):
+        return {
+            "steps": [
+                {
+                    "n": 1,
+                    "decision_basis": "inspect the same deployment state",
+                    "tool_call": {"name": tool_name, "args": {"path": "service.py"}},
+                    "observation": "the command completed",
+                }
+            ],
+            "outcome": "complete",
+            "reward": {"success": True},
+        }
+
     def test_exact_duplicate_is_excluded_with_a_reason(self):
         record = {"id": "a", "state": {"sim_or_real": "unknown", "note": DISTINCT_NOTES[0]}}
         with tempfile.TemporaryDirectory() as td:
@@ -156,6 +192,51 @@ class ExactDedup(unittest.TestCase):
         self.assertEqual(clusters[0]["size"], 2)
         self.assertEqual(clusters[0]["representative"], {"file": "batch.jsonl", "line": 1})
         self.assertEqual(report["counts"]["excluded_records"], 1)
+
+    def test_preference_actions_and_outcomes_are_exact_identity(self):
+        def side(action, success):
+            return {
+                "state": {"episode_id": "same-context", "domain": "deploy"},
+                "proposed_action": {"action": "release"},
+                "executed_action": {"action": action},
+                "future_outcome": {"success": success},
+            }
+
+        first = {"chosen": side("canary", True), "rejected": side("all-at-once", False)}
+        second = {"chosen": side("all-at-once", False), "rejected": side("canary", True)}
+
+        self.assertNotEqual(
+            quality_gate.exact_identity_view(first),
+            quality_gate.exact_identity_view(second),
+        )
+        self.assertNotEqual(quality_gate.record_hash(first), quality_gate.record_hash(second))
+
+    def test_agentic_episode_steps_are_exact_identity(self):
+        first = self._agentic_episode("read")
+        second = self._agentic_episode("edit")
+
+        self.assertNotEqual(
+            quality_gate.exact_identity_view(first),
+            quality_gate.exact_identity_view(second),
+        )
+        self.assertNotEqual(quality_gate.record_hash(first), quality_gate.record_hash(second))
+
+    def test_episode_preference_side_steps_are_exact_identity(self):
+        rejected = self._agentic_episode("bash")
+        first = {
+            "chosen": self._agentic_episode("read"),
+            "rejected": rejected,
+        }
+        second = {
+            "chosen": self._agentic_episode("edit"),
+            "rejected": rejected,
+        }
+
+        self.assertNotEqual(
+            quality_gate.exact_identity_view(first),
+            quality_gate.exact_identity_view(second),
+        )
+        self.assertNotEqual(quality_gate.record_hash(first), quality_gate.record_hash(second))
 
 
 class EmbeddingDedup(unittest.TestCase):
@@ -232,6 +313,82 @@ class EmbeddingDedup(unittest.TestCase):
         self.assertEqual(len(pairs), 1)
         self.assertTrue(truncated)
 
+    def test_candidate_truncation_blocks_the_audit(self):
+        records = [
+            {
+                "id": f"coding-{index}",
+                "goal": "repair the same queue consumer and verify every retry",
+            }
+            for index in range(3)
+        ]
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            write(root / "episodes.jsonl", records)
+            report = quality_gate.audit_run(root, max_embedding_pairs=1)
+
+        self.assertTrue(report["embedding"]["truncated"])
+        self.assertTrue(report["blocked"])
+        self.assertTrue(
+            any("cannot be certified" in blocker for blocker in report["blockers"])
+        )
+
+    def test_string_operators_remain_semantically_distinct(self):
+        records = [
+            {"state": {"predicate": "queue_depth < hard_limit"}},
+            {"state": {"predicate": "queue_depth > hard_limit"}},
+        ]
+        token_sets = [quality_gate.embedding_tokens(record) for record in records]
+        self.assertNotEqual(token_sets[0], token_sets[1])
+        self.assertTrue(any("str-op:<" in token for token in token_sets[0]))
+        self.assertTrue(any("str-op:>" in token for token in token_sets[1]))
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            write(root / "batch.jsonl", records)
+            report = quality_gate.audit_run(root)
+        self.assertEqual(report["duplicates"], [])
+
+    def test_null_and_empty_values_have_typed_sentinels(self):
+        records = [
+            {"state": {"value": None}},
+            {"state": {"value": ""}},
+            {"state": {"value": []}},
+            {"state": {"value": {}}},
+        ]
+        token_sets = [quality_gate.embedding_tokens(record) for record in records]
+        self.assertEqual(len({frozenset(tokens) for tokens in token_sets}), 4)
+        for marker, tokens in zip(
+            ("null", "str-empty", "list-empty", "dict-empty"), token_sets
+        ):
+            self.assertTrue(any(marker in token for token in tokens), marker)
+
+    def test_case_sensitive_identifiers_remain_distinct(self):
+        records = [
+            {"state": {"principal": "User"}},
+            {"state": {"principal": "user"}},
+        ]
+        token_sets = [quality_gate.embedding_tokens(record) for record in records]
+        self.assertNotEqual(token_sets[0], token_sets[1])
+        self.assertTrue(any("str-case:User" in token for token in token_sets[0]))
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            write(root / "batch.jsonl", records)
+            report = quality_gate.audit_run(root)
+        self.assertEqual(report["duplicates"], [])
+
+    def test_repeated_sequence_order_is_position_qualified(self):
+        records = [
+            {"state": {"sequence": ["alpha", "beta", "alpha", "gamma", "alpha"]}},
+            {"state": {"sequence": ["alpha", "gamma", "alpha", "beta", "alpha"]}},
+        ]
+        token_sets = [quality_gate.embedding_tokens(record) for record in records]
+        self.assertNotEqual(token_sets[0], token_sets[1])
+        self.assertTrue(any("/i:1" in token for token in token_sets[0]))
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            write(root / "batch.jsonl", records)
+            report = quality_gate.audit_run(root)
+        self.assertEqual(report["duplicates"], [])
+
     def test_field_paths_distinguish_equal_values_under_different_keys(self):
         records = [
             {"state": {"sim_or_real": "unknown", "pressure_status": "critical"}},
@@ -258,7 +415,7 @@ class EmbeddingDedup(unittest.TestCase):
         self.assertEqual(len({frozenset(tokens) for tokens in token_sets}), 3)
         self.assertTrue(any("int:-5" in token for token in token_sets[0]))
         self.assertTrue(any("int:5" in token for token in token_sets[1]))
-        self.assertTrue(any("str:5" in token for token in token_sets[2]))
+        self.assertTrue(any("str-case:5" in token for token in token_sets[2]))
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
             write(root / "batch.jsonl", records)
@@ -297,14 +454,137 @@ class EmbeddingDedup(unittest.TestCase):
             {"state": {"sim_or_real": "unknown", "note": "港口起重机故障"}},
         ]
         token_sets = [quality_gate.embedding_tokens(record) for record in records]
-        self.assertTrue(any("冷却水温度上昇" in token for token in token_sets[0]))
-        self.assertTrue(any("港口起重机故障" in token for token in token_sets[1]))
+        self.assertTrue(any("str-char:冷" in token for token in token_sets[0]))
+        self.assertTrue(any("str-char:港" in token for token in token_sets[1]))
+        self.assertTrue(
+            any(
+                "str-char:冷" in token and "str-char:却" in token
+                for token in token_sets[0]
+            )
+        )
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
             write(root / "batch.jsonl", records)
             report = quality_gate.audit_run(root)
 
         self.assertEqual(report["duplicates"], [])
+
+    def test_unsegmented_scripts_use_grapheme_fallback(self):
+        samples = {
+            "japanese": "クレーンの温度を下げる",
+            "thai": "ระบบควบคุมลดอุณหภูมิน้ำหล่อเย็น",
+        }
+        for language, note in samples.items():
+            with self.subTest(language=language):
+                tokens = quality_gate.embedding_tokens({"state": {"note": note}})
+                character_tokens = [
+                    token
+                    for token in tokens
+                    if "str-char:" in token and quality_gate._BIGRAM_SEP not in token
+                ]
+                self.assertGreaterEqual(len(character_tokens), 4)
+
+    def test_unsegmented_minimal_edit_is_an_embedding_duplicate(self):
+        common = (
+            "港口起重机正在执行集装箱装卸作业控制系统持续监测吊具位置载荷风速"
+            "制动器温度液压压力电机电流和安全联锁状态操作员依据标准程序确认所有"
+            "传感器读数稳定并记录每个控制周期的执行结果"
+        )
+        records = [
+            {"state": {"note": common * 2 + "随后降低冷却水设定值保持设备稳定运行"}},
+            {"state": {"note": common * 2 + "随后提高冷却水设定值保持设备稳定运行"}},
+        ]
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            write(root / "batch.jsonl", records)
+            report = quality_gate.audit_run(root)
+
+        self.assertEqual(report["embedding"]["candidate_pairs"], 1)
+        self.assertEqual(report["counts"]["embedding_duplicate_groups"], 1)
+        self.assertEqual(len(report["duplicates"]), 1)
+        self.assertGreater(
+            report["duplicates"][0]["similarity"],
+            quality_gate.DEFAULT_EMBEDDING_THRESHOLD,
+        )
+
+    def test_frequency_aware_sketch_recalls_high_tf_cosine_pair(self):
+        repeated = "saturated " * 2000
+        records = [
+            {"id": "tf-a", "goal": repeated + "alpha"},
+            {"id": "tf-b", "goal": repeated + "beta"},
+        ]
+        token_sets = [set(quality_gate.embedding_tokens(record)) for record in records]
+        unweighted_jaccard = len(token_sets[0] & token_sets[1]) / len(
+            token_sets[0] | token_sets[1]
+        )
+        self.assertLess(unweighted_jaccard, 0.5)
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            write(root / "episodes.jsonl", records)
+            report = quality_gate.audit_run(root)
+
+        self.assertEqual(report["embedding"]["candidate_pairs"], 1)
+        self.assertEqual(report["embedding"]["candidate_sketch"], "weighted-tier-minhash/1")
+        self.assertEqual(report["counts"]["embedding_duplicate_groups"], 1)
+        self.assertGreater(
+            report["duplicates"][0]["similarity"],
+            quality_gate.DEFAULT_EMBEDDING_THRESHOLD,
+        )
+
+    def test_semantic_view_removes_top_level_and_episode_ids(self):
+        common = "verify queue retries and preserve every acknowledged work item"
+        stateless = [
+            {
+                "id": "coding-a",
+                "goal": common,
+                "meta": {"round": 1, "factory": "agentic-coding-trajectory-factory"},
+            },
+            {
+                "id": "coding-b",
+                "goal": common,
+                "meta": {"round": 2, "factory": "agentic-coding-trajectory-factory"},
+            },
+        ]
+        self.assertNotEqual(
+            quality_gate.exact_identity_view(stateless[0]),
+            quality_gate.exact_identity_view(stateless[1]),
+        )
+        self.assertEqual(
+            quality_gate.semantic_similarity_view(stateless[0]),
+            quality_gate.semantic_similarity_view(stateless[1]),
+        )
+        records = [
+            {
+                "id": "wrapper-a",
+                "state": {
+                    "episode_id": "episode-a",
+                    "sim_or_real": "unknown",
+                    "note": common,
+                },
+                "meta": {"round": 1, "factory": "thalamic-trajectory-factory"},
+            },
+            {
+                "id": "wrapper-b",
+                "state": {
+                    "episode_id": "episode-b",
+                    "sim_or_real": "unknown",
+                    "note": common,
+                },
+                "meta": {"round": 2, "factory": "thalamic-trajectory-factory"},
+            },
+        ]
+        self.assertNotEqual(quality_gate.record_hash(records[0]), quality_gate.record_hash(records[1]))
+        self.assertEqual(
+            quality_gate.semantic_similarity_view(records[0]),
+            quality_gate.semantic_similarity_view(records[1]),
+        )
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            write(root / "batch.jsonl", records)
+            report = quality_gate.audit_run(root)
+
+        self.assertEqual(report["counts"]["duplicate_groups"], 0)
+        self.assertEqual(report["counts"]["embedding_duplicate_groups"], 1)
 
     def test_transitive_cluster_points_every_exclusion_at_retained_record(self):
         common = " ".join(f"common_{index:03d}" for index in range(80))
@@ -333,6 +613,10 @@ class EmbeddingDedup(unittest.TestCase):
     def test_invalid_threshold_is_rejected(self):
         with self.assertRaises(ValueError):
             quality_gate.audit_run(EMBEDDING_FIXTURE, threshold=1.5)
+
+    def test_threshold_one_is_rejected_instead_of_disabling_dedup(self):
+        with self.assertRaisesRegex(ValueError, r"\[-1, 1\)"):
+            quality_gate.audit_run(EMBEDDING_FIXTURE, threshold=1.0)
 
     def test_planted_duplicates_are_all_recovered(self):
         """LSH banding may only cost recall, so guard it with planted clones.
@@ -471,6 +755,15 @@ class MixEnforcement(unittest.TestCase):
             report = quality_gate.audit_run(Path(td))
         self.assertEqual(report["counts"]["total"], 0)
         self.assertFalse(report["blocked"])
+
+    def test_empty_run_blocks_when_a_synthetic_floor_is_configured(self):
+        with tempfile.TemporaryDirectory() as td:
+            report = quality_gate.audit_run(
+                Path(td),
+                mix_policy=quality_gate.MixPolicy(min_synthetic_ratio=0.1),
+            )
+        self.assertTrue(report["blocked"])
+        self.assertTrue(any("floor 0.10" in blocker for blocker in report["blockers"]))
 
 
 class CuratedManifest(unittest.TestCase):

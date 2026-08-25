@@ -23,8 +23,8 @@ Co-authored-by: Muse Code powered by Muse Spark <muse-spark@meta.com>
 
 | Check | Signal | Fail mode |
 |---|---|---|
-| **Exact-hash dedup** | SHA-256 over canonical JSON of ``state + proposed_action + executed_action`` (fallback ``chosen/rejected``, else the whole record) | ``blocked = true``, exit 1 |
-| **Embedding dedup** | Cosine similarity over a deterministic lexical encoding of the same view. Pairs above ``--threshold`` (default 0.97) are clustered; one member is kept, the rest are excluded with a ``reason`` | ``blocked = true``, exit 1 |
+| **Exact-hash dedup** | SHA-256 over a canonical training-identity view: states, decisions, actions, outcomes and rewards (fallback: whole record) | ``blocked = true``, exit 1 |
+| **Embedding dedup** | Cosine similarity over a separate semantic view with canonical record ids removed. Pairs above ``--threshold`` (default 0.97) are clustered; one member is kept, the rest are excluded with a ``reason`` | ``blocked = true``, exit 1 |
 | **Synthetic/real mix** | Buckets ``provenance.kind`` / ``state.sim_or_real`` → synthetic ``{designed, simulated, hil}`` vs ``{real, unknown}`` vs ``unlabeled`` (no recognized label) | **Blocks** above the ceiling (default ``0.30 target + 0.20 tolerance = 0.50``); warns between target and ceiling |
 | **Read/parse failures** | Files that cannot be read or UTF-8 decoded, and lines that are not valid JSON | Counted in ``errors`` with examples; ``blocked = true``, exit 1 |
 | **Reward-shape entropy** | Distinct ``reward_components`` keys and structural shapes | **Report only.** Magnitudes are never mixed or aggregated — the ontology fix belongs to sf-c5l.4 |
@@ -60,26 +60,47 @@ Every ``duplicates`` entry still carries ``file``, ``line`` and
 ``similarity`` only on ``kind="embedding"`` ones, so read ``kind``
 first.
 
+### Three deliberately separate representations
+
+The gate does not reuse one lossy projection for three different jobs:
+
+1. ``exact_identity_view`` preserves the fields that define a training unit.
+   Preference actions and outcomes are included, while wrapper bookkeeping ids
+   stay outside modeled state/action records.
+2. ``semantic_similarity_view`` removes canonical record identifiers such as
+   ``id`` and ``episode_id``, plus root bookkeeping metadata, before lexical
+   encoding. An id or round-stamp change cannot hide an otherwise identical
+   training example.
+3. ``candidate_sketch_features`` turns normalized TF-IDF weights into
+   deterministic tiers for LSH recall. The exact cosine vector remains the
+   only near-duplicate verdict.
+
 ### The shipped encoder
 
 This repository is stdlib-only (see ``AGENTS.md``), so the encoder is
 lexical, not learned:
 
-- **``EMBEDDING_ENCODER = "lexical-tfidf/3"``** — TF-IDF over Unicode word
-  unigrams *and* bigrams of every **path-qualified leaf value** in the same
-  view the hash uses. A feature combines the full field path with the leaf
+- **``EMBEDDING_ENCODER = "lexical-tfidf/5"``** — TF-IDF over Unicode word
+  unigrams *and* bigrams of every **path-qualified leaf value** in the
+  semantic-similarity view. A feature combines the full field path with the leaf
   word, so shared schema alone contributes nothing while the same value under
-  semantically different fields stays distinct.
+  semantically different fields stays distinct. CJK, Japanese, Thai, Lao,
+  Khmer and Myanmar runs use path-qualified grapheme tokens because those
+  scripts do not reliably place spaces between words; adjacent-token bigrams
+  retain order while allowing small edits to share candidate features.
 - Mapping keys are traversed in canonical sorted order before bigrams are
   formed. Equivalent JSON objects therefore embed identically regardless of
-  insertion order. List elements share a path marker while their sequence is
-  retained in the bigrams.
+  insertion order. List elements carry explicit positions; this distinguishes
+  repeated-token sequences that have the same unigram and bigram multisets.
 - Unicode tokenization preserves non-ASCII scripts instead of reducing two
-  unrelated multilingual records to their shared ASCII metadata.
+  unrelated multilingual records to their shared ASCII metadata. Combining
+  marks stay attached to their base grapheme, so Thai text is not fragmented
+  by Python's narrower ``\w`` behavior.
 - Numeric and Boolean scalars are atomic, typed features (for example,
-  ``int:-5``, ``float:5.0`` and ``bool:true``). Signs and scalar types are not
-  discarded by word tokenization, so opposite control values cannot become
-  identical embeddings merely because punctuation was stripped.
+  ``int:-5``, ``float:5.0`` and ``bool:true``). ``null``, empty strings, empty
+  lists and empty objects have distinct typed sentinels. String words retain
+  both folded and case-sensitive channels, and punctuation/operator runs are
+  tokens, so ``User``/``user`` and ``<``/``>`` do not collapse.
 - Sublinear term frequency (``1 + log tf``) times smoothed IDF
   (``log((N+1)/(df+1)) + 1``), L2-normalized, so the dot product **is**
   the cosine.
@@ -100,25 +121,26 @@ temperature-collapse signature, not a genuine paraphrase.
 
 ### Candidate generation and cost
 
-All-pairs cosine is quadratic, so candidates come from a **banded
-one-permutation MinHash sketch** (``EMBEDDING_MINHASH_SLOTS = 32`` slots
-read as ``EMBEDDING_LSH_BANDS = 8`` bands of 4) and every candidate is
-then scored with an exact cosine. One hash per token fills the sketch;
+All-pairs cosine is quadratic, so candidates come from a **frequency-aware,
+banded one-permutation MinHash sketch**
+(``EMBEDDING_CANDIDATE_SKETCH = "weighted-tier-minhash/1"``;
+``EMBEDDING_MINHASH_SLOTS = 32`` slots read as
+``EMBEDDING_LSH_BANDS = 8`` bands of 4) and every candidate is then scored
+with an exact cosine. Normalized TF-IDF weights expand into deterministic
+tiers before one hash per sketch feature fills the sketch;
 empty slots are densified by rotation, so no per-token permutation table
 is ever held in memory. Consequences:
 
 - **Precision is exact.** Nothing is excluded without a real cosine above
   the threshold.
-- **Recall is approximate.** A pair whose token Jaccard is 0.85 is
-  surfaced with probability ~0.997; below that, recall degrades
-  gracefully. Pairs at the 0.97 cosine the gate cares about sit far above
-  that band. The committed regression plants clones that differ in one
-  field and requires every one of them back; an ad-hoc sweep at 200
-  clones in 2,200 records also recovered 200/200 with no false positives.
+- **Recall is approximate.** Weighted tiers prevent a dominant repeated term
+  from collapsing to one set member; the committed regression includes a
+  high-cosine pair whose unweighted token-set overlap is low, plus planted
+  clones that differ in one field.
 - ``--max-embedding-pairs`` (default 2,000,000) caps candidate pairs. The
   report sets ``embedding.truncated`` only after observing an additional
-  distinct pair that would be omitted; producing exactly the cap is complete
-  and does not raise a false partial-recall warning.
+  distinct pair that would be omitted. Partial recall **blocks** the gate;
+  producing exactly the cap remains complete and does not block.
 - Cost is roughly linear in records: ~2s and ~270 MB over baseline for
   5,000 narrative records with an adversarially unique vocabulary. Peak
   memory holds one term-count map per retained record; parsed records are
@@ -139,10 +161,18 @@ is ever held in memory. Consequences:
   seeds (same seed, ``temp=0`` re-runs) in the calibration set, while
   keeping false-positive groups near zero on the overlapping-domain
   slice.
+- The grapheme fallback leaves whitespace-delimited encoder behavior
+  unchanged. Before promoting a new unsegmented-script corpus, extend the
+  same held-out sweep with minimally edited and genuinely distinct records in
+  that script; the committed Chinese/Japanese/Thai cases guard the failure
+  mode, not every language's operating point.
 - ``tests/fixtures/embedding-dedup/`` is the regression case: seven
   records, six distinct (max pairwise cosine 0.06) and one planted
   near-duplicate that differs only in ``state.tick`` — invisible to
   exact hashing and above 0.97 to the encoder.
+- ``--threshold`` must be finite in ``[-1, 1)``. ``1.0`` is rejected instead
+  of acting as a silent embedding-dedup disable switch; use the explicit
+  ``--no-embedding-dedup`` flag when that is truly intended.
 
 ### Tuning
 
@@ -185,7 +215,9 @@ still harms diversity.
   unlabeled == total``, and ``synthetic_ratio`` stays ``synthetic /
   total`` over that same population.
 - Promotion already normalizes ``sim_or_real → provenance.kind`` so mix
-  counting is consistent between raw and cleaned trees. For preference pairs,
+  counting is consistent between raw and cleaned trees. Stateless records with
+  a nonempty ``meta.factory`` origin are stamped/count as ``designed`` rather
+  than ``unknown``. For preference pairs,
   matching ``chosen``/``rejected`` provenance is counted once per pair; a
   partial or conflicting pair remains unlabeled. Bridge wrappers use their
   nested trajectory provenance before a generic top-level ``unknown`` stamp.
@@ -201,7 +233,7 @@ policy, and it **blocks** — it is not a warning any more:
 | ``--mix-target`` | ``0.30`` | The 30/70 target. Above it → warning. |
 | ``--mix-tolerance`` | ``0.20`` | Slack above the target before blocking. |
 | ``--max-synthetic-ratio`` | ``target + tolerance`` = ``0.50`` | Explicit ceiling; overrides target+tolerance. **Above it → blocked, exit 1.** |
-| ``--min-synthetic-ratio`` | none | Optional floor. Off by default: a tree that is entirely real is not a collapse risk. |
+| ``--min-synthetic-ratio`` | none | Optional floor. Off by default: a tree that is entirely real is not a collapse risk. When configured, an empty corpus has ratio 0 and fails a positive floor. |
 | ``--max-unlabeled-ratio`` | none | Optional ceiling on the unlabeled bucket. Off by default; above 0.5 the gate warns that the enforced ratio understates the real synthetic share. |
 
 The resolved policy is echoed in the report as ``mix_policy`` (including
@@ -210,8 +242,8 @@ against, not just the verdict. An unsatisfiable policy (floor above
 ceiling, ratios outside ``[0, 1]``) is rejected before any file is read.
 
 ``mix`` also reports ``unlabeled_ratio`` and ``labeled_synthetic_ratio``
-(``synthetic / (synthetic + real_unknown)``). Neither is enforced; they
-exist so an unlabeled-heavy tree cannot look compliant by accident.
+(``synthetic / (synthetic + real_unknown)``). The former can be bounded by
+``--max-unlabeled-ratio``; the latter is report-only.
 
 ## Curated manifest (sidecar)
 
@@ -224,7 +256,10 @@ manifest targets must be absent and outside the audited run tree; ``.jsonl``
 targets are rejected. Files are created exclusively rather than overwritten,
 so a typo can never replace an audited input or an earlier manifest. Promotion
 may place its default inside ``cleaned_out`` because that destination is newly
-created and raw input is separately protected. Parent directories are created.
+created and raw input is separately protected. A custom target that equals or
+contains ``cleaned_out`` is rejected before promotion starts; otherwise the
+destination could be created first and make the later exclusive manifest write
+unretryable. Parent directories are created.
 
 ```bash
 python3 pipelines/quality_gate.py outputs/cleaned/2026-08-17 \
@@ -278,16 +313,17 @@ JSON output fields:
     {"file": "batch-r03.jsonl", "line": 8, "kind": "embedding", "similarity": 0.9889,
      "duplicate_of": {"file": "batch-r03.jsonl", "line": 7},
      "matched_with": {"file": "batch-r03.jsonl", "line": 7},
-     "reason": "embedding near-duplicate: cosine 0.9889 > 0.97 vs retained representative batch-r03.jsonl:7 (encoder lexical-tfidf/3)"}
+     "reason": "embedding near-duplicate: cosine 0.9889 > 0.97 vs retained representative batch-r03.jsonl:7 (encoder lexical-tfidf/5)"}
   ],
   "duplicate_clusters": [
-    {"kind": "embedding", "size": 2, "threshold": 0.97, "encoder": "lexical-tfidf/3",
+    {"kind": "embedding", "size": 2, "threshold": 0.97, "encoder": "lexical-tfidf/5",
      "max_similarity": 0.9889,
      "representative": {"file": "batch-r03.jsonl", "line": 7},
      "members": [{"file": "batch-r03.jsonl", "line": 7}, {"file": "batch-r03.jsonl", "line": 8}],
      "reason": "1 excluded record(s) linked by cosine > 0.97; representative batch-r03.jsonl:7 is retained"}
   ],
-  "embedding": {"enabled": true, "encoder": "lexical-tfidf/3", "threshold": 0.97,
+  "embedding": {"enabled": true, "encoder": "lexical-tfidf/5",
+                "candidate_sketch": "weighted-tier-minhash/1", "threshold": 0.97,
                 "compared_records": 1230, "candidate_pairs": 418, "truncated": false},
   "reward_shapes": {"records_with_reward_components": 1180, "unique_component_keys": 510,
                     "unique_shapes": 140, "top_component_keys": [], "top_shapes": []},
@@ -340,11 +376,12 @@ CI should:
   standalone re-audit is still valid when CI separates transform and audit
   jobs.
 - Treat ``blocked == true`` as a hard failure (do not train). It now
-  covers exact duplicates, embedding near-duplicates, unreadable or
-  malformed input, and a synthetic/real mix outside policy.
+  covers exact duplicates, embedding near-duplicates, truncated candidate
+  recall, unreadable or malformed input, and a synthetic/real mix outside
+  policy.
 - Keep the ``--manifest`` sidecar as the promotion evidence.
 - Treat ``warnings`` (mix above target but inside tolerance, unlabeled
-  share, truncated embedding recall) as soft failures requiring review
+  share, or an explicitly disabled embedding pass) as soft failures requiring review
   and an explicit override comment.
 
 See ``pipelines/promote.py`` for the integrated exit-code contract and

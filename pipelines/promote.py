@@ -23,11 +23,10 @@ auditable policy can be pinned on the established promotion command.
 Gate contract (see ``pipelines/quality_gate.py`` and
 ``docs/quality-gate.md``):
 
-- **Exact-hash dedup**: SHA-256 over canonical ``state +
-  proposed_action + executed_action`` — any hash collision sets
-  ``blocked = true``.
-- **Embedding dedup**: cosine similarity over a deterministic lexical
-  encoding of the same view; pairs above ``--threshold`` (default 0.97)
+- **Exact-hash dedup**: SHA-256 over the canonical training-identity view —
+  any hash collision sets ``blocked = true``.
+- **Embedding dedup**: cosine similarity over a separate, identifier-free
+  semantic view; pairs above ``--threshold`` (default 0.97)
   are clustered and every member but the first is excluded with a
   reason. See ``docs/quality-gate.md`` for the encoder and sweep
   guidance.
@@ -106,6 +105,21 @@ def remap_claimed(claimed):
     return {"kind": "unknown", "claimed": claimed}
 
 
+def _factory_origin_provenance(owner):
+    """Infer synthetic provenance from this factory's stateless envelope."""
+    if not isinstance(owner, dict):
+        return None
+    meta = owner.get("meta")
+    factory = meta.get("factory") if isinstance(meta, dict) else None
+    if isinstance(factory, str) and factory.strip():
+        return {
+            "kind": "designed",
+            "claimed": None,
+            "inferred_from": "meta.factory",
+        }
+    return None
+
+
 def _attach_owner(owner):
     if not isinstance(owner, dict):
         return
@@ -125,13 +139,18 @@ def _attach_owner(owner):
     if isinstance(existing, dict) and existing.get("kind") in ALLOWED_KINDS:
         if has_state and "provenance" not in state:
             state["provenance"] = dict(existing)
+        elif not has_state and existing.get("kind") == "unknown":
+            inferred = _factory_origin_provenance(owner)
+            if inferred is not None:
+                inferred["claimed"] = existing.get("claimed")
+                owner["provenance"] = inferred
         return
     if has_state:
         prov = remap_claimed(None)
         state["provenance"] = dict(prov)
         owner["provenance"] = dict(prov)
         return
-    owner["provenance"] = remap_claimed(None)
+    owner["provenance"] = _factory_origin_provenance(owner) or remap_claimed(None)
 
 
 def _walk_state_owners(obj, seen):
@@ -186,7 +205,11 @@ def promote_record(obj):
     if not isinstance(obj, dict):
         return obj
     _walk_state_owners(obj, set())
-    if "provenance" not in obj:
+    # State owners were normalized by the walk. Normalize a stateless wrapper
+    # even when a prior stage left a generic ``unknown`` stamp; its factory
+    # metadata is stronger evidence without overwriting the original state
+    # claim captured above.
+    if not isinstance(obj.get("state"), dict):
         _attach_owner(obj)
     _maybe_sort_spikes(obj, set())
     return obj
@@ -390,7 +413,10 @@ def parse_args(argv=None):
         "--max-embedding-pairs",
         type=int,
         default=quality_gate.DEFAULT_MAX_EMBEDDING_PAIRS,
-        help="cap on LSH candidate pairs (default: %(default)s)",
+        help=(
+            "blocking cap on LSH candidate pairs; observing an omitted pair "
+            "fails closed (default: %(default)s)"
+        ),
     )
     parser.add_argument(
         "--mix-target",
@@ -454,9 +480,9 @@ def main(argv=None):
             manifest_path, cleaned_out, allow_within_run=True
         )
         policy.validate()
-        if not math.isfinite(args.threshold) or not -1.0 <= args.threshold <= 1.0:
+        if not math.isfinite(args.threshold) or not -1.0 <= args.threshold < 1.0:
             raise ValueError(
-                f"threshold must be a finite cosine in [-1, 1], got {args.threshold!r}"
+                f"threshold must be a finite cosine in [-1, 1), got {args.threshold!r}"
             )
         if args.max_embedding_pairs < 1:
             raise ValueError(

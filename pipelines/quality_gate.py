@@ -8,11 +8,10 @@ dedup. Both dedup signals and the mix policy are blocking — see
 
 Dedup signals
 -------------
-1. Exact-hash dedup (always on): SHA-256 of canonical JSON over
-   ``state + proposed_action + executed_action`` (falling back to
-   ``chosen/rejected``, then to the whole record for shapes this gate
-   does not model). Any hash collision → ``blocked = true``. This catches
-   verbatim duplicates.
+1. Exact-hash dedup (always on): SHA-256 of a canonical training-identity
+   view. The view includes states, decisions, actions, outcomes and rewards,
+   while omitting a wrapper's bookkeeping id. Any hash collision →
+   ``blocked = true``. This catches verbatim training-unit duplicates.
 
 2. Embedding dedup (on by default, ``--no-embedding-dedup`` to skip):
    every retained record is embedded once by a shared, deterministic
@@ -41,16 +40,14 @@ Dedup signals
      re-runs). Record the chosen value in the run's ``quality_report``.
 
    Encoder: this repository is stdlib-only, so the shipped encoder is a
-   deterministic lexical one (``EMBEDDING_ENCODER``) — TF-IDF over
-   Unicode word unigrams and bigrams of path-qualified leaf values in a
-   canonical traversal of the same view the hash uses; numeric/Boolean
-   scalars are atomic typed features so signs and types survive. Features
-   are L2-normalized, so the dot product *is* the cosine. It has no model
-   weights, no download and no randomness, which is what keeps the gate
-   reproducible in CI. Candidate pairs come from a banded
-   one-permutation MinHash sketch and every candidate is then scored
-   exactly, so precision is exact and only recall is approximate (see
-   ``EMBEDDING_LSH_BANDS``).
+   deterministic lexical one (``EMBEDDING_ENCODER``) — TF-IDF over a
+   semantic-similarity view that excludes canonical record identifiers.
+   Path-qualified, case-sensitive Unicode words, operators, typed empty/null
+   sentinels and position-qualified sequence leaves keep code and structure
+   observable. Features are L2-normalized, so the dot product *is* the cosine.
+   Candidate pairs come from a separate frequency-aware weighted sketch and
+   every candidate is then scored exactly, so precision is exact and only
+   recall is approximate (see ``EMBEDDING_LSH_BANDS``).
 
 Synthetic / Real Mix
 --------------------
@@ -76,8 +73,8 @@ import argparse
 import hashlib
 import json
 import math
-import re
 import sys
+import unicodedata
 from collections import Counter, defaultdict
 from pathlib import Path
 from typing import NamedTuple, Optional
@@ -123,7 +120,7 @@ missing label) lands in the separate ``unlabeled`` bucket."""
 MAX_ERROR_EXAMPLES = 10
 """Cap on per-category read/parse failure examples kept in the report."""
 
-EMBEDDING_ENCODER = "lexical-tfidf/3"
+EMBEDDING_ENCODER = "lexical-tfidf/5"
 """Identifier of the shipped deterministic encoder, recorded in the report so
 a corpus embedded by a different encoder is never compared against one of
 these runs on threshold alone."""
@@ -132,18 +129,59 @@ EMBEDDING_MINHASH_SLOTS = 32
 EMBEDDING_LSH_BANDS = 8
 """MinHash LSH banding for near-duplicate *candidate* generation: a 32-slot
 one-permutation sketch read as 8 bands of 4. Every candidate is then scored
-with an exact cosine, so banding can only cost recall, never precision. At 8x4
-a pair whose token Jaccard is 0.85 is surfaced with probability ~0.997.
-``tests/test_quality_and_verify_gates.py`` guards the recall end of that with
-planted clones."""
+with an exact cosine, so banding can only cost recall, never precision. The
+weighted-tier representation below makes sketch overlap track term frequency;
+planted-clone and high-TF regressions guard recall."""
+
+EMBEDDING_CANDIDATE_SKETCH = "weighted-tier-minhash/1"
+"""Frequency-aware candidate representation, separate from exact identity
+and the semantic TF-IDF vector used for the final verdict."""
+
+EMBEDDING_SKETCH_LEVELS = 64
+"""Number of deterministic weight tiers used to approximate weighted Jaccard.
+Dominant repeated terms therefore dominate candidate recall just as they do
+the final sublinear-TF cosine, instead of collapsing to one set member."""
 
 DEFAULT_MAX_EMBEDDING_PAIRS = 2_000_000
-"""Safety cap on candidate pairs. Hitting it is reported (and warned about)
-rather than silently truncating recall."""
+"""Safety cap on candidate pairs. Hitting it blocks because a partial-recall
+audit cannot certify the corpus."""
 
-_WORD_RE = re.compile(r"\w+", re.UNICODE)
 _BIGRAM_SEP = "\x00"
 _PATH_SEP = "\x1f"
+_SKETCH_SEP = "\x1e"
+
+_IDENTITY_FIELDS = (
+    "state",
+    "steps",
+    "proposed_action",
+    "safety_decision",
+    "executed_action",
+    "future_outcome",
+    "outcome",
+    "reward_components",
+    "reward",
+)
+_CANONICAL_ID_KEYS = frozenset(
+    {"episode_id", "record_id", "trajectory_id", "pair_id", "sample_id"}
+)
+_SEMANTIC_ROOT_BOOKKEEPING_KEYS = frozenset(
+    {"id", "meta", "provenance", "tag_provenance"}
+)
+
+# Unicode-name markers for scripts whose ordinary prose does not reliably
+# provide spaces between lexical words. The fallback is intentionally limited
+# to these scripts: segmenting every Latin/Arabic/etc. word into characters
+# would discard useful word-level precision.
+_UNSEGMENTED_SCRIPT_MARKERS = (
+    "CJK",
+    "IDEOGRAPH",
+    "HIRAGANA",
+    "KATAKANA",
+    "THAI",
+    "LAO",
+    "KHMER",
+    "MYANMAR",
+)
 
 
 class MixPolicy(NamedTuple):
@@ -197,39 +235,39 @@ def canonical_blob(value):
     return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
 
 
-def _preference_side(value):
-    """Stable hash representation of one side of a preference pair.
+def _preference_identity_side(value):
+    """Return all modeled training fields from one preference side.
 
-    Well-formed sides hash on their ``state`` (so pairs that differ only in
-    bookkeeping fields still collide). A side without a dict ``state`` keeps
-    its whole value, otherwise every malformed side would reduce to ``None``
-    and unrelated records would collapse into one hash.
+    Preference actions and outcomes are labels, not bookkeeping. Keeping only
+    ``state`` made distinct preference training units exact-hash collisions.
+    Malformed sides retain their complete value so unrelated malformed records
+    do not all collapse to the same sentinel.
     """
-    if isinstance(value, dict):
-        state = value.get("state")
-        return state if isinstance(state, dict) else value
-    return value
+    if not isinstance(value, dict):
+        return value
+    modeled = {key: value[key] for key in _IDENTITY_FIELDS if key in value}
+    return modeled or value
 
 
-def dedup_view(obj):
-    """The slice of a record both dedup signals look at.
+def exact_identity_view(obj):
+    """Canonical training identity used only by exact-hash dedup.
 
-    Exact-hash dedup hashes this view; the embedding encoder tokenizes the
-    same view, so a record can never be judged similar on fields the hash
-    ignores (or the reverse).
+    Wrapper ids are deliberately outside modeled state/action records, as they
+    were in the original contract. Canonical ids inside fallback shapes remain
+    exact identity; the independent semantic view removes them before cosine.
     """
     if not isinstance(obj, dict):
         # A JSONL line that parses to a scalar/array must hash, not raise.
         return obj
-    keys = {k: obj[k] for k in ("state", "proposed_action", "executed_action") if k in obj}
-    if not keys and ("chosen" in obj or "rejected" in obj):
+    if "chosen" in obj or "rejected" in obj:
         # Malformed pairs (missing or non-object side) must hash, not raise —
         # this gate runs over untrusted generated JSONL. Both fields are always
         # present in the key set so a one-sided record stays distinguishable.
         return {
-            "chosen": _preference_side(obj.get("chosen")),
-            "rejected": _preference_side(obj.get("rejected")),
+            "chosen": _preference_identity_side(obj.get("chosen")),
+            "rejected": _preference_identity_side(obj.get("rejected")),
         }
+    keys = {key: obj[key] for key in _IDENTITY_FIELDS if key in obj}
     if not keys:
         # Shapes this gate does not model (e.g. bridge records carrying state
         # under language_view) must not all hash to the empty key set, which
@@ -238,10 +276,39 @@ def dedup_view(obj):
     return keys
 
 
+def dedup_view(obj):
+    """Backward-compatible name for the exact-identity representation."""
+    return exact_identity_view(obj)
+
+
+def _without_canonical_ids(value, *, root=True):
+    """Copy ``value`` while removing only canonical record identifiers."""
+    if isinstance(value, dict):
+        return {
+            key: _without_canonical_ids(child, root=False)
+            for key, child in value.items()
+            if key not in _CANONICAL_ID_KEYS
+            and not (root and key in _SEMANTIC_ROOT_BOOKKEEPING_KEYS)
+        }
+    if isinstance(value, list):
+        return [_without_canonical_ids(child, root=False) for child in value]
+    if isinstance(value, tuple):
+        return tuple(_without_canonical_ids(child, root=False) for child in value)
+    return value
+
+
+def semantic_similarity_view(obj):
+    """Training semantics used only by the cosine encoder.
+
+    Exact identity and semantic similarity intentionally differ: canonical ids
+    can distinguish exact records, but must not hide otherwise identical
+    training content from near-duplicate detection.
+    """
+    return _without_canonical_ids(exact_identity_view(obj))
+
+
 def record_hash(obj):
-    # Hash on state + proposed_action + executed_action to catch near-duplicates
-    # Use canonical JSON for determinism
-    blob = canonical_blob(dedup_view(obj))
+    blob = canonical_blob(exact_identity_view(obj))
     return hashlib.sha256(blob.encode("utf-8")).hexdigest()[:16]
 
 
@@ -251,23 +318,88 @@ def _path_child(path, key):
     return f"{path}/k:{escaped}"
 
 
+def _uses_unsegmented_script(word):
+    for char in word:
+        name = unicodedata.name(char, "")
+        if any(marker in name for marker in _UNSEGMENTED_SCRIPT_MARKERS):
+            return True
+    return False
+
+
+def _graphemes(word):
+    """Return a stdlib-only approximation of extended grapheme clusters."""
+    clusters = []
+    for char in word:
+        if unicodedata.category(char).startswith("M") and clusters:
+            clusters[-1] += char
+        else:
+            clusters.append(char)
+    return clusters
+
+
+def _string_units(text):
+    """Yield ordered word/operator units without erasing code semantics."""
+    normalized = unicodedata.normalize("NFC", text)
+    current = []
+    punctuation = []
+
+    def flush_word():
+        if current:
+            word = "".join(current)
+            current.clear()
+            return [("word", word)]
+        return []
+
+    def flush_punctuation():
+        if punctuation:
+            operator = "".join(punctuation)
+            punctuation.clear()
+            return [("operator", operator)]
+        return []
+
+    for char in normalized:
+        category = unicodedata.category(char)
+        word_char = char == "_" or char.isalnum() or (
+            category.startswith("M") and current
+        )
+        if word_char:
+            yield from flush_punctuation()
+            current.append(char)
+        elif char.isspace():
+            yield from flush_word()
+            yield from flush_punctuation()
+        else:
+            yield from flush_word()
+            punctuation.append(char)
+    yield from flush_word()
+    yield from flush_punctuation()
+
+
 def _leaf_words(value, out, path="$"):
     """Collect canonical, path-qualified Unicode words from leaf values.
 
     Qualifying values by their full field path prevents equal words under
     semantically different fields from becoming identical features. Mapping
     keys are traversed in sorted order so JSON insertion order cannot change
-    cross-leaf bigrams. List positions deliberately share an ``[]`` path;
-    sequence order is still represented by the bigrams without making an
-    insertion shift every downstream feature.
+    cross-leaf bigrams. List positions are explicit: bigram multisets alone do
+    not distinguish all repeated-token sequences.
     """
     if isinstance(value, dict):
+        if not value:
+            out.append(f"{path}{_PATH_SEP}dict-empty")
+            return
         for key in sorted(value):
             _leaf_words(value[key], out, _path_child(path, key))
         return
     elif isinstance(value, (list, tuple)):
-        for item in value:
-            _leaf_words(item, out, f"{path}/[]")
+        if not value:
+            out.append(f"{path}{_PATH_SEP}list-empty")
+            return
+        for index, item in enumerate(value):
+            _leaf_words(item, out, f"{path}/i:{index}")
+        return
+    elif value is None:
+        out.append(f"{path}{_PATH_SEP}null")
         return
     elif isinstance(value, bool):
         out.append(f"{path}{_PATH_SEP}bool:{'true' if value else 'false'}")
@@ -279,20 +411,42 @@ def _leaf_words(value, out, path="$"):
         out.append(f"{path}{_PATH_SEP}float:{value!r}")
         return
     elif isinstance(value, str):
-        text = value
+        text = unicodedata.normalize("NFC", value)
     else:
-        # None and unsupported objects carry no lexical content.
+        # JSON inputs cannot contain other objects; keep this defensive path
+        # non-throwing for direct callers.
         return
-    out.extend(
-        f"{path}{_PATH_SEP}str:{word}"
-        for word in _WORD_RE.findall(text.casefold())
-    )
+    if not text:
+        out.append(f"{path}{_PATH_SEP}str-empty")
+        return
+    emitted = False
+    for kind, unit in _string_units(text):
+        emitted = True
+        if kind == "operator":
+            out.append(f"{path}{_PATH_SEP}str-op:{unit}")
+        elif _uses_unsegmented_script(unit):
+            # A whole CJK/Japanese/Thai sentence is one ``\w+`` match. Emit
+            # path-qualified graphemes instead so a small edit retains enough
+            # shared features to become an LSH candidate. ``embedding_tokens``
+            # adds adjacent bigrams, preserving order and limiting anagram
+            # false positives.
+            out.extend(
+                f"{path}{_PATH_SEP}str-char:{cluster}"
+                for cluster in _graphemes(unit)
+            )
+        else:
+            # Keep a folded channel for natural-language recall and an exact
+            # channel so identifiers such as User/user remain distinguishable.
+            out.append(f"{path}{_PATH_SEP}str-fold:{unit.casefold()}")
+            out.append(f"{path}{_PATH_SEP}str-case:{unit}")
+    if not emitted:
+        out.append(f"{path}{_PATH_SEP}str-whitespace")
 
 
 def embedding_tokens(obj):
     """Term counts (unigrams + bigrams) for the near-duplicate encoder."""
     words: list = []
-    _leaf_words(dedup_view(obj), words)
+    _leaf_words(semantic_similarity_view(obj), words)
     tokens = Counter(words)
     tokens.update(
         f"{first}{_BIGRAM_SEP}{second}" for first, second in zip(words, words[1:])
@@ -311,6 +465,20 @@ def _tfidf_vector(tokens, idf):
     if not norm:
         return None
     return {token: weight / norm for token, weight in vector.items()}
+
+
+def candidate_sketch_features(vector):
+    """Frequency-aware feature tiers used only for LSH candidate recall.
+
+    The final verdict still uses the exact TF-IDF cosine. Expanding each
+    normalized weight into deterministic tiers approximates weighted Jaccard,
+    so a term repeated thousands of times is not reduced to the same one-bit
+    presence signal as a singleton.
+    """
+    for token in sorted(vector):
+        tiers = max(1, math.ceil(vector[token] * EMBEDDING_SKETCH_LEVELS))
+        for tier in range(tiers):
+            yield f"{token}{_SKETCH_SEP}{tier}"
 
 
 def _cosine(left, right):
@@ -483,9 +651,22 @@ def _record_provenance_kind(record):
         return trajectory_kind
 
     provenance = record.get("provenance")
+    provenance_kind = None
     if isinstance(provenance, dict) and provenance.get("kind"):
-        return str(provenance["kind"])
-    return None
+        provenance_kind = str(provenance["kind"])
+    meta = record.get("meta")
+    if isinstance(meta, dict):
+        factory = meta.get("factory")
+        if (
+            isinstance(factory, str)
+            and factory.strip()
+            and provenance_kind in (None, "unknown")
+        ):
+            # This repository is itself a synthetic-data factory. Stateless
+            # episode/swarm records still carry their generation origin even
+            # though they have no state.sim_or_real field to normalize.
+            return "designed"
+    return provenance_kind
 
 
 def _embedding_duplicates(records, threshold, max_pairs):
@@ -501,12 +682,13 @@ def _embedding_duplicates(records, threshold, max_pairs):
     stats = {
         "enabled": True,
         "encoder": EMBEDDING_ENCODER,
+        "candidate_sketch": EMBEDDING_CANDIDATE_SKETCH,
         "threshold": threshold,
         "compared_records": 0,
         "candidate_pairs": 0,
         "truncated": False,
     }
-    # A record whose dedup view holds no text at all (e.g. ``{"state": {}}``)
+    # A record whose semantic view holds no features at all
     # cannot be embedded; exact-hash dedup already covers that case.
     embeddable = [index for index, record in enumerate(records) if record["tokens"]]
     if len(embeddable) < 2:
@@ -532,7 +714,7 @@ def _embedding_duplicates(records, threshold, max_pairs):
         if vector is None:
             continue
         vectors[index] = vector
-        signature = _minhash_signature(vector.keys())
+        signature = _minhash_signature(candidate_sketch_features(vector))
         if signature is not None:
             signatures.append((index, signature))
     stats["compared_records"] = len(vectors)
@@ -635,8 +817,10 @@ def audit_run(
         ``duplicate_clusters``, ``embedding``, ``reward_shapes``, ``errors``,
         ``warnings``, ``blockers``, ``blocked``, ``threshold``.
     """
-    if not math.isfinite(threshold) or not -1.0 <= threshold <= 1.0:
-        raise ValueError(f"threshold must be a finite cosine in [-1, 1], got {threshold!r}")
+    if not math.isfinite(threshold) or not -1.0 <= threshold < 1.0:
+        raise ValueError(
+            f"threshold must be a finite cosine in [-1, 1), got {threshold!r}"
+        )
     if max_embedding_pairs < 1:
         raise ValueError(f"max_embedding_pairs must be >= 1, got {max_embedding_pairs!r}")
     policy = (mix_policy or MixPolicy()).validate()
@@ -725,6 +909,7 @@ def audit_run(
     embedding_stats = {
         "enabled": False,
         "encoder": EMBEDDING_ENCODER,
+        "candidate_sketch": EMBEDDING_CANDIDATE_SKETCH,
         "threshold": threshold,
         "compared_records": 0,
         "candidate_pairs": 0,
@@ -800,8 +985,8 @@ def audit_run(
     if malformed_lines:
         blockers.append(f"{malformed_lines} malformed JSON line(s)")
         warnings.append(f"{malformed_lines} malformed JSON line(s) skipped — counts, mix and dedup cover only the parseable subset")
+    ratio = mix["synthetic_ratio"]
     if total:
-        ratio = mix["synthetic_ratio"]
         if ratio > policy.ceiling:
             blockers.append(
                 f"synthetic_ratio {ratio:.2f} > {policy.ceiling:.2f} — mix policy is "
@@ -814,10 +999,6 @@ def audit_run(
                 f"the blocking ceiling {policy.ceiling:.2f} — SOTA recommends "
                 f"~{policy.target:.2f} synthetic / {1 - policy.target:.2f} real "
                 "(Demystifying Synthetic Data)"
-            )
-        if policy.min_synthetic_ratio is not None and ratio < policy.min_synthetic_ratio:
-            blockers.append(
-                f"synthetic_ratio {ratio:.2f} < floor {policy.min_synthetic_ratio:.2f}"
             )
         if (
             policy.max_unlabeled_ratio is not None
@@ -833,10 +1014,14 @@ def audit_run(
                 f"unlabeled_ratio {mix['unlabeled_ratio']:.2f} — the enforced "
                 "synthetic_ratio understates the real synthetic share"
             )
+    if policy.min_synthetic_ratio is not None and ratio < policy.min_synthetic_ratio:
+        blockers.append(
+            f"synthetic_ratio {ratio:.2f} < floor {policy.min_synthetic_ratio:.2f}"
+        )
     if embedding_stats["truncated"]:
-        warnings.append(
+        blockers.append(
             f"embedding candidate cap {max_embedding_pairs} reached — near-duplicate "
-            "recall is partial for this run"
+            "recall is partial, so this run cannot be certified"
         )
     if not embedding_dedup:
         warnings.append(
@@ -872,6 +1057,13 @@ def validate_manifest_target(path, run_dir, *, allow_within_run=False):
         raise ValueError(f"manifest path must not be a JSONL input: {path}")
     if path.exists() or path.is_symlink():
         raise ValueError(f"refusing to overwrite existing manifest path: {path}")
+    if allow_within_run and (
+        resolved_path == resolved_run or resolved_path in resolved_run.parents
+    ):
+        raise ValueError(
+            "manifest path must not equal or contain the promotion destination: "
+            f"{path}"
+        )
     if (
         not allow_within_run
         and (resolved_path == resolved_run or resolved_run in resolved_path.parents)
@@ -914,7 +1106,7 @@ def main(argv=None):
         default=DEFAULT_EMBEDDING_THRESHOLD,
         help=(
             "cosine-similarity threshold for embedding near-duplicate exclusion "
-            "(default: %(default)s). Pairs strictly above it are excluded and "
+            "in [-1, 1) (default: %(default)s). Pairs strictly above it are excluded and "
             "block the gate. See module docstring and docs/quality-gate.md for "
             "tuning guidance."
         ),
@@ -929,7 +1121,10 @@ def main(argv=None):
         "--max-embedding-pairs",
         type=int,
         default=DEFAULT_MAX_EMBEDDING_PAIRS,
-        help="cap on LSH candidate pairs (default: %(default)s)",
+        help=(
+            "blocking cap on LSH candidate pairs; observing an omitted pair "
+            "fails closed (default: %(default)s)"
+        ),
     )
     p.add_argument(
         "--mix-target",

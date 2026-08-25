@@ -221,6 +221,22 @@ class TestPromoteRecord(unittest.TestCase):
         self.assertEqual(out["state"]["provenance"]["kind"], "unknown")
         self.assertNotIn("sim_or_real", out["state"])
 
+    def test_stateless_factory_record_is_stamped_designed(self):
+        record = {
+            "id": "coding-episode-1",
+            "goal": "repair a queue consumer",
+            "steps": [],
+            "outcome": "verified",
+            "meta": {"factory": "agentic-coding-trajectory-factory"},
+            "provenance": {"kind": "unknown", "claimed": None},
+        }
+
+        out = promote.promote_record(record)
+
+        self.assertEqual(out["provenance"]["kind"], "designed")
+        self.assertIsNone(out["provenance"]["claimed"])
+        self.assertEqual(out["provenance"]["inferred_from"], "meta.factory")
+
     def test_unsorted_spikes_are_sorted_and_flagged(self):
         rec = json.loads((FIXTURES / "bad-spikes.jsonl").read_text().splitlines()[0])
         out = promote.promote_record(rec)
@@ -441,6 +457,51 @@ class TestPromoteRun(unittest.TestCase):
             self.assertEqual(proc.returncode, 2)
             self.assertFalse(cleaned.exists())
             self.assertFalse((raw / "quality-manifest.json").exists())
+
+    def test_cli_rejects_manifest_equal_to_or_ancestor_of_destination_preflight(self):
+        with tempfile.TemporaryDirectory() as td:
+            base = Path(td)
+            for label, cleaned, manifest in (
+                (
+                    "equal",
+                    base / "equal-cleaned",
+                    base / "equal-cleaned",
+                ),
+                (
+                    "ancestor",
+                    base / "future-parent" / "cleaned",
+                    base / "future-parent",
+                ),
+            ):
+                with self.subTest(label=label):
+                    raw = base / f"raw-{label}"
+                    _write_jsonl(raw / "f" / "a.jsonl", [_thalamic()])
+
+                    proc = _cli(
+                        [
+                            str(raw),
+                            str(cleaned),
+                            "--quality-manifest",
+                            str(manifest),
+                        ]
+                    )
+
+                    self.assertEqual(proc.returncode, 2, proc.stderr)
+                    self.assertIn("must not equal or contain", proc.stderr)
+                    self.assertFalse(cleaned.exists())
+                    self.assertFalse(manifest.exists())
+
+    def test_cli_rejects_threshold_one_before_writing_destination(self):
+        with tempfile.TemporaryDirectory() as td:
+            raw = Path(td) / "raw"
+            cleaned = Path(td) / "cleaned"
+            _write_jsonl(raw / "f" / "a.jsonl", [_thalamic()])
+
+            proc = _cli([str(raw), str(cleaned), "--threshold", "1.0"])
+
+            self.assertEqual(proc.returncode, 2, proc.stderr)
+            self.assertIn("[-1, 1)", proc.stderr)
+            self.assertFalse(cleaned.exists())
 
 
 if __name__ == "__main__":
