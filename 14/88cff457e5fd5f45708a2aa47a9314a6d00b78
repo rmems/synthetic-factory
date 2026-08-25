@@ -1,0 +1,33 @@
+tests/test_mill_family.py
+  s_940326c4ee4215::t_c552ca62f75bb2 503-504
+  s_940326c4ee4215::t_8c83e0f753483d 443-465
+  s_940326c4ee4215::t_bf15beda9197bd 501-502,505-516
+pipelines/census.py
+  s_940326c4ee4215::t_bf15beda9197bd 23-27,162-167
+  s_940326c4ee4215::t_c2d53eb5733e96 30,237-242
+tests/test_curate_agentic.py
+  s_940326c4ee4215::t_8c83e0f753483d 1038-1075
+pipelines/mill_family.py
+  s_940326c4ee4215::t_8c83e0f753483d 389-392
+  s_940326c4ee4215::t_bf15beda9197bd 33,36-37,64-99,537-539
+pipelines/curate_agentic.py
+  s_940326c4ee4215::t_bf15beda9197bd 45,496-501
+tests/test_census.py
+  s_940326c4ee4215::t_c2d53eb5733e96 391-414
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "1488cff457e5fd5f45708a2aa47a9314a6d00b78",
+  "prompts": {},
+  "sessions": {
+    "s_940326c4ee4215": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a032e4-1904-7a82-8c8b-1ad3cfbeb0b0",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": null
+    }
+  }
+}
