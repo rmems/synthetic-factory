@@ -181,6 +181,7 @@ class MillFinding:
 @dataclass(frozen=True)
 class _Entry:
     factory: str
+    factory_verified: bool
     ref: Hashable
     record_id: str | None
     mill_prefix: str | None
@@ -203,14 +204,28 @@ class MillIndex:
     def __len__(self) -> int:
         return len(self._entries)
 
-    def add(self, factory: str, record: Any, ref: Hashable = None) -> None:
-        """Index one decoded record published under directory ``factory``."""
+    def add(
+        self,
+        factory: str,
+        record: Any,
+        ref: Hashable = None,
+        *,
+        factory_verified: bool = False,
+    ) -> None:
+        """Index one record plus independent directory-identity evidence.
+
+        ``factory_verified`` means the caller resolved ``factory`` from a
+        registered, marker-backed, or directly invoked factory root.  An
+        off-slug snapshot label is deliberately unverified: its identity must
+        still be inferred from payload evidence instead of from its name.
+        """
 
         if not isinstance(record, Mapping):
             return
         self._entries.append(
             _Entry(
                 factory=str(factory),
+                factory_verified=bool(factory_verified),
                 ref=ref,
                 record_id=record_id(record),
                 mill_prefix=mill_prefix(record),
@@ -221,32 +236,46 @@ class MillIndex:
 
     # -- resolution ---------------------------------------------------
 
-    def _prefix_homes(self) -> dict[str, frozenset[str]]:
-        """Map prefixes to the destinations where they are most characteristic.
+    def _prefix_homes(
+        self, identity: Mapping[str, str | None] | None = None
+    ) -> dict[str, frozenset[str]]:
+        """Map prefixes to homes supported by independent evidence.
 
-        Raw counts are unsafe here: a large foreign batch can outnumber the
-        native batch and teach the destination that the foreign prefix is its
-        own.  Compare each prefix's share of a destination's prefix-bearing
-        records instead.  A native lane can therefore remain the unique home
-        even when a larger absolute spill lands in another destination.
+        A maximum share is not ownership: one rare native alias can have a
+        lower within-factory share than one spill in a smaller destination.
+        Prefer one consistent payload declaration.  Otherwise, a prefix seen
+        in several factories resolves only when exactly one factory is pure
+        for that prefix.  Ambiguous aliases intentionally have no home and
+        therefore cannot quarantine either side.
         """
 
         counts: dict[str, Counter[str]] = defaultdict(Counter)
         totals: Counter[str] = Counter()
+        declarations: dict[str, set[str]] = defaultdict(set)
         for entry in self._entries:
             if entry.mill_prefix is not None:
-                counts[entry.mill_prefix][entry.factory] += 1
-                totals[entry.factory] += 1
+                factory = (
+                    identity.get(entry.factory) if identity is not None else None
+                ) or entry.factory
+                counts[entry.mill_prefix][factory] += 1
+                totals[factory] += 1
+                if entry.declared_factory is not None:
+                    declarations[entry.mill_prefix].add(entry.declared_factory)
         homes: dict[str, frozenset[str]] = {}
         for prefix, per_factory in counts.items():
-            shares = {
-                factory: Fraction(seen, totals[factory])
+            declared = declarations[prefix]
+            if len(declared) == 1:
+                homes[prefix] = frozenset(declared)
+                continue
+            if len(per_factory) == 1:
+                homes[prefix] = frozenset(per_factory)
+                continue
+            pure = {
+                factory
                 for factory, seen in per_factory.items()
+                if seen == totals[factory]
             }
-            top = max(shares.values())
-            homes[prefix] = frozenset(
-                factory for factory, share in shares.items() if share == top
-            )
+            homes[prefix] = frozenset(pure) if len(pure) == 1 else frozenset()
         return homes
 
     def _declared_identity(self) -> dict[str, str | None]:
@@ -257,12 +286,19 @@ class MillIndex:
         directory is not named after a factory slug.
         """
 
+        verified = {
+            entry.factory for entry in self._entries if entry.factory_verified
+        }
         counts: dict[str, Counter[str]] = defaultdict(Counter)
         for entry in self._entries:
             if entry.declared_factory is not None:
                 counts[entry.factory][entry.declared_factory] += 1
-        identity: dict[str, str | None] = {}
+        identity: dict[str, str | None] = {
+            factory: factory for factory in verified
+        }
         for factory, per_declared in counts.items():
+            if factory in verified:
+                continue
             # A declaration matching the enclosing factory is independent
             # native evidence. Prefer it over a majority that may consist of
             # foreign or otherwise poisoned records. Snapshot/off-slug roots
@@ -274,6 +310,56 @@ class MillIndex:
             winners = [name for name, seen in per_declared.items() if seen == top]
             identity[factory] = winners[0] if len(winners) == 1 else None
         return identity
+
+    def ownership_context(self) -> dict[str, Any]:
+        """Describe whether cross-factory ownership is safe for output.
+
+        Curation may report an incomplete source, but it must not write a
+        cleaned tree when a cross-factory prefix is ambiguous or when a signal
+        names a home factory absent from the verified source context.
+        """
+
+        verified = {
+            entry.factory for entry in self._entries if entry.factory_verified
+        }
+        prefix_factories: dict[str, set[str]] = defaultdict(set)
+        for entry in self._entries:
+            if entry.mill_prefix is not None:
+                prefix_factories[entry.mill_prefix].add(entry.factory)
+
+        identity = self._declared_identity()
+        homes = self._prefix_homes(identity)
+        unresolved_prefixes = sorted(
+            prefix
+            for prefix, factories in prefix_factories.items()
+            if len(factories) > 1 and not homes.get(prefix)
+        )
+        missing_homes = {
+            home
+            for prefix_homes in homes.values()
+            for home in prefix_homes
+            if home not in verified
+        }
+        missing_homes.update(
+            entry.declared_factory
+            for entry in self._entries
+            if entry.factory_verified
+            and entry.declared_factory is not None
+            and entry.declared_factory != entry.factory
+            and entry.declared_factory not in verified
+        )
+        missing_homes.discard(None)
+        complete = (
+            len(verified) >= 2
+            and not unresolved_prefixes
+            and not missing_homes
+        )
+        return {
+            "complete": complete,
+            "verified_factories": sorted(verified),
+            "unresolved_prefixes": unresolved_prefixes,
+            "missing_home_factories": sorted(missing_homes),
+        }
 
     def _goal_vocabulary(
         self,
@@ -292,20 +378,21 @@ class MillIndex:
         totals: Counter[str] = Counter()
         for entry in self._entries:
             prefix = entry.mill_prefix
-            if prefix is not None and entry.factory not in homes.get(prefix, ()):
+            expected = identity.get(entry.factory)
+            factory = expected or entry.factory
+            if prefix is not None and factory not in homes.get(prefix, ()):
                 # A record already known to come from elsewhere must not teach
                 # this destination its vocabulary.
                 continue
-            expected = identity.get(entry.factory)
             if (
                 entry.declared_factory is not None
                 and expected is not None
                 and entry.declared_factory != expected
             ):
                 continue
-            totals[entry.factory] += 1
+            totals[factory] += 1
             for token in entry.goal_family:
-                counts[token][entry.factory] += 1
+                counts[token][factory] += 1
 
         vocabulary: dict[str, set[str]] = defaultdict(set)
         for token, per_factory in counts.items():
@@ -338,10 +425,12 @@ class MillIndex:
         self,
         entry: _Entry,
         vocabulary: Mapping[str, frozenset[str]],
+        factory: str | None = None,
     ) -> str | None:
         """Return the one other destination this goal clearly belongs to."""
 
-        own = vocabulary.get(entry.factory, frozenset())
+        own_factory = factory or entry.factory
+        own = vocabulary.get(own_factory, frozenset())
         if not own or not entry.goal_family:
             return None
         own_score = len(entry.goal_family & own)
@@ -349,7 +438,7 @@ class MillIndex:
             (
                 (len(entry.goal_family & tokens), factory)
                 for factory, tokens in vocabulary.items()
-                if factory != entry.factory
+                if factory != own_factory
             ),
             reverse=True,
         )
@@ -367,14 +456,15 @@ class MillIndex:
     def findings(self) -> tuple[MillFinding, ...]:
         """Return every indexed record whose mill signals are foreign, in order."""
 
-        homes = self._prefix_homes()
         identity = self._declared_identity()
+        homes = self._prefix_homes(identity)
         vocabulary = self._goal_vocabulary(homes, identity)
 
         results: list[MillFinding] = []
         for entry in self._entries:
             reasons: list[str] = []
             expected = identity.get(entry.factory)
+            effective_factory = expected or entry.factory
             if (
                 entry.declared_factory is not None
                 and expected is not None
@@ -386,11 +476,13 @@ class MillIndex:
             if (
                 entry.mill_prefix is not None
                 and prefix_homes
-                and entry.factory not in prefix_homes
+                and effective_factory not in prefix_homes
             ):
                 reasons.append(REASON_FOREIGN_MILL_ID_PREFIX)
 
-            goal_home = self._goal_family_home(entry, vocabulary)
+            goal_home = self._goal_family_home(
+                entry, vocabulary, effective_factory
+            )
             if goal_home is not None:
                 reasons.append(REASON_FOREIGN_MILL_GOAL_FAMILY)
 

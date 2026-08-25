@@ -48,7 +48,6 @@ from curate_agentic import (  # noqa: E402
     missing_decision_basis_paths,
     prefix_overlap,
     shared_preference_goal,
-    strip_hidden_thought_keys,
 )
 from round_txn import TransactionError  # noqa: E402
 import training_audit  # noqa: E402
@@ -939,6 +938,51 @@ class ForeignMillQuarantine(unittest.TestCase):
                 for record in records
             },
         )
+
+    def test_suffixed_outer_snapshot_keeps_child_factory_roots(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary) / "pre-window-factory"
+            root.mkdir()
+            self._write_run(
+                root, list(STAMPEDE_CONTROLS) + [DEST_STAMPED_MILL]
+            )
+            run = curate_source(root)
+
+        self.assertEqual(
+            run["summary"]["mill_family"]["context_factories"],
+            ["cache-stampede-factory", "graphql-nplusone-factory"],
+        )
+        self.assertEqual(run["summary"]["quarantined_foreign_mill_records"], 1)
+
+    def test_partial_context_with_ambiguous_prefix_refuses_output(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary) / "run"
+            for factory, identifier in (
+                ("cache-stampede-factory", "gql-r1405-cache-copy"),
+                ("k8s-crashloop-factory", "gql-r1406-k8s-copy"),
+            ):
+                directory = root / factory
+                directory.mkdir(parents=True)
+                record = _mill_episode(identifier, "fix verify", factory)
+                (directory / "batch-r01.jsonl").write_text(
+                    json.dumps(record) + "\n", encoding="utf-8"
+                )
+            run = curate_source(root)
+            out = Path(temporary) / "cleaned"
+
+            self.assertFalse(
+                run["summary"]["mill_family"]["context_complete"]
+            )
+            self.assertEqual(
+                run["summary"]["mill_family"]["unresolved_prefixes"],
+                ["gql"],
+            )
+            self.assertFalse(
+                run["summary"]["mill_family"]["quarantine_applied"]
+            )
+            with self.assertRaisesRegex(ValueError, "multi-factory"):
+                curate_agentic.write_cleaned_tree(run, out)
+            self.assertFalse(out.exists())
 
     def test_skipped_records_do_not_teach_factory_identity(self):
         with tempfile.TemporaryDirectory() as temporary:

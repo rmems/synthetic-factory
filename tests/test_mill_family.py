@@ -144,7 +144,12 @@ def index_of(*groups):
     mills = MillIndex()
     for factory, records in groups:
         for offset, record in enumerate(records):
-            mills.add(factory, record, (factory, record["id"], offset))
+            mills.add(
+                factory,
+                record,
+                (factory, record["id"], offset),
+                factory_verified=factory.endswith("-factory"),
+            )
     return mills
 
 
@@ -328,6 +333,55 @@ class OwnershipResolution(unittest.TestCase):
             self.assertIn(REASON_FOREIGN_MILL_ID_PREFIX, finding.reason_codes)
             self.assertEqual(finding.home_factories, (GRAPHQL,))
 
+    def test_maximum_prefix_share_cannot_reverse_a_rare_native_alias(self):
+        native_alias = episode(
+            "dmr-r01-native-alias",
+            "fix verify",
+            "db-migration-repair-factory",
+        )
+        stray_alias = episode(
+            "dmr-r20-stray-alias",
+            "fix verify",
+            CACHE_STAMPEDE,
+        )
+        mills = index_of(
+            (
+                "db-migration-repair-factory",
+                [native_alias]
+                + [
+                    episode(
+                        f"dbm-r1{index}-native",
+                        "fix verify",
+                        "db-migration-repair-factory",
+                    )
+                    for index in range(9)
+                ],
+            ),
+            (
+                CACHE_STAMPEDE,
+                [stray_alias]
+                + [
+                    episode(
+                        f"cst-r2{index}-native",
+                        "fix verify",
+                        CACHE_STAMPEDE,
+                    )
+                    for index in range(4)
+                ],
+            ),
+        )
+
+        prefix_findings = {
+            item.record_id
+            for item in mills.findings()
+            if REASON_FOREIGN_MILL_ID_PREFIX in item.reason_codes
+        }
+        self.assertNotIn(native_alias["id"], prefix_findings)
+        self.assertNotIn(stray_alias["id"], prefix_findings)
+        self.assertEqual(
+            mills.ownership_context()["unresolved_prefixes"], ["dmr"]
+        )
+
     def test_empty_index_has_no_findings(self):
         self.assertEqual(MillIndex().findings(), ())
         self.assertEqual(summarize(())["records"], 0)
@@ -359,6 +413,26 @@ class PayloadFactoryAxis(unittest.TestCase):
         """A snapshot directory with an off-slug name must not flag everything."""
         mills = index_of(("staging-copy", STAMPEDE_CONTROLS))
         self.assertEqual(mills.findings(), ())
+
+    def test_verified_all_foreign_destination_keeps_its_directory_identity(self):
+        stray = episode(
+            "sir-r56-meili-swap",
+            "fix verify",
+            SEARCH,
+        )
+        mills = index_of(
+            ("email-webhook-retry-factory", [stray]),
+        )
+
+        finding = mills.findings()[0]
+        self.assertEqual(finding.record_id, stray["id"])
+        self.assertIn(REASON_FOREIGN_PAYLOAD_FACTORY, finding.reason_codes)
+        self.assertEqual(
+            finding.expected_factory, "email-webhook-retry-factory"
+        )
+        self.assertEqual(
+            mills.ownership_context()["missing_home_factories"], [SEARCH]
+        )
 
     def test_native_prefix_is_not_reported_as_foreign_for_payload_only_mix(self):
         stray = episode(

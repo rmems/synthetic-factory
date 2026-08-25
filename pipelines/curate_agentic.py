@@ -15,7 +15,7 @@ a destination-specific field being absent.
 
 Never writes into ``outputs/raw/``. Default is a ``--dry-run`` JSON report
 on stdout. ``--out DIR`` writes a brand-new cleaned tree only when passed and
-the source supplies at least two factories for mill-ownership resolution.
+the source supplies resolved, verified multi-factory ownership evidence.
 
 Inspired by ToolMind turn-level filtering (Yang et al., 2025) and DPO
 prefix sharing (Wang & Hegde, 2024): drop hidden CoT, flag ungrounded
@@ -498,11 +498,18 @@ def _source_jsonl_entries(source: Path) -> tuple[tuple[Path, str, bool], ...]:
         if source.is_file():
             return path.parent.name, False
         relative = path.relative_to(source)
-        source_is_factory = (
-            source.name in FACTORY_QUOTAS or source.name.endswith("-factory")
-        )
-        if source_is_factory or len(relative.parts) == 1:
-            return source.name, source_is_factory
+        if source.name in FACTORY_QUOTAS:
+            return source.name, True
+        if source.name.endswith("-factory"):
+            if len(relative.parts) == 1:
+                return source.name, True
+            nested_root = relative.parts[0]
+            if nested_root not in FACTORY_QUOTAS and not nested_root.endswith(
+                "-factory"
+            ):
+                return source.name, True
+        if len(relative.parts) == 1:
+            return source.name, False
         # A run directory encloses one directory per factory. Nested work,
         # archive, and batch directories remain attributed to that first root.
         factory = relative.parts[0]
@@ -649,7 +656,12 @@ def curate_source(source: Path) -> dict[str, Any]:
                 # Only records that survive ordinary curation may teach mill
                 # identity. Skipped or already-excluded objects are not native
                 # ownership evidence and cannot poison the cross-record model.
-                mills.add(factory, curated, decision_index)
+                mills.add(
+                    factory,
+                    curated,
+                    decision_index,
+                    factory_verified=factory_verified,
+                )
                 kept.append(
                     (
                         relative,
@@ -660,14 +672,9 @@ def curate_source(source: Path) -> dict[str, Any]:
                     )
                 )
 
-    context_factories = sorted(
-        {
-            factory
-            for _relative, _index, _curated, factory, verified in kept
-            if verified
-        }
-    )
-    context_complete = len(context_factories) >= 2
+    ownership_context = mills.ownership_context()
+    context_factories = ownership_context["verified_factories"]
+    context_complete = ownership_context["complete"]
     quarantined = (
         _quarantine_foreign_mills(kept, decisions, mills, actions, reasons)
         if context_complete
@@ -689,6 +696,12 @@ def curate_source(source: Path) -> dict[str, Any]:
         {
             "context_complete": context_complete,
             "context_factories": context_factories,
+            "unresolved_prefixes": ownership_context[
+                "unresolved_prefixes"
+            ],
+            "missing_home_factories": ownership_context[
+                "missing_home_factories"
+            ],
             "quarantine_applied": context_complete,
         }
     )

@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """census.py prints a read-only JSON census of a run directory."""
 
+import hashlib
 import json
 import subprocess
 import sys
@@ -217,6 +218,146 @@ class CensusMillMix(unittest.TestCase):
         )
         self.assertNotIn("archive", report["by_factory"])
         self.assertEqual(report["mill_mix"]["records"], 1)
+
+    def test_suffixed_outer_snapshot_keeps_child_factory_identities(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary) / "pre-window-factory"
+            root.mkdir()
+            self._run_tree(root)
+            result = _invoke(str(root))
+            self.assertEqual(result.returncode, 0, result.stderr)
+            report = json.loads(result.stdout)
+
+        self.assertEqual(
+            report["by_factory"],
+            {
+                "cache-stampede-factory": 3,
+                "graphql-nplusone-factory": 2,
+            },
+        )
+        self.assertNotIn("pre-window-factory", report["by_factory"])
+        self.assertEqual(report["mill_mix"]["records"], 1)
+
+    def test_direct_off_registry_factory_keeps_nested_storage_identity(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary) / "custom-experiment-factory"
+            archive = root / "archive"
+            archive.mkdir(parents=True)
+            (archive / "batch-r01.jsonl").write_text(
+                json.dumps(
+                    _episode(
+                        "cef-r01-control",
+                        "fix verify",
+                        "custom-experiment-factory",
+                    )
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            result = _invoke(str(root))
+            self.assertEqual(result.returncode, 0, result.stderr)
+            report = json.loads(result.stdout)
+
+        self.assertEqual(report["by_factory"], {"custom-experiment-factory": 1})
+        self.assertEqual(report["mill_mix"]["records"], 0)
+
+    def test_all_foreign_known_destination_uses_directory_identity(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary) / "email-webhook-retry-factory"
+            root.mkdir()
+            (root / "batch-r01.jsonl").write_text(
+                json.dumps(
+                    _episode(
+                        "sir-r56-meili-swap",
+                        "fix verify",
+                        "search-index-rebuild-factory",
+                    )
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            result = _invoke(str(root))
+            self.assertEqual(result.returncode, 0, result.stderr)
+            report = json.loads(result.stdout)
+
+        self.assertEqual(report["mill_mix"]["records"], 1)
+        self.assertEqual(
+            report["mill_mix"]["reason_codes"]["FOREIGN_PAYLOAD_FACTORY"],
+            1,
+        )
+
+    def test_marker_mode_excludes_uncommitted_batches(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            factory = Path(temporary) / "agentic-factory"
+            factory.mkdir()
+            (factory / ".round-marker-mode.json").write_text(
+                '{"version":1,"legacy_baseline":0,'
+                '"commit_point":"ROUND-rNN.complete.json"}\n',
+                encoding="utf-8",
+            )
+            batch = factory / "batch-r01.jsonl"
+            batch.write_text(
+                json.dumps(
+                    _episode(
+                        "agt-r01-committed",
+                        "fix verify",
+                        factory.name,
+                    )
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            notes = factory / "NOTES-r01.md"
+            notes.write_text("Novel coverage: 80%\n", encoding="utf-8")
+            (factory / "ROUND-r01.complete.json").write_text(
+                json.dumps(
+                    {
+                        "version": 1,
+                        "factory": factory.name,
+                        "round": 1,
+                        "records": 1,
+                        "expected_records": 1,
+                        "commit_point": "ROUND-r01.complete.json",
+                        "files": [
+                            {
+                                "name": batch.name,
+                                "sha256": hashlib.sha256(
+                                    batch.read_bytes()
+                                ).hexdigest(),
+                            },
+                            {
+                                "name": notes.name,
+                                "sha256": hashlib.sha256(
+                                    notes.read_bytes()
+                                ).hexdigest(),
+                            },
+                        ],
+                    }
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            (factory / "batch-r02.jsonl").write_text(
+                json.dumps(
+                    _episode(
+                        "gql-r02-uncommitted",
+                        "fix verify",
+                        factory.name,
+                    )
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            (factory / "ROUND-r02.publishing.json").write_text(
+                "{}\n", encoding="utf-8"
+            )
+            result = _invoke(str(factory))
+            self.assertEqual(result.returncode, 0, result.stderr)
+            report = json.loads(result.stdout)
+
+        self.assertEqual(report["files"], 1)
+        self.assertEqual(report["records"], 1)
+        self.assertEqual(report["mill_mix"]["records"], 0)
 
 
 class CensusBuckets(unittest.TestCase):

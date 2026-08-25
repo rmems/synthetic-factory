@@ -21,7 +21,11 @@ if str(_PIPELINES) not in sys.path:
     sys.path.insert(0, str(_PIPELINES))
 
 from mill_family import MillIndex, summarize as summarize_mill_mix  # noqa: E402
-from round_txn import FACTORY_QUOTAS  # noqa: E402
+from round_txn import (  # noqa: E402
+    FACTORY_QUOTAS,
+    committed_jsonl_paths,
+    marker_mode_path,
+)
 
 THALAMIC_REQUIRED = (
     "state",
@@ -42,6 +46,20 @@ KINDS = (
     "unknown",
 )
 SIM_BUCKETS = ("real", "real*", "sim*", "hil*", "other", "<missing>")
+
+__all__ = [
+    "KINDS",
+    "SIM_BUCKETS",
+    "THALAMIC_REQUIRED",
+    "bucket_sim_or_real",
+    "census_dir",
+    "classify_kind",
+    "factory_for_path",
+    "factory_identity_for_path",
+    "iter_sim_or_real",
+    "main",
+    "visible_jsonl_paths",
+]
 
 
 def classify_kind(obj):
@@ -93,6 +111,77 @@ def iter_sim_or_real(obj):
             yield from iter_sim_or_real(item)
 
 
+def _enclosing_marker_root(run_dir: Path, path: Path) -> Path | None:
+    """Return the nearest marker-mode factory enclosing ``path``."""
+
+    current = path.parent
+    while True:
+        if marker_mode_path(current) is not None:
+            return current
+        if current == run_dir:
+            return None
+        parent = current.parent
+        if parent == current:  # Defensive: ``relative_to`` should prevent it.
+            return None
+        current = parent
+
+
+def visible_jsonl_paths(run_dir: Path) -> list[Path]:
+    """Return JSONL visible under the round transaction contract."""
+
+    run_dir = Path(run_dir)
+    visible_by_marker_root: dict[Path, set[Path]] = {}
+    visible = []
+    for path in sorted(run_dir.rglob("*.jsonl")):
+        if not path.is_file() or path.is_symlink():
+            continue
+        marker_root = _enclosing_marker_root(run_dir, path)
+        if marker_root is None:
+            visible.append(path)
+            continue
+        if marker_root not in visible_by_marker_root:
+            visible_by_marker_root[marker_root] = {
+                candidate.resolve()
+                for candidate in committed_jsonl_paths(marker_root)
+            }
+        if path.resolve() in visible_by_marker_root[marker_root]:
+            visible.append(path)
+    return visible
+
+
+def factory_identity_for_path(
+    run_dir: Path, path: Path
+) -> tuple[str, bool]:
+    """Return factory name plus independent root-verification evidence."""
+
+    relative = path.relative_to(run_dir)
+    marker_root = _enclosing_marker_root(run_dir, path)
+    if marker_root is not None:
+        return marker_root.name, True
+    if run_dir.name in FACTORY_QUOTAS:
+        return run_dir.name, True
+    if run_dir.name.endswith("-factory"):
+        # A direct off-registry legacy factory may store JSONL under archive/
+        # or work/. A suffixed outer snapshot is distinguishable when its
+        # first child is itself shaped like a factory root.
+        if len(relative.parts) == 1:
+            return run_dir.name, True
+        nested_root = relative.parts[0]
+        if nested_root not in FACTORY_QUOTAS and not nested_root.endswith(
+            "-factory"
+        ):
+            return run_dir.name, True
+    factory = relative.parts[0] if len(relative.parts) > 1 else run_dir.name
+    verified = factory in FACTORY_QUOTAS or factory.endswith("-factory")
+    return factory, verified
+
+
+def factory_for_path(run_dir: Path, path: Path) -> str:
+    """Return the verified or enclosing factory name for one payload."""
+
+    return factory_identity_for_path(run_dir, path)[0]
+
+
 def census_dir(run_dir):
     run_dir = Path(run_dir).resolve()
     by_kind = {kind: 0 for kind in KINDS}
@@ -103,19 +192,10 @@ def census_dir(run_dir):
     records = 0
     parse_failures = 0
 
-    for path in sorted(run_dir.rglob("*.jsonl")):
+    for path in visible_jsonl_paths(run_dir):
         files += 1
         relative = path.relative_to(run_dir)
-        # The run's first directory component is the factory root. Recursive
-        # work/archive directories are storage detail, not factory identity.
-        if run_dir.name in FACTORY_QUOTAS or run_dir.name.endswith("-factory"):
-            factory = run_dir.name
-        else:
-            factory = (
-                relative.parts[0]
-                if len(relative.parts) > 1
-                else run_dir.name
-            )
+        factory, factory_verified = factory_identity_for_path(run_dir, path)
         for lineno, line in enumerate(
             path.read_text(encoding="utf-8").splitlines(), 1
         ):
@@ -128,7 +208,12 @@ def census_dir(run_dir):
                 continue
             records += 1
             by_factory[factory] += 1
-            mills.add(factory, obj, (relative.as_posix(), lineno))
+            mills.add(
+                factory,
+                obj,
+                (relative.as_posix(), lineno),
+                factory_verified=factory_verified,
+            )
             by_kind[classify_kind(obj)] += 1
             found = list(iter_sim_or_real(obj))
             if not found:
