@@ -52,6 +52,9 @@ class SandboxRefusalDeclarationTests(unittest.TestCase):
 
     def test_declaration_matches_the_observed_union_schema(self):
         names = {feature["name"]: feature for feature in self.declaration["features"]}
+        self.assertIn("`family` is absent from rounds 1 to 358", self.declaration["note"])
+        self.assertIn("reward object", self.declaration["note"])
+        self.assertNotIn("four case-type extras", self.declaration["note"])
         self.assertEqual(
             set(names),
             {
@@ -130,6 +133,8 @@ class SandboxRefusalDeclarationTests(unittest.TestCase):
         self.assertIn("one `missed_refusal`", self.card)
         self.assertNotIn("4902", self.card)
         self.assertNotIn("1634 records", self.card)
+        self.assertNotIn("1635", self.card)
+        self.assertIn("one-record surplus", self.card)
         self.assertIn("`sbox-r191-agents-md-token-exfil-refuse`", self.card)
         self.assertIn("| `redirect` | optional |", self.card)
         self.assertIn("| `benign_twin` | optional |", self.card)
