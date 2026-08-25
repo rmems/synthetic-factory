@@ -28,6 +28,126 @@
         "pattern": "^[a-z][a-z0-9_]*$"
       }
     },
+    "nonemptyStringList": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "arithmeticOutcome": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "status",
+        "method"
+      ],
+      "properties": {
+        "status": {
+          "enum": [
+            "valid",
+            "invalid",
+            "unsupported"
+          ]
+        },
+        "method": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "policyArithmetic": {
+      "type": "object",
+      "required": [
+        "default_tolerance",
+        "declared_total_field",
+        "weights_field",
+        "rounding_decimals_field",
+        "rounding_declaration_pattern",
+        "rounding_declaration_fields",
+        "nested_component_key",
+        "weighted_containers",
+        "weight_aliases",
+        "non_component_keys",
+        "methods"
+      ],
+      "properties": {
+        "default_tolerance": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "declared_total_field": {
+          "type": "string",
+          "minLength": 1
+        },
+        "weights_field": {
+          "type": "string",
+          "minLength": 1
+        },
+        "rounding_decimals_field": {
+          "type": "string",
+          "minLength": 1
+        },
+        "rounding_declaration_pattern": {
+          "type": "string",
+          "minLength": 1
+        },
+        "rounding_declaration_fields": {
+          "$ref": "#/$defs/nonemptyStringList"
+        },
+        "nested_component_key": {
+          "type": "string",
+          "minLength": 1
+        },
+        "weighted_containers": {
+          "$ref": "#/$defs/nonemptyStringList"
+        },
+        "weight_aliases": {
+          "type": "object",
+          "minProperties": 1,
+          "additionalProperties": {
+            "$ref": "#/$defs/nonemptyStringList"
+          }
+        },
+        "non_component_keys": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "declared_total",
+            "unit_calibration",
+            "narrative_annotation"
+          ],
+          "properties": {
+            "declared_total": {
+              "$ref": "#/$defs/nonemptyStringList"
+            },
+            "unit_calibration": {
+              "$ref": "#/$defs/nonemptyStringList"
+            },
+            "narrative_annotation": {
+              "$ref": "#/$defs/nonemptyStringList"
+            }
+          }
+        },
+        "methods": {
+          "type": "object",
+          "required": [
+            "declared_weighted_sum",
+            "declared_weighted_sum_unresolved",
+            "unweighted_component_sum",
+            "unweighted_component_sum_unresolved",
+            "no_numeric_total",
+            "non_object_reward"
+          ],
+          "additionalProperties": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
     "magnitudeValue": {
       "type": "object",
       "additionalProperties": false,
@@ -237,6 +357,9 @@
             "comparability_rules"
           ],
           "properties": {
+            "arithmetic": {
+              "$ref": "#/$defs/policyArithmetic"
+            },
             "comparability_classes": {
               "type": "object",
               "propertyNames": {
@@ -472,9 +595,7 @@
                 "type": "object",
                 "required": [
                   "signature",
-                  "occurrences",
-                  "arithmetic_status",
-                  "arithmetic_method"
+                  "occurrences"
                 ],
                 "properties": {
                   "signature": {
@@ -494,8 +615,48 @@
                   "arithmetic_method": {
                     "type": "string",
                     "minLength": 1
+                  },
+                  "arithmetic_outcomes": {
+                    "type": "array",
+                    "minItems": 1,
+                    "uniqueItems": true,
+                    "items": {
+                      "$ref": "#/$defs/arithmeticOutcome"
+                    }
                   }
-                }
+                },
+                "oneOf": [
+                  {
+                    "required": [
+                      "arithmetic_status",
+                      "arithmetic_method"
+                    ],
+                    "not": {
+                      "required": [
+                        "arithmetic_outcomes"
+                      ]
+                    }
+                  },
+                  {
+                    "required": [
+                      "arithmetic_outcomes"
+                    ],
+                    "not": {
+                      "anyOf": [
+                        {
+                          "required": [
+                            "arithmetic_status"
+                          ]
+                        },
+                        {
+                          "required": [
+                            "arithmetic_method"
+                          ]
+                        }
+                      ]
+                    }
+                  }
+                ]
               }
             }
           }
@@ -506,9 +667,14 @@
             "run",
             "records",
             "comparability",
-            "reason_codes"
+            "reason_codes",
+            "by_factory"
           ],
           "properties": {
+            "run": {
+              "type": "string",
+              "minLength": 1
+            },
             "records": {
               "type": "integer",
               "minimum": 0
@@ -525,6 +691,63 @@
               "additionalProperties": {
                 "type": "integer",
                 "minimum": 0
+              }
+            },
+            "reason_codes": {
+              "type": "object",
+              "propertyNames": {
+                "pattern": "^[a-z][a-z0-9_]*$"
+              },
+              "additionalProperties": {
+                "type": "integer",
+                "minimum": 0
+              }
+            },
+            "by_factory": {
+              "type": "object",
+              "minProperties": 1,
+              "propertyNames": {
+                "pattern": "^[a-z0-9][a-z0-9-]*$"
+              },
+              "additionalProperties": {
+                "type": "object",
+                "required": [
+                  "records",
+                  "comparability",
+                  "reason_codes"
+                ],
+                "properties": {
+                  "records": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "comparability": {
+                    "type": "object",
+                    "minProperties": 1,
+                    "propertyNames": {
+                      "enum": [
+                        "magnitude_comparable",
+                        "sign_order_only",
+                        "exclude_from_reward_training"
+                      ]
+                    },
+                    "additionalProperties": {
+                      "type": "integer",
+                      "minimum": 0
+                    }
+                  },
+                  "reason_codes": {
+                    "type": "object",
+                    "minProperties": 1,
+                    "propertyNames": {
+                      "pattern": "^[a-z][a-z0-9_]*$"
+                    },
+                    "additionalProperties": {
+                      "type": "integer",
+                      "minimum": 0
+                    }
+                  }
+                }
               }
             }
           }
