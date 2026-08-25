@@ -1,0 +1,21 @@
+tests/test_census.py
+  s_940326c4ee4215::t_c2d53eb5733e96 391-414
+pipelines/census.py
+  s_940326c4ee4215::t_c2d53eb5733e96 26,247-252
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "68dff569e53ffbba18fd1d3b73ef6ef79f705487",
+  "prompts": {},
+  "sessions": {
+    "s_940326c4ee4215": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a032e4-1904-7a82-8c8b-1ad3cfbeb0b0",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Raul Montoya Cardenas <montoyaraul34@gmail.com>"
+    }
+  }
+}
