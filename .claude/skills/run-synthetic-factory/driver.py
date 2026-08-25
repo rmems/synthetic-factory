@@ -677,8 +677,9 @@ def cmd_smoke():
         (stage / reservation["batch_file"]).write_text(json.dumps(record) + "\n")
         notes = stage / reservation["notes_file"]
         # The NOTES contract (docs/token-efficiency.md) is a publish gate on
-        # every lane, legacy included: without the line the early-stop latch
-        # can never fire, so a round that omits it must not commit.
+        # every registered lane, legacy included: without the line the
+        # early-stop latch can never fire, so a round that omits it must not
+        # commit.
         notes.write_text("# Self-critique\n\nFixture only.\n")
         try:
             publish(factory, 1, reservation["token"])

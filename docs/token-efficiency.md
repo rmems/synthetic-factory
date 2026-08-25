@@ -44,13 +44,15 @@ started by hand from `prompts/` produces latchable NOTES too:
 `round_txn.py publish` ever drops the requirement.
 
 **Publish is the gate.** `round_txn.py publish` refuses a round whose staged
-NOTES omit the line or report a value outside 0–100 — for every lane, not just
-the fixed agentic ones. That check is forward-only: the history-reading paths
-(`completed_manifests`, legacy-baseline validation) keep their original
-fixed-agentic scope, so rounds committed before the contract existed stay
-readable and no raw file is ever rewritten. This is what closes the
-2026-08-19 gap where 0/49 `NOTES-r*.md` emitted the line and the latch could
-never fire.
+NOTES omit the line or report a value outside 0–100 — for every registered
+lane, not just the fixed agentic ones. Unknown custom transaction directories
+retain the generic nonempty-NOTES contract because they have no registered
+factory prompt or token-efficiency policy. The registered-lane check is
+forward-only: the history-reading paths (`completed_manifests`,
+legacy-baseline validation) keep their original fixed-agentic scope, so rounds
+committed before the contract existed stay readable and no raw file is ever
+rewritten. This is what closes the 2026-08-19 gap where 0/49 `NOTES-r*.md`
+emitted the line and the latch could never fire.
 
 Parsing is case-insensitive and tolerant:
 

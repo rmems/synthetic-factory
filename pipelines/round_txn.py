@@ -2215,9 +2215,10 @@ def validate_novel_coverage(
 
     ``required=None`` keeps the read-path scope: only the fixed agentic lanes
     are checked, so committed legacy rounds published before the NOTES contract
-    existed stay readable and are never rewritten.  The publish path passes
-    ``required=True`` — every *new* round, legacy lane included, must carry the
-    line so the token-efficiency early-stop can actually latch
+    existed stay readable and are never rewritten.  The publish path requires
+    the line for every registered factory in ``FACTORY_QUOTAS``, legacy lanes
+    included, so the token-efficiency early-stop can actually latch. Unknown
+    custom transaction directories retain the generic nonempty-NOTES contract
     (``docs/token-efficiency.md``).
     """
     if required is None:
@@ -2304,11 +2305,15 @@ def validate_stage(
             ) from exc
         if not notes_text.strip():
             raise TransactionError(f"staged notes are empty: {stage / notes_name}")
-        # Every newly published round must carry the line, legacy lanes
-        # included: the token-efficiency early-stop cannot latch on rounds
-        # that never report their novelty (docs/token-efficiency.md).
+        # Every newly published registered factory round must carry the line,
+        # legacy lanes included: the token-efficiency early-stop cannot latch
+        # on rounds that never report their novelty. Unknown custom transaction
+        # directories retain round_txn's generic NOTES contract.
         coverage_error = validate_novel_coverage(
-            stage / notes_name, factory_dir, notes_text, required=True
+            stage / notes_name,
+            factory_dir,
+            notes_text,
+            required=factory_dir.name in FACTORY_QUOTAS,
         )
         if coverage_error:
             raise TransactionError(coverage_error)
