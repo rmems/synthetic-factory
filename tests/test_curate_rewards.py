@@ -344,6 +344,33 @@ class RewardOntologyV1Tests(unittest.TestCase):
         ):
             curate_rewards.validate_ontology_document(malformed)
 
+    def test_runtime_validator_rejects_class_reason_contradictions(self):
+        units = "1 reward unit = USD 10000 risk-adjusted"
+        record = {
+            "reward_components": components(
+                1.0, unit_usd=10000, units=units
+            )
+        }
+        curated, sidecar = curate_rewards.curate_record(record)
+
+        malformed_annotation = copy.deepcopy(curated["reward_training"])
+        malformed_annotation["reason_codes"] = ["no_source_reward"]
+        with self.assertRaisesRegex(
+            curate_rewards.RewardOntologyError,
+            "does not match any declared comparability rule",
+        ):
+            curate_rewards.validate_ontology_document(malformed_annotation)
+
+        malformed_sidecar = copy.deepcopy(sidecar)
+        malformed_sidecar["classification"]["reason_codes"] = ["no_source_reward"]
+        malformed_sidecar.pop("sidecar_id")
+        malformed_sidecar["sidecar_id"] = curate_rewards._sha256(malformed_sidecar)
+        with self.assertRaisesRegex(
+            curate_rewards.RewardOntologyError,
+            "does not match any declared comparability rule",
+        ):
+            curate_rewards.validate_ontology_document(malformed_sidecar)
+
     def test_sidecar_hash_and_annotation_link_are_enforced(self):
         record = preference(
             {"task_progress": 1.0, "safety": 0.0, "total": 1.0},
@@ -616,6 +643,26 @@ class ConversionPolicyMappingTests(unittest.TestCase):
             schema["$defs"]["conversionPolicy"]["properties"]["document_type"]["const"],
             "reward_conversion_policy",
         )
+        conversion_schema = schema["$defs"]["conversionPolicy"]["properties"][
+            "policy"
+        ]["properties"]["conversion"]
+        self.assertTrue(
+            {
+                "canonical_unit",
+                "canonical_unit_usd",
+                "aggregation",
+                "required_semantics_substring",
+                "structured_unit_field",
+                "text_unit_field",
+                "usd_unit_pattern",
+                "external_calibration",
+            }
+            <= set(conversion_schema["required"])
+        )
+        self.assertEqual(
+            set(conversion_schema["properties"]["external_calibration"]["required"]),
+            {"record_id_pattern", "factor_field", "scope_field"},
+        )
 
     def test_every_declared_reason_code_is_cited_by_a_declared_rule(self):
         policy = curate_rewards.CONVERSION_POLICY["policy"]
@@ -692,6 +739,36 @@ class ConversionPolicyMappingTests(unittest.TestCase):
         ):
             curate_rewards.validate_conversion_policy(bad_tolerance)
 
+        missing_vocabulary = copy.deepcopy(document)
+        missing_vocabulary.pop("source_vocabulary")
+        with self.assertRaisesRegex(
+            curate_rewards.RewardOntologyError, "source_vocabulary"
+        ):
+            curate_rewards.validate_conversion_policy(missing_vocabulary)
+
+        empty_vocabulary = copy.deepcopy(document)
+        empty_vocabulary["source_vocabulary"] = {}
+        with self.assertRaisesRegex(
+            curate_rewards.RewardOntologyError, "source_vocabulary"
+        ):
+            curate_rewards.validate_conversion_policy(empty_vocabulary)
+
+        wrong_key_count = copy.deepcopy(document)
+        wrong_key_count["source_vocabulary"]["unique_component_keys"] -= 1
+        with self.assertRaisesRegex(
+            curate_rewards.RewardOntologyError, "unique_component_keys"
+        ):
+            curate_rewards.validate_conversion_policy(wrong_key_count)
+
+        wrong_disposition = copy.deepcopy(document)
+        wrong_disposition["source_vocabulary"]["component_keys"][
+            "task_progress"
+        ]["disposition"] = "narrative_annotation"
+        with self.assertRaisesRegex(
+            curate_rewards.RewardOntologyError, "disposition must be"
+        ):
+            curate_rewards.validate_conversion_policy(wrong_disposition)
+
     def test_missing_or_invalid_mapping_file_is_a_loud_failure(self):
         with tempfile.TemporaryDirectory() as td:
             missing = Path(td) / "absent.json"
@@ -724,6 +801,35 @@ class ConversionPolicyMappingTests(unittest.TestCase):
             curate_rewards._require_declared_rule(
                 curate_rewards.EXCLUDE, ["multiple_reward_scopes"], "R00"
             )
+
+    def test_classification_verdicts_are_read_from_the_matched_rule(self):
+        rules = copy.deepcopy(list(curate_rewards.COMPARABILITY_RULES))
+        p01 = next(rule for rule in rules if rule["id"] == "P01")
+        p01["comparability"] = curate_rewards.SIGN_ORDER_ONLY
+        p01["reason_codes"] = ["magnitude_calibration_missing"]
+        source_rewards = [
+            {
+                "json_pointer": curate_rewards.PREFERENCE_POINTERS[0],
+                "value_sha256": "sha256:" + "0" * 64,
+                "value": {"total": 1.0},
+            }
+        ]
+
+        original = curate_rewards.COMPARABILITY_RULES
+        try:
+            curate_rewards.COMPARABILITY_RULES = tuple(rules)
+            verdict = curate_rewards._classify(source_rewards, [])
+        finally:
+            curate_rewards.COMPARABILITY_RULES = original
+        self.assertEqual(
+            verdict,
+            (
+                curate_rewards.SIGN_ORDER_ONLY,
+                ["magnitude_calibration_missing"],
+                None,
+                "P01",
+            ),
+        )
 
 
 class SourceVocabularyMappingTests(unittest.TestCase):
@@ -870,6 +976,30 @@ class RewardShapeVocabularyTests(unittest.TestCase):
             curate_rewards.component_disposition("total"),
             curate_rewards.DISPOSITION_DECLARED_TOTAL,
         )
+
+    def test_nonfinite_values_are_never_numeric_magnitude_terms(self):
+        for value in (float("nan"), float("inf"), float("-inf")):
+            self.assertEqual(curate_rewards.value_type(value), "unknown")
+            self.assertEqual(
+                curate_rewards.component_disposition("new_component", value),
+                curate_rewards.DISPOSITION_AMBIGUOUS,
+            )
+            self.assertFalse(
+                curate_rewards.contributes_to_total("new_component", value)
+            )
+            self.assertEqual(
+                curate_rewards.value_type({"value": value}), "object"
+            )
+
+    def test_jsonl_loader_rejects_nonfinite_numeric_constants(self):
+        with tempfile.TemporaryDirectory() as td:
+            path = Path(td) / "nonfinite.jsonl"
+            path.write_text('{"reward_components":{"total":NaN}}\n', encoding="utf-8")
+            with self.assertRaisesRegex(
+                curate_rewards.RewardOntologyError,
+                "non-finite numeric constant NaN",
+            ):
+                list(curate_rewards._load_jsonl(path))
 
 
 class RewardOntologyFixtureRegression(unittest.TestCase):

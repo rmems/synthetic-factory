@@ -72,6 +72,19 @@ COMPONENT_DISPOSITIONS = (
     DISPOSITION_AMBIGUOUS,
 )
 
+VALUE_TYPES = frozenset(
+    {
+        "number",
+        "value-object",
+        "object",
+        "array",
+        "string",
+        "boolean",
+        "null",
+        "unknown",
+    }
+)
+
 ARITHMETIC_STATUSES = frozenset({"valid", "invalid", "unsupported"})
 RULE_SCOPES = frozenset({"any", "preference", "single"})
 REQUIRED_ARITHMETIC_METHODS = frozenset(
@@ -141,6 +154,14 @@ def _mapping_positive(container, key, where):
     if not number.is_finite() or number <= 0:
         raise _policy_error(where, f"{key} must be positive and finite")
     return number
+
+
+def _mapping_integer(container, key, where, *, minimum=0):
+    value = container.get(key)
+    if isinstance(value, bool) or not isinstance(value, int) or value < minimum:
+        qualifier = "nonnegative" if minimum == 0 else f">= {minimum}"
+        raise _policy_error(where, f"{key} must be an integer {qualifier}")
+    return value
 
 
 def _mapping_pattern(container, key, where, *, groups=0):
@@ -258,6 +279,155 @@ def _validate_rule_block(policy, where, classes, reason_codes):
     return tuple(rules)
 
 
+def _policy_disposition(key, observed_types, arithmetic):
+    groups = arithmetic["non_component_keys"]
+    if key == arithmetic["declared_total_field"]:
+        return DISPOSITION_DECLARED_TOTAL
+    if key in groups[DISPOSITION_UNIT_CALIBRATION]:
+        return DISPOSITION_UNIT_CALIBRATION
+    if key in groups[DISPOSITION_NARRATIVE]:
+        return DISPOSITION_NARRATIVE
+    types = set(observed_types)
+    if types <= {"number", "value-object"}:
+        return DISPOSITION_MAGNITUDE_TERM
+    if types == {"string"}:
+        return DISPOSITION_NARRATIVE
+    if types == {"object"}:
+        return (
+            DISPOSITION_CONTAINER
+            if key in arithmetic["weighted_containers"]
+            else DISPOSITION_STRUCTURAL
+        )
+    if types <= {"object", "array"}:
+        return DISPOSITION_STRUCTURAL
+    return DISPOSITION_AMBIGUOUS
+
+
+def _validate_source_vocabulary(document, arithmetic, where):
+    vocabulary = _mapping_object(document, "source_vocabulary", where)
+    vocabulary_where = f"{where}.source_vocabulary"
+    _mapping_str(vocabulary, "run", vocabulary_where)
+
+    component_keys = _mapping_object(
+        vocabulary, "component_keys", vocabulary_where
+    )
+    unique_component_keys = _mapping_integer(
+        vocabulary, "unique_component_keys", vocabulary_where, minimum=1
+    )
+    if unique_component_keys != len(component_keys):
+        raise _policy_error(
+            vocabulary_where,
+            "unique_component_keys must equal the number of component_keys",
+        )
+
+    disposition_counts = Counter()
+    for key, entry in component_keys.items():
+        entry_where = f"{vocabulary_where}.component_keys[{key!r}]"
+        if not isinstance(key, str) or not key:
+            raise _policy_error(vocabulary_where, "component key names must be nonempty")
+        if not isinstance(entry, dict) or not entry:
+            raise _policy_error(entry_where, "entry must be a nonempty object")
+        disposition = _mapping_str(entry, "disposition", entry_where)
+        if disposition not in COMPONENT_DISPOSITIONS:
+            raise _policy_error(
+                entry_where, f"unknown component disposition {disposition!r}"
+            )
+        observed_types = _mapping_str_list(entry, "observed_types", entry_where)
+        unknown_types = sorted(set(observed_types) - VALUE_TYPES)
+        if unknown_types:
+            raise _policy_error(
+                entry_where, f"unknown observed value types {unknown_types}"
+            )
+        expected = _policy_disposition(key, observed_types, arithmetic)
+        if disposition != expected:
+            raise _policy_error(
+                entry_where,
+                f"disposition must be {expected!r} for {list(observed_types)!r}",
+            )
+        _mapping_integer(entry, "occurrences", entry_where, minimum=1)
+        disposition_counts[disposition] += 1
+
+    declared_dispositions = _mapping_object(
+        vocabulary, "dispositions", vocabulary_where
+    )
+    if set(declared_dispositions) != set(COMPONENT_DISPOSITIONS):
+        raise _policy_error(
+            vocabulary_where,
+            "dispositions must count exactly the declared component dispositions",
+        )
+    for disposition in COMPONENT_DISPOSITIONS:
+        declared = _mapping_integer(
+            declared_dispositions, disposition, vocabulary_where
+        )
+        if declared != disposition_counts[disposition]:
+            raise _policy_error(
+                vocabulary_where,
+                f"dispositions[{disposition!r}] does not match component_keys",
+            )
+
+    shapes = vocabulary.get("shapes")
+    if not isinstance(shapes, list) or not shapes:
+        raise _policy_error(vocabulary_where, "shapes must be a nonempty list")
+    unique_shapes = _mapping_integer(
+        vocabulary, "unique_shapes", vocabulary_where, minimum=1
+    )
+    if unique_shapes != len(shapes):
+        raise _policy_error(
+            vocabulary_where, "unique_shapes must equal the number of shapes"
+        )
+    signatures = set()
+    for index, shape in enumerate(shapes):
+        shape_where = f"{vocabulary_where}.shapes[{index}]"
+        if not isinstance(shape, dict):
+            raise _policy_error(shape_where, "shape must be an object")
+        signature = shape.get("signature")
+        if not isinstance(signature, str):
+            raise _policy_error(shape_where, "signature must be a string")
+        if signature in signatures:
+            raise _policy_error(shape_where, f"duplicate shape signature {signature!r}")
+        signatures.add(signature)
+        _mapping_integer(shape, "occurrences", shape_where, minimum=1)
+        status = _mapping_str(shape, "arithmetic_status", shape_where)
+        if status not in ARITHMETIC_STATUSES:
+            raise _policy_error(shape_where, f"unknown arithmetic status {status!r}")
+        method = _mapping_str(shape, "arithmetic_method", shape_where)
+        if method not in arithmetic["methods"]:
+            raise _policy_error(shape_where, f"unknown arithmetic method {method!r}")
+    return vocabulary
+
+
+def _validate_expected_classification(document, classes, reason_codes, run, where):
+    expected = _mapping_object(document, "expected_classification", where)
+    expected_where = f"{where}.expected_classification"
+    if _mapping_str(expected, "run", expected_where) != run:
+        raise _policy_error(
+            expected_where, "run must match source_vocabulary.run"
+        )
+    records = _mapping_integer(expected, "records", expected_where)
+    comparability = _mapping_object(expected, "comparability", expected_where)
+    if set(comparability) != set(classes):
+        raise _policy_error(
+            expected_where,
+            "comparability must count exactly the declared comparability classes",
+        )
+    classified = sum(
+        _mapping_integer(comparability, name, expected_where) for name in classes
+    )
+    if classified != records:
+        raise _policy_error(
+            expected_where, "comparability counts must sum to records"
+        )
+    expected_reasons = _mapping_object(expected, "reason_codes", expected_where)
+    unknown_reasons = sorted(set(expected_reasons) - set(reason_codes))
+    if unknown_reasons:
+        raise _policy_error(
+            expected_where, f"uncatalogued reason-code counts {unknown_reasons}"
+        )
+    for reason in expected_reasons:
+        _mapping_integer(expected_reasons, reason, expected_where)
+    return expected
+
+
 def validate_conversion_policy(document, *, where="conversion policy"):
     """Validate the machine-readable conversion policy and return it unchanged."""
     if not isinstance(document, dict):
@@ -309,6 +479,10 @@ def validate_conversion_policy(document, *, where="conversion policy"):
         if not isinstance(description, str) or not description.strip():
             raise _policy_error(where, f"reason code {code!r} has no description")
     _validate_rule_block(policy, where, classes, reason_codes)
+    vocabulary = _validate_source_vocabulary(document, arithmetic, where)
+    _validate_expected_classification(
+        document, classes, reason_codes, vocabulary["run"], where
+    )
     return document
 
 
@@ -374,7 +548,7 @@ MIGRATION_SCOPE_FIELD = _EXTERNAL["scope_field"]
 COMPARABILITY_CLASSES = frozenset(_POLICY["comparability_classes"])
 REASON_CODES = frozenset(_POLICY["reason_codes"])
 COMPARABILITY_RULES = tuple(_POLICY["comparability_rules"])
-SOURCE_VOCABULARY = CONVERSION_POLICY.get("source_vocabulary", {})
+SOURCE_VOCABULARY = CONVERSION_POLICY["source_vocabulary"]
 
 
 def _canonical_bytes(value) -> bytes:
@@ -485,13 +659,13 @@ def value_type(value):
     """
     if isinstance(value, bool):
         return "boolean"
-    if isinstance(value, (int, float)):
-        return "number"
+    if isinstance(value, (int, float, Decimal)):
+        return "number" if _decimal(value) is not None else "unknown"
     if isinstance(value, str):
         return "string"
     if isinstance(value, dict):
         inner = value.get("value")
-        if isinstance(inner, (int, float)) and not isinstance(inner, bool):
+        if _decimal(inner) is not None:
             return "value-object"
         return "object"
     if isinstance(value, list):
@@ -759,6 +933,20 @@ def _extract_unit_usd(reward, calibration=None):
     return unit, "explicit_usd_unit_calibration", "source_reward_fields"
 
 
+def _mapped_verdict(rule_id, payload=None, *, optional_reason_codes=()):
+    """Build a verdict from the matched machine-readable policy rule."""
+    rule = comparability_rule(rule_id)
+    reasons = list(rule["reason_codes"])
+    allowed = set(reasons) | set(rule.get("optional_reason_codes", ()))
+    unknown = sorted(set(optional_reason_codes) - allowed)
+    if unknown:
+        raise RewardOntologyError(
+            f"rule {rule_id} does not allow optional reason codes {unknown}"
+        )
+    reasons.extend(reason for reason in optional_reason_codes if reason not in reasons)
+    return rule["comparability"], reasons, payload, rule_id
+
+
 def _classify(source_rewards, arithmetic, calibration=None):
     """Return ``(comparability, reason_codes, payload, rule_id)``.
 
@@ -776,25 +964,25 @@ def _classify(source_rewards, arithmetic, calibration=None):
     is_preference = chosen_pointer in rewards_by_pointer or rejected_pointer in rewards_by_pointer
 
     if not source_rewards:
-        return EXCLUDE, ["no_source_reward"], None, "R00"
+        return _mapped_verdict("R00")
 
     if is_preference:
         if set(rewards_by_pointer) != set(PREFERENCE_POINTERS):
-            return EXCLUDE, ["ambiguous_preference_reward_scopes"], None, "P01"
+            return _mapped_verdict("P01")
         chosen_arithmetic = arithmetic_by_pointer[chosen_pointer]
         rejected_arithmetic = arithmetic_by_pointer[rejected_pointer]
         statuses = {chosen_arithmetic["status"], rejected_arithmetic["status"]}
         if "invalid" in statuses:
-            return EXCLUDE, ["reward_arithmetic_mismatch"], None, "P02"
+            return _mapped_verdict("P02")
         if statuses != {"valid"}:
-            return EXCLUDE, ["unsupported_reward_layout"], None, "P03"
+            return _mapped_verdict("P03")
 
         chosen_total = _decimal(chosen_arithmetic["source_total"])
         rejected_total = _decimal(rejected_arithmetic["source_total"])
         if chosen_total is None or rejected_total is None:
-            return EXCLUDE, ["unsupported_reward_layout"], None, "P03"
+            return _mapped_verdict("P03")
         if chosen_total <= rejected_total:
-            return EXCLUDE, ["reward_order_conflicts_with_preference"], None, "P04"
+            return _mapped_verdict("P04")
 
         units = {}
         calibration_sources = {}
@@ -807,73 +995,62 @@ def _classify(source_rewards, arithmetic, calibration=None):
             calibration_sources[pointer] = calibration_source
             unit_statuses.append(status)
         if all(unit is not None for unit in units.values()):
-            reasons = [
-                "explicit_usd_unit_calibration",
-                "preference_order_verified",
-                "reward_arithmetic_verified",
-            ]
-            if "external_calibration_evidence" in unit_statuses:
-                reasons.append("external_calibration_evidence")
-            return (
-                MAGNITUDE_COMPARABLE,
-                reasons,
+            optional_reasons = (
+                ["external_calibration_evidence"]
+                if "external_calibration_evidence" in unit_statuses
+                else []
+            )
+            return _mapped_verdict(
+                "P05",
                 _magnitude_payload(
                     arithmetic_by_pointer,
                     units,
                     calibration_sources,
                 ),
-                "P05",
+                optional_reason_codes=optional_reasons,
             )
 
-        reasons = ["preference_order_verified"]
         if any("conflict" in status for status in unit_statuses):
-            reasons.append("magnitude_calibration_conflict")
             rule_id = "P06"
         elif any(status != "missing_unit_calibration" for status in unit_statuses):
-            reasons.append("magnitude_calibration_incomplete")
             rule_id = "P07"
         else:
-            reasons.append("magnitude_calibration_missing")
             rule_id = "P08"
-        return (
-            SIGN_ORDER_ONLY,
-            reasons,
+        return _mapped_verdict(
+            rule_id,
             {
                 "preferred_json_pointer": chosen_pointer,
                 "dispreferred_json_pointer": rejected_pointer,
                 "relation": PREFERENCE_RELATION,
             },
-            rule_id,
         )
 
     if len(source_rewards) != 1:
-        return EXCLUDE, ["multiple_reward_scopes"], None, "S01"
+        return _mapped_verdict("S01")
     pointer = source_rewards[0]["json_pointer"]
     if pointer != CANONICAL_SCOPE:
-        return EXCLUDE, ["noncanonical_reward_scope"], None, "S02"
+        return _mapped_verdict("S02")
     result = arithmetic_by_pointer[pointer]
     if result["status"] == "invalid":
-        return EXCLUDE, ["reward_arithmetic_mismatch"], None, "S03"
+        return _mapped_verdict("S03")
     if result["status"] != "valid":
-        return EXCLUDE, ["unsupported_reward_layout"], None, "S04"
+        return _mapped_verdict("S04")
     unit, unit_status, calibration_source = _extract_unit_usd(
         rewards_by_pointer[pointer], calibration
     )
     if unit is None:
         if "conflict" in unit_status:
-            return EXCLUDE, ["magnitude_calibration_conflict"], None, "S05"
+            return _mapped_verdict("S05")
         if unit_status == "missing_risk_adjusted_semantics":
-            return EXCLUDE, ["magnitude_semantics_missing"], None, "S06"
-        return EXCLUDE, ["magnitude_calibration_missing"], None, "S07"
-    return (
-        MAGNITUDE_COMPARABLE,
-        ["explicit_usd_unit_calibration", "reward_arithmetic_verified"],
+            return _mapped_verdict("S06")
+        return _mapped_verdict("S07")
+    return _mapped_verdict(
+        "S08",
         _magnitude_payload(
             {pointer: result},
             {pointer: unit},
             {pointer: calibration_source},
         ),
-        "S08",
     )
 
 
@@ -918,6 +1095,7 @@ def validate_ontology_document(document):
         if not isinstance(reasons, list) or not reasons or len(reasons) != len(set(reasons)):
             raise RewardOntologyError("reason_codes must be nonempty and unique")
         _require_catalogued_reasons(reasons)
+        _require_declared_verdict(comparability, reasons)
         if not SHA256_RE.fullmatch(str(document.get("source_sidecar_id", ""))):
             raise RewardOntologyError("invalid source_sidecar_id")
         source_reward_count = document.get("source_reward_count")
@@ -1011,9 +1189,14 @@ def validate_ontology_document(document):
             or classification.get("comparability") not in COMPARABILITY_CLASSES
             or not isinstance(classification.get("reason_codes"), list)
             or not classification["reason_codes"]
+            or len(classification["reason_codes"])
+            != len(set(classification["reason_codes"]))
         ):
             raise RewardOntologyError("invalid sidecar classification")
         _require_catalogued_reasons(classification["reason_codes"])
+        _require_declared_verdict(
+            classification["comparability"], classification["reason_codes"]
+        )
         for entry in document.get("arithmetic", []):
             if not isinstance(entry, dict):
                 raise RewardOntologyError("invalid sidecar arithmetic entry")
@@ -1164,6 +1347,33 @@ def comparability_rule(rule_id):
     raise RewardOntologyError(f"undeclared comparability rule: {rule_id!r}")
 
 
+def _rule_accepts_verdict(rule, comparability, reason_codes):
+    if rule["comparability"] != comparability:
+        return False
+    emitted = set(reason_codes)
+    if len(emitted) != len(reason_codes):
+        return False
+    required = set(rule["reason_codes"])
+    optional = set(rule.get("optional_reason_codes", ()))
+    return required <= emitted <= required | optional
+
+
+def _require_declared_verdict(comparability, reason_codes):
+    """Require a stored class/reason pair to match at least one policy rule."""
+    _require_catalogued_reasons(reason_codes)
+    matches = [
+        rule["id"]
+        for rule in COMPARABILITY_RULES
+        if _rule_accepts_verdict(rule, comparability, reason_codes)
+    ]
+    if not matches:
+        raise RewardOntologyError(
+            f"{comparability} with reason codes {sorted(reason_codes)} does not "
+            "match any declared comparability rule"
+        )
+    return tuple(matches)
+
+
 def _require_declared_rule(comparability, reason_codes, rule_id):
     """Refuse any verdict the machine-readable rule table does not authorise."""
     rule = comparability_rule(rule_id)
@@ -1172,9 +1382,8 @@ def _require_declared_rule(comparability, reason_codes, rule_id):
             f"rule {rule_id} declares {rule['comparability']}, not {comparability}"
         )
     required = list(rule["reason_codes"])
-    optional = set(rule.get("optional_reason_codes", ()))
     emitted = list(reason_codes)
-    if sorted(set(emitted) - optional) != sorted(required):
+    if not _rule_accepts_verdict(rule, comparability, emitted):
         raise RewardOntologyError(
             f"rule {rule_id} declares reason codes {sorted(required)}, "
             f"not {sorted(emitted)}"
@@ -1367,14 +1576,18 @@ def _record_calibration(record, catalog):
 
 def _load_jsonl(path):
     path = Path(path)
+
+    def reject_nonfinite(token):
+        raise ValueError(f"non-finite numeric constant {token}")
+
     with path.open(encoding="utf-8") as handle:
         for line_number, raw_line in enumerate(handle, 1):
             line = raw_line.rstrip("\n")
             if not line.strip():
                 continue
             try:
-                record = json.loads(line)
-            except json.JSONDecodeError as exc:
+                record = json.loads(line, parse_constant=reject_nonfinite)
+            except (json.JSONDecodeError, ValueError) as exc:
                 raise RewardOntologyError(
                     f"{path}:{line_number}: invalid JSON: {exc}"
                 ) from exc
