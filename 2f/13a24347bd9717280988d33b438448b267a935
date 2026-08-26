@@ -1,0 +1,21 @@
+config/card-schemas/cache-stampede-trajectories.json
+  s_940326c4ee4215::t_d723cc56e99e51 5,15,38,46,51,55-56,58,82,95-97
+tests/test_card_schema_issue_117.py
+  s_940326c4ee4215::t_d723cc56e99e51 23,123-143
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "2f13a24347bd9717280988d33b438448b267a935",
+  "prompts": {},
+  "sessions": {
+    "s_940326c4ee4215": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a032e4-1904-7a82-8c8b-1ad3cfbeb0b0",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Raul Montoya Cardenas <montoyaraul34@gmail.com>"
+    }
+  }
+}
