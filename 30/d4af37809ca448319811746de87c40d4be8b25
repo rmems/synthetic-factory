@@ -1,0 +1,56 @@
+.claude/skills/run-synthetic-factory/factory-window.workflow.js
+  s_940326c4ee4215::t_96be5aa51664f2 167-176
+docs/token-efficiency.md
+  s_940326c4ee4215::t_19030ec1efe58e 63
+  s_940326c4ee4215::t_435a712b897320 139
+  s_940326c4ee4215::t_cf4458f1ac1c42 66-68
+  s_940326c4ee4215::t_91c018ce4ff7c1 134,140-142,144-145
+prompts/_factory-contract.md
+  s_940326c4ee4215::t_d422db85de8a79 51
+tests/test_round_txn.py
+  s_940326c4ee4215::t_209929db78c2c6 616-635
+  s_940326c4ee4215::t_a9ebe5795b829d 554-562,568,570
+  s_940326c4ee4215::t_b2a4e310e6b64b 593
+  s_940326c4ee4215::t_cf4458f1ac1c42 578-592,594-597
+tests/test_workflow_contract.py
+  s_940326c4ee4215::t_adf73a0e613c91 107,117-122
+  s_940326c4ee4215::t_cf4458f1ac1c42 111-113,123
+  s_940326c4ee4215::t_7a1519eb48520a 114-116
+pipelines/round_txn.py
+  s_940326c4ee4215::t_209929db78c2c6 307-308,310-311,2236,2255-2260
+  s_940326c4ee4215::t_ffe7fecc9907c7 309
+  s_940326c4ee4215::t_e1f9a443cd5976 302-303
+  s_940326c4ee4215::t_762894ae3c7552 297-300,304-305,2246-2251,2253-2254,2261,2263
+  s_a101c3059277fd::t_850e30dfaa6297 306
+tests/test_factory_driver.py
+  s_940326c4ee4215::t_cf4458f1ac1c42 212,215,219-220
+  s_940326c4ee4215::t_c7fd2807e91f4d 208-209,211
+  s_940326c4ee4215::t_a9ebe5795b829d 199-207
+.claude/skills/run-synthetic-factory/driver.py
+  s_940326c4ee4215::t_606d04f580388f 74-77,81-82,375,380-386,389
+  s_940326c4ee4215::t_e1f9a443cd5976 79-80
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "30d4af37809ca448319811746de87c40d4be8b25",
+  "prompts": {},
+  "sessions": {
+    "s_940326c4ee4215": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a032e4-1904-7a82-8c8b-1ad3cfbeb0b0",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": null
+    },
+    "s_a101c3059277fd": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a01e14-4bc2-7890-a7ce-1c993a8df50a",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Raul Montoya Cardenas <montoyaraul34@gmail.com>"
+    }
+  }
+}
