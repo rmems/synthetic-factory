@@ -1,0 +1,27 @@
+config/card-schemas/api-contract-migration-trajectories.json
+  s_940326c4ee4215::t_472ed4267f0dc6 5,47
+  s_940326c4ee4215::t_823c5b6b9af328 60
+tests/fixtures/card-schema/api-contract-migration-trajectories.jsonl
+  s_940326c4ee4215::t_94b5b8918fdfa5 1-7
+tests/test_card_schema_issue_105.py
+  s_940326c4ee4215::t_6f5389603c2f38 232-233,322,45-177,203-204,234-246,269,271,273-275,277-278,299-300,302,306,310-312,316,324-413,415-416,420-435
+  s_940326c4ee4215::t_ae8f3dab3c3af7 44
+  s_940326c4ee4215::t_823c5b6b9af328 270,272,276,298,301,303-305
+  s_940326c4ee4215::t_e181631ea9f1bf 414,417-419
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "75408cfe11a28d18fa6230592d455236da9dda47",
+  "prompts": {},
+  "sessions": {
+    "s_940326c4ee4215": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a032e4-1904-7a82-8c8b-1ad3cfbeb0b0",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Raul Montoya Cardenas <montoyaraul34@gmail.com>"
+    }
+  }
+}
