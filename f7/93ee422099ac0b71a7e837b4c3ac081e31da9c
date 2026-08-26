@@ -1,0 +1,39 @@
+docs/trajectory-preference-gate.md
+  s_940326c4ee4215::t_4cb3366f8cb02b 61-63,68-70,83-86,110,120,124-126
+tests/test_curate_trajectory_preferences.py
+  s_940326c4ee4215::t_4cb3366f8cb02b 49-52,235-242,244-247,249-252,255-259,262-268,270-273,275,277-278,312-320,322,324-333,335-338,340,589
+  s_940326c4ee4215::t_91cd03d3ceb2bf 342-365
+  s_940326c4ee4215::t_0b123fcd1edcd2 642-660
+  s_002cddb1a70571::t_bddddffdb28d0a 53,243,248,254,261,269,274,276,280,321,323,334,339,341
+  s_002cddb1a70571::t_b0361488b7306e 253,260,279
+pipelines/curate_trajectory_preferences.py
+  s_940326c4ee4215::t_4cb3366f8cb02b 45,69,80,141,180-181,183-192,194-195,198-199,201-206,208-211,230,249,317,324,327-333,335,338-339,361-363,489,498,513,525,644
+  s_940326c4ee4215::t_0b123fcd1edcd2 115-123,594-602
+  s_940326c4ee4215::t_91cd03d3ceb2bf 124-129,336,340
+  s_002cddb1a70571::t_6c8ccc7f6a0d34 182,193,196-197,200,207,212-213,326,334,364
+  s_940326c4ee4215::t_e1d156e6d6cc84 325,337
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "f793ee422099ac0b71a7e837b4c3ac081e31da9c",
+  "prompts": {},
+  "sessions": {
+    "s_002cddb1a70571": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "abd260ba-6a6c-45a6-9db3-a4e0988ad60e",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Raul Montoya Cardenas <montoyaraul34@gmail.com>"
+    },
+    "s_940326c4ee4215": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a032e4-1904-7a82-8c8b-1ad3cfbeb0b0",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": null
+    }
+  }
+}
