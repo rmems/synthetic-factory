@@ -1,0 +1,22 @@
+config/card-schemas/payment-idempotency-trajectories.json
+  s_940326c4ee4215::t_d538bd802af532 5,15,29,38,46,51,56,68,74-77
+tests/test_card_schema_issue_116.py
+  s_940326c4ee4215::t_980dcfd82d5b0d 119
+  s_940326c4ee4215::t_d538bd802af532 116-118,121-142
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "2826619e1a9c081858624224ff2b3ae4673f7bac",
+  "prompts": {},
+  "sessions": {
+    "s_940326c4ee4215": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a032e4-1904-7a82-8c8b-1ad3cfbeb0b0",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Raul Montoya Cardenas <montoyaraul34@gmail.com>"
+    }
+  }
+}
