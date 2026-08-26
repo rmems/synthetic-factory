@@ -1,0 +1,20 @@
+tests/test_card_schema.py
+  s_940326c4ee4215::t_d526bcc70b304b 65-72,440-467
+  s_940326c4ee4215::t_301133d19ce515 410-439,468-470
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "9dedb164da35b4c98870e7ffdbac26cfca43cbb0",
+  "prompts": {},
+  "sessions": {
+    "s_940326c4ee4215": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a032e4-1904-7a82-8c8b-1ad3cfbeb0b0",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Raul Montoya Cardenas <montoyaraul34@gmail.com>"
+    }
+  }
+}
