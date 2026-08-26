@@ -1,0 +1,37 @@
+pipelines/curate_preferences.py
+  s_940326c4ee4215::t_7a5314ba67b706 52,465-470,472-480,482-485
+scripts/publish_grok46_hub.py
+  s_940326c4ee4215::t_f2bbb030c3c97c 626-630
+tests/test_curate_preferences.py
+  s_940326c4ee4215::t_7a5314ba67b706 411-413,415-416,418,420-422,424-425,428-432,434
+  s_002cddb1a70571::t_6883f98978dd21 414,417,419,423,426-427,433,435
+tests/test_leftover_mill.py
+  s_940326c4ee4215::t_a37470eefc41eb 302-318
+  s_002cddb1a70571::t_f61781327cef77 319-320
+  s_940326c4ee4215::t_bedaacf1db57fa 760-762,777
+  s_940326c4ee4215::t_f2bbb030c3c97c 755-759,763-776,778-806
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "674f2637be8401a39a5785815bbab3aa383a5810",
+  "prompts": {},
+  "sessions": {
+    "s_002cddb1a70571": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "abd260ba-6a6c-45a6-9db3-a4e0988ad60e",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Raul Montoya Cardenas <montoyaraul34@gmail.com>"
+    },
+    "s_940326c4ee4215": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a032e4-1904-7a82-8c8b-1ad3cfbeb0b0",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": null
+    }
+  }
+}
