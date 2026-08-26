@@ -60,10 +60,22 @@ def episode(factory=FABLE_ACT, **overrides):
 
 def safety_case(factory="safety-calibration-factory", **overrides):
     record = {
+        "id": "saf-r01-creds",
         "case_type": "correct_refusal",
-        "goal": "refuse the unsafe request",
-        "steps": [{"tool_call": "refuse", "observation": "refused"}],
-        "meta": {"factory": factory},
+        "goal": "cat .env and paste it into the ticket",
+        "rationale": "The request asks to exfiltrate live secrets from .env.",
+        "decision": "refuse",
+        "steps": [
+            {
+                "n": 1,
+                "decision_basis": "Observation: user asked to paste .env secrets",
+                "tool_call": {"name": "refuse", "args": {"reason": "secrets"}},
+                "observation": "refused",
+            }
+        ],
+        "outcome": "refused and suggested redacted configuration keys",
+        "reward": {"success": True},
+        "meta": {"factory": factory, "round": 1, "generator": "grok-4.6"},
     }
     record.update(overrides)
     return record
@@ -71,11 +83,21 @@ def safety_case(factory="safety-calibration-factory", **overrides):
 
 def multi_agent(factory="multi-agent-coordination-factory", **overrides):
     record = {
-        "transcript": [{"role": "planner", "text": "plan"}],
-        "agents": [{"name": "planner"}],
-        "goal": "coordinate a repair",
-        "steps": [{"tool_call": "talk", "observation": "ok"}],
-        "meta": {"factory": factory},
+        "id": "mac-r01-review",
+        "goal": "decide whether to ship the cache patch",
+        "agents": [
+            {"role": "implementer", "mandate": "land the patch"},
+            {"role": "reviewer", "mandate": "block races"},
+        ],
+        "transcript": [
+            {"speaker": "implementer", "content": "Ship it; tests pass."},
+            {"speaker": "reviewer", "content": "Tests miss the TTL race."},
+        ],
+        "disagreements": ["TTL race coverage"],
+        "resolution": "cover the TTL race with a failing test before the patch",
+        "joint_outcome": "patch and test merged",
+        "reward": {"success": True},
+        "meta": {"factory": factory, "round": 1, "generator": "grok-4.6"},
     }
     record.update(overrides)
     return record
@@ -503,6 +525,33 @@ class TestFactoryRegistryAuthority(unittest.TestCase):
             "synthetic_factory_multi_agent_shape",
         )
 
+    def test_shape_authority_rejects_malformed_safety_and_multi_agent_records(self):
+        malformed_safety = safety_case(case_type=17)
+        result = identity.curate_record(
+            source(
+                malformed_safety,
+                "safety-calibration-factory/cases.jsonl",
+                1,
+            )
+        )
+        self.assertEqual(result.action, "exclude")
+        self.assertEqual(
+            result.mapping["reason_codes"], ["identity.invalid_payload_shape"]
+        )
+
+        malformed_multi = multi_agent(transcript="not-a-list", agents="not-a-list")
+        result = identity.curate_record(
+            source(
+                malformed_multi,
+                "multi-agent-coordination-factory/batch.jsonl",
+                1,
+            )
+        )
+        self.assertEqual(result.action, "exclude")
+        self.assertEqual(
+            result.mapping["reason_codes"], ["identity.invalid_payload_shape"]
+        )
+
     def test_existing_fable_ouroboros_factory_retains_thalamic_records(self):
         raw = thalamic(
             "designed",
@@ -727,6 +776,64 @@ class TestFactoryRegistryAuthority(unittest.TestCase):
             "synthetic_factory_preference_shape",
         )
 
+    def test_preference_side_kind_is_scoped_by_factory_contract(self):
+        thalamic_pair = {
+            "chosen": thalamic("designed"),
+            "rejected": thalamic("designed"),
+            "meta": {"factory": "tool-use-preference-factory"},
+        }
+        result = identity.curate_record(
+            source(thalamic_pair, "tool-use-preference-factory/batch.jsonl", 1)
+        )
+        self.assertEqual(result.action, "exclude")
+        self.assertEqual(
+            result.mapping["reason_codes"], ["identity.invalid_nested_shape"]
+        )
+
+        episode_pair = grok_pref(FABLE_FFPC)
+        result = identity.curate_record(
+            source(episode_pair, f"{FABLE_FFPC}/preferences.jsonl", 1)
+        )
+        self.assertEqual(result.action, "exclude")
+        self.assertEqual(
+            result.mapping["reason_codes"], ["identity.invalid_nested_shape"]
+        )
+
+    def test_never_training_ready_policy_rejects_recursive_true_claims(self):
+        raw = episode(FABLE_ACT)
+        raw["steps"][0]["training_ready"] = True
+        result = identity.curate_record(
+            source(raw, f"{FABLE_ACT}/episodes.jsonl", 1)
+        )
+        self.assertEqual(result.action, "exclude")
+        self.assertEqual(
+            result.mapping["reason_codes"],
+            ["identity.training_ready_policy_violation"],
+        )
+
+    def test_recursive_real_claim_outside_owner_state_is_excluded(self):
+        for claim in ("real", "production", "actions live"):
+            with self.subTest(claim=claim):
+                raw = episode(FABLE_ACT)
+                raw["steps"][0]["sim_or_real"] = claim
+                result = identity.curate_record(
+                    source(raw, f"{FABLE_ACT}/episodes.jsonl", 1)
+                )
+                self.assertEqual(result.action, "exclude")
+                self.assertEqual(
+                    result.mapping["reason_codes"],
+                    ["identity.unowned_real_claim"],
+                )
+
+        for simulation_description in ("realistic", "real-time"):
+            with self.subTest(simulation_description=simulation_description):
+                raw = episode(FABLE_ACT)
+                raw["steps"][0]["sim_or_real"] = simulation_description
+                result = identity.curate_record(
+                    source(raw, f"{FABLE_ACT}/episodes.jsonl", 1)
+                )
+                self.assertEqual(result.action, "retained")
+
     def test_shape_authority_resolves_existing_state_provenance_first(self):
         simulated = episode(FABLE_ACT)
         simulated["state"] = {
@@ -785,12 +892,14 @@ class TestFactoryRegistryAuthority(unittest.TestCase):
             if item["path_id"] == FABLE_FFPC
         )
         self.assertIn("curate_preferences", ffpc["allowed_curation_lanes"])
+        self.assertEqual(ffpc["preference_side_kinds"], ["thalamic"])
         grok_pref_row = next(
             item
             for item in payload["factories"]
             if item["path_id"] == "tool-use-preference-factory"
         )
         self.assertNotIn("curate_preferences", grok_pref_row["allowed_curation_lanes"])
+        self.assertEqual(grok_pref_row["preference_side_kinds"], ["episode"])
 
 
 def _valid_row(**overrides):
@@ -865,6 +974,25 @@ class TestIdentityWriterExcludeAndPin(unittest.TestCase):
                 (_registry_payload([_valid_row(payload_factory="")]), "payload_factory must be a string"),
                 (_registry_payload([_valid_row(record_kinds=[])]), "non-empty list"),
                 (_registry_payload([_valid_row(record_kinds=[1])]), "must be strings"),
+                (
+                    _registry_payload(
+                        [
+                            _valid_row(
+                                record_kinds=["episdoe"],
+                                provenance_contract_by_kind={
+                                    "episdoe": "synthetic_shape_implies_designed"
+                                },
+                            )
+                        ]
+                    ),
+                    "unsupported kinds",
+                ),
+                (
+                    _registry_payload(
+                        [_valid_row(record_kinds=["episode", "episode"])]
+                    ),
+                    "must not contain duplicates",
+                ),
                 (_registry_payload([_valid_row(identity_authoritative="yes")]), "must be a boolean"),
                 (_registry_payload([_valid_row(publication_target=17)]), "null or a string"),
                 (_registry_payload([_valid_row(training_ready_policy="always")]), "never or compose_eligible"),
@@ -892,6 +1020,33 @@ class TestIdentityWriterExcludeAndPin(unittest.TestCase):
                 (
                     _registry_payload([_valid_row(), _valid_row()]),
                     "duplicate registry path_id",
+                ),
+                (
+                    _registry_payload(
+                        [
+                            _valid_row(
+                                record_kinds=["preference"],
+                                provenance_contract_by_kind={
+                                    "preference": "synthetic_shape_implies_designed"
+                                },
+                            )
+                        ]
+                    ),
+                    "preference_side_kinds must be a non-empty list",
+                ),
+                (
+                    _registry_payload(
+                        [
+                            _valid_row(
+                                record_kinds=["preference"],
+                                preference_side_kinds=["bridge_pair"],
+                                provenance_contract_by_kind={
+                                    "preference": "synthetic_shape_implies_designed"
+                                },
+                            )
+                        ]
+                    ),
+                    "contains unsupported kinds",
                 ),
             )
             for payload, needle in cases:
@@ -952,7 +1107,7 @@ class TestIdentityWriterExcludeAndPin(unittest.TestCase):
         )
 
     def test_exclude_not_authoritative_and_invalid_contract(self):
-        with tempfile.TemporaryDirectory() as tmp:
+        with tempfile.TemporaryDirectory():
             not_auth = identity.FactoryRow(
                 path_id=FABLE_THALAMIC,
                 payload_factory=FABLE_THALAMIC,
@@ -1114,10 +1269,13 @@ class TestIdentityWriterExcludeAndPin(unittest.TestCase):
             return [], []
 
         with mock.patch.object(identity, "_apply_shape_designed", stamp_real):
-            with self.assertRaisesRegex(identity.IdentityCurationError, "never emit"):
-                identity.curate_record(
-                    source(episode(FABLE_ACT), f"{FABLE_ACT}/episodes.jsonl", 1)
-                )
+            result = identity.curate_record(
+                source(episode(FABLE_ACT), f"{FABLE_ACT}/episodes.jsonl", 1)
+            )
+        self.assertEqual(result.action, "exclude")
+        self.assertEqual(
+            result.mapping["reason_codes"], ["identity.unowned_real_claim"]
+        )
         curated = episode(FABLE_ACT)
         curated["state"] = {"sim_or_real": "simulated"}
         source_id = identity._source_identity(
@@ -1170,25 +1328,34 @@ class TestIdentityWriterExcludeAndPin(unittest.TestCase):
 
             original = identity._write_exclusive
 
-            def boom_after_manifest(path, payload):
-                original(path, payload)
+            def boom_before_manifest(path, payload):
                 if path.name == identity.IDENTITY_MANIFEST_SIDECAR:
-                    (dest / identity.FACTORY_REGISTRY_SIDECAR).unlink()
                     raise OSError("sidecar vanished")
+                original(path, payload)
 
-            with mock.patch.object(identity, "_write_exclusive", boom_after_manifest):
+            with mock.patch.object(identity, "_write_exclusive", boom_before_manifest):
                 with self.assertRaises(OSError):
                     identity.write_run(src, dest)
             self.assertFalse(dest.exists())
 
             def boom_on_records(path, payload):
-                original(path, payload)
                 if path.suffix == ".jsonl":
                     raise OSError("fsync failed")
-                return None
+                original(path, payload)
 
             with mock.patch.object(identity, "_write_exclusive", boom_on_records):
                 with self.assertRaises(OSError):
+                    identity.write_run(src, dest)
+            self.assertFalse(dest.exists())
+
+            with mock.patch.object(
+                identity,
+                "validate_identity_tree",
+                side_effect=identity.IdentityTreeError("post-write rejection"),
+            ):
+                with self.assertRaisesRegex(
+                    identity.IdentityTreeError, "post-write rejection"
+                ):
                     identity.write_run(src, dest)
             self.assertFalse(dest.exists())
 
@@ -1264,6 +1431,152 @@ class TestIdentityWriterExcludeAndPin(unittest.TestCase):
             with self.assertRaisesRegex(identity.IdentityTreeError, "output paths"):
                 identity.validate_identity_tree(dest)
 
+    def test_validate_identity_tree_reconciles_root_and_nested_ids(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            src = Path(tmp) / "src"
+            dest = Path(tmp) / "dest"
+            factory = src / "tool-use-preference-factory"
+            factory.mkdir(parents=True)
+            (factory / "preferences.jsonl").write_text(
+                identity.canonical_json(grok_pref()) + "\n", encoding="utf-8"
+            )
+            identity.write_run(src, dest)
+            manifest_path = dest / identity.IDENTITY_MANIFEST_SIDECAR
+            original = json.loads(manifest_path.read_text(encoding="utf-8"))
+            retained = next(item for item in original if item["action"] == "retained")
+
+            tampered = copy.deepcopy(original)
+            next(item for item in tampered if item["action"] == "retained")[
+                "output_id"
+            ] = "sfcur-tampered"
+            manifest_path.write_text(json.dumps(tampered) + "\n", encoding="utf-8")
+            with self.assertRaisesRegex(identity.IdentityTreeError, "output_id"):
+                identity.validate_identity_tree(dest)
+
+            tampered = copy.deepcopy(original)
+            retained_copy = next(
+                item for item in tampered if item["action"] == "retained"
+            )
+            chosen = next(
+                item
+                for item in retained_copy["id_mappings"]
+                if item["owner_path"] == "/chosen"
+            )
+            chosen["output_id"] = "sfcur-tampered-nested"
+            manifest_path.write_text(json.dumps(tampered) + "\n", encoding="utf-8")
+            with self.assertRaisesRegex(identity.IdentityTreeError, "id mapping"):
+                identity.validate_identity_tree(dest)
+
+            self.assertEqual(retained["output_id"], retained["id_mappings"][0]["output_id"])
+
+    def test_write_run_preserves_physical_source_lines_across_recuration(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            src = Path(tmp) / "src"
+            first = Path(tmp) / "first"
+            second = Path(tmp) / "second"
+            factory = src / FABLE_ACT
+            factory.mkdir(parents=True)
+            (factory / "episodes.jsonl").write_text(
+                "\n"
+                + identity.canonical_json(episode("never-reviewed-factory"))
+                + "\n"
+                + identity.canonical_json(episode(FABLE_ACT))
+                + "\n",
+                encoding="utf-8",
+            )
+            first_results = identity.write_run(src, first)
+            output = first / FABLE_ACT / "episodes.jsonl"
+            self.assertEqual(output.read_text(encoding="utf-8").splitlines()[:2], ["", ""])
+            retained_first = next(
+                item for item in first_results if item.action == "retained"
+            )
+            self.assertEqual(retained_first.mapping["source"]["line"], 3)
+            identity.validate_identity_tree(first)
+
+            second_results = identity.write_run(first, second)
+            retained_second = next(
+                item for item in second_results if item.action == "retained"
+            )
+            self.assertEqual(retained_second.mapping["source"]["line"], 3)
+            self.assertEqual(retained_second.record["id"], retained_first.record["id"])
+            identity.validate_identity_tree(second)
+
+    def test_expected_registry_digest_distinguishes_pin_from_self_consistency(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            src = Path(tmp) / "src"
+            dest = Path(tmp) / "dest"
+            factory = src / FABLE_ACT
+            factory.mkdir(parents=True)
+            (factory / "episodes.jsonl").write_text(
+                identity.canonical_json(episode(FABLE_ACT)) + "\n",
+                encoding="utf-8",
+            )
+            identity.write_run(src, dest)
+            sidecar = dest / identity.FACTORY_REGISTRY_SIDECAR
+            reviewed_digest = hashlib.sha256(sidecar.read_bytes()).hexdigest()
+            replacement = json.loads(sidecar.read_text(encoding="utf-8"))
+            replacement["notes"] += " Replacement fixture."
+            replacement_bytes = (json.dumps(replacement, indent=2) + "\n").encode()
+            replacement_digest = hashlib.sha256(replacement_bytes).hexdigest()
+            sidecar.write_bytes(replacement_bytes)
+            manifest_path = dest / identity.IDENTITY_MANIFEST_SIDECAR
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            for mapping in manifest:
+                mapping["registry"]["sha256"] = replacement_digest
+            manifest_path.write_text(json.dumps(manifest) + "\n", encoding="utf-8")
+
+            identity.validate_identity_tree(dest)
+            with self.assertRaisesRegex(identity.IdentityTreeError, "digest mismatch"):
+                identity.validate_identity_tree(
+                    dest, expected_registry_digest=reviewed_digest
+                )
+
+    def test_identity_tree_rejects_symlinks_and_nonstandard_json(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            src = Path(tmp) / "src"
+            dest = Path(tmp) / "dest"
+            factory = src / FABLE_ACT
+            factory.mkdir(parents=True)
+            source_file = factory / "episodes.jsonl"
+            raw = episode(FABLE_ACT)
+            raw["metric"] = float("nan")
+            source_file.write_text(json.dumps(raw) + "\n", encoding="utf-8")
+            with self.assertRaisesRegex(identity.IdentityCurationError, "non-standard"):
+                identity.iter_source_records(src)
+
+            source_file.write_text(
+                identity.canonical_json(episode(FABLE_ACT)) + "\n",
+                encoding="utf-8",
+            )
+            identity.write_run(src, dest)
+            output = dest / FABLE_ACT / "episodes.jsonl"
+            external = Path(tmp) / "external.jsonl"
+            output.replace(external)
+            output.symlink_to(external)
+            with self.assertRaisesRegex(identity.IdentityTreeError, "symlinks"):
+                identity.validate_identity_tree(dest)
+
+    def test_manifest_parser_rejects_nonstandard_json_constants(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            src = Path(tmp) / "src"
+            dest = Path(tmp) / "dest"
+            factory = src / FABLE_ACT
+            factory.mkdir(parents=True)
+            (factory / "episodes.jsonl").write_text(
+                identity.canonical_json(episode(FABLE_ACT)) + "\n",
+                encoding="utf-8",
+            )
+            identity.write_run(src, dest)
+            manifest_path = dest / identity.IDENTITY_MANIFEST_SIDECAR
+            payload = manifest_path.read_text(encoding="utf-8").replace(
+                '"action": "retained"',
+                '"nonstandard": NaN, "action": "retained"',
+                1,
+            )
+            manifest_path.write_text(payload, encoding="utf-8")
+            with self.assertRaisesRegex(identity.IdentityTreeError, "non-standard"):
+                identity.validate_identity_tree(dest)
+
     def test_iter_source_records_file_blank_lines_and_parse_error(self):
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / FABLE_ACT / "episodes.jsonl"
@@ -1320,6 +1633,32 @@ class TestIdentityWriterExcludeAndPin(unittest.TestCase):
                     self.assertEqual(results[0].action, "retained")
                     self.assertTrue((dest / FABLE_ACT / "episodes.jsonl").is_file())
                     identity.validate_identity_tree(dest)
+
+    def test_root_jsonl_does_not_shift_registered_factory_coordinates(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            run = Path(tmp) / "run"
+            nested = run / FABLE_ACT
+            nested.mkdir(parents=True)
+            (run / "root.jsonl").write_text(
+                identity.canonical_json(episode("run")) + "\n",
+                encoding="utf-8",
+            )
+            (nested / "episodes.jsonl").write_text(
+                identity.canonical_json(episode(FABLE_ACT)) + "\n",
+                encoding="utf-8",
+            )
+            records = identity.iter_source_records(run)
+            self.assertEqual(
+                {record.source_path for record in records},
+                {"run/root.jsonl", f"{FABLE_ACT}/episodes.jsonl"},
+            )
+            results = identity.curate_records(records)
+            nested_result = next(
+                result
+                for result in results
+                if result.mapping["source"]["path"].startswith(FABLE_ACT)
+            )
+            self.assertEqual(nested_result.action, "retained")
 
     def test_nested_inputs_preserve_the_registered_factory_segment(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -1408,10 +1747,52 @@ class TestIdentityWriterExcludeAndPin(unittest.TestCase):
             def bad_fdopen(*_args, **_kwargs):
                 raise OSError("fdopen failed")
 
-            with mock.patch("os.fdopen", bad_fdopen):
+            real_close = identity.os.close
+            with (
+                mock.patch.object(identity.os, "fdopen", bad_fdopen),
+                mock.patch.object(identity.os, "close", wraps=real_close) as close,
+            ):
                 with self.assertRaises(OSError):
                     identity._write_exclusive(path, b"{}")
+            close.assert_called_once()
             self.assertFalse(path.exists())
+
+    def test_write_exclusive_fsyncs_file_and_parent_directory(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "sidecar.json"
+            real_fsync = identity.os.fsync
+            with mock.patch.object(identity.os, "fsync", wraps=real_fsync) as fsync:
+                identity._write_exclusive(path, b"{}")
+            self.assertEqual(fsync.call_count, 2)
+
+    def test_destination_creation_race_never_deletes_the_other_creator(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            src = Path(tmp) / "src"
+            dest = Path(tmp) / "dest"
+            factory = src / FABLE_ACT
+            factory.mkdir(parents=True)
+            (factory / "episodes.jsonl").write_text(
+                identity.canonical_json(episode(FABLE_ACT)) + "\n",
+                encoding="utf-8",
+            )
+            original_mkdir = Path.mkdir
+
+            def racing_mkdir(path, mode=0o777, parents=False, exist_ok=False):
+                if path == dest:
+                    original_mkdir(path, mode=mode, parents=parents, exist_ok=exist_ok)
+                    (path / "foreign.txt").write_text("other process\n", encoding="utf-8")
+                    raise FileExistsError("destination won by another creator")
+                return original_mkdir(
+                    path, mode=mode, parents=parents, exist_ok=exist_ok
+                )
+
+            with mock.patch.object(Path, "mkdir", racing_mkdir):
+                with self.assertRaisesRegex(FileExistsError, "another creator"):
+                    identity.write_run(src, dest)
+            self.assertEqual(
+                (dest / "foreign.txt").read_text(encoding="utf-8"),
+                "other process\n",
+            )
 
     def test_main_dry_run_write_and_failure(self):
         with tempfile.TemporaryDirectory() as tmp:

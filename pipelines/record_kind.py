@@ -29,6 +29,8 @@ KIND_ORDER = (
     "unknown",
 )
 
+SUPPORTED_RECORD_KINDS = frozenset(KIND_ORDER) - {"unknown"}
+
 PREFERENCE_SIDE_KINDS = frozenset({"episode", "thalamic"})
 
 
