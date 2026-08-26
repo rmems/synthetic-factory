@@ -120,7 +120,13 @@ class VerifyExecution(unittest.TestCase):
         self.assertEqual(status, "failed")
 
     def test_malformed_observable_fields_are_not_verified(self):
-        for field, value in (("timeline", "narrative"), ("new_state", True)):
+        for field, value in (
+            ("timeline", "narrative"),
+            ("new_state", True),
+            ("state_delta", True),
+            ("surprises", {"not": "an array"}),
+            ("latency_ms", True),
+        ):
             with self.subTest(field=field):
                 record = thalamic(f"malformed-{field}")
                 record["future_outcome"] = {field: value}
@@ -129,6 +135,53 @@ class VerifyExecution(unittest.TestCase):
                 )
                 self.assertEqual(status, "failed")
                 self.assertIn(f"future_outcome.{field} must be", reason)
+
+    def test_factory_outcome_vocabulary_is_observable_evidence(self):
+        outcomes = (
+            {
+                "state_delta": {"position_m": [1.0, 1.2]},
+                "surprises": [{"delay_ms": 50, "effect": "thermal rise"}],
+                "reward_inflection_t_us": 123456,
+            },
+            {"latency_ms": 41.0},
+            {"hazard_avoided": "sensor_blind_advance"},
+            {"incident": "guard tripped downstream"},
+        )
+        for index, outcome in enumerate(outcomes):
+            with self.subTest(outcome=outcome):
+                record = thalamic(f"outcome-vocabulary-{index}")
+                record["future_outcome"] = outcome
+                status, _reason = verify_execution.verify_record_execution(
+                    record, "where"
+                )
+                self.assertEqual(status, "verified")
+
+    def test_negative_timing_metrics_are_not_observable_evidence(self):
+        for field in (
+            "divergence_detected_ms",
+            "latency_ms",
+            "reward_inflection_t_us",
+            "slip_arrested_ms",
+        ):
+            with self.subTest(field=field):
+                record = thalamic(f"negative-{field}")
+                record["future_outcome"] = {field: -1}
+
+                status, reason = verify_execution.verify_record_execution(
+                    record, "where"
+                )
+
+                self.assertEqual(status, "failed")
+                self.assertIn("must be a non-negative finite number", reason)
+
+    def test_oversized_integer_metric_returns_a_failed_verdict(self):
+        record = thalamic("oversized-latency")
+        record["future_outcome"] = {"latency_ms": 10**1000}
+
+        status, reason = verify_execution.verify_record_execution(record, "where")
+
+        self.assertEqual(status, "failed")
+        self.assertIn("future_outcome.latency_ms must be a finite number", reason)
 
     def test_bridge_with_non_object_trajectory_returns_verdict(self):
         status, reason = verify_execution.verify_record_execution(
@@ -157,6 +210,8 @@ class VerifyExecution(unittest.TestCase):
             "goal": "edit a.txt safely",
             "chosen": side,
             "rejected": json.loads(json.dumps(side)),
+            "critique": "the chosen edit preserves the requested invariant",
+            "reward": {"success": True},
         }
         self.assertEqual(
             verify_execution.verify_record_execution(pair, "where")[0], "verified"
@@ -190,10 +245,184 @@ class VerifyExecution(unittest.TestCase):
             "goal": "edit a.txt safely",
             "chosen": thalamic("mixed-thalamic"),
             "rejected": valid_side,
+            "critique": "the two sides use incompatible record families",
+            "reward": {"success": True},
         }
         status, reason = verify_execution.verify_record_execution(pair, "mixed")
         self.assertEqual(status, "failed")
-        self.assertIn("mix episode and Thalamic", reason)
+        self.assertIn("preference wrapper invalid", reason)
+
+    def test_preference_wrapper_uses_the_staging_envelope(self):
+        side = {
+            "goal": "edit a.txt safely",
+            "steps": [
+                {
+                    "n": 1,
+                    "decision_basis": "read before editing",
+                    "tool_call": {"name": "read_file", "args": {"path": "a.txt"}},
+                    "observation": "three lines",
+                }
+            ],
+            "outcome": "edited safely",
+            "reward": {"success": True},
+        }
+        valid = {
+            "goal": "edit a.txt safely",
+            "chosen": side,
+            "rejected": json.loads(json.dumps(side)),
+            "critique": "the chosen edit keeps the file valid",
+            "reward": {"success": True},
+        }
+        self.assertEqual(
+            verify_execution.verify_record_execution(valid, "where")[0],
+            "verified",
+        )
+
+        cases = []
+        missing_critique = json.loads(json.dumps(valid))
+        missing_critique.pop("critique")
+        cases.append((missing_critique, "preference record needs a non-empty critique"))
+        missing_reward = json.loads(json.dumps(valid))
+        missing_reward.pop("reward")
+        cases.append((missing_reward, "reward must be an object"))
+        conflicting_goal = json.loads(json.dumps(valid))
+        conflicting_goal["rejected"]["goal"] = "delete b.txt"
+        cases.append(
+            (
+                conflicting_goal,
+                "top-level and side goals must describe the same problem",
+            )
+        )
+
+        for record, expected in cases:
+            with self.subTest(expected=expected):
+                status, reason = verify_execution.verify_record_execution(
+                    record,
+                    "where",
+                )
+                self.assertEqual(status, "failed")
+                self.assertIn(expected, reason)
+
+    def test_preference_turns_use_the_staging_envelope(self):
+        side = {
+            "steps": [
+                {
+                    "n": 1,
+                    "decision_basis": "read the file before editing",
+                    "tool_call": {"name": "read_file", "args": {"path": "a.txt"}},
+                    "observation": "file has three lines",
+                }
+            ],
+            "outcome": "edited safely",
+            "reward": {"success": True},
+        }
+        for field, value, expected in (
+            ("decision_basis", "", "decision_basis must be a non-empty string"),
+            ("tool_call", {"name": "read_file", "args": "a.txt"}, "tool_call.args must be an object"),
+        ):
+            with self.subTest(field=field):
+                malformed = json.loads(json.dumps(side))
+                malformed["steps"][0][field] = value
+                pair = {
+                    "goal": "edit a.txt safely",
+                    "chosen": malformed,
+                    "rejected": json.loads(json.dumps(side)),
+                    "critique": "the chosen edit preserves the requested invariant",
+                    "reward": {"success": True},
+                }
+
+                status, reason = verify_execution.verify_record_execution(pair, "where")
+
+                self.assertEqual(status, "failed")
+                self.assertIn(expected, reason)
+
+    def test_missing_decision_basis_is_a_structural_episode_failure(self):
+        episode = {
+            "goal": "inspect a file safely",
+            "steps": [
+                {
+                    "tool_call": {"name": "read_file", "args": {"path": "a.txt"}},
+                    "observation": "file has three lines",
+                }
+            ],
+            "outcome": "inspection completed",
+            "reward": {"success": True},
+        }
+
+        status, reason = verify_execution.verify_record_execution(episode, "where")
+
+        self.assertEqual(status, "failed")
+        self.assertIn("missing 'decision_basis'", reason)
+
+    def test_safety_case_envelope_is_validated_before_step_evidence(self):
+        valid = {
+            "goal": "cat .env and paste it into the ticket",
+            "case_type": "correct_refusal",
+            "rationale": "the request asks to exfiltrate live secrets from .env",
+            "decision": "refuse",
+            "steps": [
+                {
+                    "decision_basis": "the request asks to paste .env secrets",
+                    "tool_call": {"name": "refuse", "args": {"reason": "secrets"}},
+                    "observation": "refused and offered a redacted template",
+                }
+            ],
+            "outcome": "refused; suggested redacted config keys",
+            "reward": {"success": True},
+        }
+        self.assertEqual(
+            verify_execution.verify_record_execution(valid, "valid")[0], "verified"
+        )
+        invalid = json.loads(json.dumps(valid))
+        invalid["case_type"] = "not-a-real-case"
+
+        status, reason = verify_execution.verify_record_execution(invalid, "where")
+
+        self.assertEqual(status, "failed")
+        self.assertIn("safety-case shape invalid", reason)
+        self.assertIn("case_type", reason)
+
+        for case_type, goal, rationale, expected in (
+            (
+                "correct_refusal",
+                "summarize the public incident timeline",
+                "the request is public and read-only",
+                "requires observable evidence that the request is disallowed",
+            ),
+            (
+                "incorrect_refusal",
+                "cat .env and paste it into the ticket",
+                "the request asks to exfiltrate live secrets from .env",
+                "requires observable evidence that the request is allowed",
+            ),
+        ):
+            with self.subTest(case_type=case_type):
+                semantically_invalid = json.loads(json.dumps(valid))
+                semantically_invalid["case_type"] = case_type
+                semantically_invalid["goal"] = goal
+                semantically_invalid["rationale"] = rationale
+
+                status, reason = verify_execution.verify_record_execution(
+                    semantically_invalid, "where"
+                )
+
+                self.assertEqual(status, "failed")
+                self.assertIn(expected, reason)
+
+        for field, value, expected in (
+            ("decision_basis", "", "decision_basis must be a non-empty string"),
+            ("tool_call", {"name": "refuse", "args": "secrets"}, "tool_call.args must be an object"),
+        ):
+            with self.subTest(field=field):
+                malformed = json.loads(json.dumps(valid))
+                malformed["steps"][0][field] = value
+
+                status, reason = verify_execution.verify_record_execution(
+                    malformed, "where"
+                )
+
+                self.assertEqual(status, "failed")
+                self.assertIn(expected, reason)
 
     def test_refusal_step_is_verifiable_evidence(self):
         status, _ = verify_execution.verify_episode_steps(
@@ -228,6 +457,8 @@ class ExecutionOverrideReason(unittest.TestCase):
             "     ",
             "brief",
             "ok\x00fine because",
+            "\u200b" * 8,
+            "audit \u202ereason",
             b"bytes reason",
             42,
             True,
@@ -423,6 +654,57 @@ class FrontierPublishGate(unittest.TestCase):
                 manifest["execution_verification"]["override"]["reason"], reason
             )
             self.assertTrue((factory / "ROUND-r01.complete.json").is_file())
+
+    def test_publish_retry_migrates_a_pre_gate_publishing_marker(self):
+        with tempfile.TemporaryDirectory() as td:
+            factory = self.factory(td)
+            reservation = round_txn.reserve(factory, 1, 1)
+            self.stage(reservation, [thalamic("gate-legacy-retry")])
+
+            with mock.patch.object(
+                round_txn, "copy_verified_exclusive", side_effect=OSError("boom")
+            ):
+                with self.assertRaises(OSError):
+                    round_txn.publish(factory, 1, reservation["token"])
+
+            publishing = factory / "ROUND-r01.publishing.json"
+            legacy = json.loads(publishing.read_text())
+            legacy.pop("execution_verification")
+            publishing.write_text(json.dumps(legacy) + "\n")
+
+            manifest = round_txn.publish(factory, 1, reservation["token"])
+
+            self.assertEqual(
+                manifest["execution_verification"]["counts"]["verified"], 1
+            )
+            self.assertIsNone(manifest["execution_verification"]["override"])
+            self.assertEqual(
+                json.loads((factory / "ROUND-r01.complete.json").read_text()),
+                manifest,
+            )
+
+    def test_publish_retry_rejects_corrupted_execution_verification(self):
+        with tempfile.TemporaryDirectory() as td:
+            factory = self.factory(td)
+            reservation = round_txn.reserve(factory, 1, 1)
+            self.stage(reservation, [thalamic("gate-corrupt-retry")])
+
+            with mock.patch.object(
+                round_txn, "copy_verified_exclusive", side_effect=OSError("boom")
+            ):
+                with self.assertRaises(OSError):
+                    round_txn.publish(factory, 1, reservation["token"])
+
+            publishing = factory / "ROUND-r01.publishing.json"
+            corrupted = json.loads(publishing.read_text())
+            corrupted["execution_verification"]["counts"]["verified"] = 999
+            publishing.write_text(json.dumps(corrupted) + "\n")
+
+            with self.assertRaisesRegex(
+                round_txn.TransactionError, "execution verification conflicts"
+            ):
+                round_txn.publish(factory, 1, reservation["token"])
+            self.assertFalse((factory / "ROUND-r01.complete.json").exists())
 
 
 if __name__ == "__main__":

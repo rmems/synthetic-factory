@@ -26,6 +26,7 @@ Co-authored-by: Muse Code powered by Muse Spark <muse-spark@meta.com>
 from __future__ import annotations
 
 import json
+import math
 import sys
 from pathlib import Path
 
@@ -41,7 +42,12 @@ except ImportError:  # pragma: no cover - depends on sys.path of the caller
     ALLOWED_SIM_OR_REAL = frozenset({"designed", "simulated", "hil"})
 
 try:
-    from validate_run import THALAMIC_CORE_KEYS, check_episode
+    from validate_run import (
+        THALAMIC_CORE_KEYS,
+        check_episode,
+        check_line,
+        check_safety_case,
+    )
 except ImportError:  # pragma: no cover - publish imports from the repo tree
     THALAMIC_CORE_KEYS = (
         "state",
@@ -52,6 +58,8 @@ except ImportError:  # pragma: no cover - publish imports from the repo tree
         "reward_components",
     )
     check_episode = None
+    check_line = None
+    check_safety_case = None
 
 
 KNOWN_TOOLS = frozenset({
@@ -62,6 +70,15 @@ KNOWN_TOOLS = frozenset({
     # outcome, so it is verifiable rather than cannot-verify.
     "refuse",
 })
+
+OBSERVABLE_OUTCOME_METRICS = frozenset({
+    "divergence_detected_ms",
+    "latency_ms",
+    "min_clearance_m",
+    "reward_inflection_t_us",
+    "slip_arrested_ms",
+})
+NONNEGATIVE_OUTCOME_METRICS = OBSERVABLE_OUTCOME_METRICS - {"min_clearance_m"}
 
 # ---------------------------------------------------------------------------
 # Frontier gate — integration with pipelines/round_txn.py
@@ -134,7 +151,18 @@ def verify_episode_steps(steps, _where):
     return "verified", "all steps have tool_call + observation + decision_basis"
 
 
-def verify_episode(obj, where, *, require_goal=True):
+def _is_missing_execution_evidence(error, where):
+    """Return whether a shape error belongs to the cannot-verify taxonomy."""
+    return error.startswith(f"{where} step ") and error.endswith(
+        (
+            ": missing 'tool_call'",
+            ": missing 'observation'",
+            ": observation must be a non-empty string",
+        )
+    )
+
+
+def verify_episode(obj, where, *, require_goal=True, strict_turns=False):
     """Validate an episode envelope before accepting its step evidence.
 
     ``validate_run.check_episode`` owns the repository's episode shape. Its
@@ -148,11 +176,39 @@ def verify_episode(obj, where, *, require_goal=True):
         return "failed", "episode shape checker unavailable"
     shape_errors = [
         error
-        for error in check_episode(obj, where, require_goal=require_goal)
-        if not error.startswith(f"{where} step ")
+        for error in check_episode(
+            obj,
+            where,
+            require_goal=require_goal,
+            forbid_hidden_thought=strict_turns,
+        )
+        if not _is_missing_execution_evidence(error, where)
     ]
     if shape_errors:
         return "failed", f"episode shape invalid: {shape_errors[0]}"
+    return verify_episode_steps(obj.get("steps"), where)
+
+
+def verify_safety_episode(obj, where):
+    """Validate the safety-case envelope before accepting its step evidence."""
+    if check_safety_case is None or check_episode is None:
+        return "failed", "safety-case shape checker unavailable"
+    errors = [
+        *check_safety_case(obj, where, factory_staging=True),
+        *check_episode(
+            obj,
+            where,
+            require_goal=False,
+            forbid_hidden_thought=True,
+        ),
+    ]
+    shape_errors = [
+        error
+        for error in dict.fromkeys(errors)
+        if not _is_missing_execution_evidence(error, where)
+    ]
+    if shape_errors:
+        return "failed", f"safety-case shape invalid: {shape_errors[0]}"
     return verify_episode_steps(obj.get("steps"), where)
 
 
@@ -208,9 +264,91 @@ def verify_thalamic(obj, where):
                 return "failed", "future_outcome.new_state must be an object"
         if value:
             observable_fields.append(field)
+
+    state_delta = fo.get("state_delta")
+    if state_delta is not None:
+        if isinstance(state_delta, dict):
+            if state_delta:
+                observable_fields.append("state_delta")
+        elif isinstance(state_delta, list):
+            if any(
+                not (
+                    isinstance(delta, dict)
+                    and delta
+                    or isinstance(delta, str)
+                    and delta.strip()
+                )
+                for delta in state_delta
+            ):
+                return (
+                    "failed",
+                    "future_outcome.state_delta entries must be non-empty "
+                    "strings or objects",
+                )
+            if state_delta:
+                observable_fields.append("state_delta")
+        else:
+            return "failed", "future_outcome.state_delta must be an object or array"
+
+    surprises = fo.get("surprises")
+    if surprises is not None:
+        if not isinstance(surprises, list):
+            return "failed", "future_outcome.surprises must be an array"
+        if any(
+            not (
+                isinstance(surprise, dict)
+                and surprise
+                or isinstance(surprise, str)
+                and surprise.strip()
+            )
+            for surprise in surprises
+        ):
+            return (
+                "failed",
+                "future_outcome.surprises entries must be non-empty strings or objects",
+            )
+        if surprises:
+            observable_fields.append("surprises")
+
+    for field in ("hazard_avoided", "incident"):
+        value = fo.get(field)
+        if value is None:
+            continue
+        if not (
+            isinstance(value, dict)
+            and value
+            or isinstance(value, str)
+            and value.strip()
+        ):
+            return (
+                "failed",
+                f"future_outcome.{field} must be a non-empty string or object",
+            )
+        observable_fields.append(field)
+
+    for field in OBSERVABLE_OUTCOME_METRICS:
+        if field not in fo:
+            continue
+        value = fo[field]
+        try:
+            finite_number = (
+                isinstance(value, (int, float))
+                and not isinstance(value, bool)
+                and math.isfinite(value)
+            )
+        except OverflowError:
+            finite_number = False
+        if not finite_number:
+            return "failed", f"future_outcome.{field} must be a finite number"
+        if field in NONNEGATIVE_OUTCOME_METRICS and value < 0:
+            return (
+                "failed",
+                f"future_outcome.{field} must be a non-negative finite number",
+            )
+        observable_fields.append(field)
     # Narrative-only or empty outcome containers are cannot-verify, not proof.
     if not observable_fields:
-        return "inconclusive", "future_outcome lacks observable timeline/effects"
+        return "inconclusive", "future_outcome lacks observable execution evidence"
     return "verified", "thalamic checks pass"
 
 
@@ -223,6 +361,25 @@ def verify_record_execution(obj, where="record"):
         return verify_thalamic(obj, where)
     # Preference pair: both sides must be verified independently, status = min
     if "chosen" in obj and "rejected" in obj:
+        if check_line is None:
+            return "failed", "preference shape checker unavailable"
+        wrapper_errors, wrapper_kind = check_line(
+            obj,
+            where,
+            factory_staging=True,
+        )
+        wrapper_errors = [
+            error
+            for error in wrapper_errors
+            if not any(
+                _is_missing_execution_evidence(error, f"{where}.{side}")
+                for side in ("chosen", "rejected")
+            )
+        ]
+        if wrapper_kind != "preference":
+            return "failed", "preference wrapper was not classified as a preference"
+        if wrapper_errors:
+            return "failed", f"preference wrapper invalid: {wrapper_errors[0]}"
         chosen = obj.get("chosen")
         rejected = obj.get("rejected")
         if not isinstance(chosen, dict) or not isinstance(rejected, dict):
@@ -240,10 +397,16 @@ def verify_record_execution(obj, where="record"):
                 return "failed", "preference shared goal must be a non-empty string"
             require_side_goal = "goal" not in obj
             s1, r1 = verify_episode(
-                chosen, f"{where}.chosen", require_goal=require_side_goal
+                chosen,
+                f"{where}.chosen",
+                require_goal=require_side_goal,
+                strict_turns=True,
             )
             s2, r2 = verify_episode(
-                rejected, f"{where}.rejected", require_goal=require_side_goal
+                rejected,
+                f"{where}.rejected",
+                require_goal=require_side_goal,
+                strict_turns=True,
             )
         elif chosen_thalamic or rejected_thalamic:
             if not (chosen_thalamic and rejected_thalamic):
@@ -263,11 +426,13 @@ def verify_record_execution(obj, where="record"):
         if traj:
             return verify_thalamic(traj, f"{where}.language_view.trajectory")
         return "inconclusive", "bridge missing language_view.trajectory"
-    # Safety-calibration records own prompt/rationale fields rather than goal;
-    # ordinary standalone episodes must carry their own goal. Preference sides
+    # Safety-calibration records have their own envelope checker. Ordinary
+    # standalone episodes must carry their own goal, while preference sides
     # are routed above with the wrapper's shared-goal context.
     if "steps" in obj:
-        return verify_episode(obj, where, require_goal="case_type" not in obj)
+        if "case_type" in obj:
+            return verify_safety_episode(obj, where)
+        return verify_episode(obj, where)
     return "inconclusive", f"unrecognized shape keys {sorted(obj)[:6]}"
 
 

@@ -21,15 +21,26 @@ Thalamic records require `state.sim_or_real ∈ {designed, simulated, hil}`,
 non-empty `safety_decision.rationale`, and a `future_outcome` with
 well-formed observable evidence: `timeline` is a non-empty array of objects,
 `observed_effects` is a non-empty array of strings or objects, and `new_state`
-is a non-empty object. A present observable field with the wrong type is a
-structural failure; empty or absent observable fields are inconclusive.
-Episode steps require
-`tool_call` with known tool name, non-empty `observation`, and
-`decision_basis` when `thought` is present. Preference pairs take the
-minimum of both sides. Episode-sided pairs must use episodes on both sides;
-each side is checked against the repository episode envelope before its step
-evidence is considered, and may inherit the pair's shared `goal`. Bridge
-records delegate to `language_view.trajectory`.
+is a non-empty object. The canonical factory vocabulary is also recognized:
+non-empty `state_delta` / `surprises`, finite measured timing/clearance fields
+(`reward_inflection_t_us`, `latency_ms`, `slip_arrested_ms`,
+`divergence_detected_ms`, `min_clearance_m`), and non-empty
+`incident` / `hazard_avoided`. A present recognized field with the wrong type
+is a structural failure; timing values must also be non-negative. Empty or
+absent observable fields are inconclusive.
+Episode steps require `tool_call` with known tool name, non-empty
+`observation`, and the repository episode envelope. A missing
+`decision_basis` without the historical `thought` field is a structural
+failure; a historical `thought` without `decision_basis` stays inconclusive.
+Preference pairs take the minimum of both sides. Episode-sided pairs must use
+episodes on both sides; each side is checked against the repository episode
+envelope before its step evidence is considered, and may inherit the pair's
+shared `goal`. Safety-calibration records are checked against the complete
+safety-case envelope before their steps can verify. Episode-sided preferences
+and safety cases also apply the staged structured-turn checks, so an empty or
+ungrounded `decision_basis` or malformed `tool_call.args` is a structural
+failure. A missing/empty observation remains inconclusive execution evidence.
+Bridge records delegate to `language_view.trajectory`.
 
 ## Integration with `pipelines/round_txn.py` Frontier Gate
 
@@ -82,6 +93,14 @@ single-line printable text between 8 and 500 characters. A publish retry
 re-derives the verdict but keeps and reuses the first recorded waiver, so a
 mid-publish recovery does not require the operator to repeat the flag and the
 marker carries the waiver that was in force at the commit point.
+
+On retry, the persisted gate identity, strict flag, verdict counts, and waived
+record count must match a fresh derivation; only the first canonical waiver
+reason is exempt from that comparison. A publishing marker created before this
+gate existed has no persisted verdict to compare. Its staged bytes are checked
+under the current gate and, if they pass (or receive an explicit waiver), the
+marker is atomically migrated with the derived `execution_verification` block
+before the completion link is created.
 
 Separation of concerns:
 
@@ -166,7 +185,8 @@ clauses this spec requires:
 4. **Episode inconclusive: unknown tool** — tool name not in allow-list → inconclusive.
 5. **Episode failed: steps not a list / step not an object** → failed.
 6. **Thalamic verified** — `sim_or_real` allowed, `rationale` present,
-   `future_outcome` has timeline/effects → verified.
+   `future_outcome` has a well-formed canonical observable or measured metric
+   → verified.
 7. **Thalamic inconclusive: bad provenance** — `sim_or_real` not in
    `ALLOWED_PROVENANCE` → inconclusive, counted as non-training.
 8. **Thalamic failed: missing rationale** → failed.
@@ -201,7 +221,13 @@ clauses this spec requires:
 21. **Retry keeps the first waiver** — a publish interrupted after the
     publishing marker is written keeps the originally recorded reason when it
     is retried with different wording or without repeating the waiver flag.
-22. **CLI plumbing** — `round_txn.py publish --allow-inconclusive REASON`
+22. **Retry validates the persisted verdict** — changed gate identity,
+    strictness, counts, or waived count blocks completion; only waiver prose is
+    retained without exact comparison.
+23. **Pre-gate retry migration** — an interrupted publishing marker without an
+    `execution_verification` block is freshly gated and atomically upgraded
+    before completion.
+24. **CLI plumbing** — `round_txn.py publish --allow-inconclusive REASON`
     returns 1 while blocked and 0 once waived.
 
 Fixtures are constructed inline in the tests (minimal episode, thalamic,
