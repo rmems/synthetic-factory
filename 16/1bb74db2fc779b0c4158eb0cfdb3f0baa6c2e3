@@ -1,0 +1,51 @@
+pipelines/training_audit.py
+  s_940326c4ee4215::t_23157a313f6c71 234-240,321-323,326-330,525
+  s_940326c4ee4215::t_168e83d11cb62d 526-531
+  s_002cddb1a70571::t_72f0d4b60adbc2 40
+  s_940326c4ee4215::t_aada09a2f4c050 337-342,355-357
+  s_940326c4ee4215::t_71ec84a3e1215c 36-39,233,246-251
+pipelines/census.py
+  s_940326c4ee4215::t_71ec84a3e1215c 37,228-229
+  s_940326c4ee4215::t_23157a313f6c71 211-225
+pipelines/leftover_mill.py
+  s_940326c4ee4215::t_23157a313f6c71 29,133-137
+tests/test_leftover_mill.py
+  s_002cddb1a70571::t_f61781327cef77 253,264,295
+  s_940326c4ee4215::t_afe44b54b21202 254-263,265-268
+  s_940326c4ee4215::t_23157a313f6c71 236-244,249,251-252,276-294
+tests/test_census.py
+  s_940326c4ee4215::t_c2d53eb5733e96 453,459-460
+  s_002cddb1a70571::t_728033f35d6787 462,468
+  s_002cddb1a70571::t_ac9c4f51d5215f 461
+  s_940326c4ee4215::t_afe44b54b21202 452,454-458,463-467
+tests/test_training_audit.py
+  s_002cddb1a70571::t_7a1c62e96871dd 578-579,583,588-589,592-594,603,605-607,615-617
+  s_940326c4ee4215::t_afe44b54b21202 599,602,604,608-614,618-620,626-631
+  s_940326c4ee4215::t_168e83d11cb62d 634-656
+  s_940326c4ee4215::t_23157a313f6c71 499-500,504-505,507-510,621-625
+  s_940326c4ee4215::t_aada09a2f4c050 577,580-582,584-587,590-591,595-598,600-601
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "161bb74db2fc779b0c4158eb0cfdb3f0baa6c2e3",
+  "prompts": {},
+  "sessions": {
+    "s_002cddb1a70571": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "abd260ba-6a6c-45a6-9db3-a4e0988ad60e",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Raul Montoya Cardenas <montoyaraul34@gmail.com>"
+    },
+    "s_940326c4ee4215": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a032e4-1904-7a82-8c8b-1ad3cfbeb0b0",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": null
+    }
+  }
+}
