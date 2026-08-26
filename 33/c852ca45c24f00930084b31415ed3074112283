@@ -1,0 +1,27 @@
+tests/test_publish_grok46_hub.py
+  s_940326c4ee4215::t_d859c70f12c2b0 214-267
+tests/test_card_schema.py
+  s_940326c4ee4215::t_d526bcc70b304b 63-70,438-465
+  s_940326c4ee4215::t_301133d19ce515 408-437,466-468
+scripts/publish_grok46_hub.py
+  s_940326c4ee4215::t_749b9b979586d6 343,353-357
+pipelines/card_schema.py
+  s_940326c4ee4215::t_301133d19ce515 64,615-623,625-630,636-645,649,665-666,680-682,690-692
+  s_940326c4ee4215::t_d526bcc70b304b 252-255,646-648,650-664
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "33c852ca45c24f00930084b31415ed3074112283",
+  "prompts": {},
+  "sessions": {
+    "s_940326c4ee4215": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a032e4-1904-7a82-8c8b-1ad3cfbeb0b0",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": null
+    }
+  }
+}
