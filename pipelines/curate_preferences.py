@@ -643,7 +643,17 @@ def curate_source(source: Path) -> CurationRun:
             )
 
     preference_records = sum(actions.values())
-    impure_pairs = actions[ACTION_REPAIRED] + actions[ACTION_EXCLUDED]
+    # Curation action and context purity are related but not synonymous.  A
+    # pair can have equal, fully comparable context and still be excluded for
+    # a non-context defect such as a non-finite reward.  Count only the four
+    # disjoint context-divergence/comparability buckets as impure so the public
+    # same-context audit remains truthful and balanced.
+    impure_pairs = (
+        agreement["state_only_divergent"]
+        + agreement["proposed_action_only_divergent"]
+        + agreement["both_divergent"]
+        + agreement["undetermined"]
+    )
     retained_pairs = actions[ACTION_RETAINED] + actions[ACTION_REPAIRED]
     summary = {
         "transform": {"name": TRANSFORM_NAME, "version": TRANSFORM_VERSION},
@@ -786,6 +796,10 @@ def build_audit(run: CurationRun) -> dict[str, Any]:
         }
         for entry in run.manifest
         if entry["action"] in (ACTION_REPAIRED, ACTION_EXCLUDED)
+        and (
+            entry["same_state"] is not True
+            or entry["same_proposed_action"] is not True
+        )
     ]
     balanced = (
         summary["state_only_divergent_pairs"]

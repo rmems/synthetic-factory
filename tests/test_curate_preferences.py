@@ -1170,6 +1170,29 @@ class PublishedSameStateAudit(unittest.TestCase):
 
 
 class AuditAndReconcileCli(unittest.TestCase):
+    def test_audit_separates_equal_context_exclusions_from_impurity(self):
+        with tempfile.TemporaryDirectory() as td:
+            source = Path(td) / "preferences.jsonl"
+            malformed = pair("equal-context-nonfinite")
+            malformed["reward_delta"] = float("nan")
+            write_jsonl(source, [malformed])
+
+            run = curate_preferences.curate_source(source)
+            self.assertEqual(run.summary["preference_records"], 1)
+            self.assertEqual(run.summary["excluded_pairs"], 1)
+            self.assertEqual(run.summary["impure_pairs"], 0)
+            self.assertIs(run.manifest[0]["same_state"], True)
+            self.assertIs(run.manifest[0]["same_proposed_action"], True)
+
+            status, stdout, stderr = run_cli("audit", str(source), "--json")
+
+        self.assertEqual(status, 0, stderr)
+        audit = json.loads(stdout)
+        self.assertEqual(audit["summary"]["preference_pairs"], 1)
+        self.assertEqual(audit["summary"]["impure_pairs"], 0)
+        self.assertEqual(audit["summary"]["curated_excluded_pairs"], 1)
+        self.assertEqual(audit["impure_pairs"], [])
+
     def test_audit_expect_accepts_a_faithful_copy_and_reports_drift(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
