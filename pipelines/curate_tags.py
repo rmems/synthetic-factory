@@ -33,6 +33,7 @@ import os
 import re
 from collections import Counter
 from pathlib import Path
+from re import _parser as _re_parser
 from typing import Any
 
 
@@ -55,6 +56,7 @@ RULE_TRANSFORM = "transform"
 REASON_TAG_CANONICAL = "tag_already_canonical"
 REASON_TAG_ALIAS = "tag_mapped_alias"
 REASON_TAG_PATTERN = "tag_mapped_pattern"
+REASON_TAG_MAPPING_AMBIGUOUS = "tag_mapping_ambiguous"
 REASON_TAG_UNMAPPED = "tag_unmapped"
 REASON_TAG_NOT_STRING = "tag_not_a_string"
 REASON_TAG_EMPTY = "tag_empty_after_normalization"
@@ -72,6 +74,376 @@ REASON_INVALID_UTF8 = "tag_invalid_utf8"
 REASON_RECORD_TOO_DEEP = "tag_record_too_deep"
 
 _NON_ALNUM_RE = re.compile(r"[^a-z0-9]+")
+
+# Taxonomy regexes run against source-controlled data, so merely compiling is
+# not enough: Python's backtracking engine can take exponential time on valid
+# patterns such as ``^(a+)+$``.  The accepted subset keeps the shipped grammar
+# while excluding constructs that can repeatedly revisit variable-length
+# subexpressions:
+#
+# * literals, character classes, ``.``, anchors, grouping, and deterministic
+#   unquantified alternation are allowed;
+# * lookarounds, backreferences, conditionals, and other zero-width control
+#   constructs are rejected;
+# * a repeat with an upper bound above one may cover only one consuming atom,
+#   never a group, branch, or another repeat;
+# * variable repeats that can become adjacent through nullable groups must
+#   start with disjoint character domains, and multiple unbounded repeats in
+#   one sequence need a mandatory boundary the earlier repeat cannot consume.
+#
+# The parser is private to ``re`` but stable across the supported CPython
+# 3.12+ range.  Keeping validation on its parsed opcode tree avoids writing a
+# second, subtly different regex parser.
+_MAX_SAFE_REGEX_LENGTH = 8_192
+_MAX_SAFE_REGEX_REPEATS = 64
+_MAX_SAFE_REGEX_BRANCHES = 64
+_MAX_SAFE_BOUNDED_REPEAT = 10_000
+_REGEX_RESOURCE_ERRORS = (OverflowError, RecursionError, MemoryError)
+_REGEX_REPEAT_OPS = frozenset(
+    {
+        _re_parser.MAX_REPEAT,
+        _re_parser.MIN_REPEAT,
+        _re_parser.POSSESSIVE_REPEAT,
+    }
+)
+_REGEX_CONSUMING_ATOMS = frozenset(
+    {
+        _re_parser.LITERAL,
+        _re_parser.NOT_LITERAL,
+        _re_parser.ANY,
+        _re_parser.IN,
+        _re_parser.CATEGORY,
+    }
+)
+_RegexDomain = tuple[bool, tuple[tuple[int, int], ...]] | None
+
+
+class _UnsafeRegexError(ValueError):
+    """Raised internally when a regex leaves the supported linear subset."""
+
+
+def _merge_ranges(ranges: list[tuple[int, int]]) -> tuple[tuple[int, int], ...]:
+    merged: list[list[int]] = []
+    for lower, upper in sorted(ranges):
+        if not merged or lower > merged[-1][1] + 1:
+            merged.append([lower, upper])
+        else:
+            merged[-1][1] = max(merged[-1][1], upper)
+    return tuple((lower, upper) for lower, upper in merged)
+
+
+def _regex_atom_domain(
+    item: tuple[Any, Any],
+) -> _RegexDomain:
+    """Return an exact finite/complement character domain when available."""
+    operation, argument = item
+    if operation is _re_parser.LITERAL:
+        return False, ((argument, argument),)
+    if operation is _re_parser.NOT_LITERAL:
+        return True, ((argument, argument),)
+    if operation in {_re_parser.ANY, _re_parser.CATEGORY}:
+        return None
+    if operation is not _re_parser.IN:
+        return None
+
+    negated = False
+    ranges: list[tuple[int, int]] = []
+    for class_operation, class_argument in argument:
+        if class_operation is _re_parser.NEGATE:
+            negated = True
+        elif class_operation is _re_parser.LITERAL:
+            ranges.append((class_argument, class_argument))
+        elif class_operation is _re_parser.RANGE:
+            ranges.append(class_argument)
+        else:
+            # Unicode categories and bitmap opcodes are safe as atoms, but
+            # treating their domains as unknown keeps boundary proofs sound.
+            return None
+    return negated, _merge_ranges(ranges)
+
+
+def _ranges_intersect(
+    left: tuple[tuple[int, int], ...], right: tuple[tuple[int, int], ...]
+) -> bool:
+    left_index = 0
+    right_index = 0
+    while left_index < len(left) and right_index < len(right):
+        left_lower, left_upper = left[left_index]
+        right_lower, right_upper = right[right_index]
+        if left_upper < right_lower:
+            left_index += 1
+        elif right_upper < left_lower:
+            right_index += 1
+        else:
+            return True
+    return False
+
+
+def _ranges_are_subset(
+    candidate: tuple[tuple[int, int], ...], container: tuple[tuple[int, int], ...]
+) -> bool:
+    container_index = 0
+    for candidate_lower, candidate_upper in candidate:
+        while (
+            container_index < len(container)
+            and container[container_index][1] < candidate_lower
+        ):
+            container_index += 1
+        if container_index == len(container):
+            return False
+        container_lower, container_upper = container[container_index]
+        if container_lower > candidate_lower or container_upper < candidate_upper:
+            return False
+    return True
+
+
+def _regex_domains_are_disjoint(
+    left: _RegexDomain,
+    right: _RegexDomain,
+) -> bool:
+    if left is None or right is None:
+        return False
+    left_negated, left_ranges = left
+    right_negated, right_ranges = right
+    if not left_negated and not right_negated:
+        return not _ranges_intersect(left_ranges, right_ranges)
+    if left_negated and right_negated:
+        return False
+    if left_negated:
+        return _ranges_are_subset(right_ranges, left_ranges)
+    return _ranges_are_subset(left_ranges, right_ranges)
+
+
+def _regex_leading_domain(
+    items: Any,
+) -> _RegexDomain:
+    """Return a provable first-character domain for a repeated body."""
+    for operation, argument in items:
+        if operation is _re_parser.AT:
+            continue
+        if operation in _REGEX_CONSUMING_ATOMS:
+            return _regex_atom_domain((operation, argument))
+        if operation is _re_parser.SUBPATTERN:
+            _group, add_flags, del_flags, body = argument
+            if add_flags or del_flags:
+                return None
+            return _regex_leading_domain(body)
+        if operation is _re_parser.BRANCH:
+            return None
+        if operation in _REGEX_REPEAT_OPS:
+            minimum, _maximum, body = argument
+            if minimum == 0:
+                return None
+            return _regex_leading_domain(body)
+        return None
+    return None
+
+
+def _regex_sequence_is_nullable(items: Any) -> bool:
+    """Whether a parsed sequence can consume no characters."""
+    for operation, argument in items:
+        if operation is _re_parser.AT:
+            continue
+        if operation in _REGEX_CONSUMING_ATOMS:
+            return False
+        if operation is _re_parser.SUBPATTERN:
+            _group, add_flags, del_flags, body = argument
+            if add_flags or del_flags or not _regex_sequence_is_nullable(body):
+                return False
+            continue
+        if operation is _re_parser.BRANCH:
+            _none, branches = argument
+            if not any(_regex_sequence_is_nullable(branch) for branch in branches):
+                return False
+            continue
+        if operation in _REGEX_REPEAT_OPS:
+            minimum, _maximum, body = argument
+            if minimum and not _regex_sequence_is_nullable(body):
+                return False
+            continue
+        return False
+    return True
+
+
+def _append_regex_domain(domains: list[_RegexDomain], domain: _RegexDomain) -> None:
+    if domain not in domains:
+        domains.append(domain)
+
+
+def _has_safe_repeat_boundary(
+    repeated_domain: _RegexDomain,
+    between: Any,
+) -> bool:
+    """Whether a mandatory atom fixes the end of an earlier unbounded repeat."""
+    for operation, argument in between:
+        if operation in _REGEX_CONSUMING_ATOMS and _regex_domains_are_disjoint(
+            repeated_domain, _regex_atom_domain((operation, argument))
+        ):
+            return True
+    return False
+
+
+def _validate_linear_regex_sequence(
+    items: Any,
+    counters: dict[str, int],
+    inherited_variables: tuple[_RegexDomain, ...] = (),
+) -> tuple[_RegexDomain, ...]:
+    """Validate a sequence and return variable-repeat domains at its tail.
+
+    A nullable operation retains inherited domains because an earlier repeat
+    can still border the next consuming token when that operation is skipped.
+    Passing the domains into and back out of subpatterns makes capturing groups
+    safety-transparent, matching the parser's treatment of noncapturing groups.
+    """
+    previous_variables = list(inherited_variables)
+    previous_unbounded: tuple[int, _RegexDomain] | None = None
+
+    for index, (operation, argument) in enumerate(items):
+        if operation in _REGEX_CONSUMING_ATOMS:
+            current_domain = _regex_atom_domain((operation, argument))
+            if any(
+                not _regex_domains_are_disjoint(previous_domain, current_domain)
+                for previous_domain in previous_variables
+            ):
+                raise _UnsafeRegexError(
+                    "a variable repeat overlaps its following token"
+                )
+            previous_variables = []
+            continue
+        if operation is _re_parser.AT:
+            continue
+        if operation is _re_parser.SUBPATTERN:
+            _group, add_flags, del_flags, body = argument
+            if add_flags or del_flags:
+                raise _UnsafeRegexError("inline flags are not supported")
+            previous_variables = list(
+                _validate_linear_regex_sequence(
+                    body,
+                    counters,
+                    tuple(previous_variables),
+                )
+            )
+            continue
+        if operation is _re_parser.BRANCH:
+            _none, branches = argument
+            if previous_variables:
+                raise _UnsafeRegexError(
+                    "a variable repeat may not be followed by alternation"
+                )
+            counters["branches"] += len(branches)
+            if counters["branches"] > _MAX_SAFE_REGEX_BRANCHES:
+                raise _UnsafeRegexError("too many alternation branches")
+            branch_domains = []
+            branch_tail_variables: list[_RegexDomain] = []
+            for branch in branches:
+                domain = _regex_leading_domain(branch)
+                if domain is None or any(
+                    not _regex_domains_are_disjoint(domain, prior)
+                    for prior in branch_domains
+                ):
+                    raise _UnsafeRegexError(
+                        "alternation branches need disjoint leading domains"
+                    )
+                branch_domains.append(domain)
+                for tail_domain in _validate_linear_regex_sequence(branch, counters):
+                    _append_regex_domain(branch_tail_variables, tail_domain)
+            previous_variables = branch_tail_variables
+            continue
+        if operation not in _REGEX_REPEAT_OPS:
+            raise _UnsafeRegexError(
+                f"unsupported regex operation {operation!s}"
+            )
+
+        counters["repeats"] += 1
+        if counters["repeats"] > _MAX_SAFE_REGEX_REPEATS:
+            raise _UnsafeRegexError("too many repeat operations")
+        minimum, maximum, body = argument
+        if maximum is not _re_parser.MAXREPEAT and maximum > _MAX_SAFE_BOUNDED_REPEAT:
+            raise _UnsafeRegexError(
+                f"repeat upper bound exceeds {_MAX_SAFE_BOUNDED_REPEAT}"
+            )
+
+        body_tail_variables = _validate_linear_regex_sequence(body, counters)
+        if maximum > 1 and (
+            len(body) != 1 or body[0][0] not in _REGEX_CONSUMING_ATOMS
+        ):
+            raise _UnsafeRegexError(
+                "a repeat above one may cover only one consuming atom"
+            )
+
+        variable = minimum != maximum
+        leading_domain = _regex_leading_domain(body)
+        if maximum and any(
+            not _regex_domains_are_disjoint(previous_domain, leading_domain)
+            for previous_domain in previous_variables
+        ):
+            if variable:
+                raise _UnsafeRegexError(
+                    "adjacent variable repeats have overlapping character domains"
+                )
+            raise _UnsafeRegexError(
+                "a variable repeat overlaps its following fixed repeat"
+            )
+
+        repeat_is_nullable = minimum == 0 or _regex_sequence_is_nullable(body)
+        next_variables = list(previous_variables) if repeat_is_nullable else []
+        for tail_domain in body_tail_variables:
+            _append_regex_domain(next_variables, tail_domain)
+        if variable and maximum:
+            _append_regex_domain(next_variables, leading_domain)
+        previous_variables = next_variables
+
+        if maximum is _re_parser.MAXREPEAT:
+            if previous_unbounded is not None:
+                previous_index, repeated_domain = previous_unbounded
+                if not _has_safe_repeat_boundary(
+                    repeated_domain, items[previous_index + 1 : index]
+                ):
+                    raise _UnsafeRegexError(
+                        "unbounded repeats lack a deterministic boundary"
+                    )
+            previous_unbounded = (index, leading_domain)
+
+    return tuple(previous_variables)
+
+
+def _compile_taxonomy_regex(pattern: str, *, label: str, source: str) -> re.Pattern[str]:
+    """Validate and compile one taxonomy regex with bounded failure behavior."""
+    if len(pattern) > _MAX_SAFE_REGEX_LENGTH:
+        raise TagTaxonomyError(
+            f"{source}: {label} is outside the supported linear-time regex "
+            f"subset: pattern exceeds {_MAX_SAFE_REGEX_LENGTH} characters"
+        )
+    try:
+        parsed = _re_parser.parse(pattern, 0)
+    except re.error as exc:
+        raise TagTaxonomyError(f"{source}: {label} is not a valid regex: {exc}") from exc
+    except _REGEX_RESOURCE_ERRORS as exc:
+        raise TagTaxonomyError(
+            f"{source}: {label} is not a valid regex: parser resource limit exceeded"
+        ) from exc
+
+    try:
+        if parsed.state.flags != re.UNICODE:
+            raise _UnsafeRegexError("inline flags are not supported")
+        _validate_linear_regex_sequence(parsed, {"repeats": 0, "branches": 0})
+    except _UnsafeRegexError as exc:
+        raise TagTaxonomyError(
+            f"{source}: {label} is outside the supported linear-time regex subset: {exc}"
+        ) from exc
+    except _REGEX_RESOURCE_ERRORS as exc:
+        raise TagTaxonomyError(
+            f"{source}: {label} is not a valid regex: validator resource limit exceeded"
+        ) from exc
+
+    try:
+        return re.compile(pattern)
+    except re.error as exc:
+        raise TagTaxonomyError(f"{source}: {label} is not a valid regex: {exc}") from exc
+    except _REGEX_RESOURCE_ERRORS as exc:
+        raise TagTaxonomyError(
+            f"{source}: {label} is not a valid regex: compiler resource limit exceeded"
+        ) from exc
 
 
 class TagTaxonomyError(ValueError):
@@ -137,12 +509,11 @@ class Taxonomy:
         self.source = source
         self.version = _require_str(document, "version", source)
         canonical_pattern = _require_str(document, "canonical_tag_pattern", source)
-        try:
-            self._canonical_re = re.compile(canonical_pattern)
-        except re.error as exc:  # pragma: no cover - guarded by tests
-            raise TagTaxonomyError(
-                f"{source}: canonical_tag_pattern is not a valid regex: {exc}"
-            ) from exc
+        self._canonical_re = _compile_taxonomy_regex(
+            canonical_pattern,
+            label="canonical_tag_pattern",
+            source=source,
+        )
 
         facets = document.get("facets")
         if not isinstance(facets, list) or not facets:
@@ -232,12 +603,11 @@ class Taxonomy:
                 raise TagTaxonomyError(
                     f"{source}: pattern rule {rule_id!r} must be anchored with ^ and $"
                 )
-            try:
-                compiled = re.compile(pattern)
-            except re.error as exc:
-                raise TagTaxonomyError(
-                    f"{source}: pattern rule {rule_id!r} is not a valid regex: {exc}"
-                ) from exc
+            compiled = _compile_taxonomy_regex(
+                pattern,
+                label=f"pattern rule {rule_id!r}",
+                source=source,
+            )
             self.pattern_rules.append((rule_id, tag, compiled))
 
         emitted = document.get("transform_emitted_tags", [])
@@ -261,6 +631,12 @@ class Taxonomy:
                     f"{source}: transform_emitted_tags names undeclared tag {tag!r}"
                 )
         self.transform_emitted_tags = tuple(emitted)
+        for rule_id, tag, _compiled in self.pattern_rules:
+            if tag in self.transform_emitted_tags:
+                raise TagTaxonomyError(
+                    f"{source}: pattern rule {rule_id!r} targets "
+                    f"transform-emitted tag {tag!r}"
+                )
         if UNMAPPED_MARKER_TAG not in self.facet_of:
             raise TagTaxonomyError(
                 f"{source}: taxonomy must declare {UNMAPPED_MARKER_TAG!r}"
@@ -300,7 +676,30 @@ class Taxonomy:
                 "reason": REASON_TAG_EMPTY,
             }
         canonical = self.alias_index.get(normalized)
-        if canonical is not None and canonical not in self.transform_emitted_tags:
+        pattern_matches = [
+            (rule_id, mapped)
+            for rule_id, mapped, compiled in self.pattern_rules
+            if compiled.fullmatch(normalized)
+        ]
+        candidate_targets = {mapped for _rule_id, mapped in pattern_matches}
+        if canonical is not None:
+            candidate_targets.add(canonical)
+        if len(candidate_targets) > 1:
+            return {
+                "source": tag,
+                "normalized": normalized,
+                "canonical": None,
+                "rule": None,
+                "reason": REASON_TAG_MAPPING_AMBIGUOUS,
+            }
+        if canonical in self.transform_emitted_tags:
+            canonical = None
+        pattern_matches = [
+            (rule_id, mapped)
+            for rule_id, mapped in pattern_matches
+            if mapped not in self.transform_emitted_tags
+        ]
+        if canonical is not None:
             reason = (
                 REASON_TAG_CANONICAL if tag == canonical else REASON_TAG_ALIAS
             )
@@ -312,18 +711,15 @@ class Taxonomy:
                 "rule": rule,
                 "reason": reason,
             }
-        for rule_id, mapped, compiled in self.pattern_rules:
-            if (
-                mapped not in self.transform_emitted_tags
-                and compiled.fullmatch(normalized)
-            ):
-                return {
-                    "source": tag,
-                    "normalized": normalized,
-                    "canonical": mapped,
-                    "rule": f"{RULE_PATTERN_PREFIX}{rule_id}",
-                    "reason": REASON_TAG_PATTERN,
-                }
+        if pattern_matches:
+            rule_id, mapped = min(pattern_matches)
+            return {
+                "source": tag,
+                "normalized": normalized,
+                "canonical": mapped,
+                "rule": f"{RULE_PATTERN_PREFIX}{rule_id}",
+                "reason": REASON_TAG_PATTERN,
+            }
         return {
             "source": tag,
             "normalized": normalized,

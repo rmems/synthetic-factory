@@ -35,7 +35,7 @@ from typing import Any
 
 
 TRANSFORM_NAME = "coding_observability"
-TRANSFORM_VERSION = "1"
+TRANSFORM_VERSION = "2"
 MAX_DECISION_BASIS_CHARS = 240
 
 REASON_THOUGHT_REMOVED = "coding_thought_removed"
@@ -86,6 +86,18 @@ EXCLUSION_REASONS = frozenset(
     }
 )
 
+STEP_EXCLUSION_REASONS = frozenset(
+    {REASON_STEP_NOT_OBJECT, REASON_NO_VISIBLE_EVIDENCE}
+)
+STEP_EVIDENCE_REASONS = frozenset(_EVIDENCE_REASON.values())
+STEP_ALLOWED_REASONS = frozenset(
+    {*STEP_EXCLUSION_REASONS, *STEP_EVIDENCE_REASONS, REASON_THOUGHT_REMOVED,
+     REASON_BASIS_CONCISED}
+)
+RECORD_TRANSFORMATION_REASONS = frozenset(
+    {REASON_THOUGHT_REMOVED, REASON_STEPS_MIGRATED, REASON_STEPS_EXCLUDED}
+)
+
 
 def canonical_json(value: Any) -> str:
     """Return the stable JSON representation used for output hashes."""
@@ -94,7 +106,12 @@ def canonical_json(value: Any) -> str:
         ensure_ascii=False,
         separators=(",", ":"),
         sort_keys=True,
+        allow_nan=False,
     )
+
+
+def _reject_json_constant(value: str) -> None:
+    raise ValueError(f"non-standard JSON numeric constant: {value}")
 
 
 def hash_value(value: Any) -> str:
@@ -413,8 +430,8 @@ def curate_jsonl(source_path: str | Path) -> dict[str, Any]:
                 )
                 continue
             try:
-                record = json.loads(text)
-            except json.JSONDecodeError:
+                record = json.loads(text, parse_constant=_reject_json_constant)
+            except (json.JSONDecodeError, ValueError):
                 manifests.append(
                     _excluded_line_manifest(
                         source_path=str(source),
@@ -500,14 +517,35 @@ def _step_action_violations(entry: dict[str, Any], where: str) -> list[str]:
 
     if not _is_positive_int(index):
         violations.append(f"{step_where}: source step index must be a positive integer")
-    if not _is_nonnegative_int(entry.get("thought_fields_removed")):
+    thought_fields_removed = entry.get("thought_fields_removed")
+    if not _is_nonnegative_int(thought_fields_removed):
         violations.append(
             f"{step_where}: thought_fields_removed must be a non-negative integer"
         )
+    else:
+        reports_removal = REASON_THOUGHT_REMOVED in reasons
+        if bool(thought_fields_removed) != reports_removal:
+            violations.append(
+                f"{step_where}: thought removal count and reason code disagree"
+            )
 
     if action == "excluded":
-        if not EXCLUSION_REASONS.intersection(reasons):
-            violations.append(f"{step_where}: excluded without an exclusion reason code")
+        step_exclusions = STEP_EXCLUSION_REASONS.intersection(reasons)
+        if len(step_exclusions) != 1:
+            violations.append(
+                f"{step_where}: excluded without an exclusion reason code; "
+                "expected exactly one step exclusion reason code"
+            )
+        impossible_reasons = reasons - (
+            STEP_EXCLUSION_REASONS | {REASON_THOUGHT_REMOVED}
+        )
+        if impossible_reasons:
+            violations.append(
+                f"{step_where}: excluded with impossible reason codes "
+                f"{sorted(impossible_reasons)}"
+            )
+        if evidence is not None:
+            violations.append(f"{step_where}: excluded step records an evidence source")
         if entry.get("output_step_index") is not None:
             violations.append(f"{step_where}: excluded step keeps an output index")
     elif action == "migrated" or action == "retained":
@@ -523,6 +561,19 @@ def _step_action_violations(entry: dict[str, Any], where: str) -> list[str]:
             violations.append(
                 f"{step_where}: reason codes do not record the {evidence} evidence source"
             )
+        evidence_reasons = STEP_EVIDENCE_REASONS.intersection(reasons)
+        if len(evidence_reasons) != 1:
+            violations.append(
+                f"{step_where}: retained step must record exactly one evidence reason"
+            )
+        impossible_reasons = reasons - STEP_ALLOWED_REASONS
+        if impossible_reasons:
+            violations.append(
+                f"{step_where}: retained with impossible reason codes "
+                f"{sorted(impossible_reasons)}"
+            )
+        if action == "retained" and thought_fields_removed != 0:
+            violations.append(f"{step_where}: retained step reports thought removals")
     else:
         violations.append(f"{step_where}: unknown step action {action!r}")
     return violations
@@ -668,6 +719,42 @@ def verify_manifest(
             violations.append(
                 f"{where}: step counts {counts} disagree with the recorded step actions"
             )
+
+        if action == "unchanged":
+            if thought_fields_removed != 0:
+                violations.append(
+                    f"{where}: unchanged record reports thought removals"
+                )
+            if any(entry.get("action") != "retained" for entry in valid_actions):
+                violations.append(
+                    f"{where}: unchanged record reports transformed step actions"
+                )
+            if reasons:
+                violations.append(
+                    f"{where}: unchanged record reports transformation reason codes"
+                )
+        elif action == "modified" and _is_nonnegative_int(thought_fields_removed):
+            impossible_reasons = reasons - RECORD_TRANSFORMATION_REASONS
+            if impossible_reasons:
+                violations.append(
+                    f"{where}: modified record reports impossible reason codes "
+                    f"{sorted(impossible_reasons)}"
+                )
+            reports_removal = REASON_THOUGHT_REMOVED in reasons
+            if bool(thought_fields_removed) != reports_removal:
+                violations.append(
+                    f"{where}: thought removal count and reason code disagree"
+                )
+            reason_expectations = (
+                (migrated, REASON_STEPS_MIGRATED),
+                (excluded, REASON_STEPS_EXCLUDED),
+            )
+            for count, reason in reason_expectations:
+                if bool(count) != (reason in reasons):
+                    violations.append(
+                        f"{where}: step transformation counts and reason codes disagree"
+                    )
+                    break
 
         source_indexes = [entry.get("source_step_index") for entry in valid_actions]
         expected_source_indexes = list(range(1, len(actions) + 1))
