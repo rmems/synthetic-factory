@@ -48,6 +48,9 @@
       "record_kinds": [
         "preference"
       ],
+      "preference_side_kinds": [
+        "thalamic"
+      ],
       "identity_authoritative": true,
       "publication_target": null,
       "training_ready_policy": "never",
@@ -217,6 +220,9 @@
       "generator_version": "grok-4.6",
       "record_kinds": [
         "preference"
+      ],
+      "preference_side_kinds": [
+        "episode"
       ],
       "identity_authoritative": true,
       "publication_target": null,
@@ -902,6 +908,9 @@
       "generator_version": "grok-4.6",
       "record_kinds": [
         "preference"
+      ],
+      "preference_side_kinds": [
+        "episode"
       ],
       "identity_authoritative": true,
       "publication_target": null,

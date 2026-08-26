@@ -29,10 +29,12 @@ from typing import Any, Iterable, Mapping
 
 from record_kind import (
     PREFERENCE_SIDE_KINDS,
+    SUPPORTED_RECORD_KINDS,
     classify_kind,
     preference_side_kinds,
 )
 from round_txn import TransactionError, committed_jsonl_paths, marker_mode_path
+from validate_run import check_multi_agent, check_safety_case
 
 TRANSFORM_NAME = "curate_identity"
 TRANSFORM_VERSION = "identity-provenance-v2"
@@ -122,6 +124,7 @@ class FactoryRow:
     training_ready_policy: str
     allowed_curation_lanes: tuple[str, ...]
     provenance_contract_by_kind: Mapping[str, str]
+    preference_side_kinds: frozenset[str] = frozenset()
 
 
 @dataclass(frozen=True)
@@ -164,6 +167,10 @@ def _iter_jsonl_record_bytes(payload: bytes) -> Iterable[tuple[int, bytes]]:
         if record_bytes.endswith(b"\r"):
             record_bytes = record_bytes[:-1]
         yield line_no, record_bytes
+
+
+def _reject_json_constant(value: str) -> None:
+    raise ValueError(f"non-standard JSON numeric constant {value}")
 
 
 def _reject_training_ready_true(value: Any, path: str = "$") -> None:
@@ -216,6 +223,16 @@ def _parse_factory_row(raw: Any, index: int) -> FactoryRow:
         raise IdentityCurationError(
             f"factories[{index}].record_kinds must be strings"
         )
+    if len(kinds_raw) != len(set(kinds_raw)):
+        raise IdentityCurationError(
+            f"factories[{index}].record_kinds must not contain duplicates"
+        )
+    unsupported_kinds = sorted(set(kinds_raw) - SUPPORTED_RECORD_KINDS)
+    if unsupported_kinds:
+        raise IdentityCurationError(
+            f"factories[{index}].record_kinds contains unsupported kinds: "
+            f"{unsupported_kinds}"
+        )
     kinds = frozenset(kinds_raw)
     if not isinstance(raw["identity_authoritative"], bool):
         raise IdentityCurationError(
@@ -252,6 +269,32 @@ def _parse_factory_row(raw: Any, index: int) -> FactoryRow:
                 f"factories[{index}] synthetic_shape_implies_designed requires "
                 "identity_authoritative"
             )
+    preference_kinds_raw = raw.get("preference_side_kinds")
+    if "preference" in kinds:
+        if not isinstance(preference_kinds_raw, list) or not preference_kinds_raw:
+            raise IdentityCurationError(
+                f"factories[{index}].preference_side_kinds must be a non-empty list"
+            )
+        if not all(isinstance(kind, str) for kind in preference_kinds_raw):
+            raise IdentityCurationError(
+                f"factories[{index}].preference_side_kinds must be strings"
+            )
+        if len(preference_kinds_raw) != len(set(preference_kinds_raw)):
+            raise IdentityCurationError(
+                f"factories[{index}].preference_side_kinds must not contain duplicates"
+            )
+        unsupported_side_kinds = sorted(
+            set(preference_kinds_raw) - PREFERENCE_SIDE_KINDS
+        )
+        if unsupported_side_kinds:
+            raise IdentityCurationError(
+                f"factories[{index}].preference_side_kinds contains unsupported "
+                f"kinds: {unsupported_side_kinds}"
+            )
+    elif preference_kinds_raw is not None:
+        raise IdentityCurationError(
+            f"factories[{index}].preference_side_kinds requires preference authority"
+        )
     return FactoryRow(
         path_id=path_id,
         payload_factory=payload_factory,
@@ -265,6 +308,7 @@ def _parse_factory_row(raw: Any, index: int) -> FactoryRow:
         provenance_contract_by_kind={
             str(key): str(value) for key, value in contracts.items()
         },
+        preference_side_kinds=frozenset(preference_kinds_raw or ()),
     )
 
 
@@ -279,8 +323,10 @@ def load_registry(path: Path | None = None) -> FactoryRegistry:
             f"factory registry is unreadable: {registry_path}: {exc}"
         ) from exc
     try:
-        payload = json.loads(raw_bytes.decode("utf-8"))
-    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        payload = json.loads(
+            raw_bytes.decode("utf-8"), parse_constant=_reject_json_constant
+        )
+    except (UnicodeDecodeError, json.JSONDecodeError, ValueError) as exc:
         raise IdentityCurationError(
             f"factory registry is not UTF-8 JSON: {registry_path}: {exc}"
         ) from exc
@@ -426,7 +472,11 @@ def _legacy_ids(owner: Mapping[str, Any], owner_path: str) -> list[dict[str, Any
     return forms
 
 
-def _owner_specs(record: Mapping[str, Any], kind: str) -> list[tuple[str, Mapping[str, Any]]]:
+def _owner_specs(
+    record: Mapping[str, Any],
+    kind: str,
+    allowed_preference_side_kinds: frozenset[str] | None = None,
+) -> list[tuple[str, Mapping[str, Any]]]:
     if kind == "thalamic":
         return [("/", record)]
     if kind == "preference":
@@ -444,6 +494,15 @@ def _owner_specs(record: Mapping[str, Any], kind: str) -> list[tuple[str, Mappin
             raise IdentityCurationError(
                 "preference sides must be a homogeneous episode or thalamic pair "
                 f"(got chosen={side_kinds[0]}, rejected={side_kinds[1]})"
+            )
+        if (
+            allowed_preference_side_kinds is not None
+            and side_kinds[0] not in allowed_preference_side_kinds
+        ):
+            raise IdentityCurationError(
+                "preference side kind is not authorized by the factory contract "
+                f"(got {side_kinds[0]}, allowed="
+                f"{sorted(allowed_preference_side_kinds)})"
             )
         return owners
     if kind == "bridge_pair":
@@ -483,11 +542,7 @@ def _map_claim(claimed: Any) -> str | None:
     # Preserve the repository's documented first-match order.  A synthetic
     # narrative claiming live/production use remains designed even if it also
     # mentions simulated or HIL calibration.
-    if (
-        REAL_WORLD_RE.match(value)
-        or "actions live" in value
-        or "production" in value
-    ):
+    if _is_real_world_claim(value):
         return "designed"
     if "simulation" in value or "simulat" in value or "high-fidelity" in value:
         return "simulated"
@@ -500,6 +555,17 @@ def _existing_claimed(provenance: Any, kind: str) -> Any:
     if not isinstance(provenance, Mapping) or provenance.get("kind") != kind:
         return None
     return copy.deepcopy(provenance.get("claimed"))
+
+
+def _is_real_world_claim(value: Any) -> bool:
+    if not isinstance(value, str) or not value.strip():
+        return False
+    normalized = value.strip().casefold()
+    return bool(
+        REAL_WORLD_RE.match(normalized)
+        or "actions live" in normalized
+        or "production" in normalized
+    )
 
 
 def _resolve_provenance(
@@ -585,15 +651,49 @@ def _payload_has_state_claim(
     )
 
 
-def _contains_real_provenance(value: Any) -> bool:
+def _training_ready_true_paths(value: Any, path: str = "$") -> list[str]:
+    paths: list[str] = []
     if isinstance(value, Mapping):
+        if value.get("training_ready"):
+            paths.append(f"{path}.training_ready")
+        for key, item in value.items():
+            paths.extend(_training_ready_true_paths(item, f"{path}.{key}"))
+    elif isinstance(value, list):
+        for index, item in enumerate(value):
+            paths.extend(_training_ready_true_paths(item, f"{path}[{index}]"))
+    return paths
+
+
+def _residual_real_claim_paths(value: Any, path: str = "$") -> list[str]:
+    paths: list[str] = []
+    if isinstance(value, Mapping):
+        sim_or_real = value.get("sim_or_real")
+        if _is_real_world_claim(sim_or_real):
+            paths.append(f"{path}.sim_or_real")
         provenance = value.get("provenance")
-        if isinstance(provenance, Mapping) and provenance.get("kind") == "real":
-            return True
-        return any(_contains_real_provenance(item) for item in value.values())
-    if isinstance(value, list):
-        return any(_contains_real_provenance(item) for item in value)
-    return False
+        if isinstance(provenance, Mapping):
+            provenance_kind = provenance.get("kind")
+            if (
+                isinstance(provenance_kind, str)
+                and provenance_kind.strip().casefold() == "real"
+            ):
+                paths.append(f"{path}.provenance.kind")
+        for key, item in value.items():
+            paths.extend(_residual_real_claim_paths(item, f"{path}.{key}"))
+    elif isinstance(value, list):
+        for index, item in enumerate(value):
+            paths.extend(_residual_real_claim_paths(item, f"{path}[{index}]"))
+    return paths
+
+
+def _shape_validation_errors(
+    record: Mapping[str, Any], kind: str
+) -> list[str]:
+    if kind == "safety_case":
+        return check_safety_case(record, "record")
+    if kind == "multi_agent":
+        return check_multi_agent(record, "record")
+    return []
 
 
 def _collect_state_resolutions(
@@ -890,9 +990,29 @@ def curate_record(
             "identity.factory_contract_invalid",
             details=[{"record_kind": kind, "provenance_contract": contract}],
         )
+    if row.training_ready_policy == "never":
+        ready_claims = _training_ready_true_paths(original)
+        if ready_claims:
+            return _exclude(
+                mapping,
+                "identity.training_ready_policy_violation",
+                details=[{"paths": ready_claims, "policy": "never"}],
+            )
+    if contract == CONTRACT_SHAPE_DESIGNED:
+        shape_errors = _shape_validation_errors(original, kind)
+        if shape_errors:
+            return _exclude(
+                mapping,
+                "identity.invalid_payload_shape",
+                details=shape_errors,
+            )
 
     try:
-        owner_specs = _owner_specs(original, kind)
+        owner_specs = _owner_specs(
+            original,
+            kind,
+            row.preference_side_kinds if kind == "preference" else None,
+        )
     except IdentityCurationError as exc:
         return _exclude(mapping, "identity.invalid_nested_shape", details=[str(exc)])
 
@@ -952,8 +1072,13 @@ def curate_record(
             root_original_ids,
         )
 
-    if _contains_real_provenance(curated):
-        raise IdentityCurationError("identity must never emit provenance.kind=real")
+    residual_real_claims = _residual_real_claim_paths(curated)
+    if residual_real_claims:
+        return _exclude(
+            mapping,
+            "identity.unowned_real_claim",
+            details=[{"paths": residual_real_claims}],
+        )
 
     mapping.update(
         {
@@ -1007,40 +1132,177 @@ def _is_under_raw(path: Path) -> bool:
 def _write_exclusive(path: Path, payload: bytes) -> None:
     descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o644)
     try:
-        with os.fdopen(descriptor, "wb") as handle:
+        try:
+            handle = os.fdopen(descriptor, "wb")
+        except BaseException:
+            os.close(descriptor)
+            raise
+        with handle:
             handle.write(payload)
             handle.flush()
             os.fsync(handle.fileno())
+        # Fsync parent directory to ensure durable directory entry
+        parent_descriptor = os.open(path.parent, os.O_RDONLY)
+        try:
+            os.fsync(parent_descriptor)
+        finally:
+            os.close(parent_descriptor)
     except BaseException:
         path.unlink(missing_ok=True)
         raise
 
 
-def validate_identity_tree(dest: Path) -> FactoryRegistry:
-    """Fail closed when the identity pin, manifest, or emitted records differ."""
+def _pointer_value(value: Any, pointer: str) -> Any:
+    if pointer == "/":
+        return value
+    if not isinstance(pointer, str) or not pointer.startswith("/"):
+        raise IdentityTreeError(f"invalid owner_path: {pointer!r}")
+    current = value
+    for raw_part in pointer[1:].split("/"):
+        part = raw_part.replace("~1", "/").replace("~0", "~")
+        if isinstance(current, Mapping) and part in current:
+            current = current[part]
+        else:
+            raise IdentityTreeError(f"owner_path does not exist: {pointer}")
+    return current
 
-    dest = Path(dest)
-    sidecar = dest / FACTORY_REGISTRY_SIDECAR
-    manifest_path = dest / IDENTITY_MANIFEST_SIDECAR
-    if not sidecar.is_file():
-        raise IdentityTreeError("identity tree missing FACTORY-REGISTRY.json")
-    if not manifest_path.is_file():
-        raise IdentityTreeError("identity tree missing IDENTITY-MANIFEST.json")
-    registry = load_registry(sidecar)
+
+def _validate_manifest_ids(
+    mapping: Mapping[str, Any],
+    record: Mapping[str, Any],
+    index: int,
+    registry: FactoryRegistry,
+) -> None:
+    output_id = mapping.get("output_id")
+    if not isinstance(output_id, str) or record.get("id") != output_id:
+        raise IdentityTreeError(
+            f"IDENTITY-MANIFEST.json[{index}].output_id does not match emitted record"
+        )
+    kind = mapping.get("record_kind")
+    if kind not in SUPPORTED_RECORD_KINDS or classify_kind(record) != kind:
+        raise IdentityTreeError(
+            f"IDENTITY-MANIFEST.json[{index}].record_kind does not match emitted record"
+        )
+    source_meta = mapping.get("source")
+    if not isinstance(source_meta, Mapping):
+        raise IdentityTreeError(
+            f"IDENTITY-MANIFEST.json[{index}].source must be an object"
+        )
     try:
-        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as exc:
-        raise IdentityTreeError(f"IDENTITY-MANIFEST.json is not readable JSON: {exc}") from exc
-    if not isinstance(manifest, list):
-        raise IdentityTreeError("IDENTITY-MANIFEST.json must be a list of mappings")
-    expected_outputs: dict[str, list[str]] = {}
+        source_path, source_factory = _normalize_source_path(source_meta.get("path"))
+    except IdentityCurationError as exc:
+        raise IdentityTreeError(
+            f"IDENTITY-MANIFEST.json[{index}].source.path is invalid: {exc}"
+        ) from exc
+    source_line = source_meta.get("line")
+    source_identity = _SourceIdentity(
+        source_path,
+        source_line,
+        source_factory,
+        "",
+        "manifest-coordinate",
+    )
+    if output_id != _canonical_id(source_identity, kind, "/"):
+        raise IdentityTreeError(
+            f"IDENTITY-MANIFEST.json[{index}].output_id is not canonical"
+        )
+    row = registry.by_path_id.get(source_factory)
+    if row is None or kind not in row.record_kinds or not row.identity_authoritative:
+        raise IdentityTreeError(
+            f"IDENTITY-MANIFEST.json[{index}] factory authority is invalid"
+        )
+    contract = row.provenance_contract_by_kind.get(kind)
+    if (
+        mapping.get("factory") != source_factory
+        or mapping.get("path_id") != source_factory
+        or mapping.get("factory_id") != row.payload_factory
+        or mapping.get("provenance_contract") != contract
+        or _payload_factory(record) != row.payload_factory
+    ):
+        raise IdentityTreeError(
+            f"IDENTITY-MANIFEST.json[{index}] factory contract does not match output"
+        )
+    if row.training_ready_policy == "never" and _training_ready_true_paths(record):
+        raise IdentityTreeError(
+            f"IDENTITY-MANIFEST.json[{index}] violates training_ready_policy=never"
+        )
+    if _residual_real_claim_paths(record):
+        raise IdentityTreeError(
+            f"IDENTITY-MANIFEST.json[{index}] contains a residual real claim"
+        )
+    if contract == CONTRACT_SHAPE_DESIGNED and _shape_validation_errors(record, kind):
+        raise IdentityTreeError(
+            f"IDENTITY-MANIFEST.json[{index}] output payload shape is invalid"
+        )
+    try:
+        owner_paths = ["/"]
+        for owner_path, _owner in _owner_specs(
+            record,
+            kind,
+            row.preference_side_kinds if kind == "preference" else None,
+        ):
+            if owner_path not in owner_paths:
+                owner_paths.append(owner_path)
+    except IdentityCurationError as exc:
+        raise IdentityTreeError(
+            f"IDENTITY-MANIFEST.json[{index}] emitted nested shape is invalid: {exc}"
+        ) from exc
+    id_mappings = mapping.get("id_mappings")
+    if not isinstance(id_mappings, list):
+        raise IdentityTreeError(
+            f"IDENTITY-MANIFEST.json[{index}].id_mappings must be a list"
+        )
+    by_owner: dict[str, str] = {}
+    for nested_index, id_mapping in enumerate(id_mappings):
+        if not isinstance(id_mapping, Mapping):
+            raise IdentityTreeError(
+                f"IDENTITY-MANIFEST.json[{index}].id_mappings[{nested_index}] "
+                "must be an object"
+            )
+        owner_path = id_mapping.get("owner_path")
+        nested_output_id = id_mapping.get("output_id")
+        if not isinstance(owner_path, str) or not isinstance(nested_output_id, str):
+            raise IdentityTreeError(
+                f"IDENTITY-MANIFEST.json[{index}].id_mappings[{nested_index}] "
+                "must contain string owner_path and output_id"
+            )
+        if owner_path in by_owner:
+            raise IdentityTreeError(
+                f"IDENTITY-MANIFEST.json[{index}].id_mappings repeats {owner_path}"
+            )
+        by_owner[owner_path] = nested_output_id
+    if set(by_owner) != set(owner_paths):
+        raise IdentityTreeError(
+            f"IDENTITY-MANIFEST.json[{index}].id_mappings owner paths do not "
+            "match emitted record"
+        )
+    if by_owner["/"] != output_id:
+        raise IdentityTreeError(
+            f"IDENTITY-MANIFEST.json[{index}] root id mapping does not match output_id"
+        )
+    for owner_path, nested_output_id in by_owner.items():
+        owner = _pointer_value(record, owner_path)
+        if not isinstance(owner, Mapping) or owner.get("id") != nested_output_id:
+            raise IdentityTreeError(
+                f"IDENTITY-MANIFEST.json[{index}] id mapping for {owner_path} "
+                "does not match emitted record"
+            )
+        if nested_output_id != _canonical_id(source_identity, kind, owner_path):
+            raise IdentityTreeError(
+                f"IDENTITY-MANIFEST.json[{index}] id mapping for {owner_path} "
+                "is not canonical"
+            )
+
+
+def _expected_identity_outputs(
+    manifest: list[Any], registry: FactoryRegistry
+) -> dict[str, dict[int, tuple[int, Mapping[str, Any]]]]:
+    expected: dict[str, dict[int, tuple[int, Mapping[str, Any]]]] = {}
     for index, mapping in enumerate(manifest):
         if not isinstance(mapping, Mapping):
             raise IdentityTreeError(f"IDENTITY-MANIFEST.json[{index}] must be an object")
-        pin = None
         registry_meta = mapping.get("registry")
-        if isinstance(registry_meta, Mapping):
-            pin = registry_meta.get("sha256")
+        pin = registry_meta.get("sha256") if isinstance(registry_meta, Mapping) else None
         if pin != registry.sha256:
             raise IdentityTreeError(
                 f"IDENTITY-MANIFEST.json[{index}] registry.sha256 does not match sidecar pin"
@@ -1063,13 +1325,94 @@ def validate_identity_tree(dest: Path) -> FactoryRegistry:
             raise IdentityTreeError(
                 f"IDENTITY-MANIFEST.json[{index}].source.path is invalid: {exc}"
             ) from exc
+        source_line = source_meta.get("line")
+        if (
+            not isinstance(source_line, int)
+            or isinstance(source_line, bool)
+            or source_line < 1
+        ):
+            raise IdentityTreeError(
+                f"IDENTITY-MANIFEST.json[{index}].source.line must be positive"
+            )
         output_sha256 = mapping.get("output_sha256")
         if not isinstance(output_sha256, str) or not SHA256_RE.fullmatch(output_sha256):
             raise IdentityTreeError(
                 f"IDENTITY-MANIFEST.json[{index}].output_sha256 must be a SHA-256"
             )
-        expected_outputs.setdefault(output_path, []).append(output_sha256)
+        by_line = expected.setdefault(output_path, {})
+        if source_line in by_line:
+            raise IdentityTreeError(
+                f"IDENTITY-MANIFEST.json repeats output coordinate "
+                f"{output_path}:{source_line}"
+            )
+        by_line[source_line] = (index, mapping)
+    return expected
 
+
+def _read_identity_output(
+    path: Path, rel: str
+) -> dict[int, tuple[Mapping[str, Any], bytes]]:
+    records: dict[int, tuple[Mapping[str, Any], bytes]] = {}
+    try:
+        output_bytes = path.read_bytes()
+    except OSError as exc:
+        raise IdentityTreeError(f"identity output is unreadable: {rel}: {exc}") from exc
+    for line_no, record_bytes in _iter_jsonl_record_bytes(output_bytes):
+        try:
+            line = record_bytes.decode("utf-8")
+        except UnicodeDecodeError as exc:
+            raise IdentityTreeError(
+                f"identity output is not UTF-8 at {rel}:{line_no}: {exc}"
+            ) from exc
+        if not line.strip():
+            continue
+        try:
+            output_record = json.loads(line, parse_constant=_reject_json_constant)
+        except (json.JSONDecodeError, ValueError) as exc:
+            raise IdentityTreeError(
+                f"identity output JSON parse error at {rel}:{line_no}: {exc}"
+            ) from exc
+        if not isinstance(output_record, Mapping):
+            raise IdentityTreeError(
+                f"identity output record at {rel}:{line_no} must be an object"
+            )
+        records[line_no] = (output_record, record_bytes)
+    return records
+
+
+def validate_identity_tree(
+    dest: Path, expected_registry_digest: str | None = None
+) -> FactoryRegistry:
+    """Validate internal consistency and, when supplied, a reviewed digest pin."""
+
+    dest = Path(dest)
+    if dest.is_symlink():
+        raise IdentityTreeError("identity tree root must not be a symlink")
+    symlinks = [path.relative_to(dest).as_posix() for path in dest.rglob("*") if path.is_symlink()]
+    if symlinks:
+        raise IdentityTreeError(f"identity tree must not contain symlinks: {symlinks}")
+    sidecar = dest / FACTORY_REGISTRY_SIDECAR
+    manifest_path = dest / IDENTITY_MANIFEST_SIDECAR
+    if not sidecar.is_file():
+        raise IdentityTreeError("identity tree missing FACTORY-REGISTRY.json")
+    if not manifest_path.is_file():
+        raise IdentityTreeError("identity tree missing IDENTITY-MANIFEST.json")
+    registry = load_registry(sidecar)
+    if expected_registry_digest is not None and registry.sha256 != expected_registry_digest:
+        raise IdentityTreeError(
+            f"registry digest mismatch: expected {expected_registry_digest}, "
+            f"got {registry.sha256}"
+        )
+    try:
+        manifest = json.loads(
+            manifest_path.read_text(encoding="utf-8"),
+            parse_constant=_reject_json_constant,
+        )
+    except (OSError, json.JSONDecodeError, ValueError) as exc:
+        raise IdentityTreeError(f"IDENTITY-MANIFEST.json is not readable JSON: {exc}") from exc
+    if not isinstance(manifest, list):
+        raise IdentityTreeError("IDENTITY-MANIFEST.json must be a list of mappings")
+    expected_outputs = _expected_identity_outputs(manifest, registry)
     actual_paths = {
         path.relative_to(dest).as_posix(): path
         for path in sorted(dest.rglob("*.jsonl"))
@@ -1083,38 +1426,26 @@ def validate_identity_tree(dest: Path) -> FactoryRegistry:
             "identity output paths do not match manifest: "
             f"missing={missing}, extra={extra}"
         )
-    for rel, expected_hashes in sorted(expected_outputs.items()):
-        actual_hashes: list[str] = []
-        try:
-            output_bytes = actual_paths[rel].read_bytes()
-        except OSError as exc:
-            raise IdentityTreeError(f"identity output is unreadable: {rel}: {exc}") from exc
-        for line_no, record_bytes in _iter_jsonl_record_bytes(output_bytes):
-            try:
-                line = record_bytes.decode("utf-8")
-            except UnicodeDecodeError as exc:
-                raise IdentityTreeError(
-                    f"identity output is not UTF-8 at {rel}:{line_no}: {exc}"
-                ) from exc
-            if not line.strip():
-                continue
-            try:
-                output_record = json.loads(line)
-            except json.JSONDecodeError as exc:
-                raise IdentityTreeError(
-                    f"identity output JSON parse error at {rel}:{line_no}: {exc}"
-                ) from exc
+    for rel, expected_by_line in sorted(expected_outputs.items()):
+        actual_by_line = _read_identity_output(actual_paths[rel], rel)
+        if set(actual_by_line) != set(expected_by_line):
+            raise IdentityTreeError(
+                f"identity output line coordinates do not match manifest: {rel}"
+            )
+        for line_no, (index, mapping) in expected_by_line.items():
+            output_record, record_bytes = actual_by_line[line_no]
             try:
                 canonical_json(output_record)
             except IdentityCurationError as exc:
                 raise IdentityTreeError(
-                    f"identity output is not canonical JSON data: {rel}: {exc}"
+                    f"identity output is not canonical JSON data: {rel}:{line_no}: {exc}"
                 ) from exc
-            actual_hashes.append(_sha256_bytes(record_bytes))
-        if actual_hashes != expected_hashes:
-            raise IdentityTreeError(
-                f"identity output hashes do not match manifest: {rel}"
-            )
+            actual_hash = _sha256_bytes(record_bytes)
+            if actual_hash != mapping["output_sha256"]:
+                raise IdentityTreeError(
+                    f"identity output hashes do not match manifest: {rel}:{line_no}"
+                )
+            _validate_manifest_ids(mapping, output_record, index, registry)
     return registry
 
 
@@ -1126,6 +1457,19 @@ def _registered_factory_ancestor(
         if candidate.name in registry.by_path_id:
             return candidate
     return None
+
+
+def _source_relative_path(
+    path: Path,
+    source: Path,
+    registry: FactoryRegistry,
+) -> str:
+    factory_dir = _registered_factory_ancestor(path.parent, registry)
+    if factory_dir is not None:
+        return path.relative_to(factory_dir.parent).as_posix()
+    if source.is_file() or path.parent == source:
+        return path.relative_to(path.parent.parent).as_posix()
+    return path.relative_to(source).as_posix()
 
 
 def _committed_source_paths(paths: Iterable[Path]) -> list[Path]:
@@ -1187,8 +1531,6 @@ def iter_source_records(
                 f"JSONL source must be inside a factory directory: {source}"
             )
         candidates = [source]
-        factory_dir = _registered_factory_ancestor(source.parent, registry)
-        root = factory_dir.parent if factory_dir is not None else source.parent.parent
     elif source.is_dir():
         candidates = sorted(
             path
@@ -1197,7 +1539,6 @@ def iter_source_records(
         )
         if not candidates:
             raise IdentityCurationError(f"no JSONL files under source: {source}")
-        factory_dir = _registered_factory_ancestor(source, registry)
     else:
         raise IdentityCurationError(f"source is not a JSONL file or directory: {source}")
     try:
@@ -1206,15 +1547,10 @@ def iter_source_records(
         raise IdentityCurationError(f"invalid source transaction state: {exc}") from exc
     if not files:
         raise IdentityCurationError(f"no committed JSONL files under source: {source}")
-    if source.is_dir():
-        has_direct_jsonl = any(path.parent == source for path in files)
-        if factory_dir is not None:
-            root = factory_dir.parent
-        else:
-            root = source.parent if has_direct_jsonl else source
+
     records: list[SourceRecord] = []
     for path in files:
-        rel = path.relative_to(root).as_posix()
+        rel = _source_relative_path(path, source, registry)
         try:
             source_bytes = path.read_bytes()
         except OSError as exc:
@@ -1231,14 +1567,33 @@ def iter_source_records(
             if not line.strip():
                 continue
             try:
-                obj = json.loads(line)
-            except json.JSONDecodeError as exc:
+                obj = json.loads(line, parse_constant=_reject_json_constant)
+            except (json.JSONDecodeError, ValueError) as exc:
                 raise IdentityCurationError(
                     f"JSON parse error at {rel}:{line_no}: {exc}"
                 ) from exc
             digest = _sha256_bytes(record_bytes)
             records.append(SourceRecord(obj, rel, line_no, digest))
     return records
+
+
+def _ensure_output_directory(
+    root: Path,
+    directory: Path,
+    created_directories: list[Path],
+) -> None:
+    current = root
+    for part in directory.relative_to(root).parts:
+        current /= part
+        try:
+            current.mkdir()
+        except FileExistsError:
+            if current.is_symlink() or not current.is_dir():
+                raise IdentityCurationError(
+                    f"identity output parent is not a directory: {current}"
+                )
+        else:
+            created_directories.append(current)
 
 
 def write_run(
@@ -1261,56 +1616,65 @@ def write_run(
         iter_source_records(source, registry=registry),
         registry=registry,
     )
-    created: list[Path] = []
+    created_files: list[Path] = []
+    created_directories: list[Path] = []
+    destination_created = False
     try:
         dest.mkdir(parents=True, exist_ok=False)
+        destination_created = True
         _write_exclusive(dest / FACTORY_REGISTRY_SIDECAR, registry.raw_bytes)
-        created.append(dest / FACTORY_REGISTRY_SIDECAR)
+        created_files.append(dest / FACTORY_REGISTRY_SIDECAR)
         manifest_bytes = (
             json.dumps(
                 [result.mapping for result in results],
                 ensure_ascii=False,
+                allow_nan=False,
                 indent=2,
                 sort_keys=True,
             )
             + "\n"
         ).encode("utf-8")
         _write_exclusive(dest / IDENTITY_MANIFEST_SIDECAR, manifest_bytes)
-        created.append(dest / IDENTITY_MANIFEST_SIDECAR)
-        retained_by_rel: dict[str, list[dict[str, Any]]] = {}
+        created_files.append(dest / IDENTITY_MANIFEST_SIDECAR)
+        retained_by_rel: dict[str, dict[int, dict[str, Any]]] = {}
         for result in results:
             if result.action != "retained" or result.record is None:
                 continue
-            retained_by_rel.setdefault(result.mapping["source"]["path"], []).append(
-                result.record
-            )
-        for rel, records in sorted(retained_by_rel.items()):
+            source_meta = result.mapping["source"]
+            by_line = retained_by_rel.setdefault(source_meta["path"], {})
+            if source_meta["line"] in by_line:
+                raise IdentityCurationError(
+                    "retained records repeat source coordinate "
+                    f"{source_meta['path']}:{source_meta['line']}"
+                )
+            by_line[source_meta["line"]] = result.record
+        for rel, records_by_line in sorted(retained_by_rel.items()):
             out_path = dest / rel
-            out_path.parent.mkdir(parents=True, exist_ok=True)
-            payload = "".join(canonical_json(record) + "\n" for record in records)
+            _ensure_output_directory(dest, out_path.parent, created_directories)
+            output_lines = [""] * max(records_by_line)
+            for line_no, record in records_by_line.items():
+                output_lines[line_no - 1] = canonical_json(record)
+            payload = "\n".join(output_lines) + "\n"
             _write_exclusive(out_path, payload.encode("utf-8"))
-            created.append(out_path)
+            created_files.append(out_path)
+        validate_identity_tree(dest, expected_registry_digest=registry.sha256)
     except BaseException:
-        for path in reversed(created):
-            try:
-                path.unlink()
-            except FileNotFoundError:
-                pass
-        if dest.exists() and dest.is_dir():
-            for leftover in sorted(dest.rglob("*"), reverse=True):
-                if leftover.is_file():
-                    leftover.unlink(missing_ok=True)
-                elif leftover.is_dir():
-                    try:
-                        leftover.rmdir()
-                    except OSError:
-                        pass
+        if destination_created:
+            for path in reversed(created_files):
+                try:
+                    path.unlink()
+                except FileNotFoundError:
+                    pass
+            for directory in reversed(created_directories):
+                try:
+                    directory.rmdir()
+                except OSError:
+                    pass
             try:
                 dest.rmdir()
             except OSError:
                 pass
         raise
-    validate_identity_tree(dest)
     return results
 
 
