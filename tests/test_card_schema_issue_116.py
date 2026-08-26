@@ -113,7 +113,33 @@ class PaymentIdempotencyDeclarationTests(unittest.TestCase):
         self.assertIn("`pid-r01-webhook-replay-double-credit`", self.card)
         self.assertNotIn("**Not declared yet.**", self.card)
 
+    def test_fixed_counts_are_scoped_to_the_audited_snapshot(self):
+        scope = "audited 694-record snapshot through round 347"
+        self.assertIn(scope, self.declaration["note"])
+        self.assertIn(scope, self.card)
+
+        def numeric_notes(value):
+            if isinstance(value, dict):
+                for key, item in value.items():
+                    if key == "note" and isinstance(item, str) and any(
+                        character.isdigit() for character in item
+                    ):
+                        yield item
+                    else:
+                        yield from numeric_notes(item)
+            elif isinstance(value, list):
+                for item in value:
+                    yield from numeric_notes(item)
+
+        for note in numeric_notes(self.declaration["features"]):
+            with self.subTest(note=note):
+                self.assertIn(scope, note)
+
+        for disclosure in self.declaration["disclosures"]:
+            summary = disclosure["summary"] if isinstance(disclosure, dict) else disclosure
+            with self.subTest(disclosure=summary):
+                self.assertIn(scope, summary)
+
 
 if __name__ == "__main__":
     unittest.main()
-
