@@ -1002,12 +1002,20 @@ def _write_exclusive(path: Path, payload: bytes) -> None:
             handle.write(payload)
             handle.flush()
             os.fsync(handle.fileno())
+        # Fsync parent directory to ensure durable directory entry
+        parent_descriptor = os.open(path.parent, os.O_RDONLY)
+        try:
+            os.fsync(parent_descriptor)
+        finally:
+            os.close(parent_descriptor)
     except BaseException:
         path.unlink(missing_ok=True)
         raise
 
 
-def validate_identity_tree(dest: Path) -> FactoryRegistry:
+def validate_identity_tree(
+    dest: Path, expected_registry_digest: str | None = None
+) -> FactoryRegistry:
     """Fail closed when the identity pin, manifest, or emitted records differ."""
 
     dest = Path(dest)
@@ -1018,6 +1026,11 @@ def validate_identity_tree(dest: Path) -> FactoryRegistry:
     if not manifest_path.is_file():
         raise IdentityTreeError("identity tree missing IDENTITY-MANIFEST.json")
     registry = load_registry(sidecar)
+    if expected_registry_digest is not None and registry.sha256 != expected_registry_digest:
+        raise IdentityTreeError(
+            f"registry digest mismatch: expected {expected_registry_digest}, "
+            f"got {registry.sha256}"
+        )
     try:
         manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as exc:
@@ -1195,6 +1208,11 @@ def iter_source_records(
             root = factory_dir.parent
         else:
             root = source.parent if has_direct_jsonl else source
+    def _reject_non_standard_constants(value: str) -> None:
+        raise IdentityCurationError(
+            f"JSON at {rel}:{line_no} contains non-standard numeric constant: {value}"
+        )
+
     records: list[SourceRecord] = []
     for path in files:
         rel = path.relative_to(root).as_posix()
@@ -1203,7 +1221,7 @@ def iter_source_records(
             if not line.strip():
                 continue
             try:
-                obj = json.loads(line)
+                obj = json.loads(line, parse_constant=_reject_non_standard_constants)
             except json.JSONDecodeError as exc:
                 raise IdentityCurationError(
                     f"JSON parse error at {rel}:{line_no}: {exc}"
@@ -1242,6 +1260,7 @@ def write_run(
             json.dumps(
                 [result.mapping for result in results],
                 ensure_ascii=False,
+                allow_nan=False,
                 indent=2,
                 sort_keys=True,
             )
@@ -1262,6 +1281,7 @@ def write_run(
             payload = "".join(canonical_json(record) + "\n" for record in records)
             _write_exclusive(out_path, payload.encode("utf-8"))
             created.append(out_path)
+        validate_identity_tree(dest, expected_registry_digest=registry.sha256)
     except BaseException:
         for path in reversed(created):
             try:
@@ -1282,7 +1302,6 @@ def write_run(
             except OSError:
                 pass
         raise
-    validate_identity_tree(dest)
     return results
 
 
