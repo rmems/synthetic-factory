@@ -371,9 +371,9 @@ def normalized_execution_override(reason):
             "execution verification override must be a written reason string"
         )
     text = " ".join(reason.split())
-    if any(unicodedata.category(character) == "Cc" for character in text):
+    if not text.isprintable():
         raise TransactionError(
-            "execution verification override must not contain control characters"
+            "execution verification override must not contain non-printable characters"
         )
     if len(text) < EXECUTION_OVERRIDE_MIN_CHARS:
         raise TransactionError(
@@ -408,6 +408,31 @@ def recorded_execution_override(manifest):
             "publishing marker has invalid waived_inconclusive count"
         )
     return normalized
+
+
+def comparable_execution_verification(verification):
+    """Return derived verification fields while exempting only waiver prose."""
+    if not isinstance(verification, dict):
+        raise TransactionError("publishing marker has invalid execution verification")
+    comparable = dict(verification)
+    override = comparable.get("override")
+    if isinstance(override, dict):
+        comparable["override"] = {
+            key: value for key, value in override.items() if key != "reason"
+        }
+    return comparable
+
+
+def replace_json_atomically(path: Path, payload: dict):
+    """Atomically migrate one existing regular JSON marker under the run lock."""
+    temporary = path.parent / f".{path.name}.{uuid.uuid4().hex}.migrating"
+    try:
+        write_exclusive_json(temporary, payload)
+        if not path.is_file() or path.is_symlink():
+            raise TransactionError(f"unsafe publishing marker: {path}")
+        os.replace(temporary, path)
+    finally:
+        temporary.unlink(missing_ok=True)
 
 
 def load_execution_verifier():
@@ -2632,6 +2657,7 @@ def _publish_locked(
         paths["publishing"].exists() or paths["publishing"].is_symlink()
     )
     existing = None
+    pre_gate_marker = False
     if publishing_exists:
         if not paths["publishing"].is_file() or paths["publishing"].is_symlink():
             raise TransactionError(
@@ -2646,8 +2672,11 @@ def _publish_locked(
             raise TransactionError(
                 f"publishing marker identity mismatch: {paths['publishing']}"
             )
-        if execution_override is None:
-            execution_override = recorded_execution_override(existing)
+        pre_gate_marker = "execution_verification" not in existing
+        if not pre_gate_marker:
+            recorded_override = recorded_execution_override(existing)
+            if execution_override is None:
+                execution_override = recorded_override
 
     files, kinds, records, verification = validate_stage(
         factory_dir,
@@ -2672,11 +2701,8 @@ def _publish_locked(
 
     resumed = existing is not None
     if resumed:
-        # Timestamps differ across retries. The execution verdict is derived
-        # from the manifest-hashed batch and carries operator prose, so a retry
-        # may reword the waiver without changing the plan. Every other field is
-        # immutable, including the schema version and declared completion
-        # marker. The first recorded verdict is the one that is kept.
+        # Timestamps differ across retries. Every other plan field is immutable,
+        # including the schema version and declared completion marker.
         existing_plan = {
             key: value
             for key, value in existing.items()
@@ -2691,7 +2717,23 @@ def _publish_locked(
             raise TransactionError(
                 f"publishing plan conflicts with staged content: {paths['publishing']}"
             )
-        manifest = existing
+        if pre_gate_marker:
+            # A publish interrupted before the execution gate was introduced
+            # has no persisted verdict to reuse. Re-derive it above and migrate
+            # the marker atomically before any completion link can expose it.
+            replace_json_atomically(paths["publishing"], manifest)
+        else:
+            # Only the first canonical waiver reason is intentionally retained.
+            # Gate identity, strictness, counts, and waived count must still
+            # agree with the freshly derived verdict before completion.
+            if comparable_execution_verification(
+                existing["execution_verification"]
+            ) != comparable_execution_verification(verification):
+                raise TransactionError(
+                    "publishing marker execution verification conflicts with "
+                    f"staged content: {paths['publishing']}"
+                )
+            manifest = existing
     else:
         write_exclusive_json(paths["publishing"], manifest)
 
