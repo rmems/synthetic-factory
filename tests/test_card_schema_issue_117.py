@@ -53,8 +53,10 @@ class CacheStampedeDeclarationTests(unittest.TestCase):
             set(names),
             {"id", "goal", "plan", "steps", "outcome", "reward", "meta"},
         )
-        # `plan` is on all 3456 records here, unlike the #36 dataset.
-        self.assertNotIn("optional", names["plan"])
+        # `plan` is on the entire audited snapshot, but the wildcard may add
+        # future shards that are not constrained by that historical census.
+        self.assertTrue(names["plan"]["optional"])
+        self.assertIn(AUDITED_SCOPE, names["plan"]["note"])
         self.assertEqual(names["meta"]["dtype"], "json")
         self.assertEqual(names["reward"]["dtype"], "json")
         steps = {feature["name"]: feature for feature in names["steps"]["list"]}
@@ -116,7 +118,8 @@ class CacheStampedeDeclarationTests(unittest.TestCase):
 
     def test_card_body_reports_the_optional_and_key_bag_fields(self):
         self.assertIn("| `steps[].reflection` | optional |", self.card)
-        self.assertIn("| `plan` | present on every record |", self.card)
+        self.assertIn("| `plan` | optional |", self.card)
+        self.assertNotIn("| `plan` | present on every record |", self.card)
         self.assertIn("`steps[].tool_call.args`, `reward`, `meta`", self.card)
         self.assertIn("no hidden `thought` or `internal_reasoning`", self.card)
 

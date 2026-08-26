@@ -12,7 +12,8 @@
     {
       "name": "plan",
       "dtype": "string",
-      "note": "present and non-empty throughout the audited 3456-record snapshot through round 1728; mandatory here, unlike the sibling `long-horizon-coding-trajectories` declaration where `plan` is optional"
+      "optional": true,
+      "note": "present and non-empty throughout the audited 3456-record snapshot through round 1728; marked card-optional because future shards matched by the publication wildcard are not constrained to preserve that historical universal"
     },
     {
       "name": "steps",
