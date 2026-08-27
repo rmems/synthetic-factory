@@ -40,7 +40,7 @@ def thalamic(claim="real", **overrides):
         "executed_action": {"action_type": "noop"},
         "future_outcome": {"success": "full"},
         "reward_components": {"task": 1.0, "total": 1.0},
-        "meta": {"id": "legacy-meta-id", "factory": FABLE_THALAMIC},
+        "meta": {"id": "legacy-meta-id", "factory": FABLE_THALAMIC, "round": 2},
     }
     record.update(overrides)
     return record
@@ -371,7 +371,7 @@ class TestSupportedRecordShapes(unittest.TestCase):
             "language_view": {
                 "trajectory": thalamic(
                     "hardware-in-the-loop (flight rig)",
-                    meta={"id": "legacy-trajectory"},
+                    meta={"id": "legacy-trajectory", "round": 3},
                 )
             },
             "spike_events": [{"channel": "x", "t_rel_ms": 1, "amplitude": 1}],
@@ -1065,6 +1065,20 @@ class TestFactoryRegistryAuthority(unittest.TestCase):
                 raw = episode(FABLE_ACT)
                 raw["steps"][0]["sim_or_real"] = claim
                 result = identity.curate_record(source(raw, f"{FABLE_ACT}/episodes.jsonl", 1))
+                self.assertEqual(result.action, "exclude")
+                self.assertEqual(
+                    result.mapping["reason_codes"],
+                    ["identity.unowned_real_claim"],
+                )
+
+            with self.subTest(claim=claim, field="provenance.kind"):
+                raw = episode(FABLE_ACT)
+                raw["steps"][0]["notes"] = {
+                    "provenance": {"kind": claim}
+                }
+                result = identity.curate_record(
+                    source(raw, f"{FABLE_ACT}/episodes.jsonl", 1)
+                )
                 self.assertEqual(result.action, "exclude")
                 self.assertEqual(
                     result.mapping["reason_codes"],
@@ -2028,6 +2042,57 @@ class TestIdentityWriterExcludeAndPin(unittest.TestCase):
         self.assertEqual(
             result.mapping["reason_codes"],
             ["identity.invalid_nested_shape"],
+        )
+
+    def test_require_state_contract_validates_thalamic_and_bridge_shapes(self):
+        malformed_thalamic = thalamic("designed")
+        malformed_thalamic["executed_action"] = "not-an-object"
+        malformed_thalamic["reward_components"] = "not-an-object"
+        result = identity.curate_record(source(malformed_thalamic))
+        self.assertEqual(result.action, "exclude")
+        self.assertEqual(
+            result.mapping["reason_codes"],
+            ["identity.invalid_payload_shape"],
+        )
+        self.assertTrue(
+            any("executed_action" in error for error in result.mapping["details"])
+        )
+        self.assertTrue(
+            any("reward_components" in error for error in result.mapping["details"])
+        )
+
+        empty_bridge = {
+            "language_view": {"trajectory": thalamic("designed")},
+            "spike_events": [],
+            "meta": {"factory": FABLE_BRIDGE},
+        }
+        result = identity.curate_record(
+            source(empty_bridge, f"{FABLE_BRIDGE}/batch.jsonl", 1)
+        )
+        self.assertEqual(result.action, "exclude")
+        self.assertEqual(
+            result.mapping["reason_codes"],
+            ["identity.invalid_payload_shape"],
+        )
+        self.assertIn(
+            "record: spike_events must be a non-empty array",
+            result.mapping["details"],
+        )
+
+        malformed_bridge = copy.deepcopy(empty_bridge)
+        malformed_bridge["spike_events"] = [
+            {"t_rel_ms": 2, "channel": "a", "amplitude": 1},
+            {"t_rel_ms": 1, "amplitude": 1},
+        ]
+        result = identity.curate_record(
+            source(malformed_bridge, f"{FABLE_BRIDGE}/batch.jsonl", 1)
+        )
+        self.assertEqual(result.action, "exclude")
+        self.assertTrue(
+            any("globally non-decreasing" in error for error in result.mapping["details"])
+        )
+        self.assertTrue(
+            any("missing 'channel'" in error for error in result.mapping["details"])
         )
 
     def test_preference_mixed_claims_and_state_wins_on_sides(self):
@@ -3067,6 +3132,30 @@ class TestIdentityWriterExcludeAndPin(unittest.TestCase):
             empty.mkdir()
             with self.assertRaisesRegex(identity.IdentityCurationError, "no JSONL files"):
                 identity.iter_source_records(empty)
+
+    def test_iter_source_records_rejects_symlinked_jsonl_entries_in_directories(self):
+        for dangling in (False, True):
+            with self.subTest(dangling=dangling), tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                factory = root / FABLE_ACT
+                factory.mkdir()
+                (factory / "episodes.jsonl").write_text(
+                    identity.canonical_json(episode(FABLE_ACT)) + "\n",
+                    encoding="utf-8",
+                )
+                target = root / "external.jsonl"
+                if not dangling:
+                    target.write_text(
+                        identity.canonical_json(episode(FABLE_ACT)) + "\n",
+                        encoding="utf-8",
+                    )
+                (factory / "omitted.jsonl").symlink_to(target)
+
+                with self.assertRaisesRegex(
+                    identity.IdentityCurationError,
+                    "symlinked JSONL entries: agentic-coding-trajectory-factory/omitted.jsonl",
+                ):
+                    identity.iter_source_records(root)
 
     def test_write_run_preserves_factory_segment_for_file_and_factory_inputs(self):
         with tempfile.TemporaryDirectory() as tmp:

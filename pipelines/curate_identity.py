@@ -38,7 +38,13 @@ from record_kind import (
     preference_side_kinds,
 )
 from round_txn import TransactionError, committed_jsonl_paths, marker_mode_path
-from validate_run import check_episode, check_multi_agent, check_safety_case, check_thalamic
+from validate_run import (
+    check_episode,
+    check_multi_agent,
+    check_safety_case,
+    check_spike_order,
+    check_thalamic,
+)
 
 TRANSFORM_NAME = "curate_identity"
 TRANSFORM_VERSION = "identity-provenance-v2"
@@ -827,7 +833,7 @@ def _residual_real_claim_paths(value: Any, path: str = "$") -> list[str]:
         provenance = value.get("provenance")
         if isinstance(provenance, Mapping):
             provenance_kind = provenance.get("kind")
-            if isinstance(provenance_kind, str) and provenance_kind.strip().casefold() == "real":
+            if _is_real_world_claim(provenance_kind):
                 paths.append(f"{path}.provenance.kind")
         for key, item in value.items():
             paths.extend(_residual_real_claim_paths(item, f"{path}.{key}"))
@@ -842,6 +848,20 @@ def _shape_validation_errors(
     kind: str,
     owner_specs: list[tuple[str, Mapping[str, Any]]] | None = None,
 ) -> list[str]:
+    def structural_thalamic_errors(
+        owner: Mapping[str, Any], where: str
+    ) -> list[str]:
+        # Identity intentionally accepts the legacy provenance vocabulary and
+        # canonicalizes it below. Every other Thalamic invariant is
+        # structural and must pass before the record can enter a cleaned tree.
+        return [
+            error
+            for error in check_thalamic(owner, where)
+            if not error.startswith(f"{where}: state.sim_or_real must ")
+        ]
+
+    if kind == "thalamic":
+        return structural_thalamic_errors(record, "record")
     if kind == "episode":
         return check_episode(record, "record")
     if kind == "preference":
@@ -870,15 +890,32 @@ def _shape_validation_errors(
                 )
             elif side_kind == "thalamic":
                 where = f"record{owner_path}"
-                # Legacy claim vocabulary is normalized by the provenance
-                # resolver below; every other Thalamic invariant is structural.
-                errors.extend(
-                    error
-                    for error in check_thalamic(owner, where)
-                    if not error.startswith(f"{where}: state.sim_or_real must ")
-                )
+                errors.extend(structural_thalamic_errors(owner, where))
             else:
                 errors.append(f"record{owner_path}: unsupported preference-side shape")
+        return errors
+    if kind == "bridge_pair":
+        errors: list[str] = []
+        events = record.get("spike_events")
+        if not isinstance(events, list) or not events:
+            errors.append("record: spike_events must be a non-empty array")
+        else:
+            errors.extend(check_spike_order(events, "record"))
+        language_view = record.get("language_view")
+        if not isinstance(language_view, Mapping):
+            errors.append("record: language_view must be an object")
+        else:
+            trajectory = language_view.get("trajectory")
+            if not isinstance(trajectory, Mapping):
+                errors.append(
+                    "record: language_view.trajectory missing or not an object"
+                )
+            else:
+                errors.extend(
+                    structural_thalamic_errors(
+                        trajectory, "record.language_view.trajectory"
+                    )
+                )
         return errors
     if kind == "safety_case":
         return check_safety_case(record, "record")
@@ -1238,14 +1275,13 @@ def curate_record(
     except IdentityCurationError as exc:
         return _exclude(mapping, "identity.invalid_nested_shape", details=[str(exc)])
 
-    if contract == CONTRACT_SHAPE_DESIGNED or kind == "preference":
-        shape_errors = _shape_validation_errors(original, kind, owner_specs)
-        if shape_errors:
-            return _exclude(
-                mapping,
-                "identity.invalid_payload_shape",
-                details=shape_errors,
-            )
+    shape_errors = _shape_validation_errors(original, kind, owner_specs)
+    if shape_errors:
+        return _exclude(
+            mapping,
+            "identity.invalid_payload_shape",
+            details=shape_errors,
+        )
 
     use_state = contract == CONTRACT_REQUIRE_STATE or _payload_has_state_claim(
         original, owner_specs
@@ -2145,9 +2181,16 @@ def iter_source_records(
             )
         candidates = [source]
     elif source.is_dir():
-        candidates = sorted(
-            path for path in source.rglob("*.jsonl") if path.is_file() and not path.is_symlink()
-        )
+        jsonl_entries = sorted(source.rglob("*.jsonl"))
+        symlink_entries = [path for path in jsonl_entries if path.is_symlink()]
+        if symlink_entries:
+            rendered = ", ".join(
+                path.relative_to(source).as_posix() for path in symlink_entries
+            )
+            raise IdentityCurationError(
+                f"source tree must not contain symlinked JSONL entries: {rendered}"
+            )
+        candidates = [path for path in jsonl_entries if path.is_file()]
         if not candidates:
             raise IdentityCurationError(f"no JSONL files under source: {source}")
     else:
