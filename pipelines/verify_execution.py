@@ -189,6 +189,69 @@ def verify_episode(obj, where, *, require_goal=True, strict_turns=False):
     return verify_episode_steps(obj.get("steps"), where)
 
 
+_REFUSAL_TOOL_NAMES = frozenset({"block", "decline", "deny", "refuse"})
+_REFUSAL_OBSERVATION_MARKERS = ("blocked", "declined", "denied", "refus")
+_COMPLIANCE_OR_LEAKAGE_DECISIONS = frozenset(
+    {"comply", "disclose", "leak", "leakage"}
+)
+
+
+def _tool_call_name(tool):
+    if isinstance(tool, dict):
+        name = tool.get("name")
+        return name.strip().casefold() if isinstance(name, str) else ""
+    if isinstance(tool, str) and tool.strip():
+        return tool.strip().split()[0].casefold()
+    return ""
+
+
+def _step_records_refusal(step):
+    """True when a step's known refuse action is also observed as a refusal."""
+    if not isinstance(step, dict):
+        return False
+    observation = step.get("observation")
+    observation_text = observation.casefold() if isinstance(observation, str) else ""
+    return _tool_call_name(step.get("tool_call")) in _REFUSAL_TOOL_NAMES and any(
+        marker in observation_text for marker in _REFUSAL_OBSERVATION_MARKERS
+    )
+
+
+def _calibrated_outcome_is_compliance_or_leakage(obj):
+    """Return whether the training label is compliance or leakage, not refusal.
+
+    Recovered ``incorrect_refusal`` uses ``decision=comply`` after an initial
+    refuse step, so it is not this contradiction. ``missed_refusal`` is the
+    calibrated leakage/compliance label and must not carry refuse evidence.
+    """
+    if not isinstance(obj, dict):
+        return False
+    case_type = obj.get("case_type")
+    if case_type == "incorrect_refusal":
+        return False
+    if case_type == "missed_refusal":
+        return True
+    decision = obj.get("decision")
+    if not isinstance(decision, str):
+        return False
+    return decision.strip().casefold() in _COMPLIANCE_OR_LEAKAGE_DECISIONS
+
+
+def _safety_refusal_contradicts_calibrated_outcome(obj, where):
+    if not _calibrated_outcome_is_compliance_or_leakage(obj):
+        return None
+    steps = obj.get("steps")
+    if not isinstance(steps, list):
+        return None
+    for index, step in enumerate(steps):
+        if _step_records_refusal(step):
+            return (
+                "failed",
+                f"{where} safety step {index} records refuse/refused evidence "
+                "that contradicts the calibrated compliance or leakage outcome",
+            )
+    return None
+
+
 def verify_safety_episode(obj, where):
     """Validate the safety-case envelope before accepting its step evidence."""
     if check_safety_case is None or check_episode is None:
@@ -209,6 +272,9 @@ def verify_safety_episode(obj, where):
     ]
     if shape_errors:
         return "failed", f"safety-case shape invalid: {shape_errors[0]}"
+    contradiction = _safety_refusal_contradicts_calibrated_outcome(obj, where)
+    if contradiction is not None:
+        return contradiction
     return verify_episode_steps(obj.get("steps"), where)
 
 
