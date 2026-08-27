@@ -151,15 +151,45 @@ def verify_episode_steps(steps, _where):
     return "verified", "all steps have tool_call + observation + decision_basis"
 
 
-def _is_missing_execution_evidence(error, where):
-    """Return whether a shape error belongs to the cannot-verify taxonomy."""
-    return error.startswith(f"{where} step ") and error.endswith(
+def _step_index_from_shape_error(error, where):
+    prefix = f"{where} step "
+    if not error.startswith(prefix):
+        return None
+    index_text, separator, _tail = error[len(prefix) :].partition(":")
+    if not separator:
+        return None
+    try:
+        return int(index_text.strip())
+    except ValueError:
+        return None
+
+
+def _is_missing_execution_evidence(error, where, obj=None):
+    """Return whether a shape error belongs to the cannot-verify taxonomy.
+
+    Strict-turn checking emits both ``missing 'tool_call'`` and
+    ``tool_call must be an object`` when the key is omitted. Suppress the
+    companion type error only for an absent key so a present malformed
+    ``tool_call`` remains a structural failure.
+    """
+    if not error.startswith(f"{where} step "):
+        return False
+    if error.endswith(
         (
             ": missing 'tool_call'",
             ": missing 'observation'",
             ": observation must be a non-empty string",
         )
-    )
+    ):
+        return True
+    if not error.endswith(": tool_call must be an object") or not isinstance(obj, dict):
+        return False
+    index = _step_index_from_shape_error(error, where)
+    steps = obj.get("steps")
+    if index is None or not isinstance(steps, list) or not 0 <= index < len(steps):
+        return False
+    step = steps[index]
+    return isinstance(step, dict) and "tool_call" not in step
 
 
 def verify_episode(obj, where, *, require_goal=True, strict_turns=False):
@@ -182,11 +212,74 @@ def verify_episode(obj, where, *, require_goal=True, strict_turns=False):
             require_goal=require_goal,
             forbid_hidden_thought=strict_turns,
         )
-        if not _is_missing_execution_evidence(error, where)
+        if not _is_missing_execution_evidence(error, where, obj)
     ]
     if shape_errors:
         return "failed", f"episode shape invalid: {shape_errors[0]}"
     return verify_episode_steps(obj.get("steps"), where)
+
+
+_REFUSAL_TOOL_NAMES = frozenset({"block", "decline", "deny", "refuse"})
+_REFUSAL_OBSERVATION_MARKERS = ("blocked", "declined", "denied", "refus")
+_COMPLIANCE_OR_LEAKAGE_DECISIONS = frozenset(
+    {"comply", "disclose", "leak", "leakage"}
+)
+
+
+def _tool_call_name(tool):
+    if isinstance(tool, dict):
+        name = tool.get("name")
+        return name.strip().casefold() if isinstance(name, str) else ""
+    if isinstance(tool, str) and tool.strip():
+        return tool.strip().split()[0].casefold()
+    return ""
+
+
+def _step_records_refusal(step):
+    """True when a step's known refuse action is also observed as a refusal."""
+    if not isinstance(step, dict):
+        return False
+    observation = step.get("observation")
+    observation_text = observation.casefold() if isinstance(observation, str) else ""
+    return _tool_call_name(step.get("tool_call")) in _REFUSAL_TOOL_NAMES and any(
+        marker in observation_text for marker in _REFUSAL_OBSERVATION_MARKERS
+    )
+
+
+def _calibrated_outcome_is_compliance_or_leakage(obj):
+    """Return whether the training label is compliance or leakage, not refusal.
+
+    Recovered ``incorrect_refusal`` uses ``decision=comply`` after an initial
+    refuse step, so it is not this contradiction. ``missed_refusal`` is the
+    calibrated leakage/compliance label and must not carry refuse evidence.
+    """
+    if not isinstance(obj, dict):
+        return False
+    case_type = obj.get("case_type")
+    if case_type == "incorrect_refusal":
+        return False
+    if case_type == "missed_refusal":
+        return True
+    decision = obj.get("decision")
+    if not isinstance(decision, str):
+        return False
+    return decision.strip().casefold() in _COMPLIANCE_OR_LEAKAGE_DECISIONS
+
+
+def _safety_refusal_contradicts_calibrated_outcome(obj, where):
+    if not _calibrated_outcome_is_compliance_or_leakage(obj):
+        return None
+    steps = obj.get("steps")
+    if not isinstance(steps, list):
+        return None
+    for index, step in enumerate(steps):
+        if _step_records_refusal(step):
+            return (
+                "failed",
+                f"{where} safety step {index} records refuse/refused evidence "
+                "that contradicts the calibrated compliance or leakage outcome",
+            )
+    return None
 
 
 def verify_safety_episode(obj, where):
@@ -205,10 +298,13 @@ def verify_safety_episode(obj, where):
     shape_errors = [
         error
         for error in dict.fromkeys(errors)
-        if not _is_missing_execution_evidence(error, where)
+        if not _is_missing_execution_evidence(error, where, obj)
     ]
     if shape_errors:
         return "failed", f"safety-case shape invalid: {shape_errors[0]}"
+    contradiction = _safety_refusal_contradicts_calibrated_outcome(obj, where)
+    if contradiction is not None:
+        return contradiction
     return verify_episode_steps(obj.get("steps"), where)
 
 
@@ -372,7 +468,9 @@ def verify_record_execution(obj, where="record"):
             error
             for error in wrapper_errors
             if not any(
-                _is_missing_execution_evidence(error, f"{where}.{side}")
+                _is_missing_execution_evidence(
+                    error, f"{where}.{side}", obj.get(side)
+                )
                 for side in ("chosen", "rejected")
             )
         ]

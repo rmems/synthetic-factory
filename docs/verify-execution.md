@@ -74,11 +74,12 @@ so the round stays inspectable and can be regenerated or aborted.
 
 ### Waiver recorded in the completion marker
 
-Every publish writes an `execution_verification` block into
-`ROUND-rNN.complete.json`:
+Every publish writes a version-2 completion marker whose
+`execution_verification` block is part of the commit contract:
 
 ```json
 {
+  "version": 2,
   "execution_verification": {
     "gate": "pipelines/verify_execution.py:verify_batch_for_frontier",
     "strict": true,
@@ -87,6 +88,10 @@ Every publish writes an `execution_verification` block into
   }
 }
 ```
+
+`completed_manifests()` and `frontier_status()` re-derive that block from the
+committed batch and reject a missing, malformed, or conflicting verdict.
+Version 1 historical markers that predate the gate remain readable without it.
 
 `override` is `null` when nothing was waived. The reason is normalized to
 single-line printable text between 8 and 500 characters. A publish retry

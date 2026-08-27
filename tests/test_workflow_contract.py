@@ -108,9 +108,12 @@ class NovelCoverageNotesContract(unittest.TestCase):
         self.assertIsNotNone(match)
         self.assertEqual(float(match.group(1)), 12.3)
 
-    def test_all_three_parsers_require_one_physical_line(self):
+    def test_strict_publish_and_workflow_parsers_require_one_physical_line(self):
         split_claim = "Novel coverage:\n80% of tests passed.\n"
         self.assertIsNone(round_txn.NOVEL_COVERAGE_RE.search(split_claim))
+        self.assertIsNotNone(
+            round_txn.LEGACY_NOVEL_COVERAGE_RE.search(split_claim)
+        )
         workflow = WORKFLOW.read_text()
         self.assertIn(r"^[^\S\r\n]*novel", workflow)
         self.assertNotIn(r"/^\s*novel", workflow)

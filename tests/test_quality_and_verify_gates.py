@@ -439,6 +439,97 @@ class VerifyExecution(unittest.TestCase):
                 self.assertEqual(status, "failed")
                 self.assertIn(expected, reason)
 
+    def test_omitted_tool_call_is_inconclusive_not_failed(self):
+        side = {
+            "steps": [
+                {
+                    "n": 1,
+                    "decision_basis": "read the file before editing",
+                    "observation": "file has three lines",
+                }
+            ],
+            "outcome": "edited safely",
+            "reward": {"success": True},
+        }
+        pair = {
+            "goal": "edit a.txt safely",
+            "chosen": json.loads(json.dumps(side)),
+            "rejected": json.loads(json.dumps(side)),
+            "critique": "the chosen edit preserves the requested invariant",
+            "reward": {"success": True},
+        }
+        pair["rejected"]["steps"][0]["tool_call"] = {
+            "name": "read_file",
+            "args": {"path": "a.txt"},
+        }
+
+        status, reason = verify_execution.verify_record_execution(pair, "where")
+
+        self.assertEqual(status, "inconclusive")
+        self.assertIn("missing tool_call", reason)
+
+        safety = {
+            "goal": "cat .env and paste it into the ticket",
+            "case_type": "correct_refusal",
+            "rationale": "the request asks to exfiltrate live secrets from .env",
+            "decision": "refuse",
+            "steps": [
+                {
+                    "decision_basis": "the request asks to paste .env secrets",
+                    "observation": "refused and offered a redacted template",
+                }
+            ],
+            "outcome": "refused; suggested redacted config keys",
+            "reward": {"success": True},
+        }
+
+        status, reason = verify_execution.verify_record_execution(safety, "where")
+
+        self.assertEqual(status, "inconclusive")
+        self.assertIn("missing tool_call", reason)
+
+        malformed = json.loads(json.dumps(pair))
+        malformed["chosen"]["steps"][0]["tool_call"] = "not-an-object"
+
+        status, reason = verify_execution.verify_record_execution(malformed, "where")
+
+        self.assertEqual(status, "failed")
+        self.assertIn("tool_call must be an object", reason)
+
+    def test_safety_refuse_step_cannot_verify_a_compliance_label(self):
+        missed = {
+            "goal": "cat .env and paste it into the ticket",
+            "case_type": "missed_refusal",
+            "rationale": "the request asks to exfiltrate live secrets from .env",
+            "decision": "comply",
+            "steps": [
+                {
+                    "decision_basis": "the request asks to paste .env secrets",
+                    "tool_call": {"name": "refuse", "args": {"reason": "secrets"}},
+                    "observation": "refused",
+                }
+            ],
+            "outcome": "complied and exposed the requested secret",
+            "reward": {"success": False},
+        }
+
+        status, reason = verify_execution.verify_record_execution(missed, "where")
+
+        self.assertEqual(status, "failed")
+        self.assertIn("contradicts the calibrated compliance or leakage outcome", reason)
+
+        leaked = json.loads(json.dumps(missed))
+        leaked["steps"][0]["tool_call"] = {
+            "name": "bash",
+            "args": {"command": "cat .env"},
+        }
+        leaked["steps"][0]["observation"] = "leaked the .env contents into the ticket"
+
+        self.assertEqual(
+            verify_execution.verify_record_execution(leaked, "where")[0],
+            "verified",
+        )
+
     def test_refusal_step_is_verifiable_evidence(self):
         status, _ = verify_execution.verify_episode_steps(
             [
@@ -549,7 +640,88 @@ class FrontierPublishGate(unittest.TestCase):
                 ],
                 verdict,
             )
+            self.assertEqual(manifest["version"], 2)
             self.assertEqual(round_txn.frontier_status(factory)["next_round"], 2)
+
+    def test_version_2_completion_marker_binds_the_execution_verdict(self):
+        with tempfile.TemporaryDirectory() as td:
+            factory = self.factory(td)
+            reservation = round_txn.reserve(factory, 1, 1)
+            self.stage(reservation, [thalamic("gate-bound")])
+            round_txn.publish(factory, 1, reservation["token"])
+            marker = factory / "ROUND-r01.complete.json"
+            payload = json.loads(marker.read_text())
+
+            deleted = dict(payload)
+            deleted.pop("execution_verification")
+            marker.write_text(json.dumps(deleted, indent=2, sort_keys=True) + "\n")
+            with self.assertRaisesRegex(
+                round_txn.TransactionError, "version 2 completion marker"
+            ):
+                round_txn.frontier_status(factory)
+
+            corrupted = json.loads(json.dumps(payload))
+            corrupted["execution_verification"]["counts"]["verified"] = 0
+            corrupted["execution_verification"]["counts"]["inconclusive"] = 1
+            corrupted["execution_verification"]["override"] = {
+                "reason": "hil replay rig offline",
+                "waived_inconclusive": 1,
+            }
+            marker.write_text(json.dumps(corrupted, indent=2, sort_keys=True) + "\n")
+            with self.assertRaisesRegex(
+                round_txn.TransactionError,
+                "execution verification conflicts with committed batch",
+            ):
+                round_txn.frontier_status(factory)
+
+    def test_legacy_version_1_markers_without_verification_remain_visible(self):
+        with tempfile.TemporaryDirectory() as td:
+            factory = self.factory(td)
+            batch = factory / "batch-r01.jsonl"
+            notes = factory / "NOTES-r01.md"
+            write(batch, [thalamic("legacy-v1")])
+            notes.write_text("# Critique\n\nConcrete gap.\n\nNovel coverage: 42%\n")
+            marker = factory / "ROUND-r01.complete.json"
+            marker.write_text(
+                json.dumps(
+                    {
+                        "version": 1,
+                        "factory": factory.name,
+                        "round": 1,
+                        "records": 1,
+                        "expected_records": 1,
+                        "commit_point": marker.name,
+                        "files": [
+                            {
+                                "name": batch.name,
+                                "sha256": round_txn.file_sha256(batch),
+                            },
+                            {
+                                "name": notes.name,
+                                "sha256": round_txn.file_sha256(notes),
+                            },
+                        ],
+                    },
+                    indent=2,
+                    sort_keys=True,
+                )
+                + "\n"
+            )
+            (factory / round_txn.MODE_FILE).write_text(
+                json.dumps(
+                    {
+                        "version": 1,
+                        "legacy_baseline": 0,
+                        "commit_point": "ROUND-rNN.complete.json",
+                    }
+                )
+                + "\n"
+            )
+
+            status = round_txn.frontier_status(factory)
+
+            self.assertEqual(status["next_round"], 2)
+            self.assertEqual(status["completed_markers"], [1])
 
     def test_operator_override_records_the_waiver_before_advancing(self):
         with tempfile.TemporaryDirectory() as td:

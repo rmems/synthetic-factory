@@ -195,26 +195,56 @@ class FactoryTokenEfficiency(unittest.TestCase):
             self.assertTrue(info["early_stop"])
             self.assertEqual(info["early_stop_at_round"], 3)
 
-    def test_duplicate_novel_coverage_lines_are_ambiguous(self):
-        for notes in (
-            "Novel coverage: 4%\nNovel coverage: 4%\n",
-            "Novel coverage: 4%\nNovel coverage: 80%\n",
-            "Novel coverage: 4%\nNovel coverage: malformed\n",
-            "Novel coverage: 4% Novel coverage: 80%\n",
-            "Novel coverage: 4% trailing prose\n",
+    def test_historical_notes_keep_the_first_valid_coverage_claim(self):
+        for notes, expected in (
+            ("Novel coverage: 4%\nNovel coverage: 4%\n", 4.0),
+            ("Novel coverage: 4%\nNovel coverage: 80%\n", 4.0),
+            ("Novel coverage: malformed\nNovel coverage: 80%\n", 80.0),
+            ("Novel coverage: 4% Novel coverage: 80%\n", 4.0),
+            ("Novel coverage: 4% trailing prose\n", 4.0),
         ):
             with self.subTest(notes=notes):
-                self.assertIsNone(factory_driver.parse_novel_coverage(notes))
-        self.assertEqual(
-            factory_driver.parse_novel_coverage("Novel coverage: 4%\n"), 4.0
+                self.assertEqual(factory_driver.parse_novel_coverage(notes), expected)
+        self.assertIsNone(
+            factory_driver.parse_novel_coverage("Novel coverage: malformed\n")
         )
 
-    def test_coverage_label_and_value_must_share_one_physical_line(self):
-        self.assertIsNone(
+    def test_legacy_suffixes_still_drive_the_offline_plateau_latch(self):
+        with tempfile.TemporaryDirectory() as td:
+            factory = Path(td) / "legacy-suffix-factory"
+            factory.mkdir()
+            (factory / "NOTES-r01.md").write_text(
+                "Novel coverage: 4% — low due to repetition\n"
+            )
+            (factory / "NOTES-r02.md").write_text(
+                "Novel coverage: 3% — low due to repetition\n"
+            )
+
+            info = factory_driver.factory_token_efficiency(factory)
+
+        self.assertTrue(info["early_stop"])
+        self.assertEqual(info["early_stop_at_round"], 2)
+
+    def test_legacy_multiline_claims_still_drive_the_offline_plateau_latch(self):
+        with tempfile.TemporaryDirectory() as td:
+            factory = Path(td) / "legacy-multiline-factory"
+            factory.mkdir()
+            (factory / "NOTES-r01.md").write_text("Novel coverage:\n4%\n")
+            (factory / "NOTES-r02.md").write_text("Novel coverage:\n3%\n")
+
+            info = factory_driver.factory_token_efficiency(factory)
+
+        self.assertTrue(info["early_stop"])
+        self.assertEqual(info["early_stop_at_round"], 2)
+
+    def test_legacy_parser_keeps_split_claims_but_ignores_unrelated_percentages(self):
+        self.assertEqual(
             factory_driver.parse_novel_coverage(
                 "Novel coverage:\n80% of tests passed.\n"
-            )
+            ),
+            80.0,
         )
+        self.assertIsNone(factory_driver.parse_novel_coverage("Test coverage: 80%\n"))
         self.assertEqual(
             factory_driver.parse_novel_coverage("\tNovel coverage:\t4 %\n"),
             4.0,
