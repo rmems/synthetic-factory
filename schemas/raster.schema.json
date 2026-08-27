@@ -221,8 +221,8 @@
             },
             "third_factor": {
               "type": "object",
-              "description": "Required third-factor (neuromodulatory) routing for this population: the eligibility channel that gates plasticity. The curator requires a named modulator and a positive eligibility time constant.",
-              "required": ["modulator"],
+              "description": "Required third-factor (neuromodulatory) routing for this population: the eligibility channel that gates plasticity. The curator requires a named modulator, a non-empty eligibility rule, and a positive eligibility time constant.",
+              "required": ["modulator", "eligibility"],
               "anyOf": [
                 { "required": ["tau_e_s"] },
                 { "required": ["tau_e_ms"] }
@@ -245,6 +245,7 @@
                 },
                 "eligibility": {
                   "type": "string",
+                  "minLength": 1,
                   "description": "Eligibility rule the third factor gates, e.g. pre_post_stdp"
                 }
               },

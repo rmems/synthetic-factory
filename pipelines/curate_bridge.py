@@ -259,9 +259,18 @@ def _adjacent_descents(times: Sequence[float]) -> list[dict[str, Any]]:
     ]
 
 
-def _expected_spikes(neurons: int, mean_rate_hz: float, window_s: float) -> int:
+def _expected_spikes(neurons: int, mean_rate_hz: float, window_s: float) -> int | None:
     """Spike budget: neurons * rate * window, Loihi-2-class 23 pJ/spike model."""
-    return int(round(neurons * mean_rate_hz * window_s))
+    try:
+        product = float(neurons) * float(mean_rate_hz) * float(window_s)
+    except OverflowError:
+        return None
+    if not math.isfinite(product):
+        return None
+    try:
+        return int(round(product))
+    except (OverflowError, ValueError):
+        return None
 
 
 def _validate_third_factor(
@@ -290,9 +299,12 @@ def _validate_third_factor(
         if _is_finite_number(tau_ms):
             tau_e_s = float(tau_ms) / 1000.0
             evidence["raster_third_factor_tau_e_s_derived"] = tau_e_s
+    eligibility = third_factor.get("eligibility")
     valid = (
         isinstance(modulator, str)
         and bool(modulator.strip())
+        and isinstance(eligibility, str)
+        and bool(eligibility.strip())
         and _is_finite_number(tau_e_s)
         and float(tau_e_s) > 0
     )
@@ -303,6 +315,7 @@ def _validate_third_factor(
     evidence["raster_third_factor_valid"] = True
     evidence["raster_third_factor_modulator"] = modulator
     evidence["raster_third_factor_tau_e_s"] = float(tau_e_s)
+    evidence["raster_third_factor_eligibility"] = eligibility.strip()
 
 
 def _validate_gate_snn(
@@ -426,6 +439,9 @@ def _validate_gate_snn(
                 bad.append(index)
                 continue
             expected = _expected_spikes(neurons, float(rate), float(window_s))
+            if expected is None:
+                bad.append(index)
+                continue
             if abs(spikes - expected) > 1:
                 reason_codes.append(REASON_RASTER_SPIKE_BUDGET)
                 evidence.setdefault("gate_snn_spike_mismatches", []).append(
@@ -464,6 +480,19 @@ def _validate_raster(
     spikes = raster.get("spikes")
     routing = raster.get("routing")
     excerpt = raster.get("excerpt")
+
+    if "window_ms" in raster and not _is_finite_number(window_ms):
+        reason_codes.append(REASON_RASTER_WINDOW)
+        evidence["raster_declared_window_ms_valid"] = False
+    if "window_s" in raster and not _is_finite_number(window_s):
+        reason_codes.append(REASON_RASTER_WINDOW)
+        evidence["raster_declared_window_s_valid"] = False
+    if "energy_pJ" in raster and not _is_finite_number(raster.get("energy_pJ")):
+        reason_codes.append(REASON_RASTER_ENERGY)
+        evidence["raster_declared_energy_pJ_valid"] = False
+    if "energy_uJ" in raster and not _is_finite_number(raster.get("energy_uJ")):
+        reason_codes.append(REASON_RASTER_ENERGY)
+        evidence["raster_declared_energy_uJ_valid"] = False
 
     # Derive window_s if only window_ms given, or vice versa, and check consistency.
     if _is_finite_number(window_ms) and not _is_finite_number(window_s):
@@ -527,7 +556,7 @@ def _validate_raster(
         expected = _expected_spikes(neurons, float(mean_rate_hz), ws)
         evidence["raster_expected_spikes"] = expected
         evidence["raster_spike_budget_tolerance"] = 1
-        if abs(spikes - expected) > 1:
+        if expected is None or abs(spikes - expected) > 1:
             reason_codes.append(REASON_RASTER_SPIKE_BUDGET)
             evidence["raster_spike_budget_valid"] = False
         else:
@@ -682,7 +711,7 @@ def _validate_gate_compute(
             budget_valid = False
             continue
         expected = _expected_spikes(neurons, float(rate), float(window_s))
-        if abs(spikes - expected) > 1:
+        if expected is None or abs(spikes - expected) > 1:
             reason_codes.append(REASON_RASTER_SPIKE_BUDGET)
             evidence.setdefault("gate_compute_spike_mismatches", []).append(
                 {"index": idx, "expected": expected, "actual": spikes}

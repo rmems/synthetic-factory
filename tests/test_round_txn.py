@@ -1445,6 +1445,18 @@ class BridgeRasterEnvelope(unittest.TestCase):
             ):
                 round_txn.publish(factory, 1, reservation["token"])
 
+    def test_malformed_declared_raster_fields_cannot_be_published(self):
+        with tempfile.TemporaryDirectory() as td:
+            factory = self.factory(td)
+            record = bridge("bridge-1")
+            record["raster"]["window_s"] = "bogus"
+            reservation = self.stage(factory, [record])
+
+            with self.assertRaisesRegex(
+                round_txn.TransactionError, "BRIDGE_RASTER_WINDOW_INVALID"
+            ):
+                round_txn.publish(factory, 1, reservation["token"])
+
     def test_raster_without_a_routing_table_cannot_be_published(self):
         with tempfile.TemporaryDirectory() as td:
             factory = self.factory(td)

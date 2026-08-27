@@ -566,8 +566,10 @@ class RasterAndGateSnnCuration(unittest.TestCase):
     def test_malformed_third_factor_routing_is_quarantined(self):
         for third_factor in (
             {"modulator": "dopamine"},
-            {"modulator": "", "tau_e_s": 2.0},
-            {"modulator": "dopamine", "tau_e_s": 0},
+            {"modulator": "dopamine", "tau_e_s": 2.0},
+            {"modulator": "", "tau_e_s": 2.0, "eligibility": "pre_post_stdp"},
+            {"modulator": "dopamine", "tau_e_s": 0, "eligibility": "pre_post_stdp"},
+            {"modulator": "dopamine", "tau_e_s": 2.0, "eligibility": ""},
             "dopamine",
         ):
             with self.subTest(third_factor=third_factor):
@@ -616,6 +618,7 @@ class RasterAndGateSnnCuration(unittest.TestCase):
         record["raster"]["routing"]["third_factor"] = {
             "modulator": "dopamine",
             "tau_e_ms": 2000,
+            "eligibility": "pre_post_stdp",
         }
         decision = decide(record)
         self.assertEqual(decision.action, "retain")
@@ -664,6 +667,33 @@ class RasterAndGateSnnCuration(unittest.TestCase):
         )
         evidence = decision.manifest["evidence"]["raster"]
         self.assertFalse(evidence["gate_snn_decision_window_consistent"])
+
+    def test_declared_nonnumeric_raster_fields_are_quarantined(self):
+        for field, value, reason in (
+            ("window_s", "bogus", curate_bridge.REASON_RASTER_WINDOW),
+            ("energy_uJ", "bogus", curate_bridge.REASON_RASTER_ENERGY),
+            ("energy_pJ", "bogus", curate_bridge.REASON_RASTER_ENERGY),
+        ):
+            with self.subTest(field=field):
+                record = gate_snn_fixture()
+                record["raster"][field] = value
+                decision = decide(record)
+                self.assertEqual(decision.action, "quarantine")
+                self.assertIn(reason, decision.manifest["reason_codes"])
+
+    def test_overflowing_gate_spike_product_is_quarantined(self):
+        record = gate_snn_fixture()
+        record["gate_snn"]["decision_window_ms"] = 1e308
+        record["gate_snn"]["decision_window_s"] = 1e308 / 1000.0
+        record["gate_snn"]["populations"][0]["mean_rate_hz"] = 1e308
+        record["gate_snn"]["populations"][0]["spikes"] = 1
+
+        decision = decide(record)
+
+        self.assertEqual(decision.action, "quarantine")
+        self.assertIn(
+            curate_bridge.REASON_GATE_SNN_INVALID, decision.manifest["reason_codes"]
+        )
 
     def test_gate_snn_population_budget_shape_rejects_nonpositive_values(self):
         mutations = (
@@ -784,6 +814,10 @@ class RasterSchemaParity(unittest.TestCase):
 
         self.assertEqual(gate["required"], ["decision", "populations"])
         self.assertIn("third_factor", routing["required"])
+        self.assertEqual(
+            routing["properties"]["third_factor"]["required"],
+            ["modulator", "eligibility"],
+        )
         self.assertEqual(table_entry["required"], ["from", "to"])
         population = gate["properties"]["populations"]["items"]
         self.assertTrue(population["allOf"])
