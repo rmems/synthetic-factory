@@ -704,9 +704,10 @@ def curate_run(source_dir: str | Path, output_dir: str | Path) -> dict[str, Any]
         "retained_steps": sum(summary["retained_steps"] for summary in summaries),
         "migrated_steps": sum(summary["migrated_steps"] for summary in summaries),
         "excluded_steps": sum(summary["excluded_steps"] for summary in summaries),
-        "thought_fields_removed": sum(
-            summary["thought_fields_removed"] for summary in summaries
+        "hidden_reasoning_fields_removed": sum(
+            summary["hidden_reasoning_fields_removed"] for summary in summaries
         ),
+        "wrap_records": sum(summary["wrap_records"] for summary in summaries),
         "decision_basis_sources": dict(sorted(evidence_sources.items())),
     }
 

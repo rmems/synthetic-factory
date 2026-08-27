@@ -347,6 +347,8 @@ class CurateCodingTests(unittest.TestCase):
             self.assertEqual(summary["input_files"], 2)
             self.assertEqual(summary["input_records"], 2)
             self.assertEqual(summary["output_records"], 2)
+            self.assertEqual(summary["hidden_reasoning_fields_removed"], 2)
+            self.assertEqual(summary["wrap_records"], 0)
             self.assertEqual(
                 [(item["source_path"], item["source_line"]) for item in manifest],
                 [(alpha.as_posix(), 2), (zeta.as_posix(), 1)],
