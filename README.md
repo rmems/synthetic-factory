@@ -28,10 +28,13 @@ does not carry full raw, cleaned, candidate, or curated corpora.
 All five repositories are organized in the public
 [Claude Fable 5 (Ultracode) collection](https://huggingface.co/collections/rmems/claude-fable-5-ultracode-6a8457fb329c5940a4b988c7).
 
-The public dataset repositories are currently metadata-only pre-release shells.
-Visibility is not a claim of training readiness; payload publication remains
-blocked on deterministic curation, strict audit, sampled review, and a declared
-dataset license (see License below).
+**Raw is public; curated is still empty.** All five repositories publish their
+raw, uncurated JSONL payload under `data/raw/` plus a lossless Parquet viewer
+projection. Their cards and `LICENSE` files declare Apache-2.0; the still-pending
+`release-status.json` alignment is documented below. They are no longer
+metadata-only shells. Visibility is not a claim of training readiness:
+`outputs/curated/` is empty here and no curated corpus is published, because
+that still depends on deterministic curation, strict audit, and sampled review.
 
 ## License
 
@@ -39,11 +42,11 @@ This repository is licensed under the [Apache License 2.0](LICENSE) — see
 [`NOTICE`](NOTICE) for attribution. This covers the repository's contents:
 factory prompts, schemas, pipelines, skills, tests, and documentation.
 
-**Dataset payloads are a separate decision.** The Hugging Face dataset
-repositories remain unlicensed pre-release shells. Choosing their license
-(Apache-2.0 alongside the code, or a data-specific license such as ODC-BY 1.0
-or CC-BY-4.0) is an open release decision and does not follow automatically
-from this file.
+**Apache-2.0 is the authorized payload license.** Each Hugging Face dataset
+repository ships the identical Apache-2.0 `LICENSE` file and declares
+`license: apache-2.0` in its card front matter, Hub tag, and
+`release-status.json`. `python3 pipelines/verify_hf_release.py` fails closed
+when those three declarations disagree.
 
 ## Development environment
 
