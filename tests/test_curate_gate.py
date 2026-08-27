@@ -49,6 +49,8 @@ def _preference(record_id="pref-1"):
 
 
 def _bridge(record_id="bridge-1"):
+    # training_audit blocks NELB records that lack a 20-50 ms raster + gate_snn.
+    trajectory = _thalamic(f"{record_id}-trajectory")
     return {
         "id": record_id,
         "spike_events": [
@@ -57,9 +59,58 @@ def _bridge(record_id="bridge-1"):
         ],
         "language_view": {
             "description": "two sparse events",
-            "trajectory": _thalamic(f"{record_id}-trajectory"),
+            "trajectory": trajectory,
         },
         "bridge_notes": {"mapping": "fixture", "training_value": "routing"},
+        "raster": {
+            "window_ms": 40,
+            "window_s": 0.04,
+            "neurons": 256,
+            "mean_rate_hz": 12,
+            "spikes": 123,
+            "energy_pJ": 2829,
+            "energy_uJ": 0.002829,
+            "routing": {
+                "source": "pop_gate_exc_256",
+                "target": "pop_gate_out_64",
+                "table": [
+                    {"from": "pop_gate_exc_256", "to": "pop_gate_out_64", "weight": 0.7},
+                    {"from": "pop_gate_inh_64", "to": "pop_gate_out_64", "weight": -0.5},
+                ],
+                "third_factor": {
+                    "modulator": "dopamine",
+                    "tau_e_s": 2.0,
+                    "eligibility": "pre_post_stdp",
+                },
+            },
+            "excerpt": [
+                {"t_ms": 0.8, "neuron_id": 7, "channel": "gate_in"},
+                {"t_ms": 4.6, "neuron_id": 131, "channel": "gate_in"},
+                {"t_ms": 17.2, "neuron_id": 44, "channel": "gate_out"},
+                {"t_ms": 29.5, "neuron_id": 200, "channel": "gate_out"},
+                {"t_ms": 38.1, "neuron_id": 255, "channel": "gate_out"},
+            ],
+        },
+        "gate_snn": {
+            "decision_window_ms": 25,
+            "decision": trajectory["safety_decision"]["decision"],
+            "populations": [
+                {
+                    "name": "gate_accept",
+                    "neurons": 64,
+                    "threshold": 1.0,
+                    "mean_rate_hz": 40,
+                    "spikes": 64,
+                },
+                {
+                    "name": "gate_reject",
+                    "neurons": 64,
+                    "threshold": 1.0,
+                    "mean_rate_hz": 20,
+                    "spikes": 32,
+                },
+            ],
+        },
     }
 
 
