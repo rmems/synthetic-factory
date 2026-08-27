@@ -68,7 +68,8 @@ same unit tests and operator smoke check.
 - `outputs/raw/` — dated dumps. `2026-08-17/` is the live run; `2026-08-17-prehalt/` is the pre-resume copy. `NEXT_ROUND.json` is a generated index, not a record
 - `outputs/cleaned/` — remapped copies (`sim_or_real` never `real`)
 - `outputs/curated/` — ready for training / HF export (empty)
-- `pipelines/` — census, next-round allocator, shape validator, deep checker, promote; `oracle_grounded/` holds the oracle-grounded generators, oracle adapters, and reference simulators
+- `config/` — reviewed factory registry (`FACTORY-REGISTRY.json`). Identity authority is this file (exact `path_id` + `payload_factory`), not a slug allowlist. Onboard a generator by adding a row.
+- `pipelines/` — census, identity, next-round allocator, shape validator, deep checker, promote; `oracle_grounded/` holds the oracle-grounded generators, oracle adapters, and reference simulators
 - `experiments/` — harvest notes (`2026-08-17-quality-report.md` is a mid-run snapshot; `2026-08-17-grok-census.md` is current)
 
 ## Before the next Fable session
@@ -87,6 +88,7 @@ Do **not** start prompts 06 or 07 until 01–05 have a cleaned slice you are wil
 
 ```bash
 python3 pipelines/census.py outputs/raw/2026-08-17          # JSON counts; no writes
+python3 pipelines/curate_identity.py outputs/raw/2026-08-17 --out outputs/cleaned/<new-label>
 python3 pipelines/validate_run.py outputs/raw/2026-08-17    # shape gate; no manifest unless --write
 python3 pipelines/check_records.py outputs/raw/2026-08-17   # reward / spike order / ids
 python3 pipelines/promote.py outputs/raw/2026-08-17 outputs/cleaned/2026-08-17
@@ -105,6 +107,42 @@ None of the runtimes issue #77 names (`axon-encoder`, `neuromod`,
 are available here, so those runs use deterministic in-repo reference
 simulators, are stamped `implementation: "reference"`, and are **not**
 publishable as measurements of the named runtimes.
+
+### Curation integration and promotion gate
+
+`pipelines/curate_gate.py` is the final step of the curation pass. It composes
+the six lane outputs into **one brand-new cleaned destination**, runs the
+structural validator, the strict deep checker, and the strict training audit,
+records a stratified human-review sample, and promotes to a **brand-new curated
+path** only when `training_ready` is true and every sampled record has a
+verdict. Both subcommands refuse a destination that already exists.
+
+The composition order is data, not code: it lives in an integration plan
+(`curation-integration-plan/v1`) so a reviewer can read the exact chain that
+produced a corpus. Lane outputs are overlaid in plan order — bridge timing,
+identity/provenance, preference purity, reward ontology, coding observability,
+tag taxonomy — and every supersession is recorded in the manifest.
+In a production plan, `source_run: outputs/raw/<run>` resolves from the
+repository root even when the plan itself lives under `outputs/curation/`;
+lane output, manifest, and artifact paths remain relative to the plan.
+
+```bash
+python3 pipelines/curate_gate.py integrate \
+  --plan outputs/curation/plan.json \
+  --cleaned-out outputs/cleaned/2026-08-17-curated-v1
+# writes curation-manifest.json, review-sample.json, review-verdicts.json
+
+# a human records a verdict for every sampled record, then:
+python3 pipelines/curate_gate.py promote \
+  --cleaned outputs/cleaned/2026-08-17-curated-v1 \
+  --review outputs/cleaned/2026-08-17-curated-v1/review-verdicts.json \
+  --curated-out outputs/curated/2026-08-17-v1
+```
+
+The final `curation-manifest.json` carries source and output hashes, the
+transform name and version of every lane, exclusions and quarantines with
+reason codes, per-kind and per-factory counts, gate results, and the recorded
+review. See the module docstring for the plan schema.
 
 Tests: `python3 -m unittest discover -s tests -p 'test_*.py' -q`
 
