@@ -243,6 +243,15 @@ def canonical_blob(value):
     return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
 
 
+_PREFERENCE_WRAPPER_FIELDS = (
+    "goal",
+    "critique",
+    "reward",
+    "reward_delta",
+    "lesson_category",
+)
+
+
 def _preference_identity_side(value):
     """Return all modeled training fields from one preference side.
 
@@ -263,9 +272,10 @@ def exact_identity_view(obj):
     Wrapper ids are deliberately outside modeled state/action records, as they
     were in the original contract. Multi-agent coordination keeps goal, agents,
     transcript, disagreements, resolution and joint_outcome so a shared
-    ``{"success": true}`` reward cannot collapse unrelated debates. Canonical
-    ids inside fallback shapes remain exact identity; the independent semantic
-    view removes them before cosine.
+    ``{"success": true}`` reward cannot collapse unrelated debates. Preference
+    wrappers keep the shared task, critique, and wrapper reward alongside the
+    two sides. Canonical ids inside fallback shapes remain exact identity; the
+    independent semantic view removes them before cosine.
     """
     if not isinstance(obj, dict):
         # A JSONL line that parses to a scalar/array must hash, not raise.
@@ -274,10 +284,14 @@ def exact_identity_view(obj):
         # Malformed pairs (missing or non-object side) must hash, not raise —
         # this gate runs over untrusted generated JSONL. Both fields are always
         # present in the key set so a one-sided record stays distinguishable.
-        return {
+        view = {
             "chosen": _preference_identity_side(obj.get("chosen")),
             "rejected": _preference_identity_side(obj.get("rejected")),
         }
+        for key in _PREFERENCE_WRAPPER_FIELDS:
+            if key in obj:
+                view[key] = obj[key]
+        return view
     keys = {key: obj[key] for key in _IDENTITY_FIELDS if key in obj}
     if not keys:
         # Shapes this gate does not model (e.g. bridge records carrying state

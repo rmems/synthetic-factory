@@ -221,6 +221,49 @@ class ExactDedup(unittest.TestCase):
         )
         self.assertNotEqual(quality_gate.record_hash(first), quality_gate.record_hash(second))
 
+    def test_preference_wrapper_goal_critique_and_reward_are_exact_identity(self):
+        def pair(*, goal, critique, success=True):
+            chosen = self._agentic_episode("read")
+            rejected = self._agentic_episode("bash")
+            return {
+                "id": "tup-shared",
+                "goal": goal,
+                "chosen": chosen,
+                "rejected": rejected,
+                "critique": critique,
+                "reward": {"success": success},
+                "meta": {"factory": "tool-use-preference-factory", "round": 1},
+            }
+
+        first = pair(goal="atomic-write the config", critique="chosen fsynced")
+        second = pair(goal="delete the stale lock", critique="chosen unlinked safely")
+        view = quality_gate.exact_identity_view(first)
+        self.assertEqual(view["goal"], first["goal"])
+        self.assertEqual(view["critique"], first["critique"])
+        self.assertEqual(view["reward"], first["reward"])
+        self.assertNotIn("id", view)
+        self.assertNotIn("meta", view)
+        self.assertNotEqual(quality_gate.record_hash(first), quality_gate.record_hash(second))
+        self.assertNotEqual(
+            quality_gate.record_hash(first),
+            quality_gate.record_hash(pair(goal=first["goal"], critique="different diagnosis")),
+        )
+
+        clone = pair(goal=first["goal"], critique=first["critique"])
+        clone["id"] = "tup-other"
+        self.assertEqual(quality_gate.record_hash(first), quality_gate.record_hash(clone))
+
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            write(root / "preferences.jsonl", [first, second])
+            report = quality_gate.audit_run(
+                root,
+                mix_policy=quality_gate.MixPolicy(max_synthetic_ratio=1.0),
+            )
+
+        self.assertEqual(report["counts"]["duplicate_groups"], 0)
+        self.assertEqual(report["counts"]["excluded_records"], 0)
+
     def test_episode_preference_side_steps_are_exact_identity(self):
         rejected = self._agentic_episode("bash")
         first = {
