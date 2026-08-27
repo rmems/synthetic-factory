@@ -127,6 +127,32 @@ class LoadRasters(unittest.TestCase):
         self.assertIn("BRIDGE_SPIKE_BUDGET_MISMATCH", problems[1]["reason_codes"])
         self.assertTrue(problems[0]["source"].endswith("batch-r01.jsonl:2"))
 
+    def test_thalamic_records_with_rasters_are_loaded(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            record = gate_snn_record()
+            record.pop("spike_events")
+            record.pop("language_view")
+            record.update(
+                {
+                    "state": {"sim_or_real": "designed"},
+                    "proposed_action": {"action": "noop"},
+                    "safety_decision": {"decision": "ACCEPT", "rationale": "fixture"},
+                    "executed_action": {"action": "noop"},
+                    "future_outcome": {"success": True},
+                    "reward_components": {"total": 1.0},
+                }
+            )
+            write(
+                root / "thalamic-trajectory-factory" / "batch-r01.jsonl",
+                [record],
+            )
+            rasters, problems = spike_probe.load_rasters([root])
+
+        self.assertEqual(problems, [])
+        self.assertEqual(len(rasters), 1)
+        self.assertEqual(rasters[0]["spikes"], 123)
+
     def test_non_bridge_records_are_ignored(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)

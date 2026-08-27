@@ -32,6 +32,20 @@ def write(path, records):
     path.write_text("".join(json.dumps(record) + "\n" for record in records))
 
 
+def distillation_sidecars(decision="ACCEPT"):
+    record = json.loads(
+        (REPO / "tests" / "fixtures" / "bridge_gate_snn.jsonl")
+        .read_text(encoding="utf-8")
+        .splitlines()[0]
+    )
+    sidecars = {
+        "raster": record["raster"],
+        "gate_snn": dict(record["gate_snn"]),
+    }
+    sidecars["gate_snn"]["decision"] = decision
+    return sidecars
+
+
 def thalamic(record_id, observable=True, rationale="bounded fixture"):
     """A thalamic record that the strict execution gate can verify.
 
@@ -62,6 +76,7 @@ def thalamic(record_id, observable=True, rationale="bounded fixture"):
             "tags": ["gate-test"],
         },
     }
+    record.update(distillation_sidecars())
     return record
 
 

@@ -38,6 +38,7 @@ from curate_bridge import (  # noqa: E402
     REASON_INVALID_UTF8,
     gate_snn_sidecar,
     is_bridge_record,
+    is_thalamic_record,
     raster_sidecar,
     raster_status,
 )
@@ -208,7 +209,7 @@ def load_rasters(
                 }
             )
             continue
-        if not is_bridge_record(record):
+        if not is_bridge_record(record) and not is_thalamic_record(record):
             continue
         normalized = normalize_raster(record, source=where)
         if normalized is None:

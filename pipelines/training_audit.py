@@ -38,6 +38,9 @@ from check_records import (  # noqa: E402
     walk_key,
 )
 from curate_bridge import raster_status  # noqa: E402
+
+BRIDGE_FACTORY_SLUG = "neuromorphic-event-language-bridge"
+THALAMIC_FACTORY_SLUG = "thalamic-trajectory-factory"
 from validate_run import HIDDEN_THOUGHT_KEYS, _episode_like, event_time  # noqa: E402
 
 
@@ -267,11 +270,13 @@ def audit_run(run_dir: Path):
         third_factor_pairs=0,
         gate_snn_records=0,
         gate_snn_valid_records=0,
+        wrong_kind_records=0,
     )
     bridge_batches = defaultdict(Counter)
     raster_missing_examples = []
     raster_defect_examples = []
     raster_defect_codes = Counter()
+    wrong_kind_examples = []
     episodes = Counter()
 
     for path in files:
@@ -420,16 +425,26 @@ def audit_run(run_dir: Path):
                 if isinstance(values, list):
                     tags.update(value for value in values if isinstance(value, str))
 
-            if kind == "bridge_pair":
+            if factory == BRIDGE_FACTORY_SLUG and kind != "bridge_pair":
+                bridge["wrong_kind_records"] += 1
+                bridge_batches[str(rel)]["wrong_kind_records"] += 1
+                if len(wrong_kind_examples) < 5:
+                    wrong_kind_examples.append(f"{where}:{kind}")
+
+            distillation_record = kind == "bridge_pair" or (
+                factory == THALAMIC_FACTORY_SLUG and kind == "thalamic"
+            )
+            if distillation_record:
                 bridge_batch = bridge_batches[str(rel)]
                 bridge["pairs"] += 1
                 bridge_batch["pairs"] += 1
-                events = obj.get("spike_events")
-                if isinstance(events, list):
-                    bridge["events"] += len(events)
-                    bridge["pairs_48_plus"] += int(len(events) >= 48)
-                status = event_stream_status(events)
-                bridge[f"{status}_pairs"] += 1
+                if kind == "bridge_pair":
+                    events = obj.get("spike_events")
+                    if isinstance(events, list):
+                        bridge["events"] += len(events)
+                        bridge["pairs_48_plus"] += int(len(events) >= 48)
+                    status = event_stream_status(events)
+                    bridge[f"{status}_pairs"] += 1
                 # Distillation readiness: a machine-readable raster sidecar,
                 # a routing table, a checked spike product, and a gate head
                 # expressed as neurons rather than prose.
@@ -537,9 +552,14 @@ def audit_run(run_dir: Path):
     missing_rasters = bridge.get("raster_missing_pairs", 0)
     defect_rasters = bridge.get("raster_defect_pairs", 0)
     missing_tables = bridge.get("raster_routing_table_missing_pairs", 0)
+    if bridge.get("wrong_kind_records"):
+        blockers.append(
+            f"{bridge['wrong_kind_records']} non-Bridge records in "
+            f"{BRIDGE_FACTORY_SLUG} batches"
+        )
     if missing_rasters:
         blockers.append(
-            f"{missing_rasters}/{bridge_pairs} bridge pairs lack a 20-50 ms "
+            f"{missing_rasters}/{bridge_pairs} NELB/TTF records lack a 20-50 ms "
             "raster excerpt sidecar"
         )
     if defect_rasters:
@@ -663,6 +683,7 @@ def audit_run(run_dir: Path):
             "raster_missing_examples": raster_missing_examples,
             "raster_defect_examples": raster_defect_examples,
             "raster_defect_codes": dict(sorted(raster_defect_codes.items())),
+            "wrong_kind_examples": wrong_kind_examples,
         },
         "episodes": dict(episodes),
         "exact_duplicates": exact_duplicates,

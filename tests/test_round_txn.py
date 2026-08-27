@@ -15,9 +15,21 @@ sys.path.insert(0, str(REPO / "pipelines"))
 
 import round_txn  # noqa: E402
 
+BRIDGE_FIXTURE = REPO / "tests" / "fixtures" / "bridge_gate_snn.jsonl"
+
+
+def distillation_sidecars(decision="ACCEPT"):
+    record = json.loads(BRIDGE_FIXTURE.read_text(encoding="utf-8").splitlines()[0])
+    sidecars = {
+        "raster": record["raster"],
+        "gate_snn": dict(record["gate_snn"]),
+    }
+    sidecars["gate_snn"]["decision"] = decision
+    return sidecars
+
 
 def thalamic(record_id, round_number=1):
-    return {
+    record = {
         "id": record_id,
         "state": {"sim_or_real": "designed", "domain": "transaction-test"},
         "proposed_action": {"action": "noop", "decision_basis": "fixture"},
@@ -38,6 +50,8 @@ def thalamic(record_id, round_number=1):
             "tags": ["transaction-test"],
         },
     }
+    record.update(distillation_sidecars())
+    return record
 
 
 def write_records(path, records):
@@ -1349,9 +1363,6 @@ class RoundTransaction(unittest.TestCase):
                 round_txn.reserve(factory, 2, 1)
 
 
-BRIDGE_FIXTURE = REPO / "tests" / "fixtures" / "bridge_gate_snn.jsonl"
-
-
 def bridge(record_id, *, gate_snn=True):
     """The committed raster + gate-as-SNN reference record, re-identified."""
 
@@ -1472,13 +1483,39 @@ class BridgeRasterEnvelope(unittest.TestCase):
     def test_other_factories_are_untouched_by_the_bridge_envelope(self):
         with tempfile.TemporaryDirectory() as td:
             factory = (
-                Path(td) / "outputs" / "raw" / "2099-01-01" / "thalamic-trajectory-factory"
+                Path(td) / "outputs" / "raw" / "2099-01-01" / "multi-agent-ouroboros-swarm"
             )
             factory.mkdir(parents=True)
             self.assertEqual(
                 round_txn.validate_bridge_envelope(factory / "batch-r01.jsonl", factory),
                 [],
             )
+
+    def test_thalamic_factory_cannot_publish_prose_only_spike_counts(self):
+        with tempfile.TemporaryDirectory() as td:
+            factory = (
+                Path(td)
+                / "outputs"
+                / "raw"
+                / "2099-01-01"
+                / "thalamic-trajectory-factory"
+            )
+            factory.mkdir(parents=True)
+            record = thalamic("prose-only")
+            del record["raster"]
+            del record["gate_snn"]
+            reservation = round_txn.reserve(factory, 1, 1)
+            staging = Path(reservation["staging_dir"])
+            write_records(staging / reservation["batch_file"], [record])
+            (staging / reservation["notes_file"]).write_text(
+                "# Critique\n\nConcrete gap.\n\nNovel coverage: 42%\n"
+            )
+
+            with self.assertRaisesRegex(
+                round_txn.TransactionError, "20-50 ms raster excerpt sidecar"
+            ):
+                round_txn.publish(factory, 1, reservation["token"])
+            self.assertFalse((factory / "batch-r01.jsonl").exists())
 
 
 if __name__ == "__main__":

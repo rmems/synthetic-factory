@@ -727,16 +727,34 @@ def is_bridge_record(record: Any) -> bool:
     )
 
 
+def is_thalamic_record(record: Any) -> bool:
+    """Return True for a top-level Thalamic trajectory record."""
+
+    return isinstance(record, dict) and all(
+        key in record
+        for key in (
+            "state",
+            "proposed_action",
+            "safety_decision",
+            "executed_action",
+            "future_outcome",
+            "reward_components",
+        )
+    )
+
+
 def _expected_gate_decision(record: dict[str, Any]) -> str | None:
     """Return the structured safety decision a gate-SNN head must reproduce."""
 
     view = record.get("language_view")
     trajectory = view.get("trajectory") if isinstance(view, dict) else None
-    safety = (
-        trajectory.get("safety_decision") if isinstance(trajectory, dict) else None
-    )
-    decision = safety.get("decision") if isinstance(safety, dict) else None
-    return decision if isinstance(decision, str) and decision.strip() else None
+    nested = trajectory.get("safety_decision") if isinstance(trajectory, dict) else None
+    top = record.get("safety_decision")
+    for safety in (nested, top):
+        decision = safety.get("decision") if isinstance(safety, dict) else None
+        if isinstance(decision, str) and decision.strip():
+            return decision
+    return None
 
 
 def raster_sidecar(record: Any) -> tuple[str | None, Any]:
@@ -867,7 +885,7 @@ def raster_status(record: Any, *, require_raster: bool = True) -> dict[str, Any]
     want to load spikes should use :mod:`spike_probe`.
     """
 
-    if not is_bridge_record(record):
+    if not is_bridge_record(record) and not is_thalamic_record(record):
         return {
             "bridge_record": False,
             "raster_present": False,
@@ -888,7 +906,7 @@ def raster_status(record: Any, *, require_raster: bool = True) -> dict[str, Any]
         spikes = None
     present = bool(evidence.get("raster_present"))
     return {
-        "bridge_record": True,
+        "bridge_record": is_bridge_record(record),
         "raster_present": present,
         "raster_valid": present and not reason_codes,
         "raster_location": location,

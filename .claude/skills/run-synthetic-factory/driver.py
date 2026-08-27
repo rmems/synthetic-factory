@@ -585,8 +585,22 @@ def cmd_snapshot(run_dir, label):
     print(f"snapshot: {dst} ({records} records)")
 
 
+def distillation_sidecars(decision="ACCEPT"):
+    record = json.loads(
+        (REPO / "tests" / "fixtures" / "bridge_gate_snn.jsonl")
+        .read_text(encoding="utf-8")
+        .splitlines()[0]
+    )
+    sidecars = {
+        "raster": record["raster"],
+        "gate_snn": dict(record["gate_snn"]),
+    }
+    sidecars["gate_snn"]["decision"] = decision
+    return sidecars
+
+
 def thalamic(record_id="smoke-t1"):
-    return {
+    record = {
         "id": record_id,
         "state": {"sim_or_real": "designed", "env": "transaction smoke test"},
         "proposed_action": {"action": "noop", "decision_basis": "fixture"},
@@ -603,6 +617,8 @@ def thalamic(record_id="smoke-t1"):
         "reward_components": {"task_progress": 0.5, "total": 0.5},
         "meta": {"factory": "smoke", "round": 2, "tags": ["smoke"]},
     }
+    record.update(distillation_sidecars())
+    return record
 
 
 MINI_RECORDS = {

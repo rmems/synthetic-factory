@@ -13,8 +13,22 @@ sys.path.insert(0, str(REPO / "pipelines"))
 import training_audit  # noqa: E402
 
 
+def distillation_sidecars(decision="ACCEPT"):
+    record = json.loads(
+        (REPO / "tests" / "fixtures" / "bridge_gate_snn.jsonl")
+        .read_text(encoding="utf-8")
+        .splitlines()[0]
+    )
+    sidecars = {
+        "raster": record["raster"],
+        "gate_snn": dict(record["gate_snn"]),
+    }
+    sidecars["gate_snn"]["decision"] = decision
+    return sidecars
+
+
 def thalamic(record_id, provenance="designed", decision="ACCEPT"):
-    return {
+    record = {
         "id": record_id,
         "state": {"sim_or_real": provenance, "domain": "audit-test"},
         "proposed_action": {"action": "noop", "decision_basis": "fixture"},
@@ -24,6 +38,8 @@ def thalamic(record_id, provenance="designed", decision="ACCEPT"):
         "reward_components": {"task_progress": 0.5, "safety": 0.5, "total": 1.0},
         "meta": {"tags": ["audit", "fixture"], "round": 1},
     }
+    record.update(distillation_sidecars(decision=decision))
+    return record
 
 
 def write(path, records):
@@ -469,13 +485,16 @@ class DistillationRasterAudit(unittest.TestCase):
     def test_bridge_pairs_without_rasters_block_training(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
+            inner = thalamic("no-raster-inner")
+            inner.pop("raster", None)
+            inner.pop("gate_snn", None)
             bare = {
                 "id": "no-raster-1",
                 "spike_events": [
                     {"channel": "a", "t_rel_ms": 1.0, "amplitude": 0.4},
                     {"channel": "a", "t_rel_ms": 2.0, "amplitude": 0.5},
                 ],
-                "language_view": {"trajectory": thalamic("no-raster-inner")},
+                "language_view": {"trajectory": inner},
             }
             write(root / "neuromorphic-event-language-bridge" / "batch-r01.jsonl", [bare])
             report = training_audit.audit_run(root)
@@ -605,11 +624,27 @@ class DistillationRasterAudit(unittest.TestCase):
     def test_corpus_without_bridge_pairs_has_no_raster_blockers(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
-            write(root / "thalamic-trajectory-factory" / "batch-r01.jsonl", [thalamic("t-1")])
+            write(root / "other-factory" / "batch-r01.jsonl", [thalamic("t-1")])
             report = training_audit.audit_run(root)
 
         self.assertTrue(report["training_ready"], report["blockers"])
         self.assertEqual(report["bridge"]["raster_coverage_pct"], 0)
+
+    def test_wrong_kind_records_in_bridge_factory_batches_block_training(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            write(
+                root / "neuromorphic-event-language-bridge" / "batch-r01.jsonl",
+                [thalamic("thalamic-in-bridge")],
+            )
+            report = training_audit.audit_run(root)
+
+        self.assertFalse(report["training_ready"], report["blockers"])
+        self.assertEqual(report["bridge"]["wrong_kind_records"], 1)
+        self.assertTrue(
+            any("non-Bridge records" in item for item in report["blockers"]),
+            report["blockers"],
+        )
 
 
 if __name__ == "__main__":

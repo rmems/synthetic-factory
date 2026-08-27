@@ -43,7 +43,11 @@ if str(_PIPELINES) not in sys.path:
     sys.path.insert(0, str(_PIPELINES))
 
 from check_records import check_jsonl  # noqa: E402
-from curate_bridge import is_bridge_record, raster_status  # noqa: E402
+from curate_bridge import (  # noqa: E402
+    is_bridge_record,
+    is_thalamic_record,
+    raster_status,
+)
 from validate_run import THALAMIC_CORE_KEYS, terminal_outcome_agrees  # noqa: E402
 
 
@@ -112,8 +116,10 @@ FACTORY_QUOTAS = {
     "cache-stampede-factory": 2,
 }
 
-# The neuromorphic lane carries the raster / gate-as-SNN publication contract.
+# NELB and TTF both carry the raster / gate-as-SNN publication contract.
 BRIDGE_FACTORY_SLUG = "neuromorphic-event-language-bridge"
+THALAMIC_FACTORY_SLUG = "thalamic-trajectory-factory"
+RASTER_FACTORY_SLUGS = frozenset({BRIDGE_FACTORY_SLUG, THALAMIC_FACTORY_SLUG})
 
 # The original five lanes deliberately allow an operator-selected ``expected``
 # count. Every later Grok 4.6 factory is documented with a fixed quota and
@@ -1761,11 +1767,12 @@ def validate_bridge_envelope(batch: Path, factory_dir: Path):
     gate for those lives in ``training_audit.py`` instead.
     """
 
-    if factory_dir.name != BRIDGE_FACTORY_SLUG:
+    if factory_dir.name not in RASTER_FACTORY_SLUGS:
         return []
     errors = []
-    bridge_records = 0
+    raster_records = 0
     gate_snn_records = 0
+    factory_slug = factory_dir.name
     for lineno, line in enumerate(batch.read_text().splitlines(), 1):
         if not line.strip():
             continue
@@ -1775,18 +1782,25 @@ def validate_bridge_envelope(batch: Path, factory_dir: Path):
             record = json.loads(line)
         except json.JSONDecodeError:
             continue
-        if not is_bridge_record(record):
+        if factory_slug == BRIDGE_FACTORY_SLUG and not is_bridge_record(record):
             errors.append(
                 f"{batch.name}:{lineno}: {BRIDGE_FACTORY_SLUG} requires only "
                 "paired Bridge records with an object language_view.trajectory"
             )
             continue
-        bridge_records += 1
+        if factory_slug == THALAMIC_FACTORY_SLUG and not is_thalamic_record(record):
+            errors.append(
+                f"{batch.name}:{lineno}: {THALAMIC_FACTORY_SLUG} requires "
+                "Thalamic trajectory records with a raster sidecar"
+            )
+            continue
+        raster_records += 1
         where = f"{batch.name}:{lineno}"
         status = raster_status(record)
+        label = "bridge" if factory_slug == BRIDGE_FACTORY_SLUG else "thalamic"
         if not status["raster_present"]:
             errors.append(
-                f"{where}: bridge records must carry a 20-50 ms raster excerpt "
+                f"{where}: {label} records must carry a 20-50 ms raster excerpt "
                 "sidecar (raster or meta.raster)"
             )
         elif status["reason_codes"]:
@@ -1800,9 +1814,9 @@ def validate_bridge_envelope(batch: Path, factory_dir: Path):
                 "per-population routing entry"
             )
         gate_snn_records += int(status["gate_snn_present"])
-    if bridge_records and not gate_snn_records:
+    if raster_records and not gate_snn_records:
         errors.append(
-            f"{batch.name}: a bridge round must contain at least one "
+            f"{batch.name}: a {factory_slug} round must contain at least one "
             "spike-implemented gate (gate_snn neuron/threshold spec)"
         )
     return errors
