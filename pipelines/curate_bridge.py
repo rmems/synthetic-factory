@@ -1,31 +1,44 @@
 #!/usr/bin/env python3
 """Deterministically repair or quarantine Bridge event-stream ordering.
 
-This lane is intentionally record-level and read-only.  It never writes a
-cleaned or curated tree.  Callers can import :func:`curate_jsonl` and compose
-the returned decisions with the other curation lanes, or use the CLI to print
-a summary, manifest, or complete decision bundle to stdout.
+The record-level API remains pure.  Callers can import :func:`curate_jsonl`
+and compose the returned decisions with the other curation lanes, use the CLI
+to print a summary, manifest, or complete decision bundle to stdout, or pass
+``--out-dir`` to materialize one new gate-compatible lane tree.  Materialized
+trees preserve source-relative JSONL paths, include every disposition in
+``BRIDGE-MANIFEST.jsonl``, and are published atomically without clobbering an
+existing destination.
 
 An unsorted stream is repaired only when every event has one finite timestamp
 under the same supported key, all declared clock-domain identifiers agree,
 and no explicit causal/sequence metadata would be reordered.  Otherwise the
 record is quarantined with machine-readable reason codes.
 
-Example (prints a manifest and does not mutate the source)::
+Examples::
 
     python3 pipelines/curate_bridge.py \
       --source-root outputs/raw/2026-08-17 \
       --emit manifest \
       outputs/raw/2026-08-17/neuromorphic-event-language-bridge/batch-r02.jsonl
+
+    python3 pipelines/curate_bridge.py \
+      --source-root outputs/raw/2026-08-17 \
+      --out-dir outputs/cleaned/lane-bridge \
+      outputs/raw/2026-08-17/neuromorphic-event-language-bridge/batch-*.jsonl
 """
 
 from __future__ import annotations
 
 import argparse
 import copy
+import ctypes
+import errno
 import hashlib
 import json
 import math
+import os
+import shutil
+import tempfile
 from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path
@@ -37,6 +50,7 @@ TRANSFORM_VERSION = "1.0.0"
 HASH_ALGORITHM = "sha256"
 SOURCE_HASH_SCOPE = "jsonl_record_bytes_without_line_terminator"
 OUTPUT_HASH_SCOPE = "canonical_json_utf8_without_line_terminator"
+MANIFEST_NAME = "BRIDGE-MANIFEST.jsonl"
 
 TIME_KEYS = ("t_rel_ms", "t_ms")
 CLOCK_DOMAIN_KEYS = (
@@ -795,8 +809,6 @@ def _source_display_path(path: Path, source_root: Path | None) -> str:
 
 
 def _record_bytes_without_terminator(line: bytes) -> bytes:
-    if line.endswith(b"\n"):
-        line = line[:-1]
     if line.endswith(b"\r"):
         line = line[:-1]
     return line
@@ -846,8 +858,13 @@ def curate_jsonl(
     source_file_hash = sha256_hex(raw_file)
     decisions: list[CurationDecision] = []
 
-    for line_number, physical_line in enumerate(raw_file.splitlines(keepends=True), 1):
+    # JSONL is framed only by literal LF.  Unicode line separators inside a
+    # JSON string are payload bytes, while one CR immediately before LF is the
+    # line terminator's CRLF half and is not part of the record digest.
+    for line_number, physical_line in enumerate(raw_file.split(b"\n"), 1):
         record_bytes = _record_bytes_without_terminator(physical_line)
+        if not record_bytes.strip():
+            continue
         source_hash = sha256_hex(record_bytes)
         try:
             text = record_bytes.decode("utf-8")
@@ -922,6 +939,233 @@ def summarize(decisions: Sequence[CurationDecision]) -> dict[str, Any]:
     }
 
 
+def _is_under_raw(path: Path) -> bool:
+    parts = path.resolve(strict=False).parts
+    return any(
+        parts[index : index + 2] == ("outputs", "raw")
+        for index in range(len(parts) - 1)
+    )
+
+
+def _safe_relative_path(value: str, *, label: str) -> Path:
+    path = Path(value)
+    if path.is_absolute() or not path.parts or ".." in path.parts:
+        raise BridgeCurationError(f"{label} must be a safe relative path: {value!r}")
+    parts = tuple(part for part in path.parts if part not in {"", "."})
+    if not parts:
+        raise BridgeCurationError(f"{label} must name a file")
+    return Path(*parts)
+
+
+def _write_exclusive(path: Path, payload: bytes) -> None:
+    descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o644)
+    try:
+        with os.fdopen(descriptor, "wb") as handle:
+            handle.write(payload)
+            handle.flush()
+            os.fsync(handle.fileno())
+    except BaseException:
+        path.unlink(missing_ok=True)
+        raise
+
+
+def _rename_noreplace(source: Path, destination: Path) -> None:
+    """Atomically publish ``source`` while refusing any existing destination."""
+
+    if os.name == "nt":
+        try:
+            source.rename(destination)
+        except FileExistsError as exc:
+            raise BridgeCurationError(
+                f"destination already exists; refusing overwrite: {destination}"
+            ) from exc
+        return
+
+    libc = ctypes.CDLL(None, use_errno=True)
+    renameat2 = getattr(libc, "renameat2", None)
+    if renameat2 is None:
+        raise BridgeCurationError(
+            "atomic no-replace publication is unavailable on this platform"
+        )
+    renameat2.argtypes = [
+        ctypes.c_int,
+        ctypes.c_char_p,
+        ctypes.c_int,
+        ctypes.c_char_p,
+        ctypes.c_uint,
+    ]
+    renameat2.restype = ctypes.c_int
+    result = renameat2(
+        -100,
+        os.fsencode(source),
+        -100,
+        os.fsencode(destination),
+        1,
+    )
+    if result == 0:
+        return
+    error = ctypes.get_errno()
+    if error in {errno.EEXIST, errno.ENOTEMPTY}:
+        raise BridgeCurationError(
+            f"destination already exists; refusing overwrite: {destination}"
+        )
+    raise BridgeCurationError(
+        f"cannot atomically publish {destination}: {os.strerror(error)}"
+    )
+
+
+def _validate_materialized_tree(
+    root: Path,
+    decisions: Sequence[CurationDecision],
+    manifest_relative: Path,
+) -> None:
+    """Authenticate staged output records and manifest before publication."""
+
+    manifest_path = root / manifest_relative
+    try:
+        manifest_lines = [
+            json.loads(line, parse_constant=_reject_json_constant)
+            for line in manifest_path.read_text(encoding="utf-8").splitlines()
+            if line.strip()
+        ]
+    except (OSError, UnicodeError, json.JSONDecodeError, ValueError) as exc:
+        raise BridgeCurationError(f"invalid staged Bridge manifest: {exc}") from exc
+    expected_manifest = [decision.manifest for decision in decisions]
+    if manifest_lines != expected_manifest:
+        raise BridgeCurationError("staged Bridge manifest differs from decisions")
+
+    expected: dict[str, list[str]] = {}
+    for decision in decisions:
+        if decision.output_record is None:
+            continue
+        expected.setdefault(decision.manifest["source_path"], []).append(
+            decision.manifest["output_hash"]
+        )
+    actual_paths = {
+        path.relative_to(root).as_posix(): path
+        for path in sorted(root.rglob("*.jsonl"))
+        if path.is_file() and path != manifest_path
+    }
+    if set(actual_paths) != set(expected):
+        raise BridgeCurationError(
+            "staged Bridge output paths differ from manifest: "
+            f"expected={sorted(expected)}, actual={sorted(actual_paths)}"
+        )
+    for relative, expected_hashes in sorted(expected.items()):
+        actual_hashes: list[str] = []
+        for line in actual_paths[relative].read_bytes().split(b"\n"):
+            if not line.strip():
+                continue
+            try:
+                record = json.loads(
+                    line.decode("utf-8"), parse_constant=_reject_json_constant
+                )
+            except (UnicodeError, json.JSONDecodeError, ValueError) as exc:
+                raise BridgeCurationError(
+                    f"invalid staged Bridge output {relative}: {exc}"
+                ) from exc
+            actual_hashes.append(sha256_hex(canonical_json_bytes(record)))
+        if actual_hashes != expected_hashes:
+            raise BridgeCurationError(
+                f"staged Bridge output hashes differ from manifest: {relative}"
+            )
+
+
+def materialize_paths(
+    sources: Iterable[str | Path],
+    *,
+    source_root: str | Path,
+    output_dir: str | Path,
+    manifest_name: str = MANIFEST_NAME,
+) -> list[CurationDecision]:
+    """Publish a new gate-compatible Bridge lane tree without clobbering."""
+
+    root = Path(source_root)
+    destination = Path(output_dir)
+    if not root.is_dir() or root.is_symlink():
+        raise BridgeCurationError(f"source_root must be a real directory: {root}")
+    if os.path.lexists(destination):
+        raise BridgeCurationError(
+            f"destination already exists; refusing overwrite: {destination}"
+        )
+    if not destination.parent.is_dir() or destination.parent.is_symlink():
+        raise BridgeCurationError(
+            f"destination parent must be a real directory: {destination.parent}"
+        )
+    if _is_under_raw(destination):
+        raise BridgeCurationError(
+            f"refusing to write inside immutable raw evidence: {destination}"
+        )
+    root_resolved = root.resolve(strict=True)
+    destination_resolved = destination.resolve(strict=False)
+    if destination_resolved == root_resolved or root_resolved in destination_resolved.parents:
+        raise BridgeCurationError(
+            f"destination cannot be inside source_root: {destination}"
+        )
+
+    source_paths = [Path(source) for source in sources]
+    if not source_paths:
+        raise BridgeCurationError("at least one Bridge JSONL source is required")
+    for source in source_paths:
+        if not source.is_file() or source.is_symlink():
+            raise BridgeCurationError(f"source must be a real JSONL file: {source}")
+        try:
+            source.resolve(strict=True).relative_to(root_resolved)
+        except ValueError as exc:
+            raise BridgeCurationError(
+                f"source is outside source_root: {source}"
+            ) from exc
+
+    manifest_relative = _safe_relative_path(manifest_name, label="manifest_name")
+    if manifest_relative.suffix != ".jsonl":
+        raise BridgeCurationError("manifest_name must end in .jsonl")
+    decisions = curate_paths(source_paths, source_root=root)
+    output_paths = {
+        _safe_relative_path(
+            decision.manifest["source_path"], label="manifest source_path"
+        )
+        for decision in decisions
+        if decision.output_record is not None
+    }
+    if manifest_relative in output_paths:
+        raise BridgeCurationError(
+            f"manifest path collides with a curated output: {manifest_relative}"
+        )
+
+    stage_root = Path(
+        tempfile.mkdtemp(prefix=f".{destination.name}.staging-", dir=destination.parent)
+    )
+    staged = stage_root / "tree"
+    try:
+        staged.mkdir()
+        by_path: dict[Path, list[dict[str, Any]]] = {}
+        for decision in decisions:
+            if decision.output_record is None:
+                continue
+            relative = _safe_relative_path(
+                decision.manifest["source_path"], label="manifest source_path"
+            )
+            by_path.setdefault(relative, []).append(decision.output_record)
+        for relative, records in sorted(by_path.items(), key=lambda item: item[0].as_posix()):
+            target = staged / relative
+            target.parent.mkdir(parents=True, exist_ok=True)
+            _write_exclusive(
+                target,
+                b"".join(canonical_json_line(record) for record in records),
+            )
+        manifest_path = staged / manifest_relative
+        manifest_path.parent.mkdir(parents=True, exist_ok=True)
+        _write_exclusive(
+            manifest_path,
+            b"".join(canonical_json_line(decision.manifest) for decision in decisions),
+        )
+        _validate_materialized_tree(staged, decisions, manifest_relative)
+        _rename_noreplace(staged, destination)
+        return decisions
+    finally:
+        shutil.rmtree(stage_root, ignore_errors=True)
+
+
 def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("sources", nargs="+", help="Bridge JSONL source files")
@@ -933,7 +1177,16 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         "--emit",
         choices=("summary", "manifest", "bundle"),
         default="summary",
-        help="JSON payload printed to stdout; this command never writes files",
+        help="JSON payload printed to stdout",
+    )
+    parser.add_argument(
+        "--out-dir",
+        help="publish one NEW gate-compatible lane output tree",
+    )
+    parser.add_argument(
+        "--manifest-name",
+        default=MANIFEST_NAME,
+        help=f"manifest path inside --out-dir (default: {MANIFEST_NAME})",
     )
     return parser.parse_args(argv)
 
@@ -941,7 +1194,17 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
 def main(argv: Sequence[str] | None = None) -> int:
     args = parse_args(argv)
     try:
-        decisions = curate_paths(args.sources, source_root=args.source_root)
+        if args.out_dir is not None:
+            if args.source_root is None:
+                raise BridgeCurationError("--out-dir requires --source-root")
+            decisions = materialize_paths(
+                args.sources,
+                source_root=args.source_root,
+                output_dir=args.out_dir,
+                manifest_name=args.manifest_name,
+            )
+        else:
+            decisions = curate_paths(args.sources, source_root=args.source_root)
     except (BridgeCurationError, OSError) as exc:
         raise SystemExit(f"curate_bridge: {exc}") from exc
 
