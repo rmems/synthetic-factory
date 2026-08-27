@@ -1359,7 +1359,7 @@ def main(argv: list[str] | None = None) -> int:
 
     try:
         taxonomy = load_taxonomy(args.taxonomy)
-    except TagTaxonomyError as exc:
+    except (TagTaxonomyError, OSError) as exc:
         parser.error(str(exc))
 
     result = curate_jsonl(args.source, taxonomy)
