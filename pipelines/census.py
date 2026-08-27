@@ -28,6 +28,7 @@ from mill_family import (  # noqa: E402
     factory_identity_for_path as shared_factory_identity_for_path,
     summarize as summarize_mill_mix,
 )
+from record_kind import THALAMIC_REQUIRED, classify_kind  # noqa: E402
 from round_txn import (  # noqa: E402
     FACTORY_QUOTAS,
     TransactionError,
@@ -35,15 +36,6 @@ from round_txn import (  # noqa: E402
     marker_mode_path,
 )
 from validate_run import reject_json_constant  # noqa: E402
-
-THALAMIC_REQUIRED = (
-    "state",
-    "proposed_action",
-    "safety_decision",
-    "executed_action",
-    "future_outcome",
-    "reward_components",
-)
 
 KINDS = (
     "thalamic",
@@ -69,24 +61,6 @@ __all__ = [
     "main",
     "visible_jsonl_paths",
 ]
-
-
-def classify_kind(obj):
-    if not isinstance(obj, dict):
-        return "unknown"
-    if all(k in obj for k in THALAMIC_REQUIRED):
-        return "thalamic"
-    if "chosen" in obj and "rejected" in obj:
-        return "preference"
-    if "language_view" in obj and "spike_events" in obj:
-        return "bridge_pair"
-    if "case_type" in obj:
-        return "safety_case"
-    if "transcript" in obj and "agents" in obj:
-        return "multi_agent"
-    if "goal" in obj and "steps" in obj:
-        return "episode"
-    return "unknown"
 
 
 def bucket_sim_or_real(value):

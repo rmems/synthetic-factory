@@ -320,6 +320,8 @@ def audit_run(run_dir: Path):
         totals["bytes"] += payload_bytes
 
         raw_payload = path.read_bytes()
+        # Byte splitlines keeps mill-finding coordinates aligned with census
+        # and does not treat U+2028/U+2029 inside JSON strings as record breaks.
         for line_number, raw_line in enumerate(raw_payload.splitlines(), 1):
             if not raw_line.strip():
                 continue
