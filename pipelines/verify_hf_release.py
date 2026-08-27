@@ -148,7 +148,7 @@ CARD_SECTION_MARKERS = {
 REQUIRED_PURPOSE_TEXT = {
     "rmems/thalamic-relay-trajectories": "relay-gated state assessment",
     "rmems/neuromorphic-event-language-bridge": "event streams to structured language views",
-    "rmems/multi-agent-ouroboros-swarm": "delegation, critique, conflict resolution",
+    "rmems/multi-agent-ouroboros-swarm": "safety-gate adjudication trajectories",
     "rmems/failure-as-fuel-preference-cascade": "chosen/rejected comparisons",
     "rmems/agentic-coding-trajectories": "planning, tool use, observation",
 }
@@ -159,6 +159,37 @@ REQUIRED_TARGET_TEXT = {
     "rmems/multi-agent-ouroboros-swarm": "not labeled as Spikenaut training data",
     "rmems/failure-as-fuel-preference-cascade": "not labeled as Spikenaut training data",
     "rmems/agentic-coding-trajectories": "not labeled as Spikenaut training data",
+}
+
+# Repository-specific payload-kind disclosures.  A card must not advertise a
+# record kind its JSONL rows do not have.  Issue #75 found that all 14 published
+# rows on multi-agent-ouroboros-swarm are thalamic-gate wraps while the card
+# sold all 14 as multi-agent trajectories, and the swarm dialogue exists only as
+# markdown sidecars.  These markers are required inside the
+# "## Published raw payload" section, which is where the payload claim lives.
+# Repositories absent from this mapping carry no extra payload requirement.
+REQUIRED_PAYLOAD_DISCLOSURE = {
+    "rmems/multi-agent-ouroboros-swarm": (
+        "thalamic-gate wrap schema",
+        "7 of the 14 records",
+        "sidecars, not JSONL training records",
+    ),
+}
+
+# Known-bad claims from issue #75.  Requiring replacement prose is insufficient
+# if an operator leaves the contradictory old sentence in the same owned
+# section, so reject those rendered claims explicitly.
+FORBIDDEN_CARD_CLAIMS = {
+    "rmems/multi-agent-ouroboros-swarm": {
+        "__preamble__": (
+            "Synthetic multi-agent trajectories for delegation, critique, "
+            "conflict resolution",
+        ),
+        "## Published raw payload": (
+            "14 raw multi-agent records",
+            "not a thalamic-gate wrap schema",
+        ),
+    }
 }
 
 
@@ -254,7 +285,17 @@ def _contributor_roles(provenance: dict) -> dict[str, set[str]]:
 
 
 def _normalized_text(value: str) -> str:
-    return " ".join(value.split()).casefold()
+    """Casefold, collapse whitespace, and drop Markdown emphasis and links.
+
+    Obsolete-claim checks must match the rendered sentence. Emphasis such as
+    ``**critique**`` or ``[critique](url)`` is the same claim as ``critique``.
+    """
+
+    text = re.sub(r"\[([^\]\n]+)\]\([^)]*\)", r"\1", value)
+    # Strip Markdown *emphasis* and backticks only. Underscores stay so YAML
+    # markers like `name: source_file` cannot match `name: sourcefile`.
+    text = re.sub(r"[*`]+", "", text)
+    return " ".join(text.split()).casefold()
 
 
 def _normalized_sha256(value: str) -> str:
@@ -312,6 +353,21 @@ def _card_section_errors(card: str, repo: str) -> list[str]:
         errors.append(f"README missing repository purpose marker: {purpose}")
     if _normalized_text(target) not in target_section:
         errors.append(f"README missing Spikenaut classification: {target}")
+
+    payload_section = _normalized_text(
+        _markdown_section(rendered_card, "## Published raw payload") or ""
+    )
+    for marker in REQUIRED_PAYLOAD_DISCLOSURE.get(repo, ()):
+        if _normalized_text(marker) not in payload_section:
+            errors.append(f"README missing payload-kind disclosure: {marker}")
+
+    for section, markers in FORBIDDEN_CARD_CLAIMS.get(repo, {}).items():
+        section_text = _normalized_text(
+            _markdown_section(rendered_card, section) or ""
+        )
+        for marker in markers:
+            if _normalized_text(marker) in section_text:
+                errors.append(f"README retains obsolete payload-kind claim: {marker}")
     return errors
 
 
@@ -333,7 +389,9 @@ class _JSONObject(dict[str, object]):
             self[key] = value
 
 
-def _release_status_license(text: str, errors: list[str]) -> str | None:
+def _release_status_license(
+    text: str, errors: list[str], repo: str
+) -> str | None:
     """Validate raw-publication status and return its license declaration."""
 
     try:
@@ -345,8 +403,11 @@ def _release_status_license(text: str, errors: list[str]) -> str | None:
         errors.append("release-status.json must contain a JSON object")
         return None
     duplicate_keys = status.duplicate_keys if isinstance(status, _JSONObject) else set()
-    for field in sorted(duplicate_keys & RAW_RELEASE_STATUS.keys()):
+    for field in sorted(duplicate_keys & (RAW_RELEASE_STATUS.keys() | {"dataset_id"})):
         errors.append(f"release-status.json must not contain duplicate {field} keys")
+    dataset_id = status.get("dataset_id")
+    if dataset_id != repo:
+        errors.append(f"release-status.json dataset_id must be {repo}")
 
     for field, expected in RAW_RELEASE_STATUS.items():
         actual = status.get(field)
@@ -648,7 +709,7 @@ def verify_dataset(
     except Exception as error:  # network exceptions differ across Hub backends
         return CheckResult(repo, (f"public fetch failed: {error}",))
 
-    status_license = _release_status_license(release_status_text, errors)
+    status_license = _release_status_license(release_status_text, errors, repo)
     errors.extend(_license_alignment_errors(card, license_text, status_license))
     errors.extend(_card_section_errors(card, repo))
     errors.extend(_viewer_errors(card, viewer_bytes))
