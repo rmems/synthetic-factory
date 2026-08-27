@@ -112,6 +112,22 @@ def _reward_annotated(records, source_path, sidecars=None):
     return annotated
 
 
+def _stamp_canonical_identity_ids(records, relative):
+    for line_no, record in enumerate(records, 1):
+        if not isinstance(record, dict):
+            continue
+        kind = curate_identity.record_kind(record)
+        record["id"] = curate_gate._canonical_identity_output_id(
+            relative, line_no, kind, "/"
+        )
+        owners = curate_gate._identity_owner_specs(record, kind, "fixture")
+        for owner_path, owner in owners:
+            if owner_path != "/":
+                owner["id"] = curate_gate._canonical_identity_output_id(
+                    relative, line_no, kind, owner_path
+                )
+
+
 def _quiet_main(argv):
     """Run the gate CLI in-process without leaking its report into test output."""
     with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
@@ -218,7 +234,9 @@ def _lane_manifest_entry(
 class GateFixture:
     """A six-lane curation scenario laid out under one temporary root."""
 
-    def __init__(self, root, bridge_records=None, thalamic_records=None):
+    def __init__(
+        self, root, bridge_records=None, thalamic_records=None, *, canonical_ids=True
+    ):
         self.root = Path(root)
         self.source_run = self.root / "raw"
         self.lane_bridge = self.root / "lane-bridge"
@@ -247,6 +265,15 @@ class GateFixture:
             raw_core_records,
         )
 
+        identity_bridge_records = copy.deepcopy(raw_bridge_records)
+        identity_core_records = copy.deepcopy(raw_core_records)
+        if canonical_ids:
+            _stamp_canonical_identity_ids(
+                identity_bridge_records, "bridge-factory/batch-r02.jsonl"
+            )
+            _stamp_canonical_identity_ids(
+                identity_core_records, "thalamic-mini/batch-r02.jsonl"
+            )
         annotated_bridge_records = _reward_annotated(
             raw_bridge_records,
             "bridge-factory/batch-r02.jsonl",
@@ -254,7 +281,7 @@ class GateFixture:
         )
         _write_jsonl(
             self.lane_bridge / "bridge-factory" / "batch-r02.jsonl",
-            raw_bridge_records,
+            identity_bridge_records,
         )
         annotated_core_records = _reward_annotated(
             raw_core_records, "thalamic-mini/batch-r02.jsonl", self.reward_sidecars
@@ -265,14 +292,16 @@ class GateFixture:
             self.lane_coding,
             self.lane_tag,
         ):
-            _write_jsonl(lane_dir / "thalamic-mini" / "batch-r02.jsonl", raw_core_records)
+            _write_jsonl(
+                lane_dir / "thalamic-mini" / "batch-r02.jsonl", identity_core_records
+            )
         _write_jsonl(
             self.lane_reward / "bridge-factory" / "batch-r02.jsonl",
             annotated_bridge_records,
         )
         _write_jsonl(
             self.lane_core / "bridge-factory" / "batch-r02.jsonl",
-            raw_bridge_records,
+            identity_bridge_records,
         )
         _write_jsonl(
             self.lane_reward / "thalamic-mini" / "batch-r02.jsonl",
@@ -792,11 +821,16 @@ class IntegrationTests(unittest.TestCase):
 
     def test_later_lane_supersedes_earlier_lane_at_the_same_path(self):
         fixture = GateFixture(self.root)
-        bridge_record = _read_jsonl(fixture.lane_bridge / "bridge-factory" / "batch-r02.jsonl")[0]
-        bridge_record["id"] = "bridge-repaired"
+        identity_records = _read_jsonl(
+            fixture.lane_core / "bridge-factory" / "batch-r02.jsonl"
+        )
+        identity_records[0]["bridge_notes"] = {
+            "mapping": "identity-supersede",
+            "training_value": "routing",
+        }
         _write_jsonl(
             fixture.lane_core / "bridge-factory" / "batch-r02.jsonl",
-            [bridge_record],
+            identity_records,
         )
         fixture.sync_lane_manifest(1)
         self.assertEqual(fixture.integrate(), 0)
@@ -811,7 +845,7 @@ class IntegrationTests(unittest.TestCase):
         self.assertEqual(supersession["superseded_transform"], "bridge_event_time_order")
         self.assertEqual(supersession["winning_transform"], "curate_identity")
         emitted = (fixture.cleaned / "bridge-factory" / "batch-r02.jsonl").read_text()
-        self.assertIn("bridge-repaired", emitted)
+        self.assertIn("identity-supersede", emitted)
         self.assertEqual(fixture.manifest()["counts"]["records"], 4)
 
     def test_record_level_composition_preserves_unrelated_records_in_the_same_file(self):
@@ -829,7 +863,10 @@ class IntegrationTests(unittest.TestCase):
         identity_path = fixture.lane_core / "bridge-factory" / "batch-r02.jsonl"
         identity_records = _read_jsonl(identity_path)
         first = copy.deepcopy(identity_records[0])
-        first["id"] = "bridge-1-identity-rewrite"
+        first["bridge_notes"] = {
+            "mapping": "bridge-1-identity-rewrite",
+            "training_value": "routing",
+        }
         identity_records[0] = first
         _write_jsonl(identity_path, identity_records)
         fixture.sync_lane_manifest(1)
@@ -837,8 +874,12 @@ class IntegrationTests(unittest.TestCase):
         self.assertEqual(fixture.integrate(), 0)
         emitted = _read_jsonl(fixture.cleaned / "bridge-factory" / "batch-r02.jsonl")
         self.assertEqual(
-            {record["id"] for record in emitted},
-            {"bridge-1-identity-rewrite", "bridge-2"},
+            emitted[0]["bridge_notes"]["mapping"],
+            "bridge-1-identity-rewrite",
+        )
+        self.assertNotEqual(
+            emitted[1].get("bridge_notes", {}).get("mapping"),
+            "bridge-1-identity-rewrite",
         )
         self.assertEqual(fixture.manifest()["counts"]["records"], 5)
 
@@ -852,12 +893,12 @@ class IntegrationTests(unittest.TestCase):
         identity_records = [
             json.loads(line) for line in identity_path.read_text().split("\n") if line
         ]
-        identity_record = copy.deepcopy(source_record)
-        identity_record["id"] = "sfcur-thalamic-record-canonical"
+        identity_record = copy.deepcopy(identity_records[0])
         identity_record["meta"]["provenance"] = {
             "kind": "simulated",
             "generator": "fixture",
         }
+        expected_id = identity_record["id"]
         identity_records[0] = identity_record
         _write_jsonl(identity_path, identity_records)
         fixture.sync_lane_manifest(1)
@@ -874,7 +915,7 @@ class IntegrationTests(unittest.TestCase):
         final_record = json.loads(
             (fixture.cleaned / "thalamic-mini" / "batch-r02.jsonl").read_text().split("\n")[0]
         )
-        self.assertEqual(final_record["id"], "sfcur-thalamic-record-canonical")
+        self.assertEqual(final_record["id"], expected_id)
         self.assertEqual(
             final_record["meta"]["provenance"],
             {"kind": "simulated", "generator": "fixture"},
@@ -1651,7 +1692,9 @@ class CorpusGateTests(unittest.TestCase):
     def test_exact_duplicate_records_block_the_gate(self):
         duplicate = _reward_annotated([_thalamic("t-dup")], "thalamic-mini/batch-r02.jsonl")[0]
         fixture = GateFixture(
-            self.root, thalamic_records=[duplicate, json.loads(json.dumps(duplicate))]
+            self.root,
+            thalamic_records=[duplicate, json.loads(json.dumps(duplicate))],
+            canonical_ids=False,
         )
         # The preference lane does not own these Thalamic records. Keep one
         # path-independent retained fixture record and explicitly skip the
@@ -1688,7 +1731,9 @@ class CorpusGateTests(unittest.TestCase):
     def test_canonical_id_collisions_block_the_gate(self):
         first = _thalamic("t-collide")
         second = _thalamic("t-collide", future_outcome={"ok": False})
-        fixture = GateFixture(self.root, thalamic_records=[first, second])
+        fixture = GateFixture(
+            self.root, thalamic_records=[first, second], canonical_ids=False
+        )
         self.assertEqual(fixture.integrate(), 1)
         manifest = fixture.manifest()
 
@@ -1702,7 +1747,9 @@ class CorpusGateTests(unittest.TestCase):
         anonymous = _thalamic("t-anon")
         anonymous.pop("id")
         anonymous["meta"].pop("id", None)
-        fixture = GateFixture(self.root, thalamic_records=[anonymous])
+        fixture = GateFixture(
+            self.root, thalamic_records=[anonymous], canonical_ids=False
+        )
         self.assertEqual(fixture.integrate(), 1)
         manifest = fixture.manifest()
 
@@ -1749,6 +1796,33 @@ class CorpusGateTests(unittest.TestCase):
         gate = fixture.manifest()["gates"]["reward_ontology"]
         self.assertFalse(gate["passed"])
         self.assertEqual(gate["invalid_annotations"], 1)
+
+    def test_identity_replay_rejects_self_consistent_arbitrary_canonical_outputs(self):
+        fixture = GateFixture(self.root)
+        forged = "self-consistent-but-not-coordinate-derived"
+        for lane_dir in (
+            fixture.lane_core,
+            fixture.lane_preference,
+            fixture.lane_reward,
+            fixture.lane_coding,
+            fixture.lane_tag,
+        ):
+            path = lane_dir / "thalamic-mini" / "batch-r02.jsonl"
+            records = _read_jsonl(path)
+            records[0]["id"] = forged
+            _write_jsonl(path, records)
+        for index in range(len(fixture.lanes)):
+            fixture.sync_lane_manifest(index)
+
+        self.assertEqual(fixture.integrate(), 1)
+        gate = fixture.manifest()["gates"]["identity_mappings"]
+        self.assertFalse(gate["passed"])
+        self.assertTrue(
+            any(
+                "deterministic canonical identity" in item["error"]
+                for item in gate["examples"]
+            )
+        )
 
     def test_retained_identity_id_mapping_must_resolve_to_final_record(self):
         fixture = GateFixture(self.root)
@@ -1872,6 +1946,52 @@ class CorpusGateTests(unittest.TestCase):
                 for item in gate["examples"]
             )
         )
+
+    def test_external_calibration_is_authenticated_from_the_migration_catalog(self):
+        record = {
+            "id": "ffpc-r2-001",
+            "chosen": {
+                "reward_components": {
+                    "task_progress": 3.0,
+                    "safety": 0.6,
+                    "total": 3.6,
+                    "units": "1.0 = $2,000; audited_true_reward basis",
+                }
+            },
+            "rejected": {
+                "reward_components": {
+                    "task_progress": 0.2,
+                    "safety": -0.8,
+                    "total": -0.6,
+                    "units": "1.0 = $2,000; risk-adjusted terms",
+                }
+            },
+            "critique": "chosen is preferred on observable process evidence",
+        }
+        calibration = {
+            "source_unit_usd": 2000,
+            "canonical_factor": 0.2,
+            "evidence_ref": "units-migration.json#/records/1",
+        }
+        curated, sidecar = curate_rewards.curate_record(
+            record, source_path="ffpc/preferences.jsonl", source_line=1, calibration=calibration
+        )
+        catalog = {"ffpc-r2-001": calibration}
+
+        derived = curate_gate._derived_reward_contract(  # noqa: SLF001
+            curated, sidecar, catalog, record
+        )
+        self.assertEqual(derived["classification"]["comparability"], "magnitude_comparable")
+        self.assertIn(
+            "external_calibration_evidence",
+            derived["classification"]["reason_codes"],
+        )
+
+        with self.assertRaisesRegex(
+            curate_rewards.RewardOntologyError,
+            "no matching record in the migration artifact",
+        ):
+            curate_gate._derived_reward_contract(curated, sidecar, {}, record)  # noqa: SLF001
 
     def test_excluded_reward_class_is_valid_gate_coverage(self):
         fixture = GateFixture(self.root)

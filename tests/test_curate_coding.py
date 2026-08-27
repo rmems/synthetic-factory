@@ -13,6 +13,8 @@ PIPELINES = ROOT / "pipelines"
 if str(PIPELINES) not in sys.path:
     sys.path.insert(0, str(PIPELINES))
 
+import curate_coding  # noqa: E402
+import curate_gate  # noqa: E402
 from curate_coding import (  # noqa: E402
     MAX_DECISION_BASIS_CHARS,
     REASON_BASIS_FROM_OBSERVATION,
@@ -238,6 +240,131 @@ class CurateCodingTests(unittest.TestCase):
         self.assertEqual(result["summary"]["output_records"], 0)
         self.assertEqual(result["manifest"][0]["reason_codes"], [REASON_INVALID_JSON])
         self.assertEqual(result["manifest"][1]["reason_codes"], [REASON_INVALID_UTF8])
+
+    def test_source_hash_strips_only_the_cr_paired_with_literal_lf(self):
+        record = episode([visible_step()])
+        payload = json.dumps(record, ensure_ascii=False).encode("utf-8")
+        hashes = {}
+        with tempfile.TemporaryDirectory() as temporary:
+            for label, source_bytes in {
+                "no-terminator": payload,
+                "lf": payload + b"\n",
+                "crlf": payload + b"\r\n",
+                "bare-final-cr": payload + b"\r",
+                "payload-cr-before-crlf": payload + b"\r\r\n",
+            }.items():
+                source = Path(temporary) / f"{label}.jsonl"
+                source.write_bytes(source_bytes)
+
+                result = curate_jsonl(source)
+
+                self.assertEqual(len(result["manifest"]), 1, label)
+                hashes[label] = result["manifest"][0]["source_hash"]
+
+        payload_hash = hashlib.sha256(payload).hexdigest()
+        payload_cr_hash = hashlib.sha256(payload + b"\r").hexdigest()
+        self.assertEqual(hashes["no-terminator"], payload_hash)
+        self.assertEqual(hashes["lf"], payload_hash)
+        self.assertEqual(hashes["crlf"], payload_hash)
+        self.assertEqual(hashes["bare-final-cr"], payload_cr_hash)
+        self.assertEqual(
+            hashes["payload-cr-before-crlf"],
+            payload_cr_hash,
+        )
+        self.assertNotEqual(payload_hash, payload_cr_hash)
+
+    def test_directory_writer_preserves_paths_and_emits_one_gate_manifest(self):
+        first_record = episode([visible_step(n=1)])
+        first_record["id"] = "coding-alpha"
+        second_record = episode([visible_step(n=2, reflection="Visible second file.")])
+        second_record["id"] = "coding-zeta"
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            source = root / "source-run"
+            alpha = Path("alpha/nested/episodes.jsonl")
+            zeta = Path("zeta/batch-r02.jsonl")
+            (source / zeta).parent.mkdir(parents=True)
+            (source / zeta).write_text(json.dumps(second_record) + "\n", encoding="utf-8")
+            (source / alpha).parent.mkdir(parents=True)
+            (source / alpha).write_text(
+                "\n" + json.dumps(first_record) + "\n",
+                encoding="utf-8",
+            )
+            output = root / "lane-coding"
+
+            completed = subprocess.run(
+                [
+                    sys.executable,
+                    str(PIPELINES / "curate_coding.py"),
+                    str(source),
+                    "--output-dir",
+                    str(output),
+                ],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(completed.returncode, 0, completed.stderr)
+            summary = json.loads(completed.stdout)
+            manifest_path = output / curate_coding.RUN_MANIFEST_FILENAME
+            manifest = [
+                json.loads(line)
+                for line in manifest_path.read_text(encoding="utf-8").split("\n")
+                if line
+            ]
+
+            self.assertEqual(summary["input_files"], 2)
+            self.assertEqual(summary["input_records"], 2)
+            self.assertEqual(summary["output_records"], 2)
+            self.assertEqual(
+                [(item["source_path"], item["source_line"]) for item in manifest],
+                [(alpha.as_posix(), 2), (zeta.as_posix(), 1)],
+            )
+            self.assertTrue((output / alpha).is_file())
+            self.assertTrue((output / zeta).is_file())
+            self.assertEqual(
+                sorted(path.relative_to(output).as_posix() for path in output.rglob("*.jsonl")),
+                [alpha.as_posix(), curate_coding.RUN_MANIFEST_FILENAME, zeta.as_posix()],
+            )
+
+            lane = {
+                "order": 5,
+                "bead": "sf-c5l.5",
+                "transform": curate_coding.TRANSFORM_NAME,
+                "version": curate_coding.TRANSFORM_VERSION,
+                "outputs_dir": output,
+                "manifest_path": manifest_path,
+                "manifest_format": "jsonl",
+                "artifacts": [],
+            }
+            prepared = curate_gate._prepare_lane(  # noqa: SLF001
+                lane,
+                curate_gate._load_source_records(source),  # noqa: SLF001
+            )
+            self.assertEqual(len(prepared["entries"]), 2)
+            self.assertEqual(
+                [record["relative_path"] for record in prepared["records"]],
+                [alpha.as_posix(), zeta.as_posix()],
+            )
+
+    def test_directory_writer_refuses_clobber_and_preserves_existing_tree(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            source = root / "source-run"
+            source.mkdir()
+            (source / "episodes.jsonl").write_text(
+                json.dumps(episode([visible_step()])) + "\n",
+                encoding="utf-8",
+            )
+            output = root / "lane-coding"
+            output.mkdir()
+            marker = output / "owned-by-another-run"
+            marker.write_text("sentinel", encoding="utf-8")
+
+            with self.assertRaisesRegex(FileExistsError, "refusing to replace"):
+                curate_coding.curate_run(source, output)
+
+            self.assertEqual(marker.read_text(encoding="utf-8"), "sentinel")
 
     def test_cli_writes_new_files_and_refuses_clobber(self):
         with tempfile.TemporaryDirectory() as temporary:

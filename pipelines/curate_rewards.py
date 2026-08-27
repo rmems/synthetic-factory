@@ -20,7 +20,9 @@ The optional CLI writes only caller-specified, previously nonexistent files:
 
 The run mode preserves every source JSONL's relative path and writes one
 ``reward-sidecars.jsonl`` artifact plus one aggregate ``manifest.json`` at the
-new lane root.
+new lane root.  When ``--units-migration`` is supplied, its exact bytes are
+copied into the lane as ``units-migration.json`` and every applied calibration
+is sealed onto the matching sidecar.
 """
 
 from __future__ import annotations
@@ -99,6 +101,7 @@ SHA256_RE = re.compile(r"^sha256:[0-9a-f]{64}$")
 
 RUN_MANIFEST_FILENAME = "manifest.json"
 RUN_SIDECAR_FILENAME = "reward-sidecars.jsonl"
+RUN_CALIBRATION_FILENAME = "units-migration.json"
 
 
 class RewardOntologyError(ValueError):
@@ -618,6 +621,22 @@ def validate_ontology_document(document):
             or not classification["reason_codes"]
         ):
             raise RewardOntologyError("invalid sidecar classification")
+        calibration = document.get("calibration")
+        if calibration is not None:
+            normalized = _normalize_calibration(calibration)
+            if (
+                normalized["source_unit_usd"] != _decimal(calibration.get("source_unit_usd"))
+                or normalized["evidence_ref"] != calibration.get("evidence_ref")
+            ):
+                raise RewardOntologyError("sidecar calibration is not canonical")
+            if "external_calibration_evidence" not in classification["reason_codes"]:
+                raise RewardOntologyError(
+                    "sidecar calibration requires external_calibration_evidence"
+                )
+        elif "external_calibration_evidence" in classification["reason_codes"]:
+            raise RewardOntologyError(
+                "external_calibration_evidence requires an applied sidecar calibration"
+            )
         return document
     raise RewardOntologyError(f"unknown ontology document_type: {kind!r}")
 
@@ -656,20 +675,25 @@ def curate_record(
     arithmetic = [
         assess_arithmetic(value, pointer) for pointer, value in reward_items
     ]
+    normalized_calibration = _normalize_calibration(calibration)
     comparability, reason_codes, payload = _classify(
         source_rewards,
         arithmetic,
-        calibration,
+        normalized_calibration,
     )
 
+    source_identity = {
+        "path": source_path,
+        "line": source_line,
+        "record_sha256": _sha256(source_record),
+    }
+    source_record_id = _canonical_record_id(source_record)
+    if source_record_id is not None:
+        source_identity["record_id"] = source_record_id
     sidecar_body = {
         "document_type": "reward_source_sidecar",
         "ontology_version": ONTOLOGY_VERSION,
-        "source": {
-            "path": source_path,
-            "line": source_line,
-            "record_sha256": _sha256(source_record),
-        },
+        "source": source_identity,
         "classification": {
             "comparability": comparability,
             "reason_codes": reason_codes,
@@ -677,6 +701,13 @@ def curate_record(
         "source_rewards": source_rewards,
         "arithmetic": arithmetic,
     }
+    if normalized_calibration is not None and (
+        "external_calibration_evidence" in reason_codes
+    ):
+        sidecar_body["calibration"] = {
+            "source_unit_usd": _json_number(normalized_calibration["source_unit_usd"]),
+            "evidence_ref": normalized_calibration["evidence_ref"],
+        }
     sidecar = {**sidecar_body, "sidecar_id": _sha256(sidecar_body)}
 
     annotation = {
@@ -781,6 +812,43 @@ def load_units_migration(path):
             if previous is not None and previous != calibration:
                 raise RewardOntologyError(
                     f"{path}: conflicting calibrations for {record_id}"
+                )
+            catalog[key] = calibration
+    return catalog
+
+
+def load_units_migration_bytes(payload, *, label="<memory>"):
+    """Parse exact migration bytes into the same catalog ``load_units_migration`` builds."""
+    if not isinstance(payload, bytes):
+        raise RewardOntologyError("calibration payload must be bytes")
+    try:
+        document = json.loads(payload.decode("utf-8"), parse_constant=_reject_json_constant)
+    except (UnicodeDecodeError, json.JSONDecodeError, ValueError) as exc:
+        raise RewardOntologyError(f"{label}: invalid calibration JSON: {exc}") from exc
+    records = document.get("records") if isinstance(document, dict) else None
+    if not isinstance(records, list):
+        raise RewardOntologyError(f"{label}: calibration records must be a list")
+    catalog = {}
+    for index, entry in enumerate(records):
+        if not isinstance(entry, dict):
+            continue
+        factor = _decimal(entry.get("usd_conversion_factor"))
+        if factor is None or factor <= 0:
+            continue
+        scope = entry.get("scope")
+        if not isinstance(scope, str):
+            continue
+        for record_id in sorted(set(RECORD_ID_RE.findall(scope))):
+            calibration = {
+                "source_unit_usd": _json_number(factor * CANONICAL_UNIT_USD),
+                "canonical_factor": _json_number(factor),
+                "evidence_ref": f"{label}#/records/{index}",
+            }
+            key = record_id.lower()
+            previous = catalog.get(key)
+            if previous is not None and previous != calibration:
+                raise RewardOntologyError(
+                    f"{label}: conflicting calibrations for {record_id}"
                 )
             catalog[key] = calibration
     return catalog
@@ -898,7 +966,7 @@ def classify_jsonl(input_path, *, source_path=None, calibration_catalog=None):
     }
 
 
-def _write_new_text(path, text):
+def _write_new_bytes(path, payload):
     """Create one new file exclusively; never replace an existing path."""
     try:
         descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o644)
@@ -907,11 +975,16 @@ def _write_new_text(path, text):
             f"refusing to overwrite existing path: {path}"
         ) from exc
     try:
-        with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
-            handle.write(text)
+        with os.fdopen(descriptor, "wb") as handle:
+            handle.write(payload)
     except BaseException:
         path.unlink(missing_ok=True)
         raise
+
+
+def _write_new_text(path, text):
+    """Create one new file exclusively; never replace an existing path."""
+    _write_new_bytes(path, text.encode("utf-8"))
 
 
 def convert_jsonl(
@@ -1068,6 +1141,7 @@ def convert_run(
     output_dir,
     *,
     calibration_catalog=None,
+    units_migration=None,
 ):
     """Convert a source run into one new, gate-ready reward lane tree.
 
@@ -1125,6 +1199,15 @@ def convert_run(
             json.dumps(manifest_entries, ensure_ascii=False, indent=2, sort_keys=True)
             + "\n",
         )
+        if units_migration is not None:
+            migration_path = Path(units_migration)
+            try:
+                migration_payload = migration_path.read_bytes()
+            except OSError as exc:
+                raise RewardOntologyError(
+                    f"cannot read calibration {migration_path}: {exc}"
+                ) from exc
+            _write_new_bytes(output_root / RUN_CALIBRATION_FILENAME, migration_payload)
     except BaseException:
         shutil.rmtree(output_root, ignore_errors=True)
         raise
@@ -1196,6 +1279,7 @@ def main(argv=None):
                 args.input,
                 args.output,
                 calibration_catalog=calibration_catalog,
+                units_migration=args.units_migration,
             )
     except (OSError, RewardOntologyError) as exc:
         print(f"error: {exc}", file=sys.stderr)

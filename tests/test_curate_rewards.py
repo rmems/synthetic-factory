@@ -145,7 +145,7 @@ class RewardOntologyV1Tests(unittest.TestCase):
         }
 
         without_evidence, _ = curate_rewards.curate_record(record)
-        with_evidence, _ = curate_rewards.curate_record(
+        with_evidence, sidecar = curate_rewards.curate_record(
             record, calibration=calibration
         )
 
@@ -162,6 +162,14 @@ class RewardOntologyV1Tests(unittest.TestCase):
                 == "units-migration.json#/records/1"
                 for value in annotation["magnitude"]["values"]
             )
+        )
+        self.assertEqual(
+            sidecar["calibration"]["source_unit_usd"],
+            2000,
+        )
+        self.assertEqual(
+            sidecar["calibration"]["evidence_ref"],
+            "units-migration.json#/records/1",
         )
 
     def test_units_migration_loader_ignores_null_and_coarse_guess(self):
@@ -551,6 +559,59 @@ class RewardOntologyV1Tests(unittest.TestCase):
             self.assertEqual(len(prepared["entries"]), 2)
             self.assertEqual(len(prepared["records"]), 2)
             self.assertEqual(prepared["artifacts"][0]["_documents"], 2)
+
+    def test_run_conversion_copies_units_migration_and_seals_sidecar_calibration(self):
+        record = preference(
+            {
+                "task_progress": 3.0,
+                "safety": 0.6,
+                "total": 3.6,
+                "units": "1.0 = $2,000; audited_true_reward basis",
+            },
+            {
+                "task_progress": 0.2,
+                "safety": -0.8,
+                "total": -0.6,
+                "units": "1.0 = $2,000; risk-adjusted terms",
+            },
+        )
+        record["id"] = "ffpc-r2-001"
+        migration = {
+            "records": [
+                {
+                    "scope": "batch-r02.jsonl / ffpc-r2-001 (grid)",
+                    "usd_conversion_factor": 0.2,
+                }
+            ]
+        }
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            source = root / "source-run"
+            write_jsonl(source / "ffpc" / "preferences.jsonl", [record])
+            migration_path = root / "units-migration.json"
+            migration_path.write_text(json.dumps(migration) + "\n", encoding="utf-8")
+            output = root / "lane-reward"
+            catalog = curate_rewards.load_units_migration(migration_path)
+
+            curate_rewards.convert_run(
+                source,
+                output,
+                calibration_catalog=catalog,
+                units_migration=migration_path,
+            )
+
+            copied = output / curate_rewards.RUN_CALIBRATION_FILENAME
+            self.assertEqual(copied.read_bytes(), migration_path.read_bytes())
+            sidecar = json.loads(
+                (output / curate_rewards.RUN_SIDECAR_FILENAME).read_text().splitlines()[0]
+            )
+            annotation = json.loads(
+                (output / "ffpc" / "preferences.jsonl").read_text().splitlines()[0]
+            )["reward_training"]
+            self.assertEqual(annotation["comparability"], "magnitude_comparable")
+            self.assertIn("external_calibration_evidence", annotation["reason_codes"])
+            self.assertEqual(sidecar["calibration"]["source_unit_usd"], 2000)
+            self.assertEqual(sidecar["source"]["record_id"], "ffpc-r2-001")
 
     def test_run_conversion_rejects_existing_symlinked_and_raw_destinations(self):
         record = {"id": "fixture", "reward_components": components(1.0)}
