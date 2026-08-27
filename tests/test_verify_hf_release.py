@@ -93,6 +93,21 @@ def _provenance(*, raw_digest: str | None = None) -> str:
     )
 
 
+def _release_status(*, license_name: str | object = "apache-2.0") -> str:
+    status = {
+        "schema_version": "1.0.0",
+        "dataset_id": verify_hf_release.DATASET_REPOS[0],
+        "release_stage": "raw_uncurated_public",
+        "visibility": "public",
+        "payload_published": True,
+        "training_ready": False,
+        "license": license_name,
+    }
+    if license_name is None:
+        del status["license"]
+    return json.dumps(status)
+
+
 class ReleaseVerifierTests(unittest.TestCase):
     def setUp(self) -> None:
         self.repo = verify_hf_release.DATASET_REPOS[0]
@@ -100,6 +115,7 @@ class ReleaseVerifierTests(unittest.TestCase):
             "README.md": _card(),
             "provenance.json": _provenance(),
             "LICENSE": LICENSE_TEXT,
+            "release-status.json": _release_status(),
         }
 
     def text_fetcher(self, url: str, timeout: float) -> str:
@@ -171,6 +187,79 @@ class ReleaseVerifierTests(unittest.TestCase):
         self.assertIn(
             "LICENSE does not match the complete Apache License 2.0 text",
             self.verify().errors,
+        )
+
+    def test_undeclared_release_status_license_fails(self) -> None:
+        self.values["release-status.json"] = _release_status(
+            license_name="not_yet_declared"
+        )
+        self.assertIn(
+            "release-status.json leaves the license undeclared: 'not_yet_declared'; "
+            "LICENSE and the card declare 'apache-2.0'",
+            self.verify().errors,
+        )
+
+    def test_release_status_license_must_match_card_and_license_file(self) -> None:
+        self.values["release-status.json"] = _release_status(license_name="cc-by-4.0")
+        self.assertIn(
+            "release-status.json declares license 'cc-by-4.0', "
+            "but LICENSE and the card declare 'apache-2.0'",
+            self.verify().errors,
+        )
+
+    def test_release_status_license_is_case_and_space_insensitive(self) -> None:
+        self.values["release-status.json"] = _release_status(
+            license_name="  Apache-2.0  "
+        )
+        self.assertTrue(self.verify().ok, self.verify().errors)
+
+    def test_missing_release_status_license_fails(self) -> None:
+        self.values["release-status.json"] = _release_status(license_name=None)
+        self.assertIn(
+            "release-status.json must declare a string license", self.verify().errors
+        )
+
+    def test_non_string_release_status_license_fails(self) -> None:
+        self.values["release-status.json"] = _release_status(license_name=42)
+        self.assertIn(
+            "release-status.json must declare a string license", self.verify().errors
+        )
+
+    def test_non_object_release_status_fails_without_crashing(self) -> None:
+        self.values["release-status.json"] = "[]"
+        result = self.verify()
+        self.assertIn("release-status.json must contain a JSON object", result.errors)
+
+    def test_invalid_release_status_json_fails(self) -> None:
+        self.values["release-status.json"] = "{"
+        errors = self.verify().errors
+        self.assertTrue(
+            any(error.startswith("release-status.json is invalid JSON:") for error in errors),
+            errors,
+        )
+
+    def test_duplicate_release_status_license_fails(self) -> None:
+        self.values["release-status.json"] = (
+            '{"license":"not_yet_declared","license":"apache-2.0"}'
+        )
+        self.assertIn(
+            "release-status.json must not contain duplicate license keys",
+            self.verify().errors,
+        )
+
+    def test_unrecognized_license_text_still_pins_the_expected_family(self) -> None:
+        self.values["LICENSE"] = "Some other license\n"
+        self.values["README.md"] = _card(license_name="mit")
+        self.values["release-status.json"] = _release_status(license_name="mit")
+        errors = self.verify().errors
+        self.assertIn(
+            "LICENSE does not match the complete Apache License 2.0 text", errors
+        )
+        self.assertIn("README front matter must declare license: apache-2.0", errors)
+        self.assertIn(
+            "release-status.json declares license 'mit', "
+            "but LICENSE and the card declare 'apache-2.0'",
+            errors,
         )
 
     def test_raw_snapshot_digest_mismatch_fails(self) -> None:
