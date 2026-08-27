@@ -20,6 +20,7 @@ import compose_curated  # noqa: E402
 import curate_agentic  # noqa: E402
 import curate_bridge  # noqa: E402
 import curate_coding  # noqa: E402
+import curate_identity  # noqa: E402
 import curate_preferences  # noqa: E402
 import curate_rewards  # noqa: E402
 import training_audit  # noqa: E402
@@ -228,7 +229,7 @@ def build_source_run(root):
     )
     write_jsonl(
         run / "neuromorphic-event-language-bridge" / "batch-r01.jsonl",
-        [bridge_pair(unsorted=True)],
+        [bridge_pair()],
     )
     write_jsonl(
         run / "failure-as-fuel-preference-cascade" / "batch-r01.jsonl",
@@ -284,7 +285,8 @@ class ComposeCurated(unittest.TestCase):
                 for record in read_jsonl(path):
                     self.assertTrue(record["id"].startswith("sfcur-"), record["id"])
 
-            # Bridge repaired the out-of-order stream in place.
+            # Identity now refuses unsorted spikes, so the composed bridge
+            # stream is the already-ordered identity-valid form.
             bridge = read_jsonl(
                 records_dir / "neuromorphic-event-language-bridge" / "batch-r01.jsonl"
             )[0]
@@ -726,19 +728,45 @@ class ComposeCurated(unittest.TestCase):
     def test_rewardless_record_adopts_the_curators_annotation_stripped_result(self):
         stale, _sidecar = curate_rewards.curate_record({"payload": "now removed"})
         record = {
-            "id": "legacy-multi-agent",
-            "transcript": [{"agent": "a", "message": "coordinate"}],
-            "agents": ["a", "b"],
-            "meta": {"factory": "multi-agent-coordination-factory", "round": 1},
+            "id": "legacy-rewardless",
+            "payload": "now removed",
+            "meta": {"factory": "thalamic-trajectory-factory", "round": 1},
             "reward_training": stale["reward_training"],
         }
+        curated = {
+            "id": "sfcur-rewardless",
+            "payload": "now removed",
+            "meta": copy.deepcopy(record["meta"]),
+            "provenance": {"kind": "designed", "claimed": None, "basis": "test"},
+            "reward_training": stale["reward_training"],
+        }
+        mapping = {
+            "action": "retained",
+            "reason_codes": ["identity.assigned", "provenance.canonicalized"],
+            "record_kind": "thalamic",
+            "output_id": curated["id"],
+            "id_mappings": [
+                {
+                    "owner_path": "/",
+                    "output_id": curated["id"],
+                    "original_ids": [{"path": "/id", "value": "legacy-rewardless"}],
+                }
+            ],
+        }
 
-        decision = compose_curated.compose_record(
-            record,
-            source_path="multi-agent-coordination-factory/batch-r01.jsonl",
-            source_line=1,
-            source_sha256="0" * 64,
-        )
+        with mock.patch.object(
+            curate_identity,
+            "curate_record",
+            return_value=curate_identity.CurationResult(
+                "retained", curated, mapping
+            ),
+        ):
+            decision = compose_curated.compose_record(
+                record,
+                source_path="thalamic-trajectory-factory/batch-r01.jsonl",
+                source_line=1,
+                source_sha256="0" * 64,
+            )
 
         self.assertEqual(decision.action, compose_curated.ACTION_RETAINED)
         self.assertNotIn(curate_rewards.ANNOTATION_FIELD, decision.record)
@@ -891,6 +919,37 @@ class ComposeCurated(unittest.TestCase):
                 "agentic-coding-trajectory-factory/batch-r01.jsonl",
             )
             self.assertEqual(dedup_stage["first_source_line"], 1)
+
+    def test_preserved_legacy_ids_do_not_hide_post_curation_duplicates(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            source = root / "run" / "agentic-coding-trajectory-factory"
+            source.mkdir(parents=True)
+            first = episode("same")
+            first["meta"]["id"] = "legacy-a"
+            second = copy.deepcopy(first)
+            second["id"] = "legacy-episode-other"
+            second["meta"]["id"] = "legacy-b"
+            write_jsonl(source / "batch-r01.jsonl", [first, second])
+
+            summary = compose_curated.compose_run(root / "run", root / "curated")
+            manifest = read_jsonl(root / "curated" / summary["manifest"]["path"])
+
+            self.assertEqual(summary["counts"]["source_records"], 2)
+            self.assertEqual(summary["counts"]["retained"], 1)
+            self.assertEqual(summary["counts"]["excluded"], 1)
+            self.assertEqual(
+                summary["exclusions"],
+                {compose_curated.REASON_DUPLICATE_CURATED_RECORD: 1},
+            )
+            duplicate = manifest[1]
+            self.assertEqual(
+                duplicate["reason_codes"],
+                [compose_curated.REASON_DUPLICATE_CURATED_RECORD],
+            )
+            output = read_jsonl(root / "curated" / manifest[0]["output_path"])
+            self.assertEqual(len(output), 1)
+            self.assertNotEqual(output[0]["meta"]["id"], output[0]["id"])
 
     def test_composition_rejects_source_symlink_and_hardlink_aliases(self):
         for mutation in (

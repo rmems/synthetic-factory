@@ -947,6 +947,52 @@ def _identity_owner(record: dict[str, Any], pointer: Any) -> dict[str, Any] | No
     return owner if isinstance(owner, dict) else None
 
 
+def _pop_json_pointer(record: dict[str, Any], pointer: Any) -> None:
+    """Drop one JSON-pointer field from a copied record, if it still exists."""
+
+    if not isinstance(pointer, str) or not pointer.startswith("/") or pointer == "/":
+        return
+    tokens = [
+        token.replace("~1", "/").replace("~0", "~")
+        for token in pointer[1:].split("/")
+    ]
+    owner: Any = record
+    for token in tokens[:-1]:
+        if not isinstance(owner, dict):
+            return
+        owner = owner.get(token)
+    if isinstance(owner, dict) and tokens[-1]:
+        owner.pop(tokens[-1], None)
+
+
+def _mapped_legacy_id_paths(detail: Mapping[str, Any] | None) -> tuple[str, ...]:
+    """Collect every identity-mapped legacy identifier path for one record."""
+
+    if not isinstance(detail, Mapping):
+        return ()
+    paths: list[str] = []
+    seen: set[str] = set()
+
+    def add_originals(originals: Any) -> None:
+        if not isinstance(originals, list):
+            return
+        for item in originals:
+            if not isinstance(item, dict):
+                continue
+            path = item.get("path")
+            if isinstance(path, str) and path not in seen:
+                seen.add(path)
+                paths.append(path)
+
+    add_originals(detail.get("original_ids"))
+    mappings = detail.get("id_mappings")
+    if isinstance(mappings, list):
+        for mapping in mappings:
+            if isinstance(mapping, dict):
+                add_originals(mapping.get("original_ids"))
+    return tuple(paths)
+
+
 def _post_transform_semantic_sha256(decision: ComposeDecision) -> str:
     """Hash training content without coordinate-derived identity bindings."""
 
@@ -966,6 +1012,8 @@ def _post_transform_semantic_sha256(decision: ComposeDecision) -> str:
             owner = _identity_owner(semantic, mapping.get("owner_path"))
             if owner is not None and owner.get("id") == mapping.get("output_id"):
                 owner.pop("id", None)
+    for path in _mapped_legacy_id_paths(detail if isinstance(detail, dict) else None):
+        _pop_json_pointer(semantic, path)
 
     annotation = semantic.get(curate_rewards.ANNOTATION_FIELD)
     if isinstance(annotation, dict):

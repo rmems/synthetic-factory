@@ -34,7 +34,6 @@ import argparse
 import hashlib
 import json
 import os
-import shutil
 import stat
 import struct
 import sys
@@ -757,6 +756,24 @@ def _require_exact_directory(path: Path, label: str) -> Path:
     return resolved
 
 
+def _create_pinned_destination(
+    curated_root: Path, destination: Path
+) -> compose_curated._PinnedDestination:
+    """Create the export directory through the same parent pin compose uses."""
+
+    try:
+        return compose_curated._create_pinned_destination(curated_root, destination)
+    except compose_curated.ComposeError as exc:
+        raise ExportError(str(exc)) from exc
+
+
+def _finish_pinned_destination(pinned: compose_curated._PinnedDestination) -> None:
+    try:
+        pinned.finish()
+    except compose_curated.ComposeError as exc:
+        raise ExportError(str(exc)) from exc
+
+
 def _load_calibration_payload(payload: bytes, path: Path) -> dict[str, Any]:
     """Load reward calibration from pinned bytes while preserving evidence labels."""
 
@@ -1390,7 +1407,7 @@ def export_run(
             f"curated root has no exact {compose_curated.RECORDS_DIRNAME}/ payload: "
             f"{curated_root}"
         ) from exc
-    if destination.exists():
+    if os.path.lexists(destination):
         raise ExportError(f"refusing to overwrite an existing destination: {destination}")
     if _is_under_raw(destination):
         raise ExportError(
@@ -1398,6 +1415,7 @@ def export_run(
         )
     if not destination.parent.is_dir():
         raise ExportError(f"destination parent does not exist: {destination.parent}")
+    _require_exact_directory(destination.parent, "destination parent")
     resolved_root = curated_root.resolve()
     resolved_destination = destination.resolve(strict=False)
     if resolved_root == resolved_destination or resolved_root in resolved_destination.parents:
@@ -1433,11 +1451,12 @@ def export_run(
 
     train, evaluate = split_rows(rows, eval_fraction=eval_fraction, salt=split_salt)
 
-    destination.mkdir(parents=True)
+    pinned_destination = _create_pinned_destination(resolved_root, destination)
+    destination_root = pinned_destination.root
     try:
         files: list[dict[str, Any]] = []
         for curated in curated_files:
-            digest = _write_new_bytes(destination / curated.source_file, curated.payload)
+            digest = _write_new_bytes(destination_root / curated.source_file, curated.payload)
             files.append(
                 {
                     "path": curated.source_file,
@@ -1450,10 +1469,10 @@ def export_run(
         round_trip = read_viewer_parquet(viewer_bytes)
         if round_trip != list(rows):
             raise ExportError("viewer projection failed its lossless round-trip check")
-        viewer_digest = _write_new_bytes(destination / VIEWER_PATH, viewer_bytes)
+        viewer_digest = _write_new_bytes(destination_root / VIEWER_PATH, viewer_bytes)
 
-        train_digest = _write_new_bytes(destination / TRAIN_PATH, _jsonl_payload(train))
-        eval_digest = _write_new_bytes(destination / EVAL_PATH, _jsonl_payload(evaluate))
+        train_digest = _write_new_bytes(destination_root / TRAIN_PATH, _jsonl_payload(train))
+        eval_digest = _write_new_bytes(destination_root / EVAL_PATH, _jsonl_payload(evaluate))
 
         provenance = {
             "document_type": "curated_export_provenance",
@@ -1489,20 +1508,19 @@ def export_run(
             },
         }
         protocol_digest = _write_new_bytes(
-            destination / PROTOCOL_PATH, render_eval_protocol(provenance).encode("utf-8")
+            destination_root / PROTOCOL_PATH, render_eval_protocol(provenance).encode("utf-8")
         )
         provenance["splits"]["protocol_sha256"] = protocol_digest
         _write_new_bytes(
-            destination / PROVENANCE_PATH,
+            destination_root / PROVENANCE_PATH,
             (json.dumps(provenance, ensure_ascii=False, indent=2, sort_keys=True) + "\n").encode(
                 "utf-8"
             ),
         )
     except BaseException:
-        # The destination was brand new and created here, so a failed export
-        # leaves nothing half-written behind.
-        shutil.rmtree(destination, ignore_errors=True)
+        pinned_destination.cleanup()
         raise
+    _finish_pinned_destination(pinned_destination)
     return provenance
 
 

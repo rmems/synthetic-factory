@@ -25,6 +25,7 @@ import verify_hf_release  # noqa: E402
 from test_compose_curated import (  # noqa: E402
     build_source_run,
     episode,
+    multi_agent,
     thalamic,
     write_jsonl,
 )
@@ -381,6 +382,53 @@ class ExportHf(unittest.TestCase):
             with self.assertRaisesRegex(export_hf.ExportError, "immutable raw"):
                 export_hf.export_run(curated, raw_link / "resolved-export")
             self.assertFalse((raw / "resolved-export").exists())
+
+            real_parent = root / "real-destination-parent"
+            real_parent.mkdir()
+            symlink_parent = root / "destination-parent-alias"
+            symlink_parent.symlink_to(real_parent, target_is_directory=True)
+            with self.assertRaisesRegex(
+                export_hf.ExportError, "exact non-symlink"
+            ):
+                export_hf.export_run(curated, symlink_parent / "export")
+            self.assertFalse((real_parent / "export").exists())
+
+    def test_destination_parent_swap_cannot_redirect_creation_or_cleanup(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            curated = compose_fixture(root)
+            parent = root / "destination-parent"
+            parent.mkdir()
+            moved_parent = root / "original-parent-moved"
+            destination = parent / "export"
+            raw = root / "outputs" / "raw"
+            real_mkdir = os.mkdir
+            swapped = False
+
+            def swap_parent_before_create(path, mode=0o777, *, dir_fd=None):
+                nonlocal swapped
+                if path == destination.name and dir_fd is not None and not swapped:
+                    swapped = True
+                    parent.rename(moved_parent)
+                    raw.mkdir(parents=True)
+                    parent.symlink_to(raw, target_is_directory=True)
+                return real_mkdir(path, mode, dir_fd=dir_fd)
+
+            with mock.patch.object(
+                compose_curated.os,
+                "mkdir",
+                side_effect=swap_parent_before_create,
+            ):
+                with self.assertRaisesRegex(
+                    export_hf.ExportError,
+                    "destination parent changed while it was pinned",
+                ):
+                    export_hf.export_run(curated, destination)
+
+            self.assertTrue(swapped)
+            self.assertFalse((moved_parent / destination.name).exists())
+            self.assertFalse((raw / destination.name).exists())
+            self.assertFalse(destination.exists())
 
     def test_split_is_deterministic_and_salt_sensitive(self):
         with tempfile.TemporaryDirectory() as td:
@@ -750,27 +798,12 @@ class ExportHf(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
             source = root / "run" / "multi-agent-coordination-factory"
-            records = [
-                {
-                    "id": "multi-a",
-                    "agents": ["a", "b"],
-                    "transcript": [{"agent": "a", "message": "coordinate"}],
-                    "thought": "hidden payload captured before the audit",
-                    "meta": {
-                        "factory": "multi-agent-coordination-factory",
-                        "round": 1,
-                    },
-                },
-                {
-                    "id": "multi-b",
-                    "agents": ["a", "b"],
-                    "transcript": [{"agent": "b", "message": "verify"}],
-                    "meta": {
-                        "factory": "multi-agent-coordination-factory",
-                        "round": 1,
-                    },
-                },
-            ]
+            first = multi_agent("a")
+            second = multi_agent("b")
+            second["goal"] = "cover the TTL race before merge"
+            second["transcript"][0]["content"] = "The race is real; stop the patch."
+            second["joint_outcome"] = "reverted until the TTL test lands"
+            records = [first, second]
             write_jsonl(source / "batch-r01.jsonl", records)
             curated = root / "curated"
             compose_curated.compose_run(root / "run", curated)
