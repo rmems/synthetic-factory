@@ -75,7 +75,7 @@ def preference_side_kinds(record: Any) -> tuple[str, str]:
     """
 
     if not isinstance(record, Mapping):
-        return ("unknown", "unknown")
+        return "unknown", "unknown"
     wrapper_has_goal = "goal" in record
     kinds: list[str] = []
     for name in ("chosen", "rejected"):
@@ -89,4 +89,4 @@ def preference_side_kinds(record: Any) -> tuple[str, str]:
         ):
             kind = "episode"
         kinds.append(kind)
-    return (kinds[0], kinds[1])
+    return kinds[0], kinds[1]

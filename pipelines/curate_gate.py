@@ -1387,7 +1387,6 @@ def _normalize_entry(entry: dict[str, Any], lane: dict[str, Any]) -> dict[str, A
         transform_name = transform.get("name")
         transform_version = transform.get("version")
     else:
-        transform = {}
         transform_name = transform_value if isinstance(transform_value, str) else None
         transform_version = None
     declared_transform = entry.get("transform_name") or transform_name
@@ -1939,10 +1938,14 @@ def _normalize_record_bindings(raw_bindings: Any) -> list[dict[str, Any]]:
                 "source_record_sha256": _normalized_sha256(
                     raw.get("source_record_sha256"), f"{label}.source_record_sha256"
                 ),
-                "lineage": sorted(normalized_lineage, key=lambda item: item["lane_order"]),
+                "lineage": sorted(
+                    normalized_lineage, key=lambda lane_row: lane_row["lane_order"]
+                ),
             }
         )
-    return sorted(normalized, key=lambda item: (item["output_path"], item["output_line"]))
+    return sorted(
+        normalized, key=lambda binding: (binding["output_path"], binding["output_line"])
+    )
 
 
 def _output_evidence_gate(
@@ -2073,7 +2076,7 @@ def _canonical_identity_output_id(
     source_path: str, source_line: int, kind: str, owner_path: str
 ) -> str:
     factory = source_path.split("/", 1)[0]
-    source = curate_identity._SourceIdentity(  # noqa: SLF001
+    source = curate_identity.SourceIdentity(
         source_path,
         source_line,
         factory,
@@ -2081,7 +2084,7 @@ def _canonical_identity_output_id(
         "source-coordinate",
         None,
     )
-    return curate_identity._canonical_id(source, kind, owner_path)  # noqa: SLF001
+    return curate_identity.canonical_id(source, kind, owner_path)
 
 
 def _identity_owner_specs(
@@ -2559,7 +2562,10 @@ def build_sample(
         evidence, factory, kind, decision, repair, exclusion_reason = key
         population = buckets[key]
         # Content-derived order: stable across runs, independent of file order.
-        chosen = sorted(population, key=lambda item: (item["record_sha256"], item["source"]))[
+        chosen = sorted(
+            population,
+            key=lambda sampled: (sampled["record_sha256"], sampled["source"]),
+        )[
             :per_stratum
         ]
         strata.append(
@@ -2828,7 +2834,7 @@ def _authenticated_record_calibration(
     source = sidecar.get("source") if isinstance(sidecar.get("source"), dict) else {}
     sidecar_record_id = source.get("record_id")
     authenticated_id = (
-        curate_rewards._canonical_record_id(source_record)  # noqa: SLF001
+        curate_rewards.canonical_source_record_id(source_record)
         if source_record is not None
         else None
     )
@@ -2838,7 +2844,8 @@ def _authenticated_record_calibration(
         and (
             authenticated_id is None
             or not isinstance(sidecar_record_id, str)
-            or authenticated_id.casefold() != sidecar_record_id.casefold()
+            or curate_rewards.catalog_record_key(authenticated_id)
+            != curate_rewards.catalog_record_key(sidecar_record_id)
         )
     ):
         raise curate_rewards.RewardOntologyError(
@@ -2846,7 +2853,7 @@ def _authenticated_record_calibration(
         )
     lookup_id = authenticated_id or sidecar_record_id
     expected = (
-        catalog.get(lookup_id.casefold())
+        catalog.get(curate_rewards.catalog_record_key(lookup_id))
         if isinstance(lookup_id, str) and lookup_id.strip()
         else None
     )
@@ -2856,12 +2863,12 @@ def _authenticated_record_calibration(
                 "sidecar omits calibration evidence present in the migration artifact"
             )
         return None
-    normalized_claimed = curate_rewards._normalize_calibration(claimed)  # noqa: SLF001
+    normalized_claimed = curate_rewards.normalize_calibration(claimed)
     if expected is None:
         raise curate_rewards.RewardOntologyError(
             "external calibration has no matching record in the migration artifact"
         )
-    normalized_expected = curate_rewards._normalize_calibration(expected)  # noqa: SLF001
+    normalized_expected = curate_rewards.normalize_calibration(expected)
     if normalized_claimed["source_unit_usd"] != normalized_expected["source_unit_usd"]:
         raise curate_rewards.RewardOntologyError(
             "sidecar calibration does not match the migration artifact for its source record"
@@ -2895,7 +2902,7 @@ def _derived_reward_contract(
     arithmetic = [
         curate_rewards.assess_arithmetic(value, pointer) for pointer, value in reward_items
     ]
-    comparability, reason_codes, payload = curate_rewards._classify(  # noqa: SLF001
+    comparability, reason_codes, payload = curate_rewards.classify_source_rewards(
         source_rewards,
         arithmetic,
         calibration,

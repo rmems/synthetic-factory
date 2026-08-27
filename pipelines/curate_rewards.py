@@ -348,6 +348,9 @@ def _normalize_calibration(calibration):
     }
 
 
+normalize_calibration = _normalize_calibration
+
+
 def _extract_unit_usd(reward, calibration=None):
     """Return (USD per native unit, status) from explicit, consistent evidence."""
     if not isinstance(reward, dict):
@@ -486,6 +489,9 @@ def _classify(source_rewards, arithmetic, calibration=None):
             {pointer: calibration_source},
         ),
     )
+
+
+classify_source_rewards = _classify
 
 
 def _magnitude_payload(arithmetic_by_pointer, units, calibration_sources):
@@ -807,7 +813,7 @@ def load_units_migration(path):
                 "canonical_factor": _json_number(factor),
                 "evidence_ref": f"{path.as_posix()}#/records/{index}",
             }
-            key = record_id.lower()
+            key = catalog_record_key(record_id)
             previous = catalog.get(key)
             if previous is not None and previous != calibration:
                 raise RewardOntologyError(
@@ -844,7 +850,7 @@ def load_units_migration_bytes(payload, *, label="<memory>"):
                 "canonical_factor": _json_number(factor),
                 "evidence_ref": f"{label}#/records/{index}",
             }
-            key = record_id.lower()
+            key = catalog_record_key(record_id)
             previous = catalog.get(key)
             if previous is not None and previous != calibration:
                 raise RewardOntologyError(
@@ -863,7 +869,7 @@ def _record_calibration(record, catalog):
         record_id = meta.get("id") if isinstance(meta, dict) else None
     if not isinstance(record_id, str):
         return None
-    return catalog.get(record_id.lower())
+    return catalog.get(catalog_record_key(record_id))
 
 
 def _load_jsonl(path):
@@ -895,6 +901,11 @@ def _load_jsonl_with_source_bytes(path):
         yield line_number, raw_line, record
 
 
+def catalog_record_key(record_id):
+    """Catalog insertion and lookup use str.lower, not casefold."""
+    return record_id.lower()
+
+
 def _canonical_record_id(record):
     if not isinstance(record, dict):
         return None
@@ -904,6 +915,9 @@ def _canonical_record_id(record):
     meta = record.get("meta")
     value = meta.get("id") if isinstance(meta, dict) else None
     return value.strip() if isinstance(value, str) and value.strip() else None
+
+
+canonical_source_record_id = _canonical_record_id
 
 
 def _converted_jsonl_rows(
@@ -1108,7 +1122,10 @@ def _run_source_paths(source_root):
             raise RewardOntologyError(f"source run contains a symlinked path: {path}")
         if path.is_file() and path.suffix == ".jsonl":
             discovered.append(path)
-    paths = sorted(discovered, key=lambda path: path.relative_to(source_root).as_posix())
+    paths = sorted(
+        discovered,
+        key=lambda jsonl_path: jsonl_path.relative_to(source_root).as_posix(),
+    )
     if not paths:
         raise RewardOntologyError(f"source run holds no JSONL files: {source_root}")
     reserved = source_root / RUN_SIDECAR_FILENAME

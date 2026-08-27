@@ -533,7 +533,7 @@ def _source_jsonl_paths(source_root: Path) -> tuple[Path, list[Path]]:
             raise ValueError(f"source run contains a symlinked path: {path}")
         if path.is_file() and path.suffix == ".jsonl":
             paths.append(path)
-    paths.sort(key=lambda path: path.relative_to(resolved).as_posix())
+    paths.sort(key=lambda jsonl_path: jsonl_path.relative_to(resolved).as_posix())
     if not paths:
         raise ValueError(f"source run holds no JSONL files: {resolved}")
     if resolved / RUN_MANIFEST_FILENAME in paths:
@@ -576,7 +576,7 @@ def curate_run(source_dir: str | Path, output_dir: str | Path) -> dict[str, Any]
         }
         for relative in sorted(
             relative_directories,
-            key=lambda path: (len(path.parts), path.parts),
+            key=lambda relative_path: (len(relative_path.parts), relative_path.parts),
         ):
             directory = output_root / relative
             directory.mkdir()
