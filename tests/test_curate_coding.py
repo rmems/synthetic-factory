@@ -22,6 +22,7 @@ import curate_gate  # noqa: E402
 from curate_coding import (  # noqa: E402
     HIDDEN_THOUGHT_KEYS,
     MAX_DECISION_BASIS_CHARS,
+    REASON_BASIS_CONCISED,
     REASON_BASIS_FROM_OBSERVATION,
     REASON_BASIS_FROM_PLAN,
     REASON_BASIS_FROM_REFLECTION,
@@ -776,6 +777,80 @@ class VerifyCurationTests(unittest.TestCase):
         ):
             self.assertTrue(any(expected in item for item in violations), violations)
 
+    def test_modified_record_requires_transformation_evidence(self):
+        already_observable = {
+            "n": 1,
+            "reflection": "The failure is deterministic outside UTC.",
+            "decision_basis": "Reflection: The failure is deterministic outside UTC.",
+        }
+        result = curated_result([[already_observable]])
+        self.assertEqual(result["manifest"][0]["action"], "unchanged")
+        result["manifest"][0]["action"] = "modified"
+
+        violations = verify_manifest(result["manifest"])
+
+        self.assertTrue(
+            any("no transformation evidence" in item for item in violations),
+            violations,
+        )
+
+    def test_retained_step_cannot_use_exclusion_reasons(self):
+        result = curated_result([[visible_step()]])
+        result["manifest"][0]["step_actions"][0]["reason_codes"].append(
+            REASON_NO_VISIBLE_EVIDENCE
+        )
+
+        violations = verify_manifest(result["manifest"])
+
+        self.assertTrue(
+            any("retained with impossible reason codes" in item for item in violations),
+            violations,
+        )
+
+    def test_concision_reason_must_match_visible_evidence(self):
+        long_step = visible_step(
+            reflection="visible evidence " * 40,
+            observation="",
+        )
+        omitted = curated_result([[long_step]])
+        omitted_action = omitted["manifest"][0]["step_actions"][0]
+        self.assertIn(REASON_BASIS_CONCISED, omitted_action["reason_codes"])
+        omitted_action["reason_codes"] = [
+            code
+            for code in omitted_action["reason_codes"]
+            if code != REASON_BASIS_CONCISED
+        ]
+
+        invented = curated_result([[visible_step()]])
+        invented["manifest"][0]["step_actions"][0]["reason_codes"].append(
+            REASON_BASIS_CONCISED
+        )
+
+        for result in (omitted, invented):
+            with self.subTest():
+                violations = verify_curation(result)
+                self.assertTrue(
+                    any(
+                        "concision reason does not match visible evidence" in item
+                        for item in violations
+                    ),
+                    violations,
+                )
+
+    def test_source_step_number_must_match_retained_output_step(self):
+        result = curated_result([[visible_step()]])
+        result["manifest"][0]["step_actions"][0]["source_step_number"] = 99
+
+        violations = verify_curation(result)
+
+        self.assertTrue(
+            any(
+                "source step number does not match the retained output step" in item
+                for item in violations
+            ),
+            violations,
+        )
+
     def test_surviving_thought_key_is_a_violation(self):
         result = curated_result([[visible_step()]])
         result["records"][0]["steps"][0]["thought"] = "leaked"
@@ -1187,6 +1262,15 @@ class LegacyCodingManifestFixtureTests(unittest.TestCase):
     per-step reason codes, and counts, with no episode text. It pins the
     recorded result — 77 legacy steps, all migrated with reason codes — so the
     acceptance accounting is checkable without republishing raw evidence.
+
+    After a TRANSFORM_VERSION bump, regenerate from the gitignored raw run into
+    a new path (the CLI refuses to clobber) and copy the payload-free manifest
+    over this fixture::
+
+        python3 pipelines/curate_coding.py \\
+          outputs/raw/2026-08-17/agentic-coding-trajectory-factory/episodes.jsonl \\
+          --verify --expect-source-steps 77 \\
+          --manifest-jsonl /tmp/legacy-2026-08-17-manifest.jsonl
     """
 
     FIXTURE = (
@@ -1308,6 +1392,31 @@ class CurateCodingVerifyCliTests(unittest.TestCase):
                 summary["verification"],
                 {"expected_source_steps": 2, "violations": []},
             )
+
+    def test_verify_gate_writes_output_after_a_clean_run(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            source = root / "episodes.jsonl"
+            output = root / "new" / "coding.jsonl"
+            manifest = root / "new" / "manifest.jsonl"
+            source.write_text(
+                json.dumps(episode([visible_step()])) + "\n", encoding="utf-8"
+            )
+
+            result = self.run_cli(
+                str(source),
+                "--output-jsonl",
+                str(output),
+                "--manifest-jsonl",
+                str(manifest),
+                "--verify",
+                "--expect-source-steps",
+                "1",
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(len(output.read_text(encoding="utf-8").splitlines()), 1)
+            self.assertEqual(len(manifest.read_text(encoding="utf-8").splitlines()), 1)
 
     def test_verify_gate_fails_and_writes_nothing_on_a_step_count_mismatch(self):
         with tempfile.TemporaryDirectory() as temporary:
