@@ -2,7 +2,8 @@
 """Shared leftover-mill reporting and kind-mix quarantine.
 
 PR #96 owns mill detection and ownership resolution in `mill_family.py`.
-Issue #43 freezes its 30 published factory-mix IDs here and exposes a focused
+Issue #43 freezes its 30 published factory-mix IDs here, maps those
+destinations to Hub dataset names for card disclosure, and exposes a focused
 CLI view of the shared `census.py` result.
 
 `leftover` inside a record ID is a goal-naming convention, never grounds for
@@ -83,6 +84,15 @@ PUBLISHED_FACTORY_MIX: dict[str, dict[str, str]] = {
     },
 }
 
+# Hub dataset names for the four issue #43 destinations. The publisher must
+# consume this map so cards disclose skipped IDs and the eligible count.
+PUBLISHED_HUB_NAME: dict[str, str] = {
+    "email-webhook-retry-factory": "email-webhook-retry-trajectories",
+    "eval-harness-trajectory-factory": "eval-harness-trajectories",
+    "observability-debug-factory": "observability-debug-trajectories",
+    "rag-retrieval-debug-factory": "rag-retrieval-debug-trajectories",
+}
+
 
 def expected_factory_mix_ids() -> frozenset[str]:
     """Return all 30 record IDs frozen by the issue #43 census."""
@@ -92,6 +102,34 @@ def expected_factory_mix_ids() -> frozenset[str]:
         for records in PUBLISHED_FACTORY_MIX.values()
         for record_id in records
     )
+
+
+def render_factory_mix_card_section(slug: str, records: int) -> str:
+    """Disclose frozen factory-mix IDs and the destination-eligible count."""
+
+    mix = PUBLISHED_FACTORY_MIX.get(slug)
+    if not mix:
+        return ""
+    skipped = len(mix)
+    eligible = records - skipped
+    ids = "\n".join(
+        f"- `{record_id}` (declared factory `{home}`)"
+        for record_id, home in sorted(mix.items())
+    )
+    return f"""
+## Factory-mix quarantine
+
+Quarantined: {skipped} of the {records} published raw records. They are
+leftover-mill records whose payload factory belongs to a different mill than
+this destination. The destination-eligible count this snapshot supports is
+**{eligible}**, not {records}.
+
+The raw JSONL is published unmodified: these records stay in `data/raw/` as
+evidence. Census and training audit subtract them from eligible denominators;
+the frozen issue #43 ledger names them here so the card matches those counts.
+
+{ids}
+"""
 
 
 def audit_run(run_dir: Path | str) -> dict:
