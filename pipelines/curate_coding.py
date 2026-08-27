@@ -93,10 +93,10 @@ STEP_EXCLUSION_REASONS = frozenset(
     {REASON_STEP_NOT_OBJECT, REASON_NO_VISIBLE_EVIDENCE}
 )
 STEP_EVIDENCE_REASONS = frozenset(_EVIDENCE_REASON.values())
-STEP_ALLOWED_REASONS = frozenset(
-    {*STEP_EXCLUSION_REASONS, *STEP_EVIDENCE_REASONS, REASON_THOUGHT_REMOVED,
-     REASON_BASIS_CONCISED}
+STEP_RETAINED_REASONS = frozenset(
+    {*STEP_EVIDENCE_REASONS, REASON_THOUGHT_REMOVED, REASON_BASIS_CONCISED}
 )
+STEP_ALLOWED_REASONS = frozenset({*STEP_EXCLUSION_REASONS, *STEP_RETAINED_REASONS})
 RECORD_TRANSFORMATION_REASONS = frozenset(
     {REASON_THOUGHT_REMOVED, REASON_STEPS_MIGRATED, REASON_STEPS_EXCLUDED}
 )
@@ -587,7 +587,7 @@ def _step_action_violations(entry: dict[str, Any], where: str) -> list[str]:
             violations.append(
                 f"{step_where}: retained step must record exactly one evidence reason"
             )
-        impossible_reasons = reasons - STEP_ALLOWED_REASONS
+        impossible_reasons = reasons - STEP_RETAINED_REASONS
         if impossible_reasons:
             violations.append(
                 f"{step_where}: retained with impossible reason codes "
@@ -776,6 +776,10 @@ def verify_manifest(
                         f"{where}: step transformation counts and reason codes disagree"
                     )
                     break
+            if thought_fields_removed == 0 and migrated == 0 and excluded == 0:
+                violations.append(
+                    f"{where}: modified record reports no transformation evidence"
+                )
 
         source_indexes = [entry.get("source_step_index") for entry in valid_actions]
         expected_source_indexes = list(range(1, len(actions) + 1))
@@ -919,11 +923,25 @@ def verify_curation(
             step = steps[output_index - 1]
             if not isinstance(step, dict):
                 continue
-            _, evidence_source, _ = _derive_decision_basis(step)
+            _, evidence_source, concised = _derive_decision_basis(step)
             if entry.get("evidence_source") != evidence_source:
                 violations.append(
                     f"record {index} step {output_index}: visible evidence source "
                     "does not match its manifest action"
+                )
+            reasons = entry.get("reason_codes")
+            reports_concised = (
+                isinstance(reasons, list) and REASON_BASIS_CONCISED in reasons
+            )
+            if bool(concised) != reports_concised:
+                violations.append(
+                    f"record {index} step {output_index}: concision reason does not "
+                    "match visible evidence"
+                )
+            if entry.get("source_step_number") != step.get("n"):
+                violations.append(
+                    f"record {index} step {output_index}: source step number does not "
+                    "match the retained output step"
                 )
 
     manifest_totals = Counter()
