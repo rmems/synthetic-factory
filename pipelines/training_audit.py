@@ -295,7 +295,9 @@ def audit_run(run_dir: Path):
         except UnicodeDecodeError as exc:
             record_errors.append(f"{rel}: invalid UTF-8: {exc}")
             text = raw_text.decode("utf-8", errors="replace")
-        for line_number, line in enumerate(text.splitlines(), 1):
+        # Split JSONL only at literal LF.  ``splitlines`` incorrectly treats
+        # U+2028/U+2029 embedded in JSON strings as record boundaries.
+        for line_number, line in enumerate(text.split("\n"), 1):
             if not line.strip():
                 continue
             where = f"{rel}:{line_number}"
