@@ -145,7 +145,7 @@ const FACTORIES = [
 // diminishing-novelty rounds (generation + verification tokens).
 // Rule: 2 consecutive NOTES with <5% novel coverage → per-factory stop.
 // Parsing is line-anchored to the labeled "Novel coverage: N%" line only
-// (case-insensitive; mirrors driver.py NOVEL_COVERAGE_RE) so unrelated
+// (case-insensitive; mirrors round_txn's strict new-publication parser) so unrelated
 // percentages in NOTES prose can never be misread as coverage. Unparseable
 // NOTES hold the streak (neither increment nor reset) to avoid false stops
 // or hidden plateaus.

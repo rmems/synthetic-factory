@@ -50,6 +50,17 @@ class RoundTransaction(unittest.TestCase):
         path.mkdir(parents=True)
         return path
 
+    def fixed_agentic_factory(self, root):
+        path = (
+            Path(root)
+            / "outputs"
+            / "raw"
+            / "2099-01-01"
+            / "cache-stampede-factory"
+        )
+        path.mkdir(parents=True)
+        return path
+
     def fill_stage(self, reservation, records):
         stage = Path(reservation["staging_dir"])
         write_records(stage / reservation["batch_file"], records)
@@ -602,12 +613,12 @@ class RoundTransaction(unittest.TestCase):
                 round_txn.publish(factory, 1, reservation["token"])
             self.assertFalse((factory / "ROUND-r01.complete.json").exists())
 
-    def test_read_path_does_not_retroactively_reject_pre_contract_notes(self):
+    def test_read_path_does_not_require_coverage_for_a_legacy_lane(self):
         """Committed legacy rounds predate the contract and must stay readable.
 
         Widening the gate is forward-only: publish requires the line, while the
-        history-reading paths keep the original fixed-agentic scope so no raw
-        round has to be rewritten.
+        historical validator keeps its original fixed-agentic scope and does
+        not retroactively enroll legacy lanes.
         """
         with tempfile.TemporaryDirectory() as td:
             factory = self.factory(td)
@@ -618,6 +629,59 @@ class RoundTransaction(unittest.TestCase):
             self.assertIn(
                 "Novel coverage",
                 round_txn.validate_novel_coverage(notes, factory, required=True),
+            )
+
+    def test_read_path_keeps_legacy_coverage_suffix_but_publish_rejects_it(self):
+        with tempfile.TemporaryDirectory() as td:
+            factory = self.fixed_agentic_factory(td)
+            notes = factory / "NOTES-r01.md"
+            notes.write_text(
+                "Novel coverage: 4% — low due to repeated scenarios\n"
+            )
+
+            self.assertIsNone(round_txn.validate_novel_coverage(notes, factory))
+            self.assertIn(
+                "exactly one unambiguous",
+                round_txn.validate_novel_coverage(
+                    notes,
+                    factory,
+                    required=True,
+                ),
+            )
+
+    def test_read_path_keeps_legacy_duplicate_claims_but_publish_rejects_them(self):
+        with tempfile.TemporaryDirectory() as td:
+            factory = self.fixed_agentic_factory(td)
+            notes = factory / "NOTES-r01.md"
+            notes.write_text(
+                "Novel coverage: 4% — original committed claim\n"
+                "Novel coverage: 80%\n"
+            )
+
+            self.assertIsNone(round_txn.validate_novel_coverage(notes, factory))
+            self.assertIn(
+                "exactly one unambiguous",
+                round_txn.validate_novel_coverage(
+                    notes,
+                    factory,
+                    required=True,
+                ),
+            )
+
+    def test_read_path_keeps_legacy_multiline_claim_but_publish_rejects_it(self):
+        with tempfile.TemporaryDirectory() as td:
+            factory = self.fixed_agentic_factory(td)
+            notes = factory / "NOTES-r01.md"
+            notes.write_text("Novel coverage:\n4%\n")
+
+            self.assertIsNone(round_txn.validate_novel_coverage(notes, factory))
+            self.assertIn(
+                "Novel coverage",
+                round_txn.validate_novel_coverage(
+                    notes,
+                    factory,
+                    required=True,
+                ),
             )
 
     def test_validation_failure_leaves_stage_and_does_not_advance(self):
