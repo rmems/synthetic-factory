@@ -42,16 +42,11 @@ This repository is licensed under the [Apache License 2.0](LICENSE) — see
 [`NOTICE`](NOTICE) for attribution. This covers the repository's contents:
 factory prompts, schemas, pipelines, skills, tests, and documentation.
 
-**Apache-2.0 is the authorized payload license, but the live release metadata
-is not yet fully aligned.** Each Hugging Face dataset repository ships the
-identical Apache-2.0 `LICENSE` file and declares `license: apache-2.0` in its
-card front matter and Hub tag. The five live `release-status.json` files still
-record `"license": "not_yet_declared"`; changing that value to `"apache-2.0"`
-is a required operator action.
-
-Until those external updates occur, `python3 pipelines/verify_hf_release.py`
-deliberately fails closed. Afterward, it requires the card, `LICENSE`, and
-`release-status.json` declarations to agree.
+**Apache-2.0 is the authorized payload license.** Each Hugging Face dataset
+repository ships the identical Apache-2.0 `LICENSE` file and declares
+`license: apache-2.0` in its card front matter, Hub tag, and
+`release-status.json`. `python3 pipelines/verify_hf_release.py` fails closed
+when those three declarations disagree.
 
 ## Development environment
 
