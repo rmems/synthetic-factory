@@ -895,6 +895,21 @@ class Validation(unittest.TestCase):
         errors = nir.validate_record(record, WHERE)
         self.assertTrue(any("COMPARISON_MISMATCH" in error for error in errors), errors)
 
+    def test_roundtrip_booleans_use_strict_json_typing(self):
+        record = copy.deepcopy(self.records[0])
+        entry = next(
+            item
+            for item in record["oracle"]["runtimes"]
+            if isinstance(item.get("roundtrip"), dict)
+            and item["roundtrip"].get("parse_ok") is True
+        )
+        entry["roundtrip"]["parse_ok"] = 1
+        errors = nir.validate_record(record, WHERE)
+        self.assertTrue(
+            any("ROUNDTRIP_STRUCTURE_MISMATCH" in error for error in errors),
+            errors,
+        )
+
 
 class UnfalsifiableClaims(unittest.TestCase):
     """A runtime this validator cannot re-execute may never be marked executed."""

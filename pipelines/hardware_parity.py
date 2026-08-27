@@ -49,6 +49,8 @@ if str(_PIPELINES) not in sys.path:
 import oracle_contract as contract  # noqa: E402
 from neuro_oracle import (  # noqa: E402
     PHYSICAL_TARGETS,
+    Q88_MAX_RAW,
+    Q88_MIN_RAW,
     Q88_STEP,
     TARGET_FIXED_POINT_MODEL,
     TARGET_FPGA_HARDWARE,
@@ -62,6 +64,7 @@ from neuro_oracle import (  # noqa: E402
     get_adapter,
     normalize_model,
     normalize_stimulus,
+    q88_to_float,
     quantize_model,
     run_digest,
     stimulus_fixture,
@@ -1319,6 +1322,27 @@ def _matrix_errors(value, rows, columns, path, where, *, binary=False, integer=F
     return errors
 
 
+def _q88_raw_correspondence_errors(trace, raw, path, where):
+    """Bind float membrane traces to signed Q8.8 integers."""
+    errors = []
+    for row_index, (trace_row, raw_row) in enumerate(zip(trace, raw)):
+        for column_index, (value, raw_value) in enumerate(zip(trace_row, raw_row)):
+            cell = f"{path}.trace_q88_raw[{row_index}][{column_index}]"
+            if raw_value < Q88_MIN_RAW or raw_value > Q88_MAX_RAW:
+                errors.append(
+                    f"{where}: {cell} is outside the signed Q8.8 int16 range "
+                    f"[{Q88_MIN_RAW}, {Q88_MAX_RAW}] [Q88_PROVENANCE_MISMATCH]"
+                )
+                continue
+            expected = q88_to_float(raw_value)
+            if not contract.strict_json_equal(value, expected):
+                errors.append(
+                    f"{where}: {path}.trace[{row_index}][{column_index}] is not "
+                    "raw/256 of the retained Q8.8 integer [Q88_PROVENANCE_MISMATCH]"
+                )
+    return errors
+
+
 def _physical_observation_errors(observation, scenario, path, where):
     """Validate one retained physical observation against its execution window."""
     if not isinstance(observation, dict):
@@ -1380,15 +1404,16 @@ def _physical_observation_errors(observation, scenario, path, where):
             "[ENVELOPE_MALFORMED]"
         )
     elif membrane["observable"]:
-        errors += _matrix_errors(
+        trace_errors = _matrix_errors(
             membrane.get("trace"),
             steps,
             neurons,
             f"{path}.membrane.trace",
             where,
         )
+        errors += trace_errors
         if "trace_q88_raw" in membrane:
-            errors += _matrix_errors(
+            raw_errors = _matrix_errors(
                 membrane.get("trace_q88_raw"),
                 steps,
                 neurons,
@@ -1396,6 +1421,14 @@ def _physical_observation_errors(observation, scenario, path, where):
                 where,
                 integer=True,
             )
+            errors += raw_errors
+            if not trace_errors and not raw_errors:
+                errors += _q88_raw_correspondence_errors(
+                    membrane.get("trace"),
+                    membrane.get("trace_q88_raw"),
+                    f"{path}.membrane",
+                    where,
+                )
     elif membrane.get("trace") is not None:
         errors.append(
             f"{where}: {path}.membrane.trace must be null when membrane state is not "

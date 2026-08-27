@@ -12,7 +12,7 @@ import sys
 from collections import Counter
 from pathlib import Path
 
-from record_kind import classify_kind
+from record_kind import DECLARED_KINDS, classify_kind
 
 KINDS = (
     "thalamic",

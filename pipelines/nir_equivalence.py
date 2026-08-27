@@ -1880,7 +1880,7 @@ def _reexecute_in_repo_runtimes(record, where):
                 "JSON numeric typing [COMPARISON_MISMATCH]"
             )
         fresh_roundtrip = runtime.roundtrip_graph(graph)
-        if entry.get("roundtrip") != fresh_roundtrip:
+        if not contract.strict_json_equal(entry.get("roundtrip"), fresh_roundtrip):
             errors.append(
                 f"{label}: recorded parse/write parity does not match this runtime's "
                 "adapter "

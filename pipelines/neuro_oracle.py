@@ -464,7 +464,7 @@ def run_digest(outcome):
     return digest(
         {
             key: outcome[key]
-            for key in ("spikes", "spike_events", "membrane", "action")
+            for key in ("spikes", "spike_events", "membrane", "action", "arithmetic")
         }
     )
 

@@ -166,6 +166,21 @@ class CandidatePrediction(unittest.TestCase):
                     key,
                 )
 
+    def test_nested_oracle_only_fields_are_rejected(self):
+        errors = contract.check_candidate_prediction(
+            {
+                "source": "generator",
+                "authoritative": False,
+                "nested": {"spikes": [1], "output_digest": "x"},
+            },
+            WHERE,
+        )
+        self.assertTrue(
+            any("GENERATOR_SUBSTITUTED_FOR_ORACLE" in error for error in errors),
+            errors,
+        )
+        self.assertTrue(any("spikes" in error for error in errors), errors)
+
     def test_prediction_source_must_be_generator(self):
         errors = contract.check_candidate_prediction(
             {"source": "oracle", "authoritative": False}, WHERE

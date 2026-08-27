@@ -220,6 +220,20 @@ def check_generator(generator, where):
     return errors
 
 
+def _oracle_only_intruders(value):
+    """Return oracle-only field names found at any depth of ``value``."""
+    found = set()
+    stack = [value]
+    while stack:
+        current = stack.pop()
+        if isinstance(current, dict):
+            found.update(ORACLE_ONLY_KEYS.intersection(current))
+            stack.extend(current.values())
+        elif isinstance(current, list):
+            stack.extend(current)
+    return found
+
+
 def check_candidate_prediction(prediction, where):
     """A prediction is a guess. It may not wear an oracle's clothes."""
     if prediction is None:
@@ -234,7 +248,7 @@ def check_candidate_prediction(prediction, where):
             f"{where}.candidate_prediction.authoritative must be exactly false "
             f"[GENERATOR_SUBSTITUTED_FOR_ORACLE]"
         )
-    intruders = sorted(ORACLE_ONLY_KEYS.intersection(prediction))
+    intruders = sorted(_oracle_only_intruders(prediction))
     if intruders:
         errors.append(
             f"{where}.candidate_prediction carries oracle-only fields {intruders} "

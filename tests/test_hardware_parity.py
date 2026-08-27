@@ -1209,6 +1209,69 @@ class RecordedCapturePath(unittest.TestCase):
                 errors,
             )
 
+    def test_repeat_digest_includes_arithmetic_observations(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            record = self._record(tmp)
+            capture = record["oracle"]["deployment"]["capture"]
+            source = capture["source"]
+            payload = source["payload"]
+            payload["repeat_outputs"][1]["arithmetic"]["saturation_events"] += 1
+            payload_sha = oracle.digest(payload)
+            source["manifest"]["payload_sha256"] = payload_sha
+            capture["payload_sha256"] = payload_sha
+            capture["manifest_sha256"] = oracle.digest(source["manifest"])
+            capture["source_sha256"] = oracle.digest(source)
+
+            errors = hp.validate_record(record, WHERE)
+            self.assertTrue(
+                any("repeat_digests[1] is not derived" in error for error in errors),
+                errors,
+            )
+
+    def _with_q88_raw(self, record, raw_value):
+        deployment = record["oracle"]["deployment"]
+        payload = deployment["capture"]["source"]["payload"]
+
+        def stamp(membrane):
+            raw = [
+                [int(round(cell * oracle.Q88_SCALE)) for cell in row]
+                for row in membrane["trace"]
+            ]
+            raw[0][0] = raw_value
+            membrane["trace_q88_raw"] = raw
+
+        stamp(payload["membrane"])
+        for repeat in payload["repeat_outputs"]:
+            stamp(repeat["membrane"])
+        stamp(deployment["membrane"])
+        payload["repeat_digests"] = [
+            oracle.run_digest(repeat) for repeat in payload["repeat_outputs"]
+        ]
+        payload_sha = oracle.digest(payload)
+        source = deployment["capture"]["source"]
+        source["manifest"]["payload_sha256"] = payload_sha
+        deployment["capture"]["payload_sha256"] = payload_sha
+        deployment["capture"]["manifest_sha256"] = oracle.digest(source["manifest"])
+        deployment["capture"]["source_sha256"] = oracle.digest(source)
+        deployment["output_digest"] = oracle.run_digest(payload)
+        deployment["repeat_digests"] = list(payload["repeat_digests"])
+        return record
+
+    def test_captured_q88_raw_must_correspond_to_the_float_trace(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            record = self._with_q88_raw(self._record(tmp), 65)
+            errors = hp.validate_record(record, WHERE)
+            self.assertTrue(any("raw/256" in error for error in errors), errors)
+
+    def test_captured_q88_raw_outside_int16_is_rejected(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            record = self._with_q88_raw(self._record(tmp), 999999)
+            errors = hp.validate_record(record, WHERE)
+            self.assertTrue(
+                any("signed Q8.8 int16 range" in error for error in errors),
+                errors,
+            )
+
     def test_malformed_nested_environment_and_bitstream_report_without_crashing(self):
         with tempfile.TemporaryDirectory() as tmp:
             for mutate in (
