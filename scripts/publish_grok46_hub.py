@@ -39,6 +39,7 @@ PIPELINES_ROOT = REPO_ROOT / "pipelines"
 if str(PIPELINES_ROOT) not in sys.path:
     sys.path.insert(0, str(PIPELINES_ROOT))
 
+import leftover_mill  # noqa: E402
 from round_txn import (  # noqa: E402
     TransactionError,
     completed_manifests as transaction_completed_manifests,
@@ -328,6 +329,11 @@ def factories() -> list[dict]:
             raise SystemExit(f"missing META for {slug}")
         blurb, extra = META[slug]
         hub = hub_name(slug)
+        expected_hub = leftover_mill.PUBLISHED_HUB_NAME.get(slug)
+        if expected_hub is not None and hub != expected_hub:
+            raise SystemExit(
+                f"issue #43 hub name drift for {slug}: {hub} != {expected_hub}"
+            )
         tags = ["synthetic-data", "agentic-workflows", "grok-4.6", "provenance"]
         if "pairs" in hub:
             tags.append("preference-data")
@@ -987,6 +993,7 @@ def render_card(
             f"(~{kb} KB), snapshotted from"
         )
     quarantine = render_quarantine_section(records, list(kind_mix or ()))
+    factory_mix = leftover_mill.render_factory_mix_card_section(item["slug"], records)
     return f"""---
 pretty_name: {item['pretty']}
 license: apache-2.0
@@ -1031,7 +1038,7 @@ visibility is not a training-readiness claim.
 
 Curated training publication remains blocked until a later audit and export
 pass. Do not treat this repository as a training corpus.
-
+{factory_mix}
 ## Links
 
 - [Synthetic data factory: Grok 4.6]({COLLECTION_URL})
