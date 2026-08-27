@@ -3116,6 +3116,62 @@ class TestIdentityWriterExcludeAndPin(unittest.TestCase):
                         hashlib.sha256(expected_payload).hexdigest(),
                     )
 
+    def test_literal_unicode_separators_round_trip_with_crlf_framing(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            src = Path(tmp) / "src"
+            dest = Path(tmp) / "dest"
+            source_path = src / FABLE_ACT / "episodes.jsonl"
+            source_path.parent.mkdir(parents=True)
+            source_records = [
+                episode(FABLE_ACT, goal=f"left{separator}right")
+                for separator in ("\u2028", "\u2029")
+            ]
+            record_bytes = [
+                identity.canonical_json(record).encode("utf-8")
+                for record in source_records
+            ]
+            source_path.write_bytes(b"\r\n".join(record_bytes) + b"\r\n")
+
+            records = identity.iter_source_records(src)
+
+            self.assertEqual(
+                [record.record["goal"] for record in records],
+                [record["goal"] for record in source_records],
+            )
+            self.assertEqual([record.source_line for record in records], [1, 2])
+            self.assertEqual(
+                [record.source_sha256 for record in records],
+                [hashlib.sha256(raw).hexdigest() for raw in record_bytes],
+            )
+
+            identity.write_run(src, dest)
+            output = (dest / FABLE_ACT / "episodes.jsonl").read_bytes()
+            self.assertIn("\u2028".encode(), output)
+            self.assertIn("\u2029".encode(), output)
+            emitted_records = [
+                json.loads(raw.decode("utf-8"))
+                for raw in output.split(b"\n")
+                if raw
+            ]
+            self.assertEqual(
+                [record["goal"] for record in emitted_records],
+                [record["goal"] for record in source_records],
+            )
+            identity.validate_identity_tree(dest)
+
+    def test_iter_source_records_wraps_malformed_utf8(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / FABLE_ACT / "episodes.jsonl"
+            path.parent.mkdir()
+            valid = identity.canonical_json(episode(FABLE_ACT)).encode("utf-8")
+            path.write_bytes(valid + b"\n" + b'{"goal":"\xff"}\n')
+
+            with self.assertRaisesRegex(
+                identity.IdentityCurationError,
+                r"UTF-8 decode error at .*episodes\.jsonl:2",
+            ):
+                identity.iter_source_records(path)
+
     def test_iter_source_records_rejects_missing_non_jsonl_and_empty_sources(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -3388,6 +3444,22 @@ class TestIdentityWriterExcludeAndPin(unittest.TestCase):
         )
         self.assertEqual(summary["retained"], 1)
         self.assertEqual(summary["excluded"], 1)
+
+
+class PreferenceSideKindTests(unittest.TestCase):
+    def test_non_mapping_preference_wrapper_is_unknown_pair(self):
+        self.assertEqual(record_kind.preference_side_kinds(None), ("unknown", "unknown"))
+        self.assertEqual(record_kind.preference_side_kinds("nope"), ("unknown", "unknown"))
+
+    def test_wrapper_goal_promotes_step_sides_to_episode(self):
+        kinds = record_kind.preference_side_kinds(
+            {
+                "goal": "keep the pair homogeneous",
+                "chosen": {"steps": [{"n": 1}]},
+                "rejected": {"steps": [{"n": 1}]},
+            }
+        )
+        self.assertEqual(kinds, ("episode", "episode"))
 
 
 if __name__ == "__main__":

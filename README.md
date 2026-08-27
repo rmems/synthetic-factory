@@ -94,6 +94,42 @@ python3 pipelines/check_records.py outputs/raw/2026-08-17   # reward / spike ord
 python3 pipelines/promote.py outputs/raw/2026-08-17 outputs/cleaned/2026-08-17
 ```
 
+### Curation integration and promotion gate
+
+`pipelines/curate_gate.py` is the final step of the curation pass. It composes
+the six lane outputs into **one brand-new cleaned destination**, runs the
+structural validator, the strict deep checker, and the strict training audit,
+records a stratified human-review sample, and promotes to a **brand-new curated
+path** only when `training_ready` is true and every sampled record has a
+verdict. Both subcommands refuse a destination that already exists.
+
+The composition order is data, not code: it lives in an integration plan
+(`curation-integration-plan/v1`) so a reviewer can read the exact chain that
+produced a corpus. Lane outputs are overlaid in plan order — bridge timing,
+identity/provenance, preference purity, reward ontology, coding observability,
+tag taxonomy — and every supersession is recorded in the manifest.
+In a production plan, `source_run: outputs/raw/<run>` resolves from the
+repository root even when the plan itself lives under `outputs/curation/`;
+lane output, manifest, and artifact paths remain relative to the plan.
+
+```bash
+python3 pipelines/curate_gate.py integrate \
+  --plan outputs/curation/plan.json \
+  --cleaned-out outputs/cleaned/2026-08-17-curated-v1
+# writes curation-manifest.json, review-sample.json, review-verdicts.json
+
+# a human records a verdict for every sampled record, then:
+python3 pipelines/curate_gate.py promote \
+  --cleaned outputs/cleaned/2026-08-17-curated-v1 \
+  --review outputs/cleaned/2026-08-17-curated-v1/review-verdicts.json \
+  --curated-out outputs/curated/2026-08-17-v1
+```
+
+The final `curation-manifest.json` carries source and output hashes, the
+transform name and version of every lane, exclusions and quarantines with
+reason codes, per-kind and per-factory counts, gate results, and the recorded
+review. See the module docstring for the plan schema.
+
 Tests: `python3 -m unittest discover -s tests -p 'test_*.py' -q`
 
 ## Quick start (generation)

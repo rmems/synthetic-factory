@@ -131,6 +131,9 @@ class _SourceIdentity:
     original: str | None
 
 
+SourceIdentity = _SourceIdentity
+
+
 @dataclass(frozen=True)
 class _ManifestReplay:
     source: _SourceIdentity
@@ -589,6 +592,9 @@ def _canonical_id(source: _SourceIdentity, kind: str, role: str) -> str:
     return f"sfcur-{kind}-{role_name}-{digest}"
 
 
+canonical_id = _canonical_id
+
+
 def _pointer(base: str, key: str) -> str:
     escaped = key.replace("~", "~0").replace("/", "~1")
     return f"/{escaped}" if base == "/" else f"{base}/{escaped}"
@@ -849,15 +855,15 @@ def _shape_validation_errors(
     owner_specs: list[tuple[str, Mapping[str, Any]]] | None = None,
 ) -> list[str]:
     def structural_thalamic_errors(
-        owner: Mapping[str, Any], where: str
+        owner: Mapping[str, Any], owner_where: str
     ) -> list[str]:
         # Identity intentionally accepts the legacy provenance vocabulary and
         # canonicalizes it below. Every other Thalamic invariant is
         # structural and must pass before the record can enter a cleaned tree.
         return [
             error
-            for error in check_thalamic(owner, where)
-            if not error.startswith(f"{where}: state.sim_or_real must ")
+            for error in check_thalamic(owner, owner_where)
+            if not error.startswith(f"{owner_where}: state.sim_or_real must ")
         ]
 
     if kind == "thalamic":
@@ -2125,25 +2131,25 @@ def _committed_source_paths(paths: Iterable[Path]) -> list[Path]:
     visible_by_factory: dict[Path, set[Path]] = {}
     enclosing_factory: dict[Path, Path | None] = {}
 
-    def marker_factory(path: Path) -> Path | None:
+    def marker_factory(jsonl_path: Path) -> Path | None:
         visited: list[Path] = []
-        current = path.parent
+        current = jsonl_path.parent
         while True:
             if current in enclosing_factory:
-                factory = enclosing_factory[current]
+                marker_root = enclosing_factory[current]
                 break
             visited.append(current)
             if marker_mode_path(current) is not None:
-                factory = current
+                marker_root = current
                 break
             parent = current.parent
             if parent == current:
-                factory = None
+                marker_root = None
                 break
             current = parent
         for directory in visited:
-            enclosing_factory[directory] = factory
-        return factory
+            enclosing_factory[directory] = marker_root
+        return marker_root
 
     visible: list[Path] = []
     for path in paths:
