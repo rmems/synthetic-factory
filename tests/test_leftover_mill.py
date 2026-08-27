@@ -102,6 +102,29 @@ class FrozenLedger(unittest.TestCase):
             leftover_mill.PUBLISHED_FACTORY_MIX,
         )
 
+    def test_hub_names_cover_the_four_issue_destinations(self):
+        self.assertEqual(
+            set(leftover_mill.PUBLISHED_HUB_NAME),
+            set(leftover_mill.PUBLISHED_FACTORY_MIX),
+        )
+        self.assertEqual(
+            leftover_mill.PUBLISHED_HUB_NAME["eval-harness-trajectory-factory"],
+            "eval-harness-trajectories",
+        )
+
+    def test_card_section_names_skipped_ids_and_eligible_count(self):
+        slug = "email-webhook-retry-factory"
+        section = leftover_mill.render_factory_mix_card_section(slug, 100)
+        self.assertIn("**94**, not 100", section)
+        self.assertIn("`sir-r56-meili-swap-leftover3c-rebuild`", section)
+        self.assertIn("declared factory `search-index-rebuild-factory`", section)
+        self.assertEqual(
+            leftover_mill.render_factory_mix_card_section(
+                "long-horizon-coding-factory", 12
+            ),
+            "",
+        )
+
 
 class AuditRun(unittest.TestCase):
     def _tree(self, root):
