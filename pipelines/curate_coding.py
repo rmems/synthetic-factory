@@ -120,6 +120,7 @@ RECORD_TRANSFORMATION_REASONS = frozenset(
         REASON_STEPS_EXCLUDED,
     }
 )
+RECORD_STRUCTURAL_REASONS = frozenset({REASON_WRAP_RECORD})
 
 
 
@@ -835,12 +836,12 @@ def verify_manifest(
                 violations.append(
                     f"{where}: unchanged record reports transformed step actions"
                 )
-            if reasons:
+            if reasons - RECORD_STRUCTURAL_REASONS:
                 violations.append(
                     f"{where}: unchanged record reports transformation reason codes"
                 )
         elif action == "modified" and _is_nonnegative_int(thought_fields_removed):
-            impossible_reasons = reasons - RECORD_TRANSFORMATION_REASONS
+            impossible_reasons = reasons - RECORD_TRANSFORMATION_REASONS - RECORD_STRUCTURAL_REASONS
             if impossible_reasons:
                 violations.append(
                     f"{where}: modified record reports impossible reason codes "

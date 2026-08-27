@@ -787,6 +787,29 @@ class WrapRecordTests(unittest.TestCase):
         self.assertEqual(second_manifest["action"], "unchanged")
         self.assertEqual(second_manifest["step_counts"]["migrated"], 0)
 
+    def test_wrap_record_initial_migration_passes_verification(self):
+        source = wrap_record([visible_step()])
+
+        curated, manifest = curate_episode(source)
+
+        self.assertEqual(manifest["action"], "modified")
+        self.assertIn(REASON_WRAP_RECORD, manifest["reason_codes"])
+        self.assertIn(REASON_HIDDEN_REASONING_REMOVED, manifest["reason_codes"])
+        violations = verify_manifest([manifest])
+        self.assertEqual(violations, [])
+
+    def test_wrap_record_idempotent_second_pass_passes_verification(self):
+        source = wrap_record([visible_step()])
+
+        once, _ = curate_episode(source)
+        twice, second_manifest = curate_episode(once)
+
+        self.assertEqual(once, twice)
+        self.assertEqual(second_manifest["action"], "unchanged")
+        self.assertEqual(second_manifest["reason_codes"], [REASON_WRAP_RECORD])
+        violations = verify_manifest([second_manifest])
+        self.assertEqual(violations, [])
+
     def test_top_level_steps_win_over_a_wrapped_step_array(self):
         source = episode([visible_step()])
         source["executed_action"] = {"steps": [{"n": 9, "thought": "ignored"}]}
