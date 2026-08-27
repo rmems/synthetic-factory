@@ -3,11 +3,13 @@
 
 import copy
 import hashlib
+import io
 import json
 import sys
 import tempfile
 import unittest
 from pathlib import Path
+from contextlib import redirect_stdout
 
 REPO = Path(__file__).resolve().parents[1]
 PIPELINES = REPO / "pipelines"
@@ -674,6 +676,52 @@ class RewardOntologyV1Tests(unittest.TestCase):
                 json.loads(valid_source.read_text(encoding="utf-8")),
                 record,
             )
+
+    def test_migration_bytes_and_run_cli_use_catalog_record_key(self):
+        payload = json.dumps(
+            {
+                "records": [
+                    {
+                        "scope": "batch-r02.jsonl / ffpc-r2-001 (grid)",
+                        "usd_conversion_factor": 0.2,
+                    }
+                ]
+            }
+        ).encode("utf-8")
+        catalog = curate_rewards.load_units_migration_bytes(payload)
+        key = curate_rewards.catalog_record_key("FFPC-R2-001")
+        self.assertEqual(key, "ffpc-r2-001")
+        self.assertEqual(set(catalog), {key})
+        self.assertEqual(catalog[key]["canonical_factor"], 0.2)
+
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            source = root / "source-run"
+            write_jsonl(
+                source / "alpha-factory/batch.jsonl",
+                [{"id": "cli-reward", "reward_components": components(1.0)}],
+            )
+            output = root / "lane-reward"
+            stdout = io.StringIO()
+            with redirect_stdout(stdout):
+                code = curate_rewards.main(["run", str(source), str(output)])
+            self.assertEqual(code, 0)
+            self.assertEqual(json.loads(stdout.getvalue())["records"], 1)
+
+            empty = root / "empty-run"
+            empty.mkdir()
+            (empty / "blank.jsonl").write_text("", encoding="utf-8")
+            with self.assertRaisesRegex(
+                curate_rewards.RewardOntologyError, "holds no JSONL records"
+            ):
+                curate_rewards.convert_run(empty, root / "out-empty")
+
+            reserved = source / curate_rewards.RUN_SIDECAR_FILENAME
+            reserved.write_text("{}\n", encoding="utf-8")
+            with self.assertRaisesRegex(
+                curate_rewards.RewardOntologyError, "aggregate sidecar"
+            ):
+                curate_rewards.convert_run(source, root / "out-reserved")
 
 
 if __name__ == "__main__":

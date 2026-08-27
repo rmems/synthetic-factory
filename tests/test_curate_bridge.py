@@ -8,6 +8,7 @@ import copy
 import hashlib
 import io
 import json
+import os
 import sys
 import tempfile
 import unittest
@@ -468,6 +469,56 @@ class BridgeMaterialization(unittest.TestCase):
                     source_root=source_root,
                     output_dir=temporary / "linked-output",
                 )
+
+    def test_materialize_paths_in_process_and_rejects_unsafe_layout(self):
+        with tempfile.TemporaryDirectory() as td:
+            temporary = Path(td)
+            source_root = temporary / "source"
+            sources = self._source_tree(source_root)
+            output = temporary / "lane-bridge"
+            decisions = curate_bridge.materialize_paths(
+                sources,
+                source_root=source_root,
+                output_dir=output,
+            )
+            self.assertEqual(len(decisions), 3)
+            self.assertTrue((output / curate_bridge.MANIFEST_NAME).is_file())
+
+            with self.assertRaisesRegex(curate_bridge.BridgeCurationError, "real directory"):
+                curate_bridge.materialize_paths(
+                    sources,
+                    source_root=sources[0],
+                    output_dir=temporary / "out-file-root",
+                )
+            with self.assertRaisesRegex(curate_bridge.BridgeCurationError, "at least one"):
+                curate_bridge.materialize_paths(
+                    [],
+                    source_root=source_root,
+                    output_dir=temporary / "out-empty",
+                )
+            with self.assertRaisesRegex(curate_bridge.BridgeCurationError, "inside source_root"):
+                curate_bridge.materialize_paths(
+                    sources,
+                    source_root=source_root,
+                    output_dir=source_root / "nested-out",
+                )
+            with self.assertRaisesRegex(curate_bridge.BridgeCurationError, "end in .jsonl"):
+                curate_bridge.materialize_paths(
+                    sources,
+                    source_root=source_root,
+                    output_dir=temporary / "out-manifest",
+                    manifest_name="manifest.json",
+                )
+            outside = temporary / "outside.jsonl"
+            outside.write_text("{}\n", encoding="utf-8")
+            with self.assertRaisesRegex(curate_bridge.BridgeCurationError, "outside source_root"):
+                curate_bridge.materialize_paths(
+                    [outside],
+                    source_root=source_root,
+                    output_dir=temporary / "out-outside",
+                )
+            with self.assertRaisesRegex(curate_bridge.BridgeCurationError, "safe relative path"):
+                curate_bridge._safe_relative_path("../escape.jsonl", label="manifest_name")
 
 
 def fixture_decisions(name):

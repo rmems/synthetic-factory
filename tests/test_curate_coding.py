@@ -1,11 +1,15 @@
+import contextlib
 import copy
 import hashlib
+import io
 import json
+import os
 import subprocess
 import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -449,6 +453,125 @@ class CurateCodingTests(unittest.TestCase):
         curate_episode(source)
 
         self.assertEqual(source, original)
+
+    def _two_file_source(self, root: Path) -> tuple[Path, Path]:
+        source = root / "source-run"
+        first = episode([visible_step(n=1)])
+        first["id"] = "coding-alpha"
+        second = episode([visible_step(n=2, reflection="Visible second file.")])
+        second["id"] = "coding-zeta"
+        alpha = source / "alpha/nested/episodes.jsonl"
+        zeta = source / "zeta/batch-r02.jsonl"
+        alpha.parent.mkdir(parents=True)
+        zeta.parent.mkdir(parents=True)
+        alpha.write_text("\n" + json.dumps(first) + "\n", encoding="utf-8")
+        zeta.write_text(json.dumps(second) + "\n", encoding="utf-8")
+        return source, root / "lane-coding"
+
+    def test_directory_writer_in_process_preserves_tree_and_rolls_back(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            source, output = self._two_file_source(Path(temporary))
+            summary = curate_coding.curate_run(source, output)
+            self.assertEqual(summary["input_files"], 2)
+            self.assertEqual(summary["output_records"], 2)
+            self.assertTrue((output / curate_coding.RUN_MANIFEST_FILENAME).is_file())
+
+            stdout = io.StringIO()
+            with contextlib.redirect_stdout(stdout):
+                code = curate_coding.main([str(source), "--output-dir", str(output) + "-cli"])
+            self.assertEqual(code, 0)
+            self.assertEqual(json.loads(stdout.getvalue())["input_files"], 2)
+
+            real_write = curate_coding._write_new_jsonl
+            calls = {"n": 0}
+
+            def boom(path, values):
+                calls["n"] += 1
+                if calls["n"] >= 2:
+                    raise RuntimeError("inject-write-failure")
+                return real_write(path, values)
+
+            rolled = Path(temporary) / "lane-coding-rollback"
+            with mock.patch.object(curate_coding, "_write_new_jsonl", boom):
+                with self.assertRaisesRegex(RuntimeError, "inject-write-failure"):
+                    curate_coding.curate_run(source, rolled)
+            self.assertFalse(rolled.exists())
+
+    def test_directory_writer_rejects_symlink_empty_raw_and_nested_dest(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            source, output = self._two_file_source(root)
+            linked = root / "linked-source"
+            linked.symlink_to(source)
+            with self.assertRaisesRegex(ValueError, "must not be a symlink"):
+                curate_coding.curate_run(linked, root / "out-link")
+
+            nested_link = source / "zeta" / "alias"
+            nested_link.symlink_to(source / "alpha")
+            with self.assertRaisesRegex(ValueError, "symlinked path"):
+                curate_coding.curate_run(source, root / "out-nested")
+            nested_link.unlink()
+
+            empty = root / "empty-run"
+            empty.mkdir()
+            with self.assertRaisesRegex(ValueError, "holds no JSONL"):
+                curate_coding.curate_run(empty, root / "out-empty")
+
+            missing = root / "missing-run"
+            with self.assertRaisesRegex(ValueError, "not a directory"):
+                curate_coding.curate_run(missing, root / "out-missing")
+
+            reserved = source / curate_coding.RUN_MANIFEST_FILENAME
+            reserved.write_text("{}\n", encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "aggregate manifest"):
+                curate_coding.curate_run(source, root / "out-reserved")
+            reserved.unlink()
+
+            with self.assertRaisesRegex(ValueError, "outside the source run"):
+                curate_coding.curate_run(source, source / "inside")
+
+            raw = root / "outputs" / "raw" / "lane"
+            with self.assertRaisesRegex(ValueError, "immutable raw"):
+                curate_coding.curate_run(source, raw)
+
+            stderr = io.StringIO()
+            with contextlib.redirect_stderr(stderr), self.assertRaises(SystemExit):
+                curate_coding.main(
+                    [str(source), "--output-dir", str(output), "--output-jsonl", str(root / "x.jsonl")]
+                )
+            with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
+                curate_coding.main(
+                    [str(source / "alpha/nested/episodes.jsonl"), "--output-dir", str(root / "d")]
+                )
+            with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
+                curate_coding.main([str(source)])
+            file_source = source / "alpha/nested/episodes.jsonl"
+            file_out = root / "one.jsonl"
+            file_manifest = root / "one.manifest.jsonl"
+            with contextlib.redirect_stdout(io.StringIO()):
+                code = curate_coding.main(
+                    [
+                        str(file_source),
+                        "--output-jsonl",
+                        str(file_out),
+                        "--manifest-jsonl",
+                        str(file_manifest),
+                    ]
+                )
+            self.assertEqual(code, 0)
+            self.assertTrue(file_out.is_file())
+            self.assertTrue(file_manifest.is_file())
+
+            file_a = root / "a.jsonl"
+            file_b = root / "b.jsonl"
+            with self.assertRaisesRegex(ValueError, "distinct"):
+                curate_coding._preflight_destinations([file_a, file_a])
+            self.assertFalse(
+                curate_coding._unlink_created_file(root / "absent.jsonl", (0, 0))
+            )
+            self.assertFalse(
+                curate_coding._rmdir_created_directory(root / "absent-dir", (0, 0))
+            )
 
 
 if __name__ == "__main__":

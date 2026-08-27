@@ -3446,5 +3446,21 @@ class TestIdentityWriterExcludeAndPin(unittest.TestCase):
         self.assertEqual(summary["excluded"], 1)
 
 
+class PreferenceSideKindTests(unittest.TestCase):
+    def test_non_mapping_preference_wrapper_is_unknown_pair(self):
+        self.assertEqual(record_kind.preference_side_kinds(None), ("unknown", "unknown"))
+        self.assertEqual(record_kind.preference_side_kinds("nope"), ("unknown", "unknown"))
+
+    def test_wrapper_goal_promotes_step_sides_to_episode(self):
+        kinds = record_kind.preference_side_kinds(
+            {
+                "goal": "keep the pair homogeneous",
+                "chosen": {"steps": [{"n": 1}]},
+                "rejected": {"steps": [{"n": 1}]},
+            }
+        )
+        self.assertEqual(kinds, ("episode", "episode"))
+
+
 if __name__ == "__main__":
     unittest.main()
