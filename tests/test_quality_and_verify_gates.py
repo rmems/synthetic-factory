@@ -238,6 +238,61 @@ class ExactDedup(unittest.TestCase):
         )
         self.assertNotEqual(quality_gate.record_hash(first), quality_gate.record_hash(second))
 
+    def test_multi_agent_content_is_exact_identity(self):
+        def record(*, goal, resolution, record_id="mac-shared"):
+            return {
+                "id": record_id,
+                "goal": goal,
+                "agents": [
+                    {"role": "implementer", "mandate": "land the change"},
+                    {"role": "reviewer", "mandate": "block races"},
+                ],
+                "transcript": [
+                    {"n": 1, "speaker": "implementer", "content": "ship the lock"},
+                    {"n": 2, "speaker": "reviewer", "content": "the TTL races"},
+                ],
+                "disagreements": ["TTL race coverage"],
+                "resolution": resolution,
+                "joint_outcome": "shipped",
+                "reward": {"success": True},
+                "meta": {"factory": "multi-agent-coordination-factory", "round": 1},
+            }
+
+        first = record(goal="repair the queue consumer", resolution="kept the lock")
+        second = record(goal="rotate the edge certs", resolution="split the rollout")
+        view = quality_gate.exact_identity_view(first)
+        for key in (
+            "goal",
+            "agents",
+            "transcript",
+            "disagreements",
+            "resolution",
+            "joint_outcome",
+            "reward",
+        ):
+            self.assertEqual(view[key], first[key])
+        self.assertNotIn("id", view)
+        self.assertNotIn("meta", view)
+        self.assertNotEqual(quality_gate.record_hash(first), quality_gate.record_hash(second))
+
+        clone = record(
+            goal=first["goal"],
+            resolution=first["resolution"],
+            record_id="mac-other",
+        )
+        self.assertEqual(quality_gate.record_hash(first), quality_gate.record_hash(clone))
+
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            write(root / "multi-agent.jsonl", [first, second])
+            report = quality_gate.audit_run(
+                root,
+                mix_policy=quality_gate.MixPolicy(max_synthetic_ratio=1.0),
+            )
+
+        self.assertEqual(report["counts"]["duplicate_groups"], 0)
+        self.assertEqual(report["counts"]["excluded_records"], 0)
+
 
 class EmbeddingDedup(unittest.TestCase):
     """The fixture holds one near-duplicate pair that exact hashing cannot see."""
@@ -318,6 +373,9 @@ class EmbeddingDedup(unittest.TestCase):
             {
                 "id": f"coding-{index}",
                 "goal": "repair the same queue consumer and verify every retry",
+                # Distinct modeled outcomes keep exact-hash identity apart so
+                # the embedding pass still sees three near-duplicate records.
+                "outcome": f"retry-pass-{index}",
             }
             for index in range(3)
         ]
@@ -545,7 +603,7 @@ class EmbeddingDedup(unittest.TestCase):
                 "meta": {"round": 2, "factory": "agentic-coding-trajectory-factory"},
             },
         ]
-        self.assertNotEqual(
+        self.assertEqual(
             quality_gate.exact_identity_view(stateless[0]),
             quality_gate.exact_identity_view(stateless[1]),
         )

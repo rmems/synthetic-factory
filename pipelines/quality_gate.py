@@ -160,6 +160,14 @@ _IDENTITY_FIELDS = (
     "outcome",
     "reward_components",
     "reward",
+    # Multi-agent coordination records share generic reward envelopes. The
+    # training unit is the joint decision, not the boolean success flag.
+    "goal",
+    "agents",
+    "transcript",
+    "disagreements",
+    "resolution",
+    "joint_outcome",
 )
 _CANONICAL_ID_KEYS = frozenset(
     {"episode_id", "record_id", "trajectory_id", "pair_id", "sample_id"}
@@ -253,8 +261,11 @@ def exact_identity_view(obj):
     """Canonical training identity used only by exact-hash dedup.
 
     Wrapper ids are deliberately outside modeled state/action records, as they
-    were in the original contract. Canonical ids inside fallback shapes remain
-    exact identity; the independent semantic view removes them before cosine.
+    were in the original contract. Multi-agent coordination keeps goal, agents,
+    transcript, disagreements, resolution and joint_outcome so a shared
+    ``{"success": true}`` reward cannot collapse unrelated debates. Canonical
+    ids inside fallback shapes remain exact identity; the independent semantic
+    view removes them before cosine.
     """
     if not isinstance(obj, dict):
         # A JSONL line that parses to a scalar/array must hash, not raise.
