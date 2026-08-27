@@ -65,7 +65,7 @@ if str(_PIPELINES) not in sys.path:
 from curate_preferences import canonical_json, context_is_pure  # noqa: E402
 
 GATE_NAME = "independent-preference-arms"
-GATE_VERSION = "1.5.0"
+GATE_VERSION = "1.6.0"
 
 #: Minimum lexical ``1 - cosine_similarity`` between the two arms'
 #: contrastive surfaces. This is calibrated against the committed passing,
@@ -112,7 +112,16 @@ LABEL_COPY_FIELDS = frozenset((*CONTRAST_FIELDS, "safety_decision"))
 MACHINE_OBSERVABLE_FIELDS = ("executed_action", "future_outcome", "spike_events")
 _LIST_ITEM = "[]"
 SPIKE_IDENTIFIER_KEYS = frozenset(
-    {"channel", "event", "event_type", "kind", "neuron", "status", "unit"}
+    {
+        "channel",
+        "event",
+        "event_kind",
+        "event_type",
+        "kind",
+        "neuron",
+        "status",
+        "unit",
+    }
 )
 
 # The schema intentionally leaves executed_action/future_outcome open-ended,
@@ -202,6 +211,9 @@ _SERIALIZED_TRAJECTORY_KEY_RE = re.compile(
     r"steps|thought|internal_reasoning|meta)"
     r"(?:\s*[\"'`])?\s*[:=]"
 )
+_NARRATIVE_MAPPING_KEY_RE = re.compile(
+    r"(?:[\"'`]\s*)?([^\s:=\"'`]+)(?:\s*[\"'`])?\s*[:=]"
+)
 _COMPONENT_SLUG_RE = re.compile(r"[a-z][a-z0-9_]{0,63}\Z")
 _ENCODED_BLOB_RE = re.compile(r"\b(?:[0-9a-fA-F]{256,}|[A-Za-z0-9_-]{256,}={0,2})\b")
 _POSITIVE_ROUND = r"(?:0[1-9]|[1-9][0-9]+)"
@@ -284,6 +296,17 @@ def _normalized_payload_key(value: str) -> str:
 def _is_rejected_trajectory_key(value: str) -> bool:
     normalized = _normalized_payload_key(value)
     return normalized.replace("_", "") in _REJECTED_TRAJECTORY_KEY_SHAPES
+
+
+def _text_contains_rejected_trajectory_mapping(value: str) -> bool:
+    """Reject ASCII and homoglyph YAML/JSON mapping keys in prose."""
+
+    if _SERIALIZED_TRAJECTORY_KEY_RE.search(value):
+        return True
+    return any(
+        _is_rejected_trajectory_key(match.group(1))
+        for match in _NARRATIVE_MAPPING_KEY_RE.finditer(value)
+    )
 
 
 class PreferenceArmsError(RuntimeError):
@@ -1076,7 +1099,7 @@ def _validate_shared_context_tree(
                 budget=budget,
             )
     elif isinstance(value, str) and (
-        _SERIALIZED_TRAJECTORY_KEY_RE.search(value)
+        _text_contains_rejected_trajectory_mapping(value)
         or _ENCODED_BLOB_RE.search(value)
         or "data:" in value.casefold()
         or "%7b" in value.casefold()
@@ -1160,7 +1183,7 @@ def validate_diagnosis_document(payload: bytes, *, label: str) -> dict[str, Any]
         if any(re.fullmatch(r"\s*\|.*\|\s*", line) is not None for line in narrative.splitlines()):
             raise PreferenceArmsError(f"{label} section {name!r} contains a Markdown table")
         if (
-            _SERIALIZED_TRAJECTORY_KEY_RE.search(narrative)
+            _text_contains_rejected_trajectory_mapping(narrative)
             or _ENCODED_BLOB_RE.search(narrative)
             or "data:" in lowered
             or "%7b" in lowered

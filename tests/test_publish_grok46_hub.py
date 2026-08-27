@@ -243,6 +243,27 @@ class PublishGrok46HubTests(unittest.TestCase):
             card = (root / "hf" / publisher.HF_DATASETS_DIRNAME / ITEM["hub"] / "README.md").read_text()
             self.assertIn("`data/raw/batch-r1a.jsonl`", card)
             self.assertNotIn("`data/raw/batch-r01a.jsonl`", card)
+            self.assertNotIn("## Factory-mix quarantine", card)
+
+    def test_snapshot_card_discloses_issue_43_factory_mix(self):
+        item = {
+            "slug": "email-webhook-retry-factory",
+            "hub": "email-webhook-retry-trajectories",
+            "pretty": "Email Webhook Retry Trajectories",
+            "blurb": "Test factory.",
+            "tags": ["synthetic-data"],
+        }
+        card = publisher.render_card(
+            item,
+            records=100,
+            bytes_=4096,
+            first="r56",
+            last="r58",
+            payload_names=["batch-r56.jsonl", "batch-r57.jsonl", "batch-r58.jsonl"],
+        )
+        self.assertIn("## Factory-mix quarantine", card)
+        self.assertIn("**94**, not 100", card)
+        self.assertIn("`sir-r56-meili-swap-leftover3c-rebuild`", card)
 
     def test_preference_pair_cards_disclose_the_trajectory_schema(self):
         # The two published Grok preference repos are trajectory DPO, not Fable

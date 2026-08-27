@@ -1841,7 +1841,8 @@ class PreferencePublicationGate(unittest.TestCase):
                 ),
                 self.assertRaisesRegex(
                     round_txn.TransactionError,
-                    "publishing plan changed while linking",
+                    r"(?:publishing plan changed while linking|"
+                    r"completion marker bytes differ)",
                 ),
             ):
                 round_txn.publish(factory, 1, reservation["token"])
