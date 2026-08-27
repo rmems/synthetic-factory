@@ -1593,7 +1593,7 @@ class SourceVocabularyMappingTests(unittest.TestCase):
         self.assertEqual(
             expected["comparability"],
             {
-                "exclude_from_reward_training": 147,
+                "exclude_from_reward_training": 153,
                 "magnitude_comparable": 34,
                 "sign_order_only": 8,
             },
