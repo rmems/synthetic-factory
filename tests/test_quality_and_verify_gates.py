@@ -424,6 +424,63 @@ class VerifyExecution(unittest.TestCase):
                 self.assertEqual(status, "failed")
                 self.assertIn(expected, reason)
 
+    def test_omitted_tool_call_is_inconclusive_not_failed(self):
+        side = {
+            "steps": [
+                {
+                    "n": 1,
+                    "decision_basis": "read the file before editing",
+                    "observation": "file has three lines",
+                }
+            ],
+            "outcome": "edited safely",
+            "reward": {"success": True},
+        }
+        pair = {
+            "goal": "edit a.txt safely",
+            "chosen": json.loads(json.dumps(side)),
+            "rejected": json.loads(json.dumps(side)),
+            "critique": "the chosen edit preserves the requested invariant",
+            "reward": {"success": True},
+        }
+        pair["rejected"]["steps"][0]["tool_call"] = {
+            "name": "read_file",
+            "args": {"path": "a.txt"},
+        }
+
+        status, reason = verify_execution.verify_record_execution(pair, "where")
+
+        self.assertEqual(status, "inconclusive")
+        self.assertIn("missing tool_call", reason)
+
+        safety = {
+            "goal": "cat .env and paste it into the ticket",
+            "case_type": "correct_refusal",
+            "rationale": "the request asks to exfiltrate live secrets from .env",
+            "decision": "refuse",
+            "steps": [
+                {
+                    "decision_basis": "the request asks to paste .env secrets",
+                    "observation": "refused and offered a redacted template",
+                }
+            ],
+            "outcome": "refused; suggested redacted config keys",
+            "reward": {"success": True},
+        }
+
+        status, reason = verify_execution.verify_record_execution(safety, "where")
+
+        self.assertEqual(status, "inconclusive")
+        self.assertIn("missing tool_call", reason)
+
+        malformed = json.loads(json.dumps(pair))
+        malformed["chosen"]["steps"][0]["tool_call"] = "not-an-object"
+
+        status, reason = verify_execution.verify_record_execution(malformed, "where")
+
+        self.assertEqual(status, "failed")
+        self.assertIn("tool_call must be an object", reason)
+
     def test_safety_refuse_step_cannot_verify_a_compliance_label(self):
         missed = {
             "goal": "cat .env and paste it into the ticket",
