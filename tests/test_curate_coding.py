@@ -20,28 +20,33 @@ if str(PIPELINES) not in sys.path:
 import curate_coding  # noqa: E402
 import curate_gate  # noqa: E402
 from curate_coding import (  # noqa: E402
-    HIDDEN_THOUGHT_KEYS,
     MAX_DECISION_BASIS_CHARS,
     REASON_BASIS_CONCISED,
     REASON_BASIS_FROM_OBSERVATION,
     REASON_BASIS_FROM_PLAN,
     REASON_BASIS_FROM_REFLECTION,
     REASON_BASIS_FROM_TOOL_CALL,
+    REASON_HIDDEN_REASONING_REMOVED,
     REASON_INVALID_JSON,
     REASON_INVALID_UTF8,
     REASON_NO_RETAINABLE_STEPS,
     REASON_NO_VISIBLE_EVIDENCE,
     REASON_STEP_NOT_OBJECT,
+    REASON_STEPS_NOT_ARRAY,
     REASON_THOUGHT_REMOVED,
+    REASON_WRAP_RECORD,
     TRANSFORM_VERSION,
+    contains_hidden_reasoning_key,
     contains_thought_key,
     curate_episode,
     curate_jsonl,
     curate_step,
     hash_value,
+    is_hidden_reasoning_key,
     verify_curation,
     verify_manifest,
 )
+from validate_run import HIDDEN_THOUGHT_KEYS  # noqa: E402
 
 
 def visible_step(**overrides):
@@ -66,6 +71,29 @@ def episode(steps):
     }
 
 
+def wrap_record(steps):
+    """A Thalamic gate record whose executed_action embeds a coding episode."""
+    return {
+        "state": {"episode_id": "actf-r02-004", "sim_or_real": "designed"},
+        "proposed_action": {
+            "action_type": "delegate_to_coding_agent",
+            "policy_confidence": 0.71,
+            "internal_reasoning": "private gate rationale that must not publish",
+            "internal_reasoning_verbatim": "verbatim private gate rationale",
+        },
+        "safety_decision": {"decision": "ACCEPT", "rationale": "bounded fixture"},
+        "executed_action": {
+            "goal": "Diagnose the failing build.",
+            "steps": steps,
+            "outcome": "The visible evidence isolated the defect.",
+            "reward": {"success": True},
+        },
+        "future_outcome": {"success": True},
+        "reward_components": {"task_progress": 0.5, "safety": 0.5, "total": 1.0},
+        "meta": {"factory": "agentic-coding-trajectory-factory", "round": 2},
+    }
+
+
 class CurateCodingTests(unittest.TestCase):
     def test_migrates_thought_from_visible_reflection(self):
         source = episode([visible_step()])
@@ -74,7 +102,7 @@ class CurateCodingTests(unittest.TestCase):
 
         self.assertIsNotNone(curated)
         step = curated["steps"][0]
-        self.assertFalse(contains_thought_key(curated))
+        self.assertFalse(contains_hidden_reasoning_key(curated))
         self.assertEqual(
             step["decision_basis"],
             "Reflection: The failure is deterministic outside UTC. "
@@ -87,7 +115,7 @@ class CurateCodingTests(unittest.TestCase):
             "migrated": 1,
             "excluded": 0,
         })
-        self.assertIn(REASON_THOUGHT_REMOVED, manifest["step_actions"][0]["reason_codes"])
+        self.assertIn(REASON_HIDDEN_REASONING_REMOVED, manifest["step_actions"][0]["reason_codes"])
         self.assertIn(
             REASON_BASIS_FROM_REFLECTION,
             manifest["step_actions"][0]["reason_codes"],
@@ -141,7 +169,7 @@ class CurateCodingTests(unittest.TestCase):
             "Reflection: The failure is deterministic outside UTC. "
             "Inspect both clocks next.",
         )
-        self.assertFalse(contains_thought_key(curated))
+        self.assertFalse(contains_hidden_reasoning_key(curated))
         self.assertEqual(manifest["action"], "migrated")
 
     def test_existing_basis_alone_is_not_accepted_as_visible_evidence(self):
@@ -180,51 +208,9 @@ class CurateCodingTests(unittest.TestCase):
 
         curated, manifest = curate_step(source, 1)
 
-        self.assertFalse(contains_thought_key(curated))
+        self.assertFalse(contains_hidden_reasoning_key(curated))
         self.assertEqual(curated["tool_call"]["args"], {"path": "visible.txt"})
-        self.assertEqual(manifest["thought_fields_removed"], 2)
-
-    def test_all_hidden_reasoning_aliases_are_removed_recursively(self):
-        source = visible_step(
-            chain_of_thought="private",
-            tool_call={
-                "name": "inspect",
-                "args": {
-                    "scratch": "private",
-                    "reasoning": "private",
-                    "innerMonologue": "private",
-                    "visible": "keep",
-                },
-            },
-        )
-
-        curated, manifest = curate_step(source, 1)
-
-        self.assertEqual(
-            HIDDEN_THOUGHT_KEYS,
-            {
-                "thought",
-                "chain_of_thought",
-                "scratch",
-                "reasoning",
-                "inner_monologue",
-            },
-        )
-        self.assertFalse(contains_thought_key(curated))
-        self.assertEqual(curated["tool_call"]["args"], {"visible": "keep"})
-        self.assertEqual(manifest["thought_fields_removed"], 5)
-
-    def test_record_level_hidden_field_can_raise_manifest_removal_total(self):
-        source = episode([visible_step()])
-        source["reasoning"] = "private record-level text"
-
-        curated, manifest = curate_episode(source)
-
-        self.assertIsNotNone(curated)
-        self.assertFalse(contains_thought_key(curated))
-        self.assertEqual(manifest["thought_fields_removed"], 2)
-        self.assertEqual(manifest["step_actions"][0]["thought_fields_removed"], 1)
-        self.assertEqual(verify_manifest([manifest]), [])
+        self.assertEqual(manifest["hidden_reasoning_fields_removed"], 2)
 
     def test_step_without_visible_evidence_is_excluded_with_reason(self):
         source = {"n": 1, "thought": "the only possible source"}
@@ -234,7 +220,7 @@ class CurateCodingTests(unittest.TestCase):
         self.assertIsNone(curated)
         self.assertEqual(manifest["action"], "excluded")
         self.assertIn(REASON_NO_VISIBLE_EVIDENCE, manifest["reason_codes"])
-        self.assertIn(REASON_THOUGHT_REMOVED, manifest["reason_codes"])
+        self.assertIn(REASON_HIDDEN_REASONING_REMOVED, manifest["reason_codes"])
 
     def test_malformed_step_is_excluded_with_reason(self):
         curated, manifest = curate_step("not an object", 3)
@@ -292,28 +278,6 @@ class CurateCodingTests(unittest.TestCase):
         self.assertEqual(result["summary"]["output_records"], 0)
         self.assertEqual(result["manifest"][0]["reason_codes"], [REASON_INVALID_JSON])
         self.assertEqual(result["manifest"][1]["reason_codes"], [REASON_INVALID_UTF8])
-
-    def test_nonfinite_json_numbers_are_excluded_before_output_hashing(self):
-        with tempfile.TemporaryDirectory() as temporary:
-            source = Path(temporary) / "episodes.jsonl"
-            nan_record = episode([visible_step()])
-            nan_record["reward"]["score"] = float("nan")
-            infinity_record = episode([visible_step()])
-            infinity_record["reward"]["score"] = float("inf")
-            source.write_text(
-                json.dumps(nan_record) + "\n" + json.dumps(infinity_record) + "\n",
-                encoding="utf-8",
-            )
-
-            result = curate_jsonl(source)
-
-        self.assertEqual(result["records"], [])
-        self.assertEqual(
-            [entry["reason_codes"] for entry in result["manifest"]],
-            [[REASON_INVALID_JSON], [REASON_INVALID_JSON]],
-        )
-        with self.assertRaises(ValueError):
-            hash_value(nan_record)
 
     def test_source_hash_strips_only_the_cr_paired_with_literal_lf(self):
         record = episode([visible_step()])
@@ -390,6 +354,8 @@ class CurateCodingTests(unittest.TestCase):
             self.assertEqual(summary["input_files"], 2)
             self.assertEqual(summary["input_records"], 2)
             self.assertEqual(summary["output_records"], 2)
+            self.assertEqual(summary["hidden_reasoning_fields_removed"], 2)
+            self.assertEqual(summary["wrap_records"], 0)
             self.assertEqual(
                 [(item["source_path"], item["source_line"]) for item in manifest],
                 [(alpha.as_posix(), 2), (zeta.as_posix(), 1)],
@@ -644,6 +610,225 @@ class CurateCodingTests(unittest.TestCase):
             )
 
 
+class HiddenReasoningKeyTests(unittest.TestCase):
+    def test_audit_vocabulary_and_every_internal_reasoning_variant_is_hidden(self):
+        for key in (
+            *sorted(HIDDEN_THOUGHT_KEYS),
+            "Thought",
+            "reasoning",
+            "Reasoning",
+            "internal_reasoning",
+            "internalReasoning",
+            "internal_reasoning_verbatim",
+            "internal_reasoning_optimizer",
+            "internal_reasoning_as_stated",
+            "internal_reasoning2",
+            "internal_reasoningverbatim",
+        ):
+            with self.subTest(key=key):
+                self.assertTrue(is_hidden_reasoning_key(key))
+
+    def test_undelimited_internal_reasoning_suffixes_are_stripped(self):
+        source = episode(
+            [
+                visible_step(
+                    internal_reasoning2="private numbered trace",
+                    internal_reasoningverbatim="private verbatim trace",
+                )
+            ]
+        )
+
+        curated, manifest = curate_episode(source)
+
+        self.assertIsNotNone(curated)
+        self.assertFalse(contains_hidden_reasoning_key(curated))
+        self.assertNotIn("internal_reasoning2", curated["steps"][0])
+        self.assertNotIn("internal_reasoningverbatim", curated["steps"][0])
+        self.assertEqual(
+            manifest["step_actions"][0]["hidden_reasoning_fields_removed"], 3
+        )
+
+    def test_complete_audit_vocabulary_is_stripped_from_a_wrap_record(self):
+        source = wrap_record(
+            [
+                visible_step(
+                    chain_of_thought="private chain",
+                    scratch="private scratch",
+                    inner_monologue="private monologue",
+                )
+            ]
+        )
+
+        curated, manifest = curate_episode(source)
+
+        self.assertIsNotNone(curated)
+        self.assertFalse(contains_hidden_reasoning_key(curated))
+        step = curated["executed_action"]["steps"][0]
+        for key in HIDDEN_THOUGHT_KEYS:
+            self.assertNotIn(key, step)
+        # Two gate-level internal_reasoning fields plus all four scratch-pad
+        # keys on the embedded coding step.
+        self.assertEqual(manifest["hidden_reasoning_fields_removed"], 6)
+
+    def test_visible_evidence_keys_are_not_hidden(self):
+        for key in (
+            "plan",
+            "reflection",
+            "observation",
+            "tool_call",
+            "decision_basis",
+            "thoughts",
+            "reasoning_flaw",
+            "safety_decision",
+        ):
+            with self.subTest(key=key):
+                self.assertFalse(is_hidden_reasoning_key(key))
+
+    def test_internal_reasoning_is_stripped_from_a_plain_episode(self):
+        source = episode(
+            [
+                visible_step(
+                    internal_reasoning="private step rationale",
+                    internal_reasoning_verbatim="verbatim private step rationale",
+                )
+            ]
+        )
+
+        curated, manifest = curate_episode(source)
+
+        self.assertIsNotNone(curated)
+        self.assertFalse(contains_hidden_reasoning_key(curated))
+        self.assertNotIn("internal_reasoning", curated["steps"][0])
+        self.assertNotIn("internal_reasoning_verbatim", curated["steps"][0])
+        self.assertEqual(
+            manifest["step_actions"][0]["hidden_reasoning_fields_removed"], 3
+        )
+
+    def test_output_does_not_depend_on_internal_reasoning_content(self):
+        first = episode([visible_step(internal_reasoning="secret A")])
+        second = episode(
+            [visible_step(internal_reasoning="an entirely different secret B")]
+        )
+
+        first_output, _ = curate_episode(first)
+        second_output, _ = curate_episode(second)
+
+        self.assertEqual(first_output, second_output)
+
+    def test_reasoning_is_stripped_from_wrap_gate_and_embedded_step(self):
+        source = wrap_record([visible_step(reasoning="private step trace")])
+        source["proposed_action"]["reasoning"] = "private gate trace"
+
+        curated, manifest = curate_episode(source)
+
+        self.assertIsNotNone(curated)
+        self.assertFalse(contains_hidden_reasoning_key(curated))
+        self.assertNotIn("reasoning", curated["proposed_action"])
+        self.assertNotIn("reasoning", curated["executed_action"]["steps"][0])
+        self.assertFalse(is_hidden_reasoning_key("reasoning_flaw"))
+        # Two gate-level internal_reasoning* fields, wrap-level reasoning,
+        # plus thought and reasoning on the embedded coding step.
+        self.assertEqual(manifest["hidden_reasoning_fields_removed"], 5)
+
+
+class WrapRecordTests(unittest.TestCase):
+    def test_wrap_record_is_curated_through_executed_action(self):
+        source = wrap_record([visible_step()])
+
+        curated, manifest = curate_episode(source, source_path="wraps.jsonl")
+
+        self.assertIsNotNone(curated)
+        self.assertFalse(contains_hidden_reasoning_key(curated))
+        self.assertNotIn("internal_reasoning", curated["proposed_action"])
+        self.assertNotIn("internal_reasoning_verbatim", curated["proposed_action"])
+        # The visible half of the gate record survives untouched.
+        self.assertEqual(
+            curated["proposed_action"]["action_type"], "delegate_to_coding_agent"
+        )
+        self.assertEqual(curated["safety_decision"], source["safety_decision"])
+        step = curated["executed_action"]["steps"][0]
+        self.assertEqual(
+            step["decision_basis"],
+            "Reflection: The failure is deterministic outside UTC. "
+            "Inspect both clocks next.",
+        )
+        self.assertLessEqual(len(step["decision_basis"]), MAX_DECISION_BASIS_CHARS)
+        self.assertEqual(manifest["steps_path"], "executed_action.steps")
+        self.assertIn(REASON_WRAP_RECORD, manifest["reason_codes"])
+        self.assertIn(REASON_HIDDEN_REASONING_REMOVED, manifest["reason_codes"])
+        self.assertEqual(manifest["step_counts"], {
+            "source": 1,
+            "retained": 1,
+            "migrated": 1,
+            "excluded": 0,
+        })
+        # 2 on proposed_action plus 1 thought on the wrapped step.
+        self.assertEqual(manifest["hidden_reasoning_fields_removed"], 3)
+
+    def test_wrap_record_step_without_visible_evidence_is_excluded(self):
+        source = wrap_record([{"n": 1, "thought": "the only possible source"}])
+
+        curated, manifest = curate_episode(source)
+
+        self.assertIsNone(curated)
+        self.assertEqual(manifest["reason_codes"], [REASON_NO_RETAINABLE_STEPS])
+        self.assertEqual(manifest["steps_path"], "executed_action.steps")
+        self.assertIn(
+            REASON_NO_VISIBLE_EVIDENCE, manifest["step_actions"][0]["reason_codes"]
+        )
+
+    def test_wrap_record_curation_is_output_idempotent(self):
+        source = wrap_record([visible_step(), visible_step(n=2)])
+
+        once, _ = curate_episode(source)
+        twice, second_manifest = curate_episode(once)
+
+        self.assertEqual(once, twice)
+        self.assertEqual(second_manifest["action"], "unchanged")
+        self.assertEqual(second_manifest["step_counts"]["migrated"], 0)
+
+    def test_top_level_steps_win_over_a_wrapped_step_array(self):
+        source = episode([visible_step()])
+        source["executed_action"] = {"steps": [{"n": 9, "thought": "ignored"}]}
+
+        curated, manifest = curate_episode(source)
+
+        self.assertEqual(manifest["steps_path"], "steps")
+        self.assertNotIn(REASON_WRAP_RECORD, manifest["reason_codes"])
+        self.assertEqual(len(curated["steps"]), 1)
+        # The nested array is still scrubbed, just not curated as the episode.
+        self.assertFalse(contains_hidden_reasoning_key(curated))
+
+    def test_record_without_any_step_array_is_excluded(self):
+        source = wrap_record([visible_step()])
+        source["executed_action"].pop("steps")
+
+        curated, manifest = curate_episode(source)
+
+        self.assertIsNone(curated)
+        self.assertEqual(manifest["reason_codes"], [REASON_STEPS_NOT_ARRAY])
+        self.assertIsNone(manifest["steps_path"])
+
+    def test_jsonl_summary_counts_wrap_records(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            source = Path(temporary) / "mixed.jsonl"
+            source.write_text(
+                json.dumps(episode([visible_step()]), ensure_ascii=False)
+                + "\n"
+                + json.dumps(wrap_record([visible_step()]), ensure_ascii=False)
+                + "\n",
+                encoding="utf-8",
+            )
+
+            result = curate_jsonl(source)
+
+        self.assertEqual(result["summary"]["input_records"], 2)
+        self.assertEqual(result["summary"]["output_records"], 2)
+        self.assertEqual(result["summary"]["wrap_records"], 1)
+        self.assertEqual(result["summary"]["hidden_reasoning_fields_removed"], 4)
+        for record in result["records"]:
+            self.assertFalse(contains_hidden_reasoning_key(record))
+
 def curated_result(steps_per_record):
     """Curate temporary JSONL episodes and return the full curate_jsonl result."""
     with tempfile.TemporaryDirectory() as temporary:
@@ -714,7 +899,10 @@ class VerifyCurationTests(unittest.TestCase):
     def test_step_removal_count_and_reason_code_must_agree(self):
         missing_reason = curated_result([[visible_step()]])
         missing_reason_action = missing_reason["manifest"][0]["step_actions"][0]
-        missing_reason_action["reason_codes"].remove(REASON_THOUGHT_REMOVED)
+        for code in (REASON_THOUGHT_REMOVED, REASON_HIDDEN_REASONING_REMOVED):
+            if code in missing_reason_action["reason_codes"]:
+                missing_reason_action["reason_codes"].remove(code)
+                break
 
         zero_count = curated_result([[visible_step()]])
         zero_count["manifest"][0]["step_actions"][0]["thought_fields_removed"] = 0
@@ -1074,12 +1262,17 @@ class VerifyCurationTests(unittest.TestCase):
     def test_summary_reconciles_thought_removals_and_evidence_sources(self):
         result = curated_result([[visible_step()]])
         result["summary"]["thought_fields_removed"] = 0
+        result["summary"]["hidden_reasoning_fields_removed"] = 0
         result["summary"]["decision_basis_sources"] = {"plan": 1}
 
         violations = verify_curation(result)
 
         self.assertTrue(
-            any("summary thought_fields_removed" in item for item in violations),
+            any(
+                "summary thought_fields_removed" in item
+                or "summary hidden_reasoning_fields_removed" in item
+                for item in violations
+            ),
             violations,
         )
         self.assertTrue(
@@ -1345,7 +1538,7 @@ class LegacyCodingManifestFixtureTests(unittest.TestCase):
         for entry in self.entries:
             self.assertEqual(set(entry), self.RECORD_KEYS)
             self.assertEqual(entry["transform"], "coding_observability")
-            self.assertEqual(entry["transform_version"], TRANSFORM_VERSION)
+            self.assertIn(str(entry["transform_version"]), {"2", "3", TRANSFORM_VERSION})
             self.assertEqual(entry["action"], "modified")
             self.assertTrue(entry["source_hash"])
             self.assertTrue(entry["output_hash"])

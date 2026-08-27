@@ -903,6 +903,13 @@ Synthetic Data Factory agentic lane. Factory slug:
 copy is a public evidence snapshot, not the curated training export. Public
 visibility is not a training-readiness claim.
 
+Raw records may still carry model-private reasoning: `thought` on a step, and
+`internal_reasoning` / `internal_reasoning_verbatim` on a gate record's
+`proposed_action`. **Do not train on `thought` or `internal_reasoning*`.** This
+raw Hub copy is evidence only. The curated export drops those keys and keeps a
+short `decision_basis` grounded in visible plan, tool call, observation, or
+reflection evidence instead.
+
 ## Planned curated release
 
 Curated training publication remains blocked until a later audit and export
