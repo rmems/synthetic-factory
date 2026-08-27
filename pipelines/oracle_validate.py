@@ -702,7 +702,6 @@ def _manifest_metadata_errors(manifest, snapshots, parsed_records, run_dir):
         if info is not None:
             by_family.setdefault(info[0], []).append(parsed)
 
-    reference_seen = False
     probe_values = {}
     expected_summaries = {}
     for family in sorted(actual_families):
@@ -758,14 +757,6 @@ def _manifest_metadata_errors(manifest, snapshots, parsed_records, run_dir):
                 )
             else:
                 implementations.append(implementation)
-                if implementation in ("reference", "mixed"):
-                    reference_seen = True
-            stages = oracle.get("stages")
-            if isinstance(stages, list) and any(
-                isinstance(stage, dict) and stage.get("implementation") == "reference"
-                for stage in stages
-            ):
-                reference_seen = True
             if oracle.get("commit") != commit:
                 errors.append(f"{manifest_path}: {parsed.where} oracle.commit disagrees")
             if oracle.get("dirty") is not dirty:
@@ -854,7 +845,7 @@ def _manifest_metadata_errors(manifest, snapshots, parsed_records, run_dir):
             f"{manifest_path}: per-family counts, reasons, scores, or oracle summaries "
             "do not match the captured records"
         )
-    if reference_seen and module_digest != oracles.module_digest():
+    if module_digest != oracles.module_digest():
         errors.append(
             f"{manifest_path}: module_digest does not match the current reference implementation"
         )

@@ -22,8 +22,10 @@ import os
 import re
 import shlex
 import shutil
+import signal
 import subprocess
 import threading
+import time
 from pathlib import Path
 
 from . import canon
@@ -363,12 +365,14 @@ class ExternalCommandOracle(OracleAdapter):
 
 def _run_protocol_command(command, payload, timeout_s, runtime):
     """Execute one protocol command while bounding both captured streams."""
+    deadline = time.monotonic() + float(timeout_s)
     try:
         process = subprocess.Popen(
             command,
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
+            start_new_session=True,
         )
     except OSError as exc:
         detail = exc.strerror or type(exc).__name__
@@ -378,11 +382,17 @@ def _run_protocol_command(command, payload, timeout_s, runtime):
     overflow = []
     io_errors = []
 
+    def remaining():
+        return max(0.0, deadline - time.monotonic())
+
     def stop_process():
         try:
-            process.kill()
+            os.killpg(process.pid, signal.SIGKILL)
         except (OSError, ProcessLookupError):
-            pass
+            try:
+                process.kill()
+            except (OSError, ProcessLookupError):
+                pass
 
     def read_stream(name, stream, limit):
         total = 0
@@ -428,16 +438,32 @@ def _run_protocol_command(command, payload, timeout_s, runtime):
     ]
     for thread in threads:
         thread.start()
+
+    def join_readers(timeout):
+        cutoff = time.monotonic() + timeout
+        hung = False
+        for thread in threads:
+            thread.join(timeout=max(0.0, cutoff - time.monotonic()))
+            if thread.is_alive():
+                hung = True
+        return hung
+
     try:
-        returncode = process.wait(timeout=timeout_s)
+        returncode = process.wait(timeout=remaining())
     except subprocess.TimeoutExpired as exc:
         stop_process()
-        process.wait()
-        for thread in threads:
-            thread.join()
+        try:
+            process.wait(timeout=max(0.05, remaining()))
+        except subprocess.TimeoutExpired:
+            pass
+        join_readers(remaining())
         raise OracleError(f"{runtime}: timed out after {timeout_s}s") from exc
-    for thread in threads:
-        thread.join()
+    if join_readers(remaining()):
+        stop_process()
+        join_readers(max(0.05, remaining()))
+        raise OracleError(
+            f"{runtime}: timed out after {timeout_s}s waiting for inherited pipes to close"
+        )
     if overflow:
         stream = overflow[0]
         limit = MAX_PROTOCOL_STDOUT_BYTES if stream == "stdout" else MAX_PROTOCOL_STDERR_BYTES

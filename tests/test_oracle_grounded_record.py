@@ -12,6 +12,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -282,6 +283,12 @@ class CurationFailsClosed(unittest.TestCase):
         forged = canon.digest({"different": "reference implementation"})
         item["oracle"]["module_digest"] = forged
         item["oracle"]["stages"][0]["module_digest"] = forged
+        findings = record.validate_record(item, check_declared_status=False)
+        self.assertTrue(any("current reference implementation" in f for f in findings), findings)
+
+    def test_named_runtime_records_still_bind_the_request_module_digest(self):
+        item = relabel_as_named_runtime(build(families.ENCODER_FAMILY))
+        item["oracle"]["module_digest"] = canon.digest({"forged": "named-runtime digest"})
         findings = record.validate_record(item, check_declared_status=False)
         self.assertTrue(any("current reference implementation" in f for f in findings), findings)
 
@@ -663,6 +670,76 @@ class FamilyInvariants(unittest.TestCase):
         item["result_hash"] = canon.digest(item["result"])
         findings = record.validate_record(item, check_declared_status=False)
         self.assertTrue(any("update_applied" in f for f in findings), findings)
+
+    def test_critic_modulators_are_recomputed_from_the_outcome(self):
+        item = next(
+            build(families.CREDIT_FAMILY, index)
+            for index in range(24)
+            if build(families.CREDIT_FAMILY, index)["validation"]["status"] == "accepted"
+        )
+        item["result"]["measured"]["critic"]["serotonin"] = 0.0
+        findings = result_findings(item)
+        self.assertTrue(any("critic.serotonin" in finding for finding in findings), findings)
+
+    def test_eligibility_is_recomputed_before_the_weight_update(self):
+        item = next(
+            build(families.CREDIT_FAMILY, index)
+            for index in range(24)
+            if build(families.CREDIT_FAMILY, index)["validation"]["status"] == "accepted"
+        )
+        plasticity = item["result"]["measured"]["plasticity"]
+        critic = item["result"]["measured"]["critic"]
+        config = item["oracle"]["configuration"]["plasticity"]
+        forged = [trace + 1.0 for trace in plasticity["eligibility"]]
+        plasticity["eligibility"] = forged
+        deltas = []
+        updated = []
+        for start, trace in zip(plasticity["weights_before"], forged, strict=True):
+            raw_delta = (
+                config["learning_rate"] * trace * critic["dopamine_phasic"] * plasticity["modulatory_gain"]
+            )
+            new_weight = sim.clamp(start + raw_delta, config["w_min"], config["w_max"])
+            deltas.append(new_weight - start)
+            updated.append(new_weight)
+        plasticity["weight_deltas"] = deltas
+        plasticity["weights_after"] = updated
+        findings = result_findings(item)
+        self.assertTrue(any("eligibility" in finding for finding in findings), findings)
+
+    def test_post_update_behavior_is_re_run_from_the_updated_circuit(self):
+        item = next(
+            build(families.CREDIT_FAMILY, index)
+            for index in range(24)
+            if build(families.CREDIT_FAMILY, index)["validation"]["status"] == "accepted"
+        )
+        post = item["result"]["measured"]["plasticity"]["post_update_behavior"]
+        post["spike_times_ms"] = []
+        post["spike_count"] = 0
+        post["first_spike_ms"] = None
+        post["output_rate_hz"] = 0.0
+        findings = result_findings(item)
+        self.assertTrue(
+            any("post_update_behavior" in finding and "re-run" in finding for finding in findings),
+            findings,
+        )
+
+    def test_encoder_excerpt_is_bound_to_the_recomputed_spike_train(self):
+        item = build(families.ENCODER_FAMILY)
+        excerpt = item["result"]["measured"]["encoding_a"]["representation_excerpt"]
+        self.assertTrue(excerpt)
+        excerpt[0]["t_ms"] = excerpt[0]["t_ms"] + 1.0
+        findings = result_findings(item)
+        self.assertTrue(
+            any("representation_excerpt is not the prefix" in finding for finding in findings),
+            findings,
+        )
+
+    def test_impossible_neuron_voltage_summaries_are_rejected(self):
+        item = build(families.NEURON_FAMILY)
+        item["result"]["measured"]["before"]["v_min"] = 10.0
+        item["result"]["measured"]["before"]["v_max"] = -10.0
+        findings = result_findings(item)
+        self.assertTrue(any("v_min is greater than v_max" in finding for finding in findings), findings)
 
     def test_the_credit_chain_reports_both_stages(self):
         item = build(families.CREDIT_FAMILY)
@@ -1364,6 +1441,35 @@ class ExternalOracleProtocol(unittest.TestCase):
                 "f",
                 {"configuration": {"overflow": float("inf")}, "data": {}},
             )
+
+    def test_inherited_pipe_holders_are_bound_by_the_oracle_deadline(self):
+        holder = (
+            "import json, os, sys, time\n"
+            "if os.fork() == 0:\n"
+            "    time.sleep(30)\n"
+            "    os._exit(0)\n"
+            "sys.stdout.write(json.dumps({\n"
+            '    "protocol": "sf-oracle/1",\n'
+            '    "runtime_version": "0.0.0-double",\n'
+            '    "runtime_commit": "a" * 40,\n'
+            '    "measured": {"ok": True},\n'
+            '    "units": {"ok": "unit"},\n'
+            "}))\n"
+            "sys.stdout.flush()\n"
+        )
+        adapter = oracles.ExternalCommandOracle(
+            oracle_id="axon-encoder",
+            oracle_type="spike-encoder",
+            description="pipe-holder",
+            runtime="axon-encoder",
+            command=[sys.executable, "-c", holder],
+            timeout_s=0.2,
+        )
+        started = time.monotonic()
+        with self.assertRaises(oracles.OracleError) as raised:
+            adapter.run("f", {"configuration": {}, "data": {}})
+        self.assertLess(time.monotonic() - started, 2.0)
+        self.assertIn("timed out", str(raised.exception))
 
 
 class OracleProvenance(unittest.TestCase):

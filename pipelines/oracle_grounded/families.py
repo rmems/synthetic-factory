@@ -239,6 +239,18 @@ def _encoder_checks(record):
                 f"{side}.representation_excerpt_truncated does not match "
                 "spike_count and the retained excerpt"
             )
+        encoder_config = record["oracle"]["configuration"]["encoder"]
+        recomputed = sim.run_encoder(scenario["signal"], expected_encoding, encoder_config)
+        expected_excerpt = recomputed["spikes"][: int(encoder_config["excerpt_spikes"])]
+        if canon.normalize(excerpt) != canon.normalize(expected_excerpt):
+            findings.append(
+                f"{side}.representation_excerpt is not the prefix of the "
+                "recomputed spike train"
+            )
+        if state.get("spike_train_digest") != canon.digest(recomputed["spikes"]):
+            findings.append(
+                f"{side}.spike_train_digest does not match the recomputed spike train"
+            )
     retention_gap = (
         measured["encoding_a"]["information_retention"]
         - measured["encoding_b"]["information_retention"]
@@ -414,6 +426,34 @@ def _neuron_checks(record):
             findings.append(
                 f"{side}.v_trace length does not match v_trace_stride_ms and duration_ms"
             )
+        v_min = state.get("v_min")
+        v_max = state.get("v_max")
+        v_mean = state.get("v_mean")
+
+        def _finite_number(value):
+            return (
+                isinstance(value, (int, float))
+                and not isinstance(value, bool)
+                and math.isfinite(value)
+            )
+
+        if _finite_number(v_min) and _finite_number(v_max) and v_min > v_max:
+            findings.append(f"{side}.v_min is greater than v_max")
+        if (
+            _finite_number(v_min)
+            and _finite_number(v_max)
+            and _finite_number(v_mean)
+            and not (v_min - ROUNDING_TOL <= v_mean <= v_max + ROUNDING_TOL)
+        ):
+            findings.append(f"{side}.v_mean does not lie between v_min and v_max")
+        for position, sample in enumerate(state["v_trace"]):
+            if not _finite_number(sample):
+                findings.append(f"{side}.v_trace[{position}] is not numeric")
+                continue
+            if _finite_number(v_min) and sample < v_min - ROUNDING_TOL:
+                findings.append(f"{side}.v_trace[{position}] is below the recorded v_min")
+            if _finite_number(v_max) and sample > v_max + ROUNDING_TOL:
+                findings.append(f"{side}.v_trace[{position}] is above the recorded v_max")
     configuration = record["oracle"]["configuration"]
     parameter = configuration["intervened_parameter"]
     expected_parameter = sim.INTERVENTION_TARGETS[record["intervention"]["target"]]
@@ -705,17 +745,22 @@ def _credit_checks(record):
         return ["result.measured must carry both a critic and a plasticity stage"]
 
     outcome = record["scenario"]["outcome"]
-    expected_rpe = outcome["received_reward"] - outcome["expected_value"]
-    if abs(critic["reward_prediction_error"] - expected_rpe) > ROUNDING_TOL:
-        findings.append("critic.reward_prediction_error does not match the scenario outcome")
-    expected_valence = (
-        "positive" if expected_rpe > 1e-9 else ("negative" if expected_rpe < -1e-9 else "neutral")
-    )
-    if critic["valence"] != expected_valence:
-        findings.append("critic.valence does not match reward_prediction_error")
-    for level in ("dopamine", "serotonin", "acetylcholine", "norepinephrine"):
-        if not 0.0 <= critic[level] <= 1.0:
-            findings.append(f"critic.{level} is outside [0, 1]")
+    critic_config = record["oracle"]["configuration"]["critic"]
+    expected_critic = sim.run_critic(outcome, critic_config)
+    for field in (
+        "reward_prediction_error",
+        "dopamine_phasic",
+        "dopamine",
+        "serotonin",
+        "acetylcholine",
+        "norepinephrine",
+        "valence",
+    ):
+        if not _measurement_matches(critic.get(field), expected_critic[field]):
+            findings.append(
+                f"critic.{field} does not match the value derived from the "
+                "scenario outcome and critic configuration"
+            )
 
     before = plasticity["weights_before"]
     after = plasticity["weights_after"]
@@ -733,19 +778,31 @@ def _credit_checks(record):
         len(scenario_circuit["pre_spike_times_ms"]),
     )
     derived_deltas = []
+    expected_pre = None
+    expected_post = None
     if len(set(vector_lengths)) != 1 or vector_lengths[0] != scenario_circuit["pre_neuron_count"]:
         findings.append("plasticity weight vectors have inconsistent lengths")
     else:
         plasticity_config = record["oracle"]["configuration"]["plasticity"]
         eligibility = plasticity["eligibility"]
+        pre_spikes = scenario_circuit["pre_spike_times_ms"]
+        expected_pre = sim._plasticity_circuit(before, pre_spikes, plasticity_config)
+        expected_traces = sim.eligibility_traces(
+            before, pre_spikes, expected_pre["spike_times_ms"], plasticity_config
+        )
         derived_deltas = []
         for index, (start, end, delta, trace) in enumerate(
             zip(before, after, deltas, eligibility, strict=True)
         ):
+            if not _measurement_matches(trace, expected_traces[index]):
+                findings.append(
+                    f"weight {index} eligibility does not match the STDP trace "
+                    "derived from the pre-synaptic trains and pre-update spikes"
+                )
             raw_delta = (
                 plasticity_config["learning_rate"]
-                * trace
-                * critic["dopamine_phasic"]
+                * expected_traces[index]
+                * expected_critic["dopamine_phasic"]
                 * plasticity["modulatory_gain"]
             )
             derived_after = sim.clamp(
@@ -765,6 +822,7 @@ def _credit_checks(record):
                     f"weight {index} does not satisfy after = before + delta "
                     "derived from the retained learning rule"
                 )
+        expected_post = sim._plasticity_circuit(after, pre_spikes, plasticity_config)
     for index, times in enumerate(scenario_circuit["pre_spike_times_ms"]):
         if any(later < earlier for earlier, later in pairwise(times)):
             findings.append(f"scenario pre-synaptic spike train {index} is not ordered")
@@ -777,8 +835,8 @@ def _credit_checks(record):
     plasticity_config = record["oracle"]["configuration"]["plasticity"]
     expected_gain = (
         1.0
-        + plasticity_config["modulatory_gain_ach"] * critic["acetylcholine"]
-        + plasticity_config["modulatory_gain_ne"] * critic["norepinephrine"]
+        + plasticity_config["modulatory_gain_ach"] * expected_critic["acetylcholine"]
+        + plasticity_config["modulatory_gain_ne"] * expected_critic["norepinephrine"]
     )
     if not _measurement_matches(plasticity["modulatory_gain"], expected_gain):
         findings.append("plasticity.modulatory_gain does not match critic modulators")
@@ -797,7 +855,10 @@ def _credit_checks(record):
         pre = plasticity["pre_update_behavior"]
         post = plasticity["post_update_behavior"]
         duration_ms = plasticity_config["duration_ms"]
-        for name, behavior in (("pre_update_behavior", pre), ("post_update_behavior", post)):
+        for name, behavior, recomputed in (
+            ("pre_update_behavior", pre, expected_pre),
+            ("post_update_behavior", post, expected_post),
+        ):
             times = behavior["spike_times_ms"]
             if any(later < earlier for earlier, later in pairwise(times)):
                 findings.append(f"plasticity.{name}.spike_times_ms is not ordered")
@@ -811,6 +872,20 @@ def _credit_checks(record):
             for field, expected in expected_summary.items():
                 if not _measurement_matches(behavior.get(field), expected):
                     findings.append(f"plasticity.{name}.{field} does not match spike_times_ms")
+            if recomputed is not None:
+                retained = {
+                    key: behavior.get(key)
+                    for key in ("spike_count", "spike_times_ms", "first_spike_ms", "output_rate_hz")
+                }
+                measured = {
+                    key: recomputed.get(key)
+                    for key in ("spike_count", "spike_times_ms", "first_spike_ms", "output_rate_hz")
+                }
+                if canon.normalize(retained) != canon.normalize(measured):
+                    findings.append(
+                        f"plasticity.{name} does not match a re-run of the circuit "
+                        "at the retained weights"
+                    )
         expected_behavior_delta = {
             "spike_count_delta": post["spike_count"] - pre["spike_count"],
             "output_rate_delta_hz": post["output_rate_hz"] - pre["output_rate_hz"],

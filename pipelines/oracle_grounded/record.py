@@ -453,14 +453,14 @@ def _validate_oracle_side(record, require_named_runtime):
         findings.append(f"unknown oracle.implementation: {oracle['implementation']!r}")
     else:
         findings.extend(_validate_stage_consistency(oracle, record["family"]))
+        if oracle.get("module_digest") != oracles.module_digest():
+            findings.append(
+                "oracle.module_digest does not match the current "
+                "reference implementation"
+            )
         if oracle["implementation"] in ("reference", "mixed"):
             if oracle.get("module") != oracles.MODULE_PATH:
                 findings.append(f"reference oracle.module must be {oracles.MODULE_PATH!r}")
-            if oracle.get("module_digest") != oracles.module_digest():
-                findings.append(
-                    "reference oracle.module_digest does not match the current "
-                    "reference implementation"
-                )
         expected_authority = {
             "reference": "reference-simulator",
             "named-runtime": "measured-runtime",
@@ -783,11 +783,11 @@ def reproduce(record, environ=None):
         stored_commit = stored_oracle.get("commit")
         if oracles.resolve_source_commit(stored_commit) != stored_commit:
             return "invalid", "stored oracle.commit is not a resolved source commit"
+        if stored_oracle.get("module_digest") != oracles.module_digest():
+            return "mismatch", "stored oracle module digest is not current"
         if implementation in ("reference", "mixed"):
             if stored_oracle.get("module") != oracles.MODULE_PATH:
                 return "mismatch", "stored reference module identity is not current"
-            if stored_oracle.get("module_digest") != oracles.module_digest():
-                return "mismatch", "stored reference module digest is not current"
         spec = families.spec_for(record["family"])
         request = spec.build_request(record["scenario"], record["intervention"])
         rebuilt_configuration = canon.normalize(request.get("configuration"))
