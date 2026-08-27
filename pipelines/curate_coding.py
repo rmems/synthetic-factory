@@ -4,9 +4,9 @@
 The transform is deliberately record-level and side-effect free by default.
 It removes every mapping key that carries model-private reasoning -- the
 shared scratch-pad vocabulary (``thought``, ``chain_of_thought``, ``scratch``,
-and ``inner_monologue``), ``internal_reasoning``,
-``internal_reasoning_verbatim``, and any other ``internal_reasoning*`` variant
--- and derives a concise
+and ``inner_monologue``), the coding-factory key ``reasoning``,
+``internal_reasoning``, ``internal_reasoning_verbatim``, and any other
+``internal_reasoning*`` variant -- and derives a concise
 ``decision_basis`` only from fields that are visible in the source record:
 plan, reflection, observation, or tool call.
 Steps without usable visible evidence are excluded with machine-readable
@@ -50,8 +50,11 @@ RUN_MANIFEST_FILENAME = "manifest.jsonl"
 # Exact key names that never reach a curated record, plus the
 # ``internal_reasoning`` prefix that covers ``internal_reasoning_verbatim``,
 # ``internal_reasoning_optimizer``, and every other published variant.
+# ``reasoning`` is the coding-factory contract key
+# (prompts/04-agentic-coding-trajectory-factory.md) and is an exact match
+# only, so nearby names such as ``reasoning_flaw`` stay visible.
 HIDDEN_REASONING_KEYS = HIDDEN_THOUGHT_KEYS | frozenset(
-    {"internal_reasoning", "internal_reasoning_verbatim"}
+    {"internal_reasoning", "internal_reasoning_verbatim", "reasoning"}
 )
 HIDDEN_REASONING_PREFIX = "internal_reasoning"
 
@@ -109,9 +112,10 @@ def normalized_key_name(value: Any) -> str:
 def is_hidden_reasoning_key(key: Any) -> bool:
     """Return whether ``key`` names model-private reasoning text.
 
-    Matches the structural audit's scratch-pad vocabulary and the whole
-    ``internal_reasoning*`` family so a published private-reasoning variant
-    cannot slip into a curated record unnoticed.
+    Matches the structural audit's scratch-pad vocabulary, the exact
+    coding-factory key ``reasoning``, and the whole ``internal_reasoning*``
+    family so a published private-reasoning variant cannot slip into a
+    curated record unnoticed.
     """
     normalized = normalized_key_name(key)
     return normalized in HIDDEN_REASONING_KEYS or normalized.startswith(

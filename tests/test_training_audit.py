@@ -577,6 +577,55 @@ class CuratedViewHasNoHiddenReasoning(unittest.TestCase):
         )
         self.assertFalse(report["training_ready"])
 
+    def test_wrap_reasoning_key_blocks_training(self):
+        source = coding_wrap("wrap-reasoning-key")
+        source["proposed_action"].pop("internal_reasoning")
+        source["proposed_action"].pop("internal_reasoning_verbatim")
+        source["executed_action"]["steps"][0].pop("thought")
+        source["proposed_action"]["reasoning"] = "private gate trace"
+        source["executed_action"]["steps"][0]["reasoning"] = "private step trace"
+
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            write(
+                root / "agentic-coding-trajectory-factory" / "batch-r02.jsonl",
+                [source],
+            )
+            report = training_audit.audit_run(root)
+
+        self.assertEqual(report["episodes"]["hidden_thought_fields"], 2)
+        self.assertEqual(
+            sorted(path.split(":", 2)[2] for path in report["hidden_thought_examples"]),
+            [
+                "executed_action.steps[0].reasoning",
+                "proposed_action.reasoning",
+            ],
+        )
+        self.assertFalse(report["training_ready"])
+
+    def test_strict_audit_passes_after_curation_strips_reasoning(self):
+        source = coding_wrap("wrap-reasoning-curated")
+        source["proposed_action"]["reasoning"] = "private gate trace"
+        source["executed_action"]["steps"][0]["reasoning"] = "private step trace"
+        curated, manifest = curate_coding.curate_episode(source)
+        self.assertIsNotNone(curated)
+        self.assertNotIn("reasoning", curated["proposed_action"])
+        self.assertNotIn("reasoning", curated["executed_action"]["steps"][0])
+        self.assertEqual(manifest["hidden_reasoning_fields_removed"], 5)
+
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            write(
+                root / "agentic-coding-trajectory-factory" / "batch-r02.jsonl",
+                [curated],
+            )
+            report = training_audit.audit_run(root)
+
+        self.assertEqual(report["episodes"].get("hidden_thought_fields", 0), 0)
+        self.assertEqual(report["hidden_thought_examples"], [])
+        self.assertEqual(report["blockers"], [])
+        self.assertTrue(report["training_ready"])
+
     def test_undelimited_internal_reasoning_suffixes_block_training(self):
         source = thalamic("wrap-reasoning-prefix")
         source["proposed_action"]["internal_reasoning2"] = "private numbered trace"

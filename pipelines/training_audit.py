@@ -47,8 +47,9 @@ from validate_run import (  # noqa: E402
 )
 
 # A curated training view may expose neither the scratch-pad vocabulary the
-# structural validator already knows about nor the ``internal_reasoning*``
-# family that Thalamic wrap records publish on ``proposed_action``.
+# structural validator already knows about, the coding-factory key
+# ``reasoning``, nor the ``internal_reasoning*`` family that Thalamic wrap
+# records publish on ``proposed_action``.
 CURATED_FORBIDDEN_REASONING_KEYS = HIDDEN_THOUGHT_KEYS | HIDDEN_REASONING_KEYS
 
 
@@ -232,8 +233,9 @@ def has_observable_decision_basis(turn):
 def is_hidden_thought_key(key):
     """Return whether a JSON key names model-private reasoning text.
 
-    Covers the shared scratch-pad vocabulary from ``validate_run`` plus the
-    whole ``internal_reasoning*`` family that Thalamic wrap records carry on
+    Covers the shared scratch-pad vocabulary from ``validate_run``, the
+    exact coding-factory key ``reasoning``, and the whole
+    ``internal_reasoning*`` family that Thalamic wrap records carry on
     ``proposed_action``. Raw evidence may keep these keys; a curated training
     view may not.
     """

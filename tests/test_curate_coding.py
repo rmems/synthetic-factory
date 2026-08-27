@@ -606,6 +606,8 @@ class HiddenReasoningKeyTests(unittest.TestCase):
         for key in (
             *sorted(HIDDEN_THOUGHT_KEYS),
             "Thought",
+            "reasoning",
+            "Reasoning",
             "internal_reasoning",
             "internalReasoning",
             "internal_reasoning_verbatim",
@@ -703,6 +705,21 @@ class HiddenReasoningKeyTests(unittest.TestCase):
         second_output, _ = curate_episode(second)
 
         self.assertEqual(first_output, second_output)
+
+    def test_reasoning_is_stripped_from_wrap_gate_and_embedded_step(self):
+        source = wrap_record([visible_step(reasoning="private step trace")])
+        source["proposed_action"]["reasoning"] = "private gate trace"
+
+        curated, manifest = curate_episode(source)
+
+        self.assertIsNotNone(curated)
+        self.assertFalse(contains_hidden_reasoning_key(curated))
+        self.assertNotIn("reasoning", curated["proposed_action"])
+        self.assertNotIn("reasoning", curated["executed_action"]["steps"][0])
+        self.assertFalse(is_hidden_reasoning_key("reasoning_flaw"))
+        # Two gate-level internal_reasoning* fields, wrap-level reasoning,
+        # plus thought and reasoning on the embedded coding step.
+        self.assertEqual(manifest["hidden_reasoning_fields_removed"], 5)
 
 
 class WrapRecordTests(unittest.TestCase):
