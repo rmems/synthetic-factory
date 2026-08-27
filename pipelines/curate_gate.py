@@ -47,6 +47,9 @@ Plan schema (``curation-integration-plan/v1``)::
     }
 
 The reward lane also declares its ``reward_source_sidecars`` artifact. A
+lane that used ``--units-migration`` additionally declares the copied
+``reward_units_migration`` artifact so calibration claims can be rederived
+from the sealed catalog. A
 production ``source_run`` beginning with ``outputs/raw`` resolves from the
 repository root, so the example remains valid when the plan lives under
 ``outputs/curation``. A short value such as ``raw`` remains plan-relative for
@@ -118,8 +121,11 @@ REVIEW_FILENAME = "review-verdicts.json"
 GOVERNANCE_DIRNAME = "governance"
 LANE_MANIFEST_DIRNAME = "lane-manifests"
 REWARD_SIDECAR_DIRNAME = "reward-sidecars"
+REWARD_CALIBRATION_DIRNAME = "reward-calibrations"
 
 REWARD_SIDECAR_KIND = "reward_source_sidecars"
+REWARD_CALIBRATION_KIND = "reward_units_migration"
+REWARD_ARTIFACT_KINDS = frozenset({REWARD_SIDECAR_KIND, REWARD_CALIBRATION_KIND})
 SHA256_HEX_RE = re.compile(r"^(?:sha256:)?([0-9a-f]{64})$")
 
 VALIDATOR = _PIPELINES / "validate_run.py"
@@ -534,7 +540,7 @@ def load_plan(plan_path: Path) -> dict[str, Any]:
             if not isinstance(artifact, dict):
                 raise GateError(f"{label} must be an object")
             kind = artifact.get("kind")
-            if kind != REWARD_SIDECAR_KIND:
+            if kind not in REWARD_ARTIFACT_KINDS:
                 raise GateError(f"{label} has unsupported kind {kind!r}")
             value = artifact.get("path")
             if not isinstance(value, str) or not value.strip():
@@ -1016,10 +1022,23 @@ def _prepare_lane(
             artifact["source_path"],
             f"lane {lane['order']} ({lane['transform']}) governance artifact",
         )
-        documents = _load_reward_sidecars(
-            artifact["source_path"],
-            payload=artifact_payload,
-        )
+        catalog: dict[str, dict[str, Any]] | None = None
+        if artifact["kind"] == REWARD_CALIBRATION_KIND:
+            try:
+                catalog = curate_rewards.load_units_migration_bytes(
+                    artifact_payload,
+                    label=str(artifact["source_path"]),
+                )
+            except curate_rewards.RewardOntologyError as exc:
+                raise GateError(
+                    f"lane {lane['order']} calibration artifact is invalid: {exc}"
+                ) from exc
+            documents = []
+        else:
+            documents = _load_reward_sidecars(
+                artifact["source_path"],
+                payload=artifact_payload,
+            )
         prepared_artifacts.append(
             {
                 **artifact,
@@ -1027,6 +1046,7 @@ def _prepare_lane(
                 "_sha256": artifact_sha256,
                 "_bytes": artifact_bytes,
                 "_documents": len(documents),
+                "_catalog": catalog,
             }
         )
 
@@ -1367,7 +1387,6 @@ def _normalize_entry(entry: dict[str, Any], lane: dict[str, Any]) -> dict[str, A
         transform_name = transform.get("name")
         transform_version = transform.get("version")
     else:
-        transform = {}
         transform_name = transform_value if isinstance(transform_value, str) else None
         transform_version = None
     declared_transform = entry.get("transform_name") or transform_name
@@ -1556,7 +1575,11 @@ def copy_lane_evidence(
         for artifact in lane["artifacts"]:
             artifact_relative = (
                 Path(GOVERNANCE_DIRNAME)
-                / REWARD_SIDECAR_DIRNAME
+                / (
+                    REWARD_CALIBRATION_DIRNAME
+                    if artifact["kind"] == REWARD_CALIBRATION_KIND
+                    else REWARD_SIDECAR_DIRNAME
+                )
                 / lane_token
                 / f"{artifact['destination']}.evidence"
             )
@@ -1700,7 +1723,7 @@ def verify_lane_evidence(
         if not isinstance(artifacts, list):
             raise GateError(f"lane_evidence[{index}].artifacts must be a list")
         for artifact_index, artifact in enumerate(artifacts, 1):
-            if not isinstance(artifact, dict) or artifact.get("kind") != REWARD_SIDECAR_KIND:
+            if not isinstance(artifact, dict) or artifact.get("kind") not in REWARD_ARTIFACT_KINDS:
                 raise GateError(f"lane_evidence[{index}].artifacts[{artifact_index}] is invalid")
             artifact_path = _evidence_file(
                 cleaned,
@@ -1718,18 +1741,39 @@ def verify_lane_evidence(
             )
             if actual_artifact_sha != expected_sha:
                 raise GateError(f"lane_evidence[{index}] artifact hash mismatch")
-            documents = _load_reward_sidecars(artifact_path, payload=artifact_payload)
+            catalog = None
+            if artifact.get("kind") == REWARD_CALIBRATION_KIND:
+                try:
+                    catalog = curate_rewards.load_units_migration_bytes(
+                        artifact_payload,
+                        label=artifact_path.as_posix(),
+                    )
+                except curate_rewards.RewardOntologyError as exc:
+                    raise GateError(
+                        f"lane_evidence[{index}] calibration artifact is invalid: {exc}"
+                    ) from exc
+                documents: list[dict[str, Any]] = []
+            else:
+                documents = _load_reward_sidecars(artifact_path, payload=artifact_payload)
             if artifact.get("documents") != len(documents):
                 raise GateError(f"lane_evidence[{index}] artifact document count mismatch")
             if artifact.get("bytes") != artifact_bytes:
                 raise GateError(f"lane_evidence[{index}] artifact byte count mismatch")
             expected_governance_outputs.append(
                 {
-                    "kind": REWARD_SIDECAR_KIND,
+                    "kind": artifact.get("kind"),
                     "path": artifact_path.relative_to(cleaned).as_posix(),
                     "sha256": expected_sha,
                     "bytes": artifact_bytes,
                     "documents": len(documents),
+                }
+            )
+            artifacts_for_lane = lane.setdefault("artifacts", [])
+            artifacts_for_lane.append(
+                {
+                    "kind": artifact.get("kind"),
+                    "source_path": artifact_path,
+                    "_catalog": catalog,
                 }
             )
         prepared.append({**lane, "entries": entries})
@@ -1894,10 +1938,14 @@ def _normalize_record_bindings(raw_bindings: Any) -> list[dict[str, Any]]:
                 "source_record_sha256": _normalized_sha256(
                     raw.get("source_record_sha256"), f"{label}.source_record_sha256"
                 ),
-                "lineage": sorted(normalized_lineage, key=lambda item: item["lane_order"]),
+                "lineage": sorted(
+                    normalized_lineage, key=lambda lane_row: lane_row["lane_order"]
+                ),
             }
         )
-    return sorted(normalized, key=lambda item: (item["output_path"], item["output_line"]))
+    return sorted(
+        normalized, key=lambda binding: (binding["output_path"], binding["output_line"])
+    )
 
 
 def _output_evidence_gate(
@@ -2022,6 +2070,21 @@ def _mapping_value(document: Any, pointer: Any, label: str) -> Any:
 def _mapping_pointer(base: str, key: str) -> str:
     token = key.replace("~", "~0").replace("/", "~1")
     return f"/{token}" if base == "/" else f"{base}/{token}"
+
+
+def _canonical_identity_output_id(
+    source_path: str, source_line: int, kind: str, owner_path: str
+) -> str:
+    factory = source_path.split("/", 1)[0]
+    source = curate_identity.SourceIdentity(
+        source_path,
+        source_line,
+        factory,
+        "0" * 64,
+        "source-coordinate",
+        None,
+    )
+    return curate_identity.canonical_id(source, kind, owner_path)
 
 
 def _identity_owner_specs(
@@ -2247,6 +2310,16 @@ def _identity_mapping_gate(
             errors.append({"source": where, "error": "id_mappings must be non-empty"})
         else:
             seen_owners: set[str] = set()
+            try:
+                kind = curate_identity.record_kind(record)
+            except curate_identity.IdentityCurationError as exc:
+                errors.append(
+                    {
+                        "source": where,
+                        "error": f"{where} output has no supported identity shape: {exc}",
+                    }
+                )
+                continue
             for mapping_index, mapping in enumerate(id_mappings, 1):
                 label = f"identity_mappings[{entry_index}].id_mappings[{mapping_index}]"
                 try:
@@ -2264,6 +2337,20 @@ def _identity_mapping_gate(
                         or owner.get("id") != output_id
                     ):
                         raise GateError(f"{label}.output_id does not match output owner")
+                    source_path = entry.get("source_path")
+                    source_line = entry.get("source_line")
+                    if not isinstance(source_path, str) or not isinstance(source_line, int):
+                        raise GateError(f"{label} is missing an authenticated source coordinate")
+                    expected_id = _canonical_identity_output_id(
+                        source_path,
+                        source_line,
+                        kind,
+                        owner_path,
+                    )
+                    if output_id is not None and output_id != expected_id:
+                        raise GateError(
+                            f"{label}.output_id is not the deterministic canonical identity"
+                        )
                     checked_ids += 1
                 except GateError as exc:
                     errors.append({"source": where, "error": str(exc)})
@@ -2479,7 +2566,10 @@ def build_sample(
         evidence, factory, kind, decision, repair, exclusion_reason = key
         population = buckets[key]
         # Content-derived order: stable across runs, independent of file order.
-        chosen = sorted(population, key=lambda item: (item["record_sha256"], item["source"]))[
+        chosen = sorted(
+            population,
+            key=lambda sampled: (sampled["record_sha256"], sampled["source"]),
+        )[
             :per_stratum
         ]
         strata.append(
@@ -2725,22 +2815,86 @@ def _walk_reward_values(value: Any, path: tuple[str | int, ...] = ()) -> Iterabl
             yield from _walk_reward_values(child, (*path, index))
 
 
-def _derived_reward_contract(record: dict[str, Any], sidecar: dict[str, Any]) -> dict[str, Any]:
-    """Recompute ontology semantics only from reward values retained in the row.
+def _reward_calibration_catalog(
+    prepared_lanes: Sequence[dict[str, Any]],
+) -> dict[str, dict[str, Any]]:
+    catalogs = [
+        dict(artifact.get("_catalog") or {})
+        for lane in prepared_lanes
+        for artifact in lane.get("artifacts", [])
+        if artifact.get("kind") == REWARD_CALIBRATION_KIND
+    ]
+    if len(catalogs) > 1:
+        raise GateError("more than one calibration artifact across all lanes")
+    return catalogs[0] if catalogs else {}
 
-    External calibration is not accepted from a self-authenticating sidecar.
-    A magnitude class must therefore be derivable from explicit unit evidence
-    carried by the reward value itself.  A future external calibration lane
-    needs its own independently pinned governance artifact before this gate can
-    treat it as primitive evidence.
-    """
-    if sidecar.get("calibration") is not None:
-        raise curate_rewards.RewardOntologyError(
-            "external calibration is not authenticated by retained primitive evidence"
+
+def _authenticated_record_calibration(
+    source_record: dict[str, Any] | None,
+    sidecar: dict[str, Any],
+    catalog: dict[str, dict[str, Any]],
+) -> dict[str, Any] | None:
+    claimed = sidecar.get("calibration")
+    source = sidecar.get("source") if isinstance(sidecar.get("source"), dict) else {}
+    sidecar_record_id = source.get("record_id")
+    authenticated_id = (
+        curate_rewards.canonical_source_record_id(source_record)
+        if source_record is not None
+        else None
+    )
+    if (
+        source_record is not None
+        and sidecar_record_id is not None
+        and (
+            authenticated_id is None
+            or not isinstance(sidecar_record_id, str)
+            or curate_rewards.catalog_record_key(authenticated_id)
+            != curate_rewards.catalog_record_key(sidecar_record_id)
         )
-    source_record = copy.deepcopy(record)
-    source_record.pop(curate_rewards.ANNOTATION_FIELD, None)
-    reward_items = sorted(_walk_reward_values(source_record), key=lambda item: item[0])
+    ):
+        raise curate_rewards.RewardOntologyError(
+            "sidecar calibration source identity does not match the authenticated record"
+        )
+    lookup_id = authenticated_id or sidecar_record_id
+    expected = (
+        catalog.get(curate_rewards.catalog_record_key(lookup_id))
+        if isinstance(lookup_id, str) and lookup_id.strip()
+        else None
+    )
+    if claimed is None:
+        if expected is not None:
+            raise curate_rewards.RewardOntologyError(
+                "sidecar omits calibration evidence present in the migration artifact"
+            )
+        return None
+    normalized_claimed = curate_rewards.normalize_calibration(claimed)
+    if expected is None:
+        raise curate_rewards.RewardOntologyError(
+            "external calibration has no matching record in the migration artifact"
+        )
+    normalized_expected = curate_rewards.normalize_calibration(expected)
+    if normalized_claimed["source_unit_usd"] != normalized_expected["source_unit_usd"]:
+        raise curate_rewards.RewardOntologyError(
+            "sidecar calibration does not match the migration artifact for its source record"
+        )
+    return expected
+
+
+def _derived_reward_contract(
+    record: dict[str, Any],
+    sidecar: dict[str, Any],
+    calibration_catalog: dict[str, dict[str, Any]],
+    source_record: dict[str, Any] | None,
+) -> dict[str, Any]:
+    """Recompute ontology semantics from row values and authenticated evidence."""
+    calibration = _authenticated_record_calibration(
+        source_record,
+        sidecar,
+        calibration_catalog,
+    )
+    output_record = copy.deepcopy(record)
+    output_record.pop(curate_rewards.ANNOTATION_FIELD, None)
+    reward_items = sorted(_walk_reward_values(output_record), key=lambda item: item[0])
     source_rewards = [
         {
             "json_pointer": pointer,
@@ -2752,10 +2906,10 @@ def _derived_reward_contract(record: dict[str, Any], sidecar: dict[str, Any]) ->
     arithmetic = [
         curate_rewards.assess_arithmetic(value, pointer) for pointer, value in reward_items
     ]
-    comparability, reason_codes, payload = curate_rewards._classify(  # noqa: SLF001
+    comparability, reason_codes, payload = curate_rewards.classify_source_rewards(
         source_rewards,
         arithmetic,
-        None,
+        calibration,
     )
     return {
         "source_rewards": source_rewards,
@@ -2772,8 +2926,15 @@ def _authenticate_reward_semantics(
     record: dict[str, Any],
     annotation: dict[str, Any],
     sidecar: dict[str, Any],
+    calibration_catalog: dict[str, dict[str, Any]],
+    source_record: dict[str, Any] | None,
 ) -> None:
-    derived = _derived_reward_contract(record, sidecar)
+    derived = _derived_reward_contract(
+        record,
+        sidecar,
+        calibration_catalog,
+        source_record,
+    )
     if sidecar.get("source_rewards") != derived["source_rewards"]:
         raise curate_rewards.RewardOntologyError(
             "source_rewards do not match independently enumerated reward values"
@@ -2873,6 +3034,7 @@ def _reward_sidecar_gate(
     linked = 0
     missing: list[str] = []
     used_sidecars: dict[str, str] = {}
+    calibration_catalog = _reward_calibration_catalog(prepared_lanes)
     binding_by_output = {
         (binding["output_path"], binding["output_line"]): binding for binding in bindings
     }
@@ -2880,6 +3042,7 @@ def _reward_sidecar_gate(
     terminal_source_keys: set[tuple[str, int]] = set()
     known_source_keys: set[tuple[str, int]] = set()
     known_source_record_hashes: dict[tuple[str, int], str] = {}
+    source_records_by_key: dict[tuple[str, int], Any] = {}
     for lane in prepared_lanes:
         for entry in lane["entries"]:
             source_key = entry["_source_key"]
@@ -2890,6 +3053,7 @@ def _reward_sidecar_gate(
             source_record = entry.get("_source_record")
             if source_record is not None:
                 known_source_record_hashes[source_key] = record_sha256(source_record)
+                source_records_by_key[source_key] = source_record
     for relative, line, record in iter_records(cleaned):
         if not isinstance(record, dict):
             continue
@@ -2935,7 +3099,15 @@ def _reward_sidecar_gate(
                 raise curate_rewards.RewardOntologyError(
                     f"sidecar is linked by more than one final record (first {first_use})"
                 )
-            _authenticate_reward_semantics(record, annotation, sidecar)
+            source_key = (binding["source_path"], binding["source_line"])
+            source_record = source_records_by_key.get(source_key)
+            _authenticate_reward_semantics(
+                record,
+                annotation,
+                sidecar,
+                calibration_catalog,
+                source_record if isinstance(source_record, dict) else None,
+            )
             for reward in sidecar["source_rewards"]:
                 current = _pointer_value(record, reward.get("json_pointer"))
                 expected_hash = _normalized_sha256(
@@ -2949,6 +3121,12 @@ def _reward_sidecar_gate(
                     raise curate_rewards.RewardOntologyError(
                         f"record reward differs from sidecar at {reward.get('json_pointer')}"
                     )
+                if isinstance(source_record, dict):
+                    source_value = _pointer_value(source_record, reward.get("json_pointer"))
+                    if record_sha256(source_value) != record_sha256(reward.get("value")):
+                        raise curate_rewards.RewardOntologyError(
+                            f"sidecar reward does not match authenticated source at {reward.get('json_pointer')}"
+                        )
         except (curate_rewards.RewardOntologyError, GateError) as exc:
             invalid.append({"source": where, "error": str(exc)})
             continue
