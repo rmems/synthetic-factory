@@ -2310,6 +2310,16 @@ def _identity_mapping_gate(
             errors.append({"source": where, "error": "id_mappings must be non-empty"})
         else:
             seen_owners: set[str] = set()
+            try:
+                kind = curate_identity.record_kind(record)
+            except curate_identity.IdentityCurationError as exc:
+                errors.append(
+                    {
+                        "source": where,
+                        "error": f"{where} output has no supported identity shape: {exc}",
+                    }
+                )
+                continue
             for mapping_index, mapping in enumerate(id_mappings, 1):
                 label = f"identity_mappings[{entry_index}].id_mappings[{mapping_index}]"
                 try:
@@ -2327,12 +2337,6 @@ def _identity_mapping_gate(
                         or owner.get("id") != output_id
                     ):
                         raise GateError(f"{label}.output_id does not match output owner")
-                    try:
-                        kind = curate_identity.record_kind(record)
-                    except curate_identity.IdentityCurationError as exc:
-                        raise GateError(
-                            f"{label} output has no supported identity shape: {exc}"
-                        ) from exc
                     source_path = entry.get("source_path")
                     source_line = entry.get("source_line")
                     if not isinstance(source_path, str) or not isinstance(source_line, int):
@@ -2821,7 +2825,7 @@ def _reward_calibration_catalog(
         if artifact.get("kind") == REWARD_CALIBRATION_KIND
     ]
     if len(catalogs) > 1:
-        raise GateError("reward lane carries more than one calibration artifact")
+        raise GateError("more than one calibration artifact across all lanes")
     return catalogs[0] if catalogs else {}
 
 
@@ -3038,6 +3042,7 @@ def _reward_sidecar_gate(
     terminal_source_keys: set[tuple[str, int]] = set()
     known_source_keys: set[tuple[str, int]] = set()
     known_source_record_hashes: dict[tuple[str, int], str] = {}
+    source_records_by_key: dict[tuple[str, int], Any] = {}
     for lane in prepared_lanes:
         for entry in lane["entries"]:
             source_key = entry["_source_key"]
@@ -3048,6 +3053,7 @@ def _reward_sidecar_gate(
             source_record = entry.get("_source_record")
             if source_record is not None:
                 known_source_record_hashes[source_key] = record_sha256(source_record)
+                source_records_by_key[source_key] = source_record
     for relative, line, record in iter_records(cleaned):
         if not isinstance(record, dict):
             continue
@@ -3093,15 +3099,8 @@ def _reward_sidecar_gate(
                 raise curate_rewards.RewardOntologyError(
                     f"sidecar is linked by more than one final record (first {first_use})"
                 )
-            source_record = None
             source_key = (binding["source_path"], binding["source_line"])
-            for lane in prepared_lanes:
-                for entry in lane.get("entries", []):
-                    if entry.get("_source_key") == source_key:
-                        source_record = entry.get("_source_record")
-                        break
-                if source_record is not None:
-                    break
+            source_record = source_records_by_key.get(source_key)
             _authenticate_reward_semantics(
                 record,
                 annotation,
@@ -3122,6 +3121,12 @@ def _reward_sidecar_gate(
                     raise curate_rewards.RewardOntologyError(
                         f"record reward differs from sidecar at {reward.get('json_pointer')}"
                     )
+                if isinstance(source_record, dict):
+                    source_value = _pointer_value(source_record, reward.get("json_pointer"))
+                    if record_sha256(source_value) != record_sha256(reward.get("value")):
+                        raise curate_rewards.RewardOntologyError(
+                            f"sidecar reward does not match authenticated source at {reward.get('json_pointer')}"
+                        )
         except (curate_rewards.RewardOntologyError, GateError) as exc:
             invalid.append({"source": where, "error": str(exc)})
             continue

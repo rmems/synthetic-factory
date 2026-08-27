@@ -2070,6 +2070,46 @@ class CorpusGateTests(unittest.TestCase):
             )
         )
 
+    def test_forged_reward_keeping_original_source_digest_is_rejected(self):
+        fixture = GateFixture(self.root)
+        reward_output = fixture.lane_reward / "thalamic-mini" / "batch-r02.jsonl"
+        records = _read_jsonl(reward_output)
+        old_id = records[0]["reward_training"]["source_sidecar_id"]
+        sidecar_path = fixture.lane_reward / "reward-sidecars.jsonl"
+        documents = _read_jsonl(sidecar_path)
+        target = next(document for document in documents if document["sidecar_id"] == old_id)
+        original_digest = target["source"]["record_sha256"]
+        forged = 0.8
+        if isinstance(records[0].get("reward_components"), dict):
+            records[0]["reward_components"]["task_progress"] = forged
+            records[0]["reward_components"]["total"] = forged
+        for reward in target["source_rewards"]:
+            pointer = reward.get("json_pointer")
+            if pointer == "/reward_components":
+                reward["value"] = copy.deepcopy(records[0]["reward_components"])
+            elif pointer in ("/reward_components/task_progress", "/reward_components/total"):
+                reward["value"] = forged
+            reward["value_sha256"] = "sha256:" + curate_gate.record_sha256(reward["value"])
+        target["source"]["record_sha256"] = original_digest
+        body = dict(target)
+        body.pop("sidecar_id")
+        target["sidecar_id"] = "sha256:" + curate_gate.record_sha256(body)
+        records[0]["reward_training"]["source_sidecar_id"] = target["sidecar_id"]
+        _write_jsonl(sidecar_path, documents)
+        _write_jsonl(reward_output, records)
+        fixture.sync_lane_manifest(3)
+
+        self.assertEqual(fixture.integrate(), 1)
+        gate = fixture.manifest()["gates"]["reward_sidecars"]
+        self.assertFalse(gate["passed"])
+        self.assertTrue(
+            any(
+                "authenticated source" in item["error"]
+                or "independent" in item["error"]
+                for item in gate["examples"]
+            )
+        )
+
     def test_self_resealed_forged_reward_class_fails_independent_derivation(self):
         fixture = GateFixture(self.root)
         reward_output = fixture.lane_reward / "thalamic-mini" / "batch-r02.jsonl"
