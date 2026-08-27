@@ -1445,7 +1445,10 @@ def main(argv=None):
             manifest["files"].append(entry)
             manifest["errors"].extend(entry["errors"])
             continue
-        for lineno, line in enumerate(text.splitlines(), 1):
+        # JSONL is delimited by literal LF bytes.  ``str.splitlines()`` also
+        # splits at U+2028/U+2029, which are valid characters inside a JSON
+        # string and would turn one valid record into several invalid lines.
+        for lineno, line in enumerate(text.split("\n"), 1):
             if not line.strip():
                 continue
             where = f"{rel}:{lineno}"

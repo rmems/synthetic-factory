@@ -131,6 +131,40 @@ class CensusBuckets(unittest.TestCase):
                     "unknown",
                 )
 
+    def test_overlapping_keys_follow_census_agentic_order(self):
+        six = {
+            "state": {},
+            "proposed_action": {},
+            "safety_decision": {},
+            "executed_action": {},
+            "future_outcome": {},
+            "reward_components": {},
+        }
+        self.assertEqual(
+            self.census.classify_kind({**six, "goal": "x", "steps": []}),
+            "thalamic",
+        )
+        self.assertEqual(
+            self.census.classify_kind(
+                {"case_type": "correct_refusal", "goal": "x", "steps": []}
+            ),
+            "safety_case",
+        )
+        self.assertEqual(
+            self.census.classify_kind(
+                {"transcript": [], "agents": [], "goal": "x", "steps": []}
+            ),
+            "multi_agent",
+        )
+        self.assertEqual(
+            self.census.classify_kind({**six, "chosen": {}, "rejected": {}}),
+            "thalamic",
+        )
+        self.assertEqual(
+            self.census.classify_kind({"chosen": dict(six), "rejected": dict(six)}),
+            "preference",
+        )
+
     def test_sim_or_real_buckets(self):
         bucket = self.census.bucket_sim_or_real
         self.assertEqual(bucket("real"), "real")

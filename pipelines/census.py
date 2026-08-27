@@ -12,14 +12,7 @@ import sys
 from collections import Counter
 from pathlib import Path
 
-THALAMIC_REQUIRED = (
-    "state",
-    "proposed_action",
-    "safety_decision",
-    "executed_action",
-    "future_outcome",
-    "reward_components",
-)
+from record_kind import classify_kind
 
 KINDS = (
     "thalamic",
@@ -32,31 +25,7 @@ KINDS = (
     "nir_equivalence",
     "unknown",
 )
-# The oracle-grounded parity families declare their kind rather than being
-# inferred from key names. Kept as a literal so census stays import-free.
-DECLARED_KINDS = frozenset({"hardware_parity", "nir_equivalence"})
 SIM_BUCKETS = ("real", "real*", "sim*", "hil*", "other", "<missing>")
-
-
-def classify_kind(obj):
-    if not isinstance(obj, dict):
-        return "unknown"
-    declared_kind = obj.get("record_kind")
-    if isinstance(declared_kind, str) and declared_kind in DECLARED_KINDS:
-        return declared_kind
-    if all(k in obj for k in THALAMIC_REQUIRED):
-        return "thalamic"
-    if "chosen" in obj and "rejected" in obj:
-        return "preference"
-    if "language_view" in obj and "spike_events" in obj:
-        return "bridge_pair"
-    if "case_type" in obj:
-        return "safety_case"
-    if "transcript" in obj and "agents" in obj:
-        return "multi_agent"
-    if "goal" in obj and "steps" in obj:
-        return "episode"
-    return "unknown"
 
 
 def bucket_sim_or_real(value):
