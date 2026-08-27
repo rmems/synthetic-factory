@@ -400,26 +400,70 @@
             },
             "comparability_classes": {
               "type": "object",
-              "propertyNames": {
-                "enum": [
-                  "magnitude_comparable",
-                  "sign_order_only",
-                  "exclude_from_reward_training"
-                ]
+              "additionalProperties": false,
+              "minProperties": 3,
+              "required": [
+                "magnitude_comparable",
+                "sign_order_only",
+                "exclude_from_reward_training"
+              ],
+              "properties": {
+                "magnitude_comparable": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "sign_order_only": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "exclude_from_reward_training": {
+                  "type": "string",
+                  "minLength": 1
+                }
               }
             },
             "component_dispositions": {
               "type": "object",
-              "propertyNames": {
-                "enum": [
-                  "declared_total",
-                  "unit_calibration",
-                  "narrative_annotation",
-                  "component_container",
-                  "magnitude_term",
-                  "structural_context",
-                  "ambiguous_preserve_only"
-                ]
+              "additionalProperties": false,
+              "minProperties": 7,
+              "required": [
+                "declared_total",
+                "unit_calibration",
+                "narrative_annotation",
+                "component_container",
+                "magnitude_term",
+                "structural_context",
+                "ambiguous_preserve_only"
+              ],
+              "properties": {
+                "declared_total": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "unit_calibration": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "narrative_annotation": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "component_container": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "magnitude_term": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "structural_context": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "ambiguous_preserve_only": {
+                  "type": "string",
+                  "minLength": 1
+                }
               }
             },
             "conversion": {

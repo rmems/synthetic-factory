@@ -431,6 +431,22 @@ class RewardOntologyV1Tests(unittest.TestCase):
         ):
             curate_rewards.validate_ontology_document(malformed)
 
+    def test_sidecar_arithmetic_must_be_a_list(self):
+        record = preference(
+            {"task_progress": 1.0, "safety": 0.0, "total": 1.0},
+            {"task_progress": 0.0, "safety": 0.0, "total": 0.0},
+        )
+        _curated, sidecar = curate_rewards.curate_record(record)
+        malformed = copy.deepcopy(sidecar)
+        malformed["arithmetic"] = None
+        malformed.pop("sidecar_id")
+        malformed["sidecar_id"] = curate_rewards._sha256(malformed)
+
+        with self.assertRaisesRegex(
+            curate_rewards.RewardOntologyError, "sidecar arithmetic must be a list"
+        ):
+            curate_rewards.validate_ontology_document(malformed)
+
     def test_runtime_validator_recomputes_canonical_conversion(self):
         units = "1.0 reward unit = USD 10,000 (risk-adjusted); deltas vs baseline"
         record = preference(
@@ -1055,6 +1071,19 @@ class ConversionPolicyMappingTests(unittest.TestCase):
                 preference["properties"][side],
                 {"type": "string", "pattern": "^/.+"},
             )
+        classes = properties["comparability_classes"]
+        self.assertEqual(
+            set(classes["required"]),
+            {
+                "magnitude_comparable",
+                "sign_order_only",
+                "exclude_from_reward_training",
+            },
+        )
+        self.assertEqual(classes["minProperties"], 3)
+        dispositions = properties["component_dispositions"]
+        self.assertEqual(len(dispositions["required"]), 7)
+        self.assertEqual(dispositions["minProperties"], 7)
 
     def test_every_declared_reason_code_is_cited_by_a_declared_rule(self):
         policy = curate_rewards.CONVERSION_POLICY["policy"]
@@ -1160,6 +1189,87 @@ class ConversionPolicyMappingTests(unittest.TestCase):
             curate_rewards.RewardOntologyError, "disposition must be"
         ):
             curate_rewards.validate_conversion_policy(wrong_disposition)
+
+        overlapping_aliases = copy.deepcopy(document)
+        overlapping_aliases["policy"]["arithmetic"]["weight_aliases"]["safety"] = [
+            "safety",
+            "task_progress",
+        ]
+        with self.assertRaisesRegex(
+            curate_rewards.RewardOntologyError, "weight alias groups must be disjoint"
+        ):
+            curate_rewards.validate_conversion_policy(overlapping_aliases)
+
+        annotation_collision = copy.deepcopy(document)
+        annotation_collision["policy"]["annotation_field"] = "reward_components"
+        with self.assertRaisesRegex(
+            curate_rewards.RewardOntologyError, "must not be a declared reward key"
+        ):
+            curate_rewards.validate_conversion_policy(annotation_collision)
+
+        bad_preference = copy.deepcopy(document)
+        bad_preference["policy"]["preference_scope"]["preferred"] = "/chosen/not_reward"
+        with self.assertRaisesRegex(
+            curate_rewards.RewardOntologyError, "must target a declared reward key"
+        ):
+            curate_rewards.validate_conversion_policy(bad_preference)
+
+        shared_unit_fields = copy.deepcopy(document)
+        shared_unit_fields["policy"]["conversion"]["text_unit_field"] = (
+            shared_unit_fields["policy"]["conversion"]["structured_unit_field"]
+        )
+        with self.assertRaisesRegex(
+            curate_rewards.RewardOntologyError,
+            "structured and textual unit fields must be distinct",
+        ):
+            curate_rewards.validate_conversion_policy(shared_unit_fields)
+
+        shared_calibration_fields = copy.deepcopy(document)
+        shared_calibration_fields["policy"]["conversion"]["external_calibration"][
+            "scope_field"
+        ] = shared_calibration_fields["policy"]["conversion"]["external_calibration"][
+            "factor_field"
+        ]
+        with self.assertRaisesRegex(
+            curate_rewards.RewardOntologyError,
+            "external calibration fields must be distinct",
+        ):
+            curate_rewards.validate_conversion_policy(shared_calibration_fields)
+
+        nonnumeric_pattern = copy.deepcopy(document)
+        nonnumeric_pattern["policy"]["arithmetic"][
+            "rounding_declaration_pattern"
+        ] = "(abc)"
+        with self.assertRaisesRegex(
+            curate_rewards.RewardOntologyError, "capture group must be numeric"
+        ):
+            curate_rewards.validate_conversion_policy(nonnumeric_pattern)
+
+        foreign_unit = copy.deepcopy(document)
+        foreign_unit["policy"]["conversion"]["canonical_unit"] = "eur"
+        with self.assertRaisesRegex(
+            curate_rewards.RewardOntologyError,
+            "canonical_unit must match the annotation schema constant",
+        ):
+            curate_rewards.validate_conversion_policy(foreign_unit)
+
+        impossible_pair = copy.deepcopy(document)
+        impossible_pair["source_vocabulary"]["shapes"][0][
+            "arithmetic_status"
+        ] = "unsupported"
+        with self.assertRaisesRegex(
+            curate_rewards.RewardOntologyError,
+            "incompatible with method",
+        ):
+            curate_rewards.validate_conversion_policy(impossible_pair)
+
+        stale_occurrences = copy.deepcopy(document)
+        stale_occurrences["source_vocabulary"]["shapes"][0]["occurrences"] = 999999
+        with self.assertRaisesRegex(
+            curate_rewards.RewardOntologyError,
+            "shape occurrences must sum to reward_instances",
+        ):
+            curate_rewards.validate_conversion_policy(stale_occurrences)
 
     def test_missing_or_invalid_mapping_file_is_a_loud_failure(self):
         with tempfile.TemporaryDirectory() as td:
@@ -1382,6 +1492,9 @@ class SourceVocabularyMappingTests(unittest.TestCase):
 
         document = copy.deepcopy(curate_rewards.CONVERSION_POLICY)
         document["source_vocabulary"]["shapes"][0] = shape
+        document["source_vocabulary"]["reward_instances"] = sum(
+            item["occurrences"] for item in document["source_vocabulary"]["shapes"]
+        )
         self.assertIs(curate_rewards.validate_conversion_policy(document), document)
 
     def test_malformed_shape_arithmetic_outcomes_are_refused(self):
@@ -1700,6 +1813,16 @@ class RewardOntologyFixtureRegression(unittest.TestCase):
         self.assertEqual(
             census["ontology_scope_instances"] - census["reward_instances"], 2
         )
+        self.assertEqual(
+            set(census["dispositions"]),
+            set(curate_rewards.COMPONENT_DISPOSITIONS),
+        )
+
+    def test_census_rejects_non_object_records(self):
+        with self.assertRaisesRegex(
+            curate_rewards.RewardOntologyError, "census records must be objects"
+        ):
+            curate_rewards.reward_census(["not-an-object"])
 
 
 class MagnitudeMixingTests(unittest.TestCase):
@@ -1757,6 +1880,20 @@ class MagnitudeMixingTests(unittest.TestCase):
             curate_rewards.MagnitudeNotComparable, "no usable comparability class"
         ):
             curate_rewards.magnitude_training_cohort([{"reward_components": {}}])
+
+    def test_duplicate_magnitude_pointers_are_rejected(self):
+        curated = self.curated("ffpc-preferences.jsonl", 1)
+        values = curated[curate_rewards.ANNOTATION_FIELD]["magnitude"]["values"]
+        values.append(copy.deepcopy(values[0]))
+
+        with self.assertRaisesRegex(
+            curate_rewards.RewardOntologyError, "duplicate magnitude json_pointer"
+        ):
+            curate_rewards.canonical_magnitudes(curated)
+        with self.assertRaisesRegex(
+            curate_rewards.RewardOntologyError, "duplicate magnitude json_pointer"
+        ):
+            curate_rewards.magnitude_training_cohort([curated])
 
     def test_uncalibrated_annotations_never_carry_canonical_values(self):
         for name, line_number, record in all_fixture_records():

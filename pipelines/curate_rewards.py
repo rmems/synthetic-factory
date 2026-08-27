@@ -180,7 +180,7 @@ def _mapping_integer(container, key, where, *, minimum=0):
     return value
 
 
-def _mapping_pattern(container, key, where, *, groups=0):
+def _mapping_pattern(container, key, where, *, groups=0, numeric_group=False):
     pattern = _mapping_str(container, key, where)
     try:
         compiled = re.compile(pattern, re.I)
@@ -188,22 +188,55 @@ def _mapping_pattern(container, key, where, *, groups=0):
         raise _policy_error(where, f"{key} is not a valid regular expression: {exc}") from exc
     if compiled.groups != groups:
         raise _policy_error(where, f"{key} must declare exactly {groups} capture group(s)")
+    if numeric_group:
+        haystack = "rounded to 3-decimal 1 reward unit = USD 10,000.5 abc"
+        match = compiled.search(haystack)
+        if match is not None:
+            try:
+                Decimal(str(match.group(1)).replace(",", ""))
+            except (InvalidOperation, TypeError, IndexError, ArithmeticError) as exc:
+                raise _policy_error(
+                    where, f"{key} capture group must be numeric"
+                ) from exc
     return compiled
+
+
+def _numeric_capture(match, *, integer=False):
+    try:
+        token = str(match.group(1)).replace(",", "")
+        value = int(token) if integer else Decimal(token)
+    except (InvalidOperation, TypeError, ValueError, IndexError, ArithmeticError) as exc:
+        raise RewardOntologyError("numeric regex capture is not a number") from exc
+    return value
 
 
 def _validate_conversion_block(policy, where):
     conversion = _mapping_object(policy, "conversion", where)
-    _mapping_str(conversion, "canonical_unit", where)
+    canonical_unit = _mapping_str(conversion, "canonical_unit", where)
+    if canonical_unit != "usd_10000_risk_adjusted_delta":
+        raise _policy_error(
+            where, "canonical_unit must match the annotation schema constant"
+        )
     _mapping_positive(conversion, "canonical_unit_usd", where)
-    _mapping_str(conversion, "aggregation", where)
+    aggregation = _mapping_str(conversion, "aggregation", where)
+    if aggregation != "linear_unit_conversion_only":
+        raise _policy_error(
+            where, "aggregation must match the annotation schema constant"
+        )
     _mapping_str(conversion, "required_semantics_substring", where)
-    _mapping_str(conversion, "structured_unit_field", where)
-    _mapping_str(conversion, "text_unit_field", where)
-    _mapping_pattern(conversion, "usd_unit_pattern", where, groups=1)
+    structured = _mapping_str(conversion, "structured_unit_field", where)
+    textual = _mapping_str(conversion, "text_unit_field", where)
+    if structured == textual:
+        raise _policy_error(where, "structured and textual unit fields must be distinct")
+    _mapping_pattern(
+        conversion, "usd_unit_pattern", where, groups=1, numeric_group=True
+    )
     external = _mapping_object(conversion, "external_calibration", where)
     _mapping_pattern(external, "record_id_pattern", where, groups=0)
-    _mapping_str(external, "factor_field", where)
-    _mapping_str(external, "scope_field", where)
+    factor_field = _mapping_str(external, "factor_field", where)
+    scope_field = _mapping_str(external, "scope_field", where)
+    if factor_field == scope_field:
+        raise _policy_error(where, "external calibration fields must be distinct")
     return conversion
 
 
@@ -213,17 +246,28 @@ def _validate_arithmetic_block(policy, where):
     _mapping_str(arithmetic, "declared_total_field", where)
     _mapping_str(arithmetic, "weights_field", where)
     _mapping_str(arithmetic, "rounding_decimals_field", where)
-    _mapping_pattern(arithmetic, "rounding_declaration_pattern", where, groups=1)
+    _mapping_pattern(
+        arithmetic,
+        "rounding_declaration_pattern",
+        where,
+        groups=1,
+        numeric_group=True,
+    )
     _mapping_str_list(arithmetic, "rounding_declaration_fields", where)
     containers = _mapping_str_list(arithmetic, "weighted_containers", where)
     nested = _mapping_str(arithmetic, "nested_component_key", where)
     if nested not in containers:
         raise _policy_error(where, "nested_component_key must be a declared weighted container")
     aliases = _mapping_object(arithmetic, "weight_aliases", where)
+    seen_aliases = set()
     for name in sorted(aliases):
         members = _mapping_str_list(aliases, name, where)
         if name not in members:
             raise _policy_error(where, f"weight_aliases[{name!r}] must contain its own key")
+        overlap = seen_aliases.intersection(members)
+        if overlap:
+            raise _policy_error(where, "weight alias groups must be disjoint")
+        seen_aliases.update(members)
     groups = _mapping_object(arithmetic, "non_component_keys", where)
     expected_groups = {
         DISPOSITION_DECLARED_TOTAL,
@@ -427,6 +471,7 @@ def _validate_source_vocabulary(document, arithmetic, where):
             vocabulary_where, "unique_shapes must equal the number of shapes"
         )
     signatures = set()
+    occurrence_total = 0
     for index, shape in enumerate(shapes):
         shape_where = f"{vocabulary_where}.shapes[{index}]"
         if not isinstance(shape, dict):
@@ -440,7 +485,9 @@ def _validate_source_vocabulary(document, arithmetic, where):
         allowed_methods = _arithmetic_methods_for_signature(
             signature, arithmetic, shape_where
         )
-        _mapping_integer(shape, "occurrences", shape_where, minimum=1)
+        occurrence_total += _mapping_integer(
+            shape, "occurrences", shape_where, minimum=1
+        )
         has_singular = (
             "arithmetic_status" in shape or "arithmetic_method" in shape
         )
@@ -482,10 +529,39 @@ def _validate_source_vocabulary(document, arithmetic, where):
                     outcome_where,
                     f"arithmetic method {method!r} is incompatible with signature",
                 )
+            allowed_status = {
+                "valid": {
+                    "declared_weighted_sum",
+                    "unweighted_component_sum",
+                },
+                "invalid": {
+                    "declared_weighted_sum",
+                    "unweighted_component_sum",
+                },
+                "unsupported": {
+                    "declared_weighted_sum_unresolved",
+                    "unweighted_component_sum_unresolved",
+                    "no_numeric_total",
+                    "non_object_reward",
+                },
+            }
+            if method not in allowed_status.get(status, ()):
+                raise _policy_error(
+                    outcome_where,
+                    f"arithmetic status {status!r} is incompatible with method {method!r}",
+                )
             pair = (status, method)
             if pair in seen_outcomes:
                 raise _policy_error(outcome_where, "duplicate arithmetic outcome")
             seen_outcomes.add(pair)
+    reward_instances = _mapping_integer(
+        vocabulary, "reward_instances", vocabulary_where, minimum=1
+    )
+    if occurrence_total != reward_instances:
+        raise _policy_error(
+            vocabulary_where,
+            "shape occurrences must sum to reward_instances",
+        )
     return vocabulary
 
 
@@ -593,8 +669,10 @@ def validate_conversion_policy(document, *, where="conversion policy"):
         raise _policy_error(where, "unknown reward mapping version")
 
     policy = _mapping_object(document, "policy", where)
-    _mapping_str(policy, "annotation_field", where)
+    annotation_field = _mapping_str(policy, "annotation_field", where)
     reward_keys = _mapping_str_list(policy, "reward_keys", where)
+    if annotation_field in reward_keys:
+        raise _policy_error(where, "annotation_field must not be a declared reward key")
     canonical_scope = _mapping_str(policy, "canonical_scope", where, prefix="/")
     if canonical_scope[1:] not in reward_keys:
         raise _policy_error(where, "canonical_scope must name a declared reward key")
@@ -603,6 +681,12 @@ def validate_conversion_policy(document, *, where="conversion policy"):
     dispreferred = _mapping_str(preference, "dispreferred", where, prefix="/")
     if preferred == dispreferred:
         raise _policy_error(where, "preference pointers must be distinct")
+    for pointer, label in ((preferred, "preferred"), (dispreferred, "dispreferred")):
+        terminal = pointer.rsplit("/", 1)[-1]
+        if terminal not in reward_keys:
+            raise _policy_error(
+                where, f"{label} pointer must target a declared reward key"
+            )
     if _mapping_str(preference, "relation", where) != "preferred_gt_dispreferred":
         raise _policy_error(where, "unsupported preference relation")
 
@@ -916,7 +1000,7 @@ def _reward_tolerance(reward) -> Decimal:
                 continue
             match = ROUNDING_RE.search(text)
             if match:
-                decimals = int(match.group(1))
+                decimals = _numeric_capture(match, integer=True)
                 break
     if decimals is None:
         return DEFAULT_TOLERANCE
@@ -1059,7 +1143,7 @@ def _extract_unit_usd(reward, calibration=None):
     if isinstance(units_text, str):
         match = USD_UNIT_RE.search(units_text)
         if match:
-            parsed = Decimal(match.group(1).replace(",", ""))
+            parsed = _numeric_capture(match)
 
     structured_present = STRUCTURED_UNIT_FIELD in reward
     structured = (
@@ -1370,7 +1454,10 @@ def validate_ontology_document(document):
         _require_declared_verdict(
             classification["comparability"], reason_codes
         )
-        for entry in document.get("arithmetic", []):
+        arithmetic_entries = document.get("arithmetic", [])
+        if not isinstance(arithmetic_entries, list):
+            raise RewardOntologyError("sidecar arithmetic must be a list")
+        for entry in arithmetic_entries:
             if not isinstance(entry, dict):
                 raise RewardOntologyError("invalid sidecar arithmetic entry")
             if entry.get("status") not in ARITHMETIC_STATUSES:
@@ -1528,9 +1615,19 @@ def canonical_magnitudes(record):
         raise MagnitudeNotComparable(
             f"record is {annotation['comparability']}, not magnitude_comparable"
         )
+    values = annotation["magnitude"]["values"]
+    if not isinstance(values, list):
+        raise RewardOntologyError("magnitude values must be a list")
+    pointers = [value.get("json_pointer") for value in values]
+    if len(pointers) != len(set(pointers)):
+        raise RewardOntologyError("duplicate magnitude json_pointer")
+    if len(pointers) != annotation["source_reward_count"]:
+        raise RewardOntologyError(
+            "magnitude values must match source_reward_count"
+        )
     return {
         value["json_pointer"]: value["canonical_value"]
-        for value in annotation["magnitude"]["values"]
+        for value in values
     }
 
 
@@ -1663,7 +1760,10 @@ def reward_census(records, *, scope_keys=None):
     total_records = 0
     instances = 0
     ontology_instances = 0
+    dispositions = Counter({name: 0 for name in COMPONENT_DISPOSITIONS})
     for record in records:
+        if not isinstance(record, dict):
+            raise RewardOntologyError("census records must be objects")
         total_records += 1
         ontology_instances += sum(1 for _ in _walk_rewards(record))
         for pointer, reward in _walk_rewards(record, reward_keys=scope_keys):
@@ -1681,7 +1781,6 @@ def reward_census(records, *, scope_keys=None):
                 key_counts[key] += 1
 
     component_keys = {}
-    dispositions = Counter()
     for key in sorted(key_types):
         disposition = disposition_for_observed_types(key, key_types[key])
         dispositions[disposition] += 1
@@ -1711,7 +1810,7 @@ def reward_census(records, *, scope_keys=None):
         "ontology_scope_instances": ontology_instances,
         "unique_component_keys": len(component_keys),
         "unique_shapes": len(shape_rows),
-        "dispositions": dict(sorted(dispositions.items())),
+        "dispositions": {name: dispositions[name] for name in COMPONENT_DISPOSITIONS},
         "arithmetic": [
             {"status": status, "method": method, "occurrences": count}
             for (status, method), count in sorted(arithmetic.items())
