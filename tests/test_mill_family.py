@@ -1185,6 +1185,43 @@ class GoalFamilyAxis(unittest.TestCase):
             sorted(record["id"] for record in strays),
         )
 
+    def test_full_prefix_coverage_cannot_authorize_unique_novel_goal_family(self):
+        mills = MillIndex()
+        for index, (prefix, factory) in enumerate(
+            sorted(REVIEWED_MILL_PREFIX_HOMES.items()), 1
+        ):
+            mills.add(
+                factory,
+                episode(f"{prefix}-r{index:02d}-native", "fix verify", factory),
+                (factory, prefix),
+                factory_verified=True,
+            )
+
+        strays = [
+            episode(
+                f"cst-r9{index}-novel-family",
+                "QuuxAlpha quuxBeta quuxGamma quuxDelta",
+                CACHE_STAMPEDE,
+            )
+            for index in (1, 2)
+        ]
+        for record in strays:
+            mills.add(
+                CACHE_STAMPEDE,
+                record,
+                (CACHE_STAMPEDE, record["id"]),
+                factory_verified=True,
+            )
+
+        self.assertEqual(mills.findings(), ())
+        context = mills.ownership_context()
+        self.assertTrue(context["reference_scope_complete"])
+        self.assertFalse(context["complete"])
+        self.assertEqual(
+            context["unresolved_goal_records"],
+            sorted(record["id"] for record in strays),
+        )
+
     def test_repeated_foreign_goal_is_scored_without_native_vocabulary(self):
         strays = [
             episode(

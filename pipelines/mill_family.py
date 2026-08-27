@@ -712,6 +712,31 @@ class MillIndex:
                             else "<unknown>"
                         )
                     )
+                    continue
+
+                # Unique unreviewed vocabulary can self-teach one destination
+                # and therefore appear native in ``vocabulary``. Covering every
+                # reviewed prefix is not independent evidence for that novel
+                # goal family, so keep it unresolved unless a reviewed native
+                # product signature anchors the record.
+                has_native_strong_anchor = any(
+                    token in REVIEWED_GOAL_STRONG_ANCHORS
+                    and REVIEWED_GOAL_TOKEN_HOMES.get(token) == effective_factory
+                    for token in entry.goal_family
+                )
+                unknown_score = len(entry.goal_family - reviewed_goal_tokens)
+                if (
+                    unknown_score >= GOAL_FAMILY_MIN_FOREIGN_TOKENS
+                    and not has_native_strong_anchor
+                ):
+                    unresolved_goal_records.add(
+                        entry.record_id
+                        or (
+                            str(entry.ref)
+                            if entry.ref is not None
+                            else "<unknown>"
+                        )
+                    )
                 continue
 
             # A singleton can resemble a reviewed foreign family while still
