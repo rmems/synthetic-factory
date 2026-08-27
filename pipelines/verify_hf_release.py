@@ -185,7 +185,10 @@ FORBIDDEN_CARD_CLAIMS = {
             "Synthetic multi-agent trajectories for delegation, critique, "
             "conflict resolution",
         ),
-        "## Published raw payload": ("14 raw multi-agent records",),
+        "## Published raw payload": (
+            "14 raw multi-agent records",
+            "not a thalamic-gate wrap schema",
+        ),
     }
 }
 
@@ -289,7 +292,9 @@ def _normalized_text(value: str) -> str:
     """
 
     text = re.sub(r"\[([^\]\n]+)\]\([^)]*\)", r"\1", value)
-    text = re.sub(r"[*_`]+", "", text)
+    # Strip Markdown *emphasis* and backticks only. Underscores stay so YAML
+    # markers like `name: source_file` cannot match `name: sourcefile`.
+    text = re.sub(r"[*`]+", "", text)
     return " ".join(text.split()).casefold()
 
 

@@ -405,6 +405,43 @@ class ReleaseVerifierTests(unittest.TestCase):
         )
         self.assertIn("viewer projection missing required column: source_line", result.errors)
 
+    def test_front_matter_source_file_marker_keeps_underscore(self) -> None:
+        self.values["README.md"] = _card().replace(
+            "- name: source_file\n", "- name: sourcefile\n"
+        )
+        self.assertIn(
+            "README missing required card marker: name: source_file",
+            self.verify().errors,
+        )
+
+    def test_payload_disclosure_rejects_negated_wrap_schema(self) -> None:
+        self.repo = "rmems/multi-agent-ouroboros-swarm"
+        card = _card().replace(
+            "Purpose-specific trajectories for relay-gated state assessment.",
+            "Purpose-specific safety-gate adjudication trajectories.",
+        ).replace(
+            "designed as one component of **Spikenaut** training",
+            "not labeled as Spikenaut training data",
+        ).replace(
+            "The viewer is data/viewer/records.parquet.\n",
+            "The viewer is data/viewer/records.parquet.\n"
+            "These records are not a thalamic-gate wrap schema. "
+            "7 of the 14 records are wrap-only; the rest live in "
+            "sidecars, not JSONL training records.\n",
+        )
+        self.values["README.md"] = card
+        self.values["release-status.json"] = _release_status()
+        result = verify_hf_release.verify_dataset(
+            self.repo,
+            text_fetcher=self.text_fetcher,
+            bytes_fetcher=self.bytes_fetcher,
+        )
+        self.assertIn(
+            "README retains obsolete payload-kind claim: "
+            "not a thalamic-gate wrap schema",
+            result.errors,
+        )
+
     def test_public_url_rejects_other_owners(self) -> None:
         with self.assertRaises(ValueError):
             verify_hf_release.public_url(
