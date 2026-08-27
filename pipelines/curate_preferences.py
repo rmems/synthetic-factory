@@ -41,6 +41,8 @@ from typing import Any
 
 TRANSFORM_NAME = "same-context-preference-curation"
 TRANSFORM_VERSION = "1.0.0"
+REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
+RAW_OUTPUT_ROOT = REPOSITORY_ROOT / "outputs" / "raw"
 
 ACTION_RETAINED = "retained"
 ACTION_REPAIRED = "repaired"
@@ -99,14 +101,22 @@ def _has_raw_tree_components(path: Path) -> bool:
 
 
 def _is_under_raw(path: Path) -> bool:
-    """Whether ``path`` lexically names or resolves inside ``outputs/raw``."""
+    """Whether ``path`` names or aliases the repository's raw output tree."""
 
     # Keep the normalized lexical spelling as well as the resolved target.
     # Resolving ``outputs/raw`` when it is itself a symlink removes those path
     # components and would otherwise let a write through the immutable tree.
+    # Also compare against the resolved repository raw root: callers can name
+    # that same target through its mount path or through a second symlink whose
+    # spelling never contains ``outputs/raw``.
     lexical_path = Path(os.path.abspath(path))
-    return _has_raw_tree_components(lexical_path) or _has_raw_tree_components(
-        path.resolve(strict=False)
+    resolved_path = path.resolve(strict=False)
+    resolved_raw_root = RAW_OUTPUT_ROOT.resolve(strict=False)
+    return (
+        _has_raw_tree_components(lexical_path)
+        or _has_raw_tree_components(resolved_path)
+        or resolved_path == resolved_raw_root
+        or resolved_raw_root in resolved_path.parents
     )
 
 

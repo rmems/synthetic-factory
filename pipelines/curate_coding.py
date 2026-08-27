@@ -9,7 +9,9 @@ Steps without usable visible evidence are excluded with machine-readable
 reason codes; the transform never consults the removed thought text.
 
 ``curate_jsonl`` returns curated records, a reversible manifest, and summary
-counts.  The optional CLI writes only to new, non-raw files.
+counts.  The optional CLI writes only to new, non-raw files.  ``--output-dir``
+curates every JSONL beneath a source directory, preserves relative paths, and
+emits one aggregate manifest for the complete lane.
 
 ``verify_curation`` (CLI: ``--verify`` / ``--expect-source-steps N``) turns the
 lane acceptance contract into a gate: every source step is migrated or excluded
@@ -35,8 +37,9 @@ from typing import Any
 
 
 TRANSFORM_NAME = "coding_observability"
-TRANSFORM_VERSION = "1"
+TRANSFORM_VERSION = "2"
 MAX_DECISION_BASIS_CHARS = 240
+RUN_MANIFEST_FILENAME = "manifest.jsonl"
 
 REASON_THOUGHT_REMOVED = "coding_thought_removed"
 REASON_BASIS_CONCISED = "coding_basis_concised"
@@ -86,6 +89,18 @@ EXCLUSION_REASONS = frozenset(
     }
 )
 
+STEP_EXCLUSION_REASONS = frozenset(
+    {REASON_STEP_NOT_OBJECT, REASON_NO_VISIBLE_EVIDENCE}
+)
+STEP_EVIDENCE_REASONS = frozenset(_EVIDENCE_REASON.values())
+STEP_RETAINED_REASONS = frozenset(
+    {*STEP_EVIDENCE_REASONS, REASON_THOUGHT_REMOVED, REASON_BASIS_CONCISED}
+)
+STEP_ALLOWED_REASONS = frozenset({*STEP_EXCLUSION_REASONS, *STEP_RETAINED_REASONS})
+RECORD_TRANSFORMATION_REASONS = frozenset(
+    {REASON_THOUGHT_REMOVED, REASON_STEPS_MIGRATED, REASON_STEPS_EXCLUDED}
+)
+
 
 def canonical_json(value: Any) -> str:
     """Return the stable JSON representation used for output hashes."""
@@ -94,7 +109,12 @@ def canonical_json(value: Any) -> str:
         ensure_ascii=False,
         separators=(",", ":"),
         sort_keys=True,
+        allow_nan=False,
     )
+
+
+def _reject_json_constant(value: str) -> None:
+    raise ValueError(f"non-standard JSON numeric constant: {value}")
 
 
 def hash_value(value: Any) -> str:
@@ -388,15 +408,33 @@ def _excluded_line_manifest(
     return manifest
 
 
-def curate_jsonl(source_path: str | Path) -> dict[str, Any]:
+def curate_jsonl(
+    source_path: str | Path,
+    *,
+    logical_source_path: str | None = None,
+) -> dict[str, Any]:
     """Read a JSONL source without mutation and curate every nonblank line."""
     source = Path(source_path)
+    source_label = logical_source_path or str(source)
     records = []
     manifests = []
 
     with source.open("rb") as handle:
         for line_number, terminated_line in enumerate(handle, 1):
-            raw_line = terminated_line.rstrip(b"\r\n")
+            has_lf_terminator = terminated_line.endswith(b"\n")
+            physical_line = (
+                terminated_line[:-1]
+                if has_lf_terminator
+                else terminated_line
+            )
+            # JSONL is framed by literal LF. Remove only the one CR that is
+            # paired with that LF; any additional CR is source payload and is
+            # therefore part of the authenticated line digest.
+            raw_line = (
+                physical_line[:-1]
+                if has_lf_terminator and physical_line.endswith(b"\r")
+                else physical_line
+            )
             if not raw_line.strip():
                 continue
             source_hash = hashlib.sha256(raw_line).hexdigest()
@@ -405,7 +443,7 @@ def curate_jsonl(source_path: str | Path) -> dict[str, Any]:
             except UnicodeDecodeError:
                 manifests.append(
                     _excluded_line_manifest(
-                        source_path=str(source),
+                        source_path=source_label,
                         source_line=line_number,
                         source_hash=source_hash,
                         reason=REASON_INVALID_UTF8,
@@ -413,11 +451,11 @@ def curate_jsonl(source_path: str | Path) -> dict[str, Any]:
                 )
                 continue
             try:
-                record = json.loads(text)
-            except json.JSONDecodeError:
+                record = json.loads(text, parse_constant=_reject_json_constant)
+            except (json.JSONDecodeError, ValueError):
                 manifests.append(
                     _excluded_line_manifest(
-                        source_path=str(source),
+                        source_path=source_label,
                         source_line=line_number,
                         source_hash=source_hash,
                         reason=REASON_INVALID_JSON,
@@ -427,7 +465,7 @@ def curate_jsonl(source_path: str | Path) -> dict[str, Any]:
 
             curated, manifest = curate_episode(
                 record,
-                source_path=str(source),
+                source_path=source_label,
                 source_line=line_number,
                 source_hash=source_hash,
             )
@@ -445,7 +483,7 @@ def curate_jsonl(source_path: str | Path) -> dict[str, Any]:
                 evidence_sources[evidence] += 1
 
     summary = {
-        "source_path": str(source),
+        "source_path": source_label,
         "input_records": len(manifests),
         "output_records": len(records),
         "excluded_records": sum(item["action"] == "excluded" for item in manifests),
@@ -500,14 +538,35 @@ def _step_action_violations(entry: dict[str, Any], where: str) -> list[str]:
 
     if not _is_positive_int(index):
         violations.append(f"{step_where}: source step index must be a positive integer")
-    if not _is_nonnegative_int(entry.get("thought_fields_removed")):
+    thought_fields_removed = entry.get("thought_fields_removed")
+    if not _is_nonnegative_int(thought_fields_removed):
         violations.append(
             f"{step_where}: thought_fields_removed must be a non-negative integer"
         )
+    else:
+        reports_removal = REASON_THOUGHT_REMOVED in reasons
+        if bool(thought_fields_removed) != reports_removal:
+            violations.append(
+                f"{step_where}: thought removal count and reason code disagree"
+            )
 
     if action == "excluded":
-        if not EXCLUSION_REASONS.intersection(reasons):
-            violations.append(f"{step_where}: excluded without an exclusion reason code")
+        step_exclusions = STEP_EXCLUSION_REASONS.intersection(reasons)
+        if len(step_exclusions) != 1:
+            violations.append(
+                f"{step_where}: excluded without an exclusion reason code; "
+                "expected exactly one step exclusion reason code"
+            )
+        impossible_reasons = reasons - (
+            STEP_EXCLUSION_REASONS | {REASON_THOUGHT_REMOVED}
+        )
+        if impossible_reasons:
+            violations.append(
+                f"{step_where}: excluded with impossible reason codes "
+                f"{sorted(impossible_reasons)}"
+            )
+        if evidence is not None:
+            violations.append(f"{step_where}: excluded step records an evidence source")
         if entry.get("output_step_index") is not None:
             violations.append(f"{step_where}: excluded step keeps an output index")
     elif action == "migrated" or action == "retained":
@@ -523,6 +582,19 @@ def _step_action_violations(entry: dict[str, Any], where: str) -> list[str]:
             violations.append(
                 f"{step_where}: reason codes do not record the {evidence} evidence source"
             )
+        evidence_reasons = STEP_EVIDENCE_REASONS.intersection(reasons)
+        if len(evidence_reasons) != 1:
+            violations.append(
+                f"{step_where}: retained step must record exactly one evidence reason"
+            )
+        impossible_reasons = reasons - STEP_RETAINED_REASONS
+        if impossible_reasons:
+            violations.append(
+                f"{step_where}: retained with impossible reason codes "
+                f"{sorted(impossible_reasons)}"
+            )
+        if action == "retained" and thought_fields_removed != 0:
+            violations.append(f"{step_where}: retained step reports thought removals")
     else:
         violations.append(f"{step_where}: unknown step action {action!r}")
     return violations
@@ -669,6 +741,46 @@ def verify_manifest(
                 f"{where}: step counts {counts} disagree with the recorded step actions"
             )
 
+        if action == "unchanged":
+            if thought_fields_removed != 0:
+                violations.append(
+                    f"{where}: unchanged record reports thought removals"
+                )
+            if any(entry.get("action") != "retained" for entry in valid_actions):
+                violations.append(
+                    f"{where}: unchanged record reports transformed step actions"
+                )
+            if reasons:
+                violations.append(
+                    f"{where}: unchanged record reports transformation reason codes"
+                )
+        elif action == "modified" and _is_nonnegative_int(thought_fields_removed):
+            impossible_reasons = reasons - RECORD_TRANSFORMATION_REASONS
+            if impossible_reasons:
+                violations.append(
+                    f"{where}: modified record reports impossible reason codes "
+                    f"{sorted(impossible_reasons)}"
+                )
+            reports_removal = REASON_THOUGHT_REMOVED in reasons
+            if bool(thought_fields_removed) != reports_removal:
+                violations.append(
+                    f"{where}: thought removal count and reason code disagree"
+                )
+            reason_expectations = (
+                (migrated, REASON_STEPS_MIGRATED),
+                (excluded, REASON_STEPS_EXCLUDED),
+            )
+            for count, reason in reason_expectations:
+                if bool(count) != (reason in reasons):
+                    violations.append(
+                        f"{where}: step transformation counts and reason codes disagree"
+                    )
+                    break
+            if thought_fields_removed == 0 and migrated == 0 and excluded == 0:
+                violations.append(
+                    f"{where}: modified record reports no transformation evidence"
+                )
+
         source_indexes = [entry.get("source_step_index") for entry in valid_actions]
         expected_source_indexes = list(range(1, len(actions) + 1))
         if source_indexes != expected_source_indexes:
@@ -811,11 +923,25 @@ def verify_curation(
             step = steps[output_index - 1]
             if not isinstance(step, dict):
                 continue
-            _, evidence_source, _ = _derive_decision_basis(step)
+            _, evidence_source, concised = _derive_decision_basis(step)
             if entry.get("evidence_source") != evidence_source:
                 violations.append(
                     f"record {index} step {output_index}: visible evidence source "
                     "does not match its manifest action"
+                )
+            reasons = entry.get("reason_codes")
+            reports_concised = (
+                isinstance(reasons, list) and REASON_BASIS_CONCISED in reasons
+            )
+            if bool(concised) != reports_concised:
+                violations.append(
+                    f"record {index} step {output_index}: concision reason does not "
+                    "match visible evidence"
+                )
+            if entry.get("source_step_number") != step.get("n"):
+                violations.append(
+                    f"record {index} step {output_index}: source step number does not "
+                    "match the retained output step"
                 )
 
     manifest_totals = Counter()
@@ -889,20 +1015,62 @@ def _is_under_raw(path: Path) -> bool:
     )
 
 
-def _write_new_jsonl(path: Path, values: list[dict[str, Any]]) -> None:
+def _created_file_identity(descriptor: int) -> tuple[int, int]:
+    metadata = os.fstat(descriptor)
+    return metadata.st_dev, metadata.st_ino
+
+
+def _created_directory_identity(path: Path) -> tuple[int, int]:
+    metadata = os.lstat(path)
+    return metadata.st_dev, metadata.st_ino
+
+
+def _unlink_created_file(path: Path, identity: tuple[int, int]) -> bool:
+    """Remove ``path`` only while it still names the file this process created."""
+    try:
+        metadata = os.lstat(path)
+    except FileNotFoundError:
+        return False
+    if (metadata.st_dev, metadata.st_ino) != identity:
+        return False
+    path.unlink()
+    return True
+
+
+def _rmdir_created_directory(path: Path, identity: tuple[int, int]) -> bool:
+    """Remove an empty directory only while its pathname retains our inode."""
+    try:
+        metadata = os.lstat(path)
+    except FileNotFoundError:
+        return False
+    if (metadata.st_dev, metadata.st_ino) != identity:
+        return False
+    try:
+        path.rmdir()
+    except OSError:
+        return False
+    return True
+
+
+def _write_new_jsonl(
+    path: Path,
+    values: list[dict[str, Any]],
+) -> tuple[int, int]:
     """Write one JSONL file without replacing any pre-existing path."""
     if _is_under_raw(path):
         raise ValueError(f"refusing to write inside immutable raw evidence: {path}")
     path.parent.mkdir(parents=True, exist_ok=True)
     descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o644)
+    identity = _created_file_identity(descriptor)
     try:
         with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
             for value in values:
                 handle.write(canonical_json(value))
                 handle.write("\n")
     except BaseException:
-        path.unlink(missing_ok=True)
+        _unlink_created_file(path, identity)
         raise
+    return identity
 
 
 def _preflight_destinations(paths: list[Path]) -> None:
@@ -916,11 +1084,125 @@ def _preflight_destinations(paths: list[Path]) -> None:
             raise FileExistsError(f"refusing to replace existing destination: {path}")
 
 
+def _source_jsonl_paths(source_root: Path) -> tuple[Path, list[Path]]:
+    declared = Path(os.path.abspath(source_root))
+    if declared.is_symlink():
+        raise ValueError(f"source run must not be a symlink: {declared}")
+    try:
+        resolved = declared.resolve(strict=True)
+    except OSError as exc:
+        raise ValueError(f"source run is not a directory: {declared}") from exc
+    if not resolved.is_dir():
+        raise ValueError(f"source run is not a directory: {declared}")
+    paths = []
+    for path in resolved.rglob("*"):
+        if path.is_symlink():
+            raise ValueError(f"source run contains a symlinked path: {path}")
+        if path.is_file() and path.suffix == ".jsonl":
+            paths.append(path)
+    paths.sort(key=lambda jsonl_path: jsonl_path.relative_to(resolved).as_posix())
+    if not paths:
+        raise ValueError(f"source run holds no JSONL files: {resolved}")
+    if resolved / RUN_MANIFEST_FILENAME in paths:
+        raise ValueError(
+            f"source JSONL conflicts with aggregate manifest name: {RUN_MANIFEST_FILENAME}"
+        )
+    return resolved, paths
+
+
+def _new_run_destination(destination: Path, source_root: Path) -> Path:
+    declared = Path(os.path.abspath(destination))
+    if _is_under_raw(declared):
+        raise ValueError(f"refusing to write inside immutable raw evidence: {declared}")
+    if os.path.lexists(declared):
+        raise FileExistsError(f"refusing to replace existing destination: {declared}")
+    resolved = declared.resolve(strict=False)
+    if resolved == source_root or source_root in resolved.parents:
+        raise ValueError(f"output directory must be outside the source run: {declared}")
+    return declared
+
+
+def curate_run(source_dir: str | Path, output_dir: str | Path) -> dict[str, Any]:
+    """Write one gate-ready coding lane for every JSONL in a source tree."""
+    source_root, source_paths = _source_jsonl_paths(Path(source_dir))
+    output_root = _new_run_destination(Path(output_dir), source_root)
+    output_root.mkdir(parents=True, exist_ok=False)
+
+    manifests: list[dict[str, Any]] = []
+    summaries: list[dict[str, Any]] = []
+    created_files: list[tuple[Path, tuple[int, int]]] = []
+    created_directories = [
+        (output_root, _created_directory_identity(output_root))
+    ]
+    try:
+        relative_directories = {
+            parent
+            for source_path in source_paths
+            for parent in source_path.relative_to(source_root).parents
+            if parent != Path(".")
+        }
+        for relative in sorted(
+            relative_directories,
+            key=lambda relative_path: (len(relative_path.parts), relative_path.parts),
+        ):
+            directory = output_root / relative
+            directory.mkdir()
+            created_directories.append(
+                (directory, _created_directory_identity(directory))
+            )
+        for source_path in source_paths:
+            relative = source_path.relative_to(source_root)
+            result = curate_jsonl(
+                source_path,
+                logical_source_path=relative.as_posix(),
+            )
+            output_path = output_root / relative
+            identity = _write_new_jsonl(output_path, result["records"])
+            created_files.append((output_path, identity))
+            manifests.extend(result["manifest"])
+            summaries.append(result["summary"])
+        manifest_path = output_root / RUN_MANIFEST_FILENAME
+        identity = _write_new_jsonl(manifest_path, manifests)
+        created_files.append((manifest_path, identity))
+    except BaseException:
+        for path, identity in reversed(created_files):
+            _unlink_created_file(path, identity)
+        for path, identity in reversed(created_directories):
+            _rmdir_created_directory(path, identity)
+        raise
+
+    evidence_sources = Counter()
+    for summary in summaries:
+        evidence_sources.update(summary["decision_basis_sources"])
+    return {
+        "source_path": str(source_root),
+        "output_path": str(output_root),
+        "manifest_path": str(output_root / RUN_MANIFEST_FILENAME),
+        "input_files": len(source_paths),
+        "input_records": sum(summary["input_records"] for summary in summaries),
+        "output_records": sum(summary["output_records"] for summary in summaries),
+        "excluded_records": sum(summary["excluded_records"] for summary in summaries),
+        "source_steps": sum(summary["source_steps"] for summary in summaries),
+        "retained_steps": sum(summary["retained_steps"] for summary in summaries),
+        "migrated_steps": sum(summary["migrated_steps"] for summary in summaries),
+        "excluded_steps": sum(summary["excluded_steps"] for summary in summaries),
+        "thought_fields_removed": sum(
+            summary["thought_fields_removed"] for summary in summaries
+        ),
+        "decision_basis_sources": dict(sorted(evidence_sources.items())),
+    }
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("source", type=Path, help="legacy episode JSONL to inspect")
     parser.add_argument("--output-jsonl", type=Path)
     parser.add_argument("--manifest-jsonl", type=Path)
+    parser.add_argument(
+        "--output-dir",
+        type=Path,
+        help="new lane root for directory-wide curation",
+    )
     parser.add_argument(
         "--verify",
         action="store_true",
@@ -936,6 +1218,21 @@ def main(argv: list[str] | None = None) -> int:
     if args.expect_source_steps is not None and args.expect_source_steps < 0:
         parser.error("--expect-source-steps must not be negative")
     verifying = args.verify or args.expect_source_steps is not None
+    if args.output_dir is not None:
+        if args.output_jsonl is not None or args.manifest_jsonl is not None:
+            parser.error("--output-dir cannot be combined with file output options")
+        if verifying:
+            parser.error("--output-dir cannot be combined with --verify")
+        if not args.source.is_dir():
+            parser.error("--output-dir requires a source directory")
+        try:
+            result = curate_run(args.source, args.output_dir)
+        except (FileExistsError, OSError, ValueError) as exc:
+            parser.error(str(exc))
+        print(json.dumps(result, ensure_ascii=False, indent=2, sort_keys=True))
+        return 0
+    if args.source.is_dir():
+        parser.error("a source directory requires --output-dir")
 
     if args.output_jsonl is not None and args.output_jsonl.resolve(strict=False) == args.source.resolve():
         parser.error("output must not replace the source")

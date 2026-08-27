@@ -7,6 +7,7 @@ import tempfile
 import unittest
 from collections import Counter
 from pathlib import Path
+from unittest import mock
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -20,11 +21,13 @@ from curate_tags import (  # noqa: E402
     REASON_INVALID_UTF8,
     REASON_PROVENANCE_CONFLICT,
     REASON_RECORD_NOT_OBJECT,
+    REASON_RECORD_TOO_DEEP,
     REASON_TAG_ALIAS,
     REASON_TAG_CANONICAL,
     REASON_TAG_EMPTY,
     REASON_TAG_NOT_STRING,
     REASON_TAG_PATTERN,
+    REASON_TAG_MAPPING_AMBIGUOUS,
     REASON_TAG_UNMAPPED,
     REASON_TAGS_DEDUPLICATED,
     REASON_TAGS_MAPPED,
@@ -53,6 +56,60 @@ from curate_tags import (  # noqa: E402
 # 2790-string free-form surface of the 2026-08-17 run; this bound keeps a later
 # edit from quietly reintroducing a long tail.
 MAX_CANONICAL_TAGS = 40
+DEEP_REGEX_GROUPS = sys.getrecursionlimit() * 2
+GROUPED_OPTIONAL_REPEATS = 28
+INVALID_REGEX_PATTERNS = (
+    ("re.error", "^($"),
+    ("OverflowError", "^a{999999999999999999999999999999999999}$"),
+    (
+        "RecursionError",
+        "^" + "(" * DEEP_REGEX_GROUPS + "a" + ")" * DEEP_REGEX_GROUPS + "$",
+    ),
+)
+GROUPED_OPTIONAL_REGEX_PATTERNS = (
+    (
+        "capturing_grouped_optionals",
+        "^" + "(a?)" * GROUPED_OPTIONAL_REPEATS + "a" * GROUPED_OPTIONAL_REPEATS + "$",
+    ),
+    (
+        "noncapturing_grouped_optionals",
+        "^"
+        + "(?:a?)" * GROUPED_OPTIONAL_REPEATS
+        + "a" * GROUPED_OPTIONAL_REPEATS
+        + "$",
+    ),
+)
+UNSAFE_LINEAR_REGEX_PATTERNS = (
+    ("nested_repeat", "^(a+)+$"),
+    ("repeated_alternation", "^(a|aa)+$"),
+    ("overlapping_adjacent_repeats", "^a+a+$"),
+    ("ambiguous_wildcard_boundary", "^.*x.*$"),
+    ("overlapping_repeat_suffix", "^a+a$"),
+    ("overlapping_optional_suffix", "^a?a$"),
+    ("overlapping_alternation", "^(a|aa)b$"),
+    *GROUPED_OPTIONAL_REGEX_PATTERNS,
+    ("capturing_group_literal_suffix", "^(a?)a$"),
+    ("noncapturing_group_literal_suffix", "^(?:a?)a$"),
+    ("capturing_group_variable_repeat_suffix", "^(a?)a+$"),
+    ("noncapturing_group_variable_repeat_suffix", "^(?:a?)a+$"),
+    ("capturing_group_fixed_repeat_suffix", "^(a?)a{2}$"),
+    ("noncapturing_group_fixed_repeat_suffix", "^(?:a?)a{2}$"),
+    ("capturing_nullable_group_between_repeats", "^a+(b?)a$"),
+    ("noncapturing_nullable_group_between_repeats", "^a+(?:b?)a$"),
+    ("capturing_multiple_nullable_tails", "^(a?b?)a$"),
+    ("noncapturing_multiple_nullable_tails", "^(?:a?b?)a$"),
+)
+SAFE_GROUP_BOUNDARY_CASES = (
+    ("capturing_literal_boundary", "^(a?)b$", "ab"),
+    ("noncapturing_literal_boundary", "^(?:a?)b$", "ab"),
+    ("capturing_variable_repeat_boundary", "^(a?)b+$", "abbb"),
+    ("noncapturing_variable_repeat_boundary", "^(?:a?)b+$", "abbb"),
+    ("capturing_fixed_repeat_boundary", "^(a?)b{2}$", "abb"),
+    ("noncapturing_fixed_repeat_boundary", "^(?:a?)b{2}$", "abb"),
+    ("capturing_nullable_group_boundary", "^a+(b?)c$", "aaabc"),
+    ("noncapturing_nullable_group_boundary", "^a+(?:b?)c$", "aaabc"),
+)
+REGEX_RESOURCE_EXCEPTION_TYPES = (OverflowError, RecursionError, MemoryError)
 
 TAXONOMY = load_taxonomy()
 
@@ -138,6 +195,15 @@ class TaxonomyDocumentTests(unittest.TestCase):
             self.assertTrue(compiled.pattern.startswith("^"))
             self.assertTrue(compiled.pattern.endswith("$"))
 
+    def test_shipped_regexes_are_in_the_supported_linear_subset(self):
+        reloaded = load_taxonomy(DEFAULT_TAXONOMY_PATH)
+
+        self.assertEqual(reloaded.version, TAXONOMY.version)
+        self.assertEqual(
+            [compiled.pattern for _rule_id, _tag, compiled in reloaded.pattern_rules],
+            [compiled.pattern for _rule_id, _tag, compiled in TAXONOMY.pattern_rules],
+        )
+
     def test_duplicate_alias_across_terms_is_rejected(self):
         document = minimal_taxonomy()
         document["facets"][0]["terms"].append(
@@ -164,6 +230,163 @@ class TaxonomyDocumentTests(unittest.TestCase):
         with self.assertRaises(TagTaxonomyError):
             Taxonomy(document, source="<test>")
 
+    def test_pattern_rule_targeting_transform_emitted_tag_is_rejected(self):
+        document = minimal_taxonomy(
+            pattern_rules=[
+                {
+                    "id": "source_marker",
+                    "tag": UNMAPPED_MARKER_TAG,
+                    "pattern": "^source_marker$",
+                }
+            ]
+        )
+
+        with self.assertRaisesRegex(
+            TagTaxonomyError,
+            "pattern rule 'source_marker' targets transform-emitted tag",
+        ):
+            Taxonomy(document, source="<test>")
+
+    def test_regex_compile_failures_are_wrapped_for_both_sites(self):
+        for exception_name, pattern in INVALID_REGEX_PATTERNS:
+            documents = (
+                (
+                    "canonical_tag_pattern",
+                    minimal_taxonomy(canonical_tag_pattern=pattern),
+                ),
+                (
+                    "pattern_rule",
+                    minimal_taxonomy(
+                        pattern_rules=[
+                            {
+                                "id": "invalid_regex",
+                                "tag": "decision:accept",
+                                "pattern": pattern,
+                            }
+                        ]
+                    ),
+                ),
+            )
+            for site, document in documents:
+                with self.subTest(exception=exception_name, site=site):
+                    with self.assertRaisesRegex(
+                        TagTaxonomyError, "not a valid regex"
+                    ):
+                        Taxonomy(document, source="<test>")
+
+    def test_unsafe_regexes_are_rejected_for_both_sites(self):
+        for unsafe_name, pattern in UNSAFE_LINEAR_REGEX_PATTERNS:
+            documents = (
+                (
+                    "canonical_tag_pattern",
+                    minimal_taxonomy(canonical_tag_pattern=pattern),
+                ),
+                (
+                    "pattern_rule",
+                    minimal_taxonomy(
+                        pattern_rules=[
+                            {
+                                "id": "unsafe_regex",
+                                "tag": "decision:accept",
+                                "pattern": pattern,
+                            }
+                        ]
+                    ),
+                ),
+            )
+            for site, document in documents:
+                with self.subTest(pattern=unsafe_name, site=site):
+                    with self.assertRaises(TagTaxonomyError) as raised:
+                        Taxonomy(document, source="<test>")
+                    self.assertIn(
+                        "supported linear-time regex subset", str(raised.exception)
+                    )
+
+    def test_grouped_optionals_are_rejected_during_taxonomy_construction(self):
+        for group_kind, pattern in GROUPED_OPTIONAL_REGEX_PATTERNS:
+            document = minimal_taxonomy(
+                pattern_rules=[
+                    {
+                        "id": group_kind,
+                        "tag": "decision:accept",
+                        "pattern": pattern,
+                    }
+                ]
+            )
+
+            with self.subTest(group=group_kind):
+                with self.assertRaises(TagTaxonomyError) as raised:
+                    Taxonomy(document, source="<test>")
+                self.assertIn(
+                    "supported linear-time regex subset", str(raised.exception)
+                )
+
+    def test_disjoint_group_boundaries_remain_supported(self):
+        for rule_id, pattern, source_tag in SAFE_GROUP_BOUNDARY_CASES:
+            taxonomy = Taxonomy(
+                minimal_taxonomy(
+                    pattern_rules=[
+                        {
+                            "id": rule_id,
+                            "tag": "decision:accept",
+                            "pattern": pattern,
+                        }
+                    ]
+                ),
+                source=f"<{rule_id}>",
+            )
+
+            with self.subTest(case=rule_id):
+                mapping = taxonomy.map_tag(source_tag)
+                self.assertEqual(mapping["canonical"], "decision:accept")
+                self.assertEqual(mapping["rule"], f"pattern:{rule_id}")
+
+    def test_later_pathological_same_target_rule_is_rejected_before_mapping(self):
+        fast_rule = {
+            "id": "a_fast",
+            "tag": "decision:accept",
+            "pattern": "^a+x$",
+        }
+        safe = Taxonomy(
+            minimal_taxonomy(pattern_rules=[fast_rule]), source="<safe>"
+        )
+        self.assertEqual(
+            safe.map_tag("a" * 28 + "x")["rule"],
+            "pattern:a_fast",
+        )
+
+        document = minimal_taxonomy(
+            pattern_rules=[
+                fast_rule,
+                {
+                    "id": "z_pathological",
+                    "tag": "decision:accept",
+                    "pattern": "^(a+)+$",
+                },
+            ]
+        )
+        with self.assertRaises(TagTaxonomyError) as raised:
+            Taxonomy(document, source="<test>")
+
+        self.assertIn("pattern rule 'z_pathological'", str(raised.exception))
+        self.assertIn("supported linear-time regex subset", str(raised.exception))
+
+    def test_parser_and_compiler_resource_errors_are_wrapped(self):
+        stages = (
+            ("parser", "curate_tags._re_parser.parse"),
+            ("compiler", "curate_tags.re.compile"),
+        )
+        for stage, target in stages:
+            for exception_type in REGEX_RESOURCE_EXCEPTION_TYPES:
+                with self.subTest(stage=stage, exception=exception_type.__name__):
+                    forced = exception_type("forced resource failure")
+                    with mock.patch(target, side_effect=forced):
+                        with self.assertRaises(TagTaxonomyError) as raised:
+                            Taxonomy(minimal_taxonomy(), source="<test>")
+
+                    self.assertIn("not a valid regex", str(raised.exception))
+                    self.assertIs(raised.exception.__cause__, forced)
+
     def test_canonical_tag_outside_its_facet_is_rejected(self):
         document = minimal_taxonomy()
         document["facets"][0]["terms"][0]["tag"] = "verdict:accept"
@@ -175,6 +398,34 @@ class TaxonomyDocumentTests(unittest.TestCase):
         document["facets"][0]["terms"][0]["tag"] = "decision:accept\n"
         with self.assertRaisesRegex(TagTaxonomyError, "does not match"):
             Taxonomy(document, source="<test>")
+
+    def test_taxonomy_rejects_surrogate_strings_that_can_reach_output(self):
+        version = minimal_taxonomy()
+        version["version"] = "bad\ud800"
+
+        rule_id = minimal_taxonomy(
+            pattern_rules=[
+                {
+                    "id": "bad\ud800",
+                    "tag": "decision:accept",
+                    "pattern": "^accept_[0-9]+$",
+                }
+            ]
+        )
+
+        canonical_tag = minimal_taxonomy(
+            canonical_tag_pattern="^[a-z]+:.+$"
+        )
+        canonical_tag["facets"][0]["terms"][0]["tag"] = "decision:accept\ud800"
+
+        for label, document in (
+            ("version", version),
+            ("pattern rule id", rule_id),
+            ("canonical tag", canonical_tag),
+        ):
+            with self.subTest(label=label):
+                with self.assertRaisesRegex(TagTaxonomyError, "valid UTF-8"):
+                    Taxonomy(document, source="<test>")
 
     def test_taxonomy_without_unmapped_marker_is_rejected(self):
         document = minimal_taxonomy()
@@ -221,10 +472,60 @@ class NormalizationTests(unittest.TestCase):
 
 class MapTagTests(unittest.TestCase):
     def test_canonical_tags_map_to_themselves(self):
-        for tag in sorted(TAXONOMY.canonical_tags):
+        source_readable = TAXONOMY.canonical_tags.difference(
+            TAXONOMY.transform_emitted_tags
+        )
+        for tag in sorted(source_readable):
             mapping = TAXONOMY.map_tag(tag)
             self.assertEqual(mapping["canonical"], tag)
             self.assertEqual(mapping["reason"], REASON_TAG_CANONICAL)
+
+    def test_transform_emitted_marker_is_unmapped_from_source_but_reusable(self):
+        source = record([UNMAPPED_MARKER_TAG])
+
+        mapping = TAXONOMY.map_tag(UNMAPPED_MARKER_TAG)
+        self.assertIsNone(mapping["canonical"])
+        self.assertEqual(mapping["reason"], REASON_TAG_UNMAPPED)
+
+        once, manifest = curate_record(source, taxonomy=TAXONOMY)
+        container = once[TAG_PROVENANCE_FIELD]["containers"][0]
+        self.assertEqual(once["meta"]["tags"], [UNMAPPED_MARKER_TAG])
+        self.assertEqual(manifest["tag_counts"]["unmapped_uses"], 1)
+        self.assertIn(REASON_TAGS_UNMAPPED, manifest["reason_codes"])
+        self.assertEqual(container["mappings"][0]["canonical"], None)
+        self.assertEqual(container["mappings"][-1]["rule"], "transform")
+
+        twice, second_manifest = curate_record(once, taxonomy=TAXONOMY)
+        self.assertEqual(twice, once)
+        self.assertIn(
+            REASON_TAGS_PROVENANCE_REUSED, second_manifest["reason_codes"]
+        )
+
+    def test_transform_emitted_alias_conflict_with_pattern_is_ambiguous(self):
+        document = minimal_taxonomy(
+            pattern_rules=[
+                {
+                    "id": "marker_hijack",
+                    "tag": "decision:accept",
+                    "pattern": "^curation_unmapped_source_tags$",
+                }
+            ]
+        )
+        taxonomy = Taxonomy(document, source="<test>")
+
+        mapping = taxonomy.map_tag(UNMAPPED_MARKER_TAG)
+
+        self.assertIsNone(mapping["canonical"])
+        self.assertIsNone(mapping["rule"])
+        self.assertEqual(mapping["reason"], REASON_TAG_MAPPING_AMBIGUOUS)
+
+        container = map_tags([UNMAPPED_MARKER_TAG], taxonomy)
+        self.assertEqual(container["canonical_tags"], [UNMAPPED_MARKER_TAG])
+        self.assertEqual(container["unmapped_tags"], [UNMAPPED_MARKER_TAG])
+        self.assertEqual(
+            container["mappings"][0]["reason"], REASON_TAG_MAPPING_AMBIGUOUS
+        )
+        self.assertEqual(container["mappings"][-1]["rule"], "transform")
 
     def test_alias_pattern_and_unmapped_decisions_are_explained(self):
         alias = TAXONOMY.map_tag("preference_pair")
@@ -264,6 +565,106 @@ class MapTagTests(unittest.TestCase):
             TAXONOMY.map_tag("gap1-closure")["canonical"], "process:gap_closure"
         )
         self.assertIsNone(TAXONOMY.map_tag("r3b_gap6_closed_tables")["canonical"])
+
+    def test_pattern_rule_matches_the_whole_normalized_tag(self):
+        taxonomy = Taxonomy(
+            minimal_taxonomy(
+                pattern_rules=[
+                    {
+                        "id": "alternation",
+                        "tag": "decision:accept",
+                        "pattern": "^foo|bar$",
+                    }
+                ]
+            ),
+            source="<test>",
+        )
+
+        self.assertEqual(taxonomy.map_tag("bar")["canonical"], "decision:accept")
+        self.assertIsNone(taxonomy.map_tag("foo-extra")["canonical"])
+
+    def test_overlapping_pattern_rules_leave_the_source_tag_unmapped(self):
+        document = minimal_taxonomy()
+        document["facets"][0]["terms"].append(
+            {
+                "tag": "decision:reject",
+                "definition": "reject",
+                "aliases": ["reject"],
+            }
+        )
+        document["pattern_rules"] = [
+            {
+                "id": "broad",
+                "tag": "decision:accept",
+                "pattern": "^foo.*$",
+            },
+            {
+                "id": "specific",
+                "tag": "decision:reject",
+                "pattern": "^foo_bar$",
+            },
+        ]
+        taxonomy = Taxonomy(document, source="<test>")
+
+        mapping = taxonomy.map_tag("foo-bar")
+
+        self.assertIsNone(mapping["canonical"])
+        self.assertIsNone(mapping["rule"])
+        self.assertEqual(mapping["reason"], REASON_TAG_MAPPING_AMBIGUOUS)
+
+        container = map_tags(["foo-bar"], taxonomy)
+        self.assertEqual(container["canonical_tags"], [UNMAPPED_MARKER_TAG])
+        self.assertEqual(container["unmapped_tags"], ["foo-bar"])
+        self.assertEqual(
+            container["mappings"][0]["reason"], REASON_TAG_MAPPING_AMBIGUOUS
+        )
+
+    def test_same_target_pattern_matches_do_not_depend_on_rule_order(self):
+        rules = [
+            {
+                "id": "first",
+                "tag": "decision:accept",
+                "pattern": "^foo.*$",
+            },
+            {
+                "id": "second",
+                "tag": "decision:accept",
+                "pattern": "^foo_bar$",
+            },
+        ]
+        forward = Taxonomy(
+            minimal_taxonomy(pattern_rules=rules), source="<forward>"
+        ).map_tag("foo-bar")
+        reverse = Taxonomy(
+            minimal_taxonomy(pattern_rules=list(reversed(rules))), source="<reverse>"
+        ).map_tag("foo-bar")
+
+        self.assertEqual(forward, reverse)
+        self.assertEqual(forward["canonical"], "decision:accept")
+        self.assertEqual(forward["rule"], "pattern:first")
+        self.assertEqual(forward["reason"], REASON_TAG_PATTERN)
+
+    def test_alias_and_pattern_conflict_leaves_the_source_tag_unmapped(self):
+        document = minimal_taxonomy()
+        document["facets"][0]["terms"].append(
+            {
+                "tag": "decision:reject",
+                "definition": "reject",
+                "aliases": ["reject"],
+            }
+        )
+        document["pattern_rules"] = [
+            {
+                "id": "reject_accept_alias",
+                "tag": "decision:reject",
+                "pattern": "^accept$",
+            }
+        ]
+        mapping = Taxonomy(document, source="<test>").map_tag("accept")
+
+        self.assertIsNone(mapping["canonical"])
+        self.assertIsNone(mapping["rule"])
+        self.assertEqual(mapping["reason"], REASON_TAG_MAPPING_AMBIGUOUS)
 
     def test_non_string_and_empty_tags_are_reported_not_guessed(self):
         not_string = TAXONOMY.map_tag(17)
@@ -423,6 +824,19 @@ class CurateRecordTests(unittest.TestCase):
         self.assertIsNone(curated)
         self.assertEqual(manifest["reason_codes"], [REASON_PROVENANCE_CONFLICT])
 
+    def test_explicit_null_tag_provenance_is_a_conflict(self):
+        sources = (
+            record(["MODIFY"], tag_provenance=None),
+            {"id": "tagless", TAG_PROVENANCE_FIELD: None},
+        )
+        for source in sources:
+            with self.subTest(record=source["id"]):
+                curated, manifest = curate_record(source, taxonomy=TAXONOMY)
+                self.assertIsNone(curated)
+                self.assertEqual(
+                    manifest["reason_codes"], [REASON_PROVENANCE_CONFLICT]
+                )
+
     def test_provenance_requires_matching_transform_identity(self):
         curated, _ = curate_record(record(["MODIFY"]), taxonomy=TAXONOMY)
         mutations = {
@@ -508,6 +922,16 @@ class CurateRecordTests(unittest.TestCase):
                 self.assertEqual(
                     manifest["reason_codes"], [REASON_PROVENANCE_CONFLICT]
                 )
+
+    def test_provenance_replay_compares_json_numeric_types_strictly(self):
+        curated, _ = curate_record(record([1]), taxonomy=TAXONOMY)
+        entry = curated[TAG_PROVENANCE_FIELD]["containers"][0]
+        entry["source_tags"] = [True]
+
+        again, manifest = curate_record(curated, taxonomy=TAXONOMY)
+
+        self.assertIsNone(again)
+        self.assertEqual(manifest["reason_codes"], [REASON_PROVENANCE_CONFLICT])
 
     def test_provenance_missing_a_container_is_a_conflict(self):
         curated, _ = curate_record(record(["MODIFY"]), taxonomy=TAXONOMY)
@@ -709,7 +1133,9 @@ class CurateJsonlTests(unittest.TestCase):
             curated["meta"]["tags"], [UNMAPPED_MARKER_TAG, "decision:modify"]
         )
         self.assertEqual(result["summary"]["nonstring_tag_uses"], 2)
+        self.assertEqual(result["summary"]["source_tag_uses"], 3)
         self.assertEqual(result["summary"]["unmapped_unique_tags"], 0)
+        self.assertEqual(result["manifest"][0]["tag_counts"]["source_uses"], 3)
         self.assertEqual(result["manifest"][0]["tag_counts"]["unmapped_uses"], 2)
         self.assertIn(REASON_TAGS_UNMAPPED, result["manifest"][0]["reason_codes"])
         self.assertEqual(
@@ -721,6 +1147,20 @@ class CurateJsonlTests(unittest.TestCase):
             for mapping in curated[TAG_PROVENANCE_FIELD]["containers"][0]["mappings"]
         }
         self.assertIn(REASON_TAG_NOT_STRING, reasons)
+
+    def test_summary_unmapped_total_includes_nonstring_entries(self):
+        rows = [record([17, None], id="a")]
+        with tempfile.TemporaryDirectory() as temporary:
+            source = Path(temporary) / "corpus.jsonl"
+            source.write_text(
+                "".join(json.dumps(row, sort_keys=True) + "\n" for row in rows),
+                encoding="utf-8",
+            )
+            summary = curate_jsonl(source, TAXONOMY)["summary"]
+
+        self.assertEqual(summary["nonstring_tag_uses"], 2)
+        self.assertEqual(summary["unmapped_tag_uses"], 2)
+        self.assertEqual(summary["unmapped_unique_tags"], 0)
 
     def test_every_retained_record_carries_only_canonical_tags(self):
         rows = [
@@ -785,6 +1225,29 @@ class CurateJsonlTests(unittest.TestCase):
         self.assertEqual(result["summary"]["output_records"], 1)
         self.assertEqual(
             result["manifest"][0]["reason_codes"], [REASON_INVALID_JSON]
+        )
+        self.assertEqual(result["records"][0]["id"], "good")
+
+    def test_deep_record_is_excluded_without_aborting_the_batch(self):
+        depth = 600
+        deep_line = (
+            '{"id":"deep","payload":'
+            + "[" * depth
+            + "0"
+            + "]" * depth
+            + "}\n"
+        )
+        good_line = json.dumps(record(["MODIFY"], id="good")) + "\n"
+        with tempfile.TemporaryDirectory() as temporary:
+            source = Path(temporary) / "corpus.jsonl"
+            source.write_text(deep_line + good_line, encoding="utf-8")
+            result = curate_jsonl(source, TAXONOMY)
+
+        self.assertEqual(result["summary"]["input_records"], 2)
+        self.assertEqual(result["summary"]["output_records"], 1)
+        self.assertEqual(result["summary"]["excluded_records"], 1)
+        self.assertEqual(
+            result["manifest"][0]["reason_codes"], [REASON_RECORD_TOO_DEEP]
         )
         self.assertEqual(result["records"][0]["id"], "good")
 
@@ -1004,6 +1467,180 @@ class CliTests(unittest.TestCase):
             )
 
             self.assertNotEqual(result.returncode, 0)
+
+    def test_cli_reports_regex_compile_failures_without_tracebacks(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            source = self._source(root)
+
+            for exception_name, pattern in INVALID_REGEX_PATTERNS:
+                documents = (
+                    (
+                        "canonical_tag_pattern",
+                        minimal_taxonomy(canonical_tag_pattern=pattern),
+                    ),
+                    (
+                        "pattern_rule",
+                        minimal_taxonomy(
+                            pattern_rules=[
+                                {
+                                    "id": "invalid_regex",
+                                    "tag": "decision:accept",
+                                    "pattern": pattern,
+                                }
+                            ]
+                        ),
+                    ),
+                )
+                for site, document in documents:
+                    with self.subTest(exception=exception_name, site=site):
+                        taxonomy = root / (
+                            f"{exception_name.replace('.', '_')}-{site}.json"
+                        )
+                        taxonomy.write_text(json.dumps(document), encoding="utf-8")
+                        result = subprocess.run(
+                            [
+                                sys.executable,
+                                str(PIPELINES / "curate_tags.py"),
+                                str(source),
+                                "--taxonomy",
+                                str(taxonomy),
+                            ],
+                            capture_output=True,
+                            text=True,
+                            check=False,
+                        )
+
+                        self.assertEqual(result.returncode, 2, result.stderr)
+                        self.assertIn("not a valid regex", result.stderr)
+                        self.assertNotIn("Traceback", result.stderr)
+
+    def test_cli_rejects_unsafe_regexes_without_writing_or_tracebacks(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            source = self._source(root)
+            cases = []
+            for unsafe_name, pattern in UNSAFE_LINEAR_REGEX_PATTERNS:
+                cases.extend(
+                    [
+                        (
+                            f"{unsafe_name}-canonical",
+                            minimal_taxonomy(canonical_tag_pattern=pattern),
+                        ),
+                        (
+                            f"{unsafe_name}-rule",
+                            minimal_taxonomy(
+                                pattern_rules=[
+                                    {
+                                        "id": "unsafe_regex",
+                                        "tag": "decision:accept",
+                                        "pattern": pattern,
+                                    }
+                                ]
+                            ),
+                        ),
+                    ]
+                )
+            cases.append(
+                (
+                    "fast-then-pathological",
+                    minimal_taxonomy(
+                        pattern_rules=[
+                            {
+                                "id": "a_fast",
+                                "tag": "decision:accept",
+                                "pattern": "^a+x$",
+                            },
+                            {
+                                "id": "z_pathological",
+                                "tag": "decision:accept",
+                                "pattern": "^(a+)+$",
+                            },
+                        ]
+                    ),
+                )
+            )
+
+            for index, (label, document) in enumerate(cases):
+                with self.subTest(case=label):
+                    taxonomy = root / f"unsafe-{index}.json"
+                    output = root / f"unsafe-output-{index}.jsonl"
+                    taxonomy.write_text(json.dumps(document), encoding="utf-8")
+                    result = subprocess.run(
+                        [
+                            sys.executable,
+                            str(PIPELINES / "curate_tags.py"),
+                            str(source),
+                            "--taxonomy",
+                            str(taxonomy),
+                            "--output-jsonl",
+                            str(output),
+                        ],
+                        capture_output=True,
+                        text=True,
+                        check=False,
+                    )
+
+                    self.assertEqual(result.returncode, 2, result.stderr)
+                    self.assertIn(
+                        "supported linear-time regex subset", result.stderr
+                    )
+                    self.assertNotIn("Traceback", result.stderr)
+                    self.assertFalse(output.exists())
+
+    def test_cli_rejects_grouped_optionals_before_matching_the_source(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            source = root / "grouped-optionals-source.jsonl"
+            source.write_text(
+                json.dumps(record(["a" * GROUPED_OPTIONAL_REPEATS])) + "\n",
+                encoding="utf-8",
+            )
+
+            for index, (group_kind, pattern) in enumerate(
+                GROUPED_OPTIONAL_REGEX_PATTERNS
+            ):
+                with self.subTest(group=group_kind):
+                    taxonomy = root / f"grouped-optionals-{index}.json"
+                    output = root / f"grouped-optionals-{index}.jsonl"
+                    taxonomy.write_text(
+                        json.dumps(
+                            minimal_taxonomy(
+                                pattern_rules=[
+                                    {
+                                        "id": group_kind,
+                                        "tag": "decision:accept",
+                                        "pattern": pattern,
+                                    }
+                                ]
+                            )
+                        ),
+                        encoding="utf-8",
+                    )
+
+                    result = subprocess.run(
+                        [
+                            sys.executable,
+                            str(PIPELINES / "curate_tags.py"),
+                            str(source),
+                            "--taxonomy",
+                            str(taxonomy),
+                            "--output-jsonl",
+                            str(output),
+                        ],
+                        capture_output=True,
+                        text=True,
+                        check=False,
+                        timeout=3,
+                    )
+
+                    self.assertEqual(result.returncode, 2, result.stderr)
+                    self.assertEqual(result.stdout, "")
+                    self.assertIn(
+                        "supported linear-time regex subset", result.stderr
+                    )
+                    self.assertNotIn("Traceback", result.stderr)
+                    self.assertFalse(output.exists())
 
 
 if __name__ == "__main__":

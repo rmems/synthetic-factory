@@ -4,17 +4,20 @@
 import collections
 import copy
 import hashlib
+import io
 import json
 import sys
 import tempfile
 import unittest
 from pathlib import Path
+from contextlib import redirect_stdout
 
 REPO = Path(__file__).resolve().parents[1]
 PIPELINES = REPO / "pipelines"
 SCHEMA = REPO / "schemas" / "reward-ontology-v1.schema.json"
 sys.path.insert(0, str(PIPELINES))
 
+import curate_gate  # noqa: E402
 import curate_rewards  # noqa: E402
 
 
@@ -45,6 +48,17 @@ def preference(chosen_reward, rejected_reward):
         "rejected": {"reward_components": rejected_reward},
         "critique": "chosen is preferred on observable process evidence",
     }
+
+
+def write_jsonl(path, records):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        "".join(
+            json.dumps(record, ensure_ascii=False, sort_keys=True) + "\n"
+            for record in records
+        ),
+        encoding="utf-8",
+    )
 
 
 class RewardOntologyV1Tests(unittest.TestCase):
@@ -134,7 +148,7 @@ class RewardOntologyV1Tests(unittest.TestCase):
         }
 
         without_evidence, _ = curate_rewards.curate_record(record)
-        with_evidence, _ = curate_rewards.curate_record(
+        with_evidence, sidecar = curate_rewards.curate_record(
             record, calibration=calibration
         )
 
@@ -151,6 +165,14 @@ class RewardOntologyV1Tests(unittest.TestCase):
                 == "units-migration.json#/records/1"
                 for value in annotation["magnitude"]["values"]
             )
+        )
+        self.assertEqual(
+            sidecar["calibration"]["source_unit_usd"],
+            2000,
+        )
+        self.assertEqual(
+            sidecar["calibration"]["evidence_ref"],
+            "units-migration.json#/records/1",
         )
 
     def test_units_migration_loader_ignores_null_and_coarse_guess(self):
@@ -409,6 +431,22 @@ class RewardOntologyV1Tests(unittest.TestCase):
         ):
             curate_rewards.validate_ontology_document(malformed)
 
+    def test_sidecar_arithmetic_must_be_a_list(self):
+        record = preference(
+            {"task_progress": 1.0, "safety": 0.0, "total": 1.0},
+            {"task_progress": 0.0, "safety": 0.0, "total": 0.0},
+        )
+        _curated, sidecar = curate_rewards.curate_record(record)
+        malformed = copy.deepcopy(sidecar)
+        malformed["arithmetic"] = None
+        malformed.pop("sidecar_id")
+        malformed["sidecar_id"] = curate_rewards._sha256(malformed)
+
+        with self.assertRaisesRegex(
+            curate_rewards.RewardOntologyError, "sidecar arithmetic must be a list"
+        ):
+            curate_rewards.validate_ontology_document(malformed)
+
     def test_runtime_validator_recomputes_canonical_conversion(self):
         units = "1.0 reward unit = USD 10,000 (risk-adjusted); deltas vs baseline"
         record = preference(
@@ -437,6 +475,7 @@ class RewardOntologyV1Tests(unittest.TestCase):
             source = root / "input.jsonl"
             output = root / "out" / "records.jsonl"
             sidecars = root / "out" / "reward-sidecars.jsonl"
+            manifest = root / "out" / "manifest.json"
             source.write_text(json.dumps(record) + "\n")
 
             summary = curate_rewards.convert_jsonl(
@@ -444,17 +483,306 @@ class RewardOntologyV1Tests(unittest.TestCase):
                 output,
                 sidecars,
                 source_path="factory/preferences.jsonl",
+                manifest_path=manifest,
             )
             self.assertEqual(summary["records"], 1)
+            self.assertEqual(summary["manifest"], str(manifest))
             converted = json.loads(output.read_text())
             sidecar = json.loads(sidecars.read_text())
+            entries = json.loads(manifest.read_text())
+            self.assertEqual(len(entries), 1)
+            self.assertEqual(entries[0]["source_path"], "factory/preferences.jsonl")
+            self.assertEqual(entries[0]["source_line"], 1)
+            self.assertEqual(entries[0]["transform_name"], "reward_ontology")
+            self.assertEqual(entries[0]["transform_version"], "reward-ontology-v1")
+            self.assertEqual(entries[0]["action"], "retained")
+            self.assertEqual(
+                entries[0]["output_hash"],
+                hashlib.sha256(curate_rewards._canonical_bytes(converted)).hexdigest(),
+            )
             self.assertEqual(
                 curate_rewards.restore_source_record(converted, sidecar), record
             )
             with self.assertRaisesRegex(
                 curate_rewards.RewardOntologyError, "refusing to overwrite"
             ):
-                curate_rewards.convert_jsonl(source, output, sidecars)
+                curate_rewards.convert_jsonl(
+                    source,
+                    output,
+                    sidecars,
+                    manifest_path=manifest,
+                )
+
+    def test_run_conversion_is_deterministic_and_gate_compatible(self):
+        alpha_record = preference(
+            {"task_progress": 0.8, "safety": 0.2, "total": 1.0},
+            {"task_progress": -0.5, "safety": -0.5, "total": -1.0},
+        )
+        alpha_record["id"] = "alpha-pref"
+        zeta_record = {
+            "id": "zeta-reward",
+            "reward_components": components(1.0),
+        }
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            source = root / "source-run"
+            alpha_relative = Path("alpha-factory/nested/preferences.jsonl")
+            zeta_relative = Path("zeta-factory/batch-r02.jsonl")
+            # Create in reverse lexical order to prove traversal order is path-stable.
+            write_jsonl(source / zeta_relative, [zeta_record])
+            write_jsonl(source / alpha_relative, [alpha_record])
+
+            first = root / "lane-reward-a"
+            second = root / "lane-reward-b"
+            summary = curate_rewards.convert_run(source, first)
+            curate_rewards.convert_run(source, second)
+
+            ordered_relatives = [alpha_relative.as_posix(), zeta_relative.as_posix()]
+            manifest = json.loads((first / "manifest.json").read_text(encoding="utf-8"))
+            self.assertEqual(summary["files"], 2)
+            self.assertEqual(summary["records"], 2)
+            self.assertEqual(
+                [entry["source_path"] for entry in manifest],
+                ordered_relatives,
+            )
+            self.assertEqual(
+                sorted(path.relative_to(first).as_posix() for path in first.rglob("*.jsonl")),
+                [
+                    alpha_relative.as_posix(),
+                    "reward-sidecars.jsonl",
+                    zeta_relative.as_posix(),
+                ],
+            )
+
+            expected_manifest = []
+            for relative in (alpha_relative, zeta_relative):
+                raw_line = (source / relative).read_bytes().split(b"\n")[0]
+                converted = json.loads((first / relative).read_text(encoding="utf-8"))
+                annotation = converted["reward_training"]
+                expected_manifest.append(
+                    {
+                        "action": "retained",
+                        "classification": annotation["comparability"],
+                        "output_hash": hashlib.sha256(
+                            curate_rewards._canonical_bytes(converted)
+                        ).hexdigest(),
+                        "output_id": converted["id"],
+                        "reason_codes": annotation["reason_codes"],
+                        "source_hash": hashlib.sha256(raw_line).hexdigest(),
+                        "source_line": 1,
+                        "source_path": relative.as_posix(),
+                        "transform_name": "reward_ontology",
+                        "transform_version": "reward-ontology-v1",
+                    }
+                )
+            self.assertEqual(manifest, expected_manifest)
+
+            sidecars = [
+                json.loads(line)
+                for line in (first / "reward-sidecars.jsonl").read_text().splitlines()
+            ]
+            self.assertEqual(
+                [sidecar["source"]["path"] for sidecar in sidecars],
+                ordered_relatives,
+            )
+            self.assertEqual(
+                (first / "manifest.json").read_bytes(),
+                (second / "manifest.json").read_bytes(),
+            )
+            self.assertEqual(
+                (first / "reward-sidecars.jsonl").read_bytes(),
+                (second / "reward-sidecars.jsonl").read_bytes(),
+            )
+            for relative in (alpha_relative, zeta_relative):
+                self.assertEqual(
+                    (first / relative).read_bytes(),
+                    (second / relative).read_bytes(),
+                )
+
+            lane = {
+                "order": 4,
+                "bead": "sf-c5l.4",
+                "transform": "reward_ontology",
+                "version": curate_rewards.ONTOLOGY_VERSION,
+                "outputs_dir": first,
+                "manifest_path": first / "manifest.json",
+                "manifest_format": "json",
+                "artifacts": [
+                    {
+                        "kind": curate_gate.REWARD_SIDECAR_KIND,
+                        "source_path": first / "reward-sidecars.jsonl",
+                        "destination": Path("reward-sidecars.jsonl"),
+                    }
+                ],
+            }
+            prepared = curate_gate._prepare_lane(  # noqa: SLF001
+                lane,
+                curate_gate._load_source_records(source),  # noqa: SLF001
+            )
+            self.assertEqual(len(prepared["entries"]), 2)
+            self.assertEqual(len(prepared["records"]), 2)
+            self.assertEqual(prepared["artifacts"][0]["_documents"], 2)
+
+    def test_run_conversion_copies_units_migration_and_seals_sidecar_calibration(self):
+        record = preference(
+            {
+                "task_progress": 3.0,
+                "safety": 0.6,
+                "total": 3.6,
+                "units": "1.0 = $2,000; audited_true_reward basis",
+            },
+            {
+                "task_progress": 0.2,
+                "safety": -0.8,
+                "total": -0.6,
+                "units": "1.0 = $2,000; risk-adjusted terms",
+            },
+        )
+        record["id"] = "ffpc-r2-001"
+        migration = {
+            "records": [
+                {
+                    "scope": "batch-r02.jsonl / ffpc-r2-001 (grid)",
+                    "usd_conversion_factor": 0.2,
+                }
+            ]
+        }
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            source = root / "source-run"
+            write_jsonl(source / "ffpc" / "preferences.jsonl", [record])
+            migration_path = root / "units-migration.json"
+            migration_path.write_text(json.dumps(migration) + "\n", encoding="utf-8")
+            output = root / "lane-reward"
+            catalog = curate_rewards.load_units_migration(migration_path)
+
+            curate_rewards.convert_run(
+                source,
+                output,
+                calibration_catalog=catalog,
+                units_migration=migration_path,
+            )
+
+            copied = output / curate_rewards.RUN_CALIBRATION_FILENAME
+            self.assertEqual(copied.read_bytes(), migration_path.read_bytes())
+            sidecar = json.loads(
+                (output / curate_rewards.RUN_SIDECAR_FILENAME).read_text().splitlines()[0]
+            )
+            annotation = json.loads(
+                (output / "ffpc" / "preferences.jsonl").read_text().splitlines()[0]
+            )["reward_training"]
+            self.assertEqual(annotation["comparability"], "magnitude_comparable")
+            self.assertIn("external_calibration_evidence", annotation["reason_codes"])
+            self.assertEqual(sidecar["calibration"]["source_unit_usd"], 2000)
+            self.assertEqual(sidecar["source"]["record_id"], "ffpc-r2-001")
+
+    def test_run_conversion_rejects_existing_symlinked_and_raw_destinations(self):
+        record = {"id": "fixture", "reward_components": components(1.0)}
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            source = root / "source-run"
+            write_jsonl(source / "factory-a/batch.jsonl", [record])
+
+            existing = root / "existing-lane"
+            existing.mkdir()
+            marker = existing / "keep.txt"
+            marker.write_text("untouched", encoding="utf-8")
+            with self.assertRaisesRegex(
+                curate_rewards.RewardOntologyError,
+                "refusing to overwrite existing run destination",
+            ):
+                curate_rewards.convert_run(source, existing)
+            self.assertEqual(marker.read_text(encoding="utf-8"), "untouched")
+
+            symlink_target = root / "symlink-target"
+            symlink_target.mkdir()
+            symlink_destination = root / "symlink-lane"
+            symlink_destination.symlink_to(symlink_target, target_is_directory=True)
+            with self.assertRaisesRegex(
+                curate_rewards.RewardOntologyError,
+                "symlinked path component",
+            ):
+                curate_rewards.convert_run(source, symlink_destination)
+            self.assertEqual(list(symlink_target.iterdir()), [])
+
+            raw_destination = root / "outputs" / "raw" / "reward-lane"
+            raw_destination.parent.mkdir(parents=True)
+            with self.assertRaisesRegex(
+                curate_rewards.RewardOntologyError,
+                "immutable outputs/raw",
+            ):
+                curate_rewards.convert_run(source, raw_destination)
+            self.assertFalse(raw_destination.exists())
+
+    def test_run_conversion_cleans_partial_tree_after_later_file_failure(self):
+        record = {"id": "valid-first", "reward_components": components(1.0)}
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            source = root / "source-run"
+            valid_source = source / "alpha-factory/batch.jsonl"
+            invalid_source = source / "zeta-factory/batch.jsonl"
+            write_jsonl(valid_source, [record])
+            invalid_source.parent.mkdir(parents=True)
+            invalid_source.write_text('{"id": "invalid"\n', encoding="utf-8")
+            destination = root / "lane-reward"
+
+            with self.assertRaisesRegex(
+                curate_rewards.RewardOntologyError,
+                "invalid JSON",
+            ):
+                curate_rewards.convert_run(source, destination)
+
+            self.assertFalse(destination.exists())
+            self.assertEqual(
+                json.loads(valid_source.read_text(encoding="utf-8")),
+                record,
+            )
+
+    def test_migration_bytes_and_run_cli_use_catalog_record_key(self):
+        payload = json.dumps(
+            {
+                "records": [
+                    {
+                        "scope": "batch-r02.jsonl / ffpc-r2-001 (grid)",
+                        "usd_conversion_factor": 0.2,
+                    }
+                ]
+            }
+        ).encode("utf-8")
+        catalog = curate_rewards.load_units_migration_bytes(payload)
+        key = curate_rewards.catalog_record_key("FFPC-R2-001")
+        self.assertEqual(key, "ffpc-r2-001")
+        self.assertEqual(set(catalog), {key})
+        self.assertEqual(catalog[key]["canonical_factor"], 0.2)
+
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            source = root / "source-run"
+            write_jsonl(
+                source / "alpha-factory/batch.jsonl",
+                [{"id": "cli-reward", "reward_components": components(1.0)}],
+            )
+            output = root / "lane-reward"
+            stdout = io.StringIO()
+            with redirect_stdout(stdout):
+                code = curate_rewards.main(["run", str(source), str(output)])
+            self.assertEqual(code, 0)
+            self.assertEqual(json.loads(stdout.getvalue())["records"], 1)
+
+            empty = root / "empty-run"
+            empty.mkdir()
+            (empty / "blank.jsonl").write_text("", encoding="utf-8")
+            with self.assertRaisesRegex(
+                curate_rewards.RewardOntologyError, "holds no JSONL records"
+            ):
+                curate_rewards.convert_run(empty, root / "out-empty")
+
+            reserved = source / curate_rewards.RUN_SIDECAR_FILENAME
+            reserved.write_text("{}\n", encoding="utf-8")
+            with self.assertRaisesRegex(
+                curate_rewards.RewardOntologyError, "aggregate sidecar"
+            ):
+                curate_rewards.convert_run(source, root / "out-reserved")
 
 
 FIXTURES = REPO / "tests" / "fixtures" / "reward-ontology"
@@ -743,6 +1071,19 @@ class ConversionPolicyMappingTests(unittest.TestCase):
                 preference["properties"][side],
                 {"type": "string", "pattern": "^/.+"},
             )
+        classes = properties["comparability_classes"]
+        self.assertEqual(
+            set(classes["required"]),
+            {
+                "magnitude_comparable",
+                "sign_order_only",
+                "exclude_from_reward_training",
+            },
+        )
+        self.assertEqual(classes["minProperties"], 3)
+        dispositions = properties["component_dispositions"]
+        self.assertEqual(len(dispositions["required"]), 7)
+        self.assertEqual(dispositions["minProperties"], 7)
 
     def test_every_declared_reason_code_is_cited_by_a_declared_rule(self):
         policy = curate_rewards.CONVERSION_POLICY["policy"]
@@ -848,6 +1189,87 @@ class ConversionPolicyMappingTests(unittest.TestCase):
             curate_rewards.RewardOntologyError, "disposition must be"
         ):
             curate_rewards.validate_conversion_policy(wrong_disposition)
+
+        overlapping_aliases = copy.deepcopy(document)
+        overlapping_aliases["policy"]["arithmetic"]["weight_aliases"]["safety"] = [
+            "safety",
+            "task_progress",
+        ]
+        with self.assertRaisesRegex(
+            curate_rewards.RewardOntologyError, "weight alias groups must be disjoint"
+        ):
+            curate_rewards.validate_conversion_policy(overlapping_aliases)
+
+        annotation_collision = copy.deepcopy(document)
+        annotation_collision["policy"]["annotation_field"] = "reward_components"
+        with self.assertRaisesRegex(
+            curate_rewards.RewardOntologyError, "must not be a declared reward key"
+        ):
+            curate_rewards.validate_conversion_policy(annotation_collision)
+
+        bad_preference = copy.deepcopy(document)
+        bad_preference["policy"]["preference_scope"]["preferred"] = "/chosen/not_reward"
+        with self.assertRaisesRegex(
+            curate_rewards.RewardOntologyError, "must target a declared reward key"
+        ):
+            curate_rewards.validate_conversion_policy(bad_preference)
+
+        shared_unit_fields = copy.deepcopy(document)
+        shared_unit_fields["policy"]["conversion"]["text_unit_field"] = (
+            shared_unit_fields["policy"]["conversion"]["structured_unit_field"]
+        )
+        with self.assertRaisesRegex(
+            curate_rewards.RewardOntologyError,
+            "structured and textual unit fields must be distinct",
+        ):
+            curate_rewards.validate_conversion_policy(shared_unit_fields)
+
+        shared_calibration_fields = copy.deepcopy(document)
+        shared_calibration_fields["policy"]["conversion"]["external_calibration"][
+            "scope_field"
+        ] = shared_calibration_fields["policy"]["conversion"]["external_calibration"][
+            "factor_field"
+        ]
+        with self.assertRaisesRegex(
+            curate_rewards.RewardOntologyError,
+            "external calibration fields must be distinct",
+        ):
+            curate_rewards.validate_conversion_policy(shared_calibration_fields)
+
+        nonnumeric_pattern = copy.deepcopy(document)
+        nonnumeric_pattern["policy"]["arithmetic"][
+            "rounding_declaration_pattern"
+        ] = "(abc)"
+        with self.assertRaisesRegex(
+            curate_rewards.RewardOntologyError, "capture group must be numeric"
+        ):
+            curate_rewards.validate_conversion_policy(nonnumeric_pattern)
+
+        foreign_unit = copy.deepcopy(document)
+        foreign_unit["policy"]["conversion"]["canonical_unit"] = "eur"
+        with self.assertRaisesRegex(
+            curate_rewards.RewardOntologyError,
+            "canonical_unit must match the annotation schema constant",
+        ):
+            curate_rewards.validate_conversion_policy(foreign_unit)
+
+        impossible_pair = copy.deepcopy(document)
+        impossible_pair["source_vocabulary"]["shapes"][0][
+            "arithmetic_status"
+        ] = "unsupported"
+        with self.assertRaisesRegex(
+            curate_rewards.RewardOntologyError,
+            "incompatible with method",
+        ):
+            curate_rewards.validate_conversion_policy(impossible_pair)
+
+        stale_occurrences = copy.deepcopy(document)
+        stale_occurrences["source_vocabulary"]["shapes"][0]["occurrences"] = 999999
+        with self.assertRaisesRegex(
+            curate_rewards.RewardOntologyError,
+            "shape occurrences must sum to reward_instances",
+        ):
+            curate_rewards.validate_conversion_policy(stale_occurrences)
 
     def test_missing_or_invalid_mapping_file_is_a_loud_failure(self):
         with tempfile.TemporaryDirectory() as td:
@@ -1070,6 +1492,9 @@ class SourceVocabularyMappingTests(unittest.TestCase):
 
         document = copy.deepcopy(curate_rewards.CONVERSION_POLICY)
         document["source_vocabulary"]["shapes"][0] = shape
+        document["source_vocabulary"]["reward_instances"] = sum(
+            item["occurrences"] for item in document["source_vocabulary"]["shapes"]
+        )
         self.assertIs(curate_rewards.validate_conversion_policy(document), document)
 
     def test_malformed_shape_arithmetic_outcomes_are_refused(self):
@@ -1250,7 +1675,7 @@ class RewardShapeVocabularyTests(unittest.TestCase):
             path.write_text('{"reward_components":{"total":NaN}}\n', encoding="utf-8")
             with self.assertRaisesRegex(
                 curate_rewards.RewardOntologyError,
-                "non-finite numeric constant NaN",
+                r"non-standard JSON numeric constant NaN",
             ):
                 list(curate_rewards._load_jsonl(path))
 
@@ -1388,6 +1813,16 @@ class RewardOntologyFixtureRegression(unittest.TestCase):
         self.assertEqual(
             census["ontology_scope_instances"] - census["reward_instances"], 2
         )
+        self.assertEqual(
+            set(census["dispositions"]),
+            set(curate_rewards.COMPONENT_DISPOSITIONS),
+        )
+
+    def test_census_rejects_non_object_records(self):
+        with self.assertRaisesRegex(
+            curate_rewards.RewardOntologyError, "census records must be objects"
+        ):
+            curate_rewards.reward_census(["not-an-object"])
 
 
 class MagnitudeMixingTests(unittest.TestCase):
@@ -1445,6 +1880,20 @@ class MagnitudeMixingTests(unittest.TestCase):
             curate_rewards.MagnitudeNotComparable, "no usable comparability class"
         ):
             curate_rewards.magnitude_training_cohort([{"reward_components": {}}])
+
+    def test_duplicate_magnitude_pointers_are_rejected(self):
+        curated = self.curated("ffpc-preferences.jsonl", 1)
+        values = curated[curate_rewards.ANNOTATION_FIELD]["magnitude"]["values"]
+        values.append(copy.deepcopy(values[0]))
+
+        with self.assertRaisesRegex(
+            curate_rewards.RewardOntologyError, "duplicate magnitude json_pointer"
+        ):
+            curate_rewards.canonical_magnitudes(curated)
+        with self.assertRaisesRegex(
+            curate_rewards.RewardOntologyError, "duplicate magnitude json_pointer"
+        ):
+            curate_rewards.magnitude_training_cohort([curated])
 
     def test_uncalibrated_annotations_never_carry_canonical_values(self):
         for name, line_number, record in all_fixture_records():

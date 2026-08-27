@@ -16,16 +16,23 @@ uncalibrated, so a magnitude-weighted set cannot be mixed by accident.
 The optional CLI writes only caller-specified, previously nonexistent files:
 
     python3 pipelines/curate_rewards.py classify input.jsonl
-    python3 pipelines/curate_rewards.py convert input.jsonl output.jsonl sidecars.jsonl
+    python3 pipelines/curate_rewards.py convert input.jsonl output.jsonl sidecars.jsonl \
+        --manifest manifest.json
+    python3 pipelines/curate_rewards.py run source-run new-reward-lane
+    python3 pipelines/curate_rewards.py census input.jsonl --tables
 
 The conversion policy itself is not hard-coded here. Scopes, arithmetic
 methods, unit-calibration evidence, comparability classes, reason codes, and
 the ordered classification rules are all read from the machine-readable mapping
 at ``schemas/reward-ontology-v1.mapping.json``, which also freezes the
 2026-08-17 run's 510 reward component keys and 140 structural shapes. The
-read-only census subcommand recomputes that vocabulary from any JSONL corpus:
+read-only census subcommand recomputes that vocabulary from any JSONL corpus.
 
-    python3 pipelines/curate_rewards.py census input.jsonl --tables
+The run mode preserves every source JSONL's relative path and writes one
+``reward-sidecars.jsonl`` artifact plus one aggregate ``manifest.json`` at the
+new lane root.  When ``--units-migration`` is supplied, its exact bytes are
+copied into the lane as ``units-migration.json`` and every applied calibration
+is sealed onto the matching sidecar.
 """
 
 from __future__ import annotations
@@ -37,6 +44,7 @@ import json
 import math
 import os
 import re
+import shutil
 import sys
 from collections import Counter
 from decimal import Decimal, InvalidOperation
@@ -106,6 +114,9 @@ REQUIRED_ARITHMETIC_METHODS = frozenset(
 SHA256_RE = re.compile(r"^sha256:[0-9a-f]{64}$")
 
 _UNSET = object()
+RUN_MANIFEST_FILENAME = "manifest.json"
+RUN_SIDECAR_FILENAME = "reward-sidecars.jsonl"
+RUN_CALIBRATION_FILENAME = "units-migration.json"
 
 
 class RewardOntologyError(ValueError):
@@ -169,7 +180,7 @@ def _mapping_integer(container, key, where, *, minimum=0):
     return value
 
 
-def _mapping_pattern(container, key, where, *, groups=0):
+def _mapping_pattern(container, key, where, *, groups=0, numeric_group=False):
     pattern = _mapping_str(container, key, where)
     try:
         compiled = re.compile(pattern, re.I)
@@ -177,22 +188,55 @@ def _mapping_pattern(container, key, where, *, groups=0):
         raise _policy_error(where, f"{key} is not a valid regular expression: {exc}") from exc
     if compiled.groups != groups:
         raise _policy_error(where, f"{key} must declare exactly {groups} capture group(s)")
+    if numeric_group:
+        haystack = "rounded to 3-decimal 1 reward unit = USD 10,000.5 abc"
+        match = compiled.search(haystack)
+        if match is not None:
+            try:
+                Decimal(str(match.group(1)).replace(",", ""))
+            except (InvalidOperation, TypeError, IndexError, ArithmeticError) as exc:
+                raise _policy_error(
+                    where, f"{key} capture group must be numeric"
+                ) from exc
     return compiled
+
+
+def _numeric_capture(match, *, integer=False):
+    try:
+        token = str(match.group(1)).replace(",", "")
+        value = int(token) if integer else Decimal(token)
+    except (InvalidOperation, TypeError, ValueError, IndexError, ArithmeticError) as exc:
+        raise RewardOntologyError("numeric regex capture is not a number") from exc
+    return value
 
 
 def _validate_conversion_block(policy, where):
     conversion = _mapping_object(policy, "conversion", where)
-    _mapping_str(conversion, "canonical_unit", where)
+    canonical_unit = _mapping_str(conversion, "canonical_unit", where)
+    if canonical_unit != "usd_10000_risk_adjusted_delta":
+        raise _policy_error(
+            where, "canonical_unit must match the annotation schema constant"
+        )
     _mapping_positive(conversion, "canonical_unit_usd", where)
-    _mapping_str(conversion, "aggregation", where)
+    aggregation = _mapping_str(conversion, "aggregation", where)
+    if aggregation != "linear_unit_conversion_only":
+        raise _policy_error(
+            where, "aggregation must match the annotation schema constant"
+        )
     _mapping_str(conversion, "required_semantics_substring", where)
-    _mapping_str(conversion, "structured_unit_field", where)
-    _mapping_str(conversion, "text_unit_field", where)
-    _mapping_pattern(conversion, "usd_unit_pattern", where, groups=1)
+    structured = _mapping_str(conversion, "structured_unit_field", where)
+    textual = _mapping_str(conversion, "text_unit_field", where)
+    if structured == textual:
+        raise _policy_error(where, "structured and textual unit fields must be distinct")
+    _mapping_pattern(
+        conversion, "usd_unit_pattern", where, groups=1, numeric_group=True
+    )
     external = _mapping_object(conversion, "external_calibration", where)
     _mapping_pattern(external, "record_id_pattern", where, groups=0)
-    _mapping_str(external, "factor_field", where)
-    _mapping_str(external, "scope_field", where)
+    factor_field = _mapping_str(external, "factor_field", where)
+    scope_field = _mapping_str(external, "scope_field", where)
+    if factor_field == scope_field:
+        raise _policy_error(where, "external calibration fields must be distinct")
     return conversion
 
 
@@ -202,17 +246,28 @@ def _validate_arithmetic_block(policy, where):
     _mapping_str(arithmetic, "declared_total_field", where)
     _mapping_str(arithmetic, "weights_field", where)
     _mapping_str(arithmetic, "rounding_decimals_field", where)
-    _mapping_pattern(arithmetic, "rounding_declaration_pattern", where, groups=1)
+    _mapping_pattern(
+        arithmetic,
+        "rounding_declaration_pattern",
+        where,
+        groups=1,
+        numeric_group=True,
+    )
     _mapping_str_list(arithmetic, "rounding_declaration_fields", where)
     containers = _mapping_str_list(arithmetic, "weighted_containers", where)
     nested = _mapping_str(arithmetic, "nested_component_key", where)
     if nested not in containers:
         raise _policy_error(where, "nested_component_key must be a declared weighted container")
     aliases = _mapping_object(arithmetic, "weight_aliases", where)
+    seen_aliases = set()
     for name in sorted(aliases):
         members = _mapping_str_list(aliases, name, where)
         if name not in members:
             raise _policy_error(where, f"weight_aliases[{name!r}] must contain its own key")
+        overlap = seen_aliases.intersection(members)
+        if overlap:
+            raise _policy_error(where, "weight alias groups must be disjoint")
+        seen_aliases.update(members)
     groups = _mapping_object(arithmetic, "non_component_keys", where)
     expected_groups = {
         DISPOSITION_DECLARED_TOTAL,
@@ -416,6 +471,7 @@ def _validate_source_vocabulary(document, arithmetic, where):
             vocabulary_where, "unique_shapes must equal the number of shapes"
         )
     signatures = set()
+    occurrence_total = 0
     for index, shape in enumerate(shapes):
         shape_where = f"{vocabulary_where}.shapes[{index}]"
         if not isinstance(shape, dict):
@@ -429,7 +485,9 @@ def _validate_source_vocabulary(document, arithmetic, where):
         allowed_methods = _arithmetic_methods_for_signature(
             signature, arithmetic, shape_where
         )
-        _mapping_integer(shape, "occurrences", shape_where, minimum=1)
+        occurrence_total += _mapping_integer(
+            shape, "occurrences", shape_where, minimum=1
+        )
         has_singular = (
             "arithmetic_status" in shape or "arithmetic_method" in shape
         )
@@ -471,10 +529,39 @@ def _validate_source_vocabulary(document, arithmetic, where):
                     outcome_where,
                     f"arithmetic method {method!r} is incompatible with signature",
                 )
+            allowed_status = {
+                "valid": {
+                    "declared_weighted_sum",
+                    "unweighted_component_sum",
+                },
+                "invalid": {
+                    "declared_weighted_sum",
+                    "unweighted_component_sum",
+                },
+                "unsupported": {
+                    "declared_weighted_sum_unresolved",
+                    "unweighted_component_sum_unresolved",
+                    "no_numeric_total",
+                    "non_object_reward",
+                },
+            }
+            if method not in allowed_status.get(status, ()):
+                raise _policy_error(
+                    outcome_where,
+                    f"arithmetic status {status!r} is incompatible with method {method!r}",
+                )
             pair = (status, method)
             if pair in seen_outcomes:
                 raise _policy_error(outcome_where, "duplicate arithmetic outcome")
             seen_outcomes.add(pair)
+    reward_instances = _mapping_integer(
+        vocabulary, "reward_instances", vocabulary_where, minimum=1
+    )
+    if occurrence_total != reward_instances:
+        raise _policy_error(
+            vocabulary_where,
+            "shape occurrences must sum to reward_instances",
+        )
     return vocabulary
 
 
@@ -582,8 +669,10 @@ def validate_conversion_policy(document, *, where="conversion policy"):
         raise _policy_error(where, "unknown reward mapping version")
 
     policy = _mapping_object(document, "policy", where)
-    _mapping_str(policy, "annotation_field", where)
+    annotation_field = _mapping_str(policy, "annotation_field", where)
     reward_keys = _mapping_str_list(policy, "reward_keys", where)
+    if annotation_field in reward_keys:
+        raise _policy_error(where, "annotation_field must not be a declared reward key")
     canonical_scope = _mapping_str(policy, "canonical_scope", where, prefix="/")
     if canonical_scope[1:] not in reward_keys:
         raise _policy_error(where, "canonical_scope must name a declared reward key")
@@ -592,6 +681,12 @@ def validate_conversion_policy(document, *, where="conversion policy"):
     dispreferred = _mapping_str(preference, "dispreferred", where, prefix="/")
     if preferred == dispreferred:
         raise _policy_error(where, "preference pointers must be distinct")
+    for pointer, label in ((preferred, "preferred"), (dispreferred, "dispreferred")):
+        terminal = pointer.rsplit("/", 1)[-1]
+        if terminal not in reward_keys:
+            raise _policy_error(
+                where, f"{label} pointer must target a declared reward key"
+            )
     if _mapping_str(preference, "relation", where) != "preferred_gt_dispreferred":
         raise _policy_error(where, "unsupported preference relation")
 
@@ -905,7 +1000,7 @@ def _reward_tolerance(reward) -> Decimal:
                 continue
             match = ROUNDING_RE.search(text)
             if match:
-                decimals = int(match.group(1))
+                decimals = _numeric_capture(match, integer=True)
                 break
     if decimals is None:
         return DEFAULT_TOLERANCE
@@ -1035,6 +1130,9 @@ def _normalize_calibration(calibration):
     }
 
 
+normalize_calibration = _normalize_calibration
+
+
 def _extract_unit_usd(reward, calibration=None):
     """Return (USD per native unit, status) from explicit, consistent evidence."""
     if not isinstance(reward, dict):
@@ -1045,7 +1143,7 @@ def _extract_unit_usd(reward, calibration=None):
     if isinstance(units_text, str):
         match = USD_UNIT_RE.search(units_text)
         if match:
-            parsed = Decimal(match.group(1).replace(",", ""))
+            parsed = _numeric_capture(match)
 
     structured_present = STRUCTURED_UNIT_FIELD in reward
     structured = (
@@ -1196,6 +1294,18 @@ def _classify(source_rewards, arithmetic, calibration=None):
     )
 
 
+def classify_source_rewards(source_rewards, arithmetic, calibration=None):
+    """Public 3-tuple classifier used by the promotion gate.
+
+    Internal classification also names the mapping rule that authorised the
+    verdict; the gate only consumes comparability, reason codes, and payload.
+    """
+    comparability, reason_codes, payload, _rule_id = _classify(
+        source_rewards, arithmetic, calibration
+    )
+    return comparability, reason_codes, payload
+
+
 def _magnitude_payload(arithmetic_by_pointer, units, calibration_sources):
     values = []
     for pointer in sorted(units):
@@ -1344,7 +1454,10 @@ def validate_ontology_document(document):
         _require_declared_verdict(
             classification["comparability"], reason_codes
         )
-        for entry in document.get("arithmetic", []):
+        arithmetic_entries = document.get("arithmetic", [])
+        if not isinstance(arithmetic_entries, list):
+            raise RewardOntologyError("sidecar arithmetic must be a list")
+        for entry in arithmetic_entries:
             if not isinstance(entry, dict):
                 raise RewardOntologyError("invalid sidecar arithmetic entry")
             if entry.get("status") not in ARITHMETIC_STATUSES:
@@ -1353,6 +1466,22 @@ def validate_ontology_document(document):
                 raise RewardOntologyError(
                     f"uncatalogued arithmetic method: {entry.get('method')!r}"
                 )
+        calibration = document.get("calibration")
+        if calibration is not None:
+            normalized = _normalize_calibration(calibration)
+            if (
+                normalized["source_unit_usd"] != _decimal(calibration.get("source_unit_usd"))
+                or normalized["evidence_ref"] != calibration.get("evidence_ref")
+            ):
+                raise RewardOntologyError("sidecar calibration is not canonical")
+            if "external_calibration_evidence" not in classification["reason_codes"]:
+                raise RewardOntologyError(
+                    "sidecar calibration requires external_calibration_evidence"
+                )
+        elif "external_calibration_evidence" in classification["reason_codes"]:
+            raise RewardOntologyError(
+                "external_calibration_evidence requires an applied sidecar calibration"
+            )
         return document
     raise RewardOntologyError(f"unknown ontology document_type: {kind!r}")
 
@@ -1391,21 +1520,26 @@ def curate_record(
     arithmetic = [
         assess_arithmetic(value, pointer) for pointer, value in reward_items
     ]
+    normalized_calibration = _normalize_calibration(calibration)
     comparability, reason_codes, payload, rule_id = _classify(
         source_rewards,
         arithmetic,
-        calibration,
+        normalized_calibration,
     )
     _require_declared_rule(comparability, reason_codes, rule_id)
 
+    source_identity = {
+        "path": source_path,
+        "line": source_line,
+        "record_sha256": _sha256(source_record),
+    }
+    source_record_id = _canonical_record_id(source_record)
+    if source_record_id is not None:
+        source_identity["record_id"] = source_record_id
     sidecar_body = {
         "document_type": "reward_source_sidecar",
         "ontology_version": ONTOLOGY_VERSION,
-        "source": {
-            "path": source_path,
-            "line": source_line,
-            "record_sha256": _sha256(source_record),
-        },
+        "source": source_identity,
         "classification": {
             "comparability": comparability,
             "reason_codes": reason_codes,
@@ -1413,6 +1547,13 @@ def curate_record(
         "source_rewards": source_rewards,
         "arithmetic": arithmetic,
     }
+    if normalized_calibration is not None and (
+        "external_calibration_evidence" in reason_codes
+    ):
+        sidecar_body["calibration"] = {
+            "source_unit_usd": _json_number(normalized_calibration["source_unit_usd"]),
+            "evidence_ref": normalized_calibration["evidence_ref"],
+        }
     sidecar = {**sidecar_body, "sidecar_id": _sha256(sidecar_body)}
 
     annotation = {
@@ -1474,9 +1615,19 @@ def canonical_magnitudes(record):
         raise MagnitudeNotComparable(
             f"record is {annotation['comparability']}, not magnitude_comparable"
         )
+    values = annotation["magnitude"]["values"]
+    if not isinstance(values, list):
+        raise RewardOntologyError("magnitude values must be a list")
+    pointers = [value.get("json_pointer") for value in values]
+    if len(pointers) != len(set(pointers)):
+        raise RewardOntologyError("duplicate magnitude json_pointer")
+    if len(pointers) != annotation["source_reward_count"]:
+        raise RewardOntologyError(
+            "magnitude values must match source_reward_count"
+        )
     return {
         value["json_pointer"]: value["canonical_value"]
-        for value in annotation["magnitude"]["values"]
+        for value in values
     }
 
 
@@ -1609,7 +1760,10 @@ def reward_census(records, *, scope_keys=None):
     total_records = 0
     instances = 0
     ontology_instances = 0
+    dispositions = Counter({name: 0 for name in COMPONENT_DISPOSITIONS})
     for record in records:
+        if not isinstance(record, dict):
+            raise RewardOntologyError("census records must be objects")
         total_records += 1
         ontology_instances += sum(1 for _ in _walk_rewards(record))
         for pointer, reward in _walk_rewards(record, reward_keys=scope_keys):
@@ -1627,7 +1781,6 @@ def reward_census(records, *, scope_keys=None):
                 key_counts[key] += 1
 
     component_keys = {}
-    dispositions = Counter()
     for key in sorted(key_types):
         disposition = disposition_for_observed_types(key, key_types[key])
         dispositions[disposition] += 1
@@ -1657,7 +1810,7 @@ def reward_census(records, *, scope_keys=None):
         "ontology_scope_instances": ontology_instances,
         "unique_component_keys": len(component_keys),
         "unique_shapes": len(shape_rows),
-        "dispositions": dict(sorted(dispositions.items())),
+        "dispositions": {name: dispositions[name] for name in COMPONENT_DISPOSITIONS},
         "arithmetic": [
             {"status": status, "method": method, "occurrences": count}
             for (status, method), count in sorted(arithmetic.items())
@@ -1699,11 +1852,48 @@ def load_units_migration(path):
                 "canonical_factor": _json_number(factor),
                 "evidence_ref": f"{path.as_posix()}#/records/{index}",
             }
-            key = record_id.lower()
+            key = catalog_record_key(record_id)
             previous = catalog.get(key)
             if previous is not None and previous != calibration:
                 raise RewardOntologyError(
                     f"{path}: conflicting calibrations for {record_id}"
+                )
+            catalog[key] = calibration
+    return catalog
+
+
+def load_units_migration_bytes(payload, *, label="<memory>"):
+    """Parse exact migration bytes into the same catalog ``load_units_migration`` builds."""
+    if not isinstance(payload, bytes):
+        raise RewardOntologyError("calibration payload must be bytes")
+    try:
+        document = json.loads(payload.decode("utf-8"), parse_constant=_reject_json_constant)
+    except (UnicodeDecodeError, json.JSONDecodeError, ValueError) as exc:
+        raise RewardOntologyError(f"{label}: invalid calibration JSON: {exc}") from exc
+    records = document.get("records") if isinstance(document, dict) else None
+    if not isinstance(records, list):
+        raise RewardOntologyError(f"{label}: calibration records must be a list")
+    catalog = {}
+    for index, entry in enumerate(records):
+        if not isinstance(entry, dict):
+            continue
+        factor = _decimal(entry.get("usd_conversion_factor"))
+        if factor is None or factor <= 0:
+            continue
+        scope = entry.get("scope")
+        if not isinstance(scope, str):
+            continue
+        for record_id in sorted(set(RECORD_ID_RE.findall(scope))):
+            calibration = {
+                "source_unit_usd": _json_number(factor * CANONICAL_UNIT_USD),
+                "canonical_factor": _json_number(factor),
+                "evidence_ref": f"{label}#/records/{index}",
+            }
+            key = catalog_record_key(record_id)
+            previous = catalog.get(key)
+            if previous is not None and previous != calibration:
+                raise RewardOntologyError(
+                    f"{label}: conflicting calibrations for {record_id}"
                 )
             catalog[key] = calibration
     return catalog
@@ -1718,27 +1908,91 @@ def _record_calibration(record, catalog):
         record_id = meta.get("id") if isinstance(meta, dict) else None
     if not isinstance(record_id, str):
         return None
-    return catalog.get(record_id.lower())
+    return catalog.get(catalog_record_key(record_id))
 
 
 def _load_jsonl(path):
+    for line_number, _raw_line, record in _load_jsonl_with_source_bytes(path):
+        yield line_number, record
+
+
+def _reject_json_constant(value):
+    raise ValueError(f"non-standard JSON numeric constant {value}")
+
+
+def _load_jsonl_with_source_bytes(path):
     path = Path(path)
+    try:
+        payload = path.read_bytes()
+    except OSError as exc:
+        raise RewardOntologyError(f"cannot read {path}: {exc}") from exc
+    for line_number, terminated in enumerate(payload.split(b"\n"), 1):
+        raw_line = terminated[:-1] if terminated.endswith(b"\r") else terminated
+        if not raw_line.strip():
+            continue
+        try:
+            line = raw_line.decode("utf-8")
+            record = json.loads(line, parse_constant=_reject_json_constant)
+        except (UnicodeError, json.JSONDecodeError, ValueError) as exc:
+            raise RewardOntologyError(
+                f"{path}:{line_number}: invalid JSON: {exc}"
+            ) from exc
+        yield line_number, raw_line, record
 
-    def reject_nonfinite(token):
-        raise ValueError(f"non-finite numeric constant {token}")
 
-    with path.open(encoding="utf-8") as handle:
-        for line_number, raw_line in enumerate(handle, 1):
-            line = raw_line.rstrip("\n")
-            if not line.strip():
-                continue
-            try:
-                record = json.loads(line, parse_constant=reject_nonfinite)
-            except (json.JSONDecodeError, ValueError) as exc:
-                raise RewardOntologyError(
-                    f"{path}:{line_number}: invalid JSON: {exc}"
-                ) from exc
-            yield line_number, record
+def catalog_record_key(record_id):
+    """Catalog insertion and lookup use str.lower, not casefold."""
+    return record_id.lower()
+
+
+def _canonical_record_id(record):
+    if not isinstance(record, dict):
+        return None
+    value = record.get("id")
+    if isinstance(value, str) and value.strip():
+        return value.strip()
+    meta = record.get("meta")
+    value = meta.get("id") if isinstance(meta, dict) else None
+    return value.strip() if isinstance(value, str) and value.strip() else None
+
+
+canonical_source_record_id = _canonical_record_id
+
+
+def _converted_jsonl_rows(
+    input_path,
+    *,
+    source_path,
+    calibration_catalog=None,
+):
+    """Yield deterministic output, sidecar, and manifest rows for one JSONL."""
+    stable_source_path = str(source_path).replace("\\", "/")
+    for line_number, raw_line, record in _load_jsonl_with_source_bytes(input_path):
+        curated, sidecar = curate_record(
+            record,
+            source_path=stable_source_path,
+            source_line=line_number,
+            calibration=_record_calibration(record, calibration_catalog),
+        )
+        annotation = curated[ANNOTATION_FIELD]
+        manifest_entry = {
+            "source_path": stable_source_path,
+            "source_line": line_number,
+            "source_hash": hashlib.sha256(raw_line).hexdigest(),
+            "transform_name": "reward_ontology",
+            "transform_version": ONTOLOGY_VERSION,
+            "action": "retained",
+            "reason_codes": list(annotation["reason_codes"]),
+            "classification": annotation["comparability"],
+            "output_id": _canonical_record_id(curated),
+            "output_hash": hashlib.sha256(_canonical_bytes(curated)).hexdigest(),
+        }
+        yield (
+            json.dumps(curated, ensure_ascii=False, sort_keys=True),
+            json.dumps(sidecar, ensure_ascii=False, sort_keys=True),
+            manifest_entry,
+            annotation["comparability"],
+        )
 
 
 def classify_jsonl(input_path, *, source_path=None, calibration_catalog=None):
@@ -1777,7 +2031,7 @@ def census_jsonl(input_paths, *, scope_keys=None):
     return {"inputs": [str(path) for path in input_paths], **census}
 
 
-def _write_new_text(path, text):
+def _write_new_bytes(path, payload):
     """Create one new file exclusively; never replace an existing path."""
     try:
         descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o644)
@@ -1786,11 +2040,16 @@ def _write_new_text(path, text):
             f"refusing to overwrite existing path: {path}"
         ) from exc
     try:
-        with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
-            handle.write(text)
+        with os.fdopen(descriptor, "wb") as handle:
+            handle.write(payload)
     except BaseException:
         path.unlink(missing_ok=True)
         raise
+
+
+def _write_new_text(path, text):
+    """Create one new file exclusively; never replace an existing path."""
+    _write_new_bytes(path, text.encode("utf-8"))
 
 
 def convert_jsonl(
@@ -1800,55 +2059,234 @@ def convert_jsonl(
     *,
     source_path=None,
     calibration_catalog=None,
+    manifest_path=None,
 ):
-    """Convert one JSONL file with no-clobber output and sidecar destinations."""
+    """Convert JSONL and optionally emit a gate-compatible record manifest."""
     input_path = Path(input_path)
     output_path = Path(output_path)
     sidecar_path = Path(sidecar_path)
-    if input_path.resolve() in {output_path.resolve(), sidecar_path.resolve()}:
+    manifest_path = Path(manifest_path) if manifest_path is not None else None
+    destinations = [output_path, sidecar_path]
+    if manifest_path is not None:
+        destinations.append(manifest_path)
+    resolved_destinations = {destination.resolve() for destination in destinations}
+    if input_path.resolve() in resolved_destinations:
         raise RewardOntologyError("input and output paths must be distinct")
-    if output_path.resolve() == sidecar_path.resolve():
-        raise RewardOntologyError("record and sidecar outputs must be distinct")
-    for destination in (output_path, sidecar_path):
+    if len(resolved_destinations) != len(destinations):
+        raise RewardOntologyError("record, sidecar, and manifest outputs must be distinct")
+    for destination in destinations:
         if destination.exists():
             raise RewardOntologyError(f"refusing to overwrite existing path: {destination}")
 
     stable_source_path = source_path or str(input_path)
     output_lines = []
     sidecar_lines = []
+    manifest_entries = []
     counts = Counter()
-    for line_number, record in _load_jsonl(input_path):
-        curated, sidecar = curate_record(
-            record,
-            source_path=stable_source_path,
-            source_line=line_number,
-            calibration=_record_calibration(record, calibration_catalog),
-        )
-        output_lines.append(json.dumps(curated, ensure_ascii=False, sort_keys=True))
-        sidecar_lines.append(json.dumps(sidecar, ensure_ascii=False, sort_keys=True))
-        counts[curated[ANNOTATION_FIELD]["comparability"]] += 1
+    for output_line, sidecar_line, manifest_entry, comparability in _converted_jsonl_rows(
+        input_path,
+        source_path=stable_source_path,
+        calibration_catalog=calibration_catalog,
+    ):
+        output_lines.append(output_line)
+        sidecar_lines.append(sidecar_line)
+        manifest_entries.append(manifest_entry)
+        counts[comparability] += 1
 
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    sidecar_path.parent.mkdir(parents=True, exist_ok=True)
-    _write_new_text(
-        output_path,
-        "\n".join(output_lines) + ("\n" if output_lines else ""),
-    )
+    for destination in destinations:
+        destination.parent.mkdir(parents=True, exist_ok=True)
+    written = []
     try:
+        _write_new_text(
+            output_path,
+            "\n".join(output_lines) + ("\n" if output_lines else ""),
+        )
+        written.append(output_path)
         _write_new_text(
             sidecar_path,
             "\n".join(sidecar_lines) + ("\n" if sidecar_lines else ""),
         )
+        written.append(sidecar_path)
+        if manifest_path is not None:
+            _write_new_text(
+                manifest_path,
+                json.dumps(manifest_entries, ensure_ascii=False, indent=2, sort_keys=True)
+                + "\n",
+            )
+            written.append(manifest_path)
     except BaseException:
-        # Both required outputs or neither, so a retry is not blocked by a
-        # curated file left without its reversible sidecar.
-        output_path.unlink(missing_ok=True)
+        # Every requested output or none, so a retry is never blocked by a
+        # partial record/sidecar/manifest transaction.
+        for destination in reversed(written):
+            destination.unlink(missing_ok=True)
         raise
-    return {
+    summary = {
         "input": str(input_path),
         "output": str(output_path),
         "sidecars": str(sidecar_path),
         "records": len(output_lines),
+        "comparability": dict(sorted(counts.items())),
+    }
+    if manifest_path is not None:
+        summary["manifest"] = str(manifest_path)
+    return summary
+
+
+def _absolute_path(path):
+    return Path(os.path.abspath(os.fspath(path)))
+
+
+def _reject_symlink_components(path, label):
+    """Reject an existing symlink anywhere in an absolute path."""
+    absolute = _absolute_path(path)
+    parts = absolute.parts
+    walked = Path(parts[0])
+    for part in parts[1:]:
+        walked /= part
+        if walked.is_symlink():
+            raise RewardOntologyError(
+                f"{label} contains a symlinked path component: {walked}"
+            )
+        if walked != absolute and os.path.lexists(walked) and not walked.is_dir():
+            raise RewardOntologyError(
+                f"{label} has a non-directory path component: {walked}"
+            )
+    return absolute
+
+
+def _is_under_raw(path):
+    parts = Path(path).resolve(strict=False).parts
+    return any(
+        parts[index : index + 2] == ("outputs", "raw")
+        for index in range(len(parts) - 1)
+    )
+
+
+def _run_source_paths(source_root):
+    source_root = _reject_symlink_components(source_root, "source run")
+    if not source_root.is_dir():
+        raise RewardOntologyError(f"source run is not a directory: {source_root}")
+
+    discovered = []
+    for path in source_root.rglob("*"):
+        if path.is_symlink():
+            raise RewardOntologyError(f"source run contains a symlinked path: {path}")
+        if path.is_file() and path.suffix == ".jsonl":
+            discovered.append(path)
+    paths = sorted(
+        discovered,
+        key=lambda jsonl_path: jsonl_path.relative_to(source_root).as_posix(),
+    )
+    if not paths:
+        raise RewardOntologyError(f"source run holds no JSONL files: {source_root}")
+    reserved = source_root / RUN_SIDECAR_FILENAME
+    if reserved in paths:
+        raise RewardOntologyError(
+            f"source JSONL path conflicts with aggregate sidecar name: {RUN_SIDECAR_FILENAME}"
+        )
+    return source_root, paths
+
+
+def _new_run_destination(destination, source_root):
+    destination = _reject_symlink_components(destination, "run destination")
+    if _is_under_raw(destination):
+        raise RewardOntologyError(
+            f"refusing to write run destination beneath immutable outputs/raw: {destination}"
+        )
+    if os.path.lexists(destination):
+        raise RewardOntologyError(
+            f"refusing to overwrite existing run destination: {destination}"
+        )
+    if destination == source_root or source_root in destination.parents:
+        raise RewardOntologyError(
+            f"run destination must be outside the source run: {destination}"
+        )
+    return destination
+
+
+def convert_run(
+    input_dir,
+    output_dir,
+    *,
+    calibration_catalog=None,
+    units_migration=None,
+):
+    """Convert a source run into one new, gate-ready reward lane tree.
+
+    Source JSONLs are processed in stable relative-path order. Their relative
+    output paths are preserved, while sidecars and manifest entries are
+    aggregated at the lane root. Any failure removes the entire new tree.
+    """
+    source_root, source_paths = _run_source_paths(input_dir)
+    output_root = _new_run_destination(output_dir, source_root)
+    try:
+        output_root.mkdir(parents=True, exist_ok=False)
+    except FileExistsError as exc:
+        raise RewardOntologyError(
+            f"refusing to overwrite existing run destination: {output_root}"
+        ) from exc
+
+    sidecar_lines = []
+    manifest_entries = []
+    counts = Counter()
+    records = 0
+    try:
+        for input_path in source_paths:
+            relative = input_path.relative_to(source_root)
+            relative_source = relative.as_posix()
+            output_lines = []
+            for (
+                output_line,
+                sidecar_line,
+                manifest_entry,
+                comparability,
+            ) in _converted_jsonl_rows(
+                input_path,
+                source_path=relative_source,
+                calibration_catalog=calibration_catalog,
+            ):
+                output_lines.append(output_line)
+                sidecar_lines.append(sidecar_line)
+                manifest_entries.append(manifest_entry)
+                counts[comparability] += 1
+                records += 1
+            output_path = output_root / relative
+            output_path.parent.mkdir(parents=True, exist_ok=True)
+            _write_new_text(
+                output_path,
+                "\n".join(output_lines) + ("\n" if output_lines else ""),
+            )
+
+        if not records:
+            raise RewardOntologyError(f"source run holds no JSONL records: {source_root}")
+        sidecar_path = output_root / RUN_SIDECAR_FILENAME
+        manifest_path = output_root / RUN_MANIFEST_FILENAME
+        _write_new_text(sidecar_path, "\n".join(sidecar_lines) + "\n")
+        _write_new_text(
+            manifest_path,
+            json.dumps(manifest_entries, ensure_ascii=False, indent=2, sort_keys=True)
+            + "\n",
+        )
+        if units_migration is not None:
+            migration_path = Path(units_migration)
+            try:
+                migration_payload = migration_path.read_bytes()
+            except OSError as exc:
+                raise RewardOntologyError(
+                    f"cannot read calibration {migration_path}: {exc}"
+                ) from exc
+            _write_new_bytes(output_root / RUN_CALIBRATION_FILENAME, migration_payload)
+    except BaseException:
+        shutil.rmtree(output_root, ignore_errors=True)
+        raise
+
+    return {
+        "input": str(source_root),
+        "output": str(output_root),
+        "sidecars": str(output_root / RUN_SIDECAR_FILENAME),
+        "manifest": str(output_root / RUN_MANIFEST_FILENAME),
+        "files": len(source_paths),
+        "records": records,
         "comparability": dict(sorted(counts.items())),
     }
 
@@ -1866,6 +2304,7 @@ def parse_args(argv=None):
     convert.add_argument("input")
     convert.add_argument("output")
     convert.add_argument("sidecars")
+    convert.add_argument("--manifest")
     convert.add_argument("--source-path")
     convert.add_argument("--units-migration")
 
@@ -1884,6 +2323,14 @@ def parse_args(argv=None):
         action="store_true",
         help="include the full per-key and per-shape tables in the output",
     )
+    run = subparsers.add_parser(
+        "run",
+        aliases=["convert-run"],
+        help="write a new gate-ready reward lane from a source run directory",
+    )
+    run.add_argument("input")
+    run.add_argument("output")
+    run.add_argument("--units-migration")
     return parser.parse_args(argv)
 
 
@@ -1903,13 +2350,21 @@ def main(argv=None):
                 source_path=args.source_path,
                 calibration_catalog=calibration_catalog,
             )
-        else:
+        elif args.command == "convert":
             summary = convert_jsonl(
                 args.input,
                 args.output,
                 args.sidecars,
                 source_path=args.source_path,
                 calibration_catalog=calibration_catalog,
+                manifest_path=args.manifest,
+            )
+        else:
+            summary = convert_run(
+                args.input,
+                args.output,
+                calibration_catalog=calibration_catalog,
+                units_migration=args.units_migration,
             )
     except (OSError, RewardOntologyError) as exc:
         print(f"error: {exc}", file=sys.stderr)
