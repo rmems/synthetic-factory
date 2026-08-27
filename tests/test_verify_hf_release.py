@@ -317,6 +317,15 @@ class ReleaseVerifierTests(unittest.TestCase):
             errors,
         )
 
+    def test_release_status_dataset_id_must_match_the_repository(self) -> None:
+        status = json.loads(_release_status())
+        status["dataset_id"] = verify_hf_release.DATASET_REPOS[1]
+        self.values["release-status.json"] = json.dumps(status)
+        self.assertIn(
+            f"release-status.json dataset_id must be {self.repo}",
+            self.verify().errors,
+        )
+
     def test_duplicate_release_status_license_fails(self) -> None:
         self.values["release-status.json"] = (
             '{"license":"not_yet_declared","license":"apache-2.0"}'

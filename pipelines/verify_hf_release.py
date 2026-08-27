@@ -282,7 +282,15 @@ def _contributor_roles(provenance: dict) -> dict[str, set[str]]:
 
 
 def _normalized_text(value: str) -> str:
-    return " ".join(value.split()).casefold()
+    """Casefold, collapse whitespace, and drop Markdown emphasis and links.
+
+    Obsolete-claim checks must match the rendered sentence. Emphasis such as
+    ``**critique**`` or ``[critique](url)`` is the same claim as ``critique``.
+    """
+
+    text = re.sub(r"\[([^\]\n]+)\]\([^)]*\)", r"\1", value)
+    text = re.sub(r"[*_`]+", "", text)
+    return " ".join(text.split()).casefold()
 
 
 def _normalized_sha256(value: str) -> str:
@@ -376,7 +384,9 @@ class _JSONObject(dict[str, object]):
             self[key] = value
 
 
-def _release_status_license(text: str, errors: list[str]) -> str | None:
+def _release_status_license(
+    text: str, errors: list[str], repo: str
+) -> str | None:
     """Validate raw-publication status and return its license declaration."""
 
     try:
@@ -388,8 +398,11 @@ def _release_status_license(text: str, errors: list[str]) -> str | None:
         errors.append("release-status.json must contain a JSON object")
         return None
     duplicate_keys = status.duplicate_keys if isinstance(status, _JSONObject) else set()
-    for field in sorted(duplicate_keys & RAW_RELEASE_STATUS.keys()):
+    for field in sorted(duplicate_keys & (RAW_RELEASE_STATUS.keys() | {"dataset_id"})):
         errors.append(f"release-status.json must not contain duplicate {field} keys")
+    dataset_id = status.get("dataset_id")
+    if dataset_id != repo:
+        errors.append(f"release-status.json dataset_id must be {repo}")
 
     for field, expected in RAW_RELEASE_STATUS.items():
         actual = status.get(field)
@@ -691,7 +704,7 @@ def verify_dataset(
     except Exception as error:  # network exceptions differ across Hub backends
         return CheckResult(repo, (f"public fetch failed: {error}",))
 
-    status_license = _release_status_license(release_status_text, errors)
+    status_license = _release_status_license(release_status_text, errors, repo)
     errors.extend(_license_alignment_errors(card, license_text, status_license))
     errors.extend(_card_section_errors(card, repo))
     errors.extend(_viewer_errors(card, viewer_bytes))

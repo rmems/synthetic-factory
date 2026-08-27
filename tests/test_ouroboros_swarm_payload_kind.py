@@ -412,6 +412,16 @@ class CommittedCensusContract(unittest.TestCase):
                 ),
                 "14 raw multi-agent records",
             ),
+            (
+                self.card.replace(
+                    "## Intended model target",
+                    "Synthetic multi-agent trajectories for delegation, "
+                    "**critique**, conflict resolution.\n\n## Intended model target",
+                    1,
+                ),
+                "Synthetic multi-agent trajectories for delegation, critique, "
+                "conflict resolution",
+            ),
         )
         for card, obsolete_claim in cards:
             with self.subTest(obsolete_claim=obsolete_claim):
