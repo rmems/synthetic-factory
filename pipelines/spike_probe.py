@@ -41,6 +41,7 @@ from curate_bridge import (  # noqa: E402
     raster_sidecar,
     raster_status,
 )
+from validate_run import reject_json_constant  # noqa: E402
 
 # Rasters are declared in milliseconds; probes want integer microseconds so a
 # 1 ms refractory window and a 1 ms Loihi barrier stay exactly representable.
@@ -109,7 +110,7 @@ def normalize_raster(record: Any, *, source: str | None = None) -> dict[str, Any
     """
 
     status = raster_status(record)
-    if not status["raster_valid"]:
+    if not status["raster_valid"] or status["routing_table_entries"] < 1:
         return None
     _location, raster = raster_sidecar(record)
     _gate_location, gate_snn = gate_snn_sidecar(record)
@@ -184,8 +185,8 @@ def iter_records(paths: Iterable[Path]) -> Iterator[tuple[str, Any, str | None]]
                 continue
             where = f"{path}:{line_number}"
             try:
-                yield where, json.loads(line), None
-            except json.JSONDecodeError:
+                yield where, json.loads(line, parse_constant=reject_json_constant), None
+            except (json.JSONDecodeError, ValueError):
                 yield where, None, REASON_INVALID_JSON
 
 
@@ -212,12 +213,15 @@ def load_rasters(
         normalized = normalize_raster(record, source=where)
         if normalized is None:
             status = raster_status(record)
+            reason_codes = list(status["reason_codes"])
+            if status["raster_valid"] and status["routing_table_entries"] < 1:
+                reason_codes.append("BRIDGE_RASTER_ROUTING_MISSING")
             problems.append(
                 {
                     "source": where,
                     "record_id": _record_id(record),
                     "scope": "bridge_record",
-                    "reason_codes": status["reason_codes"],
+                    "reason_codes": reason_codes,
                 }
             )
             continue
@@ -279,6 +283,15 @@ def main(argv=None):
     if args.jsonl:
         for raster in rasters:
             print(json.dumps(raster, ensure_ascii=False, sort_keys=True))
+        for problem in problems:
+            print(
+                json.dumps(
+                    {"unloadable": True, **problem},
+                    ensure_ascii=False,
+                    sort_keys=True,
+                ),
+                file=sys.stderr,
+            )
     else:
         print(
             json.dumps(
@@ -287,7 +300,7 @@ def main(argv=None):
                 ensure_ascii=False,
             )
         )
-    return 1 if args.strict and problems else 0
+    return 1 if problems and (args.strict or args.jsonl) else 0
 
 
 if __name__ == "__main__":

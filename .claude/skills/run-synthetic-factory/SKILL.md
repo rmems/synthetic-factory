@@ -56,6 +56,11 @@ python3 pipelines/spike_probe.py --strict outputs/raw/<date>
 python3 pipelines/spike_probe.py --jsonl outputs/raw/<date> > rasters.jsonl
 ```
 
+`--jsonl` prints normalized rasters to stdout and unloadable/input problems to
+stderr as `{"unloadable": true, ...}` records, then exits 1 when any record
+could not be loaded. Do not treat an incomplete `rasters.jsonl` as a clean
+export.
+
 ## Snapshot before every launch
 
 ```bash

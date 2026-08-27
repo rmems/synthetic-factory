@@ -13,7 +13,7 @@ import json
 import sys
 import tempfile
 import unittest
-from contextlib import redirect_stdout
+from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
@@ -70,6 +70,11 @@ class NormalizeRaster(unittest.TestCase):
         record = gate_snn_record()
         del record["raster"]["window_ms"]
         self.assertEqual(spike_probe.normalize_raster(record)["window_us"], 40000)
+
+    def test_routing_free_raster_is_not_emitted(self):
+        record = gate_snn_record()
+        record["raster"]["routing"]["table"] = []
+        self.assertIsNone(spike_probe.normalize_raster(record))
 
     def test_unverifiable_raster_is_not_emitted(self):
         record = gate_snn_record()
@@ -187,6 +192,54 @@ class ProbeCli(unittest.TestCase):
         self.assertEqual(code, 0)
         self.assertEqual(len(lines), 1)
         self.assertEqual(json.loads(lines[0])["window_us"], 40000)
+
+    def test_jsonl_mode_surfaces_unloadable_records_and_fails_closed(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            bare = gate_snn_record()
+            del bare["raster"]
+            write(root / "bridge" / "batch-r01.jsonl", [gate_snn_record(), bare])
+            stdout = io.StringIO()
+            stderr = io.StringIO()
+            with redirect_stdout(stdout), redirect_stderr(stderr):
+                code = spike_probe.main(["--jsonl", str(root)])
+
+        loaded = [json.loads(line) for line in stdout.getvalue().splitlines()]
+        problems = [json.loads(line) for line in stderr.getvalue().splitlines()]
+        self.assertEqual(code, 1)
+        self.assertEqual(len(loaded), 1)
+        self.assertTrue(all("events" in raster for raster in loaded))
+        self.assertEqual(len(problems), 1)
+        self.assertTrue(problems[0]["unloadable"])
+        self.assertIn("BRIDGE_RASTER_MISSING", problems[0]["reason_codes"])
+
+    def test_strict_probe_rejects_routing_free_rasters(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            record = gate_snn_record()
+            record["raster"]["routing"]["table"] = []
+            write(root / "bridge" / "batch-r01.jsonl", [record])
+            stdout = io.StringIO()
+            with redirect_stdout(stdout):
+                code = spike_probe.main(["--strict", str(root)])
+        report = json.loads(stdout.getvalue())
+        self.assertEqual(code, 1)
+        self.assertEqual(report["loaded"], 0)
+        self.assertEqual(report["unloadable"], 1)
+
+    def test_strict_probe_rejects_nonstandard_json_constants(self):
+        with tempfile.TemporaryDirectory() as td:
+            path = Path(td) / "bridge.jsonl"
+            path.write_text('{"id":"nan-1","spike_events":[{"t_rel_ms":NaN}]}\n')
+            stdout = io.StringIO()
+            with redirect_stdout(stdout):
+                code = spike_probe.main(["--strict", str(path)])
+        report = json.loads(stdout.getvalue())
+        self.assertEqual(code, 1)
+        self.assertEqual(report["input_errors"], 1)
+        self.assertEqual(
+            report["problems"][0]["reason_codes"], ["BRIDGE_SOURCE_JSON_INVALID"]
+        )
 
     def test_strict_mode_fails_on_an_unloadable_raster(self):
         with tempfile.TemporaryDirectory() as td:
