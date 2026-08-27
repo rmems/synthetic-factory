@@ -259,6 +259,17 @@ class PayloadKindClassification(unittest.TestCase):
                 payload_kind_audit.build_audit(directory)
         self.assertIn("non-standard JSON constant", str(caught.exception))
 
+    def test_numeric_literals_that_overflow_to_infinity_are_rejected(self):
+        with tempfile.TemporaryDirectory() as raw:
+            directory = Path(raw)
+            (directory / "episodes.jsonl").write_text(
+                '{"id":1e400,"goal":"g","steps":[]}\n',
+                encoding="utf-8",
+            )
+            with self.assertRaises(payload_kind_audit.PayloadKindAuditError) as caught:
+                payload_kind_audit.build_audit(directory)
+        self.assertIn("outside the finite float range", str(caught.exception))
+
     def test_invalid_utf8_and_read_failures_are_controlled_audit_errors(self):
         with tempfile.TemporaryDirectory() as raw:
             directory = Path(raw)
@@ -434,6 +445,20 @@ class PayloadKindClassification(unittest.TestCase):
                 code = payload_kind_audit.main([str(directory), "--expect", str(expected)])
         self.assertEqual(code, 2)
         self.assertIn("non-standard JSON constant", err.getvalue())
+
+    def test_expect_rejects_numeric_literals_that_overflow_to_infinity(self):
+        with tempfile.TemporaryDirectory() as raw:
+            directory = Path(raw)
+            _write_corpus(directory, {"episodes.jsonl": [_episode([])]})
+            published = payload_kind_audit.build_audit(directory)
+            serialized = json.dumps(published).replace('"records": 1', '"records": 1e400', 1)
+            expected = directory / "audit.json"
+            expected.write_text(serialized, encoding="utf-8")
+            err = io.StringIO()
+            with redirect_stderr(err):
+                code = payload_kind_audit.main([str(directory), "--expect", str(expected)])
+        self.assertEqual(code, 2)
+        self.assertIn("outside the finite float range", err.getvalue())
 
 
 class PublishedAgenticCodingPayloadKindAudit(unittest.TestCase):

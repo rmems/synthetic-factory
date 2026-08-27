@@ -25,6 +25,7 @@ import argparse
 import hashlib
 import html
 import json
+import math
 import sys
 from pathlib import Path
 from typing import Any, Iterable, Mapping
@@ -145,6 +146,14 @@ def _reject_json_constant(value: str) -> None:
     raise ValueError(f"non-standard JSON constant {value!r}")
 
 
+def _parse_finite_float(value: str) -> float:
+    """Parse one JSON number without accepting binary-float overflow."""
+    parsed = float(value)
+    if not math.isfinite(parsed):
+        raise ValueError(f"JSON number is outside the finite float range: {value!r}")
+    return parsed
+
+
 def _jsonl_lines(raw: bytes, source_file: str):
     """Yield LF-delimited UTF-8 records without splitting on Unicode separators."""
     for line_number, line_bytes in enumerate(raw.split(b"\n"), 1):
@@ -202,7 +211,11 @@ def build_audit(corpus: Path, payload_names: Iterable[str] | None = None) -> dic
             if not line.strip():
                 continue
             try:
-                record = json.loads(line, parse_constant=_reject_json_constant)
+                record = json.loads(
+                    line,
+                    parse_constant=_reject_json_constant,
+                    parse_float=_parse_finite_float,
+                )
             except (json.JSONDecodeError, ValueError) as exc:
                 raise PayloadKindAuditError(f"{path.name}:{line_number}: {exc}") from exc
             if not isinstance(record, dict):
@@ -355,6 +368,7 @@ def main(argv: list[str] | None = None) -> int:
             published = json.loads(
                 args.expect.read_text(encoding="utf-8"),
                 parse_constant=_reject_json_constant,
+                parse_float=_parse_finite_float,
             )
         except (OSError, UnicodeError, ValueError) as exc:
             print(f"cannot read {args.expect}: {exc}", file=sys.stderr)
@@ -386,7 +400,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.markdown:
         sys.stdout.write(render_markdown(audit))
     else:
-        json.dump(audit, sys.stdout, indent=2, sort_keys=False)
+        json.dump(audit, sys.stdout, indent=2, sort_keys=False, allow_nan=False)
         sys.stdout.write("\n")
     return 0
 
