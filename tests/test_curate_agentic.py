@@ -25,6 +25,7 @@ from curate_agentic import (  # noqa: E402
     ACTION_RETAINED,
     ACTION_SKIPPED,
     HIDDEN_THOUGHT_KEYS,
+    INVALID_PREFERENCE_KIND,
     REASON_GOAL_DIVERGES,
     REASON_GOAL_MISSING,
     REASON_GOAL_NOT_TEXT,
@@ -36,6 +37,7 @@ from curate_agentic import (  # noqa: E402
     REASON_RECORD_NOT_OBJECT,
     REASON_SKIPPED_KIND,
     REASON_SIDES_NOT_OBJECTS,
+    REASON_SIDE_SHAPE_INVALID,
     REASON_SAFETY_CASE_TYPE_INVALID,
     REASON_THOUGHT_REMOVED,
     classify_record,
@@ -215,6 +217,17 @@ class CurateAgenticTests(unittest.TestCase):
         self.assertIsNone(curated)
         self.assertEqual(decision["action"], ACTION_SKIPPED)
         self.assertIn(REASON_SKIPPED_KIND, decision["reason_codes"])
+
+    def test_mixed_preference_side_families_are_excluded(self):
+        record = preference_fixture()
+        record["chosen"] = thalamic_fixture()
+
+        curated, decision = curate_record(record)
+
+        self.assertEqual(classify_record(record), INVALID_PREFERENCE_KIND)
+        self.assertIsNone(curated)
+        self.assertEqual(decision["action"], ACTION_EXCLUDED)
+        self.assertEqual(decision["reason_codes"], [REASON_SIDE_SHAPE_INVALID])
 
     def test_malformed_pairs_and_unhashable_safety_types_are_excluded(self):
         malformed_pair = {
