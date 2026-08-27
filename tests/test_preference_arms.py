@@ -338,6 +338,38 @@ class CorrelatedArmsAreBlocked(unittest.TestCase):
 
         self.assertIn("spike_events.[].unit", deltas)
 
+    def test_event_kind_change_remains_a_machine_observable_delta(self):
+        record = copy.deepcopy(first(TWO_SESSION_ROUND))
+        record["chosen"] = copy.deepcopy(record["rejected"])
+        record["chosen"]["spike_events"] = [
+            {
+                "channel": "wm_slot_0",
+                "event_kind": "load",
+                "t_rel_ms": 40.0,
+                "amplitude": 0.6,
+            }
+        ]
+        record["rejected"]["spike_events"] = [
+            {
+                "channel": "wm_slot_0",
+                "event_kind": "unload",
+                "t_rel_ms": 40.0,
+                "amplitude": 0.6,
+            }
+        ]
+
+        deltas = preference_arms.machine_observable_deltas(
+            record["chosen"],
+            record["rejected"],
+        )
+
+        self.assertIn("spike_events.[].event_kind", deltas)
+        decision = check(record)
+        self.assertNotIn(
+            preference_arms.REASON_OBSERVABLES_IDENTICAL,
+            decision.reason_codes,
+        )
+
     def test_arbitrary_nested_scalar_is_not_observable(self):
         record = copy.deepcopy(first(NEAR_VERBATIM))
         record["chosen"] = copy.deepcopy(record["rejected"])
@@ -1074,6 +1106,10 @@ class DiagnosisHandoffVerification(unittest.TestCase):
             "yaml-narrative": diagnosis_document(
                 1,
                 root_cause="executed_action = unsafe\nfuture_outcome = failed",
+            ),
+            "homoglyph-yaml-narrative": diagnosis_document(
+                1,
+                root_cause="executed_actіon = unsafe\nfuture_outcοme = failed",
             ),
             "raw-html": diagnosis_document(1, root_cause="<!-- hidden trajectory -->"),
             "nonfinite-context": diagnosis_document(1).replace('"case": 1', '"case": 1e999', 1),
