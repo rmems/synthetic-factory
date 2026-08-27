@@ -350,6 +350,8 @@ EXECUTION_OVERRIDE_MAX_CHARS = 500
 EXECUTION_GATE_LABEL = "pipelines/verify_execution.py:verify_batch_for_frontier"
 # Fields a publish retry may legitimately re-derive without changing the plan.
 PUBLISH_PLAN_VOLATILE_KEYS = frozenset({"published_at", "execution_verification"})
+LEGACY_COMPLETION_MARKER_VERSION = 1
+EXECUTION_VERIFIED_COMPLETION_MARKER_VERSION = 2
 
 
 def normalized_execution_override(reason):
@@ -416,6 +418,90 @@ def comparable_execution_verification(verification):
             key: value for key, value in override.items() if key != "reason"
         }
     return comparable
+
+
+def validated_execution_verification_summary(
+    verification, marker_kind="completion marker"
+):
+    """Validate the canonical strict-gate summary stored in a durable marker."""
+    if not isinstance(verification, dict) or set(verification) != {
+        "gate",
+        "strict",
+        "counts",
+        "override",
+    }:
+        raise TransactionError(f"{marker_kind} has invalid execution verification")
+    counts = verification.get("counts")
+    if not isinstance(counts, dict) or set(counts) != {
+        "failed",
+        "inconclusive",
+        "total",
+        "verified",
+    }:
+        raise TransactionError(
+            f"{marker_kind} has invalid execution verification counts"
+        )
+    if any(
+        not isinstance(counts[key], int)
+        or isinstance(counts[key], bool)
+        or counts[key] < 0
+        for key in counts
+    ):
+        raise TransactionError(
+            f"{marker_kind} has invalid execution verification counts"
+        )
+    if (
+        verification.get("gate") != EXECUTION_GATE_LABEL
+        or verification.get("strict") is not True
+        or counts["total"] < 1
+        or counts["failed"] != 0
+        or counts["verified"] + counts["inconclusive"] != counts["total"]
+    ):
+        raise TransactionError(f"{marker_kind} has invalid execution verification")
+    override = recorded_execution_override(
+        {"execution_verification": verification}
+    )
+    if counts["inconclusive"]:
+        if (
+            override is None
+            or verification["override"]["waived_inconclusive"]
+            != counts["inconclusive"]
+        ):
+            raise TransactionError(
+                f"{marker_kind} execution override does not match "
+                "the inconclusive count"
+            )
+    elif override is not None:
+        raise TransactionError(
+            f"{marker_kind} cannot waive a conclusive execution verdict"
+        )
+    return verification
+
+
+def validate_completed_execution_verification(batch: Path, manifest: dict):
+    """Re-derive the v2 execution verdict before exposing a completed batch."""
+    recorded = manifest.get("execution_verification")
+    if not isinstance(recorded, dict):
+        raise TransactionError(
+            "version 2 completion marker requires an exact execution "
+            f"verification block: {batch}"
+        )
+    validated_execution_verification_summary(
+        recorded, marker_kind="completion marker"
+    )
+    try:
+        override = recorded_execution_override(manifest)
+        derived = execution_gate(batch, batch, override=override)
+    except TransactionError as exc:
+        raise TransactionError(
+            "completion marker execution verification conflicts with "
+            f"committed batch: {batch}\n{exc}"
+        ) from exc
+    if recorded != derived:
+        raise TransactionError(
+            "completion marker execution verification conflicts with "
+            f"committed batch: {batch}"
+        )
 
 
 def replace_json_atomically(path: Path, payload: dict):
@@ -996,6 +1082,21 @@ def completed_manifests(factory_dir: Path) -> dict[int, dict]:
         # validation cannot advance the visible frontier.
         for name in names:
             completion_manifest_file_matches(factory_dir / name, payload)
+        marker_version = payload.get("version")
+        if (
+            not isinstance(marker_version, int)
+            or isinstance(marker_version, bool)
+            or marker_version
+            not in {
+                LEGACY_COMPLETION_MARKER_VERSION,
+                EXECUTION_VERIFIED_COMPLETION_MARKER_VERSION,
+            }
+        ):
+            raise TransactionError(f"unsupported completion marker version: {path}")
+        if marker_version == EXECUTION_VERIFIED_COMPLETION_MARKER_VERSION:
+            validate_completed_execution_verification(
+                factory_dir / batch_name, payload
+            )
         if round_number in manifests:
             raise TransactionError(f"duplicate completion markers for r{round_number:02d}")
         manifests[round_number] = payload
@@ -2354,7 +2455,16 @@ def validate_completed_batch(
             )
     if "kinds" in manifest and manifest["kinds"] != kinds:
         raise TransactionError(f"completion marker kinds do not match batch: {batch}")
-    if manifest.get("version") != 1:
+    marker_version = manifest.get("version")
+    if (
+        not isinstance(marker_version, int)
+        or isinstance(marker_version, bool)
+        or marker_version
+        not in {
+            LEGACY_COMPLETION_MARKER_VERSION,
+            EXECUTION_VERIFIED_COMPLETION_MARKER_VERSION,
+        }
+    ):
         raise TransactionError(f"unsupported completion marker version for {batch}")
     if factory_staging:
         expected_kind = AGENTIC_FACTORY_KINDS[factory_dir.name]
@@ -2672,7 +2782,7 @@ def _publish_locked(
         execution_override=execution_override,
     )
     manifest = {
-        "version": 1,
+        "version": EXECUTION_VERIFIED_COMPLETION_MARKER_VERSION,
         "factory": factory_dir.name,
         "round": round_number,
         "token": token,
@@ -2680,7 +2790,9 @@ def _publish_locked(
         "records": records,
         "kinds": kinds,
         "files": files,
-        "execution_verification": verification,
+        "execution_verification": validated_execution_verification_summary(
+            verification, marker_kind="publish plan"
+        ),
         "published_at": utc_now(),
         "commit_point": paths["complete"].name,
     }
@@ -2688,7 +2800,8 @@ def _publish_locked(
     resumed = existing is not None
     if resumed:
         # Timestamps differ across retries. Every other plan field is immutable,
-        # including the schema version and declared completion marker.
+        # including the schema version and declared completion marker. Version 1
+        # publishing markers may still cut over onto the v2 verification contract.
         existing_plan = {
             key: value
             for key, value in existing.items()
@@ -2699,14 +2812,29 @@ def _publish_locked(
             for key, value in manifest.items()
             if key not in PUBLISH_PLAN_VOLATILE_KEYS
         }
+        legacy_publishing_marker = (
+            existing.get("version") == LEGACY_COMPLETION_MARKER_VERSION
+        )
+        if legacy_publishing_marker:
+            existing_plan = {
+                key: value
+                for key, value in existing_plan.items()
+                if key != "version"
+            }
+            manifest_plan = {
+                key: value
+                for key, value in manifest_plan.items()
+                if key != "version"
+            }
         if existing_plan != manifest_plan:
             raise TransactionError(
                 f"publishing plan conflicts with staged content: {paths['publishing']}"
             )
-        if pre_gate_marker:
+        if pre_gate_marker or legacy_publishing_marker:
             # A publish interrupted before the execution gate was introduced
             # has no persisted verdict to reuse. Re-derive it above and migrate
             # the marker atomically before any completion link can expose it.
+            # The same migration cut over interrupted v1 markers onto version 2.
             replace_json_atomically(paths["publishing"], manifest)
         else:
             # Only the first canonical waiver reason is intentionally retained.

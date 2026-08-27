@@ -625,7 +625,88 @@ class FrontierPublishGate(unittest.TestCase):
                 ],
                 verdict,
             )
+            self.assertEqual(manifest["version"], 2)
             self.assertEqual(round_txn.frontier_status(factory)["next_round"], 2)
+
+    def test_version_2_completion_marker_binds_the_execution_verdict(self):
+        with tempfile.TemporaryDirectory() as td:
+            factory = self.factory(td)
+            reservation = round_txn.reserve(factory, 1, 1)
+            self.stage(reservation, [thalamic("gate-bound")])
+            round_txn.publish(factory, 1, reservation["token"])
+            marker = factory / "ROUND-r01.complete.json"
+            payload = json.loads(marker.read_text())
+
+            deleted = dict(payload)
+            deleted.pop("execution_verification")
+            marker.write_text(json.dumps(deleted, indent=2, sort_keys=True) + "\n")
+            with self.assertRaisesRegex(
+                round_txn.TransactionError, "version 2 completion marker"
+            ):
+                round_txn.frontier_status(factory)
+
+            corrupted = json.loads(json.dumps(payload))
+            corrupted["execution_verification"]["counts"]["verified"] = 0
+            corrupted["execution_verification"]["counts"]["inconclusive"] = 1
+            corrupted["execution_verification"]["override"] = {
+                "reason": "hil replay rig offline",
+                "waived_inconclusive": 1,
+            }
+            marker.write_text(json.dumps(corrupted, indent=2, sort_keys=True) + "\n")
+            with self.assertRaisesRegex(
+                round_txn.TransactionError,
+                "execution verification conflicts with committed batch",
+            ):
+                round_txn.frontier_status(factory)
+
+    def test_legacy_version_1_markers_without_verification_remain_visible(self):
+        with tempfile.TemporaryDirectory() as td:
+            factory = self.factory(td)
+            batch = factory / "batch-r01.jsonl"
+            notes = factory / "NOTES-r01.md"
+            write(batch, [thalamic("legacy-v1")])
+            notes.write_text("# Critique\n\nConcrete gap.\n\nNovel coverage: 42%\n")
+            marker = factory / "ROUND-r01.complete.json"
+            marker.write_text(
+                json.dumps(
+                    {
+                        "version": 1,
+                        "factory": factory.name,
+                        "round": 1,
+                        "records": 1,
+                        "expected_records": 1,
+                        "commit_point": marker.name,
+                        "files": [
+                            {
+                                "name": batch.name,
+                                "sha256": round_txn.file_sha256(batch),
+                            },
+                            {
+                                "name": notes.name,
+                                "sha256": round_txn.file_sha256(notes),
+                            },
+                        ],
+                    },
+                    indent=2,
+                    sort_keys=True,
+                )
+                + "\n"
+            )
+            (factory / round_txn.MODE_FILE).write_text(
+                json.dumps(
+                    {
+                        "version": 1,
+                        "legacy_baseline": 0,
+                        "commit_point": "ROUND-rNN.complete.json",
+                    }
+                )
+                + "\n"
+            )
+
+            status = round_txn.frontier_status(factory)
+
+            self.assertEqual(status["next_round"], 2)
+            self.assertEqual(status["completed_markers"], [1])
 
     def test_operator_override_records_the_waiver_before_advancing(self):
         with tempfile.TemporaryDirectory() as td:

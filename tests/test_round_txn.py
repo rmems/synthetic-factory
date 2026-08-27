@@ -322,7 +322,7 @@ class RoundTransaction(unittest.TestCase):
 
     def test_resume_rejects_corrupted_immutable_publishing_fields(self):
         for field, value in (
-            ("version", 2),
+            ("version", 3),
             ("commit_point", "ROUND-r99.complete.json"),
         ):
             with self.subTest(field=field), tempfile.TemporaryDirectory() as td:
