@@ -1171,7 +1171,15 @@ def _check_record_identity(record, where):
 
 
 def _check_fpga_environment(record, where):
-    """Re-probe FPGA availability for paired and unpaired records alike."""
+    """Shape-check the recorded FPGA probe; re-probe only live FPGA claims.
+
+    Q8.8 and capture records store the generating-host probe as provenance.
+    Requiring that sidecar to equal the current process environment would
+    reject intact evidence after ``SPIKENAUT_FPGA_*`` or the bitstream path
+    changes. Live ``fpga_hardware`` execution still requires the current
+    adapter to be available. Unavailable FPGA diagnostics are authenticated
+    by ``_check_unavailable_deployment`` against the selected adapter.
+    """
     oracle = record.get("oracle")
     environment = oracle.get("environment") if isinstance(oracle, dict) else None
     if not isinstance(environment, dict):
@@ -1185,13 +1193,20 @@ def _check_fpga_environment(record, where):
             f"{where}: oracle.environment.fpga_hardware must be an object "
             "[ENVELOPE_MALFORMED]"
         ]
-    current = availability_report().get("spikenaut_fpga")
     errors = []
-    if recorded != current:
+    if not isinstance(recorded.get("available"), bool):
         errors.append(
-            f"{where}: oracle.environment.fpga_hardware does not match the current "
-            "adapter availability probe [ORACLE_UNAVAILABLE]"
+            f"{where}: oracle.environment.fpga_hardware.available must be a boolean "
+            "[ENVELOPE_MALFORMED]"
         )
+    if recorded.get("available") is False:
+        reason = recorded.get("reason_code")
+        if not isinstance(reason, str) or not reason.strip():
+            errors.append(
+                f"{where}: unavailable fpga_hardware probe must name a reason_code "
+                "[ENVELOPE_MALFORMED]"
+            )
+    current = availability_report().get("spikenaut_fpga")
     deployment = oracle.get("deployment")
     if (
         isinstance(deployment, dict)

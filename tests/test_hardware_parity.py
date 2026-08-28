@@ -191,16 +191,38 @@ class Generation(unittest.TestCase):
             self.assertFalse(probe["available"])
             self.assertTrue(probe["reason_code"])
 
-    def test_paired_reference_record_revalidates_fpga_probe(self):
+    def test_paired_reference_record_keeps_recorded_fpga_probe(self):
         record = copy.deepcopy(
             hp.generate_records(round_number=1, steps=4, repeats=2)[0]
         )
-        record["oracle"]["environment"]["fpga_hardware"]["detail"] = (
-            "stale availability assertion"
+        probe = record["oracle"]["environment"]["fpga_hardware"]
+        probe["detail"] = "stale availability assertion"
+        probe["reason_code"] = "FPGA_DEVICE_ABSENT"
+        self.assertEqual(hp.validate_record(record, WHERE), [])
+
+    def test_malformed_fpga_environment_is_rejected(self):
+        record = copy.deepcopy(
+            hp.generate_records(round_number=1, steps=4, repeats=2)[0]
         )
+        record["oracle"]["environment"]["fpga_hardware"] = []
         errors = hp.validate_record(record, WHERE)
         self.assertTrue(
-            any("current adapter availability probe" in error for error in errors),
+            any("fpga_hardware must be an object" in error for error in errors),
+            errors,
+        )
+
+    def test_live_fpga_deployment_requires_current_probe_available(self):
+        record = copy.deepcopy(
+            hp.generate_records(round_number=1, steps=4, repeats=2)[0]
+        )
+        record["oracle"]["deployment"]["adapter"] = oracle.FpgaHardwareAdapter.name
+        record["oracle"]["deployment"]["runtime_class"] = (
+            oracle.FpgaHardwareAdapter.runtime_class
+        )
+        record["oracle"]["deployment"]["execution_target"] = oracle.TARGET_FPGA_HARDWARE
+        errors = hp.validate_record(record, WHERE)
+        self.assertTrue(
+            any("current adapter probe to report available" in error for error in errors),
             errors,
         )
 
