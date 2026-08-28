@@ -321,15 +321,15 @@ def _find_debug_read_fix_verify(texts, observations, failure_index):
     return False
 
 
-def _find_debug_failure_loop(texts, observations, edit_index):
+def _is_failure_step(text, observation):
     test_terms = ("test", "pytest", "cargo test", "npm test")
     failure_terms = ("fail", "error", "nonzero", "red")
+    return any(t in text for t in test_terms) and any(f in observation for f in failure_terms)
+
+
+def _find_debug_failure_loop(texts, observations, edit_index):
     for failure_index in range(edit_index + 1, len(texts)):
-        failure_text = texts[failure_index]
-        if (
-            any(t in failure_text for t in test_terms)
-            and any(f in observations[failure_index] for f in failure_terms)
-        ):
+        if _is_failure_step(texts[failure_index], observations[failure_index]):
             if _find_debug_read_fix_verify(texts, observations, failure_index):
                 return True
     return False
@@ -351,15 +351,16 @@ def has_long_horizon_debug_loop(steps):
 
 def _step_failed_hypothesis(index, step, failure_terms):
     observation = step.get("observation") if isinstance(step, dict) else None
-    if not isinstance(observation, str) or not any(
-        term in observation.lower() for term in failure_terms
-    ):
+    if not isinstance(observation, str):
+        return []
+    obs_lower = observation.lower()
+    if not any(term in obs_lower for term in failure_terms):
         return []
     return [
         (index, match.group(1))
         for match in re.finditer(
             r"\bhypothesis\s*[:#_-]?\s*([a-z0-9][a-z0-9_-]{2,})",
-            observation.lower(),
+            obs_lower,
         )
     ]
 
