@@ -108,13 +108,14 @@ def _read_mountinfo() -> tuple[tuple[Path, Path, str], ...]:
     return tuple(pairs)
 
 
-def _host_source_path(
+def _host_source_paths(
     root_in_fs: Path,
     device: str,
     mounts: tuple[tuple[Path, Path, str], ...],
-) -> Path:
-    """Map a mountinfo root onto this process's path namespace."""
+) -> tuple[Path, ...]:
+    """Map a mountinfo root onto every covering view in this namespace."""
 
+    matches: list[Path] = []
     for mountpoint, other_root, other_device in mounts:
         if other_device != device:
             continue
@@ -122,8 +123,18 @@ def _host_source_path(
             relative = root_in_fs.relative_to(other_root)
         except ValueError:
             continue
-        return mountpoint / relative
-    return root_in_fs
+        matches.append(mountpoint / relative)
+    return tuple(matches) if matches else (root_in_fs,)
+
+
+def _host_source_path(
+    root_in_fs: Path,
+    device: str,
+    mounts: tuple[tuple[Path, Path, str], ...],
+) -> Path:
+    """Map a mountinfo root onto this process's path namespace."""
+
+    return _host_source_paths(root_in_fs, device, mounts)[0]
 
 
 def _shares_root_inode(path: Path, raw_root: Path) -> bool:
@@ -157,9 +168,10 @@ def _bind_mount_hits_raw(path: Path, raw_root: Path) -> bool:
     resolved_raw = raw_root.resolve(strict=False)
     mounts = _read_mountinfo()
     for mountpoint, root_in_fs, device in mounts:
-        source = _host_source_path(root_in_fs, device, mounts)
-        if not (
+        sources = _host_source_paths(root_in_fs, device, mounts)
+        if not any(
             _path_is_within(source, raw_root) or _path_is_within(source, resolved_raw)
+            for source in sources
         ):
             continue
         if _dest_uses_mount(path, mountpoint):
