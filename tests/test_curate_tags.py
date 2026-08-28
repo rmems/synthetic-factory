@@ -41,10 +41,13 @@ class SourcePathSpellingTests(unittest.TestCase):
         latin1_corruption = os.fsencode(os.fspath(path)).decode("latin-1")
         self.assertNotEqual(display_source_path(path), latin1_corruption)
 
-    def test_non_utf8_bytes_stay_distinct_via_latin1(self):
-        raw = b"/tmp/caf\xe9.jsonl"
+    def test_non_utf8_bytes_are_rejected(self):
+        raw = b"/tmp/caf\xff.jsonl"
         path = Path(os.fsdecode(raw))
-        self.assertEqual(display_source_path(path), raw.decode("latin-1"))
+        with self.assertRaises(UnicodeDecodeError):
+            display_source_path(path)
+        y_umlaut = Path("/tmp/\u00ff.jsonl")
+        self.assertEqual(display_source_path(y_umlaut), "/tmp/\u00ff.jsonl")
 
 
 if __name__ == "__main__":

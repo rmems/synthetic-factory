@@ -14,6 +14,7 @@ from tag_constants import (
     REASON_RECORD_TOO_DEEP,
     RULE_TRANSFORM,
     TAG_PROVENANCE_FIELD,
+    TagTaxonomyError,
 )
 from tag_jsonutil import (
     canonical_json,
@@ -78,7 +79,10 @@ def curate_jsonl(
     """Read a JSONL source without mutation and curate every nonblank line."""
     vocabulary = taxonomy if taxonomy is not None else load_taxonomy()
     source = Path(source_path)
-    display_path = display_source_path(source)
+    try:
+        display_path = display_source_path(source)
+    except UnicodeDecodeError as exc:
+        raise TagTaxonomyError(f"source path is not valid UTF-8: {source}") from exc
     batch = _JsonlBatch(display_path, vocabulary)
     with source.open("rb") as handle:
         for line_number, terminated_line in enumerate(handle, 1):
