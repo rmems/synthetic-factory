@@ -270,17 +270,26 @@ class FrontierPublishGate(unittest.TestCase):
             )
             self.assertTrue((factory / "ROUND-r01.complete.json").is_file())
 
+    def _mutate_publishing_marker(self, factory, tag, mutator):
+        reservation = round_txn.reserve(factory, 1, 1)
+        publishing = self._interrupt_publish(factory, reservation, [thalamic(tag)])
+        payload = json.loads(publishing.read_text())
+        mutated = mutator(payload)
+        publishing.write_text(json.dumps(mutated) + "\n")
+        return reservation
+
     def test_publish_retry_migrates_a_pre_gate_publishing_marker(self):
         with tempfile.TemporaryDirectory() as td:
             factory = self.factory(td)
-            reservation = round_txn.reserve(factory, 1, 1)
-            publishing = self._interrupt_publish(
-                factory, reservation, [thalamic("gate-legacy-retry")]
+
+            def mutate(payload):
+                payload["version"] = 1
+                payload.pop("execution_verification", None)
+                return payload
+
+            reservation = self._mutate_publishing_marker(
+                factory, "gate-legacy-retry", mutate
             )
-            legacy = json.loads(publishing.read_text())
-            legacy["version"] = 1
-            legacy.pop("execution_verification")
-            publishing.write_text(json.dumps(legacy) + "\n")
 
             manifest = round_txn.publish(factory, 1, reservation["token"])
 
@@ -296,13 +305,14 @@ class FrontierPublishGate(unittest.TestCase):
     def test_publish_retry_rejects_corrupted_execution_verification(self):
         with tempfile.TemporaryDirectory() as td:
             factory = self.factory(td)
-            reservation = round_txn.reserve(factory, 1, 1)
-            publishing = self._interrupt_publish(
-                factory, reservation, [thalamic("gate-corrupt-retry")]
+
+            def mutate(payload):
+                payload["execution_verification"]["counts"]["verified"] = 999
+                return payload
+
+            reservation = self._mutate_publishing_marker(
+                factory, "gate-corrupt-retry", mutate
             )
-            corrupted = json.loads(publishing.read_text())
-            corrupted["execution_verification"]["counts"]["verified"] = 999
-            publishing.write_text(json.dumps(corrupted) + "\n")
 
             with self.assertRaisesRegex(
                 round_txn.TransactionError, "execution verification conflicts"
@@ -334,7 +344,7 @@ class FrontierPublishGate(unittest.TestCase):
                 ):
                     round_txn.completed_manifests(factory)
 
-    def test_publish_rejects_unsafe_or_mismatched_publishing_markers(self):
+    def test_publish_rejects_unsafe_publishing_markers(self):
         with tempfile.TemporaryDirectory() as td:
             factory = self.factory(td)
             reservation = round_txn.reserve(factory, 1, 1)
@@ -347,15 +357,17 @@ class FrontierPublishGate(unittest.TestCase):
             ):
                 round_txn.publish(factory, 1, reservation["token"])
 
+    def test_publish_rejects_mismatched_publishing_markers(self):
         with tempfile.TemporaryDirectory() as td:
             factory = self.factory(td)
-            reservation = round_txn.reserve(factory, 1, 1)
-            publishing = self._interrupt_publish(
-                factory, reservation, [thalamic("mismatched-publishing")]
+
+            def mutate(payload):
+                payload["token"] = "not-the-reservation-token"
+                return payload
+
+            reservation = self._mutate_publishing_marker(
+                factory, "mismatched-publishing", mutate
             )
-            payload = json.loads(publishing.read_text())
-            payload["token"] = "not-the-reservation-token"
-            publishing.write_text(json.dumps(payload) + "\n")
 
             with self.assertRaisesRegex(
                 round_txn.TransactionError, "publishing marker identity mismatch"
@@ -365,13 +377,14 @@ class FrontierPublishGate(unittest.TestCase):
     def test_publish_retry_migrates_a_legacy_v1_publishing_marker(self):
         with tempfile.TemporaryDirectory() as td:
             factory = self.factory(td)
-            reservation = round_txn.reserve(factory, 1, 1)
-            publishing = self._interrupt_publish(
-                factory, reservation, [thalamic("gate-v1-retry")]
+
+            def mutate(payload):
+                payload["version"] = 1
+                return payload
+
+            reservation = self._mutate_publishing_marker(
+                factory, "gate-v1-retry", mutate
             )
-            legacy = json.loads(publishing.read_text())
-            legacy["version"] = 1
-            publishing.write_text(json.dumps(legacy) + "\n")
 
             manifest = round_txn.publish(factory, 1, reservation["token"])
 
@@ -384,13 +397,14 @@ class FrontierPublishGate(unittest.TestCase):
     def test_publish_retry_rejects_version_2_marker_missing_verification(self):
         with tempfile.TemporaryDirectory() as td:
             factory = self.factory(td)
-            reservation = round_txn.reserve(factory, 1, 1)
-            publishing = self._interrupt_publish(
-                factory, reservation, [thalamic("gate-v2-missing")]
+
+            def mutate(payload):
+                payload.pop("execution_verification", None)
+                return payload
+
+            reservation = self._mutate_publishing_marker(
+                factory, "gate-v2-missing", mutate
             )
-            payload = json.loads(publishing.read_text())
-            payload.pop("execution_verification")
-            publishing.write_text(json.dumps(payload) + "\n")
 
             with self.assertRaisesRegex(
                 round_txn.TransactionError,

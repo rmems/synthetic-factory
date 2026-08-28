@@ -701,6 +701,18 @@ def _verify_bridge_execution(obj, where):
     return "inconclusive", "bridge missing language_view.trajectory"
 
 
+def _is_thalamic_record(obj):
+    return all(k in obj for k in _host().THALAMIC_CORE_KEYS)
+
+
+def _is_preference_record(obj):
+    return "chosen" in obj and "rejected" in obj
+
+
+def _is_bridge_record(obj):
+    return "language_view" in obj and "spike_events" in obj
+
+
 def _verify_step_record(obj, where):
     if "case_type" in obj:
         return verify_safety_episode(obj, where)
@@ -711,11 +723,11 @@ def verify_record_execution(obj, where="record"):
     """Return (status, reason) in {verified, inconclusive, failed}."""
     if not isinstance(obj, dict):
         return "failed", "not an object"
-    if all(k in obj for k in _host().THALAMIC_CORE_KEYS):
+    if _is_thalamic_record(obj):
         return verify_thalamic(obj, where)
-    if "chosen" in obj and "rejected" in obj:
+    if _is_preference_record(obj):
         return _verify_preference_execution(obj, where)
-    if "language_view" in obj and "spike_events" in obj:
+    if _is_bridge_record(obj):
         return _verify_bridge_execution(obj, where)
     # Safety-calibration records have their own envelope checker. Ordinary
     # standalone episodes must carry their own goal, while preference sides
