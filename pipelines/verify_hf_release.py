@@ -8,6 +8,11 @@ files from every configured dataset repository and proves that the release
 contract is still present: Apache-2.0 terms, explicit multi-model provenance,
 raw/non-training-ready status, and a lossless viewer projection.
 
+The license declaration is checked in all three places that can drift apart:
+the card front matter, the shipped ``LICENSE`` text, and ``release-status.json``.
+A repository that still calls its license undeclared while shipping an
+Apache-2.0 ``LICENSE`` file fails closed here.
+
 Usage:
     python3 pipelines/verify_hf_release.py
     python3 pipelines/verify_hf_release.py --repo rmems/thalamic-relay-trajectories
@@ -52,6 +57,37 @@ REQUIRED_CONTRIBUTORS = {
 
 HUB_BASE_URL = "https://huggingface.co"
 APACHE_2_NORMALIZED_SHA256 = "b9a1a37910c6451f5e6892324a5f52878114219b593a9f48eb8054f45e24d33c"
+
+# The shipped LICENSE text is the anchor for the license declaration: its
+# normalized digest names one license family, and both the card front matter
+# and release-status.json must repeat exactly that identifier.
+LICENSE_HASH_FAMILIES = {
+    APACHE_2_NORMALIZED_SHA256: "apache-2.0",
+}
+DEFAULT_LICENSE_FAMILY = "apache-2.0"
+
+# Placeholders that leave the release license unresolved.  A repository that
+# still carries one of these contradicts its own card, LICENSE, and Hub tag.
+UNDECLARED_LICENSE_VALUES = frozenset(
+    {
+        "",
+        "none",
+        "not-yet-declared",
+        "not_yet_declared",
+        "pending",
+        "tbd",
+        "unaddressed",
+        "undeclared",
+        "unknown",
+        "unlicensed",
+    }
+)
+RAW_RELEASE_STATUS = {
+    "release_stage": "raw_uncurated_public",
+    "visibility": "public",
+    "payload_published": True,
+    "training_ready": False,
+}
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 REVISION_RE = re.compile(r"^[0-9a-f]{40}$")
 
@@ -69,6 +105,8 @@ REQUIRED_CARD_MARKERS = (
     "## Intended model target",
     "## Generation attribution",
     "## Published raw payload",
+    "Do not train on `thought` or `internal_reasoning*`",
+    "raw Hub copy is evidence only",
     "## Links",
     "## License",
     "[Synthetic Data Factory](https://github.com/rmems/synthetic-factory)",
@@ -96,6 +134,10 @@ CARD_SECTION_MARKERS = {
     ),
     "## Published raw payload": (
         "data/viewer/records.parquet",
+        # Raw evidence may keep hidden CoT; the card must say it is not
+        # training supervision, so a reader cannot mistake it for one.
+        "Do not train on `thought` or `internal_reasoning*`",
+        "raw Hub copy is evidence only",
     ),
     "## Links": (
         "[Synthetic Data Factory](https://github.com/rmems/synthetic-factory)",
@@ -106,7 +148,7 @@ CARD_SECTION_MARKERS = {
 REQUIRED_PURPOSE_TEXT = {
     "rmems/thalamic-relay-trajectories": "relay-gated state assessment",
     "rmems/neuromorphic-event-language-bridge": "event streams to structured language views",
-    "rmems/multi-agent-ouroboros-swarm": "delegation, critique, conflict resolution",
+    "rmems/multi-agent-ouroboros-swarm": "safety-gate adjudication trajectories",
     "rmems/failure-as-fuel-preference-cascade": "chosen/rejected comparisons",
     "rmems/agentic-coding-trajectories": "planning, tool use, observation",
 }
@@ -117,6 +159,37 @@ REQUIRED_TARGET_TEXT = {
     "rmems/multi-agent-ouroboros-swarm": "not labeled as Spikenaut training data",
     "rmems/failure-as-fuel-preference-cascade": "not labeled as Spikenaut training data",
     "rmems/agentic-coding-trajectories": "not labeled as Spikenaut training data",
+}
+
+# Repository-specific payload-kind disclosures.  A card must not advertise a
+# record kind its JSONL rows do not have.  Issue #75 found that all 14 published
+# rows on multi-agent-ouroboros-swarm are thalamic-gate wraps while the card
+# sold all 14 as multi-agent trajectories, and the swarm dialogue exists only as
+# markdown sidecars.  These markers are required inside the
+# "## Published raw payload" section, which is where the payload claim lives.
+# Repositories absent from this mapping carry no extra payload requirement.
+REQUIRED_PAYLOAD_DISCLOSURE = {
+    "rmems/multi-agent-ouroboros-swarm": (
+        "thalamic-gate wrap schema",
+        "7 of the 14 records",
+        "sidecars, not JSONL training records",
+    ),
+}
+
+# Known-bad claims from issue #75.  Requiring replacement prose is insufficient
+# if an operator leaves the contradictory old sentence in the same owned
+# section, so reject those rendered claims explicitly.
+FORBIDDEN_CARD_CLAIMS = {
+    "rmems/multi-agent-ouroboros-swarm": {
+        "__preamble__": (
+            "Synthetic multi-agent trajectories for delegation, critique, "
+            "conflict resolution",
+        ),
+        "## Published raw payload": (
+            "14 raw multi-agent records",
+            "not a thalamic-gate wrap schema",
+        ),
+    }
 }
 
 
@@ -212,7 +285,17 @@ def _contributor_roles(provenance: dict) -> dict[str, set[str]]:
 
 
 def _normalized_text(value: str) -> str:
-    return " ".join(value.split()).casefold()
+    """Casefold, collapse whitespace, and drop Markdown emphasis and links.
+
+    Obsolete-claim checks must match the rendered sentence. Emphasis such as
+    ``**critique**`` or ``[critique](url)`` is the same claim as ``critique``.
+    """
+
+    text = re.sub(r"\[([^\]\n]+)\]\([^)]*\)", r"\1", value)
+    # Strip Markdown *emphasis* and backticks only. Underscores stay so YAML
+    # markers like `name: source_file` cannot match `name: sourcefile`.
+    text = re.sub(r"[*`]+", "", text)
+    return " ".join(text.split()).casefold()
 
 
 def _normalized_sha256(value: str) -> str:
@@ -231,17 +314,26 @@ def _markdown_section(text: str, heading: str) -> str | None:
     return match.group(2) if match else None
 
 
+def _rendered_markdown_source(text: str) -> str:
+    """Remove HTML comments, which Hugging Face readers cannot see."""
+
+    return re.sub(r"(?s)<!--.*?(?:-->|\Z)", "", text)
+
+
 def _card_section_errors(card: str, repo: str) -> list[str]:
     """Require release declarations in their owned Markdown/YAML sections."""
 
     errors: list[str] = []
-    normalized_front_matter = _normalized_text(card.split("\n---\n", 1)[0])
+    rendered_card = _rendered_markdown_source(card)
+    normalized_front_matter = _normalized_text(
+        rendered_card.split("\n---\n", 1)[0]
+    )
     for marker in ("name: source_file", "name: source_line", "name: record_json"):
         if _normalized_text(marker) not in normalized_front_matter:
             errors.append(f"README missing required card marker: {marker}")
 
     for section, markers in CARD_SECTION_MARKERS.items():
-        section_text = _markdown_section(card, section)
+        section_text = _markdown_section(rendered_card, section)
         if section != "__preamble__" and section_text is None:
             errors.append(f"README missing required section: {section}")
         normalized_section = _normalized_text(section_text or "")
@@ -251,14 +343,127 @@ def _card_section_errors(card: str, repo: str) -> list[str]:
 
     purpose = REQUIRED_PURPOSE_TEXT[repo]
     target = REQUIRED_TARGET_TEXT[repo]
-    preamble = _normalized_text(_markdown_section(card, "__preamble__") or "")
+    preamble = _normalized_text(
+        _markdown_section(rendered_card, "__preamble__") or ""
+    )
     target_section = _normalized_text(
-        _markdown_section(card, "## Intended model target") or ""
+        _markdown_section(rendered_card, "## Intended model target") or ""
     )
     if _normalized_text(purpose) not in preamble:
         errors.append(f"README missing repository purpose marker: {purpose}")
     if _normalized_text(target) not in target_section:
         errors.append(f"README missing Spikenaut classification: {target}")
+
+    payload_section = _normalized_text(
+        _markdown_section(rendered_card, "## Published raw payload") or ""
+    )
+    for marker in REQUIRED_PAYLOAD_DISCLOSURE.get(repo, ()):
+        if _normalized_text(marker) not in payload_section:
+            errors.append(f"README missing payload-kind disclosure: {marker}")
+
+    for section, markers in FORBIDDEN_CARD_CLAIMS.get(repo, {}).items():
+        section_text = _normalized_text(
+            _markdown_section(rendered_card, section) or ""
+        )
+        for marker in markers:
+            if _normalized_text(marker) in section_text:
+                errors.append(f"README retains obsolete payload-kind claim: {marker}")
+    return errors
+
+
+def _license_family(license_text: str) -> str | None:
+    """Return the canonical license id for a recognized complete license text."""
+
+    return LICENSE_HASH_FAMILIES.get(_normalized_sha256(license_text))
+
+
+class _JSONObject(dict[str, object]):
+    """JSON object that retains duplicate-key evidence for strict checks."""
+
+    def __init__(self, pairs: list[tuple[str, object]]) -> None:
+        super().__init__()
+        self.duplicate_keys: set[str] = set()
+        for key, value in pairs:
+            if key in self:
+                self.duplicate_keys.add(key)
+            self[key] = value
+
+
+def _release_status_license(
+    text: str, errors: list[str], repo: str
+) -> str | None:
+    """Validate raw-publication status and return its license declaration."""
+
+    try:
+        status = json.loads(text, object_pairs_hook=_JSONObject)
+    except json.JSONDecodeError as error:
+        errors.append(f"release-status.json is invalid JSON: {error.msg}")
+        return None
+    if not isinstance(status, dict):
+        errors.append("release-status.json must contain a JSON object")
+        return None
+    duplicate_keys = status.duplicate_keys if isinstance(status, _JSONObject) else set()
+    for field in sorted(duplicate_keys & (RAW_RELEASE_STATUS.keys() | {"dataset_id"})):
+        errors.append(f"release-status.json must not contain duplicate {field} keys")
+    dataset_id = status.get("dataset_id")
+    if dataset_id != repo:
+        errors.append(f"release-status.json dataset_id must be {repo}")
+
+    for field, expected in RAW_RELEASE_STATUS.items():
+        actual = status.get(field)
+        valid = actual is expected if isinstance(expected, bool) else actual == expected
+        if valid:
+            continue
+        if isinstance(expected, bool):
+            errors.append(
+                f"release-status.json must mark {field} {str(expected).lower()}"
+            )
+        else:
+            errors.append(f"release-status.json must declare {field}: {expected}")
+
+    if "license" in duplicate_keys:
+        errors.append("release-status.json must not contain duplicate license keys")
+        return None
+    declared = status.get("license")
+    if not isinstance(declared, str):
+        errors.append("release-status.json must declare a string license")
+        return None
+    return declared
+
+
+def _license_alignment_errors(
+    card: str, license_text: str, status_license: str | None
+) -> list[str]:
+    """Require the card, the LICENSE file, and release-status.json to agree.
+
+    ``status_license`` is ``None`` when release-status.json could not supply a
+    declaration; that failure is already recorded by the caller, so this only
+    checks the declarations that exist.
+    """
+
+    errors: list[str] = []
+    family = _license_family(license_text)
+    if family is None:
+        errors.append("LICENSE does not match the complete Apache License 2.0 text")
+    expected = family or DEFAULT_LICENSE_FAMILY
+
+    card_license = _front_matter(card).get("license")
+    normalized_card = (card_license or "").strip().casefold()
+    if normalized_card != expected:
+        errors.append(f"README front matter must declare license: {expected}")
+
+    if status_license is not None:
+        normalized_status = status_license.strip().casefold()
+        if normalized_status in UNDECLARED_LICENSE_VALUES:
+            errors.append(
+                "release-status.json leaves the license undeclared: "
+                f"{status_license!r}; LICENSE and the card declare {expected!r}"
+            )
+        elif normalized_status != expected:
+            errors.append(
+                f"release-status.json declares license {status_license!r}, "
+                f"but LICENSE and the card declare {expected!r}"
+            )
     return errors
 
 
@@ -492,6 +697,9 @@ def verify_dataset(
             public_url(repo, "provenance.json", base_url), timeout
         )
         license_text = text_fetcher(public_url(repo, "LICENSE", base_url), timeout)
+        release_status_text = text_fetcher(
+            public_url(repo, "release-status.json", base_url), timeout
+        )
         viewer_bytes = bytes_fetcher(
             public_url(
                 repo, "data/viewer/records.parquet", base_url, resolve=True
@@ -501,11 +709,9 @@ def verify_dataset(
     except Exception as error:  # network exceptions differ across Hub backends
         return CheckResult(repo, (f"public fetch failed: {error}",))
 
-    if _front_matter(card).get("license") != "apache-2.0":
-        errors.append("README front matter must declare license: apache-2.0")
+    status_license = _release_status_license(release_status_text, errors, repo)
+    errors.extend(_license_alignment_errors(card, license_text, status_license))
     errors.extend(_card_section_errors(card, repo))
-    if _normalized_sha256(license_text) != APACHE_2_NORMALIZED_SHA256:
-        errors.append("LICENSE does not match the complete Apache License 2.0 text")
     errors.extend(_viewer_errors(card, viewer_bytes))
 
     try:

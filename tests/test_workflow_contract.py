@@ -115,13 +115,18 @@ class NovelCoverageNotesContract(unittest.TestCase):
             round_txn.LEGACY_NOVEL_COVERAGE_RE.search(split_claim)
         )
         workflow = WORKFLOW.read_text()
-        self.assertIn(r"^[^\S\r\n]*novel", workflow)
+        self.assertIn(r"^[ \t]*novel", workflow)
         self.assertNotIn(r"/^\s*novel", workflow)
+
+    def test_strict_parser_accepts_only_horizontal_whitespace(self):
+        self.assertIsNone(round_txn.NOVEL_COVERAGE_RE.fullmatch("\vNovel coverage: 12%"))
+        self.assertIsNone(round_txn.NOVEL_COVERAGE_RE.fullmatch("Novel\fcoverage: 12%"))
+        self.assertIsNotNone(round_txn.NOVEL_COVERAGE_RE.fullmatch("\tNovel coverage:\t12%\t"))
 
     def test_workflow_parser_requires_one_complete_labeled_line(self):
         workflow = WORKFLOW.read_text()
         self.assertIn(r".split(/\r\n|\n|\r/)", workflow)
-        self.assertIn(r"%[^\S\r\n]*$/i", workflow)
+        self.assertIn(r"%[ \t]*$/i", workflow)
         self.assertIn("labeledLines.length !== 1", workflow)
 
     def test_docs_and_prompts_agree_on_the_threshold(self):

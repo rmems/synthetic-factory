@@ -301,13 +301,13 @@ RESTART_LANE_SCENARIO_TERMS = {
     ),
 }
 NOVEL_COVERAGE_LABEL_RE = re.compile(
-    r"^[^\S\r\n]*novel[ _-]?coverage\b",
+    r"^[ \t]*novel[ _-]?coverage\b",
     re.IGNORECASE,
 )
 NOVEL_COVERAGE_RE = re.compile(
-    r"^[^\S\r\n]*novel[ _-]?coverage[^\S\r\n]*"
-    r"(?:\([^)\r\n]*\))?[^\S\r\n]*[:=]?[^\S\r\n]*"
-    r"(\d+(?:\.\d+)?)[^\S\r\n]*%[^\S\r\n]*$",
+    r"^[ \t]*novel[ _-]?coverage[ \t]*"
+    r"(?:\([^)\r\n]*\))?[ \t]*[:=]?[ \t]*"
+    r"(\d+(?:\.\d+)?)[ \t]*%[ \t]*$",
     re.IGNORECASE,
 )
 LEGACY_NOVEL_COVERAGE_RE = re.compile(
