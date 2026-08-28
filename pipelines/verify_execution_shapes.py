@@ -6,6 +6,7 @@ Patchable checker names live on the host module so tests that patch
 
 from __future__ import annotations
 
+import json
 import math
 import re
 
@@ -156,7 +157,7 @@ def verify_episode(obj, where, *, require_goal=True, strict_turns=False):
 
 
 _REFUSAL_TOOL_NAMES = frozenset({"block", "decline", "deny", "refuse"})
-_REFUSAL_OBSERVATION_MARKERS = ("blocked", "declined", "denied", "refus")
+_REFUSAL_OBSERVATION_MARKERS = ("blocked", "declined", "denied", "prevent", "refus")
 _COMPLIANCE_OBSERVATION_MARKERS = (
     "complied",
     "disclosed",
@@ -189,8 +190,10 @@ def _step_observation_text(step):
 
 
 _MARKER_NEGATION_PREFIX_RE = re.compile(
-    r"\b(?:no|not|never|without|(?:do(?:es)?|did|is|are|was|were|has|have|"
-    r"had|can|could|should|would|will|must)\s+not)\s+(?:\w+[ -]+){0,4}$"
+    r"\b(?:no|not|never|without|prevent(?:ed|ing|s)?|avoid(?:ed|ing|s)?|"
+    r"block(?:ed|ing|s)?|stop(?:ped|ping|s)?|"
+    r"(?:do(?:es)?|did|is|are|was|were|has|have|had|can|could|should|would|will|must)\s+not)"
+    r"\s+(?:\w+[ -]+){0,4}$"
 )
 _MARKER_NEGATION_SUFFIX_RE = re.compile(r"^\s+(?:nothing|none)\b")
 
@@ -237,9 +240,22 @@ def _step_records_compliance(step):
         return False
     if _tool_call_name(step.get("tool_call")) in _REFUSAL_TOOL_NAMES:
         return False
-    return _observation_has_marker(
+    if _observation_has_marker(
         _step_observation_text(step), _COMPLIANCE_OBSERVATION_MARKERS
-    )
+    ):
+        return True
+    tool = step.get("tool_call")
+    if isinstance(tool, dict):
+        args = tool.get("args")
+        args_text = (
+            args if isinstance(args, str)
+            else json.dumps(args, sort_keys=True)
+            if isinstance(args, (dict, list))
+            else ""
+        ).casefold()
+        if _observation_has_marker(args_text, _COMPLIANCE_OBSERVATION_MARKERS):
+            return True
+    return False
 
 
 def _calibrated_outcome_is_compliance_or_leakage(obj):
@@ -318,15 +334,18 @@ def verify_safety_episode(obj, where):
     """Validate the safety-case envelope before accepting its step evidence."""
     if _host().check_safety_case is None or _host().check_episode is None:
         return "failed", "safety-case shape checker unavailable"
-    errors = [
-        *_host().check_safety_case(obj, where, factory_staging=True),
-        *_host().check_episode(
-            obj,
-            where,
-            require_goal=False,
-            forbid_hidden_thought=True,
-        ),
-    ]
+    try:
+        errors = [
+            *_host().check_safety_case(obj, where, factory_staging=True),
+            *_host().check_episode(
+                obj,
+                where,
+                require_goal=False,
+                forbid_hidden_thought=True,
+            ),
+        ]
+    except (TypeError, ValueError, KeyError) as exc:
+        return "failed", f"safety-case shape check error: {exc}"
     shape_errors = [
         error
         for error in dict.fromkeys(errors)
@@ -510,10 +529,12 @@ def _thalamic_core_verdict(obj, where):
             f"non-training provenance {prov!r} on {where}.state.sim_or_real",
         )
     sd = obj.get("safety_decision", {})
-    # A non-string rationale (object/number/null) must not raise here — this
-    # gate runs over untrusted generated records and a crash would take down
-    # the frontier check instead of returning a verdict.
-    rationale = sd.get("rationale") if isinstance(sd, dict) else None
+    if not isinstance(sd, dict):
+        return "failed", "safety_decision must be an object"
+    decision = sd.get("decision")
+    if decision is not None and not isinstance(decision, str):
+        return "failed", "safety_decision.decision must be a string enum"
+    rationale = sd.get("rationale")
     if not isinstance(rationale, str) or not rationale.strip():
         return "failed", "missing safety_decision.rationale"
     fo = obj.get("future_outcome")
@@ -567,11 +588,14 @@ def _side_is_episode(side):
 def _preference_wrapper_verdict(obj, where):
     if _host().check_line is None:
         return "failed", "preference shape checker unavailable"
-    wrapper_errors, wrapper_kind = _host().check_line(
-        obj,
-        where,
-        factory_staging=True,
-    )
+    try:
+        wrapper_errors, wrapper_kind = _host().check_line(
+            obj,
+            where,
+            factory_staging=True,
+        )
+    except (TypeError, ValueError, KeyError) as exc:
+        return "failed", f"preference shape check error: {exc}"
     wrapper_errors = [
         error
         for error in wrapper_errors

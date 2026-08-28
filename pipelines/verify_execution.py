@@ -134,7 +134,7 @@ def verify_batch_for_frontier(batch_path: Path, strict: bool = False):
     findings: list[dict] = []
     try:
         lines = jsonl_lines(batch_path.read_text())
-    except OSError as exc:
+    except (OSError, UnicodeError) as exc:
         findings.append({"file": str(batch_path), "line": 0, "status": "failed", "reason": str(exc)})
         counts["failed"] = 1
         counts["total"] = 1

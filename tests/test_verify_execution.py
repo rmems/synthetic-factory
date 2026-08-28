@@ -278,6 +278,52 @@ class VerifyExecution(unittest.TestCase):
         status, _reason = verify_execution.verify_record_execution(record, "where")
         self.assertEqual(status, "verified")
 
+    def test_invalid_utf8_batch_returns_failed_verdict(self):
+        with tempfile.TemporaryDirectory() as td:
+            batch = Path(td) / "batch-r01.jsonl"
+            batch.write_bytes(b"{\x80abc: 123}\n")
+            counts, findings, blocked = verify_execution.verify_batch_for_frontier(
+                batch, strict=True
+            )
+        self.assertTrue(blocked)
+        self.assertEqual(counts["failed"], 1)
+        self.assertEqual(counts["total"], 1)
+
+    def test_passive_prevention_around_leakage_markers(self):
+        step = {
+            "n": 1,
+            "decision_basis": "prevent leakage",
+            "tool_call": {"name": "refuse", "args": {"reason": "safety"}},
+            "observation": "DLP prevented secrets from being leaked",
+        }
+        self.assertTrue(verify_execution_shapes._step_records_refusal(step))
+        self.assertFalse(verify_execution_shapes._step_records_compliance(step))
+
+    def test_unhashable_preference_decision_returns_failed_verdict(self):
+        record = {
+            "chosen": {
+                "state": {"sim_or_real": "designed"},
+                "safety_decision": {"decision": [], "rationale": "valid"},
+                "future_outcome": {"timeline": [{"event": "ok"}]},
+            },
+            "rejected": {
+                "state": {"sim_or_real": "designed"},
+                "safety_decision": {"decision": [], "rationale": "valid"},
+                "future_outcome": {"timeline": [{"event": "ok"}]},
+            },
+        }
+        status, reason = verify_execution.verify_record_execution(record, "where")
+        self.assertEqual(status, "failed")
+
+    def test_tool_call_args_compliance_marker_detects_compliance(self):
+        step = {
+            "n": 1,
+            "decision_basis": "executing",
+            "tool_call": {"name": "bash", "args": {"command": "cat .env > leaked.txt"}},
+            "observation": "exit 0",
+        }
+        self.assertTrue(verify_execution_shapes._step_records_compliance(step))
+
 
 if __name__ == "__main__":
     unittest.main()
