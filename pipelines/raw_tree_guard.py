@@ -17,21 +17,26 @@ def _stat_identity(path: Path) -> tuple[int, int] | None:
     return state.st_dev, state.st_ino
 
 
-def _ancestor_identities(path: Path) -> set[tuple[int, int]]:
-    """Device/inode identities of ``path`` and existing ancestors."""
-
-    identities: set[tuple[int, int]] = set()
+def _iter_ancestors(path: Path):
     current = Path(os.path.abspath(path))
     seen: set[Path] = set()
     while current not in seen:
         seen.add(current)
+        yield current
+        parent = current.parent
+        if parent == current:
+            return
+        current = parent
+
+
+def _ancestor_identities(path: Path) -> set[tuple[int, int]]:
+    """Device/inode identities of ``path`` and existing ancestors."""
+
+    identities: set[tuple[int, int]] = set()
+    for current in _iter_ancestors(path):
         identity = _stat_identity(current)
         if identity is not None:
             identities.add(identity)
-        parent = current.parent
-        if parent == current:
-            break
-        current = parent
     return identities
 
 
@@ -56,39 +61,89 @@ def _names_raw_tree(path: Path, raw_root: Path) -> bool:
     return resolved_raw_root in resolved_path.parents
 
 
-def _raw_directory_identities(raw_root: Path) -> set[tuple[int, int]]:
-    """Inodes of the raw root and a bounded tree of its directories.
+def _path_is_within(inner: Path, outer: Path) -> bool:
+    if inner == outer:
+        return True
+    try:
+        inner.relative_to(outer)
+    except ValueError:
+        return False
+    return True
 
-    Bind-mounting a descendant such as ``outputs/raw/run`` keeps a distinct
-    pathname after ``resolve()``. Comparing only the root inode would miss it.
-    """
 
-    identities: set[tuple[int, int]] = set()
-    roots = [raw_root]
-    resolved = raw_root.resolve(strict=False)
-    if resolved != raw_root:
-        roots.append(resolved)
-    for root in roots:
-        ident = _stat_identity(root)
-        if ident is not None:
-            identities.add(ident)
-        try:
-            for dirpath, dirnames, _filenames in os.walk(root, followlinks=False):
-                relative = Path(dirpath)
-                try:
-                    depth = len(relative.relative_to(root).parts)
-                except ValueError:
-                    depth = 0
-                if depth >= 3:
-                    dirnames.clear()
-                    continue
-                for name in dirnames:
-                    ident = _stat_identity(Path(dirpath) / name)
-                    if ident is not None:
-                        identities.add(ident)
-        except OSError:
+def _unescape_mount_field(value: str) -> str:
+    return (
+        value.replace("\\040", " ")
+        .replace("\\011", "\t")
+        .replace("\\012", "\n")
+        .replace("\\134", "\\")
+    )
+
+
+def _parse_mountinfo_line(line: str) -> tuple[Path, Path] | None:
+    if " - " not in line:
+        return None
+    left, _right = line.split(" - ", 1)
+    fields = left.split()
+    if len(fields) < 5:
+        return None
+    source = Path(_unescape_mount_field(fields[3]))
+    mountpoint = Path(_unescape_mount_field(fields[4]))
+    return mountpoint, source
+
+
+def _read_mountinfo() -> tuple[tuple[Path, Path], ...]:
+    """Return ``(mountpoint, source)`` pairs from Linux mountinfo."""
+
+    try:
+        text = Path("/proc/self/mountinfo").read_text(encoding="utf-8")
+    except OSError:
+        return ()
+    pairs: list[tuple[Path, Path]] = []
+    for line in text.splitlines():
+        parsed = _parse_mountinfo_line(line)
+        if parsed is not None:
+            pairs.append(parsed)
+    return tuple(pairs)
+
+
+def _shares_root_inode(path: Path, raw_root: Path) -> bool:
+    raw_ids = {
+        ident
+        for ident in (
+            _stat_identity(raw_root),
+            _stat_identity(raw_root.resolve(strict=False)),
+        )
+        if ident is not None
+    }
+    if not raw_ids:
+        return False
+    ancestors = _ancestor_identities(path) | _ancestor_identities(path.parent)
+    return bool(raw_ids & ancestors)
+
+
+def _dest_uses_mount(path: Path, mountpoint: Path) -> bool:
+    ancestors = set(_iter_ancestors(path)) | set(_iter_ancestors(path.parent))
+    if mountpoint in ancestors:
+        return True
+    mount_id = _stat_identity(mountpoint)
+    if mount_id is None:
+        return False
+    return mount_id in _ancestor_identities(path) or mount_id in _ancestor_identities(
+        path.parent
+    )
+
+
+def _bind_mount_hits_raw(path: Path, raw_root: Path) -> bool:
+    resolved_raw = raw_root.resolve(strict=False)
+    for mountpoint, source in _read_mountinfo():
+        if not (
+            _path_is_within(source, raw_root) or _path_is_within(source, resolved_raw)
+        ):
             continue
-    return identities
+        if _dest_uses_mount(path, mountpoint):
+            return True
+    return False
 
 
 def is_under_raw(path: Path, raw_root: Path | None = None) -> bool:
@@ -97,8 +152,6 @@ def is_under_raw(path: Path, raw_root: Path | None = None) -> bool:
     root = DEFAULT_RAW_OUTPUT_ROOT if raw_root is None else raw_root
     if _names_raw_tree(path, root):
         return True
-    raw_ids = _raw_directory_identities(root)
-    if not raw_ids:
-        return False
-    ancestors = _ancestor_identities(path) | _ancestor_identities(path.parent)
-    return bool(raw_ids & ancestors)
+    if _shares_root_inode(path, root):
+        return True
+    return _bind_mount_hits_raw(path, root)
