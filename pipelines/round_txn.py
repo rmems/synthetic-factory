@@ -301,7 +301,7 @@ NOVEL_COVERAGE_LABEL_RE = re.compile(
 NOVEL_COVERAGE_RE = re.compile(
     r"^[ \t]*novel[ _-]?coverage[ \t]*"
     r"(?:\([^)\r\n]*\))?[ \t]*[:=]?[ \t]*"
-    r"(\d+(?:\.\d+)?)[ \t]*%[ \t]*$",
+    r"([0-9]+(?:\.[0-9]+)?)[ \t]*%[ \t]*$",
     re.IGNORECASE,
 )
 LEGACY_NOVEL_COVERAGE_RE = re.compile(
@@ -2245,7 +2245,7 @@ def validate_novel_coverage(
     if strict_new_publish:
         labeled_lines = [
             line
-            for line in notes_text.splitlines()
+            for line in re.split(r"\r\n|\n|\r", notes_text)
             if NOVEL_COVERAGE_LABEL_RE.search(line)
         ]
         if not labeled_lines:

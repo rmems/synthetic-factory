@@ -4,6 +4,7 @@
 import importlib.util
 import hashlib
 import json
+import shutil
 import tempfile
 import unittest
 from contextlib import redirect_stdout
@@ -51,10 +52,31 @@ class FactoryDriverSmoke(unittest.TestCase):
             buffer.getvalue(),
         )
 
-    def test_smoke_reports_each_failed_notes_gate_invariant(self):
+    def test_smoke_stops_notes_gate_check_after_unexpected_commit(self):
+        def publish_and_consume_stage(factory, _round_number, _token):
+            notes = next((factory.parents[2] / "staging").rglob("NOTES-r01.md"))
+            shutil.rmtree(notes.parent)
+            return {}
+
         buffer = StringIO()
         with mock.patch.object(
-            factory_driver, "publish", side_effect=[{}, {"records": 0}]
+            factory_driver, "publish", side_effect=publish_and_consume_stage
+        ) as publish_mock, redirect_stdout(buffer):
+            code = factory_driver.cmd_smoke()
+
+        self.assertEqual(code, 1)
+        self.assertEqual(publish_mock.call_count, 1)
+        self.assertIn(
+            "publish accepted NOTES without a 'Novel coverage' line",
+            buffer.getvalue(),
+        )
+
+    def test_smoke_reports_remaining_notes_gate_invariants(self):
+        buffer = StringIO()
+        with mock.patch.object(
+            factory_driver,
+            "publish",
+            side_effect=[TransactionError("Novel coverage missing"), {"records": 0}],
         ), mock.patch.object(
             factory_driver,
             "factory_token_efficiency",
@@ -64,7 +86,6 @@ class FactoryDriverSmoke(unittest.TestCase):
 
         self.assertEqual(code, 1)
         report = buffer.getvalue()
-        self.assertIn("publish accepted NOTES without a 'Novel coverage' line", report)
         self.assertIn("transaction reserve/publish did not commit exactly one round", report)
         self.assertIn("coverage plateau did not early-stop", report)
 

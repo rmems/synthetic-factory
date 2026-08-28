@@ -605,6 +605,35 @@ class RoundTransaction(unittest.TestCase):
                 "split-line",
             )
 
+    def test_publish_rejects_non_crlf_control_separators_before_label(self):
+        for name, separator in (
+            ("vertical-tab", "\v"),
+            ("form-feed", "\f"),
+            ("next-line", "\x85"),
+            ("line-separator", "\u2028"),
+            ("paragraph-separator", "\u2029"),
+        ):
+            with self.subTest(separator=name), tempfile.TemporaryDirectory() as td:
+                self._assert_publish_rejects_notes(
+                    td,
+                    f"preamble{separator}Novel coverage: 4%\n",
+                    "Novel coverage",
+                    f"control-separator-{name}",
+                )
+
+    def test_publish_rejects_non_ascii_novel_coverage_digits(self):
+        for name, digits in (
+            ("arabic-indic", "٤"),
+            ("fullwidth", "１２"),
+        ):
+            with self.subTest(digits=name), tempfile.TemporaryDirectory() as td:
+                self._assert_publish_rejects_notes(
+                    td,
+                    f"Novel coverage: {digits}%\n",
+                    "exactly one unambiguous",
+                    f"non-ascii-digits-{name}",
+                )
+
     def test_read_path_does_not_require_coverage_for_a_legacy_lane(self):
         """Committed legacy rounds predate the contract and must stay readable.
 

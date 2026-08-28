@@ -123,6 +123,11 @@ class NovelCoverageNotesContract(unittest.TestCase):
         self.assertIsNone(round_txn.NOVEL_COVERAGE_RE.fullmatch("Novel\fcoverage: 12%"))
         self.assertIsNotNone(round_txn.NOVEL_COVERAGE_RE.fullmatch("\tNovel coverage:\t12%\t"))
 
+    def test_strict_parser_accepts_only_ascii_digits(self):
+        self.assertIsNone(round_txn.NOVEL_COVERAGE_RE.fullmatch("Novel coverage: ٤%"))
+        self.assertIsNone(round_txn.NOVEL_COVERAGE_RE.fullmatch("Novel coverage: １２%"))
+        self.assertIsNotNone(round_txn.NOVEL_COVERAGE_RE.fullmatch("Novel coverage: 12.5%"))
+
     def test_workflow_parser_requires_one_complete_labeled_line(self):
         workflow = WORKFLOW.read_text()
         self.assertIn(r".split(/\r\n|\n|\r/)", workflow)
