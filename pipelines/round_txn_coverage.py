@@ -279,23 +279,26 @@ def step_observation_text(step):
     return observation.casefold() if isinstance(observation, str) else ""
 
 
+def _has_matching_verify_step(texts, observations, fix_index):
+    test_terms = ("test", "pytest", "cargo test", "npm test")
+    verify_terms = ("pass", "success", "green", "verified", "fixed")
+    return any(
+        any(t in texts[verify_index] for t in test_terms)
+        and any(v in observations[verify_index] for v in verify_terms)
+        for verify_index in range(fix_index + 1, len(texts))
+    )
+
+
 def _find_debug_read_fix_verify(texts, observations, failure_index):
     read_terms = ("re-read", "reread", "inspect", "read", "cat ", "sed ", "rg ")
     fix_terms = ("fix", "repair", "patch", "edit", "write", "apply")
-    test_terms = ("test", "pytest", "cargo test", "npm test")
-    verify_terms = ("pass", "success", "green", "verified", "fixed")
     for read_index in range(failure_index + 1, len(texts)):
         if not any(term in texts[read_index] for term in read_terms):
             continue
         for fix_index in range(read_index + 1, len(texts)):
-            if not any(term in texts[fix_index] for term in fix_terms):
-                continue
-            if any(
-                any(t in texts[verify_index] for t in test_terms)
-                and any(v in observations[verify_index] for v in verify_terms)
-                for verify_index in range(fix_index + 1, len(texts))
-            ):
-                return True
+            if any(term in texts[fix_index] for term in fix_terms):
+                if _has_matching_verify_step(texts, observations, fix_index):
+                    return True
     return False
 
 
@@ -342,6 +345,18 @@ def _step_failed_hypothesis(index, step, failure_terms):
     ]
 
 
+def _hypothesis_abandoned_later(label, remaining_steps, abandonment_terms):
+    for step in remaining_steps:
+        basis = step.get("decision_basis") if isinstance(step, dict) else None
+        if (
+            isinstance(basis, str)
+            and label in basis.lower()
+            and any(term in basis.lower() for term in abandonment_terms)
+        ):
+            return True
+    return False
+
+
 def abandoned_failed_hypotheses(steps):
     """Return distinct explicit hypothesis labels failed then abandoned later."""
     if not isinstance(steps, list):
@@ -355,15 +370,8 @@ def abandoned_failed_hypotheses(steps):
     abandoned = set()
     abandonment_terms = ("abandon", "discard", "reject", "disproved", "ruled out")
     for failure_index, label in failed:
-        for step in steps[failure_index + 1 :]:
-            basis = step.get("decision_basis") if isinstance(step, dict) else None
-            if (
-                isinstance(basis, str)
-                and label in basis.lower()
-                and any(term in basis.lower() for term in abandonment_terms)
-            ):
-                abandoned.add(label)
-                break
+        if _hypothesis_abandoned_later(label, steps[failure_index + 1 :], abandonment_terms):
+            abandoned.add(label)
     return abandoned
 
 
@@ -377,34 +385,39 @@ _SPARSE_STALL_TERMS = re.compile(
 )
 
 
+def _step_sparse_progress_error(where, index, step, previous_obs):
+    text = observable_step_text(step)
+    if (
+        _SPARSE_STALL_TERMS.search(text) is not None
+        or _SPARSE_PROGRESS_TERMS.search(text) is None
+    ):
+        return (
+            f"{where}: sparse long-task steps[{index}] must show observable "
+            "file, test, or belief progress rather than padding",
+            None,
+        )
+    observation = step.get("observation") if isinstance(step, dict) else None
+    normalized_obs = (
+        re.sub(r"\s+", " ", observation.strip().casefold())
+        if isinstance(observation, str) and observation.strip()
+        else None
+    )
+    if normalized_obs is not None and normalized_obs == previous_obs:
+        return (
+            f"{where}: sparse long-task steps[{index}] repeats the prior "
+            "observation without observable progress",
+            normalized_obs,
+        )
+    return None, normalized_obs
+
+
 def sparse_step_progress_errors(where, steps):
     """Reject sparse-horizon padding that changes neither state nor belief."""
     if not isinstance(steps, list):
         return []
-    previous_observation = None
+    previous_obs = None
     for index, step in enumerate(steps):
-        text = observable_step_text(step)
-        if (
-            _SPARSE_STALL_TERMS.search(text) is not None
-            or _SPARSE_PROGRESS_TERMS.search(text) is None
-        ):
-            return [
-                f"{where}: sparse long-task steps[{index}] must show observable "
-                "file, test, or belief progress rather than padding"
-            ]
-        observation = step.get("observation") if isinstance(step, dict) else None
-        normalized_observation = (
-            re.sub(r"\s+", " ", observation.strip().casefold())
-            if isinstance(observation, str) and observation.strip()
-            else None
-        )
-        if (
-            normalized_observation is not None
-            and normalized_observation == previous_observation
-        ):
-            return [
-                f"{where}: sparse long-task steps[{index}] repeats the prior "
-                "observation without observable progress"
-            ]
-        previous_observation = normalized_observation
+        error, previous_obs = _step_sparse_progress_error(where, index, step, previous_obs)
+        if error:
+            return [error]
     return []
