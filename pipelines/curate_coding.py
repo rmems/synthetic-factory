@@ -136,6 +136,7 @@ def canonical_json(value: Any) -> str:
     """Return the stable JSON representation used for output hashes."""
     return json.dumps(
         value,
+        allow_nan=False,
         ensure_ascii=False,
         separators=(",", ":"),
         sort_keys=True,
@@ -145,6 +146,10 @@ def canonical_json(value: Any) -> str:
 def hash_value(value: Any) -> str:
     """Hash a parsed value deterministically."""
     return hashlib.sha256(canonical_json(value).encode("utf-8")).hexdigest()
+
+
+def _reject_json_constant(value: str) -> None:
+    raise ValueError(f"non-standard JSON numeric constant {value}")
 
 
 def normalized_key_name(value: Any) -> str:
@@ -534,8 +539,9 @@ def curate_jsonl(
                 )
                 continue
             try:
-                record = json.loads(text)
-            except json.JSONDecodeError:
+                record = json.loads(text, parse_constant=_reject_json_constant)
+                hash_value(record)
+            except (json.JSONDecodeError, TypeError, ValueError, RecursionError):
                 manifests.append(
                     _excluded_line_manifest(
                         source_path=source_label,
@@ -693,6 +699,15 @@ def _step_action_violations(entry: dict[str, Any], where: str) -> list[str]:
             violations.append(f"{step_where}: excluded step records an evidence source")
         if entry.get("output_step_index") is not None:
             violations.append(f"{step_where}: excluded step keeps an output index")
+        if REASON_STEP_NOT_OBJECT in reasons:
+            if thought_fields_removed:
+                violations.append(
+                    f"{step_where}: non-object step cannot report thought removals"
+                )
+            if REMOVAL_REASON_CODES.intersection(reasons):
+                violations.append(
+                    f"{step_where}: non-object step cannot claim hidden-reasoning removal"
+                )
     elif action == "migrated" or action == "retained":
         if not _is_positive_int(entry.get("output_step_index")):
             violations.append(
@@ -776,9 +791,23 @@ def verify_manifest(
         action = manifest.get("action")
         reasons = _reason_code_set(manifest.get("reason_codes"), where, violations)
         if action == "excluded":
-            if not EXCLUSION_REASONS.intersection(reasons):
+            if not PRE_STEP_EXCLUSION_REASONS.union(
+                {REASON_NO_RETAINABLE_STEPS}
+            ).intersection(reasons):
                 violations.append(
                     f"{where}: record excluded without an exclusion reason code"
+                )
+            extra_reasons = reasons - EXCLUSION_REASONS - RECORD_STRUCTURAL_REASONS
+            if extra_reasons:
+                violations.append(
+                    f"{where}: excluded with unknown reason codes "
+                    f"{sorted(extra_reasons)}"
+                )
+            step_only = STEP_EXCLUSION_REASONS.intersection(reasons)
+            if step_only and REASON_NO_RETAINABLE_STEPS not in reasons:
+                violations.append(
+                    f"{where}: excluded with step-only reason codes "
+                    f"{sorted(step_only)}"
                 )
             if manifest.get("output_hash") is not None:
                 violations.append(
@@ -793,6 +822,15 @@ def verify_manifest(
                 )
         else:
             violations.append(f"{where}: unknown record action {action!r}")
+        wrap_path = f"{WRAP_STEPS_PARENT}.steps"
+        if REASON_WRAP_RECORD in reasons and manifest.get("steps_path") != wrap_path:
+            violations.append(
+                f"{where}: wrap reason is not bound to {wrap_path}"
+            )
+        if manifest.get("steps_path") == wrap_path and REASON_WRAP_RECORD not in reasons:
+            violations.append(
+                f"{where}: wrap step path is missing {REASON_WRAP_RECORD}"
+            )
 
         thought_fields_removed = _hidden_removed(manifest)
         if not _is_nonnegative_int(thought_fields_removed):
@@ -1065,6 +1103,9 @@ def verify_curation(
                 continue
             output_index = entry.get("output_step_index")
             if not _is_positive_int(output_index) or output_index > len(steps):
+                violations.append(
+                    f"record {index}: output step index {output_index!r} is out of range"
+                )
                 continue
             step = steps[output_index - 1]
             if not isinstance(step, dict):

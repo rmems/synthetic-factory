@@ -1,5 +1,6 @@
 import contextlib
 import copy
+import hashlib
 import io
 import json
 import math
@@ -1668,6 +1669,34 @@ class CliTests(unittest.TestCase):
                     )
                     self.assertNotIn("Traceback", result.stderr)
                     self.assertFalse(output.exists())
+
+    def test_empty_tag_container_records_a_modification_reason(self):
+        curated, manifest = curate_record(record([]), taxonomy=TAXONOMY)
+        self.assertEqual(manifest["action"], "modified")
+        self.assertTrue(manifest["reason_codes"])
+        self.assertIn(curate_tags.REASON_TAGS_PROVENANCE_WRITTEN, manifest["reason_codes"])
+        self.assertIn(TAG_PROVENANCE_FIELD, curated)
+
+    def test_empty_provenance_sidecar_is_a_conflict_not_a_delete(self):
+        source = record(["MODIFY"])
+        source[TAG_PROVENANCE_FIELD] = {
+            "taxonomy_version": TAXONOMY.version,
+            "transform": curate_tags.TRANSFORM_NAME,
+            "transform_version": curate_tags.TRANSFORM_VERSION,
+            "containers": [],
+        }
+        curated, manifest = curate_record(source, taxonomy=TAXONOMY)
+        self.assertIsNone(curated)
+        self.assertIn(REASON_PROVENANCE_CONFLICT, manifest["reason_codes"])
+
+    def test_source_hash_keeps_payload_carriage_returns(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            source = Path(temporary) / "corpus.jsonl"
+            payload = b'{"id":"cr","meta":{"tags":["MODIFY"]}}\r\r\n'
+            source.write_bytes(payload)
+            result = curate_jsonl(source, TAXONOMY)
+        expected = hashlib.sha256(b'{"id":"cr","meta":{"tags":["MODIFY"]}}\r').hexdigest()
+        self.assertEqual(result["manifest"][0]["source_hash"], expected)
 
 
 class TagCliInProcessTests(unittest.TestCase):
