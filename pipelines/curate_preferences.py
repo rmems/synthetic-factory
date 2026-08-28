@@ -100,6 +100,36 @@ def _has_raw_tree_components(path: Path) -> bool:
     )
 
 
+def _stat_identity(path: Path) -> tuple[int, int] | None:
+    try:
+        state = path.stat()
+    except OSError:
+        return None
+    return (state.st_dev, state.st_ino)
+
+
+def _ancestor_identities(path: Path) -> set[tuple[int, int]]:
+    """Device/inode identities of ``path`` and existing ancestors.
+
+    Bind mounts and case-insensitive directory spellings keep distinct
+    pathnames after ``resolve()`` but share the raw tree's identity.
+    """
+
+    identities: set[tuple[int, int]] = set()
+    current = Path(os.path.abspath(path))
+    seen: set[Path] = set()
+    while current not in seen:
+        seen.add(current)
+        identity = _stat_identity(current)
+        if identity is not None:
+            identities.add(identity)
+        parent = current.parent
+        if parent == current:
+            break
+        current = parent
+    return identities
+
+
 def _is_under_raw(path: Path) -> bool:
     """Whether ``path`` names or aliases the repository's raw output tree."""
 
@@ -108,15 +138,25 @@ def _is_under_raw(path: Path) -> bool:
     # components and would otherwise let a write through the immutable tree.
     # Also compare against the resolved repository raw root: callers can name
     # that same target through its mount path or through a second symlink whose
-    # spelling never contains ``outputs/raw``.
+    # spelling never contains ``outputs/raw``. Bind-mount and case-folded
+    # aliases are caught by comparing device/inode identities.
     lexical_path = Path(os.path.abspath(path))
     resolved_path = path.resolve(strict=False)
     resolved_raw_root = RAW_OUTPUT_ROOT.resolve(strict=False)
-    return (
+    if (
         _has_raw_tree_components(lexical_path)
         or _has_raw_tree_components(resolved_path)
         or resolved_path == resolved_raw_root
         or resolved_raw_root in resolved_path.parents
+    ):
+        return True
+    raw_identity = _stat_identity(RAW_OUTPUT_ROOT) or _stat_identity(
+        resolved_raw_root
+    )
+    if raw_identity is None:
+        return False
+    return raw_identity in _ancestor_identities(path) or raw_identity in (
+        _ancestor_identities(path.parent)
     )
 
 
