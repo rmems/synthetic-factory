@@ -1137,7 +1137,13 @@ class CurateJsonlTests(unittest.TestCase):
         )
         self.assertEqual(result["summary"]["nonstring_tag_uses"], 2)
         self.assertEqual(result["summary"]["source_tag_uses"], 3)
-        self.assertEqual(result["summary"]["unmapped_unique_tags"], 0)
+        self.assertEqual(result["summary"]["unmapped_unique_tags"], 2)
+        self.assertEqual(
+            result["manifest"][0]["unmapped_tags"],
+            [17, None],
+        )
+        tags_in_report = {item["tag"] for item in result["unmapped"]}
+        self.assertEqual(tags_in_report, {17, None})
         self.assertEqual(result["manifest"][0]["tag_counts"]["source_uses"], 3)
         self.assertEqual(result["manifest"][0]["tag_counts"]["unmapped_uses"], 2)
         self.assertIn(REASON_TAGS_UNMAPPED, result["manifest"][0]["reason_codes"])
@@ -1163,7 +1169,11 @@ class CurateJsonlTests(unittest.TestCase):
 
         self.assertEqual(summary["nonstring_tag_uses"], 2)
         self.assertEqual(summary["unmapped_tag_uses"], 2)
-        self.assertEqual(summary["unmapped_unique_tags"], 0)
+        self.assertEqual(summary["unmapped_unique_tags"], 2)
+        self.assertEqual(
+            {item["tag"] for item in summary["unmapped_tags"]},
+            {17, None},
+        )
 
     def test_every_retained_record_carries_only_canonical_tags(self):
         rows = [
@@ -1715,9 +1725,19 @@ class TagCliInProcessTests(unittest.TestCase):
                         str(root / "fresh.jsonl"),
                     ]
                 )
+            missing_source = root / "nope.jsonl"
+            stderr = io.StringIO()
+            with contextlib.redirect_stderr(stderr), self.assertRaises(SystemExit):
+                curate_tags.main([str(missing_source)])
+            self.assertNotIn("Traceback", stderr.getvalue())
             curate_tags._unlink_created_file(root / "absent.jsonl", (0, 0))
             with self.assertRaisesRegex(ValueError, "distinct"):
                 curate_tags._preflight_destinations([output, output])
+
+    def test_load_taxonomy_wraps_excessive_nesting(self):
+        with mock.patch("curate_tags.json.loads", side_effect=RecursionError):
+            with self.assertRaises(TagTaxonomyError):
+                load_taxonomy(DEFAULT_TAXONOMY_PATH)
 
 
 if __name__ == "__main__":
