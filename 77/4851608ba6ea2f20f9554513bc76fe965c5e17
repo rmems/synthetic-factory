@@ -1,0 +1,19 @@
+pipelines/round_txn.py
+  s_d547d8f7cb83b7::t_80a62a637ccdb3 381
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "774851608ba6ea2f20f9554513bc76fe965c5e17",
+  "prompts": {},
+  "sessions": {
+    "s_d547d8f7cb83b7": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "01a048b5-1c4d-7672-8f2e-082125998ed5",
+        "model": "unknown"
+      },
+      "human_author": "Raul Montoya Cardenas <montoyaraul34@gmail.com>"
+    }
+  }
+}
