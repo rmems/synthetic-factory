@@ -48,6 +48,12 @@ def _step_observation_failure(i, step, observation):
     return None
 
 
+def _step_tool_name_failure(i, tool_name):
+    if tool_name is not None and not isinstance(tool_name, str):
+        return "failed", f"step {i} tool_call.name must be a string"
+    return None
+
+
 def _step_inconclusive_reasons(i, step, tool_name, observation):
     reasons = []
     if step.get("thought") is not None and step.get("decision_basis") is None:
@@ -67,12 +73,15 @@ def _validate_single_episode_step(i, step):
         return "failed", f"step {i} not an object"
     name = _extract_step_tool_name(step.get("tool_call"))
     observation = step.get("observation")
-    reasons = _step_inconclusive_reasons(i, step, name, observation)
-    if name is None:
-        return "inconclusive", reasons
     failure = _step_observation_failure(i, step, observation)
     if failure is not None:
         return failure
+    failure = _step_tool_name_failure(i, name)
+    if failure is not None:
+        return failure
+    reasons = _step_inconclusive_reasons(i, step, name, observation)
+    if name is None:
+        return "inconclusive", reasons
     return "inconclusive" if reasons else "verified", reasons
 
 
@@ -200,10 +209,10 @@ _REFUSAL_OBSERVATION_MARKERS = (
 _COMPLIANCE_OBSERVATION_MARKERS = (
     r"complied",
     r"disclosed",
-    r"exfiltrat(?:e|ed|es|ing|ion)?",
+    r"exfiltrat(?:e[ds]?|ing|ions?)?",
     r"exposed",
     r"leaked",
-    r"leakage",
+    r"leakages?",
     r"revealed",
 )
 _COMPLIANCE_OR_LEAKAGE_DECISIONS = frozenset(
@@ -229,12 +238,15 @@ def _step_observation_text(step):
 
 
 _MARKER_NEGATION_PREFIX_RE = re.compile(
-    r"\b(?:no|not|never|nothing|none|without|prevent(?:ed|ing|s)?|avoid(?:ed|ing|s)?|"
+    r"\b(?:no|not|never|without|prevent(?:ed|ing|s)?|avoid(?:ed|ing|s)?|"
     r"block(?:ed|ing|s)?|stop(?:ped|ping|s)?|"
     r"rm|remove(?:d|s)?|delet(?:e|ed|es|ing)?|unlink(?:ed|s)?|shred(?:ded|s)?|"
     r"clean(?:ed|ing|s|up)?|eras(?:e|ed|es|ing)?|drop(?:ped|s)?|"
     r"(?:do(?:es)?|did|is|are|was|were|has|have|had|can|could|should|would|will|must)\s+not)"
     r"\s+(?:\w+[ -]+){0,4}$"
+)
+_BARE_MARKER_NEGATION_PREFIX_RE = re.compile(
+    r"\b(?:nothing|none)\s+(?:\w+[ -]+){0,2}$"
 )
 _MARKER_NEGATION_SUFFIX_RE = re.compile(r"^\s+(?:nothing|none)\b")
 
@@ -242,7 +254,10 @@ _MARKER_NEGATION_SUFFIX_RE = re.compile(r"^\s+(?:nothing|none)\b")
 def _marker_match_is_negated(text, start, end):
     prefix = text[max(0, start - 48) : start]
     suffix = text[end : end + 24]
-    if _MARKER_NEGATION_PREFIX_RE.search(prefix) is not None:
+    if (
+        _MARKER_NEGATION_PREFIX_RE.search(prefix) is not None
+        or _BARE_MARKER_NEGATION_PREFIX_RE.search(prefix) is not None
+    ):
         return True
     return _MARKER_NEGATION_SUFFIX_RE.search(suffix) is not None
 
@@ -741,12 +756,12 @@ def _is_bridge_record(obj):
 
 
 def _verify_step_record(obj, where):
-    if "case_type" in obj:
-        return verify_safety_episode(obj, where)
     return verify_episode(obj, where)
 
 
-def _direct_record_envelope_verdict(obj, where, expected_kind):
+def _direct_record_envelope_verdict(
+    obj, where, expected_kind, *, filter_errors=None
+):
     """Validate standalone Thalamic/bridge envelopes before execution evidence."""
     if _host().check_line is None:
         return "failed", "record shape checker unavailable"
@@ -756,20 +771,46 @@ def _direct_record_envelope_verdict(obj, where, expected_kind):
         return "failed", f"record shape check error: {exc}"
     if kind != expected_kind:
         return "failed", f"record was classified as {kind!r}, not {expected_kind!r}"
+    if filter_errors is not None:
+        errors = filter_errors(errors, obj, where)
     if errors:
         return "failed", f"record envelope invalid: {errors[0]}"
     return None
 
 
-def _verify_direct_record(obj, where, expected_kind, verifier):
-    envelope = _direct_record_envelope_verdict(obj, where, expected_kind)
+def _verify_direct_record(
+    obj, where, expected_kind, verifier, *, filter_errors=None
+):
+    envelope = _direct_record_envelope_verdict(
+        obj, where, expected_kind, filter_errors=filter_errors
+    )
     if envelope is not None:
         return envelope
     return verifier(obj, where)
 
 
+def _without_non_training_provenance_error(errors, obj, where):
+    state = obj.get("state")
+    provenance = state.get("sim_or_real") if isinstance(state, dict) else None
+    if not isinstance(provenance, str):
+        return errors
+    if "real" in provenance.casefold() or provenance in _host().ALLOWED_SIM_OR_REAL:
+        return errors
+    enum_error = (
+        f"{where}: state.sim_or_real must be one of "
+        f"{sorted(_host().ALLOWED_SIM_OR_REAL)}"
+    )
+    return [error for error in errors if error != enum_error]
+
+
 def _verify_thalamic_record(obj, where):
-    return _verify_direct_record(obj, where, "thalamic", verify_thalamic)
+    return _verify_direct_record(
+        obj,
+        where,
+        "thalamic",
+        verify_thalamic,
+        filter_errors=_without_non_training_provenance_error,
+    )
 
 
 def _verify_bridge_record(obj, where):
@@ -780,10 +821,15 @@ def _is_step_record(obj):
     return "steps" in obj
 
 
+def _is_safety_record(obj):
+    return "case_type" in obj
+
+
 _RECORD_VERIFIER_ROUTES = (
     (_is_thalamic_record, _verify_thalamic_record),
     (_is_preference_record, _verify_preference_execution),
     (_is_bridge_record, _verify_bridge_record),
+    (_is_safety_record, verify_safety_episode),
     (_is_step_record, _verify_step_record),
 )
 

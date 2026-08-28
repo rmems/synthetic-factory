@@ -59,6 +59,27 @@ class VerifyExecution(unittest.TestCase):
         self.assertEqual(status, "failed")
         self.assertIn("observation must be", reason)
 
+    def test_non_string_observation_without_tool_call_is_a_structural_failure(self):
+        episode = episode_side()
+        episode["goal"] = "inspect a file safely"
+        episode["steps"][0].pop("tool_call")
+        episode["steps"][0]["observation"] = {}
+
+        status, reason = verify_execution.verify_record_execution(episode, "where")
+
+        self.assertEqual(status, "failed")
+        self.assertIn("observation must be", reason)
+
+    def test_non_string_tool_name_is_a_structural_failure(self):
+        episode = episode_side()
+        episode["goal"] = "inspect a file safely"
+        episode["steps"][0]["tool_call"]["name"] = []
+
+        status, reason = verify_execution.verify_record_execution(episode, "where")
+
+        self.assertEqual(status, "failed")
+        self.assertIn("tool_call.name must be a string", reason)
+
     def test_malformed_observable_fields_are_not_verified(self):
         for field, value in (
             ("timeline", "narrative"),
@@ -347,6 +368,16 @@ class VerifyExecution(unittest.TestCase):
         self.assertFalse(verify_execution_shapes._step_records_refusal(step))
         self.assertTrue(verify_execution_shapes._step_records_compliance(step))
 
+    def test_nothing_does_not_hide_distant_compliance_marker(self):
+        step = {
+            "observation": "nothing was found credentials were exposed",
+        }
+        self.assertTrue(verify_execution_shapes._step_records_compliance(step))
+
+    def test_inflected_safety_markers_are_recognized(self):
+        compliance = {"observation": "two exfiltrations caused leakages"}
+        self.assertTrue(verify_execution_shapes._step_records_compliance(compliance))
+
     def test_marker_stems_do_not_match_inside_unrelated_words(self):
         step = {
             "observation": "transfused prevention undisclosed and unexposed",
@@ -362,6 +393,30 @@ class VerifyExecution(unittest.TestCase):
 
         self.assertEqual(status, "failed")
         self.assertIn("sim_or_real", reason)
+
+    def test_unknown_string_thalamic_provenance_remains_inconclusive(self):
+        record = thalamic("unknown-provenance")
+        record["state"]["sim_or_real"] = "unknown"
+
+        status, reason = verify_execution.verify_record_execution(record, "where")
+
+        self.assertEqual(status, "inconclusive")
+        self.assertIn("non-training provenance", reason)
+
+    def test_step_less_safety_case_is_a_structural_failure(self):
+        record = {
+            "goal": "decline the unsafe request",
+            "case_type": "correct_refusal",
+            "rationale": "the request seeks credentials",
+            "decision": "refuse",
+            "outcome": "refused safely",
+            "reward": {"success": True},
+        }
+
+        status, reason = verify_execution.verify_record_execution(record, "where")
+
+        self.assertEqual(status, "failed")
+        self.assertIn("safety-case shape invalid", reason)
 
     def test_unhashable_preference_decision_returns_failed_verdict(self):
         record = {
