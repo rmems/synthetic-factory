@@ -787,6 +787,52 @@ class WrapRecordTests(unittest.TestCase):
         self.assertEqual(second_manifest["action"], "unchanged")
         self.assertEqual(second_manifest["step_counts"]["migrated"], 0)
 
+    def test_wrap_record_initial_migration_passes_verification(self):
+        source = wrap_record([visible_step()])
+
+        _, manifest = curate_episode(source)
+
+        self.assertEqual(manifest["action"], "modified")
+        self.assertIn(REASON_WRAP_RECORD, manifest["reason_codes"])
+        self.assertIn(REASON_HIDDEN_REASONING_REMOVED, manifest["reason_codes"])
+        violations = verify_manifest([manifest])
+        self.assertEqual(violations, [])
+
+    def test_wrap_record_passes_verify_curation(self):
+        source = wrap_record([visible_step()])
+        curated, manifest = curate_episode(source)
+        result = {
+            "records": [curated],
+            "manifest": [manifest],
+            "summary": {
+                "input_records": 1,
+                "output_records": 1,
+                "excluded_records": 0,
+                "source_steps": 1,
+                "retained_steps": 1,
+                "migrated_steps": 1,
+                "excluded_steps": 0,
+                "hidden_reasoning_fields_removed": manifest[
+                    "hidden_reasoning_fields_removed"
+                ],
+                "decision_basis_sources": {"reflection": 1},
+            },
+        }
+
+        self.assertEqual(verify_curation(result), [])
+
+    def test_wrap_record_idempotent_second_pass_passes_verification(self):
+        source = wrap_record([visible_step()])
+
+        once, _ = curate_episode(source)
+        twice, second_manifest = curate_episode(once)
+
+        self.assertEqual(once, twice)
+        self.assertEqual(second_manifest["action"], "unchanged")
+        self.assertEqual(second_manifest["reason_codes"], [REASON_WRAP_RECORD])
+        violations = verify_manifest([second_manifest])
+        self.assertEqual(violations, [])
+
     def test_top_level_steps_win_over_a_wrapped_step_array(self):
         source = episode([visible_step()])
         source["executed_action"] = {"steps": [{"n": 9, "thought": "ignored"}]}
@@ -1259,6 +1305,18 @@ class VerifyCurationTests(unittest.TestCase):
             violations,
         )
 
+    def test_summary_rejects_disagreeing_dual_removal_fields(self):
+        result = curated_result([[visible_step()]])
+        result["summary"]["thought_fields_removed"] = 0
+        result["summary"]["hidden_reasoning_fields_removed"] = 1
+
+        violations = verify_curation(result)
+
+        self.assertTrue(
+            any("disagrees with hidden_reasoning_fields_removed" in item for item in violations),
+            violations,
+        )
+
     def test_summary_reconciles_thought_removals_and_evidence_sources(self):
         result = curated_result([[visible_step()]])
         result["summary"]["thought_fields_removed"] = 0
@@ -1485,6 +1543,7 @@ class LegacyCodingManifestFixtureTests(unittest.TestCase):
         "output_id",
         "output_hash",
         "thought_fields_removed",
+        "hidden_reasoning_fields_removed",
         "step_counts",
         "step_actions",
     }
@@ -1495,6 +1554,7 @@ class LegacyCodingManifestFixtureTests(unittest.TestCase):
         "reason_codes",
         "evidence_source",
         "thought_fields_removed",
+        "hidden_reasoning_fields_removed",
         "output_step_index",
     }
 

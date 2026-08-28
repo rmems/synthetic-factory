@@ -1,4 +1,6 @@
+import contextlib
 import copy
+import io
 import json
 import math
 import subprocess
@@ -15,6 +17,7 @@ PIPELINES = ROOT / "pipelines"
 if str(PIPELINES) not in sys.path:
     sys.path.insert(0, str(PIPELINES))
 
+import curate_tags  # noqa: E402
 from curate_tags import (  # noqa: E402
     DEFAULT_TAXONOMY_PATH,
     REASON_INVALID_JSON,
@@ -1134,7 +1137,13 @@ class CurateJsonlTests(unittest.TestCase):
         )
         self.assertEqual(result["summary"]["nonstring_tag_uses"], 2)
         self.assertEqual(result["summary"]["source_tag_uses"], 3)
-        self.assertEqual(result["summary"]["unmapped_unique_tags"], 0)
+        self.assertEqual(result["summary"]["unmapped_unique_tags"], 2)
+        self.assertEqual(
+            result["manifest"][0]["unmapped_tags"],
+            [17, None],
+        )
+        tags_in_report = {item["tag"] for item in result["unmapped"]}
+        self.assertEqual(tags_in_report, {17, None})
         self.assertEqual(result["manifest"][0]["tag_counts"]["source_uses"], 3)
         self.assertEqual(result["manifest"][0]["tag_counts"]["unmapped_uses"], 2)
         self.assertIn(REASON_TAGS_UNMAPPED, result["manifest"][0]["reason_codes"])
@@ -1160,7 +1169,11 @@ class CurateJsonlTests(unittest.TestCase):
 
         self.assertEqual(summary["nonstring_tag_uses"], 2)
         self.assertEqual(summary["unmapped_tag_uses"], 2)
-        self.assertEqual(summary["unmapped_unique_tags"], 0)
+        self.assertEqual(summary["unmapped_unique_tags"], 2)
+        self.assertEqual(
+            {item["tag"] for item in summary["unmapped_tags"]},
+            {17, None},
+        )
 
     def test_every_retained_record_carries_only_canonical_tags(self):
         rows = [
@@ -1641,6 +1654,90 @@ class CliTests(unittest.TestCase):
                     )
                     self.assertNotIn("Traceback", result.stderr)
                     self.assertFalse(output.exists())
+
+
+class TagCliInProcessTests(unittest.TestCase):
+    def test_main_writes_outputs_and_rejects_unsafe_destinations(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            source = root / "in.jsonl"
+            source.write_text(
+                json.dumps(record(["MODIFY"])) + "\n", encoding="utf-8"
+            )
+            output = root / "out.jsonl"
+            manifest = root / "man.jsonl"
+            unmapped = root / "unm.jsonl"
+            stdout = io.StringIO()
+            with contextlib.redirect_stdout(stdout):
+                code = curate_tags.main(
+                    [
+                        str(source),
+                        "--output-jsonl",
+                        str(output),
+                        "--manifest-jsonl",
+                        str(manifest),
+                        "--unmapped-jsonl",
+                        str(unmapped),
+                    ]
+                )
+            self.assertEqual(code, 0)
+            self.assertTrue(output.is_file())
+            self.assertTrue(manifest.is_file())
+            self.assertTrue(unmapped.is_file())
+            self.assertIn("input_records", json.loads(stdout.getvalue()))
+
+            with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(
+                SystemExit
+            ):
+                curate_tags.main([str(source), "--output-jsonl", str(source)])
+            with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(
+                SystemExit
+            ):
+                curate_tags.main([str(source), "--output-jsonl", str(output)])
+            nested = root / "nested"
+            with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(
+                SystemExit
+            ):
+                curate_tags.main(
+                    [
+                        str(source),
+                        "--output-jsonl",
+                        str(nested / "a.jsonl"),
+                        "--manifest-jsonl",
+                        str(nested),
+                    ]
+                )
+            raw = root / "outputs" / "raw" / "x.jsonl"
+            with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(
+                SystemExit
+            ):
+                curate_tags.main([str(source), "--output-jsonl", str(raw)])
+            missing_taxonomy = root / "missing-taxonomy.json"
+            with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(
+                SystemExit
+            ):
+                curate_tags.main(
+                    [
+                        str(source),
+                        "--taxonomy",
+                        str(missing_taxonomy),
+                        "--output-jsonl",
+                        str(root / "fresh.jsonl"),
+                    ]
+                )
+            missing_source = root / "nope.jsonl"
+            stderr = io.StringIO()
+            with contextlib.redirect_stderr(stderr), self.assertRaises(SystemExit):
+                curate_tags.main([str(missing_source)])
+            self.assertNotIn("Traceback", stderr.getvalue())
+            curate_tags._unlink_created_file(root / "absent.jsonl", (0, 0))
+            with self.assertRaisesRegex(ValueError, "distinct"):
+                curate_tags._preflight_destinations([output, output])
+
+    def test_load_taxonomy_wraps_excessive_nesting(self):
+        with mock.patch("curate_tags.json.loads", side_effect=RecursionError):
+            with self.assertRaises(TagTaxonomyError):
+                load_taxonomy(DEFAULT_TAXONOMY_PATH)
 
 
 if __name__ == "__main__":

@@ -120,6 +120,7 @@ RECORD_TRANSFORMATION_REASONS = frozenset(
         REASON_STEPS_EXCLUDED,
     }
 )
+RECORD_STRUCTURAL_REASONS = frozenset({REASON_WRAP_RECORD})
 
 
 
@@ -382,6 +383,17 @@ def _steps_holder(record: dict[str, Any], steps_path: str) -> dict[str, Any]:
     return record[WRAP_STEPS_PARENT]
 
 
+def _record_steps(record: Any) -> list[Any] | None:
+    """Return the curated step array for a plain or wrap record."""
+    if not isinstance(record, dict):
+        return None
+    steps_path = _steps_path(record)
+    if steps_path is None:
+        return None
+    steps = _steps_holder(record, steps_path).get("steps")
+    return steps if isinstance(steps, list) else None
+
+
 def curate_episode(
     record: Any,
     *,
@@ -600,6 +612,25 @@ def _hidden_removed(mapping: Any) -> Any:
     return mapping.get("hidden_reasoning_fields_removed")
 
 
+def _dual_removal_mismatch(mapping: Any, where: str) -> str | None:
+    """Return a violation when both removal fields exist and disagree."""
+    if not isinstance(mapping, dict):
+        return None
+    if (
+        "thought_fields_removed" not in mapping
+        or "hidden_reasoning_fields_removed" not in mapping
+    ):
+        return None
+    thought = mapping["thought_fields_removed"]
+    hidden = mapping["hidden_reasoning_fields_removed"]
+    if thought != hidden:
+        return (
+            f"{where}: thought_fields_removed {thought!r} disagrees with "
+            f"hidden_reasoning_fields_removed {hidden!r}"
+        )
+    return None
+
+
 def _reason_code_set(value: Any, where: str, violations: list[str]) -> set[str]:
     if not isinstance(value, list):
         violations.append(f"{where}: reason codes are not a list")
@@ -753,6 +784,9 @@ def verify_manifest(
             violations.append(
                 f"{where}: thought_fields_removed must be a non-negative integer"
             )
+        mismatch = _dual_removal_mismatch(manifest, where)
+        if mismatch:
+            violations.append(mismatch)
 
         counts = manifest.get("step_counts")
         actions = manifest.get("step_actions")
@@ -835,12 +869,12 @@ def verify_manifest(
                 violations.append(
                     f"{where}: unchanged record reports transformed step actions"
                 )
-            if reasons:
+            if reasons - RECORD_STRUCTURAL_REASONS:
                 violations.append(
                     f"{where}: unchanged record reports transformation reason codes"
                 )
         elif action == "modified" and _is_nonnegative_int(thought_fields_removed):
-            impossible_reasons = reasons - RECORD_TRANSFORMATION_REASONS
+            impossible_reasons = reasons - RECORD_TRANSFORMATION_REASONS - RECORD_STRUCTURAL_REASONS
             if impossible_reasons:
                 violations.append(
                     f"{where}: modified record reports impossible reason codes "
@@ -898,7 +932,7 @@ def _curated_record_violations(record: Any, where: str) -> list[str]:
     violations = []
     if contains_thought_key(record):
         violations.append(f"{where}: curated record still exposes a thought key")
-    steps = record.get("steps") if isinstance(record, dict) else None
+    steps = _record_steps(record)
     if not isinstance(steps, list) or not steps:
         violations.append(f"{where}: curated record has no retained steps")
         return violations
@@ -993,7 +1027,7 @@ def verify_curation(
                 f"record {index}: output ID does not match its manifest entry"
             )
 
-        steps = record.get("steps") if isinstance(record, dict) else None
+        steps = _record_steps(record)
         actions = manifest.get("step_actions")
         if not isinstance(steps, list) or not isinstance(actions, list):
             continue
@@ -1056,9 +1090,9 @@ def verify_curation(
                     manifest_evidence_sources[evidence] += 1
 
     retained = sum(
-        len(record["steps"])
+        len(steps)
         for record in records
-        if isinstance(record, dict) and isinstance(record.get("steps"), list)
+        if (steps := _record_steps(record)) is not None
     )
     if retained != manifest_totals["retained"]:
         violations.append(
@@ -1083,12 +1117,24 @@ def verify_curation(
             "excluded_steps": manifest_totals["excluded"],
             "decision_basis_sources": dict(sorted(manifest_evidence_sources.items())),
         }
-        removal_key = (
-            "hidden_reasoning_fields_removed"
-            if "hidden_reasoning_fields_removed" in summary
-            else "thought_fields_removed"
-        )
-        expected_summary[removal_key] = manifest_thought_fields_removed
+        if "hidden_reasoning_fields_removed" in summary:
+            expected_summary["hidden_reasoning_fields_removed"] = (
+                manifest_thought_fields_removed
+            )
+        if "thought_fields_removed" in summary:
+            expected_summary["thought_fields_removed"] = (
+                manifest_thought_fields_removed
+            )
+        if (
+            "hidden_reasoning_fields_removed" not in summary
+            and "thought_fields_removed" not in summary
+        ):
+            expected_summary["hidden_reasoning_fields_removed"] = (
+                manifest_thought_fields_removed
+            )
+        mismatch = _dual_removal_mismatch(summary, "summary")
+        if mismatch:
+            violations.append(mismatch)
         for key, expected in expected_summary.items():
             if summary.get(key) != expected:
                 violations.append(

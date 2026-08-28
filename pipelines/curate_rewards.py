@@ -1284,6 +1284,11 @@ def _classify(source_rewards, arithmetic, calibration=None):
         if unit_status == "missing_risk_adjusted_semantics":
             return _mapped_verdict("S06")
         return _mapped_verdict("S07")
+    optional_reasons = (
+        ["external_calibration_evidence"]
+        if unit_status == "external_calibration_evidence"
+        else []
+    )
     return _mapped_verdict(
         "S08",
         _magnitude_payload(
@@ -1291,6 +1296,7 @@ def _classify(source_rewards, arithmetic, calibration=None):
             {pointer: unit},
             {pointer: calibration_source},
         ),
+        optional_reason_codes=optional_reasons,
     )
 
 
