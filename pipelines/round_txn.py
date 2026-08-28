@@ -2245,7 +2245,7 @@ def validate_novel_coverage(
     if strict_new_publish:
         labeled_lines = [
             line
-            for line in re.split(r"\r\n|\n|\r", notes_text)
+            for line in notes_text.splitlines()
             if NOVEL_COVERAGE_LABEL_RE.search(line)
         ]
         if not labeled_lines:

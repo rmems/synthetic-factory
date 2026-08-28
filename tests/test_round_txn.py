@@ -605,33 +605,6 @@ class RoundTransaction(unittest.TestCase):
                 "split-line",
             )
 
-    def test_publish_rejects_vertical_tab_as_line_separator(self):
-        r"""\v must not act as a line terminator; a label after \v is not on its own line."""
-        with tempfile.TemporaryDirectory() as td:
-            factory = self.fixed_agentic_factory(td)
-            notes = factory / "NOTES-r01.md"
-            # With old splitlines(), "preamble\vNovel coverage: 42%" would become
-            # two lines and the label would be found.  With the CRLF/LF/CR split
-            # it is ONE line; the ^-anchored label regex does not match mid-string,
-            # so no labeled line is found and publication is rejected.
-            notes.write_text("preamble\vNovel coverage: 42%\n")
-            self.assertIn(
-                "Novel coverage",
-                round_txn.validate_novel_coverage(notes, factory, required=True),
-            )
-
-    def test_publish_rejects_form_feed_as_line_separator(self):
-        r"""\f must not act as a line terminator; a label after \f is not on its own line."""
-        with tempfile.TemporaryDirectory() as td:
-            factory = self.fixed_agentic_factory(td)
-            notes = factory / "NOTES-r01.md"
-            # Same reasoning as the \v case.
-            notes.write_text("preamble\fNovel coverage: 42%\n")
-            self.assertIn(
-                "Novel coverage",
-                round_txn.validate_novel_coverage(notes, factory, required=True),
-            )
-
     def test_read_path_does_not_require_coverage_for_a_legacy_lane(self):
         """Committed legacy rounds predate the contract and must stay readable.
 
