@@ -61,7 +61,7 @@ Parsing is case-insensitive and tolerant:
 - `Novel coverage (estimated): 12.5 %` ✓
 
 New publication uses the complete strict regex
-`^[^\S\r\n]*novel[ _-]?coverage[^\S\r\n]*(?:\([^)\r\n]*\))?[^\S\r\n]*[:=]?[^\S\r\n]*(\d+(?:\.\d+)?)[^\S\r\n]*%[^\S\r\n]*$`,
+`^[ \t]*novel[ _-]?coverage[ \t]*(?:\([^)\r\n]*\))?[ \t]*[:=]?[ \t]*(\d+(?:\.\d+)?)[ \t]*%[ \t]*$`,
 matched case-insensitively against exactly one labeled physical line. Python's
 `round_txn.NOVEL_COVERAGE_RE` and the workflow's `novelCoveragePct` share this
 forward contract. The label, optional annotation, separator, number, and
@@ -175,4 +175,4 @@ Savings scale with backstop distance: a window starting at r12 with plateau at r
 ## References
 
 - Workflow: `.claude/skills/run-synthetic-factory/factory-window.workflow.js:95` (`TOKEN_EFFICIENCY`, `novelCoveragePct`, early-stop loop)
-- Driver: `.claude/skills/run-synthetic-factory/driver.py:34` (`TOKEN_EFFICIENCY_*`, `LEGACY_NOVEL_COVERAGE_RE`, `factory_token_efficiency`, `cmd_token_efficiency`)
+- Driver: `.claude/skills/run-synthetic-factory/driver.py:65` (`TOKEN_EFFICIENCY_*`), `:72` (`LEGACY_NOVEL_COVERAGE_RE`), `:392` (`factory_token_efficiency`), `:490` (`cmd_token_efficiency`)
