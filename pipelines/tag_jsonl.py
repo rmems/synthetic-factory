@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 from collections import Counter
 from pathlib import Path
 from typing import Any
@@ -77,7 +78,7 @@ def curate_jsonl(
     """Read a JSONL source without mutation and curate every nonblank line."""
     vocabulary = taxonomy if taxonomy is not None else load_taxonomy()
     source = Path(source_path)
-    display_path = str(source).encode("utf-8", "replace").decode("utf-8")
+    display_path = os.fsencode(os.fspath(source)).decode("utf-8", "surrogateescape")
     batch = _JsonlBatch(display_path, vocabulary)
     with source.open("rb") as handle:
         for line_number, terminated_line in enumerate(handle, 1):
