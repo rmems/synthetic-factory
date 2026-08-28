@@ -1,0 +1,48 @@
+pipelines/coding_verify_manifest.py
+  s_420f3a909ec2e3::t_c19163b0065dee 1-15,17-571
+  s_420f3a909ec2e3::t_9759ca97cd5d70 16
+tests/test_curate_coding_verify.py
+  s_c552844eaaaf3f::t_37026befa52fec 1-5,9-524
+  s_c552844eaaaf3f::t_7536af0ca2d173 6-8
+tests/test_curate_coding.py
+  s_c552844eaaaf3f::t_9c8942c5870eb9 17-21
+  s_c552844eaaaf3f::t_19b13bc4cb279d 13-15
+pipelines/curate_coding.py
+  s_420f3a909ec2e3::t_4c949dcb5da4b1 77-112
+  s_c552844eaaaf3f::t_53fdf797d0f826 76
+  s_420f3a909ec2e3::t_1f9fc830a9bc76 28,39-73,75
+  s_c552844eaaaf3f::t_423eb1ed326b88 302,322,325-359,361-362,364-365,368-387,396-438
+pipelines/coding_verify.py
+  s_420f3a909ec2e3::t_0d662cd10ea069 18,27-32,348-387
+  s_420f3a909ec2e3::t_fe12b6b3fbad56 1-17,19-26,33-347,388-429
+pipelines/coding_verify_steps.py
+  s_420f3a909ec2e3::t_578ea6cf17463b 1-236
+tests/coding_curation_helpers.py
+  s_c552844eaaaf3f::t_0ed25bf6de94bf 1-26,28-35,37-59,61-68
+  s_c552844eaaaf3f::t_68d7f55c392d82 27,36
+  s_c552844eaaaf3f::t_02eeb082955bdf 60
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "04fa07d36cfeb89e65a55b78402526c0312189e3",
+  "prompts": {},
+  "sessions": {
+    "s_420f3a909ec2e3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "01a047fa-225c-7f33-ad25-5644286ec3ab",
+        "model": "unknown"
+      },
+      "human_author": "Raul Montoya Cardenas <montoyaraul34@gmail.com>"
+    },
+    "s_c552844eaaaf3f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "01a047ec-e176-7460-a639-f87251818d1f",
+        "model": "unknown"
+      },
+      "human_author": "Raul Montoya Cardenas <montoyaraul34@gmail.com>"
+    }
+  }
+}
