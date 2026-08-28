@@ -555,19 +555,40 @@ class RoundTransaction(unittest.TestCase):
             self.assertEqual(manifest["records"], 1)
             self.assertTrue((factory / "ROUND-r01.complete.json").is_file())
 
+    def _assert_publish_rejects_notes(
+        self, td, notes_text, pattern, record_suffix="txn"
+    ):
+        factory = self.factory(td)
+        reservation = round_txn.reserve(factory, 1, 1)
+        stage = Path(reservation["staging_dir"])
+        write_records(
+            stage / reservation["batch_file"],
+            [thalamic(f"txn-{record_suffix}")],
+        )
+        (stage / reservation["notes_file"]).write_text(notes_text)
+
+        with self.assertRaisesRegex(round_txn.TransactionError, pattern):
+            round_txn.publish(factory, 1, reservation["token"])
+        self.assertFalse((factory / "ROUND-r01.complete.json").exists())
+
+    def _assert_legacy_notes_tolerance(
+        self, td, notes_text, expected_publish_err
+    ):
+        factory = self.fixed_agentic_factory(td)
+        notes = factory / "NOTES-r01.md"
+        notes.write_text(notes_text)
+
+        self.assertIsNone(round_txn.validate_novel_coverage(notes, factory))
+        self.assertIn(
+            expected_publish_err,
+            round_txn.validate_novel_coverage(notes, factory, required=True),
+        )
+
     def test_publish_rejects_an_out_of_range_novel_coverage(self):
         with tempfile.TemporaryDirectory() as td:
-            factory = self.factory(td)
-            reservation = round_txn.reserve(factory, 1, 1)
-            stage = Path(reservation["staging_dir"])
-            write_records(stage / reservation["batch_file"], [thalamic("txn-range")])
-            (stage / reservation["notes_file"]).write_text("Novel coverage: 140%\n")
-
-            with self.assertRaisesRegex(
-                round_txn.TransactionError, "between 0% and 100%"
-            ):
-                round_txn.publish(factory, 1, reservation["token"])
-            self.assertFalse((factory / "ROUND-r01.complete.json").exists())
+            self._assert_publish_rejects_notes(
+                td, "Novel coverage: 140%\n", "between 0% and 100%", "range"
+            )
 
     def test_publish_rejects_ambiguous_novel_coverage_lines(self):
         for suffix, notes_text in (
@@ -578,40 +599,18 @@ class RoundTransaction(unittest.TestCase):
             ("trailing-prose", "Novel coverage: 3.1% trailing prose\n"),
         ):
             with self.subTest(suffix=suffix), tempfile.TemporaryDirectory() as td:
-                factory = self.factory(td)
-                reservation = round_txn.reserve(factory, 1, 1)
-                stage = Path(reservation["staging_dir"])
-                write_records(
-                    stage / reservation["batch_file"],
-                    [thalamic(f"txn-ambiguous-{suffix}")],
+                self._assert_publish_rejects_notes(
+                    td, notes_text, "exactly one unambiguous", f"ambiguous-{suffix}"
                 )
-                (stage / reservation["notes_file"]).write_text(notes_text)
-
-                with self.assertRaisesRegex(
-                    round_txn.TransactionError, "exactly one unambiguous"
-                ):
-                    round_txn.publish(factory, 1, reservation["token"])
-                self.assertFalse((factory / "ROUND-r01.complete.json").exists())
 
     def test_publish_rejects_coverage_split_across_physical_lines(self):
         with tempfile.TemporaryDirectory() as td:
-            factory = self.factory(td)
-            reservation = round_txn.reserve(factory, 1, 1)
-            stage = Path(reservation["staging_dir"])
-            write_records(
-                stage / reservation["batch_file"],
-                [thalamic("txn-split-line")],
-            )
-            (stage / reservation["notes_file"]).write_text(
-                "Novel coverage:\n80% of tests passed.\n"
-            )
-
-            with self.assertRaisesRegex(
-                round_txn.TransactionError,
+            self._assert_publish_rejects_notes(
+                td,
+                "Novel coverage:\n80% of tests passed.\n",
                 "exactly one unambiguous",
-            ):
-                round_txn.publish(factory, 1, reservation["token"])
-            self.assertFalse((factory / "ROUND-r01.complete.json").exists())
+                "split-line",
+            )
 
     def test_read_path_does_not_require_coverage_for_a_legacy_lane(self):
         """Committed legacy rounds predate the contract and must stay readable.
@@ -633,55 +632,26 @@ class RoundTransaction(unittest.TestCase):
 
     def test_read_path_keeps_legacy_coverage_suffix_but_publish_rejects_it(self):
         with tempfile.TemporaryDirectory() as td:
-            factory = self.fixed_agentic_factory(td)
-            notes = factory / "NOTES-r01.md"
-            notes.write_text(
-                "Novel coverage: 4% — low due to repeated scenarios\n"
-            )
-
-            self.assertIsNone(round_txn.validate_novel_coverage(notes, factory))
-            self.assertIn(
+            self._assert_legacy_notes_tolerance(
+                td,
+                "Novel coverage: 4% — low due to repeated scenarios\n",
                 "exactly one unambiguous",
-                round_txn.validate_novel_coverage(
-                    notes,
-                    factory,
-                    required=True,
-                ),
             )
 
     def test_read_path_keeps_legacy_duplicate_claims_but_publish_rejects_them(self):
         with tempfile.TemporaryDirectory() as td:
-            factory = self.fixed_agentic_factory(td)
-            notes = factory / "NOTES-r01.md"
-            notes.write_text(
-                "Novel coverage: 4% — original committed claim\n"
-                "Novel coverage: 80%\n"
-            )
-
-            self.assertIsNone(round_txn.validate_novel_coverage(notes, factory))
-            self.assertIn(
+            self._assert_legacy_notes_tolerance(
+                td,
+                "Novel coverage: 4% — original committed claim\nNovel coverage: 80%\n",
                 "exactly one unambiguous",
-                round_txn.validate_novel_coverage(
-                    notes,
-                    factory,
-                    required=True,
-                ),
             )
 
     def test_read_path_keeps_legacy_multiline_claim_but_publish_rejects_it(self):
         with tempfile.TemporaryDirectory() as td:
-            factory = self.fixed_agentic_factory(td)
-            notes = factory / "NOTES-r01.md"
-            notes.write_text("Novel coverage:\n4%\n")
-
-            self.assertIsNone(round_txn.validate_novel_coverage(notes, factory))
-            self.assertIn(
+            self._assert_legacy_notes_tolerance(
+                td,
+                "Novel coverage:\n4%\n",
                 "Novel coverage",
-                round_txn.validate_novel_coverage(
-                    notes,
-                    factory,
-                    required=True,
-                ),
             )
 
     def test_validation_failure_leaves_stage_and_does_not_advance(self):
