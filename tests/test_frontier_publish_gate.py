@@ -22,6 +22,33 @@ from gate_fixtures import (  # noqa: E402
 import round_txn  # noqa: E402
 
 
+def _write_round(factory, round_number, record, spec=None):
+    rr = f"{round_number:02d}"
+    batch = factory / f"batch-r{rr}.jsonl"
+    notes = factory / f"NOTES-r{rr}.md"
+    write(batch, [record])
+    notes.write_text("# Critique\n\nConcrete gap.\n\nNovel coverage: 42%\n")
+    spec = spec or {}
+    payload = {
+        "version": spec.get("version", 1),
+        "factory": factory.name,
+        "round": round_number,
+        "records": 1,
+        "expected_records": 1,
+        "commit_point": f"ROUND-r{rr}.complete.json",
+        "files": [
+            {"name": batch.name, "sha256": round_txn.file_sha256(batch)},
+            {"name": notes.name, "sha256": round_txn.file_sha256(notes)},
+        ],
+    }
+    if "verification" in spec:
+        payload["execution_verification"] = spec["verification"]
+    marker = factory / payload["commit_point"]
+    marker.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n")
+    write_marker_mode(factory)
+    return marker
+
+
 class FrontierPublishGate(unittest.TestCase):
     """docs/verify-execution.md clause 16 — round_txn round-trip."""
 
@@ -30,6 +57,16 @@ class FrontierPublishGate(unittest.TestCase):
 
     def stage(self, reservation, records):
         return stage_reservation(reservation, records)
+
+    def _mutate_complete_marker(self, factory, tag, mutator):
+        reservation = round_txn.reserve(factory, 1, 1)
+        self.stage(reservation, [thalamic(tag)])
+        round_txn.publish(factory, 1, reservation["token"])
+        marker = factory / "ROUND-r01.complete.json"
+        payload = json.loads(marker.read_text())
+        mutated = mutator(dict(payload))
+        marker.write_text(json.dumps(mutated, indent=2, sort_keys=True) + "\n")
+        return payload
 
     def test_inconclusive_record_blocks_publish_and_the_frontier(self):
         with tempfile.TemporaryDirectory() as td:
@@ -84,65 +121,42 @@ class FrontierPublishGate(unittest.TestCase):
     def test_version_2_completion_marker_binds_the_execution_verdict(self):
         with tempfile.TemporaryDirectory() as td:
             factory = self.factory(td)
-            reservation = round_txn.reserve(factory, 1, 1)
-            self.stage(reservation, [thalamic("gate-bound")])
-            round_txn.publish(factory, 1, reservation["token"])
-            marker = factory / "ROUND-r01.complete.json"
-            payload = json.loads(marker.read_text())
 
-            deleted = dict(payload)
-            deleted.pop("execution_verification")
-            marker.write_text(json.dumps(deleted, indent=2, sort_keys=True) + "\n")
+            def mutate_delete(payload):
+                payload.pop("execution_verification", None)
+                return payload
+
+            payload = self._mutate_complete_marker(
+                factory, "gate-bound", mutate_delete
+            )
             with self.assertRaisesRegex(
                 round_txn.TransactionError, "version 2 completion marker"
             ):
                 round_txn.frontier_status(factory)
 
-            corrupted = json.loads(json.dumps(payload))
-            corrupted["execution_verification"]["counts"]["verified"] = 0
-            corrupted["execution_verification"]["counts"]["inconclusive"] = 1
-            corrupted["execution_verification"]["override"] = {
-                "reason": "hil replay rig offline",
-                "waived_inconclusive": 1,
-            }
-            marker.write_text(json.dumps(corrupted, indent=2, sort_keys=True) + "\n")
+            def mutate_corrupt(marker_payload):
+                marker_payload["execution_verification"]["counts"]["verified"] = 0
+                marker_payload["execution_verification"]["counts"]["inconclusive"] = 1
+                marker_payload["execution_verification"]["override"] = {
+                    "reason": "hil replay rig offline",
+                    "waived_inconclusive": 1,
+                }
+                return marker_payload
+
+            marker = factory / "ROUND-r01.complete.json"
+            marker.write_text(
+                json.dumps(mutate_corrupt(payload), indent=2, sort_keys=True) + "\n"
+            )
             with self.assertRaisesRegex(
                 round_txn.TransactionError,
                 "execution verification conflicts with committed batch",
             ):
                 round_txn.frontier_status(factory)
 
-    def _write_complete_round(
-        self, factory, round_number, record, *, version=1, verification=None
-    ):
-        rr = f"{round_number:02d}"
-        batch = factory / f"batch-r{rr}.jsonl"
-        notes = factory / f"NOTES-r{rr}.md"
-        write(batch, [record])
-        notes.write_text("# Critique\n\nConcrete gap.\n\nNovel coverage: 42%\n")
-        payload = {
-            "version": version,
-            "factory": factory.name,
-            "round": round_number,
-            "records": 1,
-            "expected_records": 1,
-            "commit_point": f"ROUND-r{rr}.complete.json",
-            "files": [
-                {"name": batch.name, "sha256": round_txn.file_sha256(batch)},
-                {"name": notes.name, "sha256": round_txn.file_sha256(notes)},
-            ],
-        }
-        if verification is not None:
-            payload["execution_verification"] = verification
-        marker = factory / payload["commit_point"]
-        marker.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n")
-        write_marker_mode(factory)
-        return marker
-
     def test_legacy_version_1_markers_without_verification_remain_visible(self):
         with tempfile.TemporaryDirectory() as td:
             factory = self.factory(td)
-            self._write_complete_round(factory, 1, thalamic("legacy-v1"), version=1)
+            _write_round(factory, 1, thalamic("legacy-v1"), {"version": 1})
 
             status = round_txn.frontier_status(factory)
 
@@ -333,8 +347,8 @@ class FrontierPublishGate(unittest.TestCase):
     def test_unsupported_completion_marker_version_is_rejected(self):
         with tempfile.TemporaryDirectory() as td:
             factory = self.factory(td)
-            self._write_complete_round(
-                factory, 1, thalamic("unsupported-version"), version=3
+            _write_round(
+                factory, 1, thalamic("unsupported-version"), {"version": 3}
             )
 
             with mock.patch.object(round_txn, "validate_completed_batch"):
@@ -416,14 +430,13 @@ class FrontierPublishGate(unittest.TestCase):
     def test_version_downgrade_cannot_skip_execution_verification(self):
         with tempfile.TemporaryDirectory() as td:
             factory = self.factory(td)
-            reservation = round_txn.reserve(factory, 1, 1)
-            self.stage(reservation, [thalamic("gate-downgrade")])
-            round_txn.publish(factory, 1, reservation["token"])
-            marker = factory / "ROUND-r01.complete.json"
-            payload = json.loads(marker.read_text())
-            payload["version"] = 1
-            payload.pop("execution_verification")
-            marker.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n")
+
+            def mutate(payload):
+                payload["version"] = 1
+                payload.pop("execution_verification", None)
+                return payload
+
+            self._mutate_complete_marker(factory, "gate-downgrade", mutate)
 
             with self.assertRaisesRegex(
                 round_txn.TransactionError,
@@ -435,18 +448,17 @@ class FrontierPublishGate(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             factory = self.factory(td)
             write_marker_mode(factory)
-            self._write_complete_round(
-                factory, 10, thalamic("legacy-r10"), version=1
+            _write_round(
+                factory, 10, thalamic("legacy-r10"), {"version": 1}
             )
-            self._write_complete_round(
-                factory, 11, thalamic("legacy-r11"), version=1
+            _write_round(
+                factory, 11, thalamic("legacy-r11"), {"version": 1}
             )
-            self._write_complete_round(
+            _write_round(
                 factory,
                 100,
                 thalamic("verified-r100"),
-                version=2,
-                verification=execution_summary(),
+                {"version": 2, "verification": execution_summary()},
             )
 
             manifests = round_txn.completed_manifests(factory)
