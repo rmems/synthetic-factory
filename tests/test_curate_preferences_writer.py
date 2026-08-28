@@ -279,7 +279,10 @@ class CuratePreferenceSource(unittest.TestCase):
                 with mock.patch.object(
                     raw_tree_guard,
                     "_read_mountinfo",
-                    return_value=((alias, raw_run),),
+                    return_value=(
+                        (raw_root, raw_root, "8:2"),
+                        (alias, raw_run, "8:2"),
+                    ),
                 ):
                     with self.assertRaisesRegex(
                         curate_preferences.PreferenceCurationError,
@@ -293,6 +296,16 @@ class CuratePreferenceSource(unittest.TestCase):
                         )
             self.assertFalse(destination.exists())
             self.assertEqual(list(outside.iterdir()), [])
+
+    def test_host_source_path_translates_fs_root_through_covering_mount(self):
+        mounts = (
+            (Path("/workspace/repo"), Path("/project"), "8:2"),
+            (Path("/mnt/run"), Path("/project/outputs/raw/run"), "8:2"),
+        )
+        source = raw_tree_guard._host_source_path(
+            Path("/project/outputs/raw/run"), "8:2", mounts
+        )
+        self.assertEqual(source, Path("/workspace/repo/outputs/raw/run"))
 
     def test_non_encodable_record_is_excluded_without_aborting_the_scan(self):
         with tempfile.TemporaryDirectory() as td:

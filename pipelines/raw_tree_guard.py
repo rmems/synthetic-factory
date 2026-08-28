@@ -80,31 +80,50 @@ def _unescape_mount_field(value: str) -> str:
     )
 
 
-def _parse_mountinfo_line(line: str) -> tuple[Path, Path] | None:
+def _parse_mountinfo_line(line: str) -> tuple[Path, Path, str] | None:
     if " - " not in line:
         return None
     left, _right = line.split(" - ", 1)
     fields = left.split()
     if len(fields) < 5:
         return None
-    source = Path(_unescape_mount_field(fields[3]))
+    device = fields[2]
+    root_in_fs = Path(_unescape_mount_field(fields[3]))
     mountpoint = Path(_unescape_mount_field(fields[4]))
-    return mountpoint, source
+    return mountpoint, root_in_fs, device
 
 
-def _read_mountinfo() -> tuple[tuple[Path, Path], ...]:
-    """Return ``(mountpoint, source)`` pairs from Linux mountinfo."""
+def _read_mountinfo() -> tuple[tuple[Path, Path, str], ...]:
+    """Return ``(mountpoint, root-in-fs, device)`` rows from Linux mountinfo."""
 
     try:
         text = Path("/proc/self/mountinfo").read_text(encoding="utf-8")
     except OSError:
         return ()
-    pairs: list[tuple[Path, Path]] = []
+    pairs: list[tuple[Path, Path, str]] = []
     for line in text.splitlines():
         parsed = _parse_mountinfo_line(line)
         if parsed is not None:
             pairs.append(parsed)
     return tuple(pairs)
+
+
+def _host_source_path(
+    root_in_fs: Path,
+    device: str,
+    mounts: tuple[tuple[Path, Path, str], ...],
+) -> Path:
+    """Map a mountinfo root onto this process's path namespace."""
+
+    for mountpoint, other_root, other_device in mounts:
+        if other_device != device:
+            continue
+        try:
+            relative = root_in_fs.relative_to(other_root)
+        except ValueError:
+            continue
+        return mountpoint / relative
+    return root_in_fs
 
 
 def _shares_root_inode(path: Path, raw_root: Path) -> bool:
@@ -136,7 +155,9 @@ def _dest_uses_mount(path: Path, mountpoint: Path) -> bool:
 
 def _bind_mount_hits_raw(path: Path, raw_root: Path) -> bool:
     resolved_raw = raw_root.resolve(strict=False)
-    for mountpoint, source in _read_mountinfo():
+    mounts = _read_mountinfo()
+    for mountpoint, root_in_fs, device in mounts:
+        source = _host_source_path(root_in_fs, device, mounts)
         if not (
             _path_is_within(source, raw_root) or _path_is_within(source, resolved_raw)
         ):
