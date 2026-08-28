@@ -33,38 +33,43 @@ OBSERVABLE_OUTCOME_METRICS = frozenset({
 })
 NONNEGATIVE_OUTCOME_METRICS = OBSERVABLE_OUTCOME_METRICS - {"min_clearance_m"}
 
+def _validate_single_episode_step(i, step):
+    if not isinstance(step, dict):
+        return "failed", f"step {i} not an object"
+    tool = step.get("tool_call")
+    obs = step.get("observation")
+    basis = step.get("decision_basis")
+    thought = step.get("thought")
+    reasons = []
+
+    if thought is not None and basis is None:
+        reasons.append(f"step {i} has hidden thought without decision_basis")
+
+    if isinstance(tool, dict):
+        name = tool.get("name")
+    elif isinstance(tool, str) and tool.strip():
+        name = tool.strip().split()[0]
+    else:
+        reasons.append(f"step {i} missing tool_call")
+        return "inconclusive", reasons
+
+    if name not in KNOWN_TOOLS:
+        reasons.append(f"step {i} unknown tool {name!r}")
+    if not isinstance(obs, str) or not obs.strip():
+        reasons.append(f"step {i} missing observation")
+    return "inconclusive" if reasons else "verified", reasons
+
+
 def verify_episode_steps(steps, _where):
     """Verify coding episode steps have observable execution evidence."""
     if not isinstance(steps, list) or not steps:
         return "failed", "steps missing or empty"
     inconclusive_reasons = []
     for i, step in enumerate(steps):
-        if not isinstance(step, dict):
-            return "failed", f"step {i} not an object"
-        tool = step.get("tool_call")
-        obs = step.get("observation")
-        basis = step.get("decision_basis")
-        thought = step.get("thought")
-
-        # Hidden thought without observable basis is inconclusive, not verified
-        if thought is not None and basis is None:
-            inconclusive_reasons.append(f"step {i} has hidden thought without decision_basis")
-
-        if isinstance(tool, dict):
-            name = tool.get("name")
-        elif isinstance(tool, str) and tool.strip():
-            # Curated coding episodes keep a visible string tool call
-            # (pipelines/curate_coding.py); the shape validator accepts it, so
-            # normalize to its leading token rather than blocking the record.
-            name = tool.strip().split()[0]
-        else:
-            inconclusive_reasons.append(f"step {i} missing tool_call")
-            continue
-        if name not in KNOWN_TOOLS:
-            inconclusive_reasons.append(f"step {i} unknown tool {name!r}")
-        if not isinstance(obs, str) or not obs.strip():
-            # Observation is the execution evidence; missing = cannot-verify
-            inconclusive_reasons.append(f"step {i} missing observation")
+        status, reasons = _validate_single_episode_step(i, step)
+        if status == "failed":
+            return status, reasons
+        inconclusive_reasons.extend(reasons)
     if inconclusive_reasons:
         return "inconclusive", "; ".join(inconclusive_reasons[:3])
     return "verified", "all steps have tool_call + observation + decision_basis"
@@ -83,24 +88,23 @@ def _step_index_from_shape_error(error, where):
         return None
 
 
+def _step_from_shape_error(error, where, obj):
+    if not isinstance(obj, dict):
+        return None
+    index = _step_index_from_shape_error(error, where)
+    steps = obj.get("steps")
+    if index is None or not isinstance(steps, list) or index < 0 or index >= len(steps):
+        return None
+    step = steps[index]
+    return step if isinstance(step, dict) else None
+
+
 def _omitted_tool_call_type_error(error, where, obj):
     """True when a type error is only the companion of an omitted tool_call."""
     if not error.endswith(": tool_call must be an object"):
         return False
-    if not isinstance(obj, dict):
-        return False
-    index = _step_index_from_shape_error(error, where)
-    steps = obj.get("steps")
-    if index is None:
-        return False
-    if not isinstance(steps, list):
-        return False
-    if index < 0 or index >= len(steps):
-        return False
-    step = steps[index]
-    if not isinstance(step, dict):
-        return False
-    return "tool_call" not in step
+    step = _step_from_shape_error(error, where, obj)
+    return step is not None and "tool_call" not in step
 
 
 def _is_missing_execution_evidence(error, where, obj=None):

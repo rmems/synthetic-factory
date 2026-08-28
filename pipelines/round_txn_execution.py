@@ -188,6 +188,17 @@ def _rederive_current_execution_verification(batch: Path, manifest: dict):
         ) from exc
 
 
+def _validate_historical_execution_counts(recorded, manifest, batch):
+    counts = recorded.get("counts")
+    records = manifest.get("records")
+    if not isinstance(counts, dict) or counts.get("total") != records:
+        raise rt.TransactionError(
+            "completion marker execution verification total does not match "
+            f"committed records: {batch}"
+        )
+    return recorded
+
+
 def validate_completed_execution_verification(batch: Path, manifest: dict):
     """Re-derive the v2 execution verdict before exposing a completed batch."""
     recorded = manifest.get("execution_verification")
@@ -200,19 +211,7 @@ def validate_completed_execution_verification(batch: Path, manifest: dict):
         recorded, marker_kind="completion marker"
     )
     if recorded.get("semantics_version") != rt.EXECUTION_VERIFIER_SEMANTICS_VERSION:
-        # Historical snapshot under a prior verifier vocabulary. Structure is
-        # already validated; do not brick the marker by re-deriving counts
-        # under later KNOWN_TOOLS or outcome rules. Still bind `counts.total`
-        # to the batch-backed manifest record count so a corrupted snapshot
-        # cannot advance the frontier.
-        counts = recorded.get("counts")
-        records = manifest.get("records")
-        if not isinstance(counts, dict) or counts.get("total") != records:
-            raise rt.TransactionError(
-                "completion marker execution verification total does not match "
-                f"committed records: {batch}"
-            )
-        return recorded
+        return _validate_historical_execution_counts(recorded, manifest, batch)
     derived = _rederive_current_execution_verification(batch, manifest)
     if recorded != derived:
         raise rt.TransactionError(
@@ -239,32 +238,7 @@ def load_execution_verifier():
     return verify_batch_for_frontier
 
 
-def execution_gate(batch: Path, staged_batch: Path, override=None):
-    """Gate one staged batch on observable execution evidence.
-
-    ``verified`` / ``inconclusive`` / ``failed`` come from
-    ``pipelines/verify_execution.py``, which owns that taxonomy. This gate only
-    decides what each verdict does to the frontier:
-
-    * ``failed``       — structural defect; never waivable.
-    * ``inconclusive`` — cannot-verify; blocks unless the operator records an
-      explicit written waiver. Cannot-verify is never promoted to verified.
-    * ``verified``     — passes.
-
-    Returns the summary recorded in the completion manifest.
-    """
-    verify_batch_for_frontier = load_execution_verifier()
-    counts, findings, blocked = verify_batch_for_frontier(batch, strict=True)
-    summary = {
-        "gate": rt.EXECUTION_GATE_LABEL,
-        "strict": True,
-        "semantics_version": rt.EXECUTION_VERIFIER_SEMANTICS_VERSION,
-        "counts": counts,
-        "override": None,
-    }
-    if not blocked:
-        return summary
-
+def _format_execution_findings(findings, staged_batch):
     detail = "\n".join(
         f"{finding['status'].upper()}: {staged_batch.name}:{finding['line']} — "
         f"{finding['reason']}"
@@ -272,6 +246,10 @@ def execution_gate(batch: Path, staged_batch: Path, override=None):
     )
     if len(findings) > 5:
         detail += f"\n... and {len(findings) - 5} more findings"
+    return detail
+
+
+def _raise_execution_gate_failure(counts, staged_batch, detail, override):
     if counts["failed"]:
         raise rt.TransactionError(
             f"execution verification failed for the staged batch: {staged_batch}\n"
@@ -289,6 +267,24 @@ def execution_gate(batch: Path, staged_batch: Path, override=None):
             '--allow-inconclusive "<reason>" to record an explicit operator '
             "waiver in the completion marker"
         )
+
+
+def execution_gate(batch: Path, staged_batch: Path, override=None):
+    """Gate one staged batch on observable execution evidence."""
+    verify_batch_for_frontier = load_execution_verifier()
+    counts, findings, blocked = verify_batch_for_frontier(batch, strict=True)
+    summary = {
+        "gate": rt.EXECUTION_GATE_LABEL,
+        "strict": True,
+        "semantics_version": rt.EXECUTION_VERIFIER_SEMANTICS_VERSION,
+        "counts": counts,
+        "override": None,
+    }
+    if not blocked:
+        return summary
+
+    detail = _format_execution_findings(findings, staged_batch)
+    _raise_execution_gate_failure(counts, staged_batch, detail, override)
     summary["override"] = {
         "reason": override,
         "waived_inconclusive": counts["inconclusive"],

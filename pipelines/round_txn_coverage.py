@@ -177,6 +177,28 @@ def normalized_category(value):
     ).strip("_")
 
 
+def _match_has_preventive_negation(introduced, match, preventive_terms):
+    prefix_tokens = introduced[: match.start()].strip("_").split("_")[-3:]
+    locally_prevented = any(token in preventive_terms for token in prefix_tokens)
+    locally_negated = any(
+        token in {"no", "not", "never", "without"}
+        and not (
+            token == "not"
+            and index + 1 < len(prefix_tokens)
+            and prefix_tokens[index + 1] == "only"
+        )
+        for index, token in enumerate(prefix_tokens)
+    )
+    suffix = introduced[match.end() :].strip("_")
+    suffix_negated = re.match(
+        r"(?:(?:is|are|was|were|did)_)?(?:not|never)_"
+        r"(?:created|happened|introduced|occurred|present|produced|triggered)"
+        r"(?:_|$)|(?:(?:is|are|was|were)_)?(?:avoided|prevented)(?:_|$)",
+        suffix,
+    ) is not None
+    return locally_prevented or locally_negated or suffix_negated
+
+
 def visibly_names_fault(introduced_text, *fault_evidence):
     """Whether one designated step explicitly names declared fault evidence."""
     introduced = normalized_category(introduced_text)
@@ -195,27 +217,7 @@ def visibly_names_fault(introduced_text, *fault_evidence):
         for match in re.finditer(
             rf"(?:^|_){re.escape(normalized)}(?=_|$)", introduced
         ):
-            prefix_tokens = introduced[: match.start()].strip("_").split("_")[-3:]
-            locally_prevented = any(
-                token in preventive_terms for token in prefix_tokens
-            )
-            locally_negated = any(
-                token in {"no", "not", "never", "without"}
-                and not (
-                    token == "not"
-                    and index + 1 < len(prefix_tokens)
-                    and prefix_tokens[index + 1] == "only"
-                )
-                for index, token in enumerate(prefix_tokens)
-            )
-            suffix = introduced[match.end() :].strip("_")
-            suffix_negated = re.match(
-                r"(?:(?:is|are|was|were|did)_)?(?:not|never)_"
-                r"(?:created|happened|introduced|occurred|present|produced|triggered)"
-                r"(?:_|$)|(?:(?:is|are|was|were)_)?(?:avoided|prevented)(?:_|$)",
-                suffix,
-            ) is not None
-            if not (locally_prevented or locally_negated or suffix_negated):
+            if not _match_has_preventive_negation(introduced, match, preventive_terms):
                 return True
     return False
 
@@ -270,65 +272,79 @@ def step_observation_text(step):
     return observation.casefold() if isinstance(observation, str) else ""
 
 
+def _find_debug_read_fix_verify(texts, observations, failure_index):
+    read_terms = ("re-read", "reread", "inspect", "read", "cat ", "sed ", "rg ")
+    fix_terms = ("fix", "repair", "patch", "edit", "write", "apply")
+    test_terms = ("test", "pytest", "cargo test", "npm test")
+    verify_terms = ("pass", "success", "green", "verified", "fixed")
+    for read_index in range(failure_index + 1, len(texts)):
+        if not any(term in texts[read_index] for term in read_terms):
+            continue
+        for fix_index in range(read_index + 1, len(texts)):
+            if not any(term in texts[fix_index] for term in fix_terms):
+                continue
+            if any(
+                any(t in texts[verify_index] for t in test_terms)
+                and any(v in observations[verify_index] for v in verify_terms)
+                for verify_index in range(fix_index + 1, len(texts))
+            ):
+                return True
+    return False
+
+
+def _find_debug_failure_loop(texts, observations, edit_index):
+    test_terms = ("test", "pytest", "cargo test", "npm test")
+    failure_terms = ("fail", "error", "nonzero", "red")
+    for failure_index in range(edit_index + 1, len(texts)):
+        failure_text = texts[failure_index]
+        if (
+            any(t in failure_text for t in test_terms)
+            and any(f in observations[failure_index] for f in failure_terms)
+        ):
+            if _find_debug_read_fix_verify(texts, observations, failure_index):
+                return True
+    return False
+
+
 def has_long_horizon_debug_loop(steps):
     """Whether observable steps contain edit, failing test, re-read, fix, verify."""
     if not isinstance(steps, list):
         return False
     texts = [observable_step_text(step) for step in steps]
     observations = [step_observation_text(step) for step in steps]
-
-    def includes(candidate_text, terms):
-        return any(term in candidate_text for term in terms)
-
     edit_terms = ("edit", "write", "patch", "apply")
-    test_terms = ("test", "pytest", "cargo test", "npm test")
-    failure_terms = ("fail", "error", "nonzero", "red")
-    read_terms = ("re-read", "reread", "inspect", "read", "cat ", "sed ", "rg ")
-    fix_terms = ("fix", "repair", "patch", "edit", "write", "apply")
-    verify_terms = ("pass", "success", "green", "verified", "fixed")
     for edit_index, text in enumerate(texts):
-        if not includes(text, edit_terms):
-            continue
-        for failure_index in range(edit_index + 1, len(texts)):
-            failure_text = texts[failure_index]
-            if not (
-                includes(failure_text, test_terms)
-                and includes(observations[failure_index], failure_terms)
-            ):
-                continue
-            for read_index in range(failure_index + 1, len(texts)):
-                if not includes(texts[read_index], read_terms):
-                    continue
-                for fix_index in range(read_index + 1, len(texts)):
-                    if not includes(texts[fix_index], fix_terms):
-                        continue
-                    return any(
-                        includes(texts[verify_index], test_terms)
-                        and includes(observations[verify_index], verify_terms)
-                        for verify_index in range(fix_index + 1, len(texts))
-                    )
+        if any(term in text for term in edit_terms):
+            if _find_debug_failure_loop(texts, observations, edit_index):
+                return True
     return False
+
+
+def _step_failed_hypothesis(index, step, failure_terms):
+    observation = step.get("observation") if isinstance(step, dict) else None
+    if not isinstance(observation, str) or not any(
+        term in observation.lower() for term in failure_terms
+    ):
+        return []
+    return [
+        (index, match.group(1))
+        for match in re.finditer(
+            r"\bhypothesis\s*[:#_-]?\s*([a-z0-9][a-z0-9_-]{2,})",
+            observation.lower(),
+        )
+    ]
 
 
 def abandoned_failed_hypotheses(steps):
     """Return distinct explicit hypothesis labels failed then abandoned later."""
     if not isinstance(steps, list):
         return set()
-    failed = []
     failure_terms = ("fail", "disproved", "ruled out", "not the cause")
-    for index, step in enumerate(steps):
-        observation = step.get("observation") if isinstance(step, dict) else None
-        if not isinstance(observation, str) or not any(
-            term in observation.lower() for term in failure_terms
-        ):
-            continue
-        failed.extend(
-            (index, match.group(1))
-            for match in re.finditer(
-                r"\bhypothesis\s*[:#_-]?\s*([a-z0-9][a-z0-9_-]{2,})",
-                observation.lower(),
-            )
-        )
+    failed = [
+        item
+        for index, step in enumerate(steps)
+        for item in _step_failed_hypothesis(index, step, failure_terms)
+    ]
     abandoned = set()
     abandonment_terms = ("abandon", "discard", "reject", "disproved", "ruled out")
     for failure_index, label in failed:
@@ -344,22 +360,27 @@ def abandoned_failed_hypotheses(steps):
     return abandoned
 
 
+_SPARSE_PROGRESS_TERMS = re.compile(
+    r"\b(?:added|changed|created|deleted|disproved|edited|evidence|failed|"
+    r"fixed|found|hypothesis|learned|measured|patched|removed|reproduced|"
+    r"tested|updated|verified|wrote)\b"
+)
+_SPARSE_STALL_TERMS = re.compile(
+    r"\b(?:no[ -]?op|no change|nothing changed|unchanged)\b"
+)
+
+
 def sparse_step_progress_errors(where, steps):
     """Reject sparse-horizon padding that changes neither state nor belief."""
     if not isinstance(steps, list):
         return []
-    progress_terms = re.compile(
-        r"\b(?:added|changed|created|deleted|disproved|edited|evidence|failed|"
-        r"fixed|found|hypothesis|learned|measured|patched|removed|reproduced|"
-        r"tested|updated|verified|wrote)\b"
-    )
-    stall_terms = re.compile(
-        r"\b(?:no[ -]?op|no change|nothing changed|unchanged)\b"
-    )
     previous_observation = None
     for index, step in enumerate(steps):
         text = observable_step_text(step)
-        if stall_terms.search(text) is not None or progress_terms.search(text) is None:
+        if (
+            _SPARSE_STALL_TERMS.search(text) is not None
+            or _SPARSE_PROGRESS_TERMS.search(text) is None
+        ):
             return [
                 f"{where}: sparse long-task steps[{index}] must show observable "
                 "file, test, or belief progress rather than padding"

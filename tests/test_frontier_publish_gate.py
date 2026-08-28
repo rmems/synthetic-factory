@@ -112,6 +112,30 @@ class FrontierPublishGate(unittest.TestCase):
             ):
                 round_txn.frontier_status(factory)
 
+    def _write_test_manifest(self, factory, batch, notes, version, round_num=1):
+        marker = factory / f"ROUND-r{round_num:02d}.complete.json"
+        marker.write_text(
+            json.dumps(
+                {
+                    "version": version,
+                    "factory": factory.name,
+                    "round": round_num,
+                    "records": 1,
+                    "expected_records": 1,
+                    "commit_point": marker.name,
+                    "files": [
+                        {"name": batch.name, "sha256": round_txn.file_sha256(batch)},
+                        {"name": notes.name, "sha256": round_txn.file_sha256(notes)},
+                    ],
+                },
+                indent=2,
+                sort_keys=True,
+            )
+            + "\n"
+        )
+        write_marker_mode(factory)
+        return marker
+
     def test_legacy_version_1_markers_without_verification_remain_visible(self):
         with tempfile.TemporaryDirectory() as td:
             factory = self.factory(td)
@@ -119,33 +143,7 @@ class FrontierPublishGate(unittest.TestCase):
             notes = factory / "NOTES-r01.md"
             write(batch, [thalamic("legacy-v1")])
             notes.write_text("# Critique\n\nConcrete gap.\n\nNovel coverage: 42%\n")
-            marker = factory / "ROUND-r01.complete.json"
-            marker.write_text(
-                json.dumps(
-                    {
-                        "version": 1,
-                        "factory": factory.name,
-                        "round": 1,
-                        "records": 1,
-                        "expected_records": 1,
-                        "commit_point": marker.name,
-                        "files": [
-                            {
-                                "name": batch.name,
-                                "sha256": round_txn.file_sha256(batch),
-                            },
-                            {
-                                "name": notes.name,
-                                "sha256": round_txn.file_sha256(notes),
-                            },
-                        ],
-                    },
-                    indent=2,
-                    sort_keys=True,
-                )
-                + "\n"
-            )
-            write_marker_mode(factory)
+            self._write_test_manifest(factory, batch, notes, version=1)
 
             status = round_txn.frontier_status(factory)
 
@@ -330,27 +328,7 @@ class FrontierPublishGate(unittest.TestCase):
             notes = factory / "NOTES-r01.md"
             write(batch, [thalamic("unsupported-version")])
             notes.write_text("# Critique\n\nConcrete gap.\n\nNovel coverage: 42%\n")
-            marker = factory / "ROUND-r01.complete.json"
-            marker.write_text(
-                json.dumps(
-                    {
-                        "version": 3,
-                        "factory": factory.name,
-                        "round": 1,
-                        "records": 1,
-                        "expected_records": 1,
-                        "commit_point": marker.name,
-                        "files": [
-                            {"name": batch.name, "sha256": round_txn.file_sha256(batch)},
-                            {"name": notes.name, "sha256": round_txn.file_sha256(notes)},
-                        ],
-                    },
-                    indent=2,
-                    sort_keys=True,
-                )
-                + "\n"
-            )
-            write_marker_mode(factory)
+            self._write_test_manifest(factory, batch, notes, version=3)
 
             with mock.patch.object(round_txn, "validate_completed_batch"):
                 with self.assertRaisesRegex(
