@@ -286,7 +286,7 @@ class LegacyCodingManifestFixtureTests(unittest.TestCase):
         for entry in self.entries:
             self.assertEqual(set(entry), self.RECORD_KEYS)
             self.assertEqual(entry["transform"], "coding_observability")
-            self.assertIn(str(entry["transform_version"]), {"2", "3", TRANSFORM_VERSION})
+            self.assertEqual(entry["transform_version"], TRANSFORM_VERSION)
             self.assertEqual(entry["action"], "modified")
             self.assertTrue(entry["source_hash"])
             self.assertTrue(entry["output_hash"])

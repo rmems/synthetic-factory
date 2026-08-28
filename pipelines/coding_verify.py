@@ -9,6 +9,7 @@ from coding_constants import (
     MAX_DECISION_BASIS_CHARS,
     REASON_BASIS_CONCISED,
     VISIBLE_BASIS_LABELS,
+    WRAP_STEPS_PARENT,
 )
 from coding_verify_manifest import _verify_one_manifest
 from coding_verify_steps import (
@@ -53,6 +54,7 @@ class _ManifestTotals(NamedTuple):
     counts: Counter
     thought_fields_removed: int
     evidence_sources: Counter
+    wrap_records: int
 
 
 def _decision_basis_grounding_violation(
@@ -283,7 +285,7 @@ def _retained_evidence_sources(manifest: dict[str, Any]) -> Counter:
 
 
 def _one_manifest_totals(manifest: Any) -> _ManifestTotals:
-    empty = _ManifestTotals(Counter(), 0, Counter())
+    empty = _ManifestTotals(Counter(), 0, Counter(), 0)
     if not isinstance(manifest, dict):
         return empty
     counts: Counter = Counter()
@@ -292,19 +294,32 @@ def _one_manifest_totals(manifest: Any) -> _ManifestTotals:
         counts.update(_nonnegative_count_slice(step_counts))
     removed = _hidden_removed(manifest)
     thought = removed if _is_nonnegative_int(removed) else 0
-    return _ManifestTotals(counts, thought, _retained_evidence_sources(manifest))
+    wrap_records = int(manifest.get("steps_path") == f"{WRAP_STEPS_PARENT}.steps")
+    return _ManifestTotals(
+        counts,
+        thought,
+        _retained_evidence_sources(manifest),
+        wrap_records,
+    )
 
 
 def _manifest_totals(manifests: list[Any]) -> _ManifestTotals:
     counts: Counter = Counter()
     thought_fields_removed = 0
     evidence_sources: Counter = Counter()
+    wrap_records = 0
     for manifest in manifests:
         piece = _one_manifest_totals(manifest)
         counts.update(piece.counts)
         thought_fields_removed += piece.thought_fields_removed
         evidence_sources.update(piece.evidence_sources)
-    return _ManifestTotals(counts, thought_fields_removed, evidence_sources)
+        wrap_records += piece.wrap_records
+    return _ManifestTotals(
+        counts,
+        thought_fields_removed,
+        evidence_sources,
+        wrap_records,
+    )
 
 
 def _record_step_count(record: Any) -> int:
@@ -342,6 +357,8 @@ def _expected_summary(
     has_thought = "thought_fields_removed" in summary
     if has_hidden:
         expected["hidden_reasoning_fields_removed"] = totals.thought_fields_removed
+    if "wrap_records" in summary:
+        expected["wrap_records"] = totals.wrap_records
     if has_thought:
         expected["thought_fields_removed"] = totals.thought_fields_removed
         return expected
