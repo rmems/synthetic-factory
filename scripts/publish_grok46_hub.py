@@ -339,11 +339,19 @@ def card_schema_audit() -> tuple[list[str], list[str], list[str]]:
     return declared, undeclared, orphaned
 
 
-def card_declaration_for_payload(hub: str, payload_names: list[str]) -> dict | None:
-    """Load and fully preflight one declaration against the source payload."""
+def card_declaration_for_payload(
+    hub: str, payload_names: list[str]
+) -> tuple[dict | None, str, str]:
+    """Load and fully preflight one declaration against the source payload.
+
+    Returns ``(declaration, schema_yaml, schema_body)``. ``declaration`` is
+    ``None`` only when the dataset owns no file; ``schema_yaml`` is then empty
+    and ``schema_body`` is the undeclared placeholder. Callers that mutate a
+    snapshot must reuse these strings instead of loading the declaration again.
+    """
     declaration = card_declaration(hub)
     if declaration is None:
-        return None
+        return None, "", card_schema.undeclared_body_section(hub)
     errors = card_schema.payload_coverage_errors(declaration, payload_names)
     if errors:
         raise SystemExit(
@@ -357,7 +365,7 @@ def card_declaration_for_payload(hub: str, payload_names: list[str]) -> dict | N
         schema_body.encode("utf-8")
     except (CardSchemaError, UnicodeEncodeError) as exc:
         raise SystemExit(f"cannot render card schema for {hub}: {exc}") from exc
-    return declaration
+    return declaration, schema_yaml, schema_body
 
 
 def factory_source(slug: str) -> Path:
@@ -837,7 +845,9 @@ def snapshot_one(item: dict) -> dict:
     desired_note_names = {note.name for note in notes}
     # Validate against source names before creating, deleting, or copying any
     # destination entry. A rejected schema must leave the previous mirror whole.
-    card_declaration_for_payload(item["hub"], sorted(desired_batch_names))
+    _, schema_yaml, schema_body = card_declaration_for_payload(
+        item["hub"], sorted(desired_batch_names)
+    )
     raw, meta = snapshot_directories(dest)
     reconcile_snapshot_entries(
         dest,
@@ -874,6 +884,8 @@ def snapshot_one(item: dict) -> dict:
         first=first,
         last=last_s,
         payload_names=[batch.name for batch in batches],
+        schema_yaml=schema_yaml,
+        schema_body=schema_body,
     )
     replace_snapshot_text(dest / "README.md", card)
     license_dst = dest / "LICENSE"
@@ -908,19 +920,17 @@ def render_card(
     first: str | None,
     last: str | None,
     payload_names: list[str] | None = None,
+    schema_yaml: str | None = None,
+    schema_body: str | None = None,
 ) -> str:
     tags = "\n".join(f"- {t}" for t in item["tags"])
     kb = max(1, bytes_ // 1024)
-    declaration = card_declaration_for_payload(item["hub"], payload_names or [])
-    if declaration is None:
-        schema_block = ""
-        schema_section = card_schema.undeclared_body_section(item["hub"])
-    else:
-        try:
-            schema_block = card_schema.metadata_yaml(declaration)
-            schema_section = card_schema.body_section(declaration)
-        except CardSchemaError as exc:
-            raise SystemExit(f"cannot render card schema for {item['hub']}: {exc}") from exc
+    if schema_yaml is None or schema_body is None:
+        _, schema_yaml, schema_body = card_declaration_for_payload(
+            item["hub"], payload_names or []
+        )
+    schema_block = schema_yaml
+    schema_section = schema_body
     if first is None or last is None:
         if payload_names:
             names = ", ".join(f"`data/raw/{name}`" for name in payload_names)
@@ -979,6 +989,13 @@ Synthetic Data Factory agentic lane. Factory slug:
 `data/metadata/NOTES-*.md`. The factory source remains the write destination; this Hub
 copy is a public evidence snapshot, not the curated training export. Public
 visibility is not a training-readiness claim.
+
+Raw records may still carry model-private reasoning: `thought` on a step, and
+`internal_reasoning` / `internal_reasoning_verbatim` on a gate record's
+`proposed_action`. **Do not train on `thought` or `internal_reasoning*`.** This
+raw Hub copy is evidence only. The curated export drops those keys and keeps a
+short `decision_basis` grounded in visible plan, tool call, observation, or
+reflection evidence instead.
 
 {schema_section}
 ## Planned curated release
