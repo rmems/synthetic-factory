@@ -329,6 +329,11 @@ def _validate_arithmetic_block(policy, where):
         if seen & set(members):
             raise _policy_error(where, "non_component_keys groups must be disjoint")
         seen.update(members)
+    alias_overlap = seen_aliases.intersection(seen)
+    if alias_overlap:
+        raise _policy_error(
+            where, "weight aliases must not overlap non_component_keys"
+        )
     if len(groups[DISPOSITION_DECLARED_TOTAL]) != 1:
         raise _policy_error(where, "non_component_keys.declared_total must name one key")
     if arithmetic["declared_total_field"] != groups[DISPOSITION_DECLARED_TOTAL][0]:
@@ -532,6 +537,14 @@ def _validate_source_vocabulary(document, arithmetic, reward_keys, where):
     reward_instances = _mapping_integer(
         vocabulary, "reward_instances", vocabulary_where, minimum=1
     )
+    ontology_scope_instances = _mapping_integer(
+        vocabulary, "ontology_scope_instances", vocabulary_where, minimum=1
+    )
+    if ontology_scope_instances < reward_instances:
+        raise _policy_error(
+            vocabulary_where,
+            "ontology_scope_instances must be at least reward_instances",
+        )
 
     component_keys = _mapping_object(
         vocabulary, "component_keys", vocabulary_where
@@ -845,10 +858,18 @@ def validate_conversion_policy(document, *, where="conversion policy"):
     if preferred == canonical_scope or dispreferred == canonical_scope:
         raise _policy_error(where, "preference pointers must differ from canonical_scope")
     for pointer, label in ((preferred, "preferred"), (dispreferred, "dispreferred")):
-        terminal = _pointer_unescape(pointer.rsplit("/", 1)[-1])
+        segments = [
+            _pointer_unescape(segment) for segment in pointer[1:].split("/")
+        ]
+        terminal = segments[-1]
         if terminal not in reward_keys:
             raise _policy_error(
                 where, f"{label} pointer must target a declared reward key"
+            )
+        if any(segment in reward_keys for segment in segments[:-1]):
+            raise _policy_error(
+                where,
+                f"{label} pointer must not contain a nested reward-key segment",
             )
     if _mapping_str(preference, "relation", where) != "preferred_gt_dispreferred":
         raise _policy_error(where, "unsupported preference relation")
@@ -859,11 +880,15 @@ def validate_conversion_policy(document, *, where="conversion policy"):
     for field in ("structured_unit_field", "text_unit_field"):
         if conversion[field] not in calibration_keys:
             raise _policy_error(where, f"conversion.{field} must be a unit_calibration key")
-    if conversion["required_semantics_substring"] != conversion[
-        "required_semantics_substring"
-    ].lower():
+    substring = conversion["required_semantics_substring"]
+    if substring != substring.lower():
         raise _policy_error(
             where, "conversion.required_semantics_substring must be lowercase"
+        )
+    if "risk_adjust" not in substring.replace("-", "_"):
+        raise _policy_error(
+            where,
+            "required_semantics_substring must retain a risk-adjustment marker",
         )
 
     dispositions = _mapping_object(policy, "component_dispositions", where)
@@ -1521,10 +1546,17 @@ def validate_ontology_document(document):
         if comparability not in COMPARABILITY_CLASSES:
             raise RewardOntologyError("invalid comparability class")
         reasons = document.get("reason_codes")
-        if not isinstance(reasons, list) or not reasons or len(reasons) != len(set(reasons)):
+        if (
+            not isinstance(reasons, list)
+            or not reasons
+            or not all(isinstance(code, str) for code in reasons)
+            or len(reasons) != len(set(reasons))
+        ):
             raise RewardOntologyError("reason_codes must be nonempty and unique")
         _require_catalogued_reasons(reasons)
-        _require_declared_verdict(comparability, reasons)
+        _require_declared_verdict(
+            comparability, reasons, scope=_annotation_scope(document)
+        )
         if not SHA256_RE.fullmatch(str(document.get("source_sidecar_id", ""))):
             raise RewardOntologyError("invalid source_sidecar_id")
         source_reward_count = document.get("source_reward_count")
@@ -1661,7 +1693,9 @@ def validate_ontology_document(document):
                 "external_calibration_evidence requires an applied sidecar calibration"
             )
         _require_declared_verdict(
-            classification["comparability"], reason_codes
+            classification["comparability"],
+            reason_codes,
+            scope=_layout_scope(rewards),
         )
         return document
     raise RewardOntologyError(f"unknown ontology document_type: {kind!r}")
@@ -1689,6 +1723,7 @@ def curate_record(
 
     source_record = copy.deepcopy(record)
     source_record.pop(ANNOTATION_FIELD, None)
+    _reject_nonfinite_numbers(source_record, where=source_path)
     reward_items = sorted(_walk_rewards(source_record), key=lambda item: item[0])
     source_rewards = [
         {
@@ -1826,7 +1861,41 @@ def comparability_rule(rule_id):
     raise RewardOntologyError(f"undeclared comparability rule: {rule_id!r}")
 
 
-def _rule_accepts_verdict(rule, comparability, reason_codes):
+def _layout_scope(source_rewards):
+    """Map enumerated reward pointers onto a comparability-rule scope."""
+    pointers = [
+        item.get("json_pointer")
+        for item in source_rewards
+        if isinstance(item, dict)
+    ]
+    if any(
+        pointer in PREFERENCE_POINTERS
+        or (
+            isinstance(pointer, str)
+            and (pointer.startswith("/chosen/") or pointer.startswith("/rejected/"))
+        )
+        for pointer in pointers
+    ):
+        return "preference"
+    if pointers:
+        return "single"
+    return "any"
+
+
+def _annotation_scope(document):
+    magnitude = document.get("magnitude")
+    if isinstance(magnitude, dict) and isinstance(magnitude.get("values"), list):
+        values = [
+            {"json_pointer": value.get("json_pointer")}
+            for value in magnitude["values"]
+            if isinstance(value, dict)
+        ]
+        if values:
+            return _layout_scope(values)
+    return None
+
+
+def _rule_accepts_verdict(rule, comparability, reason_codes, *, scope=None):
     if rule["comparability"] != comparability:
         return False
     emitted = set(reason_codes)
@@ -1840,16 +1909,20 @@ def _rule_accepts_verdict(rule, comparability, reason_codes):
         {"explicit_usd_unit_calibration", "external_calibration_evidence"}
     ):
         return False
+    if scope is not None and rule["scope"] not in {scope, "any"}:
+        return False
     return True
 
 
-def _require_declared_verdict(comparability, reason_codes):
+def _require_declared_verdict(comparability, reason_codes, *, scope=None):
     """Require a stored class/reason pair to match at least one policy rule."""
     _require_catalogued_reasons(reason_codes)
     matches = [
         rule["id"]
         for rule in COMPARABILITY_RULES
-        if _rule_accepts_verdict(rule, comparability, reason_codes)
+        if _rule_accepts_verdict(
+            rule, comparability, reason_codes, scope=scope
+        )
     ]
     if not matches:
         raise RewardOntologyError(
@@ -2107,6 +2180,17 @@ def _reject_json_constant(value):
     raise ValueError(f"non-standard JSON numeric constant {value}")
 
 
+def _reject_nonfinite_numbers(value, *, where):
+    if isinstance(value, float) and not math.isfinite(value):
+        raise RewardOntologyError(f"{where}: non-finite JSON number")
+    if isinstance(value, dict):
+        for child in value.values():
+            _reject_nonfinite_numbers(child, where=where)
+    elif isinstance(value, list):
+        for child in value:
+            _reject_nonfinite_numbers(child, where=where)
+
+
 def _load_jsonl_with_source_bytes(path):
     path = Path(path)
     try:
@@ -2124,6 +2208,7 @@ def _load_jsonl_with_source_bytes(path):
             raise RewardOntologyError(
                 f"{path}:{line_number}: invalid JSON: {exc}"
             ) from exc
+        _reject_nonfinite_numbers(record, where=f"{path}:{line_number}")
         yield line_number, raw_line, record
 
 

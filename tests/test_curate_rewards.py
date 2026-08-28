@@ -436,6 +436,63 @@ class RewardOntologyV1Tests(unittest.TestCase):
         ):
             curate_rewards.validate_ontology_document(malformed)
 
+    def test_annotation_reason_codes_reject_unhashable_elements(self):
+        record = {"id": "single-cal", "reward_components": components(1.0)}
+        curated, _sidecar = curate_rewards.curate_record(record)
+        malformed = copy.deepcopy(curated["reward_training"])
+        malformed["reason_codes"] = [{}]
+        with self.assertRaisesRegex(
+            curate_rewards.RewardOntologyError,
+            "reason_codes must be nonempty and unique",
+        ):
+            curate_rewards.validate_ontology_document(malformed)
+
+    def test_stored_preference_verdict_must_match_a_preference_rule(self):
+        record = preference(
+            {
+                "task_progress": 1.0,
+                "safety": 0.0,
+                "total": 1.0,
+                "unit_usd": 10000,
+                "units": "1.0 reward unit = USD 10,000 (risk-adjusted)",
+            },
+            {
+                "task_progress": 0.0,
+                "safety": 0.0,
+                "total": 0.0,
+                "unit_usd": 10000,
+                "units": "1.0 reward unit = USD 10,000 (risk-adjusted)",
+            },
+        )
+        _curated, sidecar = curate_rewards.curate_record(record)
+        malformed = copy.deepcopy(sidecar)
+        malformed["classification"] = {
+            "comparability": "magnitude_comparable",
+            "reason_codes": [
+                "explicit_usd_unit_calibration",
+                "reward_arithmetic_verified",
+            ],
+        }
+        malformed.pop("sidecar_id")
+        malformed["sidecar_id"] = curate_rewards._sha256(malformed)
+        with self.assertRaisesRegex(
+            curate_rewards.RewardOntologyError,
+            "does not match any declared comparability rule",
+        ):
+            curate_rewards.validate_ontology_document(malformed)
+
+    def test_jsonl_loader_rejects_overflow_float_literals(self):
+        with tempfile.TemporaryDirectory() as td:
+            path = Path(td) / "overflow.jsonl"
+            path.write_text(
+                '{"reward_components":{"total":1e400}}\n', encoding="utf-8"
+            )
+            with self.assertRaisesRegex(
+                curate_rewards.RewardOntologyError,
+                "non-finite JSON number",
+            ):
+                list(curate_rewards._load_jsonl(path))
+
     def test_sidecar_arithmetic_must_be_a_list(self):
         record = preference(
             {"task_progress": 1.0, "safety": 0.0, "total": 1.0},
@@ -1148,6 +1205,10 @@ class ConversionPolicyMappingTests(unittest.TestCase):
         )
         expected = conversion_policy["properties"]["expected_classification"]
         self.assertIn("by_factory", expected["required"])
+        vocabulary_required = set(
+            conversion_policy["properties"]["source_vocabulary"]["required"]
+        )
+        self.assertTrue({"scope_keys", "arithmetic"} <= vocabulary_required)
         self.assertEqual(
             set(expected["properties"]["by_factory"]["additionalProperties"]["required"]),
             {"records", "comparability", "reason_codes"},
@@ -2098,6 +2159,49 @@ class ReviewFollowUpPolicyTests(unittest.TestCase):
         document["policy"]["arithmetic"]["rounding_declaration_pattern"] = r"(\d+|xyz)"
         with self.assertRaisesRegex(
             curate_rewards.RewardOntologyError, "capture group must be numeric"
+        ):
+            curate_rewards.validate_conversion_policy(document)
+
+    def test_weight_aliases_must_not_overlap_non_component_keys(self):
+        document = self.policy()
+        document["policy"]["arithmetic"]["weight_aliases"]["total"] = [
+            "total"
+        ]
+        with self.assertRaisesRegex(
+            curate_rewards.RewardOntologyError,
+            "weight aliases must not overlap non_component_keys",
+        ):
+            curate_rewards.validate_conversion_policy(document)
+
+    def test_required_semantics_must_retain_risk_adjustment(self):
+        document = self.policy()
+        document["policy"]["conversion"]["required_semantics_substring"] = "usd"
+        with self.assertRaisesRegex(
+            curate_rewards.RewardOntologyError,
+            "risk-adjustment marker",
+        ):
+            curate_rewards.validate_conversion_policy(document)
+
+    def test_preference_pointers_reject_nested_reward_keys(self):
+        document = self.policy()
+        document["policy"]["preference_scope"]["preferred"] = (
+            "/chosen/reward_components/reward"
+        )
+        document["policy"]["preference_scope"]["dispreferred"] = (
+            "/rejected/reward_components/reward"
+        )
+        with self.assertRaisesRegex(
+            curate_rewards.RewardOntologyError,
+            "nested reward-key segment",
+        ):
+            curate_rewards.validate_conversion_policy(document)
+
+    def test_ontology_scope_instances_must_cover_reward_instances(self):
+        document = self.policy()
+        document["source_vocabulary"]["ontology_scope_instances"] = 1
+        with self.assertRaisesRegex(
+            curate_rewards.RewardOntologyError,
+            "ontology_scope_instances must be at least reward_instances",
         ):
             curate_rewards.validate_conversion_policy(document)
 
