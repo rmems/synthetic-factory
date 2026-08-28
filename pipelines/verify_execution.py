@@ -164,6 +164,26 @@ def _step_index_from_shape_error(error, where):
         return None
 
 
+def _omitted_tool_call_type_error(error, where, obj):
+    """True when a type error is only the companion of an omitted tool_call."""
+    if not error.endswith(": tool_call must be an object"):
+        return False
+    if not isinstance(obj, dict):
+        return False
+    index = _step_index_from_shape_error(error, where)
+    steps = obj.get("steps")
+    if index is None:
+        return False
+    if not isinstance(steps, list):
+        return False
+    if index < 0 or index >= len(steps):
+        return False
+    step = steps[index]
+    if not isinstance(step, dict):
+        return False
+    return "tool_call" not in step
+
+
 def _is_missing_execution_evidence(error, where, obj=None):
     """Return whether a shape error belongs to the cannot-verify taxonomy.
 
@@ -182,14 +202,7 @@ def _is_missing_execution_evidence(error, where, obj=None):
         )
     ):
         return True
-    if not error.endswith(": tool_call must be an object") or not isinstance(obj, dict):
-        return False
-    index = _step_index_from_shape_error(error, where)
-    steps = obj.get("steps")
-    if index is None or not isinstance(steps, list) or not 0 <= index < len(steps):
-        return False
-    step = steps[index]
-    return isinstance(step, dict) and "tool_call" not in step
+    return _omitted_tool_call_type_error(error, where, obj)
 
 
 def verify_episode(obj, where, *, require_goal=True, strict_turns=False):
@@ -221,9 +234,19 @@ def verify_episode(obj, where, *, require_goal=True, strict_turns=False):
 
 _REFUSAL_TOOL_NAMES = frozenset({"block", "decline", "deny", "refuse"})
 _REFUSAL_OBSERVATION_MARKERS = ("blocked", "declined", "denied", "refus")
+_COMPLIANCE_OBSERVATION_MARKERS = (
+    "complied",
+    "disclosed",
+    "exfiltrat",
+    "exposed",
+    "leaked",
+    "leakage",
+    "revealed",
+)
 _COMPLIANCE_OR_LEAKAGE_DECISIONS = frozenset(
     {"comply", "disclose", "leak", "leakage"}
 )
+_REFUSAL_CASE_TYPES = frozenset({"correct_refusal"})
 
 
 def _tool_call_name(tool):
@@ -235,14 +258,36 @@ def _tool_call_name(tool):
     return ""
 
 
+def _step_observation_text(step):
+    if not isinstance(step, dict):
+        return ""
+    observation = step.get("observation")
+    return observation.casefold() if isinstance(observation, str) else ""
+
+
+def _observation_has_marker(text, markers):
+    return any(marker in text for marker in markers)
+
+
 def _step_records_refusal(step):
     """True when a step's known refuse action is also observed as a refusal."""
     if not isinstance(step, dict):
         return False
-    observation = step.get("observation")
-    observation_text = observation.casefold() if isinstance(observation, str) else ""
-    return _tool_call_name(step.get("tool_call")) in _REFUSAL_TOOL_NAMES and any(
-        marker in observation_text for marker in _REFUSAL_OBSERVATION_MARKERS
+    if _tool_call_name(step.get("tool_call")) not in _REFUSAL_TOOL_NAMES:
+        return False
+    return _observation_has_marker(
+        _step_observation_text(step), _REFUSAL_OBSERVATION_MARKERS
+    )
+
+
+def _step_records_compliance(step):
+    """True when a non-refusal step observes compliance or leakage."""
+    if not isinstance(step, dict):
+        return False
+    if _tool_call_name(step.get("tool_call")) in _REFUSAL_TOOL_NAMES:
+        return False
+    return _observation_has_marker(
+        _step_observation_text(step), _COMPLIANCE_OBSERVATION_MARKERS
     )
 
 
@@ -266,11 +311,37 @@ def _calibrated_outcome_is_compliance_or_leakage(obj):
     return decision.strip().casefold() in _COMPLIANCE_OR_LEAKAGE_DECISIONS
 
 
-def _safety_refusal_contradicts_calibrated_outcome(obj, where):
-    if not _calibrated_outcome_is_compliance_or_leakage(obj):
-        return None
+def _calibrated_outcome_is_refusal(obj):
+    """Return whether the training label is a refusal, not recovered compliance."""
+    if not isinstance(obj, dict):
+        return False
+    case_type = obj.get("case_type")
+    if case_type in _REFUSAL_CASE_TYPES:
+        return True
+    if case_type != "incorrect_refusal":
+        return False
+    decision = obj.get("decision")
+    if not isinstance(decision, str):
+        return False
+    return decision.strip().casefold() == "refuse"
+
+
+def _safety_step_contradicts_calibrated_outcome(obj, where):
     steps = obj.get("steps")
     if not isinstance(steps, list):
+        return None
+    refuse_label = _calibrated_outcome_is_refusal(obj)
+    comply_label = _calibrated_outcome_is_compliance_or_leakage(obj)
+    if refuse_label:
+        for index, step in enumerate(steps):
+            if _step_records_compliance(step):
+                return (
+                    "failed",
+                    f"{where} safety step {index} records compliance or leakage "
+                    "evidence that contradicts the calibrated refusal outcome",
+                )
+        return None
+    if not comply_label:
         return None
     for index, step in enumerate(steps):
         if _step_records_refusal(step):
@@ -280,6 +351,11 @@ def _safety_refusal_contradicts_calibrated_outcome(obj, where):
                 "that contradicts the calibrated compliance or leakage outcome",
             )
     return None
+
+
+def _safety_refusal_contradicts_calibrated_outcome(obj, where):
+    """Backward-compatible alias for the bidirectional safety-step check."""
+    return _safety_step_contradicts_calibrated_outcome(obj, where)
 
 
 def verify_safety_episode(obj, where):
@@ -302,14 +378,157 @@ def verify_safety_episode(obj, where):
     ]
     if shape_errors:
         return "failed", f"safety-case shape invalid: {shape_errors[0]}"
-    contradiction = _safety_refusal_contradicts_calibrated_outcome(obj, where)
+    contradiction = _safety_step_contradicts_calibrated_outcome(obj, where)
     if contradiction is not None:
         return contradiction
     return verify_episode_steps(obj.get("steps"), where)
 
 
-def verify_thalamic(obj, where):
-    """Thalamic record: needs provenance + gate rationale + future outcome that is not hallucinated."""
+def _nonempty_string_or_object(value):
+    if isinstance(value, dict):
+        return bool(value)
+    if not isinstance(value, str):
+        return False
+    return bool(value.strip())
+
+
+def _sequence_entries_are_objects(value):
+    return all(isinstance(item, dict) and item for item in value)
+
+
+def _sequence_entries_are_text_or_objects(value):
+    return all(_nonempty_string_or_object(item) for item in value)
+
+
+def _malformed_outcome_array(value, field, *, objects_only):
+    if not isinstance(value, list):
+        return f"future_outcome.{field} must be an array"
+    if not value:
+        return None
+    if objects_only and not _sequence_entries_are_objects(value):
+        return f"future_outcome.{field} entries must be objects"
+    if not objects_only and not _sequence_entries_are_text_or_objects(value):
+        return (
+            f"future_outcome.{field} entries must be non-empty strings or objects"
+        )
+    return None
+
+
+def _append_if_truthy(observable_fields, field, value):
+    if value:
+        observable_fields.append(field)
+    return None
+
+
+def _collect_timeline(fo, observable_fields):
+    if "timeline" not in fo:
+        return None
+    value = fo["timeline"]
+    error = _malformed_outcome_array(value, "timeline", objects_only=True)
+    if error:
+        return error
+    return _append_if_truthy(observable_fields, "timeline", value)
+
+
+def _collect_observed_effects(fo, observable_fields):
+    if "observed_effects" not in fo:
+        return None
+    value = fo["observed_effects"]
+    error = _malformed_outcome_array(value, "observed_effects", objects_only=False)
+    if error:
+        return error
+    return _append_if_truthy(observable_fields, "observed_effects", value)
+
+
+def _collect_new_state(fo, observable_fields):
+    if "new_state" not in fo:
+        return None
+    value = fo["new_state"]
+    if not isinstance(value, dict):
+        return "future_outcome.new_state must be an object"
+    return _append_if_truthy(observable_fields, "new_state", value)
+
+
+def _collect_state_delta(fo, observable_fields):
+    value = fo.get("state_delta")
+    if value is None:
+        return None
+    if isinstance(value, dict):
+        return _append_if_truthy(observable_fields, "state_delta", value)
+    if isinstance(value, list):
+        error = _malformed_outcome_array(value, "state_delta", objects_only=False)
+        if error:
+            return error
+        return _append_if_truthy(observable_fields, "state_delta", value)
+    return "future_outcome.state_delta must be an object or array"
+
+
+def _collect_surprises(fo, observable_fields):
+    value = fo.get("surprises")
+    if value is None:
+        return None
+    error = _malformed_outcome_array(value, "surprises", objects_only=False)
+    if error:
+        return error
+    return _append_if_truthy(observable_fields, "surprises", value)
+
+
+def _collect_named_events(fo, observable_fields):
+    for field in ("hazard_avoided", "incident"):
+        value = fo.get(field)
+        if value is None:
+            continue
+        if not _nonempty_string_or_object(value):
+            return f"future_outcome.{field} must be a non-empty string or object"
+        observable_fields.append(field)
+    return None
+
+
+def _finite_number(value):
+    if isinstance(value, bool):
+        return False
+    if not isinstance(value, (int, float)):
+        return False
+    try:
+        return math.isfinite(value)
+    except OverflowError:
+        return False
+
+
+def _collect_outcome_metrics(fo, observable_fields):
+    for field in OBSERVABLE_OUTCOME_METRICS:
+        if field not in fo:
+            continue
+        value = fo[field]
+        if not _finite_number(value):
+            return f"future_outcome.{field} must be a finite number"
+        if field in NONNEGATIVE_OUTCOME_METRICS:
+            if value < 0:
+                return f"future_outcome.{field} must be a non-negative finite number"
+        observable_fields.append(field)
+    return None
+
+
+def _future_outcome_evidence(fo):
+    observable_fields = []
+    collectors = (
+        _collect_timeline,
+        _collect_observed_effects,
+        _collect_new_state,
+        _collect_state_delta,
+        _collect_surprises,
+        _collect_named_events,
+        _collect_outcome_metrics,
+    )
+    for collector in collectors:
+        error = collector(fo, observable_fields)
+        if error:
+            return observable_fields, error
+    return observable_fields, None
+
+
+def _thalamic_core_verdict(obj, where):
+    """Return an early verdict, or None when the core envelope is usable."""
     # Callers include the bridge path, which can hand us a non-object
     # language_view.trajectory. Return a verdict rather than raising.
     if not isinstance(obj, dict):
@@ -317,7 +536,10 @@ def verify_thalamic(obj, where):
     state = obj.get("state", {})
     prov = state.get("sim_or_real") if isinstance(state, dict) else None
     if prov not in ALLOWED_SIM_OR_REAL:
-        return "inconclusive", f"non-training provenance {prov!r} on {where}.state.sim_or_real"
+        return (
+            "inconclusive",
+            f"non-training provenance {prov!r} on {where}.state.sim_or_real",
+        )
     sd = obj.get("safety_decision", {})
     # A non-string rationale (object/number/null) must not raise here — this
     # gate runs over untrusted generated records and a crash would take down
@@ -328,202 +550,161 @@ def verify_thalamic(obj, where):
     fo = obj.get("future_outcome")
     if not isinstance(fo, dict):
         return "inconclusive", "future_outcome not an object — cannot verify outcome"
-    observable_fields = []
-    for field in ("timeline", "observed_effects", "new_state"):
-        if field not in fo:
-            continue
-        value = fo[field]
-        if field == "timeline":
-            if not isinstance(value, list):
-                return "failed", "future_outcome.timeline must be an array"
-            if value and any(not isinstance(event, dict) or not event for event in value):
-                return "failed", "future_outcome.timeline entries must be objects"
-        elif field == "observed_effects":
-            if not isinstance(value, list):
-                return "failed", "future_outcome.observed_effects must be an array"
-            if value and any(
-                not (
-                    isinstance(effect, dict)
-                    and effect
-                    or isinstance(effect, str)
-                    and effect.strip()
-                )
-                for effect in value
-            ):
-                return (
-                    "failed",
-                    "future_outcome.observed_effects entries must be non-empty "
-                    "strings or objects",
-                )
-        else:
-            if not isinstance(value, dict):
-                return "failed", "future_outcome.new_state must be an object"
-        if value:
-            observable_fields.append(field)
+    return None
 
-    state_delta = fo.get("state_delta")
-    if state_delta is not None:
-        if isinstance(state_delta, dict):
-            if state_delta:
-                observable_fields.append("state_delta")
-        elif isinstance(state_delta, list):
-            if any(
-                not (
-                    isinstance(delta, dict)
-                    and delta
-                    or isinstance(delta, str)
-                    and delta.strip()
-                )
-                for delta in state_delta
-            ):
-                return (
-                    "failed",
-                    "future_outcome.state_delta entries must be non-empty "
-                    "strings or objects",
-                )
-            if state_delta:
-                observable_fields.append("state_delta")
-        else:
-            return "failed", "future_outcome.state_delta must be an object or array"
 
-    surprises = fo.get("surprises")
-    if surprises is not None:
-        if not isinstance(surprises, list):
-            return "failed", "future_outcome.surprises must be an array"
-        if any(
-            not (
-                isinstance(surprise, dict)
-                and surprise
-                or isinstance(surprise, str)
-                and surprise.strip()
-            )
-            for surprise in surprises
-        ):
-            return (
-                "failed",
-                "future_outcome.surprises entries must be non-empty strings or objects",
-            )
-        if surprises:
-            observable_fields.append("surprises")
-
-    for field in ("hazard_avoided", "incident"):
-        value = fo.get(field)
-        if value is None:
-            continue
-        if not (
-            isinstance(value, dict)
-            and value
-            or isinstance(value, str)
-            and value.strip()
-        ):
-            return (
-                "failed",
-                f"future_outcome.{field} must be a non-empty string or object",
-            )
-        observable_fields.append(field)
-
-    for field in OBSERVABLE_OUTCOME_METRICS:
-        if field not in fo:
-            continue
-        value = fo[field]
-        try:
-            finite_number = (
-                isinstance(value, (int, float))
-                and not isinstance(value, bool)
-                and math.isfinite(value)
-            )
-        except OverflowError:
-            finite_number = False
-        if not finite_number:
-            return "failed", f"future_outcome.{field} must be a finite number"
-        if field in NONNEGATIVE_OUTCOME_METRICS and value < 0:
-            return (
-                "failed",
-                f"future_outcome.{field} must be a non-negative finite number",
-            )
-        observable_fields.append(field)
+def verify_thalamic(obj, where):
+    """Thalamic record: needs provenance + gate rationale + future outcome that is not hallucinated."""
+    core = _thalamic_core_verdict(obj, where)
+    if core is not None:
+        return core
+    observable_fields, error = _future_outcome_evidence(obj["future_outcome"])
+    if error:
+        return "failed", error
     # Narrative-only or empty outcome containers are cannot-verify, not proof.
     if not observable_fields:
         return "inconclusive", "future_outcome lacks observable execution evidence"
     return "verified", "thalamic checks pass"
 
 
+def _combine_preference_side_verdicts(first, second):
+    status_one, reason_one = first
+    status_two, reason_two = second
+    if status_one == "failed":
+        return "failed", f"preference side failed: {reason_one}"
+    if status_two == "failed":
+        return "failed", f"preference side failed: {reason_two}"
+    if status_one == "inconclusive":
+        return "inconclusive", f"preference side inconclusive: {reason_one}"
+    if status_two == "inconclusive":
+        return "inconclusive", f"preference side inconclusive: {reason_two}"
+    return "verified", "both preference sides verified"
+
+
+def _side_is_thalamic(side):
+    if not isinstance(side, dict):
+        return False
+    return all(key in side for key in THALAMIC_CORE_KEYS)
+
+
+def _side_is_episode(side):
+    if not isinstance(side, dict):
+        return False
+    if "steps" not in side:
+        return False
+    return not _side_is_thalamic(side)
+
+
+def _preference_wrapper_verdict(obj, where):
+    if check_line is None:
+        return "failed", "preference shape checker unavailable"
+    wrapper_errors, wrapper_kind = check_line(
+        obj,
+        where,
+        factory_staging=True,
+    )
+    wrapper_errors = [
+        error
+        for error in wrapper_errors
+        if not any(
+            _is_missing_execution_evidence(error, f"{where}.{side}", obj.get(side))
+            for side in ("chosen", "rejected")
+        )
+    ]
+    if wrapper_kind != "preference":
+        return "failed", "preference wrapper was not classified as a preference"
+    if wrapper_errors:
+        return "failed", f"preference wrapper invalid: {wrapper_errors[0]}"
+    return None
+
+
+def _shared_preference_goal_is_blank(obj):
+    if "goal" not in obj:
+        return False
+    goal = obj["goal"]
+    if not isinstance(goal, str):
+        return True
+    return not goal.strip()
+
+
+def _verify_episode_preference_sides(obj, where, chosen, rejected):
+    if _shared_preference_goal_is_blank(obj):
+        return "failed", "preference shared goal must be a non-empty string"
+    require_side_goal = "goal" not in obj
+    return _combine_preference_side_verdicts(
+        verify_episode(
+            chosen,
+            f"{where}.chosen",
+            require_goal=require_side_goal,
+            strict_turns=True,
+        ),
+        verify_episode(
+            rejected,
+            f"{where}.rejected",
+            require_goal=require_side_goal,
+            strict_turns=True,
+        ),
+    )
+
+
+def _verify_preference_sides(obj, where, chosen, rejected):
+    chosen_episode = _side_is_episode(chosen)
+    rejected_episode = _side_is_episode(rejected)
+    if chosen_episode:
+        if not rejected_episode:
+            return "failed", "preference sides mix episode and Thalamic shapes"
+        return _verify_episode_preference_sides(obj, where, chosen, rejected)
+    if rejected_episode:
+        return "failed", "preference sides mix episode and Thalamic shapes"
+    chosen_thalamic = _side_is_thalamic(chosen)
+    rejected_thalamic = _side_is_thalamic(rejected)
+    if chosen_thalamic:
+        if not rejected_thalamic:
+            return "failed", "preference sides mix or omit required shape fields"
+        return _combine_preference_side_verdicts(
+            verify_record_execution(chosen, f"{where}.chosen"),
+            verify_record_execution(rejected, f"{where}.rejected"),
+        )
+    if rejected_thalamic:
+        return "failed", "preference sides mix or omit required shape fields"
+    return "failed", "preference sides are not episode or Thalamic records"
+
+
+def _verify_preference_execution(obj, where):
+    wrapper = _preference_wrapper_verdict(obj, where)
+    if wrapper is not None:
+        return wrapper
+    chosen = obj.get("chosen")
+    rejected = obj.get("rejected")
+    if not isinstance(chosen, dict):
+        return "failed", "preference sides must both be objects"
+    if not isinstance(rejected, dict):
+        return "failed", "preference sides must both be objects"
+    return _verify_preference_sides(obj, where, chosen, rejected)
+
+
+def _verify_bridge_execution(obj, where):
+    language_view = obj.get("language_view")
+    traj = (
+        language_view.get("trajectory", {})
+        if isinstance(language_view, dict)
+        else {}
+    )
+    if traj:
+        return verify_thalamic(traj, f"{where}.language_view.trajectory")
+    return "inconclusive", "bridge missing language_view.trajectory"
+
+
 def verify_record_execution(obj, where="record"):
     """Return (status, reason) in {verified, inconclusive, failed}."""
     if not isinstance(obj, dict):
         return "failed", "not an object"
-    # Thalamic top-level
     if all(k in obj for k in THALAMIC_CORE_KEYS):
         return verify_thalamic(obj, where)
-    # Preference pair: both sides must be verified independently, status = min
     if "chosen" in obj and "rejected" in obj:
-        if check_line is None:
-            return "failed", "preference shape checker unavailable"
-        wrapper_errors, wrapper_kind = check_line(
-            obj,
-            where,
-            factory_staging=True,
-        )
-        wrapper_errors = [
-            error
-            for error in wrapper_errors
-            if not any(
-                _is_missing_execution_evidence(
-                    error, f"{where}.{side}", obj.get(side)
-                )
-                for side in ("chosen", "rejected")
-            )
-        ]
-        if wrapper_kind != "preference":
-            return "failed", "preference wrapper was not classified as a preference"
-        if wrapper_errors:
-            return "failed", f"preference wrapper invalid: {wrapper_errors[0]}"
-        chosen = obj.get("chosen")
-        rejected = obj.get("rejected")
-        if not isinstance(chosen, dict) or not isinstance(rejected, dict):
-            return "failed", "preference sides must both be objects"
-        chosen_thalamic = all(key in chosen for key in THALAMIC_CORE_KEYS)
-        rejected_thalamic = all(key in rejected for key in THALAMIC_CORE_KEYS)
-        chosen_episode = "steps" in chosen and not chosen_thalamic
-        rejected_episode = "steps" in rejected and not rejected_thalamic
-        if chosen_episode or rejected_episode:
-            if not (chosen_episode and rejected_episode):
-                return "failed", "preference sides mix episode and Thalamic shapes"
-            if "goal" in obj and (
-                not isinstance(obj["goal"], str) or not obj["goal"].strip()
-            ):
-                return "failed", "preference shared goal must be a non-empty string"
-            require_side_goal = "goal" not in obj
-            s1, r1 = verify_episode(
-                chosen,
-                f"{where}.chosen",
-                require_goal=require_side_goal,
-                strict_turns=True,
-            )
-            s2, r2 = verify_episode(
-                rejected,
-                f"{where}.rejected",
-                require_goal=require_side_goal,
-                strict_turns=True,
-            )
-        elif chosen_thalamic or rejected_thalamic:
-            if not (chosen_thalamic and rejected_thalamic):
-                return "failed", "preference sides mix or omit required shape fields"
-            s1, r1 = verify_record_execution(chosen, f"{where}.chosen")
-            s2, r2 = verify_record_execution(rejected, f"{where}.rejected")
-        else:
-            return "failed", "preference sides are not episode or Thalamic records"
-        if "failed" in (s1, s2):
-            return "failed", f"preference side failed: {r1 if s1=='failed' else r2}"
-        if "inconclusive" in (s1, s2):
-            return "inconclusive", f"preference side inconclusive: {r1 if s1=='inconclusive' else r2}"
-        return "verified", "both preference sides verified"
-    # Bridge pair
+        return _verify_preference_execution(obj, where)
     if "language_view" in obj and "spike_events" in obj:
-        traj = obj.get("language_view", {}).get("trajectory", {}) if isinstance(obj.get("language_view"), dict) else {}
-        if traj:
-            return verify_thalamic(traj, f"{where}.language_view.trajectory")
-        return "inconclusive", "bridge missing language_view.trajectory"
+        return _verify_bridge_execution(obj, where)
     # Safety-calibration records have their own envelope checker. Ordinary
     # standalone episodes must carry their own goal, while preference sides
     # are routed above with the wrapper's shared-goal context.

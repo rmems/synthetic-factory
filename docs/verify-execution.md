@@ -36,7 +36,9 @@ Preference pairs take the minimum of both sides. Episode-sided pairs must use
 episodes on both sides; each side is checked against the repository episode
 envelope before its step evidence is considered, and may inherit the pair's
 shared `goal`. Safety-calibration records are checked against the complete
-safety-case envelope before their steps can verify. Episode-sided preferences
+safety-case envelope before their steps can verify. A known-tool step that
+records refuse evidence under a compliance/leakage label, or compliance or
+leakage evidence under a refusal label, is `failed`. Episode-sided preferences
 and safety cases also apply the staged structured-turn checks, so an empty or
 ungrounded `decision_basis` or malformed `tool_call.args` is a structural
 failure. A missing/empty observation remains inconclusive execution evidence.
@@ -83,6 +85,7 @@ Every publish writes a version-2 completion marker whose
   "execution_verification": {
     "gate": "pipelines/verify_execution.py:verify_batch_for_frontier",
     "strict": true,
+    "semantics_version": 1,
     "counts": {"verified": 0, "inconclusive": 1, "failed": 0, "total": 1},
     "override": {"reason": "hil replay rig offline", "waived_inconclusive": 1}
   }
@@ -90,8 +93,12 @@ Every publish writes a version-2 completion marker whose
 ```
 
 `completed_manifests()` and `frontier_status()` re-derive that block from the
-committed batch and reject a missing, malformed, or conflicting verdict.
-Version 1 historical markers that predate the gate remain readable without it.
+committed batch when `semantics_version` matches the running verifier and
+reject a missing, malformed, or conflicting verdict. Older semantics versions
+keep their structure-validated snapshot so a later vocabulary change cannot
+brick an otherwise immutable marker. Version 1 historical markers that
+predate the gate remain readable without it, but a factory that has already
+published a version-2 marker cannot be downgraded back to version 1.
 
 `override` is `null` when nothing was waived. The reason is normalized to
 single-line printable text between 8 and 500 characters. A publish retry
@@ -99,13 +106,15 @@ re-derives the verdict but keeps and reuses the first recorded waiver, so a
 mid-publish recovery does not require the operator to repeat the flag and the
 marker carries the waiver that was in force at the commit point.
 
-On retry, the persisted gate identity, strict flag, verdict counts, and waived
-record count must match a fresh derivation; only the first canonical waiver
-reason is exempt from that comparison. A publishing marker created before this
-gate existed has no persisted verdict to compare. Its staged bytes are checked
-under the current gate and, if they pass (or receive an explicit waiver), the
-marker is atomically migrated with the derived `execution_verification` block
-before the completion link is created.
+On retry, the persisted gate identity, strict flag, semantics version, verdict
+counts, and waived record count must match a fresh derivation; only the first
+canonical waiver reason is exempt from that comparison. A version-1 publishing
+marker created before this gate existed has no persisted verdict to compare.
+Its staged bytes are checked under the current gate and, if they pass (or
+receive an explicit waiver), the marker is atomically migrated with the derived
+`execution_verification` block before the completion link is created. A
+version-2 marker that is missing the block is corrupted, not pre-gate, and is
+rejected.
 
 Separation of concerns:
 
@@ -179,8 +188,10 @@ outcome — the unverified fraction is visible in the marker instead of silent.
 
 ## Test Matrix
 
-Executable coverage lives in `tests/test_quality_and_verify_gates.py`. The
-clauses this spec requires:
+Executable coverage lives in `tests/test_quality_and_verify_gates.py`,
+`tests/test_verify_execution.py`, `tests/test_verify_execution_records.py`,
+`tests/test_execution_override.py`, and `tests/test_frontier_publish_gate.py`.
+The clauses this spec requires:
 
 1. **Episode verified** — steps each have `tool_call.name ∈ KNOWN_TOOLS`,
    `observation` non-empty, `decision_basis` present when `thought` present.
@@ -229,9 +240,10 @@ clauses this spec requires:
 22. **Retry validates the persisted verdict** — changed gate identity,
     strictness, counts, or waived count blocks completion; only waiver prose is
     retained without exact comparison.
-23. **Pre-gate retry migration** — an interrupted publishing marker without an
-    `execution_verification` block is freshly gated and atomically upgraded
-    before completion.
+23. **Pre-gate retry migration** — an interrupted *version-1* publishing
+    marker without an `execution_verification` block is freshly gated and
+    atomically upgraded before completion. A version-2 marker missing the
+    block is rejected as corrupted.
 24. **CLI plumbing** — `round_txn.py publish --allow-inconclusive REASON`
     returns 1 while blocked and 0 once waived.
 
