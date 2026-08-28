@@ -382,6 +382,32 @@ def _validate_rule_block(policy, where, classes, reason_codes):
         unknown = sorted((set(codes) | set(optional)) - set(reason_codes))
         if unknown:
             raise _policy_error(where, f"rule {rule_id} cites uncatalogued reason codes {unknown}")
+        if "external_calibration_evidence" in codes:
+            raise _policy_error(
+                where,
+                "external_calibration_evidence is reserved for optional codes "
+                "of externally calibrated routes",
+            )
+        if (
+            "external_calibration_evidence" in optional
+            and rule_id not in {"P05", "S08"}
+        ):
+            raise _policy_error(
+                where,
+                "external_calibration_evidence is reserved for optional codes "
+                "of P05 and S08",
+            )
+        if comparability == MAGNITUDE_COMPARABLE and not (
+            (set(codes) | set(optional))
+            & {
+                "explicit_usd_unit_calibration",
+                "external_calibration_evidence",
+            }
+        ):
+            raise _policy_error(
+                where,
+                f"rule {rule_id} must cite a magnitude calibration reason",
+            )
         covered.update(codes)
         covered.update(optional)
     missing_runtime_rules = sorted(REQUIRED_CLASSIFICATION_RULE_IDS - seen_ids)
@@ -1284,10 +1310,18 @@ def _extract_unit_usd(reward, calibration=None):
         return None, "conflicting_unit_declarations", None
 
     unit = structured if structured is not None else parsed
+    in_record_unit = None
+    if unit is not None:
+        if isinstance(units_text, str) and REQUIRED_SEMANTICS in units_text.lower():
+            in_record_unit = unit
+        elif calibration is None:
+            return None, "missing_risk_adjusted_semantics", None
     if calibration is not None:
         calibrated_unit = calibration["source_unit_usd"]
         if unit is not None and unit != calibrated_unit:
             return None, "calibration_evidence_conflict", None
+        if in_record_unit is not None:
+            return in_record_unit, "explicit_usd_unit_calibration", "source_reward_fields"
         return (
             calibrated_unit,
             "external_calibration_evidence",
@@ -1295,9 +1329,9 @@ def _extract_unit_usd(reward, calibration=None):
         )
     if unit is None:
         return None, "missing_unit_calibration", None
-    if not isinstance(units_text, str) or REQUIRED_SEMANTICS not in units_text.lower():
+    if in_record_unit is None:
         return None, "missing_risk_adjusted_semantics", None
-    return unit, "explicit_usd_unit_calibration", "source_reward_fields"
+    return in_record_unit, "explicit_usd_unit_calibration", "source_reward_fields"
 
 
 def _mapped_verdict(rule_id, payload=None, *, optional_reason_codes=()):
@@ -1348,8 +1382,6 @@ def _classify(source_rewards, arithmetic, calibration=None):
         rejected_total = _decimal(rejected_arithmetic["source_total"])
         if chosen_total is None or rejected_total is None:
             return _mapped_verdict("P03")
-        if chosen_total <= rejected_total:
-            return _mapped_verdict("P04")
 
         units = {}
         calibration_sources = {}
@@ -1362,11 +1394,21 @@ def _classify(source_rewards, arithmetic, calibration=None):
             calibration_sources[pointer] = calibration_source
             unit_statuses.append(status)
         if all(unit is not None for unit in units.values()):
-            optional_reasons = (
-                ["external_calibration_evidence"]
-                if "external_calibration_evidence" in unit_statuses
-                else []
+            chosen_canonical = (
+                chosen_total * units[chosen_pointer] / CANONICAL_UNIT_USD
             )
+            rejected_canonical = (
+                rejected_total * units[rejected_pointer] / CANONICAL_UNIT_USD
+            )
+            if chosen_canonical <= rejected_canonical:
+                return _mapped_verdict("P04")
+            optional_reasons = []
+            if all(
+                status == "explicit_usd_unit_calibration" for status in unit_statuses
+            ):
+                optional_reasons.append("explicit_usd_unit_calibration")
+            if "external_calibration_evidence" in unit_statuses:
+                optional_reasons.append("external_calibration_evidence")
             return _mapped_verdict(
                 "P05",
                 _magnitude_payload(
@@ -1377,6 +1419,8 @@ def _classify(source_rewards, arithmetic, calibration=None):
                 optional_reason_codes=optional_reasons,
             )
 
+        if chosen_total <= rejected_total:
+            return _mapped_verdict("P04")
         if any("conflict" in status for status in unit_statuses):
             rule_id = "P06"
         elif any(status != "missing_unit_calibration" for status in unit_statuses):
@@ -1411,11 +1455,11 @@ def _classify(source_rewards, arithmetic, calibration=None):
         if unit_status == "missing_risk_adjusted_semantics":
             return _mapped_verdict("S06")
         return _mapped_verdict("S07")
-    optional_reasons = (
-        ["external_calibration_evidence"]
-        if unit_status == "external_calibration_evidence"
-        else []
-    )
+    optional_reasons = []
+    if unit_status == "explicit_usd_unit_calibration":
+        optional_reasons.append("explicit_usd_unit_calibration")
+    elif unit_status == "external_calibration_evidence":
+        optional_reasons.append("external_calibration_evidence")
     return _mapped_verdict(
         "S08",
         _magnitude_payload(
@@ -1588,9 +1632,6 @@ def validate_ontology_document(document):
         ):
             raise RewardOntologyError("invalid sidecar classification")
         _require_catalogued_reasons(reason_codes)
-        _require_declared_verdict(
-            classification["comparability"], reason_codes
-        )
         arithmetic_entries = document.get("arithmetic", [])
         if not isinstance(arithmetic_entries, list):
             raise RewardOntologyError("sidecar arithmetic must be a list")
@@ -1619,6 +1660,9 @@ def validate_ontology_document(document):
             raise RewardOntologyError(
                 "external_calibration_evidence requires an applied sidecar calibration"
             )
+        _require_declared_verdict(
+            classification["comparability"], reason_codes
+        )
         return document
     raise RewardOntologyError(f"unknown ontology document_type: {kind!r}")
 
@@ -1790,7 +1834,13 @@ def _rule_accepts_verdict(rule, comparability, reason_codes):
         return False
     required = set(rule["reason_codes"])
     optional = set(rule.get("optional_reason_codes", ()))
-    return required <= emitted <= required | optional
+    if not required <= emitted <= required | optional:
+        return False
+    if comparability == MAGNITUDE_COMPARABLE and not emitted.intersection(
+        {"explicit_usd_unit_calibration", "external_calibration_evidence"}
+    ):
+        return False
+    return True
 
 
 def _require_declared_verdict(comparability, reason_codes):

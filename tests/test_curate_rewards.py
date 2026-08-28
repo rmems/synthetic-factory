@@ -159,12 +159,17 @@ class RewardOntologyV1Tests(unittest.TestCase):
         annotation = with_evidence["reward_training"]
         self.assertEqual(annotation["comparability"], "magnitude_comparable")
         self.assertIn("external_calibration_evidence", annotation["reason_codes"])
-        self.assertTrue(
-            all(
-                value["calibration_source"]
-                == "units-migration.json#/records/1"
-                for value in annotation["magnitude"]["values"]
-            )
+        by_pointer = {
+            value["json_pointer"]: value.get("calibration_source")
+            for value in annotation["magnitude"]["values"]
+        }
+        self.assertEqual(
+            by_pointer["/chosen/reward_components"],
+            "units-migration.json#/records/1",
+        )
+        self.assertEqual(
+            by_pointer["/rejected/reward_components"],
+            "source_reward_fields",
         )
         self.assertEqual(
             sidecar["calibration"]["source_unit_usd"],
@@ -467,10 +472,56 @@ class RewardOntologyV1Tests(unittest.TestCase):
         annotation = with_evidence["reward_training"]
         self.assertEqual(annotation["comparability"], "magnitude_comparable")
         self.assertIn("external_calibration_evidence", annotation["reason_codes"])
+        self.assertNotIn("explicit_usd_unit_calibration", annotation["reason_codes"])
         self.assertEqual(
             sidecar["calibration"]["evidence_ref"],
             "units-migration.json#/records/1",
         )
+
+    def test_preference_order_uses_canonical_unit_conversion(self):
+        units_small = "1.0 reward unit = USD 1,000 (risk-adjusted); deltas vs baseline"
+        units_large = "1.0 reward unit = USD 10,000 (risk-adjusted); deltas vs baseline"
+        record = preference(
+            {
+                "task_progress": 3.0,
+                "safety": 0.0,
+                "total": 3.0,
+                "unit_usd": 1000,
+                "units": units_small,
+            },
+            {
+                "task_progress": 2.0,
+                "safety": 0.0,
+                "total": 2.0,
+                "unit_usd": 10000,
+                "units": units_large,
+            },
+        )
+        curated, _sidecar = curate_rewards.curate_record(record)
+        self.assertEqual(
+            curated["reward_training"]["comparability"],
+            "exclude_from_reward_training",
+        )
+        self.assertIn(
+            "reward_order_conflicts_with_preference",
+            curated["reward_training"]["reason_codes"],
+        )
+
+    def test_external_calibration_reason_is_reserved_to_p05_and_s08(self):
+        document = copy.deepcopy(curate_rewards.CONVERSION_POLICY)
+        r00 = next(
+            rule
+            for rule in document["policy"]["comparability_rules"]
+            if rule["id"] == "R00"
+        )
+        r00["reason_codes"] = list(r00["reason_codes"]) + [
+            "external_calibration_evidence"
+        ]
+        with self.assertRaisesRegex(
+            curate_rewards.RewardOntologyError,
+            "reserved for optional codes",
+        ):
+            curate_rewards.validate_conversion_policy(document)
 
     def test_sidecar_calibration_reason_linkage_is_fail_closed(self):
         record = {"id": "single-cal", "reward_components": components(1.0)}
@@ -884,13 +935,13 @@ EXCLUDED = "exclude_from_reward_training"
 FIXTURE_DECISIONS = {
     ("ffpc-preferences.jsonl", 1): (
         "P05", MAGNITUDE,
-        ["explicit_usd_unit_calibration", "preference_order_verified",
-         "reward_arithmetic_verified"],
+        ["preference_order_verified", "reward_arithmetic_verified",
+         "explicit_usd_unit_calibration"],
     ),
     ("ffpc-preferences.jsonl", 2): (
         "P05", MAGNITUDE,
-        ["explicit_usd_unit_calibration", "preference_order_verified",
-         "reward_arithmetic_verified"],
+        ["preference_order_verified", "reward_arithmetic_verified",
+         "explicit_usd_unit_calibration"],
     ),
     ("ffpc-preferences.jsonl", 3): (
         "P07", ORDER_ONLY,
@@ -921,7 +972,7 @@ FIXTURE_DECISIONS = {
     ),
     ("thalamic-trajectories.jsonl", 2): (
         "S08", MAGNITUDE,
-        ["explicit_usd_unit_calibration", "reward_arithmetic_verified"],
+        ["reward_arithmetic_verified", "explicit_usd_unit_calibration"],
     ),
     ("thalamic-trajectories.jsonl", 3): (
         "S06", EXCLUDED, ["magnitude_semantics_missing"],

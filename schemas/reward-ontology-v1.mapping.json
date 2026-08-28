@@ -200,14 +200,14 @@
       {
         "id": "P05",
         "scope": "preference",
-        "condition": "both sides reconcile, chosen exceeds rejected, and both sides resolve a positive USD-per-unit calibration",
+        "condition": "both sides reconcile, chosen exceeds rejected after canonical conversion, and both sides resolve a positive USD-per-unit calibration",
         "comparability": "magnitude_comparable",
         "reason_codes": [
-          "explicit_usd_unit_calibration",
           "preference_order_verified",
           "reward_arithmetic_verified"
         ],
         "optional_reason_codes": [
+          "explicit_usd_unit_calibration",
           "external_calibration_evidence"
         ]
       },
@@ -310,10 +310,10 @@
         "condition": "the canonical scope reconciles and resolves a positive USD-per-unit risk-adjusted calibration",
         "comparability": "magnitude_comparable",
         "reason_codes": [
-          "explicit_usd_unit_calibration",
           "reward_arithmetic_verified"
         ],
         "optional_reason_codes": [
+          "explicit_usd_unit_calibration",
           "external_calibration_evidence"
         ]
       }

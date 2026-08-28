@@ -1993,6 +1993,54 @@ class CorpusGateTests(unittest.TestCase):
         ):
             curate_gate._derived_reward_contract(curated, sidecar, {}, record)  # noqa: SLF001
 
+    def test_migration_catalog_does_not_require_calibration_on_excluded_records(self):
+        units = "1.0 reward unit = USD 10,000 (risk-adjusted); deltas vs baseline"
+        record = {
+            "id": "ffpc-r2-042",
+            "chosen": {
+                "reward_components": {
+                    "task_progress": 1.0,
+                    "safety": 0.0,
+                    "total": 1.0,
+                    "unit_usd": 10000,
+                    "units": units,
+                }
+            },
+            "rejected": {
+                "reward_components": {
+                    "task_progress": 0.0,
+                    "safety": 0.0,
+                    "total": 0.0,
+                    "unit_usd": 10000,
+                    "units": units,
+                }
+            },
+        }
+        artifact = {
+            "source_unit_usd": 2000,
+            "canonical_factor": 0.2,
+            "evidence_ref": "units-migration.json#/records/9",
+        }
+        curated, sidecar = curate_rewards.curate_record(
+            record,
+            source_path="ffpc/preferences.jsonl",
+            source_line=1,
+            calibration=artifact,
+        )
+        self.assertEqual(
+            curated["reward_training"]["comparability"],
+            "sign_order_only",
+        )
+        self.assertNotIn("calibration", sidecar)
+        catalog = {"ffpc-r2-042": artifact}
+        derived = curate_gate._derived_reward_contract(  # noqa: SLF001
+            curated, sidecar, catalog, record
+        )
+        self.assertEqual(
+            derived["classification"]["comparability"],
+            "sign_order_only",
+        )
+
     def test_excluded_reward_class_is_valid_gate_coverage(self):
         fixture = GateFixture(self.root)
         self.assertEqual(fixture.integrate(), 0)
