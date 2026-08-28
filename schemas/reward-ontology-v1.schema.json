@@ -483,8 +483,7 @@
                   "const": "usd_10000_risk_adjusted_delta"
                 },
                 "canonical_unit_usd": {
-                  "type": "number",
-                  "exclusiveMinimum": 0
+                  "const": 10000
                 },
                 "aggregation": {
                   "const": "linear_unit_conversion_only"

@@ -100,6 +100,25 @@ REQUIRED_CLASSIFICATION_RULE_IDS = frozenset(
     | {f"P{index:02d}" for index in range(1, 9)}
     | {f"S{index:02d}" for index in range(1, 9)}
 )
+REQUIRED_RULE_COMPARABILITY = {
+    "R00": EXCLUDE,
+    "P01": EXCLUDE,
+    "P02": EXCLUDE,
+    "P03": EXCLUDE,
+    "P04": EXCLUDE,
+    "P05": MAGNITUDE_COMPARABLE,
+    "P06": SIGN_ORDER_ONLY,
+    "P07": SIGN_ORDER_ONLY,
+    "P08": SIGN_ORDER_ONLY,
+    "S01": EXCLUDE,
+    "S02": EXCLUDE,
+    "S03": EXCLUDE,
+    "S04": EXCLUDE,
+    "S05": EXCLUDE,
+    "S06": EXCLUDE,
+    "S07": EXCLUDE,
+    "S08": MAGNITUDE_COMPARABLE,
+}
 REQUIRED_ARITHMETIC_METHODS = frozenset(
     {
         "declared_weighted_sum",
@@ -129,6 +148,18 @@ class MagnitudeNotComparable(RewardOntologyError):
 
 def _policy_error(where, message):
     return RewardOntologyError(f"{where}: {message}")
+
+
+def _pointer_escape(token) -> str:
+    return str(token).replace("~", "~0").replace("/", "~1")
+
+
+def _pointer_unescape(token) -> str:
+    return token.replace("~1", "/").replace("~0", "~")
+
+
+def _pointer(tokens) -> str:
+    return "/" + "/".join(_pointer_escape(token) for token in tokens)
 
 
 def _mapping_str(container, key, where, *, prefix=None):
@@ -189,15 +220,27 @@ def _mapping_pattern(container, key, where, *, groups=0, numeric_group=False):
     if compiled.groups != groups:
         raise _policy_error(where, f"{key} must declare exactly {groups} capture group(s)")
     if numeric_group:
-        haystack = "rounded to 3-decimal 1 reward unit = USD 10,000.5 abc"
-        match = compiled.search(haystack)
-        if match is not None:
+        haystacks = (
+            "rounded to 3-decimal 1 reward unit = USD 10,000.5 abc",
+            "xyz",
+            "rounded to xyz decimal",
+        )
+        saw_numeric = False
+        for haystack in haystacks:
+            match = compiled.search(haystack)
+            if match is None:
+                continue
             try:
                 Decimal(str(match.group(1)).replace(",", ""))
             except (InvalidOperation, TypeError, IndexError, ArithmeticError) as exc:
                 raise _policy_error(
                     where, f"{key} capture group must be numeric"
                 ) from exc
+            saw_numeric = True
+        if not saw_numeric:
+            raise _policy_error(
+                where, f"{key} capture group must match a numeric sample"
+            )
     return compiled
 
 
@@ -217,7 +260,9 @@ def _validate_conversion_block(policy, where):
         raise _policy_error(
             where, "canonical_unit must match the annotation schema constant"
         )
-    _mapping_positive(conversion, "canonical_unit_usd", where)
+    canonical_unit_usd = _mapping_positive(conversion, "canonical_unit_usd", where)
+    if canonical_unit_usd != Decimal("10000"):
+        raise _policy_error(where, "canonical_unit_usd must be 10000")
     aggregation = _mapping_str(conversion, "aggregation", where)
     if aggregation != "linear_unit_conversion_only":
         raise _policy_error(
@@ -324,6 +369,12 @@ def _validate_rule_block(policy, where, classes, reason_codes):
             raise _policy_error(
                 where, f"rule {rule_id} declares unknown comparability {comparability!r}"
             )
+        required_class = REQUIRED_RULE_COMPARABILITY.get(rule_id)
+        if required_class is not None and comparability != required_class:
+            raise _policy_error(
+                where,
+                f"rule {rule_id} must declare comparability {required_class!r}",
+            )
         codes = _mapping_str_list(rule, "reason_codes", where)
         optional = ()
         if "optional_reason_codes" in rule:
@@ -346,6 +397,48 @@ def _validate_rule_block(policy, where, classes, reason_codes):
     return tuple(rules)
 
 
+def _escape_signature_token(token):
+    return str(token).replace("\\", "\\\\").replace("|", "\\|").replace(":", "\\:")
+
+
+def _unescape_signature_token(token):
+    out = []
+    escaped = False
+    for character in token:
+        if escaped:
+            out.append(character)
+            escaped = False
+        elif character == "\\":
+            escaped = True
+        else:
+            out.append(character)
+    if escaped:
+        out.append("\\")
+    return "".join(out)
+
+
+def _split_signature(signature, separator):
+    parts = []
+    buf = []
+    escaped = False
+    for character in signature:
+        if escaped:
+            buf.append(character)
+            escaped = False
+            continue
+        if character == "\\":
+            buf.append(character)
+            escaped = True
+            continue
+        if character == separator:
+            parts.append("".join(buf))
+            buf = []
+            continue
+        buf.append(character)
+    parts.append("".join(buf))
+    return parts
+
+
 def _arithmetic_methods_for_signature(signature, arithmetic, where):
     """Return the arithmetic methods the structural signature can select."""
     if signature == "":
@@ -354,10 +447,12 @@ def _arithmetic_methods_for_signature(signature, arithmetic, where):
         return frozenset({"non_object_reward"})
 
     members = {}
-    for part in signature.split("|"):
-        if ":" not in part:
+    for part in _split_signature(signature, "|"):
+        pieces = _split_signature(part, ":")
+        if len(pieces) != 2:
             raise _policy_error(where, "signature contains an invalid member")
-        key, value_type = part.rsplit(":", 1)
+        key = _unescape_signature_token(pieces[0])
+        value_type = _unescape_signature_token(pieces[1])
         if not value_type or key in members:
             raise _policy_error(where, "signature contains an invalid member")
         members[key] = value_type
@@ -398,10 +493,19 @@ def _policy_disposition(key, observed_types, arithmetic):
     return DISPOSITION_AMBIGUOUS
 
 
-def _validate_source_vocabulary(document, arithmetic, where):
+def _validate_source_vocabulary(document, arithmetic, reward_keys, where):
     vocabulary = _mapping_object(document, "source_vocabulary", where)
     vocabulary_where = f"{where}.source_vocabulary"
     _mapping_str(vocabulary, "run", vocabulary_where)
+    scope_keys = _mapping_str_list(vocabulary, "scope_keys", vocabulary_where)
+    unknown_scopes = sorted(set(scope_keys) - set(reward_keys))
+    if unknown_scopes:
+        raise _policy_error(
+            vocabulary_where, f"scope_keys names non-reward keys {unknown_scopes}"
+        )
+    reward_instances = _mapping_integer(
+        vocabulary, "reward_instances", vocabulary_where, minimum=1
+    )
 
     component_keys = _mapping_object(
         vocabulary, "component_keys", vocabulary_where
@@ -439,7 +543,12 @@ def _validate_source_vocabulary(document, arithmetic, where):
                 entry_where,
                 f"disposition must be {expected!r} for {list(observed_types)!r}",
             )
-        _mapping_integer(entry, "occurrences", entry_where, minimum=1)
+        occurrences = _mapping_integer(entry, "occurrences", entry_where, minimum=1)
+        if occurrences > reward_instances:
+            raise _policy_error(
+                entry_where,
+                "occurrences must not exceed reward_instances",
+            )
         disposition_counts[disposition] += 1
 
     declared_dispositions = _mapping_object(
@@ -554,13 +663,39 @@ def _validate_source_vocabulary(document, arithmetic, where):
             if pair in seen_outcomes:
                 raise _policy_error(outcome_where, "duplicate arithmetic outcome")
             seen_outcomes.add(pair)
-    reward_instances = _mapping_integer(
-        vocabulary, "reward_instances", vocabulary_where, minimum=1
-    )
     if occurrence_total != reward_instances:
         raise _policy_error(
             vocabulary_where,
             "shape occurrences must sum to reward_instances",
+        )
+    declared_arithmetic = vocabulary.get("arithmetic")
+    if not isinstance(declared_arithmetic, list) or not declared_arithmetic:
+        raise _policy_error(
+            vocabulary_where, "arithmetic must be a nonempty list"
+        )
+    arithmetic_total = 0
+    seen_arithmetic = set()
+    for index, row in enumerate(declared_arithmetic):
+        row_where = f"{vocabulary_where}.arithmetic[{index}]"
+        if not isinstance(row, dict):
+            raise _policy_error(row_where, "arithmetic census row must be an object")
+        status = _mapping_str(row, "status", row_where)
+        if status not in ARITHMETIC_STATUSES:
+            raise _policy_error(row_where, f"unknown arithmetic status {status!r}")
+        method = _mapping_str(row, "method", row_where)
+        if method not in arithmetic["methods"]:
+            raise _policy_error(row_where, f"unknown arithmetic method {method!r}")
+        pair = (status, method)
+        if pair in seen_arithmetic:
+            raise _policy_error(row_where, "duplicate arithmetic census row")
+        seen_arithmetic.add(pair)
+        arithmetic_total += _mapping_integer(
+            row, "occurrences", row_where, minimum=1
+        )
+    if arithmetic_total != reward_instances:
+        raise _policy_error(
+            vocabulary_where,
+            "arithmetic occurrences must sum to reward_instances",
         )
     return vocabulary
 
@@ -674,15 +809,17 @@ def validate_conversion_policy(document, *, where="conversion policy"):
     if annotation_field in reward_keys:
         raise _policy_error(where, "annotation_field must not be a declared reward key")
     canonical_scope = _mapping_str(policy, "canonical_scope", where, prefix="/")
-    if canonical_scope[1:] not in reward_keys:
+    if not any(_pointer((key,)) == canonical_scope for key in reward_keys):
         raise _policy_error(where, "canonical_scope must name a declared reward key")
     preference = _mapping_object(policy, "preference_scope", where)
     preferred = _mapping_str(preference, "preferred", where, prefix="/")
     dispreferred = _mapping_str(preference, "dispreferred", where, prefix="/")
     if preferred == dispreferred:
         raise _policy_error(where, "preference pointers must be distinct")
+    if preferred == canonical_scope or dispreferred == canonical_scope:
+        raise _policy_error(where, "preference pointers must differ from canonical_scope")
     for pointer, label in ((preferred, "preferred"), (dispreferred, "dispreferred")):
-        terminal = pointer.rsplit("/", 1)[-1]
+        terminal = _pointer_unescape(pointer.rsplit("/", 1)[-1])
         if terminal not in reward_keys:
             raise _policy_error(
                 where, f"{label} pointer must target a declared reward key"
@@ -716,7 +853,9 @@ def validate_conversion_policy(document, *, where="conversion policy"):
         if not isinstance(description, str) or not description.strip():
             raise _policy_error(where, f"reason code {code!r} has no description")
     _validate_rule_block(policy, where, classes, reason_codes)
-    vocabulary = _validate_source_vocabulary(document, arithmetic, where)
+    vocabulary = _validate_source_vocabulary(
+        document, arithmetic, reward_keys, where
+    )
     _validate_expected_classification(
         document, classes, reason_codes, vocabulary["run"], where
     )
@@ -728,7 +867,7 @@ def load_conversion_policy(path=None):
     path = Path(path) if path is not None else MAPPING_PATH
     try:
         text = path.read_text(encoding="utf-8")
-    except OSError as exc:
+    except (OSError, UnicodeDecodeError) as exc:
         raise RewardOntologyError(f"{path}: conversion policy is unreadable: {exc}") from exc
     try:
         document = json.loads(text)
@@ -800,18 +939,6 @@ def _canonical_bytes(value) -> bytes:
 
 def _sha256(value) -> str:
     return "sha256:" + hashlib.sha256(_canonical_bytes(value)).hexdigest()
-
-
-def _pointer_escape(token) -> str:
-    return str(token).replace("~", "~0").replace("/", "~1")
-
-
-def _pointer_unescape(token) -> str:
-    return token.replace("~1", "/").replace("~0", "~")
-
-
-def _pointer(tokens) -> str:
-    return "/" + "/".join(_pointer_escape(token) for token in tokens)
 
 
 def _walk_rewards(value, tokens=(), reward_keys=None):
@@ -933,7 +1060,7 @@ def reward_signature(value):
             subtype = "array"
         else:
             subtype = type(item).__name__
-        parts.append(f"{key}:{subtype}")
+        parts.append(f"{_escape_signature_token(key)}:{subtype}")
     return "|".join(parts)
 
 
@@ -1437,8 +1564,12 @@ def validate_ontology_document(document):
         if not isinstance(rewards, list):
             raise RewardOntologyError("source_rewards must be a list")
         for reward in rewards:
-            if not isinstance(reward, dict) or not SHA256_RE.fullmatch(
-                str(reward.get("value_sha256", ""))
+            if (
+                not isinstance(reward, dict)
+                or not SHA256_RE.fullmatch(str(reward.get("value_sha256", "")))
+                or not isinstance(reward.get("json_pointer"), str)
+                or not reward["json_pointer"].startswith("/")
+                or "value" not in reward
             ):
                 raise RewardOntologyError("invalid source reward entry")
         classification = document.get("classification")
@@ -1883,10 +2014,10 @@ def load_units_migration_bytes(payload, *, label="<memory>"):
     for index, entry in enumerate(records):
         if not isinstance(entry, dict):
             continue
-        factor = _decimal(entry.get("usd_conversion_factor"))
+        factor = _decimal(entry.get(MIGRATION_FACTOR_FIELD))
         if factor is None or factor <= 0:
             continue
-        scope = entry.get("scope")
+        scope = entry.get(MIGRATION_SCOPE_FIELD)
         if not isinstance(scope, str):
             continue
         for record_id in sorted(set(RECORD_ID_RE.findall(scope))):
@@ -2027,14 +2158,15 @@ def classify_jsonl(input_path, *, source_path=None, calibration_catalog=None):
 
 def census_jsonl(input_paths, *, scope_keys=None):
     """Recompute the source-vocabulary census over one or more JSONL inputs."""
+    paths = [str(path) for path in input_paths]
 
     def _records():
-        for input_path in input_paths:
+        for input_path in paths:
             for _line_number, record in _load_jsonl(input_path):
                 yield record
 
     census = reward_census(_records(), scope_keys=scope_keys)
-    return {"inputs": [str(path) for path in input_paths], **census}
+    return {"inputs": paths, **census}
 
 
 def _write_new_bytes(path, payload):
