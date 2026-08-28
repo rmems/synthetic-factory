@@ -212,9 +212,21 @@ def _match_has_preventive_negation(introduced, match, preventive_terms):
     return _SUFFIX_NEGATED_RE.match(suffix) is not None
 
 
+def _evidence_match_has_unnegated(introduced, evidence, preventive_terms):
+    normalized = normalized_category(evidence)
+    if not normalized:
+        return False
+    for match in re.finditer(rf"(?:^|_){re.escape(normalized)}(?=_|$)", introduced):
+        if not _match_has_preventive_negation(introduced, match, preventive_terms):
+            return True
+    return False
+
+
 def visibly_names_fault(introduced_text, *fault_evidence):
     """Whether one designated step explicitly names declared fault evidence."""
     introduced = normalized_category(introduced_text)
+    if not introduced:
+        return False
     preventive_terms = {
         "avoid",
         "avoided",
@@ -223,16 +235,10 @@ def visibly_names_fault(introduced_text, *fault_evidence):
         "prevented",
         "preventing",
     }
-    for evidence in fault_evidence:
-        normalized = normalized_category(evidence)
-        if not introduced or not normalized:
-            continue
-        for match in re.finditer(
-            rf"(?:^|_){re.escape(normalized)}(?=_|$)", introduced
-        ):
-            if not _match_has_preventive_negation(introduced, match, preventive_terms):
-                return True
-    return False
+    return any(
+        _evidence_match_has_unnegated(introduced, evidence, preventive_terms)
+        for evidence in fault_evidence
+    )
 
 
 def numbered_horizon_errors(where, steps, lane, minimum, maximum):
@@ -250,17 +256,12 @@ def contiguous_step_number_errors(where, steps, lane):
     """Return an error unless list entries use exact integer numbering 1..K."""
     if not isinstance(steps, list):
         return []
-    step_numbers = [
-        step.get("n") if isinstance(step, dict) else None
-        for step in steps
-    ]
-    if any(
-        not isinstance(number, int)
-        or isinstance(number, bool)
-        or number != expected_number
-        for expected_number, number in enumerate(step_numbers, 1)
-    ):
-        return [f"{where}: {lane} steps must be numbered contiguously from 1"]
+    for expected_number, step in enumerate(steps, 1):
+        if not isinstance(step, dict):
+            return [f"{where}: {lane} steps must be numbered contiguously from 1"]
+        number = step.get("n")
+        if not isinstance(number, int) or isinstance(number, bool) or number != expected_number:
+            return [f"{where}: {lane} steps must be numbered contiguously from 1"]
     return []
 
 
@@ -334,11 +335,11 @@ def has_long_horizon_debug_loop(steps):
     texts = [observable_step_text(step) for step in steps]
     observations = [step_observation_text(step) for step in steps]
     edit_terms = ("edit", "write", "patch", "apply")
-    for edit_index, text in enumerate(texts):
-        if any(term in text for term in edit_terms):
-            if _find_debug_failure_loop(texts, observations, edit_index):
-                return True
-    return False
+    return any(
+        any(term in text for term in edit_terms)
+        and _find_debug_failure_loop(texts, observations, edit_index)
+        for edit_index, text in enumerate(texts)
+    )
 
 
 def _step_failed_hypothesis(index, step, failure_terms):
