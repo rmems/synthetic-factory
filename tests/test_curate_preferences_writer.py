@@ -275,12 +275,11 @@ class CuratePreferenceSource(unittest.TestCase):
             raw_run.mkdir(parents=True)
             destination = alias / "curated.jsonl"
             run = curate_preferences.curate_source(source)
-            run_id = raw_tree_guard._stat_identity(raw_run)
             with mock.patch.object(curate_preferences, "RAW_OUTPUT_ROOT", raw_root):
                 with mock.patch.object(
                     raw_tree_guard,
-                    "_ancestor_identities",
-                    return_value={run_id},
+                    "_read_mountinfo",
+                    return_value=((alias, raw_run),),
                 ):
                     with self.assertRaisesRegex(
                         curate_preferences.PreferenceCurationError,
