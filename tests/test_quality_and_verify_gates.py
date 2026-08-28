@@ -65,6 +65,47 @@ def thalamic(record_id, observable=True, rationale="bounded fixture"):
     return record
 
 
+def episode_side():
+    return {
+        "steps": [
+            {
+                "n": 1,
+                "decision_basis": "read the file before editing",
+                "tool_call": {"name": "read_file", "args": {"path": "a.txt"}},
+                "observation": "file has 3 lines",
+            }
+        ],
+        "outcome": "edited safely",
+        "reward": {"success": True},
+    }
+
+
+def execution_summary(
+    *,
+    verified=1,
+    inconclusive=0,
+    failed=0,
+    override=None,
+    gate=None,
+    strict=True,
+    extra=None,
+):
+    summary = {
+        "gate": round_txn.EXECUTION_GATE_LABEL if gate is None else gate,
+        "strict": strict,
+        "counts": {
+            "failed": failed,
+            "inconclusive": inconclusive,
+            "total": verified + inconclusive + failed,
+            "verified": verified,
+        },
+        "override": override,
+    }
+    if extra:
+        summary.update(extra)
+    return summary
+
+
 class QualityGate(unittest.TestCase):
     def test_record_hash_survives_malformed_preference_records(self):
         for malformed in (
@@ -529,6 +570,206 @@ class VerifyExecution(unittest.TestCase):
         )
         self.assertEqual(status, "verified")
 
+    def test_shape_error_helpers_reject_unparseable_step_indexes(self):
+        self.assertIsNone(
+            verify_execution._step_index_from_shape_error("other step 0: missing", "where")
+        )
+        self.assertIsNone(
+            verify_execution._step_index_from_shape_error("where step 0", "where")
+        )
+        self.assertIsNone(
+            verify_execution._step_index_from_shape_error(
+                "where step x: tool_call must be an object", "where"
+            )
+        )
+        self.assertFalse(
+            verify_execution._is_missing_execution_evidence(
+                "where step 0: tool_call must be an object",
+                "where",
+                {"steps": []},
+            )
+        )
+        self.assertFalse(
+            verify_execution._is_missing_execution_evidence(
+                "where step 0: tool_call must be an object",
+                "where",
+                {"steps": "not-a-list"},
+            )
+        )
+
+    def test_episode_and_safety_fail_closed_without_shape_checkers(self):
+        status, reason = verify_execution.verify_episode("not-an-object", "where")
+        self.assertEqual(status, "failed")
+        self.assertIn("not an object", reason)
+
+        with mock.patch.object(verify_execution, "check_episode", None):
+            status, reason = verify_execution.verify_episode(episode_side(), "where")
+        self.assertEqual(status, "failed")
+        self.assertIn("episode shape checker unavailable", reason)
+
+        with mock.patch.object(verify_execution, "check_safety_case", None):
+            status, reason = verify_execution.verify_safety_episode(
+                {"case_type": "correct_refusal", "steps": []}, "where"
+            )
+        self.assertEqual(status, "failed")
+        self.assertIn("safety-case shape checker unavailable", reason)
+
+        with mock.patch.object(verify_execution, "check_line", None):
+            status, reason = verify_execution.verify_record_execution(
+                {"chosen": episode_side(), "rejected": episode_side()},
+                "where",
+            )
+        self.assertEqual(status, "failed")
+        self.assertIn("preference shape checker unavailable", reason)
+
+        status, reason = verify_execution.verify_record_execution(
+            {"note": "no executable shape"}, "where"
+        )
+        self.assertEqual(status, "inconclusive")
+        self.assertIn("unrecognized shape", reason)
+
+    def test_refusal_helpers_reject_malformed_inputs(self):
+        self.assertEqual(verify_execution._tool_call_name("Refuse now"), "refuse")
+        self.assertEqual(verify_execution._tool_call_name("   "), "")
+        self.assertEqual(verify_execution._tool_call_name(None), "")
+        self.assertFalse(verify_execution._step_records_refusal("not-a-step"))
+        self.assertFalse(
+            verify_execution._calibrated_outcome_is_compliance_or_leakage("nope")
+        )
+        self.assertFalse(
+            verify_execution._calibrated_outcome_is_compliance_or_leakage(
+                {"decision": 12}
+            )
+        )
+        self.assertIsNone(
+            verify_execution._safety_refusal_contradicts_calibrated_outcome(
+                {"case_type": "missed_refusal", "steps": "not-a-list"},
+                "where",
+            )
+        )
+
+    def test_typed_outcome_containers_reject_malformed_entries(self):
+        cases = (
+            ({"timeline": ["narrative"]}, "timeline entries must be objects"),
+            ({"timeline": []}, "lacks observable execution evidence"),
+            ({"observed_effects": "narrative"}, "observed_effects must be an array"),
+            (
+                {"observed_effects": [""]},
+                "observed_effects entries must be non-empty",
+            ),
+            ({"state_delta": {}}, "lacks observable execution evidence"),
+            ({"state_delta": []}, "lacks observable execution evidence"),
+            (
+                {"state_delta": [""]},
+                "state_delta entries must be non-empty",
+            ),
+            ({"surprises": []}, "lacks observable execution evidence"),
+            (
+                {"surprises": [""]},
+                "surprises entries must be non-empty",
+            ),
+            (
+                {"hazard_avoided": ""},
+                "hazard_avoided must be a non-empty string or object",
+            ),
+            (
+                {"incident": {}},
+                "incident must be a non-empty string or object",
+            ),
+        )
+        for outcome, expected in cases:
+            with self.subTest(outcome=outcome):
+                record = thalamic("typed-outcome")
+                record["future_outcome"] = outcome
+                status, reason = verify_execution.verify_record_execution(
+                    record, "where"
+                )
+                self.assertIn(expected, reason)
+                self.assertIn(status, {"failed", "inconclusive"})
+
+    def test_state_delta_list_is_observable_when_well_formed(self):
+        record = thalamic("state-delta-list")
+        record["future_outcome"] = {"state_delta": ["moved 1m"]}
+        status, _reason = verify_execution.verify_record_execution(record, "where")
+        self.assertEqual(status, "verified")
+
+    def test_preference_sides_cover_thalamic_and_malformed_routing(self):
+        thalamic_pair = {
+            "goal": "keep the actuator stopped after the noop",
+            "chosen": thalamic("chosen-side"),
+            "rejected": thalamic("rejected-side"),
+            "critique": "chosen keeps the actuator stopped after the noop",
+            "reward": {"success": True},
+        }
+        self.assertEqual(
+            verify_execution.verify_record_execution(thalamic_pair, "where")[0],
+            "verified",
+        )
+
+        with mock.patch.object(
+            verify_execution, "check_line", return_value=([], "unknown")
+        ):
+            status, reason = verify_execution.verify_record_execution(
+                {"chosen": episode_side(), "rejected": episode_side()},
+                "where",
+            )
+        self.assertEqual(status, "failed")
+        self.assertIn("not classified as a preference", reason)
+
+        with mock.patch.object(
+            verify_execution, "check_line", return_value=([], "preference")
+        ):
+            status, reason = verify_execution.verify_record_execution(
+                {"chosen": "left", "rejected": "right"},
+                "where",
+            )
+        self.assertEqual(status, "failed")
+        self.assertIn("sides must both be objects", reason)
+
+        mixed = {
+            "chosen": thalamic("mixed-chosen"),
+            "rejected": episode_side(),
+        }
+        with mock.patch.object(
+            verify_execution, "check_line", return_value=([], "preference")
+        ):
+            status, reason = verify_execution.verify_record_execution(mixed, "where")
+        self.assertEqual(status, "failed")
+        self.assertIn("mix episode and Thalamic", reason)
+
+        omitted = {
+            "chosen": thalamic("omit-chosen"),
+            "rejected": {"state": {"sim_or_real": "designed"}},
+        }
+        with mock.patch.object(
+            verify_execution, "check_line", return_value=([], "preference")
+        ):
+            status, reason = verify_execution.verify_record_execution(omitted, "where")
+        self.assertEqual(status, "failed")
+        self.assertIn("mix or omit required shape fields", reason)
+
+        neither = {"chosen": {"note": "left"}, "rejected": {"note": "right"}}
+        with mock.patch.object(
+            verify_execution, "check_line", return_value=([], "preference")
+        ):
+            status, reason = verify_execution.verify_record_execution(neither, "where")
+        self.assertEqual(status, "failed")
+        self.assertIn("not episode or Thalamic", reason)
+
+        blank_goal = {
+            "goal": "   ",
+            "chosen": episode_side(),
+            "rejected": episode_side(),
+        }
+        with mock.patch.object(
+            verify_execution, "check_line", return_value=([], "preference")
+        ):
+            status, reason = verify_execution.verify_record_execution(
+                blank_goal, "where"
+            )
+        self.assertEqual(status, "failed")
+        self.assertIn("shared goal must be a non-empty string", reason)
+
 
 class ExecutionOverrideReason(unittest.TestCase):
     def test_absent_override_stays_absent(self):
@@ -558,6 +799,127 @@ class ExecutionOverrideReason(unittest.TestCase):
             with self.subTest(rejected=rejected):
                 with self.assertRaises(round_txn.TransactionError):
                     round_txn.normalized_execution_override(rejected)
+
+    def test_recorded_override_rejects_non_canonical_markers(self):
+        reason = "hil replay rig offline"
+        valid_override = {"reason": reason, "waived_inconclusive": 1}
+        cases = (
+            {"execution_verification": "nope"},
+            {"execution_verification": {"override": ["not-a-dict"]}},
+            {
+                "execution_verification": {
+                    "override": {"reason": "  " + reason + "  ", "waived_inconclusive": 1}
+                }
+            },
+            {
+                "execution_verification": {
+                    "override": {"reason": reason, "waived_inconclusive": 0}
+                }
+            },
+            {
+                "execution_verification": {
+                    "override": {"reason": reason, "waived_inconclusive": True}
+                }
+            },
+        )
+        for manifest in cases:
+            with self.subTest(manifest=manifest):
+                with self.assertRaises(round_txn.TransactionError):
+                    round_txn.recorded_execution_override(manifest)
+        self.assertEqual(
+            round_txn.recorded_execution_override(
+                {"execution_verification": {"override": valid_override}}
+            ),
+            reason,
+        )
+        with self.assertRaises(round_txn.TransactionError):
+            round_txn.comparable_execution_verification("nope")
+        comparable = round_txn.comparable_execution_verification(
+            {"gate": "g", "override": dict(valid_override)}
+        )
+        self.assertNotIn("reason", comparable["override"])
+        self.assertEqual(comparable["override"]["waived_inconclusive"], 1)
+
+    def test_verification_summary_rejects_invalid_blocks(self):
+        waived = {
+            "reason": "hil replay rig offline",
+            "waived_inconclusive": 1,
+        }
+        valid = execution_summary()
+        self.assertEqual(
+            round_txn.validated_execution_verification_summary(valid), valid
+        )
+        self.assertEqual(
+            round_txn.validated_execution_verification_summary(
+                execution_summary(
+                    verified=0, inconclusive=1, override=waived
+                )
+            )["override"]["reason"],
+            waived["reason"],
+        )
+        rejected = (
+            "nope",
+            execution_summary(extra={"extra": True}),
+            execution_summary(extra={"counts": {"verified": 1}}),
+            execution_summary(verified=True),
+            execution_summary(verified=-1),
+            execution_summary(gate="other.gate"),
+            execution_summary(strict=False),
+            execution_summary(verified=0, inconclusive=0, failed=0),
+            execution_summary(failed=1),
+            execution_summary(verified=1, inconclusive=1, failed=0),
+            execution_summary(verified=0, inconclusive=1, override=None),
+            execution_summary(
+                verified=0,
+                inconclusive=1,
+                override={"reason": "hil replay rig offline", "waived_inconclusive": 2},
+            ),
+            execution_summary(override=waived),
+        )
+        for summary in rejected:
+            with self.subTest(summary=summary):
+                with self.assertRaises(round_txn.TransactionError):
+                    round_txn.validated_execution_verification_summary(summary)
+
+        # verified+inconclusive != total is a counts-key mismatch on the object
+        mismatched = execution_summary()
+        mismatched["counts"]["total"] = 3
+        with self.assertRaises(round_txn.TransactionError):
+            round_txn.validated_execution_verification_summary(mismatched)
+
+    def test_completed_verification_wraps_a_live_gate_failure(self):
+        with tempfile.TemporaryDirectory() as td:
+            batch = Path(td) / "batch-r01.jsonl"
+            write(batch, [thalamic("conflict", rationale="")])
+            recorded = execution_summary(
+                verified=0,
+                inconclusive=1,
+                override={
+                    "reason": "hil replay rig offline",
+                    "waived_inconclusive": 1,
+                },
+            )
+            with self.assertRaisesRegex(
+                round_txn.TransactionError,
+                "conflicts with committed batch",
+            ):
+                round_txn.validate_completed_execution_verification(
+                    batch, {"execution_verification": recorded}
+                )
+
+    def test_replace_json_atomically_rejects_unsafe_markers(self):
+        with tempfile.TemporaryDirectory() as td:
+            missing = Path(td) / "ROUND-r01.publishing.json"
+            with self.assertRaisesRegex(
+                round_txn.TransactionError, "unsafe publishing marker"
+            ):
+                round_txn.replace_json_atomically(missing, {"ok": True})
+            link = Path(td) / "ROUND-r01.link.json"
+            link.symlink_to(Path(td) / "missing-target")
+            with self.assertRaisesRegex(
+                round_txn.TransactionError, "unsafe publishing marker"
+            ):
+                round_txn.replace_json_atomically(link, {"ok": True})
 
 
 class FrontierPublishGate(unittest.TestCase):
@@ -877,6 +1239,118 @@ class FrontierPublishGate(unittest.TestCase):
             ):
                 round_txn.publish(factory, 1, reservation["token"])
             self.assertFalse((factory / "ROUND-r01.complete.json").exists())
+
+    def test_gate_summarizes_when_findings_exceed_five(self):
+        with tempfile.TemporaryDirectory() as td:
+            batch = Path(td) / "batch-r01.jsonl"
+            write(batch, [thalamic(f"inc-{index}", observable=False) for index in range(6)])
+
+            with self.assertRaises(round_txn.TransactionError) as raised:
+                round_txn.execution_gate(batch, batch)
+
+            self.assertIn("... and 1 more findings", str(raised.exception))
+
+    def test_unsupported_completion_marker_version_is_rejected(self):
+        with tempfile.TemporaryDirectory() as td:
+            factory = self.factory(td)
+            batch = factory / "batch-r01.jsonl"
+            notes = factory / "NOTES-r01.md"
+            write(batch, [thalamic("unsupported-version")])
+            notes.write_text("# Critique\n\nConcrete gap.\n\nNovel coverage: 42%\n")
+            marker = factory / "ROUND-r01.complete.json"
+            marker.write_text(
+                json.dumps(
+                    {
+                        "version": 3,
+                        "factory": factory.name,
+                        "round": 1,
+                        "records": 1,
+                        "expected_records": 1,
+                        "commit_point": marker.name,
+                        "files": [
+                            {"name": batch.name, "sha256": round_txn.file_sha256(batch)},
+                            {"name": notes.name, "sha256": round_txn.file_sha256(notes)},
+                        ],
+                    },
+                    indent=2,
+                    sort_keys=True,
+                )
+                + "\n"
+            )
+            (factory / round_txn.MODE_FILE).write_text(
+                json.dumps(
+                    {
+                        "version": 1,
+                        "legacy_baseline": 0,
+                        "commit_point": "ROUND-rNN.complete.json",
+                    }
+                )
+                + "\n"
+            )
+
+            with mock.patch.object(round_txn, "validate_completed_batch"):
+                with self.assertRaisesRegex(
+                    round_txn.TransactionError,
+                    r"unsupported completion marker version: ",
+                ):
+                    round_txn.completed_manifests(factory)
+
+    def test_publish_rejects_unsafe_or_mismatched_publishing_markers(self):
+        with tempfile.TemporaryDirectory() as td:
+            factory = self.factory(td)
+            reservation = round_txn.reserve(factory, 1, 1)
+            self.stage(reservation, [thalamic("unsafe-publishing")])
+            publishing = factory / "ROUND-r01.publishing.json"
+            publishing.symlink_to(Path(td) / "missing-publishing")
+
+            with self.assertRaisesRegex(
+                round_txn.TransactionError, "unsafe publishing marker"
+            ):
+                round_txn.publish(factory, 1, reservation["token"])
+
+        with tempfile.TemporaryDirectory() as td:
+            factory = self.factory(td)
+            reservation = round_txn.reserve(factory, 1, 1)
+            self.stage(reservation, [thalamic("mismatched-publishing")])
+            with mock.patch.object(
+                round_txn, "copy_verified_exclusive", side_effect=OSError("boom")
+            ):
+                with self.assertRaises(OSError):
+                    round_txn.publish(factory, 1, reservation["token"])
+            publishing = factory / "ROUND-r01.publishing.json"
+            payload = json.loads(publishing.read_text())
+            payload["token"] = "not-the-reservation-token"
+            publishing.write_text(json.dumps(payload) + "\n")
+
+            with self.assertRaisesRegex(
+                round_txn.TransactionError, "publishing marker identity mismatch"
+            ):
+                round_txn.publish(factory, 1, reservation["token"])
+
+    def test_publish_retry_migrates_a_legacy_v1_publishing_marker(self):
+        with tempfile.TemporaryDirectory() as td:
+            factory = self.factory(td)
+            reservation = round_txn.reserve(factory, 1, 1)
+            self.stage(reservation, [thalamic("gate-v1-retry")])
+
+            with mock.patch.object(
+                round_txn, "copy_verified_exclusive", side_effect=OSError("boom")
+            ):
+                with self.assertRaises(OSError):
+                    round_txn.publish(factory, 1, reservation["token"])
+
+            publishing = factory / "ROUND-r01.publishing.json"
+            legacy = json.loads(publishing.read_text())
+            legacy["version"] = 1
+            publishing.write_text(json.dumps(legacy) + "\n")
+
+            manifest = round_txn.publish(factory, 1, reservation["token"])
+
+            self.assertEqual(manifest["version"], 2)
+            self.assertEqual(
+                manifest["execution_verification"]["counts"]["verified"], 1
+            )
+            self.assertTrue((factory / "ROUND-r01.complete.json").is_file())
 
 
 if __name__ == "__main__":
