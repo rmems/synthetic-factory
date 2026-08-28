@@ -1,0 +1,19 @@
+pipelines/tag_io.py
+  s_5710181259ed77::t_a8e7f70a54862b 12-15,19,32,40-43,48-58,95,105-110
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "cbd34f095d64115caf4da7f9e27ea7bdf7ba418c",
+  "prompts": {},
+  "sessions": {
+    "s_5710181259ed77": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "01a04168-4ae7-7f00-ab26-a00f9a655adc",
+        "model": "unknown"
+      },
+      "human_author": "Raul Montoya Cardenas <montoyaraul34@gmail.com>"
+    }
+  }
+}
