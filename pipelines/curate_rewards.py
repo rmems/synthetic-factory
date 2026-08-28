@@ -452,10 +452,10 @@ def _arithmetic_methods_for_signature(signature, arithmetic, where):
         if len(pieces) != 2:
             raise _policy_error(where, "signature contains an invalid member")
         key = _unescape_signature_token(pieces[0])
-        value_type = _unescape_signature_token(pieces[1])
-        if not value_type or key in members:
+        member_type = _unescape_signature_token(pieces[1])
+        if not member_type or key in members:
             raise _policy_error(where, "signature contains an invalid member")
-        members[key] = value_type
+        members[key] = member_type
 
     total_type = members.get(arithmetic["declared_total_field"])
     if total_type not in {"int", "float"}:
