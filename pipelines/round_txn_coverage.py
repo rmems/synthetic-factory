@@ -55,16 +55,24 @@ def nested_key_paths(value, key, path=""):
         yield from _nested_list_key_paths(value, key, path)
 
 
+def _nested_dict_strings(mapping):
+    for item in mapping.values():
+        yield from nested_strings(item)
+
+
+def _nested_list_strings(items):
+    for item in items:
+        yield from nested_strings(item)
+
+
 def nested_strings(value):
     """Yield observable string values from a JSON-compatible value."""
     if isinstance(value, str):
         yield value
     elif isinstance(value, dict):
-        for item in value.values():
-            yield from nested_strings(item)
+        yield from _nested_dict_strings(value)
     elif isinstance(value, list):
-        for item in value:
-            yield from nested_strings(item)
+        yield from _nested_list_strings(value)
 
 
 def _flatten_unit_text(value):
@@ -211,15 +219,23 @@ def normalized_category(value):
     ).strip("_")
 
 
-def _prefix_is_negated(tokens):
-    for index, token in enumerate(tokens):
-        if token in {"no", "never", "without"}:
-            return True
-        if token == "not":
-            if index + 1 < len(tokens) and tokens[index + 1] == "only":
-                continue
-            return True
+def _is_not_without_only(tokens, index):
+    return not (index + 1 < len(tokens) and tokens[index + 1] == "only")
+
+
+def _token_is_negating(tokens, index, token):
+    if token in {"no", "never", "without"}:
+        return True
+    if token == "not":
+        return _is_not_without_only(tokens, index)
     return False
+
+
+def _prefix_is_negated(tokens):
+    return any(
+        _token_is_negating(tokens, index, token)
+        for index, token in enumerate(tokens)
+    )
 
 
 _SUFFIX_NEGATED_RE = re.compile(
@@ -409,16 +425,21 @@ def _step_failed_hypothesis(index, step, failure_terms):
     ]
 
 
+def _step_abandons_hypothesis(step, label, abandonment_terms):
+    if not isinstance(step, dict):
+        return False
+    basis = step.get("decision_basis")
+    if not isinstance(basis, str):
+        return False
+    basis_lower = basis.lower()
+    return label in basis_lower and any(term in basis_lower for term in abandonment_terms)
+
+
 def _hypothesis_abandoned_later(label, remaining_steps, abandonment_terms):
-    for step in remaining_steps:
-        basis = step.get("decision_basis") if isinstance(step, dict) else None
-        if (
-            isinstance(basis, str)
-            and label in basis.lower()
-            and any(term in basis.lower() for term in abandonment_terms)
-        ):
-            return True
-    return False
+    return any(
+        _step_abandons_hypothesis(step, label, abandonment_terms)
+        for step in remaining_steps
+    )
 
 
 def _collect_failed_hypotheses(steps):
