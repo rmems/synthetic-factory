@@ -42,29 +42,37 @@ def _extract_step_tool_name(tool):
     return None
 
 
+def _step_observation_failure(i, step, observation):
+    if "observation" in step and not isinstance(observation, str):
+        return "failed", f"step {i} observation must be a string"
+    return None
+
+
+def _step_inconclusive_reasons(i, step, tool_name, observation):
+    reasons = []
+    if step.get("thought") is not None and step.get("decision_basis") is None:
+        reasons.append(f"step {i} has hidden thought without decision_basis")
+    if tool_name is None:
+        reasons.append(f"step {i} missing tool_call")
+        return reasons
+    if tool_name not in KNOWN_TOOLS:
+        reasons.append(f"step {i} unknown tool {tool_name!r}")
+    if not isinstance(observation, str) or not observation.strip():
+        reasons.append(f"step {i} missing observation")
+    return reasons
+
+
 def _validate_single_episode_step(i, step):
     if not isinstance(step, dict):
         return "failed", f"step {i} not an object"
-    tool = step.get("tool_call")
-    obs = step.get("observation")
-    basis = step.get("decision_basis")
-    thought = step.get("thought")
-    reasons = []
-
-    if thought is not None and basis is None:
-        reasons.append(f"step {i} has hidden thought without decision_basis")
-
-    name = _extract_step_tool_name(tool)
+    name = _extract_step_tool_name(step.get("tool_call"))
+    observation = step.get("observation")
+    reasons = _step_inconclusive_reasons(i, step, name, observation)
     if name is None:
-        reasons.append(f"step {i} missing tool_call")
         return "inconclusive", reasons
-
-    if name not in KNOWN_TOOLS:
-        reasons.append(f"step {i} unknown tool {name!r}")
-    if "observation" in step and not isinstance(obs, str):
-        return "failed", f"step {i} observation must be a string"
-    if not isinstance(obs, str) or not obs.strip():
-        reasons.append(f"step {i} missing observation")
+    failure = _step_observation_failure(i, step, observation)
+    if failure is not None:
+        return failure
     return "inconclusive" if reasons else "verified", reasons
 
 
@@ -753,25 +761,38 @@ def _direct_record_envelope_verdict(obj, where, expected_kind):
     return None
 
 
+def _verify_direct_record(obj, where, expected_kind, verifier):
+    envelope = _direct_record_envelope_verdict(obj, where, expected_kind)
+    if envelope is not None:
+        return envelope
+    return verifier(obj, where)
+
+
+def _verify_thalamic_record(obj, where):
+    return _verify_direct_record(obj, where, "thalamic", verify_thalamic)
+
+
+def _verify_bridge_record(obj, where):
+    return _verify_direct_record(obj, where, "bridge_pair", _verify_bridge_execution)
+
+
+def _is_step_record(obj):
+    return "steps" in obj
+
+
+_RECORD_VERIFIER_ROUTES = (
+    (_is_thalamic_record, _verify_thalamic_record),
+    (_is_preference_record, _verify_preference_execution),
+    (_is_bridge_record, _verify_bridge_record),
+    (_is_step_record, _verify_step_record),
+)
+
+
 def verify_record_execution(obj, where="record"):
     """Return (status, reason) in {verified, inconclusive, failed}."""
     if not isinstance(obj, dict):
         return "failed", "not an object"
-    if _is_thalamic_record(obj):
-        envelope = _direct_record_envelope_verdict(obj, where, "thalamic")
-        if envelope is not None:
-            return envelope
-        return verify_thalamic(obj, where)
-    if _is_preference_record(obj):
-        return _verify_preference_execution(obj, where)
-    if _is_bridge_record(obj):
-        envelope = _direct_record_envelope_verdict(obj, where, "bridge_pair")
-        if envelope is not None:
-            return envelope
-        return _verify_bridge_execution(obj, where)
-    # Safety-calibration records have their own envelope checker. Ordinary
-    # standalone episodes must carry their own goal, while preference sides
-    # are routed above with the wrapper's shared-goal context.
-    if "steps" in obj:
-        return _verify_step_record(obj, where)
+    for predicate, verifier in _RECORD_VERIFIER_ROUTES:
+        if predicate(obj):
+            return verifier(obj, where)
     return "inconclusive", f"unrecognized shape keys {sorted(obj)[:6]}"

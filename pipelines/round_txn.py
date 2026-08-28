@@ -344,6 +344,7 @@ PUBLISH_PLAN_VOLATILE_KEYS = frozenset({"published_at", "execution_verification"
 LEGACY_COMPLETION_MARKER_VERSION = 1
 EXECUTION_VERIFIED_COMPLETION_MARKER_VERSION = 2
 EXECUTION_CUTOVER_KEY = "execution_verified_from_round"
+EXECUTION_VERIFIED_ROUNDS_KEY = "execution_verified_rounds"
 CANONICAL_EXECUTION_VERIFICATION_KEYS = frozenset(
     {"counts", "gate", "override", "semantics_version", "strict"}
 )
@@ -860,10 +861,18 @@ def _validated_completion_file_names(payload, round_number, path, factory_dir):
 
 
 def _bind_completion_execution_verdict(
-    factory_dir, round_number, payload, path, batch_name, cutover
+    factory_dir,
+    round_number,
+    payload,
+    path,
+    batch_name,
+    cutover,
+    bound_verified_rounds,
 ):
     marker_version = completion_marker_version(payload, path)
-    gated_round = _is_positive_int(cutover) and round_number >= cutover
+    gated_round = (
+        _is_positive_int(cutover) and round_number >= cutover
+    ) or round_number in bound_verified_rounds
     if marker_version == LEGACY_COMPLETION_MARKER_VERSION:
         if gated_round:
             raise TransactionError(
@@ -920,7 +929,7 @@ def completed_manifests(factory_dir: Path) -> dict[int, dict]:
     """
     seen_ids = sibling_committed_and_inflight_ids(factory_dir)
     _validate_legacy_baseline_ids(factory_dir, seen_ids)
-    cutover = execution_gate_cutover_round(factory_dir)
+    cutover, bound_verified_rounds = execution_gate_policy(factory_dir)
     manifests = {}
     loaded_markers = []
     for path in factory_dir.glob("ROUND-r*.complete.json"):
@@ -952,6 +961,7 @@ def completed_manifests(factory_dir: Path) -> dict[int, dict]:
             path,
             batch_name,
             cutover,
+            bound_verified_rounds,
         )
         if round_number in manifests:
             raise TransactionError(f"duplicate completion markers for r{round_number:02d}")
@@ -1084,17 +1094,38 @@ def validated_marker_mode(factory_dir: Path, mode_path: Path | None = None):
     return mode
 
 
-def execution_gate_cutover_round(factory_dir: Path):
-    """Return the first round that must carry a version-2 execution verdict."""
+def _validated_execution_verified_rounds(mode, mode_path, cutover):
+    rounds = mode.get(EXECUTION_VERIFIED_ROUNDS_KEY, [])
+    if not isinstance(rounds, list):
+        raise TransactionError(f"invalid {EXECUTION_VERIFIED_ROUNDS_KEY} in {mode_path}")
+    if any(not _is_positive_int(round_number) for round_number in rounds):
+        raise TransactionError(f"invalid {EXECUTION_VERIFIED_ROUNDS_KEY} in {mode_path}")
+    if len(rounds) != len(set(rounds)) or rounds != sorted(rounds):
+        raise TransactionError(f"invalid {EXECUTION_VERIFIED_ROUNDS_KEY} in {mode_path}")
+    if cutover is None and rounds:
+        raise TransactionError(f"invalid {EXECUTION_VERIFIED_ROUNDS_KEY} in {mode_path}")
+    if cutover is not None and any(round_number >= cutover for round_number in rounds):
+        raise TransactionError(f"invalid {EXECUTION_VERIFIED_ROUNDS_KEY} in {mode_path}")
+    return frozenset(rounds)
+
+
+def execution_gate_policy(factory_dir: Path):
+    """Return the contiguous cutover and explicitly bound gap-filled rounds."""
     mode_path = marker_mode_path(factory_dir)
     if mode_path is None:
-        return None
+        return None, frozenset()
     mode = read_json(mode_path)
     cutover = mode.get(EXECUTION_CUTOVER_KEY)
     if cutover is None:
-        return None
+        return None, _validated_execution_verified_rounds(mode, mode_path, None)
     if not _is_positive_int(cutover):
         raise TransactionError(f"invalid {EXECUTION_CUTOVER_KEY} in {mode_path}")
+    return cutover, _validated_execution_verified_rounds(mode, mode_path, cutover)
+
+
+def execution_gate_cutover_round(factory_dir: Path):
+    """Return the first round that must carry a version-2 execution verdict."""
+    cutover, _bound_verified_rounds = execution_gate_policy(factory_dir)
     return cutover
 
 
@@ -1117,14 +1148,23 @@ def remember_execution_gate_cutover(factory_dir: Path, round_number: int):
                 == LEGACY_COMPLETION_MARKER_VERSION
             ):
                 legacy_rounds.append(marker_round)
-        updated = dict(mode)
-        updated[EXECUTION_CUTOVER_KEY] = max(
+        cutover = max(
             [round_number, *(legacy_round + 1 for legacy_round in legacy_rounds)]
         )
+        updated = dict(mode)
+        updated[EXECUTION_CUTOVER_KEY] = cutover
+        if round_number < cutover:
+            updated[EXECUTION_VERIFIED_ROUNDS_KEY] = [round_number]
         replace_json_atomically(mode_path, updated)
         return
     if not _is_positive_int(existing):
         raise TransactionError(f"invalid {EXECUTION_CUTOVER_KEY} in {mode_path}")
+    bound_rounds = _validated_execution_verified_rounds(mode, mode_path, existing)
+    if round_number >= existing or round_number in bound_rounds:
+        return
+    updated = dict(mode)
+    updated[EXECUTION_VERIFIED_ROUNDS_KEY] = sorted({*bound_rounds, round_number})
+    replace_json_atomically(mode_path, updated)
 
 
 def staging_dir(factory_dir: Path, round_number: int, token: str):

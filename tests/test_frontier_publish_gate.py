@@ -447,9 +447,22 @@ class FrontierPublishGate(unittest.TestCase):
 
             mode = json.loads((factory / ".round-marker-mode.json").read_text())
             self.assertEqual(mode[round_txn.EXECUTION_CUTOVER_KEY], 3)
+            self.assertEqual(mode[round_txn.EXECUTION_VERIFIED_ROUNDS_KEY], [1])
             frontier = round_txn.frontier_status(factory)
             self.assertEqual(frontier["completed_markers"], [1, 2])
             self.assertEqual(frontier["next_round"], 3)
+
+            marker_path = factory / "ROUND-r01.complete.json"
+            marker = json.loads(marker_path.read_text())
+            marker["version"] = 1
+            marker.pop("execution_verification", None)
+            marker_path.write_text(json.dumps(marker, indent=2, sort_keys=True) + "\n")
+
+            with self.assertRaisesRegex(
+                round_txn.TransactionError,
+                "completion marker version downgrade cannot skip execution",
+            ):
+                round_txn.frontier_status(factory)
 
     def test_completion_markers_are_ordered_by_round_before_downgrade_checks(self):
         with tempfile.TemporaryDirectory() as td:
