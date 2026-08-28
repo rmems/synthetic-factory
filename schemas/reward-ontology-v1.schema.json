@@ -2,13 +2,16 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "reward-ontology-v1.schema.json",
   "title": "Synthetic Factory Reward Ontology v1",
-  "description": "Canonical reward-training annotations and reversible source-reward sidecars. Only magnitude_comparable annotations may expose canonical numeric magnitudes.",
+  "description": "Canonical reward-training annotations, reversible source-reward sidecars, and the machine-readable conversion policy that decides between them. Only magnitude_comparable annotations may expose canonical numeric magnitudes.",
   "oneOf": [
     {
       "$ref": "#/$defs/annotation"
     },
     {
       "$ref": "#/$defs/sidecar"
+    },
+    {
+      "$ref": "#/$defs/conversionPolicy"
     }
   ],
   "$defs": {
@@ -23,6 +26,126 @@
       "items": {
         "type": "string",
         "pattern": "^[a-z][a-z0-9_]*$"
+      }
+    },
+    "nonemptyStringList": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "arithmeticOutcome": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "status",
+        "method"
+      ],
+      "properties": {
+        "status": {
+          "enum": [
+            "valid",
+            "invalid",
+            "unsupported"
+          ]
+        },
+        "method": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "policyArithmetic": {
+      "type": "object",
+      "required": [
+        "default_tolerance",
+        "declared_total_field",
+        "weights_field",
+        "rounding_decimals_field",
+        "rounding_declaration_pattern",
+        "rounding_declaration_fields",
+        "nested_component_key",
+        "weighted_containers",
+        "weight_aliases",
+        "non_component_keys",
+        "methods"
+      ],
+      "properties": {
+        "default_tolerance": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "declared_total_field": {
+          "type": "string",
+          "minLength": 1
+        },
+        "weights_field": {
+          "type": "string",
+          "minLength": 1
+        },
+        "rounding_decimals_field": {
+          "type": "string",
+          "minLength": 1
+        },
+        "rounding_declaration_pattern": {
+          "type": "string",
+          "minLength": 1
+        },
+        "rounding_declaration_fields": {
+          "$ref": "#/$defs/nonemptyStringList"
+        },
+        "nested_component_key": {
+          "type": "string",
+          "minLength": 1
+        },
+        "weighted_containers": {
+          "$ref": "#/$defs/nonemptyStringList"
+        },
+        "weight_aliases": {
+          "type": "object",
+          "minProperties": 1,
+          "additionalProperties": {
+            "$ref": "#/$defs/nonemptyStringList"
+          }
+        },
+        "non_component_keys": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "declared_total",
+            "unit_calibration",
+            "narrative_annotation"
+          ],
+          "properties": {
+            "declared_total": {
+              "$ref": "#/$defs/nonemptyStringList"
+            },
+            "unit_calibration": {
+              "$ref": "#/$defs/nonemptyStringList"
+            },
+            "narrative_annotation": {
+              "$ref": "#/$defs/nonemptyStringList"
+            }
+          }
+        },
+        "methods": {
+          "type": "object",
+          "required": [
+            "declared_weighted_sum",
+            "declared_weighted_sum_unresolved",
+            "unweighted_component_sum",
+            "unweighted_component_sum_unresolved",
+            "no_numeric_total",
+            "non_object_reward"
+          ],
+          "additionalProperties": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
       }
     },
     "magnitudeValue": {
@@ -197,6 +320,535 @@
           }
         }
       ]
+    },
+    "conversionPolicy": {
+      "type": "object",
+      "description": "schemas/reward-ontology-v1.mapping.json: the versioned conversion policy pipelines/curate_rewards.py reads, plus the frozen source-key and shape mapping for the run it was derived from.",
+      "required": [
+        "document_type",
+        "ontology_version",
+        "mapping_version",
+        "policy",
+        "source_vocabulary",
+        "expected_classification"
+      ],
+      "properties": {
+        "document_type": {
+          "const": "reward_conversion_policy"
+        },
+        "ontology_version": {
+          "const": "reward-ontology-v1"
+        },
+        "mapping_version": {
+          "const": "reward-mapping-v1"
+        },
+        "policy": {
+          "type": "object",
+          "required": [
+            "annotation_field",
+            "reward_keys",
+            "canonical_scope",
+            "preference_scope",
+            "arithmetic",
+            "conversion",
+            "component_dispositions",
+            "comparability_classes",
+            "reason_codes",
+            "comparability_rules"
+          ],
+          "properties": {
+            "annotation_field": {
+              "type": "string",
+              "minLength": 1
+            },
+            "reward_keys": {
+              "type": "array",
+              "minItems": 1,
+              "uniqueItems": true,
+              "items": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "canonical_scope": {
+              "type": "string",
+              "pattern": "^/.+"
+            },
+            "preference_scope": {
+              "type": "object",
+              "required": [
+                "preferred",
+                "dispreferred",
+                "relation"
+              ],
+              "properties": {
+                "preferred": {
+                  "type": "string",
+                  "pattern": "^/.+"
+                },
+                "dispreferred": {
+                  "type": "string",
+                  "pattern": "^/.+"
+                },
+                "relation": {
+                  "const": "preferred_gt_dispreferred"
+                }
+              }
+            },
+            "arithmetic": {
+              "$ref": "#/$defs/policyArithmetic"
+            },
+            "comparability_classes": {
+              "type": "object",
+              "additionalProperties": false,
+              "minProperties": 3,
+              "required": [
+                "magnitude_comparable",
+                "sign_order_only",
+                "exclude_from_reward_training"
+              ],
+              "properties": {
+                "magnitude_comparable": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "sign_order_only": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "exclude_from_reward_training": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              }
+            },
+            "component_dispositions": {
+              "type": "object",
+              "additionalProperties": false,
+              "minProperties": 7,
+              "required": [
+                "declared_total",
+                "unit_calibration",
+                "narrative_annotation",
+                "component_container",
+                "magnitude_term",
+                "structural_context",
+                "ambiguous_preserve_only"
+              ],
+              "properties": {
+                "declared_total": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "unit_calibration": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "narrative_annotation": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "component_container": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "magnitude_term": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "structural_context": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "ambiguous_preserve_only": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              }
+            },
+            "conversion": {
+              "type": "object",
+              "required": [
+                "canonical_unit",
+                "canonical_unit_usd",
+                "aggregation",
+                "required_semantics_substring",
+                "structured_unit_field",
+                "text_unit_field",
+                "usd_unit_pattern",
+                "external_calibration"
+              ],
+              "properties": {
+                "canonical_unit": {
+                  "const": "usd_10000_risk_adjusted_delta"
+                },
+                "canonical_unit_usd": {
+                  "const": 10000
+                },
+                "aggregation": {
+                  "const": "linear_unit_conversion_only"
+                },
+                "required_semantics_substring": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "structured_unit_field": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "text_unit_field": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "usd_unit_pattern": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "external_calibration": {
+                  "type": "object",
+                  "required": [
+                    "record_id_pattern",
+                    "factor_field",
+                    "scope_field"
+                  ],
+                  "properties": {
+                    "record_id_pattern": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "factor_field": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "scope_field": {
+                      "type": "string",
+                      "minLength": 1
+                    }
+                  }
+                }
+              }
+            },
+            "reason_codes": {
+              "type": "object",
+              "propertyNames": {
+                "pattern": "^[a-z][a-z0-9_]*$"
+              },
+              "additionalProperties": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "comparability_rules": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "type": "object",
+                "required": [
+                  "id",
+                  "scope",
+                  "condition",
+                  "comparability",
+                  "reason_codes"
+                ],
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "scope": {
+                    "enum": [
+                      "any",
+                      "preference",
+                      "single"
+                    ]
+                  },
+                  "condition": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "comparability": {
+                    "enum": [
+                      "magnitude_comparable",
+                      "sign_order_only",
+                      "exclude_from_reward_training"
+                    ]
+                  },
+                  "reason_codes": {
+                    "$ref": "#/$defs/reasonCodes"
+                  },
+                  "optional_reason_codes": {
+                    "$ref": "#/$defs/reasonCodes"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "source_vocabulary": {
+          "type": "object",
+          "required": [
+            "run",
+            "records",
+            "reward_instances",
+            "ontology_scope_instances",
+            "unique_component_keys",
+            "unique_shapes",
+            "dispositions",
+            "component_keys",
+            "shapes"
+          ],
+          "properties": {
+            "records": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "reward_instances": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "ontology_scope_instances": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "unique_component_keys": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "unique_shapes": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "dispositions": {
+              "type": "object",
+              "minProperties": 7,
+              "maxProperties": 7,
+              "propertyNames": {
+                "enum": [
+                  "declared_total",
+                  "unit_calibration",
+                  "narrative_annotation",
+                  "component_container",
+                  "magnitude_term",
+                  "structural_context",
+                  "ambiguous_preserve_only"
+                ]
+              },
+              "additionalProperties": {
+                "type": "integer",
+                "minimum": 0
+              }
+            },
+            "component_keys": {
+              "type": "object",
+              "minProperties": 1,
+              "additionalProperties": {
+                "type": "object",
+                "required": [
+                  "disposition",
+                  "observed_types",
+                  "occurrences"
+                ],
+                "properties": {
+                  "disposition": {
+                    "enum": [
+                      "declared_total",
+                      "unit_calibration",
+                      "narrative_annotation",
+                      "component_container",
+                      "magnitude_term",
+                      "structural_context",
+                      "ambiguous_preserve_only"
+                    ]
+                  },
+                  "observed_types": {
+                    "type": "array",
+                    "minItems": 1,
+                    "uniqueItems": true,
+                    "items": {
+                      "enum": [
+                        "number",
+                        "value-object",
+                        "object",
+                        "array",
+                        "string",
+                        "boolean",
+                        "null",
+                        "unknown"
+                      ]
+                    }
+                  },
+                  "occurrences": {
+                    "type": "integer",
+                    "minimum": 1
+                  }
+                }
+              }
+            },
+            "shapes": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "type": "object",
+                "required": [
+                  "signature",
+                  "occurrences"
+                ],
+                "properties": {
+                  "signature": {
+                    "type": "string"
+                  },
+                  "occurrences": {
+                    "type": "integer",
+                    "minimum": 1
+                  },
+                  "arithmetic_status": {
+                    "enum": [
+                      "valid",
+                      "invalid",
+                      "unsupported"
+                    ]
+                  },
+                  "arithmetic_method": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "arithmetic_outcomes": {
+                    "type": "array",
+                    "minItems": 1,
+                    "uniqueItems": true,
+                    "items": {
+                      "$ref": "#/$defs/arithmeticOutcome"
+                    }
+                  }
+                },
+                "oneOf": [
+                  {
+                    "required": [
+                      "arithmetic_status",
+                      "arithmetic_method"
+                    ],
+                    "not": {
+                      "required": [
+                        "arithmetic_outcomes"
+                      ]
+                    }
+                  },
+                  {
+                    "required": [
+                      "arithmetic_outcomes"
+                    ],
+                    "not": {
+                      "anyOf": [
+                        {
+                          "required": [
+                            "arithmetic_status"
+                          ]
+                        },
+                        {
+                          "required": [
+                            "arithmetic_method"
+                          ]
+                        }
+                      ]
+                    }
+                  }
+                ]
+              }
+            }
+          }
+        },
+        "expected_classification": {
+          "type": "object",
+          "required": [
+            "run",
+            "records",
+            "comparability",
+            "reason_codes",
+            "by_factory"
+          ],
+          "properties": {
+            "run": {
+              "type": "string",
+              "minLength": 1
+            },
+            "records": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "comparability": {
+              "type": "object",
+              "propertyNames": {
+                "enum": [
+                  "magnitude_comparable",
+                  "sign_order_only",
+                  "exclude_from_reward_training"
+                ]
+              },
+              "additionalProperties": {
+                "type": "integer",
+                "minimum": 0
+              }
+            },
+            "reason_codes": {
+              "type": "object",
+              "propertyNames": {
+                "pattern": "^[a-z][a-z0-9_]*$"
+              },
+              "additionalProperties": {
+                "type": "integer",
+                "minimum": 0
+              }
+            },
+            "by_factory": {
+              "type": "object",
+              "minProperties": 1,
+              "propertyNames": {
+                "pattern": "^[a-z0-9][a-z0-9-]*$"
+              },
+              "additionalProperties": {
+                "type": "object",
+                "required": [
+                  "records",
+                  "comparability",
+                  "reason_codes"
+                ],
+                "properties": {
+                  "records": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "comparability": {
+                    "type": "object",
+                    "minProperties": 1,
+                    "propertyNames": {
+                      "enum": [
+                        "magnitude_comparable",
+                        "sign_order_only",
+                        "exclude_from_reward_training"
+                      ]
+                    },
+                    "additionalProperties": {
+                      "type": "integer",
+                      "minimum": 0
+                    }
+                  },
+                  "reason_codes": {
+                    "type": "object",
+                    "minProperties": 1,
+                    "propertyNames": {
+                      "pattern": "^[a-z][a-z0-9_]*$"
+                    },
+                    "additionalProperties": {
+                      "type": "integer",
+                      "minimum": 0
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
     },
     "sourceReward": {
       "type": "object",

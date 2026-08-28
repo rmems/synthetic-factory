@@ -376,7 +376,7 @@ class TaxonomyDocumentTests(unittest.TestCase):
 
     def test_parser_and_compiler_resource_errors_are_wrapped(self):
         stages = (
-            ("parser", "curate_tags._re_parser.parse"),
+            ("parser", "curate_tags.regex_parser.parse"),
             ("compiler", "curate_tags.re.compile"),
         )
         for stage, target in stages:

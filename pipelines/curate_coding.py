@@ -759,7 +759,14 @@ def verify_manifest(
                 seen_source_locations.add(source_location)
         if manifest.get("transform") != TRANSFORM_NAME:
             violations.append(f"{where}: manifest is not a {TRANSFORM_NAME} manifest")
-        if str(manifest.get("transform_version")) not in ACCEPTED_TRANSFORM_VERSIONS:
+        transform_version = manifest.get("transform_version")
+        if isinstance(transform_version, bool) or not isinstance(
+            transform_version, (str, int)
+        ):
+            version_token = None
+        else:
+            version_token = str(transform_version)
+        if version_token not in ACCEPTED_TRANSFORM_VERSIONS:
             violations.append(
                 f"{where}: manifest transform version is not {TRANSFORM_VERSION}"
             )

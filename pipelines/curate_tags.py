@@ -27,14 +27,16 @@ from __future__ import annotations
 import argparse
 import copy
 import hashlib
+import importlib
 import json
 import math
 import os
 import re
 from collections import Counter
 from pathlib import Path
-from re import _parser as _re_parser
 from typing import Any
+
+regex_parser = importlib.import_module("re._parser")
 
 
 TRANSFORM_NAME = "tag_taxonomy"
@@ -101,18 +103,18 @@ _MAX_SAFE_BOUNDED_REPEAT = 10_000
 _REGEX_RESOURCE_ERRORS = (OverflowError, RecursionError, MemoryError)
 _REGEX_REPEAT_OPS = frozenset(
     {
-        _re_parser.MAX_REPEAT,
-        _re_parser.MIN_REPEAT,
-        _re_parser.POSSESSIVE_REPEAT,
+        regex_parser.MAX_REPEAT,
+        regex_parser.MIN_REPEAT,
+        regex_parser.POSSESSIVE_REPEAT,
     }
 )
 _REGEX_CONSUMING_ATOMS = frozenset(
     {
-        _re_parser.LITERAL,
-        _re_parser.NOT_LITERAL,
-        _re_parser.ANY,
-        _re_parser.IN,
-        _re_parser.CATEGORY,
+        regex_parser.LITERAL,
+        regex_parser.NOT_LITERAL,
+        regex_parser.ANY,
+        regex_parser.IN,
+        regex_parser.CATEGORY,
     }
 )
 _RegexDomain = tuple[bool, tuple[tuple[int, int], ...]] | None
@@ -137,23 +139,23 @@ def _regex_atom_domain(
 ) -> _RegexDomain:
     """Return an exact finite/complement character domain when available."""
     operation, argument = item
-    if operation is _re_parser.LITERAL:
+    if operation is regex_parser.LITERAL:
         return False, ((argument, argument),)
-    if operation is _re_parser.NOT_LITERAL:
+    if operation is regex_parser.NOT_LITERAL:
         return True, ((argument, argument),)
-    if operation in {_re_parser.ANY, _re_parser.CATEGORY}:
+    if operation in {regex_parser.ANY, regex_parser.CATEGORY}:
         return None
-    if operation is not _re_parser.IN:
+    if operation is not regex_parser.IN:
         return None
 
     negated = False
     ranges: list[tuple[int, int]] = []
     for class_operation, class_argument in argument:
-        if class_operation is _re_parser.NEGATE:
+        if class_operation is regex_parser.NEGATE:
             negated = True
-        elif class_operation is _re_parser.LITERAL:
+        elif class_operation is regex_parser.LITERAL:
             ranges.append((class_argument, class_argument))
-        elif class_operation is _re_parser.RANGE:
+        elif class_operation is regex_parser.RANGE:
             ranges.append(class_argument)
         else:
             # Unicode categories and bitmap opcodes are safe as atoms, but
@@ -219,16 +221,16 @@ def _regex_leading_domain(
 ) -> _RegexDomain:
     """Return a provable first-character domain for a repeated body."""
     for operation, argument in items:
-        if operation is _re_parser.AT:
+        if operation is regex_parser.AT:
             continue
         if operation in _REGEX_CONSUMING_ATOMS:
             return _regex_atom_domain((operation, argument))
-        if operation is _re_parser.SUBPATTERN:
+        if operation is regex_parser.SUBPATTERN:
             _group, add_flags, del_flags, body = argument
             if add_flags or del_flags:
                 return None
             return _regex_leading_domain(body)
-        if operation is _re_parser.BRANCH:
+        if operation is regex_parser.BRANCH:
             return None
         if operation in _REGEX_REPEAT_OPS:
             minimum, _maximum, body = argument
@@ -242,16 +244,16 @@ def _regex_leading_domain(
 def _regex_sequence_is_nullable(items: Any) -> bool:
     """Whether a parsed sequence can consume no characters."""
     for operation, argument in items:
-        if operation is _re_parser.AT:
+        if operation is regex_parser.AT:
             continue
         if operation in _REGEX_CONSUMING_ATOMS:
             return False
-        if operation is _re_parser.SUBPATTERN:
+        if operation is regex_parser.SUBPATTERN:
             _group, add_flags, del_flags, body = argument
             if add_flags or del_flags or not _regex_sequence_is_nullable(body):
                 return False
             continue
-        if operation is _re_parser.BRANCH:
+        if operation is regex_parser.BRANCH:
             _none, branches = argument
             if not any(_regex_sequence_is_nullable(branch) for branch in branches):
                 return False
@@ -310,9 +312,9 @@ def _validate_linear_regex_sequence(
                 )
             previous_variables = []
             continue
-        if operation is _re_parser.AT:
+        if operation is regex_parser.AT:
             continue
-        if operation is _re_parser.SUBPATTERN:
+        if operation is regex_parser.SUBPATTERN:
             _group, add_flags, del_flags, body = argument
             if add_flags or del_flags:
                 raise _UnsafeRegexError("inline flags are not supported")
@@ -324,7 +326,7 @@ def _validate_linear_regex_sequence(
                 )
             )
             continue
-        if operation is _re_parser.BRANCH:
+        if operation is regex_parser.BRANCH:
             _none, branches = argument
             if previous_variables:
                 raise _UnsafeRegexError(
@@ -358,7 +360,7 @@ def _validate_linear_regex_sequence(
         if counters["repeats"] > _MAX_SAFE_REGEX_REPEATS:
             raise _UnsafeRegexError("too many repeat operations")
         minimum, maximum, body = argument
-        if maximum is not _re_parser.MAXREPEAT and maximum > _MAX_SAFE_BOUNDED_REPEAT:
+        if maximum is not regex_parser.MAXREPEAT and maximum > _MAX_SAFE_BOUNDED_REPEAT:
             raise _UnsafeRegexError(
                 f"repeat upper bound exceeds {_MAX_SAFE_BOUNDED_REPEAT}"
             )
@@ -393,7 +395,7 @@ def _validate_linear_regex_sequence(
             _append_regex_domain(next_variables, leading_domain)
         previous_variables = next_variables
 
-        if maximum is _re_parser.MAXREPEAT:
+        if maximum is regex_parser.MAXREPEAT:
             if previous_unbounded is not None:
                 previous_index, repeated_domain = previous_unbounded
                 if not _has_safe_repeat_boundary(
@@ -415,7 +417,7 @@ def _compile_taxonomy_regex(pattern: str, *, label: str, source: str) -> re.Patt
             f"subset: pattern exceeds {_MAX_SAFE_REGEX_LENGTH} characters"
         )
     try:
-        parsed = _re_parser.parse(pattern, 0)
+        parsed = regex_parser.parse(pattern, 0)
     except re.error as exc:
         raise TagTaxonomyError(f"{source}: {label} is not a valid regex: {exc}") from exc
     except _REGEX_RESOURCE_ERRORS as exc:

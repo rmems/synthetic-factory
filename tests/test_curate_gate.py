@@ -2120,9 +2120,13 @@ class CorpusGateTests(unittest.TestCase):
         sidecar_path = fixture.lane_reward / "reward-sidecars.jsonl"
         documents = _read_jsonl(sidecar_path)
         target = next(document for document in documents if document["sidecar_id"] == old_id)
+        forged_reasons = [
+            "explicit_usd_unit_calibration",
+            "reward_arithmetic_verified",
+        ]
         target["classification"] = {
             "comparability": curate_rewards.MAGNITUDE_COMPARABLE,
-            "reason_codes": ["explicit_usd_unit_calibration"],
+            "reason_codes": list(forged_reasons),
         }
         body = dict(target)
         body.pop("sidecar_id")
@@ -2130,7 +2134,7 @@ class CorpusGateTests(unittest.TestCase):
         annotation.update(
             {
                 "comparability": curate_rewards.MAGNITUDE_COMPARABLE,
-                "reason_codes": ["explicit_usd_unit_calibration"],
+                "reason_codes": list(forged_reasons),
                 "source_sidecar_id": target["sidecar_id"],
                 "magnitude": {
                     "canonical_unit": curate_rewards.CANONICAL_UNIT,
