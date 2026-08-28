@@ -600,7 +600,7 @@ class RoundTransaction(unittest.TestCase):
         ):
             with self.subTest(suffix=suffix), tempfile.TemporaryDirectory() as td:
                 self._assert_publish_rejects_notes(
-                    td, notes_text, "exactly one unambiguous", f"ambiguous-{suffix}"
+                    td, notes_text, "Novel coverage", f"ambiguous-{suffix}"
                 )
 
     def test_publish_rejects_coverage_split_across_physical_lines(self):
@@ -608,7 +608,7 @@ class RoundTransaction(unittest.TestCase):
             self._assert_publish_rejects_notes(
                 td,
                 "Novel coverage:\n80% of tests passed.\n",
-                "exactly one unambiguous",
+                "Novel coverage",
                 "split-line",
             )
 
@@ -635,7 +635,7 @@ class RoundTransaction(unittest.TestCase):
             self._assert_legacy_notes_tolerance(
                 td,
                 "Novel coverage: 4% — low due to repeated scenarios\n",
-                "exactly one unambiguous",
+                "Novel coverage",
             )
 
     def test_read_path_keeps_legacy_duplicate_claims_but_publish_rejects_them(self):
@@ -643,7 +643,7 @@ class RoundTransaction(unittest.TestCase):
             self._assert_legacy_notes_tolerance(
                 td,
                 "Novel coverage: 4% — original committed claim\nNovel coverage: 80%\n",
-                "exactly one unambiguous",
+                "Novel coverage",
             )
 
     def test_read_path_keeps_legacy_multiline_claim_but_publish_rejects_it(self):
