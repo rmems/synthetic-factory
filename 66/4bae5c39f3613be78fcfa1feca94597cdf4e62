@@ -1,0 +1,84 @@
+pipelines/tag_regex_domain.py
+  s_8d617cfd432692::t_64fc8bccc6c58b 1-205
+pipelines/tag_jsonutil.py
+  s_ae478d549a50a2::t_33377c5230e91f 37
+  s_8d617cfd432692::t_591679362f86d2 1-36,38-87
+tests/tag_test_support.py
+  s_ae478d549a50a2::t_78b2be7c82e4fb 1-46,96-199
+  s_ae478d549a50a2::t_ec7da1ecf26df8 47-95
+tests/test_curate_tags_record.py
+  s_ae478d549a50a2::t_a203bf2aa95788 9-12
+  s_ae478d549a50a2::t_5767eb207a499f 3,8,13-15
+  s_ae478d549a50a2::t_6103378248f218 1-2,4-7,16-395
+tests/test_curate_tags_cli.py
+  s_ae478d549a50a2::t_1afb15963213f0 1-9,18-481,483-498
+  s_ae478d549a50a2::t_f6023dabf3cd18 11-14
+  s_ae478d549a50a2::t_d3334581f67dd4 10,15-17,482
+tests/test_curate_tags_taxonomy.py
+  s_ae478d549a50a2::t_285298dd1d6783 1,3-7,15-331
+  s_ae478d549a50a2::t_7d170d4edc7a39 2,8,13-14
+  s_ae478d549a50a2::t_a20c082dd5b3ca 9-12
+pipelines/tag_constants.py
+  s_8d617cfd432692::t_0c3fe611006bfd 1-48
+pipelines/tag_regex.py
+  s_ae478d549a50a2::t_62c66bb2f8c5c5 327
+  s_8d617cfd432692::t_19de9a8dbd75f2 1-238,240,242-243,245-286,293,297,299-307,313,315,334-335,337,339-428
+  s_8d617cfd432692::t_db5f4ec2e03353 239,241,244,287-292,294-296,298,308-312,314,316-326,328-333,336,338
+qodana.yaml
+  s_ae478d549a50a2::t_94d8ae9e59fa2e 17-21
+tests/test_curate_tags.py
+  s_ae478d549a50a2::t_68aaa9e4308b5e 6-9
+  s_ae478d549a50a2::t_b61fa89fb72691 5,11
+pipelines/tag_taxonomy.py
+  s_8d617cfd432692::t_318d6c492e5ca6 1-4,6-27,29-424,426-500
+  s_8d617cfd432692::t_05da2a919cec64 5,425
+  s_8d617cfd432692::t_0127a34fd50dc9 28
+pipelines/tag_io.py
+  s_ae478d549a50a2::t_089b5fba294090 1-26,28-147
+  s_ae478d549a50a2::t_3b0239735da0d6 27
+pipelines/tag_jsonl.py
+  s_ae478d549a50a2::t_cd7fa4bbd6887f 1-237
+  s_ae478d549a50a2::t_6a7e5ddba45c80 238-239
+tests/test_curate_tags_map.py
+  s_ae478d549a50a2::t_4dd6ba55bc766b 6-9
+  s_ae478d549a50a2::t_9b0609dcf46f17 1,3,5,10-11
+  s_ae478d549a50a2::t_dd2b4599811df9 2,4,12-269
+pipelines/tag_record.py
+  s_8d617cfd432692::t_0bc29773a31c5e 279,299,326,437,439
+  s_8d617cfd432692::t_1b2e888d8cf429 1-230,234-243,245,249-251,255-274,278,280-295,297-298,304-319,327-328,335-339,341-347,349-350,352-354,356,358-416,419-436,438,440-486
+  s_ae478d549a50a2::t_1c84d9d650e6fc 276-277,320-325,329-334,340,348,351,355,357
+  s_ae478d549a50a2::t_d61a3aec7418f9 417-418
+  s_ae478d549a50a2::t_ea22bfa9fc57cd 231-233,244,246-248,252-254,275,296,300-303
+pipelines/curate_tags.py
+  s_ae478d549a50a2::t_afe5565a04729a 29,32-67,69-72,74-128,141-143,150-163,178-180,183-186
+  s_ae478d549a50a2::t_8d832aff74c3a3 132,139,181-182,187-190
+  s_ae478d549a50a2::t_482008022ee017 191-202
+tests/test_curate_tags_jsonl.py
+  s_ae478d549a50a2::t_3fa4cfe2ef6009 4,10,15-16
+  s_ae478d549a50a2::t_3609d163b71f22 11-14
+  s_ae478d549a50a2::t_529b4e61905228 1-3,5-9,17-315
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "664bae5c39f3613be78fcfa1feca94597cdf4e62",
+  "prompts": {},
+  "sessions": {
+    "s_8d617cfd432692": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "01a047ec-e176-7460-a639-f89feea07baf",
+        "model": "unknown"
+      },
+      "human_author": "Raul Montoya Cardenas <montoyaraul34@gmail.com>"
+    },
+    "s_ae478d549a50a2": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "01a047fa-225d-73b2-9dde-a007157f0f96",
+        "model": "unknown"
+      },
+      "human_author": "Raul Montoya Cardenas <montoyaraul34@gmail.com>"
+    }
+  }
+}
