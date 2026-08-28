@@ -416,7 +416,9 @@ def check_jsonl(path, rel, seen_ids=None, factory_staging=False):
         text = Path(path).read_text()
     except UnicodeDecodeError as exc:
         return [f"{rel}: invalid UTF-8: {exc}"], warnings, kinds, records
-    for lineno, line in enumerate(text.splitlines(), 1):
+    # JSONL record boundaries are literal LF only.  U+2028 and U+2029 remain
+    # ordinary JSON string data and must not be treated as line separators.
+    for lineno, line in enumerate(text.split("\n"), 1):
         if not line.strip():
             continue
         where = f"{rel}:{lineno}"
