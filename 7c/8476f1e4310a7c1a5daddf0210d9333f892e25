@@ -1,0 +1,36 @@
+tests/test_curate_coding_hidden.py
+  s_420f3a909ec2e3::t_8750bd64527aa2 50-61,71-74,122-125
+tests/test_curate_coding_verify_shape.py
+  s_420f3a909ec2e3::t_2a1a03d63e529d 337-345,348,365
+pipelines/curate_coding.py
+  s_420f3a909ec2e3::t_b9043cb53f73b3 31-32,35,45,69-70,73-532
+  s_420f3a909ec2e3::t_81b42fac0fceb6 72
+  s_420f3a909ec2e3::t_2f1edc540413f8 59,62
+  s_420f3a909ec2e3::t_351ad1b6ab2c5c 557-559
+pipelines/coding_verify_steps.py
+  s_420f3a909ec2e3::t_bef393d04bebb2 7
+pipelines/coding_verify.py
+  s_420f3a909ec2e3::t_a915a134813073 8,22-49
+pipelines/coding_verify_manifest.py
+  s_420f3a909ec2e3::t_4e7927847e411d 564-565
+  s_420f3a909ec2e3::t_37e2142999ad6a 5,462,466,470-472
+  s_420f3a909ec2e3::t_2171620da996f8 7
+  s_420f3a909ec2e3::t_67039f45b6298b 504,506-507,521,537
+  s_420f3a909ec2e3::t_b29461108bf24f 36-42
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "7c8476f1e4310a7c1a5daddf0210d9333f892e25",
+  "prompts": {},
+  "sessions": {
+    "s_420f3a909ec2e3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "01a047fa-225c-7f33-ad25-5644286ec3ab",
+        "model": "unknown"
+      },
+      "human_author": "Raul Montoya Cardenas <montoyaraul34@gmail.com>"
+    }
+  }
+}
