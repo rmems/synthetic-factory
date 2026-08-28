@@ -447,6 +447,66 @@ class RewardOntologyV1Tests(unittest.TestCase):
         ):
             curate_rewards.validate_ontology_document(malformed)
 
+    def test_s08_emits_external_calibration_evidence(self):
+        record = {"id": "single-cal", "reward_components": components(1.0)}
+        calibration = {
+            "source_unit_usd": 2000,
+            "canonical_factor": 0.2,
+            "evidence_ref": "units-migration.json#/records/1",
+        }
+
+        without_evidence, _ = curate_rewards.curate_record(record)
+        with_evidence, sidecar = curate_rewards.curate_record(
+            record, calibration=calibration
+        )
+
+        self.assertNotIn(
+            "external_calibration_evidence",
+            without_evidence["reward_training"]["reason_codes"],
+        )
+        annotation = with_evidence["reward_training"]
+        self.assertEqual(annotation["comparability"], "magnitude_comparable")
+        self.assertIn("external_calibration_evidence", annotation["reason_codes"])
+        self.assertEqual(
+            sidecar["calibration"]["evidence_ref"],
+            "units-migration.json#/records/1",
+        )
+
+    def test_sidecar_calibration_reason_linkage_is_fail_closed(self):
+        record = {"id": "single-cal", "reward_components": components(1.0)}
+        calibration = {
+            "source_unit_usd": 2000,
+            "canonical_factor": 0.2,
+            "evidence_ref": "units-migration.json#/records/1",
+        }
+        _curated, sidecar = curate_rewards.curate_record(
+            record, calibration=calibration
+        )
+
+        missing_reason = copy.deepcopy(sidecar)
+        missing_reason["classification"]["reason_codes"] = [
+            code
+            for code in missing_reason["classification"]["reason_codes"]
+            if code != "external_calibration_evidence"
+        ]
+        missing_reason.pop("sidecar_id", None)
+        missing_reason["sidecar_id"] = curate_rewards._sha256(missing_reason)
+        with self.assertRaisesRegex(
+            curate_rewards.RewardOntologyError,
+            "sidecar calibration requires external_calibration_evidence",
+        ):
+            curate_rewards.validate_ontology_document(missing_reason)
+
+        missing_calibration = copy.deepcopy(sidecar)
+        missing_calibration.pop("calibration")
+        missing_calibration.pop("sidecar_id", None)
+        missing_calibration["sidecar_id"] = curate_rewards._sha256(missing_calibration)
+        with self.assertRaisesRegex(
+            curate_rewards.RewardOntologyError,
+            "external_calibration_evidence requires an applied sidecar calibration",
+        ):
+            curate_rewards.validate_ontology_document(missing_calibration)
+
     def test_runtime_validator_recomputes_canonical_conversion(self):
         units = "1.0 reward unit = USD 10,000 (risk-adjusted); deltas vs baseline"
         record = preference(

@@ -312,6 +312,9 @@
         "reason_codes": [
           "explicit_usd_unit_calibration",
           "reward_arithmetic_verified"
+        ],
+        "optional_reason_codes": [
+          "external_calibration_evidence"
         ]
       }
     ]
@@ -328,7 +331,7 @@
       "reward_components"
     ],
     "ontology_scope_instances": 258,
-    "scope_note": "The census is taken over `reward_components` scopes so it stays comparable with the training audit's reward vocabulary. The ontology itself also treats a bare `reward` key as a reward scope; the 2026-08-17 run carries five of those, all in the agentic coding factory, which is why the ontology walks 252 scopes where the audit walks 247. Two are `multiple_reward_scopes` exclusions and three are `noncanonical_reward_scope` exclusions, so none of them contributes a canonical magnitude and none of their values is discarded: every one is copied verbatim into its record's reversible sidecar.",
+    "scope_note": "The census is taken over `reward_components` scopes so it stays comparable with the training audit's reward vocabulary. The ontology itself also treats a bare `reward` key as a reward scope. Frozen mapping counts are records=195, reward_instances=247, ontology_scope_instances=258. Extra ontology scopes versus the audit's 247 instances are bare `reward` keys (none contribute a canonical magnitude; every one is copied verbatim into its record's reversible sidecar).",
     "unique_component_keys": 510,
     "unique_shapes": 140,
     "shape_signature": "Sorted `key:subtype` pairs joined by `|`, where subtype is `value-object` for an object carrying a numeric `value`, otherwise the JSON type name. Identical to pipelines/training_audit.py reward_shape.",
