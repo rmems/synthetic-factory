@@ -102,6 +102,14 @@ EXCLUSION_REASONS = frozenset(
 STEP_EXCLUSION_REASONS = frozenset(
     {REASON_STEP_NOT_OBJECT, REASON_NO_VISIBLE_EVIDENCE}
 )
+PRE_STEP_EXCLUSION_REASONS = frozenset(
+    {
+        REASON_RECORD_NOT_OBJECT,
+        REASON_STEPS_NOT_ARRAY,
+        REASON_INVALID_JSON,
+        REASON_INVALID_UTF8,
+    }
+)
 STEP_EVIDENCE_REASONS = frozenset(_EVIDENCE_REASON.values())
 STEP_RETAINED_REASONS = frozenset(
     {
@@ -793,6 +801,14 @@ def verify_manifest(
         if not isinstance(counts, dict) or not isinstance(actions, list):
             violations.append(f"{where}: manifest records no step accounting")
             continue
+        if PRE_STEP_EXCLUSION_REASONS.intersection(reasons):
+            if actions or any(
+                counts.get(key) not in (0, None)
+                for key in ("source", "retained", "migrated", "excluded")
+            ):
+                violations.append(
+                    f"{where}: pre-step exclusion must have zero source steps and no step actions"
+                )
         recorded_counts = {}
         for key in ("source", "retained", "migrated", "excluded"):
             value = counts.get(key)
@@ -832,6 +848,10 @@ def verify_manifest(
             retained_label = "step" if retained == 1 else "steps"
             violations.append(
                 f"{where}: excluded record retains {retained} {retained_label}"
+            )
+        if action in {"modified", "unchanged"} and retained == 0:
+            violations.append(
+                f"{where}: retained record must keep at least one step"
             )
         action_thought_counts = [
             _hidden_removed(entry) for entry in valid_actions

@@ -32,6 +32,7 @@ from curate_coding import (  # noqa: E402
     REASON_NO_RETAINABLE_STEPS,
     REASON_NO_VISIBLE_EVIDENCE,
     REASON_STEP_NOT_OBJECT,
+    REASON_STEPS_EXCLUDED,
     REASON_STEPS_NOT_ARRAY,
     REASON_THOUGHT_REMOVED,
     REASON_WRAP_RECORD,
@@ -1279,6 +1280,44 @@ class VerifyCurationTests(unittest.TestCase):
             violations,
         )
 
+    def test_pre_step_exclusion_cannot_invent_step_actions(self):
+        result = curated_result([[visible_step()]])
+        manifest = result["manifest"][0]
+        manifest.update(
+            {
+                "action": "excluded",
+                "reason_codes": [REASON_INVALID_JSON],
+                "output_hash": None,
+                "output_id": None,
+            }
+        )
+
+        violations = verify_manifest([manifest], expected_source_steps=1)
+
+        self.assertTrue(
+            any("pre-step exclusion must have zero source steps" in item for item in violations),
+            violations,
+        )
+
+    def test_retained_manifest_must_keep_a_step(self):
+        result = curated_result([[{"n": 1, "thought": "only"}]])
+        manifest = result["manifest"][0]
+        self.assertEqual(manifest["action"], "excluded")
+        manifest.update(
+            {
+                "action": "modified",
+                "output_hash": "a" * 64,
+                "reason_codes": [REASON_STEPS_EXCLUDED],
+            }
+        )
+
+        violations = verify_manifest([manifest])
+
+        self.assertTrue(
+            any("must keep at least one step" in item for item in violations),
+            violations,
+        )
+
     def test_duplicate_manifest_source_locations_are_rejected(self):
         result = curated_result([[visible_step()], [visible_step()]])
         result["manifest"][1] = copy.deepcopy(result["manifest"][0])
@@ -1542,7 +1581,6 @@ class LegacyCodingManifestFixtureTests(unittest.TestCase):
         "reason_codes",
         "output_id",
         "output_hash",
-        "thought_fields_removed",
         "hidden_reasoning_fields_removed",
         "step_counts",
         "step_actions",
@@ -1553,7 +1591,6 @@ class LegacyCodingManifestFixtureTests(unittest.TestCase):
         "action",
         "reason_codes",
         "evidence_source",
-        "thought_fields_removed",
         "hidden_reasoning_fields_removed",
         "output_step_index",
     }
@@ -1587,7 +1624,7 @@ class LegacyCodingManifestFixtureTests(unittest.TestCase):
             {"reflection"},
         )
         self.assertEqual(
-            sum(item["thought_fields_removed"] for item in actions),
+            sum(item["hidden_reasoning_fields_removed"] for item in actions),
             self.LEGACY_SOURCE_STEPS,
         )
         for item in actions:
