@@ -1,0 +1,26 @@
+pipelines/round_txn.py
+  s_98712805c1499b::t_b76f09cb89da46 347,864-870,873-875,932,964,1097-1104,1107-1113,1116,1120,1123-1128,1151,1154-1157,1162-1167
+  s_98712805c1499b::t_b2ccb47211654d 1105-1106
+pipelines/verify_execution_shapes.py
+  s_98712805c1499b::t_b2ccb47211654d 55-57,70
+  s_98712805c1499b::t_fcf5de6acd1b66 45-49,51-53,58-63,65-69,73-75,764-790,795-797
+tests/test_frontier_publish_gate.py
+  s_98712805c1499b::t_b76f09cb89da46 450,455-458,460-465
+  s_98712805c1499b::t_51037b13d47bde 459
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "ddd647760561c6da1ffd92c02935c64d619293d3",
+  "prompts": {},
+  "sessions": {
+    "s_98712805c1499b": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a04a1f-1e33-7812-a5aa-c7b04b33b6b5",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Raul Montoya Cardenas <montoyaraul34@gmail.com>"
+    }
+  }
+}
