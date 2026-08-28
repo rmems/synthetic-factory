@@ -184,26 +184,32 @@ def normalized_category(value):
     ).strip("_")
 
 
+def _prefix_is_negated(tokens):
+    for index, token in enumerate(tokens):
+        if token in {"no", "never", "without"}:
+            return True
+        if token == "not":
+            if index + 1 < len(tokens) and tokens[index + 1] == "only":
+                continue
+            return True
+    return False
+
+
+_SUFFIX_NEGATED_RE = re.compile(
+    r"(?:(?:is|are|was|were|did)_)?(?:not|never)_"
+    r"(?:created|happened|introduced|occurred|present|produced|triggered)"
+    r"(?:_|$)|(?:(?:is|are|was|were)_)?(?:avoided|prevented)(?:_|$)"
+)
+
+
 def _match_has_preventive_negation(introduced, match, preventive_terms):
     prefix_tokens = introduced[: match.start()].strip("_").split("_")[-3:]
-    locally_prevented = any(token in preventive_terms for token in prefix_tokens)
-    locally_negated = any(
-        token in {"no", "not", "never", "without"}
-        and not (
-            token == "not"
-            and index + 1 < len(prefix_tokens)
-            and prefix_tokens[index + 1] == "only"
-        )
-        for index, token in enumerate(prefix_tokens)
-    )
+    if any(token in preventive_terms for token in prefix_tokens):
+        return True
+    if _prefix_is_negated(prefix_tokens):
+        return True
     suffix = introduced[match.end() :].strip("_")
-    suffix_negated = re.match(
-        r"(?:(?:is|are|was|were|did)_)?(?:not|never)_"
-        r"(?:created|happened|introduced|occurred|present|produced|triggered)"
-        r"(?:_|$)|(?:(?:is|are|was|were)_)?(?:avoided|prevented)(?:_|$)",
-        suffix,
-    ) is not None
-    return locally_prevented or locally_negated or suffix_negated
+    return _SUFFIX_NEGATED_RE.match(suffix) is not None
 
 
 def visibly_names_fault(introduced_text, *fault_evidence):
@@ -289,16 +295,21 @@ def _has_matching_verify_step(texts, observations, fix_index):
     )
 
 
+def _has_matching_fix_step(texts, observations, read_index):
+    fix_terms = ("fix", "repair", "patch", "edit", "write", "apply")
+    for fix_index in range(read_index + 1, len(texts)):
+        if any(term in texts[fix_index] for term in fix_terms):
+            if _has_matching_verify_step(texts, observations, fix_index):
+                return True
+    return False
+
+
 def _find_debug_read_fix_verify(texts, observations, failure_index):
     read_terms = ("re-read", "reread", "inspect", "read", "cat ", "sed ", "rg ")
-    fix_terms = ("fix", "repair", "patch", "edit", "write", "apply")
     for read_index in range(failure_index + 1, len(texts)):
-        if not any(term in texts[read_index] for term in read_terms):
-            continue
-        for fix_index in range(read_index + 1, len(texts)):
-            if any(term in texts[fix_index] for term in fix_terms):
-                if _has_matching_verify_step(texts, observations, fix_index):
-                    return True
+        if any(term in texts[read_index] for term in read_terms):
+            if _has_matching_fix_step(texts, observations, read_index):
+                return True
     return False
 
 
