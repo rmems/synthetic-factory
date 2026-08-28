@@ -47,6 +47,8 @@ UNMAPPED_MARKER_TAG = "curation:unmapped_source_tags"
 DEFAULT_TAXONOMY_PATH = (
     Path(__file__).resolve().parents[1] / "schemas" / "tag-taxonomy-v1.json"
 )
+REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
+RAW_OUTPUT_ROOT = REPOSITORY_ROOT / "outputs" / "raw"
 
 RULE_CANONICAL = "canonical"
 RULE_ALIAS = "alias"
@@ -65,6 +67,7 @@ REASON_TAGS_MAPPED = "tags_mapped"
 REASON_TAGS_UNMAPPED = "tags_unmapped_present"
 REASON_TAGS_DEDUPLICATED = "tags_deduplicated"
 REASON_TAGS_PROVENANCE_REUSED = "tags_provenance_reused"
+REASON_TAGS_PROVENANCE_WRITTEN = "tags_provenance_written"
 
 REASON_RECORD_NOT_OBJECT = "tag_record_not_object"
 REASON_TAGS_NOT_LIST = "tag_container_not_list"
@@ -865,7 +868,7 @@ def _existing_provenance(
     if stored.get("taxonomy_version") != taxonomy.version:
         return {}, True, True
     containers = stored.get("containers")
-    if not isinstance(containers, list):
+    if not isinstance(containers, list) or not containers:
         return {}, True, True
     reusable: dict[str, dict[str, Any]] = {}
     for entry in containers:
@@ -1066,8 +1069,10 @@ def curate_record(
         key=lambda item: (0, item) if isinstance(item, str) else (1, canonical_json(item)),
     )
     manifest["containers"] = container_manifests
-    manifest["reason_codes"] = reasons
     manifest["action"] = "modified" if curated != record else "unchanged"
+    if manifest["action"] == "modified" and not reasons:
+        reasons.append(REASON_TAGS_PROVENANCE_WRITTEN)
+    manifest["reason_codes"] = reasons
     manifest["output_id"] = _record_id(curated)
     manifest["output_hash"] = hash_value(curated)
 
@@ -1119,7 +1124,12 @@ def curate_jsonl(
 
     with source.open("rb") as handle:
         for line_number, terminated_line in enumerate(handle, 1):
-            raw_line = terminated_line.rstrip(b"\r\n")
+            terminated = (
+                terminated_line[:-1]
+                if terminated_line.endswith(b"\n")
+                else terminated_line
+            )
+            raw_line = terminated[:-1] if terminated.endswith(b"\r") else terminated
             if not raw_line.strip():
                 continue
             line_hash = hashlib.sha256(raw_line).hexdigest()
@@ -1285,12 +1295,44 @@ def _has_raw_tree_components(path: Path) -> bool:
     )
 
 
+def _stat_identity(path: Path) -> tuple[int, int] | None:
+    try:
+        state = path.stat()
+    except OSError:
+        return None
+    return (state.st_dev, state.st_ino)
+
+
+def _ancestor_identities(path: Path) -> set[tuple[int, int]]:
+    identities: set[tuple[int, int]] = set()
+    current = Path(os.path.abspath(path))
+    seen: set[Path] = set()
+    while current not in seen:
+        seen.add(current)
+        identity = _stat_identity(current)
+        if identity is not None:
+            identities.add(identity)
+        parent = current.parent
+        if parent == current:
+            break
+        current = parent
+    return identities
+
+
 def _is_under_raw(path: Path) -> bool:
-    """Whether ``path`` lexically names or resolves inside ``outputs/raw``."""
+    """Whether ``path`` names or aliases the repository's raw output tree."""
     lexical_path = Path(os.path.abspath(path))
-    return _has_raw_tree_components(lexical_path) or _has_raw_tree_components(
-        path.resolve(strict=False)
-    )
+    resolved_path = path.resolve(strict=False)
+    if _has_raw_tree_components(lexical_path) or _has_raw_tree_components(
+        resolved_path
+    ):
+        return True
+    raw_identity = _stat_identity(RAW_OUTPUT_ROOT)
+    if raw_identity is None:
+        return False
+    return raw_identity in _ancestor_identities(
+        path
+    ) or raw_identity in _ancestor_identities(path.parent)
 
 
 def _unlink_created_file(path: Path, identity: tuple[int, int]) -> None:
@@ -1355,6 +1397,10 @@ def _write_destinations(
     """Publish a destination set, rolling back this run's files on failure."""
     for path, _values in destinations:
         path.parent.mkdir(parents=True, exist_ok=True)
+        if _is_under_raw(path) or _is_under_raw(path.parent):
+            raise ValueError(
+                f"refusing to write inside immutable raw evidence: {path}"
+            )
 
     created: list[tuple[Path, tuple[int, int]]] = []
     try:
