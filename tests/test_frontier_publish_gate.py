@@ -258,31 +258,22 @@ class FrontierPublishGate(unittest.TestCase):
         )
         return reservation, reason
 
-    def test_publish_retry_keeps_the_first_recorded_waiver(self):
-        with tempfile.TemporaryDirectory() as td:
-            factory = self.factory(td)
-            reservation, reason = self._setup_retry_waiver(factory, "gate-retry")
-
-            manifest = round_txn.publish(
-                factory, 1, reservation["token"], "reworded on retry, same batch"
-            )
-
-            self.assertEqual(
-                manifest["execution_verification"]["override"]["reason"], reason
-            )
-            self.assertTrue((factory / "ROUND-r01.complete.json").is_file())
-
-    def test_publish_retry_reuses_the_recorded_waiver_without_a_new_flag(self):
-        with tempfile.TemporaryDirectory() as td:
-            factory = self.factory(td)
-            reservation, reason = self._setup_retry_waiver(factory, "gate-resume")
-
-            manifest = round_txn.publish(factory, 1, reservation["token"])
-
-            self.assertEqual(
-                manifest["execution_verification"]["override"]["reason"], reason
-            )
-            self.assertTrue((factory / "ROUND-r01.complete.json").is_file())
+    def test_publish_retry_preserves_recorded_waivers(self):
+        for tag, retry_arg in (
+            ("gate-retry", "reworded on retry, same batch"),
+            ("gate-resume", None),
+        ):
+            with tempfile.TemporaryDirectory() as td:
+                factory = self.factory(td)
+                reservation, reason = self._setup_retry_waiver(factory, tag)
+                args = [factory, 1, reservation["token"]]
+                if retry_arg is not None:
+                    args.append(retry_arg)
+                manifest = round_txn.publish(*args)
+                self.assertEqual(
+                    manifest["execution_verification"]["override"]["reason"], reason
+                )
+                self.assertTrue((factory / "ROUND-r01.complete.json").is_file())
 
     def _mutate_publishing_marker(self, factory, tag, mutator):
         reservation = round_txn.reserve(factory, 1, 1)
@@ -291,6 +282,12 @@ class FrontierPublishGate(unittest.TestCase):
         mutated = mutator(payload)
         publishing.write_text(json.dumps(mutated) + "\n")
         return reservation
+
+    def _assert_retry_publish_rejected(self, factory, tag, mutator, regex):
+        reservation = self._mutate_publishing_marker(factory, tag, mutator)
+        with self.assertRaisesRegex(round_txn.TransactionError, regex):
+            round_txn.publish(factory, 1, reservation["token"])
+        self.assertFalse((factory / "ROUND-r01.complete.json").exists())
 
     def test_publish_retry_migrates_a_pre_gate_publishing_marker(self):
         with tempfile.TemporaryDirectory() as td:
@@ -324,15 +321,12 @@ class FrontierPublishGate(unittest.TestCase):
                 payload["execution_verification"]["counts"]["verified"] = 999
                 return payload
 
-            reservation = self._mutate_publishing_marker(
-                factory, "gate-corrupt-retry", mutate
+            self._assert_retry_publish_rejected(
+                factory,
+                "gate-corrupt-retry",
+                mutate,
+                "execution verification conflicts",
             )
-
-            with self.assertRaisesRegex(
-                round_txn.TransactionError, "execution verification conflicts"
-            ):
-                round_txn.publish(factory, 1, reservation["token"])
-            self.assertFalse((factory / "ROUND-r01.complete.json").exists())
 
     def test_gate_summarizes_when_findings_exceed_five(self):
         with tempfile.TemporaryDirectory() as td:
@@ -416,16 +410,12 @@ class FrontierPublishGate(unittest.TestCase):
                 payload.pop("execution_verification", None)
                 return payload
 
-            reservation = self._mutate_publishing_marker(
-                factory, "gate-v2-missing", mutate
-            )
-
-            with self.assertRaisesRegex(
-                round_txn.TransactionError,
+            self._assert_retry_publish_rejected(
+                factory,
+                "gate-v2-missing",
+                mutate,
                 "version 2 publishing marker is missing execution verification",
-            ):
-                round_txn.publish(factory, 1, reservation["token"])
-            self.assertFalse((factory / "ROUND-r01.complete.json").exists())
+            )
 
     def test_version_downgrade_cannot_skip_execution_verification(self):
         with tempfile.TemporaryDirectory() as td:
