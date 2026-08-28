@@ -5,7 +5,9 @@ from __future__ import annotations
 import hashlib
 import json
 import math
+import os
 import re
+from pathlib import Path
 from collections import Counter
 from typing import Any
 
@@ -62,6 +64,29 @@ def canonical_json_equal(left: Any, right: Any) -> bool:
 def reject_json_constant(value: str) -> None:
     """Reject Python-only numeric constants accepted by ``json.loads``."""
     raise ValueError(f"non-standard JSON numeric constant: {value}")
+
+
+def reject_duplicate_object_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+    value: dict[str, Any] = {}
+    for key, item in pairs:
+        if key in value:
+            raise ValueError(f"duplicate JSON object key {key!r}")
+        value[key] = item
+    return value
+
+
+def load_strict_json(payload: str) -> Any:
+    """Decode JSON and reject duplicate keys at every object depth."""
+    return json.loads(
+        payload,
+        object_pairs_hook=reject_duplicate_object_keys,
+        parse_constant=reject_json_constant,
+    )
+
+
+def display_source_path(source: Path) -> str:
+    """UTF-8 path spelling. Non-UTF-8 filesystem bytes are refused."""
+    return os.fsencode(os.fspath(source)).decode("utf-8")
 
 
 def hash_value(value: Any) -> str:

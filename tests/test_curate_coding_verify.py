@@ -403,6 +403,12 @@ class VerifyCurationTests(unittest.TestCase):
 
         self.assertTrue(any("summary migrated_steps" in item for item in violations))
 
+    def test_hand_built_summary_may_omit_wrap_records(self):
+        result = curated_result([[visible_step()]])
+        del result["summary"]["wrap_records"]
+
+        self.assertEqual(verify_curation(result), [])
+
     def test_excluded_record_cannot_claim_retained_steps(self):
         result = curated_result([[visible_step()]])
         manifest = result["manifest"][0]

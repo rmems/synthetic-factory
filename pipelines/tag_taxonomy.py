@@ -25,8 +25,15 @@ from tag_constants import (
     UNMAPPED_MARKER_TAG,
     TagTaxonomyError,
 )
-from tag_jsonutil import normalize_tag, reject_json_constant
+from tag_jsonutil import load_strict_json, normalize_tag
 from tag_regex import compile_taxonomy_regex
+
+SUPPORTED_NORMALIZATION_STEPS = (
+    "strip leading and trailing whitespace",
+    "lowercase",
+    "replace every run of characters outside [a-z0-9] with a single underscore",
+    "strip leading and trailing underscores",
+)
 
 
 def require_utf8(value: str, label: str, source: str) -> str:
@@ -216,9 +223,11 @@ def _load_emitted_tags(
         raise TagTaxonomyError(
             f"{source}: transform_emitted_tags must not contain duplicates"
         )
-    for tag in emitted:
+    loaded = tuple(emitted)
+    for tag in loaded:
         _require_declared_emitted_tag(tag, facet_of, source)
-    return tuple(emitted)
+    _require_only_implemented_emitted_tags(loaded, source)
+    return loaded
 
 
 def _require_nonempty_emitted_strings(emitted: list[Any], source: str) -> None:
@@ -246,6 +255,17 @@ def _require_declared_emitted_tag(
     raise TagTaxonomyError(
         f"{source}: transform_emitted_tags names undeclared tag {tag!r}"
     )
+
+
+def _require_only_implemented_emitted_tags(
+    emitted: tuple[str, ...], source: str
+) -> None:
+    extra = [tag for tag in emitted if tag != UNMAPPED_MARKER_TAG]
+    if extra:
+        raise TagTaxonomyError(
+            f"{source}: transform_emitted_tags names tags this transform "
+            f"cannot emit: {extra!r}"
+        )
 
 
 def _reject_emitted_pattern_targets(
@@ -286,6 +306,7 @@ class Taxonomy:
     def __init__(self, document: dict[str, Any], *, source: str) -> None:
         self.source = source
         self.version = require_str(document, "version", source)
+        _require_supported_normalization(document, source)
         pattern = require_str(document, "canonical_tag_pattern", source)
         self._canonical_re = compile_taxonomy_regex(
             pattern, "canonical_tag_pattern", source
@@ -477,6 +498,18 @@ def _append_unmapped_marker(
     )
 
 
+def _require_supported_normalization(document: dict[str, Any], source: str) -> None:
+    declared = document.get("normalization")
+    if not isinstance(declared, dict):
+        raise TagTaxonomyError(
+            f"{source}: normalization must declare the implemented lexical fold"
+        )
+    if declared.get("steps") != list(SUPPORTED_NORMALIZATION_STEPS):
+        raise TagTaxonomyError(
+            f"{source}: normalization steps must match the implemented lexical fold"
+        )
+
+
 def load_taxonomy(path: str | Path | None = None) -> Taxonomy:
     """Load and validate a taxonomy document."""
     resolved = Path(path) if path is not None else DEFAULT_TAXONOMY_PATH
@@ -488,10 +521,7 @@ def load_taxonomy(path: str | Path | None = None) -> Taxonomy:
 
 def _read_taxonomy_document(resolved: Path) -> Any:
     try:
-        return json.loads(
-            resolved.read_text(encoding="utf-8"),
-            parse_constant=reject_json_constant,
-        )
+        return load_strict_json(resolved.read_text(encoding="utf-8"))
     except RecursionError as exc:
         raise TagTaxonomyError(
             f"{resolved}: taxonomy JSON is nested too deeply"

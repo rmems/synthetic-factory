@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+import subprocess
 import sys
 from pathlib import Path
 
@@ -45,6 +47,7 @@ from curate_tags import (  # noqa: E402
     normalize_tag,
     vocabulary_entropy,
 )
+from tag_taxonomy import SUPPORTED_NORMALIZATION_STEPS  # noqa: E402
 
 __all__ = (
     "DEFAULT_TAXONOMY_PATH",
@@ -74,6 +77,7 @@ __all__ = (
     "REGEX_RESOURCE_EXCEPTION_TYPES",
     "ROOT",
     "SAFE_GROUP_BOUNDARY_CASES",
+    "SUPPORTED_NORMALIZATION_STEPS",
     "TAG_PROVENANCE_FIELD",
     "TAXONOMY",
     "TRANSFORM_NAME",
@@ -92,7 +96,9 @@ __all__ = (
     "minimal_taxonomy",
     "normalize_tag",
     "record",
+    "run_tag_cli",
     "vocabulary_entropy",
+    "write_tag_source",
 )
 
 
@@ -194,6 +200,30 @@ def minimal_taxonomy(**overrides):
         ],
         "pattern_rules": [],
         "transform_emitted_tags": [UNMAPPED_MARKER_TAG],
+        "normalization": {"steps": list(SUPPORTED_NORMALIZATION_STEPS)},
     }
     document.update(overrides)
     return document
+
+
+def write_tag_source(root, tags=None, name="corpus.jsonl"):
+    source = Path(root) / name
+    payload = record(list(tags) if tags is not None else ["MODIFY", "tokamak"])
+    source.write_text(json.dumps(payload, sort_keys=True) + "\n", encoding="utf-8")
+    return source
+
+
+def run_tag_cli(source, extra_args=(), timeout=None):
+    command = [
+        sys.executable,
+        str(PIPELINES / "curate_tags.py"),
+        str(source),
+        *extra_args,
+    ]
+    return subprocess.run(
+        command,
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=timeout,
+    )

@@ -38,6 +38,11 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+try:
+    from pipelines.raw_tree_guard import is_under_raw as _guard_is_under_raw
+except ImportError:  # python3 pipelines/curate_preferences.py
+    from raw_tree_guard import is_under_raw as _guard_is_under_raw
+
 
 TRANSFORM_NAME = "same-context-preference-curation"
 TRANSFORM_VERSION = "1.0.0"
@@ -109,89 +114,10 @@ def _sha256(payload: bytes) -> str:
     return hashlib.sha256(payload).hexdigest()
 
 
-def _has_raw_tree_components(path: Path) -> bool:
-    """Whether normalized ``path`` names an ``outputs/raw`` tree."""
-
-    parts = path.parts
-    return any(
-        parts[index : index + 2] == ("outputs", "raw")
-        for index in range(len(parts) - 1)
-    )
-
-
-def _stat_identity(path: Path) -> tuple[int, int] | None:
-    try:
-        state = path.stat()
-    except OSError:
-        return None
-    return state.st_dev, state.st_ino
-
-
-def _ancestor_identities(path: Path) -> set[tuple[int, int]]:
-    """Device/inode identities of ``path`` and existing ancestors.
-
-    Bind mounts and case-insensitive directory spellings keep distinct
-    pathnames after ``resolve()`` but share the raw tree's identity.
-    """
-
-    identities: set[tuple[int, int]] = set()
-    current = Path(os.path.abspath(path))
-    seen: set[Path] = set()
-    while current not in seen:
-        seen.add(current)
-        identity = _stat_identity(current)
-        if identity is not None:
-            identities.add(identity)
-        parent = current.parent
-        if parent == current:
-            break
-        current = parent
-    return identities
-
-
-def _names_raw_tree(path: Path) -> bool:
-    """Whether the lexical or resolved spelling names ``outputs/raw``.
-
-    Resolving ``outputs/raw`` when it is itself a symlink removes those path
-    components and would otherwise let a write through the immutable tree.
-    Callers can also name that same target through a mount path or a second
-    symlink whose spelling never contains ``outputs/raw``.
-    """
-
-    lexical_path = Path(os.path.abspath(path))
-    resolved_path = path.resolve(strict=False)
-    if _has_raw_tree_components(lexical_path):
-        return True
-    if _has_raw_tree_components(resolved_path):
-        return True
-    resolved_raw_root = RAW_OUTPUT_ROOT.resolve(strict=False)
-    if resolved_path == resolved_raw_root:
-        return True
-    return resolved_raw_root in resolved_path.parents
-
-
-def _shares_raw_identity(path: Path) -> bool:
-    """Whether ``path`` shares the raw tree's device/inode identity.
-
-    Bind-mount and case-folded aliases keep distinct pathnames after
-    ``resolve()`` but share the raw tree's identity.
-    """
-
-    resolved_raw_root = RAW_OUTPUT_ROOT.resolve(strict=False)
-    raw_identity = _stat_identity(RAW_OUTPUT_ROOT)
-    if raw_identity is None:
-        raw_identity = _stat_identity(resolved_raw_root)
-    if raw_identity is None:
-        return False
-    if raw_identity in _ancestor_identities(path):
-        return True
-    return raw_identity in _ancestor_identities(path.parent)
-
-
 def _is_under_raw(path: Path) -> bool:
     """Whether ``path`` names or aliases the repository's raw output tree."""
 
-    return _names_raw_tree(path) or _shares_raw_identity(path)
+    return _guard_is_under_raw(path, RAW_OUTPUT_ROOT)
 
 
 def _is_canonicalizable(value: Any) -> bool:
@@ -729,8 +655,37 @@ def _jsonl_payload(records: tuple[dict[str, Any], ...]) -> str:
     return "".join(canonical_json(record) + "\n" for record in records)
 
 
+def _open_destination_parent(path: Path) -> int:
+    flags = os.O_RDONLY | os.O_DIRECTORY | getattr(os, "O_NOFOLLOW", 0)
+    try:
+        return os.open(path.parent, flags)
+    except OSError as exc:
+        raise PreferenceCurationError(
+            f"destination parent is not a pinned directory: {path.parent}"
+        ) from exc
+
+
+def _refuse_opened_parent(parent_fd: int, destination: Path) -> None:
+    try:
+        opened = Path(os.readlink(f"/proc/self/fd/{parent_fd}"))
+    except OSError:
+        opened = destination.parent
+    _refuse_raw_destination(opened, "destination")
+    _refuse_raw_destination(opened / destination.name, "destination")
+
+
 def _create_exclusive_file(path: Path, payload: str, created: list[Path]) -> None:
-    descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o644)
+    parent_fd = _open_destination_parent(path)
+    try:
+        _refuse_opened_parent(parent_fd, path)
+        descriptor = os.open(
+            path.name,
+            os.O_WRONLY | os.O_CREAT | os.O_EXCL,
+            0o644,
+            dir_fd=parent_fd,
+        )
+    finally:
+        os.close(parent_fd)
     created.append(path)
     with os.fdopen(descriptor, "w", encoding="utf-8", newline="\n") as handle:
         handle.write(payload)

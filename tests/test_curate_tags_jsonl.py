@@ -111,6 +111,17 @@ class CurateJsonlTests(unittest.TestCase):
         self.assertEqual(summary["rule_uses"]["alias"], 1)
         self.assertEqual(summary["rule_uses"]["transform"], 2)
 
+    def test_duplicate_record_keys_are_invalid_json(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            source = Path(temporary) / "corpus.jsonl"
+            source.write_text(
+                '{"id":"a","tags":["MODIFY"],"tags":["REJECT"]}\n',
+                encoding="utf-8",
+            )
+            result = curate_jsonl(source, TAXONOMY)
+        self.assertEqual(result["summary"]["output_records"], 0)
+        self.assertIn(REASON_INVALID_JSON, result["manifest"][0]["reason_codes"])
+
     def test_nonstring_tag_entries_are_counted_and_preserved(self):
         rows = [record(["MODIFY", 17, None], id="a")]
         with tempfile.TemporaryDirectory() as temporary:

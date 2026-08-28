@@ -14,11 +14,13 @@ from tag_constants import (
     REASON_RECORD_TOO_DEEP,
     RULE_TRANSFORM,
     TAG_PROVENANCE_FIELD,
+    TagTaxonomyError,
 )
 from tag_jsonutil import (
     canonical_json,
     count_tag,
-    reject_json_constant,
+    display_source_path,
+    load_strict_json,
     vocabulary_entropy,
 )
 from tag_record import base_manifest, curate_record
@@ -53,7 +55,7 @@ def _parse_jsonl_payload(raw_line: bytes) -> tuple[Any, str | None]:
     except UnicodeDecodeError:
         return None, REASON_INVALID_UTF8
     try:
-        record = json.loads(text, parse_constant=reject_json_constant)
+        record = load_strict_json(text)
     except RecursionError:
         return None, REASON_RECORD_TOO_DEEP
     except ValueError:
@@ -77,7 +79,10 @@ def curate_jsonl(
     """Read a JSONL source without mutation and curate every nonblank line."""
     vocabulary = taxonomy if taxonomy is not None else load_taxonomy()
     source = Path(source_path)
-    display_path = str(source).encode("utf-8", "replace").decode("utf-8")
+    try:
+        display_path = display_source_path(source)
+    except UnicodeDecodeError as exc:
+        raise TagTaxonomyError(f"source path is not valid UTF-8: {source}") from exc
     batch = _JsonlBatch(display_path, vocabulary)
     with source.open("rb") as handle:
         for line_number, terminated_line in enumerate(handle, 1):
@@ -121,11 +126,7 @@ class _JsonlBatch:
     ) -> None:
         try:
             curated, manifest = curate_record(
-                record,
-                taxonomy=self.vocabulary,
-                source_path=origin[0],
-                source_line=origin[1],
-                source_hash=origin[2],
+                record, taxonomy=self.vocabulary, origin=origin
             )
         except RecursionError:
             self.manifests.append(

@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any, NamedTuple
 
 from coding_constants import (
+    REASON_HIDDEN_REASONING_REMOVED,
     REASON_STEP_NOT_OBJECT,
     REASON_THOUGHT_REMOVED,
     STEP_EVIDENCE_REASONS,
@@ -34,8 +35,7 @@ def _is_sha256(value: Any) -> bool:
 REMOVAL_REASON_CODES = frozenset(
     {
         REASON_THOUGHT_REMOVED,
-        "coding_thought_removed",
-        "coding_hidden_reasoning_removed",
+        REASON_HIDDEN_REASONING_REMOVED,
     }
 )
 ACCEPTED_TRANSFORM_VERSIONS = frozenset({str(TRANSFORM_VERSION), "2", "3"})
