@@ -1,12 +1,23 @@
 #!/usr/bin/env python3
-"""Curate legacy coding episodes into observable, thought-free records.
+"""Curate legacy coding episodes into observable, reasoning-free records.
 
 The transform is deliberately record-level and side-effect free by default.
-It removes every mapping key named ``thought`` and derives a concise
+It removes every mapping key that carries model-private reasoning -- the
+shared scratch-pad vocabulary (``thought``, ``chain_of_thought``, ``scratch``,
+and ``inner_monologue``), the coding-factory key ``reasoning``,
+``internal_reasoning``, ``internal_reasoning_verbatim``, and any other
+``internal_reasoning*`` variant -- and derives a concise
 ``decision_basis`` only from fields that are visible in the source record:
 plan, reflection, observation, or tool call.
 Steps without usable visible evidence are excluded with machine-readable
-reason codes; the transform never consults the removed thought text.
+reason codes; the transform never consults the removed reasoning text.
+
+Two source shapes are handled. A plain coding episode carries its turns in a
+top-level ``steps`` array. A *wrap* record (a Thalamic gate record whose
+``executed_action`` embeds the coding episode) carries them in
+``executed_action.steps`` and holds its own hidden reasoning in
+``proposed_action.internal_reasoning``. Both are curated with the same
+step rule; only the location of the step array differs.
 
 ``curate_jsonl`` returns curated records, a reversible manifest, and summary
 counts.  The optional CLI writes only to new, non-raw files.  ``--output-dir``
@@ -16,49 +27,54 @@ emits one aggregate manifest for the complete lane.
 
 from __future__ import annotations
 
-import argparse
 import copy
 import hashlib
 import json
 import os
+import re
+import sys
 from collections import Counter
 from pathlib import Path
 from typing import Any
 
+_PIPELINES = Path(__file__).resolve().parent
+if str(_PIPELINES) not in sys.path:
+    sys.path.insert(0, str(_PIPELINES))
 
-TRANSFORM_NAME = "coding_observability"
-TRANSFORM_VERSION = "1"
-MAX_DECISION_BASIS_CHARS = 240
-RUN_MANIFEST_FILENAME = "manifest.jsonl"
-
-REASON_THOUGHT_REMOVED = "coding_thought_removed"
-REASON_BASIS_CONCISED = "coding_basis_concised"
-REASON_BASIS_FROM_PLAN = "coding_basis_from_plan"
-REASON_BASIS_FROM_REFLECTION = "coding_basis_from_reflection"
-REASON_BASIS_FROM_OBSERVATION = "coding_basis_from_observation"
-REASON_BASIS_FROM_TOOL_CALL = "coding_basis_from_tool_call"
-REASON_STEP_NOT_OBJECT = "coding_step_not_object"
-REASON_NO_VISIBLE_EVIDENCE = "coding_no_visible_decision_evidence"
-REASON_NO_RETAINABLE_STEPS = "coding_no_retainable_steps"
-REASON_STEPS_MIGRATED = "coding_steps_migrated"
-REASON_STEPS_EXCLUDED = "coding_steps_excluded"
-REASON_RECORD_NOT_OBJECT = "coding_record_not_object"
-REASON_STEPS_NOT_ARRAY = "coding_steps_not_array"
-REASON_INVALID_JSON = "coding_invalid_json"
-REASON_INVALID_UTF8 = "coding_invalid_utf8"
-
-_EVIDENCE_REASON = {
-    "plan": REASON_BASIS_FROM_PLAN,
-    "reflection": REASON_BASIS_FROM_REFLECTION,
-    "observation": REASON_BASIS_FROM_OBSERVATION,
-    "tool_call": REASON_BASIS_FROM_TOOL_CALL,
-}
+from coding_constants import (  # noqa: E402
+    HIDDEN_REASONING_KEYS,
+    HIDDEN_REASONING_PREFIX,
+    MAX_DECISION_BASIS_CHARS,
+    REASON_BASIS_CONCISED,
+    REASON_BASIS_FROM_OBSERVATION,
+    REASON_BASIS_FROM_PLAN,
+    REASON_BASIS_FROM_REFLECTION,
+    REASON_BASIS_FROM_TOOL_CALL,
+    REASON_HIDDEN_REASONING_REMOVED,
+    REASON_INVALID_JSON,
+    REASON_INVALID_UTF8,
+    REASON_NO_RETAINABLE_STEPS,
+    REASON_NO_VISIBLE_EVIDENCE,
+    REASON_RECORD_NOT_OBJECT,
+    REASON_STEP_NOT_OBJECT,
+    REASON_STEPS_EXCLUDED,
+    REASON_STEPS_MIGRATED,
+    REASON_STEPS_NOT_ARRAY,
+    REASON_THOUGHT_REMOVED,
+    REASON_WRAP_RECORD,
+    RUN_MANIFEST_FILENAME,
+    TRANSFORM_NAME,
+    TRANSFORM_VERSION,
+    WRAP_STEPS_PARENT,
+    _EVIDENCE_REASON,
+)
 
 
 def canonical_json(value: Any) -> str:
     """Return the stable JSON representation used for output hashes."""
     return json.dumps(
         value,
+        allow_nan=False,
         ensure_ascii=False,
         separators=(",", ":"),
         sort_keys=True,
@@ -70,16 +86,43 @@ def hash_value(value: Any) -> str:
     return hashlib.sha256(canonical_json(value).encode("utf-8")).hexdigest()
 
 
-def _strip_thought_keys(value: Any) -> tuple[Any, int]:
-    """Deep-copy ``value`` while removing every mapping key named thought."""
+def _reject_json_constant(value: str) -> None:
+    raise ValueError(f"non-standard JSON numeric constant {value}")
+
+
+def normalized_key_name(value: Any) -> str:
+    """Normalize JSON keys across case, separators, and camel-case boundaries."""
+    return re.sub(
+        r"[^a-z0-9]+",
+        "_",
+        re.sub(r"(?<=[a-z0-9])(?=[A-Z])", "_", str(value)).casefold(),
+    ).strip("_")
+
+
+def is_hidden_reasoning_key(key: Any) -> bool:
+    """Return whether ``key`` names model-private reasoning text.
+
+    Matches the structural audit's scratch-pad vocabulary, the exact
+    coding-factory key ``reasoning``, and the whole ``internal_reasoning*``
+    family so a published private-reasoning variant cannot slip into a
+    curated record unnoticed.
+    """
+    normalized = normalized_key_name(key)
+    return normalized in HIDDEN_REASONING_KEYS or normalized.startswith(
+        HIDDEN_REASONING_PREFIX
+    )
+
+
+def _strip_hidden_reasoning_keys(value: Any) -> tuple[Any, int]:
+    """Deep-copy ``value`` while removing every hidden-reasoning mapping key."""
     if isinstance(value, dict):
         cleaned = {}
         removed = 0
         for key, item in value.items():
-            if key == "thought":
+            if is_hidden_reasoning_key(key):
                 removed += 1
                 continue
-            clean_item, nested_removed = _strip_thought_keys(item)
+            clean_item, nested_removed = _strip_hidden_reasoning_keys(item)
             cleaned[key] = clean_item
             removed += nested_removed
         return cleaned, removed
@@ -87,20 +130,25 @@ def _strip_thought_keys(value: Any) -> tuple[Any, int]:
         cleaned_items = []
         removed = 0
         for item in value:
-            clean_item, nested_removed = _strip_thought_keys(item)
+            clean_item, nested_removed = _strip_hidden_reasoning_keys(item)
             cleaned_items.append(clean_item)
             removed += nested_removed
         return cleaned_items, removed
     return copy.deepcopy(value), 0
 
 
-def contains_thought_key(value: Any) -> bool:
-    """Return whether any nested mapping exposes a key named thought."""
+def contains_hidden_reasoning_key(value: Any) -> bool:
+    """Return whether any nested mapping still exposes hidden reasoning."""
     if isinstance(value, dict):
-        return "thought" in value or any(contains_thought_key(v) for v in value.values())
+        return any(is_hidden_reasoning_key(key) for key in value) or any(
+            contains_hidden_reasoning_key(item) for item in value.values()
+        )
     if isinstance(value, list):
-        return any(contains_thought_key(item) for item in value)
+        return any(contains_hidden_reasoning_key(item) for item in value)
     return False
+
+
+contains_thought_key = contains_hidden_reasoning_key
 
 
 def _normalize_text(value: Any) -> str | None:
@@ -184,19 +232,19 @@ def curate_step(step: Any, source_step_index: int) -> tuple[dict[str, Any] | Non
         "action": "excluded",
         "reason_codes": [],
         "evidence_source": None,
-        "thought_fields_removed": 0,
+        "hidden_reasoning_fields_removed": 0,
     }
     if not isinstance(step, dict):
         manifest["reason_codes"] = [REASON_STEP_NOT_OBJECT]
         return None, manifest
 
-    cleaned, removed = _strip_thought_keys(step)
-    manifest["thought_fields_removed"] = removed
+    cleaned, removed = _strip_hidden_reasoning_keys(step)
+    manifest["hidden_reasoning_fields_removed"] = removed
     basis, evidence_source, concised = _derive_decision_basis(cleaned)
     if basis is None:
         reasons = []
         if removed:
-            reasons.append(REASON_THOUGHT_REMOVED)
+            reasons.append(REASON_HIDDEN_REASONING_REMOVED)
         reasons.append(REASON_NO_VISIBLE_EVIDENCE)
         manifest["reason_codes"] = reasons
         return None, manifest
@@ -206,7 +254,7 @@ def curate_step(step: Any, source_step_index: int) -> tuple[dict[str, Any] | Non
     changed = bool(removed) or prior_basis != basis
     reasons = []
     if removed:
-        reasons.append(REASON_THOUGHT_REMOVED)
+        reasons.append(REASON_HIDDEN_REASONING_REMOVED)
     reasons.append(_EVIDENCE_REASON[evidence_source])
     if concised:
         reasons.append(REASON_BASIS_CONCISED)
@@ -218,8 +266,8 @@ def curate_step(step: Any, source_step_index: int) -> tuple[dict[str, Any] | Non
             "evidence_source": evidence_source,
         }
     )
-    if contains_thought_key(cleaned):
-        raise AssertionError("coding curation emitted a thought key")
+    if contains_hidden_reasoning_key(cleaned):
+        raise AssertionError("coding curation emitted a hidden-reasoning key")
     return cleaned, manifest
 
 
@@ -253,7 +301,8 @@ def _base_manifest(
         "reason_codes": [],
         "output_id": None,
         "output_hash": None,
-        "thought_fields_removed": 0,
+        "hidden_reasoning_fields_removed": 0,
+        "steps_path": None,
         "step_counts": {
             "source": 0,
             "retained": 0,
@@ -262,6 +311,38 @@ def _base_manifest(
         },
         "step_actions": [],
     }
+
+
+def _steps_path(record: dict[str, Any]) -> str | None:
+    """Return where this record keeps its coding steps, or None.
+
+    A plain episode holds them at ``steps``. A Thalamic wrap record embeds the
+    coding episode under ``executed_action``, so its steps live one level down.
+    """
+    if isinstance(record.get("steps"), list):
+        return "steps"
+    parent = record.get(WRAP_STEPS_PARENT)
+    if isinstance(parent, dict) and isinstance(parent.get("steps"), list):
+        return f"{WRAP_STEPS_PARENT}.steps"
+    return None
+
+
+def _steps_holder(record: dict[str, Any], steps_path: str) -> dict[str, Any]:
+    """Return the mapping that owns the step array named by ``steps_path``."""
+    if steps_path == "steps":
+        return record
+    return record[WRAP_STEPS_PARENT]
+
+
+def _record_steps(record: Any) -> list[Any] | None:
+    """Return the curated step array for a plain or wrap record."""
+    if not isinstance(record, dict):
+        return None
+    steps_path = _steps_path(record)
+    if steps_path is None:
+        return None
+    steps = _steps_holder(record, steps_path).get("steps")
+    return steps if isinstance(steps, list) else None
 
 
 def curate_episode(
@@ -282,13 +363,15 @@ def curate_episode(
         manifest["reason_codes"] = [REASON_RECORD_NOT_OBJECT]
         return None, manifest
 
-    steps = record.get("steps")
-    if not isinstance(steps, list):
+    steps_path = _steps_path(record)
+    if steps_path is None:
         manifest["reason_codes"] = [REASON_STEPS_NOT_ARRAY]
         return None, manifest
+    manifest["steps_path"] = steps_path
+    steps = _steps_holder(record, steps_path)["steps"]
 
-    cleaned_record, record_thoughts_removed = _strip_thought_keys(record)
-    manifest["thought_fields_removed"] = record_thoughts_removed
+    cleaned_record, record_reasoning_removed = _strip_hidden_reasoning_keys(record)
+    manifest["hidden_reasoning_fields_removed"] = record_reasoning_removed
     retained_steps = []
     step_actions = []
     for source_index, step in enumerate(steps, 1):
@@ -314,10 +397,12 @@ def curate_episode(
         manifest["reason_codes"] = [REASON_NO_RETAINABLE_STEPS]
         return None, manifest
 
-    cleaned_record["steps"] = retained_steps
+    _steps_holder(cleaned_record, steps_path)["steps"] = retained_steps
     reasons = []
-    if record_thoughts_removed:
-        reasons.append(REASON_THOUGHT_REMOVED)
+    if record_reasoning_removed:
+        reasons.append(REASON_HIDDEN_REASONING_REMOVED)
+    if steps_path != "steps":
+        reasons.append(REASON_WRAP_RECORD)
     if migrated:
         reasons.append(REASON_STEPS_MIGRATED)
     if excluded:
@@ -332,8 +417,8 @@ def curate_episode(
             "output_hash": hash_value(cleaned_record),
         }
     )
-    if contains_thought_key(cleaned_record):
-        raise AssertionError("coding curation emitted a thought key")
+    if contains_hidden_reasoning_key(cleaned_record):
+        raise AssertionError("coding curation emitted a hidden-reasoning key")
     return cleaned_record, manifest
 
 
@@ -392,8 +477,9 @@ def curate_jsonl(
                 )
                 continue
             try:
-                record = json.loads(text)
-            except json.JSONDecodeError:
+                record = json.loads(text, parse_constant=_reject_json_constant)
+                hash_value(record)
+            except (json.JSONDecodeError, TypeError, ValueError, RecursionError):
                 manifests.append(
                     _excluded_line_manifest(
                         source_path=source_label,
@@ -416,8 +502,11 @@ def curate_jsonl(
 
     step_counts = Counter()
     evidence_sources = Counter()
+    steps_paths = Counter()
     for manifest in manifests:
         step_counts.update(manifest["step_counts"])
+        if manifest["steps_path"]:
+            steps_paths[manifest["steps_path"]] += 1
         for action in manifest["step_actions"]:
             evidence = action.get("evidence_source")
             if evidence:
@@ -432,12 +521,57 @@ def curate_jsonl(
         "retained_steps": step_counts["retained"],
         "migrated_steps": step_counts["migrated"],
         "excluded_steps": step_counts["excluded"],
-        "thought_fields_removed": sum(
-            manifest["thought_fields_removed"] for manifest in manifests
+        "hidden_reasoning_fields_removed": sum(
+            manifest["hidden_reasoning_fields_removed"] for manifest in manifests
         ),
+        "wrap_records": steps_paths[f"{WRAP_STEPS_PARENT}.steps"],
         "decision_basis_sources": dict(sorted(evidence_sources.items())),
     }
     return {"records": records, "manifest": manifests, "summary": summary}
+
+from coding_verify import verify_curation, verify_manifest  # noqa: E402
+
+__all__ = [
+    "HIDDEN_REASONING_KEYS",
+    "HIDDEN_REASONING_PREFIX",
+    "MAX_DECISION_BASIS_CHARS",
+    "REASON_BASIS_CONCISED",
+    "REASON_BASIS_FROM_OBSERVATION",
+    "REASON_BASIS_FROM_PLAN",
+    "REASON_BASIS_FROM_REFLECTION",
+    "REASON_BASIS_FROM_TOOL_CALL",
+    "REASON_HIDDEN_REASONING_REMOVED",
+    "REASON_INVALID_JSON",
+    "REASON_INVALID_UTF8",
+    "REASON_NO_RETAINABLE_STEPS",
+    "REASON_NO_VISIBLE_EVIDENCE",
+    "REASON_STEP_NOT_OBJECT",
+    "REASON_STEPS_EXCLUDED",
+    "REASON_STEPS_NOT_ARRAY",
+    "REASON_THOUGHT_REMOVED",
+    "REASON_WRAP_RECORD",
+    "RUN_MANIFEST_FILENAME",
+    "TRANSFORM_NAME",
+    "TRANSFORM_VERSION",
+    "_derive_decision_basis",
+    "_record_id",
+    "_record_steps",
+    "preflight_destinations",
+    "write_new_jsonl",
+    "canonical_json",
+    "contains_hidden_reasoning_key",
+    "contains_thought_key",
+    "curate_episode",
+    "curate_jsonl",
+    "curate_run",
+    "curate_step",
+    "hash_value",
+    "is_hidden_reasoning_key",
+    "main",
+    "normalized_key_name",
+    "verify_curation",
+    "verify_manifest",
+]
 
 
 def _is_under_raw(path: Path) -> bool:
@@ -619,58 +753,25 @@ def curate_run(source_dir: str | Path, output_dir: str | Path) -> dict[str, Any]
         "retained_steps": sum(summary["retained_steps"] for summary in summaries),
         "migrated_steps": sum(summary["migrated_steps"] for summary in summaries),
         "excluded_steps": sum(summary["excluded_steps"] for summary in summaries),
-        "thought_fields_removed": sum(
-            summary["thought_fields_removed"] for summary in summaries
+        "hidden_reasoning_fields_removed": sum(
+            summary["hidden_reasoning_fields_removed"] for summary in summaries
         ),
+        "wrap_records": sum(summary["wrap_records"] for summary in summaries),
         "decision_basis_sources": dict(sorted(evidence_sources.items())),
     }
 
 
+write_new_jsonl = _write_new_jsonl
+preflight_destinations = _preflight_destinations
+
+
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("source", type=Path, help="legacy episode JSONL to inspect")
-    parser.add_argument("--output-jsonl", type=Path)
-    parser.add_argument("--manifest-jsonl", type=Path)
-    parser.add_argument(
-        "--output-dir",
-        type=Path,
-        help="new lane root for directory-wide curation",
-    )
-    args = parser.parse_args(argv)
+    pipelines_dir = str(Path(__file__).resolve().parent)
+    if pipelines_dir not in sys.path:
+        sys.path.insert(0, pipelines_dir)
+    from coding_cli import run
 
-    if args.output_dir is not None:
-        if args.output_jsonl is not None or args.manifest_jsonl is not None:
-            parser.error("--output-dir cannot be combined with file output options")
-        if not args.source.is_dir():
-            parser.error("--output-dir requires a source directory")
-        try:
-            result = curate_run(args.source, args.output_dir)
-        except (FileExistsError, OSError, ValueError) as exc:
-            parser.error(str(exc))
-        print(json.dumps(result, ensure_ascii=False, indent=2, sort_keys=True))
-        return 0
-    if args.source.is_dir():
-        parser.error("a source directory requires --output-dir")
-
-    if args.output_jsonl is not None and args.output_jsonl.resolve(strict=False) == args.source.resolve():
-        parser.error("output must not replace the source")
-    destinations = [
-        path
-        for path in (args.output_jsonl, args.manifest_jsonl)
-        if path is not None
-    ]
-    try:
-        _preflight_destinations(destinations)
-    except (FileExistsError, ValueError) as exc:
-        parser.error(str(exc))
-
-    result = curate_jsonl(args.source)
-    if args.output_jsonl is not None:
-        _write_new_jsonl(args.output_jsonl, result["records"])
-    if args.manifest_jsonl is not None:
-        _write_new_jsonl(args.manifest_jsonl, result["manifest"])
-    print(json.dumps(result["summary"], ensure_ascii=False, indent=2, sort_keys=True))
-    return 0
+    return run(argv)
 
 
 if __name__ == "__main__":
