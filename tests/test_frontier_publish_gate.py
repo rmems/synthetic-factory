@@ -112,38 +112,37 @@ class FrontierPublishGate(unittest.TestCase):
             ):
                 round_txn.frontier_status(factory)
 
-    def _write_test_manifest(self, factory, batch, notes, version, round_num=1):
-        marker = factory / f"ROUND-r{round_num:02d}.complete.json"
-        marker.write_text(
-            json.dumps(
-                {
-                    "version": version,
-                    "factory": factory.name,
-                    "round": round_num,
-                    "records": 1,
-                    "expected_records": 1,
-                    "commit_point": marker.name,
-                    "files": [
-                        {"name": batch.name, "sha256": round_txn.file_sha256(batch)},
-                        {"name": notes.name, "sha256": round_txn.file_sha256(notes)},
-                    ],
-                },
-                indent=2,
-                sort_keys=True,
-            )
-            + "\n"
-        )
+    def _write_complete_round(
+        self, factory, round_number, record, *, version=1, verification=None
+    ):
+        rr = f"{round_number:02d}"
+        batch = factory / f"batch-r{rr}.jsonl"
+        notes = factory / f"NOTES-r{rr}.md"
+        write(batch, [record])
+        notes.write_text("# Critique\n\nConcrete gap.\n\nNovel coverage: 42%\n")
+        payload = {
+            "version": version,
+            "factory": factory.name,
+            "round": round_number,
+            "records": 1,
+            "expected_records": 1,
+            "commit_point": f"ROUND-r{rr}.complete.json",
+            "files": [
+                {"name": batch.name, "sha256": round_txn.file_sha256(batch)},
+                {"name": notes.name, "sha256": round_txn.file_sha256(notes)},
+            ],
+        }
+        if verification is not None:
+            payload["execution_verification"] = verification
+        marker = factory / payload["commit_point"]
+        marker.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n")
         write_marker_mode(factory)
         return marker
 
     def test_legacy_version_1_markers_without_verification_remain_visible(self):
         with tempfile.TemporaryDirectory() as td:
             factory = self.factory(td)
-            batch = factory / "batch-r01.jsonl"
-            notes = factory / "NOTES-r01.md"
-            write(batch, [thalamic("legacy-v1")])
-            notes.write_text("# Critique\n\nConcrete gap.\n\nNovel coverage: 42%\n")
-            self._write_test_manifest(factory, batch, notes, version=1)
+            self._write_complete_round(factory, 1, thalamic("legacy-v1"), version=1)
 
             status = round_txn.frontier_status(factory)
 
@@ -324,11 +323,9 @@ class FrontierPublishGate(unittest.TestCase):
     def test_unsupported_completion_marker_version_is_rejected(self):
         with tempfile.TemporaryDirectory() as td:
             factory = self.factory(td)
-            batch = factory / "batch-r01.jsonl"
-            notes = factory / "NOTES-r01.md"
-            write(batch, [thalamic("unsupported-version")])
-            notes.write_text("# Critique\n\nConcrete gap.\n\nNovel coverage: 42%\n")
-            self._write_test_manifest(factory, batch, notes, version=3)
+            self._write_complete_round(
+                factory, 1, thalamic("unsupported-version"), version=3
+            )
 
             with mock.patch.object(round_txn, "validate_completed_batch"):
                 with self.assertRaisesRegex(
@@ -419,30 +416,6 @@ class FrontierPublishGate(unittest.TestCase):
                 "completion marker version downgrade cannot skip execution",
             ):
                 round_txn.frontier_status(factory)
-
-    def _write_complete_round(self, factory, round_number, record, *, version, verification=None):
-        rr = f"{round_number:02d}"
-        batch = factory / f"batch-r{rr}.jsonl"
-        notes = factory / f"NOTES-r{rr}.md"
-        write(batch, [record])
-        notes.write_text("# Critique\n\nConcrete gap.\n\nNovel coverage: 42%\n")
-        payload = {
-            "version": version,
-            "factory": factory.name,
-            "round": round_number,
-            "records": 1,
-            "expected_records": 1,
-            "commit_point": f"ROUND-r{rr}.complete.json",
-            "files": [
-                {"name": batch.name, "sha256": round_txn.file_sha256(batch)},
-                {"name": notes.name, "sha256": round_txn.file_sha256(notes)},
-            ],
-        }
-        if verification is not None:
-            payload["execution_verification"] = verification
-        (factory / payload["commit_point"]).write_text(
-            json.dumps(payload, indent=2, sort_keys=True) + "\n"
-        )
 
     def test_completion_markers_are_ordered_by_round_before_downgrade_checks(self):
         with tempfile.TemporaryDirectory() as td:
