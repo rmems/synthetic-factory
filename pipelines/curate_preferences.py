@@ -655,8 +655,37 @@ def _jsonl_payload(records: tuple[dict[str, Any], ...]) -> str:
     return "".join(canonical_json(record) + "\n" for record in records)
 
 
+def _open_destination_parent(path: Path) -> int:
+    flags = os.O_RDONLY | os.O_DIRECTORY | getattr(os, "O_NOFOLLOW", 0)
+    try:
+        return os.open(path.parent, flags)
+    except OSError as exc:
+        raise PreferenceCurationError(
+            f"destination parent is not a pinned directory: {path.parent}"
+        ) from exc
+
+
+def _refuse_opened_parent(parent_fd: int, destination: Path) -> None:
+    try:
+        opened = Path(os.readlink(f"/proc/self/fd/{parent_fd}"))
+    except OSError:
+        opened = destination.parent
+    _refuse_raw_destination(opened, "destination")
+    _refuse_raw_destination(opened / destination.name, "destination")
+
+
 def _create_exclusive_file(path: Path, payload: str, created: list[Path]) -> None:
-    descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o644)
+    parent_fd = _open_destination_parent(path)
+    try:
+        _refuse_opened_parent(parent_fd, path)
+        descriptor = os.open(
+            path.name,
+            os.O_WRONLY | os.O_CREAT | os.O_EXCL,
+            0o644,
+            dir_fd=parent_fd,
+        )
+    finally:
+        os.close(parent_fd)
     created.append(path)
     with os.fdopen(descriptor, "w", encoding="utf-8", newline="\n") as handle:
         handle.write(payload)
