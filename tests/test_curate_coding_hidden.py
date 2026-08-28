@@ -59,20 +59,32 @@ class HiddenReasoningKeyTests(unittest.TestCase):
         )
         return curated, manifest
 
-    def test_undelimited_internal_reasoning_suffixes_are_stripped(self):
-        source = episode(
-            [
-                visible_step(
-                    internal_reasoning2="private numbered trace",
-                    internal_reasoningverbatim="private verbatim trace",
+    def test_plain_episode_internal_reasoning_variants_are_stripped(self):
+        cases = (
+            (
+                "undelimited suffixes",
+                {
+                    "internal_reasoning2": "private numbered trace",
+                    "internal_reasoningverbatim": "private verbatim trace",
+                },
+                ("internal_reasoning2", "internal_reasoningverbatim"),
+            ),
+            (
+                "delimited fields",
+                {
+                    "internal_reasoning": "private step rationale",
+                    "internal_reasoning_verbatim": "verbatim private step rationale",
+                },
+                ("internal_reasoning", "internal_reasoning_verbatim"),
+            ),
+        )
+        for label, extra, missing_keys in cases:
+            with self.subTest(label=label):
+                self._assert_plain_step_keys_removed(
+                    episode([visible_step(**extra)]),
+                    missing_keys,
+                    3,
                 )
-            ]
-        )
-        self._assert_plain_step_keys_removed(
-            source,
-            ("internal_reasoning2", "internal_reasoningverbatim"),
-            3,
-        )
 
     def test_complete_audit_vocabulary_is_stripped_from_a_wrap_record(self):
         source = wrap_record(
@@ -109,21 +121,6 @@ class HiddenReasoningKeyTests(unittest.TestCase):
         ):
             with self.subTest(key=key):
                 self.assertFalse(is_hidden_reasoning_key(key))
-
-    def test_internal_reasoning_is_stripped_from_a_plain_episode(self):
-        source = episode(
-            [
-                visible_step(
-                    internal_reasoning="private step rationale",
-                    internal_reasoning_verbatim="verbatim private step rationale",
-                )
-            ]
-        )
-        self._assert_plain_step_keys_removed(
-            source,
-            ("internal_reasoning", "internal_reasoning_verbatim"),
-            3,
-        )
 
     def test_output_does_not_depend_on_internal_reasoning_content(self):
         first = episode([visible_step(internal_reasoning="secret A")])
