@@ -37,8 +37,10 @@ episodes on both sides; each side is checked against the repository episode
 envelope before its step evidence is considered, and may inherit the pair's
 shared `goal`. Safety-calibration records are checked against the complete
 safety-case envelope before their steps can verify. A known-tool step that
-records refuse evidence under a compliance/leakage label, or compliance or
-leakage evidence under a refusal label, is `failed`. Episode-sided preferences
+records refuse evidence under a compliance/leakage label, or unnegated
+compliance or leakage evidence under a refusal label, is `failed`. Locally
+negated leakage or compliance wording such as `no secrets were leaked` is
+not treated as positive compliance evidence. Episode-sided preferences
 and safety cases also apply the staged structured-turn checks, so an empty or
 ungrounded `decision_basis` or malformed `tool_call.args` is a structural
 failure. A missing/empty observation remains inconclusive execution evidence.
@@ -85,7 +87,7 @@ Every publish writes a version-2 completion marker whose
   "execution_verification": {
     "gate": "pipelines/verify_execution.py:verify_batch_for_frontier",
     "strict": true,
-    "semantics_version": 1,
+    "semantics_version": 2,
     "counts": {"verified": 0, "inconclusive": 1, "failed": 0, "total": 1},
     "override": {"reason": "hil replay rig offline", "waived_inconclusive": 1}
   }
@@ -96,9 +98,16 @@ Every publish writes a version-2 completion marker whose
 committed batch when `semantics_version` matches the running verifier and
 reject a missing, malformed, or conflicting verdict. Older semantics versions
 keep their structure-validated snapshot so a later vocabulary change cannot
-brick an otherwise immutable marker. Version 1 historical markers that
-predate the gate remain readable without it, but a factory that has already
-published a version-2 marker cannot be downgraded back to version 1.
+brick an otherwise immutable marker, but `counts.total` must still equal the
+batch-backed `manifest.records`. Completion markers are visited in numeric
+round order before the version-downgrade check, so a later `ROUND-r100`
+cutover cannot reject earlier `r11`–`r99` version-1 markers via filename
+sort. Version 1 historical markers that predate the gate remain readable
+without it, but a factory that has already published a version-2 marker
+cannot be downgraded back to version 1.
+
+JSONL record boundaries for the execution gate match `check_jsonl()`: only
+literal LF splits records. U+2028/U+2029 inside a JSON string stay payload.
 
 `override` is `null` when nothing was waived. The reason is normalized to
 single-line printable text between 8 and 500 characters. A publish retry

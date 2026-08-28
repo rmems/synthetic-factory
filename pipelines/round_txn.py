@@ -33,7 +33,6 @@ import shutil
 import stat
 import sys
 import tempfile
-import unicodedata
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -44,7 +43,6 @@ if str(_PIPELINES) not in sys.path:
 
 from check_records import check_jsonl  # noqa: E402
 from validate_run import THALAMIC_CORE_KEYS, terminal_outcome_agrees  # noqa: E402
-
 
 MODE_FILE = ".round-marker-mode.json"
 BATCH_RE = re.compile(r"^batch-r(\d+)([a-z]*)\.jsonl$")
@@ -317,32 +315,6 @@ LEGACY_NOVEL_COVERAGE_RE = re.compile(
     r"(?:\([^)\n]*\))?\s*[:=]?\s*(\d+(?:\.\d+)?)\s*%",
     re.IGNORECASE | re.MULTILINE,
 )
-CASCADE_GENERIC_TERMS = frozenset(
-    {
-        "and",
-        "are",
-        "error",
-        "errors",
-        "failed",
-        "failure",
-        "fault",
-        "for",
-        "from",
-        "has",
-        "have",
-        "into",
-        "issue",
-        "not",
-        "problem",
-        "step",
-        "that",
-        "the",
-        "this",
-        "was",
-        "were",
-        "with",
-    }
-)
 
 
 class TransactionError(RuntimeError):
@@ -360,14 +332,13 @@ def _is_nonneg_int(value):
 def _is_positive_int(value):
     return _is_int(value) and value >= 1
 
-
 # An operator waiver has to read as a written reason, not as a keystroke.
 EXECUTION_OVERRIDE_MIN_CHARS = 8
 EXECUTION_OVERRIDE_MAX_CHARS = 500
 EXECUTION_GATE_LABEL = "pipelines/verify_execution.py:verify_batch_for_frontier"
 # Bump when KNOWN_TOOLS or verdict rules change so historical markers are not
 # re-derived under a different semantics snapshot.
-EXECUTION_VERIFIER_SEMANTICS_VERSION = 1
+EXECUTION_VERIFIER_SEMANTICS_VERSION = 2
 # Fields a publish retry may legitimately re-derive without changing the plan.
 PUBLISH_PLAN_VOLATILE_KEYS = frozenset({"published_at", "execution_verification"})
 LEGACY_COMPLETION_MARKER_VERSION = 1
@@ -378,187 +349,33 @@ CANONICAL_EXECUTION_VERIFICATION_KEYS = frozenset(
 )
 EXECUTION_COUNT_KEYS = frozenset({"failed", "inconclusive", "total", "verified"})
 
-
-def normalized_execution_override(reason):
-    """Validate and normalize an operator waiver for cannot-verify records.
-
-    The canonicalized waiver is recorded in ``ROUND-rNN.complete.json``.
-    Whitespace is collapsed so the marker contains short, printable,
-    single-line text that a later auditor can read.
-    """
-    if reason is None:
-        return None
-    if not isinstance(reason, str):
-        raise TransactionError(
-            "execution verification override must be a written reason string"
-        )
-    text = " ".join(reason.split())
-    if not text.isprintable():
-        raise TransactionError(
-            "execution verification override must not contain non-printable characters"
-        )
-    if len(text) < EXECUTION_OVERRIDE_MIN_CHARS:
-        raise TransactionError(
-            "execution verification override needs a written reason of at least "
-            f"{EXECUTION_OVERRIDE_MIN_CHARS} characters"
-        )
-    if len(text) > EXECUTION_OVERRIDE_MAX_CHARS:
-        raise TransactionError(
-            "execution verification override reason must be at most "
-            f"{EXECUTION_OVERRIDE_MAX_CHARS} characters"
-        )
-    return text
-
-
-def _execution_override_from_block(verification):
-    override = verification.get("override")
-    if override is None:
-        return None
-    if not isinstance(override, dict):
-        raise TransactionError("publishing marker has invalid execution override")
-    reason = override.get("reason")
-    normalized = normalized_execution_override(reason)
-    if normalized != reason:
-        raise TransactionError("publishing marker execution override is not canonical")
-    waived = override.get("waived_inconclusive")
-    if not _is_positive_int(waived):
-        raise TransactionError(
-            "publishing marker has invalid waived_inconclusive count"
-        )
-    return normalized
-
-
-def recorded_execution_override(manifest):
-    """Return a canonical waiver already persisted in a publishing marker."""
-    verification = manifest.get("execution_verification")
-    if not isinstance(verification, dict):
-        raise TransactionError("publishing marker has invalid execution verification")
-    return _execution_override_from_block(verification)
-
-
-def comparable_execution_verification(verification):
-    """Return derived verification fields while exempting only waiver prose."""
-    if not isinstance(verification, dict):
-        raise TransactionError("publishing marker has invalid execution verification")
-    comparable = dict(verification)
-    override = comparable.get("override")
-    if isinstance(override, dict):
-        comparable["override"] = {
-            key: value for key, value in override.items() if key != "reason"
-        }
-    return comparable
-
-
-def _validated_execution_counts(counts, marker_kind):
-    if not isinstance(counts, dict) or set(counts) != EXECUTION_COUNT_KEYS:
-        raise TransactionError(
-            f"{marker_kind} has invalid execution verification counts"
-        )
-    if any(not _is_nonneg_int(counts[key]) for key in counts):
-        raise TransactionError(
-            f"{marker_kind} has invalid execution verification counts"
-        )
-    return counts
-
-
-def _execution_identity_is_canonical(verification, counts):
-    if verification.get("gate") != EXECUTION_GATE_LABEL:
-        return False
-    if verification.get("strict") is not True:
-        return False
-    if counts["total"] < 1 or counts["failed"] != 0:
-        return False
-    return counts["verified"] + counts["inconclusive"] == counts["total"]
-
-
-def _historical_semantics_version(value):
-    if not _is_positive_int(value):
-        return False
-    return value < EXECUTION_VERIFIER_SEMANTICS_VERSION
-
-
-def _validated_execution_semantics_version(verification, marker_kind):
-    value = verification.get("semantics_version")
-    if value == EXECUTION_VERIFIER_SEMANTICS_VERSION:
-        return value
-    if _historical_semantics_version(value):
-        return value
-    raise TransactionError(f"{marker_kind} has invalid execution verification")
-
-
-def _validated_override_matches_counts(verification, counts, marker_kind):
-    override = recorded_execution_override(
-        {"execution_verification": verification}
-    )
-    if not counts["inconclusive"]:
-        if override is not None:
-            raise TransactionError(
-                f"{marker_kind} cannot waive a conclusive execution verdict"
-            )
-        return
-    if override is None:
-        raise TransactionError(
-            f"{marker_kind} execution override does not match "
-            "the inconclusive count"
-        )
-    waived = verification["override"]["waived_inconclusive"]
-    if waived != counts["inconclusive"]:
-        raise TransactionError(
-            f"{marker_kind} execution override does not match "
-            "the inconclusive count"
-        )
-
-
-def validated_execution_verification_summary(
-    verification, marker_kind="completion marker"
-):
-    """Validate the canonical strict-gate summary stored in a durable marker."""
-    if not isinstance(verification, dict):
-        raise TransactionError(f"{marker_kind} has invalid execution verification")
-    if set(verification) != CANONICAL_EXECUTION_VERIFICATION_KEYS:
-        raise TransactionError(f"{marker_kind} has invalid execution verification")
-    counts = _validated_execution_counts(verification.get("counts"), marker_kind)
-    _validated_execution_semantics_version(verification, marker_kind)
-    if not _execution_identity_is_canonical(verification, counts):
-        raise TransactionError(f"{marker_kind} has invalid execution verification")
-    _validated_override_matches_counts(verification, counts, marker_kind)
-    return verification
-
-
-def _rederive_current_execution_verification(batch: Path, manifest: dict):
-    try:
-        override = recorded_execution_override(manifest)
-        return execution_gate(batch, batch, override=override)
-    except TransactionError as exc:
-        raise TransactionError(
-            "completion marker execution verification conflicts with "
-            f"committed batch: {batch}\n{exc}"
-        ) from exc
-
-
-def validate_completed_execution_verification(batch: Path, manifest: dict):
-    """Re-derive the v2 execution verdict before exposing a completed batch."""
-    recorded = manifest.get("execution_verification")
-    if not isinstance(recorded, dict):
-        raise TransactionError(
-            "version 2 completion marker requires an exact execution "
-            f"verification block: {batch}"
-        )
-    validated_execution_verification_summary(
-        recorded, marker_kind="completion marker"
-    )
-    if recorded.get("semantics_version") != EXECUTION_VERIFIER_SEMANTICS_VERSION:
-        # Historical snapshot under a prior verifier vocabulary. Structure is
-        # already validated; do not brick the marker by re-deriving counts
-        # under later KNOWN_TOOLS or outcome rules.
-        return recorded
-    derived = _rederive_current_execution_verification(batch, manifest)
-    if recorded != derived:
-        raise TransactionError(
-            "completion marker execution verification conflicts with "
-            f"committed batch: {batch}"
-        )
-    return recorded
+from round_txn_execution import (  # noqa: E402
+    comparable_execution_verification,
+    execution_gate,
+    load_execution_verifier,
+    normalized_execution_override,
+    recorded_execution_override,
+    validate_completed_execution_verification,
+    validated_execution_verification_summary,
+)
+from round_txn_coverage import (  # noqa: E402
+    abandoned_failed_hypotheses,
+    agentic_trajectory_units,
+    banned_agentic_wrapper_paths,
+    contiguous_step_number_errors,
+    demonstrates_ordered_scenario,
+    has_long_horizon_debug_loop,
+    long_horizon_scenario_signature,
+    nested_key_paths,
+    nested_strings,
+    normalized_category,
+    numbered_horizon_errors,
+    observable_step_text,
+    shares_visible_terms,
+    sparse_step_progress_errors,
+    step_observation_text,
+    visibly_names_fault,
+)
 
 
 def replace_json_atomically(path: Path, payload: dict):
@@ -571,80 +388,6 @@ def replace_json_atomically(path: Path, payload: dict):
         os.replace(temporary, path)
     finally:
         temporary.unlink(missing_ok=True)
-
-
-def load_execution_verifier():
-    """Import the execution verifier on demand, failing closed when missing.
-
-    The import stays local so ``verify_execution`` can audit any run directory
-    without a ``round_txn`` reservation. A missing verifier is not a licence to
-    publish unverified records, so the absence raises instead of skipping.
-    """
-    try:
-        from verify_execution import verify_batch_for_frontier
-    except ImportError as exc:
-        raise TransactionError(
-            "execution verification is unavailable; refusing to publish records "
-            f"whose execution evidence cannot be checked: {exc}"
-        ) from exc
-    return verify_batch_for_frontier
-
-
-def execution_gate(batch: Path, staged_batch: Path, override=None):
-    """Gate one staged batch on observable execution evidence.
-
-    ``verified`` / ``inconclusive`` / ``failed`` come from
-    ``pipelines/verify_execution.py``, which owns that taxonomy. This gate only
-    decides what each verdict does to the frontier:
-
-    * ``failed``       — structural defect; never waivable.
-    * ``inconclusive`` — cannot-verify; blocks unless the operator records an
-      explicit written waiver. Cannot-verify is never promoted to verified.
-    * ``verified``     — passes.
-
-    Returns the summary recorded in the completion manifest.
-    """
-    verify_batch_for_frontier = load_execution_verifier()
-    counts, findings, blocked = verify_batch_for_frontier(batch, strict=True)
-    summary = {
-        "gate": EXECUTION_GATE_LABEL,
-        "strict": True,
-        "semantics_version": EXECUTION_VERIFIER_SEMANTICS_VERSION,
-        "counts": counts,
-        "override": None,
-    }
-    if not blocked:
-        return summary
-
-    detail = "\n".join(
-        f"{finding['status'].upper()}: {staged_batch.name}:{finding['line']} — "
-        f"{finding['reason']}"
-        for finding in findings[:5]
-    )
-    if len(findings) > 5:
-        detail += f"\n... and {len(findings) - 5} more findings"
-    if counts["failed"]:
-        raise TransactionError(
-            f"execution verification failed for the staged batch: {staged_batch}\n"
-            f"{counts['failed']} failed, {counts['inconclusive']} inconclusive of "
-            f"{counts['total']} records; a failed record is never waivable\n"
-            + detail
-        )
-    if override is None:
-        raise TransactionError(
-            "execution verification cannot verify "
-            f"{counts['inconclusive']} of {counts['total']} staged records: "
-            f"{staged_batch}\n" + detail + "\n"
-            "cannot-verify is never treated as verified; regenerate the round "
-            "with observable execution evidence, or republish with "
-            '--allow-inconclusive "<reason>" to record an explicit operator '
-            "waiver in the completion marker"
-        )
-    summary["override"] = {
-        "reason": override,
-        "waived_inconclusive": counts["inconclusive"],
-    }
-    return summary
 
 
 def utc_now():
@@ -1056,7 +799,6 @@ def completed_rounds(factory_dir: Path):
         rounds.append(round_number)
     return sorted(set(rounds))
 
-
 SUPPORTED_COMPLETION_MARKER_VERSIONS = frozenset(
     {
         LEGACY_COMPLETION_MARKER_VERSION,
@@ -1189,11 +931,15 @@ def completed_manifests(factory_dir: Path) -> dict[int, dict]:
     cutover = execution_gate_cutover_round(factory_dir)
     manifests = {}
     seen_verified = False
-    for path in sorted(factory_dir.glob("ROUND-r*.complete.json")):
+    loaded_markers = []
+    for path in factory_dir.glob("ROUND-r*.complete.json"):
         loaded = _load_completion_marker_payload(path, factory_dir)
         if loaded is None:
             continue
-        round_number, payload = loaded
+        loaded_markers.append((loaded[0], path, loaded[1]))
+    for round_number, path, payload in sorted(
+        loaded_markers, key=lambda item: item[0]
+    ):
         names, batch_name, notes_name = _validated_completion_file_names(
             payload, round_number, path, factory_dir
         )
@@ -1246,354 +992,6 @@ def batch_matches_completion_manifest(batch: Path, manifest: dict) -> bool:
     """Validate a committed batch against its unique completion entry."""
     completion_manifest_file_matches(batch, manifest)
     return True
-
-
-def nested_key_paths(value, key, path=""):
-    """Yield every nested occurrence of one forbidden field name."""
-    if isinstance(value, dict):
-        for child_key, item in value.items():
-            child_path = f"{path}.{child_key}" if path else child_key
-            if child_key == key:
-                yield child_path
-            yield from nested_key_paths(item, key, child_path)
-    elif isinstance(value, list):
-        for index, item in enumerate(value):
-            yield from nested_key_paths(item, key, f"{path}[{index}]")
-
-
-def nested_strings(value):
-    """Yield observable string values from a JSON-compatible value."""
-    if isinstance(value, str):
-        yield value
-    elif isinstance(value, dict):
-        for item in value.values():
-            yield from nested_strings(item)
-    elif isinstance(value, list):
-        for item in value:
-            yield from nested_strings(item)
-
-
-def agentic_trajectory_units(record: dict) -> list[str]:
-    """Return separate ordered steps/terminal fields, excluding the task goal."""
-    chosen = record.get("chosen")
-    rejected = record.get("rejected")
-
-    def step_units(owner):
-        steps = owner.get("steps") if isinstance(owner, dict) else None
-        return steps if isinstance(steps, list) else []
-
-    values = [*step_units(record)]
-    if isinstance(chosen, dict) or isinstance(rejected, dict):
-        values.extend(
-            (
-                *step_units(chosen),
-                *step_units(rejected),
-                record.get("critique"),
-                chosen.get("outcome") if isinstance(chosen, dict) else None,
-                rejected.get("outcome") if isinstance(rejected, dict) else None,
-            )
-        )
-    values.append(record.get("outcome"))
-    return [
-        " ".join(
-            text.strip().casefold()
-            for text in nested_strings(value)
-            if text.strip()
-        )
-        for value in values
-        if value is not None
-    ]
-
-
-def demonstrates_ordered_scenario(record: dict, scenario_terms) -> bool:
-    """Require failure, correction, and verification in distinct ordered units."""
-    units = agentic_trajectory_units(record)
-    cursor = 0
-    phase_start = max(0, len(scenario_terms) - 3)
-    for group_index, alternatives in enumerate(scenario_terms):
-        matches = [
-            index
-            for index in range(cursor, len(units))
-            if any(term in units[index] for term in alternatives)
-        ]
-        if not matches:
-            return False
-        matched_index = matches[0]
-        cursor = matched_index + (1 if group_index >= phase_start else 0)
-    return True
-
-
-def long_horizon_scenario_signature(record: dict):
-    """Return the required explicit codebase/bug-class category signature."""
-
-    def normalized_field(*values):
-        for value in values:
-            if isinstance(value, str) and value.strip():
-                return re.sub(r"\s+", " ", value.strip().casefold())
-        return None
-
-    codebase = normalized_field(record.get("codebase_type"))
-    bug_class = normalized_field(record.get("bug_class"))
-    return (codebase, bug_class) if codebase is not None and bug_class is not None else None
-
-
-def banned_agentic_wrapper_paths(value, path=""):
-    """Yield nested fields or values that introduce neuromorphic wrappers."""
-    if isinstance(value, dict):
-        for key, item in value.items():
-            child_path = f"{path}.{key}" if path else key
-            normalized = re.sub(
-                r"[^a-z0-9]+",
-                "_",
-                re.sub(r"(?<=[a-z0-9])(?=[A-Z])", "_", str(key)).casefold(),
-            ).strip("_")
-            if (
-                normalized in {"spike_events", "raster", "rasters"}
-                or re.search(r"(?:^|_)rasters?(?:_|$)", normalized) is not None
-                or "spikenaut" in normalized
-                or "neuromorphic" in normalized
-            ):
-                yield child_path
-            yield from banned_agentic_wrapper_paths(item, child_path)
-    elif isinstance(value, list):
-        for index, item in enumerate(value):
-            yield from banned_agentic_wrapper_paths(item, f"{path}[{index}]")
-    elif isinstance(value, str):
-        normalized = value.casefold()
-        if "spikenaut" in normalized or "neuromorphic" in normalized:
-            yield path or "<root>"
-
-
-def shares_visible_terms(left, right):
-    """Whether two observable strings name at least one meaningful common term."""
-    if not isinstance(left, str) or not isinstance(right, str):
-        return False
-    left_terms = {
-        term
-        for term in re.findall(r"[a-z0-9][a-z0-9_-]{2,}", left.lower())
-        if term not in CASCADE_GENERIC_TERMS
-    }
-    right_terms = {
-        term
-        for term in re.findall(r"[a-z0-9][a-z0-9_-]{2,}", right.lower())
-        if term not in CASCADE_GENERIC_TERMS
-    }
-    return bool(left_terms & right_terms)
-
-
-def normalized_category(value):
-    """Normalize a human category so punctuation cannot manufacture diversity."""
-    if not isinstance(value, str):
-        return ""
-    text = unicodedata.normalize("NFC", value).strip()
-    return re.sub(
-        r"_+", "_", re.sub(r"[^\w]+", "_", text.casefold())
-    ).strip("_")
-
-
-def visibly_names_fault(introduced_text, *fault_evidence):
-    """Whether one designated step explicitly names declared fault evidence."""
-    introduced = normalized_category(introduced_text)
-    preventive_terms = {
-        "avoid",
-        "avoided",
-        "avoiding",
-        "prevent",
-        "prevented",
-        "preventing",
-    }
-    for evidence in fault_evidence:
-        normalized = normalized_category(evidence)
-        if not introduced or not normalized:
-            continue
-        for match in re.finditer(
-            rf"(?:^|_){re.escape(normalized)}(?=_|$)", introduced
-        ):
-            prefix_tokens = introduced[: match.start()].strip("_").split("_")[-3:]
-            locally_prevented = any(
-                token in preventive_terms for token in prefix_tokens
-            )
-            locally_negated = any(
-                token in {"no", "not", "never", "without"}
-                and not (
-                    token == "not"
-                    and index + 1 < len(prefix_tokens)
-                    and prefix_tokens[index + 1] == "only"
-                )
-                for index, token in enumerate(prefix_tokens)
-            )
-            suffix = introduced[match.end() :].strip("_")
-            suffix_negated = re.match(
-                r"(?:(?:is|are|was|were|did)_)?(?:not|never)_"
-                r"(?:created|happened|introduced|occurred|present|produced|triggered)"
-                r"(?:_|$)|(?:(?:is|are|was|were)_)?(?:avoided|prevented)(?:_|$)",
-                suffix,
-            ) is not None
-            if not (locally_prevented or locally_negated or suffix_negated):
-                return True
-    return False
-
-
-def numbered_horizon_errors(where, steps, lane, minimum, maximum):
-    """Return lane-specific horizon and exact integer numbering errors."""
-    if not isinstance(steps, list):
-        return []
-    errors = []
-    if not minimum <= len(steps) <= maximum:
-        errors.append(f"{where}: {lane} episodes require {minimum} to {maximum} steps")
-    errors.extend(contiguous_step_number_errors(where, steps, lane))
-    return errors
-
-
-def contiguous_step_number_errors(where, steps, lane):
-    """Return an error unless list entries use exact integer numbering 1..K."""
-    if not isinstance(steps, list):
-        return []
-    step_numbers = [
-        step.get("n") if isinstance(step, dict) else None
-        for step in steps
-    ]
-    if any(
-        not isinstance(number, int)
-        or isinstance(number, bool)
-        or number != expected_number
-        for expected_number, number in enumerate(step_numbers, 1)
-    ):
-        return [f"{where}: {lane} steps must be numbered contiguously from 1"]
-    return []
-
-
-def observable_step_text(step):
-    """Flatten only publishable tool/basis/observation fields for lane checks."""
-    if not isinstance(step, dict):
-        return ""
-    values = [step.get("decision_basis"), step.get("observation")]
-    tool_call = step.get("tool_call")
-    if isinstance(tool_call, dict):
-        values.extend((tool_call.get("name"), tool_call.get("args")))
-    return " ".join(
-        value if isinstance(value, str) else json.dumps(value, sort_keys=True)
-        for value in values
-        if isinstance(value, (str, dict, list))
-    ).lower()
-
-
-def step_observation_text(step):
-    """Return only the recorded result of a step, excluding plans and commands."""
-    observation = step.get("observation") if isinstance(step, dict) else None
-    return observation.casefold() if isinstance(observation, str) else ""
-
-
-def has_long_horizon_debug_loop(steps):
-    """Whether observable steps contain edit, failing test, re-read, fix, verify."""
-    if not isinstance(steps, list):
-        return False
-    texts = [observable_step_text(step) for step in steps]
-    observations = [step_observation_text(step) for step in steps]
-
-    def includes(candidate_text, terms):
-        return any(term in candidate_text for term in terms)
-
-    edit_terms = ("edit", "write", "patch", "apply")
-    test_terms = ("test", "pytest", "cargo test", "npm test")
-    failure_terms = ("fail", "error", "nonzero", "red")
-    read_terms = ("re-read", "reread", "inspect", "read", "cat ", "sed ", "rg ")
-    fix_terms = ("fix", "repair", "patch", "edit", "write", "apply")
-    verify_terms = ("pass", "success", "green", "verified", "fixed")
-    for edit_index, text in enumerate(texts):
-        if not includes(text, edit_terms):
-            continue
-        for failure_index in range(edit_index + 1, len(texts)):
-            failure_text = texts[failure_index]
-            if not (
-                includes(failure_text, test_terms)
-                and includes(observations[failure_index], failure_terms)
-            ):
-                continue
-            for read_index in range(failure_index + 1, len(texts)):
-                if not includes(texts[read_index], read_terms):
-                    continue
-                for fix_index in range(read_index + 1, len(texts)):
-                    if not includes(texts[fix_index], fix_terms):
-                        continue
-                    return any(
-                        includes(texts[verify_index], test_terms)
-                        and includes(observations[verify_index], verify_terms)
-                        for verify_index in range(fix_index + 1, len(texts))
-                    )
-    return False
-
-
-def abandoned_failed_hypotheses(steps):
-    """Return distinct explicit hypothesis labels failed then abandoned later."""
-    if not isinstance(steps, list):
-        return set()
-    failed = []
-    failure_terms = ("fail", "disproved", "ruled out", "not the cause")
-    for index, step in enumerate(steps):
-        observation = step.get("observation") if isinstance(step, dict) else None
-        if not isinstance(observation, str) or not any(
-            term in observation.lower() for term in failure_terms
-        ):
-            continue
-        failed.extend(
-            (index, match.group(1))
-            for match in re.finditer(
-                r"\bhypothesis\s*[:#_-]?\s*([a-z0-9][a-z0-9_-]{2,})",
-                observation.lower(),
-            )
-        )
-    abandoned = set()
-    abandonment_terms = ("abandon", "discard", "reject", "disproved", "ruled out")
-    for failure_index, label in failed:
-        for step in steps[failure_index + 1 :]:
-            basis = step.get("decision_basis") if isinstance(step, dict) else None
-            if (
-                isinstance(basis, str)
-                and label in basis.lower()
-                and any(term in basis.lower() for term in abandonment_terms)
-            ):
-                abandoned.add(label)
-                break
-    return abandoned
-
-
-def sparse_step_progress_errors(where, steps):
-    """Reject sparse-horizon padding that changes neither state nor belief."""
-    if not isinstance(steps, list):
-        return []
-    progress_terms = re.compile(
-        r"\b(?:added|changed|created|deleted|disproved|edited|evidence|failed|"
-        r"fixed|found|hypothesis|learned|measured|patched|removed|reproduced|"
-        r"tested|updated|verified|wrote)\b"
-    )
-    stall_terms = re.compile(
-        r"\b(?:no[ -]?op|no change|nothing changed|unchanged)\b"
-    )
-    previous_observation = None
-    for index, step in enumerate(steps):
-        text = observable_step_text(step)
-        if stall_terms.search(text) is not None or progress_terms.search(text) is None:
-            return [
-                f"{where}: sparse long-task steps[{index}] must show observable "
-                "file, test, or belief progress rather than padding"
-            ]
-        observation = step.get("observation") if isinstance(step, dict) else None
-        normalized_observation = (
-            re.sub(r"\s+", " ", observation.strip().casefold())
-            if isinstance(observation, str) and observation.strip()
-            else None
-        )
-        if (
-            normalized_observation is not None
-            and normalized_observation == previous_observation
-        ):
-            return [
-                f"{where}: sparse long-task steps[{index}] repeats the prior "
-                "observation without observable progress"
-            ]
-        previous_observation = normalized_observation
-    return []
 
 
 def frontier_status(factory_dir: Path):
@@ -1973,8 +1371,9 @@ def committed_ids(factory_dir: Path):
                 check_jsonl(path, label, seen_ids=seen_ids)
     return seen_ids
 
-
 @contextlib.contextmanager
+
+
 def run_publish_lock(factory_dir: Path):
     """Serialize publish validation and the completion marker for one run."""
     path = factory_dir.parent / ".round-publish.lock"
@@ -2004,7 +1403,7 @@ def validate_agentic_envelope(batch: Path, factory_dir: Path, round_number: int)
     long_horizon_success_values = []
     long_horizon_scenario_signatures = []
     tool_use_lesson_signatures = []
-    for lineno, line in enumerate(batch.read_text().splitlines(), 1):
+    for lineno, line in enumerate(batch.read_text().split("\n"), 1):
         if not line.strip():
             continue
         # JSON parsing and base shape errors have already been checked by
@@ -3202,7 +2601,6 @@ def main(argv=None):
         return 1
     print(json.dumps(result, indent=2, sort_keys=True))
     return 0
-
 
 if __name__ == "__main__":
     raise SystemExit(main())
