@@ -924,6 +924,21 @@ MEMORY_UNITS = {
 DISTRACTOR_SHIFT_MS = 7.0
 
 
+def _memory_ablation_changed(baseline, trial):
+    """True when an ablation changes the categorical response or latch state.
+
+    A forgotten cue can leave both trials at ``response='none'`` while the
+    retained latch still disagrees. Categorical equality alone would hide
+    that temporal effect; identical none/none with identical latch state
+    remains a measured forgetting case and is not dependence.
+    """
+    return (
+        trial.get("response") != baseline.get("response")
+        or bool(trial.get("state_retained_at_probe"))
+        != bool(baseline.get("state_retained_at_probe"))
+    )
+
+
 def memory_request(scenario, intervention):
     del intervention
     config = sim.memory_config(scenario["network_variant"])
@@ -971,7 +986,7 @@ def _memory_reference(request):
     differing = sorted(
         name
         for name, result in probes.items()
-        if name != "distractor_swap" and result["response"] != baseline["response"]
+        if name != "distractor_swap" and _memory_ablation_changed(baseline, result)
     )
     measured = {
         "baseline": baseline,
@@ -982,7 +997,7 @@ def _memory_reference(request):
             "method": (
                 "re-ran the same network with the cue removed (and, when present, "
                 "with the reset removed); a record counts as temporally dependent "
-                "only if that changes the measured response"
+                "only if that changes the measured response or retained latch state"
             ),
         },
         "distractor_invariant": (
@@ -1087,7 +1102,7 @@ def _memory_checks(record):
     differing = sorted(
         name
         for name in ("cue_ablation", "reset_ablation")
-        if name in probes and probes[name]["response"] != baseline["response"]
+        if name in probes and _memory_ablation_changed(baseline, probes[name])
     )
     dependence = measured["temporal_dependence"]
     if dependence.get("demonstrated") != bool(differing):
@@ -1097,7 +1112,7 @@ def _memory_checks(record):
     if not differing:
         findings.append(
             "no temporal dependence: removing the earlier events left the measured "
-            "response unchanged"
+            "response and retained latch state unchanged"
         )
     if "cue_ablation" not in probes:
         findings.append("the cue-ablation control is missing")

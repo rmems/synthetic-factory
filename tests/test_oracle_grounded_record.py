@@ -12,6 +12,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import unittest
 from pathlib import Path
@@ -530,12 +531,28 @@ class FamilyInvariants(unittest.TestCase):
         measured = item["result"]["measured"]
         for probe in measured["probes"].values():
             probe["response"] = measured["baseline"]["response"]
+            probe["state_retained_at_probe"] = measured["baseline"][
+                "state_retained_at_probe"
+            ]
         measured["temporal_dependence"]["demonstrated"] = True
         measured["temporal_dependence"]["changed_by"] = ["cue_ablation"]
         item["result_hash"] = canon.digest(item["result"])
         findings = record.validate_record(item, check_declared_status=False)
         self.assertTrue(any("demonstrated" in f for f in findings), findings)
         self.assertTrue(any("changed_by" in f for f in findings), findings)
+
+    def test_retained_latch_state_counts_as_temporal_dependence(self):
+        baseline = {"response": "none", "state_retained_at_probe": True}
+        same = {"response": "none", "state_retained_at_probe": True}
+        latch_gone = {"response": "none", "state_retained_at_probe": False}
+        self.assertFalse(families._memory_ablation_changed(baseline, same))
+        self.assertTrue(families._memory_ablation_changed(baseline, latch_gone))
+        self.assertTrue(
+            families._memory_ablation_changed(
+                {"response": "A", "state_retained_at_probe": True},
+                {"response": "none", "state_retained_at_probe": True},
+            )
+        )
 
     def test_the_cue_ablation_control_is_always_present(self):
         for index in range(6):
@@ -1446,6 +1463,7 @@ class ExternalOracleProtocol(unittest.TestCase):
         holder = (
             "import json, os, sys, time\n"
             "if os.fork() == 0:\n"
+            "    os.setsid()\n"
             "    time.sleep(30)\n"
             "    os._exit(0)\n"
             "sys.stdout.write(json.dumps({\n"
@@ -1470,6 +1488,12 @@ class ExternalOracleProtocol(unittest.TestCase):
             adapter.run("f", {"configuration": {}, "data": {}})
         self.assertLess(time.monotonic() - started, 2.0)
         self.assertIn("timed out", str(raised.exception))
+        hung = [
+            thread.name
+            for thread in threading.enumerate()
+            if thread.name.startswith("sf-oracle-axon-encoder-") and thread.is_alive()
+        ]
+        self.assertEqual(hung, [])
 
 
 class OracleProvenance(unittest.TestCase):

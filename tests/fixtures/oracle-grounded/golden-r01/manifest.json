@@ -89,7 +89,7 @@
       "proposed": 4,
       "rejected": {
         "reasons": [
-          "no temporal dependence: removing the earlier events left the measured response unchanged"
+          "no temporal dependence: removing the earlier events left the measured response and retained latch state unchanged"
         ],
         "records": 2
       }
@@ -98,7 +98,7 @@
   "files": {
     "neuromodulator-credit-assignment/accepted-r01.jsonl": {
       "records": 4,
-      "sha256": "0296a4524a7423118af5be330041d73714becbbb989ba7e79808f049dd4b8fbc"
+      "sha256": "91570d4283479e72f4281386dc4f74dc3b9cc1ef7a9a308965c63842d94674b3"
     },
     "neuromodulator-credit-assignment/rejected-r01.jsonl": {
       "records": 0,
@@ -106,7 +106,7 @@
     },
     "neuron-dynamics-counterfactuals/accepted-r01.jsonl": {
       "records": 4,
-      "sha256": "5cbb611be8c400dd0535997e6f991460527d4f9ffcfac19f4b6e853d70d7a1be"
+      "sha256": "26fc85af5ff339cafd80adbdd7e80fd784733cbde3cd7a90f7d4afb5e402990a"
     },
     "neuron-dynamics-counterfactuals/rejected-r01.jsonl": {
       "records": 0,
@@ -114,7 +114,7 @@
     },
     "spike-encoder-equivalence-pairs/accepted-r01.jsonl": {
       "records": 4,
-      "sha256": "76ed11f6969911b0ded3e9be3374d621324f9051edc32c44354ae9a5817afc65"
+      "sha256": "434ce5b1ac12889fd280bdffa840c00c3b9c2dcbc5405d1f2b489fafc40b4a70"
     },
     "spike-encoder-equivalence-pairs/rejected-r01.jsonl": {
       "records": 0,
@@ -122,7 +122,7 @@
     },
     "synaptic-delay-causal-trajectories/accepted-r01.jsonl": {
       "records": 4,
-      "sha256": "b535ead915ef737d6af9ff6bde180cea2a42a963a44569c446750259c6a9750a"
+      "sha256": "245315119a557e078dd528e4ae964aacb84913874a769865c77472a337d77d5a"
     },
     "synaptic-delay-causal-trajectories/rejected-r01.jsonl": {
       "records": 0,
@@ -130,15 +130,15 @@
     },
     "temporal-memory-spike-challenges/accepted-r01.jsonl": {
       "records": 2,
-      "sha256": "cee683e82f643edb65216100144bd85e5df23c024b212166bcf7ee87f6bee13c"
+      "sha256": "9c6c02b3a305e9e988551a28fea8139442900e9027da87a574c14a0a8560d1e3"
     },
     "temporal-memory-spike-challenges/rejected-r01.jsonl": {
       "records": 2,
-      "sha256": "05b4042ea2e1b7e3d86d822be0699d386b061c398b8a79d80f6b11958d018697"
+      "sha256": "3622a20c072a2b91596a3b377d33f2ea46ca4639dabbc85b140122687bdfdf85"
     }
   },
   "generation_errors": [],
-  "module_digest": "sha256:b346321ee583bdccd44107e2db904c46ee7672e8eece2f6c3bf02c5ca3aa36b6",
+  "module_digest": "sha256:63e54e19d0232b6756c6c0b9d1c0903bb90834643f30bc9670b0831aaa9b6abe",
   "note": "Counts describe this run only. A reference-implementation oracle measures a real model but is not the named runtime; no record here is publishable as a measurement of the named runtime.",
   "oracle_availability": {
     "all_bound": false,

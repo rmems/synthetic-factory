@@ -20,6 +20,7 @@ command fails, times out, or answers off-protocol, the run raises
 import json
 import os
 import re
+import select
 import shlex
 import shutil
 import signal
@@ -394,11 +395,56 @@ def _run_protocol_command(command, payload, timeout_s, runtime):
             except (OSError, ProcessLookupError):
                 pass
 
+    def close_pipes():
+        # Closing a BufferedReader from this thread can block on a concurrent
+        # read. Drop the raw fds so a descendant holding the write end cannot
+        # keep us past the deadline; dup2 to /dev/null avoids fd-reuse races.
+        try:
+            devnull = os.open(os.devnull, os.O_RDWR)
+        except OSError:
+            devnull = None
+        try:
+            for stream in (process.stdin, process.stdout, process.stderr):
+                if stream is None:
+                    continue
+                try:
+                    fd = stream.fileno()
+                except (ValueError, OSError):
+                    continue
+                if devnull is not None:
+                    try:
+                        os.dup2(devnull, fd)
+                    except OSError:
+                        pass
+                else:
+                    try:
+                        os.close(fd)
+                    except OSError:
+                        pass
+        finally:
+            if devnull is not None:
+                try:
+                    os.close(devnull)
+                except OSError:
+                    pass
+
     def read_stream(name, stream, limit):
         total = 0
         try:
+            fd = stream.fileno()
             while True:
-                chunk = stream.read(PROTOCOL_READ_BYTES)
+                wait = remaining()
+                if wait <= 0:
+                    break
+                ready, _, _ = select.select([fd], [], [], wait)
+                if not ready:
+                    break
+                try:
+                    chunk = os.read(fd, PROTOCOL_READ_BYTES)
+                except OSError as exc:
+                    io_errors.append((name, exc))
+                    stop_process()
+                    break
                 if not chunk:
                     break
                 total += len(chunk)
@@ -411,7 +457,10 @@ def _run_protocol_command(command, payload, timeout_s, runtime):
             io_errors.append((name, exc))
             stop_process()
         finally:
-            stream.close()
+            try:
+                stream.close()
+            except OSError:
+                pass
 
     def write_stdin():
         try:
@@ -423,18 +472,25 @@ def _run_protocol_command(command, payload, timeout_s, runtime):
             io_errors.append(("stdin", exc))
             stop_process()
 
+    thread_prefix = f"sf-oracle-{runtime}-"
     threads = [
         threading.Thread(
             target=read_stream,
             args=("stdout", process.stdout, MAX_PROTOCOL_STDOUT_BYTES),
+            name=thread_prefix + "stdout",
             daemon=True,
         ),
         threading.Thread(
             target=read_stream,
             args=("stderr", process.stderr, MAX_PROTOCOL_STDERR_BYTES),
+            name=thread_prefix + "stderr",
             daemon=True,
         ),
-        threading.Thread(target=write_stdin, daemon=True),
+        threading.Thread(
+            target=write_stdin,
+            name=thread_prefix + "stdin",
+            daemon=True,
+        ),
     ]
     for thread in threads:
         thread.start()
@@ -448,19 +504,22 @@ def _run_protocol_command(command, payload, timeout_s, runtime):
                 hung = True
         return hung
 
-    try:
-        returncode = process.wait(timeout=remaining())
-    except subprocess.TimeoutExpired as exc:
+    def reap():
         stop_process()
+        close_pipes()
+        join_readers(max(0.05, remaining()))
         try:
             process.wait(timeout=max(0.05, remaining()))
         except subprocess.TimeoutExpired:
             pass
-        join_readers(remaining())
+
+    try:
+        returncode = process.wait(timeout=remaining())
+    except subprocess.TimeoutExpired as exc:
+        reap()
         raise OracleError(f"{runtime}: timed out after {timeout_s}s") from exc
     if join_readers(remaining()):
-        stop_process()
-        join_readers(max(0.05, remaining()))
+        reap()
         raise OracleError(
             f"{runtime}: timed out after {timeout_s}s waiting for inherited pipes to close"
         )
