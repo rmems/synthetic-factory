@@ -752,6 +752,10 @@ def load_taxonomy(path: str | Path | None = None) -> Taxonomy:
             resolved.read_text(encoding="utf-8"),
             parse_constant=_reject_json_constant,
         )
+    except RecursionError as exc:
+        raise TagTaxonomyError(
+            f"{resolved}: taxonomy JSON is nested too deeply"
+        ) from exc
     except ValueError as exc:
         raise TagTaxonomyError(f"{resolved}: invalid JSON: {exc}") from exc
     if not isinstance(document, dict):
@@ -993,8 +997,10 @@ def curate_record(
             canonical_uses[tag] += 1
         for tag in entry["unmapped_tags"]:
             unmapped_total += 1
-            if isinstance(tag, str):
+            try:
                 unmapped_uses[tag] += 1
+            except TypeError:
+                unmapped_uses[canonical_json(tag)] += 1
         mapped_total += sum(
             1
             for mapping in entry["mappings"]
@@ -1042,7 +1048,15 @@ def curate_record(
         "mapped_uses": mapped_total,
         "unmapped_uses": unmapped_total,
     }
-    manifest["unmapped_tags"] = sorted(unmapped_uses)
+    manifest["unmapped_tags"] = sorted(
+        unmapped_uses,
+        key=lambda tag: (
+            0,
+            tag,
+        )
+        if isinstance(tag, str)
+        else (1, canonical_json(tag)),
+    )
     manifest["containers"] = container_manifests
     manifest["reason_codes"] = reasons
     manifest["action"] = "modified" if curated != record else "unchanged"
@@ -1084,6 +1098,7 @@ def curate_jsonl(
     """Read a JSONL source without mutation and curate every nonblank line."""
     vocabulary = taxonomy if taxonomy is not None else load_taxonomy()
     source = Path(source_path)
+    display_path = str(source).encode("utf-8", "replace").decode("utf-8")
     records: list[dict[str, Any]] = []
     manifests: list[dict[str, Any]] = []
     source_uses = Counter()
@@ -1104,7 +1119,7 @@ def curate_jsonl(
             except UnicodeDecodeError:
                 manifests.append(
                     _excluded_line_manifest(
-                        source_path=str(source),
+                        source_path=display_path,
                         source_line=line_number,
                         source_hash=line_hash,
                         taxonomy_version=vocabulary.version,
@@ -1117,7 +1132,7 @@ def curate_jsonl(
             except RecursionError:
                 manifests.append(
                     _excluded_line_manifest(
-                        source_path=str(source),
+                        source_path=display_path,
                         source_line=line_number,
                         source_hash=line_hash,
                         taxonomy_version=vocabulary.version,
@@ -1128,7 +1143,7 @@ def curate_jsonl(
             except ValueError:
                 manifests.append(
                     _excluded_line_manifest(
-                        source_path=str(source),
+                        source_path=display_path,
                         source_line=line_number,
                         source_hash=line_hash,
                         taxonomy_version=vocabulary.version,
@@ -1141,7 +1156,7 @@ def curate_jsonl(
             except RecursionError:
                 manifests.append(
                     _excluded_line_manifest(
-                        source_path=str(source),
+                        source_path=display_path,
                         source_line=line_number,
                         source_hash=line_hash,
                         taxonomy_version=vocabulary.version,
@@ -1152,7 +1167,7 @@ def curate_jsonl(
             except (TypeError, ValueError, UnicodeEncodeError):
                 manifests.append(
                     _excluded_line_manifest(
-                        source_path=str(source),
+                        source_path=display_path,
                         source_line=line_number,
                         source_hash=line_hash,
                         taxonomy_version=vocabulary.version,
@@ -1165,14 +1180,14 @@ def curate_jsonl(
                 curated, manifest = curate_record(
                     record,
                     taxonomy=vocabulary,
-                    source_path=str(source),
+                    source_path=display_path,
                     source_line=line_number,
                     source_hash=line_hash,
                 )
             except RecursionError:
                 manifests.append(
                     _excluded_line_manifest(
-                        source_path=str(source),
+                        source_path=display_path,
                         source_line=line_number,
                         source_hash=line_hash,
                         taxonomy_version=vocabulary.version,
@@ -1194,10 +1209,12 @@ def curate_jsonl(
                 for tag in entry["canonical_tags"]:
                     canonical_uses[tag] += 1
                 for tag in entry["unmapped_tags"]:
-                    if isinstance(tag, str):
-                        unmapped_uses[tag] += 1
-                    else:
+                    if not isinstance(tag, str):
                         nonstring_uses += 1
+                    try:
+                        unmapped_uses[tag] += 1
+                    except TypeError:
+                        unmapped_uses[canonical_json(tag)] += 1
                 for mapping in entry["mappings"]:
                     rule = mapping.get("rule")
                     if rule:
@@ -1207,10 +1224,16 @@ def curate_jsonl(
     canonical_entropy = vocabulary_entropy(canonical_uses)
     unmapped_report = [
         {"tag": tag, "count": count}
-        for tag, count in sorted(unmapped_uses.items(), key=lambda kv: (-kv[1], kv[0]))
+        for tag, count in sorted(
+            unmapped_uses.items(),
+            key=lambda kv: (
+                -kv[1],
+                (0, kv[0]) if isinstance(kv[0], str) else (1, canonical_json(kv[0])),
+            ),
+        )
     ]
     summary = {
-        "source_path": str(source),
+        "source_path": display_path,
         "taxonomy_version": vocabulary.version,
         "taxonomy_size": len(vocabulary.canonical_tags),
         "input_records": len(manifests),
@@ -1226,7 +1249,7 @@ def curate_jsonl(
         "mapped_tag_uses": sum(
             count for rule, count in rule_uses.items() if rule != RULE_TRANSFORM
         ),
-        "unmapped_tag_uses": sum(unmapped_uses.values()) + nonstring_uses,
+        "unmapped_tag_uses": sum(unmapped_uses.values()),
         "unmapped_unique_tags": len(unmapped_uses),
         "nonstring_tag_uses": nonstring_uses,
         "entropy_bits": {
@@ -1289,6 +1312,10 @@ def _write_new_jsonl(
         ) from exc
     state = os.fstat(descriptor)
     identity = (state.st_dev, state.st_ino)
+    if _is_under_raw(path) or _is_under_raw(path.resolve(strict=False)):
+        os.close(descriptor)
+        _unlink_created_file(path, identity)
+        raise ValueError(f"refusing to write inside immutable raw evidence: {path}")
     try:
         with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
             for value in values:
@@ -1359,10 +1386,13 @@ def main(argv: list[str] | None = None) -> int:
 
     try:
         taxonomy = load_taxonomy(args.taxonomy)
-    except TagTaxonomyError as exc:
+    except (TagTaxonomyError, OSError) as exc:
         parser.error(str(exc))
 
-    result = curate_jsonl(args.source, taxonomy)
+    try:
+        result = curate_jsonl(args.source, taxonomy)
+    except OSError as exc:
+        parser.error(str(exc))
     _write_destinations(
         [
             (path, values)
