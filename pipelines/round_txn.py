@@ -360,7 +360,6 @@ from round_txn_execution import (  # noqa: E402
 )
 from round_txn_coverage import (  # noqa: E402
     abandoned_failed_hypotheses,
-    agentic_trajectory_units,
     banned_agentic_wrapper_paths,
     contiguous_step_number_errors,
     demonstrates_ordered_scenario,
@@ -370,10 +369,8 @@ from round_txn_coverage import (  # noqa: E402
     nested_strings,
     normalized_category,
     numbered_horizon_errors,
-    observable_step_text,
     shares_visible_terms,
     sparse_step_progress_errors,
-    step_observation_text,
     visibly_names_fault,
 )
 

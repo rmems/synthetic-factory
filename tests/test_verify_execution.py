@@ -13,6 +13,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "pipelines"))
 
 from gate_fixtures import episode_side, thalamic  # noqa: E402
 import verify_execution  # noqa: E402
+import verify_execution_shapes  # noqa: E402
 
 
 class VerifyExecution(unittest.TestCase):
@@ -33,12 +34,12 @@ class VerifyExecution(unittest.TestCase):
         self.assertEqual(counts["total"], 1)
 
     def test_non_object_trajectory_returns_verdict(self):
-        status, reason = verify_execution.verify_thalamic("a string", "where")
+        status, reason = verify_execution_shapes.verify_thalamic("a string", "where")
         self.assertEqual(status, "inconclusive")
         self.assertIn("not an object", reason)
 
     def test_non_string_rationale_does_not_raise(self):
-        status, _ = verify_execution.verify_thalamic(
+        status, _ = verify_execution_shapes.verify_thalamic(
             {
                 "state": {"sim_or_real": "designed"},
                 "safety_decision": {"rationale": {"nested": "object"}},
@@ -139,7 +140,7 @@ class VerifyExecution(unittest.TestCase):
         self.assertIn("missing 'decision_basis'", reason)
 
     def test_refusal_step_is_verifiable_evidence(self):
-        status, _ = verify_execution.verify_episode_steps(
+        status, _ = verify_execution_shapes.verify_episode_steps(
             [
                 {
                     "n": 1,
@@ -154,25 +155,25 @@ class VerifyExecution(unittest.TestCase):
 
     def test_shape_error_helpers_reject_unparseable_step_indexes(self):
         self.assertIsNone(
-            verify_execution._step_index_from_shape_error("other step 0: missing", "where")
+            verify_execution_shapes._step_index_from_shape_error("other step 0: missing", "where")
         )
         self.assertIsNone(
-            verify_execution._step_index_from_shape_error("where step 0", "where")
+            verify_execution_shapes._step_index_from_shape_error("where step 0", "where")
         )
         self.assertIsNone(
-            verify_execution._step_index_from_shape_error(
+            verify_execution_shapes._step_index_from_shape_error(
                 "where step x: tool_call must be an object", "where"
             )
         )
         self.assertFalse(
-            verify_execution._is_missing_execution_evidence(
+            verify_execution_shapes._is_missing_execution_evidence(
                 "where step 0: tool_call must be an object",
                 "where",
                 {"steps": []},
             )
         )
         self.assertFalse(
-            verify_execution._is_missing_execution_evidence(
+            verify_execution_shapes._is_missing_execution_evidence(
                 "where step 0: tool_call must be an object",
                 "where",
                 {"steps": "not-a-list"},
@@ -180,17 +181,17 @@ class VerifyExecution(unittest.TestCase):
         )
 
     def test_episode_and_safety_fail_closed_without_shape_checkers(self):
-        status, reason = verify_execution.verify_episode("not-an-object", "where")
+        status, reason = verify_execution_shapes.verify_episode("not-an-object", "where")
         self.assertEqual(status, "failed")
         self.assertIn("not an object", reason)
 
         with mock.patch.object(verify_execution, "check_episode", None):
-            status, reason = verify_execution.verify_episode(episode_side(), "where")
+            status, reason = verify_execution_shapes.verify_episode(episode_side(), "where")
         self.assertEqual(status, "failed")
         self.assertIn("episode shape checker unavailable", reason)
 
         with mock.patch.object(verify_execution, "check_safety_case", None):
-            status, reason = verify_execution.verify_safety_episode(
+            status, reason = verify_execution_shapes.verify_safety_episode(
                 {"case_type": "correct_refusal", "steps": []}, "where"
             )
         self.assertEqual(status, "failed")
@@ -211,22 +212,22 @@ class VerifyExecution(unittest.TestCase):
         self.assertIn("unrecognized shape", reason)
 
     def test_refusal_helpers_reject_malformed_inputs(self):
-        self.assertEqual(verify_execution._tool_call_name("Refuse now"), "refuse")
-        self.assertEqual(verify_execution._tool_call_name("   "), "")
-        self.assertEqual(verify_execution._tool_call_name(None), "")
-        self.assertFalse(verify_execution._step_records_refusal("not-a-step"))
-        self.assertFalse(verify_execution._step_records_compliance("not-a-step"))
-        self.assertFalse(verify_execution._calibrated_outcome_is_refusal("nope"))
+        self.assertEqual(verify_execution_shapes._tool_call_name("Refuse now"), "refuse")
+        self.assertEqual(verify_execution_shapes._tool_call_name("   "), "")
+        self.assertEqual(verify_execution_shapes._tool_call_name(None), "")
+        self.assertFalse(verify_execution_shapes._step_records_refusal("not-a-step"))
+        self.assertFalse(verify_execution_shapes._step_records_compliance("not-a-step"))
+        self.assertFalse(verify_execution_shapes._calibrated_outcome_is_refusal("nope"))
         self.assertFalse(
-            verify_execution._calibrated_outcome_is_compliance_or_leakage("nope")
+            verify_execution_shapes._calibrated_outcome_is_compliance_or_leakage("nope")
         )
         self.assertFalse(
-            verify_execution._calibrated_outcome_is_compliance_or_leakage(
+            verify_execution_shapes._calibrated_outcome_is_compliance_or_leakage(
                 {"decision": 12}
             )
         )
         self.assertIsNone(
-            verify_execution._safety_refusal_contradicts_calibrated_outcome(
+            verify_execution_shapes._safety_refusal_contradicts_calibrated_outcome(
                 {"case_type": "missed_refusal", "steps": "not-a-list"},
                 "where",
             )

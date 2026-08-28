@@ -62,22 +62,7 @@ except ImportError:  # pragma: no cover - publish imports from the repo tree
 
 
 from verify_execution_shapes import (  # noqa: E402
-    KNOWN_TOOLS,
-    NONNEGATIVE_OUTCOME_METRICS,
-    OBSERVABLE_OUTCOME_METRICS,
-    _calibrated_outcome_is_compliance_or_leakage,
-    _calibrated_outcome_is_refusal,
-    _is_missing_execution_evidence,
-    _safety_refusal_contradicts_calibrated_outcome,
-    _step_index_from_shape_error,
-    _step_records_compliance,
-    _step_records_refusal,
-    _tool_call_name,
-    verify_episode,
-    verify_episode_steps,
     verify_record_execution,
-    verify_safety_episode,
-    verify_thalamic,
 )
 
 # ---------------------------------------------------------------------------

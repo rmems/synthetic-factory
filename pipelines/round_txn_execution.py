@@ -19,6 +19,18 @@ class _Host:
 rt = _Host()
 
 
+def _is_int(value):
+    return isinstance(value, int) and not isinstance(value, bool)
+
+
+def _is_nonneg_int(value):
+    return _is_int(value) and value >= 0
+
+
+def _is_positive_int(value):
+    return _is_int(value) and value >= 1
+
+
 def normalized_execution_override(reason):
     """Validate and normalize an operator waiver for cannot-verify records.
 
@@ -61,7 +73,7 @@ def _execution_override_from_block(verification):
     if normalized != reason:
         raise rt.TransactionError("publishing marker execution override is not canonical")
     waived = override.get("waived_inconclusive")
-    if not rt._is_positive_int(waived):
+    if not _is_positive_int(waived):
         raise rt.TransactionError(
             "publishing marker has invalid waived_inconclusive count"
         )
@@ -94,7 +106,7 @@ def _validated_execution_counts(counts, marker_kind):
         raise rt.TransactionError(
             f"{marker_kind} has invalid execution verification counts"
         )
-    if any(not rt._is_nonneg_int(counts[key]) for key in counts):
+    if any(not _is_nonneg_int(counts[key]) for key in counts):
         raise rt.TransactionError(
             f"{marker_kind} has invalid execution verification counts"
         )
@@ -112,7 +124,7 @@ def _execution_identity_is_canonical(verification, counts):
 
 
 def _historical_semantics_version(value):
-    if not rt._is_positive_int(value):
+    if not _is_positive_int(value):
         return False
     return value < rt.EXECUTION_VERIFIER_SEMANTICS_VERSION
 

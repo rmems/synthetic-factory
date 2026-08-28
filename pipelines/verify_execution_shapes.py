@@ -366,12 +366,6 @@ def _malformed_outcome_array(value, field, *, objects_only):
     return None
 
 
-def _append_if_truthy(observable_fields, field, value):
-    if value:
-        observable_fields.append(field)
-    return None
-
-
 def _collect_timeline(fo, observable_fields):
     if "timeline" not in fo:
         return None
@@ -379,7 +373,9 @@ def _collect_timeline(fo, observable_fields):
     error = _malformed_outcome_array(value, "timeline", objects_only=True)
     if error:
         return error
-    return _append_if_truthy(observable_fields, "timeline", value)
+    if value:
+        observable_fields.append("timeline")
+    return None
 
 
 def _collect_observed_effects(fo, observable_fields):
@@ -389,7 +385,9 @@ def _collect_observed_effects(fo, observable_fields):
     error = _malformed_outcome_array(value, "observed_effects", objects_only=False)
     if error:
         return error
-    return _append_if_truthy(observable_fields, "observed_effects", value)
+    if value:
+        observable_fields.append("observed_effects")
+    return None
 
 
 def _collect_new_state(fo, observable_fields):
@@ -398,7 +396,9 @@ def _collect_new_state(fo, observable_fields):
     value = fo["new_state"]
     if not isinstance(value, dict):
         return "future_outcome.new_state must be an object"
-    return _append_if_truthy(observable_fields, "new_state", value)
+    if value:
+        observable_fields.append("new_state")
+    return None
 
 
 def _collect_state_delta(fo, observable_fields):
@@ -406,12 +406,16 @@ def _collect_state_delta(fo, observable_fields):
     if value is None:
         return None
     if isinstance(value, dict):
-        return _append_if_truthy(observable_fields, "state_delta", value)
+        if value:
+            observable_fields.append("state_delta")
+        return None
     if isinstance(value, list):
         error = _malformed_outcome_array(value, "state_delta", objects_only=False)
         if error:
             return error
-        return _append_if_truthy(observable_fields, "state_delta", value)
+        if value:
+            observable_fields.append("state_delta")
+        return None
     return "future_outcome.state_delta must be an object or array"
 
 
@@ -422,7 +426,9 @@ def _collect_surprises(fo, observable_fields):
     error = _malformed_outcome_array(value, "surprises", objects_only=False)
     if error:
         return error
-    return _append_if_truthy(observable_fields, "surprises", value)
+    if value:
+        observable_fields.append("surprises")
+    return None
 
 
 def _collect_named_events(fo, observable_fields):
