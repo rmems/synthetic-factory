@@ -10,7 +10,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
-from contextlib import redirect_stdout
+from contextlib import redirect_stderr, redirect_stdout
 
 REPO = Path(__file__).resolve().parents[1]
 PIPELINES = REPO / "pipelines"
@@ -508,6 +508,33 @@ class RewardOntologyV1Tests(unittest.TestCase):
             curate_rewards.RewardOntologyError, "sidecar arithmetic must be a list"
         ):
             curate_rewards.validate_ontology_document(malformed)
+
+    def test_sidecar_arithmetic_entries_are_fail_closed(self):
+        record = preference(
+            {"task_progress": 1.0, "safety": 0.0, "total": 1.0},
+            {"task_progress": 0.0, "safety": 0.0, "total": 0.0},
+        )
+        _curated, sidecar = curate_rewards.curate_record(record)
+        cases = (
+            (["not-an-object"], "invalid sidecar arithmetic entry"),
+            (
+                [{"status": "bogus", "method": "unweighted_component_sum"}],
+                "invalid sidecar arithmetic status",
+            ),
+            (
+                [{"status": "valid", "method": "invented"}],
+                "uncatalogued arithmetic method",
+            ),
+        )
+        for arithmetic, message in cases:
+            malformed = copy.deepcopy(sidecar)
+            malformed["arithmetic"] = arithmetic
+            malformed.pop("sidecar_id")
+            malformed["sidecar_id"] = curate_rewards._sha256(malformed)
+            with self.assertRaisesRegex(
+                curate_rewards.RewardOntologyError, message
+            ):
+                curate_rewards.validate_ontology_document(malformed)
 
     def test_s08_emits_external_calibration_evidence(self):
         record = {"id": "single-cal", "reward_components": components(1.0)}
@@ -2002,6 +2029,44 @@ class RewardOntologyFixtureRegression(unittest.TestCase):
             curate_rewards.RewardOntologyError, "census records must be objects"
         ):
             curate_rewards.reward_census(["not-an-object"])
+
+    def test_census_scope_key_accepts_reward_and_rejects_unknown(self):
+        records = []
+        for _name, _line, record in all_fixture_records():
+            records.append(record)
+        census = curate_rewards.reward_census(records, scope_keys=["reward"])
+        self.assertEqual(census["scope_keys"], ["reward"])
+        self.assertGreater(census["reward_instances"], 0)
+        with self.assertRaisesRegex(
+            curate_rewards.RewardOntologyError,
+            "census scope names non-reward keys",
+        ):
+            curate_rewards.reward_census(records, scope_keys=["not_a_reward"])
+
+    def test_census_cli_scope_key_and_unknown_scope(self):
+        with tempfile.TemporaryDirectory() as td:
+            source = Path(td) / "in.jsonl"
+            source.write_text(
+                json.dumps({"id": "r1", "reward": 1.0}) + "\n",
+                encoding="utf-8",
+            )
+            stdout = io.StringIO()
+            with redirect_stdout(stdout):
+                code = curate_rewards.main(
+                    ["census", str(source), "--scope-key", "reward"]
+                )
+            self.assertEqual(code, 0)
+            summary = json.loads(stdout.getvalue())
+            self.assertEqual(summary["scope_keys"], ["reward"])
+            self.assertEqual(summary["reward_instances"], 1)
+            self.assertNotIn("component_keys", summary)
+            stderr = io.StringIO()
+            with redirect_stdout(io.StringIO()), redirect_stderr(stderr):
+                code = curate_rewards.main(
+                    ["census", str(source), "--scope-key", "not_a_reward"]
+                )
+            self.assertEqual(code, 2)
+            self.assertIn("census scope names non-reward keys", stderr.getvalue())
 
 
 class MagnitudeMixingTests(unittest.TestCase):
