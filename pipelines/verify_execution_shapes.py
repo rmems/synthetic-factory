@@ -432,14 +432,14 @@ def _collect_state_delta(fo, observable_fields):
         if value:
             observable_fields.append("state_delta")
         return None
-    if isinstance(value, list):
-        error = _malformed_outcome_array(value, "state_delta", objects_only=False)
-        if error:
-            return error
-        if value:
-            observable_fields.append("state_delta")
-        return None
-    return "future_outcome.state_delta must be an object or array"
+    if not isinstance(value, list):
+        return "future_outcome.state_delta must be an object or array"
+    error = _malformed_outcome_array(value, "state_delta", objects_only=False)
+    if error:
+        return error
+    if value:
+        observable_fields.append("state_delta")
+    return None
 
 
 def _collect_surprises(fo, observable_fields):

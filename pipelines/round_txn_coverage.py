@@ -91,36 +91,48 @@ def agentic_trajectory_units(record: dict) -> list[str]:
     ]
 
 
+def _find_matching_unit_index(units, alternatives, start_index):
+    for index in range(start_index, len(units)):
+        if any(term in units[index] for term in alternatives):
+            return index
+    return None
+
+
 def demonstrates_ordered_scenario(record: dict, scenario_terms) -> bool:
     """Require failure, correction, and verification in distinct ordered units."""
     units = agentic_trajectory_units(record)
     cursor = 0
     phase_start = max(0, len(scenario_terms) - 3)
     for group_index, alternatives in enumerate(scenario_terms):
-        matches = [
-            index
-            for index in range(cursor, len(units))
-            if any(term in units[index] for term in alternatives)
-        ]
-        if not matches:
+        matched_index = _find_matching_unit_index(units, alternatives, cursor)
+        if matched_index is None:
             return False
-        matched_index = matches[0]
         cursor = matched_index + (1 if group_index >= phase_start else 0)
     return True
 
 
+def _normalized_signature_field(*values):
+    for value in values:
+        if isinstance(value, str) and value.strip():
+            return re.sub(r"\s+", " ", value.strip().casefold())
+    return None
+
+
 def long_horizon_scenario_signature(record: dict):
     """Return the required explicit codebase/bug-class category signature."""
-
-    def normalized_field(*values):
-        for value in values:
-            if isinstance(value, str) and value.strip():
-                return re.sub(r"\s+", " ", value.strip().casefold())
+    codebase = _normalized_signature_field(record.get("codebase_type"))
+    bug_class = _normalized_signature_field(record.get("bug_class"))
+    if codebase is None or bug_class is None:
         return None
+    return (codebase, bug_class)
 
-    codebase = normalized_field(record.get("codebase_type"))
-    bug_class = normalized_field(record.get("bug_class"))
-    return (codebase, bug_class) if codebase is not None and bug_class is not None else None
+
+def _is_banned_normalized_name(normalized: str) -> bool:
+    if normalized in {"spike_events", "raster", "rasters"}:
+        return True
+    if re.search(r"(?:^|_)rasters?(?:_|$)", normalized) is not None:
+        return True
+    return "spikenaut" in normalized or "neuromorphic" in normalized
 
 
 def banned_agentic_wrapper_paths(value, path=""):
@@ -133,12 +145,7 @@ def banned_agentic_wrapper_paths(value, path=""):
                 "_",
                 re.sub(r"(?<=[a-z0-9])(?=[A-Z])", "_", str(key)).casefold(),
             ).strip("_")
-            if (
-                normalized in {"spike_events", "raster", "rasters"}
-                or re.search(r"(?:^|_)rasters?(?:_|$)", normalized) is not None
-                or "spikenaut" in normalized
-                or "neuromorphic" in normalized
-            ):
+            if _is_banned_normalized_name(normalized):
                 yield child_path
             yield from banned_agentic_wrapper_paths(item, child_path)
     elif isinstance(value, list):
