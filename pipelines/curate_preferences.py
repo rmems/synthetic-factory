@@ -74,6 +74,25 @@ class CurationRun:
     summary: dict[str, Any]
 
 
+@dataclass
+class _ScanState:
+    records: list[dict[str, Any]]
+    manifest: list[dict[str, Any]]
+    actions: Counter[str]
+    classifications: Counter[str]
+    reasons: Counter[str]
+    skipped_non_preferences: int = 0
+    json_records_seen: int = 0
+
+
+@dataclass(frozen=True)
+class _SourceLine:
+    relative_path: str
+    number: int
+    payload: bytes
+    file_sha256: str
+
+
 def canonical_json(value: Any) -> str:
     """Return the canonical JSON representation used for context equality."""
 
@@ -130,34 +149,49 @@ def _ancestor_identities(path: Path) -> set[tuple[int, int]]:
     return identities
 
 
+def _names_raw_tree(path: Path) -> bool:
+    """Whether the lexical or resolved spelling names ``outputs/raw``.
+
+    Resolving ``outputs/raw`` when it is itself a symlink removes those path
+    components and would otherwise let a write through the immutable tree.
+    Callers can also name that same target through a mount path or a second
+    symlink whose spelling never contains ``outputs/raw``.
+    """
+
+    lexical_path = Path(os.path.abspath(path))
+    resolved_path = path.resolve(strict=False)
+    if _has_raw_tree_components(lexical_path):
+        return True
+    if _has_raw_tree_components(resolved_path):
+        return True
+    resolved_raw_root = RAW_OUTPUT_ROOT.resolve(strict=False)
+    if resolved_path == resolved_raw_root:
+        return True
+    return resolved_raw_root in resolved_path.parents
+
+
+def _shares_raw_identity(path: Path) -> bool:
+    """Whether ``path`` shares the raw tree's device/inode identity.
+
+    Bind-mount and case-folded aliases keep distinct pathnames after
+    ``resolve()`` but share the raw tree's identity.
+    """
+
+    resolved_raw_root = RAW_OUTPUT_ROOT.resolve(strict=False)
+    raw_identity = _stat_identity(RAW_OUTPUT_ROOT)
+    if raw_identity is None:
+        raw_identity = _stat_identity(resolved_raw_root)
+    if raw_identity is None:
+        return False
+    if raw_identity in _ancestor_identities(path):
+        return True
+    return raw_identity in _ancestor_identities(path.parent)
+
+
 def _is_under_raw(path: Path) -> bool:
     """Whether ``path`` names or aliases the repository's raw output tree."""
 
-    # Keep the normalized lexical spelling as well as the resolved target.
-    # Resolving ``outputs/raw`` when it is itself a symlink removes those path
-    # components and would otherwise let a write through the immutable tree.
-    # Also compare against the resolved repository raw root: callers can name
-    # that same target through its mount path or through a second symlink whose
-    # spelling never contains ``outputs/raw``. Bind-mount and case-folded
-    # aliases are caught by comparing device/inode identities.
-    lexical_path = Path(os.path.abspath(path))
-    resolved_path = path.resolve(strict=False)
-    resolved_raw_root = RAW_OUTPUT_ROOT.resolve(strict=False)
-    if (
-        _has_raw_tree_components(lexical_path)
-        or _has_raw_tree_components(resolved_path)
-        or resolved_path == resolved_raw_root
-        or resolved_raw_root in resolved_path.parents
-    ):
-        return True
-    raw_identity = _stat_identity(RAW_OUTPUT_ROOT) or _stat_identity(
-        resolved_raw_root
-    )
-    if raw_identity is None:
-        return False
-    return raw_identity in _ancestor_identities(path) or raw_identity in (
-        _ancestor_identities(path.parent)
-    )
+    return _names_raw_tree(path) or _shares_raw_identity(path)
 
 
 def _is_canonicalizable(value: Any) -> bool:
@@ -490,136 +524,187 @@ def _relative_source_path(source: Path, path: Path) -> str:
     return path.name
 
 
+def _jsonl_payload_lines(file_payload: bytes) -> tuple[tuple[int, bytes], ...]:
+    return tuple(
+        (line_number, raw_line)
+        for line_number, raw_line in enumerate(file_payload.splitlines(), 1)
+        if raw_line.strip()
+    )
+
+
+def _load_jsonl_record(line: _SourceLine) -> Any:
+    try:
+        text = line.payload.decode("utf-8")
+    except UnicodeDecodeError as exc:
+        raise PreferenceCurationError(
+            f"{line.relative_path}:{line.number}: invalid UTF-8: {exc}"
+        ) from exc
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError as exc:
+        raise PreferenceCurationError(
+            f"{line.relative_path}:{line.number}: invalid JSON: {exc}"
+        ) from exc
+
+
+def _manifest_source_id(record: Any) -> Any:
+    # An excluded record may itself hold a non-encodable id; the source
+    # reference survives as path, line, and hash either way.
+    source_record_id = record.get("id") if isinstance(record, dict) else None
+    if _is_canonicalizable(source_record_id):
+        return source_record_id
+    return None
+
+
+def _kept_output(
+    decision: CurationDecision, location: str
+) -> tuple[dict[str, Any] | None, Any, str | None]:
+    record = decision.record
+    if record is None:
+        return None, None, None
+    if not context_is_pure(record):
+        raise PreferenceCurationError(
+            f"internal error: emitted impure pair at {location}"
+        )
+    output_hash = _sha256(canonical_json(record).encode("utf-8"))
+    return record, record.get("id"), output_hash
+
+
+def _record_preference(state: _ScanState, line: _SourceLine, record: Any) -> None:
+    decision = curate_preference_record(record)
+    state.actions[decision.action] += 1
+    state.classifications[decision.classification] += 1
+    state.reasons.update(decision.reason_codes)
+    emitted, output_id, output_hash = _kept_output(
+        decision, f"{line.relative_path}:{line.number}"
+    )
+    if emitted is not None:
+        state.records.append(emitted)
+    state.manifest.append(
+        {
+            "source_path": line.relative_path,
+            "source_line": line.number,
+            # Hash excludes the JSONL line terminator by definition.
+            "source_sha256": _sha256(line.payload),
+            "source_file_sha256": line.file_sha256,
+            "source_record_id": _manifest_source_id(record),
+            "transform": {
+                "name": TRANSFORM_NAME,
+                "version": TRANSFORM_VERSION,
+            },
+            "action": decision.action,
+            "classification": decision.classification,
+            "reason_codes": list(decision.reason_codes),
+            "context_diff_paths": list(decision.context_diff_paths),
+            "changed_context_fields": list(decision.changed_context_fields),
+            "output_id": output_id,
+            "output_sha256": output_hash,
+        }
+    )
+
+
+def _curate_jsonl_file(source: Path, path: Path, state: _ScanState) -> None:
+    file_payload = path.read_bytes()
+    file_hash = _sha256(file_payload)
+    relative_path = _relative_source_path(source, path)
+    for line_number, raw_line in _jsonl_payload_lines(file_payload):
+        line = _SourceLine(relative_path, line_number, raw_line, file_hash)
+        state.json_records_seen += 1
+        record = _load_jsonl_record(line)
+        if not _is_preference_candidate(record):
+            state.skipped_non_preferences += 1
+            continue
+        _record_preference(state, line, record)
+
+
+def _curation_summary(source: Path, state: _ScanState) -> dict[str, Any]:
+    preference_records = sum(state.actions.values())
+    impure_pairs = state.actions[ACTION_REPAIRED] + state.actions[ACTION_EXCLUDED]
+    retained_pairs = state.actions[ACTION_RETAINED] + state.actions[ACTION_REPAIRED]
+    # Measured over the records actually emitted rather than asserted as a
+    # constant, so the reported purity is evidence and not a restatement of
+    # the invariant the loop above enforces.
+    pure_outputs = sum(1 for emitted in state.records if context_is_pure(emitted))
+    purity_pct = 0.0
+    if retained_pairs:
+        purity_pct = round(100.0 * pure_outputs / retained_pairs, 1)
+    return {
+        "transform": {"name": TRANSFORM_NAME, "version": TRANSFORM_VERSION},
+        "source": str(source),
+        "json_records_seen": state.json_records_seen,
+        "preference_records": preference_records,
+        "skipped_non_preference_records": state.skipped_non_preferences,
+        "impure_pairs": impure_pairs,
+        "retained_pairs": retained_pairs,
+        "excluded_pairs": state.actions[ACTION_EXCLUDED],
+        "actions": dict(sorted(state.actions.items())),
+        "classifications": dict(sorted(state.classifications.items())),
+        "reason_codes": dict(sorted(state.reasons.items())),
+        "retained_context_purity_pct": purity_pct,
+    }
+
+
 def curate_source(source: Path) -> CurationRun:
     """Read and classify all preference candidates under ``source``."""
 
     source = Path(source)
-    output_records: list[dict[str, Any]] = []
-    manifest: list[dict[str, Any]] = []
-    actions: Counter[str] = Counter()
-    classifications: Counter[str] = Counter()
-    reasons: Counter[str] = Counter()
-    skipped_non_preferences = 0
-    total_json_records = 0
-
+    state = _ScanState([], [], Counter(), Counter(), Counter())
     for path in _source_files(source):
-        file_payload = path.read_bytes()
-        file_hash = _sha256(file_payload)
-        relative_path = _relative_source_path(source, path)
-        for line_number, raw_line in enumerate(file_payload.splitlines(), 1):
-            if not raw_line.strip():
-                continue
-            total_json_records += 1
-            try:
-                text = raw_line.decode("utf-8")
-            except UnicodeDecodeError as exc:
-                raise PreferenceCurationError(
-                    f"{relative_path}:{line_number}: invalid UTF-8: {exc}"
-                ) from exc
-            try:
-                record = json.loads(text)
-            except json.JSONDecodeError as exc:
-                raise PreferenceCurationError(
-                    f"{relative_path}:{line_number}: invalid JSON: {exc}"
-                ) from exc
-            if not _is_preference_candidate(record):
-                skipped_non_preferences += 1
-                continue
-
-            decision = curate_preference_record(record)
-            # An excluded record may itself hold a non-encodable id; the source
-            # reference survives as path, line, and hash either way.
-            source_record_id = record.get("id") if isinstance(record, dict) else None
-            if not _is_canonicalizable(source_record_id):
-                source_record_id = None
-            actions[decision.action] += 1
-            classifications[decision.classification] += 1
-            reasons.update(decision.reason_codes)
-
-            output_hash = None
-            output_id = None
-            if decision.record is not None:
-                if not context_is_pure(decision.record):
-                    raise PreferenceCurationError(
-                        f"internal error: emitted impure pair at {relative_path}:{line_number}"
-                    )
-                output_line = canonical_json(decision.record).encode("utf-8")
-                output_hash = _sha256(output_line)
-                output_id = decision.record.get("id")
-                output_records.append(decision.record)
-
-            manifest.append(
-                {
-                    "source_path": relative_path,
-                    "source_line": line_number,
-                    # Hash excludes the JSONL line terminator by definition.
-                    "source_sha256": _sha256(raw_line),
-                    "source_file_sha256": file_hash,
-                    "source_record_id": source_record_id,
-                    "transform": {
-                        "name": TRANSFORM_NAME,
-                        "version": TRANSFORM_VERSION,
-                    },
-                    "action": decision.action,
-                    "classification": decision.classification,
-                    "reason_codes": list(decision.reason_codes),
-                    "context_diff_paths": list(decision.context_diff_paths),
-                    "changed_context_fields": list(decision.changed_context_fields),
-                    "output_id": output_id,
-                    "output_sha256": output_hash,
-                }
-            )
-
-    preference_records = sum(actions.values())
-    impure_pairs = actions[ACTION_REPAIRED] + actions[ACTION_EXCLUDED]
-    retained_pairs = actions[ACTION_RETAINED] + actions[ACTION_REPAIRED]
-    # Measured over the records actually emitted rather than asserted as a
-    # constant, so the reported purity is evidence and not a restatement of
-    # the invariant the loop above enforces.
-    pure_outputs = sum(1 for emitted in output_records if context_is_pure(emitted))
-    summary = {
-        "transform": {"name": TRANSFORM_NAME, "version": TRANSFORM_VERSION},
-        "source": str(source),
-        "json_records_seen": total_json_records,
-        "preference_records": preference_records,
-        "skipped_non_preference_records": skipped_non_preferences,
-        "impure_pairs": impure_pairs,
-        "retained_pairs": retained_pairs,
-        "excluded_pairs": actions[ACTION_EXCLUDED],
-        "actions": dict(sorted(actions.items())),
-        "classifications": dict(sorted(classifications.items())),
-        "reason_codes": dict(sorted(reasons.items())),
-        "retained_context_purity_pct": (
-            round(100.0 * pure_outputs / retained_pairs, 1) if retained_pairs else 0.0
-        ),
-    }
-    return CurationRun(tuple(output_records), tuple(manifest), summary)
+        _curate_jsonl_file(source, path, state)
+    return CurationRun(
+        tuple(state.records),
+        tuple(state.manifest),
+        _curation_summary(source, state),
+    )
 
 
-def _assert_new_destination(source: Path, destination: Path, label: str) -> None:
-    source_resolved = source.resolve()
-    destination_resolved = destination.resolve(strict=False)
-    if _is_under_raw(destination):
-        # A file source has no directory to nest inside, and a directory source
-        # does not contain its own siblings, so the checks below cannot keep a
-        # curated write out of the immutable raw tree on their own.
-        raise PreferenceCurationError(
-            f"{label} would write inside immutable raw evidence: {destination}"
-        )
+def _refuse_raw_destination(destination: Path, label: str) -> None:
+    if not _is_under_raw(destination):
+        return
+    # A file source has no directory to nest inside, and a directory source
+    # does not contain its own siblings, so the remaining destination checks
+    # cannot keep a curated write out of the immutable raw tree on their own.
+    raise PreferenceCurationError(
+        f"{label} would write inside immutable raw evidence: {destination}"
+    )
+
+
+def _refuse_existing_destination(destination: Path, label: str) -> None:
     if destination.exists():
         raise PreferenceCurationError(
             f"{label} already exists; refusing overwrite: {destination}"
         )
-    if not destination.parent.is_dir():
-        raise PreferenceCurationError(
-            f"{label} parent does not exist: {destination.parent}"
-        )
-    if source_resolved == destination_resolved:
+    if destination.parent.is_dir():
+        return
+    raise PreferenceCurationError(
+        f"{label} parent does not exist: {destination.parent}"
+    )
+
+
+def _destination_replaces_source(source: Path, destination: Path) -> bool:
+    return source.resolve() == destination.resolve(strict=False)
+
+
+def _destination_inside_source(source: Path, destination: Path) -> bool:
+    if not source.is_dir():
+        return False
+    return source.resolve() in destination.resolve(strict=False).parents
+
+
+def _refuse_source_collision(source: Path, destination: Path, label: str) -> None:
+    if _destination_replaces_source(source, destination):
         raise PreferenceCurationError(f"{label} cannot replace source: {destination}")
-    if source.is_dir() and source_resolved in destination_resolved.parents:
-        raise PreferenceCurationError(
-            f"{label} cannot be written inside source: {destination}"
-        )
+    if not _destination_inside_source(source, destination):
+        return
+    raise PreferenceCurationError(
+        f"{label} cannot be written inside source: {destination}"
+    )
+
+
+def _assert_new_destination(source: Path, destination: Path, label: str) -> None:
+    _refuse_raw_destination(destination, label)
+    _refuse_existing_destination(destination, label)
+    _refuse_source_collision(source, destination, label)
 
 
 def write_run(run: CurationRun, source: Path, output: Path, manifest: Path) -> None:
