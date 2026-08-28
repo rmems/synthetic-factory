@@ -290,6 +290,10 @@ class WrapRecordTests(unittest.TestCase):
         self.assertEqual(result["summary"]["output_records"], 2)
         self.assertEqual(result["summary"]["wrap_records"], 1)
         self.assertEqual(result["summary"]["hidden_reasoning_fields_removed"], 4)
+        self.assertEqual(verify_curation(result), [])
+        result["summary"]["wrap_records"] = 0
+        violations = verify_curation(result)
+        self.assertTrue(any("summary wrap_records" in item for item in violations))
         for record in result["records"]:
             self.assertFalse(contains_hidden_reasoning_key(record))
 
