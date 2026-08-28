@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, NamedTuple
 
-from coding_common import (
+from coding_constants import (
     EXCLUSION_REASONS,
     PRE_STEP_EXCLUSION_REASONS,
     REASON_NO_RETAINABLE_STEPS,
@@ -31,6 +31,13 @@ from coding_verify_steps import (
     _reason_code_set,
     _step_action_violations,
 )
+
+
+class _ManifestCheck(NamedTuple):
+    where: str
+    reasons: set[str]
+    thought_fields_removed: Any
+    steps: _ManifestSteps
 
 
 def _manifest_where(manifest: dict[str, Any]) -> str:
@@ -452,18 +459,17 @@ def _modified_record_violations(
 
 def _manifest_transform_state_violations(
     action: Any,
-    reasons: set[str],
-    thought_fields_removed: Any,
-    steps: _ManifestSteps,
-    where: str,
+    check: _ManifestCheck,
 ) -> list[str]:
     if action == "unchanged":
         return _unchanged_record_violations(
-            reasons, thought_fields_removed, steps, where
+            check.reasons, check.thought_fields_removed, check.steps, check.where
         )
     if action != "modified":
         return []
-    return _modified_record_violations(reasons, thought_fields_removed, steps, where)
+    return _modified_record_violations(
+        check.reasons, check.thought_fields_removed, check.steps, check.where
+    )
 
 
 def _retained_output_indexes(valid_actions: list[dict[str, Any]]) -> list[Any]:
@@ -495,11 +501,10 @@ def _manifest_step_index_violations(where: str, steps: _ManifestSteps) -> list[s
 
 def _manifest_step_consistency_violations(
     manifest: dict[str, Any],
-    where: str,
-    steps: _ManifestSteps,
-    thought_fields_removed: Any,
-    reasons: set[str],
+    check: _ManifestCheck,
 ) -> list[str]:
+    where = check.where
+    steps = check.steps
     violations = []
     if _unclassified_step_actions(steps):
         violations.append(f"{where}: step actions are neither retained nor excluded")
@@ -513,7 +518,7 @@ def _manifest_step_consistency_violations(
     )
     if missing:
         violations.append(missing)
-    if _thought_removal_underaccounts(thought_fields_removed, steps):
+    if _thought_removal_underaccounts(check.thought_fields_removed, steps):
         violations.append(
             f"{where}: thought_fields_removed does not account for the step actions"
         )
@@ -529,13 +534,7 @@ def _manifest_step_consistency_violations(
             "the recorded step actions"
         )
     violations.extend(
-        _manifest_transform_state_violations(
-            manifest.get("action"),
-            reasons,
-            thought_fields_removed,
-            steps,
-            where,
-        )
+        _manifest_transform_state_violations(manifest.get("action"), check)
     )
     violations.extend(_manifest_step_index_violations(where, steps))
     return violations
@@ -562,7 +561,8 @@ def _verify_one_manifest(
         return 0
     violations.extend(
         _manifest_step_consistency_violations(
-            manifest, where, steps, _hidden_removed(manifest), reasons
+            manifest,
+            _ManifestCheck(where, reasons, _hidden_removed(manifest), steps),
         )
     )
     source_count = steps.source_count

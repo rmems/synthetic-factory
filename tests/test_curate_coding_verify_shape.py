@@ -334,16 +334,18 @@ class CurateCodingVerifyCliTests(unittest.TestCase):
                 {"expected_source_steps": 2, "violations": []},
             )
 
+    def _episode_output_paths(self, root: Path):
+        source = root / "episodes.jsonl"
+        output = root / "new" / "coding.jsonl"
+        manifest = root / "new" / "manifest.jsonl"
+        source.write_text(
+            json.dumps(episode([visible_step()])) + "\n", encoding="utf-8"
+        )
+        return source, output, manifest
+
     def test_verify_gate_writes_output_after_a_clean_run(self):
         with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary)
-            source = root / "episodes.jsonl"
-            output = root / "new" / "coding.jsonl"
-            manifest = root / "new" / "manifest.jsonl"
-            source.write_text(
-                json.dumps(episode([visible_step()])) + "\n", encoding="utf-8"
-            )
-
+            source, output, manifest = self._episode_output_paths(Path(temporary))
             result = self.run_cli(
                 str(source),
                 "--output-jsonl",
@@ -354,21 +356,13 @@ class CurateCodingVerifyCliTests(unittest.TestCase):
                 "--expect-source-steps",
                 "1",
             )
-
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertEqual(len(output.read_text(encoding="utf-8").splitlines()), 1)
             self.assertEqual(len(manifest.read_text(encoding="utf-8").splitlines()), 1)
 
     def test_verify_gate_fails_and_writes_nothing_on_a_step_count_mismatch(self):
         with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary)
-            source = root / "episodes.jsonl"
-            output = root / "new" / "coding.jsonl"
-            manifest = root / "new" / "manifest.jsonl"
-            source.write_text(
-                json.dumps(episode([visible_step()])) + "\n", encoding="utf-8"
-            )
-
+            source, output, manifest = self._episode_output_paths(Path(temporary))
             result = self.run_cli(
                 str(source),
                 "--output-jsonl",
@@ -378,7 +372,6 @@ class CurateCodingVerifyCliTests(unittest.TestCase):
                 "--expect-source-steps",
                 "77",
             )
-
             self.assertEqual(result.returncode, 2)
             self.assertIn("VIOLATION: expected 77 source steps", result.stderr)
             self.assertFalse(output.exists())

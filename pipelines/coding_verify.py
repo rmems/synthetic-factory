@@ -5,15 +5,10 @@ from __future__ import annotations
 from collections import Counter
 from typing import Any, NamedTuple
 
-from coding_common import (
+from coding_constants import (
     MAX_DECISION_BASIS_CHARS,
     REASON_BASIS_CONCISED,
     VISIBLE_BASIS_LABELS,
-    _derive_decision_basis,
-    _record_id,
-    _record_steps,
-    contains_thought_key,
-    hash_value,
 )
 from coding_verify_manifest import _verify_one_manifest
 from coding_verify_steps import (
@@ -22,6 +17,36 @@ from coding_verify_steps import (
     _is_nonnegative_int,
     _is_positive_int,
 )
+
+
+def _derive_decision_basis(step: dict[str, Any]):
+    from curate_coding import _derive_decision_basis as impl
+
+    return impl(step)
+
+
+def _record_id(record: Any) -> str | None:
+    from curate_coding import _record_id as impl
+
+    return impl(record)
+
+
+def _record_steps(record: Any):
+    from curate_coding import _record_steps as impl
+
+    return impl(record)
+
+
+def contains_thought_key(value: Any) -> bool:
+    from curate_coding import contains_thought_key as impl
+
+    return impl(value)
+
+
+def hash_value(value: Any) -> str:
+    from curate_coding import hash_value as impl
+
+    return impl(value)
 
 
 class _ManifestTotals(NamedTuple):

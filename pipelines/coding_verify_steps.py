@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any, NamedTuple
 
-from coding_common import (
+from coding_constants import (
     REASON_STEP_NOT_OBJECT,
     REASON_THOUGHT_REMOVED,
     STEP_EVIDENCE_REASONS,

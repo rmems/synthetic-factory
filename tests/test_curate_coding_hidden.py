@@ -47,6 +47,18 @@ class HiddenReasoningKeyTests(unittest.TestCase):
             with self.subTest(key=key):
                 self.assertTrue(is_hidden_reasoning_key(key))
 
+    def _assert_plain_step_keys_removed(self, source, missing_keys, removed):
+        curated, manifest = curate_episode(source)
+        self.assertIsNotNone(curated)
+        self.assertFalse(contains_hidden_reasoning_key(curated))
+        step = curated["steps"][0]
+        for key in missing_keys:
+            self.assertNotIn(key, step)
+        self.assertEqual(
+            manifest["step_actions"][0]["hidden_reasoning_fields_removed"], removed
+        )
+        return curated, manifest
+
     def test_undelimited_internal_reasoning_suffixes_are_stripped(self):
         source = episode(
             [
@@ -56,15 +68,10 @@ class HiddenReasoningKeyTests(unittest.TestCase):
                 )
             ]
         )
-
-        curated, manifest = curate_episode(source)
-
-        self.assertIsNotNone(curated)
-        self.assertFalse(contains_hidden_reasoning_key(curated))
-        self.assertNotIn("internal_reasoning2", curated["steps"][0])
-        self.assertNotIn("internal_reasoningverbatim", curated["steps"][0])
-        self.assertEqual(
-            manifest["step_actions"][0]["hidden_reasoning_fields_removed"], 3
+        self._assert_plain_step_keys_removed(
+            source,
+            ("internal_reasoning2", "internal_reasoningverbatim"),
+            3,
         )
 
     def test_complete_audit_vocabulary_is_stripped_from_a_wrap_record(self):
@@ -112,15 +119,10 @@ class HiddenReasoningKeyTests(unittest.TestCase):
                 )
             ]
         )
-
-        curated, manifest = curate_episode(source)
-
-        self.assertIsNotNone(curated)
-        self.assertFalse(contains_hidden_reasoning_key(curated))
-        self.assertNotIn("internal_reasoning", curated["steps"][0])
-        self.assertNotIn("internal_reasoning_verbatim", curated["steps"][0])
-        self.assertEqual(
-            manifest["step_actions"][0]["hidden_reasoning_fields_removed"], 3
+        self._assert_plain_step_keys_removed(
+            source,
+            ("internal_reasoning", "internal_reasoning_verbatim"),
+            3,
         )
 
     def test_output_does_not_depend_on_internal_reasoning_content(self):
