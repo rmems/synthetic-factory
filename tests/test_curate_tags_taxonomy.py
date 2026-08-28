@@ -75,6 +75,16 @@ class TaxonomyDocumentTests(unittest.TestCase):
             [compiled.pattern for _rule_id, _tag, compiled in TAXONOMY.pattern_rules],
         )
 
+    def test_duplicate_json_object_keys_are_rejected(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / "taxonomy.json"
+            path.write_text(
+                '{"version":"tag-taxonomy-v1","version":"dup"}',
+                encoding="utf-8",
+            )
+            with self.assertRaisesRegex(TagTaxonomyError, "duplicate JSON object key"):
+                load_taxonomy(path)
+
     def test_duplicate_alias_across_terms_is_rejected(self):
         document = minimal_taxonomy()
         document["facets"][0]["terms"].append(

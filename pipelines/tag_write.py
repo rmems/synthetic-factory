@@ -106,16 +106,22 @@ def _write_jsonl_lines(descriptor: int, values: list[dict[str, Any]]) -> None:
             handle.write("\n")
 
 
-def _write_new_jsonl(path: Path, values: list[dict[str, Any]]) -> tuple[int, int]:
+def _write_new_jsonl(
+    path: Path, values: list[dict[str, Any]]
+) -> tuple[Path, tuple[int, int]]:
     """Write one JSONL file without replacing any pre-existing path."""
     _reject_raw_location(path, path)
     descriptor, identity = _open_exclusive(path)
     try:
+        created = _fd_realpath(descriptor)
+    except OSError:
+        created = path
+    try:
         _write_jsonl_lines(descriptor, values)
     except BaseException:
-        _unlink_created_file(path, identity)
+        _unlink_created_file(created, identity)
         raise
-    return identity
+    return created, identity
 
 
 def _prepare_destination_parents(

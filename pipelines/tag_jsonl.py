@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import hashlib
 import json
-import os
 from collections import Counter
 from pathlib import Path
 from typing import Any
@@ -19,7 +18,8 @@ from tag_constants import (
 from tag_jsonutil import (
     canonical_json,
     count_tag,
-    reject_json_constant,
+    display_source_path,
+    load_strict_json,
     vocabulary_entropy,
 )
 from tag_record import base_manifest, curate_record
@@ -54,7 +54,7 @@ def _parse_jsonl_payload(raw_line: bytes) -> tuple[Any, str | None]:
     except UnicodeDecodeError:
         return None, REASON_INVALID_UTF8
     try:
-        record = json.loads(text, parse_constant=reject_json_constant)
+        record = load_strict_json(text)
     except RecursionError:
         return None, REASON_RECORD_TOO_DEEP
     except ValueError:
@@ -78,7 +78,7 @@ def curate_jsonl(
     """Read a JSONL source without mutation and curate every nonblank line."""
     vocabulary = taxonomy if taxonomy is not None else load_taxonomy()
     source = Path(source_path)
-    display_path = os.fsencode(os.fspath(source)).decode("utf-8", "surrogateescape")
+    display_path = display_source_path(source)
     batch = _JsonlBatch(display_path, vocabulary)
     with source.open("rb") as handle:
         for line_number, terminated_line in enumerate(handle, 1):

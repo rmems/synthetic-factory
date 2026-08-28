@@ -25,7 +25,7 @@ from tag_constants import (
     UNMAPPED_MARKER_TAG,
     TagTaxonomyError,
 )
-from tag_jsonutil import normalize_tag, reject_json_constant
+from tag_jsonutil import load_strict_json, normalize_tag
 from tag_regex import compile_taxonomy_regex
 
 SUPPORTED_NORMALIZATION_STEPS = (
@@ -521,10 +521,7 @@ def load_taxonomy(path: str | Path | None = None) -> Taxonomy:
 
 def _read_taxonomy_document(resolved: Path) -> Any:
     try:
-        return json.loads(
-            resolved.read_text(encoding="utf-8"),
-            parse_constant=reject_json_constant,
-        )
+        return load_strict_json(resolved.read_text(encoding="utf-8"))
     except RecursionError as exc:
         raise TagTaxonomyError(
             f"{resolved}: taxonomy JSON is nested too deeply"

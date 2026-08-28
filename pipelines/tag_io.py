@@ -65,8 +65,7 @@ def _create_destinations(
     created: list[tuple[Path, tuple[int, int]]],
 ) -> None:
     for path, values in destinations:
-        identity = _write_new_jsonl(path, values)
-        created.append((path, identity))
+        created.append(_write_new_jsonl(path, values))
 
 
 def _rollback_created(created: list[tuple[Path, tuple[int, int]]]) -> None:

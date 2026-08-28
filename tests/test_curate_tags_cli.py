@@ -13,6 +13,7 @@ for _path in (_TESTS, _PIPELINES):
         sys.path.insert(0, str(_path))
 
 import curate_tags  # noqa: E402
+import tag_write  # noqa: E402
 from tag_test_support import (  # noqa: E402
     record,
     run_tag_cli,
@@ -83,6 +84,23 @@ class CliWriteTests(unittest.TestCase):
                 ],
             )
             self.assertEqual(nested.returncode, 2, nested.stderr)
+
+    def test_rollback_follows_created_file_identity(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            real_parent = root / "real"
+            alias = root / "alias"
+            other = root / "other"
+            real_parent.mkdir()
+            other.mkdir()
+            alias.symlink_to(real_parent)
+            destination = alias / "out.jsonl"
+            created, identity = tag_write._write_new_jsonl(destination, [{"id": "a"}])
+            self.assertTrue((real_parent / "out.jsonl").exists())
+            alias.unlink()
+            alias.symlink_to(other)
+            tag_write._unlink_created_file(created, identity)
+            self.assertFalse((real_parent / "out.jsonl").exists())
 
 
 class TagCliInProcessTests(unittest.TestCase):
