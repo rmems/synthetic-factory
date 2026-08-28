@@ -1,0 +1,23 @@
+pipelines/raw_tree_guard.py
+  s_5710181259ed77::t_5bffd1cd243683 111,115-116,118,126-137,171-172,174
+tests/test_curate_preferences_writer.py
+  s_5710181259ed77::t_a7e73d90d296e5 310-391
+pipelines/curate_preferences.py
+  s_5710181259ed77::t_e95b26333ed09c 658-676,678-688
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "ce7fc0d1ad86f384348329be8921be60b0f8d733",
+  "prompts": {},
+  "sessions": {
+    "s_5710181259ed77": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "01a04168-4ae7-7f00-ab26-a00f9a655adc",
+        "model": "unknown"
+      },
+      "human_author": "Raul Montoya Cardenas <montoyaraul34@gmail.com>"
+    }
+  }
+}
