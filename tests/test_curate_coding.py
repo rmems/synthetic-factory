@@ -1582,6 +1582,7 @@ class LegacyCodingManifestFixtureTests(unittest.TestCase):
         "output_id",
         "output_hash",
         "hidden_reasoning_fields_removed",
+        "steps_path",
         "step_counts",
         "step_actions",
     }
@@ -1628,7 +1629,7 @@ class LegacyCodingManifestFixtureTests(unittest.TestCase):
             self.LEGACY_SOURCE_STEPS,
         )
         for item in actions:
-            self.assertIn(REASON_THOUGHT_REMOVED, item["reason_codes"])
+            self.assertIn(REASON_HIDDEN_REASONING_REMOVED, item["reason_codes"])
             self.assertIn(REASON_BASIS_FROM_REFLECTION, item["reason_codes"])
 
     def test_fixture_records_provenance_without_raw_episode_payload(self):
