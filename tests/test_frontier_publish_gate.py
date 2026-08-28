@@ -236,14 +236,18 @@ class FrontierPublishGate(unittest.TestCase):
         self.assertTrue(publishing.is_file())
         return publishing
 
+    def _setup_retry_waiver(self, factory, tag):
+        reservation = round_txn.reserve(factory, 1, 1)
+        reason = "sensor replay pending; waived for this window"
+        self._interrupt_publish(
+            factory, reservation, [thalamic(tag, observable=False)], reason
+        )
+        return reservation, reason
+
     def test_publish_retry_keeps_the_first_recorded_waiver(self):
         with tempfile.TemporaryDirectory() as td:
             factory = self.factory(td)
-            reservation = round_txn.reserve(factory, 1, 1)
-            reason = "sensor replay pending; waived for this window"
-            self._interrupt_publish(
-                factory, reservation, [thalamic("gate-retry", observable=False)], reason
-            )
+            reservation, reason = self._setup_retry_waiver(factory, "gate-retry")
 
             manifest = round_txn.publish(
                 factory, 1, reservation["token"], "reworded on retry, same batch"
@@ -257,11 +261,7 @@ class FrontierPublishGate(unittest.TestCase):
     def test_publish_retry_reuses_the_recorded_waiver_without_a_new_flag(self):
         with tempfile.TemporaryDirectory() as td:
             factory = self.factory(td)
-            reservation = round_txn.reserve(factory, 1, 1)
-            reason = "sensor replay pending; waived for this window"
-            self._interrupt_publish(
-                factory, reservation, [thalamic("gate-resume", observable=False)], reason
-            )
+            reservation, reason = self._setup_retry_waiver(factory, "gate-resume")
 
             manifest = round_txn.publish(factory, 1, reservation["token"])
 

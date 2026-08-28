@@ -248,24 +248,32 @@ def _format_execution_findings(findings, staged_batch):
     return detail
 
 
+def _raise_failed_records(counts, staged_batch, detail):
+    raise rt.TransactionError(
+        f"execution verification failed for the staged batch: {staged_batch}\n"
+        f"{counts['failed']} failed, {counts['inconclusive']} inconclusive of "
+        f"{counts['total']} records; a failed record is never waivable\n"
+        + detail
+    )
+
+
+def _raise_unwaived_inconclusive(counts, staged_batch, detail):
+    raise rt.TransactionError(
+        "execution verification cannot verify "
+        f"{counts['inconclusive']} of {counts['total']} staged records: "
+        f"{staged_batch}\n" + detail + "\n"
+        "cannot-verify is never treated as verified; regenerate the round "
+        "with observable execution evidence, or republish with "
+        '--allow-inconclusive "<reason>" to record an explicit operator '
+        "waiver in the completion marker"
+    )
+
+
 def _raise_execution_gate_failure(counts, staged_batch, detail, override):
     if counts["failed"]:
-        raise rt.TransactionError(
-            f"execution verification failed for the staged batch: {staged_batch}\n"
-            f"{counts['failed']} failed, {counts['inconclusive']} inconclusive of "
-            f"{counts['total']} records; a failed record is never waivable\n"
-            + detail
-        )
+        _raise_failed_records(counts, staged_batch, detail)
     if override is None:
-        raise rt.TransactionError(
-            "execution verification cannot verify "
-            f"{counts['inconclusive']} of {counts['total']} staged records: "
-            f"{staged_batch}\n" + detail + "\n"
-            "cannot-verify is never treated as verified; regenerate the round "
-            "with observable execution evidence, or republish with "
-            '--allow-inconclusive "<reason>" to record an explicit operator '
-            "waiver in the completion marker"
-        )
+        _raise_unwaived_inconclusive(counts, staged_batch, detail)
 
 
 def execution_gate(batch: Path, staged_batch: Path, override=None):
