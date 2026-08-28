@@ -1,0 +1,651 @@
+{
+  "schema_version": "1.1.0",
+  "dataset_id": "rmems/multi-agent-ouroboros-swarm",
+  "issue": "https://github.com/rmems/synthetic-factory/issues/75",
+  "finding": "PAYLOAD_KIND_MISMATCH",
+  "summary": "All 14 published JSONL records are thalamic-gate wraps (state / proposed_action / safety_decision / executed_action / future_outcome / reward_components / meta). Zero are swarm trajectories. The swarm dialogue exists only as markdown sidecars under data/metadata/, which are not viewer rows and not JSONL training records.",
+  "raw_source": "outputs/raw/2026-08-17/multi-agent-ouroboros-swarm",
+  "raw_source_note": "Gitignored in this repository. Every digest below was verified equal to the Hub raw_snapshot digest for the same file, so the census describes exactly the bytes the public release declares immutable.",
+  "hub_raw_snapshot": {
+    "revision": "c287048233f1f5724b50d0dc17f4c592e2ca5159",
+    "files": [
+      {
+        "path": "data/raw/batch-r02.jsonl",
+        "sha256": "cbae858013dd77c46409683971d45d2cae9dbff049c0a45becef66ce4711880b"
+      },
+      {
+        "path": "data/raw/batch-r03.jsonl",
+        "sha256": "57a6a49cc65def2ed8a743172fc9e3cc1b9d63cc47af1987dc5d807ff26508ad"
+      },
+      {
+        "path": "data/raw/batch-r04.jsonl",
+        "sha256": "9a38bb9c4bac7f5fbefb41e8a442883e1a584bf4e4fac3801401b455feff91de"
+      },
+      {
+        "path": "data/raw/batch-r05.jsonl",
+        "sha256": "0b163bffe669e352888da21e794b005206160fef6c5dd3cd33c6e69b4cf2f293"
+      },
+      {
+        "path": "data/raw/batch-r06.jsonl",
+        "sha256": "02f325e796e6d9c4f7071e71fedc9a90cfc6e5123030f9c2c01f27890f92e146"
+      },
+      {
+        "path": "data/raw/batch-r07.jsonl",
+        "sha256": "49f700ff239111bc7463676abd8b5714edd8407d3f35b05c7a141496bfa55c42"
+      },
+      {
+        "path": "data/raw/batch-r08.jsonl",
+        "sha256": "31d69b0a20e2bbd30e04362c7b66cef223051d2993afa4495f3d6db96107f1e5"
+      },
+      {
+        "path": "data/raw/batch-r09.jsonl",
+        "sha256": "767b50dfdd6329e5cc697765150cc794341d58366ff223150b4dedad427ebcab"
+      },
+      {
+        "path": "data/raw/batch-r10.jsonl",
+        "sha256": "5af469b02ae6e3aebecc57041b31ee606f0327b8f7cdafa5a79bc81c695a72cf"
+      },
+      {
+        "path": "data/raw/batch-r11.jsonl",
+        "sha256": "6faea42393ce2d441daa18b2573d53049bb96789cafb6d40d7c51eb031d8c2a3"
+      },
+      {
+        "path": "data/raw/batch-r12.jsonl",
+        "sha256": "40200f2a50c8e667b1e8328e07667ca7d9c909b3a755660f4bdce6fec41e2d53"
+      },
+      {
+        "path": "data/raw/batch-r13.jsonl",
+        "sha256": "4392c81246d022787deed7df9a4ee214eca5462298709a57fe6e017388907e17"
+      },
+      {
+        "path": "data/raw/final-trajectories.jsonl",
+        "sha256": "f148d761bd58f9aa0ad502882a38d6673bfd5b16ca67b589fd9fd6ccb6790c56"
+      }
+    ]
+  },
+  "live_card_at_audit": {
+    "audited_on": "2026-08-23",
+    "published_purpose_sentence": "Synthetic multi-agent trajectories for delegation, critique, conflict resolution, recursive improvement, and coordinated densification.",
+    "published_payload_sentence": "The release contains 14 raw multi-agent records across 13 JSONL files and about 0.33 MB of JSONL evidence from outputs/raw/2026-08-17.",
+    "verifier_result": "python3 pipelines/verify_hf_release.py --repo rmems/multi-agent-ouroboros-swarm reported OK before this change: the verifier required the mislabelled purpose sentence."
+  },
+  "related": {
+    "issue_24": "stale release-status.json license field (PR #80)",
+    "issue_26": "hidden internal_reasoning* supervision on all 14 wraps",
+    "issue_74": "rmems/agentic-coding-trajectories, a genuinely mixed slug",
+    "pr_97": "3 reward-arithmetic blockers that make export_hf refuse this dataset; owned by the reward lanes, out of scope here"
+  },
+  "operator_action": {
+    "required": true,
+    "artifact": "docs/ouroboros-swarm-payload-kind.card.md",
+    "target": "https://huggingface.co/datasets/rmems/multi-agent-ouroboros-swarm/blob/main/README.md",
+    "note": "This is a Fable-5 Hub repository. No publisher in this repository writes its card, so the correction cannot be written from this repository."
+  },
+  "derived": {
+    "jsonl_files": 13,
+    "records": 14,
+    "parse_failures": 0,
+    "total_jsonl_bytes": 328743,
+    "gate_wrap_records": 14,
+    "swarm_trajectory_records": 0,
+    "swarm_trajectory_definition": "a recursively discovered conversation/messages/transcript/turns array with at least two content-bearing turns from distinct actors",
+    "distinct_top_level_key_sets": 1,
+    "safety_decisions": {
+      "ACCEPT": 3,
+      "MODIFY": 6,
+      "REJECT": 5
+    },
+    "records_with_multi_actor_state": 9,
+    "records_with_state_agents": 7,
+    "records_with_public_decision_basis": 0,
+    "files": [
+      {
+        "path": "batch-r02.jsonl",
+        "bytes": 19128,
+        "records": 1,
+        "sha256": "cbae858013dd77c46409683971d45d2cae9dbff049c0a45becef66ce4711880b"
+      },
+      {
+        "path": "batch-r03.jsonl",
+        "bytes": 24524,
+        "records": 1,
+        "sha256": "57a6a49cc65def2ed8a743172fc9e3cc1b9d63cc47af1987dc5d807ff26508ad"
+      },
+      {
+        "path": "batch-r04.jsonl",
+        "bytes": 25178,
+        "records": 1,
+        "sha256": "9a38bb9c4bac7f5fbefb41e8a442883e1a584bf4e4fac3801401b455feff91de"
+      },
+      {
+        "path": "batch-r05.jsonl",
+        "bytes": 24630,
+        "records": 1,
+        "sha256": "0b163bffe669e352888da21e794b005206160fef6c5dd3cd33c6e69b4cf2f293"
+      },
+      {
+        "path": "batch-r06.jsonl",
+        "bytes": 25477,
+        "records": 1,
+        "sha256": "02f325e796e6d9c4f7071e71fedc9a90cfc6e5123030f9c2c01f27890f92e146"
+      },
+      {
+        "path": "batch-r07.jsonl",
+        "bytes": 22756,
+        "records": 1,
+        "sha256": "49f700ff239111bc7463676abd8b5714edd8407d3f35b05c7a141496bfa55c42"
+      },
+      {
+        "path": "batch-r08.jsonl",
+        "bytes": 27242,
+        "records": 1,
+        "sha256": "31d69b0a20e2bbd30e04362c7b66cef223051d2993afa4495f3d6db96107f1e5"
+      },
+      {
+        "path": "batch-r09.jsonl",
+        "bytes": 27813,
+        "records": 1,
+        "sha256": "767b50dfdd6329e5cc697765150cc794341d58366ff223150b4dedad427ebcab"
+      },
+      {
+        "path": "batch-r10.jsonl",
+        "bytes": 28401,
+        "records": 1,
+        "sha256": "5af469b02ae6e3aebecc57041b31ee606f0327b8f7cdafa5a79bc81c695a72cf"
+      },
+      {
+        "path": "batch-r11.jsonl",
+        "bytes": 27499,
+        "records": 1,
+        "sha256": "6faea42393ce2d441daa18b2573d53049bb96789cafb6d40d7c51eb031d8c2a3"
+      },
+      {
+        "path": "batch-r12.jsonl",
+        "bytes": 24246,
+        "records": 1,
+        "sha256": "40200f2a50c8e667b1e8328e07667ca7d9c909b3a755660f4bdce6fec41e2d53"
+      },
+      {
+        "path": "batch-r13.jsonl",
+        "bytes": 25715,
+        "records": 1,
+        "sha256": "4392c81246d022787deed7df9a4ee214eca5462298709a57fe6e017388907e17"
+      },
+      {
+        "path": "final-trajectories.jsonl",
+        "bytes": 26134,
+        "records": 2,
+        "sha256": "f148d761bd58f9aa0ad502882a38d6673bfd5b16ca67b589fd9fd6ccb6790c56"
+      }
+    ],
+    "records_detail": [
+      {
+        "id": "batch-r02.jsonl#L1",
+        "round": 2,
+        "meta_factory": "multi-agent-ouroboros-swarm",
+        "payload_kind": "thalamic-gate-wrap",
+        "top_level_keys": [
+          "executed_action",
+          "future_outcome",
+          "meta",
+          "proposed_action",
+          "reward_components",
+          "safety_decision",
+          "state"
+        ],
+        "swarm_trajectory_paths": [],
+        "safety_decision": "ACCEPT",
+        "multi_actor_state_keys": [],
+        "state_agent_ids": [],
+        "hidden_supervision_field": "internal_reasoning",
+        "public_decision_basis": false,
+        "reward_weight_vocabulary": [
+          "coherence",
+          "efficiency",
+          "exploration",
+          "safety",
+          "task_progress"
+        ]
+      },
+      {
+        "id": "batch-r03.jsonl#L1",
+        "round": 3,
+        "meta_factory": "multi-agent-ouroboros-swarm",
+        "payload_kind": "thalamic-gate-wrap",
+        "top_level_keys": [
+          "executed_action",
+          "future_outcome",
+          "meta",
+          "proposed_action",
+          "reward_components",
+          "safety_decision",
+          "state"
+        ],
+        "swarm_trajectory_paths": [],
+        "safety_decision": "MODIFY",
+        "multi_actor_state_keys": [
+          "multi_agent"
+        ],
+        "state_agent_ids": [],
+        "hidden_supervision_field": "internal_reasoning",
+        "public_decision_basis": false,
+        "reward_weight_vocabulary": [
+          "coherence",
+          "efficiency",
+          "exploration",
+          "safety",
+          "task_progress"
+        ]
+      },
+      {
+        "id": "batch-r04.jsonl#L1",
+        "round": 4,
+        "meta_factory": "multi-agent-ouroboros-swarm",
+        "payload_kind": "thalamic-gate-wrap",
+        "top_level_keys": [
+          "executed_action",
+          "future_outcome",
+          "meta",
+          "proposed_action",
+          "reward_components",
+          "safety_decision",
+          "state"
+        ],
+        "swarm_trajectory_paths": [],
+        "safety_decision": "REJECT",
+        "multi_actor_state_keys": [
+          "agents"
+        ],
+        "state_agent_ids": [
+          "BS-1",
+          "CC-1",
+          "PO-1",
+          "RC-1",
+          "TG-1"
+        ],
+        "hidden_supervision_field": "internal_reasoning",
+        "public_decision_basis": false,
+        "reward_weight_vocabulary": [
+          "coherence",
+          "efficiency",
+          "exploration",
+          "safety",
+          "task_progress"
+        ]
+      },
+      {
+        "id": "batch-r05.jsonl#L1",
+        "round": 5,
+        "meta_factory": "multi-agent-ouroboros-swarm",
+        "payload_kind": "thalamic-gate-wrap",
+        "top_level_keys": [
+          "executed_action",
+          "future_outcome",
+          "meta",
+          "proposed_action",
+          "reward_components",
+          "safety_decision",
+          "state"
+        ],
+        "swarm_trajectory_paths": [],
+        "safety_decision": "ACCEPT",
+        "multi_actor_state_keys": [
+          "agents"
+        ],
+        "state_agent_ids": [
+          "CREW-D",
+          "DER-A",
+          "F1-A",
+          "F2-A",
+          "SUB-A",
+          "TG-2"
+        ],
+        "hidden_supervision_field": "internal_reasoning",
+        "public_decision_basis": false,
+        "reward_weight_vocabulary": [
+          "coordination_integrity",
+          "efficiency",
+          "gate_calibration",
+          "privacy_ethics",
+          "safety_alignment",
+          "task_progress"
+        ]
+      },
+      {
+        "id": "batch-r06.jsonl#L1",
+        "round": 6,
+        "meta_factory": "multi-agent-ouroboros-swarm",
+        "payload_kind": "thalamic-gate-wrap",
+        "top_level_keys": [
+          "executed_action",
+          "future_outcome",
+          "meta",
+          "proposed_action",
+          "reward_components",
+          "safety_decision",
+          "state"
+        ],
+        "swarm_trajectory_paths": [],
+        "safety_decision": "MODIFY",
+        "multi_actor_state_keys": [
+          "agents"
+        ],
+        "state_agent_ids": [
+          "AUD_C",
+          "COR_A",
+          "FLT_OPT",
+          "OBU_2417",
+          "SIG_A",
+          "TG_3"
+        ],
+        "hidden_supervision_field": "internal_reasoning_verbatim",
+        "public_decision_basis": false,
+        "reward_weight_vocabulary": [
+          "coord",
+          "efficiency",
+          "exploration",
+          "incentive",
+          "privacy",
+          "safety",
+          "task"
+        ]
+      },
+      {
+        "id": "batch-r07.jsonl#L1",
+        "round": 7,
+        "meta_factory": "multi-agent-ouroboros-swarm",
+        "payload_kind": "thalamic-gate-wrap",
+        "top_level_keys": [
+          "executed_action",
+          "future_outcome",
+          "meta",
+          "proposed_action",
+          "reward_components",
+          "safety_decision",
+          "state"
+        ],
+        "swarm_trajectory_paths": [],
+        "safety_decision": "REJECT",
+        "multi_actor_state_keys": [
+          "agents"
+        ],
+        "state_agent_ids": [
+          "Dr_Okafor",
+          "TG_S1",
+          "TP_A",
+          "TeleSight_RT"
+        ],
+        "hidden_supervision_field": "internal_reasoning_verbatim",
+        "public_decision_basis": false,
+        "reward_weight_vocabulary": [
+          "calibration",
+          "efficiency",
+          "human_team",
+          "information",
+          "privacy",
+          "safety",
+          "task"
+        ]
+      },
+      {
+        "id": "batch-r08.jsonl#L1",
+        "round": 8,
+        "meta_factory": "multi-agent-ouroboros-swarm",
+        "payload_kind": "thalamic-gate-wrap",
+        "top_level_keys": [
+          "executed_action",
+          "future_outcome",
+          "meta",
+          "proposed_action",
+          "reward_components",
+          "safety_decision",
+          "state"
+        ],
+        "swarm_trajectory_paths": [],
+        "safety_decision": "MODIFY",
+        "multi_actor_state_keys": [
+          "agents"
+        ],
+        "state_agent_ids": [
+          "NOC_operator",
+          "SAS_relay",
+          "TG_Z1",
+          "TP_C"
+        ],
+        "hidden_supervision_field": "internal_reasoning_verbatim",
+        "public_decision_basis": false,
+        "reward_weight_vocabulary": [
+          "calibration",
+          "efficiency",
+          "human_team",
+          "information",
+          "privacy",
+          "safety",
+          "task"
+        ]
+      },
+      {
+        "id": "batch-r09.jsonl#L1",
+        "round": 9,
+        "meta_factory": "multi-agent-ouroboros-swarm",
+        "payload_kind": "thalamic-gate-wrap",
+        "top_level_keys": [
+          "executed_action",
+          "future_outcome",
+          "meta",
+          "proposed_action",
+          "reward_components",
+          "safety_decision",
+          "state"
+        ],
+        "swarm_trajectory_paths": [],
+        "safety_decision": "ACCEPT",
+        "multi_actor_state_keys": [
+          "agents"
+        ],
+        "state_agent_ids": [
+          "KOS_2",
+          "Meridian",
+          "NOC_operator",
+          "Osmia",
+          "TG_OLF_3"
+        ],
+        "hidden_supervision_field": "internal_reasoning_verbatim",
+        "public_decision_basis": false,
+        "reward_weight_vocabulary": [
+          "calibration",
+          "efficiency",
+          "human_team",
+          "information",
+          "privacy",
+          "safety",
+          "task"
+        ]
+      },
+      {
+        "id": "batch-r10.jsonl#L1",
+        "round": 10,
+        "meta_factory": "multi-agent-ouroboros-swarm",
+        "payload_kind": "thalamic-gate-wrap",
+        "top_level_keys": [
+          "executed_action",
+          "future_outcome",
+          "meta",
+          "proposed_action",
+          "reward_components",
+          "safety_decision",
+          "state"
+        ],
+        "swarm_trajectory_paths": [],
+        "safety_decision": "REJECT",
+        "multi_actor_state_keys": [
+          "agents"
+        ],
+        "state_agent_ids": [
+          "HB_47",
+          "KilnSt_depot",
+          "ROS_1",
+          "R_214_stack",
+          "TG_AXL_5",
+          "dispatcher_M_Farrell"
+        ],
+        "hidden_supervision_field": "internal_reasoning_verbatim",
+        "public_decision_basis": false,
+        "reward_weight_vocabulary": [
+          "calibration",
+          "efficiency",
+          "human_team",
+          "information",
+          "privacy",
+          "safety",
+          "task"
+        ]
+      },
+      {
+        "id": "batch-r11.jsonl#L1",
+        "round": 11,
+        "meta_factory": "multi-agent-ouroboros-swarm",
+        "payload_kind": "thalamic-gate-wrap",
+        "top_level_keys": [
+          "executed_action",
+          "future_outcome",
+          "meta",
+          "proposed_action",
+          "reward_components",
+          "safety_decision",
+          "state"
+        ],
+        "swarm_trajectory_paths": [],
+        "safety_decision": "MODIFY",
+        "multi_actor_state_keys": [],
+        "state_agent_ids": [],
+        "hidden_supervision_field": "internal_reasoning",
+        "public_decision_basis": false,
+        "reward_weight_vocabulary": [
+          "efficiency",
+          "human_team",
+          "information",
+          "safety",
+          "task"
+        ]
+      },
+      {
+        "id": "batch-r12.jsonl#L1",
+        "round": 12,
+        "meta_factory": "multi-agent-ouroboros-swarm",
+        "payload_kind": "thalamic-gate-wrap",
+        "top_level_keys": [
+          "executed_action",
+          "future_outcome",
+          "meta",
+          "proposed_action",
+          "reward_components",
+          "safety_decision",
+          "state"
+        ],
+        "swarm_trajectory_paths": [],
+        "safety_decision": "REJECT",
+        "multi_actor_state_keys": [],
+        "state_agent_ids": [],
+        "hidden_supervision_field": "internal_reasoning_verbatim",
+        "public_decision_basis": false,
+        "reward_weight_vocabulary": [
+          "calibration",
+          "efficiency",
+          "human_team",
+          "information",
+          "safety",
+          "task"
+        ]
+      },
+      {
+        "id": "batch-r13.jsonl#L1",
+        "round": 13,
+        "meta_factory": "multi-agent-ouroboros-swarm",
+        "payload_kind": "thalamic-gate-wrap",
+        "top_level_keys": [
+          "executed_action",
+          "future_outcome",
+          "meta",
+          "proposed_action",
+          "reward_components",
+          "safety_decision",
+          "state"
+        ],
+        "swarm_trajectory_paths": [],
+        "safety_decision": "MODIFY",
+        "multi_actor_state_keys": [],
+        "state_agent_ids": [],
+        "hidden_supervision_field": "internal_reasoning_verbatim",
+        "public_decision_basis": false,
+        "reward_weight_vocabulary": [
+          "efficiency",
+          "exploration",
+          "human_team",
+          "information",
+          "safety",
+          "task"
+        ]
+      },
+      {
+        "id": "final-trajectories.jsonl#L1",
+        "round": 2,
+        "meta_factory": "multi-agent-ouroboros-swarm",
+        "payload_kind": "thalamic-gate-wrap",
+        "top_level_keys": [
+          "executed_action",
+          "future_outcome",
+          "meta",
+          "proposed_action",
+          "reward_components",
+          "safety_decision",
+          "state"
+        ],
+        "swarm_trajectory_paths": [],
+        "safety_decision": "MODIFY",
+        "multi_actor_state_keys": [
+          "fleet",
+          "orchestrator"
+        ],
+        "state_agent_ids": [],
+        "hidden_supervision_field": "internal_reasoning",
+        "public_decision_basis": false,
+        "reward_weight_vocabulary": [
+          "coherence",
+          "efficiency",
+          "exploration",
+          "safety",
+          "task_progress"
+        ]
+      },
+      {
+        "id": "final-trajectories.jsonl#L2",
+        "round": 2,
+        "meta_factory": "multi-agent-ouroboros-swarm",
+        "payload_kind": "thalamic-gate-wrap",
+        "top_level_keys": [
+          "executed_action",
+          "future_outcome",
+          "meta",
+          "proposed_action",
+          "reward_components",
+          "safety_decision",
+          "state"
+        ],
+        "swarm_trajectory_paths": [],
+        "safety_decision": "REJECT",
+        "multi_actor_state_keys": [],
+        "state_agent_ids": [],
+        "hidden_supervision_field": "internal_reasoning",
+        "public_decision_basis": false,
+        "reward_weight_vocabulary": [
+          "coherence",
+          "efficiency",
+          "exploration",
+          "safety",
+          "task_progress"
+        ]
+      }
+    ]
+  }
+}
