@@ -270,6 +270,62 @@ class PublishGrok46HubTests(unittest.TestCase):
                 self.assertEqual(after, before)
                 self.assertFalse((mirror / "data").exists())
 
+    def test_snapshot_reuses_the_preflighted_schema_during_final_render(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            source = root / "raw" / ITEM["slug"]
+            source.mkdir(parents=True)
+            write_valid_legacy(source / "batch-r01.jsonl")
+
+            destination_root = root / "hf"
+            schema_root = root / "card-schemas"
+            schema_root.mkdir()
+            note = "Fixture declaration used to prove preflight reuse."
+            path = schema_root / f"{ITEM['hub']}.json"
+            path.write_text(
+                json.dumps(
+                    {
+                        "version": 1,
+                        "dataset": ITEM["hub"],
+                        "note": note,
+                        "data_files": ["data/raw/batch-*.jsonl"],
+                        "features": [{"name": "id", "dtype": "string"}],
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            original_load = publisher.card_schema.load
+            loads = []
+
+            def load_then_poison(dataset, root=None):
+                result = original_load(dataset, root)
+                loads.append(dataset)
+                path.write_text("{", encoding="utf-8")
+                return result
+
+            with mock.patch.object(
+                publisher, "FACTORY_ROOT", root / "raw"
+            ), mock.patch.object(
+                publisher, "HF_ROOT", destination_root
+            ), mock.patch.object(
+                publisher.card_schema, "SCHEMA_ROOT", schema_root
+            ), mock.patch.object(
+                publisher.card_schema, "load", load_then_poison
+            ):
+                publisher.snapshot_one(ITEM)
+
+            self.assertEqual(loads, [ITEM["hub"]])
+            card = (
+                destination_root
+                / publisher.HF_DATASETS_DIRNAME
+                / ITEM["hub"]
+                / "README.md"
+            ).read_text(encoding="utf-8")
+            self.assertIn("configs:", card)
+            self.assertIn(note, card)
+            self.assertNotIn("**Not declared yet.**", card)
+
     def test_factory_discovery_and_snapshot_reject_symlinked_factory_roots(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
@@ -348,6 +404,25 @@ class PublishGrok46HubTests(unittest.TestCase):
                 publisher.snapshot_one(empty)
             empty_card = (destination_root / publisher.HF_DATASETS_DIRNAME / empty["hub"] / "README.md").read_text()
             self.assertIn("payload. The factory source tree is\n`outputs/raw/", empty_card)
+
+    def test_snapshot_card_warns_against_training_on_hidden_reasoning(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            source = root / "raw" / ITEM["slug"]
+            source.mkdir(parents=True)
+            write_valid_legacy(source / "batch-r01.jsonl")
+
+            with mock.patch.object(publisher, "FACTORY_ROOT", root / "raw"), mock.patch.object(
+                publisher, "HF_ROOT", root / "hf"
+            ):
+                publisher.snapshot_one(ITEM)
+
+            card = (root / "hf" / publisher.HF_DATASETS_DIRNAME / ITEM["hub"] / "README.md").read_text()
+            self.assertIn(
+                "**Do not train on `thought` or `internal_reasoning*`.**", card
+            )
+            self.assertIn("raw Hub copy is evidence only", card)
+            self.assertIn("`decision_basis`", card)
 
     def test_snapshot_card_preserves_noncanonical_batch_names(self):
         with tempfile.TemporaryDirectory() as td:
