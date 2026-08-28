@@ -148,7 +148,7 @@ def long_horizon_scenario_signature(record: dict):
     bug_class = _normalized_signature_field(record.get("bug_class"))
     if codebase is None or bug_class is None:
         return None
-    return (codebase, bug_class)
+    return codebase, bug_class
 
 
 def _is_banned_normalized_name(normalized: str) -> bool:

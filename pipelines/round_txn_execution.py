@@ -11,9 +11,15 @@ from pathlib import Path
 
 
 class _Host:
+    def __init__(self):
+        self._module = None
+
     def __getattr__(self, name):
-        import round_txn
-        return getattr(round_txn, name)
+        if self._module is None:
+            import round_txn
+
+            self._module = round_txn
+        return getattr(self._module, name)
 
 
 rt = _Host()
