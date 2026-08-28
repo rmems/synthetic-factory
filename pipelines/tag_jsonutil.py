@@ -85,8 +85,12 @@ def load_strict_json(payload: str) -> Any:
 
 
 def display_source_path(source: Path) -> str:
-    """Lossless Unicode spelling of a POSIX path's bytes."""
-    return os.fsencode(os.fspath(source)).decode("latin-1")
+    """UTF-8 path spelling, with latin-1 only for non-UTF-8 bytes."""
+    raw = os.fsencode(os.fspath(source))
+    try:
+        return raw.decode("utf-8")
+    except UnicodeDecodeError:
+        return raw.decode("latin-1")
 
 
 def hash_value(value: Any) -> str:
