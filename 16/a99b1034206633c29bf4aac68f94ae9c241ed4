@@ -1,0 +1,20 @@
+pipelines/curate_preferences.py
+  s_0c677ee7b104dd::t_97cf004200ceae 127
+  s_0c677ee7b104dd::t_2861d9aefb77ac 214-236,243,245-248,435-448,451-454,456-458,728-760,774-779,781
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "16a99b1034206633c29bf4aac68f94ae9c241ed4",
+  "prompts": {},
+  "sessions": {
+    "s_0c677ee7b104dd": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "01a047fd-51f5-7a93-a9e5-b2b91797ea23",
+        "model": "unknown"
+      },
+      "human_author": "Raul Montoya Cardenas <montoyaraul34@gmail.com>"
+    }
+  }
+}
