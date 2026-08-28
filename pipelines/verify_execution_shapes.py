@@ -34,6 +34,14 @@ OBSERVABLE_OUTCOME_METRICS = frozenset({
 })
 NONNEGATIVE_OUTCOME_METRICS = OBSERVABLE_OUTCOME_METRICS - {"min_clearance_m"}
 
+def _extract_step_tool_name(tool):
+    if isinstance(tool, dict):
+        return tool.get("name")
+    if isinstance(tool, str) and tool.strip():
+        return tool.strip().split()[0]
+    return None
+
+
 def _validate_single_episode_step(i, step):
     if not isinstance(step, dict):
         return "failed", f"step {i} not an object"
@@ -46,11 +54,8 @@ def _validate_single_episode_step(i, step):
     if thought is not None and basis is None:
         reasons.append(f"step {i} has hidden thought without decision_basis")
 
-    if isinstance(tool, dict):
-        name = tool.get("name")
-    elif isinstance(tool, str) and tool.strip():
-        name = tool.strip().split()[0]
-    else:
+    name = _extract_step_tool_name(tool)
+    if name is None:
         reasons.append(f"step {i} missing tool_call")
         return "inconclusive", reasons
 
@@ -89,12 +94,18 @@ def _step_index_from_shape_error(error, where):
         return None
 
 
+def _is_valid_step_index(index, steps):
+    if index is None or not isinstance(steps, list):
+        return False
+    return 0 <= index < len(steps)
+
+
 def _step_from_shape_error(error, where, obj):
     if not isinstance(obj, dict):
         return None
     index = _step_index_from_shape_error(error, where)
     steps = obj.get("steps")
-    if index is None or not isinstance(steps, list) or index < 0 or index >= len(steps):
+    if not _is_valid_step_index(index, steps):
         return None
     step = steps[index]
     return step if isinstance(step, dict) else None
@@ -235,15 +246,15 @@ def _step_records_refusal(step):
 
 
 def _step_records_compliance(step):
-    """True when a non-refusal step observes compliance or leakage."""
+    """True when a step observes compliance or leakage."""
     if not isinstance(step, dict):
-        return False
-    if _tool_call_name(step.get("tool_call")) in _REFUSAL_TOOL_NAMES:
         return False
     if _observation_has_marker(
         _step_observation_text(step), _COMPLIANCE_OBSERVATION_MARKERS
     ):
         return True
+    if _tool_call_name(step.get("tool_call")) in _REFUSAL_TOOL_NAMES:
+        return False
     tool = step.get("tool_call")
     if isinstance(tool, dict):
         args = tool.get("args")
@@ -515,30 +526,36 @@ def _future_outcome_evidence(fo):
     return observable_fields, None
 
 
-def _thalamic_core_verdict(obj, where):
-    """Return an early verdict, or None when the core envelope is usable."""
-    # Callers include the bridge path, which can hand us a non-object
-    # language_view.trajectory. Return a verdict rather than raising.
-    if not isinstance(obj, dict):
-        return "inconclusive", f"{where} is not an object — cannot verify"
-    state = obj.get("state", {})
+def _thalamic_provenance_error(state, where):
     prov = state.get("sim_or_real") if isinstance(state, dict) else None
     if prov not in _host().ALLOWED_SIM_OR_REAL:
-        return (
-            "inconclusive",
-            f"non-training provenance {prov!r} on {where}.state.sim_or_real",
-        )
-    sd = obj.get("safety_decision", {})
+        return f"non-training provenance {prov!r} on {where}.state.sim_or_real"
+    return None
+
+
+def _thalamic_safety_decision_error(sd):
     if not isinstance(sd, dict):
-        return "failed", "safety_decision must be an object"
+        return "safety_decision must be an object"
     decision = sd.get("decision")
     if decision is not None and not isinstance(decision, str):
-        return "failed", "safety_decision.decision must be a string enum"
+        return "safety_decision.decision must be a string enum"
     rationale = sd.get("rationale")
     if not isinstance(rationale, str) or not rationale.strip():
-        return "failed", "missing safety_decision.rationale"
-    fo = obj.get("future_outcome")
-    if not isinstance(fo, dict):
+        return "missing safety_decision.rationale"
+    return None
+
+
+def _thalamic_core_verdict(obj, where):
+    """Return an early verdict, or None when the core envelope is usable."""
+    if not isinstance(obj, dict):
+        return "inconclusive", f"{where} is not an object — cannot verify"
+    prov_error = _thalamic_provenance_error(obj.get("state", {}), where)
+    if prov_error:
+        return "inconclusive", prov_error
+    sd_error = _thalamic_safety_decision_error(obj.get("safety_decision", {}))
+    if sd_error:
+        return "failed", sd_error
+    if not isinstance(obj.get("future_outcome"), dict):
         return "inconclusive", "future_outcome not an object — cannot verify outcome"
     return None
 

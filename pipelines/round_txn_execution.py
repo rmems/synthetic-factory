@@ -31,6 +31,19 @@ def _is_positive_int(value):
     return _is_int(value) and value >= 1
 
 
+def _validate_override_bounds(text):
+    if len(text) < rt.EXECUTION_OVERRIDE_MIN_CHARS:
+        raise rt.TransactionError(
+            "execution verification override needs a written reason of at least "
+            f"{rt.EXECUTION_OVERRIDE_MIN_CHARS} characters"
+        )
+    if len(text) > rt.EXECUTION_OVERRIDE_MAX_CHARS:
+        raise rt.TransactionError(
+            "execution verification override reason must be at most "
+            f"{rt.EXECUTION_OVERRIDE_MAX_CHARS} characters"
+        )
+
+
 def normalized_execution_override(reason):
     """Validate and normalize an operator waiver for cannot-verify records.
 
@@ -49,16 +62,7 @@ def normalized_execution_override(reason):
         raise rt.TransactionError(
             "execution verification override must not contain non-printable characters"
         )
-    if len(text) < rt.EXECUTION_OVERRIDE_MIN_CHARS:
-        raise rt.TransactionError(
-            "execution verification override needs a written reason of at least "
-            f"{rt.EXECUTION_OVERRIDE_MIN_CHARS} characters"
-        )
-    if len(text) > rt.EXECUTION_OVERRIDE_MAX_CHARS:
-        raise rt.TransactionError(
-            "execution verification override reason must be at most "
-            f"{rt.EXECUTION_OVERRIDE_MAX_CHARS} characters"
-        )
+    _validate_override_bounds(text)
     return text
 
 
@@ -142,22 +146,17 @@ def _validated_override_matches_counts(verification, counts, marker_kind):
     override = recorded_execution_override(
         {"execution_verification": verification}
     )
-    if not counts["inconclusive"]:
+    inconclusive = counts["inconclusive"]
+    if not inconclusive:
         if override is not None:
             raise rt.TransactionError(
                 f"{marker_kind} cannot waive a conclusive execution verdict"
             )
         return
-    if override is None:
+    waived = verification.get("override", {}).get("waived_inconclusive") if isinstance(verification.get("override"), dict) else None
+    if override is None or waived != inconclusive:
         raise rt.TransactionError(
-            f"{marker_kind} execution override does not match "
-            "the inconclusive count"
-        )
-    waived = verification["override"]["waived_inconclusive"]
-    if waived != counts["inconclusive"]:
-        raise rt.TransactionError(
-            f"{marker_kind} execution override does not match "
-            "the inconclusive count"
+            f"{marker_kind} execution override does not match the inconclusive count"
         )
 
 
