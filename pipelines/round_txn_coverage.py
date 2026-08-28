@@ -59,36 +59,39 @@ def nested_strings(value):
             yield from nested_strings(item)
 
 
+def _flatten_unit_text(value):
+    return " ".join(
+        text.strip().casefold()
+        for text in nested_strings(value)
+        if text.strip()
+    )
+
+
+def _step_units(owner):
+    if isinstance(owner, dict):
+        steps = owner.get("steps")
+        if isinstance(steps, list):
+            return steps
+    return []
+
+
 def agentic_trajectory_units(record: dict) -> list[str]:
     """Return separate ordered steps/terminal fields, excluding the task goal."""
     chosen = record.get("chosen")
     rejected = record.get("rejected")
-
-    def step_units(owner):
-        steps = owner.get("steps") if isinstance(owner, dict) else None
-        return steps if isinstance(steps, list) else []
-
-    values = [*step_units(record)]
+    values = [*_step_units(record)]
     if isinstance(chosen, dict) or isinstance(rejected, dict):
         values.extend(
             (
-                *step_units(chosen),
-                *step_units(rejected),
+                *_step_units(chosen),
+                *_step_units(rejected),
                 record.get("critique"),
                 chosen.get("outcome") if isinstance(chosen, dict) else None,
                 rejected.get("outcome") if isinstance(rejected, dict) else None,
             )
         )
     values.append(record.get("outcome"))
-    return [
-        " ".join(
-            text.strip().casefold()
-            for text in nested_strings(value)
-            if text.strip()
-        )
-        for value in values
-        if value is not None
-    ]
+    return [_flatten_unit_text(v) for v in values if v is not None]
 
 
 def _find_matching_unit_index(units, alternatives, start_index):
@@ -135,16 +138,20 @@ def _is_banned_normalized_name(normalized: str) -> bool:
     return "spikenaut" in normalized or "neuromorphic" in normalized
 
 
+def _normalize_dict_key(key):
+    return re.sub(
+        r"[^a-z0-9]+",
+        "_",
+        re.sub(r"(?<=[a-z0-9])(?=[A-Z])", "_", str(key)).casefold(),
+    ).strip("_")
+
+
 def banned_agentic_wrapper_paths(value, path=""):
     """Yield nested fields or values that introduce neuromorphic wrappers."""
     if isinstance(value, dict):
         for key, item in value.items():
             child_path = f"{path}.{key}" if path else key
-            normalized = re.sub(
-                r"[^a-z0-9]+",
-                "_",
-                re.sub(r"(?<=[a-z0-9])(?=[A-Z])", "_", str(key)).casefold(),
-            ).strip("_")
+            normalized = _normalize_dict_key(key)
             if _is_banned_normalized_name(normalized):
                 yield child_path
             yield from banned_agentic_wrapper_paths(item, child_path)
