@@ -405,6 +405,25 @@ class PublishGrok46HubTests(unittest.TestCase):
             empty_card = (destination_root / publisher.HF_DATASETS_DIRNAME / empty["hub"] / "README.md").read_text()
             self.assertIn("payload. The factory source tree is\n`outputs/raw/", empty_card)
 
+    def test_snapshot_card_warns_against_training_on_hidden_reasoning(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            source = root / "raw" / ITEM["slug"]
+            source.mkdir(parents=True)
+            write_valid_legacy(source / "batch-r01.jsonl")
+
+            with mock.patch.object(publisher, "FACTORY_ROOT", root / "raw"), mock.patch.object(
+                publisher, "HF_ROOT", root / "hf"
+            ):
+                publisher.snapshot_one(ITEM)
+
+            card = (root / "hf" / publisher.HF_DATASETS_DIRNAME / ITEM["hub"] / "README.md").read_text()
+            self.assertIn(
+                "**Do not train on `thought` or `internal_reasoning*`.**", card
+            )
+            self.assertIn("raw Hub copy is evidence only", card)
+            self.assertIn("`decision_basis`", card)
+
     def test_snapshot_card_preserves_noncanonical_batch_names(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
