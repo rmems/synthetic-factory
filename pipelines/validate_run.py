@@ -156,6 +156,55 @@ SPIKE_ORDER_MISMATCH = "spike_events not globally non-decreasing"
 SPIKE_TIME_KEY_MISMATCH = "spike_events must use one timestamp key throughout"
 
 
+def _check_spike_event(event, index, where, require_keys):
+    """Validate one event's required keys, schema types, and single clock.
+
+    Returns ``(errors, timed)``. ``timed`` is ``(index, key, value)`` when the
+    event has exactly one finite timestamp; otherwise it is ``None``.
+    """
+    if not isinstance(event, dict):
+        return [f"{where}: spike_events[{index}] must be an object"], None
+
+    errs = [
+        f"{where}: spike_events[{index}] missing '{key}'"
+        for key in require_keys
+        if key not in event
+    ]
+    errs.extend(
+        f"{where}: spike_events[{index}].{key} must be a non-empty string"
+        for key in SPIKE_EVENT_STRING_KEYS
+        if key in event and (
+            not isinstance(event[key], str) or not event[key].strip()
+        )
+    )
+    errs.extend(
+        f"{where}: spike_events[{index}].{key} must be a finite number"
+        for key in SPIKE_EVENT_NUMBER_KEYS
+        if key in event and not is_number(event[key])
+    )
+
+    present_time_keys = [key for key in SPIKE_TIME_KEYS if key in event]
+    if not present_time_keys:
+        errs.append(
+            f"{where}: spike_events[{index}] needs finite "
+            f"{' or '.join(SPIKE_TIME_KEYS)}"
+        )
+        return errs, None
+    if len(present_time_keys) != 1:
+        errs.append(
+            f"{where}: spike_events[{index}] must use exactly one of "
+            f"{' or '.join(SPIKE_TIME_KEYS)}"
+        )
+        return errs, None
+    got = event_time(event)
+    if got is None:
+        # The invalid present timestamp was reported by the number-field
+        # loop above. Do not add a second error for the same value.
+        return errs, None
+    key, current = got
+    return errs, (index, key, current)
+
+
 def check_spike_order(events, where, require_keys=BRIDGE_SPIKE_EVENT_KEYS):
     """Require schema-valid events on one globally ordered clock key.
 
@@ -168,47 +217,10 @@ def check_spike_order(events, where, require_keys=BRIDGE_SPIKE_EVENT_KEYS):
     errs = []
     timed = []
     for index, event in enumerate(events):
-        if not isinstance(event, dict):
-            errs.append(f"{where}: spike_events[{index}] must be an object")
-            continue
-        for key in require_keys:
-            if key not in event:
-                errs.append(f"{where}: spike_events[{index}] missing '{key}'")
-
-        for key in SPIKE_EVENT_STRING_KEYS:
-            if key in event and (
-                not isinstance(event[key], str) or not event[key].strip()
-            ):
-                errs.append(
-                    f"{where}: spike_events[{index}].{key} must be a "
-                    "non-empty string"
-                )
-        for key in SPIKE_EVENT_NUMBER_KEYS:
-            if key in event and not is_number(event[key]):
-                errs.append(
-                    f"{where}: spike_events[{index}].{key} must be a finite number"
-                )
-
-        present_time_keys = [key for key in SPIKE_TIME_KEYS if key in event]
-        if not present_time_keys:
-            errs.append(
-                f"{where}: spike_events[{index}] needs finite "
-                f"{' or '.join(SPIKE_TIME_KEYS)}"
-            )
-            continue
-        if len(present_time_keys) != 1:
-            errs.append(
-                f"{where}: spike_events[{index}] must use exactly one of "
-                f"{' or '.join(SPIKE_TIME_KEYS)}"
-            )
-            continue
-        got = event_time(event)
-        if got is None:
-            # The invalid present timestamp was reported by the number-field
-            # loop above. Do not add a second error for the same value.
-            continue
-        key, current = got
-        timed.append((index, key, current))
+        event_errs, got = _check_spike_event(event, index, where, require_keys)
+        errs.extend(event_errs)
+        if got is not None:
+            timed.append(got)
 
     stream_time_keys = {key for _, key, _ in timed}
     if len(stream_time_keys) > 1:

@@ -168,12 +168,13 @@ def _walk_state_owners(obj, seen):
             _walk_state_owners(item, seen)
 
 
-def _sort_events(events):
-    def key(event):
-        got = event_time(event)
-        return got[1] if got is not None else float("inf")
+def _events_are_singly_timed(events):
+    """True when every event has exactly one finite timestamp key."""
+    return all(event_time(event) is not None for event in events)
 
-    return sorted(events, key=key)
+
+def _sort_events(events):
+    return sorted(events, key=lambda event: event_time(event)[1])
 
 
 def _maybe_sort_spikes(obj, seen):
@@ -184,7 +185,14 @@ def _maybe_sort_spikes(obj, seen):
             return 0
         seen.add(oid)
         events = obj.get("spike_events")
-        if isinstance(events, list) and check_spikes(events, ""):
+        # Dual-key, untimed, or non-object events make clocks incomparable.
+        # check_spikes can still report an order error from the remaining
+        # timed events; do not rewrite those streams with inf placeholders.
+        if (
+            isinstance(events, list)
+            and _events_are_singly_timed(events)
+            and check_spikes(events, "")
+        ):
             obj["spike_events"] = _sort_events(events)
             meta = obj.get("meta")
             if not isinstance(meta, dict):

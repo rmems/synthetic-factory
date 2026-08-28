@@ -280,6 +280,30 @@ class TestPromoteRecord(unittest.TestCase):
         )
         self.assertTrue(out["meta"]["spike_events_resorted"])
 
+    def test_dual_key_event_is_not_moved_to_the_end_of_an_inverted_stream(self):
+        rec = _thalamic()
+        rec["spike_events"] = [
+            {"channel": "a", "t_rel_ms": 10.0, "t_ms": 99.0},
+            {"channel": "b", "t_rel_ms": 5.0},
+            {"channel": "c", "t_rel_ms": 1.0},
+        ]
+        original = json.loads(json.dumps(rec["spike_events"]))
+        out = promote.promote_record(rec)
+        self.assertEqual(out["spike_events"], original)
+        self.assertNotIn("spike_events_resorted", out.get("meta", {}))
+
+    def test_non_object_event_blocks_resort_of_an_inverted_stream(self):
+        rec = _thalamic()
+        rec["spike_events"] = [
+            "not-an-event",
+            {"channel": "b", "t_rel_ms": 5.0},
+            {"channel": "c", "t_rel_ms": 1.0},
+        ]
+        original = json.loads(json.dumps(rec["spike_events"]))
+        out = promote.promote_record(rec)
+        self.assertEqual(out["spike_events"], original)
+        self.assertNotIn("spike_events_resorted", out.get("meta", {}))
+
 
 class TestPromoteRun(unittest.TestCase):
     def test_rejects_destination_inside_raw(self):
