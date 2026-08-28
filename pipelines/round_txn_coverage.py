@@ -34,17 +34,25 @@ CASCADE_GENERIC_TERMS = frozenset(
 )
 
 
+def _nested_dict_key_paths(mapping, key, path):
+    for child_key, item in mapping.items():
+        child_path = f"{path}.{child_key}" if path else child_key
+        if child_key == key:
+            yield child_path
+        yield from nested_key_paths(item, key, child_path)
+
+
+def _nested_list_key_paths(items, key, path):
+    for index, item in enumerate(items):
+        yield from nested_key_paths(item, key, f"{path}[{index}]")
+
+
 def nested_key_paths(value, key, path=""):
     """Yield every nested occurrence of one forbidden field name."""
     if isinstance(value, dict):
-        for child_key, item in value.items():
-            child_path = f"{path}.{child_key}" if path else child_key
-            if child_key == key:
-                yield child_path
-            yield from nested_key_paths(item, key, child_path)
+        yield from _nested_dict_key_paths(value, key, path)
     elif isinstance(value, list):
-        for index, item in enumerate(value):
-            yield from nested_key_paths(item, key, f"{path}[{index}]")
+        yield from _nested_list_key_paths(value, key, path)
 
 
 def nested_strings(value):
@@ -101,6 +109,11 @@ def _find_matching_unit_index(units, alternatives, start_index):
     return None
 
 
+def _advance_scenario_cursor(matched_index, group_index, phase_start):
+    step_offset = 1 if group_index >= phase_start else 0
+    return matched_index + step_offset
+
+
 def demonstrates_ordered_scenario(record: dict, scenario_terms) -> bool:
     """Require failure, correction, and verification in distinct ordered units."""
     units = agentic_trajectory_units(record)
@@ -110,7 +123,7 @@ def demonstrates_ordered_scenario(record: dict, scenario_terms) -> bool:
         matched_index = _find_matching_unit_index(units, alternatives, cursor)
         if matched_index is None:
             return False
-        cursor = matched_index + (1 if group_index >= phase_start else 0)
+        cursor = _advance_scenario_cursor(matched_index, group_index, phase_start)
     return True
 
 
@@ -146,39 +159,46 @@ def _normalize_dict_key(key):
     ).strip("_")
 
 
+def _banned_dict_paths(mapping, path):
+    for key, item in mapping.items():
+        child_path = f"{path}.{key}" if path else key
+        if _is_banned_normalized_name(_normalize_dict_key(key)):
+            yield child_path
+        yield from banned_agentic_wrapper_paths(item, child_path)
+
+
+def _banned_list_paths(items, path):
+    for index, item in enumerate(items):
+        yield from banned_agentic_wrapper_paths(item, f"{path}[{index}]")
+
+
 def banned_agentic_wrapper_paths(value, path=""):
     """Yield nested fields or values that introduce neuromorphic wrappers."""
     if isinstance(value, dict):
-        for key, item in value.items():
-            child_path = f"{path}.{key}" if path else key
-            normalized = _normalize_dict_key(key)
-            if _is_banned_normalized_name(normalized):
-                yield child_path
-            yield from banned_agentic_wrapper_paths(item, child_path)
+        yield from _banned_dict_paths(value, path)
     elif isinstance(value, list):
-        for index, item in enumerate(value):
-            yield from banned_agentic_wrapper_paths(item, f"{path}[{index}]")
+        yield from _banned_list_paths(value, path)
     elif isinstance(value, str):
         normalized = value.casefold()
         if "spikenaut" in normalized or "neuromorphic" in normalized:
             yield path or "<root>"
 
 
+def _extract_visible_terms(text):
+    if not isinstance(text, str):
+        return set()
+    return {
+        term
+        for term in re.findall(r"[a-z0-9][a-z0-9_-]{2,}", text.lower())
+        if term not in CASCADE_GENERIC_TERMS
+    }
+
+
 def shares_visible_terms(left, right):
     """Whether two observable strings name at least one meaningful common term."""
-    if not isinstance(left, str) or not isinstance(right, str):
-        return False
-    left_terms = {
-        term
-        for term in re.findall(r"[a-z0-9][a-z0-9_-]{2,}", left.lower())
-        if term not in CASCADE_GENERIC_TERMS
-    }
-    right_terms = {
-        term
-        for term in re.findall(r"[a-z0-9][a-z0-9_-]{2,}", right.lower())
-        if term not in CASCADE_GENERIC_TERMS
-    }
-    return bool(left_terms & right_terms)
+    left_terms = _extract_visible_terms(left)
+    right_terms = _extract_visible_terms(right)
+    return bool(left_terms and right_terms and (left_terms & right_terms))
 
 
 def normalized_category(value):
@@ -377,22 +397,25 @@ def _hypothesis_abandoned_later(label, remaining_steps, abandonment_terms):
     return False
 
 
-def abandoned_failed_hypotheses(steps):
-    """Return distinct explicit hypothesis labels failed then abandoned later."""
-    if not isinstance(steps, list):
-        return set()
+def _collect_failed_hypotheses(steps):
     failure_terms = ("fail", "disproved", "ruled out", "not the cause")
-    failed = [
+    return [
         item
         for index, step in enumerate(steps)
         for item in _step_failed_hypothesis(index, step, failure_terms)
     ]
-    abandoned = set()
+
+
+def abandoned_failed_hypotheses(steps):
+    """Return distinct explicit hypothesis labels failed then abandoned later."""
+    if not isinstance(steps, list):
+        return set()
     abandonment_terms = ("abandon", "discard", "reject", "disproved", "ruled out")
-    for failure_index, label in failed:
-        if _hypothesis_abandoned_later(label, steps[failure_index + 1 :], abandonment_terms):
-            abandoned.add(label)
-    return abandoned
+    return {
+        label
+        for failure_index, label in _collect_failed_hypotheses(steps)
+        if _hypothesis_abandoned_later(label, steps[failure_index + 1 :], abandonment_terms)
+    }
 
 
 _SPARSE_PROGRESS_TERMS = re.compile(
