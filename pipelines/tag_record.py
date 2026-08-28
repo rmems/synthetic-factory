@@ -243,15 +243,11 @@ def curate_record(
     record: Any,
     *,
     taxonomy: Taxonomy | None = None,
-    source_path: str = "<memory>",
-    source_line: int = 1,
-    source_hash: str | None = None,
+    origin: tuple[str, int, str | None] | None = None,
 ) -> tuple[dict[str, Any] | None, dict[str, Any]]:
     """Curate one record's tags and emit a deterministic manifest entry."""
     vocabulary = taxonomy if taxonomy is not None else load_taxonomy()
-    path, line, digest = origin_fields(
-        record, (source_path, source_line, source_hash)
-    )
+    path, line, digest = origin_fields(record, origin)
     manifest = base_manifest((path, line, digest), vocabulary.version)
     if not isinstance(record, dict):
         manifest["reason_codes"] = [REASON_RECORD_NOT_OBJECT]

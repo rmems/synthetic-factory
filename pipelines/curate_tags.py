@@ -156,6 +156,37 @@ def _reject_source_clobber(
         parser.error("output must not replace the source")
 
 
+def _unmapped_in_payload_tree(output: Path, unmapped: Path) -> bool:
+    curated = output.resolve(strict=False)
+    report = unmapped.resolve(strict=False)
+    payload_root = curated.parent
+    report_parent = report.parent
+    if report == payload_root or payload_root in report.parents:
+        return True
+    return report_parent in curated.parents
+
+
+def _reject_unmapped_in_payload_tree(
+    parser: argparse.ArgumentParser, args: argparse.Namespace
+) -> None:
+    if args.output_jsonl is None or args.unmapped_jsonl is None:
+        return
+    if _unmapped_in_payload_tree(args.output_jsonl, args.unmapped_jsonl):
+        parser.error("unmapped report must not sit in the curated JSONL tree")
+
+
+def _emit_summary(summary: dict) -> None:
+    print(
+        json.dumps(
+            summary,
+            allow_nan=False,
+            ensure_ascii=True,
+            indent=2,
+            sort_keys=True,
+        )
+    )
+
+
 def _write_cli_outputs(
     parser: argparse.ArgumentParser,
     args: argparse.Namespace,
@@ -181,6 +212,7 @@ def main(argv: list[str] | None = None) -> int:
     parser = _build_parser()
     args = parser.parse_args(argv)
     _reject_source_clobber(parser, args)
+    _reject_unmapped_in_payload_tree(parser, args)
     try:
         _preflight_destinations(_requested_destinations(args))
     except (FileExistsError, ValueError) as exc:
@@ -192,15 +224,7 @@ def main(argv: list[str] | None = None) -> int:
         parser.error(str(exc))
     else:
         _write_cli_outputs(parser, args, result)
-        print(
-            json.dumps(
-                result["summary"],
-                allow_nan=False,
-                ensure_ascii=False,
-                indent=2,
-                sort_keys=True,
-            )
-        )
+        _emit_summary(result["summary"])
     return 0
 
 

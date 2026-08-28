@@ -122,11 +122,7 @@ class _JsonlBatch:
     ) -> None:
         try:
             curated, manifest = curate_record(
-                record,
-                taxonomy=self.vocabulary,
-                source_path=origin[0],
-                source_line=origin[1],
-                source_hash=origin[2],
+                record, taxonomy=self.vocabulary, origin=origin
             )
         except RecursionError:
             self.manifests.append(

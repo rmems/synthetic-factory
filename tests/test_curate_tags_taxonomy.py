@@ -312,6 +312,26 @@ class TaxonomyDocumentTests(unittest.TestCase):
         ):
             Taxonomy(document, source="<test>")
 
+    def test_taxonomy_rejects_extra_transform_emitted_tags(self):
+        document = minimal_taxonomy(
+            transform_emitted_tags=[UNMAPPED_MARKER_TAG, "decision:accept"]
+        )
+        with self.assertRaisesRegex(TagTaxonomyError, "cannot emit"):
+            Taxonomy(document, source="<test>")
+
+    def test_taxonomy_rejects_omitted_normalization(self):
+        document = minimal_taxonomy()
+        del document["normalization"]
+        with self.assertRaisesRegex(TagTaxonomyError, "normalization must declare"):
+            Taxonomy(document, source="<test>")
+
+    def test_taxonomy_rejects_foreign_normalization_steps(self):
+        document = minimal_taxonomy(normalization={"steps": ["lowercase"]})
+        with self.assertRaisesRegex(
+            TagTaxonomyError, "normalization steps must match"
+        ):
+            Taxonomy(document, source="<test>")
+
     def test_loading_a_non_object_document_is_rejected(self):
         with tempfile.TemporaryDirectory() as temporary:
             path = Path(temporary) / "taxonomy.json"

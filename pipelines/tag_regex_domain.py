@@ -48,9 +48,8 @@ def ranges_intersect(
 ) -> bool:
     state = [0, 0]
     while _both_in_range(state, left, right):
-        if _current_spans_overlap(left, right, state):
+        if not _advance_if_disjoint(left, right, state):
             return True
-        _advance_range_cursors(left, right, state)
     return False
 
 
@@ -64,31 +63,20 @@ def _both_in_range(
     return state[1] < len(right)
 
 
-def _current_spans_overlap(
+def _advance_if_disjoint(
     left: tuple[tuple[int, int], ...],
     right: tuple[tuple[int, int], ...],
     state: list[int],
 ) -> bool:
-    left_lower, left_upper = left[state[0]]
+    _left_lower, left_upper = left[state[0]]
     right_lower, right_upper = right[state[1]]
     if left_upper < right_lower:
-        return False
-    if right_upper < left_lower:
-        return False
-    return True
-
-
-def _advance_range_cursors(
-    left: tuple[tuple[int, int], ...],
-    right: tuple[tuple[int, int], ...],
-    state: list[int],
-) -> None:
-    _left_lower, left_upper = left[state[0]]
-    right_lower, _right_upper = right[state[1]]
-    if left_upper < right_lower:
         state[0] += 1
-        return
-    state[1] += 1
+        return True
+    if right_upper < _left_lower:
+        state[1] += 1
+        return True
+    return False
 
 
 def ranges_are_subset(
