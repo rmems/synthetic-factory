@@ -124,7 +124,7 @@ def _stat_identity(path: Path) -> tuple[int, int] | None:
         state = path.stat()
     except OSError:
         return None
-    return (state.st_dev, state.st_ino)
+    return state.st_dev, state.st_ino
 
 
 def _ancestor_identities(path: Path) -> set[tuple[int, int]]:
@@ -211,30 +211,41 @@ def _is_canonicalizable(value: Any) -> bool:
     return True
 
 
+def _dict_diff_paths(left: dict[str, Any], right: dict[str, Any], prefix: str) -> list[str]:
+    paths: list[str] = []
+    for key in sorted(set(left) | set(right)):
+        path = f"{prefix}.{key}"
+        if key not in left:
+            paths.append(path)
+            continue
+        if key not in right:
+            paths.append(path)
+            continue
+        paths.extend(_context_diff_paths(left[key], right[key], path))
+    return paths
+
+
+def _list_diff_paths(left: list[Any], right: list[Any], prefix: str) -> list[str]:
+    if len(left) != len(right):
+        return [prefix]
+    paths: list[str] = []
+    for index, (left_item, right_item) in enumerate(zip(left, right)):
+        paths.extend(_context_diff_paths(left_item, right_item, f"{prefix}[{index}]"))
+    return paths
+
+
 def _context_diff_paths(left: Any, right: Any, prefix: str) -> list[str]:
     """Return stable leaf paths whose values differ."""
 
     if type(left) is not type(right):
         return [prefix]
     if isinstance(left, dict):
-        paths: list[str] = []
-        for key in sorted(set(left) | set(right)):
-            path = f"{prefix}.{key}"
-            if key not in left or key not in right:
-                paths.append(path)
-            else:
-                paths.extend(_context_diff_paths(left[key], right[key], path))
-        return paths
+        return _dict_diff_paths(left, right, prefix)
     if isinstance(left, list):
-        if len(left) != len(right):
-            return [prefix]
-        paths = []
-        for index, (left_item, right_item) in enumerate(zip(left, right)):
-            paths.extend(
-                _context_diff_paths(left_item, right_item, f"{prefix}[{index}]")
-            )
-        return paths
-    return [] if left == right else [prefix]
+        return _list_diff_paths(left, right, prefix)
+    if left == right:
+        return []
+    return [prefix]
 
 
 def _preference_context(
@@ -421,23 +432,30 @@ def _repair_proposal_annotations(record: dict[str, Any]) -> CurationDecision | N
     )
 
 
+def _paths_with_prefix(paths: tuple[str, ...], prefix: str) -> list[str]:
+    return [path for path in paths if path.startswith(prefix)]
+
+
+def _state_exclusion_reason(state_paths: list[str]) -> str | None:
+    if not state_paths:
+        return None
+    if set(state_paths).issubset({"state.episode_id", "state.note"}):
+        return "BRANCH_SPECIFIC_STATE_METADATA_UNSAFE_TO_NORMALIZE"
+    if any(path.startswith("state.agent.gate_memory") for path in state_paths):
+        return "POLICY_MEMORY_CONTEXT_DIVERGES"
+    return "STATE_CONTEXT_DIVERGES"
+
+
 def _exclusion_reasons(context_diff_paths: tuple[str, ...]) -> tuple[str, ...]:
     reasons: list[str] = []
-    state_paths = [path for path in context_diff_paths if path.startswith("state")]
-    proposal_paths = [
-        path for path in context_diff_paths if path.startswith("proposed_action")
-    ]
-
-    if state_paths and set(state_paths).issubset({"state.episode_id", "state.note"}):
-        reasons.append("BRANCH_SPECIFIC_STATE_METADATA_UNSAFE_TO_NORMALIZE")
-    elif any(path.startswith("state.agent.gate_memory") for path in state_paths):
-        reasons.append("POLICY_MEMORY_CONTEXT_DIVERGES")
-    elif state_paths:
-        reasons.append("STATE_CONTEXT_DIVERGES")
-
-    if proposal_paths:
+    state_reason = _state_exclusion_reason(_paths_with_prefix(context_diff_paths, "state"))
+    if state_reason is not None:
+        reasons.append(state_reason)
+    if _paths_with_prefix(context_diff_paths, "proposed_action"):
         reasons.append("PROPOSED_ACTION_CONTEXT_DIVERGES")
-    return tuple(reasons or ("PREFERENCE_CONTEXT_DIVERGES",))
+    if reasons:
+        return tuple(reasons)
+    return ("PREFERENCE_CONTEXT_DIVERGES",)
 
 
 def curate_preference_record(record: dict[str, Any]) -> CurationDecision:
@@ -707,6 +725,39 @@ def _assert_new_destination(source: Path, destination: Path, label: str) -> None
     _refuse_source_collision(source, destination, label)
 
 
+def _jsonl_payload(records: tuple[dict[str, Any], ...]) -> str:
+    return "".join(canonical_json(record) + "\n" for record in records)
+
+
+def _create_exclusive_file(path: Path, payload: str, created: list[Path]) -> None:
+    descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o644)
+    created.append(path)
+    with os.fdopen(descriptor, "w", encoding="utf-8", newline="\n") as handle:
+        handle.write(payload)
+        handle.flush()
+        os.fsync(handle.fileno())
+
+
+def _fsync_parents(paths: list[Path]) -> None:
+    # Durable file contents still need a durable directory entry.
+    for directory in dict.fromkeys(path.parent for path in paths):
+        directory_descriptor = os.open(directory, os.O_RDONLY)
+        try:
+            os.fsync(directory_descriptor)
+        finally:
+            os.close(directory_descriptor)
+
+
+def _unlink_created(created: list[Path]) -> None:
+    # Remove only files this invocation created; pre-existing paths are
+    # rejected before and during O_EXCL creation.
+    for path in created:
+        try:
+            path.unlink()
+        except FileNotFoundError:
+            pass
+
+
 def write_run(run: CurationRun, source: Path, output: Path, manifest: Path) -> None:
     """Write a curation run to two absent destinations without clobbering."""
 
@@ -718,32 +769,16 @@ def write_run(run: CurationRun, source: Path, output: Path, manifest: Path) -> N
     _assert_new_destination(source, output, "output")
     _assert_new_destination(source, manifest, "manifest")
 
-    output_payload = "".join(canonical_json(record) + "\n" for record in run.records)
-    manifest_payload = "".join(canonical_json(entry) + "\n" for entry in run.manifest)
     created: list[Path] = []
     try:
-        for path, payload in ((output, output_payload), (manifest, manifest_payload)):
-            descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o644)
-            created.append(path)
-            with os.fdopen(descriptor, "w", encoding="utf-8", newline="\n") as handle:
-                handle.write(payload)
-                handle.flush()
-                os.fsync(handle.fileno())
-        # Durable file contents still need a durable directory entry.
-        for directory in dict.fromkeys(path.parent for path in created):
-            directory_descriptor = os.open(directory, os.O_RDONLY)
-            try:
-                os.fsync(directory_descriptor)
-            finally:
-                os.close(directory_descriptor)
+        for path, payload in (
+            (output, _jsonl_payload(run.records)),
+            (manifest, _jsonl_payload(run.manifest)),
+        ):
+            _create_exclusive_file(path, payload, created)
+        _fsync_parents(created)
     except Exception:
-        # Remove only files this invocation created; pre-existing paths are
-        # rejected before and during O_EXCL creation.
-        for path in created:
-            try:
-                path.unlink()
-            except FileNotFoundError:
-                pass
+        _unlink_created(created)
         raise
 
 
