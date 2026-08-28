@@ -338,7 +338,14 @@ def audit_run(
     reward_shapes = Counter()
     tags = Counter()
     bridge = Counter()
-    episodes = Counter()
+    episodes = Counter(
+        episodes=0,
+        steps=0,
+        decision_basis_steps=0,
+        missing_decision_basis_steps=0,
+        legacy_thought_only_steps=0,
+        hidden_thought_fields=0,
+    )
     hidden_thought_examples = []
 
     for rel, raw_text in files:

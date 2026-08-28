@@ -610,12 +610,12 @@ class ComposeCurated(unittest.TestCase):
         stage = next(item for item in decision.stages if item["lane"] == "preferences")
         self.assertTrue(stage["side_curation_changed"])
         self.assertEqual(stage["lane_action"], "repaired")
-        self.assertIn(curate_coding.REASON_THOUGHT_REMOVED, stage["reason_codes"])
+        self.assertIn(curate_coding.REASON_HIDDEN_REASONING_REMOVED, stage["reason_codes"])
         self.assertIn(curate_coding.REASON_STEPS_MIGRATED, stage["reason_codes"])
         for side_name in ("chosen", "rejected"):
             self.assertEqual(stage["side_curation"][side_name]["action"], "modified")
             self.assertGreater(
-                stage["side_curation"][side_name]["thought_fields_removed"], 0
+                stage["side_curation"][side_name]["hidden_reasoning_fields_removed"], 0
             )
 
     def test_same_state_schema_precedes_episode_fields_and_matches_pr93(self):
@@ -682,7 +682,7 @@ class ComposeCurated(unittest.TestCase):
         self.assertTrue(retained_stage["side_curation_changed"])
         self.assertEqual(retained_stage["lane_action"], "repaired")
         self.assertIn(
-            curate_coding.REASON_THOUGHT_REMOVED,
+            curate_coding.REASON_HIDDEN_REASONING_REMOVED,
             retained_stage["reason_codes"],
         )
         for side_name in ("chosen", "rejected"):

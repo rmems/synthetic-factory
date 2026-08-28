@@ -389,7 +389,7 @@ def _trajectory_side_needs_coding(side: Any) -> bool:
 
     if not isinstance(side, dict):
         return False
-    if curate_coding.contains_thought_key(side):
+    if curate_coding.contains_hidden_reasoning_key(side):
         return True
     steps = side.get("steps")
     return isinstance(steps, list) and any(
