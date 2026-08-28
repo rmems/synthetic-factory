@@ -627,6 +627,82 @@ MINI_RECORDS = {
 }
 
 
+def _smoke_check_kind_routing(run: Path, failures: list) -> None:
+    code, out, _err = run_tool(VALIDATOR, run)
+    if code:
+        failures.append(f"valid mini-run should exit 0, got {code}")
+    try:
+        totals = json.loads(out)
+    except json.JSONDecodeError:
+        totals = {}
+        failures.append(f"validator emitted invalid JSON totals: {out[:200]!r}")
+    expected_kinds = {
+        "thalamic": 1,
+        "preference": 1,
+        "bridge_pair": 1,
+        "episode": 1,
+    }
+    if totals.get("by_kind") != expected_kinds:
+        failures.append(f"kind routing wrong: {totals.get('by_kind')}")
+
+
+def _smoke_check_broken_batch(run: Path, failures: list) -> None:
+    bad = run / "thalamic-mini" / "batch-r03.jsonl"
+    broken = thalamic("broken")
+    broken["safety_decision"] = {"decision": "MAYBE", "rationale": ""}
+    broken["reward_components"] = {}
+    bad.write_text(json.dumps(broken) + "\nnot json\n")
+    code2, _out2, err2 = run_tool(VALIDATOR, run)
+    if code2 == 0:
+        failures.append("broken batch should exit nonzero")
+    if "decision must be" not in err2 or "JSON parse error" not in err2:
+        failures.append(f"expected enum + parse errors, got: {err2[:200]}")
+    frontier = cmd_frontiers(run)[0]
+    if frontier["next_round"] != 3:
+        failures.append(f"malformed r03 must not advance frontier: {frontier}")
+
+
+def _smoke_check_notes_gate(root: Path, failures: list) -> None:
+    factory = root / "outputs" / "raw" / "2099-01-01" / "thalamic-trajectory-factory"
+    factory.mkdir(parents=True)
+    reservation = reserve(factory, 1, 1)
+    stage = Path(reservation["staging_dir"])
+    record = thalamic("txn-smoke")
+    record["meta"]["round"] = 1
+    (stage / reservation["batch_file"]).write_text(json.dumps(record) + "\n")
+    notes = stage / reservation["notes_file"]
+    # The NOTES contract (docs/token-efficiency.md) is a publish gate on
+    # every registered lane, legacy included: without the line the
+    # early-stop latch can never fire, so a round that omits it must not
+    # commit.
+    notes.write_text("# Self-critique\n\nFixture only.\n")
+    try:
+        publish(factory, 1, reservation["token"])
+    except TransactionError as exc:
+        if "Novel coverage" not in str(exc):
+            failures.append(f"unexpected publish rejection: {exc}")
+    else:
+        failures.append("publish accepted NOTES without a 'Novel coverage' line")
+    notes.write_text(
+        "# Self-critique\n\nFixture only.\n\nNovel coverage: 42%\n"
+    )
+    manifest = publish(factory, 1, reservation["token"])
+    if manifest.get("records") != 1 or frontier_status(factory)["next_round"] != 2:
+        failures.append("transaction reserve/publish did not commit exactly one round")
+
+
+def _smoke_check_coverage_latch(root: Path, failures: list) -> None:
+    # Coverage-convergence latch: two consecutive published NOTES under
+    # the 5% threshold early-stop the lane (40% saving mode).
+    plateau = root / "plateau" / "thalamic-trajectory-factory"
+    plateau.mkdir(parents=True)
+    (plateau / "NOTES-r05.md").write_text("Novel coverage: 4.2%\n")
+    (plateau / "NOTES-r06.md").write_text("Novel coverage: 3.1%\n")
+    latch = factory_token_efficiency(plateau)
+    if not latch["early_stop"] or latch["early_stop_at_round"] != 6:
+        failures.append(f"coverage plateau did not early-stop: {latch}")
+
+
 def cmd_smoke():
     failures = []
     with tempfile.TemporaryDirectory(prefix="factory-smoke-") as temp_dir:
@@ -637,73 +713,10 @@ def cmd_smoke():
             path.parent.mkdir(parents=True)
             path.write_text("".join(json.dumps(record) + "\n" for record in records))
 
-        code, out, _err = run_tool(VALIDATOR, run)
-        if code:
-            failures.append(f"valid mini-run should exit 0, got {code}")
-        try:
-            totals = json.loads(out)
-        except json.JSONDecodeError:
-            totals = {}
-            failures.append(f"validator emitted invalid JSON totals: {out[:200]!r}")
-        expected_kinds = {
-            "thalamic": 1,
-            "preference": 1,
-            "bridge_pair": 1,
-            "episode": 1,
-        }
-        if totals.get("by_kind") != expected_kinds:
-            failures.append(f"kind routing wrong: {totals.get('by_kind')}")
-
-        bad = run / "thalamic-mini" / "batch-r03.jsonl"
-        broken = thalamic("broken")
-        broken["safety_decision"] = {"decision": "MAYBE", "rationale": ""}
-        broken["reward_components"] = {}
-        bad.write_text(json.dumps(broken) + "\nnot json\n")
-        code2, _out2, err2 = run_tool(VALIDATOR, run)
-        if code2 == 0:
-            failures.append("broken batch should exit nonzero")
-        if "decision must be" not in err2 or "JSON parse error" not in err2:
-            failures.append(f"expected enum + parse errors, got: {err2[:200]}")
-        frontier = cmd_frontiers(run)[0]
-        if frontier["next_round"] != 3:
-            failures.append(f"malformed r03 must not advance frontier: {frontier}")
-
-        factory = root / "outputs" / "raw" / "2099-01-01" / "thalamic-trajectory-factory"
-        factory.mkdir(parents=True)
-        reservation = reserve(factory, 1, 1)
-        stage = Path(reservation["staging_dir"])
-        record = thalamic("txn-smoke")
-        record["meta"]["round"] = 1
-        (stage / reservation["batch_file"]).write_text(json.dumps(record) + "\n")
-        notes = stage / reservation["notes_file"]
-        # The NOTES contract (docs/token-efficiency.md) is a publish gate on
-        # every registered lane, legacy included: without the line the
-        # early-stop latch can never fire, so a round that omits it must not
-        # commit.
-        notes.write_text("# Self-critique\n\nFixture only.\n")
-        try:
-            publish(factory, 1, reservation["token"])
-        except TransactionError as exc:
-            if "Novel coverage" not in str(exc):
-                failures.append(f"unexpected publish rejection: {exc}")
-        else:
-            failures.append("publish accepted NOTES without a 'Novel coverage' line")
-        notes.write_text(
-            "# Self-critique\n\nFixture only.\n\nNovel coverage: 42%\n"
-        )
-        manifest = publish(factory, 1, reservation["token"])
-        if manifest.get("records") != 1 or frontier_status(factory)["next_round"] != 2:
-            failures.append("transaction reserve/publish did not commit exactly one round")
-
-        # Coverage-convergence latch: two consecutive published NOTES under
-        # the 5% threshold early-stop the lane (40% saving mode).
-        plateau = root / "plateau" / "thalamic-trajectory-factory"
-        plateau.mkdir(parents=True)
-        (plateau / "NOTES-r05.md").write_text("Novel coverage: 4.2%\n")
-        (plateau / "NOTES-r06.md").write_text("Novel coverage: 3.1%\n")
-        latch = factory_token_efficiency(plateau)
-        if not latch["early_stop"] or latch["early_stop_at_round"] != 6:
-            failures.append(f"coverage plateau did not early-stop: {latch}")
+        _smoke_check_kind_routing(run, failures)
+        _smoke_check_broken_batch(run, failures)
+        _smoke_check_notes_gate(root, failures)
+        _smoke_check_coverage_latch(root, failures)
 
     if failures:
         print("SMOKE FAIL:")
