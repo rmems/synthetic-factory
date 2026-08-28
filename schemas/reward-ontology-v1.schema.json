@@ -589,6 +589,9 @@
           "type": "object",
           "required": [
             "run",
+            "records",
+            "reward_instances",
+            "ontology_scope_instances",
             "unique_component_keys",
             "unique_shapes",
             "dispositions",
@@ -596,6 +599,18 @@
             "shapes"
           ],
           "properties": {
+            "records": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "reward_instances": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "ontology_scope_instances": {
+              "type": "integer",
+              "minimum": 1
+            },
             "unique_component_keys": {
               "type": "integer",
               "minimum": 1
