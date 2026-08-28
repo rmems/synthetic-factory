@@ -171,7 +171,31 @@ class ExecutionOverrideReason(unittest.TestCase):
                     round_txn, "execution_gate", side_effect=AssertionError("rederived")
                 ):
                     round_txn.validate_completed_execution_verification(
-                        batch, {"execution_verification": recorded}
+                        batch,
+                        {"execution_verification": recorded, "records": 1},
+                    )
+
+    def test_historical_semantics_total_must_match_manifest_records(self):
+        with tempfile.TemporaryDirectory() as td:
+            batch = Path(td) / "batch-r01.jsonl"
+            write(
+                batch,
+                [
+                    thalamic("historical-a"),
+                    thalamic("historical-b"),
+                    thalamic("historical-c"),
+                ],
+            )
+            recorded = execution_summary(verified=1)
+            recorded["semantics_version"] = 1
+            with mock.patch.object(round_txn, "EXECUTION_VERIFIER_SEMANTICS_VERSION", 2):
+                with self.assertRaisesRegex(
+                    round_txn.TransactionError,
+                    "execution verification total does not match committed records",
+                ):
+                    round_txn.validate_completed_execution_verification(
+                        batch,
+                        {"execution_verification": recorded, "records": 3},
                     )
 
     def test_replace_json_atomically_rejects_unsafe_markers(self):

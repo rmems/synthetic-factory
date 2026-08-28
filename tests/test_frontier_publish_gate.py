@@ -12,6 +12,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "pipelines"))
 
 from gate_fixtures import (  # noqa: E402
+    execution_summary,
     stage_reservation,
     thalamic,
     thalamic_factory,
@@ -227,19 +228,25 @@ class FrontierPublishGate(unittest.TestCase):
                 round_txn.load_execution_verifier()
         self.assertIn("execution verification is unavailable", str(raised.exception))
 
+    def _interrupt_publish(self, factory, reservation, records, reason=None):
+        self.stage(reservation, records)
+        with mock.patch.object(
+            round_txn, "copy_verified_exclusive", side_effect=OSError("boom")
+        ):
+            with self.assertRaises(OSError):
+                round_txn.publish(factory, 1, reservation["token"], reason)
+        publishing = factory / "ROUND-r01.publishing.json"
+        self.assertTrue(publishing.is_file())
+        return publishing
+
     def test_publish_retry_keeps_the_first_recorded_waiver(self):
         with tempfile.TemporaryDirectory() as td:
             factory = self.factory(td)
             reservation = round_txn.reserve(factory, 1, 1)
-            self.stage(reservation, [thalamic("gate-retry", observable=False)])
             reason = "sensor replay pending; waived for this window"
-
-            with mock.patch.object(
-                round_txn, "copy_verified_exclusive", side_effect=OSError("boom")
-            ):
-                with self.assertRaises(OSError):
-                    round_txn.publish(factory, 1, reservation["token"], reason)
-            self.assertTrue((factory / "ROUND-r01.publishing.json").is_file())
+            self._interrupt_publish(
+                factory, reservation, [thalamic("gate-retry", observable=False)], reason
+            )
 
             manifest = round_txn.publish(
                 factory, 1, reservation["token"], "reworded on retry, same batch"
@@ -254,14 +261,10 @@ class FrontierPublishGate(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             factory = self.factory(td)
             reservation = round_txn.reserve(factory, 1, 1)
-            self.stage(reservation, [thalamic("gate-resume", observable=False)])
             reason = "sensor replay pending; waived for this window"
-
-            with mock.patch.object(
-                round_txn, "copy_verified_exclusive", side_effect=OSError("boom")
-            ):
-                with self.assertRaises(OSError):
-                    round_txn.publish(factory, 1, reservation["token"], reason)
+            self._interrupt_publish(
+                factory, reservation, [thalamic("gate-resume", observable=False)], reason
+            )
 
             manifest = round_txn.publish(factory, 1, reservation["token"])
 
@@ -274,15 +277,9 @@ class FrontierPublishGate(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             factory = self.factory(td)
             reservation = round_txn.reserve(factory, 1, 1)
-            self.stage(reservation, [thalamic("gate-legacy-retry")])
-
-            with mock.patch.object(
-                round_txn, "copy_verified_exclusive", side_effect=OSError("boom")
-            ):
-                with self.assertRaises(OSError):
-                    round_txn.publish(factory, 1, reservation["token"])
-
-            publishing = factory / "ROUND-r01.publishing.json"
+            publishing = self._interrupt_publish(
+                factory, reservation, [thalamic("gate-legacy-retry")]
+            )
             legacy = json.loads(publishing.read_text())
             legacy["version"] = 1
             legacy.pop("execution_verification")
@@ -303,15 +300,9 @@ class FrontierPublishGate(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             factory = self.factory(td)
             reservation = round_txn.reserve(factory, 1, 1)
-            self.stage(reservation, [thalamic("gate-corrupt-retry")])
-
-            with mock.patch.object(
-                round_txn, "copy_verified_exclusive", side_effect=OSError("boom")
-            ):
-                with self.assertRaises(OSError):
-                    round_txn.publish(factory, 1, reservation["token"])
-
-            publishing = factory / "ROUND-r01.publishing.json"
+            publishing = self._interrupt_publish(
+                factory, reservation, [thalamic("gate-corrupt-retry")]
+            )
             corrupted = json.loads(publishing.read_text())
             corrupted["execution_verification"]["counts"]["verified"] = 999
             publishing.write_text(json.dumps(corrupted) + "\n")
@@ -384,13 +375,9 @@ class FrontierPublishGate(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             factory = self.factory(td)
             reservation = round_txn.reserve(factory, 1, 1)
-            self.stage(reservation, [thalamic("mismatched-publishing")])
-            with mock.patch.object(
-                round_txn, "copy_verified_exclusive", side_effect=OSError("boom")
-            ):
-                with self.assertRaises(OSError):
-                    round_txn.publish(factory, 1, reservation["token"])
-            publishing = factory / "ROUND-r01.publishing.json"
+            publishing = self._interrupt_publish(
+                factory, reservation, [thalamic("mismatched-publishing")]
+            )
             payload = json.loads(publishing.read_text())
             payload["token"] = "not-the-reservation-token"
             publishing.write_text(json.dumps(payload) + "\n")
@@ -404,15 +391,9 @@ class FrontierPublishGate(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             factory = self.factory(td)
             reservation = round_txn.reserve(factory, 1, 1)
-            self.stage(reservation, [thalamic("gate-v1-retry")])
-
-            with mock.patch.object(
-                round_txn, "copy_verified_exclusive", side_effect=OSError("boom")
-            ):
-                with self.assertRaises(OSError):
-                    round_txn.publish(factory, 1, reservation["token"])
-
-            publishing = factory / "ROUND-r01.publishing.json"
+            publishing = self._interrupt_publish(
+                factory, reservation, [thalamic("gate-v1-retry")]
+            )
             legacy = json.loads(publishing.read_text())
             legacy["version"] = 1
             publishing.write_text(json.dumps(legacy) + "\n")
@@ -429,15 +410,9 @@ class FrontierPublishGate(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             factory = self.factory(td)
             reservation = round_txn.reserve(factory, 1, 1)
-            self.stage(reservation, [thalamic("gate-v2-missing")])
-
-            with mock.patch.object(
-                round_txn, "copy_verified_exclusive", side_effect=OSError("boom")
-            ):
-                with self.assertRaises(OSError):
-                    round_txn.publish(factory, 1, reservation["token"])
-
-            publishing = factory / "ROUND-r01.publishing.json"
+            publishing = self._interrupt_publish(
+                factory, reservation, [thalamic("gate-v2-missing")]
+            )
             payload = json.loads(publishing.read_text())
             payload.pop("execution_verification")
             publishing.write_text(json.dumps(payload) + "\n")
@@ -466,6 +441,54 @@ class FrontierPublishGate(unittest.TestCase):
                 "completion marker version downgrade cannot skip execution",
             ):
                 round_txn.frontier_status(factory)
+
+    def _write_complete_round(self, factory, round_number, record, *, version, verification=None):
+        rr = f"{round_number:02d}"
+        batch = factory / f"batch-r{rr}.jsonl"
+        notes = factory / f"NOTES-r{rr}.md"
+        write(batch, [record])
+        notes.write_text("# Critique\n\nConcrete gap.\n\nNovel coverage: 42%\n")
+        payload = {
+            "version": version,
+            "factory": factory.name,
+            "round": round_number,
+            "records": 1,
+            "expected_records": 1,
+            "commit_point": f"ROUND-r{rr}.complete.json",
+            "files": [
+                {"name": batch.name, "sha256": round_txn.file_sha256(batch)},
+                {"name": notes.name, "sha256": round_txn.file_sha256(notes)},
+            ],
+        }
+        if verification is not None:
+            payload["execution_verification"] = verification
+        (factory / payload["commit_point"]).write_text(
+            json.dumps(payload, indent=2, sort_keys=True) + "\n"
+        )
+
+    def test_completion_markers_are_ordered_by_round_before_downgrade_checks(self):
+        with tempfile.TemporaryDirectory() as td:
+            factory = self.factory(td)
+            write_marker_mode(factory)
+            self._write_complete_round(
+                factory, 10, thalamic("legacy-r10"), version=1
+            )
+            self._write_complete_round(
+                factory, 11, thalamic("legacy-r11"), version=1
+            )
+            self._write_complete_round(
+                factory,
+                100,
+                thalamic("verified-r100"),
+                version=2,
+                verification=execution_summary(),
+            )
+
+            manifests = round_txn.completed_manifests(factory)
+
+            self.assertEqual(sorted(manifests), [10, 11, 100])
+            self.assertEqual(manifests[10]["version"], 1)
+            self.assertEqual(manifests[100]["version"], 2)
 
 
 if __name__ == "__main__":

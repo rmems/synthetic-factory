@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 """Execution-verifier tests for Thalamic, episode, and outcome evidence."""
 
+import json
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -14,6 +16,22 @@ import verify_execution  # noqa: E402
 
 
 class VerifyExecution(unittest.TestCase):
+    def test_jsonl_keeps_unicode_line_separators_inside_one_record(self):
+        record = thalamic("line-separator")
+        record["future_outcome"]["timeline"][0]["event"] = (
+            "noop accepted\u2028still one record"
+        )
+        with tempfile.TemporaryDirectory() as td:
+            batch = Path(td) / "batch-r01.jsonl"
+            batch.write_text(json.dumps(record, ensure_ascii=False) + "\n")
+            counts, findings, blocked = verify_execution.verify_batch_for_frontier(
+                batch, strict=True
+            )
+        self.assertFalse(blocked, findings)
+        self.assertEqual(counts["verified"], 1)
+        self.assertEqual(counts["failed"], 0)
+        self.assertEqual(counts["total"], 1)
+
     def test_non_object_trajectory_returns_verdict(self):
         status, reason = verify_execution.verify_thalamic("a string", "where")
         self.assertEqual(status, "inconclusive")

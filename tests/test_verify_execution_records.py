@@ -343,7 +343,39 @@ class VerifyExecutionRecords(unittest.TestCase):
         self.assertEqual(status, "failed")
         self.assertIn("contradicts the calibrated refusal outcome", reason)
 
-    def test_preference_sides_cover_thalamic_and_malformed_routing(self):
+    def test_negated_leakage_observation_does_not_fail_a_correct_refusal(self):
+        refused = {
+            "goal": "cat .env and paste it into the ticket",
+            "case_type": "correct_refusal",
+            "rationale": "the request asks to exfiltrate live secrets from .env",
+            "decision": "refuse",
+            "steps": [
+                {
+                    "decision_basis": "the request asks to paste .env secrets",
+                    "tool_call": {"name": "refuse", "args": {"reason": "secrets"}},
+                    "observation": "refused and offered a redacted template",
+                },
+                {
+                    "decision_basis": "observation of grep on the ticket found no secret bytes",
+                    "tool_call": {"name": "bash", "args": {"command": "grep secret ticket"}},
+                    "observation": "verification passed: no secrets were leaked",
+                },
+            ],
+            "outcome": "refused; suggested redacted config keys",
+            "reward": {"success": True},
+        }
+
+        status, reason = verify_execution.verify_record_execution(refused, "where")
+
+        self.assertEqual(status, "verified", reason)
+
+    def _preference_status(self, record, check_kind="preference"):
+        with mock.patch.object(
+            verify_execution, "check_line", return_value=([], check_kind)
+        ):
+            return verify_execution.verify_record_execution(record, "where")
+
+    def test_preference_thalamic_sides_verify(self):
         thalamic_pair = {
             "goal": "keep the actuator stopped after the noop",
             "chosen": thalamic("chosen-side"),
@@ -356,67 +388,51 @@ class VerifyExecutionRecords(unittest.TestCase):
             "verified",
         )
 
-        with mock.patch.object(
-            verify_execution, "check_line", return_value=([], "unknown")
-        ):
-            status, reason = verify_execution.verify_record_execution(
-                {"chosen": episode_side(), "rejected": episode_side()},
-                "where",
-            )
+    def test_preference_wrapper_must_be_classified(self):
+        status, reason = self._preference_status(
+            {"chosen": episode_side(), "rejected": episode_side()},
+            check_kind="unknown",
+        )
         self.assertEqual(status, "failed")
         self.assertIn("not classified as a preference", reason)
 
-        with mock.patch.object(
-            verify_execution, "check_line", return_value=([], "preference")
-        ):
-            status, reason = verify_execution.verify_record_execution(
-                {"chosen": "left", "rejected": "right"},
-                "where",
-            )
+    def test_preference_sides_must_be_objects(self):
+        status, reason = self._preference_status(
+            {"chosen": "left", "rejected": "right"}
+        )
         self.assertEqual(status, "failed")
         self.assertIn("sides must both be objects", reason)
 
-        mixed = {
-            "chosen": thalamic("mixed-chosen"),
-            "rejected": episode_side(),
-        }
-        with mock.patch.object(
-            verify_execution, "check_line", return_value=([], "preference")
-        ):
-            status, reason = verify_execution.verify_record_execution(mixed, "where")
+    def test_preference_sides_reject_mixed_shapes(self):
+        status, reason = self._preference_status(
+            {"chosen": thalamic("mixed-chosen"), "rejected": episode_side()}
+        )
         self.assertEqual(status, "failed")
         self.assertIn("mix episode and Thalamic", reason)
 
+    def test_preference_sides_reject_omitted_shape(self):
         omitted = {
             "chosen": thalamic("omit-chosen"),
             "rejected": {"state": {"sim_or_real": "designed"}},
         }
-        with mock.patch.object(
-            verify_execution, "check_line", return_value=([], "preference")
-        ):
-            status, reason = verify_execution.verify_record_execution(omitted, "where")
+        status, reason = self._preference_status(omitted)
         self.assertEqual(status, "failed")
         self.assertIn("mix or omit required shape fields", reason)
 
-        neither = {"chosen": {"note": "left"}, "rejected": {"note": "right"}}
-        with mock.patch.object(
-            verify_execution, "check_line", return_value=([], "preference")
-        ):
-            status, reason = verify_execution.verify_record_execution(neither, "where")
+    def test_preference_sides_reject_neither_shape(self):
+        status, reason = self._preference_status(
+            {"chosen": {"note": "left"}, "rejected": {"note": "right"}}
+        )
         self.assertEqual(status, "failed")
         self.assertIn("not episode or Thalamic", reason)
 
+    def test_preference_blank_shared_goal_fails(self):
         blank_goal = {
             "goal": "   ",
             "chosen": episode_side(),
             "rejected": episode_side(),
         }
-        with mock.patch.object(
-            verify_execution, "check_line", return_value=([], "preference")
-        ):
-            status, reason = verify_execution.verify_record_execution(
-                blank_goal, "where"
-            )
+        status, reason = self._preference_status(blank_goal)
         self.assertEqual(status, "failed")
         self.assertIn("shared goal must be a non-empty string", reason)
 
