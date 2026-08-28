@@ -701,6 +701,12 @@ def _verify_bridge_execution(obj, where):
     return "inconclusive", "bridge missing language_view.trajectory"
 
 
+def _verify_step_record(obj, where):
+    if "case_type" in obj:
+        return verify_safety_episode(obj, where)
+    return verify_episode(obj, where)
+
+
 def verify_record_execution(obj, where="record"):
     """Return (status, reason) in {verified, inconclusive, failed}."""
     if not isinstance(obj, dict):
@@ -715,7 +721,5 @@ def verify_record_execution(obj, where="record"):
     # standalone episodes must carry their own goal, while preference sides
     # are routed above with the wrapper's shared-goal context.
     if "steps" in obj:
-        if "case_type" in obj:
-            return verify_safety_episode(obj, where)
-        return verify_episode(obj, where)
+        return _verify_step_record(obj, where)
     return "inconclusive", f"unrecognized shape keys {sorted(obj)[:6]}"

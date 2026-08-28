@@ -1634,8 +1634,7 @@ def validate_agentic_envelope(batch: Path, factory_dir: Path, round_number: int)
                     where,
                     steps,
                     "long-horizon coding",
-                    18,
-                    28,
+                    (18, 28),
                 )
             )
             if not has_long_horizon_debug_loop(steps):
@@ -1762,8 +1761,7 @@ def validate_agentic_envelope(batch: Path, factory_dir: Path, round_number: int)
                         where,
                         steps,
                         "sparse long-task",
-                        25,
-                        60,
+                        (25, 60),
                     )
                 )
                 errors.extend(sparse_step_progress_errors(where, steps))
@@ -1876,8 +1874,7 @@ def validate_agentic_envelope(batch: Path, factory_dir: Path, round_number: int)
                             where,
                             side.get("steps"),
                             f"tool-use preference {side_name}",
-                            4,
-                            10,
+                            (4, 10),
                         )
                     )
                 side_reward = side.get("reward") if isinstance(side, dict) else None

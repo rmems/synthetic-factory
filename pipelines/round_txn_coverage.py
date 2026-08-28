@@ -284,10 +284,11 @@ def visibly_names_fault(introduced_text, *fault_evidence):
     )
 
 
-def numbered_horizon_errors(where, steps, lane, minimum, maximum):
+def numbered_horizon_errors(where, steps, lane, bounds):
     """Return lane-specific horizon and exact integer numbering errors."""
     if not isinstance(steps, list):
         return []
+    minimum, maximum = bounds
     errors = []
     if not minimum <= len(steps) <= maximum:
         errors.append(f"{where}: {lane} episodes require {minimum} to {maximum} steps")
