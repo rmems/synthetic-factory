@@ -27,109 +27,47 @@ emits one aggregate manifest for the complete lane.
 
 from __future__ import annotations
 
-import argparse
 import copy
 import hashlib
 import json
 import os
-import sys
 import re
+import sys
 from collections import Counter
 from pathlib import Path
 from typing import Any
 
-from validate_run import HIDDEN_THOUGHT_KEYS
+_PIPELINES = Path(__file__).resolve().parent
+if str(_PIPELINES) not in sys.path:
+    sys.path.insert(0, str(_PIPELINES))
 
-
-TRANSFORM_NAME = "coding_observability"
-# Version 3 keeps the version-2 wrap support and additionally aligns the
-# transform with the structural audit's complete hidden-thought vocabulary.
-TRANSFORM_VERSION = "3"
-MAX_DECISION_BASIS_CHARS = 240
-RUN_MANIFEST_FILENAME = "manifest.jsonl"
-
-# Exact key names that never reach a curated record, plus the
-# ``internal_reasoning`` prefix that covers ``internal_reasoning_verbatim``,
-# ``internal_reasoning_optimizer``, and every other published variant.
-# ``reasoning`` is the coding-factory contract key
-# (prompts/04-agentic-coding-trajectory-factory.md) and is an exact match
-# only, so nearby names such as ``reasoning_flaw`` stay visible.
-HIDDEN_REASONING_KEYS = HIDDEN_THOUGHT_KEYS | frozenset(
-    {"internal_reasoning", "internal_reasoning_verbatim", "reasoning"}
+from coding_constants import (  # noqa: E402
+    HIDDEN_REASONING_KEYS,
+    HIDDEN_REASONING_PREFIX,
+    MAX_DECISION_BASIS_CHARS,
+    REASON_BASIS_CONCISED,
+    REASON_BASIS_FROM_OBSERVATION,
+    REASON_BASIS_FROM_PLAN,
+    REASON_BASIS_FROM_REFLECTION,
+    REASON_BASIS_FROM_TOOL_CALL,
+    REASON_HIDDEN_REASONING_REMOVED,
+    REASON_INVALID_JSON,
+    REASON_INVALID_UTF8,
+    REASON_NO_RETAINABLE_STEPS,
+    REASON_NO_VISIBLE_EVIDENCE,
+    REASON_RECORD_NOT_OBJECT,
+    REASON_STEP_NOT_OBJECT,
+    REASON_STEPS_EXCLUDED,
+    REASON_STEPS_MIGRATED,
+    REASON_STEPS_NOT_ARRAY,
+    REASON_THOUGHT_REMOVED,
+    REASON_WRAP_RECORD,
+    RUN_MANIFEST_FILENAME,
+    TRANSFORM_NAME,
+    TRANSFORM_VERSION,
+    WRAP_STEPS_PARENT,
+    _EVIDENCE_REASON,
 )
-HIDDEN_REASONING_PREFIX = "internal_reasoning"
-
-WRAP_STEPS_PARENT = "executed_action"
-
-REASON_HIDDEN_REASONING_REMOVED = "coding_hidden_reasoning_removed"
-REASON_BASIS_CONCISED = "coding_basis_concised"
-REASON_BASIS_FROM_PLAN = "coding_basis_from_plan"
-REASON_BASIS_FROM_REFLECTION = "coding_basis_from_reflection"
-REASON_BASIS_FROM_OBSERVATION = "coding_basis_from_observation"
-REASON_BASIS_FROM_TOOL_CALL = "coding_basis_from_tool_call"
-REASON_STEP_NOT_OBJECT = "coding_step_not_object"
-REASON_NO_VISIBLE_EVIDENCE = "coding_no_visible_decision_evidence"
-REASON_NO_RETAINABLE_STEPS = "coding_no_retainable_steps"
-REASON_STEPS_MIGRATED = "coding_steps_migrated"
-REASON_STEPS_EXCLUDED = "coding_steps_excluded"
-REASON_WRAP_RECORD = "coding_wrap_record"
-REASON_RECORD_NOT_OBJECT = "coding_record_not_object"
-REASON_STEPS_NOT_ARRAY = "coding_steps_not_array"
-REASON_INVALID_JSON = "coding_invalid_json"
-REASON_INVALID_UTF8 = "coding_invalid_utf8"
-
-_EVIDENCE_REASON = {
-    "plan": REASON_BASIS_FROM_PLAN,
-    "reflection": REASON_BASIS_FROM_REFLECTION,
-    "observation": REASON_BASIS_FROM_OBSERVATION,
-    "tool_call": REASON_BASIS_FROM_TOOL_CALL,
-}
-
-REASON_THOUGHT_REMOVED = "coding_thought_removed"
-
-VISIBLE_BASIS_LABELS = ("Plan: ", "Reflection: ", "Observation: ", "Tool call: ")
-EXCLUSION_REASONS = frozenset(
-    {
-        REASON_STEP_NOT_OBJECT,
-        REASON_NO_VISIBLE_EVIDENCE,
-        REASON_NO_RETAINABLE_STEPS,
-        REASON_RECORD_NOT_OBJECT,
-        REASON_STEPS_NOT_ARRAY,
-        REASON_INVALID_JSON,
-        REASON_INVALID_UTF8,
-    }
-)
-STEP_EXCLUSION_REASONS = frozenset(
-    {REASON_STEP_NOT_OBJECT, REASON_NO_VISIBLE_EVIDENCE}
-)
-PRE_STEP_EXCLUSION_REASONS = frozenset(
-    {
-        REASON_RECORD_NOT_OBJECT,
-        REASON_STEPS_NOT_ARRAY,
-        REASON_INVALID_JSON,
-        REASON_INVALID_UTF8,
-    }
-)
-STEP_EVIDENCE_REASONS = frozenset(_EVIDENCE_REASON.values())
-STEP_RETAINED_REASONS = frozenset(
-    {
-        *STEP_EVIDENCE_REASONS,
-        REASON_THOUGHT_REMOVED,
-        REASON_HIDDEN_REASONING_REMOVED,
-        REASON_BASIS_CONCISED,
-    }
-)
-STEP_ALLOWED_REASONS = frozenset({*STEP_EXCLUSION_REASONS, *STEP_RETAINED_REASONS})
-RECORD_TRANSFORMATION_REASONS = frozenset(
-    {
-        REASON_THOUGHT_REMOVED,
-        REASON_HIDDEN_REASONING_REMOVED,
-        REASON_STEPS_MIGRATED,
-        REASON_STEPS_EXCLUDED,
-    }
-)
-RECORD_STRUCTURAL_REASONS = frozenset({REASON_WRAP_RECORD})
-
 
 
 def canonical_json(value: Any) -> str:
@@ -591,618 +529,49 @@ def curate_jsonl(
     }
     return {"records": records, "manifest": manifests, "summary": summary}
 
+from coding_verify import verify_curation, verify_manifest  # noqa: E402
 
-def _is_nonnegative_int(value: Any) -> bool:
-    return isinstance(value, int) and not isinstance(value, bool) and value >= 0
-
-
-def _is_positive_int(value: Any) -> bool:
-    return isinstance(value, int) and not isinstance(value, bool) and value > 0
-
-
-def _is_sha256(value: Any) -> bool:
-    return (
-        isinstance(value, str)
-        and len(value) == 64
-        and all(character in "0123456789abcdef" for character in value)
-    )
-
-
-REMOVAL_REASON_CODES = frozenset(
-    {
-        REASON_THOUGHT_REMOVED,
-        "coding_thought_removed",
-        "coding_hidden_reasoning_removed",
-    }
-)
-ACCEPTED_TRANSFORM_VERSIONS = frozenset({str(TRANSFORM_VERSION), "2", "3"})
-
-
-def _hidden_removed(mapping: Any) -> Any:
-    if not isinstance(mapping, dict):
-        return None
-    if "thought_fields_removed" in mapping:
-        return mapping["thought_fields_removed"]
-    return mapping.get("hidden_reasoning_fields_removed")
-
-
-def _dual_removal_mismatch(mapping: Any, where: str) -> str | None:
-    """Return a violation when both removal fields exist and disagree."""
-    if not isinstance(mapping, dict):
-        return None
-    if (
-        "thought_fields_removed" not in mapping
-        or "hidden_reasoning_fields_removed" not in mapping
-    ):
-        return None
-    thought = mapping["thought_fields_removed"]
-    hidden = mapping["hidden_reasoning_fields_removed"]
-    if thought != hidden:
-        return (
-            f"{where}: thought_fields_removed {thought!r} disagrees with "
-            f"hidden_reasoning_fields_removed {hidden!r}"
-        )
-    return None
-
-
-def _reason_code_set(value: Any, where: str, violations: list[str]) -> set[str]:
-    if not isinstance(value, list):
-        violations.append(f"{where}: reason codes are not a list")
-        return set()
-    invalid = [item for item in value if not isinstance(item, str) or not item]
-    if invalid:
-        violations.append(f"{where}: invalid reason codes {invalid!r}")
-    return {item for item in value if isinstance(item, str) and item}
-
-
-def _step_action_violations(entry: dict[str, Any], where: str) -> list[str]:
-    """Return acceptance violations for one step-level manifest entry."""
-    violations = []
-    index = entry.get("source_step_index")
-    step_where = f"{where} step {index}"
-    action = entry.get("action")
-    reasons = _reason_code_set(entry.get("reason_codes"), step_where, violations)
-    if not reasons:
-        violations.append(f"{step_where}: no reason codes recorded")
-    evidence = entry.get("evidence_source")
-
-    if not _is_positive_int(index):
-        violations.append(f"{step_where}: source step index must be a positive integer")
-    thought_fields_removed = _hidden_removed(entry)
-    if not _is_nonnegative_int(thought_fields_removed):
-        violations.append(
-            f"{step_where}: thought_fields_removed must be a non-negative integer"
-        )
-    else:
-        reports_removal = bool(REMOVAL_REASON_CODES.intersection(reasons))
-        if bool(thought_fields_removed) != reports_removal:
-            violations.append(
-                f"{step_where}: thought removal count and reason code disagree"
-            )
-
-    if action == "excluded":
-        step_exclusions = STEP_EXCLUSION_REASONS.intersection(reasons)
-        if len(step_exclusions) != 1:
-            violations.append(
-                f"{step_where}: excluded without an exclusion reason code; "
-                "expected exactly one step exclusion reason code"
-            )
-        impossible_reasons = reasons - (
-            STEP_EXCLUSION_REASONS | REMOVAL_REASON_CODES
-        )
-        if impossible_reasons:
-            violations.append(
-                f"{step_where}: excluded with impossible reason codes "
-                f"{sorted(impossible_reasons)}"
-            )
-        if evidence is not None:
-            violations.append(f"{step_where}: excluded step records an evidence source")
-        if entry.get("output_step_index") is not None:
-            violations.append(f"{step_where}: excluded step keeps an output index")
-        if REASON_STEP_NOT_OBJECT in reasons:
-            if thought_fields_removed:
-                violations.append(
-                    f"{step_where}: non-object step cannot report thought removals"
-                )
-            if REMOVAL_REASON_CODES.intersection(reasons):
-                violations.append(
-                    f"{step_where}: non-object step cannot claim hidden-reasoning removal"
-                )
-    elif action == "migrated" or action == "retained":
-        if not _is_positive_int(entry.get("output_step_index")):
-            violations.append(
-                f"{step_where}: retained output step index must be a positive integer"
-            )
-        if not isinstance(evidence, str) or evidence not in _EVIDENCE_REASON:
-            violations.append(
-                f"{step_where}: retained without a visible evidence source"
-            )
-        elif _EVIDENCE_REASON[evidence] not in reasons:
-            violations.append(
-                f"{step_where}: reason codes do not record the {evidence} evidence source"
-            )
-        evidence_reasons = STEP_EVIDENCE_REASONS.intersection(reasons)
-        if len(evidence_reasons) != 1:
-            violations.append(
-                f"{step_where}: retained step must record exactly one evidence reason"
-            )
-        impossible_reasons = reasons - STEP_RETAINED_REASONS
-        if impossible_reasons:
-            violations.append(
-                f"{step_where}: retained with impossible reason codes "
-                f"{sorted(impossible_reasons)}"
-            )
-        if action == "retained" and thought_fields_removed != 0:
-            violations.append(f"{step_where}: retained step reports thought removals")
-    else:
-        violations.append(f"{step_where}: unknown step action {action!r}")
-    return violations
-
-
-def verify_manifest(
-    manifests: Any,
-    *,
-    expected_source_steps: int | None = None,
-) -> list[str]:
-    """Return acceptance violations found in a curation manifest.
-
-    The manifest alone proves the migration accounting: every source step is
-    either migrated/retained with a visible evidence source or excluded with a
-    reason code, and the per-record counts reconcile with the step actions.
-    """
-    violations = []
-    if not isinstance(manifests, list):
-        return ["manifest collection is not a list"]
-    total_source = 0
-    seen_source_locations = set()
-    for manifest in manifests:
-        if not isinstance(manifest, dict):
-            violations.append(f"manifest entry {manifest!r} is not an object")
-            continue
-        source_path = manifest.get("source_path")
-        source_line = manifest.get("source_line")
-        where = f"{source_path}:{source_line}"
-        if not isinstance(source_path, str) or not source_path:
-            violations.append(f"{where}: manifest records no source path")
-        if not _is_positive_int(source_line):
-            violations.append(f"{where}: source line must be a positive integer")
-        if isinstance(source_path, str) and source_path and _is_positive_int(source_line):
-            source_location = (source_path, source_line)
-            if source_location in seen_source_locations:
-                violations.append(f"{where}: duplicate manifest source location")
-            else:
-                seen_source_locations.add(source_location)
-        if manifest.get("transform") != TRANSFORM_NAME:
-            violations.append(f"{where}: manifest is not a {TRANSFORM_NAME} manifest")
-        if str(manifest.get("transform_version")) not in ACCEPTED_TRANSFORM_VERSIONS:
-            violations.append(
-                f"{where}: manifest transform version is not {TRANSFORM_VERSION}"
-            )
-        if not _is_sha256(manifest.get("source_hash")):
-            violations.append(f"{where}: manifest records no valid source hash")
-
-        action = manifest.get("action")
-        reasons = _reason_code_set(manifest.get("reason_codes"), where, violations)
-        if action == "excluded":
-            if not PRE_STEP_EXCLUSION_REASONS.union(
-                {REASON_NO_RETAINABLE_STEPS}
-            ).intersection(reasons):
-                violations.append(
-                    f"{where}: record excluded without an exclusion reason code"
-                )
-            extra_reasons = reasons - EXCLUSION_REASONS - RECORD_STRUCTURAL_REASONS
-            if extra_reasons:
-                violations.append(
-                    f"{where}: excluded with unknown reason codes "
-                    f"{sorted(extra_reasons)}"
-                )
-            step_only = STEP_EXCLUSION_REASONS.intersection(reasons)
-            if step_only and REASON_NO_RETAINABLE_STEPS not in reasons:
-                violations.append(
-                    f"{where}: excluded with step-only reason codes "
-                    f"{sorted(step_only)}"
-                )
-            if manifest.get("output_hash") is not None:
-                violations.append(
-                    f"{where}: excluded record still records an output hash"
-                )
-            if manifest.get("output_id") is not None:
-                violations.append(f"{where}: excluded record still records an output ID")
-        elif action == "modified" or action == "unchanged":
-            if not _is_sha256(manifest.get("output_hash")):
-                violations.append(
-                    f"{where}: retained record records no valid output hash"
-                )
-        else:
-            violations.append(f"{where}: unknown record action {action!r}")
-        wrap_path = f"{WRAP_STEPS_PARENT}.steps"
-        if REASON_WRAP_RECORD in reasons and manifest.get("steps_path") != wrap_path:
-            violations.append(
-                f"{where}: wrap reason is not bound to {wrap_path}"
-            )
-        if manifest.get("steps_path") == wrap_path and REASON_WRAP_RECORD not in reasons:
-            violations.append(
-                f"{where}: wrap step path is missing {REASON_WRAP_RECORD}"
-            )
-
-        thought_fields_removed = _hidden_removed(manifest)
-        if not _is_nonnegative_int(thought_fields_removed):
-            violations.append(
-                f"{where}: thought_fields_removed must be a non-negative integer"
-            )
-        mismatch = _dual_removal_mismatch(manifest, where)
-        if mismatch:
-            violations.append(mismatch)
-
-        counts = manifest.get("step_counts")
-        actions = manifest.get("step_actions")
-        if not isinstance(counts, dict) or not isinstance(actions, list):
-            violations.append(f"{where}: manifest records no step accounting")
-            continue
-        if PRE_STEP_EXCLUSION_REASONS.intersection(reasons):
-            if actions or any(
-                counts.get(key) not in (0, None)
-                for key in ("source", "retained", "migrated", "excluded")
-            ):
-                violations.append(
-                    f"{where}: pre-step exclusion must have zero source steps and no step actions"
-                )
-        recorded_counts = {}
-        for key in ("source", "retained", "migrated", "excluded"):
-            value = counts.get(key)
-            if not _is_nonnegative_int(value):
-                violations.append(
-                    f"{where}: step_counts.{key} must be a non-negative integer"
-                )
-                recorded_counts[key] = None
-            else:
-                recorded_counts[key] = value
-
-        source_count = recorded_counts["source"]
-        if source_count is not None:
-            total_source += source_count
-        if source_count is not None and source_count != len(actions):
-            violations.append(
-                f"{where}: {source_count} source steps but {len(actions)} step actions"
-            )
-
-        valid_actions = []
-        for entry in actions:
-            if not isinstance(entry, dict):
-                violations.append(f"{where}: step action {entry!r} is not an object")
-                continue
-            valid_actions.append(entry)
-            violations.extend(_step_action_violations(entry, where))
-
-        retained = sum(
-            entry.get("action") == "migrated" or entry.get("action") == "retained"
-            for entry in valid_actions
-        )
-        migrated = sum(entry.get("action") == "migrated" for entry in valid_actions)
-        excluded = sum(entry.get("action") == "excluded" for entry in valid_actions)
-        if retained + excluded != len(actions):
-            violations.append(f"{where}: step actions are neither retained nor excluded")
-        if action == "excluded" and retained:
-            retained_label = "step" if retained == 1 else "steps"
-            violations.append(
-                f"{where}: excluded record retains {retained} {retained_label}"
-            )
-        if action in {"modified", "unchanged"} and retained == 0:
-            violations.append(
-                f"{where}: retained record must keep at least one step"
-            )
-        action_thought_counts = [
-            _hidden_removed(entry) for entry in valid_actions
-        ]
-        if (
-            _is_nonnegative_int(thought_fields_removed)
-            and len(valid_actions) == len(actions)
-            and all(_is_nonnegative_int(value) for value in action_thought_counts)
-            and thought_fields_removed < sum(action_thought_counts)
-        ):
-            violations.append(
-                f"{where}: thought_fields_removed does not account for the step actions"
-            )
-        expected_counts = {
-            "source": len(actions),
-            "retained": retained,
-            "migrated": migrated,
-            "excluded": excluded,
-        }
-        if any(
-            recorded_counts[key] is not None
-            and recorded_counts[key] != expected_counts[key]
-            for key in expected_counts
-        ):
-            violations.append(
-                f"{where}: step counts {counts} disagree with the recorded step actions"
-            )
-
-        if action == "unchanged":
-            if thought_fields_removed != 0:
-                violations.append(
-                    f"{where}: unchanged record reports thought removals"
-                )
-            if any(entry.get("action") != "retained" for entry in valid_actions):
-                violations.append(
-                    f"{where}: unchanged record reports transformed step actions"
-                )
-            if reasons - RECORD_STRUCTURAL_REASONS:
-                violations.append(
-                    f"{where}: unchanged record reports transformation reason codes"
-                )
-        elif action == "modified" and _is_nonnegative_int(thought_fields_removed):
-            impossible_reasons = reasons - RECORD_TRANSFORMATION_REASONS - RECORD_STRUCTURAL_REASONS
-            if impossible_reasons:
-                violations.append(
-                    f"{where}: modified record reports impossible reason codes "
-                    f"{sorted(impossible_reasons)}"
-                )
-            reports_removal = bool(REMOVAL_REASON_CODES.intersection(reasons))
-            if bool(thought_fields_removed) != reports_removal:
-                violations.append(
-                    f"{where}: thought removal count and reason code disagree"
-                )
-            reason_expectations = (
-                (migrated, REASON_STEPS_MIGRATED),
-                (excluded, REASON_STEPS_EXCLUDED),
-            )
-            for count, reason in reason_expectations:
-                if bool(count) != (reason in reasons):
-                    violations.append(
-                        f"{where}: step transformation counts and reason codes disagree"
-                    )
-                    break
-            if thought_fields_removed == 0 and migrated == 0 and excluded == 0:
-                violations.append(
-                    f"{where}: modified record reports no transformation evidence"
-                )
-
-        source_indexes = [entry.get("source_step_index") for entry in valid_actions]
-        expected_source_indexes = list(range(1, len(actions) + 1))
-        if source_indexes != expected_source_indexes:
-            violations.append(
-                f"{where}: source step indexes {source_indexes} are not sequential "
-                f"{expected_source_indexes}"
-            )
-        output_indexes = [
-            entry.get("output_step_index")
-            for entry in valid_actions
-            if entry.get("action") == "migrated" or entry.get("action") == "retained"
-        ]
-        expected_output_indexes = list(range(1, retained + 1))
-        if output_indexes != expected_output_indexes:
-            violations.append(
-                f"{where}: retained output step indexes {output_indexes} are not "
-                f"sequential {expected_output_indexes}"
-            )
-
-    if expected_source_steps is not None and total_source != expected_source_steps:
-        violations.append(
-            f"expected {expected_source_steps} source steps, manifest accounts for "
-            f"{total_source}"
-        )
-    return violations
-
-
-def _curated_record_violations(record: Any, where: str) -> list[str]:
-    """Return acceptance violations for one curated output record."""
-    violations = []
-    if contains_thought_key(record):
-        violations.append(f"{where}: curated record still exposes a thought key")
-    steps = _record_steps(record)
-    if not isinstance(steps, list) or not steps:
-        violations.append(f"{where}: curated record has no retained steps")
-        return violations
-    for index, step in enumerate(steps, 1):
-        step_where = f"{where} step {index}"
-        if not isinstance(step, dict):
-            violations.append(f"{step_where}: curated step is not an object")
-            continue
-        basis = step.get("decision_basis")
-        if not isinstance(basis, str) or not basis.strip():
-            violations.append(f"{step_where}: missing a non-empty decision_basis")
-            continue
-        if not basis.startswith(VISIBLE_BASIS_LABELS):
-            violations.append(
-                f"{step_where}: decision_basis does not open with a visible evidence label"
-            )
-        expected_basis, _, _ = _derive_decision_basis(step)
-        if expected_basis is None:
-            violations.append(
-                f"{step_where}: decision_basis has no visible evidence to ground it"
-            )
-        elif basis != expected_basis:
-            violations.append(
-                f"{step_where}: decision_basis is not grounded in its visible evidence"
-            )
-        if len(basis) > MAX_DECISION_BASIS_CHARS:
-            violations.append(
-                f"{step_where}: decision_basis exceeds {MAX_DECISION_BASIS_CHARS} chars"
-            )
-    return violations
-
-
-def verify_curation(
-    result: Any,
-    *,
-    expected_source_steps: int | None = None,
-) -> list[str]:
-    """Return every acceptance violation in a :func:`curate_jsonl` result.
-
-    A clean run proves the lane contract: no curated step exposes a thought
-    field, every retained step carries a concise decision_basis grounded in a
-    visible label, and every source step is migrated or excluded with a reason
-    code.
-    """
-    if not isinstance(result, dict):
-        return ["curation result is not an object"]
-
-    manifest_value = result.get("manifest")
-    violations = verify_manifest(
-        manifest_value, expected_source_steps=expected_source_steps
-    )
-    manifests = manifest_value if isinstance(manifest_value, list) else []
-
-    record_value = result.get("records")
-    if not isinstance(record_value, list):
-        violations.append("curated records are not a list")
-        records = []
-    else:
-        records = record_value
-    for index, record in enumerate(records, 1):
-        violations.extend(_curated_record_violations(record, f"record {index}"))
-
-    emitting_manifests = [
-        manifest
-        for manifest in manifests
-        if isinstance(manifest, dict)
-        and (
-            manifest.get("action") == "modified"
-            or manifest.get("action") == "unchanged"
-        )
-    ]
-    if len(records) != len(emitting_manifests):
-        violations.append(
-            f"curated output has {len(records)} records but the manifest emits "
-            f"{len(emitting_manifests)}"
-        )
-
-    for index, (record, manifest) in enumerate(
-        zip(records, emitting_manifests), 1
-    ):
-        try:
-            actual_hash = hash_value(record)
-        except (TypeError, ValueError, RecursionError):
-            violations.append(f"record {index}: curated record is not JSON-serializable")
-            continue
-        if manifest.get("output_hash") != actual_hash:
-            violations.append(
-                f"record {index}: output hash does not match its manifest entry"
-            )
-        if manifest.get("output_id") != _record_id(record):
-            violations.append(
-                f"record {index}: output ID does not match its manifest entry"
-            )
-
-        steps = _record_steps(record)
-        actions = manifest.get("step_actions")
-        if not isinstance(steps, list) or not isinstance(actions, list):
-            continue
-        for entry in actions:
-            if not isinstance(entry, dict) or not (
-                entry.get("action") == "migrated" or entry.get("action") == "retained"
-            ):
-                continue
-            output_index = entry.get("output_step_index")
-            if not _is_positive_int(output_index) or output_index > len(steps):
-                violations.append(
-                    f"record {index}: output step index {output_index!r} is out of range"
-                )
-                continue
-            step = steps[output_index - 1]
-            if not isinstance(step, dict):
-                continue
-            _, evidence_source, concised = _derive_decision_basis(step)
-            if entry.get("evidence_source") != evidence_source:
-                violations.append(
-                    f"record {index} step {output_index}: visible evidence source "
-                    "does not match its manifest action"
-                )
-            reasons = entry.get("reason_codes")
-            reports_concised = (
-                isinstance(reasons, list) and REASON_BASIS_CONCISED in reasons
-            )
-            if bool(concised) != reports_concised:
-                violations.append(
-                    f"record {index} step {output_index}: concision reason does not "
-                    "match visible evidence"
-                )
-            if entry.get("source_step_number") != step.get("n"):
-                violations.append(
-                    f"record {index} step {output_index}: source step number does not "
-                    "match the retained output step"
-                )
-
-    manifest_totals = Counter()
-    manifest_thought_fields_removed = 0
-    manifest_evidence_sources = Counter()
-    for manifest in manifests:
-        if not isinstance(manifest, dict):
-            continue
-        counts = manifest.get("step_counts")
-        if isinstance(counts, dict):
-            for key in ("source", "retained", "migrated", "excluded"):
-                value = counts.get(key)
-                if _is_nonnegative_int(value):
-                    manifest_totals[key] += value
-        removed = _hidden_removed(manifest)
-        if _is_nonnegative_int(removed):
-            manifest_thought_fields_removed += removed
-        actions = manifest.get("step_actions")
-        if isinstance(actions, list):
-            for entry in actions:
-                if not isinstance(entry, dict):
-                    continue
-                if entry.get("action") not in {"migrated", "retained"}:
-                    continue
-                evidence = entry.get("evidence_source")
-                if isinstance(evidence, str) and evidence:
-                    manifest_evidence_sources[evidence] += 1
-
-    retained = sum(
-        len(steps)
-        for record in records
-        if (steps := _record_steps(record)) is not None
-    )
-    if retained != manifest_totals["retained"]:
-        violations.append(
-            f"curated output has {retained} steps but the manifest retains "
-            f"{manifest_totals['retained']}"
-        )
-
-    summary = result.get("summary")
-    if not isinstance(summary, dict):
-        violations.append("curation summary is not an object")
-    else:
-        expected_summary = {
-            "input_records": len(manifests),
-            "output_records": len(emitting_manifests),
-            "excluded_records": sum(
-                isinstance(manifest, dict) and manifest.get("action") == "excluded"
-                for manifest in manifests
-            ),
-            "source_steps": manifest_totals["source"],
-            "retained_steps": manifest_totals["retained"],
-            "migrated_steps": manifest_totals["migrated"],
-            "excluded_steps": manifest_totals["excluded"],
-            "decision_basis_sources": dict(sorted(manifest_evidence_sources.items())),
-        }
-        if "hidden_reasoning_fields_removed" in summary:
-            expected_summary["hidden_reasoning_fields_removed"] = (
-                manifest_thought_fields_removed
-            )
-        if "thought_fields_removed" in summary:
-            expected_summary["thought_fields_removed"] = (
-                manifest_thought_fields_removed
-            )
-        if (
-            "hidden_reasoning_fields_removed" not in summary
-            and "thought_fields_removed" not in summary
-        ):
-            expected_summary["hidden_reasoning_fields_removed"] = (
-                manifest_thought_fields_removed
-            )
-        mismatch = _dual_removal_mismatch(summary, "summary")
-        if mismatch:
-            violations.append(mismatch)
-        for key, expected in expected_summary.items():
-            if summary.get(key) != expected:
-                violations.append(
-                    f"summary {key} {summary.get(key)!r} does not match {expected}"
-                )
-    return violations
-
+__all__ = [
+    "HIDDEN_REASONING_KEYS",
+    "HIDDEN_REASONING_PREFIX",
+    "MAX_DECISION_BASIS_CHARS",
+    "REASON_BASIS_CONCISED",
+    "REASON_BASIS_FROM_OBSERVATION",
+    "REASON_BASIS_FROM_PLAN",
+    "REASON_BASIS_FROM_REFLECTION",
+    "REASON_BASIS_FROM_TOOL_CALL",
+    "REASON_HIDDEN_REASONING_REMOVED",
+    "REASON_INVALID_JSON",
+    "REASON_INVALID_UTF8",
+    "REASON_NO_RETAINABLE_STEPS",
+    "REASON_NO_VISIBLE_EVIDENCE",
+    "REASON_STEP_NOT_OBJECT",
+    "REASON_STEPS_EXCLUDED",
+    "REASON_STEPS_NOT_ARRAY",
+    "REASON_THOUGHT_REMOVED",
+    "REASON_WRAP_RECORD",
+    "RUN_MANIFEST_FILENAME",
+    "TRANSFORM_NAME",
+    "TRANSFORM_VERSION",
+    "_derive_decision_basis",
+    "_record_id",
+    "_record_steps",
+    "preflight_destinations",
+    "write_new_jsonl",
+    "canonical_json",
+    "contains_hidden_reasoning_key",
+    "contains_thought_key",
+    "curate_episode",
+    "curate_jsonl",
+    "curate_run",
+    "curate_step",
+    "hash_value",
+    "is_hidden_reasoning_key",
+    "main",
+    "normalized_key_name",
+    "verify_curation",
+    "verify_manifest",
+]
 
 
 def _is_under_raw(path: Path) -> bool:
@@ -1392,84 +761,17 @@ def curate_run(source_dir: str | Path, output_dir: str | Path) -> dict[str, Any]
     }
 
 
+write_new_jsonl = _write_new_jsonl
+preflight_destinations = _preflight_destinations
+
+
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("source", type=Path, help="legacy episode JSONL to inspect")
-    parser.add_argument("--output-jsonl", type=Path)
-    parser.add_argument("--manifest-jsonl", type=Path)
-    parser.add_argument(
-        "--output-dir",
-        type=Path,
-        help="new lane root for directory-wide curation",
-    )
-    parser.add_argument(
-        "--verify",
-        action="store_true",
-        help="fail when any curated step or manifest entry breaks the lane contract",
-    )
-    parser.add_argument(
-        "--expect-source-steps",
-        type=int,
-        help="require the manifest to account for exactly this many source steps",
-    )
-    args = parser.parse_args(argv)
+    pipelines_dir = str(Path(__file__).resolve().parent)
+    if pipelines_dir not in sys.path:
+        sys.path.insert(0, pipelines_dir)
+    from coding_cli import run
 
-    if args.expect_source_steps is not None and args.expect_source_steps < 0:
-        parser.error("--expect-source-steps must not be negative")
-    verifying = args.verify or args.expect_source_steps is not None
-    if args.output_dir is not None:
-        if args.output_jsonl is not None or args.manifest_jsonl is not None:
-            parser.error("--output-dir cannot be combined with file output options")
-        if verifying:
-            parser.error("--output-dir cannot be combined with --verify")
-        if not args.source.is_dir():
-            parser.error("--output-dir requires a source directory")
-        try:
-            result = curate_run(args.source, args.output_dir)
-        except (FileExistsError, OSError, ValueError) as exc:
-            parser.error(str(exc))
-        print(json.dumps(result, ensure_ascii=False, indent=2, sort_keys=True))
-        return 0
-    if args.source.is_dir():
-        parser.error("a source directory requires --output-dir")
-
-    if args.output_jsonl is not None and args.output_jsonl.resolve(strict=False) == args.source.resolve():
-        parser.error("output must not replace the source")
-    destinations = [
-        path
-        for path in (args.output_jsonl, args.manifest_jsonl)
-        if path is not None
-    ]
-    try:
-        _preflight_destinations(destinations)
-    except (FileExistsError, ValueError) as exc:
-        parser.error(str(exc))
-
-    result = curate_jsonl(args.source)
-    summary = result["summary"]
-    if verifying:
-        violations = verify_curation(
-            result, expected_source_steps=args.expect_source_steps
-        )
-        summary = dict(summary)
-        summary["verification"] = {
-            "expected_source_steps": args.expect_source_steps,
-            "violations": violations,
-        }
-        if violations:
-            # A failed gate must not leave a curated artifact behind for the
-            # integration lane to pick up as if it had passed.
-            print(json.dumps(summary, ensure_ascii=False, indent=2, sort_keys=True))
-            for violation in violations:
-                print(f"VIOLATION: {violation}", file=sys.stderr)
-            return 2
-
-    if args.output_jsonl is not None:
-        _write_new_jsonl(args.output_jsonl, result["records"])
-    if args.manifest_jsonl is not None:
-        _write_new_jsonl(args.manifest_jsonl, result["manifest"])
-    print(json.dumps(summary, ensure_ascii=False, indent=2, sort_keys=True))
-    return 0
+    return run(argv)
 
 
 if __name__ == "__main__":
