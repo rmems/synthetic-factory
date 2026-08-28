@@ -61,12 +61,13 @@ Parsing is case-insensitive and tolerant:
 - `Novel coverage (estimated): 12.5 %` ✓
 
 New publication uses the complete strict regex
-`^[ \t]*novel[ _-]?coverage[ \t]*(?:\([^)\r\n]*\))?[ \t]*[:=]?[ \t]*(\d+(?:\.\d+)?)[ \t]*%[ \t]*$`,
+`^[ \t]*novel[ _-]?coverage[ \t]*(?:\([^)\r\n]*\))?[ \t]*[:=]?[ \t]*([0-9]+(?:\.[0-9]+)?)[ \t]*%[ \t]*$`,
 matched case-insensitively against exactly one labeled physical line. Python's
 `round_txn.NOVEL_COVERAGE_RE` and the workflow's `novelCoveragePct` share this
 forward contract. The label, optional annotation, separator, number, and
-percent sign must appear on one physical line; only horizontal spaces and tabs
-are accepted between them.
+percent sign must appear on one CRLF-, LF-, or CR-delimited physical line; only
+ASCII digits are accepted, and only horizontal spaces and tabs are accepted
+between the grammar elements.
 The label is anchored at the start of its own line, so prose percentages
 elsewhere in the notes can never be misread as this round's novel coverage:
 neither `Test coverage: 80%` nor `…the edges feel novel; Jaccard overlap peaked

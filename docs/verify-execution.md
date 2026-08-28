@@ -26,8 +26,9 @@ non-empty `state_delta` / `surprises`, finite measured timing/clearance fields
 (`reward_inflection_t_us`, `latency_ms`, `slip_arrested_ms`,
 `divergence_detected_ms`, `min_clearance_m`), and non-empty
 `incident` / `hazard_avoided`. A present recognized field with the wrong type
-is a structural failure; timing values must also be non-negative. Empty or
-absent observable fields are inconclusive.
+is a structural failure. Timing values must also be non-negative;
+`min_clearance_m` is a finite signed clearance measurement. Empty or absent
+observable fields are inconclusive.
 Episode steps require `tool_call` with known tool name, non-empty
 `observation`, and the repository episode envelope. A missing
 `decision_basis` without the historical `thought` field is a structural
@@ -45,6 +46,10 @@ and safety cases also apply the staged structured-turn checks, so an empty or
 ungrounded `decision_basis` or malformed `tool_call.args` is a structural
 failure. A missing/empty observation remains inconclusive execution evidence.
 Bridge records delegate to `language_view.trajectory`.
+
+Completion-marker verification is deterministic for a fixed batch and
+verifier semantics version. Frontier reads re-derive the verdict from the
+manifest-bound bytes and fail closed if it differs from the recorded result.
 
 ## Integration with `pipelines/round_txn.py` Frontier Gate
 

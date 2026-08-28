@@ -278,6 +278,8 @@ def _raise_execution_gate_failure(counts, staged_batch, detail, override):
 
 def execution_gate(batch: Path, staged_batch: Path, override=None):
     """Gate one staged batch on observable execution evidence."""
+    if override is not None:
+        override = normalized_execution_override(override)
     verify_batch_for_frontier = load_execution_verifier()
     counts, findings, blocked = verify_batch_for_frontier(batch, strict=True)
     summary = {

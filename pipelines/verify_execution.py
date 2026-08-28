@@ -203,7 +203,9 @@ def audit_run(run_dir: Path, strict: bool = False):
         rel = path.relative_to(run_dir)
         try:
             lines = jsonl_lines(path.read_text())
-        except OSError as e:
+        except (OSError, UnicodeError) as e:
+            counts["failed"] += 1
+            counts["total"] += 1
             findings.append({"file": str(rel), "line": 0, "status": "failed", "reason": str(e)})
             continue
         for lineno, line in enumerate(lines, 1):
@@ -243,7 +245,7 @@ def main(argv=None):
         lineno = 1 if args.line is None else args.line
         try:
             text = jsonl_lines(path.read_text())
-        except OSError as exc:
+        except (OSError, UnicodeError) as exc:
             print(json.dumps({"status": "failed", "reason": str(exc)}, indent=2))
             sys.exit(1)
         if lineno < 1 or lineno > len(text):

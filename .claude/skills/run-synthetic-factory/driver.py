@@ -690,6 +690,10 @@ def _smoke_check_notes_gate(root: Path, failures: list) -> None:
             failures.append(f"unexpected publish rejection: {exc}")
     else:
         failures.append("publish accepted NOTES without a 'Novel coverage' line")
+        # A successful publish consumes the staging directory. Stop this helper
+        # instead of rewriting a path that no longer exists; cmd_smoke will
+        # report the recorded gate regression as a structured SMOKE FAIL.
+        return
     notes.write_text(
         "# Self-critique\n\nFixture only.\n\nNovel coverage: 42%\n"
     )

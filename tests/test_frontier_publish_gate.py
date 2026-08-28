@@ -434,6 +434,23 @@ class FrontierPublishGate(unittest.TestCase):
             ):
                 round_txn.frontier_status(factory)
 
+    def test_gap_publish_preserves_higher_legacy_markers(self):
+        with tempfile.TemporaryDirectory() as td:
+            factory = self.factory(td)
+            write_marker_mode(factory)
+            _write_round(factory, 2, thalamic("legacy-r02"), {"version": 1})
+            self.assertEqual(round_txn.frontier_status(factory)["next_round"], 1)
+
+            reservation = round_txn.reserve(factory, 1, 1)
+            self.stage(reservation, [thalamic("verified-r01")])
+            round_txn.publish(factory, 1, reservation["token"])
+
+            mode = json.loads((factory / ".round-marker-mode.json").read_text())
+            self.assertEqual(mode[round_txn.EXECUTION_CUTOVER_KEY], 3)
+            frontier = round_txn.frontier_status(factory)
+            self.assertEqual(frontier["completed_markers"], [1, 2])
+            self.assertEqual(frontier["next_round"], 3)
+
     def test_completion_markers_are_ordered_by_round_before_downgrade_checks(self):
         with tempfile.TemporaryDirectory() as td:
             factory = self.factory(td)

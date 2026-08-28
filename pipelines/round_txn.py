@@ -307,7 +307,7 @@ NOVEL_COVERAGE_LABEL_RE = re.compile(
 NOVEL_COVERAGE_RE = re.compile(
     r"^[ \t]*novel[ _-]?coverage[ \t]*"
     r"(?:\([^)\r\n]*\))?[ \t]*[:=]?[ \t]*"
-    r"(\d+(?:\.\d+)?)[ \t]*%[ \t]*$",
+    r"([0-9]+(?:\.[0-9]+)?)[ \t]*%[ \t]*$",
     re.IGNORECASE,
 )
 LEGACY_NOVEL_COVERAGE_RE = re.compile(
@@ -352,7 +352,7 @@ EXECUTION_COUNT_KEYS = frozenset({"failed", "inconclusive", "total", "verified"}
 from round_txn_execution import (  # noqa: E402
     comparable_execution_verification,
     execution_gate,
-    load_execution_verifier,
+    load_execution_verifier,  # noqa: F401 - public compatibility re-export
     normalized_execution_override,
     recorded_execution_override,
     validate_completed_execution_verification,
@@ -860,16 +860,11 @@ def _validated_completion_file_names(payload, round_number, path, factory_dir):
 
 
 def _bind_completion_execution_verdict(
-    factory_dir, round_number, payload, path, batch_name, cutover, seen_verified
+    factory_dir, round_number, payload, path, batch_name, cutover
 ):
     marker_version = completion_marker_version(payload, path)
     gated_round = _is_positive_int(cutover) and round_number >= cutover
     if marker_version == LEGACY_COMPLETION_MARKER_VERSION:
-        if seen_verified:
-            raise TransactionError(
-                "completion marker version downgrade cannot skip execution "
-                f"verification: {path}"
-            )
         if gated_round:
             raise TransactionError(
                 "completion marker version downgrade cannot skip execution "
@@ -927,7 +922,6 @@ def completed_manifests(factory_dir: Path) -> dict[int, dict]:
     _validate_legacy_baseline_ids(factory_dir, seen_ids)
     cutover = execution_gate_cutover_round(factory_dir)
     manifests = {}
-    seen_verified = False
     loaded_markers = []
     for path in factory_dir.glob("ROUND-r*.complete.json"):
         loaded = _load_completion_marker_payload(path, factory_dir)
@@ -951,15 +945,14 @@ def completed_manifests(factory_dir: Path) -> dict[int, dict]:
         # validation cannot advance the visible frontier.
         for name in names:
             completion_manifest_file_matches(factory_dir / name, payload)
-        seen_verified = _bind_completion_execution_verdict(
+        _bind_completion_execution_verdict(
             factory_dir,
             round_number,
             payload,
             path,
             batch_name,
             cutover,
-            seen_verified,
-        ) or seen_verified
+        )
         if round_number in manifests:
             raise TransactionError(f"duplicate completion markers for r{round_number:02d}")
         manifests[round_number] = payload
@@ -1106,15 +1099,28 @@ def execution_gate_cutover_round(factory_dir: Path):
 
 
 def remember_execution_gate_cutover(factory_dir: Path, round_number: int):
-    """Bind the factory cutover to the first version-2 publish under the lock."""
+    """Bind the cutover after every pre-existing legacy completion marker."""
     mode_path = marker_mode_path(factory_dir)
     if mode_path is None:
         return
     mode = read_json(mode_path)
     existing = mode.get(EXECUTION_CUTOVER_KEY)
     if existing is None:
+        legacy_rounds = []
+        for path in factory_dir.glob("ROUND-r*.complete.json"):
+            loaded = _load_completion_marker_payload(path, factory_dir)
+            if loaded is None:
+                continue
+            marker_round, payload = loaded
+            if (
+                completion_marker_version(payload, path)
+                == LEGACY_COMPLETION_MARKER_VERSION
+            ):
+                legacy_rounds.append(marker_round)
         updated = dict(mode)
-        updated[EXECUTION_CUTOVER_KEY] = round_number
+        updated[EXECUTION_CUTOVER_KEY] = max(
+            [round_number, *(legacy_round + 1 for legacy_round in legacy_rounds)]
+        )
         replace_json_atomically(mode_path, updated)
         return
     if not _is_positive_int(existing):
@@ -2072,7 +2078,7 @@ def validate_novel_coverage(
     if strict_new_publish:
         labeled_lines = [
             line
-            for line in notes_text.splitlines()
+            for line in re.split(r"\r\n|\n|\r", notes_text)
             if NOVEL_COVERAGE_LABEL_RE.search(line)
         ]
         if not labeled_lines:
@@ -2087,7 +2093,7 @@ def validate_novel_coverage(
         match = LEGACY_NOVEL_COVERAGE_RE.search(notes_text)
     if match is None:
         if strict_new_publish:
-            return f"notes need a valid single 'Novel coverage: <N>%' line (0-100): {notes}"
+            return f"notes need exactly one unambiguous Novel coverage line: {notes}"
         return f"notes need a 'Novel coverage: <N>%' line: {notes}"
     value = float(match.group(1))
     if not 0 <= value <= 100:

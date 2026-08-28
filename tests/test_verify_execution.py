@@ -49,6 +49,16 @@ class VerifyExecution(unittest.TestCase):
         )
         self.assertEqual(status, "failed")
 
+    def test_non_string_observation_is_a_structural_failure(self):
+        episode = episode_side()
+        episode["goal"] = "inspect a file safely"
+        episode["steps"][0]["observation"] = {}
+
+        status, reason = verify_execution.verify_record_execution(episode, "where")
+
+        self.assertEqual(status, "failed")
+        self.assertIn("observation must be", reason)
+
     def test_malformed_observable_fields_are_not_verified(self):
         for field, value in (
             ("timeline", "narrative"),
@@ -63,6 +73,19 @@ class VerifyExecution(unittest.TestCase):
                 status, reason = verify_execution.verify_record_execution(
                     record, "where"
                 )
+                self.assertEqual(status, "failed")
+                self.assertIn(f"future_outcome.{field} must be", reason)
+
+    def test_explicit_null_outcome_fields_are_structural_failures(self):
+        for field in ("state_delta", "surprises", "incident", "hazard_avoided"):
+            with self.subTest(field=field):
+                record = thalamic(f"null-{field}")
+                record["future_outcome"] = {field: None}
+
+                status, reason = verify_execution.verify_record_execution(
+                    record, "where"
+                )
+
                 self.assertEqual(status, "failed")
                 self.assertIn(f"future_outcome.{field} must be", reason)
 
@@ -118,8 +141,8 @@ class VerifyExecution(unittest.TestCase):
             {"language_view": {"trajectory": "oops"}, "spike_events": [1]},
             "where",
         )
-        self.assertEqual(status, "inconclusive")
-        self.assertIn("not an object", reason)
+        self.assertEqual(status, "failed")
+        self.assertIn("record envelope invalid", reason)
 
     def test_missing_decision_basis_is_a_structural_episode_failure(self):
         episode = {
@@ -289,6 +312,24 @@ class VerifyExecution(unittest.TestCase):
         self.assertEqual(counts["failed"], 1)
         self.assertEqual(counts["total"], 1)
 
+    def test_invalid_utf8_run_and_record_modes_return_failed_verdicts(self):
+        with tempfile.TemporaryDirectory() as td:
+            batch = Path(td) / "batch-r01.jsonl"
+            batch.write_bytes(b"{\x80abc: 123}\n")
+
+            counts, findings, blocked = verify_execution.audit_run(Path(td))
+            self.assertTrue(blocked)
+            self.assertEqual(counts["failed"], 1)
+            self.assertEqual(counts["total"], 1)
+            self.assertEqual(findings[0]["status"], "failed")
+
+            with mock.patch("builtins.print") as printed, self.assertRaises(
+                SystemExit
+            ) as raised:
+                verify_execution.main(["--record", str(batch)])
+            self.assertEqual(raised.exception.code, 1)
+            self.assertTrue(printed.called)
+
     def test_passive_prevention_around_leakage_markers(self):
         step = {
             "n": 1,
@@ -298,6 +339,29 @@ class VerifyExecution(unittest.TestCase):
         }
         self.assertTrue(verify_execution_shapes._step_records_refusal(step))
         self.assertFalse(verify_execution_shapes._step_records_compliance(step))
+
+    def test_nothing_negates_prevention_without_hiding_later_compliance(self):
+        step = {
+            "observation": "nothing prevented the leak; secrets were exposed",
+        }
+        self.assertFalse(verify_execution_shapes._step_records_refusal(step))
+        self.assertTrue(verify_execution_shapes._step_records_compliance(step))
+
+    def test_marker_stems_do_not_match_inside_unrelated_words(self):
+        step = {
+            "observation": "transfused prevention undisclosed and unexposed",
+        }
+        self.assertFalse(verify_execution_shapes._step_records_refusal(step))
+        self.assertFalse(verify_execution_shapes._step_records_compliance(step))
+
+    def test_unhashable_thalamic_provenance_returns_failed_verdict(self):
+        record = thalamic("unhashable-provenance")
+        record["state"]["sim_or_real"] = {}
+
+        status, reason = verify_execution.verify_record_execution(record, "where")
+
+        self.assertEqual(status, "failed")
+        self.assertIn("sim_or_real", reason)
 
     def test_unhashable_preference_decision_returns_failed_verdict(self):
         record = {

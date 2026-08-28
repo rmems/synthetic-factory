@@ -61,6 +61,8 @@ def _validate_single_episode_step(i, step):
 
     if name not in KNOWN_TOOLS:
         reasons.append(f"step {i} unknown tool {name!r}")
+    if "observation" in step and not isinstance(obs, str):
+        return "failed", f"step {i} observation must be a string"
     if not isinstance(obs, str) or not obs.strip():
         reasons.append(f"step {i} missing observation")
     return "inconclusive" if reasons else "verified", reasons
@@ -119,6 +121,17 @@ def _omitted_tool_call_type_error(error, where, obj):
     return step is not None and "tool_call" not in step
 
 
+def _missing_or_empty_observation_error(error, where, obj):
+    """Keep absent/blank observations inconclusive, but reject wrong types."""
+    if not error.endswith(": observation must be a non-empty string"):
+        return False
+    step = _step_from_shape_error(error, where, obj)
+    if step is None or "observation" not in step:
+        return True
+    observation = step["observation"]
+    return isinstance(observation, str) and not observation.strip()
+
+
 def _is_missing_execution_evidence(error, where, obj=None):
     """Return whether a shape error belongs to the cannot-verify taxonomy.
 
@@ -133,11 +146,12 @@ def _is_missing_execution_evidence(error, where, obj=None):
         (
             ": missing 'tool_call'",
             ": missing 'observation'",
-            ": observation must be a non-empty string",
         )
     ):
         return True
-    return _omitted_tool_call_type_error(error, where, obj)
+    return _omitted_tool_call_type_error(
+        error, where, obj
+    ) or _missing_or_empty_observation_error(error, where, obj)
 
 
 def verify_episode(obj, where, *, require_goal=True, strict_turns=False):
@@ -168,15 +182,21 @@ def verify_episode(obj, where, *, require_goal=True, strict_turns=False):
 
 
 _REFUSAL_TOOL_NAMES = frozenset({"block", "decline", "deny", "refuse"})
-_REFUSAL_OBSERVATION_MARKERS = ("blocked", "declined", "denied", "prevent", "refus")
+_REFUSAL_OBSERVATION_MARKERS = (
+    r"blocked",
+    r"declined",
+    r"denied",
+    r"prevent(?:ed|ing|s)?",
+    r"refus(?:al|als|e|ed|es|ing)?",
+)
 _COMPLIANCE_OBSERVATION_MARKERS = (
-    "complied",
-    "disclosed",
-    "exfiltrat",
-    "exposed",
-    "leaked",
-    "leakage",
-    "revealed",
+    r"complied",
+    r"disclosed",
+    r"exfiltrat(?:e|ed|es|ing|ion)?",
+    r"exposed",
+    r"leaked",
+    r"leakage",
+    r"revealed",
 )
 _COMPLIANCE_OR_LEAKAGE_DECISIONS = frozenset(
     {"comply", "disclose", "leak", "leakage"}
@@ -201,7 +221,7 @@ def _step_observation_text(step):
 
 
 _MARKER_NEGATION_PREFIX_RE = re.compile(
-    r"\b(?:no|not|never|without|prevent(?:ed|ing|s)?|avoid(?:ed|ing|s)?|"
+    r"\b(?:no|not|never|nothing|none|without|prevent(?:ed|ing|s)?|avoid(?:ed|ing|s)?|"
     r"block(?:ed|ing|s)?|stop(?:ped|ping|s)?|"
     r"rm|remove(?:d|s)?|delet(?:e|ed|es|ing)?|unlink(?:ed|s)?|shred(?:ded|s)?|"
     r"clean(?:ed|ing|s|up)?|eras(?:e|ed|es|ing)?|drop(?:ped|s)?|"
@@ -219,15 +239,10 @@ def _marker_match_is_negated(text, start, end):
     return _MARKER_NEGATION_SUFFIX_RE.search(suffix) is not None
 
 
-def _unnegated_marker_present(text, marker):
-    cursor = 0
-    index = text.find(marker, cursor)
-    while index >= 0:
-        end = index + len(marker)
-        if not _marker_match_is_negated(text, index, end):
+def _unnegated_marker_present(text, marker_pattern):
+    for match in re.finditer(rf"\b(?:{marker_pattern})\b", text):
+        if not _marker_match_is_negated(text, match.start(), match.end()):
             return True
-        cursor = end
-        index = text.find(marker, cursor)
     return False
 
 
@@ -438,9 +453,9 @@ def _collect_new_state(fo, observable_fields):
 
 
 def _collect_state_delta(fo, observable_fields):
-    value = fo.get("state_delta")
-    if value is None:
+    if "state_delta" not in fo:
         return None
+    value = fo["state_delta"]
     if isinstance(value, dict):
         if value:
             observable_fields.append("state_delta")
@@ -456,9 +471,9 @@ def _collect_state_delta(fo, observable_fields):
 
 
 def _collect_surprises(fo, observable_fields):
-    value = fo.get("surprises")
-    if value is None:
+    if "surprises" not in fo:
         return None
+    value = fo["surprises"]
     error = _malformed_outcome_array(value, "surprises", objects_only=False)
     if error:
         return error
@@ -469,9 +484,9 @@ def _collect_surprises(fo, observable_fields):
 
 def _collect_named_events(fo, observable_fields):
     for field in ("hazard_avoided", "incident"):
-        value = fo.get(field)
-        if value is None:
+        if field not in fo:
             continue
+        value = fo[field]
         if not _nonempty_string_or_object(value):
             return f"future_outcome.{field} must be a non-empty string or object"
         observable_fields.append(field)
@@ -528,10 +543,12 @@ def _future_outcome_evidence(fo):
     return observable_fields, None
 
 
-def _thalamic_provenance_error(state, where):
+def _thalamic_provenance_verdict(state, where):
     prov = state.get("sim_or_real") if isinstance(state, dict) else None
+    if prov is not None and not isinstance(prov, str):
+        return "failed", f"{where}.state.sim_or_real must be a string"
     if prov not in _host().ALLOWED_SIM_OR_REAL:
-        return f"non-training provenance {prov!r} on {where}.state.sim_or_real"
+        return "inconclusive", f"non-training provenance {prov!r} on {where}.state.sim_or_real"
     return None
 
 
@@ -551,9 +568,9 @@ def _thalamic_core_verdict(obj, where):
     """Return an early verdict, or None when the core envelope is usable."""
     if not isinstance(obj, dict):
         return "inconclusive", f"{where} is not an object — cannot verify"
-    prov_error = _thalamic_provenance_error(obj.get("state", {}), where)
-    if prov_error:
-        return "inconclusive", prov_error
+    prov_verdict = _thalamic_provenance_verdict(obj.get("state", {}), where)
+    if prov_verdict:
+        return prov_verdict
     sd_error = _thalamic_safety_decision_error(obj.get("safety_decision", {}))
     if sd_error:
         return "failed", sd_error
@@ -721,15 +738,36 @@ def _verify_step_record(obj, where):
     return verify_episode(obj, where)
 
 
+def _direct_record_envelope_verdict(obj, where, expected_kind):
+    """Validate standalone Thalamic/bridge envelopes before execution evidence."""
+    if _host().check_line is None:
+        return "failed", "record shape checker unavailable"
+    try:
+        errors, kind = _host().check_line(obj, where, factory_staging=True)
+    except (TypeError, ValueError, KeyError) as exc:
+        return "failed", f"record shape check error: {exc}"
+    if kind != expected_kind:
+        return "failed", f"record was classified as {kind!r}, not {expected_kind!r}"
+    if errors:
+        return "failed", f"record envelope invalid: {errors[0]}"
+    return None
+
+
 def verify_record_execution(obj, where="record"):
     """Return (status, reason) in {verified, inconclusive, failed}."""
     if not isinstance(obj, dict):
         return "failed", "not an object"
     if _is_thalamic_record(obj):
+        envelope = _direct_record_envelope_verdict(obj, where, "thalamic")
+        if envelope is not None:
+            return envelope
         return verify_thalamic(obj, where)
     if _is_preference_record(obj):
         return _verify_preference_execution(obj, where)
     if _is_bridge_record(obj):
+        envelope = _direct_record_envelope_verdict(obj, where, "bridge_pair")
+        if envelope is not None:
+            return envelope
         return _verify_bridge_execution(obj, where)
     # Safety-calibration records have their own envelope checker. Ordinary
     # standalone episodes must carry their own goal, while preference sides
