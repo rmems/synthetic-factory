@@ -540,6 +540,14 @@ class MapTagTests(unittest.TestCase):
         self.assertEqual(pattern["canonical"], "link:cross_reference")
         self.assertEqual(pattern["reason"], REASON_TAG_PATTERN)
         self.assertEqual(pattern["rule"], "pattern:cross_reference")
+        self.assertEqual(
+            TAXONOMY.map_tag("densification_pass_2")["canonical"],
+            "process:densification_pass",
+        )
+        self.assertEqual(
+            TAXONOMY.map_tag("identity_note_ttf_r01_001")["canonical"],
+            "note:identity_note",
+        )
 
         unmapped = TAXONOMY.map_tag("neoclassical-tearing-mode")
         self.assertIsNone(unmapped["canonical"])
@@ -1137,6 +1145,12 @@ class CurateJsonlTests(unittest.TestCase):
         )
         self.assertEqual(result["summary"]["nonstring_tag_uses"], 2)
         self.assertEqual(result["summary"]["source_tag_uses"], 3)
+        self.assertEqual(result["summary"]["source_unique_tags"], 3)
+        self.assertEqual(result["manifest"][0]["tag_counts"]["source_unique"], 3)
+        self.assertEqual(
+            result["summary"]["entropy_bits"]["source"],
+            round(math.log2(3), 6),
+        )
         self.assertEqual(result["summary"]["unmapped_unique_tags"], 2)
         self.assertEqual(
             result["manifest"][0]["unmapped_tags"],
@@ -1738,6 +1752,41 @@ class TagCliInProcessTests(unittest.TestCase):
         with mock.patch("curate_tags.json.loads", side_effect=RecursionError):
             with self.assertRaises(TagTaxonomyError):
                 load_taxonomy(DEFAULT_TAXONOMY_PATH)
+
+    def test_unmapped_counters_keep_distinct_json_types(self):
+        rows = [record(["{}", {}, True, 1, 1.0], id="a")]
+        with tempfile.TemporaryDirectory() as temporary:
+            source = Path(temporary) / "corpus.jsonl"
+            source.write_text(
+                "".join(json.dumps(row, sort_keys=True) + "\n" for row in rows),
+                encoding="utf-8",
+            )
+            result = curate_jsonl(source, TAXONOMY)
+        tags = [item["tag"] for item in result["unmapped"]]
+        by_identity = {
+            (type(tag).__name__, canonical_json(tag)): tag for tag in tags
+        }
+        self.assertEqual(len(by_identity), 5)
+        self.assertEqual(by_identity[("str", canonical_json("{}"))], "{}")
+        self.assertEqual(by_identity[("dict", canonical_json({}))], {})
+        self.assertIs(by_identity[("bool", canonical_json(True))], True)
+        self.assertEqual(by_identity[("int", canonical_json(1))], 1)
+        self.assertEqual(by_identity[("float", canonical_json(1.0))], 1.0)
+        self.assertEqual(result["summary"]["unmapped_unique_tags"], 5)
+        self.assertEqual(result["summary"]["source_unique_tags"], 5)
+
+    def test_cli_reports_write_parent_not_a_directory(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            source = root / "in.jsonl"
+            source.write_text(json.dumps(record(["MODIFY"])) + "\n", encoding="utf-8")
+            blocker = root / "notdir"
+            blocker.write_text("file", encoding="utf-8")
+            dest = blocker / "out.jsonl"
+            stderr = io.StringIO()
+            with contextlib.redirect_stderr(stderr), self.assertRaises(SystemExit):
+                curate_tags.main([str(source), "--output-jsonl", str(dest)])
+            self.assertNotIn("Traceback", stderr.getvalue())
 
 
 if __name__ == "__main__":

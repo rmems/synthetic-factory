@@ -470,6 +470,22 @@ def canonical_json(value: Any) -> str:
     )
 
 
+def _tag_identity(value: Any) -> tuple[str, str]:
+    """Type-sensitive identity so 1, 1.0, True, and \"1\" stay distinct."""
+    return (type(value).__name__, canonical_json(value))
+
+
+def _count_tag(
+    counts: Counter,
+    tag: Any,
+    originals: dict[tuple[str, str], Any] | None = None,
+) -> None:
+    ident = _tag_identity(tag)
+    counts[ident] += 1
+    if originals is not None:
+        originals.setdefault(ident, tag)
+
+
 def _canonical_json_equal(left: Any, right: Any) -> bool:
     """Compare JSON values without Python's bool/number coercion."""
     try:
@@ -961,6 +977,7 @@ def curate_record(
     source_total = 0
     canonical_uses = Counter()
     unmapped_uses = Counter()
+    unmapped_originals: dict[tuple[str, str], Any] = {}
     unmapped_total = 0
     mapped_total = 0
     duplicates_total = 0
@@ -991,16 +1008,12 @@ def curate_record(
 
         source_total += len(entry["source_tags"])
         for tag in entry["source_tags"]:
-            if isinstance(tag, str):
-                source_uses[tag] += 1
+            _count_tag(source_uses, tag)
         for tag in entry["canonical_tags"]:
             canonical_uses[tag] += 1
         for tag in entry["unmapped_tags"]:
             unmapped_total += 1
-            try:
-                unmapped_uses[tag] += 1
-            except TypeError:
-                unmapped_uses[canonical_json(tag)] += 1
+            _count_tag(unmapped_uses, tag, unmapped_originals)
         mapped_total += sum(
             1
             for mapping in entry["mappings"]
@@ -1049,13 +1062,8 @@ def curate_record(
         "unmapped_uses": unmapped_total,
     }
     manifest["unmapped_tags"] = sorted(
-        unmapped_uses,
-        key=lambda tag: (
-            0,
-            tag,
-        )
-        if isinstance(tag, str)
-        else (1, canonical_json(tag)),
+        (unmapped_originals[ident] for ident in unmapped_uses),
+        key=lambda item: (0, item) if isinstance(item, str) else (1, canonical_json(item)),
     )
     manifest["containers"] = container_manifests
     manifest["reason_codes"] = reasons
@@ -1105,6 +1113,7 @@ def curate_jsonl(
     source_total = 0
     canonical_uses = Counter()
     unmapped_uses = Counter()
+    unmapped_originals: dict[tuple[str, str], Any] = {}
     rule_uses = Counter()
     nonstring_uses = 0
 
@@ -1204,17 +1213,13 @@ def curate_jsonl(
             for entry in containers:
                 source_total += len(entry["source_tags"])
                 for tag in entry["source_tags"]:
-                    if isinstance(tag, str):
-                        source_uses[tag] += 1
+                    _count_tag(source_uses, tag)
                 for tag in entry["canonical_tags"]:
                     canonical_uses[tag] += 1
                 for tag in entry["unmapped_tags"]:
                     if not isinstance(tag, str):
                         nonstring_uses += 1
-                    try:
-                        unmapped_uses[tag] += 1
-                    except TypeError:
-                        unmapped_uses[canonical_json(tag)] += 1
+                    _count_tag(unmapped_uses, tag, unmapped_originals)
                 for mapping in entry["mappings"]:
                     rule = mapping.get("rule")
                     if rule:
@@ -1223,12 +1228,14 @@ def curate_jsonl(
     source_entropy = vocabulary_entropy(source_uses)
     canonical_entropy = vocabulary_entropy(canonical_uses)
     unmapped_report = [
-        {"tag": tag, "count": count}
-        for tag, count in sorted(
+        {"tag": unmapped_originals[ident], "count": count}
+        for ident, count in sorted(
             unmapped_uses.items(),
             key=lambda kv: (
                 -kv[1],
-                (0, kv[0]) if isinstance(kv[0], str) else (1, canonical_json(kv[0])),
+                (0, unmapped_originals[kv[0]])
+                if isinstance(unmapped_originals[kv[0]], str)
+                else (1, kv[0][1]),
             ),
         )
     ]
@@ -1393,17 +1400,20 @@ def main(argv: list[str] | None = None) -> int:
         result = curate_jsonl(args.source, taxonomy)
     except OSError as exc:
         parser.error(str(exc))
-    _write_destinations(
-        [
-            (path, values)
-            for path, values in (
-                (args.output_jsonl, result["records"]),
-                (args.manifest_jsonl, result["manifest"]),
-                (args.unmapped_jsonl, result["unmapped"]),
-            )
-            if path is not None
-        ]
-    )
+    try:
+        _write_destinations(
+            [
+                (path, values)
+                for path, values in (
+                    (args.output_jsonl, result["records"]),
+                    (args.manifest_jsonl, result["manifest"]),
+                    (args.unmapped_jsonl, result["unmapped"]),
+                )
+                if path is not None
+            ]
+        )
+    except (OSError, FileExistsError, ValueError) as exc:
+        parser.error(str(exc))
     print(
         json.dumps(
             result["summary"],
