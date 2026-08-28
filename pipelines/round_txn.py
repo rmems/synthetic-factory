@@ -2260,7 +2260,7 @@ def validate_novel_coverage(
         match = LEGACY_NOVEL_COVERAGE_RE.search(notes_text)
     if match is None:
         if strict_new_publish:
-            return f"notes need exactly one unambiguous Novel coverage line: {notes}"
+            return f"notes need a valid single 'Novel coverage: <N>%' line (0-100): {notes}"
         return f"notes need a 'Novel coverage: <N>%' line: {notes}"
     value = float(match.group(1))
     if not 0 <= value <= 100:
