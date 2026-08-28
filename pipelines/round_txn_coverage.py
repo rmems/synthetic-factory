@@ -243,10 +243,10 @@ def _evidence_match_has_unnegated(introduced, evidence, preventive_terms):
     normalized = normalized_category(evidence)
     if not normalized:
         return False
-    for match in re.finditer(rf"(?:^|_){re.escape(normalized)}(?=_|$)", introduced):
-        if not _match_has_preventive_negation(introduced, match, preventive_terms):
-            return True
-    return False
+    return any(
+        not _match_has_preventive_negation(introduced, match, preventive_terms)
+        for match in re.finditer(rf"(?:^|_){re.escape(normalized)}(?=_|$)", introduced)
+    )
 
 
 def visibly_names_fault(introduced_text, *fault_evidence):
@@ -279,16 +279,22 @@ def numbered_horizon_errors(where, steps, lane, minimum, maximum):
     return errors
 
 
+def _step_number_is_invalid(expected_number, step):
+    if not isinstance(step, dict):
+        return True
+    number = step.get("n")
+    return not isinstance(number, int) or isinstance(number, bool) or number != expected_number
+
+
 def contiguous_step_number_errors(where, steps, lane):
     """Return an error unless list entries use exact integer numbering 1..K."""
     if not isinstance(steps, list):
         return []
-    for expected_number, step in enumerate(steps, 1):
-        if not isinstance(step, dict):
-            return [f"{where}: {lane} steps must be numbered contiguously from 1"]
-        number = step.get("n")
-        if not isinstance(number, int) or isinstance(number, bool) or number != expected_number:
-            return [f"{where}: {lane} steps must be numbered contiguously from 1"]
+    if any(
+        _step_number_is_invalid(expected_number, step)
+        for expected_number, step in enumerate(steps, 1)
+    ):
+        return [f"{where}: {lane} steps must be numbered contiguously from 1"]
     return []
 
 
@@ -323,22 +329,34 @@ def _has_matching_verify_step(texts, observations, fix_index):
     )
 
 
+def _step_is_fix_and_verified(texts, observations, fix_index, fix_terms):
+    return (
+        any(term in texts[fix_index] for term in fix_terms)
+        and _has_matching_verify_step(texts, observations, fix_index)
+    )
+
+
 def _has_matching_fix_step(texts, observations, read_index):
     fix_terms = ("fix", "repair", "patch", "edit", "write", "apply")
-    for fix_index in range(read_index + 1, len(texts)):
-        if any(term in texts[fix_index] for term in fix_terms):
-            if _has_matching_verify_step(texts, observations, fix_index):
-                return True
-    return False
+    return any(
+        _step_is_fix_and_verified(texts, observations, fix_index, fix_terms)
+        for fix_index in range(read_index + 1, len(texts))
+    )
+
+
+def _step_is_read_and_fixed(texts, observations, read_index, read_terms):
+    return (
+        any(term in texts[read_index] for term in read_terms)
+        and _has_matching_fix_step(texts, observations, read_index)
+    )
 
 
 def _find_debug_read_fix_verify(texts, observations, failure_index):
     read_terms = ("re-read", "reread", "inspect", "read", "cat ", "sed ", "rg ")
-    for read_index in range(failure_index + 1, len(texts)):
-        if any(term in texts[read_index] for term in read_terms):
-            if _has_matching_fix_step(texts, observations, read_index):
-                return True
-    return False
+    return any(
+        _step_is_read_and_fixed(texts, observations, read_index, read_terms)
+        for read_index in range(failure_index + 1, len(texts))
+    )
 
 
 def _is_failure_step(text, observation):
@@ -347,12 +365,18 @@ def _is_failure_step(text, observation):
     return any(t in text for t in test_terms) and any(f in observation for f in failure_terms)
 
 
+def _step_is_failure_and_verified(texts, observations, failure_index):
+    return (
+        _is_failure_step(texts[failure_index], observations[failure_index])
+        and _find_debug_read_fix_verify(texts, observations, failure_index)
+    )
+
+
 def _find_debug_failure_loop(texts, observations, edit_index):
-    for failure_index in range(edit_index + 1, len(texts)):
-        if _is_failure_step(texts[failure_index], observations[failure_index]):
-            if _find_debug_read_fix_verify(texts, observations, failure_index):
-                return True
-    return False
+    return any(
+        _step_is_failure_and_verified(texts, observations, failure_index)
+        for failure_index in range(edit_index + 1, len(texts))
+    )
 
 
 def has_long_horizon_debug_loop(steps):
@@ -428,23 +452,28 @@ _SPARSE_STALL_TERMS = re.compile(
 )
 
 
-def _step_sparse_progress_error(where, index, step, previous_obs):
-    text = observable_step_text(step)
-    if (
+def _is_stalled_or_unprogressive(text):
+    return (
         _SPARSE_STALL_TERMS.search(text) is not None
         or _SPARSE_PROGRESS_TERMS.search(text) is None
-    ):
+    )
+
+
+def _normalized_step_observation(step):
+    observation = step.get("observation") if isinstance(step, dict) else None
+    if isinstance(observation, str) and observation.strip():
+        return re.sub(r"\s+", " ", observation.strip().casefold())
+    return None
+
+
+def _step_sparse_progress_error(where, index, step, previous_obs):
+    if _is_stalled_or_unprogressive(observable_step_text(step)):
         return (
             f"{where}: sparse long-task steps[{index}] must show observable "
             "file, test, or belief progress rather than padding",
             None,
         )
-    observation = step.get("observation") if isinstance(step, dict) else None
-    normalized_obs = (
-        re.sub(r"\s+", " ", observation.strip().casefold())
-        if isinstance(observation, str) and observation.strip()
-        else None
-    )
+    normalized_obs = _normalized_step_observation(step)
     if normalized_obs is not None and normalized_obs == previous_obs:
         return (
             f"{where}: sparse long-task steps[{index}] repeats the prior "
