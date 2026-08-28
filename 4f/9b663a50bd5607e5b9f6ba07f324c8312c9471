@@ -1,0 +1,47 @@
+tests/test_curate_gate_corpus.py
+  s_8d3d13d69f5981::t_3a0b305ef66530 1-595
+pipelines/reward_policy.py
+  s_8d3d13d69f5981::t_11f7af5ddb2a0e 1-403
+pipelines/reward_mapping.py
+  s_cf91c145ed96a4::t_5450b58a1442b8 1-368
+pipelines/reward_ontology.py
+  s_cf91c145ed96a4::t_f386fc634373a3 1,3-532
+tests/test_reward_vocabulary.py
+  s_8d3d13d69f5981::t_2d7c5369069b25 1-24,26-543
+  s_8d3d13d69f5981::t_a95c7a2d1cd242 25
+tests/test_reward_policy.py
+  s_8d3d13d69f5981::t_2b0bed64794793 1-447,450-451,455-457,459-472
+  s_8d3d13d69f5981::t_4cfc607b681320 448-449,452-454,458
+pipelines/curate_rewards.py
+  s_8d3d13d69f5981::t_b41693ce3084b5 53-58,64-65
+  s_8d3d13d69f5981::t_6745cdc7e6f717 59
+  s_8d3d13d69f5981::t_737e3d47b29c32 60-63,66-92,94-119,121-126,128-139,141-149
+  s_8d3d13d69f5981::t_643535f7512bbb 49-52
+tests/test_curate_rewards_run.py
+  s_8d3d13d69f5981::t_7821453f5053ca 1-11,13-407,409-411
+  s_8d3d13d69f5981::t_ded8b1f43785a0 408
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "4f9b663a50bd5607e5b9f6ba07f324c8312c9471",
+  "prompts": {},
+  "sessions": {
+    "s_8d3d13d69f5981": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "01a047fa-225d-73b2-9dde-a0129d435c30",
+        "model": "unknown"
+      },
+      "human_author": "Raul Montoya Cardenas <montoyaraul34@gmail.com>"
+    },
+    "s_cf91c145ed96a4": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "01a047ec-e177-7f71-9060-8213d44cc907",
+        "model": "unknown"
+      },
+      "human_author": "Raul Montoya Cardenas <montoyaraul34@gmail.com>"
+    }
+  }
+}
