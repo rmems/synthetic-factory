@@ -61,6 +61,8 @@ Codex contributed curation design, validation, and release engineering.
 ## Published raw payload
 
 The viewer is data/viewer/records.parquet.
+Do not train on `thought` or `internal_reasoning*`; this raw Hub copy is
+evidence only.
 
 ## Links
 
@@ -93,6 +95,21 @@ def _provenance(*, raw_digest: str | None = None) -> str:
     )
 
 
+def _release_status(*, license_name: str | object = "apache-2.0") -> str:
+    status = {
+        "schema_version": "1.0.0",
+        "dataset_id": verify_hf_release.DATASET_REPOS[0],
+        "release_stage": "raw_uncurated_public",
+        "visibility": "public",
+        "payload_published": True,
+        "training_ready": False,
+        "license": license_name,
+    }
+    if license_name is None:
+        del status["license"]
+    return json.dumps(status)
+
+
 class ReleaseVerifierTests(unittest.TestCase):
     def setUp(self) -> None:
         self.repo = verify_hf_release.DATASET_REPOS[0]
@@ -100,6 +117,7 @@ class ReleaseVerifierTests(unittest.TestCase):
             "README.md": _card(),
             "provenance.json": _provenance(),
             "LICENSE": LICENSE_TEXT,
+            "release-status.json": _release_status(),
         }
 
     def text_fetcher(self, url: str, timeout: float) -> str:
@@ -155,6 +173,53 @@ class ReleaseVerifierTests(unittest.TestCase):
             self.verify().errors,
         )
 
+    def test_hidden_reasoning_warning_is_required_on_the_card(self) -> None:
+        self.values["README.md"] = _card().replace(
+            "Do not train on `thought` or `internal_reasoning*`; this raw Hub copy is\n"
+            "evidence only.\n",
+            "",
+        )
+        self.assertIn(
+            "README missing required card marker: "
+            "Do not train on `thought` or `internal_reasoning*`",
+            self.verify().errors,
+        )
+
+    def test_hidden_reasoning_warning_must_sit_in_the_payload_section(self) -> None:
+        self.values["README.md"] = _card().replace(
+            "## Published raw payload",
+            "## Notes\nDo not train on `thought` or `internal_reasoning*`; this raw\n"
+            "Hub copy is evidence only.\n\n## Published raw payload",
+        ).replace(
+            "The viewer is data/viewer/records.parquet.\n"
+            "Do not train on `thought` or `internal_reasoning*`; this raw Hub copy is\n"
+            "evidence only.\n",
+            "The viewer is data/viewer/records.parquet.\n",
+        )
+        self.assertIn(
+            "README missing required card marker: "
+            "Do not train on `thought` or `internal_reasoning*`",
+            self.verify().errors,
+        )
+
+    def test_hidden_reasoning_warning_in_html_comment_does_not_count(self) -> None:
+        self.values["README.md"] = _card().replace(
+            "Do not train on `thought` or `internal_reasoning*`; this raw Hub copy is\n"
+            "evidence only.\n",
+            "<!-- Do not train on `thought` or `internal_reasoning*`; this raw Hub "
+            "copy is\nevidence only. -->\n",
+        )
+        errors = self.verify().errors
+        self.assertIn(
+            "README missing required card marker: "
+            "Do not train on `thought` or `internal_reasoning*`",
+            errors,
+        )
+        self.assertIn(
+            "README missing required card marker: raw Hub copy is evidence only",
+            errors,
+        )
+
     def test_missing_provenance_role_fails(self) -> None:
         provenance = json.loads(_provenance())
         for contributor in provenance["contributors"]:
@@ -171,6 +236,118 @@ class ReleaseVerifierTests(unittest.TestCase):
         self.assertIn(
             "LICENSE does not match the complete Apache License 2.0 text",
             self.verify().errors,
+        )
+
+    def test_undeclared_release_status_license_fails(self) -> None:
+        self.values["release-status.json"] = _release_status(
+            license_name="not_yet_declared"
+        )
+        self.assertIn(
+            "release-status.json leaves the license undeclared: 'not_yet_declared'; "
+            "LICENSE and the card declare 'apache-2.0'",
+            self.verify().errors,
+        )
+
+    def test_release_status_license_must_match_card_and_license_file(self) -> None:
+        self.values["release-status.json"] = _release_status(license_name="cc-by-4.0")
+        self.assertIn(
+            "release-status.json declares license 'cc-by-4.0', "
+            "but LICENSE and the card declare 'apache-2.0'",
+            self.verify().errors,
+        )
+
+    def test_release_status_license_is_case_and_space_insensitive(self) -> None:
+        self.values["release-status.json"] = _release_status(
+            license_name="  Apache-2.0  "
+        )
+        self.assertTrue(self.verify().ok, self.verify().errors)
+
+    def test_release_status_must_match_raw_publication_contract(self) -> None:
+        cases = (
+            (
+                "release_stage",
+                "curated_public",
+                "release-status.json must declare release_stage: raw_uncurated_public",
+            ),
+            (
+                "visibility",
+                "private",
+                "release-status.json must declare visibility: public",
+            ),
+            (
+                "payload_published",
+                False,
+                "release-status.json must mark payload_published true",
+            ),
+            (
+                "training_ready",
+                True,
+                "release-status.json must mark training_ready false",
+            ),
+        )
+        for field, invalid, expected_error in cases:
+            with self.subTest(field=field):
+                status = json.loads(_release_status())
+                status[field] = invalid
+                self.values["release-status.json"] = json.dumps(status)
+                self.assertIn(expected_error, self.verify().errors)
+
+    def test_missing_release_status_license_fails(self) -> None:
+        self.values["release-status.json"] = _release_status(license_name=None)
+        self.assertIn(
+            "release-status.json must declare a string license", self.verify().errors
+        )
+
+    def test_non_string_release_status_license_fails(self) -> None:
+        self.values["release-status.json"] = _release_status(license_name=42)
+        self.assertIn(
+            "release-status.json must declare a string license", self.verify().errors
+        )
+
+    def test_non_object_release_status_fails_without_crashing(self) -> None:
+        self.values["release-status.json"] = "[]"
+        result = self.verify()
+        self.assertIn("release-status.json must contain a JSON object", result.errors)
+
+    def test_invalid_release_status_json_fails(self) -> None:
+        self.values["release-status.json"] = "{"
+        errors = self.verify().errors
+        self.assertTrue(
+            any(error.startswith("release-status.json is invalid JSON:") for error in errors),
+            errors,
+        )
+
+    def test_release_status_dataset_id_must_match_the_repository(self) -> None:
+        status = json.loads(_release_status())
+        status["dataset_id"] = verify_hf_release.DATASET_REPOS[1]
+        self.values["release-status.json"] = json.dumps(status)
+        self.assertIn(
+            f"release-status.json dataset_id must be {self.repo}",
+            self.verify().errors,
+        )
+
+    def test_duplicate_release_status_license_fails(self) -> None:
+        self.values["release-status.json"] = (
+            '{"license":"not_yet_declared","license":"apache-2.0"}'
+        )
+        self.assertIn(
+            "release-status.json must not contain duplicate license keys",
+            self.verify().errors,
+        )
+
+    def test_unrecognized_license_text_still_pins_the_expected_family(self) -> None:
+        self.values["LICENSE"] = "Some other license\n"
+        self.values["README.md"] = _card(license_name="mit")
+        self.values["release-status.json"] = _release_status(license_name="mit")
+        errors = self.verify().errors
+        self.assertIn(
+            "LICENSE does not match the complete Apache License 2.0 text", errors
+        )
+        self.assertIn("README front matter must declare license: apache-2.0", errors)
+        self.assertIn(
+            "release-status.json declares license 'mit', "
+            "but LICENSE and the card declare 'apache-2.0'",
+            errors,
         )
 
     def test_raw_snapshot_digest_mismatch_fails(self) -> None:
@@ -227,6 +404,43 @@ class ReleaseVerifierTests(unittest.TestCase):
             bytes_fetcher=invalid_viewer,
         )
         self.assertIn("viewer projection missing required column: source_line", result.errors)
+
+    def test_front_matter_source_file_marker_keeps_underscore(self) -> None:
+        self.values["README.md"] = _card().replace(
+            "- name: source_file\n", "- name: sourcefile\n"
+        )
+        self.assertIn(
+            "README missing required card marker: name: source_file",
+            self.verify().errors,
+        )
+
+    def test_payload_disclosure_rejects_negated_wrap_schema(self) -> None:
+        self.repo = "rmems/multi-agent-ouroboros-swarm"
+        card = _card().replace(
+            "Purpose-specific trajectories for relay-gated state assessment.",
+            "Purpose-specific safety-gate adjudication trajectories.",
+        ).replace(
+            "designed as one component of **Spikenaut** training",
+            "not labeled as Spikenaut training data",
+        ).replace(
+            "The viewer is data/viewer/records.parquet.\n",
+            "The viewer is data/viewer/records.parquet.\n"
+            "These records are not a thalamic-gate wrap schema. "
+            "7 of the 14 records are wrap-only; the rest live in "
+            "sidecars, not JSONL training records.\n",
+        )
+        self.values["README.md"] = card
+        self.values["release-status.json"] = _release_status()
+        result = verify_hf_release.verify_dataset(
+            self.repo,
+            text_fetcher=self.text_fetcher,
+            bytes_fetcher=self.bytes_fetcher,
+        )
+        self.assertIn(
+            "README retains obsolete payload-kind claim: "
+            "not a thalamic-gate wrap schema",
+            result.errors,
+        )
 
     def test_public_url_rejects_other_owners(self) -> None:
         with self.assertRaises(ValueError):
