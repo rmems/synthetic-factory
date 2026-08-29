@@ -1,0 +1,58 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "vset-record-v1.schema.json",
+  "title": "Verified Software Engineering Trajectory Record v1",
+  "description": "Minimum executable contract for the verified-software-engineering-trajectories (VSET) pilot (#155 record kinds; #154 actor envelope). This slice is schema + fixtures + oracle tests only: no bulk generation, no Hub publish, no Prometheus seeding. Training views must stay compatible with #26 (no thought / internal_reasoning*). Factory onboarding of a live VSET generator is a reviewed FACTORY-REGISTRY.json row plus payload-first kind registration — not a slug hardcoded in identity logic.",
+  "allOf": [
+    { "$ref": "actor-provenance-v1.schema.json" },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema_version",
+        "record_kind",
+        "actor_provenance_schema_version",
+        "source_kind",
+        "task_author",
+        "solver",
+        "oracle",
+        "curation",
+        "environment",
+        "release",
+        "payload",
+        "training_view"
+      ],
+      "properties": {
+        "schema_version": { "const": "vset-record-v1" },
+        "record_kind": {
+          "enum": [
+            "issue_patch_v1",
+            "review_remediation_v1",
+            "failure_recovery_v1"
+          ]
+        },
+        "actor_provenance_schema_version": { "const": "actor-provenance-v1" },
+        "source_kind": true,
+        "task_author": true,
+        "solver": true,
+        "reviewer": true,
+        "oracle": true,
+        "curation": true,
+        "environment": true,
+        "release": true,
+        "payload": {
+          "type": "object",
+          "minProperties": 1
+        },
+        "training_view": {
+          "type": "object",
+          "description": "Curated/training projection. Must not contain thought, internal_reasoning, or internal_reasoning_verbatim. Raw evidence belongs outside this object."
+        },
+        "trace": {
+          "type": "object",
+          "description": "Optional raw evidence. Hidden reasoning may remain here; it must not leak into training_view."
+        }
+      }
+    }
+  ]
+}

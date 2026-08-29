@@ -1,0 +1,156 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "actor-provenance-v1.schema.json",
+  "title": "Synthetic Factory Actor Provenance v1",
+  "description": "Record-level actor envelope for multi-stage synthetic software-engineering workflows (#154). Factory trust remains config/FACTORY-REGISTRY.json (issue #32): this schema does not grant authority and does not hard-code generator slugs. A new model occupies an existing role by filling these fields. source_kind distinguishes synthetic factory work from real_public_engineering (including Operation Prometheus). Oracle status is independent of solver success.",
+  "type": "object",
+  "additionalProperties": true,
+  "required": [
+    "source_kind",
+    "task_author",
+    "solver",
+    "oracle",
+    "curation",
+    "environment",
+    "release"
+  ],
+  "$defs": {
+    "sha256": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "nonempty": {
+      "type": "string",
+      "minLength": 1
+    },
+    "reasonCodes": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "pattern": "^[a-z][a-z0-9_.]*$"
+      }
+    },
+    "modelActor": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["model", "version", "run_id"],
+      "properties": {
+        "model": { "$ref": "#/$defs/nonempty" },
+        "version": { "$ref": "#/$defs/nonempty" },
+        "run_id": { "$ref": "#/$defs/nonempty" },
+        "prompt_hash": { "$ref": "#/$defs/sha256" },
+        "tool_policy": { "$ref": "#/$defs/nonempty" },
+        "outcome": { "$ref": "#/$defs/nonempty" }
+      }
+    }
+  },
+  "properties": {
+    "actor_provenance_schema_version": {
+      "const": "actor-provenance-v1"
+    },
+    "source_kind": {
+      "enum": ["synthetic", "real_public_engineering"],
+      "description": "Synthetic factory records must never masquerade as Prometheus real trajectories."
+    },
+    "task_author": {
+      "allOf": [
+        { "$ref": "#/$defs/modelActor" },
+        {
+          "required": ["prompt_hash"],
+          "description": "Author of the task specification. Distinct from solver."
+        }
+      ]
+    },
+    "solver": {
+      "allOf": [
+        { "$ref": "#/$defs/modelActor" },
+        {
+          "required": ["tool_policy"],
+          "description": "Execution agent. A solver success must not upgrade oracle.status."
+        }
+      ]
+    },
+    "reviewer": {
+      "description": "Optional when no review stage exists; required and explicit for review_remediation_v1.",
+      "anyOf": [
+        { "type": "null" },
+        { "$ref": "#/$defs/modelActor" }
+      ]
+    },
+    "oracle": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "status"],
+      "properties": {
+        "kind": {
+          "type": "string",
+          "minLength": 1,
+          "description": "How the oracle is realized. solver_self_report and task_author_claim cannot certify validated."
+        },
+        "status": {
+          "enum": ["invalid", "provisional", "validated"]
+        },
+        "repo_commit": { "$ref": "#/$defs/nonempty" },
+        "command": { "$ref": "#/$defs/nonempty" },
+        "result_hash": { "$ref": "#/$defs/sha256" },
+        "certifier": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Must not be the solver or task_author identity when status is validated."
+        },
+        "signals": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/nonempty" }
+        },
+        "reference_tests": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/nonempty" }
+        },
+        "hidden_tests": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/nonempty" }
+        },
+        "upgraded_from_solver_success": { "type": "boolean" }
+      }
+    },
+    "curation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["pipeline_version", "decision", "reason_codes"],
+      "properties": {
+        "pipeline_version": { "$ref": "#/$defs/nonempty" },
+        "decision": {
+          "enum": ["accept", "exclude", "measure"],
+          "description": "accept is the positive training admission. invalid/impossible tasks use measure, not a silent drop."
+        },
+        "reason_codes": { "$ref": "#/$defs/reasonCodes" }
+      }
+    },
+    "environment": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["repo_snapshot_hash", "task_id"],
+      "properties": {
+        "repo_snapshot_hash": { "$ref": "#/$defs/sha256" },
+        "task_id": { "$ref": "#/$defs/nonempty" },
+        "repo_pack_id": { "$ref": "#/$defs/nonempty" }
+      }
+    },
+    "release": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["factory_contract_version", "manifest_hash"],
+      "properties": {
+        "factory_contract_version": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Must match config/FACTORY-REGISTRY.json schema_version (factory-registry-v0.1). Authority stays in that reviewed table."
+        },
+        "manifest_hash": { "$ref": "#/$defs/sha256" },
+        "factory_registry_sha256": { "$ref": "#/$defs/sha256" },
+        "schema_version": { "$ref": "#/$defs/nonempty" }
+      }
+    }
+  }
+}

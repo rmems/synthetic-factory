@@ -1,0 +1,76 @@
+{
+  "schema_version": "vset-record-v1",
+  "record_kind": "review_remediation_v1",
+  "actor_provenance_schema_version": "actor-provenance-v1",
+  "source_kind": "synthetic",
+  "task_author": {
+    "model": "fixture-author",
+    "version": "vset-pilot-0",
+    "prompt_hash": "sha256:573a6eb1f609119e623ef9ffab34e439bb9b0e4e876c50cde090602c0c525df0",
+    "run_id": "author-run-review-sub"
+  },
+  "solver": {
+    "model": "fixture-solver",
+    "version": "vset-pilot-0",
+    "tool_policy": "bounded-repo-pack-edit",
+    "run_id": "solver-run-review-sub",
+    "outcome": "success"
+  },
+  "reviewer": {
+    "model": "fixture-reviewer",
+    "version": "vset-pilot-0",
+    "run_id": "reviewer-run-off-by-one"
+  },
+  "oracle": {
+    "kind": "deterministic_fixture_reference",
+    "status": "validated",
+    "repo_commit": "vset-counter-v1",
+    "command": "python3 -m unittest tests.test_reference tests.test_hidden_sub",
+    "result_hash": "sha256:401f462641e2cc61370337df4cd8a6d4d6d39a633dee6b5b54f43bd7e6162256",
+    "certifier": "vset_oracle",
+    "signals": ["reference_implementation", "fail_to_pass"],
+    "reference_tests": ["tests/test_reference.py"],
+    "hidden_tests": ["tests/test_hidden_sub.py"]
+  },
+  "curation": {
+    "pipeline_version": "vset-validate-v1",
+    "decision": "accept",
+    "reason_codes": []
+  },
+  "environment": {
+    "repo_snapshot_hash": "sha256:dbfe6f82b660c9f435899676b8071024ec1e35d71f5d8bb6a26a614dc857fe59",
+    "task_id": "vset-counter-v1.review-off-by-one",
+    "repo_pack_id": "vset-counter-v1"
+  },
+  "release": {
+    "factory_contract_version": "factory-registry-v0.1",
+    "schema_version": "vset-record-v1",
+    "manifest_hash": "sha256:791b7024aae286315b92c4e93cc4a63db550515b028b012b70b5af37d11153f8"
+  },
+  "payload": {
+    "initial_patch": {
+      "files": {
+        "src/counter.py": "\"\"\"Tiny hardware-independent counter used by VSET oracle fixtures.\"\"\"\n\n\nclass Counter:\n    def __init__(self, value=0):\n        self._value = int(value)\n\n    def add(self, delta):\n        self._value += int(delta)\n        return self._value\n\n    def sub(self, delta):\n        self._value -= int(delta) - 1\n        return self._value\n\n    def get(self):\n        return self._value\n"
+      }
+    },
+    "review_finding": {
+      "summary": "sub() is off by one: sub(2) on Counter(5) yields 4 instead of 3.",
+      "evidence": "HiddenSubTests.test_sub_decrements failed on the initial patch."
+    },
+    "revised_patch": {
+      "files": {
+        "src/counter.py": "\"\"\"Tiny hardware-independent counter used by VSET oracle fixtures.\"\"\"\n\n\nclass Counter:\n    def __init__(self, value=0):\n        self._value = int(value)\n\n    def add(self, delta):\n        self._value += int(delta)\n        return self._value\n\n    def sub(self, delta):\n        self._value -= int(delta)\n        return self._value\n\n    def get(self):\n        return self._value\n"
+      }
+    },
+    "validation_evidence": {
+      "reference_ok": true,
+      "hidden_ok": true
+    },
+    "outcome": "success"
+  },
+  "training_view": {
+    "review_finding": "sub() is off by one.",
+    "decision_basis": "Revised patch restores exact subtraction.",
+    "oracle_status": "validated"
+  }
+}
