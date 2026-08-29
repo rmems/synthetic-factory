@@ -484,10 +484,29 @@ def validate_diagnosis_document(payload: bytes, *, label: str) -> dict[str, Any]
     return {"shared_context": context, "target_reward_delta": target}
 
 
-def _session_b_outputs(names: Sequence[str], round_text: str) -> list[str]:
-    forbidden_names = {
-        f"batch-r{round_text}.jsonl",
-        f"NOTES-r{round_text}.md",
+def rejected_scratch_filenames(round_number: int, count: int) -> tuple[str, ...]:
+    """The scratch failure artifacts Session A stages beside its diagnoses."""
+
+    if type(round_number) is not int or round_number < 1:
+        raise PreferenceArmsError("rejected scratch round must be a positive integer")
+    if type(count) is not int or count < 1:
+        raise PreferenceArmsError("rejected scratch count must be a positive integer")
+    round_text = f"{round_number:02d}"
+    return tuple(f"rejected-{index:02d}-r{round_text}.json" for index in range(1, count + 1))
+
+
+def _session_b_outputs(names: Sequence[str], round_number: int, count: int) -> list[str]:
+    """Names in the stage that Session A is not the author of.
+
+    This is an allowlist, not a blacklist. Enumerating Session B's known
+    filenames left every other spelling -- ``repair-01-rNN.json``, say --
+    free to carry chosen-side output into a stage whose receipt then
+    certified that it predated Session B.
+    """
+
+    allowed = {
+        *diagnosis_filenames(round_number, count),
+        *rejected_scratch_filenames(round_number, count),
+        diagnosis_receipt_filename(round_number),
     }
-    chosen_re = re.compile(rf"chosen-[A-Za-z0-9._-]+-r{re.escape(round_text)}\.json\Z")
-    return sorted(name for name in names if name in forbidden_names or chosen_re.fullmatch(name))
+    return sorted(set(names) - allowed)

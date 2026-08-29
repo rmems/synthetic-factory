@@ -80,6 +80,7 @@ from preference_arms_diagnosis import (  # noqa: E402,F401
     _strict_json_object,
     diagnosis_filenames,
     diagnosis_receipt_filename,
+    rejected_scratch_filenames,
     validate_diagnosis_document,
 )
 from preference_arms_fs import (  # noqa: E402,F401
@@ -740,12 +741,14 @@ def _discard_partial_receipt(stage_fd: int, receipt_name: str) -> None:
         pass
 
 
-def _require_no_late_session_b_outputs(stage: Path, stage_fd: int, round_text: str) -> None:
+def _require_no_late_session_b_outputs(
+    stage: Path, stage_fd: int, round_number: int, count: int
+) -> None:
     """Both scans run before either is raised, so a late output is still caught."""
 
-    post_create_outputs = _session_b_outputs(os.listdir(stage_fd), round_text)
+    post_create_outputs = _session_b_outputs(os.listdir(stage_fd), round_number, count)
     _require_open_directory_identity(stage, stage_fd, label="staging directory")
-    final_outputs = _session_b_outputs(os.listdir(stage_fd), round_text)
+    final_outputs = _session_b_outputs(os.listdir(stage_fd), round_number, count)
     _reject_session_b_outputs(
         post_create_outputs,
         "Session B outputs appeared during diagnosis receipt creation: ",
@@ -783,19 +786,19 @@ def write_diagnosis_handoff_receipt(
     stage_fd = -1
     receipt_fd = -1
     created = False
-    receipt: dict[str, Any] | None = None
     receipt_name = "diagnosis-handoff-receipt.json"
     receipt_path = stage / receipt_name
     try:
         stage_fd = _open_canonical_directory(stage, label="staging directory")
         receipt = verify_diagnosis_handoff(stage, diagnosis_files, _stage_fd=stage_fd)
-        round_text = f"{receipt['round']:02d}"
-        receipt_name = diagnosis_receipt_filename(receipt["round"])
+        round_number = receipt["round"]
+        count = len(receipt["diagnosis_files"])
+        receipt_name = diagnosis_receipt_filename(round_number)
         receipt_path = stage / receipt_name
         encoded = _encoded_receipt(receipt)
         _require_open_directory_identity(stage, stage_fd, label="staging directory")
         _reject_session_b_outputs(
-            _session_b_outputs(os.listdir(stage_fd), round_text),
+            _session_b_outputs(os.listdir(stage_fd), round_number, count),
             "diagnosis receipt must be created before Session B outputs: ",
         )
         receipt_fd = os.open(receipt_name, _receipt_write_flags(), 0o600, dir_fd=stage_fd)
@@ -807,7 +810,7 @@ def write_diagnosis_handoff_receipt(
         # An output created after it is later than the durable receipt even if
         # the verifier process has not returned its bounded JSON summary yet.
         os.fsync(stage_fd)
-        _require_no_late_session_b_outputs(stage, stage_fd, round_text)
+        _require_no_late_session_b_outputs(stage, stage_fd, round_number, count)
     except (OSError, PreferenceArmsError) as exc:
         receipt_fd = _rollback_receipt(stage_fd, receipt_fd, receipt_name, created)
         if isinstance(exc, PreferenceArmsError):
@@ -817,8 +820,8 @@ def write_diagnosis_handoff_receipt(
         ) from exc
     finally:
         _close_open_fds(receipt_fd, stage_fd)
-    if receipt is None:  # pragma: no cover - every successful path assigns it
-        raise AssertionError("diagnosis receipt was not constructed")
+    # Reaching here means the verification above returned: every path between
+    # it and this point either re-raises or falls through with the receipt.
     return receipt
 
 

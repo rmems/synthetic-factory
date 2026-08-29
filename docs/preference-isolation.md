@@ -411,8 +411,11 @@ python3 pipelines/round_txn.py publish outputs/raw/2026-08-17/failure-as-fuel-pr
   arm decisions, and stores their deterministic summary in the completion
   marker. The launcher obtains that reservation in a separate content-blind
   context. An arm-payload-blind verifier parses the bounded diagnosis envelope,
-  refuses Session-B outputs immediately before and after its exclusive receipt
-  write, and binds the exact allowlist, regular-file type, bytes, sizes, and
+  refuses every artifact Session A is not the author of immediately before and
+  after its exclusive receipt write -- an allowlist of `diagnosis-NN-rNN.md`
+  and `rejected-NN-rNN.json`, so no other spelling can carry chosen-side
+  output into a stage the receipt then certifies as pre-Session-B -- and binds
+  the exact allowlist, regular-file type, bytes, sizes, and
   SHA-256 digests before opening Session B. This is auditable orchestration
   evidence, not a cryptographic attestation of what happened inside an external
   model session; a manual operator invoking the reserve command is explicitly
