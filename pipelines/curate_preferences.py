@@ -488,6 +488,33 @@ def _exclusion_reasons(context_diff_paths: tuple[str, ...]) -> tuple[str, ...]:
     return ("PREFERENCE_CONTEXT_DIVERGES",)
 
 
+def _absent_context_decision(
+    record: dict[str, Any], same_state: Any, same_proposed_action: Any
+) -> CurationDecision:
+    """Name a pair that carries no same-state context, by the lane that owns it."""
+
+    if _is_trajectory_pair(record):
+        # A shared-goal trajectory pair is a different schema, not a
+        # malformed same-state pair. Naming that keeps a 0% same-state
+        # yield readable and stops anyone from inventing state here.
+        return CurationDecision(
+            action=ACTION_EXCLUDED,
+            classification=CLASSIFICATION_TRAJECTORY_PAIR,
+            reason_codes=(REASON_TRAJECTORY_PAIR,),
+            record=None,
+            context_diff_paths=(),
+        )
+    return CurationDecision(
+        action=ACTION_EXCLUDED,
+        classification="malformed_preference_context",
+        reason_codes=("PREFERENCE_CONTEXT_MISSING_OR_INVALID",),
+        record=None,
+        context_diff_paths=(),
+        same_state=same_state,
+        same_proposed_action=same_proposed_action,
+    )
+
+
 def curate_preference_record(record: dict[str, Any]) -> CurationDecision:
     """Curate one pair without mutating ``record``."""
 
@@ -515,26 +542,7 @@ def curate_preference_record(record: dict[str, Any]) -> CurationDecision:
         )
     context = _preference_context(record)
     if context is None:
-        if _is_trajectory_pair(record):
-            # A shared-goal trajectory pair is a different schema, not a
-            # malformed same-state pair. Naming that keeps a 0% same-state
-            # yield readable and stops anyone from inventing state here.
-            return CurationDecision(
-                action=ACTION_EXCLUDED,
-                classification=CLASSIFICATION_TRAJECTORY_PAIR,
-                reason_codes=(REASON_TRAJECTORY_PAIR,),
-                record=None,
-                context_diff_paths=(),
-            )
-        return CurationDecision(
-            action=ACTION_EXCLUDED,
-            classification="malformed_preference_context",
-            reason_codes=("PREFERENCE_CONTEXT_MISSING_OR_INVALID",),
-            record=None,
-            context_diff_paths=(),
-            same_state=same_state,
-            same_proposed_action=same_proposed_action,
-        )
+        return _absent_context_decision(record, same_state, same_proposed_action)
 
     chosen, rejected = context
     context_diff_paths = _all_context_diffs(chosen, rejected)

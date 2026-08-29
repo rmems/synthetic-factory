@@ -144,10 +144,62 @@ and additionally names the cause with
 gate never rewrites the leaked text — repairing generated step text would
 fabricate evidence, and the fix belongs upstream in generation.
 
-## 7. Measured yield on the published dumps
+## 7. Outcome/label agreement is opt-in
+
+`round_txn.py` applies `validate_run.terminal_outcome_agrees` to every
+preference arm at publication time: a side's outcome prose must agree with its
+own `reward.success` label. A pair whose labels are correctly oriented but
+whose prose is reversed — `chosen.reward.success = true` with "failed and
+remained broken", `rejected.reward.success = false` with "completed and passed
+verification" — carries reversed semantic supervision, and this lane scans
+legacy and external mirrors where the publish-time check cannot be assumed.
+
+The check is therefore available here, but **off by default**:
+
+```bash
+python3 pipelines/curate_trajectory_preferences.py scan <source> \
+  --enforce-outcome-agreement
+```
+
+The default is a measurement, not a preference. `terminal_outcome_agrees` is a
+lexical heuristic calibrated for the outcome vocabulary the Thalamic factory
+generates. Run over the published Grok mirrors it is dominated by false
+positives:
+
+| Dump | Pairs | Rejected by the agreement check | All inspected samples |
+|---|---:|---:|---|
+| `code-review-preference-pairs` | 2964 | 282 (9.5%) | false positives |
+| `tool-use-preference-pairs` | 6192 | 5936 (95.9%) | false positives |
+
+Three collision classes account for them:
+
+- **Tool names.** The failure vocabulary is `fail\w*`, so `faillock` and
+  `fail2ban-client` read as failure evidence in a successful arm
+  (`faillock verify ok; checkout.user kept.`).
+- **Failures that narrate the defect.** A correctly labelled rejected arm ends
+  `evidence deleted; hallucinated success.` — the completion term `success`
+  appears inside the description of the failure.
+- **Review verdicts that quote what they reject.** A `REQUEST_CHANGES` outcome
+  restates the defect text it is rejecting, so completion and failure terms
+  appear on both arms.
+
+Tightening the rule does not separate the two populations: requiring positive
+opposite-evidence on both arms simultaneously still leaves 12 and 7 flags on
+the two dumps, and every one of those 19 is also a false positive.
+
+The lane's *structural* direction invariant is unaffected and is always
+enforced: `TRAJECTORY_PREFERENCE_DIRECTION_INVALID` requires
+`chosen.reward.success` to be exactly `true`, `rejected.reward.success` to be
+exactly `false`, and any pair-level `success` / `preference_margin` / `delta` /
+`same_goal` metadata to agree. That check is exact, not lexical.
+
+Every scan summary records `enforce_outcome_agreement`, so two scans of one
+corpus are never mistaken for each other in an audit.
+
+## 8. Measured yield on the published dumps
 
 Read-only scans of the local Hub mirrors under `/home/raulmc/rmems/hf/grok-4.6/`
-(no writes, raw untouched):
+(no writes, raw untouched), under the default policy of Section 7:
 
 | Dump | Lines | Pairs considered | Retained | Excluded | Skipped |
 |---|---:|---:|---:|---:|---:|
@@ -155,12 +207,17 @@ Read-only scans of the local Hub mirrors under `/home/raulmc/rmems/hf/grok-4.6/`
 | `tool-use-preference-pairs` | 6192 | 6192 | 6156 (99.42%) | 36 zero-prefix | 0 |
 | `tests/fixtures/preference-purity` (Fable FFPC) | 42 | 0 | 0 | 0 | 42 same-state |
 
-## 8. Commands
+## 9. Commands
 
 ```bash
 # Read-only classification, human or JSON
 python3 pipelines/curate_trajectory_preferences.py scan <source>
 python3 pipelines/curate_trajectory_preferences.py scan <source> --json
+
+# Additionally require each arm's outcome prose to agree with its own
+# reward.success label (Section 7 — off by default, and why)
+python3 pipelines/curate_trajectory_preferences.py scan <source> \
+  --enforce-outcome-agreement
 
 # Write a curated view plus a per-record manifest (both must be absent)
 python3 pipelines/curate_trajectory_preferences.py curate <source> \
@@ -176,7 +233,7 @@ Safety rules enforced by the CLI:
   separate writable workspace. `/home/raulmc/rmems/hf/` is a read-only mirror
   of published evidence.
 
-## 9. Out of scope
+## 10. Out of scope
 
 - Fable FFPC impurity ([#4](https://github.com/rmems/synthetic-factory/issues/4),
   [#25](https://github.com/rmems/synthetic-factory/issues/25)) — pairs that
