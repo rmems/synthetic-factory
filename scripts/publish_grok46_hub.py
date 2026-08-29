@@ -339,6 +339,31 @@ def card_schema_audit() -> tuple[list[str], list[str], list[str]]:
     return declared, undeclared, orphaned
 
 
+def require_no_orphaned_declarations() -> None:
+    """Refuse snapshot/upload when a declaration file names no known dataset."""
+    _declared, _undeclared, orphaned = card_schema_audit()
+    if not orphaned:
+        return
+    for name in orphaned:
+        print(
+            f"ORPHANED    config/card-schemas/{name}.json names no known dataset",
+            file=sys.stderr,
+        )
+    raise SystemExit(
+        "orphaned card schema declaration(s) block snapshot/upload: "
+        + ", ".join(orphaned)
+    )
+
+
+def rendered_card_schema(declaration: dict) -> tuple[str, str]:
+    """Render and UTF-8-check one validated declaration's card fragments."""
+    schema_yaml = card_schema.metadata_yaml(declaration)
+    schema_body = card_schema.body_section(declaration)
+    schema_yaml.encode("utf-8")
+    schema_body.encode("utf-8")
+    return schema_yaml, schema_body
+
+
 def card_declaration_for_payload(
     hub: str, payload_names: list[str]
 ) -> tuple[dict | None, str, str]:
@@ -359,10 +384,7 @@ def card_declaration_for_payload(
             + "; ".join(errors)
         )
     try:
-        schema_yaml = card_schema.metadata_yaml(declaration)
-        schema_body = card_schema.body_section(declaration)
-        schema_yaml.encode("utf-8")
-        schema_body.encode("utf-8")
+        schema_yaml, schema_body = rendered_card_schema(declaration)
     except (CardSchemaError, UnicodeEncodeError) as exc:
         raise SystemExit(f"cannot render card schema for {hub}: {exc}") from exc
     return declaration, schema_yaml, schema_body
@@ -838,9 +860,6 @@ def snapshot_one(item: dict) -> dict:
     marker_state = marker_mode_state(src)
     batches = published_batches(src, marker_state)
     notes = published_notes(src, batches, marker_state)
-    records = 0
-    bytes_ = 0
-    labels = []
     desired_batch_names = {batch.name for batch in batches}
     desired_note_names = {note.name for note in notes}
     # Validate against source names before creating, deleting, or copying any
@@ -849,34 +868,9 @@ def snapshot_one(item: dict) -> dict:
         item["hub"], sorted(desired_batch_names)
     )
     raw, meta = snapshot_directories(dest)
-    reconcile_snapshot_entries(
-        dest,
-        {"data", "README.md", "LICENSE", "ATTRIBUTION.md"},
-        "snapshot root entry",
-    )
-    reconcile_snapshot_entries(
-        dest / "data", {"raw", "metadata"}, "snapshot data entry"
-    )
-    reconcile_snapshot_entries(raw, desired_batch_names, "snapshot payload")
-    reconcile_snapshot_entries(meta, desired_note_names, "snapshot metadata")
-    for b in batches:
-        copied = raw / b.name
-        link_or_copy(b, copied, snapshot_manifest_sha256(b, marker_state))
-        records += count_jsonl_lines(copied)
-        bytes_ += copied.stat().st_size
-        labels.append(batch_label(b))
-    for n in notes:
-        link_or_copy(n, meta / n.name, snapshot_manifest_sha256(n, marker_state))
-    labels = [
-        (batch, label)
-        for batch, label in zip(batches, labels)
-        if label is not None
-    ]
-    batch_only = len(labels) == len(batches) and all(
-        batch.name == f"batch-{label[2]}.jsonl" for batch, label in labels
-    )
-    first = min(label for _batch, label in labels)[2] if labels and batch_only else None
-    last_s = max(label for _batch, label in labels)[2] if labels and batch_only else None
+    _reconcile_snapshot_layout(dest, raw, meta, desired_batch_names, desired_note_names)
+    records, bytes_, labels = _copy_snapshot_payload(batches, notes, raw, meta, marker_state)
+    first, last_s = _batch_label_range(batches, labels)
     card = render_card(
         item,
         records=records,
@@ -894,13 +888,7 @@ def snapshot_one(item: dict) -> dict:
         dest / "ATTRIBUTION.md",
         ATTRIBUTION,
     )
-    # YAML tags only — body may say "not labeled as Spikenaut".
-    fm = card.split("---", 2)
-    tag_block = fm[1] if len(fm) >= 3 else ""
-    for line in tag_block.splitlines():
-        low = line.strip().lstrip("- ").lower()
-        if any(b == low or low.startswith(b + "-") for b in BANNED_TAG_SUBSTR):
-            raise SystemExit(f"banned YAML tag {low!r} on {item['hub']}")
+    _reject_banned_tags(card, item["hub"])
     return {
         "hub": item["hub"],
         "slug": item["slug"],
@@ -910,6 +898,111 @@ def snapshot_one(item: dict) -> dict:
         "bytes": bytes_,
         "last": last_s,
     }
+
+
+def _reconcile_snapshot_layout(
+    dest: Path,
+    raw: Path,
+    meta: Path,
+    desired_batch_names: set[str],
+    desired_note_names: set[str],
+) -> None:
+    reconcile_snapshot_entries(
+        dest,
+        {"data", "README.md", "LICENSE", "ATTRIBUTION.md"},
+        "snapshot root entry",
+    )
+    reconcile_snapshot_entries(
+        dest / "data", {"raw", "metadata"}, "snapshot data entry"
+    )
+    reconcile_snapshot_entries(raw, desired_batch_names, "snapshot payload")
+    reconcile_snapshot_entries(meta, desired_note_names, "snapshot metadata")
+
+
+def _copy_snapshot_payload(
+    batches: list[Path],
+    notes: list[Path],
+    raw: Path,
+    meta: Path,
+    marker_state: object,
+) -> tuple[int, int, list]:
+    records = 0
+    bytes_ = 0
+    labels = []
+    for b in batches:
+        copied = raw / b.name
+        link_or_copy(b, copied, snapshot_manifest_sha256(b, marker_state))
+        records += count_jsonl_lines(copied)
+        bytes_ += copied.stat().st_size
+        labels.append(batch_label(b))
+    for n in notes:
+        link_or_copy(n, meta / n.name, snapshot_manifest_sha256(n, marker_state))
+    return records, bytes_, labels
+
+
+def _batch_label_range(
+    batches: list[Path], labels: list
+) -> tuple[str | None, str | None]:
+    labels = [
+        (batch, label)
+        for batch, label in zip(batches, labels)
+        if label is not None
+    ]
+    batch_only = len(labels) == len(batches) and all(
+        batch.name == f"batch-{label[2]}.jsonl" for batch, label in labels
+    )
+    first = min(label for _batch, label in labels)[2] if labels and batch_only else None
+    last_s = max(label for _batch, label in labels)[2] if labels and batch_only else None
+    return first, last_s
+
+
+def _reject_banned_tags(card: str, hub: str) -> None:
+    # YAML tags only — body may say "not labeled as Spikenaut".
+    fm = card.split("---", 2)
+    tag_block = fm[1] if len(fm) >= 3 else ""
+    for line in tag_block.splitlines():
+        low = line.strip().lstrip("- ").lower()
+        if any(b == low or low.startswith(b + "-") for b in BANNED_TAG_SUBSTR):
+            raise SystemExit(f"banned YAML tag {low!r} on {hub}")
+
+
+def _resolved_card_schema(
+    item: dict,
+    payload_names: list[str] | None,
+    schema_yaml: str | None,
+    schema_body: str | None,
+) -> tuple[str, str]:
+    if schema_yaml is None or schema_body is None:
+        _, schema_yaml, schema_body = card_declaration_for_payload(
+            item["hub"], payload_names or []
+        )
+    return schema_yaml, schema_body
+
+
+def _release_payload_text(
+    records: int,
+    kb: int,
+    first: str | None,
+    last: str | None,
+    payload_names: list[str] | None,
+) -> str:
+    if first is not None and last is not None:
+        return (
+            f"The release contains {records} raw records across\n"
+            f"`data/raw/batch-{first}.jsonl` through `data/raw/batch-{last}.jsonl` "
+            f"(~{kb} KB), snapshotted from"
+        )
+    if payload_names:
+        names = ", ".join(f"`data/raw/{name}`" for name in payload_names)
+        return (
+            f"The release contains {records} raw records across {len(payload_names)} "
+            f"published JSONL payload(s) ({names}; ~{kb} KB), snapshotted from"
+        )
+    return (
+        "This snapshot currently contains no published raw batch files. "
+        "It does not claim a `data/raw/batch-rNN.jsonl` payload. The factory "
+        "source tree is"
+    )
 
 
 def render_card(
@@ -925,31 +1018,10 @@ def render_card(
 ) -> str:
     tags = "\n".join(f"- {t}" for t in item["tags"])
     kb = max(1, bytes_ // 1024)
-    if schema_yaml is None or schema_body is None:
-        _, schema_yaml, schema_body = card_declaration_for_payload(
-            item["hub"], payload_names or []
-        )
-    schema_block = schema_yaml
-    schema_section = schema_body
-    if first is None or last is None:
-        if payload_names:
-            names = ", ".join(f"`data/raw/{name}`" for name in payload_names)
-            payload = (
-                f"The release contains {records} raw records across {len(payload_names)} "
-                f"published JSONL payload(s) ({names}; ~{kb} KB), snapshotted from"
-            )
-        else:
-            payload = (
-                "This snapshot currently contains no published raw batch files. "
-                "It does not claim a `data/raw/batch-rNN.jsonl` payload. The factory "
-                "source tree is"
-            )
-    else:
-        payload = (
-            f"The release contains {records} raw records across\n"
-            f"`data/raw/batch-{first}.jsonl` through `data/raw/batch-{last}.jsonl` "
-            f"(~{kb} KB), snapshotted from"
-        )
+    schema_block, schema_section = _resolved_card_schema(
+        item, payload_names, schema_yaml, schema_body
+    )
+    payload = _release_payload_text(records, kb, first, last, payload_names)
     return f"""---
 pretty_name: {item['pretty']}
 license: apache-2.0
@@ -1017,6 +1089,7 @@ training-ready or factual real-world measurements.
 
 
 def cmd_snapshot(only: str | None = None) -> list[dict]:
+    require_no_orphaned_declarations()
     items = factories()
     stats = []
     for item in items:
@@ -1146,12 +1219,43 @@ def validate_upload_snapshot(item: dict, dest: Path) -> None:
     notes = published_notes(src, batches, marker_state)
     raw = dest / "data" / "raw"
     meta = dest / "data" / "metadata"
+    _require_snapshot_directories(raw, meta)
+
+    expected_batches = {path.name: path for path in batches}
+    expected_notes = {path.name: path for path in notes}
+    _require_snapshot_membership(raw, meta, expected_batches, expected_notes)
+    _require_snapshot_digests(raw, meta, expected_batches, expected_notes, marker_state)
+    _require_snapshot_top_level_files(dest)
+
+    records, bytes_, first, last = _snapshot_batch_summary(raw, batches)
+    _, schema_yaml, schema_body = card_declaration_for_payload(
+        item["hub"], [batch.name for batch in batches]
+    )
+    expected_card = render_card(
+        item,
+        records=records,
+        bytes_=bytes_,
+        first=first,
+        last=last,
+        payload_names=[batch.name for batch in batches],
+        schema_yaml=schema_yaml,
+        schema_body=schema_body,
+    )
+    _require_snapshot_card_matches(dest, expected_card)
+
+
+def _require_snapshot_directories(raw: Path, meta: Path) -> None:
     for directory in (raw, meta):
         if not directory.is_dir() or directory.is_symlink():
             raise SystemExit(f"incomplete upload snapshot directory: {directory}")
 
-    expected_batches = {path.name: path for path in batches}
-    expected_notes = {path.name: path for path in notes}
+
+def _require_snapshot_membership(
+    raw: Path,
+    meta: Path,
+    expected_batches: dict[str, Path],
+    expected_notes: dict[str, Path],
+) -> None:
     actual_batches = {path.name for path in raw.iterdir()}
     actual_notes = {path.name for path in meta.iterdir()}
     if actual_batches != set(expected_batches):
@@ -1159,6 +1263,14 @@ def validate_upload_snapshot(item: dict, dest: Path) -> None:
     if actual_notes != set(expected_notes):
         raise SystemExit(f"upload snapshot metadata set mismatch: {meta}")
 
+
+def _require_snapshot_digests(
+    raw: Path,
+    meta: Path,
+    expected_batches: dict[str, Path],
+    expected_notes: dict[str, Path],
+    marker_state: object,
+) -> None:
     for directory, expected in ((raw, expected_batches), (meta, expected_notes)):
         for name, source in expected.items():
             expected_sha256 = snapshot_manifest_sha256(source, marker_state)
@@ -1167,6 +1279,8 @@ def validate_upload_snapshot(item: dict, dest: Path) -> None:
             if file_sha256(directory / name) != expected_sha256:
                 raise SystemExit(f"upload snapshot digest mismatch: {directory / name}")
 
+
+def _require_snapshot_top_level_files(dest: Path) -> None:
     required_top = {
         "README.md": None,
         "LICENSE": LICENSE_SRC,
@@ -1185,6 +1299,10 @@ def validate_upload_snapshot(item: dict, dest: Path) -> None:
     if attribution != ATTRIBUTION:
         raise SystemExit(f"upload snapshot digest mismatch: {dest / 'ATTRIBUTION.md'}")
 
+
+def _snapshot_batch_summary(
+    raw: Path, batches: list[Path]
+) -> tuple[int, int, str | None, str | None]:
     records = sum(count_jsonl_lines(raw / batch.name) for batch in batches)
     bytes_ = sum((raw / batch.name).stat().st_size for batch in batches)
     labels = [
@@ -1197,14 +1315,10 @@ def validate_upload_snapshot(item: dict, dest: Path) -> None:
     )
     first = min(label for _batch, label in labels)[2] if labels and batch_only else None
     last = max(label for _batch, label in labels)[2] if labels and batch_only else None
-    expected_card = render_card(
-        item,
-        records=records,
-        bytes_=bytes_,
-        first=first,
-        last=last,
-        payload_names=[batch.name for batch in batches],
-    )
+    return records, bytes_, first, last
+
+
+def _require_snapshot_card_matches(dest: Path, expected_card: str) -> None:
     try:
         card = (dest / "README.md").read_text()
     except (OSError, UnicodeError) as exc:
@@ -1214,6 +1328,7 @@ def validate_upload_snapshot(item: dict, dest: Path) -> None:
 
 
 def cmd_upload(only: str | None = None) -> None:
+    require_no_orphaned_declarations()
     for item in factories():
         if not is_selected(item, only):
             continue
@@ -1289,16 +1404,7 @@ def cmd_schemas(strict: bool = False) -> int:
     """
     declared, undeclared, orphaned = card_schema_audit()
     for name in declared:
-        declaration = card_declaration(name)
-        if declaration is None:
-            raise SystemExit(f"card schema for {name} disappeared during the audit")
-        kind = "schema" if declaration["features"] else "disclosure-only"
-        issues = (
-            " " + ", ".join(f"#{number}" for number in declaration["issues"])
-            if declaration["issues"]
-            else ""
-        )
-        print(f"declared    {name:48} {kind}{issues}")
+        _report_declared_dataset(name)
     for name in undeclared:
         print(f"UNDECLARED  {name:48} no config/card-schemas/{name}.json")
     print(
@@ -1306,11 +1412,7 @@ def cmd_schemas(strict: bool = False) -> int:
         f"{len(orphaned)} orphaned of {len(declared) + len(undeclared)} datasets"
     )
     if orphaned:
-        for name in orphaned:
-            print(
-                f"ORPHANED    config/card-schemas/{name}.json names no known dataset",
-                file=sys.stderr,
-            )
+        _report_orphaned(orphaned)
         return 2
     if undeclared and strict:
         print(
@@ -1320,6 +1422,31 @@ def cmd_schemas(strict: bool = False) -> int:
         )
         return 1
     return 0
+
+
+def _report_declared_dataset(name: str) -> None:
+    declaration = card_declaration(name)
+    if declaration is None:
+        raise SystemExit(f"card schema for {name} disappeared during the audit")
+    try:
+        rendered_card_schema(declaration)
+    except (CardSchemaError, UnicodeEncodeError) as exc:
+        raise SystemExit(f"cannot render card schema for {name}: {exc}") from exc
+    kind = "schema" if declaration["features"] else "disclosure-only"
+    issues = (
+        " " + ", ".join(f"#{number}" for number in declaration["issues"])
+        if declaration["issues"]
+        else ""
+    )
+    print(f"declared    {name:48} {kind}{issues}")
+
+
+def _report_orphaned(orphaned: list[str]) -> None:
+    for name in orphaned:
+        print(
+            f"ORPHANED    config/card-schemas/{name}.json names no known dataset",
+            file=sys.stderr,
+        )
 
 
 def main() -> int:
@@ -1347,18 +1474,31 @@ def main() -> int:
         print(f"unknown --only target: {args.only}", file=sys.stderr)
         return 2
     if args.cmd in {"create", "upload", "collect", "all"}:
-        who = subprocess.run(
-            ["hf", "auth", "whoami", "--format", "json"],
-            capture_output=True,
-            text=True,
-        )
-        if who.returncode != 0:
-            print(who.stderr, file=sys.stderr)
-            return 2
-        ident = json.loads(who.stdout)
-        if ident.get("user") != "rmems":
-            print(f"refusing: whoami={ident!r}", file=sys.stderr)
-            return 2
+        auth_error = _require_hf_identity()
+        if auth_error is not None:
+            return auth_error
+    _dispatch_command(args)
+    return 0
+
+
+def _require_hf_identity() -> int | None:
+    """Confirm the local ``hf`` CLI is authenticated as rmems, or return an exit code."""
+    who = subprocess.run(
+        ["hf", "auth", "whoami", "--format", "json"],
+        capture_output=True,
+        text=True,
+    )
+    if who.returncode != 0:
+        print(who.stderr, file=sys.stderr)
+        return 2
+    ident = json.loads(who.stdout)
+    if ident.get("user") != "rmems":
+        print(f"refusing: whoami={ident!r}", file=sys.stderr)
+        return 2
+    return None
+
+
+def _dispatch_command(args: argparse.Namespace) -> None:
     if args.cmd == "snapshot":
         cmd_snapshot(args.only)
     elif args.cmd == "create":
@@ -1374,7 +1514,6 @@ def main() -> int:
         cmd_create(args.only)
         cmd_upload(args.only)
         cmd_collect(args.only)
-    return 0
 
 
 if __name__ == "__main__":
