@@ -1713,6 +1713,18 @@ class Cli(unittest.TestCase):
             self.assertIn("refusing to overwrite", second.stderr)
             self.assertEqual(out.read_bytes(), before)
 
+    def test_generate_rejects_nonpositive_steps_with_a_usage_error(self):
+        # Previously this reached generate_records() unchecked and the
+        # software adapter raised ValueError normalizing the empty
+        # stimulus, outside every handler in main() — a traceback instead
+        # of a clean usage error.
+        with tempfile.TemporaryDirectory() as tmp:
+            for steps in ("0", "-1"):
+                with self.subTest(steps=steps):
+                    result = _cli(["generate", tmp, "--round", "9", "--steps", steps])
+                    self.assertEqual(result.returncode, 2, result.stderr)
+                    self.assertIn("--steps must be a positive integer", result.stderr)
+
     def test_jsonl_framing_uses_lf_not_unicode_line_separators(self):
         for separator in ("\u2028", "\u2029"):
             with self.subTest(

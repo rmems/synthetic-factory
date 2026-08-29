@@ -2517,6 +2517,12 @@ def main(argv=None):
         print(json.dumps(availability_report(), indent=2, sort_keys=True))
         return 0
     if args.command == "generate":
+        if args.steps < 1:
+            print(
+                f"hardware_parity: --steps must be a positive integer, got {args.steps}",
+                file=sys.stderr,
+            )
+            return 2
         out = Path(args.out_dir) / FACTORY_SLUG / f"batch-r{args.round:02d}.jsonl"
         if out.exists():
             print(
