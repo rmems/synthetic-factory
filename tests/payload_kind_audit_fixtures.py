@@ -1,12 +1,13 @@
-"""Shared constants for the payload-kind audit test suite (issue #74).
+"""Shared constants and record builders for the payload-kind audit test suite.
 
-Split out of test_payload_kind_audit.py so the published-fixture and
-raw-corpus-fidelity test classes can each live in their own file without
-duplicating these paths and tables.
+Split out of test_payload_kind_audit.py so the classification, CLI, published-
+fixture, and raw-corpus-fidelity test files can each cover one concern without
+duplicating these paths, tables, and synthetic-record builders.
 """
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
@@ -39,3 +40,42 @@ ISSUE_74_THALAMIC_IDS = (
     "act-r09-001",
     "act-r09-002",
 )
+
+
+def _step(n, **extra):
+    step = {
+        "n": n,
+        "tool_call": {"name": "bash", "args": {"command": "pytest -q"}},
+        "observation": "1 failed",
+    }
+    step.update(extra)
+    return step
+
+
+def _episode(steps):
+    return {
+        "goal": "fix the failing test",
+        "steps": steps,
+        "outcome": "SUCCESS",
+        "reward": {"success": True},
+        "meta": {"factory": "agentic-coding-trajectory-factory", "round": 2},
+    }
+
+
+def _thalamic(episode_id, executed, *, supervisor="gate-v1", decision="MODIFY"):
+    return {
+        "state": {"episode_id": episode_id, "domain": "software_engineering.demo"},
+        "proposed_action": {"action_type": "quarantine"},
+        "safety_decision": {"supervisor_id": supervisor, "decision": decision},
+        "executed_action": executed,
+        "future_outcome": {"realized": "ok"},
+        "reward_components": {"total": 0.8},
+        "meta": {"factory": "agentic-coding-trajectory-factory", "round": 2},
+    }
+
+
+def _write_corpus(directory, files):
+    for name, records in files.items():
+        (directory / name).write_text(
+            "".join(json.dumps(record) + "\n" for record in records), encoding="utf-8"
+        )
