@@ -232,8 +232,8 @@ def curate_record(
         cleaned_chosen = cleaned.get("chosen")
         cleaned_rejected = cleaned.get("rejected")
         if all(
-            cleaned_chosen.get(field) == cleaned_rejected.get(field)
-            for field in ("steps", "outcome")
+            cleaned_chosen.get(name) == cleaned_rejected.get(name)
+            for name in ("steps", "outcome")
         ):
             decision["reason_codes"] = reasons + [REASON_PREFERENCE_COLLAPSED]
             return None, decision

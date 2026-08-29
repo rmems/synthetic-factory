@@ -18,6 +18,7 @@ from __future__ import annotations
 
 from collections.abc import Hashable, Mapping
 from dataclasses import dataclass, field
+from typing import Any
 
 from mill_reviewed_vocabulary import (
     REVIEWED_GOAL_STRONG_ANCHORS,
@@ -84,12 +85,13 @@ def entry_label(entry: Entry) -> str:
     """Return the stable label used to record one entry in a result set.
 
     The record's own id when present, else its ref stringified, else a fixed
-    placeholder. ``ref`` is widened to ``object`` for the conversion because
-    that is all stringifying needs: ``Hashable`` only advertises ``__hash__``,
-    while every object carries ``object.__str__``.
+    placeholder. A ref is an opaque token the caller chose to address its own
+    records by -- census passes ``(relative path, line number)``, curation
+    passes a decision index -- so its type is genuinely ``Any`` here, and
+    stringifying it is the whole point rather than an accident.
     """
 
-    ref: object = entry.ref
+    ref: Any = entry.ref
     return entry.record_id or (str(ref) if ref is not None else "<unknown>")
 
 

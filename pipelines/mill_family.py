@@ -115,6 +115,24 @@ __all__ = [
 ]
 
 
+def _entry_reasons(
+    entry: Entry,
+    axes: Axes,
+    goal_homes: Mapping[Entry, str],
+) -> list[str]:
+    """Return the reason codes one entry fires, in axis order."""
+
+    payload_foreign, prefix_foreign, _ = foreignness(entry, axes)
+    reasons: list[str] = []
+    if payload_foreign:
+        reasons.append(REASON_FOREIGN_PAYLOAD_FACTORY)
+    if prefix_foreign:
+        reasons.append(REASON_FOREIGN_MILL_ID_PREFIX)
+    if goal_homes.get(entry) is not None:
+        reasons.append(REASON_FOREIGN_MILL_GOAL_FAMILY)
+    return reasons
+
+
 class MillIndex:
     """Accumulate records per destination, then resolve mill ownership.
 
@@ -225,24 +243,6 @@ class MillIndex:
 
     # -- reporting ----------------------------------------------------
 
-    def _entry_reasons(
-        self,
-        entry: Entry,
-        axes: Axes,
-        goal_homes: Mapping[Entry, str],
-    ) -> list[str]:
-        """Return the reason codes one entry fires, in axis order."""
-
-        payload_foreign, prefix_foreign, _ = foreignness(entry, axes)
-        reasons: list[str] = []
-        if payload_foreign:
-            reasons.append(REASON_FOREIGN_PAYLOAD_FACTORY)
-        if prefix_foreign:
-            reasons.append(REASON_FOREIGN_MILL_ID_PREFIX)
-        if goal_homes.get(entry) is not None:
-            reasons.append(REASON_FOREIGN_MILL_GOAL_FAMILY)
-        return reasons
-
     def findings(self) -> tuple[MillFinding, ...]:
         """Return every indexed record whose mill signals are foreign, in order."""
 
@@ -254,7 +254,7 @@ class MillIndex:
 
         results: list[MillFinding] = []
         for entry in self._entries:
-            reasons = self._entry_reasons(entry, axes, goal_homes)
+            reasons = _entry_reasons(entry, axes, goal_homes)
             if not reasons:
                 continue
             expected = identity.get(entry.factory)

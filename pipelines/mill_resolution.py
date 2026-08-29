@@ -215,8 +215,8 @@ def missing_homes(
 
     absent = {
         home
-        for prefix_homes in axes.homes.values()
-        for home in prefix_homes
+        for homes_for_prefix in axes.homes.values()
+        for home in homes_for_prefix
         if home not in verified
     }
     absent.update(
