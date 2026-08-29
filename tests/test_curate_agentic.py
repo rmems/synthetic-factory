@@ -1137,6 +1137,46 @@ class ForeignMillQuarantine(unittest.TestCase):
         self.assertEqual(run["decisions"][0]["action"], ACTION_RETAINED)
         self.assertNotIn("mill_family", run["decisions"][0])
 
+    def test_registry_only_factory_root_is_verified_not_payload_redefined(self):
+        """A factory registered in FACTORY-REGISTRY.json with no round quota
+        (an identity-only generator, e.g. gpt-5.6-sol-coding-factory) must be
+        verified the same way a quota-bearing factory root is. Verification
+        was previously keyed on FACTORY_QUOTAS alone, so a directory named
+        after such a factory was treated as unverified and its destination
+        could be silently redefined by a foreign payload declaration instead
+        of being flagged. Mirrors
+        test_partial_context_reports_foreign_payload_without_quarantine but
+        for a registry-only root."""
+        with tempfile.TemporaryDirectory() as temporary:
+            factory = Path(temporary) / "gpt-5.6-sol-coding-factory"
+            factory.mkdir()
+            record = _mill_episode(
+                "foreign-payload",
+                "fix verify",
+                "cache-stampede-factory",
+            )
+            (factory / "batch-r01.jsonl").write_text(
+                json.dumps(record) + "\n", encoding="utf-8"
+            )
+
+            run = curate_source(factory)
+
+        mill_summary = run["summary"]["mill_family"]
+        self.assertFalse(mill_summary["context_complete"])
+        self.assertFalse(mill_summary["quarantine_applied"])
+        self.assertEqual(mill_summary["records"], 1)
+        self.assertEqual(
+            mill_summary["reason_codes"],
+            {REASON_FOREIGN_PAYLOAD_FACTORY: 1},
+        )
+        self.assertEqual(mill_summary["record_ids"], [record["id"]])
+        self.assertEqual(
+            run["summary"]["quarantined_foreign_mill_records"], 0
+        )
+        self.assertEqual(run["summary"]["output_records"], 1)
+        self.assertEqual(run["decisions"][0]["action"], ACTION_RETAINED)
+        self.assertNotIn("mill_family", run["decisions"][0])
+
     def test_partial_context_with_ambiguous_prefix_refuses_output(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary) / "run"

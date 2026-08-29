@@ -313,44 +313,48 @@ def factory_source(slug: str) -> Path:
     return source
 
 
-def factories() -> list[dict]:
+def _factory_slugs() -> list[str]:
     if FACTORY_ROOT.is_symlink() or not FACTORY_ROOT.is_dir():
         raise SystemExit(f"unsafe factory root: {FACTORY_ROOT}")
-    slugs = []
+    slugs: list[str] = []
     for path in sorted(FACTORY_ROOT.iterdir()):
         if path.is_symlink():
             raise SystemExit(f"unsafe factory directory: {path}")
         if path.is_dir():
             factory_source(path.name)
             slugs.append(path.name)
+    return slugs
+
+
+def _factory_tags(hub: str, extra: list[str], slug: str) -> list[str]:
+    tags = ["synthetic-data", "agentic-workflows", "grok-4.6", "provenance",
+            "preference-data" if "pairs" in hub else "trajectories", *extra]
+    clean: list[str] = []
+    for tag in dict.fromkeys(tags):
+        if any(banned in tag.lower() for banned in BANNED_TAG_SUBSTR):
+            raise SystemExit(f"banned tag {tag} on {slug}")
+        clean.append(tag)
+    return clean
+
+
+def _factory_hub(slug: str) -> str:
+    hub = hub_name(slug)
+    expected_hub = leftover_mill.PUBLISHED_HUB_NAME.get(slug)
+    if expected_hub is not None and hub != expected_hub:
+        raise SystemExit(
+            f"issue #43 hub name drift for {slug}: {hub} != {expected_hub}"
+        )
+    return hub
+
+
+def factories() -> list[dict]:
     out = []
-    for slug in slugs:
+    for slug in _factory_slugs():
         if slug not in META:
             raise SystemExit(f"missing META for {slug}")
         blurb, extra = META[slug]
-        hub = hub_name(slug)
-        expected_hub = leftover_mill.PUBLISHED_HUB_NAME.get(slug)
-        if expected_hub is not None and hub != expected_hub:
-            raise SystemExit(
-                f"issue #43 hub name drift for {slug}: {hub} != {expected_hub}"
-            )
-        tags = ["synthetic-data", "agentic-workflows", "grok-4.6", "provenance"]
-        if "pairs" in hub:
-            tags.append("preference-data")
-        else:
-            tags.append("trajectories")
-        tags.extend(extra)
-        # de-dupe preserve order
-        seen = set()
-        clean = []
-        for t in tags:
-            if t in seen:
-                continue
-            low = t.lower()
-            if any(b in low for b in BANNED_TAG_SUBSTR):
-                raise SystemExit(f"banned tag {t} on {slug}")
-            seen.add(t)
-            clean.append(t)
+        hub = _factory_hub(slug)
+        clean = _factory_tags(hub, extra, slug)
         out.append({"slug": slug, "hub": hub, "pretty": pretty_name(hub), "blurb": blurb, "tags": clean})
     return out
 
@@ -1034,6 +1038,14 @@ Synthetic Data Factory agentic lane. Factory slug:
 copy is a public evidence snapshot, not the curated training export. Public
 visibility is not a training-readiness claim.
 {quarantine}
+
+Raw records may still carry model-private reasoning: `thought` on a step, and
+`internal_reasoning` / `internal_reasoning_verbatim` on a gate record's
+`proposed_action`. **Do not train on `thought` or `internal_reasoning*`.** This
+raw Hub copy is evidence only. The curated export drops those keys and keeps a
+short `decision_basis` grounded in visible plan, tool call, observation, or
+reflection evidence instead.
+
 ## Planned curated release
 
 Curated training publication remains blocked until a later audit and export
@@ -1179,20 +1191,19 @@ def safe_upload_directory(item: dict) -> Path:
     return dest
 
 
-def validate_upload_snapshot(item: dict, dest: Path) -> None:
-    """Require the complete mirror to match the current validated source."""
-    src = factory_source(item["slug"])
-    marker_state = marker_mode_state(src)
-    batches = published_batches(src, marker_state)
-    notes = published_notes(src, batches, marker_state)
-    raw = dest / "data" / "raw"
-    meta = dest / "data" / "metadata"
+def _validate_upload_snapshot_directories(raw: Path, meta: Path) -> None:
     for directory in (raw, meta):
         if not directory.is_dir() or directory.is_symlink():
             raise SystemExit(f"incomplete upload snapshot directory: {directory}")
 
-    expected_batches = {path.name: path for path in batches}
-    expected_notes = {path.name: path for path in notes}
+
+def _validate_upload_snapshot_payload(
+    raw: Path,
+    meta: Path,
+    expected_batches: dict,
+    expected_notes: dict,
+    marker_state,
+) -> None:
     actual_batches = {path.name for path in raw.iterdir()}
     actual_notes = {path.name for path in meta.iterdir()}
     if actual_batches != set(expected_batches):
@@ -1208,6 +1219,8 @@ def validate_upload_snapshot(item: dict, dest: Path) -> None:
             if file_sha256(directory / name) != expected_sha256:
                 raise SystemExit(f"upload snapshot digest mismatch: {directory / name}")
 
+
+def _validate_upload_snapshot_top_level_files(dest: Path) -> None:
     required_top = {
         "README.md": None,
         "LICENSE": LICENSE_SRC,
@@ -1226,11 +1239,10 @@ def validate_upload_snapshot(item: dict, dest: Path) -> None:
     if attribution != ATTRIBUTION:
         raise SystemExit(f"upload snapshot digest mismatch: {dest / 'ATTRIBUTION.md'}")
 
+
+def _validate_upload_snapshot_card(item: dict, dest: Path, raw: Path, batches, kind_mix) -> None:
     records = sum(count_jsonl_lines(raw / batch.name) for batch in batches)
     bytes_ = sum((raw / batch.name).stat().st_size for batch in batches)
-    kind_mix = gate_leftover_mill(
-        item, [(raw / batch.name, batch.name) for batch in batches]
-    )
     labels = [
         (batch, label)
         for batch in batches
@@ -1257,6 +1269,29 @@ def validate_upload_snapshot(item: dict, dest: Path) -> None:
     if card != expected_card:
         raise SystemExit(f"upload snapshot digest mismatch: {dest / 'README.md'}")
 
+
+def validate_upload_snapshot(item: dict, dest: Path) -> None:
+    """Require the complete mirror to match the current validated source."""
+    src = factory_source(item["slug"])
+    marker_state = marker_mode_state(src)
+    batches = published_batches(src, marker_state)
+    notes = published_notes(src, batches, marker_state)
+    raw = dest / "data" / "raw"
+    meta = dest / "data" / "metadata"
+    _validate_upload_snapshot_directories(raw, meta)
+
+    expected_batches = {path.name: path for path in batches}
+    expected_notes = {path.name: path for path in notes}
+    _validate_upload_snapshot_payload(
+        raw, meta, expected_batches, expected_notes, marker_state
+    )
+
+    _validate_upload_snapshot_top_level_files(dest)
+
+    kind_mix = gate_leftover_mill(
+        item, [(raw / batch.name, batch.name) for batch in batches]
+    )
+    _validate_upload_snapshot_card(item, dest, raw, batches, kind_mix)
 
 def cmd_upload(only: str | None = None) -> None:
     for item in factories():

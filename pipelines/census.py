@@ -166,6 +166,38 @@ def _finding_row(finding: MillFinding) -> dict:
     return row
 
 
+def _read_census_records(path: Path, source: str):
+    """Return decoded records plus bounded parse/decode diagnostics."""
+
+    decoded = []
+    parse_failures = 0
+    unreadable = []
+    for lineno, raw_line in enumerate(path.read_bytes().splitlines(), 1):
+        if not raw_line.strip():
+            continue
+        try:
+            line = raw_line.decode("utf-8")
+        except UnicodeDecodeError as exc:
+            unreadable.append(
+                {"source": source, "line": lineno, "error": str(exc)}
+            )
+            continue
+        try:
+            decoded.append(
+                (lineno, json.loads(line, parse_constant=reject_json_constant))
+            )
+        except (json.JSONDecodeError, ValueError):
+            parse_failures += 1
+    return decoded, parse_failures, unreadable
+
+
+def _record_simulation_buckets(obj) -> Counter:
+    values = list(iter_sim_or_real(obj))
+    if not values:
+        return Counter({"<missing>": 1})
+    return Counter(bucket_sim_or_real(value) for value in values)
+
+
 def census_dir(run_dir):
     run_dir = Path(run_dir).resolve()
     by_kind = {kind: 0 for kind in KINDS}
@@ -182,27 +214,13 @@ def census_dir(run_dir):
         files += 1
         relative = path.relative_to(run_dir)
         factory, factory_verified = factory_identity_for_path(run_dir, path)
-        payload = path.read_bytes()
-        for lineno, raw_line in enumerate(payload.splitlines(), 1):
-            if not raw_line.strip():
-                continue
-            try:
-                line = raw_line.decode("utf-8")
-            except UnicodeDecodeError as exc:
-                decode_failures += 1
-                unreadable_files.append(
-                    {
-                        "source": relative.as_posix(),
-                        "line": lineno,
-                        "error": str(exc),
-                    }
-                )
-                continue
-            try:
-                obj = json.loads(line, parse_constant=reject_json_constant)
-            except (json.JSONDecodeError, ValueError):
-                parse_failures += 1
-                continue
+        decoded, failed, unreadable = _read_census_records(
+            path, relative.as_posix()
+        )
+        parse_failures += failed
+        decode_failures += len(unreadable)
+        unreadable_files.extend(unreadable)
+        for lineno, obj in decoded:
             records += 1
             by_factory[factory] += 1
             mills.add(
@@ -212,12 +230,8 @@ def census_dir(run_dir):
                 factory_verified=factory_verified,
             )
             by_kind[classify_kind(obj)] += 1
-            found = list(iter_sim_or_real(obj))
-            if not found:
-                sim_hist["<missing>"] += 1
-                continue
-            for value in found:
-                sim_hist[bucket_sim_or_real(value)] += 1
+            for bucket, count in _record_simulation_buckets(obj).items():
+                sim_hist[bucket] += count
 
     findings = mills.findings()
     quarantined_by_factory = Counter(finding.factory for finding in findings)
