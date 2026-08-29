@@ -159,6 +159,27 @@ class CheckRecordsRewardArithmetic(unittest.TestCase):
         self.assertFalse(result["warnings"], result)
         self.assertEqual(result["exit_code"], 0)
 
+    def test_reward_components_spike_events_array_is_still_validated(self):
+        """The narrative-annotation exemption is scoped to the documented
+        string shape. An array at reward_components.spike_events is a
+        genuine (if oddly placed) stream and must stay strictly checked
+        (Codex #87, discussion_r3885829803)."""
+        rec = _thalamic(
+            reward_components={
+                "task_progress": 0.4,
+                "safety": 0.6,
+                "spike_events": [{"t_rel_ms": 2}, {"t_rel_ms": 1}],
+                "total": 1.0,
+            },
+            meta={"id": "reward-array-spike-events"},
+        )
+        tmp, run_dir = _run_dir([rec])
+        with tmp:
+            result = check_records.check_run(run_dir, strict=True)
+        self.assertTrue(result["errors"], result)
+        self.assertIn("not globally non-decreasing", "\n".join(result["errors"]))
+        self.assertEqual(result["exit_code"], 1)
+
     def test_chosen_and_rejected_reward_components_are_checked(self):
         pair = {
             "chosen": _thalamic(
