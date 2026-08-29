@@ -18,16 +18,18 @@
     },
     "language_view": {
       "type": "object",
-      "description": "Structured language carrier for a Bridge trajectory. Nested gate_snn declarations use the same definition as top-level and meta sidecars.",
+      "description": "Structured language carrier for a Bridge trajectory. Nested gate_snn and gate_compute declarations use the same definitions as the top-level and meta sidecars.",
       "properties": {
         "trajectory": {
           "type": "object",
           "properties": {
             "gate_snn": { "$ref": "#/$defs/gate_snn" },
+            "gate_compute": { "$ref": "#/$defs/gate_compute" },
             "safety_decision": {
               "type": "object",
               "properties": {
-                "gate_snn": { "$ref": "#/$defs/gate_snn" }
+                "gate_snn": { "$ref": "#/$defs/gate_snn" },
+                "gate_compute": { "$ref": "#/$defs/gate_compute" }
               },
               "additionalProperties": true
             }
@@ -37,6 +39,10 @@
       },
       "additionalProperties": true
     },
+    "gate_compute": { "$ref": "#/$defs/gate_compute" }
+  },
+  "additionalProperties": true,
+  "$defs": {
     "gate_compute": {
       "type": "object",
       "description": "Alternative carrier for spike-budget checks: per-check neurons/rate/window/spikes entries",
@@ -80,10 +86,7 @@
         "total_energy_uJ": { "type": "number", "minimum": 0 },
         "total_energy_pJ": { "type": "number", "minimum": 0 }
       }
-    }
-  },
-  "additionalProperties": true,
-  "$defs": {
+    },
     "gate_snn": {
       "type": "object",
       "description": "Spike-implemented safety gate head. The gate decision is expressed as neuron populations with firing thresholds integrated over a decision window, so a distillation probe reads neuron counts instead of prose margins. A population that also declares mean_rate_hz and spikes is held to the same spikes = round(neurons * mean_rate_hz * decision_window_s) budget as a raster. Accepted carriers: top-level gate_snn, meta.gate_snn, language_view.trajectory.gate_snn, language_view.trajectory.safety_decision.gate_snn.",
@@ -215,8 +218,8 @@
                 "type": "object",
                 "required": ["from", "to"],
                 "properties": {
-                  "from": { "type": "string" },
-                  "to": { "type": "string" },
+                  "from": { "type": "string", "minLength": 1, "pattern": "\\S" },
+                  "to": { "type": "string", "minLength": 1, "pattern": "\\S" },
                   "weight": { "type": "number" }
                 }
               }

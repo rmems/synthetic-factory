@@ -1016,6 +1016,93 @@ class RasterSchemaParity(unittest.TestCase):
             {"$ref": "#/$defs/gate_snn"},
         )
 
+    def test_nested_gate_compute_carriers_reference_the_canonical_definition(self):
+        """Every carrier ``_gate_compute_sidecar`` accepts is schema-constrained.
+
+        The nested carriers used to be unconstrained: ``additionalProperties``
+        is enabled on the trajectory objects, so a malformed nested compute
+        block passed the published schema and was only rejected later by the
+        runtime publication validator.
+        """
+
+        ref = {"$ref": "#/$defs/gate_compute"}
+        trajectory = self.schema["properties"]["language_view"]["properties"][
+            "trajectory"
+        ]["properties"]
+
+        self.assertEqual(self.schema["properties"]["gate_compute"], ref)
+        self.assertEqual(trajectory["gate_compute"], ref)
+        self.assertEqual(trajectory["safety_decision"]["properties"]["gate_compute"], ref)
+        self.assertIn("per_check", self.schema["$defs"]["gate_compute"]["properties"])
+
+        # The definition must cover exactly the carriers the runtime resolves.
+        for location in (
+            "gate_compute",
+            "language_view.trajectory.gate_compute",
+            "language_view.trajectory.safety_decision.gate_compute",
+        ):
+            with self.subTest(location=location):
+                record = gate_snn_fixture()
+                record.pop("gate_compute", None)
+                target = record
+                for key in location.split(".")[:-1]:
+                    target = target.setdefault(key, {})
+                target["gate_compute"] = {"per_check": []}
+
+                found, _value = curate_bridge._gate_compute_sidecar(record)
+
+                self.assertEqual(found, location)
+                node = self.schema["properties"]
+                for key in location.split("."):
+                    node = node[key]
+                    node = node.get("properties", node)
+                self.assertEqual(node, ref)
+
+    def test_schema_requires_nonblank_routing_endpoints_like_the_validator(self):
+        """A blank ``from``/``to`` must fail the schema, not just the runtime.
+
+        ``_validate_raster`` rejects an entry whose endpoints are blank after
+        trimming, so a producer that validated against this schema and then
+        failed publication would have followed every documented instruction.
+        """
+
+        table_entry = self.schema["$defs"]["raster"]["properties"]["routing"][
+            "properties"
+        ]["table"]["items"]
+
+        # minLength alone stops "" but not "   ", and the runtime trims before
+        # it checks, so the endpoints carry the same \S pattern the gate
+        # decision uses.  Checked through the schema's own keywords: this
+        # suite runs on the standard library alone.
+        for endpoint in ("from", "to"):
+            for blank in ("", "   ", "\t\n"):
+                with self.subTest(endpoint=endpoint, value=repr(blank)):
+                    keywords = table_entry["properties"][endpoint]
+                    record = gate_snn_fixture()
+                    entry = {"from": "a", "to": "b"}
+                    entry[endpoint] = blank
+                    record["raster"]["routing"]["table"] = [entry]
+
+                    status = curate_bridge.raster_status(record)
+
+                    self.assertFalse(status["raster_valid"])
+                    self.assertIn(
+                        curate_bridge.REASON_RASTER_ROUTING, status["reason_codes"]
+                    )
+                    self.assertTrue(
+                        len(blank) < keywords["minLength"]
+                        or re.compile(keywords["pattern"]).search(blank) is None,
+                        "schema must reject what the runtime validator rejects",
+                    )
+
+        for endpoint in ("from", "to"):
+            with self.subTest(endpoint=endpoint, value="accepted"):
+                keywords = table_entry["properties"][endpoint]
+                self.assertGreaterEqual(len("thalamus"), keywords["minLength"])
+                self.assertIsNotNone(
+                    re.compile(keywords["pattern"]).search("thalamus")
+                )
+
     def test_schema_pins_the_runtime_gate_and_routing_requirements(self):
         gate = self.schema["$defs"]["gate_snn"]
         raster = self.schema["$defs"]["raster"]
