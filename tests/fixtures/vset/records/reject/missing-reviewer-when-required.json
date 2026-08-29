@@ -26,7 +26,7 @@
     "reason_codes": []
   },
   "environment": {
-    "repo_snapshot_hash": "sha256:15def9dbe24a2c87dc9ee200d50c24a59cfa88708fdbd0932f9621b14529f665",
+    "repo_snapshot_hash": "sha256:04092bbd993ef2519c518a8b75b1b3301958ee7e6804bd1dbf64f92074f20a52",
     "task_id": "vset-counter-v1.review-off-by-one",
     "repo_pack_id": "vset-counter-v1"
   },
@@ -36,9 +36,19 @@
     "manifest_hash": "sha256:91f56e7e0808650419f151bf2ee8e9e2fcc74e5ad4c90657316f7a463ff484d9"
   },
   "payload": {
-    "initial_patch": {"files": {"src/counter.py": "off-by-one"}},
-    "review_finding": {"summary": "off by one"},
-    "revised_patch": {"files": {"src/counter.py": "fixed"}},
+    "initial_patch": {
+      "files": {
+        "src/counter.py": "off-by-one"
+      }
+    },
+    "review_finding": {
+      "summary": "off by one"
+    },
+    "revised_patch": {
+      "files": {
+        "src/counter.py": "fixed"
+      }
+    },
     "validation_evidence": {},
     "outcome": "unknown"
   },

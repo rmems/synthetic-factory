@@ -137,8 +137,16 @@ def registry_pin(registry_path: Path | None = None) -> dict[str, str]:
     }
 
 
+PACK_SNAPSHOT_ROOTS = ("src", "tests")
+
+
 def pack_snapshot_hash(pack_dir: Path) -> str:
-    """Content-bind pack sources. Skip tasks/, bytecode, and editor junk."""
+    """Content-bind repo-pack sources under ``src/`` and ``tests/``.
+
+    Factory metadata (``PACK.json``), task manifests, bytecode, and
+    other bookkeeping are not part of the snapshot. The pin must be
+    stable across ``compileall`` and Python minor versions.
+    """
 
     pack_dir = Path(pack_dir)
     rows: list[str] = []
@@ -147,11 +155,9 @@ def pack_snapshot_hash(pack_dir: Path) -> str:
             continue
         relative = path.relative_to(pack_dir)
         parts = relative.parts
-        if not parts:
+        if not parts or parts[0] not in PACK_SNAPSHOT_ROOTS:
             continue
-        if parts[0] == "tasks" or "__pycache__" in parts:
-            continue
-        if relative.suffix in {".pyc", ".pyo"}:
+        if "__pycache__" in parts or relative.suffix in {".pyc", ".pyo"}:
             continue
         digest = hashlib.sha256(path.read_bytes()).hexdigest()
         rows.append(f"{relative.as_posix()}:{digest}")
@@ -666,7 +672,7 @@ def run_oracle(
     pack_dir: Path,
     *,
     patch: Mapping[str, Any] | None = None,
-    reference_tests: Iterable[str] = ("oracle/reference.py",),
+    reference_tests: Iterable[str] = ("tests/reference.py",),
     hidden_tests: Iterable[str] = (),
 ) -> dict[str, Any]:
     """Execute deterministic fixture/reference tests against a repo pack.
@@ -725,7 +731,7 @@ def validate_record_with_oracle(
     status = oracle.get("status")
     execution = None
     if status in {"provisional", "validated"}:
-        reference_tests = oracle.get("reference_tests") or ["oracle/reference.py"]
+        reference_tests = oracle.get("reference_tests") or ["tests/reference.py"]
         hidden_tests = oracle.get("hidden_tests") or []
         if not isinstance(reference_tests, list) or not all(
             isinstance(item, str) for item in reference_tests

@@ -3,5 +3,5 @@
   "schema_version": "vset-repo-pack-v1",
   "language": "python",
   "hardware_independent": true,
-  "notes": "Tiny synthetic repo pack for the VSET pilot. Multiple task manifests share this pack. Not a Prometheus lineage."
+  "notes": "Tiny synthetic repo pack for the VSET pilot. Multiple task manifests share this pack. Not a Prometheus lineage. environment.repo_snapshot_hash binds src/ and tests/ only; this metadata file is not in the snapshot."
 }
