@@ -70,6 +70,23 @@ class ValidateSpikeOrderIdempotent(unittest.TestCase):
             self.assertEqual(r1.stderr, r2.stderr)
 
 
+class ClockDomainKeysStayInStepWithTheCurator(unittest.TestCase):
+    """validate_run and curate_bridge must agree on what names a clock.
+
+    curate_bridge is deliberately dependency-free (stdlib only, no pipelines
+    imports), so it cannot import the tuple and the two are maintained as
+    peers. If they drift, the validator would publish a stream the curator
+    quarantines as BRIDGE_MULTIPLE_CLOCK_DOMAINS, or the reverse.
+    """
+
+    def test_the_two_clock_domain_key_tuples_are_identical(self):
+        import curate_bridge
+
+        self.assertEqual(
+            validate_run.SPIKE_CLOCK_DOMAIN_KEYS, curate_bridge.CLOCK_DOMAIN_KEYS
+        )
+
+
 class SchemaRefResolution(unittest.TestCase):
     """The v2 schema layers on v1 via a relative $ref, and validate_run derives
     its required-key sets from v1. Nothing else checks that those three stay in
@@ -283,6 +300,50 @@ class ThalamicSpikeStream(unittest.TestCase):
             ],
             validate_run.SPIKE_TIME_KEY_MISMATCH,
             absent=(validate_run.SPIKE_ORDER_MISMATCH,),
+            errors=1,
+        )
+
+    def test_multiple_declared_clock_domains_are_rejected_without_an_order_verdict(self):
+        """Timestamps from two clocks are not one timeline, so an increasing
+        sequence across them is not evidence of order. curate_bridge already
+        quarantines this exact stream as BRIDGE_MULTIPLE_CLOCK_DOMAINS; the
+        validator must not publish it (Codex #87 discussion_r3885917890)."""
+        self._reject(
+            [
+                {"channel": "a", "t_rel_ms": 1.0, "clock_id": "sensor-a"},
+                {"channel": "b", "t_rel_ms": 2.0, "clock_id": "sensor-b"},
+            ],
+            validate_run.SPIKE_CLOCK_DOMAIN_MISMATCH,
+            absent=(validate_run.SPIKE_ORDER_MISMATCH,),
+            errors=1,
+        )
+
+    def test_one_clock_domain_under_aliased_field_names_passes(self):
+        # Different alias fields carrying the same identifier name one domain.
+        self._accept(
+            [
+                {"channel": "a", "t_rel_ms": 1.0, "clock_id": "sensor-a"},
+                {"channel": "b", "t_rel_ms": 2.0, "timebase": "sensor-a"},
+            ]
+        )
+
+    def test_a_partly_annotated_stream_keeps_its_single_clock_domain(self):
+        # An event that names no clock does not invent a second domain.
+        self._accept(
+            [
+                {"channel": "a", "t_rel_ms": 1.0, "clock_id": "sensor-a"},
+                {"channel": "b", "t_rel_ms": 2.0},
+            ]
+        )
+
+    def test_a_multi_clock_stream_is_still_ordered_once_domains_agree(self):
+        self._reject(
+            [
+                {"channel": "a", "t_rel_ms": 9.0, "clock_id": "sensor-a"},
+                {"channel": "b", "t_rel_ms": 1.0, "clock_id": "sensor-a"},
+            ],
+            validate_run.SPIKE_ORDER_MISMATCH,
+            absent=(validate_run.SPIKE_CLOCK_DOMAIN_MISMATCH,),
             errors=1,
         )
 

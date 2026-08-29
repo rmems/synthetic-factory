@@ -154,6 +154,55 @@ def event_time(event):
 # owns spike order and would otherwise report the same inversion twice.
 SPIKE_ORDER_MISMATCH = "spike_events not globally non-decreasing"
 SPIKE_TIME_KEY_MISMATCH = "spike_events must use one timestamp key throughout"
+SPIKE_CLOCK_DOMAIN_MISMATCH = "spike_events must declare one clock domain throughout"
+
+# The event fields that name the clock a timestamp was taken against. Kept in
+# step with pipelines/curate_bridge.py's CLOCK_DOMAIN_KEYS, which quarantines
+# BRIDGE_MULTIPLE_CLOCK_DOMAINS for exactly this stream shape; curate_bridge is
+# deliberately dependency-free, so the two tuples are pinned equal by
+# tests/test_validate_run_spikes.py rather than shared by import.
+SPIKE_CLOCK_DOMAIN_KEYS = (
+    "clock_id",
+    "clock_domain",
+    "timebase",
+    "timebase_id",
+    "source_clock",
+    "source_clock_id",
+)
+
+
+def _declared_clock_domains(events):
+    """Return the distinct clock identifiers the events of one stream declare.
+
+    Aliased field names carrying the same scalar name one domain, so compare
+    the declared values and not the keys — the rule curate_bridge applies.
+    """
+    domains = set()
+    for event in events:
+        if not isinstance(event, dict):
+            continue
+        for key in SPIKE_CLOCK_DOMAIN_KEYS:
+            if key in event:
+                domains.add(_clock_domain_marker(event[key]))
+    return domains
+
+
+def _clock_domain_marker(value):
+    """Make an arbitrary JSON-compatible clock identifier comparable."""
+    try:
+        return json.dumps(value, sort_keys=True)
+    except (TypeError, ValueError):
+        return repr(value)
+
+
+def _clock_domain_errors(events, where):
+    """Report a stream whose events were timed against more than one clock."""
+    domains = _declared_clock_domains(events)
+    if len(domains) <= 1:
+        return []
+    return [
+        f"{where}: {SPIKE_CLOCK_DOMAIN_MISMATCH}; found {', '.join(sorted(domains))}"
+    ]
 
 
 def _missing_spike_event_key_errors(event, index, where, require_keys):
@@ -235,7 +284,9 @@ def check_spike_order(events, where, require_keys=BRIDGE_SPIKE_EVENT_KEYS):
     stream's ($defs/bridge_spike_event). Thalamic trajectories may carry a
     stream annotated with fewer keys, so their caller passes an empty tuple.
     Optional channel/amplitude fields still obey their schema types whenever
-    present. A stream may use t_rel_ms or t_ms, but never both or a mixture.
+    present. A stream may use t_rel_ms or t_ms, but never both or a mixture,
+    and every event that names its clock must name the same one: timestamps
+    from distinct clock domains are not a comparable timeline.
     """
     errs = []
     timed = []
@@ -255,6 +306,13 @@ def check_spike_order(events, where, require_keys=BRIDGE_SPIKE_EVENT_KEYS):
         # chronologically comparable. Report the contract error without also
         # manufacturing an order verdict.
         return errs
+
+    domain_errs = _clock_domain_errors(events, where)
+    if domain_errs:
+        # Timestamps taken against different clocks are not one timeline, so
+        # sorting them would fabricate an order. Same rule as the mismatched
+        # timestamp key above: report the contract error, no order verdict.
+        return errs + domain_errs
 
     previous = None
     for index, key, current in timed:
