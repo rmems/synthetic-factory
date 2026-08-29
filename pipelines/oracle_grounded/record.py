@@ -430,15 +430,8 @@ def _validate_generator_side(record):
     return findings
 
 
-def _validate_oracle_side(record, require_named_runtime):
-    findings = []
-    oracle = record["oracle"]
-    if not isinstance(oracle, dict):
-        return ["oracle must be an object"]
-    missing = [key for key in ORACLE_KEYS if key not in oracle]
-    if missing:
-        findings.append(f"oracle is missing: {', '.join(missing)}")
-        return findings
+def _oracle_shape_findings(oracle, findings):
+    """Shape and identity checks on the oracle envelope itself."""
     if not isinstance(oracle["configuration"], dict) or not oracle["configuration"]:
         findings.append("oracle.configuration must be a non-empty object")
     if not isinstance(oracle["units"], dict) or not oracle["units"]:
@@ -456,30 +449,33 @@ def _validate_oracle_side(record, require_named_runtime):
         )
     if not canon.is_digest(oracle.get("module_digest", "")):
         findings.append("oracle.module_digest must be a sha256 digest")
-    if oracle["implementation"] not in ("reference", "named-runtime", "mixed"):
-        findings.append(f"unknown oracle.implementation: {oracle['implementation']!r}")
-    else:
-        findings.extend(_validate_stage_consistency(oracle, record["family"]))
-        if oracle.get("module_digest") != oracles.module_digest():
-            findings.append(
-                "oracle.module_digest does not match the current "
-                "reference implementation"
-            )
-        if oracle["implementation"] in ("reference", "mixed"):
-            if oracle.get("module") != oracles.MODULE_PATH:
-                findings.append(f"reference oracle.module must be {oracles.MODULE_PATH!r}")
-        expected_authority = {
-            "reference": "reference-simulator",
-            "named-runtime": "measured-runtime",
-            "mixed": "mixed-reference-and-runtime",
-        }[oracle["implementation"]]
-        if oracle.get("authority") != expected_authority:
-            findings.append(
-                f"oracle.authority must be {expected_authority!r} for "
-                f"implementation {oracle['implementation']!r}"
-            )
 
-    spec = families.spec_for(record["family"])
+
+def _oracle_implementation_findings(oracle, family, findings):
+    """Checks that apply once the declared implementation is a known kind."""
+    findings.extend(_validate_stage_consistency(oracle, family))
+    if oracle.get("module_digest") != oracles.module_digest():
+        findings.append(
+            "oracle.module_digest does not match the current reference implementation"
+        )
+    if oracle["implementation"] in ("reference", "mixed"):
+        if oracle.get("module") != oracles.MODULE_PATH:
+            findings.append(f"reference oracle.module must be {oracles.MODULE_PATH!r}")
+    expected_authority = {
+        "reference": "reference-simulator",
+        "named-runtime": "measured-runtime",
+        "mixed": "mixed-reference-and-runtime",
+    }[oracle["implementation"]]
+    if oracle.get("authority") != expected_authority:
+        findings.append(
+            f"oracle.authority must be {expected_authority!r} for "
+            f"implementation {oracle['implementation']!r}"
+        )
+
+
+def _oracle_spec_findings(oracle, family, require_named_runtime, findings):
+    """The oracle envelope must match the family's declared contract."""
+    spec = families.spec_for(family)
     if oracle.get("type") != spec.oracle_type:
         findings.append(
             f"oracle.type {oracle.get('type')!r} does not match family oracle type "
@@ -487,8 +483,7 @@ def _validate_oracle_side(record, require_named_runtime):
         )
     if oracle.get("requested_runtime") != list(spec.runtimes):
         findings.append(
-            "oracle.requested_runtime does not match the runtimes specified for "
-            f"{record['family']!r}"
+            f"oracle.requested_runtime does not match the runtimes specified for {family!r}"
         )
     if oracle.get("units") != spec.units:
         findings.append("oracle.units does not match the family units contract")
@@ -497,10 +492,13 @@ def _validate_oracle_side(record, require_named_runtime):
             "oracle.implementation is not 'named-runtime' and a named runtime was required"
         )
 
+
+def _result_findings(record, oracle, findings):
+    """Validate the result block. False when curation must stop here."""
     result = record["result"]
     if not isinstance(result, dict) or not result:
         findings.append("result must be a non-empty object (curation fails closed)")
-        return findings
+        return False
     measured = result.get("measured")
     if not isinstance(measured, dict) or not measured:
         findings.append("result.measured must be a non-empty object")
@@ -516,31 +514,53 @@ def _validate_oracle_side(record, require_named_runtime):
         findings.append("result.units does not exactly match oracle.units")
     if record["result_hash"] != canon.digest(result):
         findings.append("result_hash does not cover the stored result")
+    return True
 
+
+def _provenance_findings(record, oracle, findings):
+    """The provenance block must describe a simulated, oracle-grounded record."""
     provenance = record["provenance"]
     if not isinstance(provenance, dict):
         findings.append("provenance must be an object")
+        return
+    kind = provenance.get("kind")
+    if kind not in ALLOWED_PROVENANCE_KIND:
+        findings.append(f"provenance.kind must be one of {sorted(ALLOWED_PROVENANCE_KIND)}")
+    elif kind not in TRAINING_PROVENANCE_KIND:
+        findings.append("provenance.kind must not be 'unknown' on a new record")
+    elif kind != "simulated":
+        findings.append(
+            "provenance.kind must be 'simulated'; the sf-oracle protocol does "
+            "not attest physical hardware execution"
+        )
+    if provenance.get("oracle_grounded") is not True:
+        findings.append("provenance.oracle_grounded must be true")
+    if provenance.get("claimed") != oracle.get("authority"):
+        findings.append("provenance.claimed must match oracle.authority")
+    if provenance.get("generator_authored") != list(GENERATOR_SECTIONS):
+        findings.append("provenance.generator_authored does not match the generator sections")
+    if provenance.get("oracle_authored") != ["result", "oracle.stages"]:
+        findings.append("provenance.oracle_authored does not match the oracle-authored sections")
+
+
+def _validate_oracle_side(record, require_named_runtime):
+    findings = []
+    oracle = record["oracle"]
+    if not isinstance(oracle, dict):
+        return ["oracle must be an object"]
+    missing = [key for key in ORACLE_KEYS if key not in oracle]
+    if missing:
+        findings.append(f"oracle is missing: {', '.join(missing)}")
+        return findings
+    _oracle_shape_findings(oracle, findings)
+    if oracle["implementation"] not in ("reference", "named-runtime", "mixed"):
+        findings.append(f"unknown oracle.implementation: {oracle['implementation']!r}")
     else:
-        kind = provenance.get("kind")
-        if kind not in ALLOWED_PROVENANCE_KIND:
-            findings.append(f"provenance.kind must be one of {sorted(ALLOWED_PROVENANCE_KIND)}")
-        elif kind not in TRAINING_PROVENANCE_KIND:
-            findings.append("provenance.kind must not be 'unknown' on a new record")
-        elif kind != "simulated":
-            findings.append(
-                "provenance.kind must be 'simulated'; the sf-oracle protocol does "
-                "not attest physical hardware execution"
-            )
-        if provenance.get("oracle_grounded") is not True:
-            findings.append("provenance.oracle_grounded must be true")
-        if provenance.get("claimed") != oracle.get("authority"):
-            findings.append("provenance.claimed must match oracle.authority")
-        if provenance.get("generator_authored") != list(GENERATOR_SECTIONS):
-            findings.append("provenance.generator_authored does not match the generator sections")
-        if provenance.get("oracle_authored") != ["result", "oracle.stages"]:
-            findings.append(
-                "provenance.oracle_authored does not match the oracle-authored sections"
-            )
+        _oracle_implementation_findings(oracle, record["family"], findings)
+    _oracle_spec_findings(oracle, record["family"], require_named_runtime, findings)
+    if not _result_findings(record, oracle, findings):
+        return findings
+    _provenance_findings(record, oracle, findings)
     return findings
 
 
