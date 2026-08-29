@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "vset-record-v1.schema.json",
   "title": "Verified Software Engineering Trajectory Record v1",
-  "description": "Minimum executable contract for the verified-software-engineering-trajectories (VSET) pilot (#155 record kinds; #154 actor envelope). This slice is schema + fixtures + oracle tests only: no bulk generation, no Hub publish, no Prometheus seeding. Training views must stay compatible with #26 (no thought / internal_reasoning*). Factory onboarding of a live VSET generator is a reviewed FACTORY-REGISTRY.json row plus payload-first kind registration — not a slug hardcoded in identity logic.",
+  "description": "Minimum executable contract for the verified-software-engineering-trajectories (VSET) pilot (#155 record kinds; #154 actor envelope). This slice is schema + fixtures + oracle tests only: no bulk generation, no Hub publish, no Prometheus seeding. Training views must stay compatible with #26 (no thought / internal_reasoning*). Factory onboarding of a live VSET generator is a reviewed FACTORY-REGISTRY.json row plus payload-first kind registration — not a slug hardcoded in identity logic. pipelines/validate_vset.py is the authoritative gate and is strictly stronger than this document: the recursive hidden-reasoning ban on training_view normalizes key names across case, separators, and camelCase boundaries and matches the whole internal_reasoning* family at any nesting depth, which JSON Schema cannot express, so schema-valid is necessary but never sufficient. The conditional reviewer and per-kind payload requirements below mirror REVIEW_REQUIRED_KINDS and KIND_PAYLOAD_KEYS in pipelines/vset_constants.py; tests/test_vset_schema_drift.py asserts they stay equal.",
   "allOf": [
     { "$ref": "actor-provenance-v1.schema.json" },
     {
@@ -51,8 +51,83 @@
         "trace": {
           "type": "object",
           "description": "Optional raw evidence. Hidden reasoning may remain here; it must not leak into training_view."
+        },
+        "prometheus_lineage": {
+          "description": "Optional top-level Operation Prometheus lineage claim. Declared because pipelines/validate_vset.py reads it as a source_kind masquerade signal; a synthetic record carrying it is rejected with vset.source_kind_masquerade. Any JSON type, since the masquerade scan walks strings, objects, and arrays alike."
         }
       }
+    },
+    {
+      "$comment": "Conditional constraints mirroring pipelines/vset_constants.py.",
+      "allOf": [
+        {
+          "if": {
+            "required": ["record_kind"],
+            "properties": { "record_kind": { "const": "review_remediation_v1" } }
+          },
+          "then": {
+            "required": ["reviewer"],
+            "properties": { "reviewer": { "type": "object" } },
+            "description": "REVIEW_REQUIRED_KINDS: review_remediation_v1 needs an explicit reviewer object, never null and never absent."
+          }
+        },
+        {
+          "if": {
+            "required": ["record_kind"],
+            "properties": { "record_kind": { "const": "issue_patch_v1" } }
+          },
+          "then": {
+            "properties": {
+              "payload": {
+                "required": [
+                  "task_specification",
+                  "patch",
+                  "validation_evidence",
+                  "outcome"
+                ]
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "required": ["record_kind"],
+            "properties": { "record_kind": { "const": "review_remediation_v1" } }
+          },
+          "then": {
+            "properties": {
+              "payload": {
+                "required": [
+                  "initial_patch",
+                  "review_finding",
+                  "revised_patch",
+                  "validation_evidence",
+                  "outcome"
+                ]
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "required": ["record_kind"],
+            "properties": { "record_kind": { "const": "failure_recovery_v1" } }
+          },
+          "then": {
+            "properties": {
+              "payload": {
+                "required": [
+                  "failed_state",
+                  "failure_evidence",
+                  "recovery_action",
+                  "execution_evidence",
+                  "outcome"
+                ]
+              }
+            }
+          }
+        }
+      ]
     }
   ]
 }

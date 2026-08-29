@@ -45,7 +45,18 @@
         "records": { "type": "integer", "minimum": 1 },
         "by_record_kind": {
           "type": "object",
-          "additionalProperties": { "type": "integer", "minimum": 0 }
+          "additionalProperties": false,
+          "required": [
+            "issue_patch_v1",
+            "review_remediation_v1",
+            "failure_recovery_v1"
+          ],
+          "description": "Zero-filled over every RECORD_KINDS key, exactly like by_oracle_status and by_curation_decision. A kind with no retained entry is an explicit 0, never an omitted key.",
+          "properties": {
+            "issue_patch_v1": { "type": "integer", "minimum": 0 },
+            "review_remediation_v1": { "type": "integer", "minimum": 0 },
+            "failure_recovery_v1": { "type": "integer", "minimum": 0 }
+          }
         },
         "by_oracle_status": {
           "type": "object",
@@ -123,8 +134,24 @@
         "source_kind": {
           "enum": ["synthetic", "real_public_engineering"]
         },
-        "task_author": { "$ref": "#/$defs/actor" },
-        "solver": { "$ref": "#/$defs/actor" },
+        "task_author": {
+          "allOf": [
+            { "$ref": "#/$defs/actor" },
+            {
+              "required": ["prompt_hash"],
+              "description": "validate_manifest checks task_author with require_prompt_hash=True, matching actor-provenance-v1 on the record side."
+            }
+          ]
+        },
+        "solver": {
+          "allOf": [
+            { "$ref": "#/$defs/actor" },
+            {
+              "required": ["tool_policy"],
+              "description": "validate_manifest checks solver with require_tool_policy=True, matching actor-provenance-v1 on the record side."
+            }
+          ]
+        },
         "reviewer": {
           "anyOf": [{ "type": "null" }, { "$ref": "#/$defs/actor" }]
         },

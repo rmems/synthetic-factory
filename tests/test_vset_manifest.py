@@ -46,7 +46,11 @@ class ReleaseManifestTests(unittest.TestCase):
         ]
         manifest["entries"] = kept
         manifest["counts"]["records"] = 1
-        manifest["counts"]["by_record_kind"] = {"issue_patch_v1": 1}
+        manifest["counts"]["by_record_kind"] = {
+            "issue_patch_v1": 1,
+            "review_remediation_v1": 0,
+            "failure_recovery_v1": 0,
+        }
         manifest["counts"]["by_oracle_status"] = {
             "invalid": 0,
             "provisional": 0,
