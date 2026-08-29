@@ -12,9 +12,11 @@ import random
 import sys
 import tempfile
 import unittest
+import weakref
 from contextlib import redirect_stderr, redirect_stdout
 from io import StringIO
 from pathlib import Path
+from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "pipelines"))
@@ -756,6 +758,48 @@ class EmbeddingDedup(unittest.TestCase):
             quality_gate.embedding_tokens(first), quality_gate.embedding_tokens(second)
         )
         self.assertEqual(self._audit_pair(first, second)["duplicates"], [])
+
+    def test_corpus_idf_is_released_before_the_pair_phase(self):
+        """idf spans the whole corpus vocabulary and its last read is the
+        vector loop. It must not stay resident while _candidate_pairs
+        materializes pairs and the cosine loop scores them, which is where the
+        largest structures are allocated (mergestorm #98, quality_gate.py:731).
+
+        The probe is an object owned only by the idf dict, so its weakref dies
+        exactly when idf is released.
+        """
+        class Probe:
+            """Weak-referenceable stand-in; a plain dict cannot be weakref'd."""
+
+        seen = {}
+        real_vector = quality_gate._tfidf_vector
+        real_pairs = quality_gate._candidate_pairs
+
+        def spy_vector(tokens, idf):
+            if "probe" not in seen:
+                probe = Probe()
+                # Never looked up: _tfidf_vector only indexes record tokens.
+                idf["\x00idf-liveness-probe"] = probe
+                seen["probe"] = weakref.ref(probe)
+            return real_vector(tokens, idf)
+
+        def spy_pairs(signatures, max_pairs):
+            seen["alive_at_pair_phase"] = seen["probe"]() is not None
+            return real_pairs(signatures, max_pairs)
+
+        records = [
+            {"id": f"idf-{index}", "state": {"note": note}}
+            for index, note in enumerate(DISTINCT_NOTES)
+        ]
+        with mock.patch.object(quality_gate, "_tfidf_vector", spy_vector), \
+                mock.patch.object(quality_gate, "_candidate_pairs", spy_pairs):
+            with tempfile.TemporaryDirectory() as td:
+                root = Path(td)
+                write(root / "batch.jsonl", records)
+                quality_gate.audit_run(root)
+
+        self.assertIn("alive_at_pair_phase", seen)
+        self.assertFalse(seen["alive_at_pair_phase"])
 
     def test_frequency_aware_sketch_recalls_high_tf_cosine_pair(self):
         repeated = "saturated " * 2000

@@ -747,7 +747,9 @@ def _embedding_duplicates(records, threshold, max_pairs):
     ``records`` are the survivors of exact-hash dedup, in scan order, each
     carrying the term counts computed during the scan. Those counts are
     **consumed**: each record's ``tokens`` is released as soon as its vector
-    exists, so a large tree never holds both representations at once. Returns
+    exists, so a large tree never holds both representations at once. The
+    corpus-wide document-frequency and ``idf`` maps are released the same way,
+    before the candidate-pair and scoring phase allocates. Returns
     ``(duplicates, clusters, stats)``; the first member of every cluster is
     kept and the rest are reported as excluded with a reason.
     """
@@ -790,6 +792,13 @@ def _embedding_duplicates(records, threshold, max_pairs):
         if signature is not None:
             signatures.append((index, signature))
     stats["compared_records"] = len(vectors)
+    # ``idf`` spans the whole corpus vocabulary and its last read was the loop
+    # above. Release it before the pair phase, which is where the largest
+    # structures are allocated: for the adversarial unique-vocabulary corpora
+    # this gate targets, idf is roughly the size of every record vector
+    # combined, and holding it dead through candidate generation and scoring
+    # adds that much to peak memory.
+    del idf
 
     pairs, truncated = _candidate_pairs(signatures, max_pairs)
     stats["candidate_pairs"] = len(pairs)
