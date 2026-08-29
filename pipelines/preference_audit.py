@@ -291,13 +291,17 @@ def _pair_order(pair: dict[str, Any]) -> tuple[str, int, str]:
     return str(pair.get("source_path")), number, str(line)
 
 
-def _pairs_by_location(pairs: Any) -> tuple[dict[Any, dict[str, Any]], list[str]]:
+def _pairs_by_location(
+    pairs: Any, side: str
+) -> tuple[dict[Any, dict[str, Any]], list[str]]:
     """Index impure pairs by typed location, reporting any duplicate.
 
     Two rows at one source location would silently overwrite each other. If
     the survivor then matched the scan, the expected list could carry an
     extra or conflicting row -- and disagree with its own summary -- while
-    the drift check still exited successfully.
+    the drift check still exited successfully. Both sides are checked: a
+    scan cannot currently emit a duplicate, and this is what would say so if
+    that ever stopped being true.
     """
 
     located: dict[Any, dict[str, Any]] = {}
@@ -309,7 +313,7 @@ def _pairs_by_location(pairs: Any) -> tuple[dict[Any, dict[str, Any]], list[str]
         if location in located:
             duplicates.append(
                 f"{_pair_location_text(pair)}: "
-                "impure pair is listed more than once in the audit"
+                f"impure pair is listed more than once in {side}"
             )
             continue
         located[location] = pair
@@ -328,7 +332,7 @@ def source_files_by_path(files: Any) -> dict[str, dict[str, Any]]:
     }
 
 
-def _duplicate_source_paths(files: Any) -> list[str]:
+def _duplicate_source_paths(files: Any, side: str) -> list[str]:
     """Name any relative path a source-file inventory lists more than once."""
 
     seen: set[str] = set()
@@ -341,7 +345,7 @@ def _duplicate_source_paths(files: Any) -> list[str]:
             continue
         if source_path in seen:
             duplicates.append(
-                f"{source_path}: source file is listed more than once in the audit"
+                f"{source_path}: source file is listed more than once in {side}"
             )
         seen.add(source_path)
     return sorted(dict.fromkeys(duplicates))
@@ -418,7 +422,10 @@ def _audit_source_file_differences(
 
     expected_files = source_files_by_path(expected.get("source_files"))
     actual_files = source_files_by_path(actual.get("source_files"))
-    differences = _duplicate_source_paths(expected.get("source_files"))
+    differences = _duplicate_source_paths(expected.get("source_files"), "the audit")
+    differences.extend(
+        _duplicate_source_paths(actual.get("source_files"), "this scan")
+    )
     differences.extend(
         f"{source_path}: audited source file is absent from this scan"
         for source_path in sorted(set(expected_files) - set(actual_files))
@@ -444,8 +451,12 @@ def _audit_impure_pair_differences(
 ) -> list[str]:
     """Per-pair drift, by source location then by field."""
 
-    expected_pairs, differences = _pairs_by_location(expected.get("impure_pairs"))
-    actual_pairs, actual_duplicates = _pairs_by_location(actual["impure_pairs"])
+    expected_pairs, differences = _pairs_by_location(
+        expected.get("impure_pairs"), "the audit"
+    )
+    actual_pairs, actual_duplicates = _pairs_by_location(
+        actual["impure_pairs"], "this scan"
+    )
     differences.extend(actual_duplicates)
     differences.extend(
         f"{_pair_location_text(expected_pairs[location])}: "
