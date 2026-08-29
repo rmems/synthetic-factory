@@ -175,16 +175,24 @@ def _is_preference_candidate(record: Any) -> bool:
     )
 
 
+def _one_source_file(source: Path) -> tuple[Path, ...]:
+    if source.suffix != ".jsonl":
+        raise PreferenceCurationError(f"source file must be JSONL: {source}")
+    return (source,)
+
+
+def _source_files_under(source: Path) -> tuple[Path, ...]:
+    files = tuple(sorted(source.rglob("*.jsonl")))
+    if not files:
+        raise PreferenceCurationError(f"no JSONL files under source: {source}")
+    return files
+
+
 def _source_files(source: Path) -> tuple[Path, ...]:
     if source.is_file():
-        if source.suffix != ".jsonl":
-            raise PreferenceCurationError(f"source file must be JSONL: {source}")
-        return (source,)
+        return _one_source_file(source)
     if source.is_dir():
-        files = tuple(sorted(source.rglob("*.jsonl")))
-        if not files:
-            raise PreferenceCurationError(f"no JSONL files under source: {source}")
-        return files
+        return _source_files_under(source)
     raise PreferenceCurationError(f"source does not exist: {source}")
 
 
@@ -195,20 +203,15 @@ def _relative_source_path(source: Path, path: Path) -> str:
 
 
 def _skipped_manifest_entry(
-    relative_path: str,
-    line_number: int,
-    raw_line: bytes,
-    file_hash: str,
-    record: Any,
-    mill_kind: str,
+    line: _SourceLine, record: Any, mill_kind: str
 ) -> dict[str, Any]:
     """Return a manifest row for a quarantined leftover-mill record."""
 
     return {
-        "source_path": relative_path,
-        "source_line": line_number,
-        "source_sha256": _sha256(raw_line),
-        "source_file_sha256": file_hash,
+        "source_path": line.relative_path,
+        "source_line": line.number,
+        "source_sha256": _sha256(line.payload),
+        "source_file_sha256": line.file_sha256,
         # Same canonicalizability guard the preference rows use. record_id()
         # keeps its meta.id fallback; only a value the destination cannot
         # encode is dropped.
@@ -404,9 +407,7 @@ def _curate_jsonl_file(source: Path, path: Path, state: _ScanState) -> None:
             state.skipped_non_preferences += 1
             state.leftover_mill_kinds[mill_kind] += 1
             state.manifest.append(
-                _skipped_manifest_entry(
-                    relative_path, line_number, raw_line, file_hash, record, mill_kind
-                )
+                _skipped_manifest_entry(line, record, mill_kind)
             )
             continue
         if not _is_preference_candidate(record):
