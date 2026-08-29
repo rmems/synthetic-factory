@@ -130,38 +130,47 @@ def _refreshed() -> dict[Path, str]:
     return wanted
 
 
-def stale_fixtures() -> list[Path]:
-    """Fixture paths whose pinned bytes no longer match the live repository."""
-
+def _stale(wanted: dict[Path, str]) -> list[Path]:
     return [
-        path
-        for path, text in _refreshed().items()
-        if path.read_text(encoding="utf-8") != text
+        path for path, text in wanted.items() if path.read_text(encoding="utf-8") != text
     ]
 
 
-def main(argv: list[str] | None = None) -> int:
+def stale_fixtures() -> list[Path]:
+    """Fixture paths whose pinned bytes no longer match the live repository."""
+
+    return _stale(_refreshed())
+
+
+def _report(paths: list[Path], verb: str) -> None:
+    for path in paths:
+        print(f"{verb}: {path.relative_to(REPO)}")
+
+
+def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument(
         "--check",
         action="store_true",
         help="report stale fixtures without writing (exit 1 when any drift)",
     )
-    args = parser.parse_args(argv)
-    stale = []
-    for path, text in _refreshed().items():
-        if path.read_text(encoding="utf-8") == text:
-            continue
-        stale.append(path)
-        if not args.check:
-            path.write_text(text, encoding="utf-8")
-    for path in stale:
-        verb = "stale" if args.check else "rewrote"
-        print(f"{verb}: {path.relative_to(REPO)}")
+    return parser
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = _parser().parse_args(argv)
+    wanted = _refreshed()
+    stale = _stale(wanted)
     if not stale:
         print("VSET fixture pins already match the live repository.")
         return 0
-    return 1 if args.check else 0
+    if args.check:
+        _report(stale, "stale")
+        return 1
+    for path in stale:
+        path.write_text(wanted[path], encoding="utf-8")
+    _report(stale, "rewrote")
+    return 0
 
 
 if __name__ == "__main__":
