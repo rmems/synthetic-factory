@@ -270,6 +270,68 @@ class PayloadKindClassification(unittest.TestCase):
                 payload_kind_audit.build_audit(directory)
         self.assertIn("outside the finite float range", str(caught.exception))
 
+    def test_duplicate_object_keys_are_rejected(self):
+        with tempfile.TemporaryDirectory() as raw:
+            directory = Path(raw)
+            (directory / "episodes.jsonl").write_text(
+                '{"goal":"g","steps":"bad","steps":[]}\n',
+                encoding="utf-8",
+            )
+            with self.assertRaises(payload_kind_audit.PayloadKindAuditError) as caught:
+                payload_kind_audit.build_audit(directory)
+        self.assertIn("duplicate JSON object key", str(caught.exception))
+
+    def test_unicode_whitespace_only_lines_are_rejected(self):
+        with tempfile.TemporaryDirectory() as raw:
+            directory = Path(raw)
+            (directory / "episodes.jsonl").write_bytes(
+                b'{"goal":"g","steps":[]}\n' + "\u00a0".encode("utf-8") + b"\n"
+            )
+            with self.assertRaises(payload_kind_audit.PayloadKindAuditError) as caught:
+                payload_kind_audit.build_audit(directory)
+        self.assertIn("episodes.jsonl:2", str(caught.exception))
+
+    def test_unpaired_surrogates_are_rejected(self):
+        with tempfile.TemporaryDirectory() as raw:
+            directory = Path(raw)
+            (directory / "episodes.jsonl").write_text(
+                '{"id":"\\ud800","goal":"g","steps":[]}\n',
+                encoding="utf-8",
+            )
+            with self.assertRaises(payload_kind_audit.PayloadKindAuditError) as caught:
+                payload_kind_audit.build_audit(directory)
+            err = io.StringIO()
+            with redirect_stderr(err), redirect_stdout(io.StringIO()):
+                code = payload_kind_audit.main([str(directory), "--markdown"])
+        self.assertIn("unpaired UTF-16 surrogate", str(caught.exception))
+        self.assertEqual(code, 2)
+        self.assertIn("payload-kind audit failed", err.getvalue())
+
+    def test_expect_rejects_bool_int_type_drift(self):
+        with tempfile.TemporaryDirectory() as raw:
+            directory = Path(raw)
+            _write_corpus(directory, {"episodes.jsonl": [_episode([])]})
+            published = payload_kind_audit.build_audit(directory)
+            serialized = json.dumps(published).replace('"records": 1', '"records": true', 1)
+            expected = directory / "audit.json"
+            expected.write_text(serialized, encoding="utf-8")
+            err = io.StringIO()
+            with redirect_stderr(err), redirect_stdout(io.StringIO()):
+                code = payload_kind_audit.main([str(directory), "--expect", str(expected)])
+        self.assertEqual(code, 1)
+        self.assertIn("summary differs from the published audit", err.getvalue())
+
+    def test_final_bare_cr_is_preserved_in_record_digest(self):
+        record = b'{"goal":"g","steps":[]}'
+        with tempfile.TemporaryDirectory() as raw:
+            directory = Path(raw)
+            (directory / "episodes.jsonl").write_bytes(record + b"\r")
+            audit = payload_kind_audit.build_audit(directory)
+        self.assertEqual(
+            audit["records"][0]["sha256"],
+            hashlib.sha256(record + b"\r").hexdigest(),
+        )
+
     def test_invalid_utf8_and_read_failures_are_controlled_audit_errors(self):
         with tempfile.TemporaryDirectory() as raw:
             directory = Path(raw)

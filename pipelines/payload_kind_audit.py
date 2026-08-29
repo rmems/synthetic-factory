@@ -154,12 +154,48 @@ def _parse_finite_float(value: str) -> float:
     return parsed
 
 
+def _reject_duplicate_object_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+    """Reject repeated object keys at every depth instead of last-key-wins."""
+    value: dict[str, Any] = {}
+    for key, item in pairs:
+        if key in value:
+            raise ValueError(f"duplicate JSON object key {key!r}")
+        value[key] = item
+    return value
+
+
+def _reject_unpaired_surrogates(value: Any) -> None:
+    """Reject strings the UTF-8 stdout path cannot encode."""
+    if isinstance(value, str):
+        if any(0xD800 <= ord(character) <= 0xDFFF for character in value):
+            raise ValueError("unpaired UTF-16 surrogate in JSON string")
+        return
+    if isinstance(value, Mapping):
+        for key, item in value.items():
+            _reject_unpaired_surrogates(key)
+            _reject_unpaired_surrogates(item)
+        return
+    if isinstance(value, list):
+        for item in value:
+            _reject_unpaired_surrogates(item)
+
+
+def _is_json_whitespace(value: str) -> bool:
+    """Return whether non-empty text contains only RFC 8259 JSON whitespace."""
+    return bool(value) and all(character in " \t\r\n" for character in value)
+
+
 def _jsonl_lines(raw: bytes, source_file: str):
     """Yield LF-delimited UTF-8 records without splitting on Unicode separators."""
-    for line_number, line_bytes in enumerate(raw.split(b"\n"), 1):
+    segments = raw.split(b"\n")
+    last_index = len(segments) - 1
+    for line_number, line_bytes in enumerate(segments, 1):
         # CRLF is one record terminator, so neither byte belongs to the record
-        # digest. A bare carriage return elsewhere remains part of the payload.
-        if line_bytes.endswith(b"\r"):
+        # digest. Strip the paired CR only on segments that were actually
+        # terminated by LF. A bare CR on the final unterminated segment stays
+        # in the payload, matching the curation reader.
+        lf_terminated = line_number - 1 != last_index
+        if lf_terminated and line_bytes.endswith(b"\r"):
             line_bytes = line_bytes[:-1]
         try:
             line = line_bytes.decode("utf-8")
@@ -208,14 +244,16 @@ def build_audit(corpus: Path, payload_names: Iterable[str] | None = None) -> dic
         file_kinds: dict[str, int] = {}
         count = 0
         for line_number, line_bytes, line in _jsonl_lines(raw, path.name):
-            if not line.strip():
+            if not line or _is_json_whitespace(line):
                 continue
             try:
                 record = json.loads(
                     line,
+                    object_pairs_hook=_reject_duplicate_object_keys,
                     parse_constant=_reject_json_constant,
                     parse_float=_parse_finite_float,
                 )
+                _reject_unpaired_surrogates(record)
             except (json.JSONDecodeError, ValueError) as exc:
                 raise PayloadKindAuditError(f"{path.name}:{line_number}: {exc}") from exc
             if not isinstance(record, dict):
@@ -325,12 +363,27 @@ def _markdown_code(value: Any) -> str:
     return f"<code>{_markdown_cell(text)}</code>"
 
 
+def _json_equal(left: Any, right: Any) -> bool:
+    """Compare JSON values without Python's bool/int/float equivalence."""
+    if type(left) is not type(right):
+        return False
+    if isinstance(left, dict):
+        return left.keys() == right.keys() and all(
+            _json_equal(left[key], right[key]) for key in left
+        )
+    if isinstance(left, list):
+        return len(left) == len(right) and all(
+            _json_equal(first, second) for first, second in zip(left, right)
+        )
+    return left == right
+
+
 def _drift(derived: Mapping[str, Any], published: Mapping[str, Any]) -> list[str]:
     problems = []
     for key, value in derived.items():
         if key not in published:
             problems.append(f"published audit is missing {key!r}")
-        elif published[key] != value:
+        elif not _json_equal(published[key], value):
             problems.append(f"{key} differs from the published audit")
     return problems
 
