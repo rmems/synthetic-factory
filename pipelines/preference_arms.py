@@ -13,8 +13,9 @@ and lightly edited, so every staged round must clear two invariants:
 2. **Independent arms** — the allowlisted machine-behavior surfaces
    (``executed_action``, ``future_outcome``, and ``spike_events``) must sit
    more than ``--min-distance`` apart and share at least one changed
-   machine-observable leaf. Distance is ``1 - cosine_similarity`` over
-   path-scoped term-frequency vectors over one reviewed observable projection;
+   machine-observable leaf. Distance is ``1 -`` the mean per-path
+   ``cosine_similarity`` over one reviewed observable projection, so a long
+   run of unchanged telemetry cannot outvote a changed execution identifier;
    one-sided nested fields cannot add distance, and unordered lists are
    matched after exact multiset cancellation. This metric has its own
    fixture-calibrated floor; it is not presented as equivalent to an
@@ -107,6 +108,7 @@ from preference_arms_observables import (  # noqa: E402,F401
     arm_terms,
     differs_only_by_gate_label,
     machine_observable_deltas,
+    observable_similarity,
 )
 from preference_arms_receipt import (  # noqa: E402,F401
     ReceiptExpectation,
@@ -378,7 +380,7 @@ def check_pair(
     terms = _observable_terms(observable_leaves)
     reasons.extend(_contrast_reasons(chosen, rejected, observable_leaves, terms))
 
-    similarity = cosine_similarity(*terms)
+    similarity = observable_similarity(observable_leaves)
     distance = 1.0 - similarity
     if distance <= policy.min_distance:
         reasons.append(REASON_NEAR_VERBATIM)

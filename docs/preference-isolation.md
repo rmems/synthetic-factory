@@ -295,17 +295,30 @@ Each surface becomes a path-scoped term-frequency vector: string leaves
 contribute normalized lexical terms, non-string leaves stay atomic so `0.2`
 and `-0.2` never collide, and list positions are collapsed so a reordered list
 is not a different arm.
-The arm distance is then
+Each observable path is scored on its own vector and the results are averaged
+with equal weight:
 
 ```
-arm_distance = 1 - cosine_similarity(terms(chosen), terms(rejected))
+arm_distance = 1 - mean(
+    cosine_similarity(terms(chosen, path), terms(rejected, path))
+    for path in observable_paths
+)
 ```
+
+Weighting paths rather than pooling every term into one vector is what keeps
+the floor comparable across records: pooled, a long run of identical spike
+telemetry outvoted a changed `executed_action`, so whether a real contrast
+cleared the floor depended on how many events the record happened to carry.
 
 This is a deterministic, stdlib-only lexical metric, not an embedding-model
 surrogate. Its independent, fixture-calibrated default floor is 0.03; the
 separate corpus near-duplicate threshold in `quality_gate.py` makes no claim
-of metric equivalence. Compatibility decomposition removes accent-only
-inflation, common Greek/Cyrillic homoglyphs are folded, and invisible Unicode
+of metric equivalence. Floats are quantized to twelve significant digits, so
+arithmetic noise on an otherwise copied arm is not a delta. Compatibility
+decomposition removes accent-only inflation, common Greek/Cyrillic homoglyphs
+are folded, a word whose letters mix scripts is refused as an ambiguous
+skeleton rather than normalized, an identifier that swaps script between the
+arms is not a delta, and invisible Unicode
 format marks cannot split visible words. Other non-ASCII letters and digits
 are emitted as code-point terms so unspaced CJK edits are measured
 proportionally. A structural check also rejects arms whose only behavioral
