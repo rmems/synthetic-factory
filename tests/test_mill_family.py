@@ -36,6 +36,7 @@ GRAPHQL = "graphql-nplusone-factory"
 DOCKER = "docker-build-cache-factory"
 K8S = "k8s-crashloop-factory"
 SEARCH = "search-index-rebuild-factory"
+AGENTIC_CODING = "agentic-coding-trajectory-factory"
 
 
 def episode(record_id_value, goal, factory, **overrides):
@@ -477,6 +478,79 @@ class OwnershipResolution(unittest.TestCase):
         context = mills.ownership_context()
         self.assertFalse(context["complete"])
         self.assertEqual(context["unresolved_prefixes"], ["xyz"])
+
+    def test_the_canonical_coding_prefix_is_a_reviewed_home(self):
+        """prompts/04-agentic-coding-trajectory-factory.md specifies
+        ``act-rNN-<slug>-<hash>`` as that factory's canonical id shape, and the
+        published corpus emits exactly that. The prefix was missing from the
+        reviewed table, which is pinned here so the table cannot silently lose
+        it again (Codex #96)."""
+        self.assertEqual(REVIEWED_MILL_PREFIX_HOMES["act"], AGENTIC_CODING)
+
+    def test_a_registry_verified_coding_run_can_authorize_output(self):
+        """``act`` was absent from the reviewed homes, so _unresolved_prefixes
+        reported it for every normal source including that factory, leaving
+        context_complete false and --out refusing an otherwise clean full-run
+        curation even though the directory is registry-verified and every
+        payload declaration matches (Codex #96)."""
+        mills = index_of(
+            (
+                AGENTIC_CODING,
+                [
+                    episode(
+                        f"act-r0{index}-fix-failing-test",
+                        "fix the failing pytest assertion",
+                        AGENTIC_CODING,
+                    )
+                    for index in (2, 3, 4)
+                ],
+            ),
+            (
+                CACHE_STAMPEDE,
+                [
+                    episode(
+                        f"cst-r0{index}-ttl-expiry",
+                        "singleflight ttl expiry stampede refills",
+                        CACHE_STAMPEDE,
+                    )
+                    for index in (1, 2)
+                ],
+            ),
+        )
+
+        self.assertEqual(mills.findings(), ())
+        context = mills.ownership_context()
+        self.assertEqual(context["unresolved_prefixes"], [])
+        self.assertTrue(context["complete"])
+
+    def test_a_coding_prefix_outside_its_home_is_still_foreign(self):
+        """Pinning the home is what makes the prefix evidence: an act- record
+        sitting in another factory must still be reported, not blessed."""
+        mills = index_of(
+            (
+                AGENTIC_CODING,
+                [
+                    episode(
+                        f"act-r0{index}-fix-failing-test",
+                        "fix the failing pytest assertion",
+                        AGENTIC_CODING,
+                    )
+                    for index in (2, 3)
+                ],
+            ),
+            (
+                CACHE_STAMPEDE,
+                [episode("act-r04-stray", "fix verify", CACHE_STAMPEDE)],
+            ),
+        )
+
+        prefix_findings = [
+            item
+            for item in mills.findings()
+            if REASON_FOREIGN_MILL_ID_PREFIX in item.reason_codes
+        ]
+        self.assertEqual([item.record_id for item in prefix_findings], ["act-r04-stray"])
+        self.assertEqual(prefix_findings[0].home_factories, (AGENTIC_CODING,))
 
     def test_empty_index_has_no_findings(self):
         self.assertEqual(MillIndex().findings(), ())
