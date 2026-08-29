@@ -1,0 +1,298 @@
+tests/frontier_gate_helpers.py
+  s_0d456da8ea5328::t_e4f5672046c47f 1-105
+prompts/02-multi-agent-ouroboros-swarm.md
+  s_0d456da8ea5328::t_e4f5672046c47f 51
+docs/ouroboros-swarm-payload-kind.md
+  s_0d456da8ea5328::t_e4f5672046c47f 1-179
+pipelines/raw_tree_guard.py
+  s_0d456da8ea5328::t_e4f5672046c47f 1-190
+docs/token-efficiency.md
+  s_0d456da8ea5328::t_e4f5672046c47f 34-56,63-80,134,136-138,140-150,152-153,179
+tests/test_curate_tags_taxonomy.py
+  s_0d456da8ea5328::t_e4f5672046c47f 1-361
+tests/fixtures/reward-ontology/swarm-trajectories.jsonl
+  s_0d456da8ea5328::t_e4f5672046c47f 1-5
+tests/fixtures/token-efficiency/thalamic-trajectory-factory/NOTES-r01.md
+  s_0d456da8ea5328::t_e4f5672046c47f 1-11
+tests/fixtures/token-efficiency/thalamic-trajectory-factory/batch-r02.jsonl
+  s_0d456da8ea5328::t_e4f5672046c47f 1
+tests/test_curate_tags_record.py
+  s_0d456da8ea5328::t_e4f5672046c47f 1-395
+tests/test_agentic_shapes.py
+  s_0d456da8ea5328::t_e4f5672046c47f 2463-2469
+tests/test_verify_execution.py
+  s_0d456da8ea5328::t_e4f5672046c47f 1-171
+pipelines/curate_preferences.py
+  s_0d456da8ea5328::t_e4f5672046c47f 39-41,53,63-67,71-72,115-142,159-164,166-173,182-204,211,213-216,437-448,451-456,458-460,476-478,613-618,621-642,645-653,655-719,722-727,729-731,743-750,754,756,760-761,764,778-781,783,785-787,791,794-803,805-808,812-823,825-846,848-920,936-941,943
+tests/fixtures/coding-observability/legacy-2026-08-17-manifest.jsonl
+  s_0d456da8ea5328::t_e4f5672046c47f 1-3
+tests/test_publish_grok46_hub_factories.py
+  s_0d456da8ea5328::t_e4f5672046c47f 1-71
+tests/test_curate_coding.py
+  s_0d456da8ea5328::t_e4f5672046c47f 13-15,17-21,30,36,50,63,117,156,158,168,302-303
+tests/test_curate_coding_verify_shape.py
+  s_0d456da8ea5328::t_e4f5672046c47f 1-406
+tests/test_curate_gate_corpus.py
+  s_0d456da8ea5328::t_e4f5672046c47f 1-595
+tests/test_frontier_marker_policy.py
+  s_0d456da8ea5328::t_e4f5672046c47f 1-167
+tests/test_curate_gate_promotion.py
+  s_0d456da8ea5328::t_e4f5672046c47f 1-572
+pipelines/training_audit_mill.py
+  s_0d456da8ea5328::t_e4f5672046c47f 1-50
+tests/test_verify_execution_provenance.py
+  s_0d456da8ea5328::t_e4f5672046c47f 1-86
+docs/verify-execution.md
+  s_0d456da8ea5328::t_e4f5672046c47f 4,14-18,22-69,75-77,80-81,84-154,181-183,196-224,227-230,240-241,246,248-249,258-291,299-301
+tests/test_curate_tags.py
+  s_0d456da8ea5328::t_e4f5672046c47f 1-54
+schemas/reward-ontology-v1.mapping.json
+  s_0d456da8ea5328::t_e4f5672046c47f 1-4867
+pipelines/tag_jsonl.py
+  s_0d456da8ea5328::t_e4f5672046c47f 1-239
+pipelines/curate_rewards.py
+  s_0d456da8ea5328::t_e4f5672046c47f 12-14,22-29,49-92,94-119,121-126,128-139,141-149,173,176,210,213,253,271,340-352,626,630-644,659-666
+pipelines/tag_regex.py
+  s_0d456da8ea5328::t_e4f5672046c47f 1-428
+tests/test_curate_gate.py
+  s_0d456da8ea5328::t_e4f5672046c47f 12-29,1202
+tests/fixtures/token-efficiency/thalamic-trajectory-factory/ROUND-r01.complete.json
+  s_0d456da8ea5328::t_e4f5672046c47f 1
+pipelines/curate_gate.py
+  s_0d456da8ea5328::t_e4f5672046c47f 2865-2874,2878
+tests/test_execution_gate_unit.py
+  s_0d456da8ea5328::t_e4f5672046c47f 1-184
+tests/test_verify_execution_safety_markers.py
+  s_0d456da8ea5328::t_e4f5672046c47f 1-204
+tests/fixtures/token-efficiency/thalamic-trajectory-factory/.round-marker-mode.json
+  s_0d456da8ea5328::t_e4f5672046c47f 1
+tests/test_census_mill_mix.py
+  s_0d456da8ea5328::t_e4f5672046c47f 1-438
+tests/test_curate_tags_cli.py
+  s_0d456da8ea5328::t_e4f5672046c47f 1-187
+tests/test_verify_hf_release.py
+  s_0d456da8ea5328::t_e4f5672046c47f 64-65,98-112,120,176-222,241-352,408-443
+tests/test_frontier_publish_atomicity.py
+  s_0d456da8ea5328::t_e4f5672046c47f 1-104
+tests/test_reward_policy_review.py
+  s_0d456da8ea5328::t_e4f5672046c47f 1-217
+tests/test_curate_coding_hidden.py
+  s_0d456da8ea5328::t_e4f5672046c47f 1-302
+tests/fixtures/reward-ontology/bridge-pairs.jsonl
+  s_0d456da8ea5328::t_e4f5672046c47f 1-2
+pipelines/tag_taxonomy.py
+  s_0d456da8ea5328::t_e4f5672046c47f 1-529
+docs/superpowers/specs/2026-08-18-public-repositories-and-hf-collection-design.md
+  s_0d456da8ea5328::t_e4f5672046c47f 29-33,103-105
+tests/test_curate_coding_verify.py
+  s_0d456da8ea5328::t_e4f5672046c47f 1-530
+pipelines/tag_write.py
+  s_0d456da8ea5328::t_e4f5672046c47f 1-133
+tests/test_reward_policy.py
+  s_0d456da8ea5328::t_e4f5672046c47f 1-472
+pipelines/training_audit.py
+  s_0d456da8ea5328::t_e4f5672046c47f 34,42-60,97-114,228-231,240-254,256,260,271,318,391-410,514-520,551-564,634
+tests/test_workflow_contract.py
+  s_0d456da8ea5328::t_e4f5672046c47f 2,4,10-14,58-143
+tests/test_factory_driver_token_efficiency.py
+  s_0d456da8ea5328::t_e4f5672046c47f 1-309
+tests/test_verify_execution_inputs.py
+  s_0d456da8ea5328::t_e4f5672046c47f 1-131
+tests/test_verify_execution_outcomes.py
+  s_0d456da8ea5328::t_e4f5672046c47f 1-161
+tests/test_curate_preferences_writer.py
+  s_0d456da8ea5328::t_e4f5672046c47f 1-501
+tests/coding_curation_helpers.py
+  s_0d456da8ea5328::t_e4f5672046c47f 1-68
+tests/fixtures/reward-ontology/ffpc-preferences.jsonl
+  s_0d456da8ea5328::t_e4f5672046c47f 1-9
+pipelines/reward_policy.py
+  s_0d456da8ea5328::t_e4f5672046c47f 1-403
+tests/test_curate_preferences.py
+  s_0d456da8ea5328::t_e4f5672046c47f 349-392
+pipelines/round_txn_execution.py
+  s_0d456da8ea5328::t_e4f5672046c47f 1-413
+tests/fixtures/token-efficiency/agentic-coding-trajectory-factory/batch-r02.jsonl
+  s_0d456da8ea5328::t_e4f5672046c47f 1
+tests/test_quality_and_verify_gates.py
+  s_0d456da8ea5328::t_e4f5672046c47f 2,9-10,12
+tests/test_ouroboros_swarm_payload_kind.py
+  s_0d456da8ea5328::t_e4f5672046c47f 1-481
+tests/test_verify_execution_records.py
+  s_0d456da8ea5328::t_e4f5672046c47f 1-524
+pipelines/coding_cli.py
+  s_0d456da8ea5328::t_e4f5672046c47f 1-158
+pipelines/coding_verify.py
+  s_0d456da8ea5328::t_e4f5672046c47f 1-471
+pipelines/reward_mapping.py
+  s_0d456da8ea5328::t_e4f5672046c47f 1-393
+tests/fixtures/token-efficiency/agentic-coding-trajectory-factory/NOTES-r01.md
+  s_0d456da8ea5328::t_e4f5672046c47f 1-11
+tests/test_reward_vocabulary.py
+  s_0d456da8ea5328::t_e4f5672046c47f 1-543
+pipelines/verify_execution.py
+  s_0d456da8ea5328::t_e4f5672046c47f 9-14,43-62,64-66,69,73-88,93-95,97-98,102-103,105-109,136-137,205-208,247-248
+pipelines/tag_regex_domain.py
+  s_0d456da8ea5328::t_e4f5672046c47f 1-193
+tests/gate_fixture.py
+  s_0d456da8ea5328::t_e4f5672046c47f 1-516
+tests/test_round_txn.py
+  s_0d456da8ea5328::t_63e205296a6c05 74-88
+  s_0d456da8ea5328::t_e4f5672046c47f 30-37,66-73,125-135,139-141,404,576-750,1507
+pipelines/coding_verify_manifest.py
+  s_0d456da8ea5328::t_e4f5672046c47f 1-571
+pipelines/verify_hf_release.py
+  s_0d456da8ea5328::t_e4f5672046c47f 11-15,60-90,108-109,137-140,151,164-194,288-298,317-322,327-330,336,346-348,350,356-466,700-702,712-713
+tests/test_curate_agentic.py
+  s_0d456da8ea5328::t_e4f5672046c47f 1140-1164
+pipelines/reward_ontology.py
+  s_0d456da8ea5328::t_e4f5672046c47f 1-532
+.claude/skills/run-synthetic-factory/driver.py
+  s_0d456da8ea5328::t_e4f5672046c47f 69-74,362,364-368,372-373,582-589,637-716,727-730,739-741
+tests/fixtures/token-efficiency/agentic-coding-trajectory-factory/ROUND-r01.complete.json
+  s_0d456da8ea5328::t_e4f5672046c47f 1
+tests/fixtures/reward-ontology/thalamic-trajectories.jsonl
+  s_0d456da8ea5328::t_e4f5672046c47f 1-8
+tests/test_curate_tags_cli_safety.py
+  s_0d456da8ea5328::t_e4f5672046c47f 1-194
+.claude/skills/run-synthetic-factory/factory-window.workflow.js
+  s_0d456da8ea5328::t_e4f5672046c47f 206,225-234
+prompts/03-neuromorphic-event-language-bridge.md
+  s_0d456da8ea5328::t_e4f5672046c47f 30-34
+pipelines/verify_execution_safety.py
+  s_0d456da8ea5328::t_e4f5672046c47f 1-391
+qodana.yaml
+  s_0d456da8ea5328::t_e4f5672046c47f 17-21
+tests/test_curate_rewards_run.py
+  s_0d456da8ea5328::t_e4f5672046c47f 1-411
+tests/test_frontier_publish_gate.py
+  s_0d456da8ea5328::t_e4f5672046c47f 1-159
+pipelines/curate_tags.py
+  s_0d456da8ea5328::t_e4f5672046c47f 1-232
+pipelines/mill_family.py
+  s_0d456da8ea5328::t_e4f5672046c47f 38-43,68-70,152-163,176,180,267-323,388,390-422,445-447,450-454,456-625,644,646-657,659-679,681-707,713-726,746-758,768-805,815-816,818-824,826-829,831-851,853-887,916-917,919,926,970,1042-1044,1054-1055,1077-1080,1083,1092
+pipelines/curate_coding.py
+  s_0d456da8ea5328::t_e4f5672046c47f 2,5-9,13-20,34-35,40-70,77,89-117,122,125,133,140-141,143-145,147,151-153,235,241-242,247,257,269-270,304-305,316-347,366-367,370-371,373-374,400,402-405,420-421,480-482,505,508-509,524-525,527,532-575,756-757,759,764-767,769-774
+tests/fixtures/token-efficiency/thalamic-trajectory-factory/ROUND-r02.complete.json
+  s_0d456da8ea5328::t_e4f5672046c47f 1
+pipelines/training_audit_report.py
+  s_0d456da8ea5328::t_e4f5672046c47f 1-94
+pipelines/tag_jsonutil.py
+  s_0d456da8ea5328::t_e4f5672046c47f 1-112
+prompts/01-thalamic-trajectory-factory.md
+  s_0d456da8ea5328::t_e4f5672046c47f 60
+tests/test_curate_tags_jsonl.py
+  s_0d456da8ea5328::t_e4f5672046c47f 1-326
+pipelines/census.py
+  s_0d456da8ea5328::t_e4f5672046c47f 169-200,217-223,233-234
+tests/tag_test_support.py
+  s_0d456da8ea5328::t_e4f5672046c47f 1-229
+README.md
+  s_0d456da8ea5328::t_e4f5672046c47f 31-37,45-49
+tests/test_factory_driver.py
+  s_0d456da8ea5328::t_e4f5672046c47f 7,25,28-30,32-33,35-38,40-52,55-71,74-91
+docs/ouroboros-swarm-payload-kind.card.md
+  s_0d456da8ea5328::t_e4f5672046c47f 1-137
+tests/fixtures/token-efficiency/agentic-coding-trajectory-factory/batch-r01.jsonl
+  s_0d456da8ea5328::t_e4f5672046c47f 1
+tests/test_publish_grok46_hub.py
+  s_0d456da8ea5328::t_e4f5672046c47f 231-249
+pipelines/reward_vocabulary.py
+  s_0d456da8ea5328::t_e4f5672046c47f 1-380
+tests/test_curate_tags_cli_regex.py
+  s_0d456da8ea5328::t_e4f5672046c47f 1-134
+tests/test_training_audit_mill.py
+  s_0d456da8ea5328::t_e4f5672046c47f 1-185
+pipelines/round_txn_coverage.py
+  s_0d456da8ea5328::t_e4f5672046c47f 1-517
+tests/reward_test_helpers.py
+  s_0d456da8ea5328::t_e4f5672046c47f 1-196
+pipelines/mill_reviewed_vocabulary.py
+  s_0d456da8ea5328::t_e4f5672046c47f 1-150
+tests/test_training_audit_hidden.py
+  s_0d456da8ea5328::t_e4f5672046c47f 1-248
+tests/test_verify_execution_safety_args.py
+  s_0d456da8ea5328::t_e4f5672046c47f 1-182
+AGENTS.md
+  s_0d456da8ea5328::t_e4f5672046c47f 21-59
+prompts/_factory-contract.md
+  s_0d456da8ea5328::t_e4f5672046c47f 16-17,47-67
+tests/test_curate_tags_map.py
+  s_0d456da8ea5328::t_e4f5672046c47f 1-269
+pipelines/coding_verify_steps.py
+  s_0d456da8ea5328::t_e4f5672046c47f 1-236
+tests/test_training_audit.py
+  s_0d456da8ea5328::t_e4f5672046c47f 4,6,17,299-302,319-325
+docs/ouroboros-swarm-payload-kind.json
+  s_0d456da8ea5328::t_e4f5672046c47f 1-651
+pipelines/tag_constants.py
+  s_0d456da8ea5328::t_e4f5672046c47f 1-48
+tests/test_frontier_publish_retry.py
+  s_0d456da8ea5328::t_e4f5672046c47f 1-113
+pipelines/reward_document.py
+  s_0d456da8ea5328::t_e4f5672046c47f 1-566
+pipelines/tag_io.py
+  s_0d456da8ea5328::t_e4f5672046c47f 1-86
+pipelines/verify_execution_shapes.py
+  s_0d456da8ea5328::t_e4f5672046c47f 1-757
+pipelines/tag_record.py
+  s_0d456da8ea5328::t_e4f5672046c47f 1-482
+schemas/tag-taxonomy-v1.json
+  s_0d456da8ea5328::t_e4f5672046c47f 1-221
+pipelines/round_txn.py
+  ai_agent 9-15,25,309-312,314-317,319-322,330-396,898-1052,1069-1072,1074-1077,1079-1088,1104-1112,1313-1383,1639-1640,1676-1678,1904,2023,2124,2443,2458-2461,2463-2464,2468-2474,2476-2514,2521-2526,2528-2586,2588-2590,2593-2613,2620-2635,2637-2638,2653,2711-2720,2762-2766,2776,2779-2782,2785,2860-3026,3039,3046-3048,3050-3057,3064,3067,3075-3077,3086,3088-3089,3098-3100,3176-3184,3209-3214
+scripts/publish_grok46_hub.py
+  s_0d456da8ea5328::t_e4f5672046c47f 316,319,326-350,352,356-357,1041-1048,1194,1199-1206,1222-1223,1242-1243,1273-1294
+tests/test_validate_run.py
+  s_0d456da8ea5328::t_e4f5672046c47f 458-459,485,488
+schemas/reward-ontology-v1.schema.json
+  s_0d456da8ea5328::t_e4f5672046c47f 5,12-14,31-150,324-891
+tests/fixtures/token-efficiency/README.md
+  s_0d456da8ea5328::t_e4f5672046c47f 1-16
+tests/gate_fixtures.py
+  s_0d456da8ea5328::t_e4f5672046c47f 1-102
+pipelines/reward_units.py
+  s_0d456da8ea5328::t_e4f5672046c47f 1-260
+tests/fixtures/reward-ontology/coding-episodes.jsonl
+  s_0d456da8ea5328::t_e4f5672046c47f 1-4
+tests/test_curate_rewards.py
+  s_0d456da8ea5328::t_e4f5672046c47f 11-13,15-23,25-26,28,129-139,341-367,389,391-392,394-398,401-413,417,419-432,434-451,453-455,458-459,461,463-466,468-472,474-477,479-504,506-517,519-534,538-541,544-548,551-582,584-586,588-600,602-610,612-623,625-628,630-631,633-651,653,655-656,658-671,673-674,676-712,716
+tests/fixtures/token-efficiency/agentic-coding-trajectory-factory/.round-marker-mode.json
+  s_0d456da8ea5328::t_e4f5672046c47f 1
+tests/test_execution_override.py
+  s_0d456da8ea5328::t_e4f5672046c47f 1-257
+tests/fixtures/token-efficiency/thalamic-trajectory-factory/batch-r01.jsonl
+  s_0d456da8ea5328::t_e4f5672046c47f 1
+pipelines/curate_agentic.py
+  s_0d456da8ea5328::t_e4f5672046c47f 39,495-502
+prompts/04-agentic-coding-trajectory-factory.md
+  s_0d456da8ea5328::t_e4f5672046c47f 25,127
+.claude/skills/run-synthetic-factory/SKILL.md
+  s_0d456da8ea5328::t_e4f5672046c47f 101-107,138-151
+tests/fixtures/token-efficiency/agentic-coding-trajectory-factory/NOTES-r02.md
+  s_0d456da8ea5328::t_e4f5672046c47f 1-12
+prompts/05-failure-as-fuel-preference-cascade.md
+  s_0d456da8ea5328::t_e4f5672046c47f 199-205
+tests/fixtures/token-efficiency/thalamic-trajectory-factory/NOTES-r02.md
+  s_0d456da8ea5328::t_e4f5672046c47f 1-12
+pipelines/coding_constants.py
+  s_0d456da8ea5328::t_e4f5672046c47f 1-99
+tests/fixtures/token-efficiency/agentic-coding-trajectory-factory/ROUND-r02.complete.json
+  s_0d456da8ea5328::t_e4f5672046c47f 1
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "fc63e937e6830cb1b80a1dbbee3c80f441349f26",
+  "prompts": {},
+  "sessions": {
+    "s_0d456da8ea5328": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "a8d33a4c-0324-4388-9173-61055dd33627",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Raul Montoya Cardenas <montoyaraul34@gmail.com>"
+    }
+  }
+}
