@@ -1,0 +1,26 @@
+pipelines/curate_agentic.py
+  s_0d456da8ea5328::t_21cd2abb53e7f9 32
+  s_0d456da8ea5328::t_0f81a14ef69432 46-53
+  s_0d456da8ea5328::t_7a6550fa5ae92d 120-132,137,150
+tests/test_compose_curated.py
+  s_0d456da8ea5328::t_044b792c3aedf2 996-1056
+  s_0d456da8ea5328::t_2f21230c5d3db7 432-473
+pipelines/compose_curated.py
+  s_0d456da8ea5328::t_fdb5be2abec88d 1018-1031
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "1ed0b7052f02895d18ee0bcf7c07ba2e6f389fc4",
+  "prompts": {},
+  "sessions": {
+    "s_0d456da8ea5328": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "a8d33a4c-0324-4388-9173-61055dd33627",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Raul Montoya Cardenas <montoyaraul34@gmail.com>"
+    }
+  }
+}
