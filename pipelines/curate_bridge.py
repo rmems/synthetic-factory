@@ -815,9 +815,11 @@ def raster_sidecar(record: Any) -> tuple[str | None, Any]:
         ("raster", record.get("raster")),
         ("meta.raster", meta.get("raster") if isinstance(meta, dict) else None),
     )
-    for location, value in candidates:
-        if isinstance(value, dict):
-            return location, value
+    # The first declared carrier wins outright, valid or not. A malformed
+    # higher-precedence declaration must surface as invalid rather than be
+    # silently skipped in favor of a lower-precedence dict, which would let
+    # ambiguous duplicate declarations through unchecked. Mirrors
+    # gate_snn_sidecar, which had the identical two-pass defect.
     for location, value in candidates:
         if value is not None:
             return location, value
@@ -829,7 +831,11 @@ def gate_snn_sidecar(record: Any) -> tuple[str | None, Any]:
 
     Accepted carriers, in precedence order: top-level ``gate_snn``,
     ``meta.gate_snn``, ``language_view.trajectory.gate_snn``, and
-    ``language_view.trajectory.safety_decision.gate_snn``.
+    ``language_view.trajectory.safety_decision.gate_snn``. The first declared
+    carrier wins outright, valid or not — a malformed higher-precedence
+    declaration (e.g. a non-dict top-level ``gate_snn``) must surface as
+    invalid rather than being silently skipped in favor of a lower-precedence
+    dict, which would let ambiguous duplicate declarations through unchecked.
     """
 
     if not isinstance(record, dict):
@@ -852,9 +858,6 @@ def gate_snn_sidecar(record: Any) -> tuple[str | None, Any]:
             decision.get(GATE_SNN_KEY) if isinstance(decision, dict) else None,
         ),
     )
-    for location, value in candidates:
-        if isinstance(value, dict):
-            return location, value
     for location, value in candidates:
         if value is not None:
             return location, value

@@ -1467,7 +1467,7 @@ def validate_bridge_envelope(batch: Path, factory_dir: Path):
     raster_records = 0
     gate_snn_records = 0
     factory_slug = factory_dir.name
-    for lineno, line in enumerate(batch.read_text().splitlines(), 1):
+    for lineno, line in enumerate(batch.read_text().split("\n"), 1):
         if not line.strip():
             continue
         # JSON parsing and base shape errors have already been checked by
