@@ -1896,6 +1896,45 @@ def _read_exact_regular_file(root: Path, raw_path: Any, label: str) -> tuple[Pat
     return path, payload
 
 
+def _open_pinned_child(
+    name: str, parent_descriptor: int, label: str
+) -> tuple[os.stat_result, int]:
+    """Stat and open one child through its already-pinned parent descriptor."""
+
+    try:
+        before = os.stat(name, dir_fd=parent_descriptor, follow_symlinks=False)
+        descriptor = os.open(
+            name,
+            os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_CLOEXEC", 0),
+            dir_fd=parent_descriptor,
+        )
+    except OSError as exc:
+        raise ComposeError(f"{label}: cannot open exact source file: {exc}") from exc
+    return before, descriptor
+
+
+def _read_pinned_child_bytes(
+    name: str,
+    parent_descriptor: int,
+    file_descriptor: int,
+    before: os.stat_result,
+    label: str,
+) -> bytes:
+    """Read the opened child, proving its identity held across the read."""
+
+    opened_before = os.fstat(file_descriptor)
+    _assert_opened_source_identity(before, opened_before, label)
+    payload = _drain_descriptor(file_descriptor)
+    opened_after = os.fstat(file_descriptor)
+    after = os.stat(name, dir_fd=parent_descriptor, follow_symlinks=False)
+    if (
+        _stable_file_identity(opened_before) != _stable_file_identity(opened_after)
+        or _stable_file_identity(after) != _stable_file_identity(opened_after)
+    ):
+        raise ComposeError(f"{label}: source identity changed while reading")
+    return payload
+
+
 def _read_exact_child_file(parent: Path, name: str, label: str) -> tuple[Path, bytes]:
     """Read one direct child while its exact parent directory remains pinned."""
 
@@ -1911,57 +1950,29 @@ def _read_exact_child_file(parent: Path, name: str, label: str) -> tuple[Path, b
         parent_descriptor = os.open(parent, directory_flags)
     except OSError as exc:
         raise ComposeError(f"{label} parent changed while it was pinned: {parent}") from exc
+
     file_descriptor: int | None = None
     try:
+        # The parent identity is proved before the child is opened and again
+        # after it is read, so a swapped directory cannot slip a different
+        # file into the same name mid-read.
         _verify_directory_binding(
             parent,
             parent_descriptor,
             f"{label} parent",
             expected_identity=expected_parent_identity,
         )
-        try:
-            before = os.stat(
-                name,
-                dir_fd=parent_descriptor,
-                follow_symlinks=False,
-            )
-            file_descriptor = os.open(
-                name,
-                os.O_RDONLY
-                | getattr(os, "O_NOFOLLOW", 0)
-                | getattr(os, "O_CLOEXEC", 0),
-                dir_fd=parent_descriptor,
-            )
-        except OSError as exc:
-            raise ComposeError(f"{label}: cannot open exact source file: {exc}") from exc
-        opened_before = os.fstat(file_descriptor)
-        if not stat.S_ISREG(opened_before.st_mode):
-            raise ComposeError(f"{label}: opened identity is not a regular file")
-        if opened_before.st_nlink != 1:
-            raise ComposeError(f"{label}: hard-link aliases are not accepted")
-        if _stable_file_identity(before) != _stable_file_identity(opened_before):
-            raise ComposeError(f"{label}: source identity changed while opening")
-        chunks: list[bytes] = []
-        while chunk := os.read(file_descriptor, 1024 * 1024):
-            chunks.append(chunk)
-        opened_after = os.fstat(file_descriptor)
-        after = os.stat(
-            name,
-            dir_fd=parent_descriptor,
-            follow_symlinks=False,
+        before, file_descriptor = _open_pinned_child(name, parent_descriptor, label)
+        payload = _read_pinned_child_bytes(
+            name, parent_descriptor, file_descriptor, before, label
         )
-        if (
-            _stable_file_identity(opened_before) != _stable_file_identity(opened_after)
-            or _stable_file_identity(after) != _stable_file_identity(opened_after)
-        ):
-            raise ComposeError(f"{label}: source identity changed while reading")
         _verify_directory_binding(
             parent,
             parent_descriptor,
             f"{label} parent",
             expected_identity=expected_parent_identity,
         )
-        return parent / name, b"".join(chunks)
+        return parent / name, payload
     finally:
         if file_descriptor is not None:
             os.close(file_descriptor)
@@ -2028,6 +2039,19 @@ def source_jsonl_members(root: Path) -> tuple[str, ...]:
     return tuple(sorted(members))
 
 
+def _assert_destination_disjoint(
+    resolved_source: Path, resolved_destination: Path
+) -> None:
+    """The destination may neither be, contain, nor sit inside the source run."""
+
+    if resolved_source == resolved_destination:
+        raise ComposeError("destination cannot replace the source run")
+    if resolved_source in resolved_destination.parents:
+        raise ComposeError("destination cannot be written inside the source run")
+    if resolved_destination in resolved_source.parents:
+        raise ComposeError("destination cannot contain the source run")
+
+
 def _assert_new_destination(
     source_run: Path, destination: Path
 ) -> tuple[Path, tuple[int, int, int]]:
@@ -2035,14 +2059,9 @@ def _assert_new_destination(
         raise ComposeError(f"refusing to overwrite an existing destination: {destination}")
     if _is_under_raw(destination):
         raise ComposeError(f"refusing to write inside immutable raw evidence: {destination}")
-    resolved_source = source_run.resolve()
-    resolved_destination = destination.resolve(strict=False)
-    if resolved_source == resolved_destination:
-        raise ComposeError("destination cannot replace the source run")
-    if resolved_source in resolved_destination.parents:
-        raise ComposeError("destination cannot be written inside the source run")
-    if resolved_destination in resolved_source.parents:
-        raise ComposeError("destination cannot contain the source run")
+    _assert_destination_disjoint(
+        source_run.resolve(), destination.resolve(strict=False)
+    )
     parent = _require_exact_directory(destination.parent, "destination parent")
     return parent, _directory_identity(parent.lstat())
 
