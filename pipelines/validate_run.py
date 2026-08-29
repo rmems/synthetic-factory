@@ -156,6 +156,45 @@ SPIKE_ORDER_MISMATCH = "spike_events not globally non-decreasing"
 SPIKE_TIME_KEY_MISMATCH = "spike_events must use one timestamp key throughout"
 
 
+def _missing_spike_event_key_errors(event, index, where, require_keys):
+    return [
+        f"{where}: spike_events[{index}] missing '{key}'"
+        for key in require_keys
+        if key not in event
+    ]
+
+
+def _invalid_spike_event_string_errors(event, index, where):
+    return [
+        f"{where}: spike_events[{index}].{key} must be a non-empty string"
+        for key in SPIKE_EVENT_STRING_KEYS
+        if key in event and (
+            not isinstance(event[key], str) or not event[key].strip()
+        )
+    ]
+
+
+def _invalid_spike_event_number_errors(event, index, where):
+    return [
+        f"{where}: spike_events[{index}].{key} must be a finite number"
+        for key in SPIKE_EVENT_NUMBER_KEYS
+        if key in event and not is_number(event[key])
+    ]
+
+
+def _spike_event_field_errors(event, index, where, require_keys):
+    """Required-key, string-type, and numeric-type errors for one event.
+
+    Pure field-shape checks only; the timestamp/clock contract lives in
+    ``_check_spike_event``, which owns the single-clock decision logic.
+    """
+    return [
+        *_missing_spike_event_key_errors(event, index, where, require_keys),
+        *_invalid_spike_event_string_errors(event, index, where),
+        *_invalid_spike_event_number_errors(event, index, where),
+    ]
+
+
 def _check_spike_event(event, index, where, require_keys):
     """Validate one event's required keys, schema types, and single clock.
 
@@ -165,23 +204,7 @@ def _check_spike_event(event, index, where, require_keys):
     if not isinstance(event, dict):
         return [f"{where}: spike_events[{index}] must be an object"], None
 
-    errs = [
-        f"{where}: spike_events[{index}] missing '{key}'"
-        for key in require_keys
-        if key not in event
-    ]
-    errs.extend(
-        f"{where}: spike_events[{index}].{key} must be a non-empty string"
-        for key in SPIKE_EVENT_STRING_KEYS
-        if key in event and (
-            not isinstance(event[key], str) or not event[key].strip()
-        )
-    )
-    errs.extend(
-        f"{where}: spike_events[{index}].{key} must be a finite number"
-        for key in SPIKE_EVENT_NUMBER_KEYS
-        if key in event and not is_number(event[key])
-    )
+    errs = _spike_event_field_errors(event, index, where, require_keys)
 
     present_time_keys = [key for key in SPIKE_TIME_KEYS if key in event]
     if not present_time_keys:

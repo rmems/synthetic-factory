@@ -95,39 +95,36 @@ def walk_key(obj, name, path=""):
             yield from walk_key(item, name, f"{path}[{i}]")
 
 
-def check_spikes(
-    events,
-    where,
-    *,
-    validate_events=False,
-    require_keys=(),
-    require_nonempty=False,
-):
-    """Require non-decreasing times when one comparable clock key is present.
+def check_spike_stream_shape(events, where, *, require_keys=(), require_nonempty=False):
+    """Strict shape/order validation for one discovered ``spike_events`` stream.
 
-    The deep record checker opts into full event validation because it discovers
-    nested streams that the shape layer cannot see. Other callers, especially
-    promotion's safe sorter, leave ``validate_events`` false so incomparable
-    clocks are neither compared nor resorted.
+    The deep record checker uses this for every stream it discovers — the
+    shape layer's own copies are dropped so each stream is reported exactly
+    once (see the single-owner comment on ``check_record``).
     """
     if not isinstance(events, list):
-        if validate_events:
-            return [f"{where}: spike_events must be an array"]
-        return []
-    if validate_events:
-        if require_nonempty and not events:
-            return [f"{where}: spike_events must be a non-empty array"]
-        return check_spike_order(events, where, require_keys=require_keys)
+        return [f"{where}: spike_events must be an array"]
+    if require_nonempty and not events:
+        return [f"{where}: spike_events must be a non-empty array"]
+    return check_spike_order(events, where, require_keys=require_keys)
+
+
+def _timed_spike_events(events):
+    """Return ``(index, key, value)`` for every event with one finite timestamp.
+
+    Untimed or ambiguously-timed (dual-key) events are silently excluded —
+    the caller decides what an incomplete result means.
+    """
     timed = []
     for i, event in enumerate(events):
         got = event_time(event)
         if got is not None:
             timed.append((i, got[0], got[1]))
-    if len(timed) < 2:
-        return []
-    time_keys = {key for _, key, _ in timed}
-    if len(time_keys) > 1:
-        return []
+    return timed
+
+
+def _first_spike_order_violation(where, timed):
+    """The first global non-decreasing-order violation among timed events, if any."""
     for (i0, key0, t0), (i1, key1, t1) in zip(timed, timed[1:]):
         if t1 < t0:
             key = key1 if key1 == key0 else f"{key0}/{key1}"
@@ -136,6 +133,26 @@ def check_spikes(
                 f"at index {i1} ({key} {t0} -> {t1})"
             ]
     return []
+
+
+def check_spikes(events, where):
+    """Probe whether a stream is unambiguously, safely out of order.
+
+    Used by promotion's safe sorter (and directly by tests) to decide
+    whether resorting is safe: reports an error only for a genuine global
+    order violation on a single, unambiguous timestamp key. Untimed,
+    mixed-key, non-array, or too-short streams are silently accepted (empty
+    result) since they are neither compared nor resorted by the caller.
+    """
+    if not isinstance(events, list):
+        return []
+    timed = _timed_spike_events(events)
+    if len(timed) < 2:
+        return []
+    time_keys = {key for _, key, _ in timed}
+    if len(time_keys) > 1:
+        return []
+    return _first_spike_order_violation(where, timed)
 
 
 def component_value(value):
@@ -454,10 +471,9 @@ def check_record(obj, where, factory_staging=False):
             # channel/amplitude and a non-empty array.
             bridge_root = kind == "bridge_pair" and path == "spike_events"
             errors.extend(
-                check_spikes(
+                check_spike_stream_shape(
                     events,
                     f"{where}: {path}",
-                    validate_events=True,
                     require_keys=(BRIDGE_SPIKE_EVENT_KEYS if bridge_root else ()),
                     require_nonempty=bridge_root,
                 )
