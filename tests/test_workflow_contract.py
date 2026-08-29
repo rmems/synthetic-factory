@@ -1,11 +1,17 @@
 #!/usr/bin/env python3
-"""Static safety-contract checks for the Workflow DSL script."""
+"""Static safety-contract checks for the Workflow DSL script and prompts."""
 
+import sys
 import unittest
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
 WORKFLOW = REPO / ".claude" / "skills" / "run-synthetic-factory" / "factory-window.workflow.js"
+PROMPTS = REPO / "prompts"
+DOCS = REPO / "docs" / "token-efficiency.md"
+
+sys.path.insert(0, str(REPO / "pipelines"))
+import round_txn  # noqa: E402
 
 
 class WorkflowContract(unittest.TestCase):
@@ -47,6 +53,94 @@ class WorkflowContract(unittest.TestCase):
         self.assertIn("resumed mid-publish", release)
         self.assertNotIn("gone/committed/mid-publish", release)
         self.assertNotIn("already committed or mid-publish", release)
+
+
+class NovelCoverageNotesContract(unittest.TestCase):
+    """Every round-transactional prompt must ask for the NOTES latch line.
+
+    The token-efficiency early-stop (docs/token-efficiency.md) can only fire
+    on rounds whose NOTES report `Novel coverage: <N>%`.  A prompt that drives
+    round_txn publish but never asks for the line produces rounds the latch
+    cannot read, which is exactly how the 2026-08-19 harvest ended up with
+    0/49 parseable NOTES.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.prompts = {
+            path.name: path.read_text() for path in sorted(PROMPTS.glob("*.md"))
+        }
+        cls.transactional = {
+            name: text
+            for name, text in cls.prompts.items()
+            if "round_txn.py" in text
+        }
+
+    def test_every_transactional_prompt_requires_the_notes_line(self):
+        self.assertTrue(self.transactional, "no transactional prompts found")
+        missing = sorted(
+            name
+            for name, text in self.transactional.items()
+            if "Novel coverage: <N>%" not in text
+        )
+        self.assertEqual(missing, [], f"prompts missing the NOTES contract: {missing}")
+
+    def test_both_shared_contracts_carry_the_line(self):
+        for name in ("_factory-contract.md", "_agentic-factory-contract.md"):
+            self.assertIn("Novel coverage: <N>%", self.transactional[name], name)
+
+    def test_legacy_lane_prompts_are_covered_not_just_the_agentic_lane(self):
+        legacy_prompts = (
+            "01-thalamic-trajectory-factory.md",
+            "02-multi-agent-ouroboros-swarm.md",
+            "03-neuromorphic-event-language-bridge.md",
+            "04-agentic-coding-trajectory-factory.md",
+            "05-failure-as-fuel-preference-cascade.md",
+        )
+        for name in legacy_prompts:
+            self.assertIn("Novel coverage: <N>%", self.prompts[name], name)
+            self.assertIn("docs/token-efficiency.md", self.prompts[name], name)
+
+    def test_the_contract_example_parses_with_the_shipped_regex(self):
+        example = "Novel coverage: 12.3%"
+        self.assertIn(example, self.prompts["_factory-contract.md"])
+        match = round_txn.NOVEL_COVERAGE_RE.fullmatch(example)
+        self.assertIsNotNone(match)
+        self.assertEqual(float(match.group(1)), 12.3)
+
+    def test_strict_publish_and_workflow_parsers_require_one_physical_line(self):
+        split_claim = "Novel coverage:\n80% of tests passed.\n"
+        self.assertIsNone(round_txn.NOVEL_COVERAGE_RE.search(split_claim))
+        self.assertIsNotNone(
+            round_txn.LEGACY_NOVEL_COVERAGE_RE.search(split_claim)
+        )
+        workflow = WORKFLOW.read_text()
+        self.assertIn(r"^[ \t]*novel", workflow)
+        self.assertNotIn(r"/^\s*novel", workflow)
+
+    def test_strict_parser_accepts_only_horizontal_whitespace(self):
+        self.assertIsNone(round_txn.NOVEL_COVERAGE_RE.fullmatch("\vNovel coverage: 12%"))
+        self.assertIsNone(round_txn.NOVEL_COVERAGE_RE.fullmatch("Novel\fcoverage: 12%"))
+        self.assertIsNotNone(round_txn.NOVEL_COVERAGE_RE.fullmatch("\tNovel coverage:\t12%\t"))
+
+    def test_strict_parser_accepts_only_ascii_digits(self):
+        self.assertIsNone(round_txn.NOVEL_COVERAGE_RE.fullmatch("Novel coverage: ٤%"))
+        self.assertIsNone(round_txn.NOVEL_COVERAGE_RE.fullmatch("Novel coverage: １２%"))
+        self.assertIsNotNone(round_txn.NOVEL_COVERAGE_RE.fullmatch("Novel coverage: 12.5%"))
+
+    def test_workflow_parser_requires_one_complete_labeled_line(self):
+        workflow = WORKFLOW.read_text()
+        self.assertIn(r".split(/\r\n|\n|\r/)", workflow)
+        self.assertIn(r"%[ \t]*$/i", workflow)
+        self.assertIn("labeledLines.length !== 1", workflow)
+
+    def test_docs_and_prompts_agree_on_the_threshold(self):
+        docs = DOCS.read_text()
+        self.assertIn("Novel coverage: <N>%", docs)
+        self.assertIn("5%", docs)
+        for name, text in self.transactional.items():
+            if "docs/token-efficiency.md" in text:
+                self.assertIn("5%", text, name)
 
 
 if __name__ == "__main__":

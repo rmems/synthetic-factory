@@ -294,8 +294,19 @@ RESTART_LANE_SCENARIO_TERMS = {
         ("verify", "cannot commit", "reject"),
     ),
 }
+NOVEL_COVERAGE_LABEL_RE = re.compile(
+    r"^[ \t]*novel[ _-]?coverage\b",
+    re.IGNORECASE,
+)
 NOVEL_COVERAGE_RE = re.compile(
-    r"^\s*novel[ _-]?coverage\s*(?:\([^)\n]*\))?\s*[:=]?\s*(\d+(?:\.\d+)?)\s*%",
+    r"^[ \t]*novel[ _-]?coverage[ \t]*"
+    r"(?:\([^)\r\n]*\))?[ \t]*[:=]?[ \t]*"
+    r"([0-9]+(?:\.[0-9]+)?)[ \t]*%[ \t]*$",
+    re.IGNORECASE,
+)
+LEGACY_NOVEL_COVERAGE_RE = re.compile(
+    r"^\s*novel[ _-]?coverage\s*"
+    r"(?:\([^)\n]*\))?\s*[:=]?\s*(\d+(?:\.\d+)?)\s*%",
     re.IGNORECASE | re.MULTILINE,
 )
 CASCADE_GENERIC_TERMS = frozenset(
@@ -2204,17 +2215,52 @@ def validate_completed_batch(
             )
 
 
-def validate_novel_coverage(notes: Path, factory_dir: Path, notes_text: str | None = None):
-    """Require a usable Novel coverage percentage for fixed agentic lanes."""
-    if factory_dir.name not in AGENTIC_FACTORY_KINDS:
+def validate_novel_coverage(
+    notes: Path,
+    factory_dir: Path,
+    notes_text: str | None = None,
+    *,
+    required: bool | None = None,
+):
+    """Require a usable Novel coverage percentage.
+
+    ``required=None`` keeps the read-path scope: only the fixed agentic lanes
+    are checked, so committed legacy rounds published before the NOTES contract
+    existed stay readable and are never rewritten.  The publish path requires
+    the line for every registered factory in ``FACTORY_QUOTAS``, legacy lanes
+    included, so the token-efficiency early-stop can actually latch. Unknown
+    custom transaction directories retain the generic nonempty-NOTES contract
+    (``docs/token-efficiency.md``).
+    """
+    strict_new_publish = required is True
+    if required is None:
+        required = factory_dir.name in AGENTIC_FACTORY_KINDS
+    if not required:
         return None
     if notes_text is None:
         try:
             notes_text = notes.read_text()
         except (OSError, UnicodeError) as exc:
             return f"cannot read notes as UTF-8: {notes}: {exc}"
-    match = NOVEL_COVERAGE_RE.search(notes_text)
+    if strict_new_publish:
+        labeled_lines = [
+            line
+            for line in re.split(r"\r\n|\n|\r", notes_text)
+            if NOVEL_COVERAGE_LABEL_RE.search(line)
+        ]
+        if not labeled_lines:
+            return f"notes need a 'Novel coverage: <N>%' line: {notes}"
+        if len(labeled_lines) != 1:
+            return f"notes need exactly one unambiguous Novel coverage line: {notes}"
+        match = NOVEL_COVERAGE_RE.fullmatch(labeled_lines[0])
+    else:
+        # Historical NOTES were accepted by this multiline prefix search.
+        # Preserve its first-match behavior, including split claims, suffixes,
+        # and duplicate labels that new publication rejects.
+        match = LEGACY_NOVEL_COVERAGE_RE.search(notes_text)
     if match is None:
+        if strict_new_publish:
+            return f"notes need exactly one unambiguous Novel coverage line: {notes}"
         return f"notes need a 'Novel coverage: <N>%' line: {notes}"
     value = float(match.group(1))
     if not 0 <= value <= 100:
@@ -2288,8 +2334,15 @@ def validate_stage(
             ) from exc
         if not notes_text.strip():
             raise TransactionError(f"staged notes are empty: {stage / notes_name}")
+        # Every newly published registered factory round must carry the line,
+        # legacy lanes included: the token-efficiency early-stop cannot latch
+        # on rounds that never report their novelty. Unknown custom transaction
+        # directories retain round_txn's generic NOTES contract.
         coverage_error = validate_novel_coverage(
-            stage / notes_name, factory_dir, notes_text
+            stage / notes_name,
+            factory_dir,
+            notes_text,
+            required=factory_dir.name in FACTORY_QUOTAS,
         )
         if coverage_error:
             raise TransactionError(coverage_error)
