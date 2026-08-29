@@ -1526,6 +1526,17 @@ def _check_capture_chain(record, deployment, where):
             f"{where}: capture payload digest is not bound to the stored manifest "
             "[HW_PROVENANCE_MISSING]"
         )
+    recorded_at = capture.get("recorded_at")
+    manifest_recorded_at = manifest.get("recorded_at")
+    if (
+        not isinstance(recorded_at, str)
+        or not recorded_at
+        or recorded_at != manifest_recorded_at
+    ):
+        errors.append(
+            f"{where}: capture.recorded_at is not bound to "
+            "capture.source.manifest.recorded_at [HW_PROVENANCE_MISSING]"
+        )
     fixture_sha = ((record.get("scenario") or {}).get("input_fixture") or {}).get(
         "sha256"
     )
@@ -2225,6 +2236,7 @@ def _validate_record(record, where):
             "membrane",
             "quantization",
             "repeatability",
+            "verdict_rule",
         ):
             errors += _metrics_equal(
                 recorded_parity.get(section), parity[section], f"result.parity.{section}",

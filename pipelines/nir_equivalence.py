@@ -1817,7 +1817,7 @@ def _reexecute_in_repo_runtimes(record, where):
                         f"reported {expected!r} [UNSUPPORTED_NOT_DIAGNOSED]"
                     )
             fresh_roundtrip = runtime.roundtrip_graph(graph)
-            if entry.get("roundtrip") != fresh_roundtrip:
+            if not contract.strict_json_equal(entry.get("roundtrip"), fresh_roundtrip):
                 errors.append(
                     f"{label}: recorded parse/write parity does not match this runtime's "
                     "adapter [ROUNDTRIP_STRUCTURE_MISMATCH]"

@@ -382,6 +382,18 @@ class Validation(unittest.TestCase):
         errors = hp.validate_record(record, WHERE)
         self.assertTrue(any("PARITY_METRIC_MISMATCH" in error for error in errors))
 
+    def test_verdict_rule_is_bound_to_compute_parity(self):
+        record = copy.deepcopy(self.records[0])
+        record["result"]["parity"]["verdict_rule"] = "all records match"
+        errors = hp.validate_record(record, WHERE)
+        self.assertTrue(
+            any(
+                "verdict_rule" in error and "PARITY_METRIC_MISMATCH" in error
+                for error in errors
+            ),
+            errors,
+        )
+
     def test_edited_spike_trace_moves_the_verdict(self):
         record = copy.deepcopy(self.records[0])
         record["oracle"]["deployment"]["spikes"][0][0] ^= 1
@@ -1054,6 +1066,34 @@ class RecordedCapturePath(unittest.TestCase):
             ][0][0] ^= 1
             errors = hp.validate_record(record, WHERE)
             self.assertTrue(any("capture" in error.lower() for error in errors), errors)
+
+    def test_capture_recorded_at_is_bound_to_the_manifest(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            record = self._record(tmp)
+            record["oracle"]["deployment"]["capture"]["recorded_at"] = (
+                "1999-01-01T00:00:00Z"
+            )
+            errors = hp.validate_record(record, WHERE)
+            self.assertTrue(
+                any(
+                    "recorded_at" in error and "HW_PROVENANCE_MISSING" in error
+                    for error in errors
+                ),
+                errors,
+            )
+
+    def test_missing_capture_recorded_at_is_rejected(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            record = self._record(tmp)
+            record["oracle"]["deployment"]["capture"].pop("recorded_at", None)
+            errors = hp.validate_record(record, WHERE)
+            self.assertTrue(
+                any(
+                    "recorded_at" in error and "HW_PROVENANCE_MISSING" in error
+                    for error in errors
+                ),
+                errors,
+            )
 
     def test_physical_bitstream_requires_canonical_sha256(self):
         with tempfile.TemporaryDirectory() as tmp:

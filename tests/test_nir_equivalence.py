@@ -910,6 +910,32 @@ class Validation(unittest.TestCase):
             errors,
         )
 
+    def test_unsupported_roundtrip_booleans_use_strict_json_typing(self):
+        record = copy.deepcopy(
+            next(
+                item
+                for item in self.records
+                if item["scenario"]["id"] == "nir-partial-coverage-li"
+            )
+        )
+        entry = next(
+            item
+            for item in record["oracle"]["runtimes"]
+            if item["status"] == nir.STATUS_UNSUPPORTED
+            and isinstance(item.get("roundtrip"), dict)
+            and item["roundtrip"].get("parse_ok") is True
+        )
+        entry["roundtrip"]["parse_ok"] = 1
+        per_runtime = record["result"]["comparison"]["parse_write_parity"][
+            "per_runtime"
+        ]
+        per_runtime[entry["runtime"]]["parse_ok"] = 1
+        errors = nir.validate_record(record, WHERE)
+        self.assertTrue(
+            any("ROUNDTRIP_STRUCTURE_MISMATCH" in error for error in errors),
+            errors,
+        )
+
 
 class UnfalsifiableClaims(unittest.TestCase):
     """A runtime this validator cannot re-execute may never be marked executed."""
