@@ -414,7 +414,7 @@ class RecordedTeacherRouter(RouterOracle):
         }
 
     def fingerprint(self) -> dict[str, Any]:
-        return {"is_llm_teacher": self.is_llm_teacher, **self.teacher}
+        return {**self.teacher, "is_llm_teacher": self.is_llm_teacher}
 
     def route(self, text: str) -> RouterObservation:
         entry = self.observations.get(self.key_for(text))
@@ -423,20 +423,32 @@ class RecordedTeacherRouter(RouterOracle):
                 self.name,
                 f"no recorded routing for context sha256 {self.key_for(text)}",
             )
-        layers = [
-            LayerRouting(
-                layer=int(layer["layer"]),
-                top_k_experts=tuple(int(value) for value in layer["top_k_experts"]),
-                router_logits=(
-                    tuple(float(value) for value in layer["router_logits"])
-                    if layer.get("router_logits") is not None
-                    else None
-                ),
-                top1_top2_margin=float(layer["top1_top2_margin"]),
-                routing_entropy=float(layer["routing_entropy"]),
-            )
-            for layer in entry["layers"]
-        ]
+        layers: list[LayerRouting] = []
+        for layer in entry["layers"]:
+            try:
+                if not isinstance(layer, dict):
+                    raise oc.OracleUnavailable(self.name, "layer must be an object")
+                if not oc.is_number(layer.get("top1_top2_margin")):
+                    raise oc.OracleUnavailable(self.name, "layer missing top1_top2_margin")
+                if not oc.is_number(layer.get("routing_entropy")):
+                    raise oc.OracleUnavailable(self.name, "layer missing routing_entropy")
+                layers.append(
+                    LayerRouting(
+                        layer=int(layer["layer"]),
+                        top_k_experts=tuple(int(value) for value in layer["top_k_experts"]),
+                        router_logits=(
+                            tuple(float(value) for value in layer["router_logits"])
+                            if layer.get("router_logits") is not None
+                            else None
+                        ),
+                        top1_top2_margin=float(layer["top1_top2_margin"]),
+                        routing_entropy=float(layer["routing_entropy"]),
+                    )
+                )
+            except (KeyError, TypeError, ValueError) as exc:
+                raise oc.OracleUnavailable(
+                    self.name, f"malformed layer data: {exc}"
+                )
         if not layers:
             raise oc.OracleUnavailable(self.name, "recorded routing has no layers")
         return _summarise(layers)
@@ -853,22 +865,28 @@ def check_family(record: dict[str, Any], where: str) -> list[str]:
         experts = layer.get("top_k_experts")
         if not isinstance(experts, list) or len(experts) < 2:
             errors.append(f"{spot}.top_k_experts must list at least the top two")
-        elif len(set(experts)) != len(experts):
-            errors.append(f"{spot}.top_k_experts must not repeat an expert")
-        elif not all(
-            isinstance(value, int) and not isinstance(value, bool) for value in experts
-        ):
-            errors.append(f"{spot}.top_k_experts must be integer expert ids")
-        elif expert_count is not None and not all(
-            0 <= value < expert_count for value in experts
-        ):
-            # Checked independently of router_logits, because a recorded
-            # teacher may legitimately omit logits and would otherwise be free
-            # to record ids like [-1, 999] as authoritative routing labels.
-            errors.append(
-                f"{spot}.top_k_experts must lie in [0, {expert_count}) — the "
-                "expert count the oracle fingerprint declares"
-            )
+        else:
+            invalid_experts = [
+                e for e in experts
+                if not isinstance(e, int) or isinstance(e, bool)
+            ]
+            if invalid_experts:
+                errors.append(
+                    f"{spot}.top_k_experts contains invalid entries: {invalid_experts}"
+                )
+            elif len(set(experts)) != len(experts):
+                errors.append(f"{spot}.top_k_experts must not repeat an expert")
+            elif expert_count is not None and not all(
+                0 <= value < expert_count for value in experts
+            ):
+                # Checked independently of router_logits, because a recorded
+                # teacher may legitimately omit logits and would otherwise be
+                # free to record ids like [-1, 999] as authoritative routing
+                # labels.
+                errors.append(
+                    f"{spot}.top_k_experts must lie in [0, {expert_count}) — the "
+                    "expert count the oracle fingerprint declares"
+                )
         logits = layer.get("router_logits")
         if logits is not None:
             if not isinstance(logits, list) or not all(
@@ -912,24 +930,31 @@ def check_family(record: dict[str, Any], where: str) -> list[str]:
         if isinstance(layer, dict)
         and isinstance(layer.get("top_k_experts"), list)
         and layer["top_k_experts"]
+        and isinstance(layer["top_k_experts"][0], int)
+        and not isinstance(layer["top_k_experts"][0], bool)
     ]
     if len(tops) == len(layers) and tops:
-        modal, count = Counter(tops).most_common(1)[0]
-        if result.get("top1_expert") != modal:
-            errors.append(
-                f"{where}.result.top1_expert is {result.get('top1_expert')!r} but the "
-                f"recorded layers route to {modal!r}"
-            )
-        if routing.get("top1_expert") != modal:
-            errors.append(
-                f"{where}.result.routing.top1_expert disagrees with its own layers"
-            )
-        expected_agreement = count / len(tops)
-        if oc.is_number(agreement) and abs(float(agreement) - expected_agreement) > 1e-6:
-            errors.append(
-                f"{where}.result.routing.expert_agreement is {agreement} but the "
-                f"recorded layers agree {expected_agreement:.6f} of the time"
-            )
+        try:
+            modal, count = Counter(tops).most_common(1)[0]
+        except (TypeError, ValueError):
+            errors.append(f"{where}.result.routing: cannot compute top1_expert from invalid layer data")
+            modal, count = None, 0
+        if modal is not None:
+            if result.get("top1_expert") != modal:
+                errors.append(
+                    f"{where}.result.top1_expert is {result.get('top1_expert')!r} but the "
+                    f"recorded layers route to {modal!r}"
+                )
+            if routing.get("top1_expert") != modal:
+                errors.append(
+                    f"{where}.result.routing.top1_expert disagrees with its own layers"
+                )
+            expected_agreement = count / len(tops)
+            if oc.is_number(agreement) and abs(float(agreement) - expected_agreement) > 1e-6:
+                errors.append(
+                    f"{where}.result.routing.expert_agreement is {agreement} but the "
+                    f"recorded layers agree {expected_agreement:.6f} of the time"
+                )
 
     # The compact targets in result.measurements describe the last layer and
     # the cross-layer agreement. Reconcile them with the routing they summarise.

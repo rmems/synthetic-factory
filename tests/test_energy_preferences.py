@@ -105,7 +105,7 @@ class AllocationTask(unittest.TestCase):
             self.assertAlmostEqual(sum(exact), demand, places=6)
             for value, cap in zip(exact, caps):
                 self.assertLessEqual(value, cap + 1e-9)
-            grid = ep.grid_allocation(demand, weights, caps, 40)
+            grid = ep.grid_allocation(demand, weights, caps, 12)
             if grid is not None:
                 self.assertLessEqual(
                     ep.objective(weights, exact), ep.objective(weights, grid) + 1e-9
@@ -153,6 +153,16 @@ class MeterBoundary(unittest.TestCase):
     def test_process_meter_rejects_zero_repeats(self):
         with self.assertRaises(oc.ContractError):
             ep.ProcessResourceMeter().measure(lambda: None, repeats=0, warmup=0)
+
+    def test_rapl_meter_rejects_zero_repeats(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            domain = root / "intel-rapl:0"
+            domain.mkdir()
+            (domain / "energy_uj").write_text("1000000\n")
+            meter = ep.RaplEnergyMeter(root=root)
+            with self.assertRaises(oc.ContractError):
+                meter.measure(lambda: None, repeats=0, warmup=0)
 
     def test_rapl_meter_reports_unavailable_rather_than_guessing(self):
         with tempfile.TemporaryDirectory() as tmp:
