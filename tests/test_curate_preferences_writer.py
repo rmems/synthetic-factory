@@ -14,8 +14,14 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO / "pipelines"))
 
 import curate_preferences  # noqa: E402
+import preference_destination  # noqa: E402
 import training_audit  # noqa: E402
 from pipelines import raw_tree_guard  # noqa: E402
+
+# The raw-tree refusal reads preference_destination.RAW_OUTPUT_ROOT, which is
+# the module that owns the destination layer. These tests stand in a fake raw
+# root to exercise symlink and bind-mount aliases, so they patch it there;
+# curate_preferences re-exports the same value for callers that only read it.
 
 
 def trajectory(record_id, state=None, proposal=None, decision="ACCEPT"):
@@ -213,7 +219,7 @@ class CuratePreferenceSource(unittest.TestCase):
                     destination = destination_for(outputs, external_raw)
                     run = curate_preferences.curate_source(source)
                     with mock.patch.object(
-                        curate_preferences, "RAW_OUTPUT_ROOT", raw_root
+                        preference_destination, "RAW_OUTPUT_ROOT", raw_root
                     ):
                         with self.assertRaisesRegex(
                             curate_preferences.PreferenceCurationError,
@@ -248,7 +254,7 @@ class CuratePreferenceSource(unittest.TestCase):
             run = curate_preferences.curate_source(source)
             output = outside / "curated.jsonl"
             manifest = alternate_alias / "manifest.jsonl"
-            with mock.patch.object(curate_preferences, "RAW_OUTPUT_ROOT", raw_root):
+            with mock.patch.object(preference_destination, "RAW_OUTPUT_ROOT", raw_root):
                 with self.assertRaisesRegex(
                     curate_preferences.PreferenceCurationError,
                     "immutable raw evidence",
@@ -275,7 +281,7 @@ class CuratePreferenceSource(unittest.TestCase):
             raw_run.mkdir(parents=True)
             destination = alias / "curated.jsonl"
             run = curate_preferences.curate_source(source)
-            with mock.patch.object(curate_preferences, "RAW_OUTPUT_ROOT", raw_root):
+            with mock.patch.object(preference_destination, "RAW_OUTPUT_ROOT", raw_root):
                 with mock.patch.object(
                     raw_tree_guard,
                     "_read_mountinfo",
@@ -329,7 +335,7 @@ class CuratePreferenceSource(unittest.TestCase):
                 (repo, Path("/project/repo"), "8:2"),
                 (alias, Path("/project/repo/outputs/raw/run"), "8:2"),
             )
-            with mock.patch.object(curate_preferences, "RAW_OUTPUT_ROOT", raw_root):
+            with mock.patch.object(preference_destination, "RAW_OUTPUT_ROOT", raw_root):
                 with mock.patch.object(
                     raw_tree_guard, "_read_mountinfo", return_value=mounts
                 ):
@@ -372,7 +378,7 @@ class CuratePreferenceSource(unittest.TestCase):
                 parent.symlink_to(raw_root)
 
             run = curate_preferences.curate_source(source)
-            with mock.patch.object(curate_preferences, "RAW_OUTPUT_ROOT", raw_root):
+            with mock.patch.object(preference_destination, "RAW_OUTPUT_ROOT", raw_root):
                 with mock.patch.object(
                     curate_preferences,
                     "_assert_new_destination",
