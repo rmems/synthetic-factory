@@ -50,7 +50,7 @@ import shutil
 import stat
 import sys
 from collections import Counter
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath
 from typing import Any, Mapping, MutableMapping
 
@@ -1418,6 +1418,33 @@ def _deduplicate_curated_record(
     )
 
 
+def _excluded_source_line(reason: str, detail: dict[str, Any]) -> ComposeDecision:
+    """One source-lane exclusion carrying its own evidence stage.
+
+    The three source-lane rejections -- undecodable bytes, unparseable or
+    unhashable JSON, and a duplicate source record -- differ only in the
+    reason code and the detail they attach.
+    """
+
+    return ComposeDecision(
+        ACTION_EXCLUDED,
+        None,
+        (reason,),
+        (
+            _stage(
+                "source",
+                COMPOSE_NAME,
+                COMPOSE_VERSION,
+                ACTION_EXCLUDED,
+                reason_codes=[reason],
+                detail=detail,
+            ),
+        ),
+        None,
+        None,
+    )
+
+
 def compose_source_line(
     physical_line: bytes,
     *,
@@ -1434,23 +1461,7 @@ def compose_source_line(
     try:
         text = physical_line.decode("utf-8")
     except UnicodeDecodeError as exc:
-        return ComposeDecision(
-            ACTION_EXCLUDED,
-            None,
-            (REASON_INVALID_UTF8,),
-            (
-                _stage(
-                    "source",
-                    COMPOSE_NAME,
-                    COMPOSE_VERSION,
-                    ACTION_EXCLUDED,
-                    reason_codes=[REASON_INVALID_UTF8],
-                    detail={"error": str(exc)},
-                ),
-            ),
-            None,
-            None,
-        )
+        return _excluded_source_line(REASON_INVALID_UTF8, {"error": str(exc)})
     try:
         # Decoding and canonical hashing both recurse over the document, and a
         # deeply nested line can exhaust the stack in either -- ``json.loads``
@@ -1462,46 +1473,17 @@ def compose_source_line(
         record = json.loads(text, parse_constant=reject_json_constant)
         semantic_sha256 = _canonical_sha256(record)
     except (json.JSONDecodeError, ValueError, RecursionError) as exc:
-        return ComposeDecision(
-            ACTION_EXCLUDED,
-            None,
-            (REASON_INVALID_JSON,),
-            (
-                _stage(
-                    "source",
-                    COMPOSE_NAME,
-                    COMPOSE_VERSION,
-                    ACTION_EXCLUDED,
-                    reason_codes=[REASON_INVALID_JSON],
-                    detail={"error": str(exc)},
-                ),
-            ),
-            None,
-            None,
-        )
+        return _excluded_source_line(REASON_INVALID_JSON, {"error": str(exc)})
     if seen_source_semantics is not None:
         first_coordinate = seen_source_semantics.get(semantic_sha256)
         if first_coordinate is not None:
-            return ComposeDecision(
-                ACTION_EXCLUDED,
-                None,
-                (REASON_DUPLICATE_SOURCE_RECORD,),
-                (
-                    _stage(
-                        "source",
-                        COMPOSE_NAME,
-                        COMPOSE_VERSION,
-                        ACTION_EXCLUDED,
-                        reason_codes=[REASON_DUPLICATE_SOURCE_RECORD],
-                        detail={
-                            "semantic_sha256": semantic_sha256,
-                            "first_source_path": first_coordinate[0],
-                            "first_source_line": first_coordinate[1],
-                        },
-                    ),
-                ),
-                None,
-                None,
+            return _excluded_source_line(
+                REASON_DUPLICATE_SOURCE_RECORD,
+                {
+                    "semantic_sha256": semantic_sha256,
+                    "first_source_path": first_coordinate[0],
+                    "first_source_line": first_coordinate[1],
+                },
             )
     decision = compose_record(
         record,
@@ -2205,6 +2187,283 @@ def _audit_records(records_dir: Path, record_count: int) -> dict[str, Any]:
     return compact_audit_report(report, record_count)
 
 
+@dataclass
+class _ComposeRunState:
+    """Mutable accumulators shared by every source line of one compose run."""
+
+    counts: Counter[str] = field(default_factory=Counter)
+    exclusions: Counter[str] = field(default_factory=Counter)
+    lane_actions: dict[str, Counter[str]] = field(
+        default_factory=lambda: {lane: Counter() for lane in LANE_ORDER}
+    )
+    manifest_lines: list[str] = field(default_factory=list)
+    sidecar_lines: list[str] = field(default_factory=list)
+    outputs: list[dict[str, Any]] = field(default_factory=list)
+    emitted_ids: dict[str, str] = field(default_factory=dict)
+    seen_source_semantics: dict[str, tuple[str, int]] = field(default_factory=dict)
+    seen_curated_semantics: dict[str, tuple[str, int]] = field(default_factory=dict)
+
+
+def _jsonl_physical_lines(raw_file: bytes) -> list[bytes]:
+    """Split LF-framed JSONL into physical lines without decoding first.
+
+    ``splitlines`` also treats Unicode line and paragraph separators as
+    record boundaries after text decoding; splitting the source bytes on LF
+    preserves those legal JSON string characters. Only the terminal newline
+    sentinel is dropped.
+    """
+
+    physical_lines = raw_file.split(b"\n")
+    if physical_lines and physical_lines[-1] == b"":
+        physical_lines.pop()
+    return physical_lines
+
+
+def _new_manifest_entry(
+    relative: Any, line_number: int, source_sha256: str, source_file_sha256: str
+) -> dict[str, Any]:
+    """The provenance header every manifest entry opens with."""
+
+    return {
+        "compose_name": COMPOSE_NAME,
+        "compose_version": COMPOSE_VERSION,
+        "lane_order": list(LANE_ORDER),
+        "source_path": relative,
+        "source_line": line_number,
+        "source_sha256": source_sha256,
+        "source_file_sha256": source_file_sha256,
+    }
+
+
+def _claim_output_id(state: _ComposeRunState, output_id: Any, location: str) -> None:
+    """Reserve a canonical ID for one output line, or fail the whole run."""
+
+    if output_id is None:
+        return
+    previous = state.emitted_ids.get(output_id)
+    if previous is not None:
+        raise ComposeError(
+            f"canonical ID collision {output_id!r}: {previous} and {location}"
+        )
+    state.emitted_ids[output_id] = location
+
+
+def _record_retained_line(
+    state: _ComposeRunState,
+    decision: ComposeDecision,
+    entry: dict[str, Any],
+    *,
+    relative: Any,
+    location: str,
+    emitted: list[str],
+) -> None:
+    """Emit one retained record and stamp its manifest entry."""
+
+    line = canonical_json(decision.record)
+    output_sha256 = sha256_hex(line.encode("utf-8"))
+    _claim_output_id(state, decision.output_id, location)
+    emitted.append(line)
+    entry["output_path"] = f"{RECORDS_DIRNAME}/{relative}"
+    entry["output_line"] = len(emitted)
+    entry["output_id"] = decision.output_id
+    entry["output_sha256"] = output_sha256
+    state.counts["retained"] += 1
+    if decision.reward_sidecar is not None:
+        entry["reward_sidecar_id"] = decision.reward_sidecar["sidecar_id"]
+        state.sidecar_lines.append(canonical_json(decision.reward_sidecar))
+
+
+def _record_excluded_line(
+    state: _ComposeRunState, decision: ComposeDecision, entry: dict[str, Any]
+) -> None:
+    """Account one excluded record against its reason codes."""
+
+    entry["output_path"] = None
+    entry["output_line"] = None
+    entry["output_id"] = None
+    entry["output_sha256"] = None
+    state.counts["excluded"] += 1
+    for reason in decision.reason_codes or ("compose.unspecified",):
+        state.exclusions[reason] += 1
+
+
+def _compose_one_line(
+    state: _ComposeRunState,
+    physical_line: bytes,
+    *,
+    relative: Any,
+    line_number: int,
+    source_file_sha256: str,
+    catalog: Mapping[str, Any] | None,
+    emitted: list[str],
+) -> None:
+    """Compose one non-blank source line into the run's accumulators."""
+
+    state.counts["source_records"] += 1
+    entry = _new_manifest_entry(
+        relative, line_number, sha256_hex(physical_line), source_file_sha256
+    )
+    decision = compose_source_line(
+        physical_line,
+        source_path=relative,
+        source_line=line_number,
+        source_file_sha256=source_file_sha256,
+        calibration_catalog=catalog,
+        seen_source_semantics=state.seen_source_semantics,
+        seen_curated_semantics=state.seen_curated_semantics,
+    )
+    entry["action"] = decision.action
+    entry["reason_codes"] = list(decision.reason_codes)
+    entry["stages"] = [dict(stage) for stage in decision.stages]
+    for stage in decision.stages:
+        lane = stage["lane"]
+        if lane in state.lane_actions:
+            state.lane_actions[lane][stage["action"]] += 1
+
+    if decision.action == ACTION_RETAINED and decision.record is not None:
+        _record_retained_line(
+            state,
+            decision,
+            entry,
+            relative=relative,
+            location=f"{relative}:{line_number}",
+            emitted=emitted,
+        )
+    else:
+        _record_excluded_line(state, decision, entry)
+    state.manifest_lines.append(canonical_json(entry))
+
+
+def _write_emitted_records(
+    state: _ComposeRunState,
+    destination_descriptor: int,
+    relative: Any,
+    emitted: list[str],
+) -> None:
+    """Write one source file's retained records to the destination."""
+
+    digest = _write_new_text(
+        destination_descriptor,
+        f"{RECORDS_DIRNAME}/{relative}",
+        "".join(line + "\n" for line in emitted),
+    )
+    state.outputs.append(
+        {
+            "path": f"{RECORDS_DIRNAME}/{relative}",
+            "records": len(emitted),
+            "sha256": digest,
+        }
+    )
+    state.counts["output_files"] += 1
+
+
+def _compose_source_file(
+    state: _ComposeRunState,
+    *,
+    resolved_source: Path,
+    relative: Any,
+    destination_descriptor: int,
+    catalog: Mapping[str, Any] | None,
+) -> None:
+    """Compose every record of one source file, then write its output."""
+
+    _source_file, raw_file = _read_exact_regular_file(
+        resolved_source,
+        relative,
+        f"compose source {relative}",
+    )
+    source_file_sha256 = sha256_hex(raw_file)
+    state.counts["source_files"] += 1
+    emitted: list[str] = []
+
+    for line_number, physical_line in enumerate(_jsonl_physical_lines(raw_file), 1):
+        if not physical_line.strip():
+            state.counts["blank_lines"] += 1
+            continue
+        _compose_one_line(
+            state,
+            physical_line,
+            relative=relative,
+            line_number=line_number,
+            source_file_sha256=source_file_sha256,
+            catalog=catalog,
+            emitted=emitted,
+        )
+
+    if emitted:
+        _write_emitted_records(state, destination_descriptor, relative, emitted)
+
+
+def _write_compose_provenance(
+    state: _ComposeRunState, destination_descriptor: int
+) -> tuple[str, str]:
+    """Write the manifest and reward sidecar files; return their digests."""
+
+    manifest_sha256 = _write_new_text(
+        destination_descriptor,
+        f"{MANIFEST_DIRNAME}/{MANIFEST_FILENAME}",
+        "".join(line + "\n" for line in state.manifest_lines),
+    )
+    sidecar_sha256 = _write_new_text(
+        destination_descriptor,
+        f"{MANIFEST_DIRNAME}/{REWARD_SIDECAR_FILENAME}",
+        "".join(line + "\n" for line in state.sidecar_lines),
+    )
+    return manifest_sha256, sidecar_sha256
+
+
+def _compose_run_summary(
+    state: _ComposeRunState,
+    *,
+    resolved_source: Path,
+    destination_path: Path,
+    calibration_descriptor: Any,
+    calibrated_records: int,
+    manifest_sha256: str,
+    sidecar_sha256: str,
+    records_dir: Path,
+) -> dict[str, Any]:
+    """The run summary written last and returned to the caller."""
+
+    counts = state.counts
+    return {
+        "compose_name": COMPOSE_NAME,
+        "compose_version": COMPOSE_VERSION,
+        "source_run": str(resolved_source),
+        "destination": str(destination_path),
+        "lane_order": list(LANE_ORDER),
+        "transforms": transform_contract(),
+        "calibration": calibration_descriptor,
+        "calibrated_records": calibrated_records,
+        "counts": {
+            "source_files": counts["source_files"],
+            "source_records": counts["source_records"],
+            "blank_lines": counts["blank_lines"],
+            "retained": counts["retained"],
+            "excluded": counts["excluded"],
+            "output_files": counts["output_files"],
+            "reward_sidecars": len(state.sidecar_lines),
+        },
+        "lane_actions": {
+            lane: dict(sorted(actions.items()))
+            for lane, actions in state.lane_actions.items()
+        },
+        "exclusions": dict(sorted(state.exclusions.items())),
+        "outputs": state.outputs,
+        "manifest": {
+            "path": f"{MANIFEST_DIRNAME}/{MANIFEST_FILENAME}",
+            "entries": len(state.manifest_lines),
+            "sha256": manifest_sha256,
+        },
+        "reward_sidecars": {
+            "path": f"{MANIFEST_DIRNAME}/{REWARD_SIDECAR_FILENAME}",
+            "entries": len(state.sidecar_lines),
+            "sha256": sidecar_sha256,
+        },
+        "audit": _audit_records(records_dir, counts["retained"]),
+    }
+
+
 def compose_run(
     source_run: str | Path,
     destination: str | Path,
@@ -2222,166 +2481,35 @@ def compose_run(
         Path(units_migration) if units_migration is not None else None,
     )
     pinned_destination = _create_pinned_destination(resolved_source, destination)
-    destination_root = pinned_destination.root
     destination_descriptor = pinned_destination.destination_descriptor
-    records_dir = destination_root / RECORDS_DIRNAME
-    manifest_dir = destination_root / MANIFEST_DIRNAME
-
-    counts: Counter[str] = Counter()
-    exclusions: Counter[str] = Counter()
-    lane_actions: dict[str, Counter[str]] = {lane: Counter() for lane in LANE_ORDER}
-    manifest_lines: list[str] = []
-    sidecar_lines: list[str] = []
-    outputs: list[dict[str, Any]] = []
-    emitted_ids: dict[str, str] = {}
-    seen_source_semantics: dict[str, tuple[str, int]] = {}
-    seen_curated_semantics: dict[str, tuple[str, int]] = {}
+    records_dir = pinned_destination.root / RECORDS_DIRNAME
+    state = _ComposeRunState()
 
     try:
         records_dir.mkdir()
-        manifest_dir.mkdir()
+        (pinned_destination.root / MANIFEST_DIRNAME).mkdir()
         for relative in source_members:
-            _source_file, raw_file = _read_exact_regular_file(
-                resolved_source,
-                relative,
-                f"compose source {relative}",
+            _compose_source_file(
+                state,
+                resolved_source=resolved_source,
+                relative=relative,
+                destination_descriptor=destination_descriptor,
+                catalog=catalog,
             )
-            source_file_sha256 = sha256_hex(raw_file)
-            counts["source_files"] += 1
-            emitted: list[str] = []
 
-            # JSONL is LF-framed. ``splitlines`` also treats Unicode line and
-            # paragraph separators as record boundaries after text decoding;
-            # splitting the source bytes on LF preserves those legal JSON
-            # string characters. Drop only the terminal newline sentinel.
-            physical_lines = raw_file.split(b"\n")
-            if physical_lines and physical_lines[-1] == b"":
-                physical_lines.pop()
-            for line_number, physical_line in enumerate(physical_lines, 1):
-                if not physical_line.strip():
-                    counts["blank_lines"] += 1
-                    continue
-                counts["source_records"] += 1
-                source_sha256 = sha256_hex(physical_line)
-                entry = {
-                    "compose_name": COMPOSE_NAME,
-                    "compose_version": COMPOSE_VERSION,
-                    "lane_order": list(LANE_ORDER),
-                    "source_path": relative,
-                    "source_line": line_number,
-                    "source_sha256": source_sha256,
-                    "source_file_sha256": source_file_sha256,
-                }
-                decision = compose_source_line(
-                    physical_line,
-                    source_path=relative,
-                    source_line=line_number,
-                    source_file_sha256=source_file_sha256,
-                    calibration_catalog=catalog,
-                    seen_source_semantics=seen_source_semantics,
-                    seen_curated_semantics=seen_curated_semantics,
-                )
-
-                entry["action"] = decision.action
-                entry["reason_codes"] = list(decision.reason_codes)
-                entry["stages"] = [dict(stage) for stage in decision.stages]
-                for stage in decision.stages:
-                    lane = stage["lane"]
-                    if lane in lane_actions:
-                        lane_actions[lane][stage["action"]] += 1
-
-                if decision.action == ACTION_RETAINED and decision.record is not None:
-                    line = canonical_json(decision.record)
-                    output_sha256 = sha256_hex(line.encode("utf-8"))
-                    if decision.output_id is not None:
-                        previous = emitted_ids.get(decision.output_id)
-                        if previous is not None:
-                            raise ComposeError(
-                                "canonical ID collision "
-                                f"{decision.output_id!r}: {previous} and "
-                                f"{relative}:{line_number}"
-                            )
-                        emitted_ids[decision.output_id] = f"{relative}:{line_number}"
-                    emitted.append(line)
-                    entry["output_path"] = f"{RECORDS_DIRNAME}/{relative}"
-                    entry["output_line"] = len(emitted)
-                    entry["output_id"] = decision.output_id
-                    entry["output_sha256"] = output_sha256
-                    counts["retained"] += 1
-                    if decision.reward_sidecar is not None:
-                        entry["reward_sidecar_id"] = decision.reward_sidecar["sidecar_id"]
-                        sidecar_lines.append(canonical_json(decision.reward_sidecar))
-                else:
-                    entry["output_path"] = None
-                    entry["output_line"] = None
-                    entry["output_id"] = None
-                    entry["output_sha256"] = None
-                    counts["excluded"] += 1
-                    for reason in decision.reason_codes or ("compose.unspecified",):
-                        exclusions[reason] += 1
-                manifest_lines.append(canonical_json(entry))
-
-            if emitted:
-                digest = _write_new_text(
-                    destination_descriptor,
-                    f"{RECORDS_DIRNAME}/{relative}",
-                    "".join(line + "\n" for line in emitted),
-                )
-                outputs.append(
-                    {
-                        "path": f"{RECORDS_DIRNAME}/{relative}",
-                        "records": len(emitted),
-                        "sha256": digest,
-                    }
-                )
-                counts["output_files"] += 1
-
-        manifest_sha256 = _write_new_text(
-            destination_descriptor,
-            f"{MANIFEST_DIRNAME}/{MANIFEST_FILENAME}",
-            "".join(line + "\n" for line in manifest_lines),
+        manifest_sha256, sidecar_sha256 = _write_compose_provenance(
+            state, destination_descriptor
         )
-        sidecar_sha256 = _write_new_text(
-            destination_descriptor,
-            f"{MANIFEST_DIRNAME}/{REWARD_SIDECAR_FILENAME}",
-            "".join(line + "\n" for line in sidecar_lines),
+        summary = _compose_run_summary(
+            state,
+            resolved_source=resolved_source,
+            destination_path=pinned_destination.path,
+            calibration_descriptor=calibration_descriptor,
+            calibrated_records=len(catalog),
+            manifest_sha256=manifest_sha256,
+            sidecar_sha256=sidecar_sha256,
+            records_dir=records_dir,
         )
-
-        summary = {
-            "compose_name": COMPOSE_NAME,
-            "compose_version": COMPOSE_VERSION,
-            "source_run": str(resolved_source),
-            "destination": str(pinned_destination.path),
-            "lane_order": list(LANE_ORDER),
-            "transforms": transform_contract(),
-            "calibration": calibration_descriptor,
-            "calibrated_records": len(catalog),
-            "counts": {
-                "source_files": counts["source_files"],
-                "source_records": counts["source_records"],
-                "blank_lines": counts["blank_lines"],
-                "retained": counts["retained"],
-                "excluded": counts["excluded"],
-                "output_files": counts["output_files"],
-                "reward_sidecars": len(sidecar_lines),
-            },
-            "lane_actions": {
-                lane: dict(sorted(actions.items())) for lane, actions in lane_actions.items()
-            },
-            "exclusions": dict(sorted(exclusions.items())),
-            "outputs": outputs,
-            "manifest": {
-                "path": f"{MANIFEST_DIRNAME}/{MANIFEST_FILENAME}",
-                "entries": len(manifest_lines),
-                "sha256": manifest_sha256,
-            },
-            "reward_sidecars": {
-                "path": f"{MANIFEST_DIRNAME}/{REWARD_SIDECAR_FILENAME}",
-                "entries": len(sidecar_lines),
-                "sha256": sidecar_sha256,
-            },
-            "audit": _audit_records(records_dir, counts["retained"]),
-        }
         _write_new_text(
             destination_descriptor,
             SUMMARY_FILENAME,
