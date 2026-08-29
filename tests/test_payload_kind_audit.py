@@ -181,6 +181,18 @@ class PayloadKindClassification(unittest.TestCase):
             f"{payload_kind_audit.LEGACY_ID_KEYS[0]}-value",
         )
 
+    def test_thalamic_identity_prefers_the_top_level_id_over_state_episode_id(self):
+        record = _thalamic("legacy-episode-id", {"summary": "no episode was executed"})
+        record["id"] = "canonical-record-id"
+        audit = self._audit({"batch-r02.jsonl": [record]})
+        self.assertEqual(audit["records"][0]["id"], "canonical-record-id")
+
+    def test_thalamic_identity_falls_back_to_state_episode_id_without_a_top_level_id(self):
+        record = _thalamic("legacy-episode-id", {"summary": "no episode was executed"})
+        self.assertNotIn("id", record)
+        audit = self._audit({"batch-r02.jsonl": [record]})
+        self.assertEqual(audit["records"][0]["id"], "legacy-episode-id")
+
     def test_steps_without_a_goal_are_not_counted_as_a_wrapped_episode(self):
         audit = self._audit({"batch-r02.jsonl": [_thalamic("act-r02-001", {"steps": [_step(1)]})]})
         self.assertFalse(audit["records"][0]["wraps_coding_episode"])
@@ -307,6 +319,22 @@ class PayloadKindClassification(unittest.TestCase):
         self.assertEqual(code, 2)
         self.assertIn("payload-kind audit failed", err.getvalue())
 
+    def test_excessively_nested_json_is_a_controlled_audit_error(self):
+        depth = 2000
+        nested = "[" * depth + "]" * depth
+        line = '{"goal":"g","steps":[],"meta":' + nested + "}"
+        with tempfile.TemporaryDirectory() as raw:
+            directory = Path(raw)
+            (directory / "episodes.jsonl").write_text(line + "\n", encoding="utf-8")
+            with self.assertRaises(payload_kind_audit.PayloadKindAuditError) as caught:
+                payload_kind_audit.build_audit(directory)
+            err = io.StringIO()
+            with redirect_stderr(err), redirect_stdout(io.StringIO()):
+                code = payload_kind_audit.main([str(directory)])
+        self.assertIn("episodes.jsonl:1", str(caught.exception))
+        self.assertEqual(code, 2)
+        self.assertIn("payload-kind audit failed", err.getvalue())
+
     def test_expect_rejects_bool_int_type_drift(self):
         with tempfile.TemporaryDirectory() as raw:
             directory = Path(raw)
@@ -383,6 +411,19 @@ class PayloadKindClassification(unittest.TestCase):
         audit = self._audit({"episodes.jsonl": [_episode([])]})
         self.assertIsNone(audit["records"][0]["id"])
         self.assertIn("| episode | — |", payload_kind_audit.render_markdown(audit))
+
+    def test_markdown_preserves_falsy_supervisor_ids(self):
+        for supervisor in (0, False):
+            with self.subTest(supervisor=supervisor):
+                record = _thalamic("act-r02-001", _episode([]), supervisor=supervisor)
+                audit = self._audit({"batch-r02.jsonl": [record]})
+                self.assertEqual(audit["records"][0]["supervisor_id"], supervisor)
+                rendered = payload_kind_audit.render_markdown(audit)
+                self.assertIn(f"| {supervisor} / MODIFY |", rendered)
+        record = _thalamic("act-r02-001", _episode([]), supervisor=None)
+        audit = self._audit({"batch-r02.jsonl": [record]})
+        self.assertIsNone(audit["records"][0]["supervisor_id"])
+        self.assertIn("| — / MODIFY |", payload_kind_audit.render_markdown(audit))
 
     def test_markdown_escapes_dynamic_table_values(self):
         audit = {

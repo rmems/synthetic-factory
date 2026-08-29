@@ -116,7 +116,11 @@ def _record_row(
         state = _required_mapping(record, "state", f"{source_file}:{line}")
         gate = _required_mapping(record, "safety_decision", f"{source_file}:{line}")
         executed = record.get("executed_action")
-        row["id"] = state.get("episode_id")
+        # The schema's canonical, globally unique identifier is the top-level
+        # ``id``. ``state.episode_id`` is a legacy fallback for records that
+        # predate it.
+        top_level_id = record.get("id")
+        row["id"] = top_level_id if top_level_id is not None else state.get("episode_id")
         row["domain"] = state.get("domain")
         row["supervisor_id"] = gate.get("supervisor_id")
         row["gate_decision"] = gate.get("decision")
@@ -254,7 +258,7 @@ def build_audit(corpus: Path, payload_names: Iterable[str] | None = None) -> dic
                     parse_float=_parse_finite_float,
                 )
                 _reject_unpaired_surrogates(record)
-            except (json.JSONDecodeError, ValueError) as exc:
+            except (json.JSONDecodeError, ValueError, RecursionError) as exc:
                 raise PayloadKindAuditError(f"{path.name}:{line_number}: {exc}") from exc
             if not isinstance(record, dict):
                 raise PayloadKindAuditError(
@@ -332,7 +336,8 @@ def render_markdown(audit: Mapping[str, Any]) -> str:
         "|---|---|---|---|---|---:|",
     ]
     for row in audit["records"]:
-        gate = _markdown_cell(row.get("supervisor_id") or "—")
+        supervisor_id = row.get("supervisor_id")
+        gate = _markdown_cell(supervisor_id) if supervisor_id is not None else "—"
         decision = row.get("gate_decision")
         if decision:
             gate = f"{gate} / {_markdown_cell(decision)}"
