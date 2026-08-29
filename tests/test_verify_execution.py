@@ -501,7 +501,6 @@ class VerifyExecution(unittest.TestCase):
         for observation in (
             "no keys were leaking from the service",
             "nothing was exposed during the drill",
-            "DLP prevented the corpus from being distilled",
         ):
             with self.subTest(observation=observation):
                 self.assertFalse(
@@ -509,6 +508,13 @@ class VerifyExecution(unittest.TestCase):
                         {"observation": observation}
                     )
                 )
+
+    def test_prevent_does_not_negate_distilled(self):
+        self.assertTrue(
+            verify_execution_shapes._step_records_compliance(
+                {"observation": "DLP prevented the corpus from being distilled"}
+            )
+        )
 
     def test_marker_stems_do_not_match_inside_unrelated_words(self):
         step = {
