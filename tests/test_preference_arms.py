@@ -1341,7 +1341,7 @@ class ProtocolIsDocumentedAndWired(unittest.TestCase):
         session_a = self.workflow.index("const sessionA = await agent")
         self.assertLess(reservation, session_a)
         self.assertIn(
-            "outputs/staging/${args.date}/${factory.slug}/r${rr}-",
+            "outputs/staging/${args.date}/${expected.factory.slug}/r${expected.rr}-",
             self.workflow,
         )
         self.assertNotIn("outputs/raw/${args.date}/.staging", self.workflow)
@@ -1374,7 +1374,7 @@ class ProtocolIsDocumentedAndWired(unittest.TestCase):
         self.assertIn("--write-receipt", self.workflow)
         self.assertIn("preferenceDiagnosisVerificationIsValid(", self.workflow)
         self.assertIn("Number.isSafeInteger(item.bytes)", self.workflow)
-        self.assertIn("receipt.reservation_token !== reservation.reserve_token", self.workflow)
+        self.assertIn("receipt.reservation_token === reservation.reserve_token", self.workflow)
         self.assertIn("verifiedDiagnosisFiles", self.workflow)
 
 

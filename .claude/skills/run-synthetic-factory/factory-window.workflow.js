@@ -249,36 +249,68 @@ function preferenceDiagnosisFiles(count, rr) {
   )
 }
 
-function preferenceReservationIsValid(receipt, factory, round, rr) {
-  if (!receipt || receipt.factory !== factory.slug || receipt.round !== round) return false
-  if (!/^[0-9a-f]{32}$/.test(receipt.reserve_token || '')) return false
-  const root = String(args.root).replace(/\/+$/, '')
-  const expectedStage = `${root}/outputs/staging/${args.date}/${factory.slug}/r${rr}-${receipt.reserve_token}`
-  return receipt.staging_dir === expectedStage
+// The (factory, round, rr) triple identifies one preference round. The
+// validators below take it as a single `expected` context rather than three
+// positional arguments, so each stays a two-argument predicate.
+function preferenceReceiptIdentifiesRound(receipt, expected) {
+  return Boolean(receipt)
+    && receipt.factory === expected.factory.slug
+    && receipt.round === expected.round
 }
 
-function preferenceHandoffIsValid(handoff, reservation, factory, round, rr) {
-  if (!handoff || handoff.factory !== factory.slug || handoff.round !== round) return false
+function preferenceExpectedStagingDir(expected, token) {
+  const root = String(args.root).replace(/\/+$/, '')
+  return `${root}/outputs/staging/${args.date}/${expected.factory.slug}/r${expected.rr}-${token}`
+}
+
+function preferenceExpectedDiagnosisFiles(expected) {
+  return preferenceDiagnosisFiles(expected.factory.count, expected.rr)
+}
+
+function preferenceReservationIsValid(receipt, expected) {
+  if (!preferenceReceiptIdentifiesRound(receipt, expected)) return false
+  if (!/^[0-9a-f]{32}$/.test(receipt.reserve_token || '')) return false
+  return receipt.staging_dir === preferenceExpectedStagingDir(expected, receipt.reserve_token)
+}
+
+function preferenceHandoffIsValid(handoff, reservation, expected) {
+  if (!preferenceReceiptIdentifiesRound(handoff, expected)) return false
   if (handoff.reserve_token !== reservation.reserve_token) return false
   if (handoff.staging_dir !== reservation.staging_dir) return false
-  const expected = preferenceDiagnosisFiles(factory.count, rr)
-  return JSON.stringify(handoff.diagnosis_files) === JSON.stringify(expected)
+  const expectedFiles = preferenceExpectedDiagnosisFiles(expected)
+  return JSON.stringify(handoff.diagnosis_files) === JSON.stringify(expectedFiles)
 }
 
-function preferenceDiagnosisVerificationIsValid(receipt, reservation, factory, round, rr) {
-  if (!receipt || receipt.factory !== factory.slug || receipt.round !== round) return false
-  if (receipt.version !== 2) return false
-  if (receipt.staging_dir !== reservation.staging_dir) return false
-  if (receipt.reservation_token !== reservation.reserve_token) return false
-  const expected = preferenceDiagnosisFiles(factory.count, rr)
-  if (!Array.isArray(receipt.diagnosis_files) || receipt.diagnosis_files.length !== expected.length) return false
-  return receipt.diagnosis_files.every((item, index) => (
-    item
-    && item.name === expected[index]
+// One verified diagnosis entry: the expected name, a positive safe-integer
+// byte count, and a well-formed SHA-256 digest.
+function preferenceDiagnosisEntryIsVerified(item, expectedName) {
+  return Boolean(item)
+    && item.name === expectedName
     && Number.isSafeInteger(item.bytes)
     && item.bytes > 0
     && /^[0-9a-f]{64}$/.test(item.sha256 || '')
-  ))
+}
+
+function preferenceDiagnosisFilesAreVerified(files, expectedNames) {
+  if (!Array.isArray(files) || files.length !== expectedNames.length) return false
+  return files.every((item, index) => preferenceDiagnosisEntryIsVerified(item, expectedNames[index]))
+}
+
+// Identity half of the verification receipt: right round, right schema
+// version, and bound to the reservation we actually hold.
+function preferenceVerificationBindsReservation(receipt, reservation, expected) {
+  if (!preferenceReceiptIdentifiesRound(receipt, expected)) return false
+  if (receipt.version !== 2) return false
+  if (receipt.staging_dir !== reservation.staging_dir) return false
+  return receipt.reservation_token === reservation.reserve_token
+}
+
+function preferenceDiagnosisVerificationIsValid(receipt, reservation, expected) {
+  if (!preferenceVerificationBindsReservation(receipt, reservation, expected)) return false
+  return preferenceDiagnosisFilesAreVerified(
+    receipt.diagnosis_files,
+    preferenceExpectedDiagnosisFiles(expected),
+  )
 }
 
 const END_ROUND = (args && args.end) || 26
@@ -386,6 +418,7 @@ Data contract:
     // later identity, handoff, verification, or circuit-break failure can abort.
     let reserveToken = null
     if (factory.slug === 'failure-as-fuel-preference-cascade') {
+      const preferenceRound = { factory, round, rr }
       // Two-session isolation (docs/preference-isolation.md): Session A and
       // Session B are SEPARATE agents with independent generation contexts —
       // the only inter-session bridge is the diagnosis artifacts.
@@ -400,7 +433,7 @@ If reservation fails, stop. Otherwise return only factory="${factory.slug}", rou
         phase: 'Generate',
         schema: PREF_RESERVATION,
       })
-      if (!preferenceReservationIsValid(reservation, factory, round, rr)) {
+      if (!preferenceReservationIsValid(reservation, preferenceRound)) {
         stoppedReason = `r${rr} reservation controller returned an invalid receipt`
         log(`${factory.slug}: ${stoppedReason}; circuit open`)
         // The returned token is part of the invalid receipt and cannot be
@@ -423,7 +456,7 @@ Return the structured handoff: factory="${factory.slug}", round=${round}, stagin
         phase: 'Generate',
         schema: PREF_STAGE,
       })
-      if (!preferenceHandoffIsValid(sessionA, reservation, factory, round, rr)) {
+      if (!preferenceHandoffIsValid(sessionA, reservation, preferenceRound)) {
         stoppedReason = `r${rr} session A failed or returned an invalid diagnosis-only handoff`
         log(`${factory.slug}: ${stoppedReason}; circuit open`)
         await releaseReservation(factory, round, rr, reservation.reserve_token)
@@ -438,13 +471,7 @@ If it exits nonzero, stop. Otherwise return its stdout JSON exactly.`, {
         phase: 'Verify',
         schema: PREF_DIAGNOSIS_VERIFICATION,
       })
-      if (!preferenceDiagnosisVerificationIsValid(
-        diagnosisVerification,
-        reservation,
-        factory,
-        round,
-        rr,
-      )) {
+      if (!preferenceDiagnosisVerificationIsValid(diagnosisVerification, reservation, preferenceRound)) {
         stoppedReason = `r${rr} diagnosis files failed the read-only handoff verification`
         log(`${factory.slug}: ${stoppedReason}; circuit open`)
         await releaseReservation(factory, round, rr, reservation.reserve_token)
