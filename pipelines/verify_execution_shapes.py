@@ -6,9 +6,23 @@ Patchable checker names live on the host module so tests that patch
 
 from __future__ import annotations
 
-import json
 import math
-import re
+
+import verify_execution_safety as _safety
+
+_tool_call_name = _safety.tool_call_name
+_step_records_refusal = _safety.step_records_refusal
+_step_records_compliance = _safety.step_records_compliance
+_calibrated_outcome_is_compliance_or_leakage = (
+    _safety.calibrated_outcome_is_compliance_or_leakage
+)
+_calibrated_outcome_is_refusal = _safety.calibrated_outcome_is_refusal
+_safety_step_contradicts_calibrated_outcome = (
+    _safety.safety_step_contradicts_calibrated_outcome
+)
+_safety_refusal_contradicts_calibrated_outcome = (
+    _safety.safety_refusal_contradicts_calibrated_outcome
+)
 
 
 def _host():
@@ -196,189 +210,6 @@ def verify_episode(obj, where, *, require_goal=True, strict_turns=False):
     if shape_errors:
         return "failed", f"episode shape invalid: {shape_errors[0]}"
     return verify_episode_steps(obj.get("steps"), where)
-
-
-_REFUSAL_TOOL_NAMES = frozenset({"block", "decline", "deny", "refuse"})
-_REFUSAL_OBSERVATION_MARKERS = (
-    r"blocked",
-    r"declined",
-    r"denied",
-    r"prevent(?:ed|ing|s)?",
-    r"refus(?:al|als|e|ed|es|ing)?",
-)
-_COMPLIANCE_OBSERVATION_MARKERS = (
-    r"complied",
-    r"disclosed",
-    r"exfiltrat(?:e[ds]?|ing|ions?)?",
-    r"exposed",
-    r"leaked",
-    r"leakages?",
-    r"revealed",
-)
-_COMPLIANCE_OR_LEAKAGE_DECISIONS = frozenset(
-    {"comply", "disclose", "leak", "leakage"}
-)
-_REFUSAL_CASE_TYPES = frozenset({"correct_refusal"})
-
-
-def _tool_call_name(tool):
-    if isinstance(tool, dict):
-        name = tool.get("name")
-        return name.strip().casefold() if isinstance(name, str) else ""
-    if isinstance(tool, str) and tool.strip():
-        return tool.strip().split()[0].casefold()
-    return ""
-
-
-def _step_observation_text(step):
-    if not isinstance(step, dict):
-        return ""
-    observation = step.get("observation")
-    return observation.casefold() if isinstance(observation, str) else ""
-
-
-_MARKER_NEGATION_PREFIX_RE = re.compile(
-    r"\b(?:no|not|never|without|prevent(?:ed|ing|s)?|avoid(?:ed|ing|s)?|"
-    r"block(?:ed|ing|s)?|stop(?:ped|ping|s)?|"
-    r"rm|remove(?:d|s)?|delet(?:e|ed|es|ing)?|unlink(?:ed|s)?|shred(?:ded|s)?|"
-    r"clean(?:ed|ing|s|up)?|eras(?:e|ed|es|ing)?|drop(?:ped|s)?|"
-    r"(?:do(?:es)?|did|is|are|was|were|has|have|had|can|could|should|would|will|must)\s+not)"
-    r"\s+(?:\w+[ -]+){0,4}$"
-)
-_BARE_MARKER_NEGATION_PREFIX_RE = re.compile(
-    r"\b(?:nothing|none)\s+(?:\w+[ -]+){0,2}$"
-)
-_MARKER_NEGATION_SUFFIX_RE = re.compile(r"^\s+(?:nothing|none)\b")
-
-
-def _marker_match_is_negated(text, start, end):
-    prefix = text[max(0, start - 48) : start]
-    suffix = text[end : end + 24]
-    if (
-        _MARKER_NEGATION_PREFIX_RE.search(prefix) is not None
-        or _BARE_MARKER_NEGATION_PREFIX_RE.search(prefix) is not None
-    ):
-        return True
-    return _MARKER_NEGATION_SUFFIX_RE.search(suffix) is not None
-
-
-def _unnegated_marker_present(text, marker_pattern):
-    for match in re.finditer(rf"\b(?:{marker_pattern})\b", text):
-        if not _marker_match_is_negated(text, match.start(), match.end()):
-            return True
-    return False
-
-
-def _observation_has_marker(text, markers):
-    """True when a marker appears without a local negation window."""
-    return any(_unnegated_marker_present(text, marker) for marker in markers)
-
-
-def _step_records_refusal(step):
-    """True when a step observes a refusal or executes a known refuse action."""
-    if not isinstance(step, dict):
-        return False
-    if _observation_has_marker(
-        _step_observation_text(step), _REFUSAL_OBSERVATION_MARKERS
-    ):
-        return True
-    return _tool_call_name(step.get("tool_call")) in _REFUSAL_TOOL_NAMES
-
-
-def _step_records_compliance(step):
-    """True when a step observes compliance or leakage."""
-    if not isinstance(step, dict):
-        return False
-    if _observation_has_marker(
-        _step_observation_text(step), _COMPLIANCE_OBSERVATION_MARKERS
-    ):
-        return True
-    if _tool_call_name(step.get("tool_call")) in _REFUSAL_TOOL_NAMES:
-        return False
-    tool = step.get("tool_call")
-    if isinstance(tool, dict):
-        args = tool.get("args")
-        args_text = (
-            args if isinstance(args, str)
-            else json.dumps(args, sort_keys=True)
-            if isinstance(args, (dict, list))
-            else ""
-        ).casefold()
-        if _observation_has_marker(args_text, _COMPLIANCE_OBSERVATION_MARKERS):
-            return True
-    return False
-
-
-def _calibrated_outcome_is_compliance_or_leakage(obj):
-    """Return whether the training label is compliance or leakage, not refusal.
-
-    Recovered ``incorrect_refusal`` uses ``decision=comply`` after an initial
-    refuse step, so it is not this contradiction. ``missed_refusal`` is the
-    calibrated leakage/compliance label and must not carry refuse evidence.
-    """
-    if not isinstance(obj, dict):
-        return False
-    case_type = obj.get("case_type")
-    if case_type == "incorrect_refusal":
-        return False
-    if case_type == "missed_refusal":
-        return True
-    decision = obj.get("decision")
-    if not isinstance(decision, str):
-        return False
-    return decision.strip().casefold() in _COMPLIANCE_OR_LEAKAGE_DECISIONS
-
-
-def _calibrated_outcome_is_refusal(obj):
-    """Return whether the training label is a refusal, not recovered compliance."""
-    if not isinstance(obj, dict):
-        return False
-    case_type = obj.get("case_type")
-    if case_type in _REFUSAL_CASE_TYPES:
-        return True
-    if case_type != "incorrect_refusal":
-        return False
-    decision = obj.get("decision")
-    if not isinstance(decision, str):
-        return False
-    return decision.strip().casefold() == "refuse"
-
-
-def _first_matching_step(steps, predicate):
-    for index, step in enumerate(steps):
-        if predicate(step):
-            return index
-    return None
-
-
-def _safety_step_contradicts_calibrated_outcome(obj, where):
-    steps = obj.get("steps")
-    if not isinstance(steps, list):
-        return None
-    if _calibrated_outcome_is_refusal(obj):
-        index = _first_matching_step(steps, _step_records_compliance)
-        if index is None:
-            return None
-        return (
-            "failed",
-            f"{where} safety step {index} records compliance or leakage "
-            "evidence that contradicts the calibrated refusal outcome",
-        )
-    if not _calibrated_outcome_is_compliance_or_leakage(obj):
-        return None
-    index = _first_matching_step(steps, _step_records_refusal)
-    if index is None:
-        return None
-    return (
-        "failed",
-        f"{where} safety step {index} records refuse/refused evidence "
-        "that contradicts the calibrated compliance or leakage outcome",
-    )
-
-
-def _safety_refusal_contradicts_calibrated_outcome(obj, where):
-    """Backward-compatible alias for the bidirectional safety-step check."""
-    return _safety_step_contradicts_calibrated_outcome(obj, where)
 
 
 def verify_safety_episode(obj, where):
@@ -779,11 +610,9 @@ def _direct_record_envelope_verdict(
 
 
 def _verify_direct_record(
-    obj, where, expected_kind, verifier, *, filter_errors=None
+    obj, where, expected_kind, verifier
 ):
-    envelope = _direct_record_envelope_verdict(
-        obj, where, expected_kind, filter_errors=filter_errors
-    )
+    envelope = _direct_record_envelope_verdict(obj, where, expected_kind)
     if envelope is not None:
         return envelope
     return verifier(obj, where)
@@ -804,13 +633,15 @@ def _without_non_training_provenance_error(errors, obj, where):
 
 
 def _verify_thalamic_record(obj, where):
-    return _verify_direct_record(
+    envelope = _direct_record_envelope_verdict(
         obj,
         where,
         "thalamic",
-        verify_thalamic,
         filter_errors=_without_non_training_provenance_error,
     )
+    if envelope is not None:
+        return envelope
+    return verify_thalamic(obj, where)
 
 
 def _verify_bridge_record(obj, where):
