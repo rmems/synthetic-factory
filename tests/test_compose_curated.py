@@ -1801,3 +1801,50 @@ class TrajectorySideGroundingScope(unittest.TestCase):
             self.assertEqual(
                 first.record[side_name]["steps"], second.record[side_name]["steps"]
             )
+
+
+class CalibrationLookup(unittest.TestCase):
+    """Rewards are calibrated by the record's *source* identifier."""
+
+    CATALOG = {"ffpc-r5-002": {"canonical_factor": 0.5}}
+
+    def test_an_absent_catalog_never_calibrates(self):
+        for catalog in (None, {}):
+            with self.subTest(catalog=catalog):
+                self.assertIsNone(
+                    compose_curated.calibration_for({"id": "ffpc-r5-002"}, catalog)
+                )
+
+    def test_a_top_level_id_is_matched_case_insensitively(self):
+        self.assertEqual(
+            compose_curated.calibration_for({"id": "FFPC-R5-002"}, self.CATALOG),
+            self.CATALOG["ffpc-r5-002"],
+        )
+
+    def test_a_meta_id_is_used_when_the_top_level_id_is_gone(self):
+        # Compose runs the identity lane first, which replaces ``id`` with a
+        # canonical digest, so the pre-identity id has to be reachable.
+        self.assertEqual(
+            compose_curated.calibration_for(
+                {"id": None, "meta": {"id": "ffpc-r5-002"}}, self.CATALOG
+            ),
+            self.CATALOG["ffpc-r5-002"],
+        )
+
+    def test_an_unusable_identifier_yields_no_calibration(self):
+        for record in (
+            {"id": 17},
+            {"meta": "not a mapping"},
+            {"meta": {"id": 17}},
+            {},
+            "not a record",
+        ):
+            with self.subTest(record=record):
+                self.assertIsNone(
+                    compose_curated.calibration_for(record, self.CATALOG)
+                )
+
+    def test_an_unlisted_record_is_not_calibrated(self):
+        self.assertIsNone(
+            compose_curated.calibration_for({"id": "ffpc-r5-999"}, self.CATALOG)
+        )
