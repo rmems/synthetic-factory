@@ -42,17 +42,19 @@ SHARD_NAMES = [f"batch-r{number:02d}.jsonl" for number in range(1, 1029)]
 _SCAN: dict = {}
 
 
+def _read_shard(shard):
+    """Every non-blank record in one shard, tagged with the shard name."""
+    with shard.open(encoding="utf-8") as handle:
+        return [(shard.name, json.loads(line)) for line in handle if line.strip()]
+
+
 def _scan_mirror():
     """Read every published shard once and memoize it for the whole module."""
-    if "scan" not in _SCAN:
-        shards = sorted(DOCKER_BUILD_CACHE_MIRROR.glob("batch-*.jsonl"))
-        records = []
-        for shard in shards:
-            with shard.open(encoding="utf-8") as handle:
-                for line in handle:
-                    if line.strip():
-                        records.append((shard.name, json.loads(line)))
-        _SCAN["scan"] = (shards, records)
+    if "scan" in _SCAN:
+        return _SCAN["scan"]
+    shards = sorted(DOCKER_BUILD_CACHE_MIRROR.glob("batch-*.jsonl"))
+    records = [row for shard in shards for row in _read_shard(shard)]
+    _SCAN["scan"] = (shards, records)
     return _SCAN["scan"]
 
 
@@ -65,6 +67,24 @@ def _shard_number(name: str) -> int:
     label = publisher.batch_label(Path(name))
     assert label is not None, name
     return label[0]
+
+
+def _shard_range(rows):
+    """The (lowest, highest) shard number a set of (shard, record) rows spans."""
+    numbers = sorted(_shard_number(shard) for shard, _record in rows)
+    return numbers[0], numbers[-1]
+
+
+def _edge_numbers(note_range):
+    """The two shard numbers a note's `batch-rNNN` edge pair names."""
+    return tuple(int(edge.removeprefix("batch-r")) for edge in note_range)
+
+
+def _plant_runs(plant):
+    """The `plant` rows split into the named run and the literal `designed` run."""
+    named = [(s, r) for s, r in plant if r["meta"]["plant"] != "designed"]
+    literal = [(s, r) for s, r in plant if r["meta"]["plant"] == "designed"]
+    return named, literal
 
 
 _needs_mirror = unittest.skipUnless(
@@ -309,26 +329,26 @@ class DockerBuildCacheDeclarationTests(unittest.TestCase):
     def test_the_two_plant_runs_sit_in_the_shard_ranges_the_note_names(self):
         _shards, records = _scan_mirror()
         names, _optional = _feature_index(self.declaration["features"])
-        _thin, plant, kinded = _meta_shapes(records)
-        named_plant = [(s, r) for s, r in plant if r["meta"]["plant"] != "designed"]
-        literal_plant = [(s, r) for s, r in plant if r["meta"]["plant"] == "designed"]
-        self.assertEqual(len(named_plant), 48)
-        self.assertEqual(len(literal_plant), 48)
+        _thin, plant, _kinded = _meta_shapes(records)
+        note = names["meta"]["note"]
         for label, rows, note_range in (
-            ("named", named_plant, ("batch-r526", "batch-r549")),
-            ("designed", literal_plant, ("batch-r647", "batch-r684")),
+            ("named", _plant_runs(plant)[0], ("batch-r526", "batch-r549")),
+            ("designed", _plant_runs(plant)[1], ("batch-r647", "batch-r684")),
         ):
             with self.subTest(plant=label):
-                numbers = sorted(_shard_number(shard) for shard, _r in rows)
-                self.assertEqual(
-                    (numbers[0], numbers[-1]),
-                    tuple(int(edge.removeprefix("batch-r")) for edge in note_range),
-                )
-        note = names["meta"]["note"]
-        for edge in ("batch-r526", "batch-r549", "batch-r647", "batch-r684"):
-            self.assertIn(edge, note)
-        # The 48 `plant: designed` rows are a different set from the 26 whose
-        # `meta.kind` is `designed`; the disclosure says so, so prove it.
+                self.assertEqual(len(rows), 48)
+                self.assertEqual(_shard_range(rows), _edge_numbers(note_range))
+                self.assertIn(note_range[0], note)
+                self.assertIn(note_range[1], note)
+
+    @_needs_mirror
+    def test_the_plant_designed_rows_are_not_the_kinded_rows(self):
+        """The 48 `plant: designed` rows are a different set from the 26 whose
+        `meta.kind` is `designed`; the disclosure says so, so prove it.
+        """
+        _shards, records = _scan_mirror()
+        _thin, plant, kinded = _meta_shapes(records)
+        _named, literal_plant = _plant_runs(plant)
         self.assertEqual(
             {r["id"] for _s, r in literal_plant} & {r["id"] for _s, r in kinded}, set()
         )
