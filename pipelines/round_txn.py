@@ -46,7 +46,7 @@ _PIPELINES = Path(__file__).resolve().parent
 if str(_PIPELINES) not in sys.path:
     sys.path.insert(0, str(_PIPELINES))
 
-from check_records import check_jsonl  # noqa: E402
+from check_records import FactoryStaging, check_jsonl  # noqa: E402
 from validate_run import THALAMIC_CORE_KEYS, terminal_outcome_agrees  # noqa: E402
 
 MODE_FILE = ".round-marker-mode.json"
@@ -596,8 +596,10 @@ def validate_legacy_payload(
         path,
         path.name,
         seen_ids=seen_ids,
-        factory_staging=factory_staging,
-        factory_staging_exempt_lines=frozenset(quarantined_kinds),
+        staging=FactoryStaging(
+            enabled=factory_staging,
+            exempt_lines=frozenset(quarantined_kinds),
+        ),
     )
     problems = list(errors)
     if factory_staging:
@@ -2132,7 +2134,7 @@ def _completed_batch_is_training_ready(batch, seen_ids, factory_staging):
         batch,
         batch.name,
         seen_ids=seen_ids,
-        factory_staging=factory_staging,
+        staging=FactoryStaging(enabled=factory_staging),
     )
     if errors or warnings:
         details = [
@@ -2355,7 +2357,7 @@ def validate_stage(
             batch,
             batch.name,
             seen_ids=committed_ids(factory_dir),
-            factory_staging=True,
+            staging=FactoryStaging(enabled=True),
         )
         if errors or warnings:
             details = [
