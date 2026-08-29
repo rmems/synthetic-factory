@@ -135,6 +135,60 @@ def _open_beneath(root_fd, relative):
         os.close(directory_fd)
 
 
+def _stat_identity(status):
+    """The fields that must not change while a file's bytes are captured."""
+    return (
+        status.st_dev,
+        status.st_ino,
+        status.st_size,
+        status.st_mtime_ns,
+        status.st_ctime_ns,
+        status.st_nlink,
+    )
+
+
+def _stat_identity_with_mode(status):
+    """``_stat_identity`` plus the mode, for the pre-read enumeration check."""
+    return (
+        status.st_dev,
+        status.st_ino,
+        status.st_mode,
+        status.st_size,
+        status.st_mtime_ns,
+        status.st_ctime_ns,
+        status.st_nlink,
+    )
+
+
+def _read_within_limit(descriptor, limit):
+    """Read a descriptor to EOF, refusing anything past ``limit`` bytes."""
+    body = bytearray()
+    captured = 0
+    while True:
+        chunk = os.read(descriptor, min(READ_CHUNK_BYTES, limit + 1 - captured))
+        if not chunk:
+            break
+        try:
+            body.extend(chunk)
+        except MemoryError as exc:
+            raise ValueError("snapshot allocation exceeded available memory") from exc
+        captured += len(chunk)
+        if captured > limit:
+            raise ValueError(f"file exceeds the {limit}-byte snapshot limit")
+    return body
+
+
+def _capture_pinned_body(descriptor, limit, expected_stat):
+    """Read one pinned descriptor, proving its identity before the read."""
+    before = os.fstat(descriptor)
+    if not stat.S_ISREG(before.st_mode) or before.st_nlink != 1:
+        raise ValueError("opened object is not a singly linked regular file")
+    if _stat_identity_with_mode(before) != _stat_identity_with_mode(expected_stat):
+        raise ValueError("file changed after run-tree enumeration")
+    body = _read_within_limit(descriptor, limit)
+    return body, before, os.fstat(descriptor)
+
+
 def _snapshot_regular_file(root_fd, path, relative, limit, expected_stat):
     """Capture one root-relative path once and detect identity or byte changes."""
     path = Path(path)
@@ -142,62 +196,10 @@ def _snapshot_regular_file(root_fd, path, relative, limit, expected_stat):
         raise ValueError(f"file exceeds the {limit}-byte snapshot limit")
     descriptor = _open_beneath(root_fd, relative)
     try:
-        before = os.fstat(descriptor)
-        if not stat.S_ISREG(before.st_mode) or before.st_nlink != 1:
-            raise ValueError("opened object is not a singly linked regular file")
-        expected_identity = (
-            expected_stat.st_dev,
-            expected_stat.st_ino,
-            expected_stat.st_mode,
-            expected_stat.st_size,
-            expected_stat.st_mtime_ns,
-            expected_stat.st_ctime_ns,
-            expected_stat.st_nlink,
-        )
-        opened_identity = (
-            before.st_dev,
-            before.st_ino,
-            before.st_mode,
-            before.st_size,
-            before.st_mtime_ns,
-            before.st_ctime_ns,
-            before.st_nlink,
-        )
-        if opened_identity != expected_identity:
-            raise ValueError("file changed after run-tree enumeration")
-        body = bytearray()
-        captured = 0
-        while True:
-            chunk = os.read(descriptor, min(READ_CHUNK_BYTES, limit + 1 - captured))
-            if not chunk:
-                break
-            try:
-                body.extend(chunk)
-            except MemoryError as exc:
-                raise ValueError("snapshot allocation exceeded available memory") from exc
-            captured += len(chunk)
-            if captured > limit:
-                raise ValueError(f"file exceeds the {limit}-byte snapshot limit")
-        after = os.fstat(descriptor)
+        body, before, after = _capture_pinned_body(descriptor, limit, expected_stat)
     finally:
         os.close(descriptor)
-    identity_before = (
-        before.st_dev,
-        before.st_ino,
-        before.st_size,
-        before.st_mtime_ns,
-        before.st_ctime_ns,
-        before.st_nlink,
-    )
-    identity_after = (
-        after.st_dev,
-        after.st_ino,
-        after.st_size,
-        after.st_mtime_ns,
-        after.st_ctime_ns,
-        after.st_nlink,
-    )
-    if identity_before != identity_after:
+    if _stat_identity(before) != _stat_identity(after):
         raise ValueError("file changed while its bytes were captured")
     if len(body) != after.st_size:
         raise ValueError("captured byte count does not match the regular-file size")
@@ -322,78 +324,65 @@ def _open_run_root(run_dir):
     return descriptor
 
 
-def _authenticate_manifest_from_root(run_dir, root_fd):
-    """Authenticate a run rooted at one already pinned directory descriptor."""
-    run_dir = Path(run_dir)
-    errors = []
-    actual, tree_errors = _enumerate_run_files(run_dir, root_fd)
-    errors.extend(tree_errors)
+def _is_sha256_hex(value):
+    """Whether ``value`` is a bare lowercase 64-character hex digest."""
+    return (
+        isinstance(value, str)
+        and len(value) == 64
+        and all(character in "0123456789abcdef" for character in value)
+    )
+
+
+def _load_run_manifest(run_dir, root_fd, actual, errors):
+    """Snapshot and parse the run manifest, or report why it cannot be read."""
     manifest_path = run_dir / "manifest.json"
-    manifest = None
     manifest_entry = actual.get("manifest.json")
     if manifest_entry is None:
         errors.append(f"{manifest_path}: required run manifest is missing")
-    else:
-        try:
-            manifest_file, manifest_stat = manifest_entry
-            manifest_snapshot = _snapshot_regular_file(
-                root_fd,
-                manifest_file,
-                "manifest.json",
-                MAX_MANIFEST_BYTES,
-                expected_stat=manifest_stat,
-            )
-            manifest = strict_json_loads(manifest_snapshot.body)
-        except (
-            OSError,
-            UnicodeError,
-            json.JSONDecodeError,
-            ValueError,
-            RecursionError,
-            MemoryError,
-        ) as exc:
-            errors.append(
-                f"{manifest_path}: invalid manifest snapshot: {type(exc).__name__}: {exc}"
-            )
-            manifest = None
-
-    actual_names = set(actual) - {"manifest.json"}
-    if not isinstance(manifest, dict):
-        return manifest, [], errors
-    if manifest.get("schema") != record.SCHEMA_ID:
-        errors.append(
-            f"{manifest_path}: schema must be {record.SCHEMA_ID!r}, got {manifest.get('schema')!r}"
+        return None
+    try:
+        manifest_file, manifest_stat = manifest_entry
+        manifest_snapshot = _snapshot_regular_file(
+            root_fd,
+            manifest_file,
+            "manifest.json",
+            MAX_MANIFEST_BYTES,
+            expected_stat=manifest_stat,
         )
-    if manifest.get("generation_errors") != []:
-        errors.append(f"{manifest_path}: generation_errors must be an empty array")
-    entries = manifest.get("files")
-    if not isinstance(entries, dict):
-        errors.append(f"{manifest_path}: files must be an object")
-        return manifest, [], errors
-    if not entries:
-        errors.append(f"{manifest_path}: files must declare at least one payload")
+        return strict_json_loads(manifest_snapshot.body)
+    except (
+        OSError,
+        UnicodeError,
+        json.JSONDecodeError,
+        ValueError,
+        RecursionError,
+        MemoryError,
+    ) as exc:
+        errors.append(f"{manifest_path}: invalid manifest snapshot: {type(exc).__name__}: {exc}")
+        return None
 
+
+def _manifest_file_entries(entries, manifest_path, errors):
+    """Validate the manifest files block.
+
+    Returns the declared names, the entries that survived every check, and
+    the declared record total.
+    """
     expected_names = set()
     valid_entries = {}
     declared_record_total = 0
     for relative, entry in entries.items():
-        safe_path = _safe_manifest_path(relative)
-        if safe_path is None:
+        if _safe_manifest_path(relative) is None:
             errors.append(f"{manifest_path}: unsafe manifest file path {relative!r}")
             continue
         expected_names.add(relative)
         if not isinstance(entry, dict):
             errors.append(f"{manifest_path}: files[{relative!r}] must be an object")
             continue
-        digest = entry.get("sha256")
-        count = entry.get("records")
-        if not (
-            isinstance(digest, str)
-            and len(digest) == 64
-            and all(character in "0123456789abcdef" for character in digest)
-        ):
+        if not _is_sha256_hex(entry.get("sha256")):
             errors.append(f"{manifest_path}: files[{relative!r}].sha256 is invalid")
             continue
+        count = entry.get("records")
         if not _plain_int(count, minimum=0, maximum=MAX_RUN_RECORDS):
             errors.append(f"{manifest_path}: files[{relative!r}].records is invalid")
             continue
@@ -402,18 +391,33 @@ def _authenticate_manifest_from_root(run_dir, root_fd):
             errors.append(f"{manifest_path}: declared record total exceeds {MAX_RUN_RECORDS}")
             continue
         valid_entries[relative] = entry
-    if declared_record_total == 0:
-        errors.append(f"{manifest_path}: declared run contains no records")
+    return expected_names, valid_entries, declared_record_total
 
-    for relative in sorted(expected_names - actual_names):
-        errors.append(f"{manifest_path}: manifest file is missing: {relative}")
-    for relative in sorted(actual_names - expected_names):
-        errors.append(f"{manifest_path}: unmanifested file is present: {relative}")
 
+def _verify_captured_file(snapshot, entry, path, errors):
+    """Check one captured file against its manifest entry. Returns its line count."""
+    actual_digest = hashlib.sha256(snapshot.body).hexdigest()
+    expected_digest = entry["sha256"]
+    if actual_digest != expected_digest:
+        errors.append(
+            f"{path}: sha256 mismatch: manifest {expected_digest}, actual {actual_digest}"
+        )
+    actual_count = sum(1 for line in io.BytesIO(snapshot.body) if line.strip())
+    expected_count = entry["records"]
+    if actual_count != expected_count:
+        errors.append(
+            f"{path}: record-count mismatch: manifest {expected_count}, actual {actual_count}"
+        )
+    return actual_count
+
+
+def _capture_manifested_files(actual, valid_entries, root_fd, errors):
+    """Capture every manifested file once, refusing aliases and oversized runs."""
     snapshots = []
     seen_inodes = set()
     captured_record_total = 0
-    for relative in sorted(expected_names & actual_names & valid_entries.keys()):
+    actual_names = set(actual) - {"manifest.json"}
+    for relative in sorted(valid_entries.keys() & actual_names):
         path, expected_stat = actual[relative]
         try:
             snapshot = _snapshot_regular_file(
@@ -433,23 +437,53 @@ def _authenticate_manifest_from_root(run_dir, root_fd):
             errors.append(f"{path}: file aliases another manifest entry")
             continue
         seen_inodes.add(inode_key)
-        actual_digest = hashlib.sha256(snapshot.body).hexdigest()
-        expected_digest = valid_entries[relative]["sha256"]
-        if actual_digest != expected_digest:
-            errors.append(
-                f"{path}: sha256 mismatch: manifest {expected_digest}, actual {actual_digest}"
-            )
-        actual_count = sum(1 for line in io.BytesIO(snapshot.body) if line.strip())
-        expected_count = valid_entries[relative]["records"]
-        if actual_count != expected_count:
-            errors.append(
-                f"{path}: record-count mismatch: manifest {expected_count}, actual {actual_count}"
-            )
-        captured_record_total += actual_count
+        captured_record_total += _verify_captured_file(
+            snapshot, valid_entries[relative], path, errors
+        )
         if captured_record_total > MAX_RUN_RECORDS:
             errors.append(f"{path}: captured record total exceeds {MAX_RUN_RECORDS}")
             continue
         snapshots.append(snapshot)
+    return snapshots
+
+
+def _authenticate_manifest_from_root(run_dir, root_fd):
+    """Authenticate a run rooted at one already pinned directory descriptor."""
+    run_dir = Path(run_dir)
+    errors = []
+    actual, tree_errors = _enumerate_run_files(run_dir, root_fd)
+    errors.extend(tree_errors)
+    manifest_path = run_dir / "manifest.json"
+    manifest = _load_run_manifest(run_dir, root_fd, actual, errors)
+
+    actual_names = set(actual) - {"manifest.json"}
+    if not isinstance(manifest, dict):
+        return manifest, [], errors
+    if manifest.get("schema") != record.SCHEMA_ID:
+        errors.append(
+            f"{manifest_path}: schema must be {record.SCHEMA_ID!r}, got {manifest.get('schema')!r}"
+        )
+    if manifest.get("generation_errors") != []:
+        errors.append(f"{manifest_path}: generation_errors must be an empty array")
+    entries = manifest.get("files")
+    if not isinstance(entries, dict):
+        errors.append(f"{manifest_path}: files must be an object")
+        return manifest, [], errors
+    if not entries:
+        errors.append(f"{manifest_path}: files must declare at least one payload")
+
+    expected_names, valid_entries, declared_record_total = _manifest_file_entries(
+        entries, manifest_path, errors
+    )
+    if declared_record_total == 0:
+        errors.append(f"{manifest_path}: declared run contains no records")
+
+    for relative in sorted(expected_names - actual_names):
+        errors.append(f"{manifest_path}: manifest file is missing: {relative}")
+    for relative in sorted(actual_names - expected_names):
+        errors.append(f"{manifest_path}: unmanifested file is present: {relative}")
+
+    snapshots = _capture_manifested_files(actual, valid_entries, root_fd, errors)
     return manifest, snapshots, errors
 
 
