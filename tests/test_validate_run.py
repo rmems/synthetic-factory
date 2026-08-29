@@ -455,8 +455,8 @@ class VerifyFrontierMalformedRecords(unittest.TestCase):
 
     verify_batch_for_frontier runs over untrusted generated JSONL, so a
     non-string safety_decision.rationale or a non-object
-    language_view.trajectory must return failed/inconclusive instead of
-    raising and taking the frontier gate down with it.
+    language_view.trajectory must return failed instead of raising and taking
+    the frontier gate down with it.
     """
 
     def _verify(self, record):
@@ -482,10 +482,10 @@ class VerifyFrontierMalformedRecords(unittest.TestCase):
             "language_view": {"trajectory": "not-an-object"},
         }
         counts, findings, blocked = self._verify(record)
-        self.assertEqual(counts["inconclusive"], 1, findings)
+        self.assertEqual(counts["failed"], 1, findings)
         self.assertEqual(counts["verified"], 0, findings)
         self.assertTrue(blocked)
-        self.assertIn("not an object", findings[0]["reason"])
+        self.assertIn("missing or not an object", findings[0]["reason"])
 
 
 if __name__ == "__main__":
