@@ -1,0 +1,24 @@
+scripts/publish_grok46_hub.py
+  s_0d456da8ea5328::t_ba80cc35e9020d 871-909,920-931,940-945,956-959,966
+  s_0d456da8ea5328::t_f18d8d3b093230 1021-1024
+  s_0d456da8ea5328::t_2a776206ed2a49 1222-1247,1252-1258,1266-1273,1282-1283,1302-1305,1318-1321
+  s_0d456da8ea5328::t_6ba58583fb370a 969-1005
+  s_0d456da8ea5328::t_89d368f410a9e5 1477-1501
+  s_0d456da8ea5328::t_be96c7ce816529 1407,1415,1427-1449
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "06f0f1662229c1036a55735c38077440972c5b47",
+  "prompts": {},
+  "sessions": {
+    "s_0d456da8ea5328": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "a8d33a4c-0324-4388-9173-61055dd33627",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Raul Montoya Cardenas <montoyaraul34@gmail.com>"
+    }
+  }
+}
