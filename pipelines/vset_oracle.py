@@ -46,15 +46,23 @@ class _OracleResult(unittest.TestResult):
         self.rows.append({"id": test.id(), "status": "SKIP"})
 
 
-def _resolve_under_work(work: Path, relative: str, *, code: str) -> Path:
+def _illegal_work_relative(relative: Any) -> bool:
     if not isinstance(relative, str) or not relative.strip():
-        raise VSetValidationError(code, f"illegal path {relative!r}")
+        return True
     candidate = Path(relative)
-    if candidate.is_absolute() or ".." in candidate.parts:
-        raise VSetValidationError(code, f"illegal path {relative!r}")
+    return candidate.is_absolute() or ".." in candidate.parts
+
+
+def _escapes_work(work: Path, dest: Path) -> bool:
     root = work.resolve()
+    return dest != root and root not in dest.parents
+
+
+def _resolve_under_work(work: Path, relative: str, *, code: str) -> Path:
+    if _illegal_work_relative(relative):
+        raise VSetValidationError(code, f"illegal path {relative!r}")
     dest = (work / relative).resolve()
-    if dest != root and root not in dest.parents:
+    if _escapes_work(work, dest):
         raise VSetValidationError(code, f"path escapes worktree {relative!r}")
     return dest
 
