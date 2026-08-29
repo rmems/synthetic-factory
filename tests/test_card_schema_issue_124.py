@@ -67,6 +67,65 @@ def _shard_number(name: str) -> int:
     return label[0]
 
 
+_needs_mirror = unittest.skipUnless(
+    DOCKER_BUILD_CACHE_MIRROR.is_dir(),
+    f"read-only published mirror is not available (set ${MIRROR_ROOT_ENV})",
+)
+
+
+def _feature_index(features):
+    """Split a feature list into a name lookup and the set of optional names."""
+    names = {feature["name"]: feature for feature in features}
+    return names, {n for n, f in names.items() if f.get("optional")}
+
+
+def _iter_steps(records):
+    """Yield every (shard, step) pair, flattening the record/step nesting."""
+    for shard, record in records:
+        for step in record["steps"]:
+            yield shard, step
+
+
+def _meta_shapes(records):
+    """The three disjoint `meta` shapes: thin, `plant`-bearing, `kind`-bearing."""
+    thin = [
+        r for _s, r in records if set(r["meta"]) == {"factory", "generator", "round"}
+    ]
+    plant = [(s, r) for s, r in records if "plant" in r["meta"]]
+    kinded = [(s, r) for s, r in records if "kind" in r["meta"]]
+    return thin, plant, kinded
+
+
+def _reward_stats(records):
+    """Per-key record counts and the set of value type names, over `reward`."""
+    counts: dict = {}
+    types: dict = {}
+    for _shard, record in records:
+        for key, value in record["reward"].items():
+            counts[key] = counts.get(key, 0) + 1
+            types.setdefault(key, set()).add(type(value).__name__)
+    return counts, types
+
+
+def _tool_arg_stats(records):
+    """Per-key counts, value type names and distinct tool names, over args."""
+    arg_keys: dict = {}
+    arg_types: dict = {}
+    tool_names: set = set()
+    for _shard, step in _iter_steps(records):
+        tool_names.add(step["tool_call"]["name"])
+        for key, value in step["tool_call"]["args"].items():
+            arg_keys[key] = arg_keys.get(key, 0) + 1
+            arg_types.setdefault(key, set()).add(type(value).__name__)
+    return arg_keys, arg_types, tool_names
+
+
+def _disclosed_ids_by_size(declaration):
+    """Enumerated disclosure id lists, keyed by how many ids each carries."""
+    disclosed = [item for item in declaration["disclosures"] if isinstance(item, dict)]
+    return {len(item["ids"]): set(item["ids"]) for item in disclosed if "ids" in item}
+
+
 class DockerBuildCacheDeclarationTests(unittest.TestCase):
     """Issue #61: thin `meta` vs the `plant` / `designed` leftover shapes.
 
@@ -185,26 +244,25 @@ class DockerBuildCacheDeclarationTests(unittest.TestCase):
             )
         )
 
-    @unittest.skipUnless(
-        DOCKER_BUILD_CACHE_MIRROR.is_dir(),
-        f"read-only published mirror is not available (set ${MIRROR_ROOT_ENV})",
-    )
-    def test_declaration_matches_the_published_mirror(self):
-        """Re-derive every claim in the declaration from the published records.
+    # -- Re-derived from the payload, not from the declaration -------------
+    #
+    # The rest of this class compares the declaration against expectations
+    # typed beside it. The tests below are the ones that can fail when the
+    # declaration drifts from the payload, so between them they check the
+    # facts the fix actually depends on: the three disjoint `meta` shapes, the
+    # two `plant` runs, the enumerated ids, the `reward` type spread and the
+    # step counts.
 
-        The rest of this class compares the declaration against expectations
-        typed beside it. This test is the only one that can fail when the
-        declaration drifts from the payload, so it checks the facts the fix
-        actually depends on: the three disjoint `meta` shapes, the two `plant`
-        runs, the enumerated ids, the `reward` type spread and the step counts.
+    @_needs_mirror
+    def test_published_shards_are_exactly_the_declared_shard_list(self):
+        """Real published layout, compared as a set.
+
+        Glob order is lexicographic (`batch-r100` before `batch-r11`) while
+        rounds are numbered numerically.
         """
         shards, records = _scan_mirror()
         self.assertEqual(len(shards), 1028)
         self.assertEqual(len(records), 2056)
-        total = len(records)
-
-        # Real published layout, compared as a set: glob order is lexicographic
-        # (`batch-r100` before `batch-r11`) while rounds are numbered numerically.
         published = [shard.name for shard in shards]
         self.assertEqual(len(published), len(SHARD_NAMES))
         self.assertEqual(set(published), set(SHARD_NAMES))
@@ -212,23 +270,33 @@ class DockerBuildCacheDeclarationTests(unittest.TestCase):
             card_schema.payload_coverage_errors(self.declaration, published), []
         )
 
-        names = {feature["name"]: feature for feature in self.declaration["features"]}
-        optional = {n for n, f in names.items() if f.get("optional")}
+    @_needs_mirror
+    def test_every_record_carries_exactly_the_declared_top_level_fields(self):
+        _shards, records = _scan_mirror()
+        names, optional = _feature_index(self.declaration["features"])
         for shard, record in records:
             self.assertEqual(set(record) - set(names), set(), shard)
             self.assertEqual(set(names) - set(record) - optional, set(), shard)
             self.assertIsInstance(record["plan"], str, record["id"])
             self.assertTrue(record["plan"].strip(), record["id"])
+        total = len(records)
         self.assertIn(f"present on {total} of {total} records", names["plan"]["note"])
 
-        # --- `meta`: three disjoint shapes, and the two `plant` runs. ---
-        thin = [r for _s, r in records if set(r["meta"]) == {"factory", "generator", "round"}]
-        plant = [(s, r) for s, r in records if "plant" in r["meta"]]
-        kinded = [(s, r) for s, r in records if "kind" in r["meta"]]
+    @_needs_mirror
+    def test_meta_splits_into_three_disjoint_shapes_with_the_declared_counts(self):
+        _shards, records = _scan_mirror()
+        names, _optional = _feature_index(self.declaration["features"])
+        total = len(records)
+        thin, plant, kinded = _meta_shapes(records)
         self.assertEqual(len(thin) + len(plant) + len(kinded), total)
         self.assertEqual([len(thin), len(plant), len(kinded)], [1934, 96, 26])
         self.assertEqual(
-            [], [r["id"] for _s, r in records if "plant" in r["meta"] and "kind" in r["meta"]]
+            [],
+            [
+                r["id"]
+                for _s, r in records
+                if "plant" in r["meta"] and "kind" in r["meta"]
+            ],
         )
         note = names["meta"]["note"]
         self.assertIn(f"`factory`, `generator`, `round` on all {total}", note)
@@ -236,6 +304,12 @@ class DockerBuildCacheDeclarationTests(unittest.TestCase):
         self.assertIn(f"`product` on {len(kinded)}", note)
         self.assertIn(f"{len(thin)} are thin", self.declaration["note"])
         self.assertIn(f"{len(plant)} add `plant`", self.declaration["note"])
+
+    @_needs_mirror
+    def test_the_two_plant_runs_sit_in_the_shard_ranges_the_note_names(self):
+        _shards, records = _scan_mirror()
+        names, _optional = _feature_index(self.declaration["features"])
+        _thin, plant, kinded = _meta_shapes(records)
         named_plant = [(s, r) for s, r in plant if r["meta"]["plant"] != "designed"]
         literal_plant = [(s, r) for s, r in plant if r["meta"]["plant"] == "designed"]
         self.assertEqual(len(named_plant), 48)
@@ -250,6 +324,7 @@ class DockerBuildCacheDeclarationTests(unittest.TestCase):
                     (numbers[0], numbers[-1]),
                     tuple(int(edge.removeprefix("batch-r")) for edge in note_range),
                 )
+        note = names["meta"]["note"]
         for edge in ("batch-r526", "batch-r549", "batch-r647", "batch-r684"):
             self.assertIn(edge, note)
         # The 48 `plant: designed` rows are a different set from the 26 whose
@@ -259,14 +334,16 @@ class DockerBuildCacheDeclarationTests(unittest.TestCase):
         )
         self.assertEqual({r["meta"]["kind"] for _s, r in kinded}, {"designed"})
 
-        # --- The enumerated ids must exist and be exactly the derived sets. ---
-        disclosed = [
-            item for item in self.declaration["disclosures"] if isinstance(item, dict)
-        ]
-        by_size = {len(item["ids"]): set(item["ids"]) for item in disclosed if "ids" in item}
+    @_needs_mirror
+    def test_enumerated_disclosure_ids_are_exactly_the_derived_sets(self):
+        _shards, records = _scan_mirror()
+        _thin, _plant, kinded = _meta_shapes(records)
+        by_size = _disclosed_ids_by_size(self.declaration)
         published_ids = {r["id"] for _s, r in records}
         self.assertEqual(
-            by_size[26], {r["id"] for _s, r in kinded}, "the 26 -l3 ids are the kinded rows"
+            by_size[26],
+            {r["id"] for _s, r in kinded},
+            "the 26 -l3 ids are the kinded rows",
         )
         self.assertLessEqual(by_size[26] | by_size[8], published_ids)
         kinded_numbers = sorted(_shard_number(shard) for shard, _r in kinded)
@@ -276,30 +353,43 @@ class DockerBuildCacheDeclarationTests(unittest.TestCase):
             {r["id"] for _s, r in records if r["id"].endswith("-l3")}, by_size[26]
         )
 
-        # --- `reward`: key counts and the type spread that forces `json`. ---
-        counts: dict = {}
-        types: dict = {}
-        for _shard, record in records:
-            for key, value in record["reward"].items():
-                counts[key] = counts.get(key, 0) + 1
-                types.setdefault(key, set()).add(type(value).__name__)
+    @_needs_mirror
+    def test_reward_key_counts_match_the_declared_note(self):
+        _shards, records = _scan_mirror()
+        names, _optional = _feature_index(self.declaration["features"])
+        counts, _types = _reward_stats(records)
         reward_note = names["reward"]["note"]
         self.assertEqual(
-            {k for k, v in counts.items() if v == total},
+            {k for k, v in counts.items() if v == len(records)},
             {"success", "tests_passed", "cost_steps"},
         )
         self.assertIn(f"`xfailed` on {counts['xfailed']}", reward_note)
         self.assertIn(f"`residual` on {counts['residual']}", reward_note)
         self.assertIn(f"`handoff` on {counts['handoff']}", reward_note)
         self.assertIn(f"`plan_changes` on {counts['plan_changes']}", reward_note)
+
+    @_needs_mirror
+    def test_the_eight_single_record_reward_extras_are_the_disclosed_ids(self):
+        _shards, records = _scan_mirror()
+        names, _optional = _feature_index(self.declaration["features"])
+        counts, _types = _reward_stats(records)
+        by_size = _disclosed_ids_by_size(self.declaration)
         singles = {key for key, count in counts.items() if count == 1}
         self.assertEqual(len(singles), 8)
-        self.assertIn(f"{_spelled(len(singles))} single-record extras", reward_note)
+        self.assertIn(
+            f"{_spelled(len(singles))} single-record extras", names["reward"]["note"]
+        )
         self.assertEqual(
             by_size[8],
             {r["id"] for _s, r in records if singles & set(r["reward"])},
             "the 8 disclosed ids are the records carrying a single-record extra",
         )
+
+    @_needs_mirror
+    def test_the_reward_type_spread_is_what_forces_a_json_column(self):
+        _shards, records = _scan_mirror()
+        counts, types = _reward_stats(records)
+        singles = {key for key, count in counts.items() if count == 1}
         self.assertEqual(types["acorn"], {"str"})
         self.assertEqual(types["glibc"], {"float"})
         self.assertEqual(types["second_build_s"], {"float"})
@@ -308,54 +398,85 @@ class DockerBuildCacheDeclarationTests(unittest.TestCase):
                 self.assertEqual(types[key], {"int"})
         self.assertEqual(types["success"], {"bool"})
 
-        # --- steps: reflections, decision_basis and the tool-arg key spread. ---
-        step_names = {feature["name"]: feature for feature in names["steps"]["list"]}
-        step_optional = {n for n, f in step_names.items() if f.get("optional")}
-        total_steps = reflections = bases = 0
-        arg_keys: dict = {}
-        arg_types: dict = {}
-        tool_names: set = set()
-        for shard, record in records:
-            for step in record["steps"]:
-                total_steps += 1
-                self.assertEqual(set(step) - set(step_names), set(), shard)
-                self.assertEqual(set(step_names) - set(step) - step_optional, set(), shard)
-                self.assertEqual(set(step["tool_call"]), {"name", "args"})
-                tool_names.add(step["tool_call"]["name"])
-                reflections += "reflection" in step
-                bases += bool(step["decision_basis"])
-                for key, value in step["tool_call"]["args"].items():
-                    arg_keys[key] = arg_keys.get(key, 0) + 1
-                    arg_types.setdefault(key, set()).add(type(value).__name__)
+    @_needs_mirror
+    def test_every_step_carries_exactly_the_declared_step_fields(self):
+        _shards, records = _scan_mirror()
+        names, _optional = _feature_index(self.declaration["features"])
+        step_names, step_optional = _feature_index(names["steps"]["list"])
+        for shard, step in _iter_steps(records):
+            self.assertEqual(set(step) - set(step_names), set(), shard)
+            self.assertEqual(set(step_names) - set(step) - step_optional, set(), shard)
+            self.assertEqual(set(step["tool_call"]), {"name", "args"})
+
+    @_needs_mirror
+    def test_step_notes_match_the_reflection_and_decision_basis_counts(self):
+        _shards, records = _scan_mirror()
+        names, _optional = _feature_index(self.declaration["features"])
+        step_names, _step_optional = _feature_index(names["steps"]["list"])
+        steps = [step for _shard, step in _iter_steps(records)]
+        total_steps = len(steps)
+        reflections = sum(1 for step in steps if "reflection" in step)
+        bases = sum(1 for step in steps if step["decision_basis"])
         self.assertIn(
             f"present on {reflections} of {total_steps} steps",
             step_names["reflection"]["note"],
         )
         self.assertIn(f"{reflections} of {total_steps} steps", self.card)
         self.assertEqual(bases, total_steps)
+
+    @_needs_mirror
+    def test_tool_call_arg_key_counts_match_the_struct_note(self):
+        _shards, records = _scan_mirror()
+        names, _optional = _feature_index(self.declaration["features"])
+        step_names, _step_optional = _feature_index(names["steps"]["list"])
+        arg_keys, _arg_types, tool_names = _tool_arg_stats(records)
         args_note = step_names["tool_call"]["struct"][1]["note"]
         # "nine tools" counts distinct tool names; the keys listed after it
         # are the ten argument names those tools use between them.
         self.assertIn(f"across {_spelled(len(tool_names))} tools", args_note)
         self.assertEqual(len(tool_names), 9)
         self.assertEqual(len(arg_keys), 10)
-        for key in ("command", "path", "pattern", "cmd", "diff", "glob", "limit", "contents"):
+        for key in (
+            "command",
+            "path",
+            "pattern",
+            "cmd",
+            "diff",
+            "glob",
+            "limit",
+            "contents",
+        ):
             with self.subTest(arg=key):
                 self.assertIn(f"`{key}` {arg_keys[key]}", args_note)
         self.assertIn(f"`old` / `new` {arg_keys['old']} each", args_note)
         self.assertEqual(arg_keys["old"], arg_keys["new"])
-        # `limit` is the lone integer; that is why the union cannot be a struct
-        # of strings, which is the reason the declaration exists.
+
+    @_needs_mirror
+    def test_limit_is_the_lone_integer_tool_argument(self):
+        """`limit` is why the union cannot be a struct of strings.
+
+        That is the reason the declaration exists at all.
+        """
+        _shards, records = _scan_mirror()
+        _arg_keys, arg_types, _tool_names = _tool_arg_stats(records)
         self.assertEqual(arg_types["limit"], {"int"})
         for key, kinds in arg_types.items():
             if key != "limit":
                 with self.subTest(arg=key):
                     self.assertEqual(kinds, {"str"})
 
-        # --- Home-dump provenance and the leftover-id count the card prints. ---
-        self.assertEqual({r["meta"]["factory"] for _s, r in records}, {"docker-build-cache-factory"})
+    @_needs_mirror
+    def test_home_dump_provenance_and_the_leftover_count_the_card_prints(self):
+        _shards, records = _scan_mirror()
+        total = len(records)
+        published_ids = {r["id"] for _s, r in records}
+        self.assertEqual(
+            {r["meta"]["factory"] for _s, r in records}, {"docker-build-cache-factory"}
+        )
         self.assertEqual({r["meta"]["generator"] for _s, r in records}, {"grok-4.6"})
-        self.assertTrue(all(record_id.startswith("dbc-") for record_id in published_ids))
+        self.assertTrue(
+            all(record_id.startswith("dbc-") for record_id in published_ids)
+        )
         self.assertEqual(len(published_ids), total)
         leftover = sum(1 for _s, r in records if "leftover" in r["id"])
         self.assertIn(f"{leftover} of the {total} record ids contain `leftover`", self.card)
