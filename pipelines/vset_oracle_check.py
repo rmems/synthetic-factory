@@ -68,15 +68,21 @@ def _validated_evidence_errors(oracle: Mapping[str, Any]) -> list[VSetValidation
     ]
 
 
+def _solver_only_signal(oracle: Mapping[str, Any]) -> bool:
+    evidence = oracle.get("signals")
+    if isinstance(evidence, list) and evidence == ["solver_success"]:
+        return True
+    return oracle.get("upgraded_from_solver_success") is True
+
+
+def _solver_self_certify_upgrade(solver: Mapping[str, Any], kind: Any) -> bool:
+    return solver.get("outcome") == "success" and kind in SELF_CERTIFY_ORACLE_KINDS
+
+
 def _solver_upgrade_errors(
     oracle: Mapping[str, Any], solver: Mapping[str, Any], kind: Any
 ) -> list[VSetValidationError]:
-    evidence = oracle.get("signals")
-    only_solver_signal = (
-        isinstance(evidence, list) and evidence == ["solver_success"]
-    ) or oracle.get("upgraded_from_solver_success") is True
-    solver_success = solver.get("outcome") == "success"
-    if not (only_solver_signal or (solver_success and kind in SELF_CERTIFY_ORACLE_KINDS)):
+    if not _solver_only_signal(oracle) and not _solver_self_certify_upgrade(solver, kind):
         return []
     return [
         VSetValidationError(
