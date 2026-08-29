@@ -252,6 +252,50 @@ def evaluation_order(graph, cycle_break_order):
 # ── Runtimes ──────────────────────────────────────────────────────────
 
 
+def _step_affine(name, node, drive):
+    """Affine/Linear node: weight @ drive + bias."""
+    weight = node["weight"]
+    bias = node.get("bias") or [0.0] * len(weight)
+    if any(len(row) != len(drive) for row in weight):
+        raise GraphError(f"node {name!r}: weight columns do not match its input")
+    return [
+        sum(row[k] * drive[k] for k in range(len(drive))) + bias[index]
+        for index, row in enumerate(weight)
+    ]
+
+
+def _step_delay(name, drive, state):
+    """Delay node: emit the buffered value and push the current drive."""
+    buffer = state[name]["buffer"]
+    if not buffer:
+        return list(drive)
+    out = buffer.pop(0)
+    buffer.append(list(drive))
+    return out
+
+
+def _integrate_membrane(name, node, membrane, drive, dt_s):
+    """Advance a neuron's membrane one step, in place.
+
+    IF integrates the drive directly; LIF/LI additionally leak toward v_leak
+    over the node's tau.
+    """
+    resistance = float(node.get("r", 1.0))
+    if node["type"] == "IF":
+        for index in range(len(membrane)):
+            membrane[index] += resistance * drive[index]
+        return
+    tau = float(node["tau"])
+    if tau <= 0:
+        raise GraphError(f"node {name!r}: tau must be > 0")
+    v_leak = float(node.get("v_leak", 0.0))
+    factor = dt_s / tau
+    for index in range(len(membrane)):
+        membrane[index] += factor * (
+            (v_leak - membrane[index]) + resistance * drive[index]
+        )
+
+
 class NirReferenceRuntime:
     """A deterministic in-repo NIR interpreter with declared conventions."""
 
@@ -323,55 +367,38 @@ class NirReferenceRuntime:
         if node_type in ("Input", "Output"):
             return list(drive)
         if node_type in ("Affine", "Linear"):
-            weight = node["weight"]
-            bias = node.get("bias") or [0.0] * len(weight)
-            if any(len(row) != len(drive) for row in weight):
-                raise GraphError(f"node {name!r}: weight columns do not match its input")
-            return [
-                sum(row[k] * drive[k] for k in range(len(drive))) + bias[index]
-                for index, row in enumerate(weight)
-            ]
+            return _step_affine(name, node, drive)
         if node_type == "Threshold":
             threshold = float(node["threshold"])
             return [1.0 if value >= threshold else 0.0 for value in drive]
         if node_type == "Delay":
-            buffer = state[name]["buffer"]
-            if not buffer:
-                return list(drive)
-            out = buffer.pop(0)
-            buffer.append(list(drive))
-            return out
+            return _step_delay(name, drive, state)
         if node_type in ("LIF", "LI", "IF"):
-            membrane = state[name]["v"]
-            resistance = float(node.get("r", 1.0))
-            if node_type == "IF":
-                for index in range(len(membrane)):
-                    membrane[index] += resistance * drive[index]
-            else:
-                tau = float(node["tau"])
-                if tau <= 0:
-                    raise GraphError(f"node {name!r}: tau must be > 0")
-                v_leak = float(node.get("v_leak", 0.0))
-                factor = dt_s / tau
-                for index in range(len(membrane)):
-                    membrane[index] += factor * (
-                        (v_leak - membrane[index]) + resistance * drive[index]
-                    )
-            if node_type == "LI":
-                return list(membrane)
-            threshold = float(node["v_threshold"])
-            spikes = []
-            for index in range(len(membrane)):
-                if membrane[index] >= threshold:
-                    spikes.append(1.0)
-                    if self.conventions["reset"] == "zero":
-                        membrane[index] = 0.0
-                    else:
-                        membrane[index] -= threshold
-                else:
-                    spikes.append(0.0)
-            return spikes
+            return self._step_neuron(name, node, drive, state, dt_s)
         raise UnsupportedConstruct(name, node_type, "no implementation")
+
+    def _step_neuron(self, name, node, drive, state, dt_s):
+        """Integrate one LIF/LI/IF node and emit its output for this step."""
+        membrane = state[name]["v"]
+        _integrate_membrane(name, node, membrane, drive, dt_s)
+        if node["type"] == "LI":
+            return list(membrane)
+        return self._emit_spikes(membrane, float(node["v_threshold"]))
+
+    def _emit_spikes(self, membrane, threshold):
+        """Threshold the membrane and apply this runtime's reset convention."""
+        reset_to_zero = self.conventions["reset"] == "zero"
+        spikes = []
+        for index in range(len(membrane)):
+            if membrane[index] >= threshold:
+                spikes.append(1.0)
+                if reset_to_zero:
+                    membrane[index] = 0.0
+                else:
+                    membrane[index] -= threshold
+            else:
+                spikes.append(0.0)
+        return spikes
 
     # -- execution ------------------------------------------------------
 
