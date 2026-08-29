@@ -220,110 +220,127 @@ class ThalamicSpikeStream(unittest.TestCase):
         rec["spike_events"] = events
         return rec
 
-    def test_sorted_stream_passes(self):
-        result = _run_with_record(
-            self._record(
-                [
-                    {"channel": "a", "t_rel_ms": 1.0, "amplitude": 0.4},
-                    {"channel": "a", "t_rel_ms": 1.0, "amplitude": 0.5},
-                    {"channel": "b", "t_rel_ms": 2.0, "amplitude": 0.3},
-                ]
-            )
-        )
+    def _accept(self, events):
+        """Assert this stream validates clean."""
+        result = _run_with_record(self._record(events))
         self.assertEqual(result.returncode, 0, result.stderr)
+        return result
+
+    def _reject(self, events, *expected, absent=(), errors=None):
+        """Assert this stream is rejected, carrying every expected marker.
+
+        ``absent`` markers must not appear, and ``errors`` pins the exact
+        ERROR: count so a single defect cannot be reported twice.
+        """
+        result = _run_with_record(self._record(events))
+        self.assertEqual(result.returncode, 1, result.stderr)
+        for marker in expected:
+            self.assertIn(marker, result.stderr)
+        for marker in absent:
+            self.assertNotIn(marker, result.stderr)
+        if errors is not None:
+            self.assertEqual(result.stderr.strip().count("ERROR:"), errors, result.stderr)
+        return result
+
+    @staticmethod
+    def _validate_bridge(bridge):
+        """Publish one bridge record into a scratch run and validate it."""
+        with tempfile.TemporaryDirectory() as raw:
+            run_dir = Path(raw) / "run"
+            run_dir.mkdir()
+            (run_dir / "bridge.jsonl").write_text(json.dumps(bridge) + "\n")
+            return _invoke(str(run_dir))
+
+    @staticmethod
+    def _bridge(events):
+        return {
+            "spike_events": events,
+            "language_view": {"trajectory": copy.deepcopy(TINY_THALAMIC)},
+        }
+
+    def test_sorted_stream_passes(self):
+        self._accept(
+            [
+                {"channel": "a", "t_rel_ms": 1.0, "amplitude": 0.4},
+                {"channel": "a", "t_rel_ms": 1.0, "amplitude": 0.5},
+                {"channel": "b", "t_rel_ms": 2.0, "amplitude": 0.3},
+            ]
+        )
 
     def test_sorted_alias_stream_passes(self):
-        result = _run_with_record(
-            self._record(
-                [
-                    {"channel": "a", "t_ms": 1.0, "amplitude": 0.4},
-                    {"channel": "b", "t_ms": 2.0, "amplitude": 0.3},
-                ]
-            )
+        self._accept(
+            [
+                {"channel": "a", "t_ms": 1.0, "amplitude": 0.4},
+                {"channel": "b", "t_ms": 2.0, "amplitude": 0.3},
+            ]
         )
-        self.assertEqual(result.returncode, 0, result.stderr)
 
     def test_mixed_timestamp_keys_are_rejected_without_an_order_verdict(self):
-        result = _run_with_record(
-            self._record(
-                [
-                    {"channel": "a", "t_rel_ms": 120.0, "amplitude": 0.4},
-                    {"channel": "b", "t_ms": 90.0, "amplitude": 0.3},
-                ]
-            )
+        self._reject(
+            [
+                {"channel": "a", "t_rel_ms": 120.0, "amplitude": 0.4},
+                {"channel": "b", "t_ms": 90.0, "amplitude": 0.3},
+            ],
+            validate_run.SPIKE_TIME_KEY_MISMATCH,
+            absent=(validate_run.SPIKE_ORDER_MISMATCH,),
+            errors=1,
         )
-        self.assertEqual(result.returncode, 1, result.stderr)
-        self.assertIn(validate_run.SPIKE_TIME_KEY_MISMATCH, result.stderr)
-        self.assertNotIn(validate_run.SPIKE_ORDER_MISMATCH, result.stderr)
-        self.assertEqual(result.stderr.strip().count("ERROR:"), 1, result.stderr)
 
     def test_unsorted_stream_is_rejected_once(self):
-        result = _run_with_record(
-            self._record(
-                [
-                    {"channel": "a", "t_rel_ms": 9.0, "amplitude": 0.4},
-                    {"channel": "b", "t_rel_ms": 1.0, "amplitude": 0.3},
-                ]
-            )
+        self._reject(
+            [
+                {"channel": "a", "t_rel_ms": 9.0, "amplitude": 0.4},
+                {"channel": "b", "t_rel_ms": 1.0, "amplitude": 0.3},
+            ],
+            "not globally non-decreasing",
+            errors=1,
         )
-        self.assertEqual(result.returncode, 1, result.stderr)
-        self.assertIn("not globally non-decreasing", result.stderr)
-        self.assertEqual(result.stderr.strip().count("ERROR:"), 1, result.stderr)
 
     def test_untimed_event_is_rejected(self):
-        result = _run_with_record(self._record([{"channel": "a", "amplitude": 0.4}]))
-        self.assertEqual(result.returncode, 1, result.stderr)
-        self.assertIn("needs finite t_rel_ms or t_ms", result.stderr)
+        self._reject(
+            [{"channel": "a", "amplitude": 0.4}],
+            "needs finite t_rel_ms or t_ms",
+        )
 
     def test_event_with_both_timestamp_keys_is_rejected(self):
-        result = _run_with_record(
-            self._record([{"t_rel_ms": 1.0, "t_ms": 1.0}])
+        self._reject(
+            [{"t_rel_ms": 1.0, "t_ms": 1.0}],
+            "must use exactly one of t_rel_ms or t_ms",
         )
-        self.assertEqual(result.returncode, 1, result.stderr)
-        self.assertIn("must use exactly one of t_rel_ms or t_ms", result.stderr)
 
     def test_invalid_timestamp_cannot_be_shadowed_by_valid_alias(self):
-        result = _run_with_record(
-            self._record([{"t_rel_ms": "bad", "t_ms": 1.0}])
+        self._reject(
+            [{"t_rel_ms": "bad", "t_ms": 1.0}],
+            "t_rel_ms must be a finite number",
+            "must use exactly one of t_rel_ms or t_ms",
         )
-        self.assertEqual(result.returncode, 1, result.stderr)
-        self.assertIn("t_rel_ms must be a finite number", result.stderr)
-        self.assertIn("must use exactly one of t_rel_ms or t_ms", result.stderr)
 
     def test_oversized_timestamp_is_rejected_without_crashing(self):
-        result = _run_with_record(self._record([{"t_rel_ms": 10**400}]))
-        self.assertEqual(result.returncode, 1, result.stderr)
-        self.assertIn("t_rel_ms must be a finite number", result.stderr)
-        self.assertNotIn("Traceback", result.stderr)
+        self._reject(
+            [{"t_rel_ms": 10**400}],
+            "t_rel_ms must be a finite number",
+            absent=("Traceback",),
+        )
 
     def test_large_integer_timestamp_order_preserves_precision(self):
-        result = _run_with_record(
-            self._record(
-                [
-                    {"t_rel_ms": 9007199254740993},
-                    {"t_rel_ms": 9007199254740992},
-                ]
-            )
-        )
-        self.assertEqual(result.returncode, 1, result.stderr)
-        self.assertIn(validate_run.SPIKE_ORDER_MISMATCH, result.stderr)
-        self.assertIn(
+        self._reject(
+            [
+                {"t_rel_ms": 9007199254740993},
+                {"t_rel_ms": 9007199254740992},
+            ],
+            validate_run.SPIKE_ORDER_MISMATCH,
             "9007199254740993 -> 9007199254740992",
-            result.stderr,
+            errors=1,
         )
-        self.assertEqual(result.stderr.strip().count("ERROR:"), 1, result.stderr)
 
     def test_non_array_stream_is_rejected(self):
-        result = _run_with_record(self._record({"channel": "a"}))
-        self.assertEqual(result.returncode, 1, result.stderr)
-        self.assertIn("spike_events must be an array", result.stderr)
+        self._reject({"channel": "a"}, "spike_events must be an array")
 
     def test_channel_and_amplitude_stay_a_bridge_only_requirement(self):
         # Trajectory streams are annotated more loosely than bridge streams;
         # requiring the bridge keys here would flag records the promotion lane
         # already round-trips (pipelines/promote.py sorts bare {channel, t_ms}).
-        result = _run_with_record(self._record([{"t_rel_ms": 1.0}]))
-        self.assertEqual(result.returncode, 0, result.stderr)
+        self._accept([{"t_rel_ms": 1.0}])
 
     def test_optional_event_fields_follow_schema_types_when_present(self):
         cases = (
@@ -334,40 +351,21 @@ class ThalamicSpikeStream(unittest.TestCase):
         )
         for event, marker in cases:
             with self.subTest(event=event):
-                result = _run_with_record(self._record([event]))
-                self.assertEqual(result.returncode, 1, result.stderr)
-                self.assertIn(marker, result.stderr)
+                self._reject([event], marker)
 
     def test_bridge_stream_still_requires_channel_and_amplitude(self):
-        bridge = {
-            "spike_events": [{"t_rel_ms": 1.0}],
-            "language_view": {"trajectory": copy.deepcopy(TINY_THALAMIC)},
-        }
-        with tempfile.TemporaryDirectory() as raw:
-            run_dir = Path(raw) / "run"
-            run_dir.mkdir()
-            (run_dir / "bridge.jsonl").write_text(json.dumps(bridge) + "\n")
-            result = _invoke(str(run_dir))
+        result = self._validate_bridge(self._bridge([{"t_rel_ms": 1.0}]))
         self.assertEqual(result.returncode, 1, result.stderr)
         for key in validate_run.BRIDGE_SPIKE_EVENT_KEYS:
             self.assertIn(f"missing '{key}'", result.stderr)
 
     def test_bridge_event_field_types_are_enforced(self):
-        bridge = {
-            "spike_events": [
-                {"channel": False, "amplitude": "bad", "t_rel_ms": 1.0}
-            ],
-            "language_view": {"trajectory": copy.deepcopy(TINY_THALAMIC)},
-        }
-        with tempfile.TemporaryDirectory() as raw:
-            run_dir = Path(raw) / "run"
-            run_dir.mkdir()
-            (run_dir / "bridge.jsonl").write_text(json.dumps(bridge) + "\n")
-            result = _invoke(str(run_dir))
+        result = self._validate_bridge(
+            self._bridge([{"channel": False, "amplitude": "bad", "t_rel_ms": 1.0}])
+        )
         self.assertEqual(result.returncode, 1, result.stderr)
         self.assertIn("channel must be a non-empty string", result.stderr)
         self.assertIn("amplitude must be a finite number", result.stderr)
-
 
 if __name__ == "__main__":
     unittest.main()
