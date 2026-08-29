@@ -1,0 +1,19 @@
+pipelines/verify_execution_safety.py
+  s_98712805c1499b::t_8025500a87baa2 18-19,21-26,36,41-51,72-98,104,111
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "5b95cf2f7ed8399425cc7c93030cb5d1d07cbc85",
+  "prompts": {},
+  "sessions": {
+    "s_98712805c1499b": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a04a1f-1e33-7812-a5aa-c7b04b33b6b5",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Raul Montoya Cardenas <montoyaraul34@gmail.com>"
+    }
+  }
+}
