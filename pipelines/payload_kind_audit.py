@@ -276,10 +276,8 @@ def _load_payload_bytes(path: Path) -> bytes:
         raise PayloadKindAuditError(f"cannot read payload {path}: {exc}") from exc
 
 
-def _parse_payload_line(
-    source_file: str, line_number: int, line_bytes: bytes, line: str
-) -> _ParsedLine:
-    """Parse, validate, and classify one non-blank JSONL line."""
+def _parse_json_record(source_file: str, line_number: int, line: str) -> dict:
+    """Parse one JSONL line into a JSON object, or raise PayloadKindAuditError."""
     try:
         record = json.loads(
             line,
@@ -292,17 +290,30 @@ def _parse_payload_line(
         raise PayloadKindAuditError(f"{source_file}:{line_number}: {exc}") from exc
     if not isinstance(record, dict):
         raise PayloadKindAuditError(f"{source_file}:{line_number}: record must be a JSON object")
-    digest = hashlib.sha256(line_bytes).hexdigest()
+    return record
+
+
+def _classify_record_kind(record: Mapping[str, Any], source_file: str, line_number: int) -> str:
+    """Classify one record, or raise PayloadKindAuditError outside this audit's scope."""
     try:
         kind = record_kind(record)
     except IdentityCurationError as exc:
         raise PayloadKindAuditError(f"{source_file}:{line_number}: {exc}") from exc
-    where = f"{source_file}:{line_number}"
     if kind not in SUPPORTED_RECORD_KINDS:
         raise PayloadKindAuditError(
-            f"{where}: payload kind {kind!r} is outside this episode/thalamic audit"
+            f"{source_file}:{line_number}: payload kind {kind!r} is outside this episode/thalamic audit"
         )
-    steps = _coding_steps(record, kind, where)
+    return kind
+
+
+def _parse_payload_line(
+    source_file: str, line_number: int, line_bytes: bytes, line: str
+) -> _ParsedLine:
+    """Parse, validate, and classify one non-blank JSONL line."""
+    record = _parse_json_record(source_file, line_number, line)
+    digest = hashlib.sha256(line_bytes).hexdigest()
+    kind = _classify_record_kind(record, source_file, line_number)
+    steps = _coding_steps(record, kind, f"{source_file}:{line_number}")
     return _ParsedLine(record, kind, steps, source_file, line_number, digest)
 
 
