@@ -1,0 +1,25 @@
+tests/test_payload_kind_audit_published.py
+  s_0d456da8ea5328::t_4fb1f77b03da35 1-178
+tests/test_payload_kind_audit_fidelity.py
+  s_0d456da8ea5328::t_8f1db18bdd9fdb 1-65
+tests/test_payload_kind_audit.py
+  s_0d456da8ea5328::t_13af4101a652c1 2-6
+tests/payload_kind_audit_fixtures.py
+  s_0d456da8ea5328::t_21be6d5f661365 1-41
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "395ee252c1b3f5c8fdf9ff8951111ded70791906",
+  "prompts": {},
+  "sessions": {
+    "s_0d456da8ea5328": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "a8d33a4c-0324-4388-9173-61055dd33627",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Raul Montoya Cardenas <montoyaraul34@gmail.com>"
+    }
+  }
+}
