@@ -34,8 +34,16 @@ WEBSOCKET_RECONNECT_MIRROR = (
 )
 
 
+_SCAN: dict = {}
+
+
 def _scan_mirror():
-    """Re-derive the declaration's payload facts from the published shards."""
+    """Re-derive the declaration's payload facts from the published shards.
+
+    Memoized: several tests below re-derive different facts from one scan.
+    """
+    if "scan" in _SCAN:
+        return _SCAN["scan"]
     shards = sorted(WEBSOCKET_RECONNECT_MIRROR.glob("batch-*.jsonl"))
     records = []
     for shard in shards:
@@ -43,7 +51,36 @@ def _scan_mirror():
             for line in handle:
                 if line.strip():
                     records.append((shard.name, json.loads(line)))
-    return shards, records
+    _SCAN["scan"] = (shards, records)
+    return _SCAN["scan"]
+
+
+_needs_mirror = unittest.skipUnless(
+    WEBSOCKET_RECONNECT_MIRROR.is_dir(),
+    "read-only published mirror is not available",
+)
+
+
+def _feature_index(features):
+    """Split a feature list into a name lookup and the set of optional names."""
+    names = {feature["name"]: feature for feature in features}
+    return names, {n for n, f in names.items() if f.get("optional")}
+
+
+def _iter_steps(records):
+    """Yield every (shard, step) pair, flattening the record/step nesting."""
+    for shard, record in records:
+        for step in record["steps"]:
+            yield shard, step
+
+
+def _bag_key_counts(records, bag):
+    """Count how many records carry each key of a free-form bag."""
+    seen = {}
+    for _shard, record in records:
+        for key in record[bag]:
+            seen[key] = seen.get(key, 0) + 1
+    return seen
 
 
 class WebsocketReconnectDeclarationTests(unittest.TestCase):
@@ -152,24 +189,24 @@ class WebsocketReconnectDeclarationTests(unittest.TestCase):
                 label = publisher.batch_label(Path(name))
                 self.assertEqual(f"batch-{label[2]}.jsonl", name)
 
-    @unittest.skipUnless(
-        WEBSOCKET_RECONNECT_MIRROR.is_dir(),
-        "read-only published mirror is not available",
-    )
-    def test_declaration_counts_match_the_published_mirror(self):
-        """Re-derive every counted claim from the payload, not from the JSON.
+    # -- Re-derived from the payload, not from the declaration -------------
+    #
+    # The other tests in this class compare the declaration against constants
+    # typed alongside it, so they cannot catch the failure this declaration
+    # exists to prevent: drifting away from what was actually published. The
+    # tests below scan the read-only mirror and assert the declaration still
+    # describes it.
 
-        The other tests in this class compare the declaration against constants
-        typed alongside it, so they cannot catch the failure this declaration
-        exists to prevent: drifting away from what was actually published. This
-        one scans the read-only mirror and asserts the declaration still
-        describes it.
-        """
+    @_needs_mirror
+    def test_published_shard_and_record_counts_match_the_declaration(self):
         shards, records = _scan_mirror()
         self.assertEqual(len(shards), 161)
         self.assertEqual(len(records), 322)
-        names = {feature["name"]: feature for feature in self.declaration["features"]}
-        optional = {n for n, f in names.items() if f.get("optional")}
+
+    @_needs_mirror
+    def test_every_record_carries_exactly_the_declared_top_level_fields(self):
+        _shards, records = _scan_mirror()
+        names, optional = _feature_index(self.declaration["features"])
         for shard, record in records:
             self.assertEqual(set(record) - set(names), set(), shard)
             self.assertEqual(set(names) - set(record) - optional, set(), shard)
@@ -177,55 +214,74 @@ class WebsocketReconnectDeclarationTests(unittest.TestCase):
             self.assertTrue(record["plan"].strip(), record["id"])
         self.assertIn(f"all {len(records)} records", names["plan"]["note"])
 
-        step_names = {feature["name"]: feature for feature in names["steps"]["list"]}
-        step_optional = {n for n, f in step_names.items() if f.get("optional")}
-        total_steps = reflections = 0
-        for shard, record in records:
-            for step in record["steps"]:
-                total_steps += 1
-                self.assertEqual(set(step) - set(step_names), set(), shard)
-                self.assertEqual(
-                    set(step_names) - set(step) - step_optional, set(), shard
-                )
-                self.assertEqual(set(step["tool_call"]), {"name", "args"})
-                reflections += "reflection" in step
+    @_needs_mirror
+    def test_every_step_carries_exactly_the_declared_step_fields(self):
+        _shards, records = _scan_mirror()
+        names, _optional = _feature_index(self.declaration["features"])
+        step_names, step_optional = _feature_index(names["steps"]["list"])
+        for shard, step in _iter_steps(records):
+            self.assertEqual(set(step) - set(step_names), set(), shard)
+            self.assertEqual(set(step_names) - set(step) - step_optional, set(), shard)
+            self.assertEqual(set(step["tool_call"]), {"name", "args"})
+
+    @_needs_mirror
+    def test_step_note_matches_the_published_reflection_count(self):
+        _shards, records = _scan_mirror()
+        names, _optional = _feature_index(self.declaration["features"])
+        step_names, _step_optional = _feature_index(names["steps"]["list"])
+        steps = [step for _shard, step in _iter_steps(records)]
+        reflections = sum(1 for step in steps if "reflection" in step)
         self.assertIn(
-            f"present on {reflections} of {total_steps} steps",
+            f"present on {reflections} of {len(steps)} steps",
             step_names["reflection"]["note"],
         )
 
-        bags = {}
+    @_needs_mirror
+    def test_both_key_bags_are_dicts_with_the_declared_always_present_keys(self):
+        _shards, records = _scan_mirror()
+        total = len(records)
         for bag in ("reward", "meta"):
-            seen = {}
             for _shard, record in records:
                 self.assertIsInstance(record[bag], dict)
-                for key in record[bag]:
-                    seen[key] = seen.get(key, 0) + 1
-            bags[bag] = seen
-        total = len(records)
         self.assertEqual(
-            {k for k, v in bags["meta"].items() if v == total},
+            {k for k, v in _bag_key_counts(records, "meta").items() if v == total},
             {"factory", "generator", "round"},
         )
         self.assertEqual(
-            {k for k, v in bags["reward"].items() if v == total},
+            {k for k, v in _bag_key_counts(records, "reward").items() if v == total},
             {"success", "tests_passed", "cost_steps"},
         )
-        meta_note = names["meta"]["note"]
-        self.assertIn(f"`stack` on {bags['meta']['kind']} of {total}", meta_note)
-        self.assertIn(f"`lane` on {bags['meta']['lane']} of {total}", meta_note)
-        reward_note = names["reward"]["note"]
-        self.assertIn(
-            f"`wasted_calls` on {bags['reward']['retries']} of {total}", reward_note
-        )
-        self.assertIn(
-            f"`plan_changes` on {bags['reward']['plan_changes']} of {total}", reward_note
-        )
-        self.assertIn(f"`handoff` on {bags['reward']['handoff']}", reward_note)
-        self.assertIn(f"`xfailed` on {bags['reward']['xfailed']}", reward_note)
 
-        # The disclosed thin-`meta` ids are exactly the records without `kind`.
-        thin = {record["id"] for _shard, record in records if "kind" not in record["meta"]}
+    @_needs_mirror
+    def test_meta_note_matches_the_published_key_counts(self):
+        _shards, records = _scan_mirror()
+        names, _optional = _feature_index(self.declaration["features"])
+        counts = _bag_key_counts(records, "meta")
+        total = len(records)
+        meta_note = names["meta"]["note"]
+        self.assertIn(f"`stack` on {counts['kind']} of {total}", meta_note)
+        self.assertIn(f"`lane` on {counts['lane']} of {total}", meta_note)
+
+    @_needs_mirror
+    def test_reward_note_matches_the_published_key_counts(self):
+        _shards, records = _scan_mirror()
+        names, _optional = _feature_index(self.declaration["features"])
+        counts = _bag_key_counts(records, "reward")
+        total = len(records)
+        reward_note = names["reward"]["note"]
+        self.assertIn(f"`wasted_calls` on {counts['retries']} of {total}", reward_note)
+        self.assertIn(
+            f"`plan_changes` on {counts['plan_changes']} of {total}", reward_note
+        )
+        self.assertIn(f"`handoff` on {counts['handoff']}", reward_note)
+        self.assertIn(f"`xfailed` on {counts['xfailed']}", reward_note)
+
+    @_needs_mirror
+    def test_disclosed_thin_meta_ids_are_exactly_the_records_without_kind(self):
+        _shards, records = _scan_mirror()
+        thin = {
+            record["id"] for _shard, record in records if "kind" not in record["meta"]
+        }
         declared = {
             record_id
             for item in self.declaration["disclosures"]
@@ -233,7 +289,10 @@ class WebsocketReconnectDeclarationTests(unittest.TestCase):
             for record_id in item["ids"]
         }
         self.assertEqual(declared, thin)
-        # Two of them sit in batch-r01, which is what the inferred cast is built on.
+
+    @_needs_mirror
+    def test_two_thin_meta_records_sit_in_the_batch_the_cast_is_built_on(self):
+        _shards, records = _scan_mirror()
         self.assertEqual(
             sum(
                 1
@@ -242,6 +301,10 @@ class WebsocketReconnectDeclarationTests(unittest.TestCase):
             ),
             2,
         )
+
+    @_needs_mirror
+    def test_record_ids_are_unique_and_namespaced_to_this_factory(self):
+        _shards, records = _scan_mirror()
         ids = [record["id"] for _shard, record in records]
         self.assertEqual(len(set(ids)), len(ids))
         self.assertTrue(all(record_id.startswith("wsr-") for record_id in ids))
