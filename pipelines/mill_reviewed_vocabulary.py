@@ -18,6 +18,12 @@ from __future__ import annotations
 # cleaned output until their ownership is reviewed and added here.
 REVIEWED_MILL_PREFIX_HOMES = {
     "acm": "api-contract-migration-factory",
+    # The canonical coding prefix. prompts/04-agentic-coding-trajectory-factory.md
+    # specifies ``act-rNN-<slug>-<hash>`` as that factory's id shape, and the
+    # published 2026-08-17 corpus is the only place ``act-`` ids occur. It is
+    # absent from the 2026-08-19 agentic census this table was frozen from, so
+    # it is pinned from its own contract rather than from an observation.
+    "act": "agentic-coding-trajectory-factory",
     "amc": "agent-memory-compaction-factory",
     "azr": "authz-regression-factory",
     "brw": "browser-tool-use-factory",
