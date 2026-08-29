@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Issue #70 leaf tests for the per-dataset card schema declaration."""
 
-import test_card_schema as _shared
+import test_card_schema_integration as _shared
 
 unittest = _shared.unittest
 io = _shared.io
