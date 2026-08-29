@@ -450,15 +450,17 @@ def _is_reward_narrative_spike_events(path, value):
     (schemas/reward-ontology-v1.mapping.json: disposition
     "narrative_annotation", observed type "string"), not an event stream.
     ``walk_key`` matches by key name only, so this path-aware guard keeps it
-    from being misread as a malformed stream. The exemption is scoped to
-    the documented non-array shape: an actual array at this path is a
-    genuine (if oddly placed) stream, and stays strictly checked.
+    from being misread as a malformed stream. The exemption is scoped to the
+    documented string shape and nothing else: an array here is a genuine (if
+    oddly placed) stream, and a dict, number, bool or null is neither a
+    narrative nor a stream. Both stay strictly checked so they cannot reach
+    the publication gate unexamined.
     """
     parts = path.split(".")
     return (
         len(parts) >= 2
         and parts[-2] == "reward_components"
-        and not isinstance(value, list)
+        and isinstance(value, str)
     )
 
 
