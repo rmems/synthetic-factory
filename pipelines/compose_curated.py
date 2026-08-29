@@ -250,10 +250,10 @@ def _trajectory_goal_owner(
     return owner if isinstance(owner, dict) else None
 
 
-def _normalize_trajectory_goal_whitespace(
+def _present_trajectory_goals(
     record: dict[str, Any],
-) -> dict[str, Any] | None:
-    """Apply PR #93's evidence-preserving goal whitespace repair."""
+) -> list[tuple[tuple[str, ...], str]]:
+    """Every goal location this record actually carries as a string."""
 
     present: list[tuple[tuple[str, ...], str]] = []
     for path in TRAJECTORY_GOAL_LOCATIONS:
@@ -263,14 +263,34 @@ def _normalize_trajectory_goal_whitespace(
         value = owner.get(path[-1])
         if isinstance(value, str):
             present.append((path, value))
+    return present
+
+
+def _whitespace_only_goal(present: list[tuple[tuple[str, ...], str]]) -> str | None:
+    """The single canonical goal, when the goals differ only in whitespace.
+
+    ``None`` whenever the repair would invent evidence: fewer than two goals
+    to reconcile, goals that already agree, goals that still differ once
+    whitespace is collapsed, or a goal that collapses to nothing.
+    """
+
     if len(present) < 2:
         return None
     values = [value for _path, value in present]
     normalized = {" ".join(value.split()) for value in values}
     if len(set(values)) == 1 or len(normalized) != 1:
         return None
-    canonical_goal = normalized.pop()
-    if not canonical_goal:
+    return normalized.pop() or None
+
+
+def _normalize_trajectory_goal_whitespace(
+    record: dict[str, Any],
+) -> dict[str, Any] | None:
+    """Apply PR #93's evidence-preserving goal whitespace repair."""
+
+    present = _present_trajectory_goals(record)
+    canonical_goal = _whitespace_only_goal(present)
+    if canonical_goal is None:
         return None
 
     repaired = copy.deepcopy(record)
@@ -279,6 +299,83 @@ def _normalize_trajectory_goal_whitespace(
         if owner is not None:
             owner[path[-1]] = canonical_goal
     return repaired
+
+
+_TRAJECTORY_DIVERGENCE_FIELDS = (
+    (
+        "outcome",
+        REASON_TRAJECTORY_OUTCOME_MISSING,
+        REASON_TRAJECTORY_OUTCOME_NOT_DIVERGENT,
+    ),
+    (
+        "reward",
+        REASON_TRAJECTORY_REWARD_MISSING,
+        REASON_TRAJECTORY_REWARD_NOT_DIVERGENT,
+    ),
+)
+
+
+def _trajectory_step_reasons(
+    chosen: Any, rejected: Any, overlap: Mapping[str, Any]
+) -> list[str]:
+    """Why the pair's step arrays fail PR #93's gate, in gate order."""
+
+    chosen_steps = chosen.get("steps") if isinstance(chosen, dict) else None
+    rejected_steps = rejected.get("steps") if isinstance(rejected, dict) else None
+    if not isinstance(chosen_steps, list) or not isinstance(rejected_steps, list):
+        return [REASON_TRAJECTORY_STEPS_INVALID]
+    if not chosen_steps or not rejected_steps:
+        return [REASON_TRAJECTORY_STEPS_EMPTY]
+
+    reasons: list[str] = []
+    if canonical_json(chosen_steps) == canonical_json(rejected_steps):
+        reasons.append(REASON_TRAJECTORY_IDENTICAL)
+    if not overlap["shared_steps"]:
+        reasons.append(REASON_TRAJECTORY_PREFIX_ABSENT)
+    return reasons
+
+
+def _trajectory_divergence_reasons(chosen: Any, rejected: Any) -> list[str]:
+    """Why the pair's outcome and reward evidence fails to diverge."""
+
+    if not isinstance(chosen, dict) or not isinstance(rejected, dict):
+        return []
+
+    reasons: list[str] = []
+    for field_name, missing_reason, same_reason in _TRAJECTORY_DIVERGENCE_FIELDS:
+        if chosen.get(field_name) is None or rejected.get(field_name) is None:
+            reasons.append(missing_reason)
+        elif canonical_json(chosen[field_name]) == canonical_json(rejected[field_name]):
+            reasons.append(same_reason)
+    return reasons
+
+
+def _trajectory_gate_passed(
+    curated: dict[str, Any],
+    overlap: Mapping[str, Any],
+    *,
+    removed_thoughts: Any,
+    normalized: Any,
+) -> _TrajectoryPreferenceDecision:
+    """The accepted decision, repaired if the gate had to touch the record."""
+
+    repaired = bool(removed_thoughts) or normalized is not None
+    reasons: list[str] = []
+    if removed_thoughts:
+        reasons.append(curate_agentic.REASON_THOUGHT_REMOVED)
+    if normalized is not None:
+        reasons.append(REASON_TRAJECTORY_GOAL_NORMALIZED)
+    reasons.append(REASON_TRAJECTORY_GATE_PASSED)
+    return _TrajectoryPreferenceDecision(
+        action="repaired" if repaired else ACTION_RETAINED,
+        classification=(
+            "trajectory_pair_repaired" if repaired else "trajectory_pair_gate_passed"
+        ),
+        reason_codes=tuple(reasons),
+        record=curated,
+        shared_goal=True,
+        overlap=overlap,
+    )
 
 
 def _compat_trajectory_preference(
@@ -297,47 +394,22 @@ def _compat_trajectory_preference(
     normalized = _normalize_trajectory_goal_whitespace(curated)
     if normalized is not None:
         curated = normalized
-    reasons: list[str] = []
+
     shared_goal, goal_reason = curate_agentic.shared_preference_goal(curated)
-    if not shared_goal and goal_reason is not None:
-        reasons.append(goal_reason)
-
     side_errors = _trajectory_side_validation_errors(curated)
-    if side_errors:
-        reasons.append(REASON_TRAJECTORY_SIDE_INVALID)
-
     chosen = curated.get("chosen")
     rejected = curated.get("rejected")
-    chosen_steps = chosen.get("steps") if isinstance(chosen, dict) else None
-    rejected_steps = rejected.get("steps") if isinstance(rejected, dict) else None
     overlap = curate_agentic.prefix_overlap(chosen, rejected)
-    if not isinstance(chosen_steps, list) or not isinstance(rejected_steps, list):
-        reasons.append(REASON_TRAJECTORY_STEPS_INVALID)
-    elif not chosen_steps or not rejected_steps:
-        reasons.append(REASON_TRAJECTORY_STEPS_EMPTY)
-    else:
-        if canonical_json(chosen_steps) == canonical_json(rejected_steps):
-            reasons.append(REASON_TRAJECTORY_IDENTICAL)
-        if not overlap["shared_steps"]:
-            reasons.append(REASON_TRAJECTORY_PREFIX_ABSENT)
 
-    if isinstance(chosen, dict) and isinstance(rejected, dict):
-        for field, missing_reason, same_reason in (
-            (
-                "outcome",
-                REASON_TRAJECTORY_OUTCOME_MISSING,
-                REASON_TRAJECTORY_OUTCOME_NOT_DIVERGENT,
-            ),
-            (
-                "reward",
-                REASON_TRAJECTORY_REWARD_MISSING,
-                REASON_TRAJECTORY_REWARD_NOT_DIVERGENT,
-            ),
-        ):
-            if chosen.get(field) is None or rejected.get(field) is None:
-                reasons.append(missing_reason)
-            elif canonical_json(chosen[field]) == canonical_json(rejected[field]):
-                reasons.append(same_reason)
+    # Collected in gate order: the reason codes are public evidence, so the
+    # sequence a reader sees has to stay stable.
+    reasons: list[str] = []
+    if not shared_goal and goal_reason is not None:
+        reasons.append(goal_reason)
+    if side_errors:
+        reasons.append(REASON_TRAJECTORY_SIDE_INVALID)
+    reasons.extend(_trajectory_step_reasons(chosen, rejected, overlap))
+    reasons.extend(_trajectory_divergence_reasons(chosen, rejected))
 
     if reasons:
         return _TrajectoryPreferenceDecision(
@@ -349,28 +421,11 @@ def _compat_trajectory_preference(
             overlap=overlap,
             side_validation_errors=side_errors or None,
         )
-
-    passed_reasons = []
-    if removed_thoughts:
-        passed_reasons.append(curate_agentic.REASON_THOUGHT_REMOVED)
-    if normalized is not None:
-        passed_reasons.append(REASON_TRAJECTORY_GOAL_NORMALIZED)
-    passed_reasons.append(REASON_TRAJECTORY_GATE_PASSED)
-    return _TrajectoryPreferenceDecision(
-        action=(
-            "repaired"
-            if removed_thoughts or normalized is not None
-            else ACTION_RETAINED
-        ),
-        classification=(
-            "trajectory_pair_repaired"
-            if removed_thoughts or normalized is not None
-            else "trajectory_pair_gate_passed"
-        ),
-        reason_codes=tuple(passed_reasons),
-        record=curated,
-        shared_goal=True,
-        overlap=overlap,
+    return _trajectory_gate_passed(
+        curated,
+        overlap,
+        removed_thoughts=removed_thoughts,
+        normalized=normalized,
     )
 
 
@@ -1686,8 +1741,8 @@ class _PinnedDestination:
         self.closed = True
 
 
-def _source_member_path(root: Path, raw_path: Any, label: str) -> Path:
-    """Resolve one exact regular source member without aliases or tree escape."""
+def _validated_member_relative(raw_path: Any, label: str) -> PurePosixPath:
+    """Reject anything that is not a plain, in-tree POSIX relative path."""
 
     if not isinstance(raw_path, str) or not raw_path or "\\" in raw_path:
         raise ComposeError(f"{label}: path must be a nonempty POSIX string")
@@ -1698,6 +1753,24 @@ def _source_member_path(root: Path, raw_path: Any, label: str) -> Path:
         or any(part in {"", ".", ".."} for part in relative.parts)
     ):
         raise ComposeError(f"{label}: unsafe relative path {raw_path!r}")
+    return relative
+
+
+def _assert_unaliased_regular_member(
+    metadata: os.stat_result, *, label: str, raw_path: Any
+) -> None:
+    """A source member must be exactly one regular file, not an alias of one."""
+
+    if not stat.S_ISREG(metadata.st_mode):
+        raise ComposeError(f"{label}: source member is not a regular file: {raw_path}")
+    if metadata.st_nlink != 1:
+        raise ComposeError(f"{label}: hard-link aliases are not accepted: {raw_path}")
+
+
+def _source_member_path(root: Path, raw_path: Any, label: str) -> Path:
+    """Resolve one exact regular source member without aliases or tree escape."""
+
+    relative = _validated_member_relative(raw_path, label)
     root_resolved = root.resolve(strict=True)
     candidate = root_resolved.joinpath(*relative.parts)
     try:
@@ -1708,10 +1781,7 @@ def _source_member_path(root: Path, raw_path: Any, label: str) -> Path:
     expected = root_resolved.joinpath(*relative.parts)
     if resolved != expected or root_resolved not in resolved.parents:
         raise ComposeError(f"{label}: source member is a symlink alias: {raw_path}")
-    if not stat.S_ISREG(metadata.st_mode):
-        raise ComposeError(f"{label}: source member is not a regular file: {raw_path}")
-    if metadata.st_nlink != 1:
-        raise ComposeError(f"{label}: hard-link aliases are not accepted: {raw_path}")
+    _assert_unaliased_regular_member(metadata, label=label, raw_path=raw_path)
     return candidate
 
 
@@ -1729,37 +1799,40 @@ def _stable_file_identity(metadata: os.stat_result) -> tuple[int, ...]:
     )
 
 
-def _read_exact_regular_file(root: Path, raw_path: Any, label: str) -> tuple[Path, bytes]:
-    """Read one unique source file through a pinned descriptor."""
+def _drain_descriptor(descriptor: int) -> bytes:
+    """Read one already-pinned descriptor to EOF without re-opening it."""
 
-    path = _source_member_path(root, raw_path, label)
-    before = path.lstat()
-    flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
-    try:
-        descriptor = os.open(path, flags)
-    except OSError as exc:
-        raise ComposeError(f"{label}: cannot open exact source file: {exc}") from exc
-    opened_before: os.stat_result | None = None
-    opened_after: os.stat_result | None = None
-    try:
-        opened_before = os.fstat(descriptor)
-        if not stat.S_ISREG(opened_before.st_mode):
-            raise ComposeError(f"{label}: opened identity is not a regular file")
-        if opened_before.st_nlink != 1:
-            raise ComposeError(f"{label}: hard-link aliases are not accepted")
-        if _stable_file_identity(before) != _stable_file_identity(opened_before):
-            raise ComposeError(f"{label}: source identity changed while opening")
-        chunks: list[bytes] = []
-        while True:
-            chunk = os.read(descriptor, 1024 * 1024)
-            if not chunk:
-                break
-            chunks.append(chunk)
-        opened_after = os.fstat(descriptor)
-        if _stable_file_identity(opened_before) != _stable_file_identity(opened_after):
-            raise ComposeError(f"{label}: source identity changed while reading")
-    finally:
-        os.close(descriptor)
+    chunks: list[bytes] = []
+    while True:
+        chunk = os.read(descriptor, 1024 * 1024)
+        if not chunk:
+            break
+        chunks.append(chunk)
+    return b"".join(chunks)
+
+
+def _assert_opened_source_identity(
+    before: os.stat_result, opened: os.stat_result, label: str
+) -> None:
+    """The descriptor we hold must be the file we stat-ed by path."""
+
+    if not stat.S_ISREG(opened.st_mode):
+        raise ComposeError(f"{label}: opened identity is not a regular file")
+    if opened.st_nlink != 1:
+        raise ComposeError(f"{label}: hard-link aliases are not accepted")
+    if _stable_file_identity(before) != _stable_file_identity(opened):
+        raise ComposeError(f"{label}: source identity changed while opening")
+
+
+def _assert_source_path_unchanged(
+    path: Path,
+    root: Path,
+    raw_path: Any,
+    opened_after: os.stat_result | None,
+    label: str,
+) -> None:
+    """After the read the path must still name that same unaliased file."""
+
     try:
         after = path.lstat()
     except FileNotFoundError as exc:
@@ -1771,7 +1844,32 @@ def _read_exact_regular_file(root: Path, raw_path: Any, label: str) -> tuple[Pat
     expected = root.resolve(strict=True).joinpath(*PurePosixPath(str(raw_path)).parts)
     if path.resolve(strict=True) != expected:
         raise ComposeError(f"{label}: source path became a symlink alias while reading")
-    return path, b"".join(chunks)
+
+
+def _read_exact_regular_file(root: Path, raw_path: Any, label: str) -> tuple[Path, bytes]:
+    """Read one unique source file through a pinned descriptor."""
+
+    path = _source_member_path(root, raw_path, label)
+    before = path.lstat()
+    flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
+    try:
+        descriptor = os.open(path, flags)
+    except OSError as exc:
+        raise ComposeError(f"{label}: cannot open exact source file: {exc}") from exc
+
+    opened_after: os.stat_result | None = None
+    try:
+        opened_before = os.fstat(descriptor)
+        _assert_opened_source_identity(before, opened_before, label)
+        payload = _drain_descriptor(descriptor)
+        opened_after = os.fstat(descriptor)
+        if _stable_file_identity(opened_before) != _stable_file_identity(opened_after):
+            raise ComposeError(f"{label}: source identity changed while reading")
+    finally:
+        os.close(descriptor)
+
+    _assert_source_path_unchanged(path, root, raw_path, opened_after, label)
+    return path, payload
 
 
 def _read_exact_child_file(parent: Path, name: str, label: str) -> tuple[Path, bytes]:
