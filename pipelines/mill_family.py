@@ -277,6 +277,18 @@ def mill_prefix(record: Any) -> str | None:
     return match.group("prefix") if match else None
 
 
+def _factory_stamp(container: Any) -> str | None:
+    """Return one normalized factory stamp from a record-like container."""
+
+    if not isinstance(container, Mapping):
+        return None
+    meta = container.get("meta")
+    if not isinstance(meta, Mapping):
+        return None
+    value = meta.get("factory")
+    return value.strip() if isinstance(value, str) and value.strip() else None
+
+
 def declared_factory(record: Any) -> str | None:
     """Return the unambiguous factory the payload claims for itself.
 
@@ -289,22 +301,11 @@ def declared_factory(record: Any) -> str | None:
     if not isinstance(record, Mapping):
         return None
 
-    def stamp(container: Any) -> str | None:
-        if not isinstance(container, Mapping):
-            return None
-        meta = container.get("meta")
-        if not isinstance(meta, Mapping):
-            return None
-        value = meta.get("factory")
-        if isinstance(value, str) and value.strip():
-            return value.strip()
-        return None
-
-    root = stamp(record)
+    root = _factory_stamp(record)
     stamped_sides = [
         value
         for side in ("chosen", "rejected")
-        if (value := stamp(record.get(side))) is not None
+        if (value := _factory_stamp(record.get(side))) is not None
     ]
     side_stamps = set(stamped_sides)
     if len(side_stamps) > 1:
@@ -389,6 +390,17 @@ class _Entry:
     mill_prefix: str | None
     declared_factory: str | None
     goal_family: frozenset[str] = field(default_factory=frozenset)
+
+
+def _entry_label(entry: _Entry) -> str:
+    """Return a stable report label without assuming a string ref type."""
+
+    if entry.record_id is not None:
+        return entry.record_id
+    if entry.ref is None:
+        return "<unknown>"
+    ref: object = entry.ref
+    return ref if isinstance(ref, str) else repr(ref)
 
 
 class MillIndex:
@@ -711,12 +723,7 @@ class MillIndex:
                 # export it. Preserve that distinction by keeping the cohort
                 # unresolved until stronger ownership evidence exists.
                 unresolved_goal_records.add(
-                    entry.record_id
-                    or (
-                        str(entry.ref)
-                        if entry.ref is not None
-                        else "<unknown>"
-                    )
+                    _entry_label(entry)
                 )
                 if raw_goal_candidate[0] not in verified:
                     missing_homes.add(raw_goal_candidate[0])
@@ -733,12 +740,7 @@ class MillIndex:
                     in unresolved_ambiguous_signatures
                 ):
                     unresolved_goal_records.add(
-                        entry.record_id
-                        or (
-                            str(entry.ref)
-                            if entry.ref is not None
-                            else "<unknown>"
-                        )
+                        _entry_label(entry)
                     )
                     continue
 
@@ -758,12 +760,7 @@ class MillIndex:
                     and not has_native_strong_anchor
                 ):
                     unresolved_goal_records.add(
-                        entry.record_id
-                        or (
-                            str(entry.ref)
-                            if entry.ref is not None
-                            else "<unknown>"
-                        )
+                        _entry_label(entry)
                     )
                 continue
 
@@ -777,8 +774,7 @@ class MillIndex:
             )
             if raw_goal_home is not None:
                 unresolved_goal_records.add(
-                    entry.record_id
-                    or (str(entry.ref) if entry.ref is not None else "<unknown>")
+                    _entry_label(entry)
                 )
                 if raw_goal_home not in verified:
                     missing_homes.add(raw_goal_home)
@@ -795,8 +791,7 @@ class MillIndex:
                 and not has_native_strong_anchor
             ):
                 unresolved_goal_records.add(
-                    entry.record_id
-                    or (str(entry.ref) if entry.ref is not None else "<unknown>")
+                    _entry_label(entry)
                 )
         missing_homes.discard(None)
         complete = (
@@ -888,8 +883,8 @@ class MillIndex:
             for factory, tokens in vocabulary.items()
         }
 
+    @staticmethod
     def _raw_goal_family_home(
-        self,
         entry: _Entry,
         vocabulary: Mapping[str, frozenset[str]],
         factory: str | None = None,

@@ -36,26 +36,22 @@ from check_records import (  # noqa: E402
 )
 from census import (  # noqa: E402
     factory_for_path,
-    factory_identity_for_path,
     visible_jsonl_paths,
 )
+from round_txn import TransactionError  # noqa: E402
 from curate_coding import (  # noqa: E402
     HIDDEN_REASONING_KEYS,
     HIDDEN_REASONING_PREFIX,
     normalized_key_name,
 )
-from mill_family import (  # noqa: E402
-    MillFinding,
-    MillIndex,
-    summarize as summarize_mill_mix,
-)
-from round_txn import TransactionError  # noqa: E402
 from validate_run import (  # noqa: E402
     HIDDEN_THOUGHT_KEYS,
     _episode_like,
     check_episode,
     event_time,
 )
+from training_audit_mill import index_mill_quarantine  # noqa: E402
+from training_audit_report import build_blockers  # noqa: E402
 
 # A curated training view may expose neither the scratch-pad vocabulary the
 # structural validator already knows about, the coding-factory key
@@ -269,53 +265,10 @@ def hidden_thought_paths(value, path=""):
             yield from hidden_thought_paths(item, f"{path}[{index}]")
 
 
-def _finding_row(finding: MillFinding) -> dict:
-    row = finding.as_dict()
-    ref = finding.ref
-    if isinstance(ref, tuple) and len(ref) == 2:
-        source, line = ref
-        row["source"] = str(source)
-        row["line"] = line
-    return row
-
-
-def _index_mill_findings(run_dir: Path, files: list[Path]):
-    """Resolve shared-detector findings before readiness metrics are computed."""
-
-    mills = MillIndex()
-    for path in files:
-        rel = path.relative_to(run_dir)
-        factory, factory_verified = factory_identity_for_path(run_dir, path)
-        payload = path.read_bytes()
-        for line_number, raw_line in enumerate(payload.splitlines(), 1):
-            if not raw_line.strip():
-                continue
-            try:
-                line = raw_line.decode("utf-8")
-            except UnicodeDecodeError:
-                continue
-            try:
-                obj = json.loads(line, parse_constant=reject_json_constant)
-            except (json.JSONDecodeError, ValueError):
-                continue
-            mills.add(
-                factory,
-                obj,
-                (rel.as_posix(), line_number),
-                factory_verified=factory_verified,
-            )
-    return mills.findings()
-
-
 def audit_run(run_dir: Path):
     run_dir = Path(run_dir).resolve()
     files = visible_jsonl_paths(run_dir)
-    mill_findings = _index_mill_findings(run_dir, files)
-    mill_findings_by_ref = {finding.ref: finding for finding in mill_findings}
-    mill_mix = summarize_mill_mix(mill_findings)
-    mill_mix["quarantined_records"] = [
-        _finding_row(finding) for finding in mill_findings
-    ]
+    mill_findings_by_ref, mill_mix = index_mill_quarantine(run_dir, files)
     factories = defaultdict(
         lambda: {
             "files": 0,
@@ -594,65 +547,21 @@ def audit_run(run_dir: Path):
     eligible_records = totals["eligible_records"]
     provenance_total = sum(provenance.values())
     tag_uses = sum(tags.values())
-    blockers = []
-    if record_errors:
-        blockers.append(f"{len(record_errors)} record shape/invariant errors")
-    if not eligible_records:
-        if totals["quarantined"]:
-            blockers.append(
-                "0 eligible training records remain after foreign-mill quarantine"
-            )
-        else:
-            blockers.append("corpus contains 0 eligible training records")
-    if unresolved_record_warnings:
-        blockers.append(
-            f"{len(unresolved_record_warnings)} unresolved record-invariant warnings"
-        )
-    if duplicate_ids:
-        blockers.append(f"{len(duplicate_ids)} duplicate canonical IDs")
-    if missing_root_ids:
-        blockers.append(
-            f"{len(missing_root_ids)} records missing canonical top-level IDs"
-        )
     provenance_bad = provenance.get("missing", 0) + provenance.get("non_training", 0)
-    if provenance_bad:
-        blockers.append(f"{provenance_bad}/{provenance_total} expected states lack canonical provenance")
-    missing_streams = bridge.get("missing_pairs", 0)
-    invalid_streams = bridge.get("invalid_pairs", 0)
-    unsorted_pairs = bridge.get("unsorted_pairs", 0)
-    if missing_streams:
-        blockers.append(f"{missing_streams}/{bridge['pairs']} bridge pairs lack event streams")
-    if invalid_streams:
-        blockers.append(
-            f"{invalid_streams}/{bridge['pairs']} bridge pairs contain invalid events"
-        )
-    if unsorted_pairs:
-        blockers.append(f"{unsorted_pairs}/{bridge['pairs']} bridge pairs have invalid event ordering")
-    impure_pairs = preference["pairs"] - preference["same_context"]
-    if impure_pairs:
-        if preference["episode_pairs"]:
-            blockers.append(
-                f"{impure_pairs}/{preference['pairs']} preference pairs violate their "
-                "state/proposal or shared-goal context invariant"
-            )
-        else:
-            # Retain the established all-Thalamic diagnostic as a stable
-            # operator-facing contract for existing corpus reports.
-            blockers.append(
-                f"{impure_pairs}/{preference['pairs']} preference pairs change state or proposal"
-            )
-    if exact_duplicates:
-        blockers.append(f"{len(exact_duplicates)} exact duplicate records")
-    if episodes["hidden_thought_fields"]:
-        blockers.append(
-            f"{episodes['hidden_thought_fields']} hidden-thought fields "
-            "(thought / internal_reasoning*) appear in records"
-        )
-    if episodes["missing_decision_basis_steps"]:
-        blockers.append(
-            f"{episodes['missing_decision_basis_steps']} agentic turns lack a "
-            "non-empty textual decision_basis"
-        )
+    blockers = build_blockers(
+        record_errors=record_errors,
+        eligible_records=eligible_records,
+        quarantined_records=totals["quarantined"],
+        unresolved_warnings=unresolved_record_warnings,
+        duplicate_ids=duplicate_ids,
+        missing_root_ids=missing_root_ids,
+        provenance_bad=provenance_bad,
+        provenance_total=provenance_total,
+        bridge=bridge,
+        preference=preference,
+        exact_duplicates=exact_duplicates,
+        episodes=episodes,
+    )
 
     report = {
         "run_dir": str(run_dir),
