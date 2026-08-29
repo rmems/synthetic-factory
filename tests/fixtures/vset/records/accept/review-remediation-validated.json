@@ -25,12 +25,12 @@
     "kind": "deterministic_fixture_reference",
     "status": "validated",
     "repo_commit": "vset-counter-v1",
-    "command": "python3 -m unittest tests.test_reference tests.test_hidden_sub",
-    "result_hash": "sha256:401f462641e2cc61370337df4cd8a6d4d6d39a633dee6b5b54f43bd7e6162256",
+    "command": "python3 -m unittest oracle.reference oracle.hidden_sub",
+    "result_hash": "sha256:c87b6befb4e428686628a4429cf943a615aed18107f32beff308e50edae35268",
     "certifier": "vset_oracle",
     "signals": ["reference_implementation", "fail_to_pass"],
-    "reference_tests": ["tests/test_reference.py"],
-    "hidden_tests": ["tests/test_hidden_sub.py"]
+    "reference_tests": ["oracle/reference.py"],
+    "hidden_tests": ["oracle/hidden_sub.py"]
   },
   "curation": {
     "pipeline_version": "vset-validate-v1",
@@ -38,7 +38,7 @@
     "reason_codes": []
   },
   "environment": {
-    "repo_snapshot_hash": "sha256:dbfe6f82b660c9f435899676b8071024ec1e35d71f5d8bb6a26a614dc857fe59",
+    "repo_snapshot_hash": "sha256:15def9dbe24a2c87dc9ee200d50c24a59cfa88708fdbd0932f9621b14529f665",
     "task_id": "vset-counter-v1.review-off-by-one",
     "repo_pack_id": "vset-counter-v1"
   },

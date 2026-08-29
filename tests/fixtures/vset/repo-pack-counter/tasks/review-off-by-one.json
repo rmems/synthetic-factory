@@ -4,8 +4,8 @@
   "specification": "The initial sub() implementation is off by one. Review must cite the failing observation and the revised patch must restore correct subtraction.",
   "oracle": {
     "kind": "deterministic_fixture_reference",
-    "reference_tests": ["tests/test_reference.py"],
-    "hidden_tests": ["tests/test_hidden_sub.py"],
-    "command": "python3 -m unittest tests.test_reference tests.test_hidden_sub"
+    "reference_tests": ["oracle/reference.py"],
+    "hidden_tests": ["oracle/hidden_sub.py"],
+    "command": "python3 -m unittest oracle.reference oracle.hidden_sub"
   }
 }
