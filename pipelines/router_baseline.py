@@ -260,12 +260,12 @@ def logistic_baseline(
                 row[i] -= learning_rate * (grad_row[i] * scale + l2 * row[i])
             bias[c] -= learning_rate * grad_b[c] * scale
 
-    def predict(sample: Sample) -> int:
-        logits = [
-            sum(w * x for w, x in zip(weights[c], sample.features)) + bias[c]
-            for c in range(classes)
+    def predict(example: Sample) -> int:
+        scores = [
+            sum(w * x for w, x in zip(weights[label], example.features)) + bias[label]
+            for label in range(classes)
         ]
-        return labels[max(range(classes), key=lambda c: (logits[c], -c))]
+        return labels[max(range(classes), key=lambda idx: (scores[idx], -idx))]
 
     truth = [sample.label for sample in test]
     return {
@@ -349,9 +349,9 @@ def mlp_baseline(
                 w1[h][i] -= learning_rate * gw1[h][i] * scale
             b1[h] -= learning_rate * gb1[h] * scale
 
-    def predict(sample: Sample) -> int:
-        _, logits = forward(sample.features)
-        return labels[max(range(classes), key=lambda c: (logits[c], -c))]
+    def predict(example: Sample) -> int:
+        _, scores = forward(example.features)
+        return labels[max(range(classes), key=lambda idx: (scores[idx], -idx))]
 
     truth = [sample.label for sample in test]
     return {
@@ -375,6 +375,7 @@ def evaluate_baselines(
     mlp_iterations: int = 120,
     mlp_hidden: int = 12,
     min_lift: float = 0.05,
+    min_test_records: int = 20,
     nonlinear_margin: float = 0.03,
 ) -> dict[str, Any]:
     """Run every conventional baseline and return a comparable report."""
@@ -404,13 +405,21 @@ def evaluate_baselines(
     best = max(trained, key=lambda item: (item["accuracy"], item["model"]))
     lift = round(best["accuracy"] - majority["accuracy"], 6)
     # A small holdout can manufacture a lift out of noise. Require the lift to
-    # clear two binomial standard errors of the test accuracy as well as
-    # ``min_lift``, so a thin split reports "not learnable" instead of a
-    # flattering number.
+    # clear two standard errors of the test accuracy as well as ``min_lift``,
+    # so a thin split reports "not learnable" instead of a flattering number.
+    #
+    # The standard error uses the Agresti-Coull adjusted proportion rather than
+    # the plug-in one. A plug-in estimate collapses to exactly zero when a tiny
+    # holdout happens to score 0.0 or 1.0 — dropping the threshold to
+    # ``min_lift`` precisely where the uncertainty is greatest — so two records
+    # scoring 2/2 would read as a learnable target.
     accuracy = best["accuracy"]
-    stderr = math.sqrt(max(accuracy * (1.0 - accuracy), 0.0) / len(test))
+    adjusted = (accuracy * len(test) + 2.0) / (len(test) + 4.0)
+    stderr = math.sqrt(adjusted * (1.0 - adjusted) / (len(test) + 4.0))
     required_lift = round(max(min_lift, 2.0 * stderr), 6)
-    if lift < required_lift:
+    if len(test) < min_test_records:
+        verdict = VERDICT_NOT_LEARNABLE
+    elif lift < required_lift:
         verdict = VERDICT_NOT_LEARNABLE
     elif mlp["accuracy"] > logistic["accuracy"] + nonlinear_margin:
         verdict = VERDICT_NONLINEAR
@@ -432,7 +441,9 @@ def evaluate_baselines(
         "best": {"model": best["model"], "accuracy": best["accuracy"]},
         "lift_over_majority": lift,
         "min_lift": min_lift,
+        "min_test_records": min_test_records,
         "test_accuracy_stderr": round(stderr, 6),
+        "stderr_method": "agresti_coull",
         "required_lift": required_lift,
         "verdict": verdict,
     }
@@ -447,12 +458,21 @@ def escalation_gate(report: dict[str, Any]) -> dict[str, Any]:
             "escalate_to_snn": False,
             "verdict": verdict,
             "reason": (
-                "no conventional baseline beat the majority class by "
-                f"{report.get('required_lift', report.get('min_lift'))} "
-                "(max of min_lift and two binomial standard errors of the test "
-                "accuracy) — the target is not learnable from these compact "
-                "inputs, so an SNN student is not justified"
-            ),
+                (
+                    f"the holdout is {report.get('test')} records, below the "
+                    f"{report.get('min_test_records')} needed for a baseline "
+                    "number to mean anything"
+                )
+                if (report.get("test") or 0) < (report.get("min_test_records") or 0)
+                else (
+                    "no conventional baseline beat the majority class by "
+                    f"{report.get('required_lift', report.get('min_lift'))} "
+                    "(max of min_lift and two Agresti-Coull standard errors of "
+                    "the test accuracy)"
+                )
+            )
+            + " — the target is not learnable from these compact inputs, so an "
+            "SNN student is not justified",
             "must_beat": report.get("best", {}).get("accuracy"),
         }
     if verdict == VERDICT_LINEAR:

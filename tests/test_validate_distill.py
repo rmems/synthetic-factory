@@ -113,6 +113,44 @@ class ValidatePath(unittest.TestCase):
                 any("record_sha256 mismatch" in f["error"] for f in report["findings"])
             )
 
+    def test_an_empty_directory_is_a_failure_not_a_clean_run(self):
+        # A typo in the path or a generation step that produced nothing must
+        # not report "0 records, 0 invalid" and exit zero.
+        with tempfile.TemporaryDirectory() as tmp:
+            empty = Path(tmp) / "empty"
+            empty.mkdir()
+            report = vd.validate_path(empty)
+            self.assertTrue(report["blocked"])
+            self.assertTrue(
+                any("no .jsonl files" in f["error"] for f in report["findings"])
+            )
+
+    def test_a_directory_of_empty_files_is_a_failure(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "run"
+            root.mkdir()
+            (root / "batch.jsonl").write_text("")
+            report = vd.validate_path(root)
+            self.assertTrue(report["blocked"])
+            self.assertTrue(
+                any("no records found" in f["error"] for f in report["findings"])
+            )
+
+    def test_a_non_finite_constant_does_not_abort_the_whole_run(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "run"
+            root.mkdir()
+            good = fr.build_records(3, 1)[0]
+            (root / "batch.jsonl").write_text(
+                '{"id": "bad", "value": NaN}\n' + oc.canonical_json(good) + "\n"
+            )
+            report = vd.validate_path(root)
+            self.assertEqual(report["records"], 2)
+            self.assertEqual(report["valid"], 1)
+            self.assertTrue(
+                any("JSON parse failure" in f["error"] for f in report["findings"])
+            )
+
     def test_a_missing_path_raises(self):
         with self.assertRaises(FileNotFoundError):
             vd.validate_path(Path("/nonexistent/distillation/run"))
@@ -235,6 +273,21 @@ class CommittedFixtureRun(unittest.TestCase):
             oracles[mr.FAMILY]["authority"], oc.AUTHORITY_REFERENCE_ONLY
         )
         self.assertTrue(oracles[fr.FAMILY]["unavailable"])
+
+    def test_manifest_unavailability_comes_from_a_probe_not_a_constant(self):
+        # The manifest is an audit of the producing environment, so a rebuild
+        # on a host where transformers imports must say so rather than repeat
+        # this machine's answer.
+        probe = self.manifest["oracles"][mr.FAMILY]["oracle_probe"]
+        recorded = self.manifest["oracles"][mr.FAMILY]["unavailable"]
+        expected = [
+            f"{entry['name']} ({entry['detail']})"
+            for entry in probe["oracles"]
+            if not entry["available"]
+        ]
+        self.assertEqual(recorded, expected)
+        for entry in probe["oracles"]:
+            self.assertTrue(entry["detail"])
 
     def test_energy_records_do_not_claim_joules_they_did_not_measure(self):
         energy = self.manifest["oracles"][ep.FAMILY]

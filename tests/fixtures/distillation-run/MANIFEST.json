@@ -47,30 +47,32 @@
     "holdout_pct": 30,
     "lift_over_majority": 0.346153,
     "min_lift": 0.05,
-    "required_lift": 0.125313,
+    "min_test_records": 20,
+    "required_lift": 0.136083,
     "samples": 80,
     "scaler": {
       "dim": 20,
       "fitted_on": "train"
     },
+    "stderr_method": "agresti_coull",
     "target": "top1_expert",
     "test": 26,
-    "test_accuracy_stderr": 0.062656,
+    "test_accuracy_stderr": 0.068041,
     "train": 54,
     "verdict": "learnable_nonlinear"
   },
   "files": {
     "energy-preferences/batch-r01.jsonl": {
       "records": 4,
-      "sha256": "56a2a0200a32771624099002ef2ed63bf2de7e6833dca85ed3b3a89621ea1fbc"
+      "sha256": "127761082a12636a30163e55d711b0a68f463db35148a635480411f1555211e7"
     },
     "fault-recovery/batch-r01.jsonl": {
       "records": 18,
-      "sha256": "dcf76c732e82b6f12601047abc8febccd3538becadaa051bcf6096fecb4f01a4"
+      "sha256": "cb1b802801347b94f32321cd2b8ef4eb6488108cef8e3fa314041e266f27508d"
     },
     "moe-router/batch-r01.jsonl": {
       "records": 80,
-      "sha256": "1016517399d76e34aba505e8d979f188acfb971d88ee08b9ed04a6883c6aeb92"
+      "sha256": "8e6edba744362f8acb760f31cb60b2b2b68652090f49a663fc0f79e350766a0c"
     }
   },
   "generated_by": "scripts/build_distillation_fixture.py",
@@ -79,10 +81,40 @@
     "moe-router-distillation-trajectories": {
       "authority": "reference_only",
       "is_llm_teacher": false,
+      "oracle_probe": {
+        "family": "moe-router-distillation-trajectories",
+        "oracles": [
+          {
+            "authority": "authoritative",
+            "available": false,
+            "detail": "ModuleNotFoundError: No module named 'regex'",
+            "is_llm_teacher": true,
+            "name": "transformers_moe_router",
+            "note": "still needs an MoE checkpoint even when the import works",
+            "type": "real_model_router"
+          },
+          {
+            "authority": "authoritative",
+            "available": false,
+            "detail": "supply a recording from a real teacher run",
+            "is_llm_teacher": true,
+            "name": "recorded_teacher_router",
+            "type": "recorded_measurement"
+          },
+          {
+            "authority": "reference_only",
+            "available": true,
+            "detail": "deterministic stand-in; records are reference_only",
+            "is_llm_teacher": false,
+            "name": "reference_moe_router",
+            "type": "reference_model_router"
+          }
+        ]
+      },
       "ran": "reference_moe_router",
       "unavailable": [
-        "transformers_moe_router (no importable transformers, no MoE checkpoint offline)",
-        "recorded_teacher_router (no recording from a real teacher run)"
+        "transformers_moe_router (ModuleNotFoundError: No module named 'regex')",
+        "recorded_teacher_router (supply a recording from a real teacher run)"
       ]
     },
     "neuromorphic-fault-recovery": {

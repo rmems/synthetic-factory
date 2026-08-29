@@ -62,6 +62,7 @@ def build(out: Path, force: bool = False) -> dict[str, Any]:
         ENERGY_SEED, ENERGY_COUNT, meter=meter, repeats=5
     )
 
+    router_probe = moe_router.oracles_report()
     router_oracle = moe_router.ReferenceMoERouter()
     router_records = moe_router.build_records(
         ROUTER_SEED, ROUTER_COUNT, oracle=router_oracle
@@ -131,10 +132,15 @@ def build(out: Path, force: bool = False) -> dict[str, Any]:
                 "ran": router_oracle.name,
                 "authority": router_oracle.authority,
                 "is_llm_teacher": router_oracle.is_llm_teacher,
+                "oracle_probe": router_probe,
+                # Probed on this host, not hard-coded. The manifest is an audit
+                # of what was available where the fixture was built, so a
+                # rebuild on a host with transformers installed must say so
+                # rather than repeat the original machine's answer.
                 "unavailable": [
-                    "transformers_moe_router (no importable transformers, "
-                    "no MoE checkpoint offline)",
-                    "recorded_teacher_router (no recording from a real teacher run)",
+                    f"{entry['name']} ({entry['detail']})"
+                    for entry in router_probe["oracles"]
+                    if not entry["available"]
                 ],
             },
         },

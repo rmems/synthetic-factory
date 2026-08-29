@@ -107,7 +107,8 @@ def validate_path(root: Path, strict: bool = False) -> dict[str, Any]:
                         )
                     else:
                         seen_ids[record_id] = where
-                families[str(obj.get("family"))] += 1
+                family = obj.get("family")
+                families[family if isinstance(family, str) else "<unknown>"] += 1
                 result = obj.get("result")
                 if isinstance(result, dict):
                     if isinstance(result.get("outcome"), str):
@@ -155,6 +156,18 @@ def validate_path(root: Path, strict: bool = False) -> dict[str, Any]:
         "strict": bool(strict),
         "validator": {"name": VALIDATOR_NAME, "version": VALIDATOR_VERSION},
     }
+    # An empty target is a failure, not a clean run. A typo in the path or a
+    # generation step that produced nothing would otherwise be reported as
+    # "0 records, 0 invalid" and exit zero.
+    if not paths:
+        findings.append(
+            {"file": str(root), "line": 0, "error": "no .jsonl files found"}
+        )
+    elif not records:
+        findings.append(
+            {"file": str(root), "line": 0, "error": "no records found in any file"}
+        )
+
     report["blocked"] = bool(findings) or (strict and eligible < valid)
     report["_stamped"] = stamped
     return report

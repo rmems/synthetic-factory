@@ -24,9 +24,9 @@ Generators propose; oracles decide. Concretely:
   `pipelines/validate_distill.py` stamps a verdict, and the stamp names itself
   and carries the digest it was formed over.
 - `oracle_contract.curation_eligible(record, findings)` fails closed: it needs
-  an `authoritative` oracle, a `measured` result with at least one measurement,
-  an intact content digest, and no findings **from the caller's own validation
-  run**. It deliberately ignores the `validation` block in the record —
+  an `authoritative` oracle, a `measured` result with at least one reading that
+  is actually `measured: true`, a present and intact content digest, and no
+  findings **from the caller's own validation run**. It deliberately ignores the `validation` block in the record —
   nothing stored in a file proves who wrote it, so trusting it would let a
   producer stamp itself `passed` and walk through the gate. Structural
   validity alone is never training-ready.
@@ -115,7 +115,14 @@ workload, behind `pipelines/energy_preferences.py:EnergyOracle`:
   in this environment**: the counters are not readable by a non-root user
   (`Permission denied`), which `meters_report()` states verbatim.
 - `RecordedEnergyMeter` — replays a measurement recorded by a real metered run
-  elsewhere, keyed by candidate and workload. Fails closed on an unknown key.
+  elsewhere, keyed by `workload_key(policy_id, scenario)` so a reading is only
+  valid for the workload it was taken over. Fails closed on an unknown key.
+  `build_records` uses this path automatically when the meter exposes
+  `lookup`, which is how a host with no readable energy counter still produces
+  a joule-denominated corpus: the recording supplies the cost, while task
+  quality and safety are re-evaluated by executing the policy locally — sound
+  because the task is deterministic, so the same policy on the same state
+  gives the same allocation on any host.
 - `ProcessResourceMeter` — CPU time, wall time, latency and RSS of the executed
   workload. Real measurements of a real execution, but of *time*. A corpus
   metered this way is denominated in `cpu_time_s` and says so in
@@ -209,10 +216,17 @@ multinomial logistic regression, and a one-hidden-layer MLP, all deterministic
 and standard library, on a train/test split keyed by hashing the record id.
 
 A lift over the majority class only counts when it clears `required_lift`, the
-larger of `min_lift` and two binomial standard errors of the test accuracy. A
-thin holdout can manufacture a lift out of noise — 120 random-label samples
-leave a ~34-record test split on which noise alone produced a ~0.12 lift — and
-the standard-error floor is what keeps that from reading as a learnable target.
+larger of `min_lift` and two standard errors of the test accuracy, and only
+when the holdout has at least `min_test_records` in it. A thin holdout can
+manufacture a lift out of noise — 120 random-label samples leave a ~34-record
+test split on which noise alone produced a ~0.12 lift — and the standard-error
+floor is what keeps that from reading as a learnable target.
+
+The standard error uses the Agresti–Coull adjusted proportion rather than the
+plug-in one, because a plug-in estimate collapses to exactly zero when a tiny
+holdout happens to score 0.0 or 1.0 — dropping the threshold to `min_lift`
+precisely where the uncertainty is greatest, so two records scoring 2/2 would
+read as a learnable target.
 
 `escalation_gate` turns the report into a decision:
 

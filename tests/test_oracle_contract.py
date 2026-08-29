@@ -325,6 +325,24 @@ class CurationFailsClosed(unittest.TestCase):
         self.assertFalse(eligible)
         self.assertIn("RECORD_DIGEST_MISMATCH", reasons)
 
+    def test_a_result_of_only_unmeasured_readings_is_not_eligible(self):
+        # `measured: false` throughout is a modelled result wearing a measured
+        # status. A non-empty measurements array is not enough.
+        record = minimal_record()
+        for item in record["result"]["measurements"]:
+            item["measured"] = False
+        record["provenance"]["record_sha256"] = oc.record_digest(record)
+        eligible, reasons = oc.curation_eligible(record, [])
+        self.assertFalse(eligible)
+        self.assertIn("NO_MEASURED_READING", reasons)
+
+    def test_a_record_with_no_digest_at_all_is_not_eligible(self):
+        record = minimal_record()
+        del record["provenance"]["record_sha256"]
+        eligible, reasons = oc.curation_eligible(record, [])
+        self.assertFalse(eligible)
+        self.assertIn("RECORD_DIGEST_MISSING", reasons)
+
     def test_an_authoritative_measured_record_that_validated_clean_is_eligible(self):
         self.assertEqual(oc.curation_eligible(minimal_record(), []), (True, []))
 
@@ -356,6 +374,23 @@ class JsonlHelpers(unittest.TestCase):
             oc.write_jsonl(path, [minimal_record()])
             with self.assertRaises(oc.ContractError):
                 oc.write_jsonl(path, [minimal_record()])
+
+    def test_a_non_finite_constant_is_a_parse_failure_not_a_value(self):
+        # json.loads accepts bare NaN. Letting one through means the first
+        # canonical re-serialisation raises and takes down the whole run.
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "nan.jsonl"
+            path.write_text('{"id": "x", "value": NaN}\n{"id": "y"}\n')
+            entries = oc.read_jsonl(path)
+            self.assertEqual(len(entries), 2)
+            self.assertIsNone(entries[0][1])
+            self.assertEqual(entries[1][1], {"id": "y"})
+
+    def test_infinity_is_also_a_parse_failure(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "inf.jsonl"
+            path.write_text('{"id": "x", "value": Infinity}\n')
+            self.assertIsNone(oc.read_jsonl(path)[0][1])
 
     def test_round_trip_and_parse_failure_is_reported(self):
         with tempfile.TemporaryDirectory() as tmp:

@@ -40,6 +40,7 @@ CLI::
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import platform
 import random
@@ -256,9 +257,26 @@ class RaplEnergyMeter(EnergyOracle):
         for name, start in before.items():
             end = after.get(name, start)
             delta = end - start
-            if delta < 0:  # counter wraparound
-                delta += ranges.get(name, 0)
-            total_uj += max(delta, 0)
+            if delta < 0:
+                # The counter wrapped. Unwrapping needs the domain's range; if
+                # that is missing or unreadable, clamping to zero would report
+                # a real workload as free and could reverse the preference. An
+                # unmeasurable interval is unmeasured, not zero.
+                wrap_range = ranges.get(name, 0)
+                if wrap_range <= 0:
+                    raise oc.OracleUnavailable(
+                        self.name,
+                        f"{name} energy_uj wrapped and max_energy_range_uj is "
+                        "missing or unreadable, so the interval cannot be measured",
+                    )
+                delta += wrap_range
+                if delta < 0:
+                    raise oc.OracleUnavailable(
+                        self.name,
+                        f"{name} energy_uj is still negative after unwrapping "
+                        f"by {wrap_range}",
+                    )
+            total_uj += delta
         joules = total_uj / 1e6 / repeats
         return MeterReading(
             meter=self.name,
@@ -648,6 +666,43 @@ def choose_preference(
     )
 
 
+def workload_key(policy_id: str, scenario: dict[str, Any]) -> str:
+    """Stable key identifying one policy running one scenario.
+
+    A recorded measurement is only valid for the workload it was taken over, so
+    the key binds the policy to the scenario state rather than to the policy
+    name alone.
+    """
+
+    state = scenario.get("state") if isinstance(scenario, dict) else None
+    digest = hashlib.sha256(oc.canonical_json(state).encode("utf-8")).hexdigest()
+    return f"{policy_id}@{digest[:16]}"
+
+
+def _read_cost(
+    meter: EnergyOracle,
+    workload: Callable[[], Any],
+    *,
+    policy_id: str,
+    scenario: dict[str, Any],
+    repeats: int,
+    warmup: int,
+) -> MeterReading:
+    """Take a live measurement, or replay one a real metered run recorded.
+
+    A replay meter supplies the *cost* only. Task quality and safety are still
+    evaluated by executing the policy here, which is sound because the task is
+    deterministic: the same policy on the same state produces the same
+    allocation on any host. Only the cost needs a meter that was actually
+    attached to the hardware.
+    """
+
+    lookup = getattr(meter, "lookup", None)
+    if callable(lookup):
+        return lookup(workload_key(policy_id, scenario))
+    return meter.measure(workload, repeats=repeats, warmup=warmup)
+
+
 def build_records(
     seed: int,
     count: int,
@@ -728,7 +783,14 @@ def build_records(
                 optimum=optimum,
                 quality_floor=quality_floor,
             )
-            reading = meter.measure(workload, repeats=repeats, warmup=warmup)
+            reading = _read_cost(
+                meter,
+                workload,
+                policy_id=policy_id,
+                scenario=scenario,
+                repeats=repeats,
+                warmup=warmup,
+            )
             cost_measurement = oc.new_measurement(
                 reading.cost_quantity,
                 reading.cost_value,
@@ -896,6 +958,22 @@ def check_family(record: dict[str, Any], where: str) -> list[str]:
         if not oc.is_number(candidate.get("cost_value")):
             errors.append(f"{spot}.cost_value must be a number")
             continue
+        # Quality gates the preference just as hard as cost does, so it has to
+        # be bound to its measurement too. Otherwise a candidate can claim 0.99
+        # while its oracle measurement says 0.0 and still clear the floor.
+        quality_key = (candidate_id, "task_quality")
+        if quality_key not in measured_costs:
+            errors.append(
+                f"{spot}: UNMEASURED_TASK_QUALITY — no oracle measurement of "
+                f"task_quality for candidate {candidate_id!r}"
+            )
+        elif oc.is_number(candidate.get("task_quality")) and (
+            abs(measured_costs[quality_key] - float(candidate["task_quality"])) > 1e-9
+        ):
+            errors.append(
+                f"{spot}.task_quality disagrees with the oracle measurement "
+                f"({candidate['task_quality']} vs {measured_costs[quality_key]})"
+            )
         key = (candidate_id, quantity)
         if key not in measured_costs:
             errors.append(

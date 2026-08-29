@@ -284,6 +284,30 @@ class SimulatorRules(unittest.TestCase):
         with self.assertRaises(oc.ContractError):
             self.sim.run(scenario(), disturbance("gremlins"))
 
+    def test_latency_is_measured_from_the_onset_not_the_run_start(self):
+        # Two identical faults at different onsets must carry identical
+        # latency labels; otherwise the target learns pre-fault idle time.
+        runs = [
+            self.sim.run(
+                scenario(),
+                disturbance(
+                    "thermal_excursion", onset_ms=onset, ramp_ms=8.0, peak_c=84.0
+                ),
+            )
+            for onset in (2.0, 12.0, 20.0)
+        ]
+        detections = {run.detection_latency_ms for run in runs}
+        recoveries = {run.recovery_latency_ms for run in runs}
+        self.assertEqual(len(detections), 1, detections)
+        self.assertEqual(len(recoveries), 1, recoveries)
+        self.assertEqual({run.outcome for run in runs}, {"reflex_action"})
+
+    def test_latency_is_never_negative(self):
+        for record in fr.build_records(20260823, 27):
+            for item in record["result"]["measurements"]:
+                if item["quantity"].endswith("latency_ms"):
+                    self.assertGreaterEqual(item["value"], 0.0)
+
     def test_simulator_is_deterministic(self):
         run = disturbance(
             "burst_corruption", channels=["c0"], onset_ms=2.0, duration_ms=20.0,

@@ -145,6 +145,8 @@ class FaultResult:
 
     outcome: str
     reason_codes: tuple[str, ...]
+    # Both latencies are relative to the disturbance onset, not to the start of
+    # the run, so identical faults at different onsets carry identical labels.
     detection_latency_ms: float | None
     recovery_latency_ms: float
     worst_healthy_channels: int
@@ -398,6 +400,13 @@ class RelayReflexSimulator(FaultOracle):
         if detection_ms is None and result_delay_ms > float(system["deadline_ms"]):
             # A late result is only observable once its deadline passes.
             detection_ms = float(system["deadline_ms"])
+
+        # Latency is measured from the disturbance, not from the start of the
+        # run. Otherwise two identical faults beginning at 4 ms and 12 ms get
+        # labels 8 ms apart despite identical post-onset behaviour, and the
+        # target learns the arbitrary pre-fault idle time.
+        if detection_ms is not None:
+            detection_ms = round(max(detection_ms - onset_ms, 0.0), 3)
 
         outcome, reasons = self._decide(
             system=system,

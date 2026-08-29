@@ -345,6 +345,31 @@ class FamilyChecks(unittest.TestCase):
         errors = mr.check_family(self.record, "x")
         self.assertTrue(any("context_sha256" in error for error in errors))
 
+    def test_compact_features_must_be_usable_by_the_baseline(self):
+        # router_baseline silently skips a record whose features are not finite
+        # numbers, so a curated corpus could otherwise hold no student input.
+        for bad in ([], ["not", "numbers"], [1.0, float("nan")]):
+            with self.subTest(features=bad):
+                record = json.loads(json.dumps(self.record))
+                record["scenario"]["compact_input"]["features"] = bad
+                self.assertTrue(mr.check_family(record, "x"))
+
+    def test_compact_features_must_match_the_declared_width(self):
+        self.record["scenario"]["compact_input"]["features"].pop()
+        errors = mr.check_family(self.record, "x")
+        self.assertTrue(any("compact_dim" in error for error in errors))
+
+    def test_expert_ids_are_range_checked_without_logits(self):
+        # A recorded teacher may legitimately omit logits; the ids still have
+        # to be real experts.
+        for bogus in ([-1, 2], [0, 999], ["a", "b"]):
+            with self.subTest(experts=bogus):
+                record = json.loads(json.dumps(self.record))
+                for layer in record["result"]["routing"]["layers"]:
+                    layer["router_logits"] = None
+                    layer["top_k_experts"] = bogus
+                self.assertTrue(mr.check_family(record, "x"))
+
     def test_missing_teacher_fingerprint_is_rejected(self):
         del self.record["oracle"]["fingerprint"]
         errors = mr.check_family(self.record, "x")

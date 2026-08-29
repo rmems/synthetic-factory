@@ -180,6 +180,39 @@ class MeterBoundary(unittest.TestCase):
             self.assertEqual(reading.cost_quantity, "energy_j")
             self.assertAlmostEqual(reading.cost_value, 2.0, places=6)
 
+    def test_a_wrapped_counter_without_a_range_is_unmeasurable_not_zero(self):
+        # Clamping a wrapped delta to zero would report a real workload as
+        # free, which can reverse the measured preference.
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            domain = root / "intel-rapl:0"
+            domain.mkdir()
+            (domain / "energy_uj").write_text("5000000\n")
+            meter = ep.RaplEnergyMeter(root=root)
+            self.assertTrue(meter.available()[0])
+
+            def wrap():
+                (domain / "energy_uj").write_text("1000\n")
+
+            with self.assertRaises(oc.OracleUnavailable) as caught:
+                meter.measure(wrap, repeats=1, warmup=0)
+            self.assertIn("wrapped", str(caught.exception))
+
+    def test_a_wrapped_counter_with_a_range_unwraps_correctly(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            domain = root / "intel-rapl:0"
+            domain.mkdir()
+            (domain / "energy_uj").write_text("5000000\n")
+            (domain / "max_energy_range_uj").write_text("6000000\n")
+            meter = ep.RaplEnergyMeter(root=root)
+
+            def wrap():
+                (domain / "energy_uj").write_text("1000000\n")
+
+            reading = meter.measure(wrap, repeats=1, warmup=0)
+            self.assertAlmostEqual(reading.cost_value, 2.0, places=6)
+
     def test_recorded_meter_fails_closed_on_an_unknown_key(self):
         meter = ep.RecordedEnergyMeter(
             {
@@ -198,6 +231,60 @@ class MeterBoundary(unittest.TestCase):
         meter = ep.RecordedEnergyMeter({"observations": {"a": {"cost_value": 1.0}}})
         with self.assertRaises(oc.OracleUnavailable):
             meter.measure(lambda: None, repeats=1, warmup=0)
+
+    def test_a_recorded_meter_can_actually_produce_records(self):
+        # The replay path is the one a host without a readable energy counter
+        # would use, so it has to work end to end rather than only in theory.
+        scenario = ep.propose_scenarios(21, 1)[0]["scenario"]
+        observations = {
+            ep.workload_key(policy, scenario): {"cost_value": cost}
+            for policy, cost in (
+                ("analytic_kkt", 8.0),
+                ("coarse_grid", 3.0),
+                ("exhaustive_grid", 31.0),
+                ("unclipped_proportional", 0.2),
+            )
+        }
+        meter = ep.RecordedEnergyMeter(
+            {
+                "run_id": "metered-run-1",
+                "meter": "external_power_meter",
+                "cost_quantity": "energy_j",
+                "observations": observations,
+            }
+        )
+        records = ep.build_records(21, 1, meter=meter)
+        record = records[0]
+        self.assertEqual(oc.check_envelope(record, "x"), [])
+        self.assertEqual(ep.check_family(record, "x"), [])
+        self.assertTrue(record["result"]["cost_is_energy"])
+        # The issue's own example: correct-and-cheap wins over correct-and-
+        # expensive, and neither the wrong nor the unsafe cheaper option does.
+        self.assertEqual(record["result"]["preference"]["preferred"], "analytic_kkt")
+        self.assertEqual(record["result"]["preference"]["cost_value"], 8.0)
+
+    def test_a_recorded_meter_fails_closed_on_an_unrecorded_workload(self):
+        meter = ep.RecordedEnergyMeter(
+            {
+                "run_id": "partial",
+                "meter": "external_power_meter",
+                "cost_quantity": "energy_j",
+                "observations": {"analytic_kkt": {"cost_value": 8.0}},
+            }
+        )
+        with self.assertRaises(oc.OracleUnavailable):
+            ep.build_records(21, 1, meter=meter)
+
+    def test_a_workload_key_binds_the_policy_to_the_scenario(self):
+        first, second = ep.propose_scenarios(21, 2)
+        self.assertNotEqual(
+            ep.workload_key("analytic_kkt", first["scenario"]),
+            ep.workload_key("analytic_kkt", second["scenario"]),
+        )
+        self.assertNotEqual(
+            ep.workload_key("analytic_kkt", first["scenario"]),
+            ep.workload_key("coarse_grid", first["scenario"]),
+        )
 
     def test_meter_selection_reports_everything_it_probed(self):
         meter, probe = ep.select_meter(prefer_energy=True)
@@ -413,6 +500,32 @@ class FamilyChecks(unittest.TestCase):
         self.assertTrue(
             any("NOT_MINIMAL_FEASIBLE_COST" in error for error in errors)
         )
+
+    def test_a_quality_that_no_measurement_backs_is_rejected(self):
+        # Quality gates the preference as hard as cost does, so a candidate
+        # claiming 0.99 while its measurement says 0.0 must not clear the floor.
+        preferred = self.record["result"]["preference"]["preferred"]
+        for item in self.record["result"]["measurements"]:
+            detail = item.get("detail") or {}
+            if detail.get("candidate") == preferred and item["quantity"] == "task_quality":
+                item["value"] = 0.0
+        errors = ep.check_family(self.record, "x")
+        self.assertTrue(
+            any("task_quality disagrees" in error for error in errors)
+        )
+
+    def test_a_candidate_with_no_quality_measurement_is_rejected(self):
+        candidate = self.record["result"]["candidates"][0]["id"]
+        self.record["result"]["measurements"] = [
+            item
+            for item in self.record["result"]["measurements"]
+            if not (
+                (item.get("detail") or {}).get("candidate") == candidate
+                and item["quantity"] == "task_quality"
+            )
+        ]
+        errors = ep.check_family(self.record, "x")
+        self.assertTrue(any("UNMEASURED_TASK_QUALITY" in error for error in errors))
 
     def test_a_cost_that_no_measurement_backs_is_rejected(self):
         self.record["result"]["candidates"][0]["cost_value"] = 999.0

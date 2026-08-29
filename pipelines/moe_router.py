@@ -59,6 +59,8 @@ GENERATOR_VERSION = "1.0.0"
 
 FEATURE_DIM = 48
 COMPACT_DIM = 16
+# compact_view appends tail mean/energy/max/min to the leading components.
+COMPACT_SUMMARY_STATS = 4
 
 # Oracles that compute real routing but are not language-model teachers. A
 # recording may never name one of these as the teacher it replays.
@@ -393,8 +395,8 @@ class RecordedTeacherRouter(RouterOracle):
                 "recording does not declare is_llm_teacher: true — a recorded "
                 "replay may only ground labels for a real teacher run"
             )
-        model = str(self.teacher.get("model") or "")
-        if model in NON_TEACHER_ORACLE_NAMES:
+        model = self.teacher.get("model")
+        if isinstance(model, str) and model in NON_TEACHER_ORACLE_NAMES:
             return False, (
                 f"recording names {model!r} as its teacher, which is a "
                 "non-teacher stand-in; its routing may not be curated as "
@@ -730,13 +732,33 @@ def check_family(record: dict[str, Any], where: str) -> list[str]:
         ).hexdigest():
             errors.append(f"{where}.scenario.context_sha256 does not match the context")
         compact = scenario.get("compact_input")
-        if not isinstance(compact, dict) or not isinstance(
-            compact.get("features"), list
-        ):
-            errors.append(
-                f"{where}.scenario.compact_input.features must carry the student "
-                "input the baseline is evaluated on"
-            )
+        if not isinstance(compact, dict):
+            errors.append(f"{where}.scenario.compact_input must be an object")
+        else:
+            features = compact.get("features")
+            if not isinstance(features, list) or not features:
+                errors.append(
+                    f"{where}.scenario.compact_input.features must carry the "
+                    "student input the baseline is evaluated on"
+                )
+            elif not all(oc.is_number(value) for value in features):
+                # router_baseline silently skips a record whose features are not
+                # finite numbers, so without this a curated corpus could contain
+                # no usable student input at all.
+                errors.append(
+                    f"{where}.scenario.compact_input.features must be finite "
+                    "numbers — the baseline extractor drops anything else"
+                )
+            else:
+                declared = compact.get("compact_dim")
+                if isinstance(declared, int) and not isinstance(declared, bool):
+                    expected = declared + COMPACT_SUMMARY_STATS
+                    if len(features) != expected:
+                        errors.append(
+                            f"{where}.scenario.compact_input.features has "
+                            f"{len(features)} values but compact_dim {declared} "
+                            f"declares {expected}"
+                        )
 
     oracle = record.get("oracle")
     fingerprint = oracle.get("fingerprint") if isinstance(oracle, dict) else None
@@ -747,7 +769,8 @@ def check_family(record: dict[str, Any], where: str) -> list[str]:
         )
     else:
         for field in ("model", "revision_or_checkpoint", "configuration_sha256"):
-            if not str(fingerprint.get(field) or "").strip():
+            value = fingerprint.get(field)
+            if not isinstance(value, str) or not value.strip():
                 errors.append(f"{where}.oracle.fingerprint.{field} must be recorded")
         if not isinstance(fingerprint.get("is_llm_teacher"), bool):
             errors.append(
@@ -756,7 +779,7 @@ def check_family(record: dict[str, Any], where: str) -> list[str]:
         if (
             isinstance(oracle, dict)
             and oracle.get("authority") == oc.AUTHORITY_AUTHORITATIVE
-            and str(fingerprint.get("model") or "") in NON_TEACHER_ORACLE_NAMES
+            and fingerprint.get("model") in NON_TEACHER_ORACLE_NAMES
         ):
             errors.append(
                 f"{where}.oracle: LAUNDERED_REFERENCE_ORACLE — "
@@ -805,6 +828,15 @@ def check_family(record: dict[str, Any], where: str) -> list[str]:
     layers = routing.get("layers")
     if not isinstance(layers, list) or not layers:
         return errors + [f"{where}.result.routing.layers must be a non-empty array"]
+    expert_count: int | None = None
+    if isinstance(fingerprint, dict):
+        declared_experts = fingerprint.get("num_local_experts")
+        if (
+            isinstance(declared_experts, int)
+            and not isinstance(declared_experts, bool)
+            and declared_experts > 0
+        ):
+            expert_count = declared_experts
     seen_layers: set[int] = set()
     for index, layer in enumerate(layers):
         spot = f"{where}.result.routing.layers[{index}]"
@@ -823,6 +855,20 @@ def check_family(record: dict[str, Any], where: str) -> list[str]:
             errors.append(f"{spot}.top_k_experts must list at least the top two")
         elif len(set(experts)) != len(experts):
             errors.append(f"{spot}.top_k_experts must not repeat an expert")
+        elif not all(
+            isinstance(value, int) and not isinstance(value, bool) for value in experts
+        ):
+            errors.append(f"{spot}.top_k_experts must be integer expert ids")
+        elif expert_count is not None and not all(
+            0 <= value < expert_count for value in experts
+        ):
+            # Checked independently of router_logits, because a recorded
+            # teacher may legitimately omit logits and would otherwise be free
+            # to record ids like [-1, 999] as authoritative routing labels.
+            errors.append(
+                f"{spot}.top_k_experts must lie in [0, {expert_count}) — the "
+                "expert count the oracle fingerprint declares"
+            )
         logits = layer.get("router_logits")
         if logits is not None:
             if not isinstance(logits, list) or not all(
@@ -842,17 +888,15 @@ def check_family(record: dict[str, Any], where: str) -> list[str]:
         if not oc.is_number(routing_entropy) or float(routing_entropy) < 0.0:
             errors.append(f"{spot}.routing_entropy must be a non-negative number")
         else:
-            # Bound the entropy by ln(num_experts). Prefer the logit width, and
-            # fall back to the recorded expert count so an oracle that does not
-            # expose logits still cannot report an impossible entropy.
-            expert_count = len(logits) if isinstance(logits, list) and logits else None
-            if expert_count is None and isinstance(fingerprint, dict):
-                recorded = fingerprint.get("num_local_experts")
-                if isinstance(recorded, int) and not isinstance(recorded, bool):
-                    expert_count = recorded if recorded > 0 else None
-            if expert_count and float(routing_entropy) > math.log(expert_count) + 1e-6:
+            # Bound the entropy by ln(num_experts). Prefer this layer's logit
+            # width, falling back to the recorded expert count so an oracle
+            # that exposes no logits still cannot report an impossible entropy.
+            # Kept separate from `expert_count` so one layer's logit width does
+            # not become the id range every later layer is checked against.
+            support = len(logits) if isinstance(logits, list) and logits else expert_count
+            if support and float(routing_entropy) > math.log(support) + 1e-6:
                 errors.append(
-                    f"{spot}.routing_entropy exceeds ln({expert_count}) — not a "
+                    f"{spot}.routing_entropy exceeds ln({support}) — not a "
                     "distribution over these experts"
                 )
     agreement = routing.get("expert_agreement")

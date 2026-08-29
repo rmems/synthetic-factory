@@ -157,6 +157,31 @@ class Baselines(unittest.TestCase):
                     report["lift_over_majority"], report["required_lift"]
                 )
 
+    def test_a_perfect_tiny_holdout_cannot_collapse_the_threshold(self):
+        # A plug-in binomial stderr is exactly zero at accuracy 0.0 or 1.0, so
+        # a two-record holdout scoring 2/2 would drop required_lift to
+        # min_lift precisely where the uncertainty is greatest.
+        samples = [
+            rb.Sample(f"s-{index}", tuple(float((index * 37) % 11) for _ in range(3)),
+                      index % 2)
+            for index in range(12)
+        ]
+        report = rb.evaluate_baselines(
+            samples, logistic_iterations=20, mlp_iterations=20, mlp_hidden=4
+        )
+        self.assertGreater(report["test_accuracy_stderr"], 0.0)
+        self.assertEqual(report["stderr_method"], "agresti_coull")
+        self.assertEqual(report["verdict"], rb.VERDICT_NOT_LEARNABLE)
+        self.assertFalse(rb.escalation_gate(report)["escalate_to_snn"])
+
+    def test_a_holdout_below_the_floor_never_escalates(self):
+        samples = separable_samples(count=30)
+        report = rb.evaluate_baselines(samples, min_test_records=1000, **FAST)
+        self.assertEqual(report["verdict"], rb.VERDICT_NOT_LEARNABLE)
+        gate = rb.escalation_gate(report)
+        self.assertFalse(gate["escalate_to_snn"])
+        self.assertIn("holdout", gate["reason"])
+
     def test_a_thin_holdout_cannot_manufacture_a_lift(self):
         # 120 random-label samples leave a ~34-record holdout, on which noise
         # alone produced a ~0.12 lift. The two-standard-error floor is what

@@ -820,9 +820,27 @@ def curation_eligible(
         reasons.append("ORACLE_RESULT_MISSING")
     elif result.get("status") != RESULT_MEASURED:
         reasons.append(f"ORACLE_RESULT_NOT_MEASURED:{result.get('status')!r}")
-    elif not result.get("measurements"):
-        reasons.append("ORACLE_RESULT_MISSING")
-    if check_digest(record, "record"):
+    else:
+        measurements = result.get("measurements")
+        measurements = measurements if isinstance(measurements, list) else []
+        if not measurements:
+            reasons.append("ORACLE_RESULT_MISSING")
+        elif not any(
+            isinstance(item, dict) and item.get("measured") is True
+            for item in measurements
+        ):
+            # A list of `measured: false` readings is a modelled result wearing
+            # a measured status. Curating it would admit modelled labels.
+            reasons.append("NO_MEASURED_READING")
+    provenance = record.get("provenance")
+    recorded_digest = (
+        provenance.get("record_sha256") if isinstance(provenance, dict) else None
+    )
+    if not isinstance(recorded_digest, str) or not SHA256_RE.match(recorded_digest):
+        # Without a digest there is nothing for check_digest to compare, so a
+        # deleted digest would otherwise be a clean bypass of tamper detection.
+        reasons.append("RECORD_DIGEST_MISSING")
+    elif check_digest(record, "record"):
         reasons.append("RECORD_DIGEST_MISMATCH")
     return (not reasons), reasons
 
@@ -844,8 +862,21 @@ def stamp_is_bound_to_content(record: dict[str, Any]) -> bool:
     return validator.get("validated_digest") == record_digest(record)
 
 
+def _reject_json_constant(name: str):
+    """Refuse ``NaN`` / ``Infinity``, which json.loads accepts by default."""
+
+    raise ValueError(f"non-finite JSON constant {name!r}")
+
+
 def read_jsonl(path) -> list[tuple[int, Any]]:
-    """Read a JSONL file into ``(line_number, parsed_or_None)`` pairs."""
+    """Read a JSONL file into ``(line_number, parsed_or_None)`` pairs.
+
+    Non-finite constants are a parse failure, not a value. ``json.loads``
+    accepts bare ``NaN`` and ``Infinity``; letting one through means the first
+    canonical re-serialisation (``allow_nan=False``) raises and takes down the
+    validation of every other record in the run. Reporting the offending line
+    is strictly better than aborting the corpus.
+    """
 
     entries: list[tuple[int, Any]] = []
     text = Path(path).read_text(encoding="utf-8")
@@ -854,8 +885,10 @@ def read_jsonl(path) -> list[tuple[int, Any]]:
         if not stripped:
             continue
         try:
-            entries.append((lineno, json.loads(stripped)))
-        except json.JSONDecodeError:
+            entries.append(
+                (lineno, json.loads(stripped, parse_constant=_reject_json_constant))
+            )
+        except ValueError:  # JSONDecodeError included
             entries.append((lineno, None))
     return entries
 
