@@ -162,12 +162,8 @@ def q88_mul(a_raw, b_raw):
 # ── Model / stimulus contracts ────────────────────────────────────────
 
 
-def normalize_model(model):
-    """Validate and copy a model dict into canonical form.
-
-    Raises ValueError on a malformed model rather than silently coercing, so a
-    generator cannot smuggle a mis-shaped network past the oracle.
-    """
+def _model_header(model):
+    """Required keys and the scalars every other field is sized against."""
     required = ("name", "neurons", "inputs", "w_in", "bias", "threshold", "decay")
     missing = [key for key in required if key not in model]
     if missing:
@@ -179,36 +175,29 @@ def normalize_model(model):
     reset = model.get("reset", "subtract")
     if reset not in RESET_MODES:
         raise ValueError(f"reset must be one of {RESET_MODES}, got {reset!r}")
+    return neurons, inputs, reset
 
-    def _matrix(name, rows, cols):
-        value = model.get(name)
-        if value is None:
-            return None
-        if len(value) != rows or any(len(row) != cols for row in value):
-            raise ValueError(f"{name} must be {rows}x{cols}")
-        return [[float(cell) for cell in row] for row in value]
 
-    def _vector(name, length):
-        value = model[name]
-        if len(value) != length:
-            raise ValueError(f"{name} must have length {length}")
-        return [float(cell) for cell in value]
+def _model_matrix(model, name, rows, cols):
+    """An optional rows x cols weight matrix, copied to floats."""
+    value = model.get(name)
+    if value is None:
+        return None
+    if len(value) != rows or any(len(row) != cols for row in value):
+        raise ValueError(f"{name} must be {rows}x{cols}")
+    return [[float(cell) for cell in row] for row in value]
 
-    labels = list(model.get("action_labels", DEFAULT_ACTION_LABELS[:neurons]))
-    normalized = {
-        "name": str(model["name"]),
-        "neurons": neurons,
-        "inputs": inputs,
-        "w_in": _matrix("w_in", neurons, inputs),
-        "w_rec": _matrix("w_rec", neurons, neurons),
-        "bias": _vector("bias", neurons),
-        "threshold": _vector("threshold", neurons),
-        "decay": _vector("decay", neurons),
-        "refractory_steps": int(model.get("refractory_steps", 0)),
-        "reset": reset,
-        "dt_ms": float(model.get("dt_ms", 1.0)),
-        "action_labels": labels,
-    }
+
+def _model_vector(model, name, length):
+    """A required per-neuron vector, copied to floats."""
+    value = model[name]
+    if len(value) != length:
+        raise ValueError(f"{name} must have length {length}")
+    return [float(cell) for cell in value]
+
+
+def _check_normalized_model(normalized, labels, neurons):
+    """Post-conditions that need the assembled model to check."""
     if normalized["w_in"] is None:
         raise ValueError("w_in is required")
     if normalized["refractory_steps"] < 0:
@@ -217,6 +206,31 @@ def normalize_model(model):
         raise ValueError("dt_ms must be > 0")
     if len(labels) != neurons:
         raise ValueError("action_labels must have one label per neuron")
+
+
+def normalize_model(model):
+    """Validate and copy a model dict into canonical form.
+
+    Raises ValueError on a malformed model rather than silently coercing, so a
+    generator cannot smuggle a mis-shaped network past the oracle.
+    """
+    neurons, inputs, reset = _model_header(model)
+    labels = list(model.get("action_labels", DEFAULT_ACTION_LABELS[:neurons]))
+    normalized = {
+        "name": str(model["name"]),
+        "neurons": neurons,
+        "inputs": inputs,
+        "w_in": _model_matrix(model, "w_in", neurons, inputs),
+        "w_rec": _model_matrix(model, "w_rec", neurons, neurons),
+        "bias": _model_vector(model, "bias", neurons),
+        "threshold": _model_vector(model, "threshold", neurons),
+        "decay": _model_vector(model, "decay", neurons),
+        "refractory_steps": int(model.get("refractory_steps", 0)),
+        "reset": reset,
+        "dt_ms": float(model.get("dt_ms", 1.0)),
+        "action_labels": labels,
+    }
+    _check_normalized_model(normalized, labels, neurons)
     return normalized
 
 
@@ -425,6 +439,43 @@ def simulate_float(model, stimulus):
     }
 
 
+def _q88_input_drive(i, row, q_model, previous, neurons):
+    """Bias plus input and recurrent drive for one neuron, in Q8.8.
+
+    Returns the accumulator and the number of saturation events it cost.
+    """
+    accumulator = q_model["bias"][i]
+    saturation = 0
+    for j in range(q_model["inputs"]):
+        if row[j]:
+            accumulator, hit = q88_saturate(accumulator + q_model["w_in"][i][j])
+            saturation += int(hit)
+    if q_model["w_rec"] is not None:
+        for k in range(neurons):
+            if previous[k]:
+                accumulator, hit = q88_saturate(accumulator + q_model["w_rec"][i][k])
+                saturation += int(hit)
+    return accumulator, saturation
+
+
+def _q88_apply_threshold(i, q_model, membrane, refractory):
+    """Fire, reset, and arm the refractory counter for one neuron.
+
+    Mutates ``membrane`` and ``refractory`` in place, and returns the spike bit
+    alongside the saturation events the reset cost.
+    """
+    if membrane[i] < q_model["threshold"][i]:
+        return 0, 0
+    saturation = 0
+    if q_model["reset"] == "zero":
+        membrane[i] = 0
+    else:
+        membrane[i], hit = q88_saturate(membrane[i] - q_model["threshold"][i])
+        saturation += int(hit)
+    refractory[i] = q_model["refractory_steps"]
+    return 1, saturation
+
+
 def simulate_fixed_point(q_model, stimulus):
     """Q8.8 integer LIF reference model of an FPGA datapath.
 
@@ -449,28 +500,18 @@ def simulate_fixed_point(q_model, stimulus):
                 refractory[i] -= 1
                 membrane[i] = 0
                 continue
-            accumulator = q_model["bias"][i]
-            for j in range(q_model["inputs"]):
-                if row[j]:
-                    accumulator, hit = q88_saturate(accumulator + q_model["w_in"][i][j])
-                    saturation_events += int(hit)
-            if q_model["w_rec"] is not None:
-                for k in range(neurons):
-                    if previous[k]:
-                        accumulator, hit = q88_saturate(accumulator + q_model["w_rec"][i][k])
-                        saturation_events += int(hit)
+            accumulator, drive_saturation = _q88_input_drive(
+                i, row, q_model, previous, neurons
+            )
+            saturation_events += drive_saturation
             leaked, hit = q88_mul(q_model["decay"][i], membrane[i])
             saturation_events += int(hit)
             membrane[i], hit = q88_saturate(leaked + accumulator)
             saturation_events += int(hit)
-            if membrane[i] >= q_model["threshold"][i]:
-                fired[i] = 1
-                if q_model["reset"] == "zero":
-                    membrane[i] = 0
-                else:
-                    membrane[i], hit = q88_saturate(membrane[i] - q_model["threshold"][i])
-                    saturation_events += int(hit)
-                refractory[i] = q_model["refractory_steps"]
+            fired[i], fire_saturation = _q88_apply_threshold(
+                i, q_model, membrane, refractory
+            )
+            saturation_events += fire_saturation
         previous = fired
         spike_grid.append(fired)
         membrane_raw.append(list(membrane))
