@@ -773,89 +773,106 @@ def build_records(
     return records
 
 
-def check_family(record: dict[str, Any], where: str) -> list[str]:
-    """Family checks: real routing, recorded teacher identity, sane targets."""
+class _LayerOrder:
+    """Running layer-index state carried across the recorded layers."""
+
+    def __init__(self) -> None:
+        self.seen: set[int] = set()
+        self.previous: int | None = None
+
+
+def _check_scenario_context(scenario: Any, where: str) -> list[str]:
+    """The student-visible context, its digest, and the compact input."""
 
     errors: list[str] = []
-    scenario = record.get("scenario")
-    if isinstance(scenario, dict):
-        context = scenario.get("context")
-        if not isinstance(context, str) or not context.strip():
-            errors.append(f"{where}.scenario.context must be a non-empty string")
-        elif scenario.get("context_sha256") != hashlib.sha256(
-            context.encode("utf-8")
-        ).hexdigest():
-            errors.append(f"{where}.scenario.context_sha256 does not match the context")
-        compact = scenario.get("compact_input")
-        if not isinstance(compact, dict):
-            errors.append(f"{where}.scenario.compact_input must be an object")
-        else:
-            features = compact.get("features")
-            if not isinstance(features, list) or not features:
+    if not isinstance(scenario, dict):
+        return errors
+    context = scenario.get("context")
+    if not isinstance(context, str) or not context.strip():
+        errors.append(f"{where}.scenario.context must be a non-empty string")
+    elif scenario.get("context_sha256") != hashlib.sha256(
+        context.encode("utf-8")
+    ).hexdigest():
+        errors.append(f"{where}.scenario.context_sha256 does not match the context")
+    compact = scenario.get("compact_input")
+    if not isinstance(compact, dict):
+        errors.append(f"{where}.scenario.compact_input must be an object")
+        return errors
+    features = compact.get("features")
+    if not isinstance(features, list) or not features:
+        errors.append(
+            f"{where}.scenario.compact_input.features must carry the "
+            "student input the baseline is evaluated on"
+        )
+    elif not all(oc.is_number(value) for value in features):
+        # router_baseline silently skips a record whose features are not
+        # finite numbers, so without this a curated corpus could contain
+        # no usable student input at all.
+        errors.append(
+            f"{where}.scenario.compact_input.features must be finite "
+            "numbers — the baseline extractor drops anything else"
+        )
+    else:
+        declared = compact.get("compact_dim")
+        if isinstance(declared, int) and not isinstance(declared, bool):
+            expected = declared + COMPACT_SUMMARY_STATS
+            if len(features) != expected:
                 errors.append(
-                    f"{where}.scenario.compact_input.features must carry the "
-                    "student input the baseline is evaluated on"
+                    f"{where}.scenario.compact_input.features has "
+                    f"{len(features)} values but compact_dim {declared} "
+                    f"declares {expected}"
                 )
-            elif not all(oc.is_number(value) for value in features):
-                # router_baseline silently skips a record whose features are not
-                # finite numbers, so without this a curated corpus could contain
-                # no usable student input at all.
-                errors.append(
-                    f"{where}.scenario.compact_input.features must be finite "
-                    "numbers — the baseline extractor drops anything else"
-                )
-            else:
-                declared = compact.get("compact_dim")
-                if isinstance(declared, int) and not isinstance(declared, bool):
-                    expected = declared + COMPACT_SUMMARY_STATS
-                    if len(features) != expected:
-                        errors.append(
-                            f"{where}.scenario.compact_input.features has "
-                            f"{len(features)} values but compact_dim {declared} "
-                            f"declares {expected}"
-                        )
+    return errors
 
-    oracle = record.get("oracle")
-    fingerprint = oracle.get("fingerprint") if isinstance(oracle, dict) else None
+
+def _check_teacher_fingerprint(oracle: Any, fingerprint: Any, where: str) -> list[str]:
+    """The recorded teacher identity: model, checkpoint, configuration digest."""
+
+    errors: list[str] = []
     if not isinstance(fingerprint, dict):
         errors.append(
             f"{where}.oracle.fingerprint must record the teacher model, checkpoint "
             "and configuration"
         )
-    else:
-        for field in ("model", "revision_or_checkpoint", "configuration_sha256"):
-            value = fingerprint.get(field)
-            if not isinstance(value, str) or not value.strip():
-                errors.append(f"{where}.oracle.fingerprint.{field} must be recorded")
-        # "not-a-digest" satisfied the non-empty check above, so the promised
-        # configuration digest could be absent in everything but name and the
-        # teacher configuration could never be audited.
-        configuration_digest = fingerprint.get("configuration_sha256")
-        if isinstance(configuration_digest, str) and configuration_digest.strip():
-            if not oc.SHA256_RE.match(configuration_digest):
-                errors.append(
-                    f"{where}.oracle.fingerprint.configuration_sha256 must be a "
-                    f"64-character sha256 hex digest, got "
-                    f"{configuration_digest!r}"
-                )
-        if not isinstance(fingerprint.get("is_llm_teacher"), bool):
+        return errors
+    for field in ("model", "revision_or_checkpoint", "configuration_sha256"):
+        value = fingerprint.get(field)
+        if not isinstance(value, str) or not value.strip():
+            errors.append(f"{where}.oracle.fingerprint.{field} must be recorded")
+    # "not-a-digest" satisfied the non-empty check above, so the promised
+    # configuration digest could be absent in everything but name and the
+    # teacher configuration could never be audited.
+    configuration_digest = fingerprint.get("configuration_sha256")
+    if isinstance(configuration_digest, str) and configuration_digest.strip():
+        if not oc.SHA256_RE.match(configuration_digest):
             errors.append(
-                f"{where}.oracle.fingerprint.is_llm_teacher must be a boolean"
+                f"{where}.oracle.fingerprint.configuration_sha256 must be a "
+                f"64-character sha256 hex digest, got "
+                f"{configuration_digest!r}"
             )
-        if (
-            isinstance(oracle, dict)
-            and oracle.get("authority") == oc.AUTHORITY_AUTHORITATIVE
-            and fingerprint.get("model") in NON_TEACHER_ORACLE_NAMES
-        ):
-            errors.append(
-                f"{where}.oracle: LAUNDERED_REFERENCE_ORACLE — "
-                f"{fingerprint.get('model')!r} is a non-teacher stand-in and may "
-                "not be recorded as an authoritative teacher"
-            )
+    if not isinstance(fingerprint.get("is_llm_teacher"), bool):
+        errors.append(
+            f"{where}.oracle.fingerprint.is_llm_teacher must be a boolean"
+        )
+    if (
+        isinstance(oracle, dict)
+        and oracle.get("authority") == oc.AUTHORITY_AUTHORITATIVE
+        and fingerprint.get("model") in NON_TEACHER_ORACLE_NAMES
+    ):
+        errors.append(
+            f"{where}.oracle: LAUNDERED_REFERENCE_ORACLE — "
+            f"{fingerprint.get('model')!r} is a non-teacher stand-in and may "
+            "not be recorded as an authoritative teacher"
+        )
+    return errors
 
-    result = record.get("result")
-    if not isinstance(result, dict):
-        return errors + [f"{where}.result must be an object"]
+
+def _check_teacher_grounding(
+    result: dict[str, Any], oracle: Any, fingerprint: Any, where: str
+) -> list[str]:
+    """`is_llm_teacher` and `teacher_grounded` against the oracle's authority."""
+
+    errors: list[str] = []
     if not isinstance(result.get("is_llm_teacher"), bool):
         errors.append(f"{where}.result.is_llm_teacher must be a boolean")
     elif isinstance(fingerprint, dict) and isinstance(
@@ -887,138 +904,156 @@ def check_family(record: dict[str, Any], where: str) -> list[str]:
                 f"{where}.oracle: an authoritative router oracle must be "
                 "teacher-grounded; mark a non-teacher oracle reference_only"
             )
+    return errors
 
-    routing = result.get("routing")
-    if not isinstance(routing, dict):
-        return errors + [f"{where}.result.routing must be an object"]
-    layers = routing.get("layers")
-    if not isinstance(layers, list) or not layers:
-        return errors + [f"{where}.result.routing.layers must be a non-empty array"]
-    expert_count: int | None = None
-    if isinstance(fingerprint, dict):
-        declared_experts = fingerprint.get("num_local_experts")
-        if (
-            isinstance(declared_experts, int)
-            and not isinstance(declared_experts, bool)
-            and declared_experts > 0
+
+def _declared_expert_count(fingerprint: Any) -> int | None:
+    """The expert count the oracle fingerprint declares, when it declares one."""
+
+    if not isinstance(fingerprint, dict):
+        return None
+    declared_experts = fingerprint.get("num_local_experts")
+    if (
+        isinstance(declared_experts, int)
+        and not isinstance(declared_experts, bool)
+        and declared_experts > 0
+    ):
+        return declared_experts
+    return None
+
+
+def _check_layer_index(layer: dict[str, Any], spot: str, order: _LayerOrder) -> list[str]:
+    """The layer index: an integer, unseen, and in model order."""
+
+    errors: list[str] = []
+    layer_index = layer.get("layer")
+    if not isinstance(layer_index, int) or isinstance(layer_index, bool):
+        errors.append(f"{spot}.layer must be an integer")
+    elif layer_index in order.seen:
+        errors.append(f"{spot}.layer {layer_index} is duplicated")
+    else:
+        # router_baseline._target_label reads the last-layer decision as
+        # `layers[-1]`. Unique-but-unordered indices such as [3, 0, 1, 2]
+        # would silently make layer 2 the training target while the record
+        # advertises layer 3.
+        if order.previous is not None and layer_index <= order.previous:
+            errors.append(
+                f"{spot}.layer {layer_index} follows {order.previous}; "
+                "routing layers must be recorded in model order so the "
+                "last entry is the last layer"
+            )
+        order.previous = layer_index
+        order.seen.add(layer_index)
+    return errors
+
+
+def _check_layer_signals(
+    layer: dict[str, Any], spot: str, expert_count: int | None
+) -> list[str]:
+    """The routed experts, their logits, and the summaries derived from them."""
+
+    errors: list[str] = []
+    experts = layer.get("top_k_experts")
+    if not isinstance(experts, list) or len(experts) < 2:
+        errors.append(f"{spot}.top_k_experts must list at least the top two")
+    else:
+        invalid_experts = [
+            e for e in experts
+            if not isinstance(e, int) or isinstance(e, bool)
+        ]
+        if invalid_experts:
+            errors.append(
+                f"{spot}.top_k_experts contains invalid entries: {invalid_experts}"
+            )
+        elif len(set(experts)) != len(experts):
+            errors.append(f"{spot}.top_k_experts must not repeat an expert")
+        elif expert_count is not None and not all(
+            0 <= value < expert_count for value in experts
         ):
-            expert_count = declared_experts
-    seen_layers: set[int] = set()
-    previous_layer: int | None = None
-    for index, layer in enumerate(layers):
-        spot = f"{where}.result.routing.layers[{index}]"
-        if not isinstance(layer, dict):
-            errors.append(f"{spot} must be an object")
-            continue
-        layer_index = layer.get("layer")
-        if not isinstance(layer_index, int) or isinstance(layer_index, bool):
-            errors.append(f"{spot}.layer must be an integer")
-        elif layer_index in seen_layers:
-            errors.append(f"{spot}.layer {layer_index} is duplicated")
-        else:
-            # router_baseline._target_label reads the last-layer decision as
-            # `layers[-1]`. Unique-but-unordered indices such as [3, 0, 1, 2]
-            # would silently make layer 2 the training target while the record
-            # advertises layer 3.
-            if previous_layer is not None and layer_index <= previous_layer:
+            # Checked independently of router_logits, because a recorded
+            # teacher may legitimately omit logits and would otherwise be
+            # free to record ids like [-1, 999] as authoritative routing
+            # labels.
+            errors.append(
+                f"{spot}.top_k_experts must lie in [0, {expert_count}) — the "
+                "expert count the oracle fingerprint declares"
+            )
+    logits = layer.get("router_logits")
+    if logits is not None:
+        if not isinstance(logits, list) or not all(
+            oc.is_number(value) for value in logits
+        ):
+            errors.append(f"{spot}.router_logits must be an array of numbers")
+        elif isinstance(experts, list) and experts:
+            order = sorted(range(len(logits)), key=lambda e: (-logits[e], e))
+            if list(experts[: len(experts)]) != order[: len(experts)]:
                 errors.append(
-                    f"{spot}.layer {layer_index} follows {previous_layer}; "
-                    "routing layers must be recorded in model order so the "
-                    "last entry is the last layer"
+                    f"{spot}.top_k_experts disagrees with router_logits ordering"
                 )
-            previous_layer = layer_index
-            seen_layers.add(layer_index)
-        experts = layer.get("top_k_experts")
-        if not isinstance(experts, list) or len(experts) < 2:
-            errors.append(f"{spot}.top_k_experts must list at least the top two")
-        else:
-            invalid_experts = [
-                e for e in experts
-                if not isinstance(e, int) or isinstance(e, bool)
-            ]
-            if invalid_experts:
-                errors.append(
-                    f"{spot}.top_k_experts contains invalid entries: {invalid_experts}"
-                )
-            elif len(set(experts)) != len(experts):
-                errors.append(f"{spot}.top_k_experts must not repeat an expert")
-            elif expert_count is not None and not all(
-                0 <= value < expert_count for value in experts
-            ):
-                # Checked independently of router_logits, because a recorded
-                # teacher may legitimately omit logits and would otherwise be
-                # free to record ids like [-1, 999] as authoritative routing
-                # labels.
-                errors.append(
-                    f"{spot}.top_k_experts must lie in [0, {expert_count}) — the "
-                    "expert count the oracle fingerprint declares"
-                )
-        logits = layer.get("router_logits")
-        if logits is not None:
-            if not isinstance(logits, list) or not all(
-                oc.is_number(value) for value in logits
-            ):
-                errors.append(f"{spot}.router_logits must be an array of numbers")
-            elif isinstance(experts, list) and experts:
-                order = sorted(range(len(logits)), key=lambda e: (-logits[e], e))
-                if list(experts[: len(experts)]) != order[: len(experts)]:
-                    errors.append(
-                        f"{spot}.top_k_experts disagrees with router_logits ordering"
-                    )
-        # Both summaries are exact functions of the logits, so when the logits
-        # are exposed they are recomputed rather than range-checked. A range
-        # check alone let any non-negative margin and any entropy below
-        # ln(num_experts) stand in for the real ones — and both are
-        # distillation targets.
-        exposed_logits = (
-            [float(value) for value in logits]
-            if isinstance(logits, list)
-            and len(logits) >= 2
-            and all(oc.is_number(value) for value in logits)
-            else None
-        )
-        margin = layer.get("top1_top2_margin")
-        if not oc.is_number(margin) or float(margin) < 0.0:
-            errors.append(f"{spot}.top1_top2_margin must be a non-negative number")
-        elif exposed_logits is not None:
-            ordered = sorted(exposed_logits, reverse=True)
-            recomputed_margin = ordered[0] - ordered[1]
-            # The stored logits are themselves rounded to 6 places, so the
-            # recomputation carries that rounding; the tolerance covers it and
-            # nothing wider.
-            if abs(float(margin) - recomputed_margin) > RECOMPUTE_TOLERANCE:
-                errors.append(
-                    f"{spot}.top1_top2_margin is {margin} but the recorded "
-                    f"router_logits give {round(recomputed_margin, 6)}"
-                )
-        routing_entropy = layer.get("routing_entropy")
-        if not oc.is_number(routing_entropy) or float(routing_entropy) < 0.0:
-            errors.append(f"{spot}.routing_entropy must be a non-negative number")
-        elif exposed_logits is not None:
-            recomputed_entropy = entropy_nats(softmax(exposed_logits))
-            if abs(float(routing_entropy) - recomputed_entropy) > RECOMPUTE_TOLERANCE:
-                errors.append(
-                    f"{spot}.routing_entropy is {routing_entropy} but the "
-                    f"recorded router_logits give {round(recomputed_entropy, 6)}"
-                )
-        else:
-            # No logits to recompute from, so fall back to bounding the entropy
-            # by ln(num_experts) using the recorded expert count. Kept separate
-            # from `expert_count` above so one layer's logit width does not
-            # become the id range every later layer is checked against.
-            support = len(logits) if isinstance(logits, list) and logits else expert_count
-            if support and float(routing_entropy) > math.log(support) + 1e-6:
-                errors.append(
-                    f"{spot}.routing_entropy exceeds ln({support}) — not a "
-                    "distribution over these experts"
-                )
+    # Both summaries are exact functions of the logits, so when the logits
+    # are exposed they are recomputed rather than range-checked. A range
+    # check alone let any non-negative margin and any entropy below
+    # ln(num_experts) stand in for the real ones — and both are
+    # distillation targets.
+    exposed_logits = (
+        [float(value) for value in logits]
+        if isinstance(logits, list)
+        and len(logits) >= 2
+        and all(oc.is_number(value) for value in logits)
+        else None
+    )
+    margin = layer.get("top1_top2_margin")
+    if not oc.is_number(margin) or float(margin) < 0.0:
+        errors.append(f"{spot}.top1_top2_margin must be a non-negative number")
+    elif exposed_logits is not None:
+        ordered = sorted(exposed_logits, reverse=True)
+        recomputed_margin = ordered[0] - ordered[1]
+        # The stored logits are themselves rounded to 6 places, so the
+        # recomputation carries that rounding; the tolerance covers it and
+        # nothing wider.
+        if abs(float(margin) - recomputed_margin) > RECOMPUTE_TOLERANCE:
+            errors.append(
+                f"{spot}.top1_top2_margin is {margin} but the recorded "
+                f"router_logits give {round(recomputed_margin, 6)}"
+            )
+    routing_entropy = layer.get("routing_entropy")
+    if not oc.is_number(routing_entropy) or float(routing_entropy) < 0.0:
+        errors.append(f"{spot}.routing_entropy must be a non-negative number")
+    elif exposed_logits is not None:
+        recomputed_entropy = entropy_nats(softmax(exposed_logits))
+        if abs(float(routing_entropy) - recomputed_entropy) > RECOMPUTE_TOLERANCE:
+            errors.append(
+                f"{spot}.routing_entropy is {routing_entropy} but the "
+                f"recorded router_logits give {round(recomputed_entropy, 6)}"
+            )
+    else:
+        # No logits to recompute from, so fall back to bounding the entropy
+        # by ln(num_experts) using the recorded expert count. Kept separate
+        # from `expert_count` above so one layer's logit width does not
+        # become the id range every later layer is checked against.
+        support = len(logits) if isinstance(logits, list) and logits else expert_count
+        if support and float(routing_entropy) > math.log(support) + 1e-6:
+            errors.append(
+                f"{spot}.routing_entropy exceeds ln({support}) — not a "
+                "distribution over these experts"
+            )
+    return errors
+
+
+def _check_derived_routing_labels(
+    result: dict[str, Any], routing: dict[str, Any], layers: list[Any], where: str
+) -> list[str]:
+    """Recompute the distillation label and agreement from the recorded layers.
+
+    The distillation label and the summary statistics are derived, not
+    independent facts. Recompute them from the layers the oracle recorded, so
+    a fabricated top-1 expert cannot be trained on.
+    """
+
+    errors: list[str] = []
     agreement = routing.get("expert_agreement")
     if not oc.is_number(agreement) or not 0.0 <= float(agreement) <= 1.0:
         errors.append(f"{where}.result.routing.expert_agreement must be in [0, 1]")
-
-    # The distillation label and the summary statistics are derived, not
-    # independent facts. Recompute them from the layers the oracle recorded, so
-    # a fabricated top-1 expert cannot be trained on.
     tops = [
         layer["top_k_experts"][0]
         for layer in layers
@@ -1050,14 +1085,24 @@ def check_family(record: dict[str, Any], where: str) -> list[str]:
                     f"{where}.result.routing.expert_agreement is {agreement} but the "
                     f"recorded layers agree {expected_agreement:.6f} of the time"
                 )
+    return errors
 
-    # The compact targets in result.measurements describe the last layer and
-    # the cross-layer agreement. Reconcile them with the routing they summarise.
+
+def _check_measurement_reconciliation(
+    result: dict[str, Any], routing: dict[str, Any], layers: list[Any], where: str
+) -> list[str]:
+    """Reconcile the compact targets with the routing they summarise.
+
+    The compact targets in result.measurements describe the last layer and
+    the cross-layer agreement.
+    """
+
+    errors: list[str] = []
     last = layers[-1] if isinstance(layers[-1], dict) else {}
     expected_measurements = {
         "top1_top2_margin": last.get("top1_top2_margin"),
         "routing_entropy": last.get("routing_entropy"),
-        "expert_agreement": agreement,
+        "expert_agreement": routing.get("expert_agreement"),
     }
     measurements = result.get("measurements")
     for item in measurements if isinstance(measurements, list) else []:
@@ -1074,6 +1119,42 @@ def check_family(record: dict[str, Any], where: str) -> list[str]:
                 f"{where}.result: measured {quantity} is {item['value']} but the "
                 f"recorded routing says {expected}"
             )
+    return errors
+
+
+def check_family(record: dict[str, Any], where: str) -> list[str]:
+    """Family checks: real routing, recorded teacher identity, sane targets."""
+
+    errors = _check_scenario_context(record.get("scenario"), where)
+
+    oracle = record.get("oracle")
+    fingerprint = oracle.get("fingerprint") if isinstance(oracle, dict) else None
+    errors += _check_teacher_fingerprint(oracle, fingerprint, where)
+
+    result = record.get("result")
+    if not isinstance(result, dict):
+        return errors + [f"{where}.result must be an object"]
+    errors += _check_teacher_grounding(result, oracle, fingerprint, where)
+
+    routing = result.get("routing")
+    if not isinstance(routing, dict):
+        return errors + [f"{where}.result.routing must be an object"]
+    layers = routing.get("layers")
+    if not isinstance(layers, list) or not layers:
+        return errors + [f"{where}.result.routing.layers must be a non-empty array"]
+
+    expert_count = _declared_expert_count(fingerprint)
+    order = _LayerOrder()
+    for index, layer in enumerate(layers):
+        spot = f"{where}.result.routing.layers[{index}]"
+        if not isinstance(layer, dict):
+            errors.append(f"{spot} must be an object")
+            continue
+        errors += _check_layer_index(layer, spot, order)
+        errors += _check_layer_signals(layer, spot, expert_count)
+
+    errors += _check_derived_routing_labels(result, routing, layers, where)
+    errors += _check_measurement_reconciliation(result, routing, layers, where)
     return errors
 
 
