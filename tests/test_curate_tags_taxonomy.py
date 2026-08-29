@@ -351,7 +351,7 @@ class TaxonomyDocumentTests(unittest.TestCase):
 
 
     def test_load_taxonomy_wraps_excessive_nesting(self):
-        with mock.patch("tag_taxonomy.json.loads", side_effect=RecursionError):
+        with mock.patch("tag_taxonomy.load_strict_json", side_effect=RecursionError):
             with self.assertRaises(TagTaxonomyError):
                 load_taxonomy(DEFAULT_TAXONOMY_PATH)
 
