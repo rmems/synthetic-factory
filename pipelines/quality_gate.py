@@ -168,6 +168,21 @@ _IDENTITY_FIELDS = (
     "disagreements",
     "resolution",
     "joint_outcome",
+    # Thalamic distillation is driven by ``spike_events`` + ``state``
+    # (prompts/01-thalamic-trajectory-factory.md), and the event-language
+    # bridge models the paired language view and raster sidecar
+    # (prompts/03-neuromorphic-event-language-bridge.md). Listing all three
+    # keeps a bridge record's whole modeled content in the projection rather
+    # than only its stream.
+    "spike_events",
+    "language_view",
+    "raster",
+    # Safety-calibration supervision is the gate label and its observable
+    # reason (prompts/12-safety-calibration-factory.md); goal/outcome/reward
+    # alone cannot separate a correct refusal from a missed one.
+    "case_type",
+    "rationale",
+    "decision",
 )
 _CANONICAL_ID_KEYS = frozenset(
     {"episode_id", "record_id", "trajectory_id", "pair_id", "sample_id"}

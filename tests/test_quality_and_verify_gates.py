@@ -188,6 +188,92 @@ class ExactDedup(unittest.TestCase):
         self.assertEqual(clusters[0]["representative"], {"file": "batch.jsonl", "line": 1})
         self.assertEqual(report["counts"]["excluded_records"], 1)
 
+    @staticmethod
+    def _thalamic(spike_events):
+        """A Thalamic trajectory whose only varying content is its stream."""
+        return {
+            "id": "thal-1",
+            "state": {"sim_or_real": "designed", "domain": "gate-test"},
+            "proposed_action": {"action": "noop", "decision_basis": "fixture"},
+            "safety_decision": {"decision": "ACCEPT", "rationale": "bounded"},
+            "executed_action": {"action": "noop"},
+            "future_outcome": {"success": True},
+            "reward_components": {"task_progress": 0.5, "safety": 0.5, "total": 1.0},
+            "spike_events": spike_events,
+            "meta": {"factory": "thalamic-trajectory-factory", "round": 1},
+        }
+
+    def test_spike_streams_are_exact_identity(self):
+        """spike_events + state are the distillation input for Thalamic
+        trajectories (prompts/01-thalamic-trajectory-factory.md), so two
+        trajectories that differ only in channels, timing, and amplitude are
+        distinct training units, not one exact duplicate."""
+        first = self._thalamic(
+            [{"channel": "relay_0", "t_rel_ms": 12.0, "amplitude": 0.2}]
+        )
+        second = self._thalamic(
+            [{"channel": "comparator", "t_rel_ms": 640.0, "amplitude": 0.95}]
+        )
+
+        self.assertIn("spike_events", quality_gate.exact_identity_view(first))
+        self.assertNotEqual(
+            quality_gate.record_hash(first), quality_gate.record_hash(second)
+        )
+
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            write(root / "batch.jsonl", [first, {**second, "id": "thal-2"}])
+            report = quality_gate.audit_run(root)
+
+        self.assertEqual(report["duplicates"], [])
+
+    def test_bridge_records_keep_the_language_view_alongside_the_stream(self):
+        """Listing spike_events must not shrink a bridge record to its stream:
+        language_view and raster are the rest of its modeled content."""
+        def bridge(caption):
+            return {
+                "id": "bridge-1",
+                "language_view": {"caption": caption},
+                "raster": {"window_ms": 30},
+                "spike_events": [{"channel": "c", "t_rel_ms": 1.0}],
+            }
+
+        view = quality_gate.exact_identity_view(bridge("a plant tripped"))
+        self.assertEqual(
+            sorted(view), ["language_view", "raster", "spike_events"]
+        )
+        self.assertNotEqual(
+            quality_gate.record_hash(bridge("a plant tripped")),
+            quality_gate.record_hash(bridge("a freezer drifted")),
+        )
+
+    def test_safety_calibration_labels_are_exact_identity(self):
+        """case_type, rationale, and the top-level decision are the calibration
+        supervision (prompts/12-safety-calibration-factory.md). Sharing a
+        goal/outcome/reward must not collapse a correct refusal and a missed
+        one into one exact duplicate."""
+        def safety_case(case_type, rationale, decision):
+            return {
+                "id": "saf-1",
+                "goal": "user request under review",
+                "case_type": case_type,
+                "rationale": rationale,
+                "decision": decision,
+                "outcome": "what the agent actually did",
+                "reward": {"success": True},
+                "meta": {"factory": "safety-calibration-factory", "round": 1},
+            }
+
+        first = safety_case("correct_refusal", "secrets path in the request", "refuse")
+        second = safety_case("missed_refusal", "public read-only scope", "comply")
+
+        view = quality_gate.exact_identity_view(first)
+        for field in ("case_type", "rationale", "decision"):
+            self.assertIn(field, view)
+        self.assertNotEqual(
+            quality_gate.record_hash(first), quality_gate.record_hash(second)
+        )
+
     def test_preference_actions_and_outcomes_are_exact_identity(self):
         def side(action, success):
             return {

@@ -66,7 +66,11 @@ The gate does not reuse one lossy projection for three different jobs:
 
 1. ``exact_identity_view`` preserves the fields that define a training unit.
    Preference actions and outcomes are included, while wrapper bookkeeping ids
-   stay outside modeled state/action records.
+   stay outside modeled state/action records. Per-factory supervision counts as
+   modeled content: Thalamic ``spike_events``, the event-language bridge's
+   ``language_view`` and ``raster``, and the safety-calibration ``case_type`` /
+   ``rationale`` / ``decision`` labels are all part of the identity, so records
+   that differ only there are distinct training units.
 2. ``semantic_similarity_view`` removes canonical record identifiers such as
    ``id`` and ``episode_id``, plus root bookkeeping metadata, before lexical
    encoding. An id or round-stamp change cannot hide an otherwise identical
