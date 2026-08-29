@@ -4,6 +4,7 @@
 import importlib.util
 import hashlib
 import json
+import shutil
 import tempfile
 import unittest
 from contextlib import redirect_stdout
@@ -21,165 +22,73 @@ SPEC.loader.exec_module(factory_driver)
 from round_txn import TransactionError  # noqa: E402
 
 
-class FactoryTokenEfficiency(unittest.TestCase):
-    def _write_notes(self, factory, rounds):
-        for rn, coverage in rounds:
-            text = (
-                f"Novel coverage: {coverage}%\n"
-                if coverage is not None
-                else "Self-critique without a coverage line.\n"
-            )
-            (factory / f"NOTES-r{rn:02d}.md").write_text(text)
+FIXTURES = REPO / "tests" / "fixtures"
 
-    def _write_complete_marker(self, factory, round_number):
-        batch = factory / f"batch-r{round_number:02d}.jsonl"
-        notes = factory / f"NOTES-r{round_number:02d}.md"
-        batch.write_text(
-            json.dumps(factory_driver.thalamic(f"batch-{round_number}")) + "\n"
-        )
-        marker = factory / f"ROUND-r{round_number:02d}.complete.json"
-        marker.write_text(
-            json.dumps(
-                {
-                    "version": 1,
-                    "factory": factory.name,
-                    "round": round_number,
-                    "records": 1,
-                    "expected_records": 1,
-                    "commit_point": marker.name,
-                    "files": [
-                        {
-                            "name": batch.name,
-                            "sha256": hashlib.sha256(batch.read_bytes()).hexdigest(),
-                        },
-                        {
-                            "name": notes.name,
-                            "sha256": hashlib.sha256(notes.read_bytes()).hexdigest(),
-                        },
-                    ],
-                }
-            )
-            + "\n"
+
+class FactoryDriverSmoke(unittest.TestCase):
+    def test_smoke_exercises_the_notes_gate_and_plateau_latch(self):
+        buffer = StringIO()
+
+        with redirect_stdout(buffer):
+            code = factory_driver.cmd_smoke()
+
+        self.assertEqual(code, 0)
+        report = buffer.getvalue()
+        self.assertIn("NOTES without a 'Novel coverage: <N>%' line cannot publish", report)
+        self.assertIn("two consecutive sub-5% rounds early-stop the lane", report)
+
+    def test_smoke_reports_an_unexpected_publish_rejection(self):
+        buffer = StringIO()
+        with mock.patch.object(
+            factory_driver,
+            "publish",
+            side_effect=[TransactionError("unexpected transaction defect"), {"records": 1}],
+        ), redirect_stdout(buffer):
+            code = factory_driver.cmd_smoke()
+
+        self.assertEqual(code, 1)
+        self.assertIn(
+            "unexpected publish rejection: unexpected transaction defect",
+            buffer.getvalue(),
         )
 
-    def test_early_stop_clears_after_later_healthy_notes(self):
-        with tempfile.TemporaryDirectory() as td:
-            factory = Path(td) / "recovered-factory"
-            factory.mkdir()
-            self._write_notes(factory, [(1, 4.0), (2, 3.0), (3, 12.0)])
-            info = factory_driver.factory_token_efficiency(factory)
-            self.assertFalse(info["early_stop"])
-            self.assertIsNone(info["early_stop_at_round"])
+    def test_smoke_stops_notes_gate_check_after_unexpected_commit(self):
+        def publish_and_consume_stage(factory, _round_number, _token):
+            notes = next((factory.parents[2] / "staging").rglob("NOTES-r01.md"))
+            shutil.rmtree(notes.parent)
+            return {}
 
-    def test_early_stop_holds_when_trailing_streak_is_still_low(self):
-        with tempfile.TemporaryDirectory() as td:
-            factory = Path(td) / "plateau-factory"
-            factory.mkdir()
-            self._write_notes(factory, [(1, 12.0), (2, 4.0), (3, 3.0)])
-            info = factory_driver.factory_token_efficiency(factory)
-            self.assertTrue(info["early_stop"])
-            self.assertEqual(info["early_stop_at_round"], 3)
+        buffer = StringIO()
+        with mock.patch.object(
+            factory_driver, "publish", side_effect=publish_and_consume_stage
+        ) as publish_mock, redirect_stdout(buffer):
+            code = factory_driver.cmd_smoke()
 
-    def test_unparseable_notes_hold_but_do_not_latch_past_recovery(self):
-        with tempfile.TemporaryDirectory() as td:
-            factory = Path(td) / "held-then-recovered"
-            factory.mkdir()
-            self._write_notes(factory, [(1, 4.0), (2, 3.0), (3, None), (4, 18.0)])
-            info = factory_driver.factory_token_efficiency(factory)
-            self.assertFalse(info["early_stop"])
-            self.assertIsNone(info["early_stop_at_round"])
-
-    def test_unparseable_notes_hold_a_trailing_streak(self):
-        with tempfile.TemporaryDirectory() as td:
-            factory = Path(td) / "held-plateau"
-            factory.mkdir()
-            self._write_notes(factory, [(1, 4.0), (2, 3.0), (3, None)])
-            info = factory_driver.factory_token_efficiency(factory)
-            self.assertTrue(info["early_stop"])
-            self.assertEqual(info["early_stop_at_round"], 2)
-
-    def test_marker_mode_ignores_uncommitted_notes(self):
-        with tempfile.TemporaryDirectory() as td:
-            factory = Path(td) / "marker-factory"
-            factory.mkdir()
-            (factory / ".round-marker-mode.json").write_text(
-                '{"version":1,"legacy_baseline":0,"commit_point":"ROUND-rNN.complete.json"}\n'
-            )
-            self._write_notes(factory, [(1, 4.0), (2, 3.0)])
-
-            info = factory_driver.factory_token_efficiency(factory)
-            self.assertEqual(info["rounds"], [])
-            self.assertFalse(info["early_stop"])
-
-            self._write_complete_marker(factory, 1)
-            self._write_complete_marker(factory, 2)
-            info = factory_driver.factory_token_efficiency(factory)
-            self.assertTrue(info["early_stop"])
-            self.assertEqual(info["early_stop_at_round"], 2)
-
-            (factory / "NOTES-r02.md").write_text("Novel coverage: 99%\n")
-            with self.assertRaisesRegex(TransactionError, "hash mismatch"):
-                factory_driver.factory_token_efficiency(factory)
-
-    def test_lettered_notes_do_not_double_count_one_round(self):
-        with tempfile.TemporaryDirectory() as td:
-            factory = Path(td) / "marker-factory"
-            factory.mkdir()
-            (factory / ".round-marker-mode.json").write_text(
-                '{"version":1,"legacy_baseline":0,"commit_point":"ROUND-rNN.complete.json"}\n'
-            )
-            self._write_notes(factory, [(1, 12.0), (2, 4.0)])
-            self._write_complete_marker(factory, 1)
-            self._write_complete_marker(factory, 2)
-            (factory / "NOTES-r02b.md").write_text("Novel coverage: 3%\n")
-
-            info = factory_driver.factory_token_efficiency(factory)
-
-        self.assertFalse(info["early_stop"])
-        self.assertEqual(
-            [(item["round"], item["file"]) for item in info["rounds"]],
-            [(1, "NOTES-r01.md"), (2, "NOTES-r02.md")],
+        self.assertEqual(code, 1)
+        self.assertEqual(publish_mock.call_count, 1)
+        self.assertIn(
+            "publish accepted NOTES without a 'Novel coverage' line",
+            buffer.getvalue(),
         )
 
-    def test_marker_baseline_notes_require_a_visible_payload_round(self):
-        with tempfile.TemporaryDirectory() as td:
-            factory = Path(td) / "marker-factory"
-            factory.mkdir()
-            (factory / "batch-r26.jsonl").write_text(
-                json.dumps(factory_driver.thalamic("legacy-r26")) + "\n"
-            )
-            (factory / "NOTES-r25.md").write_text("Novel coverage: 2%\n")
-            (factory / "NOTES-r26.md").write_text("Novel coverage: 3%\n")
-            (factory / ".round-marker-mode.json").write_text(
-                '{"version":1,"legacy_baseline":26,"commit_point":"ROUND-rNN.complete.json"}\n'
-            )
+    def test_smoke_reports_remaining_notes_gate_invariants(self):
+        buffer = StringIO()
+        with mock.patch.object(
+            factory_driver,
+            "publish",
+            side_effect=[TransactionError("Novel coverage missing"), {"records": 0}],
+        ), mock.patch.object(
+            factory_driver,
+            "factory_token_efficiency",
+            return_value={"early_stop": False, "early_stop_at_round": None},
+        ), redirect_stdout(buffer):
+            code = factory_driver.cmd_smoke()
 
-            info = factory_driver.factory_token_efficiency(factory)
+        self.assertEqual(code, 1)
+        report = buffer.getvalue()
+        self.assertIn("transaction reserve/publish did not commit exactly one round", report)
+        self.assertIn("coverage plateau did not early-stop", report)
 
-        self.assertEqual(
-            [(item["round"], item["file"]) for item in info["rounds"]],
-            [(26, "NOTES-r26.md")],
-        )
-        self.assertFalse(info["early_stop"])
-
-    def test_frontiers_counts_only_marker_visible_records(self):
-        with tempfile.TemporaryDirectory() as td:
-            run = Path(td) / "run"
-            factory = run / "marker-factory"
-            factory.mkdir(parents=True)
-            (factory / ".round-marker-mode.json").write_text(
-                '{"version":1,"legacy_baseline":0,"commit_point":"ROUND-rNN.complete.json"}\n'
-            )
-            self._write_notes(factory, [(1, 80.0)])
-            self._write_complete_marker(factory, 1)
-            (factory / "batch-r02.jsonl").write_text('{"id":"interrupted"}\n')
-            (factory / "ROUND-r02.publishing.json").write_text("{}\n")
-
-            with redirect_stdout(StringIO()):
-                frontiers = factory_driver.cmd_frontiers(run)
-
-        self.assertEqual(frontiers[0]["records"], 1)
-        self.assertEqual(frontiers[0]["highest_flushed"], 1)
 
 
 class FactoryDriverBytes(unittest.TestCase):

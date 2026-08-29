@@ -66,13 +66,12 @@ TOKEN_EFFICIENCY_THRESHOLD_PCT = 5.0
 TOKEN_EFFICIENCY_CONSECUTIVE = 2
 TOKEN_EFFICIENCY_SAVING_PCT = 40
 TOKEN_EFFICIENCY_DOCS = "docs/token-efficiency.md"
-# Line-anchored to the labeled "Novel coverage: N%" line only, so unrelated
-# percentages in NOTES prose (e.g. "Jaccard overlap peaked at 45%") can never
-# be misread as coverage. Mirrors factory-window.workflow.js novelCoveragePct.
-# An optional parenthetical annotation is documented as valid
-# (docs/token-efficiency.md): "Novel coverage (estimated): 12.5 %".
-NOVEL_COVERAGE_RE = re.compile(
-    r"^\s*novel[ _-]?coverage\s*(?:\([^)\n]*\))?\s*[:=]?\s*(\d+(?:\.\d+)?)\s*%",
+# Historical read parser: this is the exact multiline grammar used before the
+# forward-only strict publication contract in round_txn.py. It intentionally
+# preserves first-match suffix, duplicate-label, and split-line compatibility.
+LEGACY_NOVEL_COVERAGE_RE = re.compile(
+    r"^\s*novel[ _-]?coverage\s*"
+    r"(?:\([^)\n]*\))?\s*[:=]?\s*(\d+(?:\.\d+)?)\s*%",
     re.IGNORECASE | re.MULTILINE,
 )
 NOTES_ROUND_RE = re.compile(r"^NOTES-r(\d+)([a-z]*)\.md$")
@@ -360,17 +359,18 @@ def count_nonblank_lines(path):
 
 
 def parse_novel_coverage(text: str):
-    """Extract 'Novel coverage: N%' from NOTES text. Returns float or None.
+    """Extract the first historically valid ``Novel coverage: N%`` claim.
 
-    Line-anchored parsing — matches only the labeled line (case-insensitive),
-    same regex as workflow novelCoveragePct, so unrelated percentages in
-    prose never match. Valid range 0–100; out-of-range values treated as
-    unparseable to avoid false stops.
+    This command audits immutable committed NOTES, so it retains the former
+    prefix grammar and first-valid-match behavior. New publication uses the
+    strict, exactly-one-line contract in ``round_txn.validate_novel_coverage``.
+    The label remains anchored at a line start so unrelated prose percentages
+    cannot become coverage evidence.
     """
     if not text:
         return None
-    match = NOVEL_COVERAGE_RE.search(text)
-    if not match:
+    match = LEGACY_NOVEL_COVERAGE_RE.search(text)
+    if match is None:
         return None
     try:
         value = float(match.group(1))
@@ -579,7 +579,14 @@ def thalamic(record_id="smoke-t1"):
         "proposed_action": {"action": "noop", "decision_basis": "fixture"},
         "safety_decision": {"decision": "ACCEPT", "rationale": "bounded fixture"},
         "executed_action": {"action": "noop"},
-        "future_outcome": {"ok": True},
+        # publish() gates on verify_execution in strict mode, so the smoke
+        # fixture carries the observable outcome evidence a real record carries.
+        "future_outcome": {
+            "ok": True,
+            "timeline": [{"t_ms": 0, "event": "noop accepted"}],
+            "observed_effects": ["no actuator motion"],
+            "new_state": {"sim_or_real": "designed", "env": "transaction smoke test"},
+        },
         "reward_components": {"task_progress": 0.5, "total": 0.5},
         "meta": {"factory": "smoke", "round": 2, "tags": ["smoke"]},
     }
@@ -627,6 +634,86 @@ MINI_RECORDS = {
 }
 
 
+def _smoke_check_kind_routing(run: Path, failures: list) -> None:
+    code, out, _err = run_tool(VALIDATOR, run)
+    if code:
+        failures.append(f"valid mini-run should exit 0, got {code}")
+    try:
+        totals = json.loads(out)
+    except json.JSONDecodeError:
+        totals = {}
+        failures.append(f"validator emitted invalid JSON totals: {out[:200]!r}")
+    expected_kinds = {
+        "thalamic": 1,
+        "preference": 1,
+        "bridge_pair": 1,
+        "episode": 1,
+    }
+    if totals.get("by_kind") != expected_kinds:
+        failures.append(f"kind routing wrong: {totals.get('by_kind')}")
+
+
+def _smoke_check_broken_batch(run: Path, failures: list) -> None:
+    bad = run / "thalamic-mini" / "batch-r03.jsonl"
+    broken = thalamic("broken")
+    broken["safety_decision"] = {"decision": "MAYBE", "rationale": ""}
+    broken["reward_components"] = {}
+    bad.write_text(json.dumps(broken) + "\nnot json\n")
+    code2, _out2, err2 = run_tool(VALIDATOR, run)
+    if code2 == 0:
+        failures.append("broken batch should exit nonzero")
+    if "decision must be" not in err2 or "JSON parse error" not in err2:
+        failures.append(f"expected enum + parse errors, got: {err2[:200]}")
+    frontier = cmd_frontiers(run)[0]
+    if frontier["next_round"] != 3:
+        failures.append(f"malformed r03 must not advance frontier: {frontier}")
+
+
+def _smoke_check_notes_gate(root: Path, failures: list) -> None:
+    factory = root / "outputs" / "raw" / "2099-01-01" / "thalamic-trajectory-factory"
+    factory.mkdir(parents=True)
+    reservation = reserve(factory, 1, 1)
+    stage = Path(reservation["staging_dir"])
+    record = thalamic("txn-smoke")
+    record["meta"]["round"] = 1
+    (stage / reservation["batch_file"]).write_text(json.dumps(record) + "\n")
+    notes = stage / reservation["notes_file"]
+    # The NOTES contract (docs/token-efficiency.md) is a publish gate on
+    # every registered lane, legacy included: without the line the
+    # early-stop latch can never fire, so a round that omits it must not
+    # commit.
+    notes.write_text("# Self-critique\n\nFixture only.\n")
+    try:
+        publish(factory, 1, reservation["token"])
+    except TransactionError as exc:
+        if "Novel coverage" not in str(exc):
+            failures.append(f"unexpected publish rejection: {exc}")
+    else:
+        failures.append("publish accepted NOTES without a 'Novel coverage' line")
+        # A successful publish consumes the staging directory. Stop this helper
+        # instead of rewriting a path that no longer exists; cmd_smoke will
+        # report the recorded gate regression as a structured SMOKE FAIL.
+        return
+    notes.write_text(
+        "# Self-critique\n\nFixture only.\n\nNovel coverage: 42%\n"
+    )
+    manifest = publish(factory, 1, reservation["token"])
+    if manifest.get("records") != 1 or frontier_status(factory)["next_round"] != 2:
+        failures.append("transaction reserve/publish did not commit exactly one round")
+
+
+def _smoke_check_coverage_latch(root: Path, failures: list) -> None:
+    # Coverage-convergence latch: two consecutive published NOTES under
+    # the 5% threshold early-stop the lane (40% saving mode).
+    plateau = root / "plateau" / "thalamic-trajectory-factory"
+    plateau.mkdir(parents=True)
+    (plateau / "NOTES-r05.md").write_text("Novel coverage: 4.2%\n")
+    (plateau / "NOTES-r06.md").write_text("Novel coverage: 3.1%\n")
+    latch = factory_token_efficiency(plateau)
+    if not latch["early_stop"] or latch["early_stop_at_round"] != 6:
+        failures.append(f"coverage plateau did not early-stop: {latch}")
+
+
 def cmd_smoke():
     failures = []
     with tempfile.TemporaryDirectory(prefix="factory-smoke-") as temp_dir:
@@ -637,48 +724,10 @@ def cmd_smoke():
             path.parent.mkdir(parents=True)
             path.write_text("".join(json.dumps(record) + "\n" for record in records))
 
-        code, out, _err = run_tool(VALIDATOR, run)
-        if code:
-            failures.append(f"valid mini-run should exit 0, got {code}")
-        try:
-            totals = json.loads(out)
-        except json.JSONDecodeError:
-            totals = {}
-            failures.append(f"validator emitted invalid JSON totals: {out[:200]!r}")
-        expected_kinds = {
-            "thalamic": 1,
-            "preference": 1,
-            "bridge_pair": 1,
-            "episode": 1,
-        }
-        if totals.get("by_kind") != expected_kinds:
-            failures.append(f"kind routing wrong: {totals.get('by_kind')}")
-
-        bad = run / "thalamic-mini" / "batch-r03.jsonl"
-        broken = thalamic("broken")
-        broken["safety_decision"] = {"decision": "MAYBE", "rationale": ""}
-        broken["reward_components"] = {}
-        bad.write_text(json.dumps(broken) + "\nnot json\n")
-        code2, _out2, err2 = run_tool(VALIDATOR, run)
-        if code2 == 0:
-            failures.append("broken batch should exit nonzero")
-        if "decision must be" not in err2 or "JSON parse error" not in err2:
-            failures.append(f"expected enum + parse errors, got: {err2[:200]}")
-        frontier = cmd_frontiers(run)[0]
-        if frontier["next_round"] != 3:
-            failures.append(f"malformed r03 must not advance frontier: {frontier}")
-
-        factory = root / "outputs" / "raw" / "2099-01-01" / "thalamic-trajectory-factory"
-        factory.mkdir(parents=True)
-        reservation = reserve(factory, 1, 1)
-        stage = Path(reservation["staging_dir"])
-        record = thalamic("txn-smoke")
-        record["meta"]["round"] = 1
-        (stage / reservation["batch_file"]).write_text(json.dumps(record) + "\n")
-        (stage / reservation["notes_file"]).write_text("# Self-critique\n\nFixture only.\n")
-        manifest = publish(factory, 1, reservation["token"])
-        if manifest.get("records") != 1 or frontier_status(factory)["next_round"] != 2:
-            failures.append("transaction reserve/publish did not commit exactly one round")
+        _smoke_check_kind_routing(run, failures)
+        _smoke_check_broken_batch(run, failures)
+        _smoke_check_notes_gate(root, failures)
+        _smoke_check_coverage_latch(root, failures)
 
     failures += smoke_parity_families()
 
@@ -690,8 +739,9 @@ def cmd_smoke():
     print(
         "SMOKE PASS: four record kinds route correctly; malformed output cannot "
         "advance a frontier; reserve/stage/validate/publish commits exactly once; "
-        "parity oracles report availability honestly and a relabelled verdict is "
-        "rejected"
+        "NOTES without a 'Novel coverage: <N>%' line cannot publish; two "
+        "consecutive sub-5% rounds early-stop the lane; parity oracles report "
+        "availability honestly and a relabelled verdict is rejected"
     )
     return 0
 

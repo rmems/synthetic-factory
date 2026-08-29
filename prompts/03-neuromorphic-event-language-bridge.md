@@ -27,7 +27,11 @@ C. Bridge notes:
 Generate exactly 3 diverse pairs (for example vision-like, reasoning, and
 control/telemetry). Critique temporal fidelity and usefulness in NOTES; carry
 the improvements into the next committed round rather than adding undeclared
-records to this one.
+records to this one. The staged NOTES MUST also carry the line
+`Novel coverage: <N>%` — an honest estimate of how much of this round is novel
+versus all prior committed rounds for this factory; `publish` rejects notes
+without it, and 2 consecutive rounds under 5% early-stop the lane
+(`docs/token-efficiency.md`).
 
 D. Raster excerpt + routing + ISI + refractory (required for every record):
 - `raster` sidecar with a **20–50 ms** window (the bound `schemas/raster.schema.json`
