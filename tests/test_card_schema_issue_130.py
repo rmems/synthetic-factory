@@ -21,6 +21,21 @@ write_declaration = _shared.write_declaration
 
 QUEUE_BACKPRESSURE = "queue-backpressure-trajectories"
 
+QUEUE_BACKPRESSURE_MIRROR = (
+    Path.home()
+    / "rmems"
+    / "hf"
+    / "grok-4.6"
+    / QUEUE_BACKPRESSURE
+    / "data"
+    / "raw"
+)
+
+# The published dump is batch-r01..batch-r141 with no gaps and no suffixed
+# shards. The coverage cross-check inside render_card is fed this full list so
+# an uncovered shard fails, rather than three hand-picked names that cannot.
+SHARD_NAMES = [f"batch-r{number:02d}.jsonl" for number in range(1, 142)]
+
 
 class QueueBackpressureDeclarationTests(unittest.TestCase):
     """Issue #70: thin `meta` vs designed/lane leftover schema.
@@ -46,7 +61,7 @@ class QueueBackpressureDeclarationTests(unittest.TestCase):
             bytes_=2048818,
             first="r01",
             last="r141",
-            payload_names=["batch-r01.jsonl", "batch-r74.jsonl", "batch-r141.jsonl"],
+            payload_names=list(SHARD_NAMES),
         )
 
     def test_declaration_matches_the_observed_union_schema(self):
@@ -129,6 +144,158 @@ class QueueBackpressureDeclarationTests(unittest.TestCase):
         self.assertIn("advertised leftover-bound mechanic", self.card)
         self.assertIn("96 name `leftover` in the id", self.card)
         self.assertIn("public `decision_basis` (4649 of 4649)", self.card)
+
+
+    def test_every_published_shard_is_covered_by_the_declared_glob(self):
+        """Feed all 141 shard names to the coverage check, not three samples."""
+        self.assertEqual(len(SHARD_NAMES), 141)
+        self.assertEqual(SHARD_NAMES[0], "batch-r01.jsonl")
+        self.assertEqual(SHARD_NAMES[-1], "batch-r141.jsonl")
+        self.assertEqual(
+            card_schema.payload_coverage_errors(self.declaration, SHARD_NAMES), []
+        )
+        # An appended shard the glob cannot reach must be reported, so this
+        # check can actually fail rather than merely being present.
+        self.assertTrue(
+            card_schema.payload_coverage_errors(
+                {**self.declaration, "data_files": ["data/raw/batch-r0*.jsonl"]},
+                SHARD_NAMES,
+            )
+        )
+
+    @unittest.skipUnless(
+        QUEUE_BACKPRESSURE_MIRROR.is_dir(),
+        "read-only published mirror is not available",
+    )
+    def test_declaration_counts_match_the_published_mirror(self):
+        """Re-derive the docstring's counts from the payload, not from the JSON.
+
+        Every other assertion in this class compares the declaration against
+        constants typed beside it, so none can fail when the declaration drifts
+        from what was actually published. This one rescans the mirror.
+        """
+        shards = sorted(QUEUE_BACKPRESSURE_MIRROR.glob("batch-*.jsonl"))
+        records = []
+        for shard in shards:
+            with shard.open(encoding="utf-8") as handle:
+                for line in handle:
+                    if line.strip():
+                        records.append((shard.name, json.loads(line)))
+        self.assertEqual(len(shards), 141)
+        self.assertEqual(len(records), 282)
+        total = len(records)
+
+        # The real published layout, not a fabricated name list. Compared as a
+        # set because glob order is lexicographic (`batch-r100` sorts before
+        # `batch-r11`) while the run is numbered numerically; equal sets of
+        # equal length prove no gap, no extra and no suffixed shard.
+        published = [shard.name for shard in shards]
+        self.assertEqual(len(published), len(SHARD_NAMES))
+        self.assertEqual(set(published), set(SHARD_NAMES))
+        self.assertEqual(
+            card_schema.payload_coverage_errors(self.declaration, published), []
+        )
+
+        names = {feature["name"]: feature for feature in self.declaration["features"]}
+        optional = {n for n, f in names.items() if f.get("optional")}
+        for shard, record in records:
+            self.assertEqual(set(record) - set(names), set(), shard)
+            self.assertEqual(set(names) - set(record) - optional, set(), shard)
+            self.assertIsInstance(record["plan"], str)
+        self.assertIn(f"present on all {total} records", names["plan"]["note"])
+
+        step_names = {feature["name"]: feature for feature in names["steps"]["list"]}
+        step_optional = {n for n, f in step_names.items() if f.get("optional")}
+        total_steps = reflections = bases = 0
+        for shard, record in records:
+            for step in record["steps"]:
+                total_steps += 1
+                self.assertEqual(set(step) - set(step_names), set(), shard)
+                self.assertEqual(
+                    set(step_names) - set(step) - step_optional, set(), shard
+                )
+                self.assertEqual(set(step["tool_call"]), {"name", "args"})
+                reflections += "reflection" in step
+                bases += bool(step["decision_basis"])
+        self.assertIn(
+            f"present on {reflections} of {total_steps} steps",
+            step_names["reflection"]["note"],
+        )
+        self.assertEqual(bases, total_steps)
+        self.assertIn(f"`decision_basis` ({bases} of {total_steps})", self.card)
+
+        bags = {}
+        for bag in ("reward", "meta"):
+            seen = {}
+            for _shard, record in records:
+                for key in record[bag]:
+                    seen[key] = seen.get(key, 0) + 1
+            bags[bag] = seen
+        reward_note = names["reward"]["note"]
+        self.assertEqual(
+            {k for k, v in bags["reward"].items() if v == total},
+            {"success", "tests_passed", "cost_steps"},
+        )
+        self.assertIn(f"`plan_changes` on {bags['reward']['plan_changes']}", reward_note)
+        self.assertIn(f"`retries` on {bags['reward']['retries']}", reward_note)
+        self.assertIn(
+            f"`wasted_calls` on {bags['reward']['wasted_calls']}", reward_note
+        )
+        self.assertIn(f"`xfailed` on {bags['reward']['xfailed']}", reward_note)
+
+        designed = bags["meta"]["kind"]
+        lane_count = bags["meta"]["lane"]
+        meta_note = names["meta"]["note"]
+        self.assertEqual(
+            {k for k, v in bags["meta"].items() if v == total},
+            {"factory", "generator", "round"},
+        )
+        self.assertIn(f"{designed} add `kind`", meta_note)
+        self.assertIn(f"{lane_count} of those also add `lane`", meta_note)
+        self.assertIn(f"{total - designed} carry the thin", meta_note)
+        self.assertIn(f"cast fails on the later {designed} designed records", self.card)
+
+        # Each disclosed id list must be exactly the set the payload produces.
+        disclosed = {}
+        for item in self.declaration["disclosures"]:
+            if isinstance(item, dict):
+                disclosed[frozenset(item["ids"])] = item
+        thin = {r["id"] for _s, r in records if "kind" not in r["meta"]}
+        lane = {r["id"] for _s, r in records if "lane" in r["meta"]}
+        sir = {r["id"] for _s, r in records if r["id"].startswith("sir-")}
+        for derived in (thin, lane, sir):
+            self.assertIn(frozenset(derived), disclosed, sorted(derived))
+        self.assertEqual(len(thin), total - designed)
+        self.assertEqual(len(lane), lane_count)
+        self.assertEqual(len(sir), 6)
+        # The 4 `lane` records are the same 4 whose reward omits `plan_changes`.
+        self.assertEqual(
+            lane, {r["id"] for _s, r in records if "plan_changes" not in r["reward"]}
+        )
+        # The dest-stamped foreign rows really are invisible to both detectors.
+        foreign = [r for _s, r in records if r["id"] in sir]
+        self.assertEqual({r["meta"]["factory"] for r in foreign}, {QUEUE_BACKPRESSURE.replace("-trajectories", "-factory")})
+        self.assertEqual({r["meta"]["kind"] for r in foreign}, {"episode"})
+        self.assertEqual(
+            sum(
+                1
+                for r in foreign
+                if "handoff" in r["reward"] or "xfailed" in r["reward"]
+            ),
+            3,
+        )
+
+        # The same-factory leftover naming counts the card prints.
+        own = [r for _s, r in records if r["id"].startswith("qbp-")]
+        self.assertEqual(len(own), total - len(sir))
+        self.assertIn(
+            f"{sum(1 for r in own if 'leftover' in r['id'])} name `leftover` in the id",
+            self.card,
+        )
+        self.assertIn(
+            f"{sum(1 for r in own if 'leftover' in r['goal'])} name it in the goal",
+            self.card,
+        )
 
 
 if __name__ == "__main__":
