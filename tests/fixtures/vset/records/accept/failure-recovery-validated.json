@@ -20,12 +20,19 @@
     "kind": "deterministic_fixture_reference",
     "status": "validated",
     "repo_commit": "vset-counter-v1",
-    "command": "python3 -m unittest oracle.reference oracle.hidden_none",
-    "result_hash": "sha256:36d39ea401a9f91148a7e5360816ed2955d0d08a2156b8e49e1de4c2ca4259e5",
+    "command": "python3 -m unittest tests.reference tests.hidden_none",
+    "result_hash": "sha256:1af6631aa5d76ddc158e98b896598d7f42bf4be1f11de7c879e4cedf3a4d8187",
     "certifier": "vset_oracle",
-    "signals": ["deterministic_fixture_reference", "fail_to_pass"],
-    "reference_tests": ["oracle/reference.py"],
-    "hidden_tests": ["oracle/hidden_none.py"]
+    "signals": [
+      "deterministic_fixture_reference",
+      "fail_to_pass"
+    ],
+    "reference_tests": [
+      "tests/reference.py"
+    ],
+    "hidden_tests": [
+      "tests/hidden_none.py"
+    ]
   },
   "curation": {
     "pipeline_version": "vset-validate-v1",
@@ -33,7 +40,7 @@
     "reason_codes": []
   },
   "environment": {
-    "repo_snapshot_hash": "sha256:15def9dbe24a2c87dc9ee200d50c24a59cfa88708fdbd0932f9621b14529f665",
+    "repo_snapshot_hash": "sha256:04092bbd993ef2519c518a8b75b1b3301958ee7e6804bd1dbf64f92074f20a52",
     "task_id": "vset-counter-v1.recover-none",
     "repo_pack_id": "vset-counter-v1"
   },

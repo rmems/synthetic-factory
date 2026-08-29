@@ -154,13 +154,24 @@ class OracleExecutionTests(unittest.TestCase):
 
     def test_pack_snapshot_ignores_bytecode(self):
         before = vset.pack_snapshot_hash(PACK)
-        cache = PACK / "oracle" / "__pycache__"
+        cache = PACK / "tests" / "__pycache__"
         cache.mkdir(exist_ok=True)
-        (cache / "reference.cpython-312.pyc").write_bytes(b"not-a-real-pyc")
+        junk = cache / "reference.cpython-314.pyc"
+        junk.write_bytes(b"not-a-real-pyc")
         try:
             self.assertEqual(vset.pack_snapshot_hash(PACK), before)
         finally:
-            (cache / "reference.cpython-312.pyc").unlink(missing_ok=True)
+            junk.unlink(missing_ok=True)
+
+    def test_pack_snapshot_ignores_factory_metadata(self):
+        before = vset.pack_snapshot_hash(PACK)
+        pack_meta = PACK / "PACK.json"
+        original = pack_meta.read_text()
+        try:
+            pack_meta.write_text(original.replace("vset-counter-v1", "vset-counter-mutated"))
+            self.assertEqual(vset.pack_snapshot_hash(PACK), before)
+        finally:
+            pack_meta.write_text(original)
 
     def test_validated_issue_patch_oracle_executes(self):
         record = _load(ACCEPT / "issue-patch-validated.json")
