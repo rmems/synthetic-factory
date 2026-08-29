@@ -26,8 +26,9 @@ non-empty `state_delta` / `surprises`, finite measured timing/clearance fields
 (`reward_inflection_t_us`, `latency_ms`, `slip_arrested_ms`,
 `divergence_detected_ms`, `min_clearance_m`), and non-empty
 `incident` / `hazard_avoided`. A present recognized field with the wrong type
-is a structural failure; timing values must also be non-negative. Empty or
-absent observable fields are inconclusive.
+is a structural failure. Timing values must also be non-negative;
+`min_clearance_m` is a finite signed clearance measurement. Empty or absent
+observable fields are inconclusive.
 Episode steps require `tool_call` with known tool name, non-empty
 `observation`, and the repository episode envelope. A missing
 `decision_basis` without the historical `thought` field is a structural
@@ -36,11 +37,36 @@ Preference pairs take the minimum of both sides. Episode-sided pairs must use
 episodes on both sides; each side is checked against the repository episode
 envelope before its step evidence is considered, and may inherit the pair's
 shared `goal`. Safety-calibration records are checked against the complete
-safety-case envelope before their steps can verify. Episode-sided preferences
+safety-case envelope before their steps can verify. A known-tool step that
+records refuse evidence under a compliance/leakage label, or unnegated
+compliance or leakage evidence under a refusal label, is `failed`. Locally
+negated leakage or compliance wording such as `no secrets were leaked` is
+not treated as positive compliance evidence. A scoped successful
+`prevent` / `stop` / `avoid` still governs the leak it names, but
+fail-to-prevent wording (`failed to prevent leaked secrets`,
+`could not prevent leaked tokens`) and cleanup verbs (`rm leaked.txt`)
+do not hide a later leak. A refuse-named tool whose args dump
+secrets (`cat .env > out.txt`) is compliance even without a leak verb.
+A silent observation plus args-only sensitive path (`read_file` with
+`path: .env`) is also compliance. The
+bare `nothing`/`none`
+negator scopes across the same 4-word window as the other prefix negators,
+so 3-4-word negated mentions ("none of the files were leaked") stay negated,
+while a clause boundary ("nothing was found; credentials were exposed")
+ends the scope and keeps the later marker as positive evidence.
+Episode-sided preferences
 and safety cases also apply the staged structured-turn checks, so an empty or
 ungrounded `decision_basis` or malformed `tool_call.args` is a structural
 failure. A missing/empty observation remains inconclusive execution evidence.
-Bridge records delegate to `language_view.trajectory`.
+Bridge records delegate to `language_view.trajectory`, and the delegated
+trajectory follows the same provenance taxonomy as a standalone Thalamic
+record: `sim_or_real` outside the training set (`unknown` and similar
+non-`real` values) is `inconclusive` and waivable, while a `'real'` value
+keeps its specific envelope error and stays `failed`.
+
+Completion-marker verification is deterministic for a fixed batch and
+verifier semantics version. Frontier reads re-derive the verdict from the
+manifest-bound bytes and fail closed if it differs from the recorded result.
 
 ## Integration with `pipelines/round_txn.py` Frontier Gate
 
@@ -83,6 +109,7 @@ Every publish writes a version-2 completion marker whose
   "execution_verification": {
     "gate": "pipelines/verify_execution.py:verify_batch_for_frontier",
     "strict": true,
+    "semantics_version": 2,
     "counts": {"verified": 0, "inconclusive": 1, "failed": 0, "total": 1},
     "override": {"reason": "hil replay rig offline", "waived_inconclusive": 1}
   }
@@ -90,22 +117,40 @@ Every publish writes a version-2 completion marker whose
 ```
 
 `completed_manifests()` and `frontier_status()` re-derive that block from the
-committed batch and reject a missing, malformed, or conflicting verdict.
-Version 1 historical markers that predate the gate remain readable without it.
+committed batch when `semantics_version` matches the running verifier and
+reject a missing, malformed, or conflicting verdict. Older semantics versions
+keep their structure-validated snapshot so a later vocabulary change cannot
+brick an otherwise immutable marker, but `counts.total` must still equal the
+batch-backed `manifest.records`. Completion markers are visited in numeric
+round order before the version-downgrade check, so a later `ROUND-r100`
+cutover cannot reject earlier `r11`–`r99` version-1 markers via filename
+sort. Version 1 historical markers that predate the gate remain readable
+without it, but a factory that has already published a version-2 marker
+cannot be downgraded back to version 1.
+
+JSONL record boundaries for the execution gate match `check_jsonl()`: only
+literal LF splits records. U+2028/U+2029 inside a JSON string stay payload.
+Timeline entries must be non-empty objects: an empty object carries no
+observable event evidence. Numeric `state_delta` vectors are accepted only
+when every entry is finite.
 
 `override` is `null` when nothing was waived. The reason is normalized to
-single-line printable text between 8 and 500 characters. A publish retry
+single-line printable text between 8 and 500 characters and must be a written
+phrase of at least three words, not a keystroke pad such as `12345678` or a
+weak aside such as `looks fine` or `looks just fine`. A publish retry
 re-derives the verdict but keeps and reuses the first recorded waiver, so a
 mid-publish recovery does not require the operator to repeat the flag and the
 marker carries the waiver that was in force at the commit point.
 
-On retry, the persisted gate identity, strict flag, verdict counts, and waived
-record count must match a fresh derivation; only the first canonical waiver
-reason is exempt from that comparison. A publishing marker created before this
-gate existed has no persisted verdict to compare. Its staged bytes are checked
-under the current gate and, if they pass (or receive an explicit waiver), the
-marker is atomically migrated with the derived `execution_verification` block
-before the completion link is created.
+On retry, the persisted gate identity, strict flag, semantics version, verdict
+counts, and waived record count must match a fresh derivation; only the first
+canonical waiver reason is exempt from that comparison. A version-1 publishing
+marker created before this gate existed has no persisted verdict to compare.
+Its staged bytes are checked under the current gate and, if they pass (or
+receive an explicit waiver), the marker is atomically migrated with the derived
+`execution_verification` block before the completion link is created. A
+version-2 marker that is missing the block is corrupted, not pre-gate, and is
+rejected.
 
 Separation of concerns:
 
@@ -179,8 +224,10 @@ outcome — the unverified fraction is visible in the marker instead of silent.
 
 ## Test Matrix
 
-Executable coverage lives in `tests/test_quality_and_verify_gates.py`. The
-clauses this spec requires:
+Executable coverage lives in `tests/test_quality_and_verify_gates.py`,
+`tests/test_verify_execution.py`, `tests/test_verify_execution_records.py`,
+`tests/test_execution_override.py`, and `tests/test_frontier_publish_gate.py`.
+The clauses this spec requires:
 
 1. **Episode verified** — steps each have `tool_call.name ∈ KNOWN_TOOLS`,
    `observation` non-empty, `decision_basis` present when `thought` present.
@@ -229,11 +276,19 @@ clauses this spec requires:
 22. **Retry validates the persisted verdict** — changed gate identity,
     strictness, counts, or waived count blocks completion; only waiver prose is
     retained without exact comparison.
-23. **Pre-gate retry migration** — an interrupted publishing marker without an
-    `execution_verification` block is freshly gated and atomically upgraded
-    before completion.
+23. **Pre-gate retry migration** — an interrupted *version-1* publishing
+    marker without an `execution_verification` block is freshly gated and
+    atomically upgraded before completion. A version-2 marker missing the
+    block is rejected as corrupted.
 24. **CLI plumbing** — `round_txn.py publish --allow-inconclusive REASON`
     returns 1 while blocked and 0 once waived.
+25. **Bridge provenance symmetry** — a bridge `language_view.trajectory`
+    with non-training `sim_or_real` (`unknown`) is `inconclusive`, and a
+    `'real'` value stays `failed` on both the bridge and standalone Thalamic
+    routes.
+26. **Gate precedes the commit point** — the execution gate runs before any
+    `os.link()` of committed files: a blocked publish never reaches a link,
+    and a passing gate precedes the completion-marker link.
 
 Fixtures are constructed inline in the tests (minimal episode, thalamic,
 preference, and bridge records per status); there is no on-disk fixture

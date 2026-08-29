@@ -3,7 +3,6 @@ import copy
 import hashlib
 import io
 import json
-import os
 import subprocess
 import sys
 import tempfile
@@ -11,12 +10,15 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
+_TESTS = Path(__file__).resolve().parent
+if str(_TESTS) not in sys.path:
+    sys.path.insert(0, str(_TESTS))
 
-ROOT = Path(__file__).resolve().parents[1]
-PIPELINES = ROOT / "pipelines"
-if str(PIPELINES) not in sys.path:
-    sys.path.insert(0, str(PIPELINES))
-
+from coding_curation_helpers import (  # noqa: E402
+    PIPELINES,
+    episode,
+    visible_step,
+)
 import curate_coding  # noqa: E402
 import curate_gate  # noqa: E402
 from curate_coding import (  # noqa: E402
@@ -25,40 +27,17 @@ from curate_coding import (  # noqa: E402
     REASON_BASIS_FROM_PLAN,
     REASON_BASIS_FROM_REFLECTION,
     REASON_BASIS_FROM_TOOL_CALL,
+    REASON_HIDDEN_REASONING_REMOVED,
     REASON_INVALID_JSON,
     REASON_INVALID_UTF8,
     REASON_NO_RETAINABLE_STEPS,
     REASON_NO_VISIBLE_EVIDENCE,
     REASON_STEP_NOT_OBJECT,
-    REASON_THOUGHT_REMOVED,
-    contains_thought_key,
+    contains_hidden_reasoning_key,
     curate_episode,
     curate_jsonl,
     curate_step,
 )
-
-
-def visible_step(**overrides):
-    step = {
-        "n": 1,
-        "thought": "private scratch text that must never affect output",
-        "tool_call": {"name": "bash", "args": {"command": "pytest -q"}},
-        "observation": "Two tests failed with a timezone mismatch.",
-        "reflection": "The failure is deterministic outside UTC. Inspect both clocks next.",
-    }
-    step.update(overrides)
-    return step
-
-
-def episode(steps):
-    return {
-        "goal": "Diagnose the failing build.",
-        "steps": steps,
-        "outcome": "The visible evidence isolated the defect.",
-        "reward": {"success": True},
-        "meta": {"factory": "agentic-coding-trajectory-factory"},
-    }
-
 
 class CurateCodingTests(unittest.TestCase):
     def test_migrates_thought_from_visible_reflection(self):
@@ -68,7 +47,7 @@ class CurateCodingTests(unittest.TestCase):
 
         self.assertIsNotNone(curated)
         step = curated["steps"][0]
-        self.assertFalse(contains_thought_key(curated))
+        self.assertFalse(contains_hidden_reasoning_key(curated))
         self.assertEqual(
             step["decision_basis"],
             "Reflection: The failure is deterministic outside UTC. "
@@ -81,7 +60,7 @@ class CurateCodingTests(unittest.TestCase):
             "migrated": 1,
             "excluded": 0,
         })
-        self.assertIn(REASON_THOUGHT_REMOVED, manifest["step_actions"][0]["reason_codes"])
+        self.assertIn(REASON_HIDDEN_REASONING_REMOVED, manifest["step_actions"][0]["reason_codes"])
         self.assertIn(
             REASON_BASIS_FROM_REFLECTION,
             manifest["step_actions"][0]["reason_codes"],
@@ -135,7 +114,7 @@ class CurateCodingTests(unittest.TestCase):
             "Reflection: The failure is deterministic outside UTC. "
             "Inspect both clocks next.",
         )
-        self.assertFalse(contains_thought_key(curated))
+        self.assertFalse(contains_hidden_reasoning_key(curated))
         self.assertEqual(manifest["action"], "migrated")
 
     def test_existing_basis_alone_is_not_accepted_as_visible_evidence(self):
@@ -174,9 +153,9 @@ class CurateCodingTests(unittest.TestCase):
 
         curated, manifest = curate_step(source, 1)
 
-        self.assertFalse(contains_thought_key(curated))
+        self.assertFalse(contains_hidden_reasoning_key(curated))
         self.assertEqual(curated["tool_call"]["args"], {"path": "visible.txt"})
-        self.assertEqual(manifest["thought_fields_removed"], 2)
+        self.assertEqual(manifest["hidden_reasoning_fields_removed"], 2)
 
     def test_step_without_visible_evidence_is_excluded_with_reason(self):
         source = {"n": 1, "thought": "the only possible source"}
@@ -186,7 +165,7 @@ class CurateCodingTests(unittest.TestCase):
         self.assertIsNone(curated)
         self.assertEqual(manifest["action"], "excluded")
         self.assertIn(REASON_NO_VISIBLE_EVIDENCE, manifest["reason_codes"])
-        self.assertIn(REASON_THOUGHT_REMOVED, manifest["reason_codes"])
+        self.assertIn(REASON_HIDDEN_REASONING_REMOVED, manifest["reason_codes"])
 
     def test_malformed_step_is_excluded_with_reason(self):
         curated, manifest = curate_step("not an object", 3)
@@ -320,6 +299,8 @@ class CurateCodingTests(unittest.TestCase):
             self.assertEqual(summary["input_files"], 2)
             self.assertEqual(summary["input_records"], 2)
             self.assertEqual(summary["output_records"], 2)
+            self.assertEqual(summary["hidden_reasoning_fields_removed"], 2)
+            self.assertEqual(summary["wrap_records"], 0)
             self.assertEqual(
                 [(item["source_path"], item["source_line"]) for item in manifest],
                 [(alpha.as_posix(), 2), (zeta.as_posix(), 1)],
@@ -563,7 +544,6 @@ class CurateCodingTests(unittest.TestCase):
             self.assertTrue(file_manifest.is_file())
 
             file_a = root / "a.jsonl"
-            file_b = root / "b.jsonl"
             with self.assertRaisesRegex(ValueError, "distinct"):
                 curate_coding._preflight_destinations([file_a, file_a])
             self.assertFalse(
