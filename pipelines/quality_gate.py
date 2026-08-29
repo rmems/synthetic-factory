@@ -171,6 +171,13 @@ _IDENTITY_FIELDS = (
     "disagreements",
     "resolution",
     "joint_outcome",
+    # Cascading-error recovery models the injected fault and its root-cause
+    # diagnosis as training fields (prompts/09-cascading-error-recovery-
+    # factory.md). Without them two records with identical goals, steps,
+    # outcomes and rewards but different faults and diagnoses collapse to one
+    # exact hash, and promotion drops the second as a duplicate.
+    "error_introduced",
+    "diagnosis",
     # Thalamic distillation is driven by ``spike_events`` + ``state``
     # (prompts/01-thalamic-trajectory-factory.md), and the event-language
     # bridge models the paired language view and raster sidecar
@@ -190,8 +197,27 @@ _IDENTITY_FIELDS = (
 _CANONICAL_ID_KEYS = frozenset(
     {"episode_id", "record_id", "trajectory_id", "pair_id", "sample_id"}
 )
-_SEMANTIC_ROOT_BOOKKEEPING_KEYS = frozenset(
-    {"id", "meta", "provenance", "tag_provenance"}
+_SEMANTIC_ROOT_BOOKKEEPING_KEYS = frozenset({"id", "meta"})
+# Promotion rewrites ``sim_or_real`` and files the original wording under
+# ``provenance.claimed``, at the root or inside ``state``. That claim is
+# bookkeeping about the promotion, not training content: leaving it in the
+# semantic view let two otherwise identical records that merely claimed their
+# provenance differently ("real" vs "production plant") score well under the
+# threshold and pass as distinct.
+_SEMANTIC_PROMOTION_BOOKKEEPING_KEYS = frozenset({"provenance", "tag_provenance"})
+# Where bookkeeping actually lives in the record contract. Stripping a
+# canonical id at *every* depth cannot tell an envelope identifier from a
+# semantic argument: ``executed_action.record_id`` names the row a delete acts
+# on, so removing it made deletes of different rows identical to the encoder.
+_SEMANTIC_BOOKKEEPING_PARENTS = frozenset(
+    {
+        (),
+        ("state",),
+        ("chosen",),
+        ("rejected",),
+        ("chosen", "state"),
+        ("rejected", "state"),
+    }
 )
 
 # Unicode-name markers for scripts whose ordinary prose does not reliably
@@ -324,19 +350,29 @@ def dedup_view(obj):
     return exact_identity_view(obj)
 
 
-def _without_canonical_ids(value, *, root=True):
-    """Copy ``value`` while removing only canonical record identifiers."""
+def _without_canonical_ids(value, path=()):
+    """Copy ``value`` while removing bookkeeping the cosine encoder must not see.
+
+    Stripping is scoped to the paths the record contract puts bookkeeping in
+    -- the record root, its ``state``, and either side of a preference wrapper
+    (and that side's ``state``) -- so an identifier used as a semantic
+    argument deeper in a modeled payload survives into the similarity view.
+    """
     if isinstance(value, dict):
+        bookkeeping = path in _SEMANTIC_BOOKKEEPING_PARENTS
         return {
-            key: _without_canonical_ids(child, root=False)
+            key: _without_canonical_ids(child, path + (key,))
             for key, child in value.items()
-            if key not in _CANONICAL_ID_KEYS
-            and not (root and key in _SEMANTIC_ROOT_BOOKKEEPING_KEYS)
+            if not (
+                bookkeeping
+                and key in (_CANONICAL_ID_KEYS | _SEMANTIC_PROMOTION_BOOKKEEPING_KEYS)
+            )
+            and not (not path and key in _SEMANTIC_ROOT_BOOKKEEPING_KEYS)
         }
     if isinstance(value, list):
-        return [_without_canonical_ids(child, root=False) for child in value]
+        return [_without_canonical_ids(child, path) for child in value]
     if isinstance(value, tuple):
-        return tuple(_without_canonical_ids(child, root=False) for child in value)
+        return tuple(_without_canonical_ids(child, path) for child in value)
     return value
 
 

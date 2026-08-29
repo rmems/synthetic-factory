@@ -1199,5 +1199,137 @@ class RewardShapeReport(unittest.TestCase):
 
 
 
+class IdentityAndSemanticProjectionReviewFollowUps(unittest.TestCase):
+    """PR #98 review findings on what each projection may drop.
+
+    The two projections answer different questions, and each was dropping
+    something the other needed: exact identity dropped modeled supervision, and
+    the semantic view dropped a semantic argument while keeping bookkeeping.
+    """
+
+    @staticmethod
+    def _audit(records):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            write(root / "batch.jsonl", records)
+            return quality_gate.audit_run(root)
+
+    def _cascading(self, kind, payload, diagnosis):
+        return {
+            "id": f"cer-r01-{kind}",
+            "goal": "restore the write path after the fault",
+            "error_introduced": {"step": 4, "kind": kind, "payload": payload},
+            "steps": [
+                {
+                    "n": 1,
+                    "decision_basis": "inspect the write path",
+                    "tool_call": "ls /var/lib/store",
+                    "observation": "writer is blocked",
+                }
+            ],
+            "diagnosis": diagnosis,
+            "outcome": "recovered the write path",
+            "reward": {"success": True, "cascade_steps": 5, "recovered": 1},
+        }
+
+    def test_cascading_error_supervision_survives_exact_identity(self):
+        """``error_introduced`` and ``diagnosis`` are modeled training fields.
+
+        prompts/09-cascading-error-recovery-factory.md puts the injected fault
+        and its root-cause diagnosis in the record shape. Two records with the
+        same goal, steps, outcome and reward but different faults are different
+        training units, so promotion must not drop one as an exact duplicate.
+        """
+        first = self._cascading(
+            "stale-lock",
+            "lock file left by a crashed writer",
+            "the crashed writer left a lock and later steps inherited the block",
+        )
+        second = self._cascading(
+            "clock-skew",
+            "NTP drift on the replica",
+            "clock skew reordered the log and later steps inherited bad ordering",
+        )
+
+        view = quality_gate.exact_identity_view(first)
+        self.assertIn("error_introduced", view)
+        self.assertIn("diagnosis", view)
+        self.assertNotEqual(
+            quality_gate.record_hash(quality_gate.exact_identity_view(first)),
+            quality_gate.record_hash(quality_gate.exact_identity_view(second)),
+        )
+
+        report = self._audit([first, second])
+
+        self.assertEqual(report["duplicates"], [])
+        self.assertEqual(report["counts"]["unique_hashes"], 2)
+
+    @staticmethod
+    def _delete_action(target):
+        return {
+            "id": f"del-{target}",
+            "state": {"table": "customers", "episode_id": f"ep-{target}"},
+            "executed_action": {"tool": "delete", "record_id": target},
+            "outcome": "row deleted",
+            "reward": {"success": True},
+        }
+
+    def test_an_identifier_used_as_an_action_argument_is_not_stripped(self):
+        """``executed_action.record_id`` names the row, it is not an envelope id.
+
+        Stripping every nested key that happened to match a canonical id name
+        made deletes of different rows identical to the encoder -- cosine 1.0 --
+        so the second valid action was excluded as a near-duplicate.
+        """
+        first = self._delete_action("customer-A")
+        second = self._delete_action("customer-B")
+
+        view = quality_gate.semantic_similarity_view(first)
+        self.assertEqual(view["executed_action"]["record_id"], "customer-A")
+        # The envelope identifier at a bookkeeping path is still removed.
+        self.assertNotIn("episode_id", view["state"])
+        self.assertNotIn("id", view)
+
+        report = self._audit([first, second])
+
+        self.assertEqual(report["duplicates"], [])
+
+    @staticmethod
+    def _claimed(claim):
+        return {
+            "id": f"prov-{claim.replace(' ', '-')}",
+            "state": {
+                "plant": "acme filtration skid",
+                "note": "the backwash valve stuck open during the rinse step",
+                "sim_or_real": "designed",
+                "provenance": {"kind": "designed", "claimed": claim},
+            },
+            "outcome": "operator forced the valve closed",
+            "reward": {"success": True},
+        }
+
+    def test_nested_promotion_bookkeeping_cannot_hide_a_clone(self):
+        """Promotion normalizes ``sim_or_real`` and files the original wording
+        under ``state.provenance.claimed``. Only root provenance was removed,
+        so two records that differed *only* in that claim stayed apart in the
+        semantic view and passed as distinct training content."""
+        first = self._claimed("real")
+        second = self._claimed("production plant")
+
+        self.assertNotIn("provenance", quality_gate.semantic_similarity_view(first)["state"])
+        self.assertNotEqual(
+            quality_gate.record_hash(quality_gate.exact_identity_view(first)),
+            quality_gate.record_hash(quality_gate.exact_identity_view(second)),
+        )
+
+        report = self._audit([first, second])
+
+        self.assertEqual(len(report["duplicates"]), 1)
+        self.assertEqual(
+            report["duplicates"][0]["duplicate_of"],
+            {"file": "batch.jsonl", "line": 1},
+        )
+
+
 if __name__ == "__main__":
     unittest.main()
