@@ -73,6 +73,7 @@ from card_schema_coverage import payload_coverage_errors
 from card_schema_render import (
     _yaml_scalar,
     body_section,
+    field_notes,
     json_columns,
     metadata_yaml,
     undeclared_body_section,
