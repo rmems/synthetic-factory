@@ -105,3 +105,34 @@ class OracleExecutionTests(unittest.TestCase):
         errors, _execution = vset.validate_record_with_oracle(record, PACK)
         self.assertIn("vset.oracle_execution_mismatch", _codes(errors))
 
+    def test_hidden_suite_checks_state_on_the_negative_delta_case(self):
+        """A `sub` that stores nothing for a negative delta must not pass.
+
+        The hidden FAIL_TO_PASS suite is the only thing between a real fix
+        and a plausible-looking one, so every case asserts the counter's
+        state afterwards and not only what the call returned. This solver
+        mutates correctly for positive deltas -- so it satisfies
+        `test_sub_decrements` -- and only skips the store when the delta is
+        negative, which is caught solely by the negative-delta state check.
+        """
+
+        record = _load(ACCEPT / "issue-patch-validated.json")
+        files = record["payload"]["patch"]["files"]
+        honest = (
+            "    def sub(self, delta):\n"
+            "        self._value -= int(delta)\n"
+            "        return self._value\n"
+        )
+        self.assertIn(honest, files["src/counter.py"])
+        files["src/counter.py"] = files["src/counter.py"].replace(
+            honest,
+            "    def sub(self, delta):\n"
+            "        if int(delta) < 0:\n"
+            "            return self._value - int(delta)\n"
+            "        self._value -= int(delta)\n"
+            "        return self._value\n",
+        )
+        _errors, execution = vset.validate_record_with_oracle(record, PACK)
+        self.assertTrue(execution["reference"]["ok"])
+        self.assertFalse(execution["hidden"]["ok"])
+

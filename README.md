@@ -139,7 +139,7 @@ Cursor Cloud Agents build from `.cursor/Dockerfile` via
 same unit tests and operator smoke check.
 
 ## Structure
-- `schemas/` — Thalamic schema, the two parity-family schemas, + `provenance.md`; `oracle-grounded-v1.schema.json` and `oracle-grounded/` for the oracle-grounded families, plus actor-provenance-v1 and vset-record-v1
+- `schemas/` — Thalamic schema, the two parity-family schemas, + `provenance.md`; `oracle-grounded-v1.schema.json` and `oracle-grounded/` for the oracle-grounded families, plus actor-provenance-v1, vset-record-v1, and vset-release-manifest-v1
 - `prompts/` — factory prompts 01–07. 01–05 start with a session bootstrap; shared rules in `prompts/_factory-contract.md`
 - `outputs/raw/` — dated dumps. `2026-08-17/` is the live run; `2026-08-17-prehalt/` is the pre-resume copy. `NEXT_ROUND.json` is a generated index, not a record
 - `outputs/cleaned/` — remapped copies (`sim_or_real` never `real`)
@@ -194,6 +194,20 @@ python3 pipelines/validate_vset.py --oracle --pack tests/fixtures/vset/repo-pack
 python3 pipelines/validate_vset.py --manifest tests/fixtures/vset/manifests/pilot-v1.json
 python3 pipelines/check_records.py outputs/raw/2026-08-17   # reward / spike order / ids
 python3 pipelines/promote.py outputs/raw/2026-08-17 outputs/cleaned/2026-08-17
+```
+
+`--pack` is only meaningful with `--oracle`; passing it alone is rejected
+rather than silently ignored, so a pack never looks like it participated in a
+run that never executed one.
+
+Some VSET fixture fields are hashes of live repository bytes — the repo-pack
+snapshot, the reviewed `config/FACTORY-REGISTRY.json` pin, and the manifest
+counts and hash. Editing the registry or the counter pack invalidates them and
+the VSET tests fail. Restate them from the same functions the validator uses:
+
+```bash
+python3 scripts/refresh_vset_fixture_pins.py --check   # report drift only
+python3 scripts/refresh_vset_fixture_pins.py           # rewrite the pins
 ```
 
 The census `mill_mix` section reports records whose mill signals — declared

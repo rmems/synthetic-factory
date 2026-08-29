@@ -17,4 +17,6 @@ class HiddenSubTests(unittest.TestCase):
         self.assertEqual(counter.get(), 3)
 
     def test_sub_negative_delta_adds(self):
-        self.assertEqual(Counter(1).sub(-4), 5)
+        counter = Counter(1)
+        self.assertEqual(counter.sub(-4), 5)
+        self.assertEqual(counter.get(), 5)

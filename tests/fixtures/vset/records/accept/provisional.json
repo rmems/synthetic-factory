@@ -36,7 +36,7 @@
     ]
   },
   "environment": {
-    "repo_snapshot_hash": "sha256:04092bbd993ef2519c518a8b75b1b3301958ee7e6804bd1dbf64f92074f20a52",
+    "repo_snapshot_hash": "sha256:fb54337dc385c38635a7c70f5676d6f5ce6e89c04810ffa4a4bbeb6821138347",
     "task_id": "vset-counter-v1.add-sub",
     "repo_pack_id": "vset-counter-v1"
   },
