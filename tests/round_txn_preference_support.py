@@ -153,12 +153,12 @@ class PreferenceRoundHarness(unittest.TestCase):
             round_txn.PREFERENCE_TWO_SESSION,
         )
 
-    def fill_stage(self, reservation, record, *, include_handoff=True, contexts=None):
+    def fill_stage(self, reservation, record, *, include_handoff=True, diagnoses=None):
         """Stage one round the way Session A then Session B would write it.
 
-        ``contexts`` overrides the Shared-context block a numbered diagnosis
-        declares, so a test can stage a diagnosis that does not describe the
-        pair it is published beside.
+        ``diagnoses`` maps a diagnosis number to keyword overrides for its
+        document, so a test can stage one that does not describe the pair it
+        is published beside, or whose prose the chosen arm copied.
         """
         stage = Path(reservation["staging_dir"])
         round_number = reservation["round"]
@@ -175,10 +175,12 @@ class PreferenceRoundHarness(unittest.TestCase):
         if include_handoff:
             names = preference_arms.diagnosis_filenames(round_number, len(records))
             for index, (name, staged) in enumerate(zip(names, records, strict=True), 1):
-                context = (contexts or {}).get(index, shared_context(staged))
+                overrides = {
+                    "context": shared_context(staged),
+                    **(diagnoses or {}).get(index, {}),
+                }
                 (stage / name).write_text(
-                    diagnosis_document(index, context=context),
-                    encoding="utf-8",
+                    diagnosis_document(index, **overrides), encoding="utf-8"
                 )
             preference_arms.write_diagnosis_handoff_receipt(stage, names)
         write_records(stage / reservation["batch_file"], records)

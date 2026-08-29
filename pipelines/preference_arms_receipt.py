@@ -22,12 +22,16 @@ from preference_arms_diagnosis import (  # noqa: E402
     MAX_DIAGNOSIS_BYTES,
     _strict_json_object,
     diagnosis_filenames,
+    diagnosis_narrative_text,
     diagnosis_receipt_filename,
     rejected_scratch_filenames,
     validate_diagnosis_document,
 )
 from preference_arms_fs import _read_regular_artifact  # noqa: E402
-from preference_arms_text import PreferenceArmsError  # noqa: E402
+from preference_arms_text import (  # noqa: E402
+    PreferenceArmsError,
+    shares_copied_phrasing,
+)
 
 
 #: A scratch failure artifact carries a whole trajectory, including its spike
@@ -212,7 +216,10 @@ def _reconcile_entry_bytes(root: Path, entry: tuple[str, int, str]) -> dict[str,
         raise PreferenceArmsError(f"diagnosis file byte count does not match receipt: {name}")
     if hashlib.sha256(payload).hexdigest() != digest:
         raise PreferenceArmsError(f"diagnosis file SHA-256 does not match receipt: {name}")
-    return document
+    return {
+        **document,
+        "narrative": diagnosis_narrative_text(payload, label=f"diagnosis file {name}"),
+    }
 
 
 def _batch_pairs(batch: Path, expected_count: int) -> list[dict[str, Any]]:
@@ -290,6 +297,31 @@ def _require_bound_rejected_arm(root: Path, name: str, pair: dict[str, Any]) -> 
         raise PreferenceArmsError(f"published rejected arm does not match Session A's {name}")
 
 
+def _chosen_rationale(pair: dict[str, Any]) -> str:
+    """The chosen arm's safety rationale, or empty when it declares none."""
+
+    chosen = pair.get("chosen")
+    decision = chosen.get("safety_decision") if isinstance(chosen, dict) else None
+    rationale = decision.get("rationale") if isinstance(decision, dict) else None
+    return rationale if isinstance(rationale, str) else ""
+
+
+def _require_independent_rationale(
+    document: dict[str, Any], pair: dict[str, Any], name: str
+) -> None:
+    """A chosen rationale restated from its diagnosis is a correlated pair.
+
+    The bounded diagnosis format permits ordinary narrative and the arm gate
+    deliberately excludes safety rationale from its projection, so a chosen
+    arm that copied its diagnosis cleared both and published anyway.
+    """
+
+    if shares_copied_phrasing(_chosen_rationale(pair), document["narrative"]):
+        raise PreferenceArmsError(
+            f"published chosen rationale is copied from the prose of {name}"
+        )
+
+
 def _require_bound_publication(
     root: Path,
     documents: list[dict[str, Any]],
@@ -313,6 +345,7 @@ def _require_bound_publication(
         documents, expected_names, scratch_names, pairs, strict=True
     ):
         _require_bound_shared_context(document, pair, name)
+        _require_independent_rationale(document, pair, name)
         _require_bound_rejected_arm(root, scratch_name, pair)
 
 

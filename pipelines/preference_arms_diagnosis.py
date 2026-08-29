@@ -495,6 +495,21 @@ def rejected_scratch_filenames(round_number: int, count: int) -> tuple[str, ...]
     return tuple(f"rejected-{index:02d}-r{round_text}.json" for index in range(1, count + 1))
 
 
+def diagnosis_narrative_text(payload: bytes, *, label: str) -> str:
+    """The document's bounded prose, for publisher-side isolation checks only.
+
+    ``validate_diagnosis_document`` deliberately never returns prose, so the
+    read-only verifier stays arm-payload-blind. The publisher already holds
+    both the diagnosis bytes and the batch, so it is the one place that can
+    check a chosen rationale was not lifted out of the diagnosis it was
+    written from.
+    """
+
+    text = _decoded_diagnosis_text(payload, label)
+    sections = _diagnosis_sections(text, label)
+    return "\n".join("\n".join(sections[name]).strip() for name in DIAGNOSIS_SECTIONS[1:-1])
+
+
 def _session_b_outputs(names: Sequence[str], round_number: int, count: int) -> list[str]:
     """Names in the stage that Session A is not the author of.
 

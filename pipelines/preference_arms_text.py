@@ -388,6 +388,37 @@ def _collect_terms(value: Any, path: str, terms: Counter[str]) -> None:
     terms[f"{path}={canonical_json(value)}"] += 1
 
 
+#: Two writers describing one incident reuse its vocabulary; they do not
+#: reuse a twelve-word run of it. Below the lower bound a shared run is short
+#: enough to be ordinary phrasing, so no claim is made either way.
+_COPIED_PHRASE_WORDS = 12
+_MIN_COPIED_PHRASE_WORDS = 6
+
+
+def _phrase_shingles(words: tuple[str, ...], size: int) -> set[tuple[str, ...]]:
+    """Every contiguous run of ``size`` normalized words in a text."""
+
+    return {tuple(words[start : start + size]) for start in range(len(words) - size + 1)}
+
+
+def shares_copied_phrasing(left: str, right: str) -> bool:
+    """Whether two texts share a word run long enough to be a copy.
+
+    The comparison runs on the same normalized terms the arm metric uses, so
+    casing, accents, and homoglyph spellings cannot disguise a lift. A text
+    shorter than the full run is compared at its own length, which catches a
+    one-line rationale taken whole without letting a short stock phrase read
+    as evidence of copying.
+    """
+
+    left_words = _unicode_terms(left)
+    right_words = _unicode_terms(right)
+    size = min(_COPIED_PHRASE_WORDS, len(left_words), len(right_words))
+    if size < _MIN_COPIED_PHRASE_WORDS:
+        return False
+    return bool(_phrase_shingles(left_words, size) & _phrase_shingles(right_words, size))
+
+
 def _term_vector_norm(vector: Counter[str]) -> float:
     """Euclidean norm of one term-frequency vector."""
 

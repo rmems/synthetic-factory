@@ -298,6 +298,46 @@ class PreferencePublicationGate(PreferenceRoundHarness):
             )
             self.assertEqual(round_txn.frontier_status(factory)["next_round"], 2)
 
+    def test_chosen_rationale_may_not_be_copied_from_the_diagnosis(self):
+        # The bounded diagnosis format permits ordinary narrative, and the arm
+        # gate deliberately excludes safety rationale from its projection, so
+        # a chosen arm that restated its diagnosis passed both checks and
+        # published a correlated pair.
+        copied = (
+            "The gate accepted a setpoint relaxation whose backup compressor "
+            "state was unknown, so the supervisor caught the unbounded "
+            "consequence one step after the arm had already committed to it."
+        )
+        with tempfile.TemporaryDirectory() as td:
+            factory = self.factory(td)
+            reservation = self.reserve(factory)
+            record = ffpc_record()
+            record["chosen"]["safety_decision"]["rationale"] = copied
+            self.fill_stage(reservation, record, diagnoses={1: {"root_cause": copied}})
+
+            self.assert_publish_refused(factory, reservation, "copied")
+
+    def test_a_freshly_written_rationale_still_publishes(self):
+        with tempfile.TemporaryDirectory() as td:
+            factory = self.factory(td)
+            reservation = self.reserve(factory)
+            self.fill_stage(
+                reservation,
+                ffpc_record(),
+                diagnoses={
+                    1: {
+                        "root_cause": (
+                            "The gate accepted a setpoint relaxation whose backup "
+                            "compressor state was unknown, so the supervisor caught "
+                            "the unbounded consequence one step later."
+                        )
+                    }
+                },
+            )
+
+            manifest = round_txn.publish(factory, 1, reservation["token"])
+            self.assertEqual(manifest["version"], 2)
+
     def test_published_rejected_arm_must_be_session_as_scratch_failure(self):
         # Session B assembles the batch by injecting each rejected scratch
         # file. Nothing checked that it did, so both arms could be synthesized
@@ -335,7 +375,7 @@ class PreferencePublicationGate(PreferenceRoundHarness):
             record = ffpc_record()
             unrelated = shared_context(record)
             unrelated["state"] = {"sim_or_real": "designed", "domain": "somewhere_else"}
-            self.fill_stage(reservation, record, contexts={1: unrelated})
+            self.fill_stage(reservation, record, diagnoses={1: {"context": unrelated}})
 
             self.assert_publish_refused(factory, reservation, "shared context")
 

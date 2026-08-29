@@ -121,6 +121,12 @@ failures of the same class.
   no authorized diagnosis described, and Session B could emit a `rejected` arm
   of its own beside Session A's unrelated failures, which is the two-session
   separation defeating itself.
+- Publication also refuses a chosen `safety_decision.rationale` that shares a
+  twelve-word run with its diagnosis's prose. The bounded diagnosis format
+  permits ordinary narrative and the arm gate deliberately excludes safety
+  rationale from its projection, so a chosen arm that restated its diagnosis
+  cleared both. Two writers describing one incident reuse its vocabulary;
+  they do not reuse a twelve-word run of it.
 - The same-context purity gate passes (Section 3).
 - The independent-arm gate passes (Section 3.6).
 - `NOTES-rNN.md` names residual weaknesses and the next densification target.
