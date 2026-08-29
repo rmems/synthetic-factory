@@ -346,6 +346,50 @@ class CuratePreferenceRecord(unittest.TestCase):
             ("PREFERENCE_CONTEXT_MISSING_OR_INVALID",),
         )
 
+    def test_non_finite_context_is_excluded_with_a_reason_code(self):
+        diverging = pair("nan-diverging")
+        diverging["chosen"]["state"]["level"] = float("nan")
+        diverging["rejected"]["state"]["level"] = 1.0
+
+        decision = curate_preferences.curate_preference_record(diverging)
+
+        self.assertEqual(decision.action, curate_preferences.ACTION_EXCLUDED)
+        self.assertEqual(
+            decision.reason_codes, ("PREFERENCE_RECORD_NOT_JSON_SERIALIZABLE",)
+        )
+        self.assertIsNone(decision.record)
+
+    def test_non_finite_context_is_not_retained_just_because_both_sides_match(self):
+        # ``inf == inf`` makes the two sides compare equal path-by-path, but the
+        # pair still cannot be written as JSON, so it must not be retained.
+        matching = pair("inf-matching")
+        for side in ("chosen", "rejected"):
+            matching[side]["state"]["level"] = float("inf")
+
+        decision = curate_preferences.curate_preference_record(matching)
+
+        self.assertEqual(decision.action, curate_preferences.ACTION_EXCLUDED)
+        self.assertEqual(
+            decision.reason_codes, ("PREFERENCE_RECORD_NOT_JSON_SERIALIZABLE",)
+        )
+
+    def test_lane_purity_gate_agrees_with_the_strict_audit_invariant(self):
+        pure = pair("agree-pure")
+        state_drift = pair("agree-state", rejected_state={"sim_or_real": "designed"})
+        proposal_drift = pair("agree-proposal")
+        proposal_drift["rejected"]["proposed_action"]["action"] = "other"
+        missing = {"id": "agree-missing", "chosen": {}, "rejected": {}}
+
+        for record in (pure, state_drift, proposal_drift, missing):
+            with self.subTest(record=record["id"]):
+                audit = training_audit.preference_context_purity(
+                    record, record["chosen"], record["rejected"]
+                )
+                self.assertFalse(audit["episode_pair"])
+                self.assertEqual(
+                    curate_preferences.context_is_pure(record), audit["pure"]
+                )
+
 
 def leftover_mill_episode(record_id):
     """An agentic episode of the kind that leaked into a preference tree."""
