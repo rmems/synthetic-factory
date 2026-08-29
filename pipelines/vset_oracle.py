@@ -46,8 +46,21 @@ class _OracleResult(unittest.TestResult):
         self.rows.append({"id": test.id(), "status": "SKIP"})
 
 
+def _resolve_under_work(work: Path, relative: str, *, code: str) -> Path:
+    if not isinstance(relative, str) or not relative.strip():
+        raise VSetValidationError(code, f"illegal path {relative!r}")
+    candidate = Path(relative)
+    if candidate.is_absolute() or ".." in candidate.parts:
+        raise VSetValidationError(code, f"illegal path {relative!r}")
+    root = work.resolve()
+    dest = (work / relative).resolve()
+    if dest != root and root not in dest.parents:
+        raise VSetValidationError(code, f"path escapes worktree {relative!r}")
+    return dest
+
+
 def _load_tests(work: Path, relative: str) -> unittest.TestSuite:
-    path = work / relative
+    path = _resolve_under_work(work, relative, code="vset.oracle_execution_mismatch")
     if not path.is_file():
         raise VSetValidationError("vset.oracle_execution_mismatch", f"missing test module {relative}")
     module_name = "vset_oracle_" + relative.replace("/", "_").removesuffix(".py")
@@ -60,17 +73,29 @@ def _load_tests(work: Path, relative: str) -> unittest.TestSuite:
     return unittest.defaultTestLoader.loadTestsFromModule(module)
 
 
+def _restore_sys_modules(snapshot: dict[str, Any]) -> None:
+    for name in list(sys.modules):
+        if name not in snapshot:
+            del sys.modules[name]
+    for name, module in snapshot.items():
+        sys.modules[name] = module
+
+
+def _suite_ok(result: _OracleResult) -> bool:
+    if not result.wasSuccessful():
+        return False
+    executed = [row for row in result.rows if row["status"] != "SKIP"]
+    return bool(executed)
+
+
 def _run_modules(work: Path, relatives: Iterable[str]) -> dict[str, Any]:
     src = str(work / "src")
     inserted = []
+    snapshot = sys.modules.copy()
     for entry in (src, str(work)):
         if entry not in sys.path:
             sys.path.insert(0, entry)
             inserted.append(entry)
-    # A prior oracle run must not leak `counter` or the generated test modules.
-    for name in list(sys.modules):
-        if name == "counter" or name.startswith("vset_oracle_"):
-            del sys.modules[name]
     suite = unittest.TestSuite()
     try:
         for relative in relatives:
@@ -81,15 +106,13 @@ def _run_modules(work: Path, relatives: Iterable[str]) -> dict[str, Any]:
         for entry in inserted:
             if entry in sys.path:
                 sys.path.remove(entry)
-        for name in list(sys.modules):
-            if name == "counter" or name.startswith("vset_oracle_"):
-                del sys.modules[name]
+        _restore_sys_modules(snapshot)
     rows = sorted(result.rows, key=lambda item: item["id"])
     report = {
         "tests": rows,
         "failures": len(result.failures),
         "errors": len(result.errors),
-        "ok": result.wasSuccessful(),
+        "ok": _suite_ok(result),
     }
     report["result_hash"] = _sha256_text(_canonical_json(report["tests"]))
     return report
@@ -136,8 +159,10 @@ def run_oracle(
         )
         if patch is not None:
             apply_patch(work, patch)
-        reference = _run_modules(work, list(reference_tests))
-        hidden = _run_modules(work, list(hidden_tests)) if list(hidden_tests) else None
+        reference_list = list(reference_tests)
+        hidden_list = list(hidden_tests)
+        reference = _run_modules(work, reference_list)
+        hidden = _run_modules(work, hidden_list) if hidden_list else None
         return {
             "pack_snapshot_hash": pack_snapshot_hash(pack_dir),
             "reference": reference,
@@ -166,8 +191,11 @@ def validate_record_with_oracle(
     pack_dir: Path,
     *,
     registry_path: Path | None = None,
+    require_registry_sha: bool = False,
 ) -> tuple[list[VSetValidationError], dict[str, Any] | None]:
-    errors = validate_record(record, registry_path=registry_path)
+    errors = validate_record(
+        record, registry_path=registry_path, require_registry_sha=require_registry_sha
+    )
     if not isinstance(record, dict):
         return errors, None
     oracle = record.get("oracle") if isinstance(record.get("oracle"), Mapping) else {}
@@ -178,18 +206,25 @@ def validate_record_with_oracle(
     if paths_error is not None:
         errors.append(paths_error)
         return errors, None
+    reference_tests = list(oracle.get("reference_tests") or ["tests/reference.py"])
+    hidden_tests = list(oracle.get("hidden_tests") or [])
     try:
         execution = run_oracle(
             pack_dir,
             patch=record_patch(record),
-            reference_tests=oracle.get("reference_tests") or ["tests/reference.py"],
-            hidden_tests=oracle.get("hidden_tests") or [],
+            reference_tests=reference_tests,
+            hidden_tests=hidden_tests,
         )
     except VSetValidationError as exc:
         errors.append(exc)
         return errors, None
     errors.extend(_execution_match_errors(record, oracle, execution, status))
     return errors, execution
+
+
+def _illegal_pack_relative(path: str) -> bool:
+    candidate = Path(path)
+    return not path.strip() or candidate.is_absolute() or ".." in candidate.parts
 
 
 def _oracle_path_list_error(oracle: Mapping[str, Any]) -> VSetValidationError | None:
@@ -209,6 +244,12 @@ def _oracle_path_list_error(oracle: Mapping[str, Any]) -> VSetValidationError | 
             "vset.oracle_execution_mismatch",
             "oracle.hidden_tests must be a list of paths",
         )
+    for item in list(reference_tests) + list(hidden_tests or []):
+        if isinstance(item, str) and _illegal_pack_relative(item):
+            return VSetValidationError(
+                "vset.oracle_execution_mismatch",
+                f"oracle test path must stay under the pack: {item!r}",
+            )
     return None
 
 

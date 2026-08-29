@@ -93,6 +93,13 @@ def _required_role_errors(record: dict[str, Any]) -> list[VSetValidationError]:
             errors.append(
                 VSetValidationError("vset.missing_actor_role", f"required role {role} is missing")
             )
+        elif not isinstance(record[role], dict):
+            errors.append(
+                VSetValidationError(
+                    "vset.actor_fields_invalid",
+                    f"{role} must be a JSON object",
+                )
+            )
     return errors
 
 
