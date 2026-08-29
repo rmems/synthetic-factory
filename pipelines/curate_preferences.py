@@ -502,7 +502,12 @@ def _skipped_manifest_entry(
         "source_line": line_number,
         "source_sha256": _sha256(raw_line),
         "source_file_sha256": file_hash,
-        "source_record_id": leftover_mill.record_id(record),
+        # Same canonicalizability guard the preference rows use. record_id()
+        # keeps its meta.id fallback; only a value the destination cannot
+        # encode is dropped.
+        "source_record_id": _canonicalizable_manifest_id(
+            leftover_mill.record_id(record)
+        ),
         "transform": {"name": TRANSFORM_NAME, "version": TRANSFORM_VERSION},
         "action": ACTION_QUARANTINED,
         "classification": f"leftover_mill_{mill_kind}",
@@ -537,13 +542,24 @@ def _load_jsonl_record(line: _SourceLine) -> Any:
         ) from exc
 
 
+def _canonicalizable_manifest_id(value: Any) -> Any:
+    """Drop a manifest identifier the JSONL destination cannot encode.
+
+    ``json.loads`` accepts an escaped lone surrogate, so a source id can be a
+    perfectly good Python string that ``write_run`` cannot serialize. Losing
+    the id costs nothing an auditor needs: the source reference survives as
+    path, line, and hash either way, whereas losing the row would delete the
+    evidence that this record was quarantined at all.
+    """
+    return value if _is_canonicalizable(value) else None
+
+
 def _manifest_source_id(record: Any) -> Any:
     # An excluded record may itself hold a non-encodable id; the source
     # reference survives as path, line, and hash either way.
-    source_record_id = record.get("id") if isinstance(record, dict) else None
-    if _is_canonicalizable(source_record_id):
-        return source_record_id
-    return None
+    return _canonicalizable_manifest_id(
+        record.get("id") if isinstance(record, dict) else None
+    )
 
 
 def _kept_output(
