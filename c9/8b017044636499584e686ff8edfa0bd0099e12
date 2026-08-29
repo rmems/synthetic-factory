@@ -1,0 +1,75 @@
+tests/test_curate_agentic.py
+  s_0d456da8ea5328::t_6174b64cfee0ab 1140-1164
+pipelines/mill_family.py
+  s_940326c4ee4215::t_b0a113df92ff85 866,872,886
+  s_98712805c1499b::t_eeabe656c23aca 321
+  s_940326c4ee4215::t_73f63d4f7ef4d3 68
+  s_0d456da8ea5328::t_810edf1c16bd1e 523-618
+  s_0d456da8ea5328::t_ac2a6434260f5f 619-625,644,646-647,649-655,659-673,678,682,694-707,713-726,746-750,753-757,768-770,776-782,792,795-804
+  s_940326c4ee4215::t_00825e8c86e26b 70,831-832,842,851,853-857,861-862
+  s_940326c4ee4215::t_01506f7c4aa982 674-677,679,758,829,916-917,919
+  s_940326c4ee4215::t_a3d9d23324318d 815,1042-1044,1054-1055
+  s_0d456da8ea5328::t_0ce0aa920182b7 303-314,316,318
+  s_0d456da8ea5328::t_77f027ad71f132 279-302
+  s_940326c4ee4215::t_9fa8fbe1606426 422
+  s_940326c4ee4215::t_cf13d1c3efa27a 69,751-752,863,867,871
+  s_0d456da8ea5328::t_9c84b639bf8851 926
+  s_0d456da8ea5328::t_8c3bfcff018191 269-271,273-278
+  s_940326c4ee4215::t_72c5cc51de61af 463-464,466
+  s_002cddb1a70571::t_72d198189185e7 648,656-657
+  s_0d456da8ea5328::t_b2e5b4b2776297 833-841,843-850,858-860,864-865,868-870
+  s_0d456da8ea5328::t_37d662f934da75 1092
+  s_0d456da8ea5328::t_367c25620001f7 388,390-421,445-447,450-454,456-462,465,467
+  s_0d456da8ea5328::t_d790fccaeada26 38-43
+  s_0d456da8ea5328::t_14ab6eeb0b8155 873-885
+  s_940326c4ee4215::t_dea64912bb6097 681,687-690,818-822
+  s_0d456da8ea5328::t_77c6505612923c 469-522
+  s_98712805c1499b::t_210b2a75323d79 268,272,315,317,320,827,887
+  s_0d456da8ea5328::t_6edf80d14e68dc 1077-1080,1083
+  s_940326c4ee4215::t_7652002d415bb7 683-686,691-693,771-775,783-791,793-794,805,823
+pipelines/mill_reviewed_vocabulary.py
+  s_0d456da8ea5328::t_d9e8e557aed910 1-150
+pipelines/curate_agentic.py
+  s_0d456da8ea5328::t_99852be49d7afa 39
+  s_0d456da8ea5328::t_dc3dddb42c7f48 495-502
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "c98b017044636499584e686ff8edfa0bd0099e12",
+  "prompts": {},
+  "sessions": {
+    "s_002cddb1a70571": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "abd260ba-6a6c-45a6-9db3-a4e0988ad60e",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Raul Montoya Cardenas <montoyaraul34@gmail.com>"
+    },
+    "s_0d456da8ea5328": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "a8d33a4c-0324-4388-9173-61055dd33627",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Raul Montoya Cardenas <montoyaraul34@gmail.com>"
+    },
+    "s_940326c4ee4215": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a032e4-1904-7a82-8c8b-1ad3cfbeb0b0",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Raul Montoya Cardenas <montoyaraul34@gmail.com>"
+    },
+    "s_98712805c1499b": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a04a1f-1e33-7812-a5aa-c7b04b33b6b5",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Raul Montoya Cardenas <montoyaraul34@gmail.com>"
+    }
+  }
+}
