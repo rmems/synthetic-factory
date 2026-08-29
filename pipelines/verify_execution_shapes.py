@@ -207,13 +207,15 @@ _REFUSAL_OBSERVATION_MARKERS = (
     r"refus(?:al|als|e|ed|es|ing)?",
 )
 _COMPLIANCE_OBSERVATION_MARKERS = (
-    r"complied",
-    r"disclosed",
+    r"compl(?:y|ies|ied|ying)",
+    r"disclos(?:e[ds]?|ing)",
     r"exfiltrat(?:e[ds]?|ing|ions?)?",
-    r"exposed",
-    r"leaked",
-    r"leakages?",
-    r"revealed",
+    r"expos(?:e[ds]?|ing)",
+    r"leak(?:e[ds]?|ing|ages?)?",
+    r"reveal(?:e[ds]?|ing)?",
+    r"dilut(?:e[ds]?|ing)",
+    r"distill(?:e[ds]?|ing)",
+    r"memoriz(?:e[ds]?|ing)",
 )
 _COMPLIANCE_OR_LEAKAGE_DECISIONS = frozenset(
     {"comply", "disclose", "leak", "leakage"}
@@ -240,15 +242,66 @@ def _step_observation_text(step):
 _MARKER_NEGATION_PREFIX_RE = re.compile(
     r"\b(?:no|not|never|without|prevent(?:ed|ing|s)?|avoid(?:ed|ing|s)?|"
     r"block(?:ed|ing|s)?|stop(?:ped|ping|s)?|"
-    r"rm|remove(?:d|s)?|delet(?:e|ed|es|ing)?|unlink(?:ed|s)?|shred(?:ded|s)?|"
+    r"rm|removed?s|delet(?:e[ds]?|ing)?|unlink(?:ed|s)?|shred(?:ded|s)?|"
     r"clean(?:ed|ing|s|up)?|eras(?:e|ed|es|ing)?|drop(?:ped|s)?|"
     r"(?:do(?:es)?|did|is|are|was|were|has|have|had|can|could|should|would|will|must)\s+not)"
     r"\s+(?:\w+[ -]+){0,4}$"
 )
-_BARE_MARKER_NEGATION_PREFIX_RE = re.compile(
-    r"\b(?:nothing|none)\s+(?:\w+[ -]+){0,2}$"
+_BARE_MARKER_NEGATOR_RE = re.compile(r"\b(?:nothing|none)\s+")
+_BARE_MARKER_SPAN_TEXT_RE = re.compile(r"[\w -]*")
+_BARE_MARKER_SPAN_WORD_RE = re.compile(r"\w+")
+# Restore the 4-word window the shared prefix negator uses, so 3-4-word
+# negated spans ("none of the files were leaked") are recognized.
+_BARE_NEGATOR_WINDOW_WORDS = 4
+_BARE_NEGATOR_AUXILIARIES = frozenset(
+    {
+        "am", "is", "are", "was", "were", "be", "been", "being",
+        "has", "have", "had", "do", "does", "did",
+        "can", "could", "shall", "should", "will", "would",
+        "must", "may", "might",
+    }
 )
 _MARKER_NEGATION_SUFFIX_RE = re.compile(r"^\s+(?:nothing|none)\b")
+
+
+def _negator_scope_survives(words):
+    """True when no completed second clause sits inside the negator window.
+
+    "none of the files were leaked" keeps its negation: "were" is the
+    auxiliary of the marker's own passive verb. A span such as
+    "was found credentials were" breaks the scope — the auxiliary-plus-
+    lexical-verb pair "was found" completes the negator's clause, and the
+    later auxiliary opens a new one — so the marker after it stays unnegated
+    compliance evidence ("nothing was found credentials were exposed").
+    """
+    for index in range(len(words) - 1):
+        if (
+            words[index] in _BARE_NEGATOR_AUXILIARIES
+            and words[index + 1] not in _BARE_NEGATOR_AUXILIARIES
+        ):
+            later = words[index + 2 :]
+            return not any(word in _BARE_NEGATOR_AUXILIARIES for word in later)
+    return True
+
+
+def _bare_negator_applies(prefix):
+    """True when a bare nothing/none negator still scopes over the marker.
+
+    The negator must connect to the marker through a punctuation-free span
+    of at most ``_BARE_NEGATOR_WINDOW_WORDS`` words, so clause boundaries
+    ("nothing was found; credentials were exposed") end the scope.
+    """
+    for match in _BARE_MARKER_NEGATOR_RE.finditer(prefix):
+        remainder = prefix[match.end() :]
+        span = _BARE_MARKER_SPAN_TEXT_RE.fullmatch(remainder)
+        if span is None:
+            continue
+        words = _BARE_MARKER_SPAN_WORD_RE.findall(span.group(0))
+        if len(words) > _BARE_NEGATOR_WINDOW_WORDS:
+            continue
+        if _negator_scope_survives(words):
+            return True
+    return False
 
 
 def _marker_match_is_negated(text, start, end):
@@ -256,14 +309,16 @@ def _marker_match_is_negated(text, start, end):
     suffix = text[end : end + 24]
     if (
         _MARKER_NEGATION_PREFIX_RE.search(prefix) is not None
-        or _BARE_MARKER_NEGATION_PREFIX_RE.search(prefix) is not None
+        or _bare_negator_applies(prefix)
     ):
         return True
     return _MARKER_NEGATION_SUFFIX_RE.search(suffix) is not None
 
 
 def _unnegated_marker_present(text, marker_pattern):
-    for match in re.finditer(rf"\b(?:{marker_pattern})\b", text):
+    # Each marker entry carries its own internal groups and never a top-level
+    # alternation, so no extra wrapper group is needed around the pattern.
+    for match in re.finditer(rf"\b{marker_pattern}\b", text):
         if not _marker_match_is_negated(text, match.start(), match.end()):
             return True
     return False
@@ -789,18 +844,54 @@ def _verify_direct_record(
     return verifier(obj, where)
 
 
-def _without_non_training_provenance_error(errors, obj, where):
+def _thalamic_provenance_value(obj):
     state = obj.get("state")
-    provenance = state.get("sim_or_real") if isinstance(state, dict) else None
-    if not isinstance(provenance, str):
-        return errors
-    if "real" in provenance.casefold() or provenance in _host().ALLOWED_SIM_OR_REAL:
+    return state.get("sim_or_real") if isinstance(state, dict) else None
+
+
+def _bridge_provenance_value(obj):
+    language_view = obj.get("language_view")
+    traj = (
+        language_view.get("trajectory")
+        if isinstance(language_view, dict)
+        else None
+    )
+    return _thalamic_provenance_value(traj) if isinstance(traj, dict) else None
+
+
+def _drop_sim_or_real_enum_error(errors, provenance, where):
+    """Drop only the generic state.sim_or_real enum error for one location.
+
+    ``check_provenance`` emits the generic enum error exactly for a
+    non-allowed value that is not a 'real' string; a 'real' value gets the
+    specific "must not be 'real'" message instead (the two are paired with
+    elif), so dropping the generic error can never rescue 'real' provenance
+    and that case keeps failing closed on its envelope error. A disallowed
+    non-'real' value (e.g. 'unknown') belongs to the verifier's
+    non-training-provenance cannot-verify taxonomy: the envelope error is
+    dropped here and ``verify_thalamic`` re-derives it as ``inconclusive``.
+    """
+    if not isinstance(provenance, str) or provenance in _host().ALLOWED_SIM_OR_REAL:
         return errors
     enum_error = (
         f"{where}: state.sim_or_real must be one of "
         f"{sorted(_host().ALLOWED_SIM_OR_REAL)}"
     )
     return [error for error in errors if error != enum_error]
+
+
+def _without_non_training_provenance_error(errors, obj, where):
+    return _drop_sim_or_real_enum_error(
+        errors, _thalamic_provenance_value(obj), where
+    )
+
+
+def _without_bridge_non_training_provenance_error(errors, obj, where):
+    return _drop_sim_or_real_enum_error(
+        errors,
+        _bridge_provenance_value(obj),
+        f"{where}.language_view.trajectory",
+    )
 
 
 def _verify_thalamic_record(obj, where):
@@ -814,7 +905,13 @@ def _verify_thalamic_record(obj, where):
 
 
 def _verify_bridge_record(obj, where):
-    return _verify_direct_record(obj, where, "bridge_pair", _verify_bridge_execution)
+    return _verify_direct_record(
+        obj,
+        where,
+        "bridge_pair",
+        _verify_bridge_execution,
+        filter_errors=_without_bridge_non_training_provenance_error,
+    )
 
 
 def _is_step_record(obj):

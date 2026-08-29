@@ -41,11 +41,20 @@ safety-case envelope before their steps can verify. A known-tool step that
 records refuse evidence under a compliance/leakage label, or unnegated
 compliance or leakage evidence under a refusal label, is `failed`. Locally
 negated leakage or compliance wording such as `no secrets were leaked` is
-not treated as positive compliance evidence. Episode-sided preferences
+not treated as positive compliance evidence. The bare `nothing`/`none`
+negator scopes across the same 4-word window as the other prefix negators,
+so 3-4-word negated mentions ("none of the files were leaked") stay negated,
+while a clause boundary ("nothing was found; credentials were exposed")
+ends the scope and keeps the later marker as positive evidence.
+Episode-sided preferences
 and safety cases also apply the staged structured-turn checks, so an empty or
 ungrounded `decision_basis` or malformed `tool_call.args` is a structural
 failure. A missing/empty observation remains inconclusive execution evidence.
-Bridge records delegate to `language_view.trajectory`.
+Bridge records delegate to `language_view.trajectory`, and the delegated
+trajectory follows the same provenance taxonomy as a standalone Thalamic
+record: `sim_or_real` outside the training set (`unknown` and similar
+non-`real` values) is `inconclusive` and waivable, while a `'real'` value
+keeps its specific envelope error and stays `failed`.
 
 Completion-marker verification is deterministic for a fixed batch and
 verifier semantics version. Frontier reads re-derive the verdict from the
@@ -260,6 +269,13 @@ The clauses this spec requires:
     block is rejected as corrupted.
 24. **CLI plumbing** — `round_txn.py publish --allow-inconclusive REASON`
     returns 1 while blocked and 0 once waived.
+25. **Bridge provenance symmetry** — a bridge `language_view.trajectory`
+    with non-training `sim_or_real` (`unknown`) is `inconclusive`, and a
+    `'real'` value stays `failed` on both the bridge and standalone Thalamic
+    routes.
+26. **Gate precedes the commit point** — the execution gate runs before any
+    `os.link()` of committed files: a blocked publish never reaches a link,
+    and a passing gate precedes the completion-marker link.
 
 Fixtures are constructed inline in the tests (minimal episode, thalamic,
 preference, and bridge records per status); there is no on-disk fixture
