@@ -192,43 +192,58 @@ def _curation_errors(
     oracle_status = (
         record["oracle"].get("status") if isinstance(record.get("oracle"), dict) else None
     )
-    if decision == "accept":
-        if record.get("source_kind") != "synthetic":
-            errors.append(
-                VSetValidationError(
-                    "vset.accept_requires_synthetic",
-                    "positive VSET accept requires source_kind=synthetic",
-                )
-            )
-        if oracle_status != "validated":
-            errors.append(
-                VSetValidationError(
-                    "vset.accept_requires_validated_oracle",
-                    "positive accept requires oracle.status=validated",
-                )
-            )
+    errors.extend(_accept_gate_errors(record, decision, oracle_status))
     return errors
 
 
+def _accept_gate_errors(
+    record: dict[str, Any], decision: Any, oracle_status: Any
+) -> list[VSetValidationError]:
+    if decision != "accept":
+        return []
+    errors: list[VSetValidationError] = []
+    if record.get("source_kind") != "synthetic":
+        errors.append(
+            VSetValidationError(
+                "vset.accept_requires_synthetic",
+                "positive VSET accept requires source_kind=synthetic",
+            )
+        )
+    if oracle_status != "validated":
+        errors.append(
+            VSetValidationError(
+                "vset.accept_requires_validated_oracle",
+                "positive accept requires oracle.status=validated",
+            )
+        )
+    return errors
+
+
+def _reason_token_invalid(item: Any) -> bool:
+    return not isinstance(item, str) or not _REASON.fullmatch(item)
+
+
+def _reason_list_invalid(reasons: Any) -> bool:
+    return not isinstance(reasons, list) or any(_reason_token_invalid(item) for item in reasons)
+
+
 def _curation_reason_errors(reasons: Any) -> list[VSetValidationError]:
-    if not isinstance(reasons, list) or any(
-        not isinstance(item, str) or not _REASON.fullmatch(item) for item in reasons
-    ):
+    if _reason_list_invalid(reasons):
         return [
             VSetValidationError(
                 "vset.actor_fields_invalid",
                 "curation.reason_codes must be a list of lowercase reason tokens",
             )
         ]
-    if IDENTITY_UNRESOLVED_PROVENANCE in reasons:
-        return [
-            VSetValidationError(
-                "vset.identity_reason_collision",
-                "identity.unresolved_provenance is the state.sim_or_real remap gap; "
-                "missing actor roles use vset.missing_actor_role",
-            )
-        ]
-    return []
+    if IDENTITY_UNRESOLVED_PROVENANCE not in reasons:
+        return []
+    return [
+        VSetValidationError(
+            "vset.identity_reason_collision",
+            "identity.unresolved_provenance is the state.sim_or_real remap gap; "
+            "missing actor roles use vset.missing_actor_role",
+        )
+    ]
 
 
 def _environment_errors(environment: dict[str, Any]) -> list[VSetValidationError]:
@@ -273,15 +288,7 @@ def _release_errors(
                 "release.manifest_hash must be sha256:<64 hex>",
             )
         )
-    stamped = release.get("factory_registry_sha256")
-    if stamped is not None or require_registry_sha:
-        if stamped != pin["sha256"]:
-            errors.append(
-                VSetValidationError(
-                    "vset.release_contract_mismatch",
-                    "release.factory_registry_sha256 must match the reviewed FACTORY-REGISTRY.json bytes",
-                )
-            )
+    errors.extend(_stamped_registry_errors(release, pin, require_registry_sha))
     if pin["schema_version"] != REGISTRY_SCHEMA_VERSION:
         errors.append(
             VSetValidationError(
@@ -290,6 +297,22 @@ def _release_errors(
             )
         )
     return errors
+
+
+def _stamped_registry_errors(
+    release: dict[str, Any], pin: dict[str, str], require_registry_sha: bool
+) -> list[VSetValidationError]:
+    stamped = release.get("factory_registry_sha256")
+    if stamped is None and not require_registry_sha:
+        return []
+    if stamped == pin["sha256"]:
+        return []
+    return [
+        VSetValidationError(
+            "vset.release_contract_mismatch",
+            "release.factory_registry_sha256 must match the reviewed FACTORY-REGISTRY.json bytes",
+        )
+    ]
 
 
 def _training_view_errors(training_view: Any) -> list[VSetValidationError]:

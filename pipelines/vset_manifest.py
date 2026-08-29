@@ -251,43 +251,61 @@ def _entry_reviewer_errors(where: str, entry: dict[str, Any]) -> list[VSetValida
     return []
 
 
-def _entry_evidence_errors(
-    where: str, entry: dict[str, Any], pin: Mapping[str, str]
+def _mapping_or_empty(value: Any) -> dict[str, Any]:
+    return value if isinstance(value, dict) else {}
+
+
+def _entry_snapshot_errors(where: str, environment: Mapping[str, Any]) -> list[VSetValidationError]:
+    if _is_sha256(environment.get("repo_snapshot_hash")):
+        return []
+    return [
+        VSetValidationError(
+            "vset.actor_fields_invalid",
+            f"{where}.environment.repo_snapshot_hash must be sha256:<64 hex>",
+        )
+    ]
+
+
+def _entry_oracle_hash_errors(where: str, oracle: Mapping[str, Any]) -> list[VSetValidationError]:
+    if oracle.get("status") != "validated" or _is_sha256(oracle.get("result_hash")):
+        return []
+    return [
+        VSetValidationError(
+            "vset.oracle_validated_without_evidence",
+            f"{where} validated oracle requires result_hash",
+        )
+    ]
+
+
+def _entry_identity_reason_errors(where: str, curation: Mapping[str, Any]) -> list[VSetValidationError]:
+    reasons = curation.get("reason_codes") if isinstance(curation.get("reason_codes"), list) else []
+    if IDENTITY_UNRESOLVED_PROVENANCE not in reasons:
+        return []
+    return [
+        VSetValidationError(
+            "vset.identity_reason_collision",
+            f"{where} must not reuse identity.unresolved_provenance for an actor gap",
+        )
+    ]
+
+
+def _entry_impossible_measure_errors(
+    where: str, entry: dict[str, Any], curation: Mapping[str, Any]
+) -> list[VSetValidationError]:
+    if not _is_invalid_or_impossible(entry) or curation.get("decision") == "measure":
+        return []
+    return [
+        VSetValidationError(
+            "vset.accept_requires_validated_oracle",
+            f"{where} invalid/impossible tasks must remain measure outcomes",
+        )
+    ]
+
+
+def _entry_release_pin_errors(
+    where: str, release: Mapping[str, Any], pin: Mapping[str, str]
 ) -> list[VSetValidationError]:
     errors: list[VSetValidationError] = []
-    oracle = entry.get("oracle") if isinstance(entry.get("oracle"), dict) else {}
-    environment = entry.get("environment") if isinstance(entry.get("environment"), dict) else {}
-    curation = entry.get("curation") if isinstance(entry.get("curation"), dict) else {}
-    release = entry.get("release") if isinstance(entry.get("release"), dict) else {}
-    if not _is_sha256(environment.get("repo_snapshot_hash")):
-        errors.append(
-            VSetValidationError(
-                "vset.actor_fields_invalid",
-                f"{where}.environment.repo_snapshot_hash must be sha256:<64 hex>",
-            )
-        )
-    if oracle.get("status") == "validated" and not _is_sha256(oracle.get("result_hash")):
-        errors.append(
-            VSetValidationError(
-                "vset.oracle_validated_without_evidence",
-                f"{where} validated oracle requires result_hash",
-            )
-        )
-    reasons = curation.get("reason_codes") if isinstance(curation.get("reason_codes"), list) else []
-    if IDENTITY_UNRESOLVED_PROVENANCE in reasons:
-        errors.append(
-            VSetValidationError(
-                "vset.identity_reason_collision",
-                f"{where} must not reuse identity.unresolved_provenance for an actor gap",
-            )
-        )
-    if _is_invalid_or_impossible(entry) and curation.get("decision") != "measure":
-        errors.append(
-            VSetValidationError(
-                "vset.accept_requires_validated_oracle",
-                f"{where} invalid/impossible tasks must remain measure outcomes",
-            )
-        )
     if release.get("factory_contract_version") not in {None, pin["schema_version"]}:
         errors.append(
             VSetValidationError(
@@ -302,6 +320,22 @@ def _entry_evidence_errors(
                 f"{where}.release.factory_registry_sha256 must match the registry pin",
             )
         )
+    return errors
+
+
+def _entry_evidence_errors(
+    where: str, entry: dict[str, Any], pin: Mapping[str, str]
+) -> list[VSetValidationError]:
+    oracle = _mapping_or_empty(entry.get("oracle"))
+    environment = _mapping_or_empty(entry.get("environment"))
+    curation = _mapping_or_empty(entry.get("curation"))
+    release = _mapping_or_empty(entry.get("release"))
+    errors: list[VSetValidationError] = []
+    errors.extend(_entry_snapshot_errors(where, environment))
+    errors.extend(_entry_oracle_hash_errors(where, oracle))
+    errors.extend(_entry_identity_reason_errors(where, curation))
+    errors.extend(_entry_impossible_measure_errors(where, entry, curation))
+    errors.extend(_entry_release_pin_errors(where, release, pin))
     return errors
 
 
