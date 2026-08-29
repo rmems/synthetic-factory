@@ -907,6 +907,16 @@ class TransactionalRoundPassesHardenedValidator(unittest.TestCase):
             {"channel": "a", "t_rel_ms": 1.0, "amplitude": 0.4},
             {"channel": "b", "t_rel_ms": 2.0, "amplitude": 0.6},
         ]
+        # Execution verification (pipelines/round_txn_execution.py) blocks
+        # publish on an unverifiable future_outcome; give it well-formed
+        # observable evidence so this test exercises the shape/deep
+        # validators it targets rather than the execution gate.
+        record["future_outcome"] = {
+            "success": "full",
+            "timeline": [{"t_ms": 0, "event": "noop accepted"}],
+            "observed_effects": ["no actuator motion"],
+            "new_state": {"sim_or_real": "designed", "domain": "gate-test"},
+        }
         with tempfile.TemporaryDirectory() as raw:
             factory = (
                 Path(raw)
@@ -920,7 +930,7 @@ class TransactionalRoundPassesHardenedValidator(unittest.TestCase):
             stage = Path(reservation["staging_dir"])
             (stage / reservation["batch_file"]).write_text(json.dumps(record) + "\n")
             (stage / reservation["notes_file"]).write_text(
-                "# Self-critique\n\nBounded fixture round.\n"
+                "# Self-critique\n\nBounded fixture round.\n\nNovel coverage: 100%\n"
             )
             manifest = round_txn.publish(factory, 1, reservation["token"])
             self.assertEqual(manifest["records"], 1)
