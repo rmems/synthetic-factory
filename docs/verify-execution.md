@@ -123,8 +123,7 @@ cannot be downgraded back to version 1.
 JSONL record boundaries for the execution gate match `check_jsonl()`: only
 literal LF splits records. U+2028/U+2029 inside a JSON string stay payload.
 
-`override` is `null` when nothing was waived. The reason is normalized to
-single-line printable text between 8 and 500 characters. A publish retry
+`override` is `null` when nothing was waived. The reason is normalized to single-line printable text between 8 and 500 characters and must be a written phrase (a letter and a space), not a keystroke pad such as `12345678`. A publish retry
 re-derives the verdict but keeps and reuses the first recorded waiver, so a
 mid-publish recovery does not require the operator to repeat the flag and the
 marker carries the waiver that was in force at the commit point.

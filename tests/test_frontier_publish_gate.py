@@ -322,14 +322,22 @@ class FrontierPublishGate(unittest.TestCase):
                     override="x" * (round_txn.EXECUTION_OVERRIDE_MAX_CHARS + 1),
                 )
 
-            shortest = round_txn.execution_gate(batch, batch, override="12345678")
-            self.assertEqual(shortest["override"]["reason"], "12345678")
+            with self.assertRaisesRegex(
+                round_txn.TransactionError, "written phrase"
+            ):
+                round_txn.execution_gate(batch, batch, override="12345678")
+
+            shortest = round_txn.execution_gate(batch, batch, override="see notes")
+            self.assertEqual(shortest["override"]["reason"], "see notes")
 
         with tempfile.TemporaryDirectory() as td:
             batch = Path(td) / "batch-r01.jsonl"
             write(batch, [thalamic("gate-bounds-max", observable=False)])
+            longest_reason = (
+                "see " + "x" * (round_txn.EXECUTION_OVERRIDE_MAX_CHARS - 4)
+            )
             longest = round_txn.execution_gate(
-                batch, batch, override="x" * round_txn.EXECUTION_OVERRIDE_MAX_CHARS
+                batch, batch, override=longest_reason
             )
             self.assertEqual(longest["override"]["waived_inconclusive"], 1)
 
