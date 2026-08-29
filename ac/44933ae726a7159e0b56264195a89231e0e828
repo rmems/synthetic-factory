@@ -1,0 +1,37 @@
+tests/test_training_audit_hidden.py
+  s_98712805c1499b::t_32e082a0b7e5bd 1-6,8-11,14-248
+  s_98712805c1499b::t_79b343a7c4805c 7,12-13
+pipelines/mill_family.py
+  s_98712805c1499b::t_eeabe656c23aca 402-403
+  s_98712805c1499b::t_d92d5c9bd5a372 280-291,304,308,886
+  s_98712805c1499b::t_210b2a75323d79 395-401,404-405,726,743,763,777,794
+pipelines/census.py
+  s_98712805c1499b::t_210b2a75323d79 169-200,217-223,233-234
+tests/test_training_audit_mill.py
+  s_98712805c1499b::t_79b343a7c4805c 11-12
+  s_98712805c1499b::t_32e082a0b7e5bd 1-10,13-185
+tests/test_census_mill_mix.py
+  s_98712805c1499b::t_c745bbce0b5147 1-4,6-9,12-210,212-245,247-253,259-438
+  s_98712805c1499b::t_6904f993ee65a4 211
+  s_98712805c1499b::t_79b343a7c4805c 5,10-11
+  s_98712805c1499b::t_32a02f846de6ff 246,254-258
+scripts/publish_grok46_hub.py
+  s_98712805c1499b::t_2c224c511593e1 329-330
+  s_98712805c1499b::t_d439b29ef20317 315,318,325-328,331-349,351,355-356
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "ac44933ae726a7159e0b56264195a89231e0e828",
+  "prompts": {},
+  "sessions": {
+    "s_98712805c1499b": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a04a1f-1e33-7812-a5aa-c7b04b33b6b5",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Raul Montoya Cardenas <montoyaraul34@gmail.com>"
+    }
+  }
+}
