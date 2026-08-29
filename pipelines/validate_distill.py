@@ -70,91 +70,129 @@ def jsonl_paths(root: Path) -> list[Path]:
     return sorted(path for path in root.rglob("*.jsonl") if path.is_file())
 
 
-def validate_path(root: Path, strict: bool = False, stamp: bool = False) -> dict[str, Any]:
-    """Validate every record under ``root``. Returns a report dict."""
+class _Location:
+    """Where a record came from, in both forms the report needs."""
 
-    if not root.exists():
-        raise FileNotFoundError(f"no such path: {root}")
-    paths = jsonl_paths(root)
-    findings: list[dict[str, Any]] = []
-    families: Counter[str] = Counter()
-    outcomes: Counter[str] = Counter()
-    preferences: Counter[str] = Counter()
-    ineligible: Counter[str] = Counter()
-    seen_ids: dict[str, str] = {}
-    records = 0
-    valid = 0
-    eligible = 0
-    stamped: list[dict[str, Any]] = []
+    __slots__ = ("path", "lineno")
 
-    for path in paths:
-        for lineno, obj in oc.read_jsonl(path):
-            records += 1
-            where = f"{path}:{lineno}"
-            if obj is None:
-                findings.append(
-                    {"file": str(path), "line": lineno, "error": "JSON parse failure"}
-                )
-                continue
-            errors = check_record(obj, where)
-            if isinstance(obj, dict):
-                record_id = obj.get("id")
-                if isinstance(record_id, str) and record_id:
-                    if record_id in seen_ids:
-                        errors.append(
-                            f"{where}: duplicate record id {record_id!r} "
-                            f"(first seen at {seen_ids[record_id]})"
-                        )
-                    else:
-                        seen_ids[record_id] = where
-                family = obj.get("family")
-                families[family if isinstance(family, str) else "<unknown>"] += 1
-                result = obj.get("result")
-                if isinstance(result, dict):
-                    if isinstance(result.get("outcome"), str):
-                        outcomes[result["outcome"]] += 1
-                    preference = result.get("preference")
-                    if isinstance(preference, dict) and isinstance(
-                        preference.get("preferred"), str
-                    ):
-                        preferences[preference["preferred"]] += 1
-                for error in errors:
-                    findings.append({"file": str(path), "line": lineno, "error": error})
-                if not errors:
-                    valid += 1
-                # Eligibility is decided on the findings this validator just
-                # produced, never on a validation block the record shipped with.
-                ok, reasons = oc.curation_eligible(obj, errors)
-                if ok:
-                    eligible += 1
-                elif not errors:
-                    for reason in reasons:
-                        ineligible[reason] += 1
-                if stamp:
-                    stamped.append(
-                        oc.stamp_validation(
-                            obj,
-                            validator=VALIDATOR_NAME,
-                            version=VALIDATOR_VERSION,
-                            findings=errors,
-                        )
-                    )
-            else:
-                for error in errors:
-                    findings.append({"file": str(path), "line": lineno, "error": error})
+    def __init__(self, path: Path, lineno: int) -> None:
+        self.path = path
+        self.lineno = lineno
+
+    @property
+    def where(self) -> str:
+        return f"{self.path}:{self.lineno}"
+
+
+class _RunTally:
+    """Everything accumulated across a run, in one place."""
+
+    def __init__(self) -> None:
+        self.findings: list[dict[str, Any]] = []
+        self.families: Counter[str] = Counter()
+        self.outcomes: Counter[str] = Counter()
+        self.preferences: Counter[str] = Counter()
+        self.ineligible: Counter[str] = Counter()
+        self.seen_ids: dict[str, str] = {}
+        self.records = 0
+        self.valid = 0
+        self.eligible = 0
+        self.stamped: list[dict[str, Any]] = []
+
+    def add_findings(self, loc: _Location, errors: list[str]) -> None:
+        for error in errors:
+            self.findings.append(
+                {"file": str(loc.path), "line": loc.lineno, "error": error}
+            )
+
+
+def _duplicate_id_errors(obj: dict[str, Any], loc: _Location, tally: _RunTally) -> list[str]:
+    """Record the id, or report it as already claimed by an earlier line."""
+
+    record_id = obj.get("id")
+    if not isinstance(record_id, str) or not record_id:
+        return []
+    if record_id in tally.seen_ids:
+        return [
+            f"{loc.where}: duplicate record id {record_id!r} "
+            f"(first seen at {tally.seen_ids[record_id]})"
+        ]
+    tally.seen_ids[record_id] = loc.where
+    return []
+
+
+def _count_record_labels(obj: dict[str, Any], tally: _RunTally) -> None:
+    """The census counters the report summarises."""
+
+    family = obj.get("family")
+    tally.families[family if isinstance(family, str) else "<unknown>"] += 1
+    result = obj.get("result")
+    if isinstance(result, dict):
+        if isinstance(result.get("outcome"), str):
+            tally.outcomes[result["outcome"]] += 1
+        preference = result.get("preference")
+        if isinstance(preference, dict) and isinstance(
+            preference.get("preferred"), str
+        ):
+            tally.preferences[preference["preferred"]] += 1
+
+
+def _record_eligibility(
+    obj: dict[str, Any], errors: list[str], tally: _RunTally, stamp: bool
+) -> None:
+    """Validity, curation eligibility, and the optional validator stamp."""
+
+    if not errors:
+        tally.valid += 1
+    # Eligibility is decided on the findings this validator just
+    # produced, never on a validation block the record shipped with.
+    ok, reasons = oc.curation_eligible(obj, errors)
+    if ok:
+        tally.eligible += 1
+    elif not errors:
+        for reason in reasons:
+            tally.ineligible[reason] += 1
+    if stamp:
+        tally.stamped.append(
+            oc.stamp_validation(
+                obj,
+                validator=VALIDATOR_NAME,
+                version=VALIDATOR_VERSION,
+                findings=errors,
+            )
+        )
+
+
+def _process_record(obj: Any, loc: _Location, tally: _RunTally, stamp: bool) -> None:
+    """Check one record and fold it into the tally, in emission order."""
+
+    errors = check_record(obj, loc.where)
+    if not isinstance(obj, dict):
+        tally.add_findings(loc, errors)
+        return
+    errors += _duplicate_id_errors(obj, loc, tally)
+    _count_record_labels(obj, tally)
+    tally.add_findings(loc, errors)
+    _record_eligibility(obj, errors, tally, stamp)
+
+
+def _build_report(
+    root: Path, paths: list[Path], tally: _RunTally, strict: bool
+) -> dict[str, Any]:
+    """Assemble the report, including the empty-target failures."""
 
     report = {
         "path": str(root),
         "files": len(paths),
-        "records": records,
-        "valid": valid,
-        "invalid": records - valid,
-        "curation_eligible": eligible,
-        "curation_ineligible_reasons": dict(sorted(ineligible.items())),
-        "families": dict(sorted(families.items())),
-        "fault_outcomes": dict(sorted(outcomes.items())),
-        "preferred_policies": dict(sorted(preferences.items())),
-        "findings": findings,
+        "records": tally.records,
+        "valid": tally.valid,
+        "invalid": tally.records - tally.valid,
+        "curation_eligible": tally.eligible,
+        "curation_ineligible_reasons": dict(sorted(tally.ineligible.items())),
+        "families": dict(sorted(tally.families.items())),
+        "fault_outcomes": dict(sorted(tally.outcomes.items())),
+        "preferred_policies": dict(sorted(tally.preferences.items())),
+        "findings": tally.findings,
         "strict": bool(strict),
         "validator": {"name": VALIDATOR_NAME, "version": VALIDATOR_VERSION},
     }
@@ -162,17 +200,39 @@ def validate_path(root: Path, strict: bool = False, stamp: bool = False) -> dict
     # generation step that produced nothing would otherwise be reported as
     # "0 records, 0 invalid" and exit zero.
     if not paths:
-        findings.append(
+        tally.findings.append(
             {"file": str(root), "line": 0, "error": "no .jsonl files found"}
         )
-    elif not records:
-        findings.append(
+    elif not tally.records:
+        tally.findings.append(
             {"file": str(root), "line": 0, "error": "no records found in any file"}
         )
 
-    report["blocked"] = bool(findings) or (strict and eligible < valid)
-    report["_stamped"] = stamped
+    report["blocked"] = bool(tally.findings) or (strict and tally.eligible < tally.valid)
+    report["_stamped"] = tally.stamped
     return report
+
+
+def validate_path(root: Path, strict: bool = False, stamp: bool = False) -> dict[str, Any]:
+    """Validate every record under ``root``. Returns a report dict."""
+
+    if not root.exists():
+        raise FileNotFoundError(f"no such path: {root}")
+    paths = jsonl_paths(root)
+    tally = _RunTally()
+
+    for path in paths:
+        for lineno, obj in oc.read_jsonl(path):
+            tally.records += 1
+            loc = _Location(path, lineno)
+            if obj is None:
+                tally.findings.append(
+                    {"file": str(path), "line": lineno, "error": "JSON parse failure"}
+                )
+                continue
+            _process_record(obj, loc, tally, stamp)
+
+    return _build_report(root, paths, tally, strict)
 
 
 def main(argv: list[str] | None = None) -> int:
