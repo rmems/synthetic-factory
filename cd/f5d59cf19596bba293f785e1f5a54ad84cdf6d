@@ -1,0 +1,24 @@
+tests/test_vset_schema_drift.py
+  s_0d456da8ea5328::t_47aedf56d39616 1-102,110-111,116-211,213-217
+  s_0d456da8ea5328::t_8a64de34e8bd4d 103-109,112-115
+tests/test_vset_manifest.py
+  s_0d456da8ea5328::t_48a9c60912ab04 49-53
+scripts/refresh_vset_fixture_pins.py
+  s_0d456da8ea5328::t_33a29e1971a664 1-168
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "cdf5d59cf19596bba293f785e1f5a54ad84cdf6d",
+  "prompts": {},
+  "sessions": {
+    "s_0d456da8ea5328": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "a8d33a4c-0324-4388-9173-61055dd33627",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Raul Montoya Cardenas <montoyaraul34@gmail.com>"
+    }
+  }
+}
