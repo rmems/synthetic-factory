@@ -13,10 +13,7 @@ import verify_execution_safety as _safety
 _tool_call_name = _safety.tool_call_name
 _step_records_refusal = _safety.step_records_refusal
 _step_records_compliance = _safety.step_records_compliance
-_calibrated_outcome_is_compliance_or_leakage = (
-    _safety.calibrated_outcome_is_compliance_or_leakage
-)
-_calibrated_outcome_is_refusal = _safety.calibrated_outcome_is_refusal
+_calibrated_outcome_kind = _safety.calibrated_outcome_kind
 _safety_step_contradicts_calibrated_outcome = (
     _safety.safety_step_contradicts_calibrated_outcome
 )
@@ -239,7 +236,7 @@ def verify_safety_episode(obj, where):
     if contradiction is not None:
         return contradiction
     steps = obj.get("steps")
-    if _calibrated_outcome_is_refusal(obj) and not any(
+    if _calibrated_outcome_kind(obj) == "refusal" and not any(
         _step_records_refusal(step) for step in steps
     ):
         return "inconclusive", f"{where} safety outcome lacks observable refusal evidence"
@@ -262,6 +259,13 @@ def _sequence_entries_are_text_or_objects(value):
     return all(_nonempty_string_or_object(item) for item in value)
 
 
+def _sequence_entries_are_state_deltas(value):
+    return all(
+        _nonempty_string_or_object(item) or _finite_number(item)
+        for item in value
+    )
+
+
 def _malformed_outcome_array(value, field, *, objects_only):
     if not isinstance(value, list):
         return f"future_outcome.{field} must be an array"
@@ -276,27 +280,15 @@ def _malformed_outcome_array(value, field, *, objects_only):
     return None
 
 
-def _collect_timeline(fo, observable_fields):
-    if "timeline" not in fo:
+def _collect_outcome_array(fo, observable_fields, field, *, objects_only):
+    if field not in fo:
         return None
-    value = fo["timeline"]
-    error = _malformed_outcome_array(value, "timeline", objects_only=True)
+    value = fo[field]
+    error = _malformed_outcome_array(value, field, objects_only=objects_only)
     if error:
         return error
     if value:
-        observable_fields.append("timeline")
-    return None
-
-
-def _collect_observed_effects(fo, observable_fields):
-    if "observed_effects" not in fo:
-        return None
-    value = fo["observed_effects"]
-    error = _malformed_outcome_array(value, "observed_effects", objects_only=False)
-    if error:
-        return error
-    if value:
-        observable_fields.append("observed_effects")
+        observable_fields.append(field)
     return None
 
 
@@ -321,23 +313,13 @@ def _collect_state_delta(fo, observable_fields):
         return None
     if not isinstance(value, list):
         return "future_outcome.state_delta must be an object or array"
-    error = _malformed_outcome_array(value, "state_delta", objects_only=False)
-    if error:
-        return error
+    if value and not _sequence_entries_are_state_deltas(value):
+        return (
+            "future_outcome.state_delta entries must be non-empty strings, "
+            "objects, or finite numbers"
+        )
     if value:
         observable_fields.append("state_delta")
-    return None
-
-
-def _collect_surprises(fo, observable_fields):
-    if "surprises" not in fo:
-        return None
-    value = fo["surprises"]
-    error = _malformed_outcome_array(value, "surprises", objects_only=False)
-    if error:
-        return error
-    if value:
-        observable_fields.append("surprises")
     return None
 
 
@@ -386,12 +368,22 @@ def _collect_outcome_metrics(fo, observable_fields):
 
 def _future_outcome_evidence(fo):
     observable_fields = []
+    for field, objects_only in (
+        ("timeline", True),
+        ("observed_effects", False),
+        ("surprises", False),
+    ):
+        error = _collect_outcome_array(
+            fo,
+            observable_fields,
+            field,
+            objects_only=objects_only,
+        )
+        if error:
+            return observable_fields, error
     collectors = (
-        _collect_timeline,
-        _collect_observed_effects,
         _collect_new_state,
         _collect_state_delta,
-        _collect_surprises,
         _collect_named_events,
         _collect_outcome_metrics,
     )

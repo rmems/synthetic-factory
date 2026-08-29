@@ -50,15 +50,7 @@ def _validate_override_bounds(text):
         )
 
 
-def normalized_execution_override(reason):
-    """Validate and normalize an operator waiver for cannot-verify records.
-
-    The canonicalized waiver is recorded in ``ROUND-rNN.complete.json``.
-    Whitespace is collapsed so the marker contains short, printable,
-    single-line text that a later auditor can read.
-    """
-    if reason is None:
-        return None
+def _canonical_override_text(reason):
     if not isinstance(reason, str):
         raise rt.TransactionError(
             "execution verification override must be a written reason string"
@@ -69,13 +61,33 @@ def normalized_execution_override(reason):
             "execution verification override must not contain non-printable characters"
         )
     _validate_override_bounds(text)
-    # A waiver has to read as a written phrase, not a keystroke pad.
-    # "12345678" is 8 printable characters and is not a reason.
-    if " " not in text or not any(character.isalpha() for character in text):
+    return text
+
+
+def _validate_new_override_phrase(text):
+    words = text.split()
+    if len(words) < 3 or not any(character.isalpha() for character in text):
         raise rt.TransactionError(
-            "execution verification override must be a written phrase, "
-            "not a single token or a character pad"
+            "execution verification override must be a written phrase "
+            "of at least three words, not a single token, a keystroke pad, "
+            "or a weak aside"
         )
+
+
+def _validate_legacy_override_phrase(text):
+    """Accept the canonical two-word grammar used by older marker semantics."""
+    if len(text.split()) < 2 or not any(character.isalpha() for character in text):
+        raise rt.TransactionError(
+            "publishing marker execution override is not a written phrase"
+        )
+
+
+def normalized_execution_override(reason):
+    """Validate and normalize a new operator cannot-verify waiver."""
+    if reason is None:
+        return None
+    text = _canonical_override_text(reason)
+    _validate_new_override_phrase(text)
     return text
 
 
@@ -86,7 +98,14 @@ def _execution_override_from_block(verification):
     if not isinstance(override, dict):
         raise rt.TransactionError("publishing marker has invalid execution override")
     reason = override.get("reason")
-    normalized = normalized_execution_override(reason)
+    normalized = _canonical_override_text(reason)
+    semantics_version = verification.get("semantics_version")
+    if _historical_semantics_version(semantics_version):
+        # Historical completion markers are immutable audit evidence. Reasons
+        # canonical under their two-word grammar must remain readable.
+        _validate_legacy_override_phrase(normalized)
+    else:
+        _validate_new_override_phrase(normalized)
     if normalized != reason:
         raise rt.TransactionError("publishing marker execution override is not canonical")
     waived = override.get("waived_inconclusive")

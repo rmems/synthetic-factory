@@ -33,6 +33,10 @@ class ExecutionOverrideReason(unittest.TestCase):
             "brief",
             "12345678",
             "xxxxxxxx",
+            "looks fine",
+            "hi there",
+            "a bbbbbb",
+            "see notes",
             "ok\x00fine because",
             "\u200b" * 8,
             "audit \u202ereason",
@@ -176,6 +180,26 @@ class ExecutionOverrideReason(unittest.TestCase):
                         batch,
                         {"execution_verification": recorded, "records": 1},
                     )
+
+    def test_historical_two_word_override_remains_readable(self):
+        historical = execution_summary(
+            verified=0,
+            inconclusive=1,
+            override={"reason": "operator approved", "waived_inconclusive": 1},
+        )
+        historical["semantics_version"] = 2
+        self.assertEqual(
+            round_txn.validated_execution_verification_summary(historical),
+            historical,
+        )
+
+        current = execution_summary(
+            verified=0,
+            inconclusive=1,
+            override={"reason": "operator approved", "waived_inconclusive": 1},
+        )
+        with self.assertRaisesRegex(round_txn.TransactionError, "three words"):
+            round_txn.validated_execution_verification_summary(current)
 
     def test_historical_semantics_total_must_match_manifest_records(self):
         with tempfile.TemporaryDirectory() as td:

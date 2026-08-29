@@ -1446,6 +1446,8 @@ def validate_agentic_envelope(batch: Path, factory_dir: Path, round_number: int)
     long_horizon_success_values = []
     long_horizon_scenario_signatures = []
     tool_use_lesson_signatures = []
+    # JSONL framing is literal LF. ``splitlines()`` would also split U+2028
+    # and U+2029 characters that are valid payload inside a JSON string.
     for lineno, line in enumerate(batch.read_text().split("\n"), 1):
         if not line.strip():
             continue
