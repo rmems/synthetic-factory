@@ -429,6 +429,48 @@ class ComposeCurated(unittest.TestCase):
                 )
             )
 
+    def test_registered_agentic_shapes_strip_the_full_hidden_reasoning_vocabulary(self):
+        """Codex #97 P2: agentic curation must catch what the audit catches.
+
+        ``curate_agentic`` used to recognise only the narrow scratch-pad
+        vocabulary (thought/chain_of_thought/scratch/inner_monologue).  A
+        multi_agent or safety_case record carrying the coding-factory key
+        ``reasoning`` or an ``internal_reasoning*`` variant was retained by
+        this lane with the private field intact, then rejected by
+        ``training_audit``'s broader hidden-reasoning check -- an
+        otherwise-repairable record that composition could never make
+        training-ready. Both keys must now be stripped here too.
+        """
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            multi = multi_agent()
+            multi["transcript"][1]["reasoning"] = "hidden coding-style reasoning"
+            safety = safety_case()
+            safety["steps"][0]["internal_reasoning_optimizer"] = "hidden optimizer trace"
+            source = root / "run"
+            write_jsonl(
+                source / "multi-agent-coordination-factory" / "batch-r01.jsonl",
+                [multi],
+            )
+            write_jsonl(
+                source / "safety-calibration-factory" / "batch-r01.jsonl",
+                [safety],
+            )
+
+            summary = compose_curated.compose_run(source, root / "curated")
+
+            self.assertTrue(summary["audit"]["training_ready"], summary["audit"])
+            self.assertEqual(summary["audit"]["blockers"], [])
+            records_dir = root / "curated" / compose_curated.RECORDS_DIRNAME
+            report = training_audit.audit_run(records_dir)
+            self.assertTrue(report["training_ready"], report["blockers"])
+            self.assertEqual(report["episodes"]["hidden_thought_fields"], 0)
+            for output in records_dir.rglob("*.jsonl"):
+                for record in read_jsonl(output):
+                    self.assertFalse(curate_agentic.contains_hidden_thought_key(record))
+                    self.assertNotIn("reasoning", json.dumps(record))
+                    self.assertNotIn("internal_reasoning_optimizer", json.dumps(record))
+
     def test_lane_gates_match_each_lane_predicate(self):
         record = thalamic("gate")
         decision = compose_curated.compose_record(
@@ -950,6 +992,67 @@ class ComposeCurated(unittest.TestCase):
             output = read_jsonl(root / "curated" / manifest[0]["output_path"])
             self.assertEqual(len(output), 1)
             self.assertNotEqual(output[0]["meta"]["id"], output[0]["id"])
+
+    def test_cross_factory_episode_duplicates_are_deduplicated_by_content_not_provenance(self):
+        """Codex #97 P1: the semantic-dedup digest must ignore factory/generator labels.
+
+        The registry authorizes dozens of distinct path_id factories that all
+        produce the generic "episode" record kind. The same episode content
+        resubmitted under a second authorized episode factory differs only
+        in meta.factory and its legacy id -- exactly the identity-binding
+        fields this digest already strips for same-factory duplicates.
+        Leaving meta.factory in the hash would keep both rows and, on a
+        two-row corpus, the deterministic train/eval split would then put
+        one copy in train and the other in eval: near-duplicate training
+        content leaking across the holdout.
+        """
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            source = root / "run"
+            first = episode("cross-factory")
+            first["meta"]["id"] = "legacy-a"
+            second = copy.deepcopy(first)
+            second["id"] = "legacy-episode-other"
+            second["meta"]["id"] = "legacy-b"
+            second["meta"]["factory"] = "agent-memory-compaction-factory"
+            write_jsonl(
+                source / "agentic-coding-trajectory-factory" / "batch-r01.jsonl",
+                [first],
+            )
+            write_jsonl(
+                source / "agent-memory-compaction-factory" / "batch-r01.jsonl",
+                [second],
+            )
+
+            summary = compose_curated.compose_run(source, root / "curated")
+            manifest = read_jsonl(root / "curated" / summary["manifest"]["path"])
+
+            self.assertEqual(summary["counts"]["source_records"], 2)
+            self.assertEqual(summary["counts"]["retained"], 1)
+            self.assertEqual(summary["counts"]["excluded"], 1)
+            self.assertEqual(
+                summary["exclusions"],
+                {compose_curated.REASON_DUPLICATE_CURATED_RECORD: 1},
+            )
+            duplicate = next(
+                entry
+                for entry in manifest
+                if entry["reason_codes"]
+                == [compose_curated.REASON_DUPLICATE_CURATED_RECORD]
+            )
+            dedup_stage = duplicate["stages"][-1]
+            self.assertEqual(dedup_stage["lane"], "post_transform_dedup")
+            retained = next(
+                entry for entry in manifest if entry is not duplicate
+            )
+            output = read_jsonl(root / "curated" / retained["output_path"])
+            self.assertEqual(len(output), 1)
+            # The surviving row still names its own real factory -- only the
+            # dedup digest, not the emitted record, ignores provenance.
+            self.assertIn(
+                output[0]["meta"]["factory"],
+                {"agentic-coding-trajectory-factory", "agent-memory-compaction-factory"},
+            )
 
     def test_composition_rejects_source_symlink_and_hardlink_aliases(self):
         for mutation in (

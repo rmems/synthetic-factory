@@ -1015,6 +1015,20 @@ def _post_transform_semantic_sha256(decision: ComposeDecision) -> str:
     for path in _mapped_legacy_id_paths(detail if isinstance(detail, dict) else None):
         _pop_json_pointer(semantic, path)
 
+    meta = semantic.get("meta")
+    if isinstance(meta, dict):
+        # The same episode can be authorized under more than one factory
+        # path_id (the registry declares dozens of distinct "episode"-kind
+        # factories). ``meta.factory``/``meta.generator`` name which pipeline
+        # and model produced the row, not part of the trained-on content, so
+        # two rows that are otherwise byte-identical after curation must not
+        # be kept apart by that label alone -- doing so would let the same
+        # content land in both the train and eval split. Normalize both
+        # fields out of the digest; they stay untouched on the emitted
+        # record itself, since ``semantic`` is a deep copy.
+        meta.pop("factory", None)
+        meta.pop("generator", None)
+
     annotation = semantic.get(curate_rewards.ANNOTATION_FIELD)
     if isinstance(annotation, dict):
         # The sidecar digest authenticates source coordinates.  Keep the
