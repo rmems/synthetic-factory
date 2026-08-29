@@ -40,10 +40,12 @@ from curate_coding import (  # noqa: E402
     normalized_key_name,
 )
 from validate_run import (  # noqa: E402
+    BRIDGE_SPIKE_EVENT_KEYS,
     HIDDEN_THOUGHT_KEYS,
+    SPIKE_ORDER_MISMATCH,
     _episode_like,
     check_episode,
-    event_time,
+    check_spike_order,
 )
 
 # A curated training view may expose neither the scratch-pad vocabulary the
@@ -121,22 +123,22 @@ def reward_shape(value):
 
 
 def event_stream_status(events):
-    """Classify presence, event validity, and global temporal order."""
+    """Classify presence, event validity, and global temporal order.
+
+    Event-shape validity — required bridge keys, string/numeric field types,
+    one finite timestamp, one clock key throughout — is delegated to
+    ``check_spike_order``, the same function the strict publish gate uses.
+    A structurally invalid event (a boolean ``channel``, a non-numeric
+    ``amplitude``) is therefore never miscounted as merely 'sorted' just
+    because its timestamp alone parses. Only a pure chronological-order
+    violation on an otherwise-valid stream is classified 'unsorted'.
+    """
     if not isinstance(events, list) or not events:
         return "missing"
-    times = []
-    time_keys = set()
-    for event in events:
-        got = event_time(event)
-        if got is None:
-            return "invalid"
-        time_keys.add(got[0])
-        times.append(got[1])
-    if len(time_keys) > 1:
+    errors = check_spike_order(events, "", require_keys=BRIDGE_SPIKE_EVENT_KEYS)
+    if any(SPIKE_ORDER_MISMATCH not in error for error in errors):
         return "invalid"
-    if all(current >= previous for previous, current in zip(times, times[1:])):
-        return "sorted"
-    return "unsorted"
+    return "unsorted" if errors else "sorted"
 
 
 def preference_context_purity(obj, chosen, rejected):

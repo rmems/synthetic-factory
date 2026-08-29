@@ -425,6 +425,20 @@ def check_provenance_publish(obj, where):
     return out
 
 
+def _is_reward_narrative_spike_events(path):
+    """True when a walked ``spike_events`` key is reward-component narration.
+
+    ``reward_components.spike_events`` is a documented string-valued
+    narrative annotation in the reward ontology
+    (schemas/reward-ontology-v1.mapping.json: disposition
+    "narrative_annotation", observed type "string"), not an event stream.
+    ``walk_key`` matches by key name only, so this path-aware guard keeps it
+    from being misread as a malformed stream.
+    """
+    parts = path.split(".")
+    return len(parts) >= 2 and parts[-2] == "reward_components"
+
+
 def check_record(obj, where, factory_staging=False):
     errors, warnings = [], []
     shape_errs, kind = shape_check(obj, where, factory_staging=factory_staging)
@@ -432,6 +446,8 @@ def check_record(obj, where, factory_staging=False):
 
     if isinstance(obj, dict):
         for path, events in walk_key(obj, "spike_events"):
+            if _is_reward_narrative_spike_events(path):
+                continue
             # Single owner of stream validity: shape_check drops the shape
             # layer's copies, so every stream — top-level, bridge, or nested —
             # is reported exactly once from here. Only the bridge root requires

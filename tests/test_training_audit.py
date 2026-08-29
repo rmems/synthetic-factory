@@ -71,6 +71,23 @@ class TrainingAudit(unittest.TestCase):
         ]
         self.assertEqual(training_audit.event_stream_status(events), "invalid")
 
+    def test_malformed_event_fields_are_invalid_even_when_timestamps_sort(self):
+        """A comparable timestamp alone must not read as 'sorted': the
+        schema's channel/amplitude type contract still applies (Codex #87,
+        discussion_r3885768188)."""
+        events = [
+            {"t_rel_ms": 1.0, "channel": False, "amplitude": "bad"},
+            {"t_rel_ms": 2.0, "channel": False, "amplitude": "bad"},
+        ]
+        self.assertEqual(training_audit.event_stream_status(events), "invalid")
+
+    def test_valid_events_out_of_order_are_still_unsorted(self):
+        events = [
+            {"channel": "a", "t_rel_ms": 2.0, "amplitude": 0.5},
+            {"channel": "b", "t_rel_ms": 1.0, "amplitude": 0.4},
+        ]
+        self.assertEqual(training_audit.event_stream_status(events), "unsorted")
+
     def test_clean_corpus_is_training_ready(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)

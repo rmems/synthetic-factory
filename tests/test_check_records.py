@@ -259,6 +259,29 @@ class TestCheckRecords(unittest.TestCase):
         self.assertFalse(result["errors"], result)
         self.assertFalse(result["warnings"], result)
 
+    def test_reward_components_spike_events_narration_is_not_a_stream(self):
+        """``reward_components.spike_events`` is a narrative string in the
+        reward ontology (schemas/reward-ontology-v1.mapping.json:
+        disposition "narrative_annotation", type "string"), not an event
+        stream. ``walk_key`` matches by key name only, so without a
+        path-aware guard this string is rejected as a malformed spike
+        stream (Codex #87, discussion_r3885768184)."""
+        rec = _thalamic(
+            reward_components={
+                "task_progress": 0.4,
+                "safety": 0.6,
+                "spike_events": "left-to-right sweep, three bursts",
+                "total": 1.0,
+            },
+            meta={"id": "reward-narrative-spike-events"},
+        )
+        tmp, run_dir = _run_dir([rec])
+        with tmp:
+            result = check_records.check_run(run_dir, strict=True)
+        self.assertFalse(result["errors"], result)
+        self.assertFalse(result["warnings"], result)
+        self.assertEqual(result["exit_code"], 0)
+
     def test_duplicate_ids_are_global_across_files(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
