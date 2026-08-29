@@ -500,7 +500,11 @@ class KindMixDetection(unittest.TestCase):
         self.assertIsNone(leftover_mill.kind_mix_kind(foreign, None))
         self.assertEqual(
             leftover_mill.find_kind_mix(
-                [(1, foreign)], None, slug=CODE_REVIEW_SLUG, source_name="x.jsonl"
+                [(1, foreign)],
+                None,
+                leftover_mill.KindMixSource(
+                    slug=CODE_REVIEW_SLUG, source_name="x.jsonl"
+                ),
             ),
             [],
         )

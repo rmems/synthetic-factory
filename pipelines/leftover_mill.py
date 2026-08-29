@@ -316,6 +316,26 @@ class KindMixFinding:
         )
 
 
+@dataclass(frozen=True)
+class KindMixSource:
+    """The scanned source that kind-mix findings are attributed to.
+
+    ``slug`` selects the quarantine ledger, ``source_name`` is the name each
+    finding reports, and ``source_sha256_by_line`` carries the per-line raw
+    digests that let a finding be matched against acknowledged provenance.
+    The three always travel together and always describe one source, so they
+    are passed as one value rather than three parallel keyword arguments.
+    """
+
+    slug: str
+    source_name: str
+    source_sha256_by_line: dict[int, str] | None = None
+
+    def sha256_for(self, line_number: int) -> str | None:
+        """Return the raw-line digest for ``line_number``, if it is known."""
+        return (self.source_sha256_by_line or {}).get(line_number)
+
+
 def destination_kind(slug: str) -> str | None:
     """Return the record kind a factory slug is declared to publish."""
     return AGENTIC_FACTORY_KINDS.get(slug)
@@ -369,26 +389,22 @@ def kind_mix_kind(record: Any, expected_kind: str | None) -> str | None:
 def find_kind_mix(
     records: Iterable[tuple[int, Any]],
     expected_kind: str | None,
-    *,
-    slug: str,
-    source_name: str,
-    source_sha256_by_line: dict[int, str] | None = None,
+    source: KindMixSource,
 ) -> list[KindMixFinding]:
     """Report kind-mix findings for ``(line_number, record)`` pairs."""
     if expected_kind is None:
         return []
-    acknowledged = quarantine_provenance(slug)
-    source_sha256_by_line = source_sha256_by_line or {}
+    acknowledged = quarantine_provenance(source.slug)
     findings = []
     for line_number, record in records:
         kind = kind_mix_kind(record, expected_kind)
         if kind is None:
             continue
         identifier = record_id(record)
-        source_sha256 = source_sha256_by_line.get(line_number)
+        source_sha256 = source.sha256_for(line_number)
         provenance = (
             KindMixProvenance(
-                source_name=source_name,
+                source_name=source.source_name,
                 source_line=line_number,
                 record_id=identifier,
                 record_kind=kind,
@@ -399,7 +415,7 @@ def find_kind_mix(
         )
         findings.append(
             KindMixFinding(
-                source_name=source_name,
+                source_name=source.source_name,
                 source_line=line_number,
                 record_id=identifier,
                 record_kind=kind,
@@ -462,9 +478,11 @@ def scan_jsonl_kind_mix(
         find_kind_mix(
             decoded,
             expected_kind,
-            slug=slug,
-            source_name=name,
-            source_sha256_by_line=source_sha256_by_line,
+            KindMixSource(
+                slug=slug,
+                source_name=name,
+                source_sha256_by_line=source_sha256_by_line,
+            ),
         )
     )
     findings.sort(key=lambda finding: (finding.source_name, finding.source_line))
