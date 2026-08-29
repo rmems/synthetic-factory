@@ -20,6 +20,7 @@ Modes, selected by argv[1] (default ``ok``):
   nan         a response containing JSON NaN
   infinity    a response containing JSON Infinity
   overflow    a response containing the finite-looking overflow literal 1e309
+  dupkey      a response with runtime_version repeated as a duplicate JSON key
   stdout_flood stdout larger than the protocol capture limit
   stderr_flood stderr larger than the protocol capture limit
   fail        exit nonzero
@@ -82,6 +83,11 @@ def main(argv):
     output = json.dumps(response, sort_keys=True)
     if mode == "overflow":
         output = output.replace('"OVERFLOW_LITERAL"', "1e309")
+    elif mode == "dupkey":
+        # A Python dict cannot hold a duplicate key, so splice a second
+        # "runtime_version" into the serialized text directly: this is
+        # syntactically valid JSON that a last-key-wins decoder would accept.
+        output = '{"runtime_version": "duplicate-should-be-rejected", ' + output[1:]
     sys.stdout.write(output)
     return 0
 

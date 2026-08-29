@@ -239,29 +239,37 @@ def _encoder_checks(record):
                 f"{side}.representation_excerpt_truncated does not match "
                 "spike_count and the retained excerpt"
             )
-        encoder_config = record["oracle"]["configuration"]["encoder"]
-        recomputed = sim.run_encoder(scenario["signal"], expected_encoding, encoder_config)
-        expected_excerpt = recomputed["spikes"][: int(encoder_config["excerpt_spikes"])]
-        if canon.normalize(excerpt) != canon.normalize(expected_excerpt):
-            findings.append(
-                f"{side}.representation_excerpt is not the prefix of the "
-                "recomputed spike train"
-            )
-        if state.get("spike_train_digest") != canon.digest(recomputed["spikes"]):
-            findings.append(
-                f"{side}.spike_train_digest does not match the recomputed spike train"
-            )
-        # The checks above authenticate the spike train through its excerpt
-        # prefix and digest, but ``decoded``/``derived`` only prove the stored
-        # reconstruction and metrics are *self*-consistent, not that they came
-        # from this signal. Compare against the recomputed decode directly so
-        # a self-consistent edit to the decoded training target cannot pass.
-        if canon.normalize(state.get("reconstruction")) != canon.normalize(
-            recomputed["reconstruction"]
-        ):
-            findings.append(f"{side}.reconstruction does not match the recomputed decode")
-        if state.get("spike_count") != recomputed["spike_count"]:
-            findings.append(f"{side}.spike_count does not match the recomputed encode")
+        # A named runtime is measured through its own reproduction path
+        # (``record.reproduce``, which replays through the actual bound
+        # adapter) precisely because its spike timing or floating-point
+        # behavior is not required to agree with this Python reference; only
+        # a reference-implementation record is authenticated by rerunning
+        # the reference here.
+        if record["oracle"]["implementation"] != "named-runtime":
+            encoder_config = record["oracle"]["configuration"]["encoder"]
+            recomputed = sim.run_encoder(scenario["signal"], expected_encoding, encoder_config)
+            expected_excerpt = recomputed["spikes"][: int(encoder_config["excerpt_spikes"])]
+            if canon.normalize(excerpt) != canon.normalize(expected_excerpt):
+                findings.append(
+                    f"{side}.representation_excerpt is not the prefix of the "
+                    "recomputed spike train"
+                )
+            if state.get("spike_train_digest") != canon.digest(recomputed["spikes"]):
+                findings.append(
+                    f"{side}.spike_train_digest does not match the recomputed spike train"
+                )
+            # The checks above authenticate the spike train through its
+            # excerpt prefix and digest, but ``decoded``/``derived`` only
+            # prove the stored reconstruction and metrics are *self*-
+            # consistent, not that they came from this signal. Compare
+            # against the recomputed decode directly so a self-consistent
+            # edit to the decoded training target cannot pass.
+            if canon.normalize(state.get("reconstruction")) != canon.normalize(
+                recomputed["reconstruction"]
+            ):
+                findings.append(f"{side}.reconstruction does not match the recomputed decode")
+            if state.get("spike_count") != recomputed["spike_count"]:
+                findings.append(f"{side}.spike_count does not match the recomputed encode")
     retention_gap = (
         measured["encoding_a"]["information_retention"]
         - measured["encoding_b"]["information_retention"]
@@ -394,6 +402,18 @@ def _neuron_checks(record):
             findings.append(
                 f"delta.{field} does not match the value derived from before/after states"
             )
+    # The per-field checks below only require each retained trace sample to
+    # fall within its own retained extrema -- a fully forged but internally
+    # consistent trace would pass. A reference record's before/after states
+    # are reproducible from oracle.configuration alone, so rerun the
+    # reference and compare directly. Named-runtime results are authenticated
+    # through their own reproduction path instead.
+    if record["oracle"]["implementation"] != "named-runtime":
+        rerun_request = neuron_request(record["scenario"], record["intervention"])
+        recomputed, _units = _neuron_reference(rerun_request)
+        for side in ("before", "after"):
+            if canon.normalize(measured[side]) != canon.normalize(recomputed[side]):
+                findings.append(f"{side} does not match the rerun of the reference simulation")
     for side, state in (("before", before), ("after", after)):
         times = state["spike_times_ms"]
         if any(later < earlier for earlier, later in pairwise(times)):
@@ -565,6 +585,18 @@ def _mesh_checks(record):
     nodes = set(node_order)
     sink = record["scenario"]["sink"]
     findings = []
+    # spike_counts/first_arrival_ms are treated as primitive evidence below;
+    # everything else (total_spikes, energy_pJ, firing_order, ...) is only
+    # checked for consistency *with them*, not against an independent rerun.
+    # A reference record's trajectory is reproducible from oracle.
+    # configuration alone, so rerun it and compare directly. Named-runtime
+    # results are authenticated through their own reproduction path instead.
+    if record["oracle"]["implementation"] != "named-runtime":
+        rerun_request = mesh_request(record["scenario"], record["intervention"])
+        recomputed, _units = _mesh_reference(rerun_request)
+        for side in ("before", "after"):
+            if canon.normalize(measured[side]) != canon.normalize(recomputed[side]):
+                findings.append(f"{side} does not match the rerun of the reference simulation")
     for side in ("before", "after"):
         state = measured[side]
         if state["source"] != record["scenario"]["source"]:
@@ -1106,7 +1138,14 @@ def _memory_checks(record):
         expected_task = _memory_trial_task(scenario, name)
         if expected_task is None:
             findings.append(f"{name} is not a known memory trial")
-        else:
+        elif record["oracle"]["implementation"] != "named-runtime":
+            # A reference trial is reproducible from oracle.configuration
+            # alone, so rerun it and compare the complete trial, not just
+            # response_latency_ms -- memory_spike_counts, latch_last_spike_ms
+            # (and its retention flag), and total_spikes/energy_pJ are all
+            # otherwise only checked for consistency with *each other*, not
+            # against an independent replay. Named-runtime results are
+            # authenticated through their own reproduction path instead.
             try:
                 replayed = sim.run_memory_task(expected_task, configuration)
             except Exception:
@@ -1118,6 +1157,8 @@ def _memory_checks(record):
                     findings.append(
                         f"{name}.response_latency_ms does not match the first readout spike"
                     )
+                if canon.normalize(trial) != canon.normalize(replayed):
+                    findings.append(f"{name} does not match the complete reference replay")
         if trial["spike_budget_exhausted"]:
             findings.append(f"{name} hit the spike budget; the trajectory is truncated")
         if set(trial["output_spike_counts"]) != {"OA", "OB"}:

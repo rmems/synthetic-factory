@@ -39,6 +39,7 @@ import tempfile
 from pathlib import Path
 
 from oracle_grounded import canon, families, oracles, record
+from oracle_validate import MAX_JSONL_BYTES, MAX_RUN_BYTES
 
 DEFAULT_SEED = 20260823
 DEFAULT_COUNT = 8
@@ -109,8 +110,9 @@ def generate_family(
 def write_jsonl(path, records):
     path.parent.mkdir(parents=True, exist_ok=True)
     body = "".join(canon.dumps_record(item) + "\n" for item in records)
+    encoded = body.encode("utf-8")
     path.write_text(body, encoding="utf-8")
-    return hashlib.sha256(body.encode("utf-8")).hexdigest()
+    return hashlib.sha256(encoded).hexdigest(), len(encoded)
 
 
 def summarize(records):
@@ -407,15 +409,34 @@ def main(argv=None):
         )
         staging_identity = _directory_identity(staging)
         files = {}
+        total_bytes = 0
+        oversized = []
         for family in selected:
             accepted, rejected, _errors = generated[family]
             for verdict, items in (("accepted", accepted), ("rejected", rejected)):
                 relative = Path(family) / f"{verdict}-r{args.round_number:02d}.jsonl"
-                digest = write_jsonl(staging / relative, items)
+                digest, byte_count = write_jsonl(staging / relative, items)
                 files[relative.as_posix()] = {
                     "sha256": digest,
                     "records": len(items),
                 }
+                total_bytes += byte_count
+                if byte_count > MAX_JSONL_BYTES:
+                    oversized.append(
+                        f"{relative.as_posix()} is {byte_count} bytes, exceeding the "
+                        f"validator's {MAX_JSONL_BYTES}-byte per-file limit"
+                    )
+        if total_bytes > MAX_RUN_BYTES:
+            oversized.append(
+                f"the run is {total_bytes} bytes, exceeding the validator's "
+                f"{MAX_RUN_BYTES}-byte per-run limit"
+            )
+        if oversized:
+            # oracle_validate.py would always reject this run anyway; fail
+            # before publication instead of letting it exit successfully.
+            for error in oversized:
+                print(f"oracle_generate: {error}", file=sys.stderr)
+            return 1
         manifest = build_manifest(
             args,
             selected,

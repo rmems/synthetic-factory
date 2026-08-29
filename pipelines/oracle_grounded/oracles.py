@@ -69,6 +69,22 @@ def _reject_json_constant(value):
     raise ValueError(f"non-finite JSON token {value}")
 
 
+def _reject_duplicate_object_keys(pairs):
+    """``object_pairs_hook`` that fails closed on an ambiguous JSON object.
+
+    Python's default decoder applies last-key-wins to a duplicate key, but a
+    bound runtime is an external process: silently picking one interpretation
+    of an ambiguous response could stamp a value into provenance that another
+    conforming JSON reader would have read differently.
+    """
+    value = {}
+    for key, item in pairs:
+        if key in value:
+            raise ValueError(f"duplicate JSON object key {key!r}")
+        value[key] = item
+    return value
+
+
 def module_digest():
     """sha256 over the oracle implementation sources, cached per process."""
     key = "implementation"
@@ -330,6 +346,7 @@ class ExternalCommandOracle(OracleAdapter):
         try:
             response = json.loads(
                 stdout,
+                object_pairs_hook=_reject_duplicate_object_keys,
                 parse_constant=_reject_json_constant,
             )
             response = canon.normalize(response)

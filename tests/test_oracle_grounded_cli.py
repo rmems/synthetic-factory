@@ -11,6 +11,7 @@ letting a fixture quietly stop describing the code that produced it.
 import copy
 import errno
 import hashlib
+import io
 import json
 import os
 import re
@@ -1129,6 +1130,58 @@ class GenerateCli(unittest.TestCase):
                 for item in read_jsonl(path):
                     self.assertEqual(item["meta"]["round"], 3)
                     self.assertIn("r03", item["id"])
+
+    def test_an_oversized_file_refuses_to_publish(self):
+        # oracle_validate.py always rejects a run over its serialized-byte
+        # limits; refuse to publish one instead of exiting successfully.
+        with tempfile.TemporaryDirectory(prefix="oracle-oversized-file-") as temp:
+            out = Path(temp) / "run"
+            captured = io.StringIO()
+            with (
+                mock.patch.object(oracle_generate, "MAX_JSONL_BYTES", 1),
+                mock.patch("sys.stderr", captured),
+            ):
+                status = oracle_generate.main(
+                    [
+                        "--family",
+                        families.ENCODER_FAMILY,
+                        "--count",
+                        "1",
+                        "--oracle-commit",
+                        PINNED_COMMIT,
+                        "--no-oracle-dirty",
+                        str(out),
+                    ]
+                )
+            self.assertEqual(status, 1)
+            self.assertFalse(out.exists())
+            self.assertIn("exceeding the validator's", captured.getvalue())
+            self.assertIn("per-file limit", captured.getvalue())
+
+    def test_an_oversized_run_refuses_to_publish(self):
+        with tempfile.TemporaryDirectory(prefix="oracle-oversized-run-") as temp:
+            out = Path(temp) / "run"
+            captured = io.StringIO()
+            with (
+                mock.patch.object(oracle_generate, "MAX_RUN_BYTES", 1),
+                mock.patch("sys.stderr", captured),
+            ):
+                status = oracle_generate.main(
+                    [
+                        "--family",
+                        families.ENCODER_FAMILY,
+                        "--count",
+                        "1",
+                        "--oracle-commit",
+                        PINNED_COMMIT,
+                        "--no-oracle-dirty",
+                        str(out),
+                    ]
+                )
+            self.assertEqual(status, 1)
+            self.assertFalse(out.exists())
+            self.assertIn("exceeding the validator's", captured.getvalue())
+            self.assertIn("per-run limit", captured.getvalue())
 
     def test_generation_error_publishes_no_partial_run(self):
         with tempfile.TemporaryDirectory(prefix="oracle-transaction-build-") as temp:
