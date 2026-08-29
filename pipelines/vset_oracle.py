@@ -135,20 +135,35 @@ def _run_modules(work: Path, relatives: Iterable[str]) -> dict[str, Any]:
     return _suite_report(result)
 
 
-def apply_patch(work: Path, patch: Any) -> None:
+def _patch_files(patch: Any) -> Mapping[str, Any]:
     if not isinstance(patch, Mapping):
         raise VSetValidationError("vset.payload_invalid", "patch must be an object")
     files = patch.get("files")
     if not isinstance(files, Mapping) or not files:
         raise VSetValidationError("vset.payload_invalid", "patch.files must be a non-empty object")
-    for relative, contents in files.items():
-        if not isinstance(relative, str) or Path(relative).is_absolute() or ".." in Path(relative).parts:
-            raise VSetValidationError("vset.payload_invalid", f"illegal patch path {relative!r}")
-        if not isinstance(contents, str):
-            raise VSetValidationError("vset.payload_invalid", f"patch file {relative} must be a string")
-        dest = work / relative
-        dest.parent.mkdir(parents=True, exist_ok=True)
-        dest.write_text(contents)
+    return files
+
+
+def _illegal_patch_path(relative: Any) -> bool:
+    if not isinstance(relative, str):
+        return True
+    candidate = Path(relative)
+    return candidate.is_absolute() or ".." in candidate.parts
+
+
+def _write_patch_file(work: Path, relative: Any, contents: Any) -> None:
+    if _illegal_patch_path(relative):
+        raise VSetValidationError("vset.payload_invalid", f"illegal patch path {relative!r}")
+    if not isinstance(contents, str):
+        raise VSetValidationError("vset.payload_invalid", f"patch file {relative} must be a string")
+    dest = work / relative
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    dest.write_text(contents)
+
+
+def apply_patch(work: Path, patch: Any) -> None:
+    for relative, contents in _patch_files(patch).items():
+        _write_patch_file(work, relative, contents)
 
 
 def run_oracle(
@@ -188,18 +203,20 @@ def run_oracle(
         }
 
 
+def _kind_patch(kind: Any, payload: Mapping[str, Any]) -> Any:
+    if kind == "review_remediation_v1":
+        return payload.get("revised_patch")
+    if kind == "failure_recovery_v1":
+        action = payload.get("recovery_action")
+        return action.get("patch") if isinstance(action, Mapping) else None
+    return payload.get("patch")
+
+
 def record_patch(record: Mapping[str, Any]) -> Mapping[str, Any] | None:
     payload = record.get("payload")
     if not isinstance(payload, Mapping):
         return None
-    kind = record.get("record_kind")
-    if kind == "review_remediation_v1":
-        patch = payload.get("revised_patch")
-    elif kind == "failure_recovery_v1":
-        action = payload.get("recovery_action")
-        patch = action.get("patch") if isinstance(action, Mapping) else None
-    else:
-        patch = payload.get("patch")
+    patch = _kind_patch(record.get("record_kind"), payload)
     return patch if isinstance(patch, Mapping) else None
 
 
@@ -301,6 +318,31 @@ def _execution_match_errors(
     return errors
 
 
+def _hidden_suite_errors(hidden: Any) -> list[VSetValidationError]:
+    if hidden is None or hidden["ok"]:
+        return []
+    return [
+        VSetValidationError(
+            "vset.oracle_execution_mismatch",
+            "validated oracle requires declared hidden tests to pass",
+        )
+    ]
+
+
+def _execution_result_hash(execution: Mapping[str, Any]) -> str:
+    hidden = execution["hidden"]
+    if hidden is None:
+        return execution["reference"]["result_hash"]
+    return _sha256_text(
+        _canonical_json(
+            {
+                "reference": execution["reference"]["tests"],
+                "hidden": hidden["tests"],
+            }
+        )
+    )
+
+
 def _validated_execution_errors(
     oracle: Mapping[str, Any], execution: Mapping[str, Any]
 ) -> list[VSetValidationError]:
@@ -312,26 +354,8 @@ def _validated_execution_errors(
                 "validated oracle requires the reference suite to pass",
             )
         )
-    hidden = execution["hidden"]
-    if hidden is not None and not hidden["ok"]:
-        errors.append(
-            VSetValidationError(
-                "vset.oracle_execution_mismatch",
-                "validated oracle requires declared hidden tests to pass",
-            )
-        )
-    claimed = oracle.get("result_hash")
-    actual = execution["reference"]["result_hash"]
-    if hidden is not None:
-        actual = _sha256_text(
-            _canonical_json(
-                {
-                    "reference": execution["reference"]["tests"],
-                    "hidden": hidden["tests"],
-                }
-            )
-        )
-    if claimed != actual:
+    errors.extend(_hidden_suite_errors(execution["hidden"]))
+    if oracle.get("result_hash") != _execution_result_hash(execution):
         errors.append(
             VSetValidationError(
                 "vset.oracle_execution_mismatch",

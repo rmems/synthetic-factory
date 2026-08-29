@@ -184,6 +184,22 @@ def _require_actor_identity(actor: dict[str, Any], role: str) -> None:
             )
 
 
+def _reject_bad_sha256(actor: dict[str, Any], role: str, field: str) -> None:
+    if not _is_sha256(actor.get(field)):
+        raise VSetValidationError(
+            "vset.actor_fields_invalid",
+            f"{role}.{field} must be sha256:<64 hex>",
+        )
+
+
+def _reject_bad_nonempty(actor: dict[str, Any], role: str, field: str) -> None:
+    if not _is_nonempty(actor.get(field)):
+        raise VSetValidationError(
+            "vset.actor_fields_invalid",
+            f"{role}.{field} must be a non-empty normalized string",
+        )
+
+
 def _require_actor_optionals(
     actor: dict[str, Any],
     role: str,
@@ -191,26 +207,14 @@ def _require_actor_optionals(
     require_prompt_hash: bool,
     require_tool_policy: bool,
 ) -> None:
-    if require_prompt_hash and not _is_sha256(actor.get("prompt_hash")):
-        raise VSetValidationError(
-            "vset.actor_fields_invalid",
-            f"{role}.prompt_hash must be sha256:<64 hex>",
-        )
-    if require_tool_policy and not _is_nonempty(actor.get("tool_policy")):
-        raise VSetValidationError(
-            "vset.actor_fields_invalid",
-            f"{role}.tool_policy must be a non-empty normalized string",
-        )
-    if "prompt_hash" in actor and not _is_sha256(actor["prompt_hash"]):
-        raise VSetValidationError(
-            "vset.actor_fields_invalid",
-            f"{role}.prompt_hash must be sha256:<64 hex>",
-        )
-    if "tool_policy" in actor and not _is_nonempty(actor["tool_policy"]):
-        raise VSetValidationError(
-            "vset.actor_fields_invalid",
-            f"{role}.tool_policy must be a non-empty normalized string",
-        )
+    if require_prompt_hash:
+        _reject_bad_sha256(actor, role, "prompt_hash")
+    if require_tool_policy:
+        _reject_bad_nonempty(actor, role, "tool_policy")
+    if "prompt_hash" in actor:
+        _reject_bad_sha256(actor, role, "prompt_hash")
+    if "tool_policy" in actor:
+        _reject_bad_nonempty(actor, role, "tool_policy")
 
 
 def _check_actor(
