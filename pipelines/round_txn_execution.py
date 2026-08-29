@@ -7,7 +7,28 @@ keep working after this split.
 
 from __future__ import annotations
 
+import sys
 from pathlib import Path
+
+
+def _main_module_is_round_txn(module):
+    module_file = getattr(module, "__file__", None)
+    if not isinstance(module_file, str):
+        return False
+    expected = Path(__file__).with_name("round_txn.py").resolve()
+    return Path(module_file).resolve() == expected
+
+
+def _active_round_txn_module():
+    module = sys.modules.get("round_txn")
+    if module is not None:
+        return module
+    main_module = sys.modules.get("__main__")
+    if _main_module_is_round_txn(main_module):
+        return main_module
+    import round_txn
+
+    return round_txn
 
 
 class _Host:
@@ -16,9 +37,7 @@ class _Host:
 
     def __getattr__(self, name):
         if self._module is None:
-            import round_txn
-
-            self._module = round_txn
+            self._module = _active_round_txn_module()
         return getattr(self._module, name)
 
 
@@ -108,18 +127,22 @@ def _override_words_are_weak_aside(words):
     return bool(content) and all(word in OVERRIDE_WEAK_ASIDE_WORDS for word in content)
 
 
+def _reject_new_override_phrase():
+    raise rt.TransactionError(
+        "execution verification override must be a written phrase "
+        "of at least three words, not a single token, a keystroke pad, "
+        "or a weak aside"
+    )
+
+
 def _validate_new_override_phrase(text):
     words = text.split()
-    if (
-        len(words) < 3
-        or not any(character.isalpha() for character in text)
-        or _override_words_are_weak_aside(words)
-    ):
-        raise rt.TransactionError(
-            "execution verification override must be a written phrase "
-            "of at least three words, not a single token, a keystroke pad, "
-            "or a weak aside"
-        )
+    if len(words) < 3:
+        _reject_new_override_phrase()
+    if not any(character.isalpha() for character in text):
+        _reject_new_override_phrase()
+    if _override_words_are_weak_aside(words):
+        _reject_new_override_phrase()
 
 
 def _validate_legacy_override_phrase(text):
@@ -141,7 +164,7 @@ def normalized_execution_override(reason):
 
 def _validate_recorded_override_phrase(verification, normalized):
     semantics_version = verification.get("semantics_version")
-    if _historical_semantics_version(semantics_version):
+    if _is_positive_int(semantics_version) and semantics_version <= 2:
         # Historical completion markers are immutable audit evidence. Reasons
         # canonical under their two-word grammar must remain readable.
         _validate_legacy_override_phrase(normalized)

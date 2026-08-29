@@ -205,6 +205,15 @@ class ExecutionOverrideReason(unittest.TestCase):
         with self.assertRaisesRegex(round_txn.TransactionError, "three words"):
             round_txn.validated_execution_verification_summary(current)
 
+        recent_historical = execution_summary(
+            verified=0,
+            inconclusive=1,
+            override={"reason": "operator approved", "waived_inconclusive": 1},
+        )
+        recent_historical["semantics_version"] = 5
+        with self.assertRaisesRegex(round_txn.TransactionError, "three words"):
+            round_txn.validated_execution_verification_summary(recent_historical)
+
     def test_historical_semantics_total_must_match_manifest_records(self):
         with tempfile.TemporaryDirectory() as td:
             batch = Path(td) / "batch-r01.jsonl"

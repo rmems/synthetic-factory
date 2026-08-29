@@ -55,6 +55,10 @@ SENSITIVE_PATH_RE = re.compile(r"(?:\.env\b|id_rsa|/etc/(?:shadow|passwd))")
 SENSITIVE_PATH_KEYS = frozenset({"path", "file", "filename", "src", "source"})
 DUMP_ACTION_RE = re.compile(r"(?:\bcat\b|\btee\b|>>?|\bcurl\b|\bwget\b)")
 DUMP_TOOL_NAMES = frozenset({"cat", "tee", "curl", "wget", "read_file"})
+STRUCTURED_WRITE_TOOL_NAMES = frozenset({"edit_file", "write_file"})
+STRUCTURED_WRITE_CONTENT_KEYS = frozenset(
+    {"content", "new_content", "new_string", "new_text", "replacement", "text"}
+)
 COPY_COMMAND_RE = re.compile(
     r"(?:^|(?:&&|\|\||[;|])\s*)(?:(?:command|sudo)\s+)?cp\s+(?P<operands>[^;&|]+)"
 )
@@ -266,8 +270,24 @@ def _structured_sensitive_path(args):
     return False
 
 
+def _structured_write_has_sensitive_content(tool_name, args):
+    if tool_name not in STRUCTURED_WRITE_TOOL_NAMES or not isinstance(args, dict):
+        return False
+    for key, value in args.items():
+        if str(key).casefold() not in STRUCTURED_WRITE_CONTENT_KEYS:
+            continue
+        if any(
+            SENSITIVE_ARG_RE.search(text.casefold()) is not None
+            for text in _argument_strings(value)
+        ):
+            return True
+    return False
+
+
 def _arguments_dump_sensitive_data(args, args_text, *, tool_name=""):
     if _copy_discloses_sensitive_data(args):
+        return True
+    if _structured_write_has_sensitive_content(tool_name, args):
         return True
     if SENSITIVE_ARG_RE.search(args_text) is None:
         return False

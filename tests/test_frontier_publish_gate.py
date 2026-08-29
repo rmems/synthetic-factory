@@ -2,8 +2,11 @@
 """Cohesive frontier execution-gate regression suite."""
 
 import json
+import subprocess
+import sys
 import tempfile
 import unittest
+from pathlib import Path
 
 from tests.frontier_gate_helpers import (
     FrontierGateTestCaseMixin,
@@ -125,6 +128,30 @@ class FrontierPublishGate(FrontierGateTestCaseMixin, unittest.TestCase):
                 marker["execution_verification"]["override"]["reason"],
                 "replay harness unavailable this window",
             )
+
+    def test_cli_bounds_invalid_override_without_a_traceback(self):
+        script = Path(__file__).resolve().parents[1] / "pipelines" / "round_txn.py"
+        with tempfile.TemporaryDirectory() as td:
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    str(script),
+                    "publish",
+                    td,
+                    "--round",
+                    "1",
+                    "--token",
+                    "unused",
+                    "--allow-inconclusive",
+                    "looks fine",
+                ],
+                capture_output=True,
+                check=False,
+                text=True,
+            )
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("ERROR:", result.stderr)
+        self.assertNotIn("Traceback", result.stderr)
 
 
 
