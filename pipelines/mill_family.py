@@ -149,8 +149,8 @@ def mill_prefix(record: Any) -> str | None:
     return match.group("prefix") if match else None
 
 
-def _factory_stamp(container: Any) -> str | None:
-    """Return one normalized factory stamp from a record-like container."""
+def _container_declared_factory(container: Any) -> str | None:
+    """Return the factory one mapping claims through its own ``meta``."""
 
     if not isinstance(container, Mapping):
         return None
@@ -161,35 +161,40 @@ def _factory_stamp(container: Any) -> str | None:
     return value.strip() if isinstance(value, str) and value.strip() else None
 
 
-def declared_factory(record: Any) -> str | None:
-    """Return the unambiguous factory the payload claims for itself.
+def declared_factory_claims(record: Any) -> tuple[str, ...]:
+    """Return every distinct factory this payload claims for itself.
 
-    Preference wrappers often carry provenance on `chosen` and `rejected`
-    instead of at the root. Two agreeing side stamps identify the origin even
-    when the publication-required wrapper stamp names the destination; side
-    disagreement is ambiguous and deliberately resolves to nothing.
+    A legacy preference wrapper predates a wrapper-level ``meta.factory`` and
+    attests the declaration on ``chosen``/``rejected`` instead -- the shape
+    ``curate_identity._payload_factory`` explicitly accepts. Reading only the
+    wrapper leaves a side-stamped foreign payload with no declaration at all,
+    so a native destination-stamped prefix and a stopword-only goal would let
+    it pass as owned. Claims are returned in wrapper-then-sides order with
+    duplicates collapsed.
     """
 
     if not isinstance(record, Mapping):
-        return None
+        return ()
+    claims: list[str] = []
+    for container in (record, record.get("chosen"), record.get("rejected")):
+        claim = _container_declared_factory(container)
+        if claim is not None and claim not in claims:
+            claims.append(claim)
+    return tuple(claims)
 
-    root = _factory_stamp(record)
-    stamped_sides = [
-        value
-        for side in ("chosen", "rejected")
-        if (value := _factory_stamp(record.get(side))) is not None
-    ]
-    side_stamps = set(stamped_sides)
-    if len(side_stamps) > 1:
-        return None
-    if len(stamped_sides) == 2:
-        # Agentic publication stamps the wrapper with its destination. Two
-        # agreeing side stamps are therefore stronger evidence of the pair's
-        # originating factory, including when it differs from that wrapper.
-        return stamped_sides[0]
-    if root is not None:
-        return root
-    return next(iter(side_stamps)) if side_stamps else None
+
+def declared_factory(record: Any) -> str | None:
+    """Return the factory the payload claims for itself, when unambiguous.
+
+    Every present claim -- the wrapper and both preference sides -- must agree
+    before the record is used as ownership evidence, so a wrapper claim that
+    contradicts its sides can no longer define a prefix home or a destination
+    identity. ``declared_factory_claims`` still exposes each claim, so a
+    contradictory record is reported as foreign rather than silently dropped.
+    """
+
+    claims = declared_factory_claims(record)
+    return claims[0] if len(claims) == 1 else None
 
 
 def goal_text(record: Any) -> str | None:
@@ -262,6 +267,25 @@ class _Entry:
     mill_prefix: str | None
     declared_factory: str | None
     goal_family: frozenset[str] = field(default_factory=frozenset)
+    # Every claim the payload makes, including a preference wrapper's sides.
+    # ``declared_factory`` is the agreed one and stays None when they clash;
+    # the foreignness checks read the claims so a clash is still reported.
+    declared_claims: tuple[str, ...] = ()
+
+
+def _reported_declaration(entry: _Entry, expected: str | None) -> str | None:
+    """Return the declaration to name on one finding.
+
+    The agreed claim when the payload makes exactly one; otherwise the first
+    claim that disagrees with the destination, so a self-contradictory record
+    still names the foreign factory it attests instead of reporting nothing.
+    """
+
+    if entry.declared_factory is not None:
+        return entry.declared_factory
+    return next(
+        (claim for claim in entry.declared_claims if claim != expected), None
+    )
 
 
 def _entry_label(entry: _Entry) -> str:
@@ -364,6 +388,7 @@ class MillIndex:
                 mill_prefix=mill_prefix(record),
                 declared_factory=declared_factory(record),
                 goal_family=goal_family(record),
+                declared_claims=declared_factory_claims(record),
             )
         )
 
@@ -483,10 +508,8 @@ class MillIndex:
         expected = identity.get(entry.factory)
         effective_factory = expected or entry.factory
         prefix_homes = homes.get(entry.mill_prefix, frozenset())
-        payload_foreign = (
-            entry.declared_factory is not None
-            and expected is not None
-            and entry.declared_factory != expected
+        payload_foreign = expected is not None and any(
+            claim != expected for claim in entry.declared_claims
         )
         prefix_foreign = (
             entry.mill_prefix is not None
@@ -736,12 +759,11 @@ class MillIndex:
             if expected is not None and expected not in verified
         )
         missing_homes.update(
-            entry.declared_factory
+            claim
             for entry in self._entries
             if entry.factory_verified
-            and entry.declared_factory is not None
-            and entry.declared_factory != entry.factory
-            and entry.declared_factory not in verified
+            for claim in entry.declared_claims
+            if claim != entry.factory and claim not in verified
         )
         return missing_homes
 
@@ -1097,7 +1119,7 @@ class MillIndex:
                     record_id=entry.record_id,
                     reason_codes=tuple(reasons),
                     mill_prefix=entry.mill_prefix,
-                    declared_factory=entry.declared_factory,
+                    declared_factory=_reported_declaration(entry, expected),
                     expected_factory=(
                         expected
                         if REASON_FOREIGN_PAYLOAD_FACTORY in reasons
