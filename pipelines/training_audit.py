@@ -31,20 +31,33 @@ from check_records import (  # noqa: E402
     expected_states,
     reject_json_constant,
     root_record_id,
+    shape_check,
     walk_key,
 )
 from census import (  # noqa: E402
     factory_for_path,
-    factory_identity_for_path,
     visible_jsonl_paths,
 )
-from mill_family import (  # noqa: E402
-    MillFinding,
-    MillIndex,
-    summarize as summarize_mill_mix,
-)
 from round_txn import TransactionError  # noqa: E402
-from validate_run import HIDDEN_THOUGHT_KEYS, _episode_like, event_time  # noqa: E402
+from curate_coding import (  # noqa: E402
+    HIDDEN_REASONING_KEYS,
+    HIDDEN_REASONING_PREFIX,
+    normalized_key_name,
+)
+from validate_run import (  # noqa: E402
+    HIDDEN_THOUGHT_KEYS,
+    _episode_like,
+    check_episode,
+    event_time,
+)
+from training_audit_mill import index_mill_quarantine  # noqa: E402
+from training_audit_report import build_blockers  # noqa: E402
+
+# A curated training view may expose neither the scratch-pad vocabulary the
+# structural validator already knows about, the coding-factory key
+# ``reasoning``, nor the ``internal_reasoning*`` family that Thalamic wrap
+# records publish on ``proposed_action``.
+CURATED_FORBIDDEN_REASONING_KEYS = HIDDEN_THOUGHT_KEYS | HIDDEN_REASONING_KEYS
 
 
 def percentile(values, fraction):
@@ -79,6 +92,24 @@ def thalamic_views(obj, kind):
         view = obj.get("language_view")
         if isinstance(view, dict) and isinstance(view.get("trajectory"), dict):
             yield "language_view.trajectory", view["trajectory"]
+
+
+def wrapped_agentic_episodes(obj, kind):
+    """Yield coding episodes embedded in any supported Thalamic view."""
+    for view_path, trajectory in thalamic_views(obj, kind):
+        executed_action = trajectory.get("executed_action")
+        if not isinstance(executed_action, dict):
+            continue
+        if "steps" not in executed_action and not all(
+            key in executed_action for key in ("goal", "outcome", "reward")
+        ):
+            continue
+        path = (
+            "executed_action"
+            if view_path == "record"
+            else f"{view_path}.executed_action"
+        )
+        yield path, executed_action
 
 
 def reward_shape(value):
@@ -194,6 +225,10 @@ def agentic_turns(obj, kind):
         for turn in transcript if isinstance(transcript, list) else ():
             if isinstance(turn, dict) and "tool_call" in turn:
                 yield turn
+    for _path, episode in wrapped_agentic_episodes(obj, kind):
+        steps = episode.get("steps")
+        if isinstance(steps, list):
+            yield from steps
 
 
 def has_observable_decision_basis(turn):
@@ -202,12 +237,27 @@ def has_observable_decision_basis(turn):
     )
 
 
+def is_hidden_thought_key(key):
+    """Return whether a JSON key names model-private reasoning text.
+
+    Covers the shared scratch-pad vocabulary from ``validate_run``, the
+    exact coding-factory key ``reasoning``, and the whole
+    ``internal_reasoning*`` family that Thalamic wrap records carry on
+    ``proposed_action``. Raw evidence may keep these keys; a curated training
+    view may not.
+    """
+    normalized = normalized_key_name(key)
+    return normalized in CURATED_FORBIDDEN_REASONING_KEYS or normalized.startswith(
+        HIDDEN_REASONING_PREFIX
+    )
+
+
 def hidden_thought_paths(value, path=""):
-    """Yield every recursively hidden-reasoning field in one agentic record."""
+    """Yield every recursively hidden-reasoning field in one record."""
     if isinstance(value, dict):
         for key, item in value.items():
             child_path = f"{path}.{key}" if path else key
-            if key in HIDDEN_THOUGHT_KEYS:
+            if is_hidden_thought_key(key):
                 yield child_path
             yield from hidden_thought_paths(item, child_path)
     elif isinstance(value, list):
@@ -215,53 +265,10 @@ def hidden_thought_paths(value, path=""):
             yield from hidden_thought_paths(item, f"{path}[{index}]")
 
 
-def _finding_row(finding: MillFinding) -> dict:
-    row = finding.as_dict()
-    ref = finding.ref
-    if isinstance(ref, tuple) and len(ref) == 2:
-        source, line = ref
-        row["source"] = str(source)
-        row["line"] = line
-    return row
-
-
-def _index_mill_findings(run_dir: Path, files: list[Path]):
-    """Resolve shared-detector findings before readiness metrics are computed."""
-
-    mills = MillIndex()
-    for path in files:
-        rel = path.relative_to(run_dir)
-        factory, factory_verified = factory_identity_for_path(run_dir, path)
-        payload = path.read_bytes()
-        for line_number, raw_line in enumerate(payload.splitlines(), 1):
-            if not raw_line.strip():
-                continue
-            try:
-                line = raw_line.decode("utf-8")
-            except UnicodeDecodeError:
-                continue
-            try:
-                obj = json.loads(line, parse_constant=reject_json_constant)
-            except (json.JSONDecodeError, ValueError):
-                continue
-            mills.add(
-                factory,
-                obj,
-                (rel.as_posix(), line_number),
-                factory_verified=factory_verified,
-            )
-    return mills.findings()
-
-
 def audit_run(run_dir: Path):
     run_dir = Path(run_dir).resolve()
     files = visible_jsonl_paths(run_dir)
-    mill_findings = _index_mill_findings(run_dir, files)
-    mill_findings_by_ref = {finding.ref: finding for finding in mill_findings}
-    mill_mix = summarize_mill_mix(mill_findings)
-    mill_mix["quarantined_records"] = [
-        _finding_row(finding) for finding in mill_findings
-    ]
+    mill_findings_by_ref, mill_mix = index_mill_quarantine(run_dir, files)
     factories = defaultdict(
         lambda: {
             "files": 0,
@@ -308,6 +315,7 @@ def audit_run(run_dir: Path):
     tags = Counter()
     bridge = Counter()
     episodes = Counter()
+    hidden_thought_examples = []
 
     for path in files:
         rel = path.relative_to(run_dir)
@@ -380,6 +388,26 @@ def audit_run(run_dir: Path):
             kinds[kind] += 1
             bucket["by_kind"][kind] += 1
             record_errors.extend(errors)
+            # The outer record routes as Thalamic, preference, or bridge data,
+            # so its ordinary shape check cannot validate an embedded coding
+            # episode. Validate that nested episode explicitly with the same
+            # strict agentic contract used for top-level staged episodes.
+            for embedded_path, embedded in wrapped_agentic_episodes(obj, kind):
+                embedded_where = f"{where}.{embedded_path}"
+                if "steps" in embedded:
+                    embedded_errors, _embedded_kind = shape_check(
+                        embedded,
+                        embedded_where,
+                        factory_staging=True,
+                    )
+                else:
+                    embedded_errors = check_episode(
+                        embedded,
+                        embedded_where,
+                        forbid_hidden_thought=True,
+                        enforce_terminal_outcome=True,
+                    )
+                record_errors.extend(embedded_errors)
             unresolved_record_warnings.extend(
                 warning
                 for warning in warnings
@@ -483,16 +511,13 @@ def audit_run(run_dir: Path):
                 bridge[f"{status}_pairs"] += 1
             if kind == "episode":
                 episodes["episodes"] += 1
-            agentic_hidden_thoughts = kind in {"episode", "multi_agent", "safety_case"}
-            if kind == "preference":
-                agentic_hidden_thoughts = any(
-                    _episode_like(dict_field(obj, side_name))
-                    for side_name in ("chosen", "rejected")
-                )
-            if agentic_hidden_thoughts:
-                episodes["hidden_thought_fields"] += len(
-                    tuple(hidden_thought_paths(obj))
-                )
+            # Every kind is scanned, not only the agentic ones: Thalamic wrap
+            # records publish `proposed_action.internal_reasoning` and embed a
+            # coding episode with per-step `thought` under `executed_action`.
+            for hidden_path in hidden_thought_paths(obj):
+                episodes["hidden_thought_fields"] += 1
+                if len(hidden_thought_examples) < 10:
+                    hidden_thought_examples.append(f"{where}:{hidden_path}")
             for turn in agentic_turns(obj, kind):
                 if not isinstance(turn, dict):
                     continue
@@ -522,65 +547,21 @@ def audit_run(run_dir: Path):
     eligible_records = totals["eligible_records"]
     provenance_total = sum(provenance.values())
     tag_uses = sum(tags.values())
-    blockers = []
-    if record_errors:
-        blockers.append(f"{len(record_errors)} record shape/invariant errors")
-    if not eligible_records:
-        if totals["quarantined"]:
-            blockers.append(
-                "0 eligible training records remain after foreign-mill quarantine"
-            )
-        else:
-            blockers.append("corpus contains 0 eligible training records")
-    if unresolved_record_warnings:
-        blockers.append(
-            f"{len(unresolved_record_warnings)} unresolved record-invariant warnings"
-        )
-    if duplicate_ids:
-        blockers.append(f"{len(duplicate_ids)} duplicate canonical IDs")
-    if missing_root_ids:
-        blockers.append(
-            f"{len(missing_root_ids)} records missing canonical top-level IDs"
-        )
     provenance_bad = provenance.get("missing", 0) + provenance.get("non_training", 0)
-    if provenance_bad:
-        blockers.append(f"{provenance_bad}/{provenance_total} expected states lack canonical provenance")
-    missing_streams = bridge.get("missing_pairs", 0)
-    invalid_streams = bridge.get("invalid_pairs", 0)
-    unsorted_pairs = bridge.get("unsorted_pairs", 0)
-    if missing_streams:
-        blockers.append(f"{missing_streams}/{bridge['pairs']} bridge pairs lack event streams")
-    if invalid_streams:
-        blockers.append(
-            f"{invalid_streams}/{bridge['pairs']} bridge pairs contain invalid events"
-        )
-    if unsorted_pairs:
-        blockers.append(f"{unsorted_pairs}/{bridge['pairs']} bridge pairs have invalid event ordering")
-    impure_pairs = preference["pairs"] - preference["same_context"]
-    if impure_pairs:
-        if preference["episode_pairs"]:
-            blockers.append(
-                f"{impure_pairs}/{preference['pairs']} preference pairs violate their "
-                "state/proposal or shared-goal context invariant"
-            )
-        else:
-            # Retain the established all-Thalamic diagnostic as a stable
-            # operator-facing contract for existing corpus reports.
-            blockers.append(
-                f"{impure_pairs}/{preference['pairs']} preference pairs change state or proposal"
-            )
-    if exact_duplicates:
-        blockers.append(f"{len(exact_duplicates)} exact duplicate records")
-    if episodes["hidden_thought_fields"]:
-        blockers.append(
-            f"{episodes['hidden_thought_fields']} hidden-thought fields appear in "
-            "agentic records"
-        )
-    if episodes["missing_decision_basis_steps"]:
-        blockers.append(
-            f"{episodes['missing_decision_basis_steps']} agentic turns lack a "
-            "non-empty textual decision_basis"
-        )
+    blockers = build_blockers(
+        record_errors=record_errors,
+        eligible_records=eligible_records,
+        quarantined_records=totals["quarantined"],
+        unresolved_warnings=unresolved_record_warnings,
+        duplicate_ids=duplicate_ids,
+        missing_root_ids=missing_root_ids,
+        provenance_bad=provenance_bad,
+        provenance_total=provenance_total,
+        bridge=bridge,
+        preference=preference,
+        exact_duplicates=exact_duplicates,
+        episodes=episodes,
+    )
 
     report = {
         "run_dir": str(run_dir),
@@ -650,6 +631,7 @@ def audit_run(run_dir: Path):
         },
         "bridge": dict(bridge),
         "episodes": dict(episodes),
+        "hidden_thought_examples": hidden_thought_examples,
         "exact_duplicates": exact_duplicates,
         "record_invariants": {
             "errors": len(record_errors),

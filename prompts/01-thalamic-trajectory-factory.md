@@ -57,7 +57,7 @@ Every trajectory must expose neuromorphic temporal dynamics with verifiable micr
 1. Reserve: `python3 pipelines/round_txn.py reserve <factory-dir> --round N --expected Q`
 2. Write ONLY into returned `staging_dir` at its exact `batch_file` and `notes_file`.
 3. One JSON object per nonblank JSONL line — no fences, headings, comments, trailing prose, or multiline objects.
-4. Self-critique in staged NOTES: coverage of 5 domains, which trajectory was wrong-MOD/REJ and why, microsecond race realism, reward-tick reconciliation, SNN-distillation value, residual weaknesses + next densification target. Do not exceed quota.
+4. Self-critique in staged NOTES: coverage of 5 domains, which trajectory was wrong-MOD/REJ and why, microsecond race realism, reward-tick reconciliation, SNN-distillation value, residual weaknesses + next densification target. Do not exceed quota. Staged NOTES MUST also carry the line `Novel coverage: <N>%` — an honest estimate of how much of this round is novel versus all prior committed rounds for this factory; `publish` rejects notes without it, and 2 consecutive rounds under 5% early-stop the lane (`docs/token-efficiency.md`).
 5. Publish: `python3 pipelines/round_txn.py publish <factory-dir> --round N --token TOKEN`. Repair only staged files on validation failure; round complete only when `ROUND-rNN.complete.json` exists.
 
 Across later operator-authorized committed rounds, continue generating and refining while respecting each round's exact quota. Prioritize high-signal, temporally precise data for Thalamic-Relay → Spikenaut training loops.

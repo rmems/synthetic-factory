@@ -27,7 +27,14 @@ def thalamic(record_id, round_number=1):
         "proposed_action": {"action": "noop", "decision_basis": "fixture"},
         "safety_decision": {"decision": "ACCEPT", "rationale": "bounded fixture"},
         "executed_action": {"action": "noop"},
-        "future_outcome": {"success": True},
+        # The publish gate runs verify_execution in strict mode, so the fixture
+        # has to carry the observable outcome evidence a real record carries.
+        "future_outcome": {
+            "success": True,
+            "timeline": [{"t_ms": 0, "event": "noop accepted"}],
+            "observed_effects": ["no actuator motion"],
+            "new_state": {"sim_or_real": "designed", "domain": "transaction-test"},
+        },
         "reward_components": {"task_progress": 0.5, "safety": 0.5, "total": 1.0},
         "meta": {
             "factory": "thalamic-trajectory-factory",
@@ -56,6 +63,29 @@ def ffpc_record(fixture="batch-r11.jsonl", round_number=1, index=0):
         holder["meta"]["isolation"] = round_txn.PREFERENCE_TWO_SESSION
     for arm_name in ("chosen", "rejected"):
         record[arm_name]["id"] = record[arm_name]["id"].replace("r11", f"r{round_number:02d}")
+        # "No incident" is an absent key, not a null one: the execution gate
+        # reads a present ``incident``/``hazard_avoided`` as a claimed
+        # observable event and refuses a null payload for it.
+        outcome = record[arm_name].get("future_outcome")
+        if isinstance(outcome, dict):
+            for field in ("incident", "hazard_avoided"):
+                if outcome.get(field, "") is None:
+                    del outcome[field]
+            # main's publish gate runs verify_execution in strict mode and
+            # wants the canonical observable trio. The committed arms carry
+            # domain observables (compressor_read, doses_transferred) but not
+            # that shape, so declare it here rather than editing the fixture's
+            # evidence.
+            outcome.setdefault(
+                "timeline", [{"t_ms": 0, "event": f"{arm_name} arm executed"}]
+            )
+            outcome.setdefault(
+                "observed_effects", [f"{arm_name} arm outcome recorded"]
+            )
+            outcome.setdefault(
+                "new_state",
+                {"sim_or_real": "designed", "domain": "transaction-test"},
+            )
     return record
 
 
@@ -92,10 +122,23 @@ class RoundTransaction(unittest.TestCase):
         path.mkdir(parents=True)
         return path
 
+    def fixed_agentic_factory(self, root):
+        path = (
+            Path(root)
+            / "outputs"
+            / "raw"
+            / "2099-01-01"
+            / "cache-stampede-factory"
+        )
+        path.mkdir(parents=True)
+        return path
+
     def fill_stage(self, reservation, records):
         stage = Path(reservation["staging_dir"])
         write_records(stage / reservation["batch_file"], records)
-        (stage / reservation["notes_file"]).write_text("# Critique\n\nConcrete gap.\n")
+        (stage / reservation["notes_file"]).write_text(
+            "# Critique\n\nConcrete gap.\n\nNovel coverage: 42%\n"
+        )
         return stage
 
     def test_reserve_stage_publish_commits_once(self):
@@ -358,7 +401,7 @@ class RoundTransaction(unittest.TestCase):
 
     def test_resume_rejects_corrupted_immutable_publishing_fields(self):
         for field, value in (
-            ("version", 2),
+            ("version", 3),
             ("commit_point", "ROUND-r99.complete.json"),
         ):
             with self.subTest(field=field), tempfile.TemporaryDirectory() as td:
@@ -529,6 +572,181 @@ class RoundTransaction(unittest.TestCase):
             with self.assertRaisesRegex(round_txn.TransactionError, "duplicate record id"):
                 round_txn.publish(sibling, 1, second["token"])
             self.assertFalse((sibling / "ROUND-r01.complete.json").exists())
+
+    def test_publish_requires_a_novel_coverage_line_on_the_legacy_lane(self):
+        """The NOTES latch line gates every registered round, legacy included.
+
+        Without it the token-efficiency early-stop has nothing to read, which
+        is why the 2026-08-19 harvest saw 0/49 parseable NOTES.
+        """
+        with tempfile.TemporaryDirectory() as td:
+            factory = self.factory(td)
+            self.assertNotIn(factory.name, round_txn.AGENTIC_FACTORY_KINDS)
+            reservation = round_txn.reserve(factory, 1, 1)
+            stage = Path(reservation["staging_dir"])
+            write_records(stage / reservation["batch_file"], [thalamic("txn-cov")])
+            notes = stage / reservation["notes_file"]
+            notes.write_text("# Critique\n\nDensified the tail. No latch line.\n")
+
+            with self.assertRaisesRegex(round_txn.TransactionError, "Novel coverage"):
+                round_txn.publish(factory, 1, reservation["token"])
+
+            # A rejected publish is retryable: the reservation and stage stay.
+            self.assertTrue(stage.is_dir())
+            self.assertTrue((factory / "ROUND-r01.reserved.json").is_file())
+            self.assertFalse((factory / "ROUND-r01.complete.json").exists())
+
+            notes.write_text("# Critique\n\nDensified the tail.\n\nNovel coverage: 3.1%\n")
+            manifest = round_txn.publish(factory, 1, reservation["token"])
+            self.assertEqual(manifest["records"], 1)
+            self.assertTrue((factory / "ROUND-r01.complete.json").is_file())
+
+    def test_publish_preserves_the_generic_notes_contract_for_custom_lanes(self):
+        with tempfile.TemporaryDirectory() as td:
+            factory = Path(td) / "outputs" / "raw" / "2099-01-01" / "custom-factory"
+            factory.mkdir(parents=True)
+            self.assertNotIn(factory.name, round_txn.FACTORY_QUOTAS)
+            reservation = round_txn.reserve(factory, 1, 1)
+            stage = Path(reservation["staging_dir"])
+            record = thalamic("custom-txn")
+            record["meta"]["factory"] = factory.name
+            write_records(stage / reservation["batch_file"], [record])
+            (stage / reservation["notes_file"]).write_text(
+                "# Custom critique\n\nNo registered token-efficiency policy.\n"
+            )
+
+            manifest = round_txn.publish(factory, 1, reservation["token"])
+
+            self.assertEqual(manifest["records"], 1)
+            self.assertTrue((factory / "ROUND-r01.complete.json").is_file())
+
+    def _assert_publish_rejects_notes(
+        self, td, notes_text, pattern, record_suffix="txn"
+    ):
+        factory = self.factory(td)
+        reservation = round_txn.reserve(factory, 1, 1)
+        stage = Path(reservation["staging_dir"])
+        write_records(
+            stage / reservation["batch_file"],
+            [thalamic(f"txn-{record_suffix}")],
+        )
+        (stage / reservation["notes_file"]).write_text(notes_text)
+
+        with self.assertRaisesRegex(round_txn.TransactionError, pattern):
+            round_txn.publish(factory, 1, reservation["token"])
+        self.assertFalse((factory / "ROUND-r01.complete.json").exists())
+
+    def _assert_legacy_notes_tolerance(
+        self, td, notes_text, expected_publish_err
+    ):
+        factory = self.fixed_agentic_factory(td)
+        notes = factory / "NOTES-r01.md"
+        notes.write_text(notes_text)
+
+        self.assertIsNone(round_txn.validate_novel_coverage(notes, factory))
+        self.assertIn(
+            expected_publish_err,
+            round_txn.validate_novel_coverage(notes, factory, required=True),
+        )
+
+    def test_publish_rejects_an_out_of_range_novel_coverage(self):
+        with tempfile.TemporaryDirectory() as td:
+            self._assert_publish_rejects_notes(
+                td, "Novel coverage: 140%\n", "between 0% and 100%", "range"
+            )
+
+    def test_publish_rejects_ambiguous_novel_coverage_lines(self):
+        for suffix, notes_text in (
+            ("duplicate-same", "Novel coverage: 3.1%\nNovel coverage: 3.1%\n"),
+            ("duplicate-different", "Novel coverage: 3.1%\nNovel coverage: 80%\n"),
+            ("malformed-second", "Novel coverage: 3.1%\nNovel coverage: malformed\n"),
+            ("same-line-second", "Novel coverage: 3.1% Novel coverage: 80%\n"),
+            ("trailing-prose", "Novel coverage: 3.1% trailing prose\n"),
+        ):
+            with self.subTest(suffix=suffix), tempfile.TemporaryDirectory() as td:
+                self._assert_publish_rejects_notes(
+                    td, notes_text, "exactly one unambiguous", f"ambiguous-{suffix}"
+                )
+
+    def test_publish_rejects_coverage_split_across_physical_lines(self):
+        with tempfile.TemporaryDirectory() as td:
+            self._assert_publish_rejects_notes(
+                td,
+                "Novel coverage:\n80% of tests passed.\n",
+                "exactly one unambiguous",
+                "split-line",
+            )
+
+    def test_publish_rejects_non_crlf_control_separators_before_label(self):
+        for name, separator in (
+            ("vertical-tab", "\v"),
+            ("form-feed", "\f"),
+            ("next-line", "\x85"),
+            ("line-separator", "\u2028"),
+            ("paragraph-separator", "\u2029"),
+        ):
+            with self.subTest(separator=name), tempfile.TemporaryDirectory() as td:
+                self._assert_publish_rejects_notes(
+                    td,
+                    f"preamble{separator}Novel coverage: 4%\n",
+                    "Novel coverage",
+                    f"control-separator-{name}",
+                )
+
+    def test_publish_rejects_non_ascii_novel_coverage_digits(self):
+        for name, digits in (
+            ("arabic-indic", "٤"),
+            ("fullwidth", "１２"),
+        ):
+            with self.subTest(digits=name), tempfile.TemporaryDirectory() as td:
+                self._assert_publish_rejects_notes(
+                    td,
+                    f"Novel coverage: {digits}%\n",
+                    "exactly one unambiguous",
+                    f"non-ascii-digits-{name}",
+                )
+
+    def test_read_path_does_not_require_coverage_for_a_legacy_lane(self):
+        """Committed legacy rounds predate the contract and must stay readable.
+
+        Widening the gate is forward-only: publish requires the line, while the
+        historical validator keeps its original fixed-agentic scope and does
+        not retroactively enroll legacy lanes.
+        """
+        with tempfile.TemporaryDirectory() as td:
+            factory = self.factory(td)
+            notes = factory / "NOTES-r01.md"
+            notes.write_text("# Critique\n\nPublished before the contract.\n")
+
+            self.assertIsNone(round_txn.validate_novel_coverage(notes, factory))
+            self.assertIn(
+                "Novel coverage",
+                round_txn.validate_novel_coverage(notes, factory, required=True),
+            )
+
+    def test_read_path_keeps_legacy_coverage_suffix_but_publish_rejects_it(self):
+        with tempfile.TemporaryDirectory() as td:
+            self._assert_legacy_notes_tolerance(
+                td,
+                "Novel coverage: 4% — low due to repeated scenarios\n",
+                "exactly one unambiguous",
+            )
+
+    def test_read_path_keeps_legacy_duplicate_claims_but_publish_rejects_them(self):
+        with tempfile.TemporaryDirectory() as td:
+            self._assert_legacy_notes_tolerance(
+                td,
+                "Novel coverage: 4% — original committed claim\nNovel coverage: 80%\n",
+                "exactly one unambiguous",
+            )
+
+    def test_read_path_keeps_legacy_multiline_claim_but_publish_rejects_it(self):
+        with tempfile.TemporaryDirectory() as td:
+            self._assert_legacy_notes_tolerance(
+                td,
+                "Novel coverage:\n4%\n",
+                "Novel coverage",
+            )
 
     def test_validation_failure_leaves_stage_and_does_not_advance(self):
         with tempfile.TemporaryDirectory() as td:
@@ -1286,6 +1504,7 @@ class PreferencePublicationGate(unittest.TestCase):
         write_records(stage / reservation["batch_file"], records)
         (stage / reservation["notes_file"]).write_text(
             "# Critique\n\nIndependent arms were checked before publication.\n"
+            "\nNovel coverage: 42%\n"
         )
         return stage
 

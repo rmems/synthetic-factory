@@ -157,7 +157,7 @@ silently rewritten to manufacture a match.
 
 ```bash
 python3 pipelines/curate_preferences.py curate <raw-source> \
-  --output <new>/preferences.jsonl --manifest <new>/manifest.jsonl
+  --output <new>/preferences.jsonl --manifest <outside-the-run>/manifest.jsonl
 ```
 
 | Outcome | Pairs |
@@ -171,10 +171,18 @@ python3 pipelines/curate_preferences.py curate <raw-source> \
 Both destinations must be absent and neither may live inside the source, so
 the export never clobbers or rewrites raw evidence. The manifest records, per
 source line, the source sha256, the action, the classification, the reason
-codes, the diverging leaf paths, and the output sha256. Audited on its own,
-the curated preference lane reports `training_ready: true` in
-`pipelines/training_audit.py --strict`; the raw payload reports the
-`19/42 preference pairs change state or proposal` blocker.
+codes, the diverging leaf paths, and the output sha256.
+
+The manifest must also land **outside the run directory that gets audited**.
+`training_audit.audit_run` reaches every `*.jsonl` under the run through
+`census.visible_jsonl_paths`, and a manifest row is provenance, not a
+training record: writing it to `<new>/manifest.jsonl` puts one unrecognized
+shape per source line into the audited denominator, and the lane then reports
+`42 record shape/invariant errors` and `training_ready: false`. With the
+manifest kept outside, the curated preference lane audited on its own reports
+`training_ready: true` in `pipelines/training_audit.py --strict`; the raw
+payload reports the `19/42 preference pairs change state or proposal`
+blocker.
 
 Composing this lane with the other curated lanes into a single release export
 is [#23](https://github.com/rmems/synthetic-factory/issues/23); rematerializing

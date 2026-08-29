@@ -983,6 +983,51 @@ class ForeignMillQuarantine(unittest.TestCase):
         for control in STAMPEDE_CONTROLS + GRAPHQL_NATIVE:
             self.assertIn(control["id"], emitted)
 
+    def test_side_stamped_preference_mill_is_reported(self):
+        """Codex #96 P1: a preference attesting its factory on both sides.
+
+        The wrapper carries no ``meta.factory`` -- the legacy shape
+        ``curate_identity._payload_factory`` accepts. With a native
+        destination-stamped id prefix and a stopword-only goal, the id-prefix
+        and goal-family axes see nothing, so a wrapper-only payload lookup let
+        the record through with no FOREIGN_PAYLOAD_FACTORY at all. It is
+        reported rather than quarantined here because naming an out-of-scope
+        home factory leaves the ownership context incomplete, exactly as in
+        test_partial_context_reports_foreign_payload_without_quarantine.
+        """
+
+        def side(label, success):
+            return {
+                "steps": [
+                    _step(1, "Observation: the probe reproduced the report"),
+                    _step(2, f"Observation: the {label} branch was taken"),
+                ],
+                "outcome": f"{label} outcome",
+                "reward": {"success": success},
+                "meta": {
+                    "factory": "docker-build-cache-factory",
+                    "round": 1,
+                    "generator": "grok-4.6",
+                },
+            }
+
+        side_stamped = {
+            "id": "cst-r05-side-stamped-preference",
+            "goal": "fix verify",
+            "chosen": side("fixed", True),
+            "rejected": side("failed", False),
+        }
+        self.assertIsNone(side_stamped.get("meta"))
+
+        run = self._curate(list(STAMPEDE_CONTROLS) + [side_stamped])
+
+        self.assertEqual(run["summary"]["input_records"], 5)
+        mix = run["summary"]["mill_family"]
+        self.assertEqual(mix["record_ids"], [side_stamped["id"]])
+        self.assertEqual(mix["reason_codes"], {REASON_FOREIGN_PAYLOAD_FACTORY: 1})
+        self.assertFalse(mix["context_complete"])
+        self.assertEqual(run["summary"]["quarantined_foreign_mill_records"], 0)
+
     def test_nested_batches_use_the_enclosing_factory_root(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary) / "run"
@@ -1114,6 +1159,46 @@ class ForeignMillQuarantine(unittest.TestCase):
                 "foreign-payload",
                 "fix verify",
                 "graphql-nplusone-factory",
+            )
+            (factory / "batch-r01.jsonl").write_text(
+                json.dumps(record) + "\n", encoding="utf-8"
+            )
+
+            run = curate_source(factory)
+
+        mill_summary = run["summary"]["mill_family"]
+        self.assertFalse(mill_summary["context_complete"])
+        self.assertFalse(mill_summary["quarantine_applied"])
+        self.assertEqual(mill_summary["records"], 1)
+        self.assertEqual(
+            mill_summary["reason_codes"],
+            {REASON_FOREIGN_PAYLOAD_FACTORY: 1},
+        )
+        self.assertEqual(mill_summary["record_ids"], [record["id"]])
+        self.assertEqual(
+            run["summary"]["quarantined_foreign_mill_records"], 0
+        )
+        self.assertEqual(run["summary"]["output_records"], 1)
+        self.assertEqual(run["decisions"][0]["action"], ACTION_RETAINED)
+        self.assertNotIn("mill_family", run["decisions"][0])
+
+    def test_registry_only_factory_root_is_verified_not_payload_redefined(self):
+        """A factory registered in FACTORY-REGISTRY.json with no round quota
+        (an identity-only generator, e.g. gpt-5.6-sol-coding-factory) must be
+        verified the same way a quota-bearing factory root is. Verification
+        was previously keyed on FACTORY_QUOTAS alone, so a directory named
+        after such a factory was treated as unverified and its destination
+        could be silently redefined by a foreign payload declaration instead
+        of being flagged. Mirrors
+        test_partial_context_reports_foreign_payload_without_quarantine but
+        for a registry-only root."""
+        with tempfile.TemporaryDirectory() as temporary:
+            factory = Path(temporary) / "gpt-5.6-sol-coding-factory"
+            factory.mkdir()
+            record = _mill_episode(
+                "foreign-payload",
+                "fix verify",
+                "cache-stampede-factory",
             )
             (factory / "batch-r01.jsonl").write_text(
                 json.dumps(record) + "\n", encoding="utf-8"

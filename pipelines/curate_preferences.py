@@ -45,6 +45,9 @@ agentic episode inside a preference tree, for example) is *quarantined*: it
 gets its own manifest row and its own summary counter so it can never be
 absorbed into a preference-pair denominator. See ``pipelines/leftover_mill.py``
 and ``docs/leftover-mill-quarantine.md``.
+
+Writing anywhere under ``outputs/raw/`` is refused: raw runs are immutable
+evidence, and that includes adding new files beside them.
 """
 
 from __future__ import annotations
@@ -54,9 +57,10 @@ import copy
 import hashlib
 import json
 import os
+import re
 import sys
 from collections import Counter
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any
 
@@ -66,9 +70,16 @@ if str(_PIPELINES) not in sys.path:
 
 import leftover_mill  # noqa: E402
 
+try:
+    from pipelines.raw_tree_guard import is_under_raw as _guard_is_under_raw
+except ImportError:  # python3 pipelines/curate_preferences.py
+    from raw_tree_guard import is_under_raw as _guard_is_under_raw
+
 
 TRANSFORM_NAME = "same-context-preference-curation"
 TRANSFORM_VERSION = "1.3.0"
+REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
+RAW_OUTPUT_ROOT = REPOSITORY_ROOT / "outputs" / "raw"
 
 AUDIT_NAME = "same-context-preference-audit"
 AUDIT_SCHEMA_VERSION = "1.1.0"
@@ -114,6 +125,38 @@ class CurationRun:
     source_files: tuple[dict[str, str], ...] = ()
 
 
+@dataclass
+class _ScanState:
+    records: list[dict[str, Any]]
+    manifest: list[dict[str, Any]]
+    actions: Counter[str]
+    classifications: Counter[str]
+    reasons: Counter[str]
+    skipped_non_preferences: int = 0
+    json_records_seen: int = 0
+    # Subset of skipped records whose payload kind names a different
+    # generation mill. Tracked separately so a preference yield can never
+    # quietly absorb them into a pair denominator.
+    leftover_mill_kinds: Counter[str] = field(default_factory=Counter)
+    # Per-field source-side context agreement, tallied by ``_agreement_labels``.
+    agreement: Counter[str] = field(default_factory=Counter)
+    # Inventory of the source files this scan actually read, so a published
+    # audit can be bound to the exact bytes behind it.
+    source_files: list[dict[str, str]] = field(default_factory=list)
+    # Pairs that must not reach ``round_txn.py publish``: every impure pair
+    # plus every pair excluded for a non-context defect. Tracked per pair
+    # because the two sets overlap and neither counter alone covers both.
+    unpublishable_pairs: int = 0
+
+
+@dataclass(frozen=True)
+class _SourceLine:
+    relative_path: str
+    number: int
+    payload: bytes
+    file_sha256: str
+
+
 def canonical_json(value: Any) -> str:
     """Return the canonical JSON representation used for context equality."""
 
@@ -130,8 +173,21 @@ def _sha256(payload: bytes) -> str:
     return hashlib.sha256(payload).hexdigest()
 
 
+def _is_under_raw(path: Path) -> bool:
+    """Whether ``path`` names or aliases the repository's raw output tree."""
+
+    return _guard_is_under_raw(path, RAW_OUTPUT_ROOT)
+
+
 def _is_canonicalizable(value: Any) -> bool:
-    """Whether ``value`` survives canonical JSON and UTF-8 encoding."""
+    """Whether ``value`` survives canonical JSON and UTF-8 encoding.
+
+    ``json.loads`` accepts the non-standard ``NaN``/``Infinity`` literals, so a
+    raw JSONL line can carry floats that cannot be re-encoded. Such a pair is
+    excluded with a reason code instead of aborting the whole corpus scan.
+    Escaped lone surrogates also pass JSON parsing but cannot be written to the
+    UTF-8 JSONL destination, so exercise the actual output encoding here too.
+    """
 
     try:
         canonical_json(value).encode("utf-8")
@@ -140,28 +196,41 @@ def _is_canonicalizable(value: Any) -> bool:
     return True
 
 
+def _dict_diff_paths(left: dict[str, Any], right: dict[str, Any], prefix: str) -> list[str]:
+    paths: list[str] = []
+    for key in sorted(set(left) | set(right)):
+        path = f"{prefix}.{key}"
+        if key not in left:
+            paths.append(path)
+            continue
+        if key not in right:
+            paths.append(path)
+            continue
+        paths.extend(_context_diff_paths(left[key], right[key], path))
+    return paths
+
+
+def _list_diff_paths(left: list[Any], right: list[Any], prefix: str) -> list[str]:
+    if len(left) != len(right):
+        return [prefix]
+    paths: list[str] = []
+    for index, (left_item, right_item) in enumerate(zip(left, right)):
+        paths.extend(_context_diff_paths(left_item, right_item, f"{prefix}[{index}]"))
+    return paths
+
+
 def _context_diff_paths(left: Any, right: Any, prefix: str) -> list[str]:
     """Return stable leaf paths whose values differ."""
 
     if type(left) is not type(right):
         return [prefix]
     if isinstance(left, dict):
-        paths: list[str] = []
-        for key in sorted(set(left) | set(right)):
-            path = f"{prefix}.{key}"
-            if key not in left or key not in right:
-                paths.append(path)
-            else:
-                paths.extend(_context_diff_paths(left[key], right[key], path))
-        return paths
+        return _dict_diff_paths(left, right, prefix)
     if isinstance(left, list):
-        if len(left) != len(right):
-            return [prefix]
-        paths = []
-        for index, (left_item, right_item) in enumerate(zip(left, right)):
-            paths.extend(_context_diff_paths(left_item, right_item, f"{prefix}[{index}]"))
-        return paths
-    return [] if left == right else [prefix]
+        return _list_diff_paths(left, right, prefix)
+    if left == right:
+        return []
+    return [prefix]
 
 
 def _preference_context(
@@ -393,21 +462,30 @@ def _repair_proposal_annotations(record: dict[str, Any]) -> CurationDecision | N
     )
 
 
+def _paths_with_prefix(paths: tuple[str, ...], prefix: str) -> list[str]:
+    return [path for path in paths if path.startswith(prefix)]
+
+
+def _state_exclusion_reason(state_paths: list[str]) -> str | None:
+    if not state_paths:
+        return None
+    if set(state_paths).issubset({"state.episode_id", "state.note"}):
+        return "BRANCH_SPECIFIC_STATE_METADATA_UNSAFE_TO_NORMALIZE"
+    if any(path.startswith("state.agent.gate_memory") for path in state_paths):
+        return "POLICY_MEMORY_CONTEXT_DIVERGES"
+    return "STATE_CONTEXT_DIVERGES"
+
+
 def _exclusion_reasons(context_diff_paths: tuple[str, ...]) -> tuple[str, ...]:
     reasons: list[str] = []
-    state_paths = [path for path in context_diff_paths if path.startswith("state")]
-    proposal_paths = [path for path in context_diff_paths if path.startswith("proposed_action")]
-
-    if state_paths and set(state_paths).issubset({"state.episode_id", "state.note"}):
-        reasons.append("BRANCH_SPECIFIC_STATE_METADATA_UNSAFE_TO_NORMALIZE")
-    elif any(path.startswith("state.agent.gate_memory") for path in state_paths):
-        reasons.append("POLICY_MEMORY_CONTEXT_DIVERGES")
-    elif state_paths:
-        reasons.append("STATE_CONTEXT_DIVERGES")
-
-    if proposal_paths:
+    state_reason = _state_exclusion_reason(_paths_with_prefix(context_diff_paths, "state"))
+    if state_reason is not None:
+        reasons.append(state_reason)
+    if _paths_with_prefix(context_diff_paths, "proposed_action"):
         reasons.append("PROPOSED_ACTION_CONTEXT_DIVERGES")
-    return tuple(reasons or ("PREFERENCE_CONTEXT_DIVERGES",))
+    if reasons:
+        return tuple(reasons)
+    return ("PREFERENCE_CONTEXT_DIVERGES",)
 
 
 def curate_preference_record(record: dict[str, Any]) -> CurationDecision:
@@ -423,6 +501,9 @@ def curate_preference_record(record: dict[str, Any]) -> CurationDecision:
         )
     same_state, same_proposed_action = context_field_agreement(record)
     if not _is_canonicalizable(record):
+        # Checked before the context shape so a non-finite float anywhere in
+        # the pair is reported precisely instead of surfacing as a bare
+        # ValueError from the first canonical comparison.
         return CurationDecision(
             action=ACTION_EXCLUDED,
             classification="malformed_preference_context",
@@ -530,7 +611,12 @@ def _skipped_manifest_entry(
         "source_line": line_number,
         "source_sha256": _sha256(raw_line),
         "source_file_sha256": file_hash,
-        "source_record_id": leftover_mill.record_id(record),
+        # Same canonicalizability guard the preference rows use. record_id()
+        # keeps its meta.id fallback; only a value the destination cannot
+        # encode is dropped.
+        "source_record_id": _canonicalizable_manifest_id(
+            leftover_mill.record_id(record)
+        ),
         "transform": {"name": TRANSFORM_NAME, "version": TRANSFORM_VERSION},
         "action": ACTION_QUARANTINED,
         "classification": f"leftover_mill_{mill_kind}",
@@ -542,167 +628,233 @@ def _skipped_manifest_entry(
     }
 
 
+def _field_agreement_label(field_name: str, same: bool | None) -> str:
+    """The per-field bucket one context field falls in."""
+
+    if same is True:
+        return f"same_{field_name}"
+    if same is False:
+        return f"{field_name}_divergent"
+    return f"{field_name}_undetermined"
+
+
+def _pair_agreement_bucket(
+    same_state: bool | None, same_proposed_action: bool | None
+) -> str | None:
+    """The one disjoint pair-level bucket, or ``None`` for a pure pair.
+
+    A pair that agrees on both fields lands in no bucket at all: the four
+    buckets exist to partition the *impure* pairs, and ``_curation_summary``
+    sums exactly them.
+    """
+
+    if same_state is None or same_proposed_action is None:
+        return "undetermined"
+    if not same_state and not same_proposed_action:
+        return "both_divergent"
+    if not same_state:
+        return "state_only_divergent"
+    if not same_proposed_action:
+        return "proposed_action_only_divergent"
+    return None
+
+
 def _agreement_labels(decision: CurationDecision) -> tuple[str, ...]:
     """Return per-field totals plus one disjoint pair-level bucket."""
 
-    labels: list[str] = []
-    if decision.same_state is True:
-        labels.append("same_state")
-    elif decision.same_state is False:
-        labels.append("state_divergent")
-    else:
-        labels.append("state_undetermined")
-    if decision.same_proposed_action is True:
-        labels.append("same_proposed_action")
-    elif decision.same_proposed_action is False:
-        labels.append("proposed_action_divergent")
-    else:
-        labels.append("proposed_action_undetermined")
-    if decision.same_state is None or decision.same_proposed_action is None:
-        labels.append("undetermined")
-        return tuple(labels)
-    if not decision.same_state and not decision.same_proposed_action:
-        labels.append("both_divergent")
-    elif not decision.same_state:
-        labels.append("state_only_divergent")
-    elif not decision.same_proposed_action:
-        labels.append("proposed_action_only_divergent")
+    labels = [
+        _field_agreement_label("state", decision.same_state),
+        _field_agreement_label("proposed_action", decision.same_proposed_action),
+    ]
+    bucket = _pair_agreement_bucket(
+        decision.same_state, decision.same_proposed_action
+    )
+    if bucket is not None:
+        labels.append(bucket)
     return tuple(labels)
+# The four disjoint context-divergence/comparability buckets that make a pair
+# impure. ``_curation_summary`` sums exactly these, and a pair landing in any
+# of them is unpublishable no matter which curation action it drew.
+_IMPURE_AGREEMENT_LABELS = frozenset(
+    {
+        "state_only_divergent",
+        "proposed_action_only_divergent",
+        "both_divergent",
+        "undetermined",
+    }
+)
 
 
-def curate_source(source: Path) -> CurationRun:
-    """Read and classify all preference candidates under ``source``."""
+def _jsonl_payload_lines(file_payload: bytes) -> tuple[tuple[int, bytes], ...]:
+    return tuple(
+        (line_number, raw_line)
+        for line_number, raw_line in enumerate(file_payload.splitlines(), 1)
+        if raw_line.strip()
+    )
 
-    source = Path(source)
-    output_records: list[dict[str, Any]] = []
-    manifest: list[dict[str, Any]] = []
-    actions: Counter[str] = Counter()
-    classifications: Counter[str] = Counter()
-    reasons: Counter[str] = Counter()
-    agreement: Counter[str] = Counter()
-    source_files: list[dict[str, str]] = []
-    skipped_non_preferences = 0
-    leftover_mill_kinds: Counter[str] = Counter()
-    total_json_records = 0
 
-    for path in _source_files(source):
-        file_payload = path.read_bytes()
-        file_hash = _sha256(file_payload)
-        relative_path = _relative_source_path(source, path)
-        source_files.append(
-            {
-                "source_file_sha256": file_hash,
-                "source_path": relative_path,
-            }
+def _load_jsonl_record(line: _SourceLine) -> Any:
+    try:
+        text = line.payload.decode("utf-8")
+    except UnicodeDecodeError as exc:
+        raise PreferenceCurationError(
+            f"{line.relative_path}:{line.number}: invalid UTF-8: {exc}"
+        ) from exc
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError as exc:
+        raise PreferenceCurationError(
+            f"{line.relative_path}:{line.number}: invalid JSON: {exc}"
+        ) from exc
+
+
+def _canonicalizable_manifest_id(value: Any) -> Any:
+    """Drop a manifest identifier the JSONL destination cannot encode.
+
+    ``json.loads`` accepts an escaped lone surrogate, so a source id can be a
+    perfectly good Python string that ``write_run`` cannot serialize. Losing
+    the id costs nothing an auditor needs: the source reference survives as
+    path, line, and hash either way, whereas losing the row would delete the
+    evidence that this record was quarantined at all.
+    """
+    return value if _is_canonicalizable(value) else None
+
+
+def _manifest_source_id(record: Any) -> Any:
+    # An excluded record may itself hold a non-encodable id; the source
+    # reference survives as path, line, and hash either way.
+    return _canonicalizable_manifest_id(
+        record.get("id") if isinstance(record, dict) else None
+    )
+
+
+def _kept_output(
+    decision: CurationDecision, location: str
+) -> tuple[dict[str, Any] | None, Any, str | None]:
+    record = decision.record
+    if record is None:
+        return None, None, None
+    if not context_is_pure(record):
+        raise PreferenceCurationError(
+            f"internal error: emitted impure pair at {location}"
         )
-        for line_number, raw_line in enumerate(file_payload.splitlines(), 1):
-            if not raw_line.strip():
-                continue
-            total_json_records += 1
-            try:
-                text = raw_line.decode("utf-8")
-            except UnicodeDecodeError as exc:
-                raise PreferenceCurationError(
-                    f"{relative_path}:{line_number}: invalid UTF-8: {exc}"
-                ) from exc
-            try:
-                record = json.loads(text)
-            except json.JSONDecodeError as exc:
-                raise PreferenceCurationError(
-                    f"{relative_path}:{line_number}: invalid JSON: {exc}"
-                ) from exc
-            mill_kind = leftover_mill.kind_mix_kind(record, "preference")
-            if mill_kind is not None:
-                # A concrete foreign generation kind takes precedence over the
-                # loose candidate heuristic. An episode carrying reward_delta,
-                # for example, is still an episode and must never enter the
-                # preference denominator as a malformed pair.
-                skipped_non_preferences += 1
-                leftover_mill_kinds[mill_kind] += 1
-                manifest.append(
-                    _skipped_manifest_entry(
-                        relative_path,
-                        line_number,
-                        raw_line,
-                        file_hash,
-                        record,
-                        mill_kind,
-                    )
+    output_hash = _sha256(canonical_json(record).encode("utf-8"))
+    return record, record.get("id"), output_hash
+
+
+def _record_preference(state: _ScanState, line: _SourceLine, record: Any) -> None:
+    decision = curate_preference_record(record)
+    state.actions[decision.action] += 1
+    state.classifications[decision.classification] += 1
+    state.reasons.update(decision.reason_codes)
+    agreement_labels = _agreement_labels(decision)
+    state.agreement.update(agreement_labels)
+    if decision.action == ACTION_EXCLUDED or _IMPURE_AGREEMENT_LABELS.intersection(
+        agreement_labels
+    ):
+        state.unpublishable_pairs += 1
+    emitted, output_id, output_hash = _kept_output(
+        decision, f"{line.relative_path}:{line.number}"
+    )
+    if emitted is not None:
+        state.records.append(emitted)
+    state.manifest.append(
+        {
+            "source_path": line.relative_path,
+            "source_line": line.number,
+            # Hash excludes the JSONL line terminator by definition.
+            "source_sha256": _sha256(line.payload),
+            "source_file_sha256": line.file_sha256,
+            "source_record_id": _manifest_source_id(record),
+            "transform": {
+                "name": TRANSFORM_NAME,
+                "version": TRANSFORM_VERSION,
+            },
+            "action": decision.action,
+            "classification": decision.classification,
+            "reason_codes": list(decision.reason_codes),
+            "same_state": decision.same_state,
+            "same_proposed_action": decision.same_proposed_action,
+            "context_diff_paths": list(decision.context_diff_paths),
+            "changed_context_fields": list(decision.changed_context_fields),
+            "output_id": output_id,
+            "output_sha256": output_hash,
+        }
+    )
+
+
+def _curate_jsonl_file(source: Path, path: Path, state: _ScanState) -> None:
+    file_payload = path.read_bytes()
+    file_hash = _sha256(file_payload)
+    relative_path = _relative_source_path(source, path)
+    state.source_files.append(
+        {
+            "source_file_sha256": file_hash,
+            "source_path": relative_path,
+        }
+    )
+    for line_number, raw_line in _jsonl_payload_lines(file_payload):
+        line = _SourceLine(relative_path, line_number, raw_line, file_hash)
+        state.json_records_seen += 1
+        record = _load_jsonl_record(line)
+        mill_kind = leftover_mill.kind_mix_kind(record, "preference")
+        if mill_kind is not None:
+            # A concrete foreign generation kind takes precedence over the
+            # loose candidate heuristic. An episode carrying reward_delta,
+            # for example, is still an episode and must never enter the
+            # preference denominator as a malformed pair.
+            state.skipped_non_preferences += 1
+            state.leftover_mill_kinds[mill_kind] += 1
+            state.manifest.append(
+                _skipped_manifest_entry(
+                    relative_path, line_number, raw_line, file_hash, record, mill_kind
                 )
-                continue
-            if not _is_preference_candidate(record):
-                skipped_non_preferences += 1
-                continue
-
-            decision = curate_preference_record(record)
-            actions[decision.action] += 1
-            classifications[decision.classification] += 1
-            reasons.update(decision.reason_codes)
-            agreement.update(_agreement_labels(decision))
-
-            output_hash = None
-            output_id = None
-            if decision.record is not None:
-                if not context_is_pure(decision.record):
-                    raise PreferenceCurationError(
-                        f"internal error: emitted impure pair at {relative_path}:{line_number}"
-                    )
-                output_line = canonical_json(decision.record).encode("utf-8")
-                output_hash = _sha256(output_line)
-                output_id = decision.record.get("id")
-                output_records.append(decision.record)
-
-            manifest.append(
-                {
-                    "source_path": relative_path,
-                    "source_line": line_number,
-                    # Hash excludes the JSONL line terminator by definition.
-                    "source_sha256": _sha256(raw_line),
-                    "source_file_sha256": file_hash,
-                    "source_record_id": record.get("id") if isinstance(record, dict) else None,
-                    "transform": {
-                        "name": TRANSFORM_NAME,
-                        "version": TRANSFORM_VERSION,
-                    },
-                    "action": decision.action,
-                    "classification": decision.classification,
-                    "reason_codes": list(decision.reason_codes),
-                    "same_state": decision.same_state,
-                    "same_proposed_action": decision.same_proposed_action,
-                    "context_diff_paths": list(decision.context_diff_paths),
-                    "changed_context_fields": list(decision.changed_context_fields),
-                    "output_id": output_id,
-                    "output_sha256": output_hash,
-                }
             )
+            continue
+        if not _is_preference_candidate(record):
+            state.skipped_non_preferences += 1
+            continue
+        _record_preference(state, line, record)
 
-    preference_records = sum(actions.values())
+
+def _curation_summary(source: Path, state: _ScanState) -> dict[str, Any]:
+    preference_records = sum(state.actions.values())
+    agreement = state.agreement
     # Curation action and context purity are related but not synonymous.  A
     # pair can have equal, fully comparable context and still be excluded for
     # a non-context defect such as a non-finite reward.  Count only the four
     # disjoint context-divergence/comparability buckets as impure so the public
     # same-context audit remains truthful and balanced.
-    impure_pairs = (
-        agreement["state_only_divergent"]
-        + agreement["proposed_action_only_divergent"]
-        + agreement["both_divergent"]
-        + agreement["undetermined"]
-    )
-    retained_pairs = actions[ACTION_RETAINED] + actions[ACTION_REPAIRED]
+    impure_pairs = sum(agreement[label] for label in _IMPURE_AGREEMENT_LABELS)
+    retained_pairs = state.actions[ACTION_RETAINED] + state.actions[ACTION_REPAIRED]
+    # Measured over the records actually emitted rather than asserted as a
+    # constant, so the reported purity is evidence and not a restatement of
+    # the invariant the loop above enforces.
+    pure_outputs = sum(1 for emitted in state.records if context_is_pure(emitted))
+    purity_pct = 0.0
+    if retained_pairs:
+        purity_pct = round(100.0 * pure_outputs / retained_pairs, 1)
     summary = {
         "transform": {"name": TRANSFORM_NAME, "version": TRANSFORM_VERSION},
         "source": str(source),
-        "json_records_seen": total_json_records,
+        "json_records_seen": state.json_records_seen,
         "preference_records": preference_records,
-        "skipped_non_preference_records": skipped_non_preferences,
+        "skipped_non_preference_records": state.skipped_non_preferences,
         # Subset of the skipped records whose payload kind names a different
         # generation mill. Reported separately so a preference yield can never
         # quietly absorb them into a pair denominator.
-        "leftover_mill_records": sum(leftover_mill_kinds.values()),
-        "leftover_mill_kinds": dict(sorted(leftover_mill_kinds.items())),
+        "leftover_mill_records": sum(state.leftover_mill_kinds.values()),
+        "leftover_mill_kinds": dict(sorted(state.leftover_mill_kinds.items())),
         "impure_pairs": impure_pairs,
         "retained_pairs": retained_pairs,
-        "excluded_pairs": actions[ACTION_EXCLUDED],
+        "excluded_pairs": state.actions[ACTION_EXCLUDED],
+        # The publication gate total. ``impure_pairs`` counts context
+        # divergence only, so a pair whose context is equal and comparable but
+        # which still cannot be emitted -- a non-finite ``reward_delta``, say
+        # -- is invisible there and would clear a gate reading that field
+        # alone. This counts every pair that is impure *or* unemittable, and
+        # docs/preference-isolation.md gates ``round_txn.py publish`` on it.
+        "unpublishable_pairs": state.unpublishable_pairs,
         # Reconciliation between a state-only Hub audit and this scan: a
         # ``same_state``-only measurement cannot see a pair that holds state
         # constant and diverges on the proposed action.
@@ -716,42 +868,152 @@ def curate_source(source: Path) -> CurationRun:
         "proposed_action_only_divergent_pairs": agreement["proposed_action_only_divergent"],
         "both_context_fields_divergent_pairs": agreement["both_divergent"],
         "context_undetermined_pairs": agreement["undetermined"],
-        "out_of_scope_trajectory_pairs": classifications[CLASSIFICATION_TRAJECTORY_PAIR],
-        "actions": dict(sorted(actions.items())),
-        "classifications": dict(sorted(classifications.items())),
-        "reason_codes": dict(sorted(reasons.items())),
-        "retained_context_purity_pct": 100.0 if retained_pairs else 0.0,
+        "out_of_scope_trajectory_pairs": state.classifications[
+            CLASSIFICATION_TRAJECTORY_PAIR
+        ],
+        "actions": dict(sorted(state.actions.items())),
+        "classifications": dict(sorted(state.classifications.items())),
+        "reason_codes": dict(sorted(state.reasons.items())),
+        "retained_context_purity_pct": purity_pct,
     }
-    for field in ("state", "proposed_action"):
+    for field_name in ("state", "proposed_action"):
         measured = (
-            summary[f"same_{field}_pairs"]
-            + summary[f"{field}_divergent_pairs"]
-            + summary[f"{field}_undetermined_pairs"]
+            summary[f"same_{field_name}_pairs"]
+            + summary[f"{field_name}_divergent_pairs"]
+            + summary[f"{field_name}_undetermined_pairs"]
         )
         if measured != preference_records:
             raise PreferenceCurationError(
-                f"internal error: {field} agreement does not balance "
+                f"internal error: {field_name} agreement does not balance "
                 f"({measured} measured, {preference_records} preference records)"
             )
+    return summary
+
+
+def curate_source(source: Path) -> CurationRun:
+    """Read and classify all preference candidates under ``source``."""
+
+    source = Path(source)
+    state = _ScanState([], [], Counter(), Counter(), Counter())
+    for path in _source_files(source):
+        _curate_jsonl_file(source, path, state)
     return CurationRun(
-        tuple(output_records),
-        tuple(manifest),
-        summary,
-        tuple(source_files),
+        tuple(state.records),
+        tuple(state.manifest),
+        _curation_summary(source, state),
+        tuple(state.source_files),
+    )
+
+
+def _refuse_raw_destination(destination: Path, label: str) -> None:
+    if not _is_under_raw(destination):
+        return
+    # A file source has no directory to nest inside, and a directory source
+    # does not contain its own siblings, so the remaining destination checks
+    # cannot keep a curated write out of the immutable raw tree on their own.
+    raise PreferenceCurationError(
+        f"{label} would write inside immutable raw evidence: {destination}"
+    )
+
+
+def _refuse_existing_destination(destination: Path, label: str) -> None:
+    if destination.exists():
+        raise PreferenceCurationError(
+            f"{label} already exists; refusing overwrite: {destination}"
+        )
+    if destination.parent.is_dir():
+        return
+    raise PreferenceCurationError(
+        f"{label} parent does not exist: {destination.parent}"
+    )
+
+
+def _destination_replaces_source(source: Path, destination: Path) -> bool:
+    return source.resolve() == destination.resolve(strict=False)
+
+
+def _destination_inside_source(source: Path, destination: Path) -> bool:
+    if not source.is_dir():
+        return False
+    return source.resolve() in destination.resolve(strict=False).parents
+
+
+def _refuse_source_collision(source: Path, destination: Path, label: str) -> None:
+    if _destination_replaces_source(source, destination):
+        raise PreferenceCurationError(f"{label} cannot replace source: {destination}")
+    if not _destination_inside_source(source, destination):
+        return
+    raise PreferenceCurationError(
+        f"{label} cannot be written inside source: {destination}"
     )
 
 
 def _assert_new_destination(source: Path, destination: Path, label: str) -> None:
-    source_resolved = source.resolve()
-    destination_resolved = destination.resolve(strict=False)
-    if destination.exists():
-        raise PreferenceCurationError(f"{label} already exists; refusing overwrite: {destination}")
-    if not destination.parent.is_dir():
-        raise PreferenceCurationError(f"{label} parent does not exist: {destination.parent}")
-    if source_resolved == destination_resolved:
-        raise PreferenceCurationError(f"{label} cannot replace source: {destination}")
-    if source.is_dir() and source_resolved in destination_resolved.parents:
-        raise PreferenceCurationError(f"{label} cannot be written inside source: {destination}")
+    _refuse_raw_destination(destination, label)
+    _refuse_existing_destination(destination, label)
+    _refuse_source_collision(source, destination, label)
+
+
+def _jsonl_payload(records: tuple[dict[str, Any], ...]) -> str:
+    return "".join(canonical_json(record) + "\n" for record in records)
+
+
+def _open_destination_parent(path: Path) -> int:
+    flags = os.O_RDONLY | os.O_DIRECTORY | getattr(os, "O_NOFOLLOW", 0)
+    try:
+        return os.open(path.parent, flags)
+    except OSError as exc:
+        raise PreferenceCurationError(
+            f"destination parent is not a pinned directory: {path.parent}"
+        ) from exc
+
+
+def _refuse_opened_parent(parent_fd: int, destination: Path) -> None:
+    try:
+        opened = Path(os.readlink(f"/proc/self/fd/{parent_fd}"))
+    except OSError:
+        opened = destination.parent
+    _refuse_raw_destination(opened, "destination")
+    _refuse_raw_destination(opened / destination.name, "destination")
+
+
+def _create_exclusive_file(path: Path, payload: str, created: list[Path]) -> None:
+    parent_fd = _open_destination_parent(path)
+    try:
+        _refuse_opened_parent(parent_fd, path)
+        descriptor = os.open(
+            path.name,
+            os.O_WRONLY | os.O_CREAT | os.O_EXCL,
+            0o644,
+            dir_fd=parent_fd,
+        )
+    finally:
+        os.close(parent_fd)
+    created.append(path)
+    with os.fdopen(descriptor, "w", encoding="utf-8", newline="\n") as handle:
+        handle.write(payload)
+        handle.flush()
+        os.fsync(handle.fileno())
+
+
+def _fsync_parents(paths: list[Path]) -> None:
+    # Durable file contents still need a durable directory entry.
+    for directory in dict.fromkeys(path.parent for path in paths):
+        directory_descriptor = os.open(directory, os.O_RDONLY)
+        try:
+            os.fsync(directory_descriptor)
+        finally:
+            os.close(directory_descriptor)
+
+
+def _unlink_created(created: list[Path]) -> None:
+    # Remove only files this invocation created; pre-existing paths are
+    # rejected before and during O_EXCL creation.
+    for path in created:
+        try:
+            path.unlink()
+        except FileNotFoundError:
+            pass
 
 
 def write_run(run: CurationRun, source: Path, output: Path, manifest: Path) -> None:
@@ -765,32 +1027,16 @@ def write_run(run: CurationRun, source: Path, output: Path, manifest: Path) -> N
     _assert_new_destination(source, output, "output")
     _assert_new_destination(source, manifest, "manifest")
 
-    output_payload = "".join(canonical_json(record) + "\n" for record in run.records)
-    manifest_payload = "".join(canonical_json(entry) + "\n" for entry in run.manifest)
     created: list[Path] = []
     try:
-        for path, payload in ((output, output_payload), (manifest, manifest_payload)):
-            descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o644)
-            created.append(path)
-            with os.fdopen(descriptor, "w", encoding="utf-8", newline="\n") as handle:
-                handle.write(payload)
-                handle.flush()
-                os.fsync(handle.fileno())
-        # Durable file contents still need a durable directory entry.
-        for directory in dict.fromkeys(path.parent for path in created):
-            directory_descriptor = os.open(directory, os.O_RDONLY)
-            try:
-                os.fsync(directory_descriptor)
-            finally:
-                os.close(directory_descriptor)
+        for path, payload in (
+            (output, _jsonl_payload(run.records)),
+            (manifest, _jsonl_payload(run.manifest)),
+        ):
+            _create_exclusive_file(path, payload, created)
+        _fsync_parents(created)
     except Exception:
-        # Remove only files this invocation created; pre-existing paths are
-        # rejected before and during O_EXCL creation.
-        for path in created:
-            try:
-                path.unlink()
-            except FileNotFoundError:
-                pass
+        _unlink_created(created)
         raise
 
 
@@ -880,6 +1126,36 @@ def _yes_no(value: bool | None) -> str:
     return "yes" if value else "no"
 
 
+def _markdown_cell_text(value: Any) -> str:
+    """Flatten a source-controlled value into exactly one Markdown table cell.
+
+    ``record_id``, ``source_path`` and the reason codes come from the audited
+    JSON rather than from a constrained internal enum. A newline ends the
+    table row and a ``|`` opens the next cell -- inside a code span too -- so
+    a crafted value could otherwise add columns, inject rows, or visually
+    hide a record from the published per-pair evidence.
+    """
+
+    text = str(value)
+    for control in ("\r\n", "\r", "\n", "\t"):
+        text = text.replace(control, " ")
+    return text.replace("|", "\\|")
+
+
+def _markdown_code_cell(value: Any) -> str:
+    """Wrap a source-controlled value in a code span it cannot break out of."""
+
+    text = _markdown_cell_text(value)
+    # CommonMark closes a code span at the first backtick run matching the
+    # opening one, so the fence must be longer than the longest run inside,
+    # and a value that starts or ends with a backtick needs the pad space
+    # that the reader strips back off.
+    longest = max((len(run) for run in re.findall("`+", text)), default=0)
+    fence = "`" * (longest + 1)
+    pad = " " if text.startswith("`") or text.endswith("`") else ""
+    return f"{fence}{pad}{text}{pad}{fence}"
+
+
 def render_audit_markdown(audit: dict[str, Any]) -> str:
     """Render the audit document as the published Markdown tables."""
 
@@ -905,14 +1181,20 @@ def render_audit_markdown(audit: dict[str, Any]) -> str:
     ]
     for pair in audit["impure_pairs"]:
         record_id = pair["record_id"]
-        identifier = f"`{record_id}`" if record_id else "_(no record id)_"
-        reasons = ", ".join(f"`{code}`" for code in pair["reason_codes"]) or "_(none)_"
+        identifier = _markdown_code_cell(record_id) if record_id else "_(no record id)_"
+        reasons = (
+            ", ".join(_markdown_code_cell(code) for code in pair["reason_codes"])
+            or "_(none)_"
+        )
+        location = _markdown_code_cell(
+            f"{pair['source_path']}:{pair['source_line']}"
+        )
         lines.append(
             f"| {identifier} "
-            f"| `{pair['source_path']}:{pair['source_line']}` "
+            f"| {location} "
             f"| {_yes_no(pair['same_state'])} "
             f"| {_yes_no(pair['same_proposed_action'])} "
-            f"| {pair['action']} "
+            f"| {_markdown_cell_text(pair['action'])} "
             f"| {reasons} |"
         )
     return "\n".join(lines)
@@ -958,54 +1240,99 @@ AUDIT_PAIR_FIELDS = (
 AUDIT_SOURCE_FILE_FIELDS = ("source_file_sha256",)
 
 
+def _audit_header_differences(expected: dict[str, Any], actual: dict[str, Any]) -> list[str]:
+    """Identity fields that must match before any count is comparable."""
+
+    return [
+        f"{key}: expected {expected.get(key)!r}, got {actual.get(key)!r}"
+        for key in ("schema_version", "audit", "transform")
+        if expected.get(key) != actual.get(key)
+    ]
+
+
+def _audit_summary_differences(expected: dict[str, Any], actual: dict[str, Any]) -> list[str]:
+    """Every summary counter present on either side that disagrees."""
+
+    expected_summary = expected.get("summary")
+    expected_summary = expected_summary if isinstance(expected_summary, dict) else {}
+    return [
+        f"summary.{key}: expected {expected_summary.get(key)!r}, "
+        f"got {actual['summary'].get(key)!r}"
+        for key in sorted(set(expected_summary) | set(actual["summary"]))
+        if expected_summary.get(key) != actual["summary"].get(key)
+    ]
+
+
+def _audit_source_file_differences(
+    expected: dict[str, Any], actual: dict[str, Any]
+) -> list[str]:
+    """Source-file inventory drift, by path then by field."""
+
+    expected_files = _source_files_by_path(expected.get("source_files"))
+    actual_files = _source_files_by_path(actual.get("source_files"))
+    differences = [
+        f"{source_path}: audited source file is absent from this scan"
+        for source_path in sorted(set(expected_files) - set(actual_files))
+    ]
+    differences.extend(
+        f"{source_path}: source file is absent from the audit"
+        for source_path in sorted(set(actual_files) - set(expected_files))
+    )
+    for source_path in sorted(set(expected_files) & set(actual_files)):
+        for field_name in AUDIT_SOURCE_FILE_FIELDS:
+            want = expected_files[source_path].get(field_name)
+            got = actual_files[source_path].get(field_name)
+            if want != got:
+                differences.append(
+                    f"{source_path}: {field_name}: expected {want!r}, got {got!r}"
+                )
+    return differences
+
+
+def _audit_impure_pair_differences(
+    expected: dict[str, Any], actual: dict[str, Any]
+) -> list[str]:
+    """Per-pair drift, by source location then by field."""
+
+    expected_pairs = _pairs_by_location(expected.get("impure_pairs"))
+    actual_pairs = _pairs_by_location(actual["impure_pairs"])
+    differences = [
+        f"{location[0]}:{location[1]}: audited impure pair is absent from this scan"
+        for location in sorted(
+            set(expected_pairs) - set(actual_pairs), key=_location_sort_key
+        )
+    ]
+    differences.extend(
+        f"{location[0]}:{location[1]}: impure pair is absent from the audit"
+        for location in sorted(
+            set(actual_pairs) - set(expected_pairs), key=_location_sort_key
+        )
+    )
+    for location in sorted(
+        set(expected_pairs) & set(actual_pairs), key=_location_sort_key
+    ):
+        for field_name in AUDIT_PAIR_FIELDS:
+            want = expected_pairs[location].get(field_name)
+            got = actual_pairs[location].get(field_name)
+            if want != got:
+                differences.append(
+                    f"{location[0]}:{location[1]}: {field_name}: "
+                    f"expected {want!r}, got {got!r}"
+                )
+    return differences
+
+
 def audit_differences(expected: Any, actual: dict[str, Any]) -> list[str]:
     """Return every way ``actual`` departs from a previously published audit."""
 
     if not isinstance(expected, dict):
         return ["expected audit document is not a JSON object"]
-    differences: list[str] = []
-    for key in ("schema_version", "audit", "transform"):
-        if expected.get(key) != actual.get(key):
-            differences.append(f"{key}: expected {expected.get(key)!r}, got {actual.get(key)!r}")
-    expected_summary = expected.get("summary")
-    expected_summary = expected_summary if isinstance(expected_summary, dict) else {}
-    for key in sorted(set(expected_summary) | set(actual["summary"])):
-        if expected_summary.get(key) != actual["summary"].get(key):
-            differences.append(
-                f"summary.{key}: expected {expected_summary.get(key)!r}, "
-                f"got {actual['summary'].get(key)!r}"
-            )
-
-    expected_files = _source_files_by_path(expected.get("source_files"))
-    actual_files = _source_files_by_path(actual.get("source_files"))
-    for source_path in sorted(set(expected_files) - set(actual_files)):
-        differences.append(f"{source_path}: audited source file is absent from this scan")
-    for source_path in sorted(set(actual_files) - set(expected_files)):
-        differences.append(f"{source_path}: source file is absent from the audit")
-    for source_path in sorted(set(expected_files) & set(actual_files)):
-        for field in AUDIT_SOURCE_FILE_FIELDS:
-            want = expected_files[source_path].get(field)
-            got = actual_files[source_path].get(field)
-            if want != got:
-                differences.append(f"{source_path}: {field}: expected {want!r}, got {got!r}")
-
-    expected_pairs = _pairs_by_location(expected.get("impure_pairs"))
-    actual_pairs = _pairs_by_location(actual["impure_pairs"])
-    for location in sorted(set(expected_pairs) - set(actual_pairs), key=_location_sort_key):
-        differences.append(
-            f"{location[0]}:{location[1]}: audited impure pair is absent from this scan"
-        )
-    for location in sorted(set(actual_pairs) - set(expected_pairs), key=_location_sort_key):
-        differences.append(f"{location[0]}:{location[1]}: impure pair is absent from the audit")
-    for location in sorted(set(expected_pairs) & set(actual_pairs), key=_location_sort_key):
-        for field in AUDIT_PAIR_FIELDS:
-            want = expected_pairs[location].get(field)
-            got = actual_pairs[location].get(field)
-            if want != got:
-                differences.append(
-                    f"{location[0]}:{location[1]}: {field}: expected {want!r}, got {got!r}"
-                )
-    return differences
+    return [
+        *_audit_header_differences(expected, actual),
+        *_audit_summary_differences(expected, actual),
+        *_audit_source_file_differences(expected, actual),
+        *_audit_impure_pair_differences(expected, actual),
+    ]
 
 
 RECONCILE_DECISION_FIELDS = (
@@ -1024,6 +1351,91 @@ RECONCILE_COVERAGE_KEYS = (
 )
 
 
+def _manifest_by_location(run: CurationRun) -> dict[tuple[str, int], dict[str, Any]]:
+    """One scan's manifest entries keyed by source path and line."""
+
+    return {
+        (entry["source_path"], entry["source_line"]): entry for entry in run.manifest
+    }
+
+
+def _reconcile_summary_coverage(first: CurationRun, second: CurationRun) -> list[str]:
+    """Denominator counters that disagree between two scans of one corpus."""
+
+    return [
+        f"summary.{key}: first {first.summary[key]}, second {second.summary[key]}"
+        for key in RECONCILE_COVERAGE_KEYS
+        if first.summary[key] != second.summary[key]
+    ]
+
+
+def _reconcile_source_files(
+    first: CurationRun, second: CurationRun
+) -> tuple[list[str], list[str]]:
+    """Source-file inventory drift, split into coverage and payload."""
+
+    first_files = _source_files_by_path(first.source_files)
+    second_files = _source_files_by_path(second.source_files)
+    coverage = [
+        f"{source_path}: file present in the first source only"
+        for source_path in sorted(set(first_files) - set(second_files))
+    ]
+    coverage.extend(
+        f"{source_path}: file present in the second source only"
+        for source_path in sorted(set(second_files) - set(first_files))
+    )
+
+    payload: list[str] = []
+    for source_path in sorted(set(first_files) & set(second_files)):
+        for field_name in AUDIT_SOURCE_FILE_FIELDS:
+            first_value = first_files[source_path].get(field_name)
+            second_value = second_files[source_path].get(field_name)
+            if first_value != second_value:
+                payload.append(
+                    f"{source_path}: {field_name}: "
+                    f"first {first_value!r}, second {second_value!r}"
+                )
+    return coverage, payload
+
+
+def _reconcile_manifest_entries(
+    first_entries: dict[tuple[str, int], dict[str, Any]],
+    second_entries: dict[tuple[str, int], dict[str, Any]],
+) -> tuple[list[str], list[str], list[str]]:
+    """Per-record drift, split into coverage, decisions, and payload."""
+
+    coverage = [
+        f"{location[0]}:{location[1]}: present in the first source only"
+        for location in sorted(
+            set(first_entries) - set(second_entries), key=_location_sort_key
+        )
+    ]
+    coverage.extend(
+        f"{location[0]}:{location[1]}: present in the second source only"
+        for location in sorted(
+            set(second_entries) - set(first_entries), key=_location_sort_key
+        )
+    )
+
+    decisions: list[str] = []
+    payload: list[str] = []
+    for location in sorted(
+        set(first_entries) & set(second_entries), key=_location_sort_key
+    ):
+        for field_name, bucket in (
+            *((name, decisions) for name in RECONCILE_DECISION_FIELDS),
+            *((name, payload) for name in RECONCILE_PAYLOAD_FIELDS),
+        ):
+            first_value = first_entries[location].get(field_name)
+            second_value = second_entries[location].get(field_name)
+            if first_value != second_value:
+                bucket.append(
+                    f"{location[0]}:{location[1]}: {field_name}: "
+                    f"first {first_value!r}, second {second_value!r}"
+                )
+    return coverage, decisions, payload
+
+
 def reconcile_runs(first: CurationRun, second: CurationRun) -> dict[str, list[str]]:
     """Compare two scans of one corpus, keyed by source path and line.
 
@@ -1032,54 +1444,19 @@ def reconcile_runs(first: CurationRun, second: CurationRun) -> dict[str, list[st
     reports agreeing verdicts reached from different source bytes.
     """
 
-    coverage: list[str] = []
-    decisions: list[str] = []
-    payload: list[str] = []
-
-    for key in RECONCILE_COVERAGE_KEYS:
-        if first.summary[key] != second.summary[key]:
-            coverage.append(
-                f"summary.{key}: first {first.summary[key]}, second {second.summary[key]}"
-            )
-
-    first_files = _source_files_by_path(first.source_files)
-    second_files = _source_files_by_path(second.source_files)
-    for source_path in sorted(set(first_files) - set(second_files)):
-        coverage.append(f"{source_path}: file present in the first source only")
-    for source_path in sorted(set(second_files) - set(first_files)):
-        coverage.append(f"{source_path}: file present in the second source only")
-    for source_path in sorted(set(first_files) & set(second_files)):
-        for field in AUDIT_SOURCE_FILE_FIELDS:
-            first_value = first_files[source_path].get(field)
-            second_value = second_files[source_path].get(field)
-            if first_value != second_value:
-                payload.append(
-                    f"{source_path}: {field}: first {first_value!r}, second {second_value!r}"
-                )
-
-    def located(run: CurationRun) -> dict[tuple[str, int], dict[str, Any]]:
-        return {(entry["source_path"], entry["source_line"]): entry for entry in run.manifest}
-
-    first_entries = located(first)
-    second_entries = located(second)
-    for location in sorted(set(first_entries) - set(second_entries), key=_location_sort_key):
-        coverage.append(f"{location[0]}:{location[1]}: present in the first source only")
-    for location in sorted(set(second_entries) - set(first_entries), key=_location_sort_key):
-        coverage.append(f"{location[0]}:{location[1]}: present in the second source only")
-
-    for location in sorted(set(first_entries) & set(second_entries), key=_location_sort_key):
-        for field, bucket in (
-            *((field, decisions) for field in RECONCILE_DECISION_FIELDS),
-            *((field, payload) for field in RECONCILE_PAYLOAD_FIELDS),
-        ):
-            first_value = first_entries[location].get(field)
-            second_value = second_entries[location].get(field)
-            if first_value != second_value:
-                bucket.append(
-                    f"{location[0]}:{location[1]}: {field}: "
-                    f"first {first_value!r}, second {second_value!r}"
-                )
-    return {"coverage": coverage, "decisions": decisions, "payload": payload}
+    file_coverage, file_payload = _reconcile_source_files(first, second)
+    entry_coverage, decisions, entry_payload = _reconcile_manifest_entries(
+        _manifest_by_location(first), _manifest_by_location(second)
+    )
+    return {
+        "coverage": [
+            *_reconcile_summary_coverage(first, second),
+            *file_coverage,
+            *entry_coverage,
+        ],
+        "decisions": decisions,
+        "payload": [*file_payload, *entry_payload],
+    }
 
 
 def _render_human(run: CurationRun) -> str:
@@ -1143,6 +1520,43 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     return parser.parse_args(argv)
 
 
+def _print_audit_text(audit: dict[str, Any]) -> None:
+    """The default human-readable audit rendering."""
+
+    summary = audit["summary"]
+    print(
+        f"Preference pairs: {summary['preference_pairs']}\n"
+        f"Impure pairs: {summary['impure_pairs']} "
+        f"(state {summary['state_divergent_pairs']}, "
+        f"proposal {summary['proposed_action_divergent_pairs']}, "
+        f"proposal only {summary['proposed_action_only_divergent_pairs']})\n"
+        f"Curated keep: {summary['curated_retained_pairs']} "
+        f"at {summary['retained_context_purity_pct']:.1f}% same-context purity"
+    )
+    for pair in audit["impure_pairs"]:
+        location = f"{pair['source_path']}:{pair['source_line']}"
+        identifier = pair["record_id"] or "<no-id>"
+        fields = ",".join(pair["divergent_context_fields"]) or "<none>"
+        reasons = ",".join(pair["reason_codes"])
+        print(f"- {location} {identifier}: {pair['action']} [{fields}] [{reasons}]")
+
+
+def _report_audit_drift(expect: Path, audit: dict[str, Any]) -> int:
+    """Fail closed when this scan has drifted from a published audit."""
+
+    try:
+        expected = json.loads(expect.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        raise PreferenceCurationError(f"{expect}: invalid JSON: {exc}") from exc
+    differences = audit_differences(expected, audit)
+    if not differences:
+        return 0
+    print(f"audit drift against {expect}:", file=sys.stderr)
+    for difference in differences:
+        print(f"- {difference}", file=sys.stderr)
+    return 1
+
+
 def _run_audit(args: argparse.Namespace, run: CurationRun) -> int:
     audit = build_audit(run)
     if args.markdown:
@@ -1150,35 +1564,10 @@ def _run_audit(args: argparse.Namespace, run: CurationRun) -> int:
     elif args.json:
         print(json.dumps(audit, indent=2, sort_keys=True, ensure_ascii=False))
     else:
-        summary = audit["summary"]
-        print(
-            f"Preference pairs: {summary['preference_pairs']}\n"
-            f"Impure pairs: {summary['impure_pairs']} "
-            f"(state {summary['state_divergent_pairs']}, "
-            f"proposal {summary['proposed_action_divergent_pairs']}, "
-            f"proposal only {summary['proposed_action_only_divergent_pairs']})\n"
-            f"Curated keep: {summary['curated_retained_pairs']} "
-            f"at {summary['retained_context_purity_pct']:.1f}% same-context purity"
-        )
-        for pair in audit["impure_pairs"]:
-            location = f"{pair['source_path']}:{pair['source_line']}"
-            identifier = pair["record_id"] or "<no-id>"
-            fields = ",".join(pair["divergent_context_fields"]) or "<none>"
-            reasons = ",".join(pair["reason_codes"])
-            print(f"- {location} {identifier}: {pair['action']} [{fields}] [{reasons}]")
+        _print_audit_text(audit)
     if args.expect is None:
         return 0
-    try:
-        expected = json.loads(args.expect.read_text(encoding="utf-8"))
-    except json.JSONDecodeError as exc:
-        raise PreferenceCurationError(f"{args.expect}: invalid JSON: {exc}") from exc
-    differences = audit_differences(expected, audit)
-    if not differences:
-        return 0
-    print(f"audit drift against {args.expect}:", file=sys.stderr)
-    for difference in differences:
-        print(f"- {difference}", file=sys.stderr)
-    return 1
+    return _report_audit_drift(args.expect, audit)
 
 
 def _run_reconcile(args: argparse.Namespace) -> int:

@@ -24,6 +24,7 @@ from mill_family import (  # noqa: E402
     REVIEWED_MILL_PREFIX_HOMES,
     MillIndex,
     declared_factory,
+    declared_factory_claims,
     goal_family,
     mill_prefix,
     record_id,
@@ -35,6 +36,7 @@ GRAPHQL = "graphql-nplusone-factory"
 DOCKER = "docker-build-cache-factory"
 K8S = "k8s-crashloop-factory"
 SEARCH = "search-index-rebuild-factory"
+AGENTIC_CODING = "agentic-coding-trajectory-factory"
 
 
 def episode(record_id_value, goal, factory, **overrides):
@@ -197,12 +199,41 @@ class MillSignals(unittest.TestCase):
         self.assertIsNone(declared_factory(pair))
 
     def test_consistent_preference_sides_override_destination_wrapper_stamp(self):
+        """Agreeing side stamps, not the destination wrapper, name the origin.
+
+        #96 made ``declared_factory`` strict: a wrapper claim that contradicts
+        its sides is no longer ownership evidence, so it can no longer define
+        a prefix home. The override this test pins therefore resolves one
+        layer out -- ``declared_factory_claims`` keeps both claims in
+        wrapper-then-side order and the finding reports the side origin over
+        the destination wrapper stamp.
+        """
+
         pair = {
-            "meta": {"factory": CACHE_STAMPEDE},
-            "chosen": {"meta": {"factory": GRAPHQL}},
-            "rejected": {"meta": {"factory": GRAPHQL}},
+            "id": "cst-r08-dest-wrapped-side-origin",
+            "goal": "fix verify",
+            "meta": {"factory": CACHE_STAMPEDE, "round": 1},
+            "chosen": {"goal": "fix verify", "meta": {"factory": GRAPHQL}},
+            "rejected": {"goal": "fix verify", "meta": {"factory": GRAPHQL}},
         }
-        self.assertEqual(declared_factory(pair), GRAPHQL)
+        # The wrapper never outvotes its sides: the clash names no owner...
+        self.assertIsNone(declared_factory(pair))
+        # ...both claims stay visible, so the origin is not dropped...
+        self.assertEqual(declared_factory_claims(pair), (CACHE_STAMPEDE, GRAPHQL))
+
+        # ...and the reported declaration is the side origin, not the
+        # destination the wrapper stamps.
+        findings = {
+            finding.record_id: finding
+            for finding in index_of(
+                (CACHE_STAMPEDE, STAMPEDE_CONTROLS + [pair])
+            ).findings()
+        }
+        self.assertIn(pair["id"], findings)
+        finding = findings[pair["id"]]
+        self.assertIn(REASON_FOREIGN_PAYLOAD_FACTORY, finding.reason_codes)
+        self.assertEqual(finding.declared_factory, GRAPHQL)
+        self.assertEqual(finding.expected_factory, CACHE_STAMPEDE)
 
     def test_goal_family_drops_shared_leftover_vocabulary(self):
         family = goal_family(DEST_STAMPED_MILL[0])
@@ -494,6 +525,79 @@ class OwnershipResolution(unittest.TestCase):
         self.assertFalse(context["complete"])
         self.assertEqual(context["unresolved_prefixes"], ["xyz"])
 
+    def test_the_canonical_coding_prefix_is_a_reviewed_home(self):
+        """prompts/04-agentic-coding-trajectory-factory.md specifies
+        ``act-rNN-<slug>-<hash>`` as that factory's canonical id shape, and the
+        published corpus emits exactly that. The prefix was missing from the
+        reviewed table, which is pinned here so the table cannot silently lose
+        it again (Codex #96)."""
+        self.assertEqual(REVIEWED_MILL_PREFIX_HOMES["act"], AGENTIC_CODING)
+
+    def test_a_registry_verified_coding_run_can_authorize_output(self):
+        """``act`` was absent from the reviewed homes, so _unresolved_prefixes
+        reported it for every normal source including that factory, leaving
+        context_complete false and --out refusing an otherwise clean full-run
+        curation even though the directory is registry-verified and every
+        payload declaration matches (Codex #96)."""
+        mills = index_of(
+            (
+                AGENTIC_CODING,
+                [
+                    episode(
+                        f"act-r0{index}-fix-failing-test",
+                        "fix the failing pytest assertion",
+                        AGENTIC_CODING,
+                    )
+                    for index in (2, 3, 4)
+                ],
+            ),
+            (
+                CACHE_STAMPEDE,
+                [
+                    episode(
+                        f"cst-r0{index}-ttl-expiry",
+                        "singleflight ttl expiry stampede refills",
+                        CACHE_STAMPEDE,
+                    )
+                    for index in (1, 2)
+                ],
+            ),
+        )
+
+        self.assertEqual(mills.findings(), ())
+        context = mills.ownership_context()
+        self.assertEqual(context["unresolved_prefixes"], [])
+        self.assertTrue(context["complete"])
+
+    def test_a_coding_prefix_outside_its_home_is_still_foreign(self):
+        """Pinning the home is what makes the prefix evidence: an act- record
+        sitting in another factory must still be reported, not blessed."""
+        mills = index_of(
+            (
+                AGENTIC_CODING,
+                [
+                    episode(
+                        f"act-r0{index}-fix-failing-test",
+                        "fix the failing pytest assertion",
+                        AGENTIC_CODING,
+                    )
+                    for index in (2, 3)
+                ],
+            ),
+            (
+                CACHE_STAMPEDE,
+                [episode("act-r04-stray", "fix verify", CACHE_STAMPEDE)],
+            ),
+        )
+
+        prefix_findings = [
+            item
+            for item in mills.findings()
+            if REASON_FOREIGN_MILL_ID_PREFIX in item.reason_codes
+        ]
+        self.assertEqual([item.record_id for item in prefix_findings], ["act-r04-stray"])
+        self.assertEqual(prefix_findings[0].home_factories, (AGENTIC_CODING,))
+
     def test_empty_index_has_no_findings(self):
         self.assertEqual(MillIndex().findings(), ())
         self.assertEqual(summarize(())["records"], 0)
@@ -520,6 +624,72 @@ class PayloadFactoryAxis(unittest.TestCase):
         self.assertIn(REASON_FOREIGN_PAYLOAD_FACTORY, finding.reason_codes)
         self.assertEqual(finding.declared_factory, DOCKER)
         self.assertEqual(finding.expected_factory, CACHE_STAMPEDE)
+
+    def test_side_stamped_preference_claims_are_resolved(self):
+        """Codex #96 P1: a legacy wrapper attests its factory on both sides.
+
+        ``curate_identity._payload_factory`` accepts a preference whose
+        ``meta.factory`` lives on ``chosen``/``rejected`` rather than the
+        wrapper. Reading only the wrapper left such a record with no
+        declaration at all, so a destination-stamped prefix and a
+        stopword-only goal made it pass as owned.
+        """
+
+        stray = {
+            "id": "cst-r05-side-stamped-preference",
+            "goal": "fix verify",
+            "chosen": {"goal": "fix verify", "meta": {"factory": DOCKER}},
+            "rejected": {"goal": "fix verify", "meta": {"factory": DOCKER}},
+        }
+        self.assertIsNone(stray.get("meta"))
+        self.assertEqual(declared_factory(stray), DOCKER)
+        self.assertEqual(declared_factory_claims(stray), (DOCKER,))
+
+        mills = index_of((CACHE_STAMPEDE, STAMPEDE_CONTROLS + [stray]))
+        findings = {finding.record_id: finding for finding in mills.findings()}
+        self.assertIn(stray["id"], findings)
+        finding = findings[stray["id"]]
+        self.assertIn(REASON_FOREIGN_PAYLOAD_FACTORY, finding.reason_codes)
+        self.assertEqual(finding.declared_factory, DOCKER)
+        self.assertEqual(finding.expected_factory, CACHE_STAMPEDE)
+
+    def test_contradicting_preference_claims_are_not_ownership_evidence(self):
+        """A wrapper claim that contradicts its sides names no owner."""
+
+        contradictory = {
+            "id": "cst-r06-contradicting-claims",
+            "goal": "fix verify",
+            "chosen": {"goal": "fix verify", "meta": {"factory": DOCKER}},
+            "rejected": {"goal": "fix verify", "meta": {"factory": DOCKER}},
+            "meta": {"factory": CACHE_STAMPEDE, "round": 1},
+        }
+        # No single agreed claim, so the record cannot define ownership...
+        self.assertIsNone(declared_factory(contradictory))
+        self.assertEqual(
+            declared_factory_claims(contradictory), (CACHE_STAMPEDE, DOCKER)
+        )
+
+        mills = index_of((CACHE_STAMPEDE, STAMPEDE_CONTROLS + [contradictory]))
+        findings = {finding.record_id: finding for finding in mills.findings()}
+        # ...and the disagreement is still reported rather than dropped.
+        self.assertIn(contradictory["id"], findings)
+        finding = findings[contradictory["id"]]
+        self.assertIn(REASON_FOREIGN_PAYLOAD_FACTORY, finding.reason_codes)
+        self.assertEqual(finding.declared_factory, DOCKER)
+
+    def test_side_stamped_claims_do_not_flag_a_matching_destination(self):
+        """Agreeing side claims that name the destination stay clean."""
+
+        native = {
+            "id": "cst-r07-side-stamped-native",
+            "goal": "fix verify",
+            "chosen": {"goal": "fix verify", "meta": {"factory": CACHE_STAMPEDE}},
+            "rejected": {"goal": "fix verify", "meta": {"factory": CACHE_STAMPEDE}},
+        }
+        mills = index_of((CACHE_STAMPEDE, STAMPEDE_CONTROLS + [native]))
+        self.assertNotIn(
+            native["id"], {finding.record_id for finding in mills.findings()}
+        )
 
     def test_declared_identity_comes_from_payloads_not_directory_names(self):
         """A snapshot directory with an off-slug name must not flag everything."""

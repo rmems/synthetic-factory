@@ -214,9 +214,20 @@ python3 pipelines/curate_preferences.py scan <batch-or-staging-dir> --json
 
 Its `summary.impure_pairs` counts same-context violations, and each impure
 `decisions[]` entry names the offending `source_line`, `reason_codes`
-(e.g. `STATE_CONTEXT_DIVERGES`) and `context_diff_paths`. Run it in CI before
-`round_txn.py publish` as an audit preview. Publication independently re-runs
-the canonical equality through `preference_arms.py`; skipping this preview
+(e.g. `STATE_CONTEXT_DIVERGES`) and `context_diff_paths`.
+
+Run it in CI before `round_txn.py publish` and gate on
+`summary.unpublishable_pairs`, which must be 0. Gate on that field rather
+than on `impure_pairs`: `impure_pairs` deliberately counts only the four
+context-divergence and comparability buckets, so that the published
+same-context audit stays truthful. A pair can have equal, fully comparable
+context and still be unusable -- a non-finite `reward_delta`, for instance,
+is excluded by the curator while leaving `impure_pairs` at 0.
+`unpublishable_pairs` counts every pair that is impure *or* unemittable, so
+neither kind of defect can reach a published round.
+
+That CI step is an audit preview. Publication independently re-runs the
+canonical equality through `preference_arms.py`; skipping this preview
 cannot bypass the publisher.
 
 `summary` also splits the violations by field — `state_divergent_pairs`,
@@ -384,7 +395,8 @@ python3 pipelines/preference_arms.py verify-handoff \
 # Validate
 python3 pipelines/check_records.py outputs/staging/2026-08-17/failure-as-fuel-preference-cascade/r05-<token>
 python3 pipelines/curate_preferences.py scan outputs/staging/2026-08-17/failure-as-fuel-preference-cascade/r05-<token>/batch-r05.jsonl --json
-# purity gate: summary.impure_pairs must be 0
+# purity gate: summary.unpublishable_pairs must be 0
+# (impure_pairs alone misses equal-context pairs the curator cannot emit)
 python3 pipelines/preference_arms.py scan outputs/staging/2026-08-17/failure-as-fuel-preference-cascade/r05-<token>/batch-r05.jsonl
 # preview: must exit 0 (publish re-runs it against captured bytes)
 

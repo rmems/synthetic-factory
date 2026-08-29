@@ -22,6 +22,7 @@ _PIPELINES = Path(__file__).resolve().parent
 if str(_PIPELINES) not in sys.path:
     sys.path.insert(0, str(_PIPELINES))
 
+from curate_identity import default_registry  # noqa: E402
 from mill_family import (  # noqa: E402
     MillFinding,
     MillIndex,
@@ -30,7 +31,6 @@ from mill_family import (  # noqa: E402
 )
 from record_kind import THALAMIC_REQUIRED, classify_kind  # noqa: E402
 from round_txn import (  # noqa: E402
-    FACTORY_QUOTAS,
     TransactionError,
     committed_jsonl_paths,
     marker_mode_path,
@@ -146,7 +146,15 @@ def factory_identity_for_path(
         run_dir,
         path,
         marker_root=_enclosing_marker_root(run_dir, path),
-        known_factories=FACTORY_QUOTAS,
+        # The reviewed factory registry is the source of truth for which
+        # directory names are a known factory. The round-quota table
+        # (FACTORY_QUOTAS) only covers factories with an active quota; a
+        # registered-but-unquota'd factory (e.g. an identity-only generator)
+        # would otherwise read as unverified, and an unverified root lets an
+        # all-foreign batch redefine the destination from its own payload
+        # declaration -- so this report-only audit would miss the very
+        # contamination it exists to surface. Matches curate_agentic.
+        known_factories=default_registry().by_path_id,
     )
 
 
@@ -166,6 +174,38 @@ def _finding_row(finding: MillFinding) -> dict:
     return row
 
 
+def _read_census_records(path: Path, source: str):
+    """Return decoded records plus bounded parse/decode diagnostics."""
+
+    decoded = []
+    parse_failures = 0
+    unreadable = []
+    for lineno, raw_line in enumerate(path.read_bytes().splitlines(), 1):
+        if not raw_line.strip():
+            continue
+        try:
+            line = raw_line.decode("utf-8")
+        except UnicodeDecodeError as exc:
+            unreadable.append(
+                {"source": source, "line": lineno, "error": str(exc)}
+            )
+            continue
+        try:
+            decoded.append(
+                (lineno, json.loads(line, parse_constant=reject_json_constant))
+            )
+        except (json.JSONDecodeError, ValueError):
+            parse_failures += 1
+    return decoded, parse_failures, unreadable
+
+
+def _record_simulation_buckets(obj) -> Counter:
+    values = list(iter_sim_or_real(obj))
+    if not values:
+        return Counter({"<missing>": 1})
+    return Counter(bucket_sim_or_real(value) for value in values)
+
+
 def census_dir(run_dir):
     run_dir = Path(run_dir).resolve()
     by_kind = {kind: 0 for kind in KINDS}
@@ -182,27 +222,13 @@ def census_dir(run_dir):
         files += 1
         relative = path.relative_to(run_dir)
         factory, factory_verified = factory_identity_for_path(run_dir, path)
-        payload = path.read_bytes()
-        for lineno, raw_line in enumerate(payload.splitlines(), 1):
-            if not raw_line.strip():
-                continue
-            try:
-                line = raw_line.decode("utf-8")
-            except UnicodeDecodeError as exc:
-                decode_failures += 1
-                unreadable_files.append(
-                    {
-                        "source": relative.as_posix(),
-                        "line": lineno,
-                        "error": str(exc),
-                    }
-                )
-                continue
-            try:
-                obj = json.loads(line, parse_constant=reject_json_constant)
-            except (json.JSONDecodeError, ValueError):
-                parse_failures += 1
-                continue
+        decoded, failed, unreadable = _read_census_records(
+            path, relative.as_posix()
+        )
+        parse_failures += failed
+        decode_failures += len(unreadable)
+        unreadable_files.extend(unreadable)
+        for lineno, obj in decoded:
             records += 1
             by_factory[factory] += 1
             mills.add(
@@ -212,12 +238,8 @@ def census_dir(run_dir):
                 factory_verified=factory_verified,
             )
             by_kind[classify_kind(obj)] += 1
-            found = list(iter_sim_or_real(obj))
-            if not found:
-                sim_hist["<missing>"] += 1
-                continue
-            for value in found:
-                sim_hist[bucket_sim_or_real(value)] += 1
+            for bucket, count in _record_simulation_buckets(obj).items():
+                sim_hist[bucket] += count
 
     findings = mills.findings()
     quarantined_by_factory = Counter(finding.factory for finding in findings)
