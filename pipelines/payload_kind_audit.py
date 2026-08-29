@@ -193,17 +193,25 @@ def _reject_unpaired_surrogates_in_string(value: str) -> None:
         raise ValueError("unpaired UTF-16 surrogate in JSON string")
 
 
+def _reject_unpaired_surrogates_in_mapping(value: Mapping) -> None:
+    for key, item in value.items():
+        _reject_unpaired_surrogates(key)
+        _reject_unpaired_surrogates(item)
+
+
+def _reject_unpaired_surrogates_in_list(value: list) -> None:
+    for item in value:
+        _reject_unpaired_surrogates(item)
+
+
 def _reject_unpaired_surrogates(value: Any) -> None:
     """Reject strings the UTF-8 stdout path cannot encode."""
     if isinstance(value, str):
         _reject_unpaired_surrogates_in_string(value)
     elif isinstance(value, Mapping):
-        for key, item in value.items():
-            _reject_unpaired_surrogates(key)
-            _reject_unpaired_surrogates(item)
+        _reject_unpaired_surrogates_in_mapping(value)
     elif isinstance(value, list):
-        for item in value:
-            _reject_unpaired_surrogates(item)
+        _reject_unpaired_surrogates_in_list(value)
 
 
 def _is_json_whitespace(value: str) -> bool:
@@ -232,18 +240,27 @@ def _jsonl_lines(raw: bytes, source_file: str):
         yield line_number, line_bytes, line
 
 
+def _validate_payload_name(name: Any) -> None:
+    """A snapshot payload name must be a bare ``*.jsonl`` filename, not a path."""
+    if not isinstance(name, str) or not name.endswith(".jsonl") or Path(name).name != name:
+        raise PayloadKindAuditError(f"unsafe snapshot payload name: {name!r}")
+
+
+def _resolve_named_payload_paths(corpus: Path, payload_names: Iterable[str]) -> list[Path]:
+    names = list(payload_names)
+    for name in names:
+        _validate_payload_name(name)
+    if len(names) != len(set(names)):
+        raise PayloadKindAuditError("snapshot payload names must be unique")
+    return [corpus / name for name in sorted(names)]
+
+
 def _resolve_payload_paths(corpus: Path, payload_names: Iterable[str] | None) -> list[Path]:
     """Return the sorted ``*.jsonl`` paths to scan, validating any explicit names."""
     if payload_names is None:
         payload_paths = sorted(corpus.glob("*.jsonl"))
     else:
-        names = list(payload_names)
-        for name in names:
-            if not isinstance(name, str) or not name.endswith(".jsonl") or Path(name).name != name:
-                raise PayloadKindAuditError(f"unsafe snapshot payload name: {name!r}")
-        if len(names) != len(set(names)):
-            raise PayloadKindAuditError("snapshot payload names must be unique")
-        payload_paths = [corpus / name for name in sorted(names)]
+        payload_paths = _resolve_named_payload_paths(corpus, payload_names)
     if not payload_paths:
         raise PayloadKindAuditError(f"corpus contains no *.jsonl payloads: {corpus}")
     return payload_paths
