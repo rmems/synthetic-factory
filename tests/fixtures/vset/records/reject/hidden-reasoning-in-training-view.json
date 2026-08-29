@@ -26,7 +26,7 @@
     "reason_codes": []
   },
   "environment": {
-    "repo_snapshot_hash": "sha256:dbfe6f82b660c9f435899676b8071024ec1e35d71f5d8bb6a26a614dc857fe59",
+    "repo_snapshot_hash": "sha256:15def9dbe24a2c87dc9ee200d50c24a59cfa88708fdbd0932f9621b14529f665",
     "task_id": "vset-counter-v1.add-sub",
     "repo_pack_id": "vset-counter-v1"
   },

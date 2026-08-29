@@ -1,4 +1,7 @@
-"""PASS_TO_PASS reference tests for the shared counter pack."""
+"""PASS_TO_PASS reference suite for the shared counter pack.
+
+Named outside test_*.py so factory ``unittest discover`` does not collect it.
+"""
 
 from __future__ import annotations
 

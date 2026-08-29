@@ -1,4 +1,7 @@
-"""FAIL_TO_PASS hidden tests for rejecting None. Meaningful only if the oracle is valid."""
+"""FAIL_TO_PASS hidden suite for rejecting None.
+
+A pass is meaningful only when the oracle itself is independently valid.
+"""
 
 from __future__ import annotations
 
