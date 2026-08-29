@@ -411,6 +411,10 @@ def _markdown_cell(value: Any) -> str:
     rendered = html.escape(str(value), quote=False)
     return (
         rendered.replace("|", "&#124;")
+        # Escaped so a gate value like "![tracker](url)" renders as literal
+        # text instead of an active Markdown image or link.
+        .replace("[", "&#91;")
+        .replace("]", "&#93;")
         .replace("\r\n", "<br>")
         .replace("\r", "<br>")
         .replace("\n", "<br>")

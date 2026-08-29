@@ -421,6 +421,27 @@ class PayloadKindClassification(unittest.TestCase):
         self.assertIn("id&#124;`tick`<br>next", rendered)
         self.assertIn("gate&#124;one / MODIFY<br>NOW", rendered)
 
+    def test_markdown_escapes_link_and_image_syntax_in_gate_cells(self):
+        audit = {
+            "records": [
+                {
+                    "source_file": "batch.jsonl",
+                    "source_line": 1,
+                    "kind": "thalamic",
+                    "id": "id-1",
+                    "supervisor_id": "![tracker](https://example.test/pixel)",
+                    "gate_decision": "[click me](https://example.test/bad)",
+                    "wraps_coding_episode": True,
+                    "coding_steps": 2,
+                }
+            ]
+        }
+        rendered = payload_kind_audit.render_markdown(audit)
+        self.assertNotIn("![tracker](", rendered)
+        self.assertNotIn("[click me](", rendered)
+        self.assertIn("!&#91;tracker&#93;(https://example.test/pixel)", rendered)
+        self.assertIn("&#91;click me&#93;(https://example.test/bad)", rendered)
+
     def test_a_record_the_lane_cannot_classify_fails_loudly_with_its_coordinate(self):
         with tempfile.TemporaryDirectory() as raw:
             directory = Path(raw)
