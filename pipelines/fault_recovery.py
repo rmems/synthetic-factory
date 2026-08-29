@@ -748,41 +748,8 @@ def _derived_measurements(result: "FaultResult") -> dict[str, float | None]:
     }
 
 
-def _recheck_deterministic_outcome(record: dict[str, Any], where: str) -> list[str]:
-    """Re-run the simulator and compare, for records it produced.
-
-    The scenario and the intervention fully determine this oracle's answer, so
-    the label is reproducible rather than merely unfalsifiable. Without this,
-    editing ``result.outcome`` to another vocabulary member, updating its prose
-    label and reason code, and recomputing the digest produces a record that
-    validates clean and is curated as authoritative ground truth.
-
-    Only the in-process simulator is re-run. A hardware replay oracle is not
-    reproducible here, and silently "correcting" its labels to the simulator's
-    would be worse than not checking.
-    """
-
-    oracle = record.get("oracle")
-    if not isinstance(oracle, dict):
-        return []
-    if oracle.get("name") != ORACLE_NAME or oracle.get("type") != "deterministic_simulator":
-        return []
-    scenario = record.get("scenario")
-    intervention = record.get("intervention")
-    result = record.get("result")
-    if not (
-        isinstance(scenario, dict)
-        and isinstance(intervention, dict)
-        and isinstance(result, dict)
-    ):
-        return []
-    try:
-        replay = RelayReflexSimulator().run(scenario, intervention)
-    except (oc.ContractError, KeyError, TypeError, ValueError) as exc:
-        return [
-            f"{where}.result: OUTCOME_NOT_REPRODUCIBLE — the recorded scenario "
-            f"and intervention do not run on {ORACLE_NAME}: {exc}"
-        ]
+def _check_replay_labels(result: dict[str, Any], replay: Any, where: str) -> list[str]:
+    """The recorded label, reasons and integrity flag against the replay."""
 
     errors: list[str] = []
     if result.get("outcome") != replay.outcome:
@@ -808,7 +775,15 @@ def _recheck_deterministic_outcome(record: dict[str, Any], where: str) -> list[s
             f"recorded {result['integrity_violation']} but the simulator "
             f"reports {replay.integrity_violation}"
         )
+    return errors
 
+
+def _check_replay_measurements(
+    result: dict[str, Any], replay: Any, where: str
+) -> list[str]:
+    """The recorded measurements against the ones the replay derives."""
+
+    errors: list[str] = []
     expected = _derived_measurements(replay)
     measurements = result.get("measurements")
     for item in measurements if isinstance(measurements, list) else []:
@@ -827,6 +802,58 @@ def _recheck_deterministic_outcome(record: dict[str, Any], where: str) -> list[s
                 f"{target}"
             )
     return errors
+
+
+def _replayable_blocks(
+    record: dict[str, Any]
+) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]] | None:
+    """The scenario/intervention/result of a record this oracle can replay."""
+
+    oracle = record.get("oracle")
+    if not isinstance(oracle, dict):
+        return None
+    if oracle.get("name") != ORACLE_NAME or oracle.get("type") != "deterministic_simulator":
+        return None
+    scenario = record.get("scenario")
+    intervention = record.get("intervention")
+    result = record.get("result")
+    if not (
+        isinstance(scenario, dict)
+        and isinstance(intervention, dict)
+        and isinstance(result, dict)
+    ):
+        return None
+    return scenario, intervention, result
+
+
+def _recheck_deterministic_outcome(record: dict[str, Any], where: str) -> list[str]:
+    """Re-run the simulator and compare, for records it produced.
+
+    The scenario and the intervention fully determine this oracle's answer, so
+    the label is reproducible rather than merely unfalsifiable. Without this,
+    editing ``result.outcome`` to another vocabulary member, updating its prose
+    label and reason code, and recomputing the digest produces a record that
+    validates clean and is curated as authoritative ground truth.
+
+    Only the in-process simulator is re-run. A hardware replay oracle is not
+    reproducible here, and silently "correcting" its labels to the simulator's
+    would be worse than not checking.
+    """
+
+    blocks = _replayable_blocks(record)
+    if blocks is None:
+        return []
+    scenario, intervention, result = blocks
+    try:
+        replay = RelayReflexSimulator().run(scenario, intervention)
+    except (oc.ContractError, KeyError, TypeError, ValueError) as exc:
+        return [
+            f"{where}.result: OUTCOME_NOT_REPRODUCIBLE — the recorded scenario "
+            f"and intervention do not run on {ORACLE_NAME}: {exc}"
+        ]
+    return _check_replay_labels(result, replay, where) + _check_replay_measurements(
+        result, replay, where
+    )
 
 
 def _check_intervention_parameters(
