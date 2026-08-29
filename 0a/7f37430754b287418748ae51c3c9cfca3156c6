@@ -1,0 +1,26 @@
+pipelines/preference_arms.py
+  s_0d456da8ea5328::t_e02f40f36d9719 823-824
+  s_0d456da8ea5328::t_99fceb9a9591c6 744-746,749,751
+pipelines/preference_arms_diagnosis.py
+  s_0d456da8ea5328::t_9c8aa9f03e2ba7 487-510,512
+docs/preference-isolation.md
+  s_0d456da8ea5328::t_7fe0914ad8126c 414-418
+tests/test_preference_arms_handoff.py
+  s_0d456da8ea5328::t_e6870487470faa 110-146
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "0a7f37430754b287418748ae51c3c9cfca3156c6",
+  "prompts": {},
+  "sessions": {
+    "s_0d456da8ea5328": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "a8d33a4c-0324-4388-9173-61055dd33627",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Raul Montoya Cardenas <montoyaraul34@gmail.com>"
+    }
+  }
+}
