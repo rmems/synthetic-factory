@@ -318,6 +318,79 @@ class ThalamicSpikeStream(unittest.TestCase):
             errors=1,
         )
 
+    def _record_with(self, events, **record_fields):
+        """A thalamic record carrying this stream plus enclosing declarations."""
+        rec = self._record(events)
+        rec.update(record_fields)
+        return rec
+
+    def test_a_clock_declared_on_the_record_conflicts_with_an_event_clock(self):
+        """curate_bridge._declared_clock_domains reads the record and its meta
+        as well as the events, so a bridge with a top-level clock_id and an
+        event-level source_clock is quarantined BRIDGE_MULTIPLE_CLOCK_DOMAINS.
+        Reading only the events let the publish gate admit it (Codex #87)."""
+        record = self._record_with(
+            [
+                {"channel": "a", "t_rel_ms": 1.0, "source_clock": "event-clock"},
+                {"channel": "b", "t_rel_ms": 2.0, "source_clock": "event-clock"},
+            ],
+            clock_id="record-clock",
+        )
+        result = _run_with_record(record)
+        self.assertEqual(result.returncode, 1, result.stderr)
+        self.assertIn(validate_run.SPIKE_CLOCK_DOMAIN_MISMATCH, result.stderr)
+        self.assertIn("record-clock", result.stderr)
+        self.assertIn("event-clock", result.stderr)
+        self.assertNotIn(validate_run.SPIKE_ORDER_MISMATCH, result.stderr)
+
+    def test_a_clock_declared_on_record_meta_conflicts_with_an_event_clock(self):
+        record = self._record_with(
+            [
+                {"channel": "a", "t_rel_ms": 1.0, "source_clock": "event-clock"},
+                {"channel": "b", "t_rel_ms": 2.0, "source_clock": "event-clock"},
+            ]
+        )
+        record.setdefault("meta", {})["timebase"] = "meta-clock"
+        result = _run_with_record(record)
+        self.assertEqual(result.returncode, 1, result.stderr)
+        self.assertIn(validate_run.SPIKE_CLOCK_DOMAIN_MISMATCH, result.stderr)
+        self.assertIn("meta-clock", result.stderr)
+
+    def test_a_record_clock_matching_its_events_is_one_domain(self):
+        """The enclosing declaration must not manufacture a second domain."""
+        record = self._record_with(
+            [
+                {"channel": "a", "t_rel_ms": 1.0, "source_clock": "one-clock"},
+                {"channel": "b", "t_rel_ms": 2.0, "source_clock": "one-clock"},
+            ],
+            clock_id="one-clock",
+        )
+        result = _run_with_record(record)
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_a_record_clock_over_unannotated_events_is_one_domain(self):
+        record = self._record_with(
+            [
+                {"channel": "a", "t_rel_ms": 1.0},
+                {"channel": "b", "t_rel_ms": 2.0},
+            ],
+            clock_id="record-clock",
+        )
+        result = _run_with_record(record)
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_declared_clock_domains_reads_the_record_meta_and_events(self):
+        """Unit-level parity with curate_bridge's three-container namespace."""
+        events = [{"t_rel_ms": 1.0, "source_clock": "event-clock"}]
+        record = {"clock_id": "record-clock", "meta": {"timebase": "meta-clock"}}
+        self.assertEqual(
+            validate_run.declared_clock_domains(events, record),
+            {'"event-clock"', '"record-clock"', '"meta-clock"'},
+        )
+        self.assertEqual(
+            validate_run.declared_clock_domains(events), {'"event-clock"'}
+        )
+
     def test_one_clock_domain_under_aliased_field_names_passes(self):
         # Different alias fields carrying the same identifier name one domain.
         self._accept(

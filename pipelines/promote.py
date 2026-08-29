@@ -146,18 +146,24 @@ def _sort_events(events):
     return sorted(events, key=lambda event: event_time(event)[1])
 
 
-def _spike_stream_needs_resort(events):
+def _spike_stream_needs_resort(events, enclosing=None):
     """True when an unambiguous stream is out of order and safe to resort.
 
     Dual-key, untimed, or non-object events make clocks incomparable.
     check_spikes can still report an order error from the remaining timed
     events; the caller must not rewrite those streams with inf placeholders,
     so only a singly-timed stream is eligible here.
+
+    A stream spanning two declared clock domains is equally incomparable even
+    when every event is singly timed, so check_spikes is given the enclosing
+    record and stays silent for it. promote_run() writes the cleaned copy
+    without validating, so sorting there would publish a fabricated ordering
+    stamped ``spike_events_resorted``.
     """
     return (
         isinstance(events, list)
         and _events_are_singly_timed(events)
-        and check_spikes(events, "")
+        and check_spikes(events, "", enclosing)
     )
 
 
@@ -169,7 +175,7 @@ def _maybe_sort_spikes(obj, seen):
             return 0
         seen.add(oid)
         events = obj.get("spike_events")
-        if _spike_stream_needs_resort(events):
+        if _spike_stream_needs_resort(events, obj):
             obj["spike_events"] = _sort_events(events)
             meta = obj.get("meta")
             if not isinstance(meta, dict):

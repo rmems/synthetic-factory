@@ -171,19 +171,37 @@ SPIKE_CLOCK_DOMAIN_KEYS = (
 )
 
 
-def _declared_clock_domains(events):
-    """Return the distinct clock identifiers the events of one stream declare.
+def _clock_domain_containers(events, enclosing):
+    """Yield every container whose keys can declare this stream's clock.
+
+    ``curate_bridge._declared_clock_domains`` reads the record and its
+    ``meta`` alongside the events, so a record-level ``clock_id`` conflicting
+    with an event-level ``source_clock`` is one stream spanning two domains.
+    Reading only the events lets the publish gate admit a stream the bridge
+    curator quarantines as BRIDGE_MULTIPLE_CLOCK_DOMAINS.
+    """
+    if isinstance(enclosing, dict):
+        yield enclosing
+        meta = enclosing.get("meta")
+        if isinstance(meta, dict):
+            yield meta
+    for event in events:
+        if isinstance(event, dict):
+            yield event
+
+
+def declared_clock_domains(events, enclosing=None):
+    """Return the distinct clock identifiers one stream declares.
 
     Aliased field names carrying the same scalar name one domain, so compare
     the declared values and not the keys — the rule curate_bridge applies.
+    ``enclosing`` is the record that owns the stream, when the caller has it.
     """
     domains = set()
-    for event in events:
-        if not isinstance(event, dict):
-            continue
+    for container in _clock_domain_containers(events, enclosing):
         for key in SPIKE_CLOCK_DOMAIN_KEYS:
-            if key in event:
-                domains.add(_clock_domain_marker(event[key]))
+            if key in container:
+                domains.add(_clock_domain_marker(container[key]))
     return domains
 
 
@@ -195,9 +213,13 @@ def _clock_domain_marker(value):
         return repr(value)
 
 
-def _clock_domain_errors(events, where):
-    """Report a stream whose events were timed against more than one clock."""
-    domains = _declared_clock_domains(events)
+def _clock_domain_errors(events, where, enclosing=None):
+    """Report a stream timed against more than one clock.
+
+    The declaration may sit on an event, on the enclosing record, or on that
+    record's ``meta`` — curate_bridge treats all three as one namespace.
+    """
+    domains = declared_clock_domains(events, enclosing)
     if len(domains) <= 1:
         return []
     return [
@@ -294,7 +316,7 @@ def _spike_order_errors(timed, where):
     return []
 
 
-def check_spike_order(events, where, require_keys=BRIDGE_SPIKE_EVENT_KEYS):
+def check_spike_order(events, where, require_keys=BRIDGE_SPIKE_EVENT_KEYS, *, enclosing=None):
     """Require schema-valid events on one globally ordered clock key.
 
     `require_keys` is the per-event key requirement, defaulting to the bridge
@@ -303,7 +325,10 @@ def check_spike_order(events, where, require_keys=BRIDGE_SPIKE_EVENT_KEYS):
     Optional channel/amplitude fields still obey their schema types whenever
     present. A stream may use t_rel_ms or t_ms, but never both or a mixture,
     and every event that names its clock must name the same one: timestamps
-    from distinct clock domains are not a comparable timeline.
+    from distinct clock domains are not a comparable timeline. ``enclosing``
+    is the record owning the stream; pass it so a clock declared on the
+    record or its ``meta`` is weighed with the event-level ones, matching
+    curate_bridge.
     """
     errs = []
     timed = []
@@ -324,7 +349,7 @@ def check_spike_order(events, where, require_keys=BRIDGE_SPIKE_EVENT_KEYS):
         # manufacturing an order verdict.
         return errs
 
-    domain_errs = _clock_domain_errors(events, where)
+    domain_errs = _clock_domain_errors(events, where, enclosing)
     if domain_errs:
         # Timestamps taken against different clocks are not one timeline, so
         # sorting them would fabricate an order. Same rule as the mismatched
@@ -347,7 +372,7 @@ def check_spike_stream(obj, where):
     events = obj["spike_events"]
     if not isinstance(events, list):
         return [f"{where}: spike_events must be an array"]
-    return check_spike_order(events, where, require_keys=())
+    return check_spike_order(events, where, require_keys=(), enclosing=obj)
 
 
 def _component_numeric(value):
@@ -1577,7 +1602,7 @@ def check_line(obj, where, factory_staging=False):
         if not isinstance(events, list) or not events:
             errs.append(f"{where}: spike_events must be a non-empty array")
         else:
-            errs += check_spike_order(events, where)
+            errs += check_spike_order(events, where, enclosing=obj)
         view = obj.get("language_view")
         if not isinstance(view, dict):
             errs.append(f"{where}: language_view must be an object")

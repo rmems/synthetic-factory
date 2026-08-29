@@ -28,6 +28,7 @@ from validate_run import (  # noqa: E402
     _episode_like,
     check_line,
     check_spike_order,
+    declared_clock_domains,
     event_time,
     reject_json_constant,
 )
@@ -95,7 +96,9 @@ def walk_key(obj, name, path=""):
             yield from walk_key(item, name, f"{path}[{i}]")
 
 
-def check_spike_stream_shape(events, where, *, require_keys=(), require_nonempty=False):
+def check_spike_stream_shape(
+    events, where, *, require_keys=(), require_nonempty=False, enclosing=None
+):
     """Strict shape/order validation for one discovered ``spike_events`` stream.
 
     The deep record checker uses this for every stream it discovers — the
@@ -106,7 +109,7 @@ def check_spike_stream_shape(events, where, *, require_keys=(), require_nonempty
         return [f"{where}: spike_events must be an array"]
     if require_nonempty and not events:
         return [f"{where}: spike_events must be a non-empty array"]
-    return check_spike_order(events, where, require_keys=require_keys)
+    return check_spike_order(events, where, require_keys=require_keys, enclosing=enclosing)
 
 
 def _timed_spike_events(events):
@@ -135,14 +138,16 @@ def _first_spike_order_violation(where, timed):
     return []
 
 
-def check_spikes(events, where):
+def check_spikes(events, where, enclosing=None):
     """Probe whether a stream is unambiguously, safely out of order.
 
     Used by promotion's safe sorter (and directly by tests) to decide
     whether resorting is safe: reports an error only for a genuine global
     order violation on a single, unambiguous timestamp key. Untimed,
-    mixed-key, non-array, or too-short streams are silently accepted (empty
-    result) since they are neither compared nor resorted by the caller.
+    mixed-key, multi-clock, non-array, or too-short streams are silently
+    accepted (empty result) since they are neither compared nor resorted by
+    the caller. This is a sorter-safety probe, not a validity gate — an
+    incomparable stream is still reported by ``check_spike_order``.
     """
     if not isinstance(events, list):
         return []
@@ -151,6 +156,12 @@ def check_spikes(events, where):
         return []
     time_keys = {key for _, key, _ in timed}
     if len(time_keys) > 1:
+        return []
+    # One timestamp key is not one timeline. Events declaring different
+    # clocks are incomparable, so an inversion between them is not a repair
+    # this probe may authorize: sorting would fabricate the ordering the
+    # hardened validator explicitly refuses to assert.
+    if len(declared_clock_domains(events, enclosing)) > 1:
         return []
     return _first_spike_order_violation(where, timed)
 
@@ -484,6 +495,11 @@ def check_record(obj, where, factory_staging=False):
                     f"{where}: {path}",
                     require_keys=(BRIDGE_SPIKE_EVENT_KEYS if bridge_root else ()),
                     require_nonempty=bridge_root,
+                    # Only the record's own stream is governed by a clock the
+                    # record or its meta declares. walk_key does not hand back
+                    # a nested stream's parent, and check_spike_stream passes
+                    # its own owner for those.
+                    enclosing=(obj if path == "spike_events" else None),
                 )
             )
         for path, rc in walk_key(obj, "reward_components"):
