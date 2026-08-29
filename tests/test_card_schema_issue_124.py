@@ -3,7 +3,7 @@
 
 import os
 
-import test_card_schema as _shared
+import test_card_schema_integration as _shared
 
 unittest = _shared.unittest
 io = _shared.io
