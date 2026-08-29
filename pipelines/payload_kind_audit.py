@@ -321,6 +321,22 @@ def _resolve_named_payload_paths(corpus: Path, payload_names: Iterable[str]) -> 
     return [corpus / name for name in sorted(names)]
 
 
+def _validate_payload_encoding(path: Path) -> None:
+    """Reject a filename this audit cannot report.
+
+    On POSIX a filename is bytes, and Python represents undecodable bytes with
+    surrogate escapes. Such a name reaches every row as ``source_file`` and
+    would raise an uncaught UnicodeEncodeError inside ``sys.stdout.write`` —
+    after a successful scan — instead of the documented input-error status 2.
+    """
+    try:
+        path.name.encode("utf-8")
+    except UnicodeEncodeError as exc:
+        raise PayloadKindAuditError(
+            f"payload filename is not valid UTF-8: {path.name!r}"
+        ) from exc
+
+
 def _resolve_payload_paths(corpus: Path, payload_names: Iterable[str] | None) -> list[Path]:
     """Return the sorted ``*.jsonl`` paths to scan, validating any explicit names."""
     if payload_names is None:
@@ -329,6 +345,8 @@ def _resolve_payload_paths(corpus: Path, payload_names: Iterable[str] | None) ->
         payload_paths = _resolve_named_payload_paths(corpus, payload_names)
     if not payload_paths:
         raise PayloadKindAuditError(f"corpus contains no *.jsonl payloads: {corpus}")
+    for path in payload_paths:
+        _validate_payload_encoding(path)
     return payload_paths
 
 
@@ -512,15 +530,39 @@ _MARKDOWN_CONTROL_ESCAPES = {
 }
 
 
+def _markdown_text(value: Any) -> str:
+    """Return the value's faithful text form.
+
+    A container is emitted verbatim onto the row — the decimal guard permits
+    one — so ``str()`` would publish a Python repr (``{'key': None}``) that
+    differs from the JSON the corpus holds. Serialize those as JSON. Scalars
+    keep ``str()``: their rendering is pinned by the falsy-value tests.
+    """
+    if isinstance(value, (Mapping, list)):
+        return json.dumps(value, sort_keys=True, ensure_ascii=False)
+    return str(value)
+
+
+# Markdown inline syntax that must not activate on audited corpus data. The
+# link/image brackets were escaped first; backtick and the emphasis markers
+# are the rest of what renders formatting instead of literal evidence.
+_MARKDOWN_SYNTAX_ESCAPES = (
+    ("|", "&#124;"),
+    ("[", "&#91;"),
+    ("]", "&#93;"),
+    ("`", "&#96;"),
+    ("*", "&#42;"),
+    ("_", "&#95;"),
+)
+
+
 def _markdown_cell(value: Any) -> str:
-    rendered = html.escape(str(value), quote=False)
+    """Render one value as inert Markdown table text."""
+    rendered = html.escape(_markdown_text(value), quote=False)
+    for character, escape in _MARKDOWN_SYNTAX_ESCAPES:
+        rendered = rendered.replace(character, escape)
     return (
-        rendered.replace("|", "&#124;")
-        # Escaped so a gate value like "![tracker](url)" renders as literal
-        # text instead of an active Markdown image or link.
-        .replace("[", "&#91;")
-        .replace("]", "&#93;")
-        .replace("\r\n", "<br>")
+        rendered.replace("\r\n", "<br>")
         .replace("\r", "<br>")
         .replace("\n", "<br>")
         .translate(_MARKDOWN_CONTROL_ESCAPES)
@@ -528,10 +570,18 @@ def _markdown_cell(value: Any) -> str:
 
 
 def _markdown_code(value: Any) -> str:
-    text = str(value)
-    if not any(marker in text for marker in ("`", "|", "\r", "\n")):
-        return f"`{_markdown_cell(text)}`"
-    return f"<code>{_markdown_cell(text)}</code>"
+    """Render one value as an inline code span.
+
+    A code span already disables every inline construct, so its contents need
+    no metacharacter escaping — and escaping them would publish the entity
+    itself (``&#42;``) rather than the character the corpus holds. Only text
+    that would break out of the span falls back to ``<code>``, where the
+    entities are decoded again.
+    """
+    text = _markdown_text(value)
+    if any(marker in text for marker in ("`", "|", "\r", "\n")):
+        return f"<code>{_markdown_cell(text)}</code>"
+    return text.translate(_MARKDOWN_CONTROL_ESCAPES).join("``")
 
 
 def _json_equal(left: Any, right: Any) -> bool:

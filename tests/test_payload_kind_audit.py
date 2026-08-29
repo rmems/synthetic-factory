@@ -439,7 +439,10 @@ class PayloadKindClassification(unittest.TestCase):
         }
         rendered = payload_kind_audit.render_markdown(audit)
         self.assertIn("batch&#124;name.jsonl", rendered)
-        self.assertIn("id&#124;`tick`<br>next", rendered)
+        # The backtick is escaped rather than passed through: inside the
+        # <code> fallback the entity decodes to the same character, so the
+        # rendered table is unchanged, but the source cannot open a code span.
+        self.assertIn("id&#124;&#96;tick&#96;<br>next", rendered)
         self.assertIn("gate&#124;one / MODIFY<br>NOW", rendered)
 
     def test_markdown_escapes_link_and_image_syntax_in_gate_cells(self):
@@ -605,6 +608,89 @@ class PayloadKindClassification(unittest.TestCase):
         rendered = payload_kind_audit.render_markdown(audit)
         self.assertIn("`act-r02-001`", rendered)
         self.assertIn("gate-v1 / MODIFY", rendered)
+
+    def test_markdown_escapes_emphasis_and_backticks_in_gate_cells(self):
+        """A gate cell is plain table text, so Markdown syntax in a valid
+        supervisor id or decision renders formatting instead of literal audit
+        data (Codex #74)."""
+        audit = {
+            "records": [
+                {
+                    "source_file": "batch.jsonl",
+                    "source_line": 1,
+                    "kind": "thalamic",
+                    "id": "id-1",
+                    "supervisor_id": "**gate**",
+                    "gate_decision": "MOD`IFY`_now_",
+                    "wraps_coding_episode": True,
+                    "coding_steps": 2,
+                }
+            ]
+        }
+        rendered = payload_kind_audit.render_markdown(audit)
+        self.assertNotIn("**gate**", rendered)
+        self.assertNotIn("`IFY`", rendered)
+        self.assertIn("&#42;&#42;gate&#42;&#42;", rendered)
+        self.assertIn("MOD&#96;IFY&#96;&#95;now&#95;", rendered)
+
+    def test_markdown_renders_a_code_span_without_publishing_entities(self):
+        """A code span already disables inline syntax, so escaping inside one
+        would print the entity instead of the character the corpus holds."""
+        audit = {
+            "records": [
+                {
+                    "source_file": "batch.jsonl",
+                    "source_line": 1,
+                    "kind": "episode",
+                    "id": "id_with*stars[and]brackets",
+                    "wraps_coding_episode": False,
+                    "coding_steps": 0,
+                }
+            ]
+        }
+        rendered = payload_kind_audit.render_markdown(audit)
+        self.assertIn("`id_with*stars[and]brackets`", rendered)
+
+    def test_markdown_renders_container_gate_metadata_as_json(self):
+        """The decimal guard permits a container-valued emitted field, and the
+        row carries it verbatim, so str() would publish a Python repr that
+        differs from the corpus JSON (Codex #74)."""
+        record = _thalamic(
+            "act-r02-001", _episode([]), supervisor={"key": None, "flags": [True, 1]}
+        )
+        audit = self._audit({"batch-r02.jsonl": [record]})
+        self.assertEqual(
+            audit["records"][0]["supervisor_id"], {"key": None, "flags": [True, 1]}
+        )
+        rendered = payload_kind_audit.render_markdown(audit)
+        self.assertNotIn("'key': None", rendered)
+        self.assertIn('{"flags": &#91;true, 1&#93;, "key": null}', rendered)
+
+    def test_markdown_renders_a_container_identifier_as_json(self):
+        record = _episode([])
+        record["id"] = ["a", None]
+        audit = self._audit({"episodes.jsonl": [record]})
+        rendered = payload_kind_audit.render_markdown(audit)
+        self.assertNotIn("None", rendered)
+        self.assertIn('`["a", null]`', rendered)
+
+    def test_a_payload_filename_that_is_not_utf8_is_a_controlled_input_error(self):
+        """A POSIX filename is bytes; Python surrogate-escapes undecodable
+        ones. That name reaches every row as source_file and would raise an
+        uncaught UnicodeEncodeError inside sys.stdout.write after a successful
+        scan, instead of the documented status 2 (Codex #74)."""
+        with tempfile.TemporaryDirectory() as raw:
+            directory = Path(raw)
+            name = "batch-\udcff.jsonl"
+            try:
+                (directory / name).write_text(
+                    json.dumps(_episode([])) + "\n", encoding="utf-8"
+                )
+            except (OSError, UnicodeEncodeError) as exc:  # pragma: no cover
+                self.skipTest(f"filesystem rejects undecodable names: {exc}")
+            with self.assertRaises(payload_kind_audit.PayloadKindAuditError) as caught:
+                payload_kind_audit.build_audit(directory)
+        self.assertIn("payload filename is not valid UTF-8", str(caught.exception))
 
     def test_a_missing_corpus_directory_is_rejected(self):
         with self.assertRaises(payload_kind_audit.PayloadKindAuditError):
