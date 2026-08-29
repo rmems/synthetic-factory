@@ -96,6 +96,7 @@ python3 pipelines/validate_run.py outputs/raw/2026-08-17    # shape gate; no man
 python3 pipelines/validate_vset.py tests/fixtures/vset/records/accept
 python3 pipelines/validate_vset.py --oracle --pack tests/fixtures/vset/repo-pack-counter \
   tests/fixtures/vset/records/accept/issue-patch-validated.json
+python3 pipelines/validate_vset.py --manifest tests/fixtures/vset/manifests/pilot-v1.json
 python3 pipelines/check_records.py outputs/raw/2026-08-17   # reward / spike order / ids
 python3 pipelines/promote.py outputs/raw/2026-08-17 outputs/cleaned/2026-08-17
 ```

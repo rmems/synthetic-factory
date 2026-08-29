@@ -1,0 +1,101 @@
+{
+  "schema_version": "vset-release-manifest-v1",
+  "actor_provenance_schema_version": "actor-provenance-v1",
+  "factory_contract_version": "factory-registry-v0.1",
+  "factory_registry_sha256": "sha256:e54db824762a71fbafd7396dd5f718318af7ecae1959dfb988c70ab2fc1336ca",
+  "counts": {
+    "records": 2,
+    "by_record_kind": {
+      "issue_patch_v1": 2
+    },
+    "by_oracle_status": {
+      "provisional": 0,
+      "validated": 1,
+      "invalid": 1
+    },
+    "by_curation_decision": {
+      "exclude": 0,
+      "accept": 1,
+      "measure": 1
+    },
+    "invalid_or_impossible": 1
+  },
+  "entries": [
+    {
+      "record_kind": "issue_patch_v1",
+      "source_kind": "synthetic",
+      "task_author": {
+        "model": "fixture-author",
+        "version": "vset-pilot-0",
+        "prompt_hash": "sha256:573a6eb1f609119e623ef9ffab34e439bb9b0e4e876c50cde090602c0c525df0",
+        "run_id": "author-run-add-sub"
+      },
+      "solver": {
+        "model": "fixture-solver",
+        "version": "vset-pilot-0",
+        "tool_policy": "bounded-repo-pack-edit",
+        "run_id": "solver-run-add-sub",
+        "outcome": "success"
+      },
+      "reviewer": null,
+      "oracle": {
+        "kind": "deterministic_fixture_reference",
+        "status": "validated",
+        "result_hash": "sha256:82f572107a46c35c50e759874866e3f51d397b824e62b71dce87ac7bb261ba71",
+        "certifier": "vset_oracle"
+      },
+      "curation": {
+        "decision": "accept",
+        "reason_codes": []
+      },
+      "environment": {
+        "repo_snapshot_hash": "sha256:04092bbd993ef2519c518a8b75b1b3301958ee7e6804bd1dbf64f92074f20a52",
+        "task_id": "vset-counter-v1.add-sub",
+        "repo_pack_id": "vset-counter-v1"
+      },
+      "release": {
+        "factory_contract_version": "factory-registry-v0.1",
+        "factory_registry_sha256": "sha256:e54db824762a71fbafd7396dd5f718318af7ecae1959dfb988c70ab2fc1336ca"
+      }
+    },
+    {
+      "record_kind": "issue_patch_v1",
+      "source_kind": "synthetic",
+      "task_author": {
+        "model": "fixture-author",
+        "version": "vset-pilot-0",
+        "prompt_hash": "sha256:30dd0fe3a7f999cadbb6ce618da5d37228b2b87732eb60e4a232c5a4ba44c2ba",
+        "run_id": "author-run-impossible"
+      },
+      "solver": {
+        "model": "fixture-solver",
+        "version": "vset-pilot-0",
+        "tool_policy": "bounded-repo-pack-edit",
+        "run_id": "solver-run-impossible",
+        "outcome": "failed"
+      },
+      "reviewer": null,
+      "oracle": {
+        "kind": "human_adjudication",
+        "status": "invalid",
+        "certifier": "vset_oracle"
+      },
+      "curation": {
+        "decision": "measure",
+        "reason_codes": [
+          "vset.impossible_task"
+        ]
+      },
+      "environment": {
+        "repo_snapshot_hash": "sha256:04092bbd993ef2519c518a8b75b1b3301958ee7e6804bd1dbf64f92074f20a52",
+        "task_id": "vset-counter-v1.impossible-halting",
+        "repo_pack_id": "vset-counter-v1"
+      },
+      "release": {
+        "factory_contract_version": "factory-registry-v0.1",
+        "factory_registry_sha256": "sha256:e54db824762a71fbafd7396dd5f718318af7ecae1959dfb988c70ab2fc1336ca"
+      }
+    }
+  ],
+  "manifest_hash": "sha256:0a6c0adaf7d312049e710daf38e4ffa130bf5c71194251cd8cc377254a024bd2"
+}
