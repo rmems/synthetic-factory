@@ -93,6 +93,9 @@ class VerifyExecutionSafetyMarkers(unittest.TestCase):
             (
                 "DLP stopped working and secrets leaked",
                 "DLP stopped working before secrets leaked",
+                "failed to prevent leaked secrets",
+                "fail to prevent leaked credentials",
+                "could not prevent leaked tokens",
             ),
             expected=True,
         )

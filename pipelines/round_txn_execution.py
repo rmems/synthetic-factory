@@ -64,9 +64,57 @@ def _canonical_override_text(reason):
     return text
 
 
+OVERRIDE_WEAK_ASIDE_WORDS = frozenset(
+    {
+        "all",
+        "clear",
+        "cool",
+        "done",
+        "fine",
+        "good",
+        "great",
+        "here",
+        "just",
+        "look",
+        "looking",
+        "looks",
+        "nice",
+        "now",
+        "ok",
+        "okay",
+        "pretty",
+        "quite",
+        "ready",
+        "really",
+        "right",
+        "safe",
+        "seem",
+        "seeming",
+        "seems",
+        "still",
+        "sure",
+        "that",
+        "this",
+        "very",
+        "well",
+        "yes",
+    }
+)
+
+
+def _override_words_are_weak_aside(words):
+    folded = [word.casefold().strip(".,!;:?") for word in words]
+    content = [word for word in folded if word]
+    return bool(content) and all(word in OVERRIDE_WEAK_ASIDE_WORDS for word in content)
+
+
 def _validate_new_override_phrase(text):
     words = text.split()
-    if len(words) < 3 or not any(character.isalpha() for character in text):
+    if (
+        len(words) < 3
+        or not any(character.isalpha() for character in text)
+        or _override_words_are_weak_aside(words)
+    ):
         raise rt.TransactionError(
             "execution verification override must be a written phrase "
             "of at least three words, not a single token, a keystroke pad, "

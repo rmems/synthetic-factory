@@ -35,6 +35,8 @@ class ExecutionOverrideReason(unittest.TestCase):
             "12 34 56",
             "xxxxxxxx",
             "looks fine",
+            "looks just fine",
+            "seems all good",
             "hi there",
             "a bbbbbb",
             "see notes",

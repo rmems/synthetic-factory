@@ -338,7 +338,7 @@ EXECUTION_OVERRIDE_MAX_CHARS = 500
 EXECUTION_GATE_LABEL = "pipelines/verify_execution.py:verify_batch_for_frontier"
 # Bump when KNOWN_TOOLS or verdict rules change so historical markers are not
 # re-derived under a different semantics snapshot.
-EXECUTION_VERIFIER_SEMANTICS_VERSION = 4
+EXECUTION_VERIFIER_SEMANTICS_VERSION = 5
 # Fields a publish retry may legitimately re-derive without changing the plan.
 PUBLISH_PLAN_VOLATILE_KEYS = frozenset({"published_at", "execution_verification"})
 LEGACY_COMPLETION_MARKER_VERSION = 1
