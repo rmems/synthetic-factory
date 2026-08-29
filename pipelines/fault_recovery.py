@@ -829,48 +829,66 @@ def _recheck_deterministic_outcome(record: dict[str, Any], where: str) -> list[s
     return errors
 
 
+def _check_intervention_parameters(
+    kind: str, parameters: Any, where: str
+) -> list[str]:
+    """The parameter set this disturbance kind requires, and nothing extra."""
+
+    if not isinstance(parameters, dict):
+        return [f"{where}.intervention.parameters must be an object"]
+    errors: list[str] = []
+    required, optional = PARAMETER_SPEC[kind]
+    missing = [key for key in required if key not in parameters]
+    if missing:
+        errors.append(
+            f"{where}.intervention.parameters: {kind} requires {sorted(missing)}"
+        )
+    unknown = sorted(set(parameters) - set(required) - set(optional))
+    if unknown:
+        errors.append(
+            f"{where}.intervention.parameters: {kind} does not use {unknown}"
+        )
+    return errors
+
+
+def _check_disturbance_kind_match(
+    record: dict[str, Any], kind: str, where: str
+) -> list[str]:
+    """The scenario is what the student sees; the intervention is what was simulated.
+
+    If they name different faults, the record pairs one fault's description
+    with another fault's label.
+    """
+
+    scenario = record.get("scenario")
+    if not isinstance(scenario, dict) or "disturbance_kind" not in scenario:
+        return []
+    declared = scenario.get("disturbance_kind")
+    if declared != kind:
+        return [
+            f"{where}.scenario.disturbance_kind: DISTURBANCE_KIND_MISMATCH "
+            f"— the scenario presents {declared!r} but the label was "
+            f"produced by simulating {kind!r}"
+        ]
+    return []
+
+
 def _check_intervention(record: dict[str, Any], where: str) -> list[str]:
     """The proposed disturbance, its parameters, and the scenario that names it."""
 
-    errors: list[str] = []
     intervention = record.get("intervention")
     if not isinstance(intervention, dict):
-        errors.append(f"{where}.intervention must describe the proposed disturbance")
-        return errors
-    if intervention.get("kind") not in DISTURBANCES:
-        errors.append(
-            f"{where}.intervention.kind must be one of {sorted(DISTURBANCES)}, "
-            f"got {intervention.get('kind')!r}"
-        )
-        return errors
+        return [f"{where}.intervention must describe the proposed disturbance"]
     kind = intervention.get("kind")
-    parameters = intervention.get("parameters")
-    if not isinstance(parameters, dict):
-        errors.append(f"{where}.intervention.parameters must be an object")
-    else:
-        required, optional = PARAMETER_SPEC[kind]
-        missing = [key for key in required if key not in parameters]
-        if missing:
-            errors.append(
-                f"{where}.intervention.parameters: {kind} requires {sorted(missing)}"
-            )
-        unknown = sorted(set(parameters) - set(required) - set(optional))
-        if unknown:
-            errors.append(
-                f"{where}.intervention.parameters: {kind} does not use {unknown}"
-            )
-    # The scenario is what the student sees; the intervention is what was
-    # simulated. If they name different faults, the record pairs one fault's
-    # description with another fault's label.
-    scenario = record.get("scenario")
-    if isinstance(scenario, dict) and "disturbance_kind" in scenario:
-        declared = scenario.get("disturbance_kind")
-        if declared != kind:
-            errors.append(
-                f"{where}.scenario.disturbance_kind: DISTURBANCE_KIND_MISMATCH "
-                f"— the scenario presents {declared!r} but the label was "
-                f"produced by simulating {kind!r}"
-            )
+    if kind not in DISTURBANCES:
+        return [
+            f"{where}.intervention.kind must be one of {sorted(DISTURBANCES)}, "
+            f"got {kind!r}"
+        ]
+    errors = _check_intervention_parameters(
+        kind, intervention.get("parameters"), where
+    )
+    errors += _check_disturbance_kind_match(record, kind, where)
     return errors
 
 
