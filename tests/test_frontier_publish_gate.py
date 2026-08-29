@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
-"""docs/verify-execution.md clauses 16–24 — round_txn publish gate."""
+"""docs/verify-execution.md clauses 16–26 — round_txn publish gate."""
 
 import json
+import os
 import sys
 import tempfile
 import unittest
@@ -232,6 +233,165 @@ class FrontierPublishGate(unittest.TestCase):
                 )
 
             self.assertIn("never waivable", str(raised.exception))
+
+    def test_execution_gate_returns_the_canonical_summary_when_unblocked(self):
+        with tempfile.TemporaryDirectory() as td:
+            batch = Path(td) / "batch-r01.jsonl"
+            write(batch, [thalamic("gate-summary")])
+
+            summary = round_txn.execution_gate(batch, batch)
+
+        self.assertEqual(summary["gate"], round_txn.EXECUTION_GATE_LABEL)
+        self.assertTrue(summary["strict"])
+        self.assertEqual(
+            summary["semantics_version"],
+            round_txn.EXECUTION_VERIFIER_SEMANTICS_VERSION,
+        )
+        self.assertEqual(
+            summary["counts"],
+            {"failed": 0, "inconclusive": 0, "total": 1, "verified": 1},
+        )
+        self.assertIsNone(summary["override"])
+
+    def test_execution_gate_blocks_unwaived_inconclusive(self):
+        with tempfile.TemporaryDirectory() as td:
+            batch = Path(td) / "batch-r01.jsonl"
+            write(batch, [thalamic("gate-unwaived", observable=False)])
+
+            with self.assertRaises(round_txn.TransactionError) as raised:
+                round_txn.execution_gate(batch, batch)
+
+            message = str(raised.exception)
+            self.assertIn("cannot verify 1 of 1", message)
+            self.assertIn("--allow-inconclusive", message)
+
+    def test_execution_gate_failed_record_refuses_even_without_a_waiver(self):
+        with tempfile.TemporaryDirectory() as td:
+            batch = Path(td) / "batch-r01.jsonl"
+            write(batch, [thalamic("gate-failed-strict", rationale="")])
+
+            with self.assertRaises(round_txn.TransactionError) as raised:
+                round_txn.execution_gate(batch, batch)
+
+            self.assertIn("never waivable", str(raised.exception))
+
+    def test_execution_gate_waives_inconclusive_with_a_recorded_override(self):
+        with tempfile.TemporaryDirectory() as td:
+            batch = Path(td) / "batch-r01.jsonl"
+            write(batch, [thalamic("gate-waiver", observable=False)])
+
+            summary = round_txn.execution_gate(
+                batch, batch, override="hil replay rig offline"
+            )
+
+        self.assertEqual(
+            summary["override"],
+            {"reason": "hil replay rig offline", "waived_inconclusive": 1},
+        )
+        self.assertEqual(summary["counts"]["inconclusive"], 1)
+
+    def test_execution_gate_normalizes_the_waiver_reason(self):
+        with tempfile.TemporaryDirectory() as td:
+            batch = Path(td) / "batch-r01.jsonl"
+            write(batch, [thalamic("gate-normalize", observable=False)])
+
+            summary = round_txn.execution_gate(
+                batch, batch, override="  hil rig\n\toffline\tuntil Monday  "
+            )
+
+        self.assertEqual(
+            summary["override"]["reason"], "hil rig offline until Monday"
+        )
+
+    def test_execution_gate_enforces_the_waiver_reason_bounds(self):
+        with tempfile.TemporaryDirectory() as td:
+            batch = Path(td) / "batch-r01.jsonl"
+            write(batch, [thalamic("gate-bounds", observable=False)])
+
+            with self.assertRaisesRegex(
+                round_txn.TransactionError, "at least 8 characters"
+            ):
+                round_txn.execution_gate(batch, batch, override="1234567")
+
+            with self.assertRaisesRegex(
+                round_txn.TransactionError, "at most"
+            ):
+                round_txn.execution_gate(
+                    batch,
+                    batch,
+                    override="x" * (round_txn.EXECUTION_OVERRIDE_MAX_CHARS + 1),
+                )
+
+            shortest = round_txn.execution_gate(batch, batch, override="12345678")
+            self.assertEqual(shortest["override"]["reason"], "12345678")
+
+        with tempfile.TemporaryDirectory() as td:
+            batch = Path(td) / "batch-r01.jsonl"
+            write(batch, [thalamic("gate-bounds-max", observable=False)])
+            longest = round_txn.execution_gate(
+                batch, batch, override="x" * round_txn.EXECUTION_OVERRIDE_MAX_CHARS
+            )
+            self.assertEqual(longest["override"]["waived_inconclusive"], 1)
+
+    def test_execution_gate_fails_closed_without_the_verifier(self):
+        with tempfile.TemporaryDirectory() as td:
+            batch = Path(td) / "batch-r01.jsonl"
+            write(batch, [thalamic("gate-no-verifier")])
+
+            with mock.patch.dict(sys.modules, {"verify_execution": None}):
+                with self.assertRaises(round_txn.TransactionError) as raised:
+                    round_txn.execution_gate(batch, batch)
+
+        self.assertIn("execution verification is unavailable", str(raised.exception))
+
+    def test_gate_precedes_every_commit_point_link(self):
+        with tempfile.TemporaryDirectory() as td:
+            factory = self.factory(td)
+            reservation = round_txn.reserve(factory, 1, 1)
+            self.stage(reservation, [thalamic("gate-order")])
+            real_gate = round_txn.execution_gate
+            real_link = os.link
+            order = []
+
+            def gate_recorder(batch, staged_batch, override=None):
+                order.append("gate")
+                return real_gate(batch, staged_batch, override=override)
+
+            def link_recorder(*args, **kwargs):
+                order.append(args[1])
+                return real_link(*args, **kwargs)
+
+            with mock.patch.object(round_txn, "execution_gate", gate_recorder):
+                with mock.patch.object(round_txn.os, "link", side_effect=link_recorder):
+                    round_txn.publish(factory, 1, reservation["token"])
+
+            self.assertEqual(order[0], "gate")
+            self.assertTrue(
+                any(
+                    str(item).endswith("ROUND-r01.complete.json")
+                    for item in order[1:]
+                ),
+                order,
+            )
+            self.assertTrue((factory / "ROUND-r01.complete.json").is_file())
+
+    def test_blocked_gate_never_reaches_the_commit_point(self):
+        with tempfile.TemporaryDirectory() as td:
+            factory = self.factory(td)
+            reservation = round_txn.reserve(factory, 1, 1)
+            self.stage(reservation, [thalamic("gate-order-blocked", observable=False)])
+
+            with mock.patch.object(
+                round_txn.os,
+                "link",
+                side_effect=AssertionError("commit point reached"),
+            ) as link:
+                with self.assertRaises(round_txn.TransactionError):
+                    round_txn.publish(factory, 1, reservation["token"])
+
+            link.assert_not_called()
+            self.assertFalse((factory / "ROUND-r01.complete.json").exists())
+            self.assertFalse((factory / "batch-r01.jsonl").exists())
 
     def test_gate_fails_closed_when_the_verifier_is_unimportable(self):
         with mock.patch.dict(sys.modules, {"verify_execution": None}):

@@ -609,27 +609,61 @@ def _direct_record_envelope_verdict(
     return None
 
 
-def _verify_direct_record(
-    obj, where, expected_kind, verifier
-):
+def _verify_direct_record(obj, where, expected_kind, verifier):
     envelope = _direct_record_envelope_verdict(obj, where, expected_kind)
     if envelope is not None:
         return envelope
     return verifier(obj, where)
 
 
-def _without_non_training_provenance_error(errors, obj, where):
+def _thalamic_provenance_value(obj):
     state = obj.get("state")
-    provenance = state.get("sim_or_real") if isinstance(state, dict) else None
-    if not isinstance(provenance, str):
-        return errors
-    if "real" in provenance.casefold() or provenance in _host().ALLOWED_SIM_OR_REAL:
+    return state.get("sim_or_real") if isinstance(state, dict) else None
+
+
+def _bridge_provenance_value(obj):
+    language_view = obj.get("language_view")
+    traj = (
+        language_view.get("trajectory")
+        if isinstance(language_view, dict)
+        else None
+    )
+    return _thalamic_provenance_value(traj) if isinstance(traj, dict) else None
+
+
+def _drop_sim_or_real_enum_error(errors, provenance, where):
+    """Drop only the generic state.sim_or_real enum error for one location.
+
+    ``check_provenance`` emits the generic enum error exactly for a
+    non-allowed value that is not a 'real' string; a 'real' value gets the
+    specific "must not be 'real'" message instead (the two are paired with
+    elif), so dropping the generic error can never rescue 'real' provenance
+    and that case keeps failing closed on its envelope error. A disallowed
+    non-'real' value (e.g. 'unknown') belongs to the verifier's
+    non-training-provenance cannot-verify taxonomy: the envelope error is
+    dropped here and ``verify_thalamic`` re-derives it as ``inconclusive``.
+    """
+    if not isinstance(provenance, str) or provenance in _host().ALLOWED_SIM_OR_REAL:
         return errors
     enum_error = (
         f"{where}: state.sim_or_real must be one of "
         f"{sorted(_host().ALLOWED_SIM_OR_REAL)}"
     )
     return [error for error in errors if error != enum_error]
+
+
+def _without_non_training_provenance_error(errors, obj, where):
+    return _drop_sim_or_real_enum_error(
+        errors, _thalamic_provenance_value(obj), where
+    )
+
+
+def _without_bridge_non_training_provenance_error(errors, obj, where):
+    return _drop_sim_or_real_enum_error(
+        errors,
+        _bridge_provenance_value(obj),
+        f"{where}.language_view.trajectory",
+    )
 
 
 def _verify_thalamic_record(obj, where):
@@ -645,7 +679,15 @@ def _verify_thalamic_record(obj, where):
 
 
 def _verify_bridge_record(obj, where):
-    return _verify_direct_record(obj, where, "bridge_pair", _verify_bridge_execution)
+    envelope = _direct_record_envelope_verdict(
+        obj,
+        where,
+        "bridge_pair",
+        filter_errors=_without_bridge_non_training_provenance_error,
+    )
+    if envelope is not None:
+        return envelope
+    return _verify_bridge_execution(obj, where)
 
 
 def _is_step_record(obj):
