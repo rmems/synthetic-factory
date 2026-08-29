@@ -93,41 +93,6 @@ def _invoke(*args):
     )
 
 
-def _commit_marker_batch(factory: Path, batch: Path):
-    """Put ``batch`` behind a valid marker-mode completion point."""
-
-    (factory / ".round-marker-mode.json").write_text(
-        '{"version":1,"legacy_baseline":0,"commit_point":"ROUND-rNN.complete.json"}\n',
-        encoding="utf-8",
-    )
-    notes = factory / "NOTES-r01.md"
-    notes.write_text("Novel coverage: fixture\n", encoding="utf-8")
-    (factory / "ROUND-r01.complete.json").write_text(
-        json.dumps(
-            {
-                "version": 1,
-                "factory": factory.name,
-                "round": 1,
-                "records": 1,
-                "expected_records": 1,
-                "commit_point": "ROUND-r01.complete.json",
-                "files": [
-                    {
-                        "name": batch.name,
-                        "sha256": hashlib.sha256(batch.read_bytes()).hexdigest(),
-                    },
-                    {
-                        "name": notes.name,
-                        "sha256": hashlib.sha256(notes.read_bytes()).hexdigest(),
-                    },
-                ],
-            }
-        )
-        + "\n",
-        encoding="utf-8",
-    )
-
-
 class CensusMiniRun(unittest.TestCase):
     def test_fixture_counts_and_histogram(self):
         result = _invoke(str(MINI_RUN))
