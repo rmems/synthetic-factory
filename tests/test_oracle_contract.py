@@ -454,6 +454,17 @@ class TrainingViews(unittest.TestCase):
         errors = contract.training_view_errors(record, view, WHERE)
         self.assertTrue(any("oracle_complete" in error for error in errors))
 
+    def test_unrederivable_deployment_makes_the_view_incomplete(self):
+        record = _record()
+        record["result"]["reason_codes"] = ["DEPLOYMENT_TRACE_NOT_REDERIVABLE"]
+        view = self._view(record)
+        self.assertFalse(view["parity_failed"])
+        self.assertFalse(view["oracle_complete"])
+        self.assertEqual(contract.training_view_errors(record, view, WHERE), [])
+        overstated = self._view(record, oracle_complete=True)
+        errors = contract.training_view_errors(record, overstated, WHERE)
+        self.assertTrue(any("oracle_complete" in error for error in errors), errors)
+
 
 class ReasonCodeVocabulary(unittest.TestCase):
     def test_reason_codes_are_screaming_snake_case(self):

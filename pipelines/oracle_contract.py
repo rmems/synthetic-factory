@@ -411,6 +411,20 @@ TRAINING_VIEW_KEYS = (
     "evidence_digests",
 )
 
+# A MATCH is not a complete oracle when the hardware/HIL leg could not be
+# re-derived, or when the intended oracle never executed.
+ORACLE_INCOMPLETE_REASON_CODES = frozenset(
+    {
+        "ORACLE_UNAVAILABLE",
+        "DEPLOYMENT_TRACE_NOT_REDERIVABLE",
+    }
+)
+
+
+def oracle_is_complete(reason_codes):
+    codes = reason_codes if isinstance(reason_codes, list) else []
+    return not any(code in ORACLE_INCOMPLETE_REASON_CODES for code in codes)
+
 
 def build_training_view(record, prompt, completion, execution_targets):
     """Build a training view that structurally cannot hide a parity failure.
@@ -439,7 +453,7 @@ def build_training_view(record, prompt, completion, execution_targets):
         # parity_failed alone would otherwise read a clean bill of health off a
         # record whose authoritative oracle never executed, so the gap is
         # carried as its own flag rather than buried in the reason codes.
-        "oracle_complete": "ORACLE_UNAVAILABLE" not in reason_codes,
+        "oracle_complete": oracle_is_complete(reason_codes),
         "reason_codes": reason_codes,
         "oracle_backed": result.get("oracle_backed"),
         "execution_targets": list(execution_targets),
@@ -530,7 +544,7 @@ def training_view_errors(record, view, where):
             raw_record_codes, where, "record reason_codes"
         )
     ]
-    expected_complete = "ORACLE_UNAVAILABLE" not in record_codes
+    expected_complete = oracle_is_complete(record_codes)
     if view.get("oracle_complete") is not expected_complete:
         errors.append(
             f"{where}: training view oracle_complete must be {expected_complete} for "

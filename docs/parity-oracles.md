@@ -247,7 +247,9 @@ different questions: `parity_failed: false` means *the oracles that ran
 agreed*, which is not the same as *the intended oracles ran*. Without the
 second flag a consumer filtering on `parity_failed` alone would read a clean
 bill of health off a record from a family called
-`hardware-parity-spike-trajectories` whose hardware leg never executed. Every
+`hardware-parity-spike-trajectories` whose hardware leg never executed, or
+off a physical/HIL MATCH whose deployment traces cannot be re-derived
+(`DEPLOYMENT_TRACE_NOT_REDERIVABLE`). Every
 record in the committed fixture has `oracle_complete: false`.
 
 ## Running the families

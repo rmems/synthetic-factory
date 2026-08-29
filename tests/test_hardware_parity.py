@@ -1356,9 +1356,12 @@ class RecordedCapturePath(unittest.TestCase):
             self.assertIn(
                 "DEPLOYMENT_TRACE_NOT_REDERIVABLE", record["result"]["reason_codes"]
             )
+            view = hp.training_view(record)
             self.assertIn(
-                "DEPLOYMENT_TRACE_NOT_REDERIVABLE", hp.training_view(record)["reason_codes"]
+                "DEPLOYMENT_TRACE_NOT_REDERIVABLE", view["reason_codes"]
             )
+            self.assertFalse(view["oracle_complete"])
+            self.assertFalse(view["parity_failed"])
 
     def test_reference_model_records_are_not_marked_unrederivable(self):
         for record in hp.generate_records(round_number=1, steps=4, repeats=2):
