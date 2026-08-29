@@ -9,6 +9,7 @@ import hashlib
 import io
 import json
 import os
+import re
 import sys
 import tempfile
 import unittest
@@ -1035,17 +1036,22 @@ class RasterSchemaParity(unittest.TestCase):
         """The published schema is the producer contract; it must not be looser.
 
         ``_validate_gate_snn`` refuses a blank or whitespace-only decision, so
-        a producer that validates against this schema and then fails
-        publication would have followed every documented instruction.
+        a producer that validated against this schema and then failed
+        publication would have followed every documented instruction.  Checked
+        against the schema's own keywords rather than through a JSON Schema
+        library: this suite runs on the standard library alone.
         """
 
-        import jsonschema
-
-        validator = jsonschema.Draft202012Validator(self.schema)
+        decision = self.schema["$defs"]["gate_snn"]["properties"]["decision"]
+        self.assertEqual(decision["type"], "string")
+        self.assertGreaterEqual(decision["minLength"], 1)
+        # JSON Schema "pattern" is an unanchored search, like re.search.
+        pattern = re.compile(decision["pattern"])
         gate = {
             "decision_window_ms": 10,
             "populations": [{"name": "p", "neurons": 4, "threshold": 0.5}],
         }
+
         for blank in ("", "   ", "\t\n"):
             with self.subTest(decision=repr(blank)):
                 reason_codes: list[str] = []
@@ -1056,15 +1062,17 @@ class RasterSchemaParity(unittest.TestCase):
                 )
                 self.assertIn(curate_bridge.REASON_GATE_SNN_INVALID, reason_codes)
                 self.assertTrue(
-                    list(
-                        validator.iter_errors({"gate_snn": {**gate, "decision": blank}})
-                    ),
+                    len(blank) < decision["minLength"] or pattern.search(blank) is None,
                     "schema must reject what the runtime validator rejects",
                 )
 
-        self.assertEqual(
-            list(validator.iter_errors({"gate_snn": {**gate, "decision": "ACCEPT"}})), []
+        accepted: list[str] = []
+        curate_bridge._validate_gate_snn(
+            {**gate, "decision": "ACCEPT"}, reason_codes=accepted, evidence={}
         )
+        self.assertEqual(accepted, [])
+        self.assertGreaterEqual(len("ACCEPT"), decision["minLength"])
+        self.assertIsNotNone(pattern.search("ACCEPT"))
 
 
 class RasterArithmeticReviewFollowUps(unittest.TestCase):
