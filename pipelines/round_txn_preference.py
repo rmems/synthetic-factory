@@ -8,6 +8,7 @@ runs ``round_txn.py`` as ``__main__``, still shares one set of globals.
 """
 
 from __future__ import annotations
+import hashlib
 import json
 import os
 import stat
@@ -126,6 +127,23 @@ def _validated_ledger_mode_digest(payload: dict, path: Path) -> str:
     return mode_digest
 
 
+#: The marker-mode fields a migration freezes: the declaration that decides
+#: how the historical markers are read. The execution-cutover keys are
+#: publish-time bookkeeping that ``remember_execution_gate_cutover`` rewrites
+#: on the lane's first v2 round, so a digest over the whole file invalidated
+#: itself and stranded the lane it had just upgraded.
+_LEDGER_MARKER_MODE_FIELDS = ("version", "commit_point", "legacy_baseline")
+
+
+def _ledger_marker_mode_digest(mode_path: Path) -> str:
+    """Digest the marker-mode fields the migration froze, not the whole file."""
+
+    mode = rt.read_json(mode_path)
+    frozen = {name: mode[name] for name in _LEDGER_MARKER_MODE_FIELDS if name in mode}
+    payload = json.dumps(frozen, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    return hashlib.sha256(payload).hexdigest()
+
+
 def _require_ledger_marker_mode(payload: dict, factory_dir: Path, path: Path) -> None:
     """The ledger is only trustworthy while the marker mode it froze is intact."""
 
@@ -133,7 +151,7 @@ def _require_ledger_marker_mode(payload: dict, factory_dir: Path, path: Path) ->
     if mode_path is None:
         raise rt.TransactionError(f"FFPC v1 migration ledger has no marker mode: {path}")
     mode_digest = _validated_ledger_mode_digest(payload, path)
-    if rt.file_sha256(mode_path) != mode_digest:
+    if _ledger_marker_mode_digest(mode_path) != mode_digest:
         raise rt.TransactionError(f"FFPC v1 migration ledger marker-mode hash mismatch: {path}")
 
 
@@ -275,7 +293,7 @@ def _preference_v1_ledger_payload(
         "version": 1,
         "factory": factory_dir.name,
         "created_at": rt.utc_now(),
-        "marker_mode_sha256": rt.file_sha256(mode_path),
+        "marker_mode_sha256": _ledger_marker_mode_digest(mode_path),
         "markers": [
             {
                 "round": round_number,
