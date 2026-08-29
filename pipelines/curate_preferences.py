@@ -48,6 +48,7 @@ import copy
 import hashlib
 import json
 import os
+import re
 import sys
 from collections import Counter
 from dataclasses import dataclass, field, replace
@@ -130,6 +131,10 @@ class _ScanState:
     # Inventory of the source files this scan actually read, so a published
     # audit can be bound to the exact bytes behind it.
     source_files: list[dict[str, str]] = field(default_factory=list)
+    # Pairs that must not reach ``round_txn.py publish``: every impure pair
+    # plus every pair excluded for a non-context defect. Tracked per pair
+    # because the two sets overlap and neither counter alone covers both.
+    unpublishable_pairs: int = 0
 
 
 @dataclass(frozen=True)
@@ -610,6 +615,19 @@ def _agreement_labels(decision: CurationDecision) -> tuple[str, ...]:
     elif not decision.same_proposed_action:
         labels.append("proposed_action_only_divergent")
     return tuple(labels)
+# The four disjoint context-divergence/comparability buckets that make a pair
+# impure. ``_curation_summary`` sums exactly these, and a pair landing in any
+# of them is unpublishable no matter which curation action it drew.
+_IMPURE_AGREEMENT_LABELS = frozenset(
+    {
+        "state_only_divergent",
+        "proposed_action_only_divergent",
+        "both_divergent",
+        "undetermined",
+    }
+)
+
+
 def _jsonl_payload_lines(file_payload: bytes) -> tuple[tuple[int, bytes], ...]:
     return tuple(
         (line_number, raw_line)
@@ -661,7 +679,12 @@ def _record_preference(state: _ScanState, line: _SourceLine, record: Any) -> Non
     state.actions[decision.action] += 1
     state.classifications[decision.classification] += 1
     state.reasons.update(decision.reason_codes)
-    state.agreement.update(_agreement_labels(decision))
+    agreement_labels = _agreement_labels(decision)
+    state.agreement.update(agreement_labels)
+    if decision.action == ACTION_EXCLUDED or _IMPURE_AGREEMENT_LABELS.intersection(
+        agreement_labels
+    ):
+        state.unpublishable_pairs += 1
     emitted, output_id, output_hash = _kept_output(
         decision, f"{line.relative_path}:{line.number}"
     )
@@ -734,12 +757,7 @@ def _curation_summary(source: Path, state: _ScanState) -> dict[str, Any]:
     # a non-context defect such as a non-finite reward.  Count only the four
     # disjoint context-divergence/comparability buckets as impure so the public
     # same-context audit remains truthful and balanced.
-    impure_pairs = (
-        agreement["state_only_divergent"]
-        + agreement["proposed_action_only_divergent"]
-        + agreement["both_divergent"]
-        + agreement["undetermined"]
-    )
+    impure_pairs = sum(agreement[label] for label in _IMPURE_AGREEMENT_LABELS)
     retained_pairs = state.actions[ACTION_RETAINED] + state.actions[ACTION_REPAIRED]
     # Measured over the records actually emitted rather than asserted as a
     # constant, so the reported purity is evidence and not a restatement of
@@ -762,6 +780,13 @@ def _curation_summary(source: Path, state: _ScanState) -> dict[str, Any]:
         "impure_pairs": impure_pairs,
         "retained_pairs": retained_pairs,
         "excluded_pairs": state.actions[ACTION_EXCLUDED],
+        # The publication gate total. ``impure_pairs`` counts context
+        # divergence only, so a pair whose context is equal and comparable but
+        # which still cannot be emitted -- a non-finite ``reward_delta``, say
+        # -- is invisible there and would clear a gate reading that field
+        # alone. This counts every pair that is impure *or* unemittable, and
+        # docs/preference-isolation.md gates ``round_txn.py publish`` on it.
+        "unpublishable_pairs": state.unpublishable_pairs,
         # Reconciliation between a state-only Hub audit and this scan: a
         # ``same_state``-only measurement cannot see a pair that holds state
         # constant and diverges on the proposed action.
@@ -1030,6 +1055,36 @@ def _yes_no(value: bool | None) -> str:
     return "yes" if value else "no"
 
 
+def _markdown_cell_text(value: Any) -> str:
+    """Flatten a source-controlled value into exactly one Markdown table cell.
+
+    ``record_id``, ``source_path`` and the reason codes come from the audited
+    JSON rather than from a constrained internal enum. A newline ends the
+    table row and a ``|`` opens the next cell -- inside a code span too -- so
+    a crafted value could otherwise add columns, inject rows, or visually
+    hide a record from the published per-pair evidence.
+    """
+
+    text = str(value)
+    for control in ("\r\n", "\r", "\n", "\t"):
+        text = text.replace(control, " ")
+    return text.replace("|", "\\|")
+
+
+def _markdown_code_cell(value: Any) -> str:
+    """Wrap a source-controlled value in a code span it cannot break out of."""
+
+    text = _markdown_cell_text(value)
+    # CommonMark closes a code span at the first backtick run matching the
+    # opening one, so the fence must be longer than the longest run inside,
+    # and a value that starts or ends with a backtick needs the pad space
+    # that the reader strips back off.
+    longest = max((len(run) for run in re.findall("`+", text)), default=0)
+    fence = "`" * (longest + 1)
+    pad = " " if text.startswith("`") or text.endswith("`") else ""
+    return f"{fence}{pad}{text}{pad}{fence}"
+
+
 def render_audit_markdown(audit: dict[str, Any]) -> str:
     """Render the audit document as the published Markdown tables."""
 
@@ -1055,14 +1110,20 @@ def render_audit_markdown(audit: dict[str, Any]) -> str:
     ]
     for pair in audit["impure_pairs"]:
         record_id = pair["record_id"]
-        identifier = f"`{record_id}`" if record_id else "_(no record id)_"
-        reasons = ", ".join(f"`{code}`" for code in pair["reason_codes"]) or "_(none)_"
+        identifier = _markdown_code_cell(record_id) if record_id else "_(no record id)_"
+        reasons = (
+            ", ".join(_markdown_code_cell(code) for code in pair["reason_codes"])
+            or "_(none)_"
+        )
+        location = _markdown_code_cell(
+            f"{pair['source_path']}:{pair['source_line']}"
+        )
         lines.append(
             f"| {identifier} "
-            f"| `{pair['source_path']}:{pair['source_line']}` "
+            f"| {location} "
             f"| {_yes_no(pair['same_state'])} "
             f"| {_yes_no(pair['same_proposed_action'])} "
-            f"| {pair['action']} "
+            f"| {_markdown_cell_text(pair['action'])} "
             f"| {reasons} |"
         )
     return "\n".join(lines)

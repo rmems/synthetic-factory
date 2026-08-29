@@ -1419,5 +1419,193 @@ class AuditAndReconcileCli(unittest.TestCase):
             self.assertIn("source_record_id", payload)
 
 
+PREFERENCE_ISOLATION_DOC = REPO / "docs" / "preference-isolation.md"
+
+
+class PublicationGateCoversUnemittablePairs(unittest.TestCase):
+    """A pure-context pair the curator cannot emit must still block publish."""
+
+    def test_equal_context_exclusion_is_counted_as_unpublishable(self):
+        with tempfile.TemporaryDirectory() as td:
+            source = Path(td) / "preferences.jsonl"
+            malformed = pair("equal-context-nonfinite")
+            malformed["reward_delta"] = float("nan")
+            write_jsonl(source, [malformed])
+
+            summary = curate_preferences.curate_source(source).summary
+
+        # The narrowed same-context measure stays truthful: this pair's
+        # context really is equal and comparable.
+        self.assertEqual(summary["impure_pairs"], 0)
+        self.assertEqual(summary["excluded_pairs"], 1)
+        # ...but it cannot be emitted, so the gate total sees it.
+        self.assertEqual(summary["unpublishable_pairs"], 1)
+
+    def test_impure_pairs_are_unpublishable_without_being_double_counted(self):
+        summary = curate_preferences.curate_source(PURITY_FIXTURES).summary
+
+        # Every exclusion in this corpus is a context exclusion, so the gate
+        # total is the historical 19 and not 19 + 12.
+        self.assertEqual(summary["preference_records"], 42)
+        self.assertEqual(summary["impure_pairs"], 19)
+        self.assertEqual(summary["excluded_pairs"], 12)
+        self.assertEqual(summary["unpublishable_pairs"], 19)
+
+    def test_a_clean_corpus_reports_a_zero_gate_total(self):
+        with tempfile.TemporaryDirectory() as td:
+            source = Path(td) / "preferences.jsonl"
+            write_jsonl(source, [pair("clean-a"), pair("clean-b")])
+
+            summary = curate_preferences.curate_source(source).summary
+
+        self.assertEqual(summary["retained_pairs"], 2)
+        self.assertEqual(summary["unpublishable_pairs"], 0)
+
+    def test_the_documented_gate_names_the_field_that_blocks_both_defects(self):
+        doc = PREFERENCE_ISOLATION_DOC.read_text(encoding="utf-8")
+
+        self.assertIn("summary.unpublishable_pairs", doc)
+        self.assertIn(
+            "# purity gate: summary.unpublishable_pairs must be 0", doc
+        )
+
+
+class MarkdownAuditEscaping(unittest.TestCase):
+    """`record_id` is audited JSON, not a constrained internal enum."""
+
+    def render(self, **overrides):
+        pair_row = {
+            "record_id": "plain-id",
+            "source_path": "preferences.jsonl",
+            "source_line": 1,
+            "same_state": False,
+            "same_proposed_action": True,
+            "action": "excluded",
+            "reason_codes": ["STATE_CONTEXT_DIVERGES"],
+        }
+        pair_row.update(overrides)
+        audit = {
+            "summary": {
+                "preference_pairs": 1,
+                "state_divergent_pairs": 1,
+                "proposed_action_divergent_pairs": 0,
+                "impure_pairs": 1,
+                "state_only_divergent_pairs": 1,
+                "proposed_action_only_divergent_pairs": 0,
+                "both_context_fields_divergent_pairs": 0,
+                "context_undetermined_pairs": 0,
+                "curated_retained_pairs": 0,
+                "curated_excluded_pairs": 1,
+                "retained_context_purity_pct": 0.0,
+            },
+            "impure_pairs": [pair_row],
+        }
+        return curate_preferences.render_audit_markdown(audit)
+
+    def body_rows(self, rendered):
+        marker = "| Pair | Source |"
+        start = rendered.index(marker)
+        rows = rendered[start:].splitlines()
+        # Drop the header and its delimiter row.
+        return rows[2:]
+
+    def cell_count(self, row):
+        """Cells a Markdown reader sees: an escaped ``\\|`` is not a delimiter."""
+
+        return row.replace("\\|", "").count("|") - 1
+
+    def test_a_pipe_in_a_record_id_cannot_open_a_new_column(self):
+        rendered = self.render(record_id="evil|injected|columns")
+        rows = self.body_rows(rendered)
+
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(self.cell_count(rows[0]), 6)
+        self.assertIn("\\|", rows[0])
+
+    def test_a_newline_in_a_record_id_cannot_inject_a_row(self):
+        rendered = self.render(
+            record_id="hidden\n| forged | preferences.jsonl:9 | yes | yes | retained | none"
+        )
+        rows = self.body_rows(rendered)
+
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(self.cell_count(rows[0]), 6)
+        # The forged text is still shown, but flattened into the one cell it
+        # belongs to instead of becoming a row of its own.
+        self.assertIn("hidden", rows[0])
+        self.assertIn("forged", rows[0])
+
+    def test_a_backtick_cannot_break_out_of_the_code_span(self):
+        rendered = self.render(record_id="a`b")
+        rows = self.body_rows(rendered)
+
+        self.assertEqual(len(rows), 1)
+        self.assertIn("``a`b``", rows[0])
+
+    def test_a_source_path_and_reason_code_are_escaped_too(self):
+        rendered = self.render(
+            source_path="run|forged.jsonl", reason_codes=["A|B"]
+        )
+        rows = self.body_rows(rendered)
+
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(self.cell_count(rows[0]), 6)
+
+    def test_plain_values_render_exactly_as_before(self):
+        rows = self.body_rows(self.render())
+
+        self.assertEqual(
+            rows[0],
+            "| `plain-id` | `preferences.jsonl:1` | no | yes | excluded "
+            "| `STATE_CONTEXT_DIVERGES` |",
+        )
+
+
+class DocumentedExportLayoutIsAuditable(unittest.TestCase):
+    """The manifest is provenance, not a training record."""
+
+    def export(self, root, manifest_dir):
+        run = curate_preferences.curate_source(PURITY_FIXTURES)
+        new = root / "curated-run" / "failure-as-fuel-preference-cascade"
+        new.mkdir(parents=True)
+        manifest_dir.mkdir(parents=True, exist_ok=True)
+        curate_preferences.write_run(
+            run,
+            PURITY_FIXTURES,
+            new / "preferences.jsonl",
+            manifest_dir / "manifest.jsonl",
+        )
+        return training_audit.audit_run(root / "curated-run")
+
+    def test_a_manifest_outside_the_run_leaves_the_lane_training_ready(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            audit = self.export(root, root / "provenance")
+
+        self.assertEqual(audit["blockers"], [])
+        self.assertIs(audit["training_ready"], True)
+        self.assertEqual(audit["preferences"]["pairs"], 30)
+        self.assertEqual(audit["preferences"]["context_purity_pct"], 100.0)
+
+    def test_a_manifest_inside_the_run_is_audited_as_broken_records(self):
+        # This is why the documented command keeps it out: audit_run reaches
+        # every *.jsonl under the run through census.visible_jsonl_paths, and
+        # a manifest row is not a training record.
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            audit = self.export(
+                root, root / "curated-run" / "failure-as-fuel-preference-cascade"
+            )
+
+        self.assertIs(audit["training_ready"], False)
+        self.assertIn("42 record shape/invariant errors", audit["blockers"])
+
+    def test_the_published_command_does_not_write_the_manifest_into_the_run(self):
+        doc = PUBLISHED_AUDIT_DOC.read_text(encoding="utf-8")
+
+        self.assertNotIn("--manifest <new>/manifest.jsonl", doc)
+        self.assertIn("--manifest <outside-the-run>/manifest.jsonl", doc)
+
+
 if __name__ == "__main__":
     unittest.main()
