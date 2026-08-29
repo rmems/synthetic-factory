@@ -1,0 +1,66 @@
+tests/frontier_gate_helpers.py
+  s_98712805c1499b::t_642a08ffe63a11 1-105
+tests/test_execution_gate_unit.py
+  s_98712805c1499b::t_2275eeb0e0a550 10
+  s_98712805c1499b::t_642a08ffe63a11 1-9,11-184
+tests/test_frontier_publish_atomicity.py
+  s_98712805c1499b::t_2275eeb0e0a550 10
+  s_98712805c1499b::t_642a08ffe63a11 1-9,11-104
+tests/test_execution_override.py
+  s_98712805c1499b::t_b13c9af420a63c 36-39,184-202
+tests/test_verify_execution_outcomes.py
+  s_98712805c1499b::t_9645c0d64de756 1-161
+tests/test_verify_execution_inputs.py
+  s_98712805c1499b::t_3cc86ae08bd830 14
+  s_98712805c1499b::t_9645c0d64de756 1-13,15-131
+pipelines/verify_execution_shapes.py
+  s_98712805c1499b::t_3fa8f02880728f 16,239
+  s_98712805c1499b::t_0c36d1c79e10f9 283-284,286-287,291,371-383
+  s_98712805c1499b::t_43984996b13cf5 262-268,316-320
+pipelines/round_txn.py
+  s_98712805c1499b::t_01d5bd3068f39b 1449-1450
+tests/test_frontier_publish_gate.py
+  s_98712805c1499b::t_642a08ffe63a11 2,9-10,15
+  s_98712805c1499b::t_2275eeb0e0a550 8
+  s_98712805c1499b::t_6311c5b2305105 35-36
+tests/test_verify_execution_provenance.py
+  s_98712805c1499b::t_9645c0d64de756 1-86
+tests/test_verify_execution_safety_markers.py
+  s_98712805c1499b::t_b8aaa27334dce6 1-46,48-54,56,58-62,64-67,73-181,184-194
+  s_98712805c1499b::t_b13c9af420a63c 47,55,57,63,68-72,182-183
+tests/test_verify_execution.py
+  s_98712805c1499b::t_34ee4051635489 118-120,122-126
+  s_98712805c1499b::t_9645c0d64de756 2,17,36,51,79
+  s_98712805c1499b::t_3cc86ae08bd830 12
+tests/test_frontier_publish_retry.py
+  s_98712805c1499b::t_642a08ffe63a11 1-7,9-113
+  s_98712805c1499b::t_2275eeb0e0a550 8
+tests/test_frontier_marker_policy.py
+  s_98712805c1499b::t_642a08ffe63a11 1-8,10-15,17-167
+  s_98712805c1499b::t_2275eeb0e0a550 9
+  s_98712805c1499b::t_a29ceffdf31261 16
+tests/test_verify_execution_safety_args.py
+  s_98712805c1499b::t_b8aaa27334dce6 1-122
+  s_98712805c1499b::t_b13c9af420a63c 123-136
+docs/verify-execution.md
+  s_98712805c1499b::t_43984996b13cf5 44,125-127,129
+pipelines/round_txn_execution.py
+  s_98712805c1499b::t_697235722d6f90 53,64-76,85-90,101
+  s_98712805c1499b::t_01d5bd3068f39b 77-79,81,83-84,102-108
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "9df3b8640ab555b1434dd870b7dd986b40795746",
+  "prompts": {},
+  "sessions": {
+    "s_98712805c1499b": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a04a1f-1e33-7812-a5aa-c7b04b33b6b5",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Raul Montoya Cardenas <montoyaraul34@gmail.com>"
+    }
+  }
+}
