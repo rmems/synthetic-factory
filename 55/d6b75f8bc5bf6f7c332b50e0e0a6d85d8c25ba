@@ -1,0 +1,67 @@
+tests/training_audit_test_helpers.py
+  s_0d456da8ea5328::t_8adc1e3f30a04f 1-65
+pipelines/validate_run.py
+  s_0d456da8ea5328::t_06ef67a759e82c 159-160,165-168,174-178,182-195
+  s_0d456da8ea5328::t_50a1b31ea93b2e 196-207
+tests/validate_run_test_helpers.py
+  s_0d456da8ea5328::t_c99c861911d1f6 1-67
+pipelines/curate_gate.py
+  s_940326c4ee4215::t_3c755c38fd7fd0 2868-2874,2878
+tests/test_curate_gate.py
+  s_002cddb1a70571::t_b29cf7d4523d54 12-29,1202
+pipelines/curate_rewards.py
+  s_940326c4ee4215::t_7b4b2e3e2b6c7d 626
+tests/test_verify_execution_provenance.py
+  s_0d456da8ea5328::t_4613a497d0225e 42
+pipelines/check_records.py
+  s_0d456da8ea5328::t_75682637155421 445,453-455,458-462
+  s_0d456da8ea5328::t_3e3a9bd7ac9d7e 480
+  s_0d456da8ea5328::t_31774b922a4b4d 112-117,123-127,149-155
+  s_0d456da8ea5328::t_4225a5b8ce2b7e 98-103,106-111,138-145
+  s_0d456da8ea5328::t_e6db0912d7b17b 446-452,456-457,463-464,473
+  s_0d456da8ea5328::t_e2511b74cd2c4f 472
+  s_0d456da8ea5328::t_1ec3676cb623f9 321-344
+tests/test_curate_rewards.py
+  s_940326c4ee4215::t_7b4b2e3e2b6c7d 454-455,458-459,461,517
+  s_940326c4ee4215::t_811d18fafe43b5 463-466,468-472,474-477,479-504,506-516,519-534,538-541,544-548,551-582,584-586,588-600,602-610,612-623,625-628,630-631,633-651,653
+  s_940326c4ee4215::t_22073669bd2435 656
+tests/check_records_test_helpers.py
+  s_0d456da8ea5328::t_b71ac82c14858f 1-70
+pipelines/training_audit.py
+  s_0d456da8ea5328::t_d8c9e21a3d08df 126-135,138-139,141
+  s_0d456da8ea5328::t_e44461af904c23 43-48
+pipelines/promote.py
+  s_0d456da8ea5328::t_f73839f53bc875 180-194,203
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "55d6b75f8bc5bf6f7c332b50e0e0a6d85d8c25ba",
+  "prompts": {},
+  "sessions": {
+    "s_002cddb1a70571": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "abd260ba-6a6c-45a6-9db3-a4e0988ad60e",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Raul Montoya Cardenas <montoyaraul34@gmail.com>"
+    },
+    "s_0d456da8ea5328": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "a8d33a4c-0324-4388-9173-61055dd33627",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Raul Montoya Cardenas <montoyaraul34@gmail.com>"
+    },
+    "s_940326c4ee4215": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a032e4-1904-7a82-8c8b-1ad3cfbeb0b0",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Raul Montoya Cardenas <montoyaraul34@gmail.com>"
+    }
+  }
+}
