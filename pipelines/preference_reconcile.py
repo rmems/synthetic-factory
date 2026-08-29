@@ -23,7 +23,7 @@ _PIPELINES = Path(__file__).resolve().parent
 if str(_PIPELINES) not in sys.path:
     sys.path.insert(0, str(_PIPELINES))
 
-from preference_audit import (  # noqa: E402
+from preference_audit_diff import (  # noqa: E402
     AUDIT_SOURCE_FILE_FIELDS,
     source_files_by_path,
 )

@@ -59,12 +59,15 @@ import leftover_mill  # noqa: E402
 
 from preference_audit import (  # noqa: E402
     AUDIT_NAME,
-    AUDIT_PAIR_FIELDS,
     AUDIT_SCHEMA_VERSION,
-    AUDIT_SOURCE_FILE_FIELDS,
-    audit_differences,
     build_audit,
     render_audit_markdown,
+)
+from preference_audit_diff import (  # noqa: E402
+    AUDIT_HEADER_FIELDS,
+    AUDIT_PAIR_FIELDS,
+    AUDIT_SOURCE_FILE_FIELDS,
+    audit_differences,
 )
 from preference_model import (  # noqa: E402
     ACTION_EXCLUDED,
@@ -106,6 +109,7 @@ __all__ = [
     "ACTION_QUARANTINED",
     "ACTION_REPAIRED",
     "ACTION_RETAINED",
+    "AUDIT_HEADER_FIELDS",
     "AUDIT_NAME",
     "AUDIT_PAIR_FIELDS",
     "AUDIT_SCHEMA_VERSION",
