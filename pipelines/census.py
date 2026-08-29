@@ -59,32 +59,50 @@ __all__ = [
 ]
 
 
+# Near-real labels: not the bare word ``real``, but still claiming a live or
+# production run rather than a simulation.
+_REAL_STAR_PREFIXES = ("real", "live")
+_REAL_STAR_SUBSTRINGS = ("production", "actions live")
+
+
+def _is_real_star(low):
+    """True for a label that claims a live/production run without being ``real``."""
+    if low.startswith(_REAL_STAR_PREFIXES):
+        return True
+    return any(fragment in low for fragment in _REAL_STAR_SUBSTRINGS)
+
+
+def _is_hil(low):
+    """True for a hardware-in-the-loop label."""
+    return "hardware-in-the-loop" in low or low.startswith("hil")
+
+
 def bucket_sim_or_real(value):
     if not isinstance(value, str):
         return "other"
     low = value.strip().lower()
     if low == "real":
         return "real"
-    if (
-        low.startswith("real")
-        or low.startswith("live")
-        or "production" in low
-        or "actions live" in low
-    ):
+    if _is_real_star(low):
         return "real*"
     if "simulat" in low:
         return "sim*"
-    if "hardware-in-the-loop" in low or low.startswith("hil"):
+    if _is_hil(low):
         return "hil*"
     return "other"
 
 
+def _iter_mapping_sim_or_real(obj):
+    """Yield ``sim_or_real`` values carried by one mapping and its children."""
+    for key, val in obj.items():
+        if key == "sim_or_real":
+            yield val
+        yield from iter_sim_or_real(val)
+
+
 def iter_sim_or_real(obj):
     if isinstance(obj, dict):
-        for key, val in obj.items():
-            if key == "sim_or_real":
-                yield val
-            yield from iter_sim_or_real(val)
+        yield from _iter_mapping_sim_or_real(obj)
     elif isinstance(obj, list):
         for item in obj:
             yield from iter_sim_or_real(item)
@@ -155,6 +173,40 @@ def factory_for_path(run_dir: Path, path: Path) -> str:
     return factory_identity_for_path(run_dir, path)[0]
 
 
+# Sentinel for a line that did not decode. A dedicated object, because a
+# record may legitimately be ``None``.
+_UNDECODABLE = object()
+
+
+def _decode_lines(path):
+    """Yield (line number, decoded record) for every non-blank line.
+
+    A line that is not decodable yields ``_UNDECODABLE`` so the caller counts
+    it as a parse failure rather than a record.
+    """
+
+    for lineno, line in enumerate(
+        path.read_text(encoding="utf-8").splitlines(), 1
+    ):
+        if not line.strip():
+            continue
+        try:
+            yield lineno, json.loads(line)
+        except json.JSONDecodeError:
+            yield lineno, _UNDECODABLE
+
+
+def _count_sim_or_real(obj, sim_hist):
+    """Histogram one record's nested ``sim_or_real`` labels."""
+
+    found = list(iter_sim_or_real(obj))
+    if not found:
+        sim_hist["<missing>"] += 1
+        return
+    for value in found:
+        sim_hist[bucket_sim_or_real(value)] += 1
+
+
 def census_dir(run_dir):
     run_dir = Path(run_dir).resolve()
     by_kind = {kind: 0 for kind in KINDS}
@@ -169,14 +221,8 @@ def census_dir(run_dir):
         files += 1
         relative = path.relative_to(run_dir)
         factory, factory_verified = factory_identity_for_path(run_dir, path)
-        for lineno, line in enumerate(
-            path.read_text(encoding="utf-8").splitlines(), 1
-        ):
-            if not line.strip():
-                continue
-            try:
-                obj = json.loads(line)
-            except json.JSONDecodeError:
+        for lineno, obj in _decode_lines(path):
+            if obj is _UNDECODABLE:
                 parse_failures += 1
                 continue
             records += 1
@@ -188,12 +234,7 @@ def census_dir(run_dir):
                 factory_verified=factory_verified,
             )
             by_kind[classify_kind(obj)] += 1
-            found = list(iter_sim_or_real(obj))
-            if not found:
-                sim_hist["<missing>"] += 1
-                continue
-            for value in found:
-                sim_hist[bucket_sim_or_real(value)] += 1
+            _count_sim_or_real(obj, sim_hist)
 
     return {
         "run_dir": str(run_dir),
