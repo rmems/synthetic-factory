@@ -138,8 +138,6 @@ def step_records_compliance(step):
         _step_observation_text(step), COMPLIANCE_OBSERVATION_MARKERS
     ):
         return True
-    if tool_call_name(step.get("tool_call")) in REFUSAL_TOOL_NAMES:
-        return False
     tool = step.get("tool_call")
     if not isinstance(tool, dict):
         return False
