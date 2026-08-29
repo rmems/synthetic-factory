@@ -251,6 +251,17 @@ def _encoder_checks(record):
             findings.append(
                 f"{side}.spike_train_digest does not match the recomputed spike train"
             )
+        # The checks above authenticate the spike train through its excerpt
+        # prefix and digest, but ``decoded``/``derived`` only prove the stored
+        # reconstruction and metrics are *self*-consistent, not that they came
+        # from this signal. Compare against the recomputed decode directly so
+        # a self-consistent edit to the decoded training target cannot pass.
+        if canon.normalize(state.get("reconstruction")) != canon.normalize(
+            recomputed["reconstruction"]
+        ):
+            findings.append(f"{side}.reconstruction does not match the recomputed decode")
+        if state.get("spike_count") != recomputed["spike_count"]:
+            findings.append(f"{side}.spike_count does not match the recomputed encode")
     retention_gap = (
         measured["encoding_a"]["information_retention"]
         - measured["encoding_b"]["information_retention"]

@@ -881,6 +881,40 @@ class GenerateCli(unittest.TestCase):
             self.assertEqual(list(manifest["families"]), [families.ENCODER_FAMILY])
             self.assertEqual(manifest["generation_errors"], [])
 
+    def test_the_manifest_note_reflects_whether_anything_is_publishable(self):
+        # A reference-implementation run must not claim any record is
+        # publishable; a run containing a genuinely publishable record must
+        # not claim the opposite. The note is informational text read by
+        # operators and publication tooling, so it must track the records.
+        args = oracle_generate.parse_args(["--count", "1", "ignored-out-dir"])
+        availability = oracles.availability_report(())
+        reference_only = build(families.ENCODER_FAMILY)
+        self.assertFalse(reference_only["validation"]["publishable"])
+        manifest = oracle_generate.build_manifest(
+            args,
+            [families.ENCODER_FAMILY],
+            availability,
+            PINNED_COMMIT,
+            False,
+            {families.ENCODER_FAMILY: ([reference_only], [], [])},
+            {},
+        )
+        self.assertIn("no record here", manifest["note"])
+
+        publishable = relabel_as_named_runtime(reference_only)
+        self.assertTrue(publishable["validation"]["publishable"], publishable["validation"])
+        manifest = oracle_generate.build_manifest(
+            args,
+            [families.ENCODER_FAMILY],
+            availability,
+            PINNED_COMMIT,
+            False,
+            {families.ENCODER_FAMILY: ([publishable], [], [])},
+            {},
+        )
+        self.assertNotIn("no record here", manifest["note"])
+        self.assertIn("publishable", manifest["note"])
+
     def test_it_refuses_to_overwrite_an_existing_run(self):
         with tempfile.TemporaryDirectory(prefix="oracle-twice-") as temp:
             out = Path(temp) / "run"
@@ -950,6 +984,58 @@ class GenerateCli(unittest.TestCase):
             self.assertNotIn("these oracles are not bound", completed.stderr)
             self.assertIn("generated record failed its envelope", completed.stderr)
             self.assertFalse(out.exists())
+
+    def test_a_bound_runtime_refuses_a_stamped_commit_that_does_not_match_the_checkout(self):
+        # A bound named runtime can make this run's records publishable, so
+        # --oracle-commit may not silently stamp a different, if resolvable,
+        # revision than the one that actually supplied module_digest.
+        with tempfile.TemporaryDirectory(prefix="oracle-commit-mismatch-") as temp:
+            out = Path(temp) / "run"
+            env = dict(os.environ)
+            for runtime in families.ALL_RUNTIMES:
+                env.pop(oracles.env_key(runtime), None)
+            env[oracles.env_key("axon-encoder")] = (
+                f"{sys.executable} {FIXTURES / 'protocol_double.py'} ok"
+            )
+            historical_commit = json.loads((GOLDEN / "manifest.json").read_text())["oracle_commit"]
+            self.assertNotEqual(historical_commit, PINNED_COMMIT)
+            completed = run_cli(
+                GENERATE,
+                "--family",
+                families.ENCODER_FAMILY,
+                "--count",
+                1,
+                "--oracle-commit",
+                historical_commit,
+                out,
+                env=env,
+            )
+            self.assertEqual(completed.returncode, 2)
+            self.assertIn("does not match the checked-out HEAD", completed.stderr)
+            self.assertFalse(out.exists())
+
+    def test_an_unbound_run_still_accepts_a_stamped_commit_that_does_not_match_the_checkout(self):
+        # The escape hatch stays open when nothing bound could be published:
+        # a reference-only run (e.g. regenerating a historical fixture) may
+        # still stamp any resolvable commit, matching the golden fixture.
+        with tempfile.TemporaryDirectory(prefix="oracle-commit-reference-") as temp:
+            out = Path(temp) / "run"
+            historical_commit = json.loads((GOLDEN / "manifest.json").read_text())["oracle_commit"]
+            self.assertNotEqual(historical_commit, PINNED_COMMIT)
+            completed = run_cli(
+                GENERATE,
+                "--family",
+                families.ENCODER_FAMILY,
+                "--count",
+                1,
+                "--oracle-commit",
+                historical_commit,
+                "--no-oracle-dirty",
+                out,
+            )
+            self.assertEqual(completed.returncode, 0, completed.stderr)
+            manifest = json.loads((out / "manifest.json").read_text())
+            self.assertEqual(manifest["oracle_commit"], historical_commit)
 
     def test_an_unknown_family_is_a_usage_error(self):
         with tempfile.TemporaryDirectory(prefix="oracle-bad-family-") as temp:

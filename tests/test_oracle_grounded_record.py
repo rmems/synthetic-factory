@@ -285,6 +285,27 @@ class CurationFailsClosed(unittest.TestCase):
             findings,
         )
 
+    def test_oracle_seed_must_match_the_generator_seed(self):
+        # A record validated on its own (outside its original manifest) must
+        # not be able to claim a different oracle.seed than the generator
+        # seed that actually produced its scenario: nothing else re-derives
+        # oracle.seed, so an unbound field is free provenance to forge.
+        item = build(families.ENCODER_FAMILY)
+        item["oracle"]["seed"] += 1
+        findings = record.validate_record(item, check_declared_status=False)
+        self.assertTrue(
+            any("oracle.seed does not match the generator seed" in finding for finding in findings),
+            findings,
+        )
+
+    def test_a_custom_model_still_validates_deterministically(self):
+        # build_record(..., model=...) is a supported provenance override:
+        # validation must reconstruct the expected generator using the
+        # retained model identity, not silently reject every custom model.
+        item = build(families.ENCODER_FAMILY, model="custom-generator-x")
+        self.assertEqual(item["generator"]["name"], "custom-generator-x")
+        self.assertEqual(record.classify(item)["envelope"], [])
+
     def test_a_missing_module_digest_is_an_error(self):
         item = build(families.NEURON_FAMILY)
         item["oracle"]["module_digest"] = "not-a-digest"
@@ -760,6 +781,65 @@ class FamilyInvariants(unittest.TestCase):
         findings = result_findings(item)
         self.assertTrue(
             any("representation_excerpt is not the prefix" in finding for finding in findings),
+            findings,
+        )
+
+    def test_encoder_reconstruction_is_bound_to_the_recomputed_decode(self):
+        # The excerpt/digest checks authenticate the spike train, and the old
+        # per-field checks only prove ``reconstruction`` is self-consistent
+        # with the *other* stored metrics -- not that it is the true decode.
+        # Forge a different decode and recompute every dependent field (and
+        # the cross-side winner decision) exactly as a self-consistent forger
+        # would, then confirm only comparing against the recomputed decode
+        # itself catches it.
+        item = build(families.ENCODER_FAMILY)
+        measured = item["result"]["measured"]
+        state = measured["encoding_a"]
+        scenario = item["scenario"]
+        signal = scenario["signal"]
+        forged_decoded = [0.0 for _ in signal]
+        errors = [abs(actual - guess) for actual, guess in zip(signal, forged_decoded, strict=True)]
+        forged_rmse = sim.rmse(signal, forged_decoded)
+        forged_retention = sim.clamp(1.0 - forged_rmse, 0.0, 1.0)
+        state["reconstruction"] = forged_decoded
+        state["rmse"] = forged_rmse
+        state["mean_abs_error"] = sum(errors) / len(errors) if errors else 0.0
+        state["max_abs_error"] = max(errors) if errors else 0.0
+        state["pearson_r"] = sim.pearson(signal, forged_decoded)
+        state["information_retention"] = forged_retention
+        state["retention_per_spike"] = (
+            forged_retention / state["spike_count"] if state["spike_count"] else None
+        )
+        # Keep the cross-side decision self-consistent too, so only the new
+        # per-side recompute check (not a stale winner/margin) fires.
+        retention_gap = state["information_retention"] - measured["encoding_b"]["information_retention"]
+        measured["retention_margin"] = retention_gap
+        tie_epsilon = item["oracle"]["configuration"]["tie_epsilon"]
+        pair = scenario["encoding_pair"]
+        if abs(retention_gap) >= tie_epsilon:
+            measured["winner_basis"] = "information_retention"
+            measured["winner"] = pair[0] if retention_gap > 0 else pair[1]
+        elif state["spike_count"] != measured["encoding_b"]["spike_count"]:
+            measured["winner_basis"] = "spike_count_tiebreak"
+            measured["winner"] = (
+                pair[0] if state["spike_count"] < measured["encoding_b"]["spike_count"] else pair[1]
+            )
+        else:
+            measured["winner_basis"] = "tie"
+            measured["winner"] = None
+        findings = result_findings(item)
+        self.assertEqual(
+            [f for f in findings if "reconstruction" in f],
+            ["encoding_a.reconstruction does not match the recomputed decode"],
+            findings,
+        )
+
+    def test_encoder_spike_count_is_bound_to_the_recomputed_encode(self):
+        item = build(families.ENCODER_FAMILY)
+        item["result"]["measured"]["encoding_a"]["spike_count"] += 1
+        findings = result_findings(item)
+        self.assertTrue(
+            any("spike_count does not match the recomputed encode" in f for f in findings),
             findings,
         )
 

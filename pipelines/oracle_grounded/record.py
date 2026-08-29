@@ -357,9 +357,15 @@ def _validate_generator_side(record):
             expected_generator = generators.generator_block(
                 record_seed,
                 f"{family}#{index}",
+                model=generator.get("name"),
             )
             if generator != expected_generator:
                 findings.append("generator does not match the deterministic generator contract")
+            oracle_seed = record["oracle"].get("seed")
+            if oracle_seed != record_seed:
+                findings.append(
+                    "oracle.seed does not match the generator seed that produced this record"
+                )
             try:
                 expected_scenario, expected_intervention, expected_candidate = families.spec_for(
                     family

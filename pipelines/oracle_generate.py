@@ -228,9 +228,12 @@ def publish_noreplace(staging, out_dir, expected_identity=None):
 def build_manifest(args, selected, availability, commit, dirty, generated, files):
     per_family = {}
     all_errors = []
+    any_publishable = False
     for family in selected:
         accepted, rejected, errors = generated[family]
         all_errors.extend(errors)
+        if any(item["validation"]["publishable"] for item in accepted + rejected):
+            any_publishable = True
         per_family[family] = {
             "proposed": args.count,
             "accepted": summarize(accepted),
@@ -249,6 +252,19 @@ def build_manifest(args, selected, availability, commit, dirty, generated, files
                 ),
             },
         }
+    if any_publishable:
+        note = (
+            "Counts describe this run only. Some records were measured through "
+            "the named-runtime protocol and are publishable; check each "
+            "record's own validation.publishable and validation.publishable_reason "
+            "for the authoritative per-record determination."
+        )
+    else:
+        note = (
+            "Counts describe this run only. A reference-implementation oracle "
+            "measures a real model but is not the named runtime; no record here "
+            "is publishable as a measurement of the named runtime."
+        )
     return {
         "schema": record.SCHEMA_ID,
         "round": args.round_number,
@@ -261,11 +277,7 @@ def build_manifest(args, selected, availability, commit, dirty, generated, files
         "oracle_availability": availability,
         "files": files,
         "generation_errors": all_errors,
-        "note": (
-            "Counts describe this run only. A reference-implementation oracle "
-            "measures a real model but is not the named runtime; no record here "
-            "is publishable as a measurement of the named runtime."
-        ),
+        "note": note,
     }
 
 
@@ -323,6 +335,22 @@ def main(argv=None):
         commit, resolved_dirty = oracles.resolve_commit()
         if dirty is None:
             dirty = resolved_dirty
+    elif any(probe["bound"] for probe in availability["runtimes"]):
+        # A bound named runtime can make this run's records publishable, so an
+        # explicit --oracle-commit may not silently name a different revision
+        # than the checkout that actually supplied module_digest and ran the
+        # oracle. When git cannot resolve the checkout at all, fall back to
+        # trusting the caller's stamp, same as the no-runtime-bound case.
+        checkout_commit, _checkout_dirty = oracles.resolve_commit()
+        if checkout_commit != "unknown" and checkout_commit != commit:
+            print(
+                f"oracle_generate: --oracle-commit {commit!r} does not match the "
+                f"checked-out HEAD ({checkout_commit}); a bound named runtime can "
+                "produce publishable output, so the stamped commit must name the "
+                "checkout that supplied the implementation sources",
+                file=sys.stderr,
+            )
+            return 2
     if commit == "unknown":
         print(
             "oracle_generate: could not resolve the oracle commit; pass "
