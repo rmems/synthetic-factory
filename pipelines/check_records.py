@@ -299,7 +299,36 @@ _SHAPE_REAL_PROVENANCE = "must not be 'real'"
 # stream and direct trajectory streams; this layer walks every nested stream,
 # so it is the single owner of array, event, clock, and order errors. Bridge-only
 # required fields are supplied below when the walked path is the bridge root.
-_SHAPE_SPIKE_STREAM = ": spike_events"
+
+
+def _after_where(msg, where):
+    """Return the diagnostic body with the location prefix removed.
+
+    Findings are ``{where}: {body}`` or ``{where}.{nested}: {body}``. Matching
+    drop markers against the full string lets a relative path such as
+    ``bad: spike_events.jsonl`` swallow unrelated shape errors.
+    """
+    if not msg.startswith(where):
+        return msg
+    rest = msg[len(where):]
+    if rest.startswith(": "):
+        return rest[2:]
+    if rest.startswith("."):
+        sep = rest.find(": ")
+        if sep != -1:
+            return rest[sep + 2:]
+    return msg
+
+
+def _is_shape_spike_stream(body):
+    """True when the diagnostic path names a spike_events stream."""
+    path = body.split(" ", 1)[0]
+    return (
+        path == "spike_events"
+        or path.startswith("spike_events[")
+        or path.startswith("spike_events.")
+        or ".spike_events" in path
+    )
 
 
 def shape_check(obj, where, factory_staging=False):
@@ -309,13 +338,17 @@ def shape_check(obj, where, factory_staging=False):
         errs, kind = check_line(obj, where, factory_staging=factory_staging)
     except (TypeError, AttributeError) as exc:
         return [f"{where}: unrecognized record shape ({exc})"], "unknown"
-    errs = [
-        e for e in errs
-        if not any(marker in e for marker in _SHAPE_REWARD_ARITHMETIC)
-        and _SHAPE_REAL_PROVENANCE not in e
-        and _SHAPE_SPIKE_STREAM not in e
-    ]
-    return errs, kind
+    kept = []
+    for err in errs:
+        body = _after_where(err, where)
+        if any(marker in body for marker in _SHAPE_REWARD_ARITHMETIC):
+            continue
+        if _SHAPE_REAL_PROVENANCE in body:
+            continue
+        if _is_shape_spike_stream(body):
+            continue
+        kept.append(err)
+    return kept, kind
 
 
 def canonical_record_id(obj):

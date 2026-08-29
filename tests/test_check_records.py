@@ -517,5 +517,38 @@ class SpikeOrderHasOneOwner(unittest.TestCase):
         self.assertIn("missing 'amplitude'", blob)
 
 
+class ShapeFilterIgnoresLocationPrefix(unittest.TestCase):
+    """Drop markers must not match the JSONL path embedded in `where`."""
+
+    def test_colon_spike_events_filename_does_not_hide_safety_decision(self):
+        rec = _thalamic(
+            safety_decision={"decision": "NOPE", "rationale": "ok"},
+            meta={"id": "path-collision"},
+        )
+        tmp, run_dir = _run_dir([rec], name="bad: spike_events.jsonl")
+        with tmp:
+            result = check_records.check_run(run_dir, strict=True)
+        blob = "\n".join(result["errors"])
+        self.assertIn("safety_decision.decision must be ACCEPT|MODIFY|REJECT", blob)
+        self.assertEqual(result["exit_code"], 1)
+
+    def test_colon_spike_events_filename_does_not_hide_nested_safety_decision(self):
+        record = {
+            "id": "pref-path-collision",
+            "chosen": _thalamic(
+                safety_decision={"decision": "NOPE", "rationale": "ok"},
+                meta={"id": "pref-path-chosen"},
+            ),
+            "rejected": _thalamic(meta={"id": "pref-path-rejected"}),
+            "critique": "chosen safety_decision is invalid",
+        }
+        tmp, run_dir = _run_dir([record], name="bad: spike_events.jsonl")
+        with tmp:
+            result = check_records.check_run(run_dir, strict=True)
+        blob = "\n".join(result["errors"])
+        self.assertIn("safety_decision.decision must be ACCEPT|MODIFY|REJECT", blob)
+        self.assertEqual(result["exit_code"], 1)
+
+
 if __name__ == "__main__":
     unittest.main()
