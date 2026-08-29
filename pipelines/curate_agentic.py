@@ -36,6 +36,7 @@ from pathlib import Path
 from typing import Any
 
 from check_records import reject_json_constant
+from curate_identity import default_registry
 from mill_family import (
     REASON_FOREIGN_MILL_GOAL_FAMILY,
     REASON_FOREIGN_MILL_ID_PREFIX,
@@ -50,7 +51,6 @@ from record_kind import (
     preference_side_kinds,
 )
 from round_txn import (
-    FACTORY_QUOTAS,
     TransactionError,
     committed_jsonl_paths,
     marker_mode_path,
@@ -492,7 +492,14 @@ def _source_jsonl_entries(source: Path) -> tuple[tuple[Path, str, bool], ...]:
             source,
             path,
             marker_root=marker_factory(path),
-            known_factories=FACTORY_QUOTAS,
+            # The reviewed factory registry is the source of truth for which
+            # directory names are a known factory. The round-quota table
+            # (FACTORY_QUOTAS) only covers factories with an active quota;
+            # a registered-but-unquota'd factory (e.g. an identity-only
+            # generator) would otherwise be treated as unverified, letting
+            # an all-foreign batch under that root redefine the destination
+            # from its own payload majority instead of being quarantined.
+            known_factories=default_registry().by_path_id,
         )
 
     return tuple(
