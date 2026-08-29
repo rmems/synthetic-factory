@@ -301,12 +301,17 @@ _SHAPE_REAL_PROVENANCE = "must not be 'real'"
 # required fields are supplied below when the walked path is the bridge root.
 
 
+_WHERE_STEP_INFIX_RE = re.compile(r"^ step \d+: ")
+
+
 def _after_where(msg, where):
     """Return the diagnostic body with the location prefix removed.
 
-    Findings are ``{where}: {body}`` or ``{where}.{nested}: {body}``. Matching
+    Findings are ``{where}: {body}``, ``{where}.{nested}: {body}``, or
+    ``{where} step {i}: {body}`` (check_episode's per-step form). Matching
     drop markers against the full string lets a relative path such as
-    ``bad: spike_events.jsonl`` swallow unrelated shape errors.
+    ``bad: spike_events.jsonl`` — or ``spike_events.jsonl`` itself, paired
+    with an episode step error — swallow unrelated shape errors.
     """
     if not msg.startswith(where):
         return msg
@@ -317,6 +322,9 @@ def _after_where(msg, where):
         sep = rest.find(": ")
         if sep != -1:
             return rest[sep + 2:]
+    step_match = _WHERE_STEP_INFIX_RE.match(rest)
+    if step_match:
+        return rest[step_match.end():]
     return msg
 
 

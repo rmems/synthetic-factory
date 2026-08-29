@@ -549,6 +549,29 @@ class ShapeFilterIgnoresLocationPrefix(unittest.TestCase):
         self.assertIn("safety_decision.decision must be ACCEPT|MODIFY|REJECT", blob)
         self.assertEqual(result["exit_code"], 1)
 
+    def test_spike_events_filename_does_not_hide_episode_step_errors(self):
+        """``check_episode``'s ``{where} step {i}:`` form is a location
+        prefix too: a run file literally named ``spike_events.jsonl`` must
+        not make its own step-error findings look like dropped spike-stream
+        findings (kilo-code-bot #87, discussion_r3885145887)."""
+        record = {
+            "id": "episode-path-collision",
+            "goal": "fix the bug",
+            "steps": [
+                {"n": 1, "tool_call": {"name": "read_file", "args": {"path": "a.txt"}}}
+            ],
+            "outcome": "edited safely",
+            "reward": {"success": True},
+            "meta": {"round": 1},
+        }
+        tmp, run_dir = _run_dir([record], name="spike_events.jsonl")
+        with tmp:
+            result = check_records.check_run(run_dir, strict=True)
+        blob = "\n".join(result["errors"])
+        self.assertIn("missing 'observation'", blob)
+        self.assertIn("missing 'decision_basis'", blob)
+        self.assertEqual(result["exit_code"], 1)
+
 
 if __name__ == "__main__":
     unittest.main()
