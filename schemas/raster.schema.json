@@ -216,11 +216,14 @@
               "description": "Per-population routing table. Optional to this schema, but pipelines/training_audit.py blocks a run whose rasters carry no table entries.",
               "items": {
                 "type": "object",
-                "required": ["from", "to"],
+                "required": ["from", "to", "weight"],
                 "properties": {
                   "from": { "type": "string", "minLength": 1, "pattern": "\\S" },
                   "to": { "type": "string", "minLength": 1, "pattern": "\\S" },
-                  "weight": { "type": "number" }
+                  "weight": {
+                    "type": "number",
+                    "description": "Synaptic weight for the connection. Required: prompts/03-neuromorphic-event-language-bridge.md specifies {from, to, weight} entries, and a distillation consumer cannot reconstruct the connection without it."
+                  }
                 }
               }
             },

@@ -193,10 +193,20 @@ def _evidence_hash(value: Any) -> str:
 
 
 def _is_finite_number(value: Any) -> bool:
+    """True for a real number this module's float arithmetic can evaluate.
+
+    JSON integers are unbounded, so ``math.isfinite`` on a declared
+    ``10**400`` raises ``OverflowError`` instead of returning False. Every
+    caller here is guarding a float comparison, so the conversion itself is
+    the test: an integer no float can hold is not a finite number for this
+    purpose, and it becomes a reason code rather than an exception escaping
+    into the publish gate, the training audit, or the distillation probe.
+    """
+
     return (
         isinstance(value, (int, float))
         and not isinstance(value, bool)
-        and math.isfinite(value)
+        and _finite_float(value) is not None
     )
 
 
@@ -519,8 +529,14 @@ def _validate_raster(
     *,
     reason_codes: list[str],
     evidence: dict[str, Any],
+    require_routing_table: bool = False,
 ) -> None:
     """Validate 20-50 ms raster excerpt + routing and spike budget at 23 pJ/spike.
+
+    ``require_routing_table`` is set by callers that publish a tree the
+    distillation probe must be able to load; the probe refuses a raster
+    carrying no routing entry.  It is separate from ``require_raster`` so the
+    publish gate keeps reporting its own routing failure in its own words.
 
     Mutates ``reason_codes`` and ``evidence`` in place.  Records evidence
     even on success so manifests remain auditable.
@@ -689,12 +705,17 @@ def _validate_raster(
                 source = entry.get("from")
                 target = entry.get("to")
                 weight = entry.get("weight")
+                # The producer contract is a ``{from, to, weight}`` triple
+                # (prompts/03-neuromorphic-event-language-bridge.md): without a
+                # synaptic weight a distillation consumer cannot reconstruct
+                # the declared connection, so a missing weight is as invalid as
+                # a non-numeric one.
                 if (
                     not isinstance(source, str)
                     or not source.strip()
                     or not isinstance(target, str)
                     or not target.strip()
-                    or (weight is not None and not _is_finite_number(weight))
+                    or not _is_finite_number(weight)
                 ):
                     invalid_table_indices.append(index)
                     continue
@@ -705,6 +726,13 @@ def _validate_raster(
         evidence["raster_routing_table_declared_entries"] = (
             len(table) if isinstance(table, list) else 0
         )
+        if require_routing_table and not valid_table_entries:
+            # materialize_paths advertises a gate-compatible tree, and the
+            # distillation probe refuses a raster with no routing entry.
+            # Retaining one here would publish a tree the probe rejects on
+            # sight.
+            reason_codes.append(REASON_RASTER_ROUTING)
+            evidence["raster_routing_table_valid"] = False
         if invalid_table_indices:
             reason_codes.append(REASON_RASTER_ROUTING)
             evidence["raster_routing_table_invalid_indices"] = invalid_table_indices
@@ -1024,6 +1052,7 @@ def _raster_reasons(
     record: dict[str, Any],
     *,
     require_raster: bool,
+    require_routing_table: bool = False,
 ) -> tuple[list[str], dict[str, Any]]:
     """Collect raster / gate-budget reason codes and evidence for one record.
 
@@ -1037,7 +1066,12 @@ def _raster_reasons(
     location, raster = raster_sidecar(record)
     if location is not None:
         evidence["raster_location"] = location
-        _validate_raster(raster, reason_codes=reason_codes, evidence=evidence)
+        _validate_raster(
+            raster,
+            reason_codes=reason_codes,
+            evidence=evidence,
+            require_routing_table=require_routing_table,
+        )
     else:
         evidence["raster_present"] = False
         if require_raster:
@@ -1062,7 +1096,12 @@ def _raster_reasons(
     return reason_codes, evidence
 
 
-def raster_status(record: Any, *, require_raster: bool = True) -> dict[str, Any]:
+def raster_status(
+    record: Any,
+    *,
+    require_raster: bool = True,
+    require_routing_table: bool = False,
+) -> dict[str, Any]:
     """Summarize one record's raster/gate evidence for auditors and probes.
 
     Returns machine-readable counts only — no prose is ever parsed.  Callers
@@ -1084,7 +1123,11 @@ def raster_status(record: Any, *, require_raster: bool = True) -> dict[str, Any]
             "reason_codes": [],
             "evidence": {},
         }
-    reason_codes, evidence = _raster_reasons(record, require_raster=require_raster)
+    reason_codes, evidence = _raster_reasons(
+        record,
+        require_raster=require_raster,
+        require_routing_table=require_routing_table,
+    )
     location, raster = raster_sidecar(record)
     spikes = raster.get("spikes") if isinstance(raster, dict) else None
     if not isinstance(spikes, int) or isinstance(spikes, bool):
@@ -1186,6 +1229,7 @@ def curate_record(
     source_hash: str,
     source_file_hash: str | None = None,
     require_raster: bool = False,
+    require_routing_table: bool = False,
 ) -> CurationDecision:
     """Return a deterministic Bridge timing decision without mutating ``record``.
 
@@ -1321,7 +1365,9 @@ def curate_record(
     # REASON_RASTER_MISSING applies only when neither location carries a
     # sidecar at all, and only when require_raster is set.
     raster_reasons, raster_evidence = _raster_reasons(
-        record, require_raster=require_raster
+        record,
+        require_raster=require_raster,
+        require_routing_table=require_routing_table,
     )
     evidence["raster"] = raster_evidence
     if raster_reasons:
@@ -1413,6 +1459,7 @@ def curate_jsonl(
     *,
     source_root: str | Path | None = None,
     require_raster: bool = False,
+    require_routing_table: bool = False,
 ) -> list[CurationDecision]:
     """Curate every physical JSONL line while preserving exact source hashes.
 
@@ -1475,6 +1522,7 @@ def curate_jsonl(
                 source_hash=source_hash,
                 source_file_hash=source_file_hash,
                 require_raster=require_raster,
+                require_routing_table=require_routing_table,
             )
         )
     return decisions
@@ -1485,6 +1533,7 @@ def curate_paths(
     *,
     source_root: str | Path | None = None,
     require_raster: bool = False,
+    require_routing_table: bool = False,
 ) -> list[CurationDecision]:
     """Curate source files in stable path order, rejecting duplicate inputs."""
 
@@ -1496,7 +1545,10 @@ def curate_paths(
     for path in sorted(paths, key=lambda item: item.as_posix()):
         decisions.extend(
             curate_jsonl(
-                path, source_root=source_root, require_raster=require_raster
+                path,
+                source_root=source_root,
+                require_raster=require_raster,
+                require_routing_table=require_routing_table,
             )
         )
     return decisions
@@ -1707,7 +1759,10 @@ def materialize_paths(
     if manifest_relative.suffix != ".jsonl":
         raise BridgeCurationError("manifest_name must end in .jsonl")
     decisions = curate_paths(
-        source_paths, source_root=root, require_raster=require_raster
+        source_paths,
+        source_root=root,
+        require_raster=require_raster,
+        require_routing_table=require_raster,
     )
     output_paths = {
         _safe_relative_path(

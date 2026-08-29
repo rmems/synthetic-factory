@@ -161,15 +161,27 @@ def _record_id(record: Any) -> str | None:
 
 
 def jsonl_paths(targets: Iterable[str | Path]) -> list[Path]:
-    """Expand run directories into sorted JSONL paths; keep explicit files."""
+    """Expand run directories into sorted JSONL paths; keep explicit files.
+
+    An input reached twice -- named twice, or named once directly and once
+    through a containing directory -- is expanded once. Reading it twice
+    emitted every raster twice and silently doubled the spike and energy
+    totals, changing the weighting of a distillation dataset with no report
+    that anything was wrong. Identity is the resolved path, so two names for
+    one file (a symlink, ``./x`` vs ``x``) also count once.
+    """
 
     paths: list[Path] = []
+    seen: set[Path] = set()
     for target in targets:
         path = Path(target)
-        if path.is_dir():
-            paths.extend(sorted(path.rglob("*.jsonl")))
-        else:
-            paths.append(path)
+        expanded = sorted(path.rglob("*.jsonl")) if path.is_dir() else [path]
+        for item in expanded:
+            key = item.resolve(strict=False)
+            if key in seen:
+                continue
+            seen.add(key)
+            paths.append(item)
     return paths
 
 
