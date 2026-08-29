@@ -175,20 +175,22 @@ def _require_object(value: Any, where: str) -> dict[str, Any]:
     return value
 
 
-def _check_actor(
-    value: Any,
-    role: str,
-    *,
-    require_prompt_hash: bool = False,
-    require_tool_policy: bool = False,
-) -> dict[str, Any]:
-    actor = _require_object(value, role)
+def _require_actor_identity(actor: dict[str, Any], role: str) -> None:
     for field in ("model", "version", "run_id"):
         if not _is_nonempty(actor.get(field)):
             raise VSetValidationError(
                 "vset.actor_fields_invalid",
                 f"{role}.{field} must be a non-empty normalized string",
             )
+
+
+def _require_actor_optionals(
+    actor: dict[str, Any],
+    role: str,
+    *,
+    require_prompt_hash: bool,
+    require_tool_policy: bool,
+) -> None:
     if require_prompt_hash and not _is_sha256(actor.get("prompt_hash")):
         raise VSetValidationError(
             "vset.actor_fields_invalid",
@@ -209,6 +211,20 @@ def _check_actor(
             "vset.actor_fields_invalid",
             f"{role}.tool_policy must be a non-empty normalized string",
         )
+
+
+def _check_actor(
+    value: Any,
+    role: str,
+    *,
+    require_prompt_hash: bool = False,
+    require_tool_policy: bool = False,
+) -> dict[str, Any]:
+    actor = _require_object(value, role)
+    _require_actor_identity(actor, role)
+    _require_actor_optionals(
+        actor, role, require_prompt_hash=require_prompt_hash, require_tool_policy=require_tool_policy
+    )
     return actor
 
 
