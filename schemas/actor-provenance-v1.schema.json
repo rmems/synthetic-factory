@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "actor-provenance-v1.schema.json",
   "title": "Synthetic Factory Actor Provenance v1",
-  "description": "Record-level actor envelope for multi-stage synthetic software-engineering workflows (#154). Factory trust remains config/FACTORY-REGISTRY.json (issue #32): this schema does not grant authority and does not hard-code generator slugs. A new model occupies an existing role by filling these fields. source_kind distinguishes synthetic factory work from real_public_engineering (including Operation Prometheus). Oracle status is independent of solver success.",
+  "description": "Record-level actor envelope for multi-stage synthetic software-engineering workflows (#154). Factory trust remains config/FACTORY-REGISTRY.json (issue #32): this schema does not grant authority and does not hard-code generator slugs. A new model occupies an existing role by filling these fields. source_kind distinguishes synthetic factory work from real_public_engineering (including Operation Prometheus). Oracle status is independent of solver success. identity.unresolved_provenance is the identity-lane gap for missing state.sim_or_real / state.provenance (designed|simulated|hil|unknown in schemas/provenance.md); it must never be reused for a missing task_author, solver, reviewer, or oracle — those stay vset.* codes.",
   "type": "object",
   "additionalProperties": true,
   "required": [

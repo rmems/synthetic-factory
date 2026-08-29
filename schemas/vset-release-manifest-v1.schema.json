@@ -1,0 +1,172 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "vset-release-manifest-v1.schema.json",
+  "title": "VSET Release Manifest v1",
+  "description": "Smallest fail-closed curated manifest that retains the #154 actor graph and immutable hashes for a later VSET release candidate. Not a compose/export (#23) and not a Hub repository. identity.unresolved_provenance must never appear as a stand-in for a missing actor role. Invalid/impossible tasks remain measure outcomes in counts, not silent drops. Factory authority remains config/FACTORY-REGISTRY.json.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "actor_provenance_schema_version",
+    "factory_contract_version",
+    "factory_registry_sha256",
+    "manifest_hash",
+    "counts",
+    "entries"
+  ],
+  "properties": {
+    "schema_version": { "const": "vset-release-manifest-v1" },
+    "actor_provenance_schema_version": { "const": "actor-provenance-v1" },
+    "factory_contract_version": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Must match FACTORY-REGISTRY.json schema_version."
+    },
+    "factory_registry_sha256": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "manifest_hash": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$",
+      "description": "SHA-256 of the canonical manifest body excluding this field."
+    },
+    "counts": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "records",
+        "by_record_kind",
+        "by_oracle_status",
+        "by_curation_decision",
+        "invalid_or_impossible"
+      ],
+      "properties": {
+        "records": { "type": "integer", "minimum": 1 },
+        "by_record_kind": {
+          "type": "object",
+          "additionalProperties": { "type": "integer", "minimum": 0 }
+        },
+        "by_oracle_status": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["invalid", "provisional", "validated"],
+          "properties": {
+            "invalid": { "type": "integer", "minimum": 0 },
+            "provisional": { "type": "integer", "minimum": 0 },
+            "validated": { "type": "integer", "minimum": 0 }
+          }
+        },
+        "by_curation_decision": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["accept", "exclude", "measure"],
+          "properties": {
+            "accept": { "type": "integer", "minimum": 0 },
+            "exclude": { "type": "integer", "minimum": 0 },
+            "measure": { "type": "integer", "minimum": 0 }
+          }
+        },
+        "invalid_or_impossible": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "First-class measured invalid/impossible outcomes. Never omit the field to hide them."
+        }
+      }
+    },
+    "entries": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/entry" }
+    }
+  },
+  "$defs": {
+    "sha256": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "nonempty": { "type": "string", "minLength": 1 },
+    "actor": {
+      "type": "object",
+      "required": ["model", "version", "run_id"],
+      "properties": {
+        "model": { "$ref": "#/$defs/nonempty" },
+        "version": { "$ref": "#/$defs/nonempty" },
+        "run_id": { "$ref": "#/$defs/nonempty" },
+        "prompt_hash": { "$ref": "#/$defs/sha256" },
+        "tool_policy": { "$ref": "#/$defs/nonempty" },
+        "outcome": { "$ref": "#/$defs/nonempty" }
+      }
+    },
+    "entry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "record_kind",
+        "source_kind",
+        "task_author",
+        "solver",
+        "reviewer",
+        "oracle",
+        "curation",
+        "environment",
+        "release"
+      ],
+      "properties": {
+        "record_kind": {
+          "enum": [
+            "issue_patch_v1",
+            "review_remediation_v1",
+            "failure_recovery_v1"
+          ]
+        },
+        "source_kind": {
+          "enum": ["synthetic", "real_public_engineering"]
+        },
+        "task_author": { "$ref": "#/$defs/actor" },
+        "solver": { "$ref": "#/$defs/actor" },
+        "reviewer": {
+          "anyOf": [{ "type": "null" }, { "$ref": "#/$defs/actor" }]
+        },
+        "oracle": {
+          "type": "object",
+          "required": ["kind", "status"],
+          "properties": {
+            "kind": { "$ref": "#/$defs/nonempty" },
+            "status": { "enum": ["invalid", "provisional", "validated"] },
+            "result_hash": { "$ref": "#/$defs/sha256" },
+            "certifier": { "$ref": "#/$defs/nonempty" }
+          }
+        },
+        "curation": {
+          "type": "object",
+          "required": ["decision", "reason_codes"],
+          "properties": {
+            "decision": { "enum": ["accept", "exclude", "measure"] },
+            "reason_codes": {
+              "type": "array",
+              "items": { "type": "string" }
+            }
+          }
+        },
+        "environment": {
+          "type": "object",
+          "required": ["repo_snapshot_hash", "task_id"],
+          "properties": {
+            "repo_snapshot_hash": { "$ref": "#/$defs/sha256" },
+            "task_id": { "$ref": "#/$defs/nonempty" },
+            "repo_pack_id": { "$ref": "#/$defs/nonempty" }
+          }
+        },
+        "release": {
+          "type": "object",
+          "required": ["factory_contract_version"],
+          "properties": {
+            "factory_contract_version": { "$ref": "#/$defs/nonempty" },
+            "factory_registry_sha256": { "$ref": "#/$defs/sha256" }
+          }
+        }
+      }
+    }
+  }
+}

@@ -2,20 +2,28 @@
 """Validate VSET actor-provenance records against the #154 contract.
 
 Stdlib-only. Existing factory pipelines import ``validate_record`` /
-``run_oracle``; this CLI is the operator surface.
+``run_oracle`` / ``validate_manifest``; this CLI is the operator surface.
 
 Factory trust stays in ``config/FACTORY-REGISTRY.json`` (issue #32).
 This module does not classify payload kinds for identity, does not
 hard-code generator slugs, and does not write into ``outputs/raw/``.
 
+``identity.unresolved_provenance`` (curate_identity / F-012 /
+schemas/provenance.md) means a missing ``state.sim_or_real`` /
+``state.provenance`` (designed|simulated|hil|unknown). It is not the
+actor graph. Missing task_author / solver / reviewer / oracle keep
+``vset.*`` codes; never reuse that identity reason here.
+
 Usage:
   python3 pipelines/validate_vset.py <record.json|records-dir>
   python3 pipelines/validate_vset.py --oracle <record.json> --pack <repo-pack>
+  python3 pipelines/validate_vset.py --manifest <manifest.json>
 """
 
 from __future__ import annotations
 
 import argparse
+import copy
 import hashlib
 import importlib.util
 import json
@@ -40,6 +48,19 @@ from curate_identity import (  # noqa: E402
 
 SCHEMA_VERSION = "vset-record-v1"
 ACTOR_PROVENANCE_VERSION = "actor-provenance-v1"
+MANIFEST_SCHEMA_VERSION = "vset-release-manifest-v1"
+# Identity-lane reason (missing state.sim_or_real / state.provenance).
+# Not an actor-envelope code. See schemas/provenance.md.
+IDENTITY_UNRESOLVED_PROVENANCE = "identity.unresolved_provenance"
+MANIFEST_ROLES = (
+    "task_author",
+    "solver",
+    "reviewer",
+    "oracle",
+    "curation",
+    "environment",
+    "release",
+)
 RECORD_KINDS = frozenset(
     {"issue_patch_v1", "review_remediation_v1", "failure_recovery_v1"}
 )
@@ -490,6 +511,14 @@ def validate_record(
                     "curation.reason_codes must be a list of lowercase reason tokens",
                 )
             )
+        elif IDENTITY_UNRESOLVED_PROVENANCE in reasons:
+            errors.append(
+                VSetValidationError(
+                    "vset.identity_reason_collision",
+                    "identity.unresolved_provenance is the state.sim_or_real remap gap; "
+                    "missing actor roles use vset.missing_actor_role",
+                )
+            )
         oracle_status = (
             record["oracle"].get("status") if isinstance(record.get("oracle"), dict) else None
         )
@@ -819,6 +848,274 @@ def validate_record_with_oracle(
     return errors, execution
 
 
+def manifest_entry_from_record(record: Mapping[str, Any]) -> dict[str, Any]:
+    """Project the #154 actor graph a later release candidate can consume."""
+
+    oracle = record.get("oracle") if isinstance(record.get("oracle"), Mapping) else {}
+    curation = record.get("curation") if isinstance(record.get("curation"), Mapping) else {}
+    environment = (
+        record.get("environment") if isinstance(record.get("environment"), Mapping) else {}
+    )
+    release = record.get("release") if isinstance(record.get("release"), Mapping) else {}
+    reviewer = record.get("reviewer")
+    return {
+        "record_kind": record.get("record_kind"),
+        "source_kind": record.get("source_kind"),
+        "task_author": copy.deepcopy(record.get("task_author")),
+        "solver": copy.deepcopy(record.get("solver")),
+        "reviewer": None if reviewer is None else copy.deepcopy(reviewer),
+        "oracle": {
+            key: oracle[key]
+            for key in ("kind", "status", "result_hash", "certifier")
+            if key in oracle
+        },
+        "curation": {
+            "decision": curation.get("decision"),
+            "reason_codes": list(curation.get("reason_codes") or []),
+        },
+        "environment": {
+            key: environment[key]
+            for key in ("repo_snapshot_hash", "task_id", "repo_pack_id")
+            if key in environment
+        },
+        "release": {
+            key: release[key]
+            for key in ("factory_contract_version", "factory_registry_sha256")
+            if key in release
+        },
+    }
+
+
+def _is_invalid_or_impossible(entry: Mapping[str, Any]) -> bool:
+    oracle = entry.get("oracle") if isinstance(entry.get("oracle"), Mapping) else {}
+    curation = entry.get("curation") if isinstance(entry.get("curation"), Mapping) else {}
+    reasons = curation.get("reason_codes") if isinstance(curation.get("reason_codes"), list) else []
+    return oracle.get("status") == "invalid" or "vset.impossible_task" in reasons
+
+
+def manifest_body_hash(manifest: Mapping[str, Any]) -> str:
+    """Hash the actor graph + counts + registry pin, excluding manifest_hash."""
+
+    body = {
+        "schema_version": manifest.get("schema_version"),
+        "actor_provenance_schema_version": manifest.get("actor_provenance_schema_version"),
+        "factory_contract_version": manifest.get("factory_contract_version"),
+        "factory_registry_sha256": manifest.get("factory_registry_sha256"),
+        "counts": manifest.get("counts"),
+        "entries": manifest.get("entries"),
+    }
+    return _sha256_text(_canonical_json(body))
+
+
+def _count_map(entries: list[Mapping[str, Any]], key_path: tuple[str, ...], allowed: Iterable[str] | None = None) -> dict[str, int]:
+    tallies: dict[str, int] = {name: 0 for name in allowed} if allowed is not None else {}
+    for entry in entries:
+        cursor: Any = entry
+        for key in key_path:
+            cursor = cursor.get(key) if isinstance(cursor, Mapping) else None
+        if not isinstance(cursor, str):
+            continue
+        tallies[cursor] = tallies.get(cursor, 0) + 1
+    return tallies
+
+
+def validate_manifest(
+    manifest: Any,
+    *,
+    registry_path: Path | None = None,
+) -> list[VSetValidationError]:
+    """Fail-closed checks for vset-release-manifest-v1."""
+
+    errors: list[VSetValidationError] = []
+    if not isinstance(manifest, dict):
+        return [VSetValidationError("vset.record_not_object", "manifest must be a JSON object")]
+    if manifest.get("schema_version") != MANIFEST_SCHEMA_VERSION:
+        errors.append(
+            VSetValidationError(
+                "vset.schema_version_invalid",
+                f"schema_version must be {MANIFEST_SCHEMA_VERSION}",
+            )
+        )
+    if manifest.get("actor_provenance_schema_version") != ACTOR_PROVENANCE_VERSION:
+        errors.append(
+            VSetValidationError(
+                "vset.schema_version_invalid",
+                f"actor_provenance_schema_version must be {ACTOR_PROVENANCE_VERSION}",
+            )
+        )
+    pin = registry_pin(registry_path)
+    if manifest.get("factory_contract_version") != pin["schema_version"]:
+        errors.append(
+            VSetValidationError(
+                "vset.release_contract_mismatch",
+                f"factory_contract_version must be {pin['schema_version']}",
+            )
+        )
+    if manifest.get("factory_registry_sha256") != pin["sha256"]:
+        errors.append(
+            VSetValidationError(
+                "vset.release_contract_mismatch",
+                "factory_registry_sha256 must match the reviewed FACTORY-REGISTRY.json bytes",
+            )
+        )
+    entries = manifest.get("entries")
+    if not isinstance(entries, list) or not entries:
+        errors.append(
+            VSetValidationError("vset.payload_invalid", "manifest.entries must be a non-empty list")
+        )
+        return errors
+    for index, entry in enumerate(entries):
+        where = f"entries[{index}]"
+        if not isinstance(entry, dict):
+            errors.append(VSetValidationError("vset.record_not_object", f"{where} must be an object"))
+            continue
+        if entry.get("record_kind") not in RECORD_KINDS:
+            errors.append(
+                VSetValidationError("vset.record_kind_invalid", f"{where}.record_kind is not a VSET kind")
+            )
+        if entry.get("source_kind") not in SOURCE_KINDS:
+            errors.append(
+                VSetValidationError("vset.source_kind_invalid", f"{where}.source_kind is invalid")
+            )
+        for role in MANIFEST_ROLES:
+            if role not in entry:
+                errors.append(
+                    VSetValidationError(
+                        "vset.missing_actor_role",
+                        f"{where} is missing actor-graph role {role}",
+                    )
+                )
+        if "task_author" in entry and "solver" in entry:
+            try:
+                author = _check_actor(entry["task_author"], f"{where}.task_author", require_prompt_hash=True)
+                solver = _check_actor(entry["solver"], f"{where}.solver", require_tool_policy=True)
+            except VSetValidationError as exc:
+                errors.append(exc)
+            else:
+                if author["run_id"] == solver["run_id"]:
+                    errors.append(
+                        VSetValidationError(
+                            "vset.actors_conflated",
+                            f"{where} task_author.run_id and solver.run_id must remain distinct",
+                        )
+                    )
+        reviewer = entry.get("reviewer")
+        if entry.get("record_kind") in REVIEW_REQUIRED_KINDS and not isinstance(reviewer, dict):
+            errors.append(
+                VSetValidationError(
+                    "vset.reviewer_required",
+                    f"{where} review_remediation_v1 requires an explicit reviewer",
+                )
+            )
+        elif reviewer is not None:
+            try:
+                _check_actor(reviewer, f"{where}.reviewer")
+            except VSetValidationError as exc:
+                errors.append(exc)
+        oracle = entry.get("oracle") if isinstance(entry.get("oracle"), dict) else {}
+        environment = entry.get("environment") if isinstance(entry.get("environment"), dict) else {}
+        curation = entry.get("curation") if isinstance(entry.get("curation"), dict) else {}
+        release = entry.get("release") if isinstance(entry.get("release"), dict) else {}
+        if not _is_sha256(environment.get("repo_snapshot_hash")):
+            errors.append(
+                VSetValidationError(
+                    "vset.actor_fields_invalid",
+                    f"{where}.environment.repo_snapshot_hash must be sha256:<64 hex>",
+                )
+            )
+        if oracle.get("status") == "validated" and not _is_sha256(oracle.get("result_hash")):
+            errors.append(
+                VSetValidationError(
+                    "vset.oracle_validated_without_evidence",
+                    f"{where} validated oracle requires result_hash",
+                )
+            )
+        reasons = curation.get("reason_codes") if isinstance(curation.get("reason_codes"), list) else []
+        if IDENTITY_UNRESOLVED_PROVENANCE in reasons:
+            errors.append(
+                VSetValidationError(
+                    "vset.identity_reason_collision",
+                    f"{where} must not reuse identity.unresolved_provenance for an actor gap",
+                )
+            )
+        if _is_invalid_or_impossible(entry) and curation.get("decision") != "measure":
+            errors.append(
+                VSetValidationError(
+                    "vset.accept_requires_validated_oracle",
+                    f"{where} invalid/impossible tasks must remain measure outcomes",
+                )
+            )
+        if release.get("factory_contract_version") not in {None, pin["schema_version"]}:
+            errors.append(
+                VSetValidationError(
+                    "vset.release_contract_mismatch",
+                    f"{where}.release.factory_contract_version must match the registry pin",
+                )
+            )
+        if release.get("factory_registry_sha256") not in {None, pin["sha256"]}:
+            errors.append(
+                VSetValidationError(
+                    "vset.release_contract_mismatch",
+                    f"{where}.release.factory_registry_sha256 must match the registry pin",
+                )
+            )
+    counts = manifest.get("counts")
+    if not isinstance(counts, dict):
+        errors.append(VSetValidationError("vset.payload_invalid", "manifest.counts must be an object"))
+        return errors
+    expected_kinds = _count_map(entries, ("record_kind",))
+    expected_status = _count_map(entries, ("oracle", "status"), ORACLE_STATUSES)
+    expected_decision = _count_map(entries, ("curation", "decision"), CURATION_DECISIONS)
+    expected_invalid = sum(1 for entry in entries if _is_invalid_or_impossible(entry))
+    if counts.get("records") != len(entries):
+        errors.append(
+            VSetValidationError(
+                "vset.payload_invalid",
+                "counts.records must equal the number of retained actor-graph entries",
+            )
+        )
+    if counts.get("by_record_kind") != expected_kinds:
+        errors.append(
+            VSetValidationError("vset.payload_invalid", "counts.by_record_kind does not match entries")
+        )
+    if counts.get("by_oracle_status") != expected_status:
+        errors.append(
+            VSetValidationError(
+                "vset.payload_invalid",
+                "counts.by_oracle_status does not match entries",
+            )
+        )
+    if counts.get("by_curation_decision") != expected_decision:
+        errors.append(
+            VSetValidationError(
+                "vset.payload_invalid",
+                "counts.by_curation_decision does not match entries",
+            )
+        )
+    if "invalid_or_impossible" not in counts:
+        errors.append(
+            VSetValidationError(
+                "vset.payload_invalid",
+                "counts.invalid_or_impossible is required; invalid tasks are not silent drops",
+            )
+        )
+    elif counts.get("invalid_or_impossible") != expected_invalid:
+        errors.append(
+            VSetValidationError(
+                "vset.payload_invalid",
+                "counts.invalid_or_impossible does not match retained invalid/impossible entries",
+            )
+        )
+    if manifest.get("manifest_hash") != manifest_body_hash(manifest):
+        errors.append(
+            VSetValidationError(
+                "vset.release_contract_mismatch",
+                "manifest_hash does not match the canonical actor-graph body",
+            )
+        )
+    return errors
+
+
 def load_json(path: Path) -> Any:
     return json.loads(path.read_text(encoding="utf-8"))
 
@@ -855,6 +1152,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         action="store_true",
         help="require release.factory_registry_sha256 to match the reviewed registry bytes",
     )
+    parser.add_argument(
+        "--manifest",
+        action="store_true",
+        help="treat target as a vset-release-manifest-v1 document",
+    )
     return parser.parse_args(argv)
 
 
@@ -868,6 +1170,12 @@ def main(argv: list[str] | None = None) -> int:
     if args.oracle and pack is None:
         print("--oracle requires --pack", file=sys.stderr)
         return 2
+    if args.manifest:
+        errors = validate_manifest(load_json(target))
+        print(json.dumps({"path": str(target), **summarize(errors)}, indent=2))
+        for error in errors:
+            print(f"ERROR: {target}: {error}", file=sys.stderr)
+        return 1 if errors else 0
     reports = []
     failed = False
     for path in iter_record_paths(target):
