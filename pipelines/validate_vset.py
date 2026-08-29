@@ -49,6 +49,7 @@ from vset_manifest import (  # noqa: E402
     validate_manifest,
 )
 from vset_oracle import (  # noqa: E402
+    _load_tests,
     apply_patch,
     record_patch,
     run_oracle,
@@ -122,7 +123,9 @@ def _run_records(target: Path, args: argparse.Namespace, pack: Path | None) -> i
         record = load_json(path)
         if args.oracle:
             assert pack is not None
-            errors, execution = validate_record_with_oracle(record, pack)
+            errors, execution = validate_record_with_oracle(
+                record, pack, require_registry_sha=args.require_registry_sha
+            )
         else:
             errors = validate_record(
                 record, require_registry_sha=args.require_registry_sha
