@@ -1323,15 +1323,23 @@ def _identity_owner(record: dict[str, Any], pointer: Any) -> dict[str, Any] | No
     return owner if isinstance(owner, dict) else None
 
 
-def _pop_json_pointer(record: dict[str, Any], pointer: Any) -> None:
-    """Drop one JSON-pointer field from a copied record, if it still exists."""
+def _json_pointer_tokens(pointer: Any) -> list[str] | None:
+    """Decode a JSON pointer into unescaped tokens, or ``None`` if unusable."""
 
     if not isinstance(pointer, str) or not pointer.startswith("/") or pointer == "/":
-        return
-    tokens = [
+        return None
+    return [
         token.replace("~1", "/").replace("~0", "~")
         for token in pointer[1:].split("/")
     ]
+
+
+def _pop_json_pointer(record: dict[str, Any], pointer: Any) -> None:
+    """Drop one JSON-pointer field from a copied record, if it still exists."""
+
+    tokens = _json_pointer_tokens(pointer)
+    if tokens is None:
+        return
     owner: Any = record
     for token in tokens[:-1]:
         if not isinstance(owner, dict):
@@ -1341,32 +1349,31 @@ def _pop_json_pointer(record: dict[str, Any], pointer: Any) -> None:
         owner.pop(tokens[-1], None)
 
 
+def _original_id_paths(originals: Any) -> list[str]:
+    """Every ``path`` carried by one list of original-id entries."""
+
+    if not isinstance(originals, list):
+        return []
+    return [
+        item["path"]
+        for item in originals
+        if isinstance(item, dict) and isinstance(item.get("path"), str)
+    ]
+
+
 def _mapped_legacy_id_paths(detail: Mapping[str, Any] | None) -> tuple[str, ...]:
     """Collect every identity-mapped legacy identifier path for one record."""
 
     if not isinstance(detail, Mapping):
         return ()
-    paths: list[str] = []
-    seen: set[str] = set()
-
-    def add_originals(originals: Any) -> None:
-        if not isinstance(originals, list):
-            return
-        for item in originals:
-            if not isinstance(item, dict):
-                continue
-            path = item.get("path")
-            if isinstance(path, str) and path not in seen:
-                seen.add(path)
-                paths.append(path)
-
-    add_originals(detail.get("original_ids"))
+    paths = _original_id_paths(detail.get("original_ids"))
     mappings = detail.get("id_mappings")
     if isinstance(mappings, list):
         for mapping in mappings:
             if isinstance(mapping, dict):
-                add_originals(mapping.get("original_ids"))
-    return tuple(paths)
+                paths.extend(_original_id_paths(mapping.get("original_ids")))
+    # First-seen order, deduplicated.
+    return tuple(dict.fromkeys(paths))
 
 
 def _semantic_identity_owners(record: dict[str, Any]) -> list[dict[str, Any]]:
@@ -1646,6 +1653,25 @@ def _directory_identity(metadata: os.stat_result) -> tuple[int, int, int]:
     return (metadata.st_dev, metadata.st_ino, stat.S_IFMT(metadata.st_mode))
 
 
+def _directory_binding_matches(
+    metadata: os.stat_result,
+    opened: os.stat_result,
+    resolved: Path,
+    absolute: Path,
+    expected_identity: tuple[int, int, int] | None,
+) -> bool:
+    """Whether a path and its pinned descriptor still name one directory."""
+
+    if not stat.S_ISDIR(metadata.st_mode) or not stat.S_ISDIR(opened.st_mode):
+        return False
+    if resolved != absolute:
+        return False
+    opened_identity = _directory_identity(opened)
+    if _directory_identity(metadata) != opened_identity:
+        return False
+    return expected_identity is None or opened_identity == expected_identity
+
+
 def _verify_directory_binding(
     path: Path,
     descriptor: int,
@@ -1661,15 +1687,13 @@ def _verify_directory_binding(
         opened = os.fstat(descriptor)
     except (FileNotFoundError, OSError) as exc:
         raise ComposeError(f"{label} changed while it was pinned: {path}") from exc
-    absolute = Path(os.path.abspath(path))
-    path_identity = _directory_identity(metadata)
-    opened_identity = _directory_identity(opened)
-    if (
-        not stat.S_ISDIR(metadata.st_mode)
-        or not stat.S_ISDIR(opened.st_mode)
-        or resolved != absolute
-        or path_identity != opened_identity
-        or (expected_identity is not None and opened_identity != expected_identity)
+
+    if not _directory_binding_matches(
+        metadata,
+        opened,
+        resolved,
+        Path(os.path.abspath(path)),
+        expected_identity,
     ):
         raise ComposeError(f"{label} changed while it was pinned: {path}")
 
@@ -1944,6 +1968,50 @@ def _read_exact_child_file(parent: Path, name: str, label: str) -> tuple[Path, b
         os.close(parent_descriptor)
 
 
+def _scan_source_directory(directory: Path) -> list[Any]:
+    """List one source directory in a stable, name-sorted order."""
+
+    try:
+        with os.scandir(directory) as scan:
+            return sorted(scan, key=lambda entry: entry.name)
+    except OSError as exc:
+        raise ComposeError(
+            f"cannot enumerate source directory {directory}: {exc}"
+        ) from exc
+
+
+def _source_entry_metadata(entry: Any, path: Path) -> os.stat_result:
+    """Stat one source entry without following, or accepting, an alias."""
+
+    try:
+        metadata = entry.stat(follow_symlinks=False)
+    except OSError as exc:
+        raise ComposeError(f"cannot inspect source member {path}: {exc}") from exc
+    if stat.S_ISLNK(metadata.st_mode):
+        raise ComposeError(f"source tree contains a symlink alias: {path}")
+    return metadata
+
+
+def _collect_source_directory(
+    root: Path, directory: Path, members: list[str]
+) -> list[Path]:
+    """Append this directory's JSONL members; return its child directories."""
+
+    child_directories: list[Path] = []
+    for entry in _scan_source_directory(directory):
+        path = Path(entry.path)
+        metadata = _source_entry_metadata(entry, path)
+        if stat.S_ISDIR(metadata.st_mode):
+            child_directories.append(path)
+            continue
+        if not entry.name.endswith(".jsonl"):
+            continue
+        relative = path.relative_to(root).as_posix()
+        _source_member_path(root, relative, f"compose source {relative}")
+        members.append(relative)
+    return child_directories
+
+
 def source_jsonl_members(root: Path) -> tuple[str, ...]:
     """Enumerate a source tree without silently following filesystem aliases."""
 
@@ -1954,29 +2022,9 @@ def source_jsonl_members(root: Path) -> tuple[str, ...]:
         directory = pending.pop()
         if _require_exact_directory(directory, "source directory") != directory:
             raise ComposeError(f"source directory identity changed: {directory}")
-        try:
-            with os.scandir(directory) as scan:
-                entries = sorted(scan, key=lambda entry: entry.name)
-        except OSError as exc:
-            raise ComposeError(f"cannot enumerate source directory {directory}: {exc}") from exc
-        child_directories: list[Path] = []
-        for entry in entries:
-            path = Path(entry.path)
-            try:
-                metadata = entry.stat(follow_symlinks=False)
-            except OSError as exc:
-                raise ComposeError(f"cannot inspect source member {path}: {exc}") from exc
-            if stat.S_ISLNK(metadata.st_mode):
-                raise ComposeError(f"source tree contains a symlink alias: {path}")
-            if stat.S_ISDIR(metadata.st_mode):
-                child_directories.append(path)
-                continue
-            if not entry.name.endswith(".jsonl"):
-                continue
-            relative = path.relative_to(root).as_posix()
-            _source_member_path(root, relative, f"compose source {relative}")
-            members.append(relative)
-        pending.extend(reversed(child_directories))
+        pending.extend(
+            reversed(_collect_source_directory(root, directory, members))
+        )
     return tuple(sorted(members))
 
 
