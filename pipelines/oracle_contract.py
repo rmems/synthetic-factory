@@ -172,6 +172,20 @@ def reject_json_constant(value):
     raise ValueError(f"non-standard JSON numeric constant {value}")
 
 
+def _strict_mapping_equal(recorded, expected):
+    """Same keys, and every value strictly equal."""
+    return recorded.keys() == expected.keys() and all(
+        strict_json_equal(recorded[key], expected[key]) for key in expected
+    )
+
+
+def _strict_sequence_equal(recorded, expected):
+    """Same length, and every element strictly equal in order."""
+    return len(recorded) == len(expected) and all(
+        strict_json_equal(left, right) for left, right in zip(recorded, expected)
+    )
+
+
 def strict_json_equal(recorded, expected):
     """Compare JSON-shaped evidence without Python's bool/number coercions."""
     if type(recorded) is not type(expected):
@@ -179,14 +193,9 @@ def strict_json_equal(recorded, expected):
     if isinstance(expected, float):
         return math.isfinite(recorded) and math.isfinite(expected) and recorded == expected
     if isinstance(expected, dict):
-        return recorded.keys() == expected.keys() and all(
-            strict_json_equal(recorded[key], expected[key]) for key in expected
-        )
+        return _strict_mapping_equal(recorded, expected)
     if isinstance(expected, list):
-        return len(recorded) == len(expected) and all(
-            strict_json_equal(left, right)
-            for left, right in zip(recorded, expected)
-        )
+        return _strict_sequence_equal(recorded, expected)
     return recorded == expected
 
 
@@ -207,6 +216,18 @@ def check_reason_codes(codes, where, field):
     return errors
 
 
+def _check_generator_produced(produced, where):
+    """The generator may list what it authored, but never oracle output."""
+    if not isinstance(produced, list) or not produced:
+        return [f"{where}.generator.produced must list what the generator authored"]
+    if any(item in ("result", "oracle", "measurement") for item in produced):
+        return [
+            f"{where}.generator.produced claims authorship of oracle output "
+            f"[GENERATOR_SUBSTITUTED_FOR_ORACLE]"
+        ]
+    return []
+
+
 def check_generator(generator, where):
     """The generator block, and the rule that it cannot certify itself."""
     errors = []
@@ -220,14 +241,7 @@ def check_generator(generator, where):
             f"{where}.generator.may_certify_oracle_result must be exactly false "
             "[GENERATOR_SELF_CERTIFIED]"
         )
-    produced = generator.get("produced")
-    if not isinstance(produced, list) or not produced:
-        errors.append(f"{where}.generator.produced must list what the generator authored")
-    elif any(item in ("result", "oracle", "measurement") for item in produced):
-        errors.append(
-            f"{where}.generator.produced claims authorship of oracle output "
-            f"[GENERATOR_SUBSTITUTED_FOR_ORACLE]"
-        )
+    errors += _check_generator_produced(generator.get("produced"), where)
     return errors
 
 
@@ -268,6 +282,43 @@ def check_candidate_prediction(prediction, where):
     return errors
 
 
+def _derived_membership_errors(derived, where, oracle_digests):
+    """Which digests are referenced without evidence, and which are omitted."""
+    errors = []
+    unknown = [item for item in derived if item not in oracle_digests]
+    if unknown:
+        errors.append(
+            f"{where}.result.derived_from references digests absent from oracle "
+            f"output: {unknown} [RESULT_DIGEST_UNLINKED]"
+        )
+    missing = [item for item in oracle_digests if item not in derived]
+    if missing:
+        errors.append(
+            f"{where}.result.derived_from omits executed oracle digests {missing} "
+            f"[RESULT_DIGEST_UNLINKED]"
+        )
+    return errors
+
+
+def _check_derived_digests(derived, where, oracle_digests):
+    """result.derived_from must reproduce the ordered oracle evidence exactly."""
+    if not isinstance(derived, list) or not derived:
+        return [
+            f"{where}.result.derived_from must list oracle output digests "
+            "[RESULT_DIGEST_UNLINKED]"
+        ]
+    if oracle_digests is None:
+        return []
+    errors = _derived_membership_errors(derived, where, oracle_digests)
+    if not strict_json_equal(derived, oracle_digests):
+        errors.append(
+            f"{where}.result.derived_from must exactly match the ordered oracle "
+            f"evidence, including duplicate occurrences; expected "
+            f"{oracle_digests!r}, got {derived!r} [RESULT_DIGEST_UNLINKED]"
+        )
+    return errors
+
+
 def check_result(result, where, oracle_digests):
     """A result must be oracle-backed and traceable to oracle output."""
     errors = []
@@ -283,32 +334,21 @@ def check_result(result, where, oracle_digests):
             f"{where}.result.verdict must be one of {list(VERDICTS)} [VERDICT_UNKNOWN]"
         )
     errors += check_reason_codes(result.get("reason_codes", []), where, "result.reason_codes")
-    derived = result.get("derived_from")
-    if not isinstance(derived, list) or not derived:
-        errors.append(
-            f"{where}.result.derived_from must list oracle output digests "
-            "[RESULT_DIGEST_UNLINKED]"
-        )
-    elif oracle_digests is not None:
-        unknown = [item for item in derived if item not in oracle_digests]
-        if unknown:
-            errors.append(
-                f"{where}.result.derived_from references digests absent from oracle "
-                f"output: {unknown} [RESULT_DIGEST_UNLINKED]"
-            )
-        missing = [item for item in oracle_digests if item not in derived]
-        if missing:
-            errors.append(
-                f"{where}.result.derived_from omits executed oracle digests {missing} "
-                f"[RESULT_DIGEST_UNLINKED]"
-            )
-        if not strict_json_equal(derived, oracle_digests):
-            errors.append(
-                f"{where}.result.derived_from must exactly match the ordered oracle "
-                f"evidence, including duplicate occurrences; expected "
-                f"{oracle_digests!r}, got {derived!r} [RESULT_DIGEST_UNLINKED]"
-            )
+    errors += _check_derived_digests(result.get("derived_from"), where, oracle_digests)
     return errors
+
+
+def _check_claimed_not_real(claimed, where):
+    """A synthetic record may never claim a real-world origin."""
+    if not isinstance(claimed, str):
+        return []
+    lowered = claimed.strip().lower()
+    if lowered == "real" or lowered.startswith(("real_", "real-", "real ")):
+        return [
+            f"{where}.provenance.claimed asserts a real-world origin "
+            f"[PROVENANCE_CLAIMS_REAL]"
+        ]
+    return []
 
 
 def check_provenance(provenance, where):
@@ -322,14 +362,7 @@ def check_provenance(provenance, where):
             f"{where}.provenance.kind must be one of {list(PROVENANCE_KINDS)} "
             f"[PROVENANCE_KIND_INVALID]"
         )
-    claimed = provenance.get("claimed")
-    if isinstance(claimed, str):
-        lowered = claimed.strip().lower()
-        if lowered == "real" or lowered.startswith(("real_", "real-", "real ")):
-            errors.append(
-                f"{where}.provenance.claimed asserts a real-world origin "
-                f"[PROVENANCE_CLAIMS_REAL]"
-            )
+    errors += _check_claimed_not_real(provenance.get("claimed"), where)
     for key in ("tool", "tool_version"):
         if not _nonempty_str(provenance.get(key)):
             errors.append(f"{where}.provenance.{key} must be a non-empty string")
@@ -349,14 +382,14 @@ def check_validation_block(validation, where):
     return errors
 
 
-def check_envelope(record, where, oracle_digests=None):
-    """Validate the shared envelope. Family validators add their own rules."""
-    if not _is_object(record):
-        return [f"{where}: record must be a JSON object [ENVELOPE_MALFORMED]"]
+def _is_positive_round(value):
+    """A round is a true int >= 1; bool is not an acceptable round."""
+    return isinstance(value, int) and not isinstance(value, bool) and value >= 1
+
+
+def _check_envelope_identity(record, where):
+    """id, record_kind, and the dataset/schema_version pinned to that kind."""
     errors = []
-    missing = [key for key in ENVELOPE_KEYS if key not in record]
-    if missing:
-        errors.append(f"{where}: envelope missing {missing} [ENVELOPE_MALFORMED]")
     if not _nonempty_str(record.get("id")):
         errors.append(f"{where}.id must be a non-empty string")
     kind = record.get("record_kind")
@@ -376,34 +409,53 @@ def check_envelope(record, where, oracle_digests=None):
                 f"{where}.schema_version must be {expected_version!r} for "
                 f"record_kind {kind!r}, got {schema_version!r}"
             )
-    errors += check_generator(record.get("generator"), where)
+    return errors
+
+
+def _check_envelope_scenario(record, where):
+    """The scenario object and the optional intervention beside it."""
+    errors = []
     if not _is_object(record.get("scenario")):
         errors.append(f"{where}.scenario must be an object")
     elif not _nonempty_str(record["scenario"].get("id")):
         errors.append(f"{where}.scenario.id must be a non-empty string")
     if record.get("intervention") is not None and not _is_object(record.get("intervention")):
         errors.append(f"{where}.intervention must be an object or null")
+    return errors
+
+
+def _check_envelope_meta(meta, where):
+    """Round and factory stamps carried by every record kind."""
+    if not _is_object(meta):
+        return [f"{where}.meta must be an object"]
+    errors = []
+    # `>= 1` matches validate_run.check_meta_round, so a parity record is
+    # not the one kind in the factory that can carry round 0 or -1.
+    if not _is_positive_round(meta.get("round")):
+        errors.append(f"{where}.meta.round must be an integer >= 1")
+    if not _nonempty_str(meta.get("factory")):
+        errors.append(f"{where}.meta.factory must be a non-empty string")
+    return errors
+
+
+def check_envelope(record, where, oracle_digests=None):
+    """Validate the shared envelope. Family validators add their own rules."""
+    if not _is_object(record):
+        return [f"{where}: record must be a JSON object [ENVELOPE_MALFORMED]"]
+    errors = []
+    missing = [key for key in ENVELOPE_KEYS if key not in record]
+    if missing:
+        errors.append(f"{where}: envelope missing {missing} [ENVELOPE_MALFORMED]")
+    errors += _check_envelope_identity(record, where)
+    errors += check_generator(record.get("generator"), where)
+    errors += _check_envelope_scenario(record, where)
     errors += check_candidate_prediction(record.get("candidate_prediction"), where)
     if not _is_object(record.get("oracle")):
         errors.append(f"{where}.oracle must be an object")
     errors += check_result(record.get("result"), where, oracle_digests)
     errors += check_provenance(record.get("provenance"), where)
     errors += check_validation_block(record.get("validation"), where)
-    meta = record.get("meta")
-    if not _is_object(meta):
-        errors.append(f"{where}.meta must be an object")
-    else:
-        # `>= 1` matches validate_run.check_meta_round, so a parity record is
-        # not the one kind in the factory that can carry round 0 or -1.
-        round_number = meta.get("round")
-        if (
-            not isinstance(round_number, int)
-            or isinstance(round_number, bool)
-            or round_number < 1
-        ):
-            errors.append(f"{where}.meta.round must be an integer >= 1")
-        if not _nonempty_str(meta.get("factory")):
-            errors.append(f"{where}.meta.factory must be a non-empty string")
+    errors += _check_envelope_meta(record.get("meta"), where)
     return errors
 
 
@@ -484,17 +536,22 @@ def _hardware_parity_execution_targets(oracle):
     return targets
 
 
+def _is_runtime_status_entry(entry):
+    """A runtimes[] entry that carries both a runtime name and a status."""
+    return (
+        isinstance(entry, dict)
+        and _nonempty_str(entry.get("runtime"))
+        and _nonempty_str(entry.get("status"))
+    )
+
+
 def _nir_equivalence_execution_targets(oracle):
     runtimes = oracle.get("runtimes")
     if not isinstance(runtimes, list):
         return None
     targets = []
     for entry in runtimes:
-        if (
-            not isinstance(entry, dict)
-            or not _nonempty_str(entry.get("runtime"))
-            or not _nonempty_str(entry.get("status"))
-        ):
+        if not _is_runtime_status_entry(entry):
             return None
         targets.append(f"{entry['runtime']}:{entry['status']}")
     return targets
@@ -543,29 +600,37 @@ def _check_view_identity(record, view, where):
     return errors
 
 
-def _check_view_reason_codes(record, view, where):
-    """Both sides' reason_codes must be well-formed and exactly match."""
-    errors = []
-    result = record.get("result") or {}
-    raw_record_codes = result.get("reason_codes")
-    record_codes = (
-        [code for code in raw_record_codes if isinstance(code, str)]
-        if isinstance(raw_record_codes, list)
+def _side_reason_code_errors(raw_codes, where, field, malformed_message):
+    """Well-formedness of one side's reason_codes, tagged for the view gate.
+
+    Returns the string-only codes alongside the findings, so the caller can
+    reuse them without re-filtering.
+    """
+    codes = (
+        [code for code in raw_codes if isinstance(code, str)]
+        if isinstance(raw_codes, list)
         else []
     )
-    if not isinstance(raw_record_codes, list) or len(record_codes) != len(
-        raw_record_codes
-    ):
-        errors.append(
-            f"{where}: record reason_codes are malformed "
-            "[TRAINING_VIEW_HIDES_FAILURE]"
-        )
+    errors = []
+    if not isinstance(raw_codes, list) or len(codes) != len(raw_codes):
+        errors.append(f"{where}: {malformed_message} [TRAINING_VIEW_HIDES_FAILURE]")
     errors += [
         f"{error} [TRAINING_VIEW_HIDES_FAILURE]"
-        for error in check_reason_codes(
-            raw_record_codes, where, "record reason_codes"
-        )
+        for error in check_reason_codes(raw_codes, where, field)
     ]
+    return codes, errors
+
+
+def _check_view_reason_codes(record, view, where):
+    """Both sides' reason_codes must be well-formed and exactly match."""
+    result = record.get("result") or {}
+    raw_record_codes = result.get("reason_codes")
+    record_codes, errors = _side_reason_code_errors(
+        raw_record_codes,
+        where,
+        "record reason_codes",
+        "record reason_codes are malformed",
+    )
     expected_complete = oracle_is_complete(record_codes)
     if view.get("oracle_complete") is not expected_complete:
         errors.append(
@@ -573,20 +638,13 @@ def _check_view_reason_codes(record, view, where):
             f"this record's reason codes [TRAINING_VIEW_HIDES_FAILURE]"
         )
     raw_view_codes = view.get("reason_codes")
-    view_codes = (
-        [code for code in raw_view_codes if isinstance(code, str)]
-        if isinstance(raw_view_codes, list)
-        else []
+    _view_codes, view_errors = _side_reason_code_errors(
+        raw_view_codes,
+        where,
+        "training view reason_codes",
+        "training view reason_codes must be an array of strings",
     )
-    if not isinstance(raw_view_codes, list) or len(view_codes) != len(raw_view_codes):
-        errors.append(
-            f"{where}: training view reason_codes must be an array of strings "
-            "[TRAINING_VIEW_HIDES_FAILURE]"
-        )
-    errors += [
-        f"{error} [TRAINING_VIEW_HIDES_FAILURE]"
-        for error in check_reason_codes(raw_view_codes, where, "training view reason_codes")
-    ]
+    errors += view_errors
     if not strict_json_equal(raw_view_codes, raw_record_codes):
         errors.append(
             f"{where}: training view reason_codes must exactly match the record's "
@@ -635,17 +693,9 @@ def training_view_errors(record, view, where):
     return errors
 
 
-def view_set_errors(records, views, where="training-view"):
-    """The view set must be a faithful one-to-one image of the record set.
-
-    Checking only that no record was dropped is not enough: duplicating the
-    agreeable half of a corpus dilutes the failures just as effectively as
-    deleting them, and a view with no record behind it is unsourced.
-    """
+def _view_id_validity_errors(record_ids, view_ids, where):
+    """Both sides must carry string IDs before they can be compared as sets."""
     errors = []
-    record_ids = [record.get("id") for record in records]
-    view_ids = [view.get("id") for view in views]
-    record_id_set = {rid for rid in record_ids if isinstance(rid, str)}
     invalid_view_ids = [view_id for view_id in view_ids if not isinstance(view_id, str)]
     if invalid_view_ids:
         errors.append(
@@ -658,26 +708,65 @@ def view_set_errors(records, views, where="training-view"):
             f"{where}: source record set contains invalid non-string IDs "
             f"{invalid_record_ids!r} [TRAINING_VIEW_HIDES_FAILURE]"
         )
-    view_id_counts = Counter(vid for vid in view_ids if isinstance(vid, str))
+    return errors
+
+
+def _dropped_record_errors(record_ids, view_id_counts, where):
+    """Every source record must still have a view."""
     # Only string record IDs are hashable-safe to check against view_id_counts;
-    # a malformed ID (e.g. a list) is already reported above and must not
-    # reach `in` on a dict, which raises TypeError for unhashable keys.
+    # a malformed ID (e.g. a list) is already reported by the validity pass and
+    # must not reach `in` on a dict, which raises TypeError for unhashable keys.
     dropped = [rid for rid in record_ids if isinstance(rid, str) and rid not in view_id_counts]
-    if dropped:
-        errors.append(
-            f"{where}: training view set drops records {dropped} "
-            f"[TRAINING_VIEW_HIDES_FAILURE]"
-        )
+    if not dropped:
+        return []
+    return [
+        f"{where}: training view set drops records {dropped} "
+        f"[TRAINING_VIEW_HIDES_FAILURE]"
+    ]
+
+
+def _orphan_view_errors(view_id_counts, record_id_set, where):
+    """Every view must have a record behind it."""
     orphans = sorted(vid for vid in view_id_counts if vid not in record_id_set)
-    if orphans:
-        errors.append(
-            f"{where}: training view set contains views with no record behind them: "
-            f"{orphans} [TRAINING_VIEW_HIDES_FAILURE]"
-        )
+    if not orphans:
+        return []
+    return [
+        f"{where}: training view set contains views with no record behind them: "
+        f"{orphans} [TRAINING_VIEW_HIDES_FAILURE]"
+    ]
+
+
+def _duplicate_view_errors(view_id_counts, where):
+    """A repeated view reweights the corpus away from what the oracles found."""
     duplicates = sorted(vid for vid, count in view_id_counts.items() if count > 1)
-    if duplicates:
-        errors.append(
-            f"{where}: training view set repeats {duplicates}, which reweights the "
-            f"corpus away from what the oracles found [TRAINING_VIEW_HIDES_FAILURE]"
-        )
+    if not duplicates:
+        return []
+    return [
+        f"{where}: training view set repeats {duplicates}, which reweights the "
+        f"corpus away from what the oracles found [TRAINING_VIEW_HIDES_FAILURE]"
+    ]
+
+
+def _view_id_mapping_errors(record_ids, view_ids, where):
+    """Nothing dropped, nothing unsourced, nothing repeated."""
+    record_id_set = {rid for rid in record_ids if isinstance(rid, str)}
+    view_id_counts = Counter(vid for vid in view_ids if isinstance(vid, str))
+    return (
+        _dropped_record_errors(record_ids, view_id_counts, where)
+        + _orphan_view_errors(view_id_counts, record_id_set, where)
+        + _duplicate_view_errors(view_id_counts, where)
+    )
+
+
+def view_set_errors(records, views, where="training-view"):
+    """The view set must be a faithful one-to-one image of the record set.
+
+    Checking only that no record was dropped is not enough: duplicating the
+    agreeable half of a corpus dilutes the failures just as effectively as
+    deleting them, and a view with no record behind it is unsourced.
+    """
+    record_ids = [record.get("id") for record in records]
+    view_ids = [view.get("id") for view in views]
+    errors = _view_id_validity_errors(record_ids, view_ids, where)
+    errors += _view_id_mapping_errors(record_ids, view_ids, where)
     return errors
