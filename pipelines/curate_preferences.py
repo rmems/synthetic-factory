@@ -589,31 +589,49 @@ def _skipped_manifest_entry(
     }
 
 
+def _field_agreement_label(field_name: str, same: bool | None) -> str:
+    """The per-field bucket one context field falls in."""
+
+    if same is True:
+        return f"same_{field_name}"
+    if same is False:
+        return f"{field_name}_divergent"
+    return f"{field_name}_undetermined"
+
+
+def _pair_agreement_bucket(
+    same_state: bool | None, same_proposed_action: bool | None
+) -> str | None:
+    """The one disjoint pair-level bucket, or ``None`` for a pure pair.
+
+    A pair that agrees on both fields lands in no bucket at all: the four
+    buckets exist to partition the *impure* pairs, and ``_curation_summary``
+    sums exactly them.
+    """
+
+    if same_state is None or same_proposed_action is None:
+        return "undetermined"
+    if not same_state and not same_proposed_action:
+        return "both_divergent"
+    if not same_state:
+        return "state_only_divergent"
+    if not same_proposed_action:
+        return "proposed_action_only_divergent"
+    return None
+
+
 def _agreement_labels(decision: CurationDecision) -> tuple[str, ...]:
     """Return per-field totals plus one disjoint pair-level bucket."""
 
-    labels: list[str] = []
-    if decision.same_state is True:
-        labels.append("same_state")
-    elif decision.same_state is False:
-        labels.append("state_divergent")
-    else:
-        labels.append("state_undetermined")
-    if decision.same_proposed_action is True:
-        labels.append("same_proposed_action")
-    elif decision.same_proposed_action is False:
-        labels.append("proposed_action_divergent")
-    else:
-        labels.append("proposed_action_undetermined")
-    if decision.same_state is None or decision.same_proposed_action is None:
-        labels.append("undetermined")
-        return tuple(labels)
-    if not decision.same_state and not decision.same_proposed_action:
-        labels.append("both_divergent")
-    elif not decision.same_state:
-        labels.append("state_only_divergent")
-    elif not decision.same_proposed_action:
-        labels.append("proposed_action_only_divergent")
+    labels = [
+        _field_agreement_label("state", decision.same_state),
+        _field_agreement_label("proposed_action", decision.same_proposed_action),
+    ]
+    bucket = _pair_agreement_bucket(
+        decision.same_state, decision.same_proposed_action
+    )
+    if bucket is not None:
+        labels.append(bucket)
     return tuple(labels)
 # The four disjoint context-divergence/comparability buckets that make a pair
 # impure. ``_curation_summary`` sums exactly these, and a pair landing in any
@@ -1169,54 +1187,99 @@ AUDIT_PAIR_FIELDS = (
 AUDIT_SOURCE_FILE_FIELDS = ("source_file_sha256",)
 
 
+def _audit_header_differences(expected: dict[str, Any], actual: dict[str, Any]) -> list[str]:
+    """Identity fields that must match before any count is comparable."""
+
+    return [
+        f"{key}: expected {expected.get(key)!r}, got {actual.get(key)!r}"
+        for key in ("schema_version", "audit", "transform")
+        if expected.get(key) != actual.get(key)
+    ]
+
+
+def _audit_summary_differences(expected: dict[str, Any], actual: dict[str, Any]) -> list[str]:
+    """Every summary counter present on either side that disagrees."""
+
+    expected_summary = expected.get("summary")
+    expected_summary = expected_summary if isinstance(expected_summary, dict) else {}
+    return [
+        f"summary.{key}: expected {expected_summary.get(key)!r}, "
+        f"got {actual['summary'].get(key)!r}"
+        for key in sorted(set(expected_summary) | set(actual["summary"]))
+        if expected_summary.get(key) != actual["summary"].get(key)
+    ]
+
+
+def _audit_source_file_differences(
+    expected: dict[str, Any], actual: dict[str, Any]
+) -> list[str]:
+    """Source-file inventory drift, by path then by field."""
+
+    expected_files = _source_files_by_path(expected.get("source_files"))
+    actual_files = _source_files_by_path(actual.get("source_files"))
+    differences = [
+        f"{source_path}: audited source file is absent from this scan"
+        for source_path in sorted(set(expected_files) - set(actual_files))
+    ]
+    differences.extend(
+        f"{source_path}: source file is absent from the audit"
+        for source_path in sorted(set(actual_files) - set(expected_files))
+    )
+    for source_path in sorted(set(expected_files) & set(actual_files)):
+        for field_name in AUDIT_SOURCE_FILE_FIELDS:
+            want = expected_files[source_path].get(field_name)
+            got = actual_files[source_path].get(field_name)
+            if want != got:
+                differences.append(
+                    f"{source_path}: {field_name}: expected {want!r}, got {got!r}"
+                )
+    return differences
+
+
+def _audit_impure_pair_differences(
+    expected: dict[str, Any], actual: dict[str, Any]
+) -> list[str]:
+    """Per-pair drift, by source location then by field."""
+
+    expected_pairs = _pairs_by_location(expected.get("impure_pairs"))
+    actual_pairs = _pairs_by_location(actual["impure_pairs"])
+    differences = [
+        f"{location[0]}:{location[1]}: audited impure pair is absent from this scan"
+        for location in sorted(
+            set(expected_pairs) - set(actual_pairs), key=_location_sort_key
+        )
+    ]
+    differences.extend(
+        f"{location[0]}:{location[1]}: impure pair is absent from the audit"
+        for location in sorted(
+            set(actual_pairs) - set(expected_pairs), key=_location_sort_key
+        )
+    )
+    for location in sorted(
+        set(expected_pairs) & set(actual_pairs), key=_location_sort_key
+    ):
+        for field_name in AUDIT_PAIR_FIELDS:
+            want = expected_pairs[location].get(field_name)
+            got = actual_pairs[location].get(field_name)
+            if want != got:
+                differences.append(
+                    f"{location[0]}:{location[1]}: {field_name}: "
+                    f"expected {want!r}, got {got!r}"
+                )
+    return differences
+
+
 def audit_differences(expected: Any, actual: dict[str, Any]) -> list[str]:
     """Return every way ``actual`` departs from a previously published audit."""
 
     if not isinstance(expected, dict):
         return ["expected audit document is not a JSON object"]
-    differences: list[str] = []
-    for key in ("schema_version", "audit", "transform"):
-        if expected.get(key) != actual.get(key):
-            differences.append(f"{key}: expected {expected.get(key)!r}, got {actual.get(key)!r}")
-    expected_summary = expected.get("summary")
-    expected_summary = expected_summary if isinstance(expected_summary, dict) else {}
-    for key in sorted(set(expected_summary) | set(actual["summary"])):
-        if expected_summary.get(key) != actual["summary"].get(key):
-            differences.append(
-                f"summary.{key}: expected {expected_summary.get(key)!r}, "
-                f"got {actual['summary'].get(key)!r}"
-            )
-
-    expected_files = _source_files_by_path(expected.get("source_files"))
-    actual_files = _source_files_by_path(actual.get("source_files"))
-    for source_path in sorted(set(expected_files) - set(actual_files)):
-        differences.append(f"{source_path}: audited source file is absent from this scan")
-    for source_path in sorted(set(actual_files) - set(expected_files)):
-        differences.append(f"{source_path}: source file is absent from the audit")
-    for source_path in sorted(set(expected_files) & set(actual_files)):
-        for field in AUDIT_SOURCE_FILE_FIELDS:
-            want = expected_files[source_path].get(field)
-            got = actual_files[source_path].get(field)
-            if want != got:
-                differences.append(f"{source_path}: {field}: expected {want!r}, got {got!r}")
-
-    expected_pairs = _pairs_by_location(expected.get("impure_pairs"))
-    actual_pairs = _pairs_by_location(actual["impure_pairs"])
-    for location in sorted(set(expected_pairs) - set(actual_pairs), key=_location_sort_key):
-        differences.append(
-            f"{location[0]}:{location[1]}: audited impure pair is absent from this scan"
-        )
-    for location in sorted(set(actual_pairs) - set(expected_pairs), key=_location_sort_key):
-        differences.append(f"{location[0]}:{location[1]}: impure pair is absent from the audit")
-    for location in sorted(set(expected_pairs) & set(actual_pairs), key=_location_sort_key):
-        for field in AUDIT_PAIR_FIELDS:
-            want = expected_pairs[location].get(field)
-            got = actual_pairs[location].get(field)
-            if want != got:
-                differences.append(
-                    f"{location[0]}:{location[1]}: {field}: expected {want!r}, got {got!r}"
-                )
-    return differences
+    return [
+        *_audit_header_differences(expected, actual),
+        *_audit_summary_differences(expected, actual),
+        *_audit_source_file_differences(expected, actual),
+        *_audit_impure_pair_differences(expected, actual),
+    ]
 
 
 RECONCILE_DECISION_FIELDS = (
@@ -1235,6 +1298,91 @@ RECONCILE_COVERAGE_KEYS = (
 )
 
 
+def _manifest_by_location(run: CurationRun) -> dict[tuple[str, int], dict[str, Any]]:
+    """One scan's manifest entries keyed by source path and line."""
+
+    return {
+        (entry["source_path"], entry["source_line"]): entry for entry in run.manifest
+    }
+
+
+def _reconcile_summary_coverage(first: CurationRun, second: CurationRun) -> list[str]:
+    """Denominator counters that disagree between two scans of one corpus."""
+
+    return [
+        f"summary.{key}: first {first.summary[key]}, second {second.summary[key]}"
+        for key in RECONCILE_COVERAGE_KEYS
+        if first.summary[key] != second.summary[key]
+    ]
+
+
+def _reconcile_source_files(
+    first: CurationRun, second: CurationRun
+) -> tuple[list[str], list[str]]:
+    """Source-file inventory drift, split into coverage and payload."""
+
+    first_files = _source_files_by_path(first.source_files)
+    second_files = _source_files_by_path(second.source_files)
+    coverage = [
+        f"{source_path}: file present in the first source only"
+        for source_path in sorted(set(first_files) - set(second_files))
+    ]
+    coverage.extend(
+        f"{source_path}: file present in the second source only"
+        for source_path in sorted(set(second_files) - set(first_files))
+    )
+
+    payload: list[str] = []
+    for source_path in sorted(set(first_files) & set(second_files)):
+        for field_name in AUDIT_SOURCE_FILE_FIELDS:
+            first_value = first_files[source_path].get(field_name)
+            second_value = second_files[source_path].get(field_name)
+            if first_value != second_value:
+                payload.append(
+                    f"{source_path}: {field_name}: "
+                    f"first {first_value!r}, second {second_value!r}"
+                )
+    return coverage, payload
+
+
+def _reconcile_manifest_entries(
+    first_entries: dict[tuple[str, int], dict[str, Any]],
+    second_entries: dict[tuple[str, int], dict[str, Any]],
+) -> tuple[list[str], list[str], list[str]]:
+    """Per-record drift, split into coverage, decisions, and payload."""
+
+    coverage = [
+        f"{location[0]}:{location[1]}: present in the first source only"
+        for location in sorted(
+            set(first_entries) - set(second_entries), key=_location_sort_key
+        )
+    ]
+    coverage.extend(
+        f"{location[0]}:{location[1]}: present in the second source only"
+        for location in sorted(
+            set(second_entries) - set(first_entries), key=_location_sort_key
+        )
+    )
+
+    decisions: list[str] = []
+    payload: list[str] = []
+    for location in sorted(
+        set(first_entries) & set(second_entries), key=_location_sort_key
+    ):
+        for field_name, bucket in (
+            *((name, decisions) for name in RECONCILE_DECISION_FIELDS),
+            *((name, payload) for name in RECONCILE_PAYLOAD_FIELDS),
+        ):
+            first_value = first_entries[location].get(field_name)
+            second_value = second_entries[location].get(field_name)
+            if first_value != second_value:
+                bucket.append(
+                    f"{location[0]}:{location[1]}: {field_name}: "
+                    f"first {first_value!r}, second {second_value!r}"
+                )
+    return coverage, decisions, payload
+
+
 def reconcile_runs(first: CurationRun, second: CurationRun) -> dict[str, list[str]]:
     """Compare two scans of one corpus, keyed by source path and line.
 
@@ -1243,54 +1391,19 @@ def reconcile_runs(first: CurationRun, second: CurationRun) -> dict[str, list[st
     reports agreeing verdicts reached from different source bytes.
     """
 
-    coverage: list[str] = []
-    decisions: list[str] = []
-    payload: list[str] = []
-
-    for key in RECONCILE_COVERAGE_KEYS:
-        if first.summary[key] != second.summary[key]:
-            coverage.append(
-                f"summary.{key}: first {first.summary[key]}, second {second.summary[key]}"
-            )
-
-    first_files = _source_files_by_path(first.source_files)
-    second_files = _source_files_by_path(second.source_files)
-    for source_path in sorted(set(first_files) - set(second_files)):
-        coverage.append(f"{source_path}: file present in the first source only")
-    for source_path in sorted(set(second_files) - set(first_files)):
-        coverage.append(f"{source_path}: file present in the second source only")
-    for source_path in sorted(set(first_files) & set(second_files)):
-        for field in AUDIT_SOURCE_FILE_FIELDS:
-            first_value = first_files[source_path].get(field)
-            second_value = second_files[source_path].get(field)
-            if first_value != second_value:
-                payload.append(
-                    f"{source_path}: {field}: first {first_value!r}, second {second_value!r}"
-                )
-
-    def located(run: CurationRun) -> dict[tuple[str, int], dict[str, Any]]:
-        return {(entry["source_path"], entry["source_line"]): entry for entry in run.manifest}
-
-    first_entries = located(first)
-    second_entries = located(second)
-    for location in sorted(set(first_entries) - set(second_entries), key=_location_sort_key):
-        coverage.append(f"{location[0]}:{location[1]}: present in the first source only")
-    for location in sorted(set(second_entries) - set(first_entries), key=_location_sort_key):
-        coverage.append(f"{location[0]}:{location[1]}: present in the second source only")
-
-    for location in sorted(set(first_entries) & set(second_entries), key=_location_sort_key):
-        for field, bucket in (
-            *((field, decisions) for field in RECONCILE_DECISION_FIELDS),
-            *((field, payload) for field in RECONCILE_PAYLOAD_FIELDS),
-        ):
-            first_value = first_entries[location].get(field)
-            second_value = second_entries[location].get(field)
-            if first_value != second_value:
-                bucket.append(
-                    f"{location[0]}:{location[1]}: {field}: "
-                    f"first {first_value!r}, second {second_value!r}"
-                )
-    return {"coverage": coverage, "decisions": decisions, "payload": payload}
+    file_coverage, file_payload = _reconcile_source_files(first, second)
+    entry_coverage, decisions, entry_payload = _reconcile_manifest_entries(
+        _manifest_by_location(first), _manifest_by_location(second)
+    )
+    return {
+        "coverage": [
+            *_reconcile_summary_coverage(first, second),
+            *file_coverage,
+            *entry_coverage,
+        ],
+        "decisions": decisions,
+        "payload": [*file_payload, *entry_payload],
+    }
 
 
 def _render_human(run: CurationRun) -> str:
@@ -1354,6 +1467,43 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     return parser.parse_args(argv)
 
 
+def _print_audit_text(audit: dict[str, Any]) -> None:
+    """The default human-readable audit rendering."""
+
+    summary = audit["summary"]
+    print(
+        f"Preference pairs: {summary['preference_pairs']}\n"
+        f"Impure pairs: {summary['impure_pairs']} "
+        f"(state {summary['state_divergent_pairs']}, "
+        f"proposal {summary['proposed_action_divergent_pairs']}, "
+        f"proposal only {summary['proposed_action_only_divergent_pairs']})\n"
+        f"Curated keep: {summary['curated_retained_pairs']} "
+        f"at {summary['retained_context_purity_pct']:.1f}% same-context purity"
+    )
+    for pair in audit["impure_pairs"]:
+        location = f"{pair['source_path']}:{pair['source_line']}"
+        identifier = pair["record_id"] or "<no-id>"
+        fields = ",".join(pair["divergent_context_fields"]) or "<none>"
+        reasons = ",".join(pair["reason_codes"])
+        print(f"- {location} {identifier}: {pair['action']} [{fields}] [{reasons}]")
+
+
+def _report_audit_drift(expect: Path, audit: dict[str, Any]) -> int:
+    """Fail closed when this scan has drifted from a published audit."""
+
+    try:
+        expected = json.loads(expect.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        raise PreferenceCurationError(f"{expect}: invalid JSON: {exc}") from exc
+    differences = audit_differences(expected, audit)
+    if not differences:
+        return 0
+    print(f"audit drift against {expect}:", file=sys.stderr)
+    for difference in differences:
+        print(f"- {difference}", file=sys.stderr)
+    return 1
+
+
 def _run_audit(args: argparse.Namespace, run: CurationRun) -> int:
     audit = build_audit(run)
     if args.markdown:
@@ -1361,35 +1511,10 @@ def _run_audit(args: argparse.Namespace, run: CurationRun) -> int:
     elif args.json:
         print(json.dumps(audit, indent=2, sort_keys=True, ensure_ascii=False))
     else:
-        summary = audit["summary"]
-        print(
-            f"Preference pairs: {summary['preference_pairs']}\n"
-            f"Impure pairs: {summary['impure_pairs']} "
-            f"(state {summary['state_divergent_pairs']}, "
-            f"proposal {summary['proposed_action_divergent_pairs']}, "
-            f"proposal only {summary['proposed_action_only_divergent_pairs']})\n"
-            f"Curated keep: {summary['curated_retained_pairs']} "
-            f"at {summary['retained_context_purity_pct']:.1f}% same-context purity"
-        )
-        for pair in audit["impure_pairs"]:
-            location = f"{pair['source_path']}:{pair['source_line']}"
-            identifier = pair["record_id"] or "<no-id>"
-            fields = ",".join(pair["divergent_context_fields"]) or "<none>"
-            reasons = ",".join(pair["reason_codes"])
-            print(f"- {location} {identifier}: {pair['action']} [{fields}] [{reasons}]")
+        _print_audit_text(audit)
     if args.expect is None:
         return 0
-    try:
-        expected = json.loads(args.expect.read_text(encoding="utf-8"))
-    except json.JSONDecodeError as exc:
-        raise PreferenceCurationError(f"{args.expect}: invalid JSON: {exc}") from exc
-    differences = audit_differences(expected, audit)
-    if not differences:
-        return 0
-    print(f"audit drift against {args.expect}:", file=sys.stderr)
-    for difference in differences:
-        print(f"- {difference}", file=sys.stderr)
-    return 1
+    return _report_audit_drift(args.expect, audit)
 
 
 def _run_reconcile(args: argparse.Namespace) -> int:
