@@ -27,7 +27,7 @@ import re
 import stat
 import sys
 from collections import Counter
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from pathlib import Path, PurePosixPath
 
 from oracle_grounded import canon, families, oracles, record
@@ -212,96 +212,124 @@ def _snapshot_regular_file(root_fd, path, relative, limit, expected_stat):
     )
 
 
+@dataclass
+class _RunTreeWalk:
+    """Accumulated state for one depth-first run-tree enumeration.
+
+    ``stack`` owns an open descriptor per queued directory; the caller is
+    responsible for closing whatever remains on it.
+    """
+
+    root: Path
+    stack: list = field(default_factory=list)
+    files: dict = field(default_factory=dict)
+    errors: list = field(default_factory=list)
+    entries_seen: int = 0
+    bytes_seen: int = 0
+    directory_fd: int = -1
+
+    def report(self, relative, message):
+        """Record one finding against a run-relative path."""
+        self.errors.append(f"{self.root / relative}: {message}")
+
+
+def _record_regular_file(entry_stat, relative, walk):
+    """Record one regular file. True when a run-wide limit halts the walk."""
+    if entry_stat.st_nlink != 1:
+        walk.report(relative, "hard-linked files are not allowed in a run")
+    walk.files[relative] = (walk.root / relative, entry_stat)
+    walk.bytes_seen += entry_stat.st_size
+    if walk.bytes_seen > MAX_RUN_BYTES:
+        walk.errors.append(f"{walk.root}: run exceeds the {MAX_RUN_BYTES}-byte snapshot limit")
+        return True
+    if len(walk.files) > MAX_RUN_FILES:
+        walk.errors.append(f"{walk.root}: run contains more than {MAX_RUN_FILES} files")
+        return True
+    return False
+
+
+def _push_subdirectory(entry, entry_stat, relative_path, walk):
+    """Open a child directory without following links and queue it."""
+    relative = relative_path.as_posix()
+    if len(relative_path.parts) > MAX_RUN_DEPTH:
+        walk.report(relative, f"run nesting exceeds {MAX_RUN_DEPTH} directories")
+        return
+    flags = (
+        os.O_RDONLY
+        | getattr(os, "O_CLOEXEC", 0)
+        | getattr(os, "O_DIRECTORY", 0)
+        | getattr(os, "O_NOFOLLOW", 0)
+    )
+    try:
+        child_fd = os.open(entry.name, flags, dir_fd=walk.directory_fd)
+        child_stat = os.fstat(child_fd)
+    except OSError as exc:
+        walk.report(relative, f"could not open directory safely: {type(exc).__name__}")
+        return
+    if (child_stat.st_dev, child_stat.st_ino) != (entry_stat.st_dev, entry_stat.st_ino):
+        os.close(child_fd)
+        walk.report(relative, "directory changed during enumeration")
+        return
+    walk.stack.append((relative_path, child_fd))
+
+
+def _scan_entry(entry, relative_path, walk):
+    """Classify one directory entry. True when a run-wide limit halts the walk."""
+    relative = relative_path.as_posix()
+    try:
+        entry_stat = entry.stat(follow_symlinks=False)
+    except OSError as exc:
+        walk.report(relative, f"could not inspect entry: {type(exc).__name__}")
+        return False
+    if stat.S_ISLNK(entry_stat.st_mode):
+        walk.report(relative, "symbolic links are not allowed in a run")
+        return False
+    if stat.S_ISDIR(entry_stat.st_mode):
+        _push_subdirectory(entry, entry_stat, relative_path, walk)
+        return False
+    if stat.S_ISREG(entry_stat.st_mode):
+        return _record_regular_file(entry_stat, relative, walk)
+    walk.report(relative, "only regular files and directories are allowed")
+    return False
+
+
+def _scan_directory(prefix, directory_fd, walk):
+    """Scan one directory level. True when a run-wide limit halts the walk."""
+    walk.directory_fd = directory_fd
+    with os.scandir(directory_fd) as iterator:
+        entries = sorted(iterator, key=lambda entry: entry.name)
+    for entry in entries:
+        walk.entries_seen += 1
+        if walk.entries_seen > MAX_RUN_ENTRIES:
+            walk.errors.append(f"{walk.root}: run contains more than {MAX_RUN_ENTRIES} entries")
+            return True
+        if _scan_entry(entry, prefix / entry.name, walk):
+            return True
+    return False
+
+
 def _enumerate_run_files(run_dir, root_fd):
     """List one opened run tree without following directory links."""
-    root = Path(run_dir)
-    errors = []
-    files = {}
-    stack = [(PurePosixPath(), os.dup(root_fd))]
-    entries_seen = 0
-    bytes_seen = 0
+    walk = _RunTreeWalk(root=Path(run_dir))
+    walk.stack.append((PurePosixPath(), os.dup(root_fd)))
     try:
-        while stack:
-            prefix, directory_fd = stack.pop()
-            directory = root / prefix
+        while walk.stack:
+            prefix, directory_fd = walk.stack.pop()
+            halted = False
             try:
-                with os.scandir(directory_fd) as iterator:
-                    entries = sorted(iterator, key=lambda entry: entry.name)
-                for entry in entries:
-                    entries_seen += 1
-                    if entries_seen > MAX_RUN_ENTRIES:
-                        errors.append(f"{root}: run contains more than {MAX_RUN_ENTRIES} entries")
-                        return files, errors
-                    relative_path = prefix / entry.name
-                    relative = relative_path.as_posix()
-                    try:
-                        entry_stat = entry.stat(follow_symlinks=False)
-                    except OSError as exc:
-                        errors.append(
-                            f"{root / relative}: could not inspect entry: {type(exc).__name__}"
-                        )
-                        continue
-                    if stat.S_ISLNK(entry_stat.st_mode):
-                        errors.append(f"{root / relative}: symbolic links are not allowed in a run")
-                    elif stat.S_ISDIR(entry_stat.st_mode):
-                        if len(relative_path.parts) > MAX_RUN_DEPTH:
-                            errors.append(
-                                f"{root / relative}: run nesting exceeds "
-                                f"{MAX_RUN_DEPTH} directories"
-                            )
-                            continue
-                        flags = (
-                            os.O_RDONLY
-                            | getattr(os, "O_CLOEXEC", 0)
-                            | getattr(os, "O_DIRECTORY", 0)
-                            | getattr(os, "O_NOFOLLOW", 0)
-                        )
-                        try:
-                            child_fd = os.open(entry.name, flags, dir_fd=directory_fd)
-                            child_stat = os.fstat(child_fd)
-                        except OSError as exc:
-                            errors.append(
-                                f"{root / relative}: could not open directory safely: "
-                                f"{type(exc).__name__}"
-                            )
-                            continue
-                        if (child_stat.st_dev, child_stat.st_ino) != (
-                            entry_stat.st_dev,
-                            entry_stat.st_ino,
-                        ):
-                            os.close(child_fd)
-                            errors.append(
-                                f"{root / relative}: directory changed during enumeration"
-                            )
-                            continue
-                        stack.append((relative_path, child_fd))
-                    elif stat.S_ISREG(entry_stat.st_mode):
-                        if entry_stat.st_nlink != 1:
-                            errors.append(
-                                f"{root / relative}: hard-linked files are not allowed in a run"
-                            )
-                        files[relative] = (root / relative, entry_stat)
-                        bytes_seen += entry_stat.st_size
-                        if bytes_seen > MAX_RUN_BYTES:
-                            errors.append(
-                                f"{root}: run exceeds the {MAX_RUN_BYTES}-byte snapshot limit"
-                            )
-                            return files, errors
-                        if len(files) > MAX_RUN_FILES:
-                            errors.append(f"{root}: run contains more than {MAX_RUN_FILES} files")
-                            return files, errors
-                    else:
-                        errors.append(
-                            f"{root / relative}: only regular files and directories are allowed"
-                        )
+                halted = _scan_directory(prefix, directory_fd, walk)
             except OSError as exc:
-                errors.append(f"{directory}: could not enumerate directory: {type(exc).__name__}")
+                walk.errors.append(
+                    f"{walk.root / prefix}: could not enumerate directory: {type(exc).__name__}"
+                )
             finally:
                 os.close(directory_fd)
+            if halted:
+                return walk.files, walk.errors
     finally:
-        for _prefix, descriptor in stack:
+        for _prefix, descriptor in walk.stack:
             os.close(descriptor)
-    return files, errors
+    return walk.files, walk.errors
 
 
 def _open_run_root(run_dir):
