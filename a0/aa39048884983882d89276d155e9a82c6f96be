@@ -1,0 +1,121 @@
+pipelines/training_audit_report.py
+  s_98712805c1499b::t_aa7bfbd73605d0 1-4,6,12-13,15-17,23,27,29,31,34-87,89-94
+  s_98712805c1499b::t_6bd8804d8ed1c3 5,7-11,14,18-22,24-26,28,30,32-33,88
+tests/test_training_audit_hidden.py
+  s_98712805c1499b::t_32e082a0b7e5bd 1-6,8-11,14-248
+  s_98712805c1499b::t_79b343a7c4805c 7,12-13
+docs/preference-isolation.md
+  s_940326c4ee4215::t_45675f36d225e3 229-230
+pipelines/census.py
+  s_98712805c1499b::t_210b2a75323d79 177-208,225-231,241-242
+pipelines/mill_family.py
+  s_0d456da8ea5328::t_367c25620001f7 413,415-447,470-472,475-479,481-492
+  s_0d456da8ea5328::t_ac2a6434260f5f 642-648,667,669-680,682-702,704-730,736-749,762,765-766,768-780,790-827
+  s_0d456da8ea5328::t_14ab6eeb0b8155 894-909
+  s_0d456da8ea5328::t_6edf80d14e68dc 1099-1102,1105
+  s_0d456da8ea5328::t_37d662f934da75 1114
+  s_0d456da8ea5328::t_12c6b560b38718 68-70
+  s_0d456da8ea5328::t_52d36c8ccd67f2 1064-1066,1076-1077
+  s_98712805c1499b::t_d92d5c9bd5a372 154-163,992
+  s_0d456da8ea5328::t_77f027ad71f132 303-326
+  s_0d456da8ea5328::t_9c84b639bf8851 938-939,941,948
+  s_0d456da8ea5328::t_0ce0aa920182b7 327-342,344-345
+  s_0d456da8ea5328::t_b2e5b4b2776297 851,853-873,875-892
+  s_0d456da8ea5328::t_8c3bfcff018191 292-302
+  s_0d456da8ea5328::t_810edf1c16bd1e 546-641
+  s_98712805c1499b::t_210b2a75323d79 291,343
+  s_0d456da8ea5328::t_d790fccaeada26 38-43
+  s_0d456da8ea5328::t_77c6505612923c 494-545
+tests/test_mill_family.py
+  s_0d456da8ea5328::t_849ae15ae04e45 202-211,213-217,219-236
+tests/test_census_mill_mix.py
+  s_98712805c1499b::t_c745bbce0b5147 1-4,6-9,12-210,212-245,247-253,259-438
+  s_98712805c1499b::t_32a02f846de6ff 246,254-258
+  s_98712805c1499b::t_79b343a7c4805c 5,10-11
+  s_98712805c1499b::t_6904f993ee65a4 211
+tests/test_publish_grok46_hub_factories.py
+  s_98712805c1499b::t_2c48ccc3323857 1-71
+tests/test_training_audit_mill.py
+  s_98712805c1499b::t_79b343a7c4805c 11-12
+  s_98712805c1499b::t_32e082a0b7e5bd 1-10,13-185
+scripts/publish_grok46_hub.py
+  s_98712805c1499b::t_2c224c511593e1 330-331
+  s_98712805c1499b::t_d439b29ef20317 316,319,326-329,332-350,352,356-357
+tests/test_curate_preferences.py
+  s_940326c4ee4215::t_e1d156e6d6cc84 251
+pipelines/training_audit_mill.py
+  s_98712805c1499b::t_aa7bfbd73605d0 1-50
+pipelines/training_audit.py
+  s_98712805c1499b::t_aa7bfbd73605d0 53-60,97-114,228-231,240-254,256,260,271,318,391-410,514-520,551-564
+tests/test_curate_agentic.py
+  s_0d456da8ea5328::t_6174b64cfee0ab 1185-1209
+pipelines/mill_reviewed_vocabulary.py
+  s_0d456da8ea5328::t_d9e8e557aed910 1-156
+pipelines/curate_preferences.py
+  s_940326c4ee4215::t_7a5314ba67b706 800-810
+  s_002cddb1a70571::t_b5c0aaaa366fe1 846-847
+  s_940326c4ee4215::t_00dfa199712973 904
+  s_002cddb1a70571::t_1dd33f1fc8d3bb 63
+  s_940326c4ee4215::t_0709a146e77610 879,881-883,887
+tests/test_round_txn.py
+  s_0d456da8ea5328::t_e4f5672046c47f 66-73,1507
+  s_0d456da8ea5328::t_63e205296a6c05 74-88
+pipelines/round_txn.py
+  s_940326c4ee4215::t_72f4e66a9106b2 2482-2487
+  s_940326c4ee4215::t_904b15fc065c2d 2488-2494
+  s_940326c4ee4215::t_c7b6a7197e7ca6 1340-1341
+  s_940326c4ee4215::t_7d7d661e522abc 2523-2526,2528-2558
+  s_940326c4ee4215::t_14737ac2639d8e 2586
+  s_940326c4ee4215::t_58aef2236228ef 2776,3051-3057
+  s_940326c4ee4215::t_b303825581441f 3086
+  s_940326c4ee4215::t_38d9f3108ba840 2443,2501-2514
+  s_940326c4ee4215::t_6e9b34c348ce77 3088-3089
+  s_940326c4ee4215::t_5cdd16cd8072ca 2521
+  s_940326c4ee4215::t_e742b6cc385923 3039
+  s_940326c4ee4215::t_8c74de227f80bf 3098-3100
+  s_940326c4ee4215::t_10fe29485d58d5 1084-1088
+  s_940326c4ee4215::t_553e2befc411e4 1069-1070
+pipelines/curate_agentic.py
+  s_0d456da8ea5328::t_99852be49d7afa 39
+  s_0d456da8ea5328::t_dc3dddb42c7f48 495-502
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "a0aa39048884983882d89276d155e9a82c6f96be",
+  "prompts": {},
+  "sessions": {
+    "s_002cddb1a70571": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "abd260ba-6a6c-45a6-9db3-a4e0988ad60e",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Raul Montoya Cardenas <montoyaraul34@gmail.com>"
+    },
+    "s_0d456da8ea5328": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "a8d33a4c-0324-4388-9173-61055dd33627",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Raul Montoya Cardenas <montoyaraul34@gmail.com>"
+    },
+    "s_940326c4ee4215": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a032e4-1904-7a82-8c8b-1ad3cfbeb0b0",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Raul Montoya Cardenas <montoyaraul34@gmail.com>"
+    },
+    "s_98712805c1499b": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a04a1f-1e33-7812-a5aa-c7b04b33b6b5",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Raul Montoya Cardenas <montoyaraul34@gmail.com>"
+    }
+  }
+}
