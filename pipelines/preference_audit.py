@@ -220,21 +220,26 @@ def render_audit_markdown(audit: dict[str, Any]) -> str:
 _MISSING = object()
 
 
+# ``bool`` is a subclass of ``int``, so it has to be matched first or every
+# ``true`` in an audited document would name itself a number.
+_JSON_TYPE_NAMES = (
+    (bool, "boolean"),
+    (str, "string"),
+    (int, "number"),
+    (float, "number"),
+    (list, "array"),
+    (dict, "object"),
+)
+
+
 def _json_type_name(value: Any) -> str:
     """Name a value's JSON type, keeping ``true`` distinct from ``1``."""
 
-    if isinstance(value, bool):
-        return "boolean"
-    if isinstance(value, (int, float)):
-        return "number"
-    if isinstance(value, str):
-        return "string"
-    if isinstance(value, list):
-        return "array"
-    if isinstance(value, dict):
-        return "object"
     if value is None:
         return "null"
+    for python_type, type_name in _JSON_TYPE_NAMES:
+        if isinstance(value, python_type):
+            return type_name
     return type(value).__name__
 
 
