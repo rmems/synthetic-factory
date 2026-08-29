@@ -37,7 +37,6 @@ import argparse
 import copy
 import hashlib
 import json
-import os
 import sys
 from collections import Counter
 from dataclasses import dataclass, field
@@ -51,21 +50,23 @@ if str(_PIPELINES) not in sys.path:
 import leftover_mill  # noqa: E402
 
 # The destination layer: every rule about where a run may be written, and the
-# atomic creation itself. Re-exported here because this module is the public
+# atomic creation itself. Imported here because this module is the public
 # entry point for preference curation and callers reach the writer through it.
-# These are read-only aliases. The raw-tree refusal resolves RAW_OUTPUT_ROOT
-# through preference_destination, so a test standing in a fake raw root must
-# patch it there; rebinding the alias below would not move the guard.
+import preference_destination  # noqa: E402
 from preference_destination import (  # noqa: E402
     PreferenceCurationError,
-    RAW_OUTPUT_ROOT,
-    REPOSITORY_ROOT,
     _assert_new_destination,
     _create_exclusive_file,
     _fsync_parents,
-    _is_under_raw,
     _unlink_created,
 )
+
+# Read-only aliases, kept so these names still resolve from this module. The
+# raw-tree refusal resolves RAW_OUTPUT_ROOT through preference_destination, so
+# a test standing in a fake raw root patches it there; rebinding either alias
+# below would not move the guard.
+REPOSITORY_ROOT = preference_destination.REPOSITORY_ROOT
+RAW_OUTPUT_ROOT = preference_destination.RAW_OUTPUT_ROOT
 
 TRANSFORM_NAME = "same-context-preference-curation"
 TRANSFORM_VERSION = "1.1.0"

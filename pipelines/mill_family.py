@@ -295,11 +295,17 @@ def _entry_label(entry: _Entry) -> str:
     id when present, else its ref stringified, else a fixed placeholder.
     """
 
-    # ``ref`` is annotated ``Hashable``, which declares only ``__hash__``.
-    # Bind it as a plain object so the stringification is well-typed; the
-    # resulting label is byte-identical to the expression this replaces.
-    ref: object = entry.ref
-    return entry.record_id or (str(ref) if ref is not None else "<unknown>")
+    # Qodana reports str() on a ``Hashable`` as a conversion without a dunder
+    # method. It stays as it is. ``Hashable`` is the accurate annotation: a
+    # ref is caller-chosen and genuinely heterogeneous -- a (path, line) pair
+    # from census and training_audit_mill, a decision index from
+    # curate_agentic, a record id in tests -- and downstream it is used as a
+    # dict key, a set member and a list index, which is exactly what
+    # ``Hashable`` promises and nothing narrower would. Every such value
+    # stringifies through object.__str__, so the label is well defined.
+    return entry.record_id or (
+        str(entry.ref) if entry.ref is not None else "<unknown>"
+    )
 
 
 @dataclass(frozen=True)
