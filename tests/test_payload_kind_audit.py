@@ -380,6 +380,42 @@ class PayloadKindClassification(unittest.TestCase):
         self.assertIn("batch-r02.jsonl:1", str(caught.exception))
         self.assertIn("JSON decimal this audit cannot report exactly", str(caught.exception))
 
+    def test_emitted_gate_metadata_that_a_float_would_round_is_rejected(self):
+        """Every field the audit republishes must survive the round trip, not
+        just the identifier: --expect rounds a published decimal identically,
+        so altered evidence would compare equal (Codex #74)."""
+        rounds = 0.1234567890123456789012345
+        for field, record in (
+            ("supervisor_id", _thalamic("act-r02-001", _episode([]), supervisor=rounds)),
+            ("gate_decision", _thalamic("act-r02-001", _episode([]), decision=rounds)),
+        ):
+            with self.subTest(field=field):
+                with tempfile.TemporaryDirectory() as raw:
+                    directory = Path(raw)
+                    _write_corpus(directory, {"batch-r02.jsonl": [record]})
+                    with self.assertRaises(payload_kind_audit.PayloadKindAuditError) as caught:
+                        payload_kind_audit.build_audit(directory)
+                message = str(caught.exception)
+                self.assertIn("batch-r02.jsonl:1", message)
+                self.assertIn(f"record {field} is a JSON decimal", message)
+
+    def test_a_decimal_domain_is_rejected_like_every_other_emitted_field(self):
+        record = _thalamic("act-r02-001", _episode([]))
+        record["state"]["domain"] = 0.1234567890123456789012345
+        with tempfile.TemporaryDirectory() as raw:
+            directory = Path(raw)
+            _write_corpus(directory, {"batch-r02.jsonl": [record]})
+            with self.assertRaises(payload_kind_audit.PayloadKindAuditError) as caught:
+                payload_kind_audit.build_audit(directory)
+        self.assertIn("record domain is a JSON decimal", str(caught.exception))
+
+    def test_string_gate_metadata_is_untouched_by_the_decimal_guard(self):
+        record = _thalamic("act-r02-001", _episode([]), supervisor="gate-v1", decision="MODIFY")
+        audit = self._audit({"batch-r02.jsonl": [record]})
+        row = audit["records"][0]
+        self.assertEqual(row["supervisor_id"], "gate-v1")
+        self.assertEqual(row["gate_decision"], "MODIFY")
+
     def test_integer_record_identifiers_round_trip_and_are_kept(self):
         record = _episode([])
         record["id"] = 12345678901234567890

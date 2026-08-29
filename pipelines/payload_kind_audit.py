@@ -141,19 +141,28 @@ def _episode_row_fields(parsed: "_ParsedLine") -> dict:
     }
 
 
-def _reject_rounded_identifier(identifier: Any, where: str) -> None:
-    """Reject an identifier a binary float cannot carry back out unchanged.
+# The row fields copied verbatim out of a record. Everything else on a row is
+# derived here (a digest, a count, a coordinate) and cannot carry a corpus
+# value out unchanged or otherwise.
+_EMITTED_RECORD_FIELDS = ("id", "domain", "supervisor_id", "gate_decision")
+
+
+def _reject_rounded_fields(fields: Mapping[str, Any], where: str) -> None:
+    """Reject emitted metadata a binary float cannot carry back out unchanged.
 
     ``parse_float`` turns every JSON decimal into a Python float, so a literal
     like ``0.1234567890123456789`` would be reported — and pinned by
-    ``--expect`` — as a different number than the corpus holds. Integers and
+    ``--expect`` — as a different value than the corpus holds. That is true of
+    every field this audit republishes, not just the identifier. Integers and
     strings round-trip exactly, so only the decimal case fails closed.
     """
-    if isinstance(identifier, float):
-        raise PayloadKindAuditError(
-            f"{where}: record identifier is a JSON decimal this audit cannot "
-            f"report exactly: {identifier!r}"
-        )
+    for name in _EMITTED_RECORD_FIELDS:
+        value = fields.get(name)
+        if isinstance(value, float):
+            raise PayloadKindAuditError(
+                f"{where}: record {name} is a JSON decimal this audit cannot "
+                f"report exactly: {value!r}"
+            )
 
 
 def _record_row(parsed: _ParsedLine) -> dict:
@@ -164,7 +173,7 @@ def _record_row(parsed: _ParsedLine) -> dict:
         "sha256": parsed.digest,
     }
     fields = _thalamic_row_fields(parsed) if parsed.kind == "thalamic" else _episode_row_fields(parsed)
-    _reject_rounded_identifier(fields["id"], f"{parsed.source_file}:{parsed.line}")
+    _reject_rounded_fields(fields, f"{parsed.source_file}:{parsed.line}")
     row.update(fields)
     return row
 
