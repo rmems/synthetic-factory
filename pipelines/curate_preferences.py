@@ -241,9 +241,9 @@ def _preference_context(
     if not isinstance(chosen, dict) or not isinstance(rejected, dict):
         return None
     if not all(
-        isinstance(side.get(field), dict)
+        isinstance(side.get(field_name), dict)
         for side in (chosen, rejected)
-        for field in ("state", "proposed_action")
+        for field_name in ("state", "proposed_action")
     ):
         return None
     return chosen, rejected
@@ -269,14 +269,14 @@ def context_is_pure(record: dict[str, Any]) -> bool:
     chosen, rejected = context
     try:
         return all(
-            canonical_json(chosen[field]) == canonical_json(rejected[field])
-            for field in ("state", "proposed_action")
+            canonical_json(chosen[field_name]) == canonical_json(rejected[field_name])
+            for field_name in ("state", "proposed_action")
         )
     except (UnicodeEncodeError, ValueError, TypeError):
         return False
 
 
-def _field_agreement(record: Any, field: str) -> bool | None:
+def _field_agreement(record: Any, field_name: str) -> bool | None:
     """Measure one context field without depending on the other field."""
 
     if not isinstance(record, dict):
@@ -285,8 +285,8 @@ def _field_agreement(record: Any, field: str) -> bool | None:
     rejected = record.get("rejected")
     if not isinstance(chosen, dict) or not isinstance(rejected, dict):
         return None
-    chosen_value = chosen.get(field)
-    rejected_value = rejected.get(field)
+    chosen_value = chosen.get(field_name)
+    rejected_value = rejected.get(field_name)
     if not isinstance(chosen_value, dict) or not isinstance(rejected_value, dict):
         return None
     try:
@@ -315,15 +315,17 @@ def context_field_agreement(
 
 def _all_context_diffs(chosen: dict[str, Any], rejected: dict[str, Any]) -> tuple[str, ...]:
     paths: list[str] = []
-    for field in ("state", "proposed_action"):
-        paths.extend(_context_diff_paths(chosen[field], rejected[field], field))
+    for field_name in ("state", "proposed_action"):
+        paths.extend(
+            _context_diff_paths(chosen[field_name], rejected[field_name], field_name)
+        )
     return tuple(paths)
 
 
 def _identity_annotation_reference(
     chosen_value: dict[str, Any],
     rejected_value: dict[str, Any],
-    field: str,
+    field_name: str,
 ) -> tuple[dict[str, Any], str, str] | None:
     """Find an exact reference side for a top-level ``identity_note`` diff.
 
@@ -340,7 +342,7 @@ def _identity_annotation_reference(
         note = attester.get("identity_note")
         if "identity_note" in reference or not isinstance(note, str):
             continue
-        expected_prefix = f"IDENTICAL to {reference_name}.{field}"
+        expected_prefix = f"IDENTICAL to {reference_name}.{field_name}"
         if not note.strip().startswith(expected_prefix):
             continue
         stripped = copy.deepcopy(attester)
@@ -360,16 +362,18 @@ def _repair_identity_annotations(record: dict[str, Any]) -> CurationDecision | N
     repaired = copy.deepcopy(record)
     changed: list[str] = []
 
-    for field in ("state", "proposed_action"):
-        if canonical_json(chosen[field]) == canonical_json(rejected[field]):
+    for field_name in ("state", "proposed_action"):
+        if canonical_json(chosen[field_name]) == canonical_json(rejected[field_name]):
             continue
-        reference = _identity_annotation_reference(chosen[field], rejected[field], field)
+        reference = _identity_annotation_reference(
+            chosen[field_name], rejected[field_name], field_name
+        )
         if reference is None:
             return None
         exact_value, attester_name, reference_name = reference
-        repaired[attester_name][field] = copy.deepcopy(exact_value)
-        repaired[reference_name][field] = copy.deepcopy(exact_value)
-        changed.append(f"{attester_name}.{field}")
+        repaired[attester_name][field_name] = copy.deepcopy(exact_value)
+        repaired[reference_name][field_name] = copy.deepcopy(exact_value)
+        changed.append(f"{attester_name}.{field_name}")
 
     if not changed or not context_is_pure(repaired):
         return None
@@ -639,7 +643,7 @@ def _skipped_manifest_entry(
 def _field_agreement_label(field_name: str, same: bool | None) -> str:
     """The per-field bucket one context field falls in."""
 
-    if same is True:
+    if same:
         return f"same_{field_name}"
     if same is False:
         return f"{field_name}_divergent"
@@ -1211,7 +1215,7 @@ def render_audit_markdown(audit: dict[str, Any]) -> str:
 def _location_sort_key(location: tuple[Any, Any]) -> tuple[str, int, str]:
     path_part, line_part = location
     line_number = line_part if isinstance(line_part, int) else 0
-    return (str(path_part), line_number, str(line_part))
+    return str(path_part), line_number, str(line_part)
 
 
 def _pairs_by_location(pairs: Any) -> dict[tuple[Any, Any], dict[str, Any]]:
