@@ -1671,3 +1671,133 @@ class ComposeCurated(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ComposeSourceLineResourceLimits(unittest.TestCase):
+    """One malformed line must be excluded, never abort the whole composition."""
+
+    def compose(self, physical_line):
+        return compose_curated.compose_source_line(
+            physical_line,
+            source_path="tool-use-preference-factory/batch-r01.jsonl",
+            source_line=1,
+            source_file_sha256="7" * 64,
+        )
+
+    def test_deeply_nested_line_is_excluded_instead_of_raising(self):
+        # ``json.loads`` recurses over the document, so a deep enough line
+        # exhausts the stack.  ``RecursionError`` is not a ``ValueError``:
+        # unguarded it escaped ``compose_source_line`` and rolled the whole
+        # destination back over a single bad line.
+        depth = 200_000
+        decision = self.compose(b"[" * depth + b"]" * depth)
+
+        self.assertEqual(decision.action, compose_curated.ACTION_EXCLUDED)
+        self.assertEqual(
+            decision.reason_codes, (compose_curated.REASON_INVALID_JSON,)
+        )
+        self.assertIsNone(decision.record)
+        stage = decision.stages[0]
+        self.assertEqual(stage["lane"], "source")
+        self.assertEqual(stage["action"], compose_curated.ACTION_EXCLUDED)
+        self.assertIn("error", stage["detail"])
+
+    def test_canonical_hash_recursion_is_excluded_per_line(self):
+        # A line shallow enough for ``json.loads`` can still be too deep for
+        # the canonical hash, which recurses separately.  The hashing call
+        # therefore has to sit inside the same guarded block as the decode.
+        payload = json.dumps({"kind": "coding_episode", "steps": []}).encode("utf-8")
+
+        with mock.patch.object(
+            compose_curated, "_canonical_sha256", side_effect=RecursionError
+        ):
+            decision = self.compose(payload)
+
+        self.assertEqual(decision.action, compose_curated.ACTION_EXCLUDED)
+        self.assertEqual(
+            decision.reason_codes, (compose_curated.REASON_INVALID_JSON,)
+        )
+        self.assertIsNone(decision.record)
+
+    def test_a_fatal_line_does_not_roll_back_the_whole_run(self):
+        # The unguarded ``RecursionError`` escaped ``compose_run``, which
+        # discards the destination on any error, so one deep line destroyed
+        # the composition of every other record in the run.
+        depth = 200_000
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            source = root / "run" / "thalamic-trajectory-factory"
+            source.mkdir(parents=True)
+            (source / "batch-r01.jsonl").write_text(
+                json.dumps(thalamic("keep"))
+                + "\n"
+                + "[" * depth
+                + "]" * depth
+                + "\n",
+                encoding="utf-8",
+            )
+
+            summary = compose_curated.compose_run(root / "run", root / "curated")
+
+            self.assertTrue((root / "curated").exists())
+            self.assertEqual(summary["counts"]["source_records"], 2)
+            self.assertEqual(summary["counts"]["retained"], 1)
+            self.assertEqual(summary["counts"]["excluded"], 1)
+            self.assertEqual(
+                summary["exclusions"],
+                {compose_curated.REASON_INVALID_JSON: 1},
+            )
+
+
+class TrajectorySideGroundingScope(unittest.TestCase):
+    """Every side carrying steps runs the coding lane, grounded or not."""
+
+    def test_nonblank_but_ungrounded_decision_basis_is_regrounded(self):
+        pair = trajectory_preference_pair()
+        for side_name in ("chosen", "rejected"):
+            for step in pair[side_name]["steps"]:
+                # Nonblank, so the old "does any step lack a basis?" probe
+                # skipped the lane entirely and shipped this text verbatim.
+                step["decision_basis"] = "Private hunch, no visible evidence."
+
+        decision = compose_curated.compose_record(
+            pair,
+            source_path="tool-use-preference-factory/batch-r01.jsonl",
+            source_line=1,
+            source_sha256="8" * 64,
+        )
+
+        self.assertEqual(decision.action, compose_curated.ACTION_RETAINED)
+        for side_name in ("chosen", "rejected"):
+            for step in decision.record[side_name]["steps"]:
+                self.assertNotIn("Private hunch", step["decision_basis"])
+                self.assertTrue(step["decision_basis"].startswith("Observation:"))
+        stage = next(item for item in decision.stages if item["lane"] == "preferences")
+        for side_name in ("chosen", "rejected"):
+            side_manifest = stage["side_curation"][side_name]
+            self.assertEqual(side_manifest["action"], "modified")
+            self.assertNotEqual(
+                side_manifest["action"], compose_curated.ACTION_NOT_APPLICABLE
+            )
+
+    def test_an_already_grounded_side_is_retained_byte_for_byte(self):
+        # The lane is idempotent: running it on a side whose basis is already
+        # derived from visible evidence must not perturb the payload.
+        pair = trajectory_preference_pair()
+        first = compose_curated.compose_record(
+            pair,
+            source_path="tool-use-preference-factory/batch-r01.jsonl",
+            source_line=1,
+            source_sha256="9" * 64,
+        )
+        second = compose_curated.compose_record(
+            copy.deepcopy(first.record),
+            source_path="tool-use-preference-factory/batch-r01.jsonl",
+            source_line=1,
+            source_sha256="9" * 64,
+        )
+
+        for side_name in ("chosen", "rejected"):
+            self.assertEqual(
+                first.record[side_name]["steps"], second.record[side_name]["steps"]
+            )

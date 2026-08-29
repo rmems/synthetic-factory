@@ -395,21 +395,23 @@ def _trajectory_preference(
 
 
 def _trajectory_side_needs_coding(side: Any) -> bool:
-    """Whether an episode side needs the coding lane before preference checks."""
+    """Whether an episode side runs the coding lane before preference checks.
+
+    Every side that carries a step array does. A nonblank ``decision_basis``
+    is not evidence that the basis is *grounded*: ``curate_coding`` derives it
+    from the step's visible plan, observation, and tool call and overwrites
+    whatever was there, while the later audit only checks that the field is
+    nonempty. Skipping a side whose steps already hold some text would let an
+    ungrounded value such as "private hunch" survive into a ``training_ready``
+    export. The lane is idempotent, so an already-grounded side is retained
+    unchanged and only its manifest gains the evidence-source reason.
+    """
 
     if not isinstance(side, dict):
         return False
     if curate_coding.contains_hidden_reasoning_key(side):
         return True
-    steps = side.get("steps")
-    return isinstance(steps, list) and any(
-        isinstance(step, dict)
-        and (
-            not isinstance(step.get("decision_basis"), str)
-            or not step["decision_basis"].strip()
-        )
-        for step in steps
-    )
+    return isinstance(side.get("steps"), list)
 
 
 def _curate_trajectory_sides(
@@ -1450,8 +1452,16 @@ def compose_source_line(
             None,
         )
     try:
+        # Decoding and canonical hashing both recurse over the document, and a
+        # deeply nested line can exhaust the stack in either -- ``json.loads``
+        # may even succeed on a depth the hash cannot walk. ``RecursionError``
+        # is not a ``ValueError``, so leaving it unguarded let one malformed
+        # line abort the whole composition with a traceback and roll the
+        # destination back. Excluded per line instead, as the other curation
+        # readers already do (``curate_coding``, ``tag_jsonl``).
         record = json.loads(text, parse_constant=reject_json_constant)
-    except (json.JSONDecodeError, ValueError) as exc:
+        semantic_sha256 = _canonical_sha256(record)
+    except (json.JSONDecodeError, ValueError, RecursionError) as exc:
         return ComposeDecision(
             ACTION_EXCLUDED,
             None,
@@ -1469,7 +1479,6 @@ def compose_source_line(
             None,
             None,
         )
-    semantic_sha256 = _canonical_sha256(record)
     if seen_source_semantics is not None:
         first_coordinate = seen_source_semantics.get(semantic_sha256)
         if first_coordinate is not None:
