@@ -41,7 +41,12 @@ def run_cli(argv):
 
 
 def check(record, **kwargs):
-    return preference_arms.check_pair(record, source_path="memory.jsonl", source_line=1, **kwargs)
+    return preference_arms.check_pair(
+        record,
+        source_path="memory.jsonl",
+        source_line=1,
+        policy=preference_arms.GatePolicy(**kwargs),
+    )
 
 
 def diagnosis_document(index, *, root_cause=None, context=None):

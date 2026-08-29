@@ -2219,13 +2219,15 @@ def validate_preference_arm_gate(
 
     # Lazy import avoids the existing curation -> census -> round_txn import
     # cycle while keeping the publisher as the mandatory enforcement point.
-    from preference_arms import PreferenceArmsError, scan_source
+    from preference_arms import GatePolicy, PreferenceArmsError, scan_source
 
     try:
         scan = scan_source(
             batch,
-            trusted_isolation=trusted_isolation,
-            require_trusted_isolation=True,
+            GatePolicy(
+                trusted_isolation=trusted_isolation,
+                require_trusted_isolation=True,
+            ),
         )
     except (OSError, PreferenceArmsError) as exc:
         raise TransactionError(f"preference arm gate failed: {exc}") from exc
@@ -2264,17 +2266,20 @@ def validate_preference_diagnosis_handoff(
 
     from preference_arms import (
         PreferenceArmsError,
+        ReceiptExpectation,
         validate_diagnosis_handoff_receipt,
     )
 
     try:
         return validate_diagnosis_handoff_receipt(
             artifact_dir,
-            factory=factory_dir.name,
-            round_number=round_number,
-            staging_dir=expected_staging_dir,
-            reservation_token=reservation_token,
-            expected_count=expected_records,
+            ReceiptExpectation(
+                factory=factory_dir.name,
+                round_number=round_number,
+                staging_dir=expected_staging_dir,
+                reservation_token=reservation_token,
+                expected_count=expected_records,
+            ),
         )
     except (OSError, PreferenceArmsError, ValueError) as exc:
         raise TransactionError(f"diagnosis handoff receipt validation failed: {exc}") from exc

@@ -20,10 +20,41 @@ def _same_file_identity(left: os.stat_result, right: os.stat_result) -> bool:
     return (left.st_dev, left.st_ino) == (right.st_dev, right.st_ino)
 
 
-def _open_canonical_directory(root: Path, *, label: str) -> int:
-    """Open one canonical directory and bind callers to its verified inode."""
+def _is_real_directory(path_stat: os.stat_result) -> bool:
+    """Report whether one stat record names a directory rather than a symlink."""
 
-    root = Path(root)
+    return not stat.S_ISLNK(path_stat.st_mode) and stat.S_ISDIR(path_stat.st_mode)
+
+
+def _is_real_file(path_stat: os.stat_result) -> bool:
+    """Report whether one stat record names a regular file rather than a symlink."""
+
+    return not stat.S_ISLNK(path_stat.st_mode) and stat.S_ISREG(path_stat.st_mode)
+
+
+def _directory_open_flags() -> int:
+    """Build the open flags that bind a directory without following a symlink."""
+
+    flags = os.O_RDONLY
+    if hasattr(os, "O_DIRECTORY"):
+        flags |= os.O_DIRECTORY
+    if hasattr(os, "O_NOFOLLOW"):
+        flags |= os.O_NOFOLLOW
+    return flags
+
+
+def _regular_file_open_flags() -> int:
+    """Build the open flags that bind a regular file without following a symlink."""
+
+    flags = os.O_RDONLY
+    if hasattr(os, "O_NOFOLLOW"):
+        flags |= os.O_NOFOLLOW
+    return flags
+
+
+def _stat_canonical_directory(root: Path, *, label: str) -> os.stat_result:
+    """Stat one directory pathname that must already be canonical and unfollowed."""
+
     try:
         canonical_root = root.resolve(strict=True)
         path_stat = root.lstat()
@@ -31,24 +62,39 @@ def _open_canonical_directory(root: Path, *, label: str) -> int:
         raise PreferenceArmsError(f"{label} cannot be resolved: {root}: {exc}") from exc
     if canonical_root != root:
         raise PreferenceArmsError(f"{label} is not canonical: {root}")
-    if stat.S_ISLNK(path_stat.st_mode) or not stat.S_ISDIR(path_stat.st_mode):
+    if not _is_real_directory(path_stat):
         raise PreferenceArmsError(f"{label} is not a real directory: {root}")
-    flags = os.O_RDONLY
-    if hasattr(os, "O_DIRECTORY"):
-        flags |= os.O_DIRECTORY
-    if hasattr(os, "O_NOFOLLOW"):
-        flags |= os.O_NOFOLLOW
+    return path_stat
+
+
+def _is_opened_directory(path_stat: os.stat_result, opened_stat: os.stat_result) -> bool:
+    """Report whether a just-opened descriptor still names the stat'ed directory."""
+
+    return stat.S_ISDIR(opened_stat.st_mode) and _same_file_identity(path_stat, opened_stat)
+
+
+def _open_canonical_directory(root: Path, *, label: str) -> int:
+    """Open one canonical directory and bind callers to its verified inode."""
+
+    root = Path(root)
+    path_stat = _stat_canonical_directory(root, label=label)
     directory_fd = -1
     try:
-        directory_fd = os.open(root, flags)
+        directory_fd = os.open(root, _directory_open_flags())
         opened_stat = os.fstat(directory_fd)
-        if not stat.S_ISDIR(opened_stat.st_mode) or not _same_file_identity(path_stat, opened_stat):
+        if not _is_opened_directory(path_stat, opened_stat):
             raise PreferenceArmsError(f"{label} changed while it was opened: {root}")
         return directory_fd
     except BaseException:
         if directory_fd >= 0:
             os.close(directory_fd)
         raise
+
+
+def _is_bound_directory(current_stat: os.stat_result, opened_stat: os.stat_result) -> bool:
+    """Report whether a pathname still names the directory behind the bound descriptor."""
+
+    return _is_real_directory(current_stat) and _same_file_identity(current_stat, opened_stat)
 
 
 def _require_open_directory_identity(root: Path, root_fd: int, *, label: str) -> None:
@@ -59,12 +105,43 @@ def _require_open_directory_identity(root: Path, root_fd: int, *, label: str) ->
         opened_stat = os.fstat(root_fd)
     except OSError as exc:
         raise PreferenceArmsError(f"{label} changed while open: {root}: {exc}") from exc
-    if (
-        stat.S_ISLNK(current_stat.st_mode)
-        or not stat.S_ISDIR(current_stat.st_mode)
-        or not _same_file_identity(current_stat, opened_stat)
-    ):
+    if not _is_bound_directory(current_stat, opened_stat):
         raise PreferenceArmsError(f"{label} changed while open: {root}")
+
+
+def _require_safe_basename(name: str, label: str) -> None:
+    """Reject any artifact name that is not a plain basename."""
+
+    if not isinstance(name, str) or Path(name).name != name:
+        raise PreferenceArmsError(f"{label} name is not a safe basename: {name!r}")
+
+
+def _require_regular_artifact(path_stat: os.stat_result, name: str, label: str) -> None:
+    """Reject one artifact whose pathname does not name a regular file."""
+
+    if not _is_real_file(path_stat):
+        raise PreferenceArmsError(f"{label} is not a real file: {name}")
+
+
+def _require_size_within_limit(size: int, name: str, label: str, max_bytes: int | None) -> None:
+    """Reject one artifact whose byte count exceeds the caller's limit."""
+
+    if max_bytes is not None and size > max_bytes:
+        raise PreferenceArmsError(f"{label} exceeds the {max_bytes}-byte limit: {name}")
+
+
+def _require_unswapped_artifact(
+    file_stat: os.stat_result,
+    opened_stat: os.stat_result,
+    name: str,
+    label: str,
+) -> None:
+    """Reject one just-opened artifact whose inode no longer matches the pathname."""
+
+    if not stat.S_ISREG(opened_stat.st_mode):
+        raise PreferenceArmsError(f"{label} is not a real file: {name}")
+    if not _same_file_identity(file_stat, opened_stat):
+        raise PreferenceArmsError(f"{label} changed while it was opened: {name}")
 
 
 def _read_regular_artifact_from_directory(
@@ -76,31 +153,20 @@ def _read_regular_artifact_from_directory(
 ) -> bytes:
     """Read one regular artifact relative to an already-bound directory."""
 
-    if not isinstance(name, str) or Path(name).name != name:
-        raise PreferenceArmsError(f"{label} name is not a safe basename: {name!r}")
+    _require_safe_basename(name, label)
     file_fd = -1
     try:
         file_stat = os.stat(name, dir_fd=root_fd, follow_symlinks=False)
-        if stat.S_ISLNK(file_stat.st_mode) or not stat.S_ISREG(file_stat.st_mode):
-            raise PreferenceArmsError(f"{label} is not a real file: {name}")
-        if max_bytes is not None and file_stat.st_size > max_bytes:
-            raise PreferenceArmsError(f"{label} exceeds the {max_bytes}-byte limit: {name}")
-        flags = os.O_RDONLY
-        if hasattr(os, "O_NOFOLLOW"):
-            flags |= os.O_NOFOLLOW
-        file_fd = os.open(name, flags, dir_fd=root_fd)
+        _require_regular_artifact(file_stat, name, label)
+        _require_size_within_limit(file_stat.st_size, name, label, max_bytes)
+        file_fd = os.open(name, _regular_file_open_flags(), dir_fd=root_fd)
         opened_stat = os.fstat(file_fd)
-        if not stat.S_ISREG(opened_stat.st_mode):
-            raise PreferenceArmsError(f"{label} is not a real file: {name}")
-        if not _same_file_identity(file_stat, opened_stat):
-            raise PreferenceArmsError(f"{label} changed while it was opened: {name}")
-        if max_bytes is not None and opened_stat.st_size > max_bytes:
-            raise PreferenceArmsError(f"{label} exceeds the {max_bytes}-byte limit: {name}")
+        _require_unswapped_artifact(file_stat, opened_stat, name, label)
+        _require_size_within_limit(opened_stat.st_size, name, label, max_bytes)
         with os.fdopen(file_fd, "rb") as handle:
             file_fd = -1
             payload = handle.read(None if max_bytes is None else max_bytes + 1)
-        if max_bytes is not None and len(payload) > max_bytes:
-            raise PreferenceArmsError(f"{label} exceeds the {max_bytes}-byte limit: {name}")
+        _require_size_within_limit(len(payload), name, label, max_bytes)
         return payload
     except PreferenceArmsError:
         raise

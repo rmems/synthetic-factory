@@ -179,7 +179,9 @@ class TwoSessionRoundClearsTheGate(unittest.TestCase):
         self.assertEqual(report["blockers"], [])
 
     def test_tighter_floor_is_honored(self):
-        scan = preference_arms.scan_source(TWO_SESSION_ROUND, min_distance=0.9)
+        scan = preference_arms.scan_source(
+            TWO_SESSION_ROUND, preference_arms.GatePolicy(min_distance=0.9)
+        )
         self.assertTrue(scan.blocked)
         self.assertEqual(scan.summary["blocked_pairs"], 3)
         self.assertEqual(

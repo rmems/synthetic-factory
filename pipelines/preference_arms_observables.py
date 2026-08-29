@@ -154,21 +154,28 @@ def _normalized_observable_value(path: tuple[str, ...], value: Any) -> Any:
     return value
 
 
-def _single_observable_terms(
-    value: Any,
-    path: tuple[str, ...],
-) -> Counter[str]:
-    """Project one value onto the reviewed observable vocabulary."""
+def _mapping_observable_terms(value: dict[Any, Any], path: tuple[str, ...]) -> Counter[str]:
+    """Project a mapping onto the vocabulary in canonical key order."""
 
     terms: Counter[str] = Counter()
-    if isinstance(value, dict):
-        for key in sorted(value):
-            terms.update(_single_observable_terms(value[key], (*path, str(key))))
-        return terms
-    if isinstance(value, list):
-        for item in value:
-            terms.update(_single_observable_terms(item, (*path, _LIST_ITEM)))
-        return terms
+    for key in sorted(value):
+        terms.update(_single_observable_terms(value[key], (*path, str(key))))
+    return terms
+
+
+def _sequence_observable_terms(value: list[Any], path: tuple[str, ...]) -> Counter[str]:
+    """Project a list onto the vocabulary under one shared item path."""
+
+    terms: Counter[str] = Counter()
+    for item in value:
+        terms.update(_single_observable_terms(item, (*path, _LIST_ITEM)))
+    return terms
+
+
+def _leaf_observable_terms(value: Any, path: tuple[str, ...]) -> Counter[str]:
+    """Project one scalar, keeping only reviewed machine-observable paths."""
+
+    terms: Counter[str] = Counter()
     if _approved_observable_value(path, value):
         _collect_terms(
             _normalized_observable_value(path, value),
@@ -176,6 +183,19 @@ def _single_observable_terms(
             terms,
         )
     return terms
+
+
+def _single_observable_terms(
+    value: Any,
+    path: tuple[str, ...],
+) -> Counter[str]:
+    """Project one value onto the reviewed observable vocabulary."""
+
+    if isinstance(value, dict):
+        return _mapping_observable_terms(value, path)
+    if isinstance(value, list):
+        return _sequence_observable_terms(value, path)
+    return _leaf_observable_terms(value, path)
 
 
 def _alignment_item_terms(value: Any, path: tuple[str, ...]) -> Counter[str]:
@@ -195,55 +215,92 @@ def _alignment_cost(left: Any, right: Any, path: tuple[str, ...]) -> float:
     )
 
 
-def _minimum_cost_pairs(
+def _checked_residual_size(
     left: list[tuple[int, Any]],
     right: list[tuple[int, Any]],
-    path: tuple[str, ...],
-) -> tuple[tuple[int, int], ...]:
-    """Return a deterministic minimum-cost residual matching."""
+) -> None:
+    """Fail closed rather than approximate an oversized residual matching."""
 
-    if not left or not right:
-        return ()
     if max(len(left), len(right)) > MAX_ALIGNMENT_RESIDUAL_ITEMS:
         raise ListAlignmentError(
             "list alignment has too many non-identical residual items "
             f"({len(left)} by {len(right)}; max {MAX_ALIGNMENT_RESIDUAL_ITEMS})"
         )
 
-    # Canonical projection order, not source position, owns every tie-break.
-    # This keeps front/middle/tail insertions and list reordering from shifting
-    # otherwise identical evidence onto different counterparts.
-    left = sorted(left, key=lambda item: _alignment_signature(item[1], path))
-    right = sorted(right, key=lambda item: _alignment_signature(item[1], path))
-    swapped = len(left) > len(right)
-    short, long = (right, left) if swapped else (left, right)
-    costs = tuple(
+
+def _signature_ordered(
+    items: list[tuple[int, Any]],
+    path: tuple[str, ...],
+) -> list[tuple[int, Any]]:
+    """Order residual items by canonical projection rather than position."""
+
+    return sorted(items, key=lambda item: _alignment_signature(item[1], path))
+
+
+def _alignment_cost_matrix(
+    short: list[tuple[int, Any]],
+    long: list[tuple[int, Any]],
+    path: tuple[str, ...],
+) -> tuple[tuple[float, ...], ...]:
+    """Return every pairwise residual alignment cost, shortest side first."""
+
+    return tuple(
         tuple(_alignment_cost(short_item, long_item, path) for _, long_item in long)
         for _, short_item in short
     )
 
+
+def _better_assignment(
+    candidate_cost: float,
+    candidate_assignment: tuple[int, ...],
+    best_cost: float,
+    best_assignment: tuple[int, ...],
+) -> bool:
+    """Whether a candidate wins on cost, then on canonical assignment order."""
+
+    if candidate_cost < best_cost - 1e-12:
+        return True
+    if not math.isclose(candidate_cost, best_cost, abs_tol=1e-12):
+        return False
+    return not best_assignment or candidate_assignment < best_assignment
+
+
+def _minimum_cost_assignment(costs: tuple[tuple[float, ...], ...]) -> tuple[int, ...]:
+    """Return the deterministic minimum-cost assignment over a cost matrix."""
+
+    row_count = len(costs)
+
     @lru_cache(maxsize=None)
     def solve(index: int, used: int) -> tuple[float, tuple[int, ...]]:
-        if index == len(short):
+        if index == row_count:
             return 0.0, ()
         best_cost = math.inf
         best_assignment: tuple[int, ...] = ()
-        for long_index in range(len(long)):
+        for long_index in range(len(costs[index])):
             bit = 1 << long_index
             if used & bit:
                 continue
             tail_cost, tail_assignment = solve(index + 1, used | bit)
             candidate_cost = costs[index][long_index] + tail_cost
             candidate_assignment = (long_index, *tail_assignment)
-            if candidate_cost < best_cost - 1e-12 or (
-                math.isclose(candidate_cost, best_cost, abs_tol=1e-12)
-                and (not best_assignment or candidate_assignment < best_assignment)
+            if _better_assignment(
+                candidate_cost, candidate_assignment, best_cost, best_assignment
             ):
                 best_cost = candidate_cost
                 best_assignment = candidate_assignment
         return best_cost, best_assignment
 
     _, assignment = solve(0, 0)
+    return assignment
+
+
+def _sourced_pairs(
+    short: list[tuple[int, Any]],
+    long: list[tuple[int, Any]],
+    assignment: tuple[int, ...],
+    swapped: bool,
+) -> tuple[tuple[int, int], ...]:
+    """Restate an assignment as source index pairs in left/right order."""
 
     pairs = []
     for short_index, long_index in enumerate(assignment):
@@ -253,12 +310,30 @@ def _minimum_cost_pairs(
     return tuple(pairs)
 
 
-def _aligned_list_pairs(
-    left: list[Any],
-    right: list[Any],
+def _minimum_cost_pairs(
+    left: list[tuple[int, Any]],
+    right: list[tuple[int, Any]],
     path: tuple[str, ...],
-) -> tuple[tuple[Any, Any], ...]:
-    """Align unordered common list content without admitting one-sided items."""
+) -> tuple[tuple[int, int], ...]:
+    """Return a deterministic minimum-cost residual matching."""
+
+    if not left or not right:
+        return ()
+    _checked_residual_size(left, right)
+
+    # Canonical projection order, not source position, owns every tie-break.
+    # This keeps front/middle/tail insertions and list reordering from shifting
+    # otherwise identical evidence onto different counterparts.
+    left = _signature_ordered(left, path)
+    right = _signature_ordered(right, path)
+    swapped = len(left) > len(right)
+    short, long = (right, left) if swapped else (left, right)
+    assignment = _minimum_cost_assignment(_alignment_cost_matrix(short, long, path))
+    return _sourced_pairs(short, long, assignment, swapped)
+
+
+def _checked_list_size(left: list[Any], right: list[Any]) -> None:
+    """Fail closed rather than align lists beyond the reviewed item limit."""
 
     if max(len(left), len(right)) > MAX_ALIGNMENT_LIST_ITEMS:
         raise ListAlignmentError(
@@ -266,7 +341,14 @@ def _aligned_list_pairs(
             f"({len(left)} by {len(right)}; max {MAX_ALIGNMENT_LIST_ITEMS})"
         )
 
-    item_path = (*path, _LIST_ITEM)
+
+def _exact_signature_pairs(
+    left: list[Any],
+    right: list[Any],
+    item_path: tuple[str, ...],
+) -> tuple[list[tuple[int, int]], set[int], set[int]]:
+    """Cancel identically projecting items as a multiset, earliest side first."""
+
     right_by_payload: dict[str, deque[int]] = defaultdict(deque)
     try:
         for right_index, item in enumerate(right):
@@ -284,10 +366,31 @@ def _aligned_list_pairs(
             used_right.add(right_index)
     except (TypeError, ValueError) as exc:
         raise ListAlignmentError(f"list item is not canonical JSON: {exc}") from exc
+    return exact_pairs, used_left, used_right
 
-    left_residual = [(index, item) for index, item in enumerate(left) if index not in used_left]
-    right_residual = [(index, item) for index, item in enumerate(right) if index not in used_right]
-    residual_pairs = _minimum_cost_pairs(left_residual, right_residual, item_path)
+
+def _residual_items(items: list[Any], used: set[int]) -> list[tuple[int, Any]]:
+    """Return the source-indexed items left over after exact cancellation."""
+
+    return [(index, item) for index, item in enumerate(items) if index not in used]
+
+
+def _aligned_list_pairs(
+    left: list[Any],
+    right: list[Any],
+    path: tuple[str, ...],
+) -> tuple[tuple[Any, Any], ...]:
+    """Align unordered common list content without admitting one-sided items."""
+
+    _checked_list_size(left, right)
+
+    item_path = (*path, _LIST_ITEM)
+    exact_pairs, used_left, used_right = _exact_signature_pairs(left, right, item_path)
+    residual_pairs = _minimum_cost_pairs(
+        _residual_items(left, used_left),
+        _residual_items(right, used_right),
+        item_path,
+    )
     index_pairs = sorted((*exact_pairs, *residual_pairs))
     return tuple((left[left_index], right[right_index]) for left_index, right_index in index_pairs)
 
@@ -298,6 +401,44 @@ def _approved_observable_leaf(path: tuple[str, ...], left: Any, right: Any) -> b
     return _approved_observable_value(path, left) and _approved_observable_value(path, right)
 
 
+def _common_mapping_leaves(
+    left: dict[Any, Any],
+    right: dict[Any, Any],
+    path: tuple[str, ...],
+) -> list[tuple[tuple[str, ...], Any, Any]]:
+    """Descend only shared keys so an extension cannot manufacture evidence."""
+
+    result: list[tuple[tuple[str, ...], Any, Any]] = []
+    for key in sorted(set(left) & set(right)):
+        result.extend(_common_observable_leaves(left[key], right[key], (*path, str(key))))
+    return result
+
+
+def _common_sequence_leaves(
+    left: list[Any],
+    right: list[Any],
+    path: tuple[str, ...],
+) -> list[tuple[tuple[str, ...], Any, Any]]:
+    """Descend list content through the position-independent alignment."""
+
+    result: list[tuple[tuple[str, ...], Any, Any]] = []
+    for left_item, right_item in _aligned_list_pairs(left, right, path):
+        result.extend(_common_observable_leaves(left_item, right_item, (*path, _LIST_ITEM)))
+    return result
+
+
+def _both_mappings(left: Any, right: Any) -> bool:
+    """Whether both arms present a mapping at this path."""
+
+    return isinstance(left, dict) and isinstance(right, dict)
+
+
+def _both_sequences(left: Any, right: Any) -> bool:
+    """Whether both arms present a list at this path."""
+
+    return isinstance(left, list) and isinstance(right, list)
+
+
 def _common_observable_leaves(
     left: Any,
     right: Any,
@@ -305,16 +446,10 @@ def _common_observable_leaves(
 ) -> list[tuple[tuple[str, ...], Any, Any]]:
     """Return aligned leaves from the reviewed behavioral projection."""
 
-    if isinstance(left, dict) and isinstance(right, dict):
-        result: list[tuple[tuple[str, ...], Any, Any]] = []
-        for key in sorted(set(left) & set(right)):
-            result.extend(_common_observable_leaves(left[key], right[key], (*path, str(key))))
-        return result
-    if isinstance(left, list) and isinstance(right, list):
-        result = []
-        for left_item, right_item in _aligned_list_pairs(left, right, path):
-            result.extend(_common_observable_leaves(left_item, right_item, (*path, _LIST_ITEM)))
-        return result
+    if _both_mappings(left, right):
+        return _common_mapping_leaves(left, right, path)
+    if _both_sequences(left, right):
+        return _common_sequence_leaves(left, right, path)
     return [(path, left, right)] if _approved_observable_leaf(path, left, right) else []
 
 

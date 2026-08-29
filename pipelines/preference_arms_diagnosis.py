@@ -91,30 +91,35 @@ def diagnosis_receipt_filename(round_number: int) -> str:
     return f"diagnosis-handoff-receipt-r{round_number:02d}.json"
 
 
-def _strict_json_object(payload: bytes, *, label: str) -> dict[str, Any]:
-    """Decode one finite JSON object while rejecting duplicate keys."""
-
+def _decoded_utf8(payload: bytes, label: str) -> str:
     try:
-        text = payload.decode("utf-8")
+        return payload.decode("utf-8")
     except UnicodeDecodeError as exc:
         raise PreferenceArmsError(f"{label} is not valid UTF-8: {exc}") from exc
 
-    def object_pairs(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
-        result: dict[str, Any] = {}
-        for key, value in pairs:
-            if key in result:
-                raise ValueError(f"duplicate JSON key {key!r}")
-            result[key] = value
-        return result
 
-    def reject_constant(value: str) -> None:
-        raise ValueError(f"non-finite JSON constant {value}")
+def _unique_object_pairs(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+    result: dict[str, Any] = {}
+    for key, value in pairs:
+        if key in result:
+            raise ValueError(f"duplicate JSON key {key!r}")
+        result[key] = value
+    return result
 
+
+def _reject_json_constant(value: str) -> None:
+    raise ValueError(f"non-finite JSON constant {value}")
+
+
+def _strict_json_object(payload: bytes, *, label: str) -> dict[str, Any]:
+    """Decode one finite JSON object while rejecting duplicate keys."""
+
+    text = _decoded_utf8(payload, label)
     try:
         value = json.loads(
             text,
-            object_pairs_hook=object_pairs,
-            parse_constant=reject_constant,
+            object_pairs_hook=_unique_object_pairs,
+            parse_constant=_reject_json_constant,
         )
     except (json.JSONDecodeError, RecursionError, ValueError) as exc:
         raise PreferenceArmsError(f"{label} is not strict JSON: {exc}") from exc
@@ -123,19 +128,81 @@ def _strict_json_object(payload: bytes, *, label: str) -> dict[str, Any]:
     return value
 
 
-def _diagnosis_fenced_object(lines: list[str], *, label: str) -> dict[str, Any]:
-    """Decode a section that contains exactly one fenced JSON object."""
+def _strip_blank_edges(lines: list[str]) -> None:
+    """Drop leading and trailing blank lines in place."""
 
     while lines and not lines[0].strip():
         lines.pop(0)
     while lines and not lines[-1].strip():
         lines.pop()
-    if len(lines) < 3 or lines[0] != "```json" or lines[-1] != "```":
+
+
+def _is_single_json_fence(lines: list[str]) -> bool:
+    if len(lines) < 3:
+        return False
+    if lines[0] != "```json":
+        return False
+    return lines[-1] == "```"
+
+
+def _diagnosis_fenced_object(lines: list[str], *, label: str) -> dict[str, Any]:
+    """Decode a section that contains exactly one fenced JSON object."""
+
+    _strip_blank_edges(lines)
+    if not _is_single_json_fence(lines):
         raise PreferenceArmsError(f"{label} must contain exactly one fenced JSON object")
     if any(line.startswith("```") for line in lines[1:-1]):
         raise PreferenceArmsError(f"{label} contains an extra code fence")
     payload = "\n".join(lines[1:-1]).encode("utf-8")
     return _strict_json_object(payload, label=label)
+
+
+def _has_encoded_marker(lowered: str) -> bool:
+    """A ``data:`` or percent-encoded brace marker in casefolded text."""
+
+    if "data:" in lowered:
+        return True
+    if "%7b" in lowered:
+        return True
+    return "%7d" in lowered
+
+
+def _is_serialized_payload(text: str) -> bool:
+    """Text that smuggles a serialized trajectory mapping or encoded blob."""
+
+    if _text_contains_rejected_trajectory_mapping(text):
+        return True
+    if _ENCODED_BLOB_RE.search(text):
+        return True
+    return _has_encoded_marker(text.casefold())
+
+
+def _check_context_budget(budget: list[int], depth: int, label: str) -> None:
+    budget[0] += 1
+    if budget[0] > MAX_DIAGNOSIS_NODES:
+        raise PreferenceArmsError(f"{label} exceeds the shared-context node limit")
+    if depth > MAX_DIAGNOSIS_DEPTH:
+        raise PreferenceArmsError(f"{label} exceeds the shared-context depth limit")
+
+
+def _reject_forbidden_context_keys(value: dict[str, Any], label: str) -> None:
+    forbidden = sorted(key for key in value if _is_rejected_trajectory_key(key))
+    if forbidden:
+        raise PreferenceArmsError(
+            f"{label} contains rejected-trajectory keys: " + ", ".join(forbidden)
+        )
+
+
+def _validate_context_children(items, *, label: str, depth: int, budget: list[int]) -> None:
+    for item in items:
+        _validate_shared_context_tree(item, label=label, depth=depth + 1, budget=budget)
+
+
+def _validate_context_scalar(value: Any, label: str) -> None:
+    if isinstance(value, str) and _is_serialized_payload(value):
+        raise PreferenceArmsError(f"{label} contains an encoded or serialized payload string")
+    if type(value) is float and not math.isfinite(value):
+        raise PreferenceArmsError(f"{label} contains a non-finite number")
 
 
 def _validate_shared_context_tree(
@@ -149,42 +216,247 @@ def _validate_shared_context_tree(
 
     if budget is None:
         budget = [0]
-    budget[0] += 1
-    if budget[0] > MAX_DIAGNOSIS_NODES:
-        raise PreferenceArmsError(f"{label} exceeds the shared-context node limit")
-    if depth > MAX_DIAGNOSIS_DEPTH:
-        raise PreferenceArmsError(f"{label} exceeds the shared-context depth limit")
+    _check_context_budget(budget, depth, label)
     if isinstance(value, dict):
-        forbidden = sorted(key for key in value if _is_rejected_trajectory_key(key))
-        if forbidden:
+        _reject_forbidden_context_keys(value, label)
+        _validate_context_children(value.values(), label=label, depth=depth, budget=budget)
+        return
+    if isinstance(value, list):
+        _validate_context_children(value, label=label, depth=depth, budget=budget)
+        return
+    _validate_context_scalar(value, label)
+
+
+def _has_control_character(text: str) -> bool:
+    return any(unicodedata.category(char) == "Cc" and char not in "\t\n" for char in text)
+
+
+def _decoded_diagnosis_text(payload: bytes, label: str) -> str:
+    """The document's text, within budget and free of control characters."""
+
+    if len(payload) > MAX_DIAGNOSIS_BYTES:
+        raise PreferenceArmsError(f"{label} exceeds the {MAX_DIAGNOSIS_BYTES}-byte diagnosis limit")
+    text = _decoded_utf8(payload, label).replace("\r\n", "\n")
+    if "\r" in text:
+        raise PreferenceArmsError(f"{label} contains an unsupported bare carriage return")
+    if _has_control_character(text):
+        raise PreferenceArmsError(f"{label} contains an unsupported control character")
+    return text
+
+
+def _validated_diagnosis_headings(lines: list[str], label: str) -> list[str]:
+    """The exact heading skeleton, or the document is refused."""
+
+    if not lines or lines[0] != "# Diagnosis":
+        raise PreferenceArmsError(f"{label} must start with '# Diagnosis'")
+    expected_headings = [f"## {name}" for name in DIAGNOSIS_SECTIONS]
+    observed_headings = [line for line in lines[1:] if line.startswith("#")]
+    if observed_headings != expected_headings:
+        raise PreferenceArmsError(
+            f"{label} headings must be exactly " + ", ".join(expected_headings)
+        )
+    return expected_headings
+
+
+def _section_end(positions: list[int], index: int, line_count: int) -> int:
+    if index + 1 < len(positions):
+        return positions[index + 1]
+    return line_count
+
+
+def _diagnosis_sections(text: str, label: str) -> dict[str, list[str]]:
+    """Split the document on its exact required heading skeleton."""
+
+    lines = text.split("\n")
+    _strip_blank_edges(lines)
+    expected_headings = _validated_diagnosis_headings(lines, label)
+    positions = [lines.index(heading) for heading in expected_headings]
+    return {
+        name: lines[start + 1 : _section_end(positions, index, len(lines))]
+        for index, (name, start) in enumerate(zip(DIAGNOSIS_SECTIONS, positions, strict=True))
+    }
+
+
+def _context_values_are_objects(context: dict[str, Any]) -> bool:
+    if not isinstance(context["state"], dict):
+        return False
+    return isinstance(context["proposed_action"], dict)
+
+
+def _validated_shared_context(sections: dict[str, list[str]], label: str) -> dict[str, Any]:
+    context = _diagnosis_fenced_object(
+        list(sections["Shared context"]),
+        label=f"{label} shared context",
+    )
+    if set(context) != {"state", "proposed_action"}:
+        raise PreferenceArmsError(
+            f"{label} shared context keys must be exactly state and proposed_action"
+        )
+    if not _context_values_are_objects(context):
+        raise PreferenceArmsError(f"{label} shared context values must be JSON objects")
+    _validate_shared_context_tree(context, label=f"{label} shared context")
+    return context
+
+
+def _has_oversized_line(narrative: str) -> bool:
+    return any(len(line) > MAX_DIAGNOSIS_LINE_CHARS for line in narrative.splitlines())
+
+
+def _contains_code_fence(narrative: str) -> bool:
+    return "```" in narrative or "~~~" in narrative
+
+
+def _contains_object_syntax(narrative: str) -> bool:
+    return "{" in narrative or "}" in narrative
+
+
+def _contains_raw_html(narrative: str) -> bool:
+    if "<!--" in narrative:
+        return True
+    return re.search(r"</?[A-Za-z][^>]*>", narrative) is not None
+
+
+def _contains_markdown_table(narrative: str) -> bool:
+    return any(re.fullmatch(r"\s*\|.*\|\s*", line) is not None for line in narrative.splitlines())
+
+
+def _is_serialized_narrative(narrative: str, lowered: str) -> bool:
+    if _is_serialized_payload(narrative):
+        return True
+    return re.search(r"\bbase64\b", lowered) is not None
+
+
+def _narrative_size_violation(narrative: str) -> str | None:
+    if not narrative:
+        return "is empty"
+    if len(narrative) > MAX_DIAGNOSIS_NARRATIVE_CHARS:
+        return "exceeds the narrative limit"
+    if _has_oversized_line(narrative):
+        return "has an oversized line"
+    return None
+
+
+def _narrative_syntax_violation(narrative: str, lowered: str) -> str | None:
+    if _contains_code_fence(narrative):
+        return "contains a code fence"
+    if _contains_object_syntax(narrative):
+        return "contains object syntax"
+    if _contains_raw_html(narrative):
+        return "contains raw HTML"
+    if _contains_markdown_table(narrative):
+        return "contains a Markdown table"
+    if _is_serialized_narrative(narrative, lowered):
+        return "contains an encoded or serialized payload"
+    return None
+
+
+def _narrative_violation(narrative: str, lowered: str) -> str | None:
+    """The first bounded-prose rule this section breaks, as a message suffix."""
+
+    size = _narrative_size_violation(narrative)
+    if size is not None:
+        return size
+    return _narrative_syntax_violation(narrative, lowered)
+
+
+def _validate_diagnosis_narratives(sections: dict[str, list[str]], label: str) -> None:
+    for name in DIAGNOSIS_SECTIONS[1:-1]:
+        narrative = "\n".join(sections[name]).strip()
+        violation = _narrative_violation(narrative, narrative.casefold())
+        if violation is not None:
+            raise PreferenceArmsError(f"{label} section {name!r} {violation}")
+
+
+def _is_reward_delta_shape(target: dict[str, Any]) -> bool:
+    if set(target) != {"per_component", "total"}:
+        return False
+    return isinstance(target["per_component"], dict)
+
+
+def _component_count_in_range(components: dict[str, Any]) -> bool:
+    if not components:
+        return False
+    return len(components) <= MAX_DIAGNOSIS_COMPONENTS
+
+
+def _is_finite_number(value: Any) -> bool:
+    if isinstance(value, bool):
+        return False
+    if not isinstance(value, (int, float)):
+        return False
+    if type(value) is not float:
+        return True
+    return math.isfinite(value)
+
+
+def _is_valid_component_key(key: Any) -> bool:
+    if not isinstance(key, str):
+        return False
+    return _COMPONENT_SLUG_RE.fullmatch(key) is not None
+
+
+def _validate_reward_components(components: dict[str, Any], label: str) -> None:
+    for key, value in components.items():
+        if not _is_valid_component_key(key):
             raise PreferenceArmsError(
-                f"{label} contains rejected-trajectory keys: " + ", ".join(forbidden)
+                f"{label} target reward component {key!r} must be a finite number"
             )
-        for item in value.values():
-            _validate_shared_context_tree(
-                item,
-                label=label,
-                depth=depth + 1,
-                budget=budget,
+        if not _is_finite_number(value):
+            raise PreferenceArmsError(
+                f"{label} target reward component {key!r} must be a finite number"
             )
-    elif isinstance(value, list):
-        for item in value:
-            _validate_shared_context_tree(
-                item,
-                label=label,
-                depth=depth + 1,
-                budget=budget,
-            )
-    elif isinstance(value, str) and (
-        _text_contains_rejected_trajectory_mapping(value)
-        or _ENCODED_BLOB_RE.search(value)
-        or "data:" in value.casefold()
-        or "%7b" in value.casefold()
-        or "%7d" in value.casefold()
-    ):
-        raise PreferenceArmsError(f"{label} contains an encoded or serialized payload string")
-    elif type(value) is float and not math.isfinite(value):
-        raise PreferenceArmsError(f"{label} contains a non-finite number")
+
+
+def _both_finite(left: float, right: float) -> bool:
+    if not math.isfinite(left):
+        return False
+    return math.isfinite(right)
+
+
+def _reward_totals(total: Any, components: dict[str, Any], label: str) -> tuple[float, float]:
+    """The declared total and the component sum, both finite and in range."""
+
+    try:
+        numeric_total = float(total)
+        component_sum = math.fsum(float(value) for value in components.values())
+    except OverflowError as exc:
+        raise PreferenceArmsError(
+            f"{label} target reward values exceed the supported numeric range"
+        ) from exc
+    if not _both_finite(numeric_total, component_sum):
+        raise PreferenceArmsError(
+            f"{label} target reward values exceed the supported numeric range"
+        )
+    return numeric_total, component_sum
+
+
+def _reconcile_reward_total(total: Any, components: dict[str, Any], label: str) -> None:
+    numeric_total, component_sum = _reward_totals(total, components, label)
+    if numeric_total <= 0:
+        raise PreferenceArmsError(f"{label} target reward total must be positive")
+    if not math.isclose(numeric_total, component_sum, rel_tol=0.0, abs_tol=1e-6):
+        raise PreferenceArmsError(f"{label} target reward total does not equal the component sum")
+
+
+def _validated_target_reward_delta(sections: dict[str, list[str]], label: str) -> dict[str, Any]:
+    target = _diagnosis_fenced_object(
+        list(sections["Target reward delta"]),
+        label=f"{label} target reward delta",
+    )
+    if not _is_reward_delta_shape(target):
+        raise PreferenceArmsError(
+            f"{label} target reward delta must contain per_component and total only"
+        )
+    components = target["per_component"]
+    if not _component_count_in_range(components):
+        raise PreferenceArmsError(
+            f"{label} target reward delta must have 1-{MAX_DIAGNOSIS_COMPONENTS} components"
+        )
+    _validate_reward_components(components, label)
+    if not _is_finite_number(target["total"]):
+        raise PreferenceArmsError(f"{label} target reward total must be a finite number")
+    _reconcile_reward_total(target["total"], components, label)
+    return target
 
 
 def validate_diagnosis_document(payload: bytes, *, label: str) -> dict[str, Any]:
@@ -196,128 +468,11 @@ def validate_diagnosis_document(payload: bytes, *, label: str) -> dict[str, Any]
     to the rejected gate, execution, outcome, or reward payload.
     """
 
-    if len(payload) > MAX_DIAGNOSIS_BYTES:
-        raise PreferenceArmsError(f"{label} exceeds the {MAX_DIAGNOSIS_BYTES}-byte diagnosis limit")
-    try:
-        text = payload.decode("utf-8")
-    except UnicodeDecodeError as exc:
-        raise PreferenceArmsError(f"{label} is not valid UTF-8: {exc}") from exc
-    text = text.replace("\r\n", "\n")
-    if "\r" in text:
-        raise PreferenceArmsError(f"{label} contains an unsupported bare carriage return")
-    if any(
-        unicodedata.category(character) == "Cc" and character not in "\t\n" for character in text
-    ):
-        raise PreferenceArmsError(f"{label} contains an unsupported control character")
-    lines = text.split("\n")
-    while lines and not lines[0].strip():
-        lines.pop(0)
-    while lines and not lines[-1].strip():
-        lines.pop()
-    if not lines or lines[0] != "# Diagnosis":
-        raise PreferenceArmsError(f"{label} must start with '# Diagnosis'")
-
-    expected_headings = [f"## {name}" for name in DIAGNOSIS_SECTIONS]
-    observed_headings = [line for line in lines[1:] if line.startswith("#")]
-    if observed_headings != expected_headings:
-        raise PreferenceArmsError(
-            f"{label} headings must be exactly " + ", ".join(expected_headings)
-        )
-    positions = [lines.index(heading) for heading in expected_headings]
-    sections = {
-        name: lines[start + 1 : positions[index + 1] if index + 1 < len(positions) else len(lines)]
-        for index, (name, start) in enumerate(zip(DIAGNOSIS_SECTIONS, positions, strict=True))
-    }
-
-    context = _diagnosis_fenced_object(
-        list(sections["Shared context"]),
-        label=f"{label} shared context",
-    )
-    if set(context) != {"state", "proposed_action"}:
-        raise PreferenceArmsError(
-            f"{label} shared context keys must be exactly state and proposed_action"
-        )
-    if not isinstance(context["state"], dict) or not isinstance(context["proposed_action"], dict):
-        raise PreferenceArmsError(f"{label} shared context values must be JSON objects")
-    _validate_shared_context_tree(context, label=f"{label} shared context")
-
-    narratives: dict[str, str] = {}
-    for name in DIAGNOSIS_SECTIONS[1:-1]:
-        narrative = "\n".join(sections[name]).strip()
-        if not narrative:
-            raise PreferenceArmsError(f"{label} section {name!r} is empty")
-        if len(narrative) > MAX_DIAGNOSIS_NARRATIVE_CHARS:
-            raise PreferenceArmsError(f"{label} section {name!r} exceeds the narrative limit")
-        if any(len(line) > MAX_DIAGNOSIS_LINE_CHARS for line in narrative.splitlines()):
-            raise PreferenceArmsError(f"{label} section {name!r} has an oversized line")
-        lowered = narrative.casefold()
-        if "```" in narrative or "~~~" in narrative:
-            raise PreferenceArmsError(f"{label} section {name!r} contains a code fence")
-        if "{" in narrative or "}" in narrative:
-            raise PreferenceArmsError(f"{label} section {name!r} contains object syntax")
-        if "<!--" in narrative or re.search(r"</?[A-Za-z][^>]*>", narrative):
-            raise PreferenceArmsError(f"{label} section {name!r} contains raw HTML")
-        if any(re.fullmatch(r"\s*\|.*\|\s*", line) is not None for line in narrative.splitlines()):
-            raise PreferenceArmsError(f"{label} section {name!r} contains a Markdown table")
-        if (
-            _text_contains_rejected_trajectory_mapping(narrative)
-            or _ENCODED_BLOB_RE.search(narrative)
-            or "data:" in lowered
-            or "%7b" in lowered
-            or "%7d" in lowered
-            or re.search(r"\bbase64\b", lowered)
-        ):
-            raise PreferenceArmsError(
-                f"{label} section {name!r} contains an encoded or serialized payload"
-            )
-        narratives[name] = narrative
-
-    target = _diagnosis_fenced_object(
-        list(sections["Target reward delta"]),
-        label=f"{label} target reward delta",
-    )
-    if set(target) != {"per_component", "total"} or not isinstance(target["per_component"], dict):
-        raise PreferenceArmsError(
-            f"{label} target reward delta must contain per_component and total only"
-        )
-    components = target["per_component"]
-    if not components or len(components) > MAX_DIAGNOSIS_COMPONENTS:
-        raise PreferenceArmsError(
-            f"{label} target reward delta must have 1-{MAX_DIAGNOSIS_COMPONENTS} components"
-        )
-    for key, value in components.items():
-        if (
-            not isinstance(key, str)
-            or _COMPONENT_SLUG_RE.fullmatch(key) is None
-            or isinstance(value, bool)
-            or not isinstance(value, (int, float))
-            or (type(value) is float and not math.isfinite(value))
-        ):
-            raise PreferenceArmsError(
-                f"{label} target reward component {key!r} must be a finite number"
-            )
-    total = target["total"]
-    if (
-        isinstance(total, bool)
-        or not isinstance(total, (int, float))
-        or (type(total) is float and not math.isfinite(total))
-    ):
-        raise PreferenceArmsError(f"{label} target reward total must be a finite number")
-    try:
-        numeric_total = float(total)
-        component_sum = math.fsum(float(value) for value in components.values())
-    except OverflowError as exc:
-        raise PreferenceArmsError(
-            f"{label} target reward values exceed the supported numeric range"
-        ) from exc
-    if not math.isfinite(numeric_total) or not math.isfinite(component_sum):
-        raise PreferenceArmsError(
-            f"{label} target reward values exceed the supported numeric range"
-        )
-    if numeric_total <= 0:
-        raise PreferenceArmsError(f"{label} target reward total must be positive")
-    if not math.isclose(numeric_total, component_sum, rel_tol=0.0, abs_tol=1e-6):
-        raise PreferenceArmsError(f"{label} target reward total does not equal the component sum")
+    text = _decoded_diagnosis_text(payload, label)
+    sections = _diagnosis_sections(text, label)
+    context = _validated_shared_context(sections, label)
+    _validate_diagnosis_narratives(sections, label)
+    target = _validated_target_reward_delta(sections, label)
     return {"shared_context": context, "target_reward_delta": target}
 
 

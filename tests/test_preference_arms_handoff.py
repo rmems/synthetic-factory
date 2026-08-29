@@ -239,11 +239,13 @@ class DiagnosisHandoffVerification(unittest.TestCase):
 
             validated = preference_arms.validate_diagnosis_handoff_receipt(
                 stage,
-                factory="failure-as-fuel-preference-cascade",
-                round_number=11,
-                staging_dir=stage,
-                reservation_token=self.TOKEN,
-                expected_count=3,
+                preference_arms.ReceiptExpectation(
+                    factory="failure-as-fuel-preference-cascade",
+                    round_number=11,
+                    staging_dir=stage,
+                    reservation_token=self.TOKEN,
+                    expected_count=3,
+                ),
             )
 
         self.assertEqual(validated, receipt)
@@ -263,11 +265,13 @@ class DiagnosisHandoffVerification(unittest.TestCase):
             ):
                 preference_arms.validate_diagnosis_handoff_receipt(
                     stage,
-                    factory="failure-as-fuel-preference-cascade",
-                    round_number=11,
-                    staging_dir=stage,
-                    reservation_token=self.TOKEN,
-                    expected_count=3,
+                    preference_arms.ReceiptExpectation(
+                        factory="failure-as-fuel-preference-cascade",
+                        round_number=11,
+                        staging_dir=stage,
+                        reservation_token=self.TOKEN,
+                        expected_count=3,
+                    ),
                 )
 
     def test_invalid_receipt_name_is_rejected_before_any_outside_read(self):
@@ -292,11 +296,13 @@ class DiagnosisHandoffVerification(unittest.TestCase):
             ):
                 preference_arms.validate_diagnosis_handoff_receipt(
                     stage,
-                    factory="failure-as-fuel-preference-cascade",
-                    round_number=11,
-                    staging_dir=stage,
-                    reservation_token=self.TOKEN,
-                    expected_count=3,
+                    preference_arms.ReceiptExpectation(
+                        factory="failure-as-fuel-preference-cascade",
+                        round_number=11,
+                        staging_dir=stage,
+                        reservation_token=self.TOKEN,
+                        expected_count=3,
+                    ),
                 )
 
             opened_paths = [Path(call.args[0]) for call in open_spy.call_args_list]

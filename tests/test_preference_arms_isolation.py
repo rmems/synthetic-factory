@@ -24,7 +24,9 @@ class IsolationAttestation(unittest.TestCase):
         self.assertGreater(decision.arm_distance, preference_arms.DEFAULT_MIN_ARM_DISTANCE)
 
     def test_legacy_scan_reports_but_does_not_block_on_attestation(self):
-        scan = preference_arms.scan_source(SINGLE_SESSION, require_isolation=False)
+        scan = preference_arms.scan_source(
+            SINGLE_SESSION, preference_arms.GatePolicy(require_isolation=False)
+        )
         self.assertFalse(scan.blocked)
         self.assertEqual(scan.decisions[0].isolation, "single-session")
         self.assertEqual(scan.summary["two_session_pairs"], 0)
@@ -84,8 +86,10 @@ class IsolationAttestation(unittest.TestCase):
     def test_publisher_controlled_two_session_marker_clears_the_gate(self):
         scan = preference_arms.scan_source(
             TWO_SESSION_ROUND,
-            trusted_isolation=preference_arms.TWO_SESSION,
-            require_trusted_isolation=True,
+            preference_arms.GatePolicy(
+                trusted_isolation=preference_arms.TWO_SESSION,
+                require_trusted_isolation=True,
+            ),
         )
         self.assertFalse(scan.blocked)
         self.assertEqual(scan.summary["trusted_two_session_pairs"], 3)
