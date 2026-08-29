@@ -1,0 +1,58 @@
+{
+  "schema_version": "vset-record-v1",
+  "record_kind": "review_remediation_v1",
+  "actor_provenance_schema_version": "actor-provenance-v1",
+  "source_kind": "synthetic",
+  "task_author": {
+    "model": "fixture-author",
+    "version": "vset-pilot-0",
+    "prompt_hash": "sha256:573a6eb1f609119e623ef9ffab34e439bb9b0e4e876c50cde090602c0c525df0",
+    "run_id": "author-run-missing-reviewer"
+  },
+  "solver": {
+    "model": "fixture-solver",
+    "version": "vset-pilot-0",
+    "tool_policy": "bounded-repo-pack-edit",
+    "run_id": "solver-run-missing-reviewer"
+  },
+  "oracle": {
+    "kind": "deterministic_fixture_reference",
+    "status": "provisional",
+    "certifier": "vset_oracle"
+  },
+  "curation": {
+    "pipeline_version": "vset-validate-v1",
+    "decision": "measure",
+    "reason_codes": []
+  },
+  "environment": {
+    "repo_snapshot_hash": "sha256:fb54337dc385c38635a7c70f5676d6f5ce6e89c04810ffa4a4bbeb6821138347",
+    "task_id": "vset-counter-v1.review-off-by-one",
+    "repo_pack_id": "vset-counter-v1"
+  },
+  "release": {
+    "factory_contract_version": "factory-registry-v0.1",
+    "schema_version": "vset-record-v1",
+    "manifest_hash": "sha256:91f56e7e0808650419f151bf2ee8e9e2fcc74e5ad4c90657316f7a463ff484d9"
+  },
+  "payload": {
+    "initial_patch": {
+      "files": {
+        "src/counter.py": "off-by-one"
+      }
+    },
+    "review_finding": {
+      "summary": "off by one"
+    },
+    "revised_patch": {
+      "files": {
+        "src/counter.py": "fixed"
+      }
+    },
+    "validation_evidence": {},
+    "outcome": "unknown"
+  },
+  "training_view": {
+    "note": "review_remediation_v1 without reviewer must fail closed"
+  }
+}

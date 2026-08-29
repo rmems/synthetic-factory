@@ -1,0 +1,76 @@
+{
+  "schema_version": "vset-record-v1",
+  "record_kind": "failure_recovery_v1",
+  "actor_provenance_schema_version": "actor-provenance-v1",
+  "source_kind": "synthetic",
+  "task_author": {
+    "model": "fixture-author",
+    "version": "vset-pilot-0",
+    "prompt_hash": "sha256:30dd0fe3a7f999cadbb6ce618da5d37228b2b87732eb60e4a232c5a4ba44c2ba",
+    "run_id": "author-run-recover-none"
+  },
+  "solver": {
+    "model": "fixture-solver",
+    "version": "vset-pilot-0",
+    "tool_policy": "bounded-repo-pack-edit",
+    "run_id": "solver-run-recover-none",
+    "outcome": "success"
+  },
+  "oracle": {
+    "kind": "deterministic_fixture_reference",
+    "status": "validated",
+    "repo_commit": "vset-counter-v1",
+    "command": "python3 -m unittest tests.reference tests.hidden_none",
+    "result_hash": "sha256:1af6631aa5d76ddc158e98b896598d7f42bf4be1f11de7c879e4cedf3a4d8187",
+    "certifier": "vset_oracle",
+    "signals": [
+      "deterministic_fixture_reference",
+      "fail_to_pass"
+    ],
+    "reference_tests": [
+      "tests/reference.py"
+    ],
+    "hidden_tests": [
+      "tests/hidden_none.py"
+    ]
+  },
+  "curation": {
+    "pipeline_version": "vset-validate-v1",
+    "decision": "accept",
+    "reason_codes": []
+  },
+  "environment": {
+    "repo_snapshot_hash": "sha256:fb54337dc385c38635a7c70f5676d6f5ce6e89c04810ffa4a4bbeb6821138347",
+    "task_id": "vset-counter-v1.recover-none",
+    "repo_pack_id": "vset-counter-v1"
+  },
+  "release": {
+    "factory_contract_version": "factory-registry-v0.1",
+    "schema_version": "vset-record-v1",
+    "manifest_hash": "sha256:96982ed58da770686bfe98b6f32a89f09f5c9068d939a68a0e77915ae262edf7"
+  },
+  "payload": {
+    "failed_state": {
+      "call": "Counter().add(None)",
+      "exception": "TypeError"
+    },
+    "failure_evidence": "int(None) raises TypeError; callers need a bounded ValueError.",
+    "recovery_action": {
+      "patch": {
+        "files": {
+          "src/counter.py": "\"\"\"Tiny hardware-independent counter used by VSET oracle fixtures.\"\"\"\n\n\nclass Counter:\n    def __init__(self, value=0):\n        self._value = int(value)\n\n    def add(self, delta):\n        if delta is None:\n            raise ValueError(\"delta required\")\n        self._value += int(delta)\n        return self._value\n\n    def get(self):\n        return self._value\n"
+        }
+      }
+    },
+    "execution_evidence": {
+      "reference_ok": true,
+      "hidden_ok": true
+    },
+    "outcome": "recovered"
+  },
+  "training_view": {
+    "failure_evidence": "add(None) raised TypeError from int(None).",
+    "recovery": "Raise ValueError('delta required').",
+    "oracle_status": "validated"
+  }
+}

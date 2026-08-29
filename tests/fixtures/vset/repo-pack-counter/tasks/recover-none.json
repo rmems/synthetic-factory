@@ -1,0 +1,11 @@
+{
+  "task_id": "vset-counter-v1.recover-none",
+  "record_kind": "failure_recovery_v1",
+  "specification": "add(None) currently raises TypeError from int(None). Recover by raising ValueError('delta required') so callers get a bounded, observable failure.",
+  "oracle": {
+    "kind": "deterministic_fixture_reference",
+    "reference_tests": ["tests/reference.py"],
+    "hidden_tests": ["tests/hidden_none.py"],
+    "command": "python3 -m unittest tests.reference tests.hidden_none"
+  }
+}

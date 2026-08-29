@@ -1,0 +1,67 @@
+{
+  "schema_version": "vset-record-v1",
+  "record_kind": "issue_patch_v1",
+  "actor_provenance_schema_version": "actor-provenance-v1",
+  "source_kind": "synthetic",
+  "task_author": {
+    "model": "fixture-author",
+    "version": "vset-pilot-0",
+    "prompt_hash": "sha256:573a6eb1f609119e623ef9ffab34e439bb9b0e4e876c50cde090602c0c525df0",
+    "run_id": "author-run-self-certify"
+  },
+  "solver": {
+    "model": "fixture-solver",
+    "version": "vset-pilot-0",
+    "tool_policy": "bounded-repo-pack-edit",
+    "run_id": "solver-run-self-certify",
+    "outcome": "success"
+  },
+  "oracle": {
+    "kind": "solver_self_report",
+    "status": "validated",
+    "command": "solver claimed hidden tests passed",
+    "result_hash": "sha256:8d36ecc5cabbeafbb9c5705a571abd03074e20ac66dc7472bd3e389758c4b20b",
+    "certifier": "solver",
+    "signals": [
+      "solver_success"
+    ],
+    "upgraded_from_solver_success": true,
+    "reference_tests": [
+      "tests/reference.py"
+    ],
+    "hidden_tests": [
+      "tests/hidden_sub.py"
+    ]
+  },
+  "curation": {
+    "pipeline_version": "vset-validate-v1",
+    "decision": "accept",
+    "reason_codes": []
+  },
+  "environment": {
+    "repo_snapshot_hash": "sha256:fb54337dc385c38635a7c70f5676d6f5ce6e89c04810ffa4a4bbeb6821138347",
+    "task_id": "vset-counter-v1.add-sub",
+    "repo_pack_id": "vset-counter-v1"
+  },
+  "release": {
+    "factory_contract_version": "factory-registry-v0.1",
+    "schema_version": "vset-record-v1",
+    "manifest_hash": "sha256:8d36ecc5cabbeafbb9c5705a571abd03074e20ac66dc7472bd3e389758c4b20b"
+  },
+  "payload": {
+    "task_specification": "Add Counter.sub(delta).",
+    "patch": {
+      "files": {
+        "src/counter.py": "\"\"\"Tiny hardware-independent counter used by VSET oracle fixtures.\"\"\"\n\n\nclass Counter:\n    def __init__(self, value=0):\n        self._value = int(value)\n\n    def add(self, delta):\n        self._value += int(delta)\n        return self._value\n\n    def sub(self, delta):\n        self._value -= int(delta)\n        return self._value\n\n    def get(self):\n        return self._value\n"
+      }
+    },
+    "validation_evidence": {
+      "solver_claimed_success": true
+    },
+    "outcome": "success"
+  },
+  "training_view": {
+    "oracle_status": "validated",
+    "note": "This record must fail closed: solver success is not oracle truth."
+  }
+}

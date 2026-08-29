@@ -1,0 +1,60 @@
+{
+  "schema_version": "vset-record-v1",
+  "record_kind": "issue_patch_v1",
+  "actor_provenance_schema_version": "actor-provenance-v1",
+  "source_kind": "synthetic",
+  "task_author": {
+    "model": "fixture-author",
+    "version": "vset-pilot-0",
+    "prompt_hash": "sha256:30dd0fe3a7f999cadbb6ce618da5d37228b2b87732eb60e4a232c5a4ba44c2ba",
+    "run_id": "author-run-impossible"
+  },
+  "solver": {
+    "model": "fixture-solver",
+    "version": "vset-pilot-0",
+    "tool_policy": "bounded-repo-pack-edit",
+    "run_id": "solver-run-impossible",
+    "outcome": "failed"
+  },
+  "oracle": {
+    "kind": "human_adjudication",
+    "status": "invalid",
+    "certifier": "vset_oracle",
+    "signals": [
+      "human_adjudication"
+    ]
+  },
+  "curation": {
+    "pipeline_version": "vset-validate-v1",
+    "decision": "measure",
+    "reason_codes": [
+      "vset.impossible_task"
+    ]
+  },
+  "environment": {
+    "repo_snapshot_hash": "sha256:fb54337dc385c38635a7c70f5676d6f5ce6e89c04810ffa4a4bbeb6821138347",
+    "task_id": "vset-counter-v1.impossible-halting",
+    "repo_pack_id": "vset-counter-v1"
+  },
+  "release": {
+    "factory_contract_version": "factory-registry-v0.1",
+    "schema_version": "vset-record-v1",
+    "manifest_hash": "sha256:e5b8e5ff691ae48b94343b00df7aa560d720dae905871d192cbb6242a36d61ba"
+  },
+  "payload": {
+    "task_specification": "Implement Counter.decides_halts(fn) as a total function that decides whether an arbitrary Python callable would halt.",
+    "patch": {
+      "files": {}
+    },
+    "validation_evidence": {
+      "adjudication": "The requested function is uncomputable. Keep the task as a measured invalid outcome."
+    },
+    "outcome": "impossible"
+  },
+  "training_view": {
+    "oracle_status": "invalid",
+    "reason_codes": [
+      "vset.impossible_task"
+    ]
+  }
+}

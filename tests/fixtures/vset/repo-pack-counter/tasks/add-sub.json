@@ -1,0 +1,11 @@
+{
+  "task_id": "vset-counter-v1.add-sub",
+  "record_kind": "issue_patch_v1",
+  "specification": "Add Counter.sub(delta) that subtracts delta from the value and returns the new value. Negative delta must add.",
+  "oracle": {
+    "kind": "deterministic_fixture_reference",
+    "reference_tests": ["tests/reference.py"],
+    "hidden_tests": ["tests/hidden_sub.py"],
+    "command": "python3 -m unittest tests.reference tests.hidden_sub"
+  }
+}
