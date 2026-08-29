@@ -1,0 +1,80 @@
+tests/test_moe_router.py
+  s_002cddb1a70571::t_4a0597d5ee5ab4 348-372
+docs/distillation-datasets.md
+  s_002cddb1a70571::t_f8bb2832aaac4c 27-29
+  s_002cddb1a70571::t_ab1840a7d4aa1f 219-229
+  s_002cddb1a70571::t_c8a455735ba0dc 118-125
+tests/test_oracle_contract.py
+  s_002cddb1a70571::t_9c55e4b3ac4b06 328-345
+  s_002cddb1a70571::t_65ba38d8892d04 378-394
+pipelines/energy_preferences.py
+  s_002cddb1a70571::t_cc2a0e3f2af681 669-705
+  s_002cddb1a70571::t_fb2d20d0b84512 786-793
+  s_002cddb1a70571::t_5122df713c6e23 260-279
+  s_002cddb1a70571::t_9b116481afc1c5 961-976
+  s_002cddb1a70571::t_409e78f7691787 43
+tests/test_fault_recovery.py
+  s_002cddb1a70571::t_299355086e6f4e 287-310
+pipelines/oracle_contract.py
+  s_002cddb1a70571::t_e3fa312c8715c8 865-870,872-879,888-891
+  s_002cddb1a70571::t_bed1d51b25d11a 823-835,840-843
+  s_002cddb1a70571::t_ed3588f9a87ed4 836-839
+tests/test_energy_preferences.py
+  s_002cddb1a70571::t_f774f7087ffe9b 504-529
+  s_002cddb1a70571::t_55951ce5925a9a 235-288
+  s_002cddb1a70571::t_ad02e9b1172fdc 183-215
+tests/fixtures/distillation-run/fault-recovery/batch-r01.jsonl
+  s_002cddb1a70571::t_a8fa8d4c8ccc3c 1-18
+tests/test_router_baseline.py
+  s_002cddb1a70571::t_211ab97923cee2 160-184
+tests/fixtures/distillation-run/MANIFEST.json
+  s_002cddb1a70571::t_a8fa8d4c8ccc3c 50-51,57,60,67,71,75,84-113,116-117
+tests/fixtures/distillation-run/energy-preferences/batch-r01.jsonl
+  s_002cddb1a70571::t_a8fa8d4c8ccc3c 1-4
+pipelines/moe_router.py
+  s_002cddb1a70571::t_a50405ac5c89f4 62-63
+  s_002cddb1a70571::t_222ea05971850b 398-399
+  s_002cddb1a70571::t_86ded3626f8038 858-871
+  s_002cddb1a70571::t_f2de845b09eb9b 782
+  s_002cddb1a70571::t_488c93e4ca332c 772-773
+  s_002cddb1a70571::t_cb62647b87d870 735-761
+  s_002cddb1a70571::t_bc1de0ad1c3128 891-897,899
+  s_002cddb1a70571::t_4bdc88058dc505 831-839
+tests/test_validate_distill.py
+  s_002cddb1a70571::t_13a011a372da84 116-153
+  s_002cddb1a70571::t_31937a31d670ec 277-291
+scripts/build_distillation_fixture.py
+  s_002cddb1a70571::t_11bfa21cbd5fbc 65
+  s_002cddb1a70571::t_e4cc43e42657d9 135-139,141-143
+pipelines/router_baseline.py
+  s_002cddb1a70571::t_be055fd37fb304 352-354
+  s_002cddb1a70571::t_0fcdca147e1ae3 444,446
+  s_002cddb1a70571::t_65e2a66c8b02e6 263-266,268
+  s_002cddb1a70571::t_a2fd44a9c3212f 378
+  s_002cddb1a70571::t_94e2a11adf719d 408-415,417-418,420-422
+  s_002cddb1a70571::t_d6fd64a25e7eab 461-475
+tests/fixtures/distillation-run/moe-router/batch-r01.jsonl
+  s_002cddb1a70571::t_a8fa8d4c8ccc3c 1-80
+pipelines/validate_distill.py
+  s_002cddb1a70571::t_5ab3ddbf4c3a3e 159-170
+  s_002cddb1a70571::t_14928c2af0f7d9 110-111
+pipelines/fault_recovery.py
+  s_002cddb1a70571::t_f1ac0dcaeba379 148-149
+  s_002cddb1a70571::t_e4771da5d35a5a 404-410
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "8b4a7b3dca51154ee3b0089a366393cf2583c5f5",
+  "prompts": {},
+  "sessions": {
+    "s_002cddb1a70571": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "abd260ba-6a6c-45a6-9db3-a4e0988ad60e",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Raul Montoya Cardenas <montoyaraul34@gmail.com>"
+    }
+  }
+}
