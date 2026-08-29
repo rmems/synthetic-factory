@@ -829,47 +829,55 @@ def _recheck_deterministic_outcome(record: dict[str, Any], where: str) -> list[s
     return errors
 
 
-def check_family(record: dict[str, Any], where: str) -> list[str]:
-    """Family checks layered on top of the shared envelope."""
+def _check_intervention(record: dict[str, Any], where: str) -> list[str]:
+    """The proposed disturbance, its parameters, and the scenario that names it."""
 
     errors: list[str] = []
     intervention = record.get("intervention")
     if not isinstance(intervention, dict):
         errors.append(f"{where}.intervention must describe the proposed disturbance")
-    elif intervention.get("kind") not in DISTURBANCES:
+        return errors
+    if intervention.get("kind") not in DISTURBANCES:
         errors.append(
             f"{where}.intervention.kind must be one of {sorted(DISTURBANCES)}, "
             f"got {intervention.get('kind')!r}"
         )
+        return errors
+    kind = intervention.get("kind")
+    parameters = intervention.get("parameters")
+    if not isinstance(parameters, dict):
+        errors.append(f"{where}.intervention.parameters must be an object")
     else:
-        kind = intervention.get("kind")
-        parameters = intervention.get("parameters")
-        if not isinstance(parameters, dict):
-            errors.append(f"{where}.intervention.parameters must be an object")
-        else:
-            required, optional = PARAMETER_SPEC[kind]
-            missing = [key for key in required if key not in parameters]
-            if missing:
-                errors.append(
-                    f"{where}.intervention.parameters: {kind} requires {sorted(missing)}"
-                )
-            unknown = sorted(set(parameters) - set(required) - set(optional))
-            if unknown:
-                errors.append(
-                    f"{where}.intervention.parameters: {kind} does not use {unknown}"
-                )
-        # The scenario is what the student sees; the intervention is what was
-        # simulated. If they name different faults, the record pairs one fault's
-        # description with another fault's label.
-        scenario = record.get("scenario")
-        if isinstance(scenario, dict) and "disturbance_kind" in scenario:
-            declared = scenario.get("disturbance_kind")
-            if declared != kind:
-                errors.append(
-                    f"{where}.scenario.disturbance_kind: DISTURBANCE_KIND_MISMATCH "
-                    f"— the scenario presents {declared!r} but the label was "
-                    f"produced by simulating {kind!r}"
-                )
+        required, optional = PARAMETER_SPEC[kind]
+        missing = [key for key in required if key not in parameters]
+        if missing:
+            errors.append(
+                f"{where}.intervention.parameters: {kind} requires {sorted(missing)}"
+            )
+        unknown = sorted(set(parameters) - set(required) - set(optional))
+        if unknown:
+            errors.append(
+                f"{where}.intervention.parameters: {kind} does not use {unknown}"
+            )
+    # The scenario is what the student sees; the intervention is what was
+    # simulated. If they name different faults, the record pairs one fault's
+    # description with another fault's label.
+    scenario = record.get("scenario")
+    if isinstance(scenario, dict) and "disturbance_kind" in scenario:
+        declared = scenario.get("disturbance_kind")
+        if declared != kind:
+            errors.append(
+                f"{where}.scenario.disturbance_kind: DISTURBANCE_KIND_MISMATCH "
+                f"— the scenario presents {declared!r} but the label was "
+                f"produced by simulating {kind!r}"
+            )
+    return errors
+
+
+def _check_candidate_prediction(record: dict[str, Any], where: str) -> list[str]:
+    """The student's proposed outcome, when the record carries one."""
+
+    errors: list[str] = []
     prediction = record.get("candidate_prediction")
     if isinstance(prediction, dict):
         predicted = prediction.get("predicted_outcome")
@@ -878,9 +886,13 @@ def check_family(record: dict[str, Any], where: str) -> list[str]:
                 f"{where}.candidate_prediction.predicted_outcome must be one of "
                 f"{sorted(OUTCOMES)}, got {predicted!r}"
             )
-    result = record.get("result")
-    if not isinstance(result, dict):
-        return errors + [f"{where}.result must be an object"]
+    return errors
+
+
+def _check_outcome(result: dict[str, Any], where: str) -> list[str]:
+    """The recorded outcome, its prose label, and the reasons behind it."""
+
+    errors: list[str] = []
     outcome = result.get("outcome")
     if outcome not in OUTCOMES:
         errors.append(
@@ -898,6 +910,18 @@ def check_family(record: dict[str, Any], where: str) -> list[str]:
             f"{where}.result.reason_codes must be a non-empty array — every fault "
             "outcome needs an explicit reason"
         )
+    return errors
+
+
+def check_family(record: dict[str, Any], where: str) -> list[str]:
+    """Family checks layered on top of the shared envelope."""
+
+    errors = _check_intervention(record, where)
+    errors += _check_candidate_prediction(record, where)
+    result = record.get("result")
+    if not isinstance(result, dict):
+        return errors + [f"{where}.result must be an object"]
+    errors += _check_outcome(result, where)
     errors += _recheck_deterministic_outcome(record, where)
     return errors
 
