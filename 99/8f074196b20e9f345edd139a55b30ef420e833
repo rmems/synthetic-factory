@@ -1,0 +1,23 @@
+pipelines/census.py
+  s_0d456da8ea5328::t_36a69ab594ed19 176-209
+  s_0d456da8ea5328::t_58830eb555dd6d 62-79,86,90,95-102,105
+  s_0d456da8ea5328::t_3518f29be5a2a7 224-225,237
+tests/test_census.py
+  s_0d456da8ea5328::t_9c6ef9e0ffae7e 105-150
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "998f074196b20e9f345edd139a55b30ef420e833",
+  "prompts": {},
+  "sessions": {
+    "s_0d456da8ea5328": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "a8d33a4c-0324-4388-9173-61055dd33627",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Raul Montoya Cardenas <montoyaraul34@gmail.com>"
+    }
+  }
+}
