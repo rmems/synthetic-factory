@@ -35,17 +35,19 @@ import round_txn  # noqa: E402
 _SCAN: dict = {}
 
 
+def _read_shard(shard):
+    """Every non-blank record in one shard, tagged with the shard name."""
+    with shard.open(encoding="utf-8") as handle:
+        return [(shard.name, json.loads(line)) for line in handle if line.strip()]
+
+
 def _scan_mirror():
     """Read every published shard once and memoize it for the whole module."""
-    if "scan" not in _SCAN:
-        shards = sorted(SAFETY_CALIBRATION_MIRROR.glob("batch-*.jsonl"))
-        records = []
-        for shard in shards:
-            with shard.open(encoding="utf-8") as handle:
-                for line in handle:
-                    if line.strip():
-                        records.append((shard.name, json.loads(line)))
-        _SCAN["scan"] = (shards, records)
+    if "scan" in _SCAN:
+        return _SCAN["scan"]
+    shards = sorted(SAFETY_CALIBRATION_MIRROR.glob("batch-*.jsonl"))
+    records = [row for shard in shards for row in _read_shard(shard)]
+    _SCAN["scan"] = (shards, records)
     return _SCAN["scan"]
 
 
