@@ -1,0 +1,41 @@
+pipelines/compose_curated.py
+  s_0d456da8ea5328::t_a6e79a523f333b 773-775,812-813,825,892-907
+  s_0d456da8ea5328::t_d2683816cc65b6 483,485,490-495,548-564,591-598,600-601,603,605,607-610
+  s_0d456da8ea5328::t_d3c4d56afe1ba2 961-968,970-986
+  s_0d456da8ea5328::t_de5c635364874d 1050-1130
+  s_0d456da8ea5328::t_e04788bab559fe 604,606,611-627,629-642,644-661,663-739,741-746,748-753,755-772,776-797,799-811,815-823,826-845,855-891
+  s_0d456da8ea5328::t_50010625463d87 937
+pipelines/export_hf.py
+  s_0d456da8ea5328::t_f19fdfa723754a 859-861,863-865,868-879,1004-1026,1030,1034,1036,1038,1043-1049,1054-1055,1059,1064-1095,1097,1103-1105
+tests/test_export_hf.py
+  s_0d456da8ea5328::t_244c51a61ac708 329
+  s_0d456da8ea5328::t_7ddc6161899299 105
+  s_0d456da8ea5328::t_00e800bac3dd3e 352
+  s_0d456da8ea5328::t_282af171f18424 442
+  s_0d456da8ea5328::t_f47853a107bed0 745
+  s_0d456da8ea5328::t_e6451d8272a6f9 504
+  s_0d456da8ea5328::t_b37f635ecc7239 211
+  s_0d456da8ea5328::t_f52828eb7d9b3a 285
+  s_0d456da8ea5328::t_6146df720424bb 859
+  s_0d456da8ea5328::t_1ad9b408a7985f 812
+tests/test_compose_curated.py
+  s_0d456da8ea5328::t_e9db9c03886c93 323-338,340-342,357-362,373-381,394-399
+tests/test_curate_agentic.py
+  s_0d456da8ea5328::t_5a696bcbbee241 288-323
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "d260fa7d08c27430c0b697862745b204df784b2c",
+  "prompts": {},
+  "sessions": {
+    "s_0d456da8ea5328": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "a8d33a4c-0324-4388-9173-61055dd33627",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Raul Montoya Cardenas <montoyaraul34@gmail.com>"
+    }
+  }
+}
