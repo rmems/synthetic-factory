@@ -310,7 +310,13 @@ class RecordedEnergyMeter(EnergyOracle):
 
     def __init__(self, recording: dict[str, Any]) -> None:
         self.recording = recording
-        self.source_meter = recording.get("meter", self.name)
+        # No default. `recorded_power_run` is this replay wrapper, not an
+        # instrument; defaulting to it would let a file of bare observations
+        # emit `energy_j` records that never name the meter that took the
+        # readings. The wrapper is the oracle; the meter is whatever was
+        # physically attached, and the recording has to say which.
+        source_meter = recording.get("meter")
+        self.source_meter = source_meter if isinstance(source_meter, str) else ""
         self.cost_quantity = recording.get("cost_quantity", self.cost_quantity)
         self.measures_energy = self.cost_quantity in oc.ENERGY_QUANTITIES
         observations = recording.get("observations")
@@ -321,6 +327,11 @@ class RecordedEnergyMeter(EnergyOracle):
         return cls(json.loads(Path(path).read_text(encoding="utf-8")))
 
     def available(self) -> tuple[bool, str]:
+        if not self.source_meter.strip():
+            return False, (
+                "recording does not name the physical meter that produced it; "
+                "set 'meter' to the instrument, not to the replay wrapper"
+            )
         if not self.observations:
             return False, "recording contains no observations"
         return True, f"{len(self.observations)} recorded observation(s)"
@@ -330,6 +341,19 @@ class RecordedEnergyMeter(EnergyOracle):
         if not isinstance(entry, dict) or not oc.is_number(entry.get("cost_value")):
             raise oc.OracleUnavailable(
                 self.name, f"no recorded measurement for key {key!r}"
+            )
+        if float(entry["cost_value"]) < 0.0:
+            # Neither joules nor seconds can be negative, and the cheapest
+            # candidate wins: a negative replayed cost would take the
+            # preference every time.
+            raise oc.OracleUnavailable(
+                self.name,
+                f"recorded cost for key {key!r} is negative "
+                f"({entry['cost_value']}); a measured cost cannot be below zero",
+            )
+        if not self.source_meter.strip():
+            raise oc.OracleUnavailable(
+                self.name, "recording does not name the physical meter"
             )
         return MeterReading(
             meter=self.source_meter,
@@ -630,6 +654,21 @@ def choose_preference(
     """Minimise measured cost subject to quality and safety.
 
     Returns ``(preference, abstention_reason)``. Exactly one is ``None``.
+
+    Fields of the returned preference:
+
+    ``preferred``
+        The cheapest measured candidate that is safe and clears the quality
+        floor. Equal measured costs are broken by candidate id, so the label is
+        a function of the measurements rather than of iteration order.
+    ``over``
+        Every other candidate in the record, preferred-over — not only the
+        feasible ones and not only the cheaper ones.
+    ``feasible``
+        The subset that satisfied both constraints and so could have won.
+    ``cheaper_but_constraint_violating``
+        Candidates measured cheaper than the winner that the constraints ruled
+        out. This is what makes the constraint visibly load-bearing.
     """
 
     feasible = [
@@ -875,6 +914,35 @@ def build_records(
     return records
 
 
+def _derive_safety(
+    allocation: Any, demand: float, caps: list[float]
+) -> tuple[bool, list[str]]:
+    """Re-derive a candidate's safety from its allocation and the scenario.
+
+    Mirrors :func:`evaluate_allocation`, so a record whose ``safety_ok`` was
+    edited away from what its own allocation implies becomes a finding rather
+    than a preferred candidate.
+    """
+
+    if allocation is None or (isinstance(allocation, list) and not allocation):
+        return False, ["NO_FEASIBLE_ALLOCATION_FOUND"]
+    if not isinstance(allocation, list) or not all(
+        oc.is_number(value) for value in allocation
+    ):
+        return False, ["ALLOCATION_NOT_NUMERIC"]
+    if len(allocation) != len(caps):
+        return False, ["ALLOCATION_WIDTH_MISMATCH"]
+    violations: list[str] = []
+    for index, (value, cap) in enumerate(zip(allocation, caps)):
+        if float(value) > float(cap) + 1e-9:
+            violations.append(f"ACTUATOR_{index}_OVER_CAP")
+        if float(value) < -1e-9:
+            violations.append(f"ACTUATOR_{index}_NEGATIVE")
+    if abs(sum(float(value) for value in allocation) - demand) > 1e-6:
+        violations.append("DEMAND_NOT_MET")
+    return (not violations), violations
+
+
 def check_family(record: dict[str, Any], where: str) -> list[str]:
     """Family checks: measured cost, and a preference that respects limits."""
 
@@ -941,8 +1009,36 @@ def check_family(record: dict[str, Any], where: str) -> list[str]:
             and oc.is_number(item.get("value"))
             and isinstance(meter, str)
         ):
-            measured_costs.setdefault((candidate_id, quantity), (item["value"], meter))
+            key = (candidate_id, quantity)
+            if key in measured_costs:
+                # Silently keeping the first reading made the preference depend
+                # on JSON array order while the record still carried the
+                # contradicting one. Two readings that disagree are a finding.
+                previous_value, previous_meter = measured_costs[key]
+                if (
+                    abs(float(previous_value) - float(item["value"])) > 1e-12
+                    or previous_meter != meter
+                ):
+                    errors.append(
+                        f"{where}.result.measurements: CONFLICTING_MEASUREMENT — "
+                        f"{quantity} for candidate {candidate_id!r} is recorded "
+                        f"both as {previous_value!r} ({previous_meter}) and "
+                        f"{item['value']!r} ({meter})"
+                    )
+                continue
+            measured_costs[key] = (item["value"], meter)
 
+    state = scenario.get("state") if isinstance(scenario, dict) else None
+    caps = state.get("actuator_caps") if isinstance(state, dict) else None
+    demand = state.get("demand") if isinstance(state, dict) else None
+    can_derive_safety = (
+        isinstance(caps, list)
+        and bool(caps)
+        and all(oc.is_number(cap) for cap in caps)
+        and oc.is_number(demand)
+    )
+
+    seen_candidate_ids: set[str] = set()
     for index, candidate in enumerate(candidates):
         spot = f"{where}.result.candidates[{index}]"
         if not isinstance(candidate, dict):
@@ -952,8 +1048,41 @@ def check_family(record: dict[str, Any], where: str) -> list[str]:
         if not isinstance(candidate_id, str) or not candidate_id:
             errors.append(f"{spot}.id must be a non-empty string")
             continue
+        if candidate_id in seen_candidate_ids:
+            # The preference names a candidate by id. Two candidates sharing one
+            # makes the winning allocation ambiguous, and the cost measurements
+            # can no longer be attributed to either.
+            errors.append(
+                f"{spot}: DUPLICATE_CANDIDATE_ID — {candidate_id!r} is already "
+                "used by an earlier candidate"
+            )
+            continue
+        seen_candidate_ids.add(candidate_id)
         if not isinstance(candidate.get("safety_ok"), bool):
             errors.append(f"{spot}.safety_ok must be a boolean")
+        elif can_derive_safety:
+            # safety_ok summarises the allocation; it is not an independent
+            # fact. Trusting it lets an obviously over-cap allocation be
+            # preferred as the feasible minimum.
+            derived_ok, derived_violations = _derive_safety(
+                candidate.get("allocation"), float(demand), [float(c) for c in caps]
+            )
+            if candidate["safety_ok"] is not derived_ok:
+                errors.append(
+                    f"{spot}: SAFETY_NOT_REPRODUCIBLE — safety_ok is "
+                    f"{candidate['safety_ok']} but the recorded allocation "
+                    f"against the scenario state yields {derived_ok} "
+                    f"({sorted(derived_violations)})"
+                )
+            recorded_violations = candidate.get("safety_violations")
+            if isinstance(recorded_violations, list) and sorted(
+                str(item) for item in recorded_violations
+            ) != sorted(derived_violations):
+                errors.append(
+                    f"{spot}: SAFETY_NOT_REPRODUCIBLE — safety_violations are "
+                    f"{sorted(str(v) for v in recorded_violations)} but the "
+                    f"allocation yields {sorted(derived_violations)}"
+                )
         if not oc.is_number(candidate.get("task_quality")):
             errors.append(f"{spot}.task_quality must be a number")
         quantity = candidate.get("cost_quantity")
@@ -968,6 +1097,13 @@ def check_family(record: dict[str, Any], where: str) -> list[str]:
         if not oc.is_number(candidate.get("cost_value")):
             errors.append(f"{spot}.cost_value must be a number")
             continue
+        if float(candidate["cost_value"]) < 0.0:
+            # Cheapest wins, so a negative cost takes the preference outright.
+            # No meter in this pipeline can produce one.
+            errors.append(
+                f"{spot}: NEGATIVE_COST — {candidate['cost_value']} "
+                f"{quantity} is not a physically possible measurement"
+            )
         candidate_meter = candidate.get("cost_meter")
         if not isinstance(candidate_meter, str) or not candidate_meter:
             errors.append(f"{spot}.cost_meter must be a non-empty string")
@@ -1068,9 +1204,14 @@ def check_family(record: dict[str, Any], where: str) -> list[str]:
                 f"{where}.result.preference: PREFERRED_CANDIDATE_BELOW_QUALITY_FLOOR "
                 f"({preferred['task_quality']} < {quality_floor})"
             )
-    if quality_floor is not None:
-        cheaper_feasible = [
-            candidate["id"]
+    # A non-numeric preferred cost is a finding, not an exception. `float()` on
+    # it used to raise straight out of the family checker, and validate_path
+    # does not catch that — one malformed record would abort validation of the
+    # entire run instead of being reported as one bad line.
+    if quality_floor is not None and oc.is_number(preferred.get("cost_value")):
+        preferred_cost = float(preferred["cost_value"])
+        feasible_rivals = [
+            candidate
             for candidate in candidates
             if isinstance(candidate, dict)
             and candidate.get("id") != preferred_id
@@ -1078,13 +1219,36 @@ def check_family(record: dict[str, Any], where: str) -> list[str]:
             and oc.is_number(candidate.get("task_quality"))
             and float(candidate["task_quality"]) >= quality_floor
             and oc.is_number(candidate.get("cost_value"))
-            and float(candidate["cost_value"]) < float(preferred["cost_value"])
+        ]
+        cheaper_feasible = [
+            candidate["id"]
+            for candidate in feasible_rivals
+            if float(candidate["cost_value"]) < preferred_cost - 1e-12
         ]
         if cheaper_feasible:
             errors.append(
                 f"{where}.result.preference: NOT_MINIMAL_FEASIBLE_COST — "
                 f"{sorted(cheaper_feasible)} are feasible and cheaper than "
                 f"{preferred_id!r}"
+            )
+        # `choose_preference` breaks a cost tie by candidate id, which coarse
+        # counters make a real case rather than a theoretical one. Without this
+        # either side of a tie validates, so the label is not a function of the
+        # measurements.
+        tied_lower_id = [
+            candidate["id"]
+            for candidate in feasible_rivals
+            if abs(float(candidate["cost_value"]) - preferred_cost) <= 1e-12
+            and isinstance(candidate.get("id"), str)
+            and isinstance(preferred_id, str)
+            and candidate["id"] < preferred_id
+        ]
+        if tied_lower_id:
+            errors.append(
+                f"{where}.result.preference: TIE_NOT_BROKEN_BY_ID — "
+                f"{sorted(tied_lower_id)} tie {preferred_id!r} on measured cost "
+                "and sort before it, so the documented tie-break selects the "
+                "first of those instead"
             )
     return errors
 

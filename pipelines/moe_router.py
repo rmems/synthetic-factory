@@ -41,6 +41,7 @@ import hashlib
 import json
 import math
 import random
+import re
 import sys
 from collections import Counter
 from dataclasses import dataclass
@@ -65,6 +66,39 @@ COMPACT_SUMMARY_STATS = 4
 # Oracles that compute real routing but are not language-model teachers. A
 # recording may never name one of these as the teacher it replays.
 NON_TEACHER_ORACLE_NAMES = frozenset({"reference_moe_router"})
+
+# Slack allowed when the validator recomputes a summary from the recorded
+# logits. The logits are themselves stored rounded to 6 places, so an exact
+# comparison would reject honest records; anything wider than this would start
+# admitting fabricated ones.
+RECOMPUTE_TOLERANCE = 1e-4
+
+# A 40-character hex string: a resolved git commit on the Hub. A branch or tag
+# is not a checkpoint — the same name serves different weights tomorrow.
+COMMIT_SHA_RE = re.compile(r"^[0-9a-f]{40}$")
+
+
+def resolve_checkpoint(revision: Any, config_commit: Any) -> str:
+    """Return the immutable commit these teacher weights came from.
+
+    ``configuration_sha256`` only covers the configuration, so two runs of
+    different weights under one mutable branch name produce different routing
+    labels under an identical recorded identity. Prefer the commit the loader
+    resolved (``config._commit_hash``); accept an explicitly pinned commit;
+    refuse anything else rather than recording ``main`` as a checkpoint.
+    """
+
+    if isinstance(config_commit, str) and COMMIT_SHA_RE.match(config_commit.strip()):
+        return config_commit.strip()
+    if isinstance(revision, str) and COMMIT_SHA_RE.match(revision.strip()):
+        return revision.strip()
+    raise oc.OracleUnavailable(
+        "transformers_moe_router",
+        f"cannot record an immutable checkpoint: revision {revision!r} is not a "
+        "resolved commit and the loaded configuration exposes none; pass "
+        "--revision <40-hex commit> so the teacher identity is reproducible",
+    )
+
 
 # Context seeds spanning prose, code, math, structured data, dialogue and
 # configuration. The generator composes them; it never labels them.
@@ -275,6 +309,11 @@ class ReferenceMoERouter(RouterOracle):
             raise oc.ContractError("top_k must be >= 2 to define a top1/top2 margin")
         if num_experts <= top_k:
             raise oc.ContractError("num_experts must exceed top_k")
+        if num_layers < 1:
+            # A layerless router builds an empty routing list and `_summarise`
+            # then fails indexing `Counter(...).most_common(1)[0]`. Fail here
+            # with a bounded contract error instead of crashing generation.
+            raise oc.ContractError("num_layers must be >= 1")
         self.seed = seed
         self.num_experts = num_experts
         self.num_layers = num_layers
@@ -523,7 +562,11 @@ class TransformersMoERouter(RouterOracle):
         self._fingerprint = {
             "is_llm_teacher": True,
             "model": self.model_id,
-            "revision_or_checkpoint": self.revision or "main",
+            # Never "main": a branch name is not a checkpoint, and the
+            # configuration digest does not cover the weights.
+            "revision_or_checkpoint": resolve_checkpoint(
+                self.revision, getattr(config, "_commit_hash", None)
+            ),
             "configuration_sha256": hashlib.sha256(
                 config.to_json_string().encode("utf-8")
             ).hexdigest(),
@@ -784,6 +827,17 @@ def check_family(record: dict[str, Any], where: str) -> list[str]:
             value = fingerprint.get(field)
             if not isinstance(value, str) or not value.strip():
                 errors.append(f"{where}.oracle.fingerprint.{field} must be recorded")
+        # "not-a-digest" satisfied the non-empty check above, so the promised
+        # configuration digest could be absent in everything but name and the
+        # teacher configuration could never be audited.
+        configuration_digest = fingerprint.get("configuration_sha256")
+        if isinstance(configuration_digest, str) and configuration_digest.strip():
+            if not oc.SHA256_RE.match(configuration_digest):
+                errors.append(
+                    f"{where}.oracle.fingerprint.configuration_sha256 must be a "
+                    f"64-character sha256 hex digest, got "
+                    f"{configuration_digest!r}"
+                )
         if not isinstance(fingerprint.get("is_llm_teacher"), bool):
             errors.append(
                 f"{where}.oracle.fingerprint.is_llm_teacher must be a boolean"
@@ -850,6 +904,7 @@ def check_family(record: dict[str, Any], where: str) -> list[str]:
         ):
             expert_count = declared_experts
     seen_layers: set[int] = set()
+    previous_layer: int | None = None
     for index, layer in enumerate(layers):
         spot = f"{where}.result.routing.layers[{index}]"
         if not isinstance(layer, dict):
@@ -861,6 +916,17 @@ def check_family(record: dict[str, Any], where: str) -> list[str]:
         elif layer_index in seen_layers:
             errors.append(f"{spot}.layer {layer_index} is duplicated")
         else:
+            # router_baseline._target_label reads the last-layer decision as
+            # `layers[-1]`. Unique-but-unordered indices such as [3, 0, 1, 2]
+            # would silently make layer 2 the training target while the record
+            # advertises layer 3.
+            if previous_layer is not None and layer_index <= previous_layer:
+                errors.append(
+                    f"{spot}.layer {layer_index} follows {previous_layer}; "
+                    "routing layers must be recorded in model order so the "
+                    "last entry is the last layer"
+                )
+            previous_layer = layer_index
             seen_layers.add(layer_index)
         experts = layer.get("top_k_experts")
         if not isinstance(experts, list) or len(experts) < 2:
@@ -899,18 +965,47 @@ def check_family(record: dict[str, Any], where: str) -> list[str]:
                     errors.append(
                         f"{spot}.top_k_experts disagrees with router_logits ordering"
                     )
+        # Both summaries are exact functions of the logits, so when the logits
+        # are exposed they are recomputed rather than range-checked. A range
+        # check alone let any non-negative margin and any entropy below
+        # ln(num_experts) stand in for the real ones — and both are
+        # distillation targets.
+        exposed_logits = (
+            [float(value) for value in logits]
+            if isinstance(logits, list)
+            and len(logits) >= 2
+            and all(oc.is_number(value) for value in logits)
+            else None
+        )
         margin = layer.get("top1_top2_margin")
         if not oc.is_number(margin) or float(margin) < 0.0:
             errors.append(f"{spot}.top1_top2_margin must be a non-negative number")
+        elif exposed_logits is not None:
+            ordered = sorted(exposed_logits, reverse=True)
+            recomputed_margin = ordered[0] - ordered[1]
+            # The stored logits are themselves rounded to 6 places, so the
+            # recomputation carries that rounding; the tolerance covers it and
+            # nothing wider.
+            if abs(float(margin) - recomputed_margin) > RECOMPUTE_TOLERANCE:
+                errors.append(
+                    f"{spot}.top1_top2_margin is {margin} but the recorded "
+                    f"router_logits give {round(recomputed_margin, 6)}"
+                )
         routing_entropy = layer.get("routing_entropy")
         if not oc.is_number(routing_entropy) or float(routing_entropy) < 0.0:
             errors.append(f"{spot}.routing_entropy must be a non-negative number")
+        elif exposed_logits is not None:
+            recomputed_entropy = entropy_nats(softmax(exposed_logits))
+            if abs(float(routing_entropy) - recomputed_entropy) > RECOMPUTE_TOLERANCE:
+                errors.append(
+                    f"{spot}.routing_entropy is {routing_entropy} but the "
+                    f"recorded router_logits give {round(recomputed_entropy, 6)}"
+                )
         else:
-            # Bound the entropy by ln(num_experts). Prefer this layer's logit
-            # width, falling back to the recorded expert count so an oracle
-            # that exposes no logits still cannot report an impossible entropy.
-            # Kept separate from `expert_count` so one layer's logit width does
-            # not become the id range every later layer is checked against.
+            # No logits to recompute from, so fall back to bounding the entropy
+            # by ln(num_experts) using the recorded expert count. Kept separate
+            # from `expert_count` above so one layer's logit width does not
+            # become the id range every later layer is checked against.
             support = len(logits) if isinstance(logits, list) and logits else expert_count
             if support and float(routing_entropy) > math.log(support) + 1e-6:
                 errors.append(

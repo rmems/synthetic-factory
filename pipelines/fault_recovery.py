@@ -258,6 +258,17 @@ class RelayReflexSimulator(FaultOracle):
                 f"{kind} does not use parameters {unknown}; it reads "
                 f"{sorted(required + optional)}"
             )
+        if kind == "malformed_spike_burst":
+            # The tick loop branches on this value. A typo used to fall through
+            # to the `unknown_channel` arm, so `negative_amplitdue` became a
+            # dropped event and produced `degrade_gracefully` — an authoritative
+            # label for a disturbance the simulator never defined.
+            variant = parameters.get("malformed_kind")
+            if variant not in MALFORMED_KINDS:
+                raise oc.ContractError(
+                    f"malformed_kind must be one of {sorted(MALFORMED_KINDS)}, "
+                    f"got {variant!r}"
+                )
 
     @staticmethod
     def _affected(parameters: dict[str, Any], channels: list[str]) -> list[str]:
@@ -722,6 +733,102 @@ def build_records(
     return records
 
 
+# Quantities the simulator derives from the run. Each maps to the value a
+# replay produces, so a tampered latency target is caught the same way a
+# tampered outcome is.
+def _derived_measurements(result: "FaultResult") -> dict[str, float | None]:
+    return {
+        "detection_latency_ms": result.detection_latency_ms,
+        "recovery_latency_ms": result.recovery_latency_ms,
+        "healthy_channel_count": float(result.worst_healthy_channels),
+        "dropped_event_count": float(result.dropped_events),
+        "residual_error": round(result.residual_error, 6),
+        "corrupt_ratio": round(result.realised_corrupt_ratio, 6),
+        "peak_temperature_c": result.peak_temperature_c,
+    }
+
+
+def _recheck_deterministic_outcome(record: dict[str, Any], where: str) -> list[str]:
+    """Re-run the simulator and compare, for records it produced.
+
+    The scenario and the intervention fully determine this oracle's answer, so
+    the label is reproducible rather than merely unfalsifiable. Without this,
+    editing ``result.outcome`` to another vocabulary member, updating its prose
+    label and reason code, and recomputing the digest produces a record that
+    validates clean and is curated as authoritative ground truth.
+
+    Only the in-process simulator is re-run. A hardware replay oracle is not
+    reproducible here, and silently "correcting" its labels to the simulator's
+    would be worse than not checking.
+    """
+
+    oracle = record.get("oracle")
+    if not isinstance(oracle, dict):
+        return []
+    if oracle.get("name") != ORACLE_NAME or oracle.get("type") != "deterministic_simulator":
+        return []
+    scenario = record.get("scenario")
+    intervention = record.get("intervention")
+    result = record.get("result")
+    if not (
+        isinstance(scenario, dict)
+        and isinstance(intervention, dict)
+        and isinstance(result, dict)
+    ):
+        return []
+    try:
+        replay = RelayReflexSimulator().run(scenario, intervention)
+    except (oc.ContractError, KeyError, TypeError, ValueError) as exc:
+        return [
+            f"{where}.result: OUTCOME_NOT_REPRODUCIBLE — the recorded scenario "
+            f"and intervention do not run on {ORACLE_NAME}: {exc}"
+        ]
+
+    errors: list[str] = []
+    if result.get("outcome") != replay.outcome:
+        errors.append(
+            f"{where}.result.outcome: OUTCOME_NOT_REPRODUCIBLE — recorded "
+            f"{result.get('outcome')!r} but re-running the simulator over this "
+            f"scenario yields {replay.outcome!r}"
+        )
+    recorded_reasons = result.get("reason_codes")
+    if isinstance(recorded_reasons, list) and sorted(
+        str(reason) for reason in recorded_reasons
+    ) != sorted(replay.reason_codes):
+        errors.append(
+            f"{where}.result.reason_codes: OUTCOME_NOT_REPRODUCIBLE — recorded "
+            f"{sorted(str(r) for r in recorded_reasons)} but the simulator "
+            f"reports {sorted(replay.reason_codes)}"
+        )
+    if isinstance(result.get("integrity_violation"), bool) and (
+        result["integrity_violation"] is not replay.integrity_violation
+    ):
+        errors.append(
+            f"{where}.result.integrity_violation: OUTCOME_NOT_REPRODUCIBLE — "
+            f"recorded {result['integrity_violation']} but the simulator "
+            f"reports {replay.integrity_violation}"
+        )
+
+    expected = _derived_measurements(replay)
+    measurements = result.get("measurements")
+    for item in measurements if isinstance(measurements, list) else []:
+        if not isinstance(item, dict):
+            continue
+        quantity = item.get("quantity")
+        if quantity not in expected:
+            continue
+        target = expected[quantity]
+        if target is None or not oc.is_number(item.get("value")):
+            continue
+        if abs(float(item["value"]) - float(target)) > 1e-6:
+            errors.append(
+                f"{where}.result: OUTCOME_NOT_REPRODUCIBLE — measured "
+                f"{quantity} is {item['value']} but the simulator derives "
+                f"{target}"
+            )
+    return errors
+
+
 def check_family(record: dict[str, Any], where: str) -> list[str]:
     """Family checks layered on top of the shared envelope."""
 
@@ -751,6 +858,18 @@ def check_family(record: dict[str, Any], where: str) -> list[str]:
                 errors.append(
                     f"{where}.intervention.parameters: {kind} does not use {unknown}"
                 )
+        # The scenario is what the student sees; the intervention is what was
+        # simulated. If they name different faults, the record pairs one fault's
+        # description with another fault's label.
+        scenario = record.get("scenario")
+        if isinstance(scenario, dict) and "disturbance_kind" in scenario:
+            declared = scenario.get("disturbance_kind")
+            if declared != kind:
+                errors.append(
+                    f"{where}.scenario.disturbance_kind: DISTURBANCE_KIND_MISMATCH "
+                    f"— the scenario presents {declared!r} but the label was "
+                    f"produced by simulating {kind!r}"
+                )
     prediction = record.get("candidate_prediction")
     if isinstance(prediction, dict):
         predicted = prediction.get("predicted_outcome")
@@ -779,6 +898,7 @@ def check_family(record: dict[str, Any], where: str) -> list[str]:
             f"{where}.result.reason_codes must be a non-empty array — every fault "
             "outcome needs an explicit reason"
         )
+    errors += _recheck_deterministic_outcome(record, where)
     return errors
 
 

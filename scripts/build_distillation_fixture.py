@@ -49,15 +49,42 @@ def _sha256(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
+def can_rebuild(out: Path) -> bool:
+    """True when ``out`` is safe for ``--force`` to delete and rewrite.
+
+    A distillation run is a directory that is either empty or carries a
+    ``MANIFEST.json``. That is what stops ``--out . --force`` from deleting a
+    working tree, and it is deliberately no stricter: the committed fixture is
+    a manifest *beside* three family directories, so a rule of "empty, or
+    nothing but a manifest" would reject the documented
+    ``build_distillation_fixture.py --force`` on every normal checkout.
+    """
+
+    if not out.is_dir():
+        return False
+    if not any(out.iterdir()):
+        return True
+    return (out / "MANIFEST.json").is_file()
+
+
+def assert_rebuildable(out: Path) -> None:
+    """Refuse ``--force`` unless ``out`` looks like a distillation run."""
+
+    if out.is_dir():
+        if can_rebuild(out):
+            return
+        raise SystemExit(
+            f"{out} is not empty and has no MANIFEST.json, so it does not look "
+            "like a distillation run; refusing to delete it"
+        )
+    raise SystemExit(f"{out} exists but is not a directory; refusing to delete it")
+
+
 def build(out: Path, force: bool = False) -> dict[str, Any]:
     if out.exists():
         if not force:
             raise SystemExit(f"{out} exists; pass --force to rebuild it")
-        if not out.is_dir():
-            raise SystemExit(f"{out} exists but is not a directory; refusing to delete")
-        contents = list(out.iterdir())
-        if contents and not (len(contents) == 1 and contents[0].name == "MANIFEST.json"):
-            raise SystemExit(f"{out} is not empty and does not contain only MANIFEST.json; refusing to delete")
+        assert_rebuildable(out)
         shutil.rmtree(out)
 
     fault_records = fault_recovery.build_records(FAULT_SEED, FAULT_COUNT)

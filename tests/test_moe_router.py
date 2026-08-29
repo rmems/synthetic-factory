@@ -409,10 +409,19 @@ class FamilyChecks(unittest.TestCase):
         self.assertTrue(any("must not repeat an expert" in error for error in errors))
 
     def test_impossible_entropy_is_rejected(self):
+        # With logits exposed the entropy is recomputed from them rather than
+        # merely bounded by ln(num_experts), so the rejection is exact. The
+        # ln() bound still covers the no-logits path in the next test.
         layer = self.record["result"]["routing"]["layers"][0]
         layer["routing_entropy"] = 99.0
         errors = mr.check_family(self.record, "x")
-        self.assertTrue(any("exceeds ln(" in error for error in errors))
+        self.assertTrue(
+            any(
+                "routing_entropy is 99.0" in error and "router_logits give" in error
+                for error in errors
+            ),
+            errors,
+        )
 
     def test_impossible_entropy_is_rejected_without_logits(self):
         # An oracle that exposes no logits still cannot report an entropy that

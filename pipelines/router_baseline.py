@@ -449,6 +449,31 @@ def evaluate_baselines(
     }
 
 
+def _threshold_accuracy(report: dict[str, Any]) -> float | None:
+    """The accuracy an SNN student has to beat: the best baseline that ran.
+
+    Prefers ``report["best"]``, which ``evaluate_baselines`` always sets, and
+    otherwise takes the maximum over whatever baselines the report carries.
+    Never a single named model: a ``learnable_linear`` verdict only says the
+    MLP failed to clear ``nonlinear_margin``, not that it lost, so naming the
+    logistic accuracy would publish a threshold an SNN could meet while
+    underperforming a baseline that had already been evaluated.
+    """
+
+    accuracies: list[float] = []
+    best = report.get("best")
+    if isinstance(best, dict) and isinstance(best.get("accuracy"), (int, float)):
+        accuracies.append(float(best["accuracy"]))
+    baselines = report.get("baselines")
+    if isinstance(baselines, dict):
+        for entry in baselines.values():
+            if isinstance(entry, dict) and isinstance(
+                entry.get("accuracy"), (int, float)
+            ):
+                accuracies.append(float(entry["accuracy"]))
+    return max(accuracies) if accuracies else None
+
+
 def escalation_gate(report: dict[str, Any]) -> dict[str, Any]:
     """Decide whether an SNN router student is justified by the baselines."""
 
@@ -473,7 +498,7 @@ def escalation_gate(report: dict[str, Any]) -> dict[str, Any]:
             )
             + " — the target is not learnable from these compact inputs, so an "
             "SNN student is not justified",
-            "must_beat": report.get("best", {}).get("accuracy"),
+            "must_beat": _threshold_accuracy(report),
         }
     if verdict == VERDICT_LINEAR:
         return {
@@ -481,11 +506,14 @@ def escalation_gate(report: dict[str, Any]) -> dict[str, Any]:
             "verdict": verdict,
             "reason": (
                 "a linear model already predicts the router; an SNN student is "
-                "only justified if it beats that accuracy"
+                "only justified if it beats the best conventional baseline"
             ),
-            "must_beat": report.get("baselines", {})
-            .get("logistic_regression", {})
-            .get("accuracy"),
+            # `learnable_linear` only means the MLP did not clear
+            # `nonlinear_margin`, not that it lost. Reporting the logistic
+            # accuracy here would let an SNN satisfy the published threshold
+            # while losing to a baseline that had already been run — which is
+            # the whole point of running baselines first.
+            "must_beat": _threshold_accuracy(report),
         }
     if verdict == VERDICT_NONLINEAR:
         return {
@@ -495,7 +523,7 @@ def escalation_gate(report: dict[str, Any]) -> dict[str, Any]:
                 "the MLP is meaningfully ahead of the linear model, so there is "
                 "non-linear structure a richer student could exploit"
             ),
-            "must_beat": report.get("baselines", {}).get("mlp", {}).get("accuracy"),
+            "must_beat": _threshold_accuracy(report),
         }
     return {
         "escalate_to_snn": False,
