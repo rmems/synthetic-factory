@@ -91,11 +91,32 @@ def _coding_steps(record: Mapping[str, Any], kind: str, where: str) -> list[Mapp
     )
 
 
+# ``curate_identity._legacy_ids`` collects every ``LEGACY_ID_KEYS`` form from
+# the owner, its ``meta``, and its ``state``. The audit searches the same three
+# containers in the same order so it cannot render ``—`` for an identifier the
+# curation lane would recognize.
+_LEGACY_ID_CONTAINERS = ("meta", "state")
+
+
+def _legacy_id_containers(record: Mapping[str, Any]) -> Iterable[Mapping[str, Any]]:
+    yield record
+    for name in _LEGACY_ID_CONTAINERS:
+        nested = record.get(name)
+        if isinstance(nested, Mapping):
+            yield nested
+
+
 def _first_legacy_id(record: Mapping[str, Any]) -> Any:
-    """Return the first present identifier supported by identity curation."""
-    for key in LEGACY_ID_KEYS:
-        if key in record:
-            return record[key]
+    """Return the first present identifier supported by identity curation.
+
+    Precedence is container-major then key-minor, matching
+    ``curate_identity._legacy_ids``: every top-level alias outranks every
+    ``meta`` alias, which outranks every ``state`` alias.
+    """
+    for container in _legacy_id_containers(record):
+        for key in LEGACY_ID_KEYS:
+            if key in container:
+                return container[key]
     return None
 
 
@@ -153,16 +174,28 @@ def _reject_rounded_fields(fields: Mapping[str, Any], where: str) -> None:
     ``parse_float`` turns every JSON decimal into a Python float, so a literal
     like ``0.1234567890123456789`` would be reported — and pinned by
     ``--expect`` — as a different value than the corpus holds. That is true of
-    every field this audit republishes, not just the identifier. Integers and
-    strings round-trip exactly, so only the decimal case fails closed.
+    every field this audit republishes, not just the identifier, and of a
+    decimal nested inside a container-valued field, which is emitted just as
+    verbatim. Integers and strings round-trip exactly, so only the decimal
+    case fails closed.
     """
     for name in _EMITTED_RECORD_FIELDS:
-        value = fields.get(name)
-        if isinstance(value, float):
-            raise PayloadKindAuditError(
-                f"{where}: record {name} is a JSON decimal this audit cannot "
-                f"report exactly: {value!r}"
-            )
+        _reject_rounded_value(fields.get(name), name, where)
+
+
+def _reject_rounded_value(value: Any, name: str, where: str) -> None:
+    """Reject a decimal at ``name`` or anywhere inside a container it holds."""
+    if isinstance(value, float):
+        raise PayloadKindAuditError(
+            f"{where}: record {name} is a JSON decimal this audit cannot "
+            f"report exactly: {value!r}"
+        )
+    if isinstance(value, Mapping):
+        for key, item in value.items():
+            _reject_rounded_value(item, f"{name}.{key}", where)
+    elif isinstance(value, list):
+        for index, item in enumerate(value):
+            _reject_rounded_value(item, f"{name}[{index}]", where)
 
 
 def _record_row(parsed: _ParsedLine) -> dict:
@@ -468,6 +501,17 @@ def render_markdown(audit: Mapping[str, Any]) -> str:
     return "\n".join(lines) + "\n"
 
 
+# ``json.loads`` decodes an escaped C0/C1 control such as ``\u001b`` into the
+# raw byte, which neither ``html.escape`` nor the pipe/bracket escaping above
+# neutralizes, so ``--markdown`` would write it straight to a terminal or a
+# card. Render every remaining control as its visible ``\uXXXX`` source form.
+# CR and LF are absent by the time this runs: they become ``<br>`` first.
+_MARKDOWN_CONTROL_ESCAPES = {
+    code: f"\\u{code:04x}"
+    for code in (*range(0x00, 0x20), 0x7F, *range(0x80, 0xA0))
+}
+
+
 def _markdown_cell(value: Any) -> str:
     rendered = html.escape(str(value), quote=False)
     return (
@@ -479,6 +523,7 @@ def _markdown_cell(value: Any) -> str:
         .replace("\r\n", "<br>")
         .replace("\r", "<br>")
         .replace("\n", "<br>")
+        .translate(_MARKDOWN_CONTROL_ESCAPES)
     )
 
 
@@ -551,6 +596,12 @@ def _load_expected_audit(path: Path) -> tuple[dict, list[str]]:
             parse_constant=_reject_json_constant,
             parse_float=_parse_finite_float,
         )
+        # A published audit may carry supplementary fields ``_drift`` never
+        # compares (``card_disclosure.markdown``, for one). Validate the whole
+        # document so an unpaired surrogate the corpus parser would reject is
+        # a controlled input error here too, rather than an exit 0 blessing
+        # evidence this tool could not itself have emitted.
+        _reject_unpaired_surrogates(published)
     except (OSError, UnicodeError, ValueError, RecursionError) as exc:
         raise PayloadKindAuditError(f"cannot read {path}: {exc}") from exc
     if not isinstance(published, dict):

@@ -483,6 +483,129 @@ class PayloadKindClassification(unittest.TestCase):
             "batch-r02.jsonl", "[1, 2, 3]\n", "must be a JSON object"
         )
 
+    def test_a_decimal_nested_in_a_list_valued_identifier_is_rejected(self):
+        """A container-valued emitted field is republished verbatim, so a
+        decimal inside it is altered corpus data that --expect would round
+        identically and therefore accept (Codex #74)."""
+        record = _episode([])
+        record["id"] = [0.1234567890123456789012345]
+        with tempfile.TemporaryDirectory() as raw:
+            directory = Path(raw)
+            _write_corpus(directory, {"episodes.jsonl": [record]})
+            with self.assertRaises(payload_kind_audit.PayloadKindAuditError) as caught:
+                payload_kind_audit.build_audit(directory)
+        message = str(caught.exception)
+        self.assertIn("episodes.jsonl:1", message)
+        self.assertIn("record id[0] is a JSON decimal", message)
+
+    def test_a_decimal_nested_in_an_object_valued_domain_is_rejected(self):
+        record = _thalamic("act-r02-001", _episode([]))
+        record["state"]["domain"] = {"score": 0.1234567890123456789012345}
+        with tempfile.TemporaryDirectory() as raw:
+            directory = Path(raw)
+            _write_corpus(directory, {"batch-r02.jsonl": [record]})
+            with self.assertRaises(payload_kind_audit.PayloadKindAuditError) as caught:
+                payload_kind_audit.build_audit(directory)
+        message = str(caught.exception)
+        self.assertIn("batch-r02.jsonl:1", message)
+        self.assertIn("record domain.score is a JSON decimal", message)
+
+    def test_a_container_metadata_value_without_a_decimal_is_kept(self):
+        """The recursive guard rejects decimals, not containers: an emitted
+        list of strings still round-trips exactly and must survive."""
+        record = _thalamic("act-r02-001", _episode([]))
+        record["state"]["domain"] = ["software_engineering", "demo"]
+        audit = self._audit({"batch-r02.jsonl": [record]})
+        self.assertEqual(audit["records"][0]["domain"], ["software_engineering", "demo"])
+
+    def test_episode_identity_finds_an_identifier_nested_under_meta(self):
+        """curate_identity._legacy_ids reads owner, owner.meta and owner.state,
+        so an audit that only reads the top level hides an identifier the
+        curation lane recognizes (Codex #74)."""
+        record = _episode([])
+        record["meta"]["record_id"] = "meta-record-id"
+        audit = self._audit({"episodes.jsonl": [record]})
+        self.assertEqual(audit["records"][0]["id"], "meta-record-id")
+
+    def test_episode_identity_finds_an_identifier_nested_under_state(self):
+        record = _episode([])
+        record["state"] = {"episode_id": "state-episode-id"}
+        audit = self._audit({"episodes.jsonl": [record]})
+        self.assertEqual(audit["records"][0]["id"], "state-episode-id")
+
+    def test_episode_identity_prefers_a_top_level_alias_over_a_nested_one(self):
+        record = _episode([])
+        record["trajectory_id"] = "top-level-trajectory-id"
+        record["meta"]["id"] = "meta-id"
+        record["state"] = {"id": "state-id"}
+        audit = self._audit({"episodes.jsonl": [record]})
+        self.assertEqual(audit["records"][0]["id"], "top-level-trajectory-id")
+
+    def test_episode_identity_prefers_a_meta_alias_over_a_state_alias(self):
+        record = _episode([])
+        record["meta"]["pair_id"] = "meta-pair-id"
+        record["state"] = {"id": "state-id"}
+        audit = self._audit({"episodes.jsonl": [record]})
+        self.assertEqual(audit["records"][0]["id"], "meta-pair-id")
+
+    def test_a_non_mapping_meta_never_breaks_the_identifier_search(self):
+        record = _episode([])
+        record["meta"] = "not-an-object"
+        record["state"] = {"episode_id": "state-episode-id"}
+        audit = self._audit({"episodes.jsonl": [record]})
+        self.assertEqual(audit["records"][0]["id"], "state-episode-id")
+
+    def test_markdown_escapes_control_characters_in_gate_cells(self):
+        """json.loads decodes an escaped C0 control into the raw byte, which
+        html.escape leaves alone, so --markdown would emit it to a terminal
+        and into card-ready text (Codex #74)."""
+        record = _thalamic("act-r02-001", _episode([]), supervisor="gate\x1bv1")
+        audit = self._audit({"batch-r02.jsonl": [record]})
+        self.assertEqual(audit["records"][0]["supervisor_id"], "gate\x1bv1")
+        rendered = payload_kind_audit.render_markdown(audit)
+        self.assertNotIn("\x1b", rendered)
+        self.assertIn("gate\\u001bv1", rendered)
+
+    def test_markdown_escapes_control_characters_in_record_identifiers(self):
+        audit = {
+            "records": [
+                {
+                    "source_file": "batch.jsonl",
+                    "source_line": 1,
+                    "kind": "thalamic",
+                    "id": "id\x00one\x07two",
+                    "supervisor_id": "gate-v1",
+                    "gate_decision": "MODIFY",
+                    "wraps_coding_episode": True,
+                    "coding_steps": 2,
+                }
+            ]
+        }
+        rendered = payload_kind_audit.render_markdown(audit)
+        self.assertNotIn("\x00", rendered)
+        self.assertNotIn("\x07", rendered)
+        self.assertIn("id\\u0000one\\u0007two", rendered)
+
+    def test_markdown_keeps_ordinary_text_unescaped(self):
+        """The control-character pass must not disturb printable values."""
+        audit = {
+            "records": [
+                {
+                    "source_file": "batch.jsonl",
+                    "source_line": 1,
+                    "kind": "thalamic",
+                    "id": "act-r02-001",
+                    "supervisor_id": "gate-v1",
+                    "gate_decision": "MODIFY",
+                    "wraps_coding_episode": True,
+                    "coding_steps": 2,
+                }
+            ]
+        }
+        rendered = payload_kind_audit.render_markdown(audit)
+        self.assertIn("`act-r02-001`", rendered)
+        self.assertIn("gate-v1 / MODIFY", rendered)
+
     def test_a_missing_corpus_directory_is_rejected(self):
         with self.assertRaises(payload_kind_audit.PayloadKindAuditError):
             payload_kind_audit.build_audit(REPO / "docs" / "no-such-corpus")

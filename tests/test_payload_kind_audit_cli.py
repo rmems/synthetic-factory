@@ -189,6 +189,52 @@ class PayloadKindAuditCLI(unittest.TestCase):
         self.assertEqual(code, 2)
         self.assertIn("cannot read", err.getvalue())
 
+    def _expect_document_with_card_disclosure(self, directory, markdown_literal):
+        """Write an --expect file whose supplementary card_disclosure holds one
+        raw JSON string literal, and return its path.
+
+        The literal is injected as source text because a lone surrogate cannot
+        be written through Python's UTF-8 encoder at all - which is precisely
+        the input the corpus parser rejects and this parser must too.
+        """
+        _write_corpus(directory, {"episodes.jsonl": [_episode([])]})
+        audit = payload_kind_audit.build_audit(directory)
+        document = dict(audit)
+        document["card_disclosure"] = {"markdown": "__PLACEHOLDER__"}
+        serialized = json.dumps(document).replace('"__PLACEHOLDER__"', markdown_literal)
+        expected = directory / "audit.json"
+        expected.write_text(serialized, encoding="utf-8")
+        return expected
+
+    def test_expect_rejects_an_unpaired_surrogate_in_a_supplementary_field(self):
+        """_drift only compares derived keys, so a malformed supplementary
+        field would otherwise exit 0 while the corpus parser rejects the same
+        string (Codex #74)."""
+        with tempfile.TemporaryDirectory() as raw:
+            directory = Path(raw)
+            expected = self._expect_document_with_card_disclosure(
+                directory, '"\\ud800"'
+            )
+            err = io.StringIO()
+            with redirect_stderr(err), redirect_stdout(io.StringIO()):
+                code = payload_kind_audit.main([str(directory), "--expect", str(expected)])
+        self.assertEqual(code, 2)
+        self.assertIn("cannot read", err.getvalue())
+        self.assertIn("unpaired UTF-16 surrogate", err.getvalue())
+
+    def test_expect_still_accepts_a_well_formed_supplementary_field(self):
+        """Only the malformed string is refused; extra published context that
+        no corpus scan can derive still passes the drift gate."""
+        with tempfile.TemporaryDirectory() as raw:
+            directory = Path(raw)
+            expected = self._expect_document_with_card_disclosure(
+                directory, '"| Source | Kind |"'
+            )
+            out = io.StringIO()
+            with redirect_stdout(out):
+                code = payload_kind_audit.main([str(directory), "--expect", str(expected)])
+        self.assertEqual(code, 0, out.getvalue())
+
 
 if __name__ == "__main__":
     unittest.main()
