@@ -27,6 +27,7 @@ import html
 import json
 import math
 import sys
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Iterable, Mapping
 
@@ -98,42 +99,57 @@ def _first_legacy_id(record: Mapping[str, Any]) -> Any:
     return None
 
 
-def _record_row(
-    record: Mapping[str, Any],
-    kind: str,
-    steps: list[Mapping[str, Any]],
-    source_file: str,
-    line: int,
-    digest: str,
-) -> dict:
-    row: dict[str, Any] = {
-        "source_file": source_file,
-        "source_line": line,
-        "kind": kind,
-        "sha256": digest,
+@dataclass(frozen=True)
+class _ParsedLine:
+    """One classified JSONL record, ready to become a row and feed stats."""
+
+    record: Mapping[str, Any]
+    kind: str
+    steps: list[Mapping[str, Any]]
+    source_file: str
+    line: int
+    digest: str
+
+
+def _thalamic_row_fields(parsed: _ParsedLine) -> dict:
+    where = f"{parsed.source_file}:{parsed.line}"
+    state = _required_mapping(parsed.record, "state", where)
+    gate = _required_mapping(parsed.record, "safety_decision", where)
+    # The schema's canonical, globally unique identifier is the top-level
+    # ``id``. ``state.episode_id`` is a legacy fallback for records that
+    # predate it.
+    top_level_id = parsed.record.get("id")
+    return {
+        "id": top_level_id if top_level_id is not None else state.get("episode_id"),
+        "domain": state.get("domain"),
+        "supervisor_id": gate.get("supervisor_id"),
+        "gate_decision": gate.get("decision"),
+        "wraps_coding_episode": _is_episode_shaped(parsed.record.get("executed_action")),
+        "coding_steps": len(parsed.steps),
     }
-    if kind == "thalamic":
-        state = _required_mapping(record, "state", f"{source_file}:{line}")
-        gate = _required_mapping(record, "safety_decision", f"{source_file}:{line}")
-        executed = record.get("executed_action")
-        # The schema's canonical, globally unique identifier is the top-level
-        # ``id``. ``state.episode_id`` is a legacy fallback for records that
-        # predate it.
-        top_level_id = record.get("id")
-        row["id"] = top_level_id if top_level_id is not None else state.get("episode_id")
-        row["domain"] = state.get("domain")
-        row["supervisor_id"] = gate.get("supervisor_id")
-        row["gate_decision"] = gate.get("decision")
-        row["wraps_coding_episode"] = _is_episode_shaped(executed)
-        row["coding_steps"] = len(steps)
-    else:
-        # The published episodes in this lane carry no top-level identifier,
-        # but other episode corpora use legacy aliases. Report the first alias
-        # the identity curation contract recognizes; never invent one.
-        row["id"] = _first_legacy_id(record)
-        row["domain"] = None
-        row["wraps_coding_episode"] = False
-        row["coding_steps"] = len(steps)
+
+
+def _episode_row_fields(parsed: "_ParsedLine") -> dict:
+    # The published episodes in this lane carry no top-level identifier, but
+    # other episode corpora use legacy aliases. Report the first alias the
+    # identity curation contract recognizes; never invent one.
+    return {
+        "id": _first_legacy_id(parsed.record),
+        "domain": None,
+        "wraps_coding_episode": False,
+        "coding_steps": len(parsed.steps),
+    }
+
+
+def _record_row(parsed: _ParsedLine) -> dict:
+    row: dict[str, Any] = {
+        "source_file": parsed.source_file,
+        "source_line": parsed.line,
+        "kind": parsed.kind,
+        "sha256": parsed.digest,
+    }
+    fields = _thalamic_row_fields(parsed) if parsed.kind == "thalamic" else _episode_row_fields(parsed)
+    row.update(fields)
     return row
 
 
@@ -168,18 +184,24 @@ def _reject_duplicate_object_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any
     return value
 
 
+def _is_unpaired_surrogate(character: str) -> bool:
+    return 0xD800 <= ord(character) <= 0xDFFF
+
+
+def _reject_unpaired_surrogates_in_string(value: str) -> None:
+    if any(_is_unpaired_surrogate(character) for character in value):
+        raise ValueError("unpaired UTF-16 surrogate in JSON string")
+
+
 def _reject_unpaired_surrogates(value: Any) -> None:
     """Reject strings the UTF-8 stdout path cannot encode."""
     if isinstance(value, str):
-        if any(0xD800 <= ord(character) <= 0xDFFF for character in value):
-            raise ValueError("unpaired UTF-16 surrogate in JSON string")
-        return
-    if isinstance(value, Mapping):
+        _reject_unpaired_surrogates_in_string(value)
+    elif isinstance(value, Mapping):
         for key, item in value.items():
             _reject_unpaired_surrogates(key)
             _reject_unpaired_surrogates(item)
-        return
-    if isinstance(value, list):
+    elif isinstance(value, list):
         for item in value:
             _reject_unpaired_surrogates(item)
 
@@ -210,21 +232,8 @@ def _jsonl_lines(raw: bytes, source_file: str):
         yield line_number, line_bytes, line
 
 
-def build_audit(corpus: Path, payload_names: Iterable[str] | None = None) -> dict:
-    """Return a deterministic audit of the whole corpus or one named snapshot."""
-    corpus = Path(corpus)
-    if corpus.is_symlink() or not corpus.is_dir():
-        raise PayloadKindAuditError(f"not a readable corpus directory: {corpus}")
-
-    files: list[dict] = []
-    records: list[dict] = []
-    kinds: dict[str, int] = {}
-    factories: dict[str, int] = {}
-    native_steps = 0
-    embedded_steps = 0
-    reasoning = {field: 0 for field in REASONING_FIELDS}
-    wrapping = 0
-
+def _resolve_payload_paths(corpus: Path, payload_names: Iterable[str] | None) -> list[Path]:
+    """Return the sorted ``*.jsonl`` paths to scan, validating any explicit names."""
     if payload_names is None:
         payload_paths = sorted(corpus.glob("*.jsonl"))
     else:
@@ -237,71 +246,132 @@ def build_audit(corpus: Path, payload_names: Iterable[str] | None = None) -> dic
         payload_paths = [corpus / name for name in sorted(names)]
     if not payload_paths:
         raise PayloadKindAuditError(f"corpus contains no *.jsonl payloads: {corpus}")
+    return payload_paths
 
-    for path in payload_paths:
-        if path.is_symlink() or not path.is_file():
-            raise PayloadKindAuditError(f"unsafe payload entry: {path}")
-        try:
-            raw = path.read_bytes()
-        except OSError as exc:
-            raise PayloadKindAuditError(f"cannot read payload {path}: {exc}") from exc
-        file_kinds: dict[str, int] = {}
-        count = 0
-        for line_number, line_bytes, line in _jsonl_lines(raw, path.name):
-            if not line or _is_json_whitespace(line):
-                continue
-            try:
-                record = json.loads(
-                    line,
-                    object_pairs_hook=_reject_duplicate_object_keys,
-                    parse_constant=_reject_json_constant,
-                    parse_float=_parse_finite_float,
-                )
-                _reject_unpaired_surrogates(record)
-            except (json.JSONDecodeError, ValueError, RecursionError) as exc:
-                raise PayloadKindAuditError(f"{path.name}:{line_number}: {exc}") from exc
-            if not isinstance(record, dict):
-                raise PayloadKindAuditError(
-                    f"{path.name}:{line_number}: record must be a JSON object"
-                )
-            digest = hashlib.sha256(line_bytes).hexdigest()
-            try:
-                kind = record_kind(record)
-            except IdentityCurationError as exc:
-                raise PayloadKindAuditError(f"{path.name}:{line_number}: {exc}") from exc
-            where = f"{path.name}:{line_number}"
-            if kind not in SUPPORTED_RECORD_KINDS:
-                raise PayloadKindAuditError(
-                    f"{where}: payload kind {kind!r} is outside this episode/thalamic audit"
-                )
-            steps = _coding_steps(record, kind, where)
-            row = _record_row(record, kind, steps, path.name, line_number, digest)
-            count += 1
-            kind = row["kind"]
-            kinds[kind] = kinds.get(kind, 0) + 1
-            file_kinds[kind] = file_kinds.get(kind, 0) + 1
-            meta = record.get("meta") if isinstance(record.get("meta"), Mapping) else {}
-            factory = meta.get("factory")
-            if isinstance(factory, str):
-                factories[factory] = factories.get(factory, 0) + 1
-            if kind == "thalamic":
-                embedded_steps += row["coding_steps"]
-                if row["wraps_coding_episode"]:
-                    wrapping += 1
-            else:
-                native_steps += row["coding_steps"]
-            for field, value in _reasoning_counts(steps).items():
-                reasoning[field] += value
-            records.append(row)
-        files.append(
-            {
-                "path": path.name,
-                "bytes": len(raw),
-                "sha256": hashlib.sha256(raw).hexdigest(),
-                "records": count,
-                "kinds": dict(sorted(file_kinds.items())),
-            }
+
+def _load_payload_bytes(path: Path) -> bytes:
+    """Read one payload file after rejecting symlinks and non-files."""
+    if path.is_symlink() or not path.is_file():
+        raise PayloadKindAuditError(f"unsafe payload entry: {path}")
+    try:
+        return path.read_bytes()
+    except OSError as exc:
+        raise PayloadKindAuditError(f"cannot read payload {path}: {exc}") from exc
+
+
+def _parse_payload_line(
+    source_file: str, line_number: int, line_bytes: bytes, line: str
+) -> _ParsedLine:
+    """Parse, validate, and classify one non-blank JSONL line."""
+    try:
+        record = json.loads(
+            line,
+            object_pairs_hook=_reject_duplicate_object_keys,
+            parse_constant=_reject_json_constant,
+            parse_float=_parse_finite_float,
         )
+        _reject_unpaired_surrogates(record)
+    except (json.JSONDecodeError, ValueError, RecursionError) as exc:
+        raise PayloadKindAuditError(f"{source_file}:{line_number}: {exc}") from exc
+    if not isinstance(record, dict):
+        raise PayloadKindAuditError(f"{source_file}:{line_number}: record must be a JSON object")
+    digest = hashlib.sha256(line_bytes).hexdigest()
+    try:
+        kind = record_kind(record)
+    except IdentityCurationError as exc:
+        raise PayloadKindAuditError(f"{source_file}:{line_number}: {exc}") from exc
+    where = f"{source_file}:{line_number}"
+    if kind not in SUPPORTED_RECORD_KINDS:
+        raise PayloadKindAuditError(
+            f"{where}: payload kind {kind!r} is outside this episode/thalamic audit"
+        )
+    steps = _coding_steps(record, kind, where)
+    return _ParsedLine(record, kind, steps, source_file, line_number, digest)
+
+
+class _AuditStats:
+    """Corpus-wide totals accumulated one classified record at a time."""
+
+    def __init__(self) -> None:
+        self.kinds: dict[str, int] = {}
+        self.factories: dict[str, int] = {}
+        self.native_steps = 0
+        self.embedded_steps = 0
+        self.wrapping = 0
+        self.reasoning = {field: 0 for field in REASONING_FIELDS}
+
+    def add(self, parsed: _ParsedLine, row: Mapping[str, Any]) -> None:
+        kind = row["kind"]
+        self.kinds[kind] = self.kinds.get(kind, 0) + 1
+        meta = parsed.record.get("meta")
+        factory = meta.get("factory") if isinstance(meta, Mapping) else None
+        if isinstance(factory, str):
+            self.factories[factory] = self.factories.get(factory, 0) + 1
+        if kind == "thalamic":
+            self.embedded_steps += row["coding_steps"]
+            if row["wraps_coding_episode"]:
+                self.wrapping += 1
+        else:
+            self.native_steps += row["coding_steps"]
+        for field, value in _reasoning_counts(parsed.steps).items():
+            self.reasoning[field] += value
+
+    def summary(self, *, files: int, records: int) -> dict:
+        return {
+            "files": files,
+            "records": records,
+            "kinds": dict(sorted(self.kinds.items())),
+            "meta_factory_stamps": dict(sorted(self.factories.items())),
+            "thalamic_records_wrapping_a_coding_episode": self.wrapping,
+            "coding_episodes_reachable_at_top_level": self.kinds.get("episode", 0),
+            "coding_episodes_including_wrapped": self.kinds.get("episode", 0) + self.wrapping,
+            "coding_steps": {
+                "native": self.native_steps,
+                "wrapped": self.embedded_steps,
+                "total": self.native_steps + self.embedded_steps,
+            },
+            "coding_steps_by_reasoning_field": dict(sorted(self.reasoning.items())),
+        }
+
+
+def _scan_payload_file(path: Path, stats: _AuditStats) -> tuple[list[dict], dict]:
+    """Parse one payload file, feeding corpus-wide stats and returning its rows."""
+    raw = _load_payload_bytes(path)
+    rows: list[dict] = []
+    file_kinds: dict[str, int] = {}
+    for line_number, line_bytes, line in _jsonl_lines(raw, path.name):
+        if not line or _is_json_whitespace(line):
+            continue
+        parsed = _parse_payload_line(path.name, line_number, line_bytes, line)
+        row = _record_row(parsed)
+        stats.add(parsed, row)
+        file_kinds[row["kind"]] = file_kinds.get(row["kind"], 0) + 1
+        rows.append(row)
+    file_summary = {
+        "path": path.name,
+        "bytes": len(raw),
+        "sha256": hashlib.sha256(raw).hexdigest(),
+        "records": len(rows),
+        "kinds": dict(sorted(file_kinds.items())),
+    }
+    return rows, file_summary
+
+
+def build_audit(corpus: Path, payload_names: Iterable[str] | None = None) -> dict:
+    """Return a deterministic audit of the whole corpus or one named snapshot."""
+    corpus = Path(corpus)
+    if corpus.is_symlink() or not corpus.is_dir():
+        raise PayloadKindAuditError(f"not a readable corpus directory: {corpus}")
+
+    payload_paths = _resolve_payload_paths(corpus, payload_names)
+
+    files: list[dict] = []
+    records: list[dict] = []
+    stats = _AuditStats()
+    for path in payload_paths:
+        rows, file_summary = _scan_payload_file(path, stats)
+        records.extend(rows)
+        files.append(file_summary)
 
     if not records:
         raise PayloadKindAuditError(f"corpus contains no auditable records: {corpus}")
@@ -309,21 +379,7 @@ def build_audit(corpus: Path, payload_names: Iterable[str] | None = None) -> dic
     return {
         "schema_version": SCHEMA_VERSION,
         "source": corpus.name,
-        "summary": {
-            "files": len(files),
-            "records": len(records),
-            "kinds": dict(sorted(kinds.items())),
-            "meta_factory_stamps": dict(sorted(factories.items())),
-            "thalamic_records_wrapping_a_coding_episode": wrapping,
-            "coding_episodes_reachable_at_top_level": kinds.get("episode", 0),
-            "coding_episodes_including_wrapped": kinds.get("episode", 0) + wrapping,
-            "coding_steps": {
-                "native": native_steps,
-                "wrapped": embedded_steps,
-                "total": native_steps + embedded_steps,
-            },
-            "coding_steps_by_reasoning_field": dict(sorted(reasoning.items())),
-        },
+        "summary": stats.summary(files=len(files), records=len(records)),
         "files": files,
         "records": records,
     }
@@ -405,7 +461,7 @@ def _snapshot_payload_names(published: Mapping[str, Any]) -> list[str]:
     return names
 
 
-def main(argv: list[str] | None = None) -> int:
+def _build_arg_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("corpus", type=Path, help="directory of published *.jsonl")
     output = parser.add_mutually_exclusive_group()
@@ -417,28 +473,58 @@ def main(argv: list[str] | None = None) -> int:
         default=None,
         help="compare against a published audit JSON and fail on drift",
     )
-    args = parser.parse_args(argv)
+    return parser
+
+
+def _load_expected_audit(path: Path) -> tuple[dict, list[str]]:
+    """Load and validate one ``--expect`` file, or raise ``PayloadKindAuditError``
+    with the exact diagnostic ``main`` prints for each failure mode."""
+    try:
+        published = json.loads(
+            path.read_text(encoding="utf-8"),
+            object_pairs_hook=_reject_duplicate_object_keys,
+            parse_constant=_reject_json_constant,
+            parse_float=_parse_finite_float,
+        )
+    except (OSError, UnicodeError, ValueError) as exc:
+        raise PayloadKindAuditError(f"cannot read {path}: {exc}") from exc
+    if not isinstance(published, dict):
+        raise PayloadKindAuditError(f"{path} is not a JSON object")
+    try:
+        payload_names = _snapshot_payload_names(published)
+    except PayloadKindAuditError as exc:
+        raise PayloadKindAuditError(f"cannot use {path}: {exc}") from exc
+    return published, payload_names
+
+
+def _report_drift(audit: Mapping[str, Any], published: Mapping[str, Any], corpus: Path) -> int:
+    problems = _drift(audit, published)
+    if problems:
+        for problem in problems:
+            print(f"DRIFT  {problem}", file=sys.stderr)
+        return 1
+    print(f"published audit matches a fresh scan of {corpus}")
+    return 0
+
+
+def _emit_audit(audit: Mapping[str, Any], *, markdown: bool) -> None:
+    if markdown:
+        sys.stdout.write(render_markdown(audit))
+    else:
+        json.dump(audit, sys.stdout, indent=2, sort_keys=False, allow_nan=False)
+        sys.stdout.write("\n")
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = _build_arg_parser().parse_args(argv)
 
     published = None
     payload_names = None
     if args.expect is not None:
         try:
-            published = json.loads(
-                args.expect.read_text(encoding="utf-8"),
-                object_pairs_hook=_reject_duplicate_object_keys,
-                parse_constant=_reject_json_constant,
-                parse_float=_parse_finite_float,
-            )
-        except (OSError, UnicodeError, ValueError) as exc:
-            print(f"cannot read {args.expect}: {exc}", file=sys.stderr)
-            return 2
-        if not isinstance(published, dict):
-            print(f"{args.expect} is not a JSON object", file=sys.stderr)
-            return 2
-        try:
-            payload_names = _snapshot_payload_names(published)
+            published, payload_names = _load_expected_audit(args.expect)
         except PayloadKindAuditError as exc:
-            print(f"cannot use {args.expect}: {exc}", file=sys.stderr)
+            print(str(exc), file=sys.stderr)
             return 2
 
     try:
@@ -448,19 +534,9 @@ def main(argv: list[str] | None = None) -> int:
         return 2
 
     if published is not None:
-        problems = _drift(audit, published)
-        if problems:
-            for problem in problems:
-                print(f"DRIFT  {problem}", file=sys.stderr)
-            return 1
-        print(f"published audit matches a fresh scan of {args.corpus}")
-        return 0
+        return _report_drift(audit, published, args.corpus)
 
-    if args.markdown:
-        sys.stdout.write(render_markdown(audit))
-    else:
-        json.dump(audit, sys.stdout, indent=2, sort_keys=False, allow_nan=False)
-        sys.stdout.write("\n")
+    _emit_audit(audit, markdown=args.markdown)
     return 0
 
 
