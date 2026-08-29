@@ -388,6 +388,28 @@ class CuratePreferenceSource(unittest.TestCase):
             self.assertEqual(decoy.read_text(), "pre-existing evidence\n")
             self.assertFalse(manifest.exists())
 
+    def test_an_interrupt_during_the_write_still_removes_both_files(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            source = root / "source.jsonl"
+            write_jsonl(source, [pair("interrupted-write")])
+            destination = root / "destination"
+            destination.mkdir()
+            output = destination / "curated.jsonl"
+            manifest = destination / "manifest.jsonl"
+            run = curate_preferences.curate_source(source)
+
+            def interrupt(*_args, **_kwargs):
+                raise KeyboardInterrupt
+
+            with mock.patch.object(preference_writer, "_fsync_parents", interrupt):
+                with self.assertRaises(KeyboardInterrupt):
+                    curate_preferences.write_run(run, source, output, manifest)
+
+            # A half-written transaction must not survive to block the retry.
+            self.assertFalse(output.exists())
+            self.assertFalse(manifest.exists())
+
     def test_non_encodable_record_is_excluded_without_aborting_the_scan(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)

@@ -188,7 +188,10 @@ def write_run(run: CurationRun, source: Path, output: Path, manifest: Path) -> N
         ):
             _create_exclusive_file(path, payload, created)
         _fsync_parents(created)
-    except Exception:
+    except BaseException:
+        # Not `Exception`: a Ctrl-C during the payload write or the fsync
+        # would otherwise leave a half-written transaction behind, and the
+        # next run refuses to overwrite it.
         _unlink_created(created)
         raise
     finally:

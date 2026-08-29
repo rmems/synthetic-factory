@@ -89,37 +89,37 @@ def _pair_order(pair: dict[str, Any]) -> tuple[str, int, str]:
 def _pairs_by_location(
     pairs: Any, side: str
 ) -> tuple[dict[Any, dict[str, Any]], list[str]]:
-    """Index impure pairs by typed location, reporting any duplicate.
+    """Index impure pairs by typed location, reporting what cannot be indexed.
 
-    Two rows at one source location would silently overwrite each other. If
-    the survivor then matched the scan, the expected list could carry an
-    extra or conflicting row -- and disagree with its own summary -- while
-    the drift check still exited successfully. Both sides are checked: a
-    scan cannot currently emit a duplicate, and this is what would say so if
-    that ever stopped being true. A row that is not an object is reported for
-    the same reason, rather than quietly dropped.
+    One pass covers every fault that would make a row vanish from the
+    comparison instead of being compared. A row that is not an object would
+    be dropped; a member the schema does not declare would never be looked
+    at; and a second row at one source location would silently overwrite the
+    first, so a surviving row that matched the scan could hide an extra or
+    conflicting entry that no longer agrees with the summary. Both sides are
+    walked: a scan cannot currently produce any of these, and this is what
+    would say so if that ever stopped being true.
     """
 
     located: dict[Any, dict[str, Any]] = {}
-    duplicates: list[str] = []
+    faults: list[str] = []
     for index, pair in enumerate(pairs if isinstance(pairs, list) else ()):
+        label = f"impure_pairs[{index}]"
         if not isinstance(pair, dict):
-            # Skipping the row would let a scalar appended to a published list
-            # pass as no drift at all, while the list stopped reconciling with
-            # its own summary.
-            duplicates.append(
-                f"impure_pairs[{index}]: row in {side} is not an object"
-            )
+            faults.append(f"{label}: row in {side} is not an object")
             continue
+        faults.extend(
+            _unexpected_members(pair, AUDIT_PAIR_MEMBERS, f"{label}.", side)
+        )
         location = _pair_location(pair)
         if location in located:
-            duplicates.append(
+            faults.append(
                 f"{_pair_location_text(pair)}: "
                 f"impure pair is listed more than once in {side}"
             )
             continue
         located[location] = pair
-    return located, sorted(dict.fromkeys(duplicates))
+    return located, sorted(dict.fromkeys(faults))
 
 
 def source_files_by_path(files: Any) -> dict[str, dict[str, Any]]:
@@ -155,6 +155,11 @@ def _source_file_inventory_faults(files: Any, side: str) -> list[str]:
         if not isinstance(source_path, str):
             faults.append(f"{label} has no string source_path")
             continue
+        faults.extend(
+            _unexpected_members(
+                entry, AUDIT_SOURCE_FILE_MEMBERS, f"source_files[{index}].", side
+            )
+        )
         if source_path in seen:
             faults.append(
                 f"{source_path}: source file is listed more than once in {side}"
@@ -206,13 +211,38 @@ AUDIT_PAIR_FIELDS = (
     "context_diff_paths",
 )
 AUDIT_SOURCE_FILE_FIELDS = ("source_file_sha256",)
+AUDIT_PAIR_MEMBERS = ("source_path", "source_line", *AUDIT_PAIR_FIELDS)
+AUDIT_SOURCE_FILE_MEMBERS = ("source_path", *AUDIT_SOURCE_FILE_FIELDS)
 
 
 AUDIT_COLLECTIONS = ("impure_pairs", "source_files")
+AUDIT_DOCUMENT_MEMBERS = (
+    "schema_version",
+    "audit",
+    "transform",
+    "summary",
+    *AUDIT_COLLECTIONS,
+)
 
 
-def _audit_collection_faults(document: dict[str, Any], side: str) -> list[str]:
-    """Collections that must be present and a list before any row is read.
+def _unexpected_members(
+    entry: dict[str, Any], permitted: Any, label: str, side: str
+) -> list[str]:
+    """Members the declared schema does not carry.
+
+    A member nobody compares is a place to keep a change out of sight. This
+    command is documented as a fail-closed check against structurally altered
+    evidence, so a member the schema does not declare is itself drift.
+    """
+
+    return [
+        f"{label}{name}: unexpected member in {side}"
+        for name in sorted(set(entry) - set(permitted))
+    ]
+
+
+def _audit_document_faults(document: dict[str, Any], side: str) -> list[str]:
+    """Faults in the document's own shape, before any row inside it is read.
 
     Every row-level check below reads an absent or scalar collection as "no
     rows". On a corpus that genuinely has none of that kind, deleting the
@@ -220,7 +250,7 @@ def _audit_collection_faults(document: dict[str, Any], side: str) -> list[str]:
     exactly and exit 0, underneath the per-row and per-field checks.
     """
 
-    faults: list[str] = []
+    faults = _unexpected_members(document, AUDIT_DOCUMENT_MEMBERS, "", side)
     for name in AUDIT_COLLECTIONS:
         value = document.get(name, _MISSING)
         if value is _MISSING:
@@ -327,8 +357,8 @@ def audit_differences(expected: Any, actual: dict[str, Any]) -> list[str]:
     if not isinstance(expected, dict):
         return ["expected audit document is not a JSON object"]
     return [
-        *_audit_collection_faults(expected, _AUDIT_SIDE),
-        *_audit_collection_faults(actual, _SCAN_SIDE),
+        *_audit_document_faults(expected, _AUDIT_SIDE),
+        *_audit_document_faults(actual, _SCAN_SIDE),
         *_audit_header_differences(expected, actual),
         *_audit_summary_differences(expected, actual),
         *_audit_source_file_differences(expected, actual),

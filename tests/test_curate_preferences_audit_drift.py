@@ -138,6 +138,45 @@ class DuplicateLocationsAreRejected(AuditDriftCase):
         self.assert_reports(differences, "more than once")
 
 
+class UnexpectedMembersAreRejected(AuditDriftCase):
+    """A member the schema does not declare is evidence nobody checked."""
+
+    def test_an_unknown_member_on_a_pair_row_is_reported(self):
+        differences = self.drift_after(
+            audit_document(impure_pair()),
+            lambda doc: doc["impure_pairs"][0].__setitem__("forged", "x"),
+        )
+
+        self.assert_reports(differences, "forged")
+
+    def test_an_unknown_member_on_a_source_file_row_is_reported(self):
+        differences = self.drift_after(
+            audit_document(source_files=[source_file()]),
+            lambda doc: doc["source_files"][0].__setitem__("forged", "x"),
+        )
+
+        self.assert_reports(differences, "forged")
+
+    def test_an_unknown_top_level_member_is_reported(self):
+        differences = self.drift_after(
+            audit_document(impure_pair()),
+            lambda doc: doc.__setitem__("forged", "x"),
+        )
+
+        self.assert_reports(differences, "forged")
+
+    def test_every_documented_member_is_accepted(self):
+        # The control: a fully populated audit must not report its own
+        # schema back as unexpected.
+        self.assertEqual(
+            self.drift_after(
+                audit_document(impure_pair(), source_files=[source_file()]),
+                lambda doc: None,
+            ),
+            [],
+        )
+
+
 class CollectionsThemselvesAreValidated(AuditDriftCase):
     """An absent collection reads as "no rows"; on a pure corpus that matches."""
 
