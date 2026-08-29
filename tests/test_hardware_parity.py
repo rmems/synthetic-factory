@@ -1553,6 +1553,25 @@ class PhysicalTargetClaims(unittest.TestCase):
         errors = hp.validate_record(record, WHERE)
         self.assertTrue(any("HW_TARGET_UNKNOWN" in error for error in errors))
 
+    def test_non_boolean_fpga_available_is_rejected(self):
+        record = copy.deepcopy(hp.generate_records(round_number=1, steps=4, repeats=2)[0])
+        record["oracle"]["environment"]["fpga_hardware"]["available"] = "false"
+        errors = hp.validate_record(record, WHERE)
+        self.assertTrue(
+            any(
+                "fpga_hardware.available must be a boolean" in error for error in errors
+            ),
+            errors,
+        )
+
+    def test_unavailable_fpga_probe_needs_a_nonblank_reason_code(self):
+        record = copy.deepcopy(hp.generate_records(round_number=1, steps=4, repeats=2)[0])
+        record["oracle"]["environment"]["fpga_hardware"]["reason_code"] = "   "
+        errors = hp.validate_record(record, WHERE)
+        self.assertTrue(
+            any("must name a reason_code" in error for error in errors), errors
+        )
+
     def test_fpga_available_true_is_not_corroborated(self):
         # No adapter code path in this repository can produce a truthful
         # `available: true` probe; a fixed-point record claiming one must
