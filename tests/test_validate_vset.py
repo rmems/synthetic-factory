@@ -152,6 +152,16 @@ class OracleExecutionTests(unittest.TestCase):
             record = _load(path)
             self.assertEqual(record["environment"]["repo_snapshot_hash"], digest, path.name)
 
+    def test_pack_snapshot_ignores_bytecode(self):
+        before = vset.pack_snapshot_hash(PACK)
+        cache = PACK / "oracle" / "__pycache__"
+        cache.mkdir(exist_ok=True)
+        (cache / "reference.cpython-312.pyc").write_bytes(b"not-a-real-pyc")
+        try:
+            self.assertEqual(vset.pack_snapshot_hash(PACK), before)
+        finally:
+            (cache / "reference.cpython-312.pyc").unlink(missing_ok=True)
+
     def test_validated_issue_patch_oracle_executes(self):
         record = _load(ACCEPT / "issue-patch-validated.json")
         errors, execution = vset.validate_record_with_oracle(record, PACK)
