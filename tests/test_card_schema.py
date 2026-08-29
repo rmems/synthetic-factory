@@ -331,7 +331,7 @@ class YamlEmissionTests(unittest.TestCase):
         )
         yaml = card_schema.metadata_yaml(declaration)
         self.assertIn("configs:\n- config_name: research\n", yaml)
-        self.assertIn("dataset_info:\n  config_name: research\n  features:\n", yaml)
+        self.assertIn("dataset_info:\n- config_name: research\n  features:\n", yaml)
 
     def test_reserved_and_unsafe_yaml_scalars_are_quoted_or_refused(self):
         self.assertEqual(card_schema._yaml_scalar("n"), '"n"')

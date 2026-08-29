@@ -1220,6 +1220,9 @@ def validate_upload_snapshot(item: dict, dest: Path) -> None:
     )
     first = min(label for _batch, label in labels)[2] if labels and batch_only else None
     last = max(label for _batch, label in labels)[2] if labels and batch_only else None
+    _, schema_yaml, schema_body = card_declaration_for_payload(
+        item["hub"], [batch.name for batch in batches]
+    )
     expected_card = render_card(
         item,
         records=records,
@@ -1227,6 +1230,8 @@ def validate_upload_snapshot(item: dict, dest: Path) -> None:
         first=first,
         last=last,
         payload_names=[batch.name for batch in batches],
+        schema_yaml=schema_yaml,
+        schema_body=schema_body,
     )
     try:
         card = (dest / "README.md").read_text()

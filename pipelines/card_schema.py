@@ -496,13 +496,18 @@ def metadata_yaml(declaration: dict) -> str:
     lines = ["configs:"]
     lines.extend(_yaml_block(configs, 0))
     lines.append("dataset_info:")
-    dataset_info: dict = {"features": yaml_features(declaration["features"])}
-    if declaration["config_name"] != DEFAULT_CONFIG_NAME:
-        dataset_info = {
-            "config_name": declaration["config_name"],
-            **dataset_info,
-        }
-    lines.extend(_yaml_block(dataset_info, 2))
+    features = yaml_features(declaration["features"])
+    if declaration["config_name"] == DEFAULT_CONFIG_NAME:
+        # Bare mapping: datasets-server associates this with the default config.
+        lines.extend(_yaml_block({"features": features}, 2))
+    else:
+        # Named configs must be a sequence of {config_name, features} entries.
+        lines.extend(
+            _yaml_block(
+                [{"config_name": declaration["config_name"], "features": features}],
+                0,
+            )
+        )
     return "\n".join(lines) + "\n"
 
 

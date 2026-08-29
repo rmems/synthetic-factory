@@ -379,6 +379,63 @@ class PublishGrok46HubTests(unittest.TestCase):
             self.assertIn(note, card)
             self.assertNotIn("**Not declared yet.**", card)
 
+    def test_upload_validation_reuses_one_preflighted_declaration(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            source = root / "raw" / ITEM["slug"]
+            source.mkdir(parents=True)
+            write_valid_legacy(source / "batch-r01.jsonl")
+
+            destination_root = root / "hf"
+            schema_root = root / "card-schemas"
+            schema_root.mkdir()
+            note = "Fixture declaration used to prove upload preflight reuse."
+            path = schema_root / f"{ITEM['hub']}.json"
+            path.write_text(
+                json.dumps(
+                    {
+                        "version": 1,
+                        "dataset": ITEM["hub"],
+                        "note": note,
+                        "data_files": ["data/raw/batch-*.jsonl"],
+                        "features": [{"name": "id", "dtype": "string"}],
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            with mock.patch.object(
+                publisher, "FACTORY_ROOT", root / "raw"
+            ), mock.patch.object(
+                publisher, "HF_ROOT", destination_root
+            ), mock.patch.object(
+                publisher.card_schema, "SCHEMA_ROOT", schema_root
+            ):
+                publisher.snapshot_one(ITEM)
+
+            dest = destination_root / publisher.HF_DATASETS_DIRNAME / ITEM["hub"]
+            original_load = publisher.card_schema.load
+            loads = []
+
+            def load_then_poison(dataset, root=None):
+                result = original_load(dataset, root)
+                loads.append(dataset)
+                path.write_text("{", encoding="utf-8")
+                return result
+
+            with mock.patch.object(
+                publisher, "FACTORY_ROOT", root / "raw"
+            ), mock.patch.object(
+                publisher, "HF_ROOT", destination_root
+            ), mock.patch.object(
+                publisher.card_schema, "SCHEMA_ROOT", schema_root
+            ), mock.patch.object(
+                publisher.card_schema, "load", load_then_poison
+            ):
+                publisher.validate_upload_snapshot(ITEM, dest)
+
+            self.assertEqual(loads, [ITEM["hub"]])
+
     def test_factory_discovery_and_snapshot_reject_symlinked_factory_roots(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
