@@ -84,14 +84,24 @@ The gate does not reuse one lossy projection for three different jobs:
 This repository is stdlib-only (see ``AGENTS.md``), so the encoder is
 lexical, not learned:
 
-- **``EMBEDDING_ENCODER = "lexical-tfidf/5"``** — TF-IDF over Unicode word
+- **``EMBEDDING_ENCODER = "lexical-tfidf/6"``** — TF-IDF over Unicode word
   unigrams *and* bigrams of every **path-qualified leaf value** in the
   semantic-similarity view. A feature combines the full field path with the leaf
   word, so shared schema alone contributes nothing while the same value under
   semantically different fields stays distinct. CJK, Japanese, Thai, Lao,
   Khmer and Myanmar runs use path-qualified grapheme tokens because those
   scripts do not reliably place spaces between words; adjacent-token bigrams
-  retain order while allowing small edits to share candidate features.
+  allow small edits to share candidate features, and the whole run is also
+  emitted as one ``str-seq:`` feature. That whole-run feature is what makes
+  the encoder order-sensitive for these scripts: a grapheme bag plus adjacent
+  bigrams is not injective over sequences, so ``甲乙甲丙甲`` and ``甲丙甲乙甲``
+  otherwise scored cosine 1.0.
+- **Whitespace is a boundary, not a token.** Each unit carries the exact
+  whitespace run that preceded it, so indentation and ``https://safe /admin``
+  versus ``https://safe/admin`` stay distinguishable. Emitting whitespace as
+  its own token instead would place it between every pair of prose words, and
+  the adjacent-token bigrams would then relate each word only to a shared
+  separator — ``a b c d`` and ``a c b d`` would embed identically.
 - Mapping keys are traversed in canonical sorted order before bigrams are
   formed. Equivalent JSON objects therefore embed identically regardless of
   insertion order. List elements carry explicit positions; this distinguishes
@@ -317,16 +327,16 @@ JSON output fields:
     {"file": "batch-r03.jsonl", "line": 8, "kind": "embedding", "similarity": 0.9889,
      "duplicate_of": {"file": "batch-r03.jsonl", "line": 7},
      "matched_with": {"file": "batch-r03.jsonl", "line": 7},
-     "reason": "embedding near-duplicate: cosine 0.9889 > 0.97 vs retained representative batch-r03.jsonl:7 (encoder lexical-tfidf/5)"}
+     "reason": "embedding near-duplicate: cosine 0.9889 > 0.97 vs retained representative batch-r03.jsonl:7 (encoder lexical-tfidf/6)"}
   ],
   "duplicate_clusters": [
-    {"kind": "embedding", "size": 2, "threshold": 0.97, "encoder": "lexical-tfidf/5",
+    {"kind": "embedding", "size": 2, "threshold": 0.97, "encoder": "lexical-tfidf/6",
      "max_similarity": 0.9889,
      "representative": {"file": "batch-r03.jsonl", "line": 7},
      "members": [{"file": "batch-r03.jsonl", "line": 7}, {"file": "batch-r03.jsonl", "line": 8}],
      "reason": "1 excluded record(s) linked by cosine > 0.97; representative batch-r03.jsonl:7 is retained"}
   ],
-  "embedding": {"enabled": true, "encoder": "lexical-tfidf/5",
+  "embedding": {"enabled": true, "encoder": "lexical-tfidf/6",
                 "candidate_sketch": "weighted-tier-minhash/1", "threshold": 0.97,
                 "compared_records": 1230, "candidate_pairs": 418, "truncated": false},
   "reward_shapes": {"records_with_reward_components": 1180, "unique_component_keys": 510,

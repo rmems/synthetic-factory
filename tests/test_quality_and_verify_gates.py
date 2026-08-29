@@ -689,6 +689,74 @@ class EmbeddingDedup(unittest.TestCase):
             quality_gate.DEFAULT_EMBEDDING_THRESHOLD,
         )
 
+    def _audit_pair(self, first, second):
+        """Audit two one-record-per-line records and return the report."""
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            write(root / "batch.jsonl", [first, second])
+            return quality_gate.audit_run(root)
+
+    def test_unsegmented_reordering_is_not_an_embedding_duplicate(self):
+        """A grapheme bag plus adjacent bigrams is not injective over
+        sequences: 甲乙甲丙甲 and 甲丙甲乙甲 share both, so the encoder scored
+        them at cosine 1.0 and the blocking gate excluded one even though
+        their exact hashes differ (Codex #98, quality_gate.py:461)."""
+        first = {"id": "u-1", "state": {"note": "甲乙甲丙甲"}}
+        second = {"id": "u-2", "state": {"note": "甲丙甲乙甲"}}
+
+        self.assertNotEqual(
+            quality_gate.record_hash(first), quality_gate.record_hash(second)
+        )
+        self.assertNotEqual(
+            quality_gate.embedding_tokens(first), quality_gate.embedding_tokens(second)
+        )
+
+        report = self._audit_pair(first, second)
+        self.assertEqual(report["duplicates"], [])
+        self.assertEqual(report["counts"]["embedding_duplicate_groups"], 0)
+
+    def test_whitespace_boundaries_survive_in_code_strings(self):
+        """Whitespace is semantic in agentic coding and shell content. These
+        pairs have different exact hashes but used to produce identical token
+        counters and cosine 1.0 (Codex #98, quality_gate.py:395)."""
+        pairs = {
+            "shell path": (
+                "curl https://safe /admin",
+                "curl https://safe/admin",
+            ),
+            "python indentation": (
+                "if x:\n    return 1",
+                "if x:\nreturn 1",
+            ),
+        }
+        for label, (left, right) in pairs.items():
+            with self.subTest(case=label):
+                first = {"id": "w-1", "state": {"cmd": left}}
+                second = {"id": "w-2", "state": {"cmd": right}}
+
+                self.assertNotEqual(
+                    quality_gate.record_hash(first), quality_gate.record_hash(second)
+                )
+                self.assertNotEqual(
+                    quality_gate.embedding_tokens(first),
+                    quality_gate.embedding_tokens(second),
+                )
+
+                report = self._audit_pair(first, second)
+                self.assertEqual(report["duplicates"], [])
+
+    def test_word_order_survives_the_whitespace_encoding(self):
+        """The gap rides on the following unit instead of becoming a token of
+        its own, so adjacent-word bigrams still relate word to word. A
+        standalone whitespace token would make these two identical."""
+        first = {"id": "o-1", "state": {"note": "alpha beta gamma delta"}}
+        second = {"id": "o-2", "state": {"note": "alpha gamma beta delta"}}
+
+        self.assertNotEqual(
+            quality_gate.embedding_tokens(first), quality_gate.embedding_tokens(second)
+        )
+        self.assertEqual(self._audit_pair(first, second)["duplicates"], [])
+
     def test_frequency_aware_sketch_recalls_high_tf_cosine_pair(self):
         repeated = "saturated " * 2000
         records = [
@@ -699,7 +767,12 @@ class EmbeddingDedup(unittest.TestCase):
         unweighted_jaccard = len(token_sets[0] & token_sets[1]) / len(
             token_sets[0] | token_sets[1]
         )
-        self.assertLess(unweighted_jaccard, 0.5)
+        # Premise for this regression: on the raw token *set* these two
+        # records overlap only half, and 8 bands of 4 recall an overlap
+        # that weak barely 40% of the time. The frequency-aware tier
+        # sketch is what turns the 2000 repeats into a reliable candidate;
+        # the exact cosine asserted below is far above this set overlap.
+        self.assertLessEqual(unweighted_jaccard, 0.5)
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
             write(root / "episodes.jsonl", records)
@@ -711,6 +784,9 @@ class EmbeddingDedup(unittest.TestCase):
         self.assertGreater(
             report["duplicates"][0]["similarity"],
             quality_gate.DEFAULT_EMBEDDING_THRESHOLD,
+        )
+        self.assertLess(
+            unweighted_jaccard, report["duplicates"][0]["similarity"]
         )
 
     def test_semantic_view_removes_top_level_and_episode_ids(self):

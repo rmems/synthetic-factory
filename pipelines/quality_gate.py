@@ -120,7 +120,7 @@ missing label) lands in the separate ``unlabeled`` bucket."""
 MAX_ERROR_EXAMPLES = 10
 """Cap on per-category read/parse failure examples kept in the report."""
 
-EMBEDDING_ENCODER = "lexical-tfidf/5"
+EMBEDDING_ENCODER = "lexical-tfidf/6"
 """Identifier of the shipped deterministic encoder, recorded in the report so
 a corpus embedded by a different encoder is never compared against one of
 these runs on threshold alone."""
@@ -149,6 +149,9 @@ audit cannot certify the corpus."""
 _BIGRAM_SEP = "\x00"
 _PATH_SEP = "\x1f"
 _SKETCH_SEP = "\x1e"
+_GAP_SEP = "\x1d"
+"""Separates a unit from the whitespace run that preceded it. The gap trails
+the unit so ``str-op:``/``str-case:`` prefixes stay adjacent to their value."""
 
 _IDENTITY_FIELDS = (
     "state",
@@ -378,24 +381,43 @@ def _graphemes(word):
 
 
 def _string_units(text):
-    """Yield ordered word/operator units without erasing code semantics."""
+    """Yield ordered ``(kind, unit, gap)`` triples without erasing semantics.
+
+    ``gap`` is the exact whitespace run that immediately preceded the unit, or
+    ``""`` when the unit abuts the previous one. Whitespace is semantic in
+    agentic coding and shell content — indentation, and ``https://safe /admin``
+    versus ``https://safe/admin`` — but it is carried on the *following* unit
+    rather than emitted as a unit of its own. A standalone whitespace token
+    would sit between every pair of prose words, and the adjacent-token bigrams
+    in ``embedding_tokens`` would then relate each word only to a shared
+    separator, which makes word order invisible: ``a b c d`` and ``a c b d``
+    would produce the same bigram multiset. Carrying the gap keeps the bigram
+    chain word-to-word while still distinguishing the whitespace.
+    """
     normalized = unicodedata.normalize("NFC", text)
     current = []
     punctuation = []
+    # Mutable holder so the flush closures read the gap captured when the unit
+    # started accumulating, not whatever whitespace has been seen since.
+    gaps = {"pending": "", "word": "", "operator": ""}
 
     def flush_word():
         if current:
             word = "".join(current)
             current.clear()
-            return [("word", word)]
+            return [("word", word, gaps["word"])]
         return []
 
     def flush_punctuation():
         if punctuation:
             operator = "".join(punctuation)
             punctuation.clear()
-            return [("operator", operator)]
+            return [("operator", operator, gaps["operator"])]
         return []
+
+    def claim_gap(slot):
+        gaps[slot] = gaps["pending"]
+        gaps["pending"] = ""
 
     for char in normalized:
         category = unicodedata.category(char)
@@ -404,12 +426,17 @@ def _string_units(text):
         )
         if word_char:
             yield from flush_punctuation()
+            if not current:
+                claim_gap("word")
             current.append(char)
         elif char.isspace():
             yield from flush_word()
             yield from flush_punctuation()
+            gaps["pending"] += char
         else:
             yield from flush_word()
+            if not punctuation:
+                claim_gap("operator")
             punctuation.append(char)
     yield from flush_word()
     yield from flush_punctuation()
@@ -460,25 +487,30 @@ def _leaf_words(value, out, path="$"):
         out.append(f"{path}{_PATH_SEP}str-empty")
         return
     emitted = False
-    for kind, unit in _string_units(text):
+    for kind, unit, gap in _string_units(text):
         emitted = True
         if kind == "operator":
-            out.append(f"{path}{_PATH_SEP}str-op:{unit}")
+            out.append(f"{path}{_PATH_SEP}str-op:{unit}{_GAP_SEP}{gap}")
         elif _uses_unsegmented_script(unit):
             # A whole CJK/Japanese/Thai sentence is one ``\w+`` match. Emit
-            # path-qualified graphemes instead so a small edit retains enough
-            # shared features to become an LSH candidate. ``embedding_tokens``
-            # adds adjacent bigrams, preserving order and limiting anagram
-            # false positives.
+            # path-qualified graphemes so a small edit retains enough shared
+            # features to become an LSH candidate.
             out.extend(
                 f"{path}{_PATH_SEP}str-char:{cluster}"
                 for cluster in _graphemes(unit)
             )
+            # Graphemes plus adjacent bigrams are not injective over
+            # sequences: 甲乙甲丙甲 and 甲丙甲乙甲 have the same grapheme counts
+            # *and* the same bigram multiset, so the bag alone scored them at
+            # cosine 1.0 and the blocking gate excluded one. The whole unit is
+            # the fully order-sensitive feature that separates them, while the
+            # graphemes keep minimal-edit recall.
+            out.append(f"{path}{_PATH_SEP}str-seq:{unit}{_GAP_SEP}{gap}")
         else:
             # Keep a folded channel for natural-language recall and an exact
             # channel so identifiers such as User/user remain distinguishable.
-            out.append(f"{path}{_PATH_SEP}str-fold:{unit.casefold()}")
-            out.append(f"{path}{_PATH_SEP}str-case:{unit}")
+            out.append(f"{path}{_PATH_SEP}str-fold:{unit.casefold()}{_GAP_SEP}{gap}")
+            out.append(f"{path}{_PATH_SEP}str-case:{unit}{_GAP_SEP}{gap}")
     if not emitted:
         out.append(f"{path}{_PATH_SEP}str-whitespace")
 
