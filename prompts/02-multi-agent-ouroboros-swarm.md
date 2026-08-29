@@ -48,7 +48,7 @@ You MUST execute exactly 2 full densifying cycles per trajectory (per JSONL line
 1. Reserve: `python3 pipelines/round_txn.py reserve <factory-dir> --round N --expected Q`
 2. Write ONLY into returned `staging_dir` at its exact `batch_file` and `notes_file`.
 3. One JSON object per nonblank JSONL line — the Trajectory Builder's Cycle-2 final per record — no fences, headings, comments, trailing prose, or multiline objects. Quota Q = number of final JSONL lines (each line already contains 2 densifying cycles internally).
-4. Self-critique in staged NOTES: which 2 novel domains were injected (per cycle), which 2 adversarial tails, microsecond race realism, reward-tick reconciliation, spike-event validity, residual weaknesses + next densification target. Do not exceed quota.
+4. Self-critique in staged NOTES: which 2 novel domains were injected (per cycle), which 2 adversarial tails, microsecond race realism, reward-tick reconciliation, spike-event validity, residual weaknesses + next densification target. Do not exceed quota. Staged NOTES MUST also carry the line `Novel coverage: <N>%` — an honest estimate of how much of this round is novel versus all prior committed rounds for this factory; `publish` rejects notes without it, and 2 consecutive rounds under 5% early-stop the lane (`docs/token-efficiency.md`).
 5. Publish: `python3 pipelines/round_txn.py publish <factory-dir> --round N --token TOKEN`. Repair only staged files on validation failure; round complete only when `ROUND-rNN.complete.json` exists.
 
 Start now with a complex agentic + neuromorphic scenario. Continue the swarm until I stop you. Enforce all 6 roles, both injections per cycle, and both densifying cycles — no shortcuts.

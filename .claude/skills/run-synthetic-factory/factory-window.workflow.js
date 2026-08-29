@@ -145,7 +145,7 @@ const FACTORIES = [
 // diminishing-novelty rounds (generation + verification tokens).
 // Rule: 2 consecutive NOTES with <5% novel coverage → per-factory stop.
 // Parsing is line-anchored to the labeled "Novel coverage: N%" line only
-// (case-insensitive; mirrors driver.py NOVEL_COVERAGE_RE) so unrelated
+// (case-insensitive; mirrors round_txn's strict new-publication parser) so unrelated
 // percentages in NOTES prose can never be misread as coverage. Unparseable
 // NOTES hold the streak (neither increment nor reset) to avoid false stops
 // or hidden plateaus.
@@ -164,9 +164,16 @@ function novelCoveragePct(notesText) {
   // "...feel novel; Jaccard overlap peaked at 45%" can never match.
   // An optional parenthetical annotation is documented as valid
   // (docs/token-efficiency.md): "Novel coverage (estimated): 12.5 %".
-  const m = notesText.match(/^\s*novel[ _-]?coverage\s*(?:\([^)\n]*\))?\s*[:=]?\s*(\d+(?:\.\d+)?)\s*%/im)
-  if (!m) return null
-  const v = parseFloat(m[1])
+  const labeledLines = notesText
+    .split(/\r\n|\n|\r/)
+    .filter((line) => /^[ \t]*novel[ _-]?coverage\b/i.test(line))
+  // More than one labeled line is ambiguous, even if both values agree. The
+  // complete-line match also rejects malformed labels and a second same-line
+  // label instead of silently accepting a valid prefix.
+  if (labeledLines.length !== 1) return null
+  const match = labeledLines[0].match(/^[ \t]*novel[ _-]?coverage[ \t]*(?:\([^)\r\n]*\))?[ \t]*[:=]?[ \t]*(\d+(?:\.\d+)?)[ \t]*%[ \t]*$/i)
+  if (!match) return null
+  const v = parseFloat(match[1])
   if (!Number.isFinite(v)) return null
   // Clamp to valid percentage range; out-of-range treated as unparseable.
   if (v < 0 || v > 100) return null
