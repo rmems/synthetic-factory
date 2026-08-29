@@ -125,6 +125,8 @@ def is_canonicalizable(value: Any) -> bool:
 
     try:
         canonical_json(value).encode("utf-8")
-    except (UnicodeEncodeError, ValueError, TypeError):
+    except (ValueError, TypeError):
+        # UnicodeEncodeError is a ValueError, so a lone surrogate is
+        # caught here too; naming it as well would be redundant.
         return False
     return True

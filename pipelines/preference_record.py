@@ -18,7 +18,6 @@ from __future__ import annotations
 
 import copy
 import sys
-from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
@@ -87,7 +86,8 @@ def curate_preference_record(record: dict[str, Any]) -> CurationDecision:
             record=None,
             context_diff_paths=(),
         )
-    same_state, same_proposed_action = context_field_agreement(record)
+    agreement = context_field_agreement(record)
+    same_state, same_proposed_action = agreement
     if not _is_canonicalizable(record):
         # Checked before the context shape so a non-finite float anywhere in
         # the pair is reported precisely instead of surfacing as a bare
@@ -126,16 +126,12 @@ def curate_preference_record(record: dict[str, Any]) -> CurationDecision:
             same_proposed_action=same_proposed_action,
         )
 
-    # Repairs report the agreement of the *source* pair, not of their own
+    # Repairs are handed the agreement of the *source* pair, not of their own
     # output: the audit has to keep naming a repaired pair as impure evidence.
     for repair in (repair_attested_identity, repair_attested_proposal):
-        repaired = repair(record)
+        repaired = repair(record, agreement)
         if repaired is not None:
-            return replace(
-                repaired,
-                same_state=same_state,
-                same_proposed_action=same_proposed_action,
-            )
+            return repaired
 
     return CurationDecision(
         action=ACTION_EXCLUDED,

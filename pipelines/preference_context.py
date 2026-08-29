@@ -98,7 +98,9 @@ def context_is_pure(record: dict[str, Any]) -> bool:
             canonical_json(chosen[field]) == canonical_json(rejected[field])
             for field in ("state", "proposed_action")
         )
-    except (UnicodeEncodeError, ValueError, TypeError):
+    except (ValueError, TypeError):
+        # UnicodeEncodeError is a ValueError, so a lone surrogate is
+        # caught here too; naming it as well would be redundant.
         return False
 
 
@@ -117,7 +119,9 @@ def _field_agreement(record: Any, field: str) -> bool | None:
         return None
     try:
         return canonical_json(chosen_value) == canonical_json(rejected_value)
-    except (UnicodeEncodeError, ValueError, TypeError):
+    except (ValueError, TypeError):
+        # UnicodeEncodeError is a ValueError, so a lone surrogate is
+        # caught here too; naming it as well would be redundant.
         return None
 
 

@@ -11,6 +11,11 @@ into the corpus, so it is refused and left for exclusion instead.
 
 Each function returns ``None`` when it cannot prove the identity, which the
 caller reads as "not repairable by this rule", never as "repaired".
+
+``agreement`` is the *source* pair's per-field agreement, measured before any
+repair and stated on the decision a rule returns. A repair must never report
+the agreement of its own output, or the audit would stop naming a repaired
+pair as the impure evidence it is.
 """
 
 from __future__ import annotations
@@ -72,7 +77,9 @@ def _identity_annotation_reference(
     return None
 
 
-def _repair_identity_annotations(record: dict[str, Any]) -> CurationDecision | None:
+def _repair_identity_annotations(
+    record: dict[str, Any], agreement: tuple[bool | None, bool | None]
+) -> CurationDecision | None:
     """Repair context that differs only by explicit branch identity notes."""
 
     context = pair_context(record)
@@ -106,6 +113,8 @@ def _repair_identity_annotations(record: dict[str, Any]) -> CurationDecision | N
         record=repaired,
         context_diff_paths=all_context_diffs(source_chosen, source_rejected),
         changed_context_fields=tuple(changed),
+        same_state=agreement[0],
+        same_proposed_action=agreement[1],
     )
 
 
@@ -150,7 +159,9 @@ def _proposal_annotation_reference(
     return None
 
 
-def _repair_proposal_annotations(record: dict[str, Any]) -> CurationDecision | None:
+def _repair_proposal_annotations(
+    record: dict[str, Any], agreement: tuple[bool | None, bool | None]
+) -> CurationDecision | None:
     """Repair an attested proposal whose only differences are annotations."""
 
     context = pair_context(record)
@@ -181,6 +192,8 @@ def _repair_proposal_annotations(record: dict[str, Any]) -> CurationDecision | N
         record=repaired,
         context_diff_paths=all_context_diffs(chosen, rejected),
         changed_context_fields=(f"{attester_name}.proposed_action",),
+        same_state=agreement[0],
+        same_proposed_action=agreement[1],
     )
 
 
