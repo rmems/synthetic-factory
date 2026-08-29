@@ -110,6 +110,52 @@ class CensusMiniRun(unittest.TestCase):
         self.assertFalse((MINI_RUN / "manifest.json").exists())
 
 
+def _write_marker_mode(factory: Path):
+    """Put ``factory`` into round-marker mode."""
+
+    (factory / ".round-marker-mode.json").write_text(
+        '{"version":1,"legacy_baseline":0,'
+        '"commit_point":"ROUND-rNN.complete.json"}\n',
+        encoding="utf-8",
+    )
+
+
+def _write_episode_batch(path: Path, record_id: str, factory_name: str):
+    """Write a one-record episode batch at ``path``."""
+
+    path.write_text(
+        json.dumps(_episode(record_id, "fix verify", factory_name)) + "\n",
+        encoding="utf-8",
+    )
+
+
+def _write_round_complete(factory: Path, round_number: int, files):
+    """Write the completion marker that commits ``files`` for one round."""
+
+    commit_point = f"ROUND-r{round_number:02d}.complete.json"
+    (factory / commit_point).write_text(
+        json.dumps(
+            {
+                "version": 1,
+                "factory": factory.name,
+                "round": round_number,
+                "records": 1,
+                "expected_records": 1,
+                "commit_point": commit_point,
+                "files": [
+                    {
+                        "name": path.name,
+                        "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
+                    }
+                    for path in files
+                ],
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+
 class CensusMillMix(unittest.TestCase):
     """A dest-stamped leftover mill on a generic episode slug must be counted."""
 
@@ -374,63 +420,16 @@ class CensusMillMix(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             factory = Path(temporary) / "agentic-factory"
             factory.mkdir()
-            (factory / ".round-marker-mode.json").write_text(
-                '{"version":1,"legacy_baseline":0,'
-                '"commit_point":"ROUND-rNN.complete.json"}\n',
-                encoding="utf-8",
-            )
+            _write_marker_mode(factory)
             batch = factory / "batch-r01.jsonl"
-            batch.write_text(
-                json.dumps(
-                    _episode(
-                        "agt-r01-committed",
-                        "fix verify",
-                        factory.name,
-                    )
-                )
-                + "\n",
-                encoding="utf-8",
-            )
+            _write_episode_batch(batch, "agt-r01-committed", factory.name)
             notes = factory / "NOTES-r01.md"
             notes.write_text("Novel coverage: 80%\n", encoding="utf-8")
-            (factory / "ROUND-r01.complete.json").write_text(
-                json.dumps(
-                    {
-                        "version": 1,
-                        "factory": factory.name,
-                        "round": 1,
-                        "records": 1,
-                        "expected_records": 1,
-                        "commit_point": "ROUND-r01.complete.json",
-                        "files": [
-                            {
-                                "name": batch.name,
-                                "sha256": hashlib.sha256(
-                                    batch.read_bytes()
-                                ).hexdigest(),
-                            },
-                            {
-                                "name": notes.name,
-                                "sha256": hashlib.sha256(
-                                    notes.read_bytes()
-                                ).hexdigest(),
-                            },
-                        ],
-                    }
-                )
-                + "\n",
-                encoding="utf-8",
-            )
-            (factory / "batch-r02.jsonl").write_text(
-                json.dumps(
-                    _episode(
-                        "gql-r02-uncommitted",
-                        "fix verify",
-                        factory.name,
-                    )
-                )
-                + "\n",
-                encoding="utf-8",
+            _write_round_complete(factory, 1, (batch, notes))
+            _write_episode_batch(
+                factory / "batch-r02.jsonl",
+                "gql-r02-uncommitted",
+                factory.name,
             )
             (factory / "ROUND-r02.publishing.json").write_text(
                 "{}\n", encoding="utf-8"

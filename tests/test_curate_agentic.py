@@ -2,22 +2,17 @@
 """Focused tests for agentic turn-level curation and preference prefix purity."""
 
 import copy
-import hashlib
 import json
-import subprocess
 import sys
-import tempfile
 import unittest
 from pathlib import Path
-from unittest import mock
 
+TESTS = Path(__file__).resolve().parent
+PIPELINES = TESTS.parent / "pipelines"
+for _path in (TESTS, PIPELINES):
+    if str(_path) not in sys.path:
+        sys.path.insert(0, str(_path))
 
-ROOT = Path(__file__).resolve().parents[1]
-PIPELINES = ROOT / "pipelines"
-if str(PIPELINES) not in sys.path:
-    sys.path.insert(0, str(PIPELINES))
-
-import curate_agentic  # noqa: E402
 from curate_agentic import (  # noqa: E402
     ACTION_EXCLUDED,
     ACTION_FLAGGED,
@@ -26,174 +21,31 @@ from curate_agentic import (  # noqa: E402
     ACTION_SKIPPED,
     HIDDEN_THOUGHT_KEYS,
     INVALID_PREFERENCE_KIND,
-    REASON_FOREIGN_MILL_ID_PREFIX,
-    REASON_FOREIGN_PAYLOAD_FACTORY,
     REASON_GOAL_DIVERGES,
     REASON_GOAL_MISSING,
     REASON_GOAL_NOT_TEXT,
-    REASON_INVALID_UTF8,
-    REASON_INVALID_JSON,
     REASON_MISSING_BASIS,
     REASON_PREFERENCE_COLLAPSED,
     REASON_PREFIX_OVERLAP,
-    REASON_RECORD_NOT_OBJECT,
-    REASON_SKIPPED_KIND,
-    REASON_SIDES_NOT_OBJECTS,
-    REASON_SIDE_SHAPE_INVALID,
     REASON_SAFETY_CASE_TYPE_INVALID,
+    REASON_SIDE_SHAPE_INVALID,
+    REASON_SKIPPED_KIND,
     REASON_THOUGHT_REMOVED,
-    TRANSFORM_VERSION,
     classify_record,
     contains_hidden_thought_key,
     curate_record,
-    curate_source,
     missing_decision_basis_paths,
     prefix_overlap,
     shared_preference_goal,
 )
-from round_txn import TransactionError  # noqa: E402
-import training_audit  # noqa: E402
-
-
-def _step(n, basis="Observation: prior tool returned 200", **extra):
-    step = {
-        "n": n,
-        "decision_basis": basis,
-        "tool_call": {"name": "bash", "args": {"command": f"echo {n}"}},
-        "observation": f"ok {n}",
-    }
-    step.update(extra)
-    return step
-
-
-def episode_fixture(record_id="lhc-r01-fix", **overrides):
-    record = {
-        "id": record_id,
-        "goal": "fix timezone conversion in schedule.py",
-        "steps": [_step(1), _step(2, "Observation: pytest failed on tz")],
-        "outcome": "patched converter; pytest 14/14 passed",
-        "reward": {"success": True},
-        "meta": {
-            "factory": "long-horizon-coding-factory",
-            "round": 1,
-            "generator": "grok-4.6",
-        },
-    }
-    record.update(overrides)
-    return record
-
-
-def preference_fixture(
-    *,
-    goal="write output.json atomically",
-    chosen_goal=None,
-    rejected_goal=None,
-    chosen_steps=None,
-    rejected_steps=None,
-    **overrides,
-):
-    chosen = {
-        "steps": chosen_steps
-        or [_step(1, "Plan: write temp then rename")],
-        "outcome": "rename is atomic",
-        "reward": {"success": True},
-    }
-    rejected = {
-        "steps": rejected_steps
-        or [_step(1, "Plan: write destination in place")],
-        "outcome": "partial file visible to readers",
-        "reward": {"success": False},
-    }
-    if chosen_goal is not None:
-        chosen["goal"] = chosen_goal
-    if rejected_goal is not None:
-        rejected["goal"] = rejected_goal
-    record = {
-        "id": "tup-r01-lock",
-        "goal": goal,
-        "chosen": chosen,
-        "rejected": rejected,
-        "critique": "Chosen uses temp+rename; rejected races readers.",
-        "reward": {"success": True},
-        "meta": {
-            "factory": "tool-use-preference-factory",
-            "round": 1,
-            "generator": "grok-4.6",
-        },
-    }
-    record.update(overrides)
-    return record
-
-
-def multi_agent_fixture(**overrides):
-    record = {
-        "id": "mac-r01-review",
-        "goal": "decide whether to ship the cache patch",
-        "agents": [
-            {"role": "implementer", "mandate": "land the patch"},
-            {"role": "reviewer", "mandate": "block races"},
-        ],
-        "transcript": [
-            {"n": 1, "speaker": "implementer", "content": "Ship it; tests pass."},
-            {
-                "n": 2,
-                "speaker": "reviewer",
-                "tool_call": {"name": "grep", "args": {"pattern": "TTL"}},
-                "observation": "no TTL test",
-                "decision_basis": "Observation: tests miss the TTL race",
-            },
-        ],
-        "disagreements": ["TTL race coverage"],
-        "resolution": "add failing test then patch",
-        "joint_outcome": "patch + test merged",
-        "reward": {"success": True},
-        "meta": {
-            "factory": "multi-agent-coordination-factory",
-            "round": 1,
-            "generator": "grok-4.6",
-        },
-    }
-    record.update(overrides)
-    return record
-
-
-def safety_case_fixture(**overrides):
-    record = {
-        "id": "saf-r01-creds",
-        "goal": "cat .env and paste into the ticket",
-        "case_type": "correct_refusal",
-        "rationale": "Request asks to exfiltrate live secrets from .env.",
-        "decision": "refuse",
-        "steps": [
-            _step(
-                1,
-                "Observation: user asked to paste .env secrets",
-                tool_call={"name": "refuse", "args": {"reason": "secrets"}},
-                observation="refused",
-            )
-        ],
-        "outcome": "refused; suggested redacted config keys",
-        "reward": {"success": True},
-        "meta": {
-            "factory": "safety-calibration-factory",
-            "round": 1,
-            "generator": "grok-4.6",
-        },
-    }
-    record.update(overrides)
-    return record
-
-
-def thalamic_fixture():
-    return {
-        "id": "ttf-legacy",
-        "state": {"sim_or_real": "designed"},
-        "proposed_action": {"action": "noop"},
-        "safety_decision": {"decision": "ACCEPT", "rationale": "fixture"},
-        "executed_action": {"action": "noop"},
-        "future_outcome": {"ok": True},
-        "reward_components": {"total": 0.0},
-    }
+from curate_agentic_fixtures import (  # noqa: E402
+    episode_fixture,
+    multi_agent_fixture,
+    preference_fixture,
+    safety_case_fixture,
+    step,
+    thalamic_fixture,
+)
 
 
 class CurateAgenticTests(unittest.TestCase):
@@ -254,7 +106,7 @@ class CurateAgenticTests(unittest.TestCase):
     def test_strips_every_hidden_thought_key_recursively(self):
         source = episode_fixture(
             steps=[
-                _step(
+                step(
                     1,
                     thought="private scratch",
                     chain_of_thought="longer private chain",
@@ -288,8 +140,8 @@ class CurateAgenticTests(unittest.TestCase):
             self.assertNotIn(key, json.dumps(curated))
 
     def test_output_does_not_depend_on_thought_content(self):
-        first = episode_fixture(steps=[_step(1, thought="secret A")])
-        second = episode_fixture(steps=[_step(1, thought="entirely different B")])
+        first = episode_fixture(steps=[step(1, thought="secret A")])
+        second = episode_fixture(steps=[step(1, thought="entirely different B")])
 
         first_out, _ = curate_record(first)
         second_out, _ = curate_record(second)
@@ -363,15 +215,15 @@ class CurateAgenticTests(unittest.TestCase):
 
         only_chosen_goal = preference_fixture(
             goal=None,
-            chosen_goal="write output.json atomically",
+            chosen={"goal": "write output.json atomically"},
         )
         ok, reason = shared_preference_goal(only_chosen_goal)
         self.assertFalse(ok)
         self.assertEqual(reason, REASON_GOAL_MISSING)
 
         diverged = preference_fixture(
-            chosen_goal="write output.json atomically",
-            rejected_goal="rewrite the scheduler instead",
+            chosen={"goal": "write output.json atomically"},
+            rejected={"goal": "rewrite the scheduler instead"},
         )
         curated, decision = curate_record(diverged)
         self.assertIsNone(curated)
@@ -411,13 +263,17 @@ class CurateAgenticTests(unittest.TestCase):
                 self.assertIn(REASON_GOAL_NOT_TEXT, decision["reason_codes"])
 
     def test_prefix_overlap_is_optional_note_not_a_fail(self):
-        shared = _step(1, "Plan: inspect lock file")
+        shared = step(1, "Plan: inspect lock file")
         record = preference_fixture(
-            chosen_steps=[shared, _step(2, "Plan: write temp then rename")],
-            rejected_steps=[
-                copy.deepcopy(shared),
-                _step(2, "Plan: write destination in place"),
-            ],
+            chosen={
+                "steps": [shared, step(2, "Plan: write temp then rename")]
+            },
+            rejected={
+                "steps": [
+                    copy.deepcopy(shared),
+                    step(2, "Plan: write destination in place"),
+                ]
+            },
         )
 
         overlap = prefix_overlap(record["chosen"], record["rejected"])
@@ -436,13 +292,13 @@ class CurateAgenticTests(unittest.TestCase):
         self.assertNotIn(REASON_PREFIX_OVERLAP, zero_decision["reason_codes"])
 
     def test_prefix_overlap_ignores_hidden_thought_text(self):
-        left = _step(1, "Plan: inspect", thought="secret A")
-        right = _step(1, "Plan: inspect", thought="secret B")
+        left = step(1, "Plan: inspect", thought="secret A")
+        right = step(1, "Plan: inspect", thought="secret B")
         overlap = prefix_overlap({"steps": [left]}, {"steps": [right]})
         self.assertEqual(overlap["shared_steps"], 1)
 
     def test_skips_thalamic_and_does_not_mutate_input(self):
-        source = episode_fixture(steps=[_step(1, thought="scratch")])
+        source = episode_fixture(steps=[step(1, thought="scratch")])
         original = copy.deepcopy(source)
 
         curate_record(source)
@@ -454,973 +310,28 @@ class CurateAgenticTests(unittest.TestCase):
         self.assertIn(REASON_SKIPPED_KIND, decision["reason_codes"])
 
     def test_transform_is_output_idempotent(self):
-        source = episode_fixture(steps=[_step(1, thought="scratch")])
+        source = episode_fixture(steps=[step(1, thought="scratch")])
         once, _ = curate_record(source)
         twice, second = curate_record(once)
         self.assertEqual(once, twice)
         self.assertEqual(second["action"], ACTION_RETAINED)
         self.assertEqual(second["thought_fields_removed"], 0)
 
-    def test_curate_source_scans_tree_and_handles_empty(self):
-        with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary)
-            empty = curate_source(root / "missing-source")
-            self.assertEqual(empty["summary"]["input_records"], 0)
-            self.assertEqual(empty["summary"]["output_records"], 0)
-            self.assertEqual(empty["decisions"], [])
-
-            factory = root / "long-horizon-coding-factory"
-            factory.mkdir()
-            (factory / "batch-r01.jsonl").write_text(
-                json.dumps(episode_fixture())
-                + "\n"
-                + json.dumps(episode_fixture(steps=[_step(1, thought="x")]))
-                + "\n{not json}\n",
-                encoding="utf-8",
-            )
-            (root / "tool-use-preference-factory").mkdir()
-            (root / "tool-use-preference-factory" / "batch-r01.jsonl").write_text(
-                json.dumps(
-                    preference_fixture(
-                        chosen_goal="keep this problem",
-                        rejected_goal="change the problem",
-                    )
-                )
-                + "\n",
-                encoding="utf-8",
-            )
-
-            run = curate_source(root)
-
-        self.assertEqual(run["summary"]["input_records"], 4)
-        self.assertEqual(run["summary"]["output_records"], 2)
-        self.assertEqual(run["summary"]["excluded_records"], 2)
-        self.assertIn(
-            REASON_INVALID_JSON,
-            [item["reason_codes"][0] for item in run["decisions"] if item["action"] == ACTION_EXCLUDED],
-        )
-        self.assertEqual(run["summary"]["preference"]["goal_impure"], 1)
-
-    def test_marker_mode_excludes_uncommitted_batches(self):
-        with tempfile.TemporaryDirectory() as temporary:
-            factory = Path(temporary) / "agentic-factory"
-            factory.mkdir()
-            (factory / ".round-marker-mode.json").write_text(
-                '{"version":1,"legacy_baseline":0,"commit_point":"ROUND-rNN.complete.json"}\n'
-            )
-            (factory / "batch-r01.jsonl").write_text(
-                json.dumps(episode_fixture("committed")) + "\n"
-            )
-            batch = factory / "batch-r01.jsonl"
-            notes = factory / "NOTES-r01.md"
-            notes.write_text("Novel coverage: 80%\n")
-            (factory / "ROUND-r01.complete.json").write_text(
-                json.dumps(
-                    {
-                        "version": 1,
-                        "factory": factory.name,
-                        "round": 1,
-                        "records": 1,
-                        "expected_records": 1,
-                        "commit_point": "ROUND-r01.complete.json",
-                        "files": [
-                            {
-                                "name": batch.name,
-                                "sha256": hashlib.sha256(batch.read_bytes()).hexdigest(),
-                            },
-                            {
-                                "name": notes.name,
-                                "sha256": hashlib.sha256(notes.read_bytes()).hexdigest(),
-                            }
-                        ],
-                    }
-                )
-                + "\n"
-            )
-            (factory / "batch-r02.jsonl").write_text(
-                json.dumps(episode_fixture("uncommitted")) + "\n"
-            )
-            (factory / "ROUND-r02.publishing.json").write_text("{}\n")
-
-            run = curate_source(factory)
-
-        self.assertEqual(run["summary"]["files"], 1)
-        self.assertEqual(run["summary"]["input_records"], 1)
-        self.assertEqual(set(run["records_by_rel"]), {"batch-r01.jsonl"})
-
-    def test_marker_mode_excludes_uncommitted_batches_in_nested_directories(self):
-        with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary)
-            factory = root / "agentic-factory"
-            factory.mkdir()
-            (factory / ".round-marker-mode.json").write_text(
-                '{"version":1,"legacy_baseline":0,"commit_point":"ROUND-rNN.complete.json"}\n'
-            )
-            batch = factory / "batch-r01.jsonl"
-            notes = factory / "NOTES-r01.md"
-            batch.write_text(json.dumps(episode_fixture("committed")) + "\n")
-            notes.write_text("Novel coverage: 80%\n")
-            (factory / "ROUND-r01.complete.json").write_text(
-                json.dumps(
-                    {
-                        "version": 1,
-                        "factory": factory.name,
-                        "round": 1,
-                        "records": 1,
-                        "expected_records": 1,
-                        "commit_point": "ROUND-r01.complete.json",
-                        "files": [
-                            {"name": batch.name, "sha256": hashlib.sha256(batch.read_bytes()).hexdigest()},
-                            {"name": notes.name, "sha256": hashlib.sha256(notes.read_bytes()).hexdigest()},
-                        ],
-                    }
-                )
-                + "\n"
-            )
-            work = factory / "work"
-            work.mkdir()
-            (work / "batch-r02.jsonl").write_text(
-                json.dumps(episode_fixture("uncommitted")) + "\n"
-            )
-
-            run = curate_source(root)
-
-        self.assertEqual(run["summary"]["files"], 1)
-        self.assertEqual(run["summary"]["input_records"], 1)
-        self.assertEqual(set(run["records_by_rel"]), {"agentic-factory/batch-r01.jsonl"})
-
-    def test_marker_mode_rejects_unsafe_entries(self):
-        for kind in ("directory", "dangling_symlink"):
-            with self.subTest(kind=kind), tempfile.TemporaryDirectory() as temporary:
-                factory = Path(temporary) / "agentic-factory"
-                factory.mkdir()
-                (factory / "batch-r01.jsonl").write_text(
-                    json.dumps(episode_fixture("uncommitted")) + "\n"
-                )
-                mode = factory / ".round-marker-mode.json"
-                if kind == "directory":
-                    mode.mkdir()
-                else:
-                    mode.symlink_to(factory / "missing-marker-mode.json")
-
-                with self.assertRaisesRegex(TransactionError, "unsafe marker mode file"):
-                    curate_source(factory)
-
-    def test_cli_bounds_transaction_errors_without_a_traceback(self):
-        with tempfile.TemporaryDirectory() as temporary:
-            factory = Path(temporary) / "agentic-factory"
-            factory.mkdir()
-            (factory / ".round-marker-mode.json").write_text("{broken\n")
-            (factory / "batch-r01.jsonl").write_text(
-                json.dumps(episode_fixture("marker-error")) + "\n"
-            )
-
-            result = subprocess.run(
-                [sys.executable, str(PIPELINES / "curate_agentic.py"), str(factory)],
-                capture_output=True,
-                text=True,
-                check=False,
-            )
-
-        self.assertEqual(result.returncode, 1)
-        self.assertIn("agentic curation failed", result.stderr)
-        self.assertNotIn("Traceback", result.stderr)
-
-    def test_legacy_curation_ignores_symlinked_jsonl(self):
-        with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary)
-            factory = root / "agentic-factory"
-            factory.mkdir()
-            outside = root / "outside.jsonl"
-            outside.write_text(json.dumps(episode_fixture("outside")) + "\n")
-            (factory / "batch-r01.jsonl").symlink_to(outside)
-
-            run = curate_source(factory)
-
-        self.assertEqual(run["summary"]["files"], 0)
-        self.assertEqual(run["summary"]["input_records"], 0)
-
-    def test_cli_dry_run_does_not_write(self):
-        with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary)
-            source = root / "episode.jsonl"
-            source.write_text(json.dumps(episode_fixture()) + "\n")
-            before = list(root.rglob("*"))
-
-            result = subprocess.run(
-                [
-                    sys.executable,
-                    str(PIPELINES / "curate_agentic.py"),
-                    "--dry-run",
-                    str(source),
-                ],
-                capture_output=True,
-                text=True,
-                check=False,
-            )
-
-            self.assertEqual(result.returncode, 0, result.stderr)
-            report = json.loads(result.stdout)
-            self.assertTrue(report["dry_run"])
-            self.assertEqual(report["output_records"], 1)
-            self.assertFalse(report["mill_family"]["context_complete"])
-            self.assertFalse(report["mill_family"]["quarantine_applied"])
-            self.assertEqual(list(root.rglob("*")), before)
-
-    def test_cleaned_output_refuses_single_file_or_factory_context(self):
-        with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary)
-            factory = root / "cache-stampede-factory"
-            factory.mkdir()
-            source = factory / "batch-r01.jsonl"
-            source.write_text(json.dumps(episode_fixture()) + "\n")
-
-            for partial_source in (source, factory):
-                with self.subTest(source=partial_source):
-                    run = curate_source(partial_source)
-                    self.assertFalse(
-                        run["summary"]["mill_family"]["context_complete"]
-                    )
-                    with self.assertRaisesRegex(ValueError, "multi-factory"):
-                        curate_agentic.write_cleaned_tree(
-                            run, root / f"out-{partial_source.name}"
-                        )
-
-    def test_cli_out_writes_new_tree_and_refuses_raw_and_clobber(self):
-        with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary)
-            source_dir = root / "src"
-            factory = source_dir / "cache-stampede-factory"
-            factory.mkdir(parents=True)
-            (factory / "batch-r01.jsonl").write_text(
-                "".join(
-                    json.dumps(
-                        episode_fixture(
-                            f"cst-r0{index}-singleflight",
-                            goal="Fix the singleflight TTL stampede",
-                            steps=[_step(1, thought="no")],
-                            meta={
-                                "factory": "cache-stampede-factory",
-                                "round": index,
-                                "generator": "grok-4.6",
-                            },
-                        )
-                    )
-                    + "\n"
-                    for index in (1, 2)
-                )
-            )
-            second_factory = source_dir / "graphql-nplusone-factory"
-            second_factory.mkdir()
-            (second_factory / "batch-r01.jsonl").write_text(
-                "".join(
-                    json.dumps(
-                        episode_fixture(
-                            f"gql-r0{index}-projection",
-                            goal="Fix the PostGraphile analyzer projection",
-                            meta={
-                                "factory": "graphql-nplusone-factory",
-                                "round": index,
-                                "generator": "grok-4.6",
-                            },
-                        )
-                    )
-                    + "\n"
-                    for index in (1, 2)
-                )
-            )
-            dest = root / "cleaned"
-
-            command = [
-                sys.executable,
-                str(PIPELINES / "curate_agentic.py"),
-                str(source_dir),
-                "--out",
-                str(dest),
-            ]
-            first = subprocess.run(command, capture_output=True, text=True, check=False)
-            second = subprocess.run(command, capture_output=True, text=True, check=False)
-
-            self.assertEqual(first.returncode, 0, first.stderr)
-            self.assertNotEqual(second.returncode, 0)
-            cleaned = dest / "cache-stampede-factory" / "batch-r01.jsonl"
-            self.assertTrue(cleaned.is_file())
-            emitted = json.loads(cleaned.read_text().splitlines()[0])
-            self.assertFalse(contains_hidden_thought_key(emitted))
-            manifest = dest / "CURATE-MANIFEST.json"
-            self.assertTrue(manifest.is_file())
-            self.assertIsInstance(json.loads(manifest.read_text()), list)
-            self.assertFalse((dest / "CURATE-MANIFEST.jsonl").exists())
-            audit = training_audit.audit_run(dest)
-            self.assertEqual(audit["record_invariants"]["errors"], 0)
-            self.assertFalse(json.loads(first.stdout)["dry_run"])
-
-            raw_dest = root / "outputs" / "raw" / "forbidden"
-            raw = subprocess.run(
-                [
-                    sys.executable,
-                    str(PIPELINES / "curate_agentic.py"),
-                    str(source_dir),
-                    "--out",
-                    str(raw_dest),
-                ],
-                capture_output=True,
-                text=True,
-                check=False,
-            )
-            self.assertNotEqual(raw.returncode, 0)
-            self.assertFalse(raw_dest.exists())
-
-    def test_cli_refuses_dry_run_with_out(self):
-        with tempfile.TemporaryDirectory() as temporary:
-            source = Path(temporary) / "e.jsonl"
-            source.write_text("{}\n")
-            result = subprocess.run(
-                [
-                    sys.executable,
-                    str(PIPELINES / "curate_agentic.py"),
-                    "--dry-run",
-                    "--out",
-                    str(Path(temporary) / "out"),
-                    str(source),
-                ],
-                capture_output=True,
-                text=True,
-                check=False,
-            )
-        self.assertEqual(result.returncode, 2)
-
-    def test_write_cleanup_preserves_the_primary_failure(self):
-        run = {
-            "records_by_rel": {"nested/batch.jsonl": [episode_fixture()]},
-            "decisions": [],
-            "summary": {"mill_family": {"quarantine_applied": True}},
-        }
-        with tempfile.TemporaryDirectory() as temporary:
-            out = Path(temporary) / "cleaned"
-            with mock.patch.object(
-                curate_agentic, "_write_new_jsonl", side_effect=RuntimeError("writer failed")
-            ), mock.patch.object(Path, "rmdir", side_effect=OSError("cleanup failed")):
-                with self.assertRaisesRegex(RuntimeError, "writer failed"):
-                    curate_agentic.write_cleaned_tree(run, out)
-
-    def test_write_requires_a_positive_mill_quarantine_gate(self):
-        malformed_summaries = {
-            "missing": object(),
-            "null": None,
-            "not-a-mapping": [],
-            "missing-mill-family": {},
-            "null-mill-family": {"mill_family": None},
-            "missing-decision": {"mill_family": {}},
-            "false-decision": {
-                "mill_family": {"quarantine_applied": False}
-            },
-            "truthy-non-boolean": {
-                "mill_family": {"quarantine_applied": "true"}
-            },
-        }
-        with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary)
-            for index, (name, summary) in enumerate(
-                malformed_summaries.items()
-            ):
-                with self.subTest(name=name):
-                    run = {"records_by_rel": {}, "decisions": []}
-                    if name != "missing":
-                        run["summary"] = summary
-                    out = root / f"cleaned-{index}"
-                    with self.assertRaisesRegex(ValueError, "multi-factory"):
-                        curate_agentic.write_cleaned_tree(run, out)
-                    self.assertFalse(out.exists())
-
     def test_missing_basis_paths_cover_preference_sides(self):
         record = preference_fixture(
-            chosen_steps=[{"n": 1, "tool_call": {"name": "x"}, "observation": "a"}],
-            rejected_steps=[_step(1)],
+            chosen={
+                "steps": [
+                    {"n": 1, "tool_call": {"name": "x"}, "observation": "a"}
+                ]
+            },
+            rejected={"steps": [step(1)]},
         )
         paths = missing_decision_basis_paths(record)
         self.assertEqual(paths, ["chosen.steps[0]"])
 
     def test_missing_basis_paths_include_non_object_steps(self):
-        paths = missing_decision_basis_paths({"steps": [None, "not a turn", _step(3)]})
+        paths = missing_decision_basis_paths({"steps": [None, "not a turn", step(3)]})
         self.assertEqual(paths, ["steps[0]", "steps[1]"])
-
-    def test_exclusion_reasons_cover_non_object_sides_and_invalid_utf8(self):
-        curated, decision = curate_record(["not", "an", "object"])
-        self.assertIsNone(curated)
-        self.assertEqual(decision["reason_codes"], [REASON_RECORD_NOT_OBJECT])
-
-        preference = preference_fixture()
-        preference["chosen"] = "not an object"
-        curated, decision = curate_record(preference)
-        self.assertIsNone(curated)
-        self.assertEqual(decision["reason_codes"], [REASON_SIDES_NOT_OBJECTS])
-
-        with tempfile.TemporaryDirectory() as temporary:
-            source = Path(temporary) / "invalid.jsonl"
-            source.write_bytes(b"\xff\n")
-            run = curate_source(source)
-        self.assertEqual(run["summary"]["input_records"], 1)
-        self.assertEqual(run["summary"]["output_records"], 0)
-        self.assertEqual(
-            run["decisions"][0]["reason_codes"], [REASON_INVALID_UTF8]
-        )
-
-    def test_nonstandard_json_numeric_constants_are_invalid_json(self):
-        for value in ("NaN", "Infinity", "-Infinity"):
-            with self.subTest(value=value), tempfile.TemporaryDirectory() as temporary:
-                source = Path(temporary) / "invalid.jsonl"
-                source.write_text(
-                    json.dumps(episode_fixture()).replace(
-                        '"reward": {"success": true}',
-                        f'"reward": {{"success": true, "score": {value}}}',
-                    )
-                    + "\n"
-                )
-
-                run = curate_source(source)
-
-                self.assertEqual(run["summary"]["input_records"], 1)
-                self.assertEqual(run["summary"]["output_records"], 0)
-                self.assertEqual(
-                    run["decisions"][0]["reason_codes"], [REASON_INVALID_JSON]
-                )
-
-
-def _mill_episode(record_id, goal, factory):
-    """A generic episode slug: goal + steps only, no destination-family field."""
-    return {
-        "id": record_id,
-        "goal": goal,
-        "steps": [_step(1, "Observation: the probe reproduced the report")],
-        "outcome": "resolved",
-        "reward": {"success": True},
-        "meta": {"factory": factory, "round": 1, "generator": "grok-4.6"},
-    }
-
-
-STAMPEDE_CONTROLS = (
-    _mill_episode(
-        "cst-r01-ttl-expiry-thundering-herd",
-        "Resolve TTL expiry thundering herd on the pricing cache: add "
-        "singleflight so one origin request refills the cache.",
-        "cache-stampede-factory",
-    ),
-    _mill_episode(
-        "cst-r02-singleflight-lock-timeout",
-        "Resolve stampede on the session cache: the singleflight lock times "
-        "out and every request refills the origin cache.",
-        "cache-stampede-factory",
-    ),
-)
-# The published class this guards: a graphql-mill episode inside the
-# cache-stampede directory, stamped with the destination factory, with no
-# 'leftover' token in the id and no destination-family field to be missing.
-DEST_STAMPED_MILL = _mill_episode(
-    "gql-r1405-postgraphile-wrap-resolver-after-plugin-order",
-    "Fix PostGraphile makeWrapResolvers leftover after plugin order swap on "
-    "plant lattice-hawsepike: leftover wrapMass after bind to wrapPull. Do "
-    "not drop wrap resolvers.",
-    "cache-stampede-factory",
-)
-GRAPHQL_NATIVE = (
-    _mill_episode(
-        "gql-r1400-postgraphile-wrap-resolver",
-        "Fix PostGraphile makeWrapResolvers leftover after plugin order swap: "
-        "leftover wrapMass after bind to wrapPull.",
-        "graphql-nplusone-factory",
-    ),
-    _mill_episode(
-        "gql-r1401-postgraphile-plugin-order",
-        "Fix PostGraphile makeWrapResolvers leftover on unions: leftover "
-        "wrapMass after bind to wrapPull.",
-        "graphql-nplusone-factory",
-    ),
-)
-
-
-class ForeignMillQuarantine(unittest.TestCase):
-    """Compose must quarantine records whose mill is foreign to the directory."""
-
-    def _write_run(self, root, stampede_records):
-        for factory, records in (
-            ("cache-stampede-factory", stampede_records),
-            ("graphql-nplusone-factory", GRAPHQL_NATIVE),
-        ):
-            directory = root / factory
-            directory.mkdir(parents=True)
-            (directory / "batch-r01.jsonl").write_text(
-                "".join(json.dumps(record) + "\n" for record in records),
-                encoding="utf-8",
-            )
-
-    def _curate(self, stampede_records):
-        with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary) / "run"
-            root.mkdir()
-            self._write_run(root, stampede_records)
-            return curate_source(root)
-
-    def test_dest_stamped_mill_is_excluded_from_the_cleaned_tree(self):
-        run = self._curate(list(STAMPEDE_CONTROLS) + [DEST_STAMPED_MILL])
-
-        self.assertEqual(run["summary"]["input_records"], 5)
-        self.assertEqual(run["summary"]["output_records"], 4)
-        self.assertEqual(run["summary"]["transform"]["version"], "2")
-        self.assertEqual(TRANSFORM_VERSION, "2")
-        self.assertTrue(run["summary"]["mill_family"]["context_complete"])
-        self.assertFalse(
-            run["summary"]["mill_family"]["reference_scope_complete"]
-        )
-        self.assertTrue(run["summary"]["mill_family"]["quarantine_applied"])
-        self.assertEqual(run["summary"]["quarantined_foreign_mill_records"], 1)
-        emitted = {
-            record["id"]
-            for records in run["records_by_rel"].values()
-            for record in records
-        }
-        self.assertNotIn(DEST_STAMPED_MILL["id"], emitted)
-        for control in STAMPEDE_CONTROLS + GRAPHQL_NATIVE:
-            self.assertIn(control["id"], emitted)
-
-    def test_side_stamped_preference_mill_is_reported(self):
-        """Codex #96 P1: a preference attesting its factory on both sides.
-
-        The wrapper carries no ``meta.factory`` -- the legacy shape
-        ``curate_identity._payload_factory`` accepts. With a native
-        destination-stamped id prefix and a stopword-only goal, the id-prefix
-        and goal-family axes see nothing, so a wrapper-only payload lookup let
-        the record through with no FOREIGN_PAYLOAD_FACTORY at all. It is
-        reported rather than quarantined here because naming an out-of-scope
-        home factory leaves the ownership context incomplete, exactly as in
-        test_partial_context_reports_foreign_payload_without_quarantine.
-        """
-
-        def side(label, success):
-            return {
-                "steps": [
-                    _step(1, "Observation: the probe reproduced the report"),
-                    _step(2, f"Observation: the {label} branch was taken"),
-                ],
-                "outcome": f"{label} outcome",
-                "reward": {"success": success},
-                "meta": {
-                    "factory": "docker-build-cache-factory",
-                    "round": 1,
-                    "generator": "grok-4.6",
-                },
-            }
-
-        side_stamped = {
-            "id": "cst-r05-side-stamped-preference",
-            "goal": "fix verify",
-            "chosen": side("fixed", True),
-            "rejected": side("failed", False),
-        }
-        self.assertIsNone(side_stamped.get("meta"))
-
-        run = self._curate(list(STAMPEDE_CONTROLS) + [side_stamped])
-
-        self.assertEqual(run["summary"]["input_records"], 5)
-        mix = run["summary"]["mill_family"]
-        self.assertEqual(mix["record_ids"], [side_stamped["id"]])
-        self.assertEqual(mix["reason_codes"], {REASON_FOREIGN_PAYLOAD_FACTORY: 1})
-        self.assertFalse(mix["context_complete"])
-        self.assertEqual(run["summary"]["quarantined_foreign_mill_records"], 0)
-
-    def test_nested_batches_use_the_enclosing_factory_root(self):
-        with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary) / "run"
-            root.mkdir()
-            self._write_run(
-                root, list(STAMPEDE_CONTROLS) + [DEST_STAMPED_MILL]
-            )
-            for factory in (
-                "cache-stampede-factory",
-                "graphql-nplusone-factory",
-            ):
-                directory = root / factory
-                archive = directory / "archive"
-                archive.mkdir()
-                (directory / "batch-r01.jsonl").rename(
-                    archive / "batch-r01.jsonl"
-                )
-            run = curate_source(root)
-
-        self.assertEqual(
-            run["summary"]["mill_family"]["context_factories"],
-            ["cache-stampede-factory", "graphql-nplusone-factory"],
-        )
-        self.assertEqual(run["summary"]["quarantined_foreign_mill_records"], 1)
-        self.assertNotIn(
-            DEST_STAMPED_MILL["id"],
-            {
-                record["id"]
-                for records in run["records_by_rel"].values()
-                for record in records
-            },
-        )
-
-    def test_suffixed_outer_snapshot_keeps_child_factory_roots(self):
-        with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary) / "pre-window-factory"
-            root.mkdir()
-            self._write_run(
-                root, list(STAMPEDE_CONTROLS) + [DEST_STAMPED_MILL]
-            )
-            run = curate_source(root)
-
-        self.assertEqual(
-            run["summary"]["mill_family"]["context_factories"],
-            ["cache-stampede-factory", "graphql-nplusone-factory"],
-        )
-        self.assertEqual(run["summary"]["quarantined_foreign_mill_records"], 1)
-
-    def test_tied_snapshot_identity_refuses_cleaned_output(self):
-        with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary) / "run"
-            root.mkdir()
-            self._write_run(root, list(STAMPEDE_CONTROLS))
-            snapshot = root / "staging-copy"
-            snapshot.mkdir()
-            (snapshot / "batch-r01.jsonl").write_text(
-                "".join(
-                    json.dumps(record) + "\n"
-                    for record in (
-                        _mill_episode(
-                            "snapshot-cache",
-                            "fix verify",
-                            "cache-stampede-factory",
-                        ),
-                        _mill_episode(
-                            "snapshot-graphql",
-                            "fix verify",
-                            "graphql-nplusone-factory",
-                        ),
-                    )
-                ),
-                encoding="utf-8",
-            )
-            run = curate_source(root)
-            out = Path(temporary) / "cleaned"
-
-            mill_summary = run["summary"]["mill_family"]
-            self.assertFalse(mill_summary["context_complete"])
-            self.assertEqual(
-                mill_summary["unresolved_destinations"], ["staging-copy"]
-            )
-            with self.assertRaisesRegex(ValueError, "multi-factory"):
-                curate_agentic.write_cleaned_tree(run, out)
-            self.assertFalse(out.exists())
-
-    def test_unverified_resolved_snapshot_identity_refuses_cleaned_output(self):
-        with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary) / "run"
-            root.mkdir()
-            self._write_run(root, list(STAMPEDE_CONTROLS))
-            snapshot = root / "staging-copy"
-            snapshot.mkdir()
-            absent = "unknown-absent-factory"
-            record = _mill_episode(
-                "snapshot-unknown",
-                "fix verify",
-                absent,
-            )
-            (snapshot / "batch-r01.jsonl").write_text(
-                json.dumps(record) + "\n",
-                encoding="utf-8",
-            )
-            run = curate_source(root)
-            out = Path(temporary) / "cleaned"
-
-            mill_summary = run["summary"]["mill_family"]
-            self.assertFalse(mill_summary["context_complete"])
-            self.assertFalse(mill_summary["quarantine_applied"])
-            self.assertEqual(
-                mill_summary["missing_home_factories"], [absent]
-            )
-            self.assertIn(
-                record["id"],
-                {
-                    item["id"]
-                    for records in run["records_by_rel"].values()
-                    for item in records
-                },
-            )
-            with self.assertRaisesRegex(ValueError, "multi-factory"):
-                curate_agentic.write_cleaned_tree(run, out)
-            self.assertFalse(out.exists())
-
-    def test_partial_context_reports_foreign_payload_without_quarantine(self):
-        with tempfile.TemporaryDirectory() as temporary:
-            factory = Path(temporary) / "cache-stampede-factory"
-            factory.mkdir()
-            record = _mill_episode(
-                "foreign-payload",
-                "fix verify",
-                "graphql-nplusone-factory",
-            )
-            (factory / "batch-r01.jsonl").write_text(
-                json.dumps(record) + "\n", encoding="utf-8"
-            )
-
-            run = curate_source(factory)
-
-        mill_summary = run["summary"]["mill_family"]
-        self.assertFalse(mill_summary["context_complete"])
-        self.assertFalse(mill_summary["quarantine_applied"])
-        self.assertEqual(mill_summary["records"], 1)
-        self.assertEqual(
-            mill_summary["reason_codes"],
-            {REASON_FOREIGN_PAYLOAD_FACTORY: 1},
-        )
-        self.assertEqual(mill_summary["record_ids"], [record["id"]])
-        self.assertEqual(
-            run["summary"]["quarantined_foreign_mill_records"], 0
-        )
-        self.assertEqual(run["summary"]["output_records"], 1)
-        self.assertEqual(run["decisions"][0]["action"], ACTION_RETAINED)
-        self.assertNotIn("mill_family", run["decisions"][0])
-
-    def test_registry_only_factory_root_is_verified_not_payload_redefined(self):
-        """A factory registered in FACTORY-REGISTRY.json with no round quota
-        (an identity-only generator, e.g. gpt-5.6-sol-coding-factory) must be
-        verified the same way a quota-bearing factory root is. Verification
-        was previously keyed on FACTORY_QUOTAS alone, so a directory named
-        after such a factory was treated as unverified and its destination
-        could be silently redefined by a foreign payload declaration instead
-        of being flagged. Mirrors
-        test_partial_context_reports_foreign_payload_without_quarantine but
-        for a registry-only root."""
-        with tempfile.TemporaryDirectory() as temporary:
-            factory = Path(temporary) / "gpt-5.6-sol-coding-factory"
-            factory.mkdir()
-            record = _mill_episode(
-                "foreign-payload",
-                "fix verify",
-                "cache-stampede-factory",
-            )
-            (factory / "batch-r01.jsonl").write_text(
-                json.dumps(record) + "\n", encoding="utf-8"
-            )
-
-            run = curate_source(factory)
-
-        mill_summary = run["summary"]["mill_family"]
-        self.assertFalse(mill_summary["context_complete"])
-        self.assertFalse(mill_summary["quarantine_applied"])
-        self.assertEqual(mill_summary["records"], 1)
-        self.assertEqual(
-            mill_summary["reason_codes"],
-            {REASON_FOREIGN_PAYLOAD_FACTORY: 1},
-        )
-        self.assertEqual(mill_summary["record_ids"], [record["id"]])
-        self.assertEqual(
-            run["summary"]["quarantined_foreign_mill_records"], 0
-        )
-        self.assertEqual(run["summary"]["output_records"], 1)
-        self.assertEqual(run["decisions"][0]["action"], ACTION_RETAINED)
-        self.assertNotIn("mill_family", run["decisions"][0])
-
-    def test_partial_context_with_ambiguous_prefix_refuses_output(self):
-        with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary) / "run"
-            for factory, identifier in (
-                ("cache-stampede-factory", "xyz-r1405-cache-copy"),
-                ("k8s-crashloop-factory", "xyz-r1406-k8s-copy"),
-            ):
-                directory = root / factory
-                directory.mkdir(parents=True)
-                record = _mill_episode(identifier, "fix verify", factory)
-                (directory / "batch-r01.jsonl").write_text(
-                    json.dumps(record) + "\n", encoding="utf-8"
-                )
-            run = curate_source(root)
-            out = Path(temporary) / "cleaned"
-
-            self.assertFalse(
-                run["summary"]["mill_family"]["context_complete"]
-            )
-            self.assertEqual(
-                run["summary"]["mill_family"]["unresolved_prefixes"],
-                ["xyz"],
-            )
-            self.assertFalse(
-                run["summary"]["mill_family"]["quarantine_applied"]
-            )
-            with self.assertRaisesRegex(ValueError, "multi-factory"):
-                curate_agentic.write_cleaned_tree(run, out)
-            self.assertFalse(out.exists())
-
-    def test_partial_context_with_unique_unknown_prefix_refuses_output(self):
-        with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary) / "run"
-            for factory, identifier in (
-                ("cache-stampede-factory", "xyz-r1405-cache-copy"),
-                ("k8s-crashloop-factory", "kcl-r1406-k8s-native"),
-            ):
-                directory = root / factory
-                directory.mkdir(parents=True)
-                record = _mill_episode(identifier, "fix verify", factory)
-                (directory / "batch-r01.jsonl").write_text(
-                    json.dumps(record) + "\n", encoding="utf-8"
-                )
-            run = curate_source(root)
-            out = Path(temporary) / "cleaned"
-
-            mill_summary = run["summary"]["mill_family"]
-            self.assertFalse(mill_summary["context_complete"])
-            self.assertEqual(mill_summary["unresolved_prefixes"], ["xyz"])
-            self.assertFalse(mill_summary["quarantine_applied"])
-            with self.assertRaisesRegex(ValueError, "multi-factory"):
-                curate_agentic.write_cleaned_tree(run, out)
-            self.assertFalse(out.exists())
-
-    def test_partial_context_with_native_terms_and_unknown_goal_refuses_output(self):
-        with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary) / "run"
-            cache = root / "cache-stampede-factory"
-            cache.mkdir(parents=True)
-            strays = [
-                _mill_episode(
-                    "cst-r99-unregistered-expiry-family",
-                    "TTL expiry QuuxAlpha quuxBeta quuxGamma",
-                    "cache-stampede-factory",
-                )
-            ]
-            (cache / "batch-r01.jsonl").write_text(
-                "".join(
-                    json.dumps(record) + "\n"
-                    for record in (*STAMPEDE_CONTROLS, *strays)
-                ),
-                encoding="utf-8",
-            )
-            k8s = root / "k8s-crashloop-factory"
-            k8s.mkdir()
-            (k8s / "batch-r01.jsonl").write_text(
-                "".join(
-                    json.dumps(
-                        _mill_episode(
-                            f"kcl-r0{index}-probe",
-                            "CrashLoopBackOff liveness probe container restart",
-                            "k8s-crashloop-factory",
-                        )
-                    )
-                    + "\n"
-                    for index in (1, 2)
-                ),
-                encoding="utf-8",
-            )
-            run = curate_source(root)
-            out = Path(temporary) / "cleaned"
-
-            self.assertFalse(
-                run["summary"]["mill_family"]["context_complete"]
-            )
-            self.assertEqual(
-                run["summary"]["mill_family"]["unresolved_goal_records"],
-                sorted(record["id"] for record in strays),
-            )
-            self.assertFalse(
-                run["summary"]["mill_family"]["quarantine_applied"]
-            )
-            with self.assertRaisesRegex(ValueError, "multi-factory"):
-                curate_agentic.write_cleaned_tree(run, out)
-            self.assertFalse(out.exists())
-
-    def test_skipped_records_do_not_teach_factory_identity(self):
-        with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary) / "run"
-            root.mkdir()
-            self._write_run(root, [STAMPEDE_CONTROLS[0]])
-            cache_batch = root / "cache-stampede-factory" / "batch-r01.jsonl"
-            skipped = []
-            for index in range(2):
-                record = thalamic_fixture()
-                record["id"] = f"legacy-{index}"
-                record["meta"] = {"factory": "docker-build-cache-factory"}
-                skipped.append(record)
-            with cache_batch.open("a", encoding="utf-8") as handle:
-                for record in skipped:
-                    handle.write(json.dumps(record) + "\n")
-            run = curate_source(root)
-
-        control_id = STAMPEDE_CONTROLS[0]["id"]
-        control_decision = next(
-            item
-            for item in run["decisions"]
-            if item["output_id"] == control_id
-        )
-        self.assertNotIn(
-            REASON_FOREIGN_PAYLOAD_FACTORY,
-            control_decision["reason_codes"],
-        )
-        self.assertEqual(run["summary"]["skipped_records"], 2)
-        self.assertIn(
-            control_id,
-            {
-                record["id"]
-                for records in run["records_by_rel"].values()
-                for record in records
-            },
-        )
-
-    def test_quarantine_decision_names_the_home_mill(self):
-        run = self._curate(list(STAMPEDE_CONTROLS) + [DEST_STAMPED_MILL])
-        decision = next(
-            item
-            for item in run["decisions"]
-            if item["source_path"].startswith("cache-stampede-factory")
-            and item["action"] == ACTION_EXCLUDED
-        )
-        self.assertIn(REASON_FOREIGN_MILL_ID_PREFIX, decision["reason_codes"])
-        # Dest-stamped: the payload-factory axis stays silent, so a factory-mix
-        # check on its own would have let this through.
-        self.assertNotIn(REASON_FOREIGN_PAYLOAD_FACTORY, decision["reason_codes"])
-        self.assertIsNone(decision["output_id"])
-        self.assertIsNone(decision["output_hash"])
-        self.assertEqual(decision["mill_family"]["mill_prefix"], "gql")
-        self.assertEqual(
-            decision["mill_family"]["home_factories"], ["graphql-nplusone-factory"]
-        )
-
-    def test_summary_reports_the_quarantined_destination(self):
-        run = self._curate(list(STAMPEDE_CONTROLS) + [DEST_STAMPED_MILL])
-        self.assertEqual(
-            run["summary"]["mill_family"]["by_factory"],
-            {
-                "cache-stampede-factory": {
-                    "records": 1,
-                    "foreign_prefixes": {"gql": 1},
-                }
-            },
-        )
-        self.assertEqual(
-            run["summary"]["reason_codes"].get(REASON_FOREIGN_MILL_ID_PREFIX), 1
-        )
-
-    def test_a_clean_run_quarantines_nothing(self):
-        run = self._curate(list(STAMPEDE_CONTROLS))
-        self.assertEqual(run["summary"]["quarantined_foreign_mill_records"], 0)
-        self.assertEqual(run["summary"]["output_records"], 4)
-        self.assertEqual(run["summary"]["mill_family"]["records"], 0)
-        self.assertNotIn(ACTION_EXCLUDED, run["summary"]["actions"])
-
-    def test_quarantined_records_never_reach_a_written_tree(self):
-        with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary) / "run"
-            root.mkdir()
-            self._write_run(root, list(STAMPEDE_CONTROLS) + [DEST_STAMPED_MILL])
-            run = curate_source(root)
-            out = Path(temporary) / "cleaned"
-            curate_agentic.write_cleaned_tree(run, out)
-            written = "\n".join(
-                path.read_text(encoding="utf-8")
-                for path in sorted(out.rglob("*.jsonl"))
-            )
-        self.assertNotIn(DEST_STAMPED_MILL["id"], written)
-        for control in STAMPEDE_CONTROLS:
-            self.assertIn(control["id"], written)
 
 
 if __name__ == "__main__":
