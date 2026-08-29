@@ -1,0 +1,26 @@
+tests/test_verify_execution.py
+  s_98712805c1499b::t_33a63566d85480 434-435,472,476,480
+tests/test_verify_execution_records.py
+  s_98712805c1499b::t_33a63566d85480 18-59
+pipelines/verify_execution_shapes.py
+  s_98712805c1499b::t_28624354c45a4e 241-246,518-528,534,539
+pipelines/verify_execution_safety.py
+  s_98712805c1499b::t_cb22290f394606 74,78,92,102,107,112,118,120-125,131-139
+  s_98712805c1499b::t_28624354c45a4e 22-26,37,46,76-77,79-81
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "3b02d7de33a0c8ee5e79ac7ca1558d7aedd12f96",
+  "prompts": {},
+  "sessions": {
+    "s_98712805c1499b": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a04a1f-1e33-7812-a5aa-c7b04b33b6b5",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Raul Montoya Cardenas <montoyaraul34@gmail.com>"
+    }
+  }
+}
