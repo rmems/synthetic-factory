@@ -62,25 +62,34 @@ def _closed_branch(schema: dict[str, Any]) -> dict[str, Any]:
     raise AssertionError("vset-record-v1 no longer closes its top-level properties")
 
 
+def _conditional_kind(node: Any) -> str | None:
+    """The ``record_kind`` an ``if``/``then`` branch keys on, when it is one."""
+
+    if not isinstance(node, dict) or not isinstance(node.get("then"), dict):
+        return None
+    condition = node.get("if")
+    if not isinstance(condition, dict):
+        return None
+    kind = condition.get("properties", {}).get("record_kind", {}).get("const")
+    return kind if isinstance(kind, str) else None
+
+
+def _children(node: Any) -> list[Any]:
+    if isinstance(node, list):
+        return list(node)
+    if isinstance(node, dict):
+        return list(node.values())
+    return []
+
+
 def _kind_conditionals(node: Any, found: dict[str, list[dict[str, Any]]]) -> None:
     """Collect every ``if record_kind == X then ...`` branch in the schema."""
 
-    if isinstance(node, list):
-        for item in node:
-            _kind_conditionals(item, found)
-        return
-    if not isinstance(node, dict):
-        return
-    condition = node.get("if")
-    consequence = node.get("then")
-    if isinstance(condition, dict) and isinstance(consequence, dict):
-        kind = (
-            condition.get("properties", {}).get("record_kind", {}).get("const")
-        )
-        if isinstance(kind, str):
-            found.setdefault(kind, []).append(consequence)
-    for value in node.values():
-        _kind_conditionals(value, found)
+    kind = _conditional_kind(node)
+    if kind is not None:
+        found.setdefault(kind, []).append(node["then"])
+    for child in _children(node):
+        _kind_conditionals(child, found)
 
 
 def _conditionals() -> dict[str, list[dict[str, Any]]]:
