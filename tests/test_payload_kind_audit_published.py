@@ -170,6 +170,22 @@ class PublishedAgenticCodingPayloadKindAudit(unittest.TestCase):
             " ".join(row["replacement"] for row in corrections).lower(),
         )
 
+    def test_the_write_up_names_the_modules_that_substantiate_it(self):
+        """The verification guide must send a reader to modules that exist and
+        that actually hold the two checks it describes."""
+        for module, marker in (
+            ("tests/test_payload_kind_audit_published.py", "test_the_committed_audit_balances"),
+            (
+                "tests/test_payload_kind_audit_fidelity.py",
+                "test_the_published_audit_is_a_fresh_scan_of_the_raw_corpus",
+            ),
+        ):
+            with self.subTest(module=module):
+                self.assertIn(module, self.doc)
+                path = REPO / module
+                self.assertTrue(path.exists(), f"{module} named by the write-up is missing")
+                self.assertIn(marker, path.read_text(encoding="utf-8"))
+
     def test_the_write_up_says_the_hub_write_is_not_done_here(self):
         self.assertIn("Nothing was uploaded to the Hugging Face Hub", self.doc)
 
