@@ -33,6 +33,17 @@ from check_records import (  # noqa: E402
     root_record_id,
     walk_key,
 )
+from census import (  # noqa: E402
+    factory_for_path,
+    factory_identity_for_path,
+    visible_jsonl_paths,
+)
+from mill_family import (  # noqa: E402
+    MillFinding,
+    MillIndex,
+    summarize as summarize_mill_mix,
+)
+from round_txn import TransactionError  # noqa: E402
 from validate_run import HIDDEN_THOUGHT_KEYS, _episode_like, event_time  # noqa: E402
 
 
@@ -204,13 +215,58 @@ def hidden_thought_paths(value, path=""):
             yield from hidden_thought_paths(item, f"{path}[{index}]")
 
 
+def _finding_row(finding: MillFinding) -> dict:
+    row = finding.as_dict()
+    ref = finding.ref
+    if isinstance(ref, tuple) and len(ref) == 2:
+        source, line = ref
+        row["source"] = str(source)
+        row["line"] = line
+    return row
+
+
+def _index_mill_findings(run_dir: Path, files: list[Path]):
+    """Resolve shared-detector findings before readiness metrics are computed."""
+
+    mills = MillIndex()
+    for path in files:
+        rel = path.relative_to(run_dir)
+        factory, factory_verified = factory_identity_for_path(run_dir, path)
+        payload = path.read_bytes()
+        for line_number, raw_line in enumerate(payload.splitlines(), 1):
+            if not raw_line.strip():
+                continue
+            try:
+                line = raw_line.decode("utf-8")
+            except UnicodeDecodeError:
+                continue
+            try:
+                obj = json.loads(line, parse_constant=reject_json_constant)
+            except (json.JSONDecodeError, ValueError):
+                continue
+            mills.add(
+                factory,
+                obj,
+                (rel.as_posix(), line_number),
+                factory_verified=factory_verified,
+            )
+    return mills.findings()
+
+
 def audit_run(run_dir: Path):
     run_dir = Path(run_dir).resolve()
-    files = sorted(run_dir.rglob("*.jsonl"))
+    files = visible_jsonl_paths(run_dir)
+    mill_findings = _index_mill_findings(run_dir, files)
+    mill_findings_by_ref = {finding.ref: finding for finding in mill_findings}
+    mill_mix = summarize_mill_mix(mill_findings)
+    mill_mix["quarantined_records"] = [
+        _finding_row(finding) for finding in mill_findings
+    ]
     factories = defaultdict(
         lambda: {
             "files": 0,
             "records": 0,
+            "eligible_records": 0,
             "bytes": 0,
             "approx_tokens": 0,
             "by_kind": Counter(),
@@ -255,7 +311,7 @@ def audit_run(run_dir: Path):
 
     for path in files:
         rel = path.relative_to(run_dir)
-        factory = rel.parts[0] if len(rel.parts) > 1 else "_root"
+        factory = factory_for_path(run_dir, path)
         payload_bytes = path.stat().st_size
         bucket = factories[factory]
         bucket["files"] += 1
@@ -263,31 +319,47 @@ def audit_run(run_dir: Path):
         totals["files"] += 1
         totals["bytes"] += payload_bytes
 
-        raw_text = path.read_bytes()
-        try:
-            text = raw_text.decode("utf-8")
-        except UnicodeDecodeError as exc:
-            record_errors.append(f"{rel}: invalid UTF-8: {exc}")
-            text = raw_text.decode("utf-8", errors="replace")
-        # Split JSONL only at literal LF.  ``splitlines`` incorrectly treats
-        # U+2028/U+2029 embedded in JSON strings as record boundaries.
-        for line_number, line in enumerate(text.split("\n"), 1):
-            if not line.strip():
+        raw_payload = path.read_bytes()
+        # Byte splitlines keeps mill-finding coordinates aligned with census
+        # and does not treat U+2028/U+2029 inside JSON strings as record breaks.
+        for line_number, raw_line in enumerate(raw_payload.splitlines(), 1):
+            if not raw_line.strip():
                 continue
             where = f"{rel}:{line_number}"
+            try:
+                line = raw_line.decode("utf-8")
+            except UnicodeDecodeError as exc:
+                record_errors.append(f"{where}: invalid UTF-8: {exc}")
+                continue
             totals["records"] += 1
             bucket["records"] += 1
             token_estimate = max(1, math.ceil(len(line.encode("utf-8")) / 4))
-            totals["approx_tokens"] += token_estimate
-            bucket["approx_tokens"] += token_estimate
-            bucket["record_tokens"].append(token_estimate)
             try:
                 obj = json.loads(line, parse_constant=reject_json_constant)
             except (json.JSONDecodeError, ValueError) as exc:
+                # Preserve the existing raw-input accounting for malformed
+                # records; unlike a proven mill quarantine, they have not been
+                # classified as belonging to another destination.
+                totals["approx_tokens"] += token_estimate
+                bucket["approx_tokens"] += token_estimate
+                bucket["record_tokens"].append(token_estimate)
                 record_errors.append(f"{where}: JSON parse error: {exc}")
                 kinds["unknown"] += 1
                 bucket["by_kind"]["unknown"] += 1
                 continue
+
+            finding = mill_findings_by_ref.get((rel.as_posix(), line_number))
+            if finding is not None:
+                # A shared-detector finding is raw evidence, but not eligible
+                # training data. Exclude it before every invariant, identity,
+                # duplicate, reward, provenance, and corpus metric below.
+                totals["quarantined"] += 1
+                continue
+            totals["approx_tokens"] += token_estimate
+            bucket["approx_tokens"] += token_estimate
+            bucket["record_tokens"].append(token_estimate)
+            totals["eligible_records"] += 1
+            bucket["eligible_records"] += 1
 
             strict_agentic = isinstance(obj, dict) and (
                 ("case_type" in obj)
@@ -447,11 +519,19 @@ def audit_run(run_dir: Path):
         factory_output[name] = bucket
 
     total_records = totals["records"]
+    eligible_records = totals["eligible_records"]
     provenance_total = sum(provenance.values())
     tag_uses = sum(tags.values())
     blockers = []
     if record_errors:
         blockers.append(f"{len(record_errors)} record shape/invariant errors")
+    if not eligible_records:
+        if totals["quarantined"]:
+            blockers.append(
+                "0 eligible training records remain after foreign-mill quarantine"
+            )
+        else:
+            blockers.append("corpus contains 0 eligible training records")
     if unresolved_record_warnings:
         blockers.append(
             f"{len(unresolved_record_warnings)} unresolved record-invariant warnings"
@@ -507,15 +587,21 @@ def audit_run(run_dir: Path):
         "totals": {
             "files": totals["files"],
             "records": total_records,
+            "eligible_records": eligible_records,
             "bytes": totals["bytes"],
             "approx_tokens": totals["approx_tokens"],
             "by_kind": dict(sorted(kinds.items())),
         },
         "factories": factory_output,
+        "mill_mix": mill_mix,
         "identity": {
             "top_level_id_records": root_id_records,
             "unique_top_level_ids": len(root_ids),
-            "coverage_pct": round(100 * root_id_records / total_records, 1) if total_records else 0,
+            "coverage_pct": (
+                round(100 * root_id_records / eligible_records, 1)
+                if eligible_records
+                else 0
+            ),
             "legacy_meta_fallback_records": canonical_id_records - root_id_records,
             "missing_top_level": len(missing_root_ids),
             "missing_all_id_forms": len(missing_ids),
@@ -585,16 +671,20 @@ def render_markdown(report):
         f"- **Scale:** {totals['files']} JSONL files, {totals['records']} records, "
         f"{totals['bytes']:,} bytes, approximately {totals['approx_tokens']:,} tokens",
         f"- **Kinds:** {json.dumps(totals['by_kind'], sort_keys=True)}",
+        f"- **Eligible after foreign-mill quarantine:** {totals['eligible_records']} "
+        f"({report['mill_mix']['records']} quarantined, "
+        f"`{json.dumps(report['mill_mix']['reason_codes'], sort_keys=True)}`)",
         f"- **Training-ready:** {'yes' if report['training_ready'] else 'no'}",
         "",
         "## Per factory",
         "",
-        "| Factory | Files | Records | Approx. tokens | Kinds |",
-        "|---|---:|---:|---:|---|",
+        "| Factory | Files | Records | Eligible | Approx. tokens | Kinds |",
+        "|---|---:|---:|---:|---:|---|",
     ]
     for factory, data in report["factories"].items():
         lines.append(
             f"| {factory} | {data['files']} | {data['records']} | "
+            f"{data['eligible_records']} | "
             f"{data['approx_tokens']:,} | `{json.dumps(data['by_kind'], sort_keys=True)}` |"
         )
     lines.extend(["", "## Training blockers", ""])
@@ -635,7 +725,11 @@ def parse_args(argv=None):
 
 def main(argv=None):
     args = parse_args(argv)
-    report = audit_run(Path(args.run_dir))
+    try:
+        report = audit_run(Path(args.run_dir))
+    except TransactionError as exc:
+        print(f"training_audit failed: {exc}", file=sys.stderr)
+        return 1
     if args.markdown:
         print(render_markdown(report), end="")
     else:

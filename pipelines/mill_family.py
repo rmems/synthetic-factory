@@ -278,17 +278,45 @@ def mill_prefix(record: Any) -> str | None:
 
 
 def declared_factory(record: Any) -> str | None:
-    """Return the factory the payload claims for itself."""
+    """Return the unambiguous factory the payload claims for itself.
+
+    Preference wrappers often carry provenance on `chosen` and `rejected`
+    instead of at the root. Two agreeing side stamps identify the origin even
+    when the publication-required wrapper stamp names the destination; side
+    disagreement is ambiguous and deliberately resolves to nothing.
+    """
 
     if not isinstance(record, Mapping):
         return None
-    meta = record.get("meta")
-    if not isinstance(meta, Mapping):
+
+    def stamp(container: Any) -> str | None:
+        if not isinstance(container, Mapping):
+            return None
+        meta = container.get("meta")
+        if not isinstance(meta, Mapping):
+            return None
+        value = meta.get("factory")
+        if isinstance(value, str) and value.strip():
+            return value.strip()
         return None
-    value = meta.get("factory")
-    if isinstance(value, str) and value.strip():
-        return value.strip()
-    return None
+
+    root = stamp(record)
+    stamped_sides = [
+        value
+        for side in ("chosen", "rejected")
+        if (value := stamp(record.get(side))) is not None
+    ]
+    side_stamps = set(stamped_sides)
+    if len(side_stamps) > 1:
+        return None
+    if len(stamped_sides) == 2:
+        # Agentic publication stamps the wrapper with its destination. Two
+        # agreeing side stamps are therefore stronger evidence of the pair's
+        # originating factory, including when it differs from that wrapper.
+        return stamped_sides[0]
+    if root is not None:
+        return root
+    return next(iter(side_stamps)) if side_stamps else None
 
 
 def goal_text(record: Any) -> str | None:

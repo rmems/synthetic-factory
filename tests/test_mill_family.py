@@ -187,6 +187,23 @@ class MillSignals(unittest.TestCase):
         self.assertIsNone(declared_factory({"meta": {}}))
         self.assertIsNone(declared_factory({"meta": "cache"}))
 
+    def test_declared_factory_reads_consistent_preference_side_stamps(self):
+        pair = {
+            "chosen": {"meta": {"factory": CACHE_STAMPEDE}},
+            "rejected": {"meta": {"factory": CACHE_STAMPEDE}},
+        }
+        self.assertEqual(declared_factory(pair), CACHE_STAMPEDE)
+        pair["rejected"]["meta"]["factory"] = GRAPHQL
+        self.assertIsNone(declared_factory(pair))
+
+    def test_consistent_preference_sides_override_destination_wrapper_stamp(self):
+        pair = {
+            "meta": {"factory": CACHE_STAMPEDE},
+            "chosen": {"meta": {"factory": GRAPHQL}},
+            "rejected": {"meta": {"factory": GRAPHQL}},
+        }
+        self.assertEqual(declared_factory(pair), GRAPHQL)
+
     def test_goal_family_drops_shared_leftover_vocabulary(self):
         family = goal_family(DEST_STAMPED_MILL[0])
         self.assertIn("postgraphile", family)
@@ -590,6 +607,54 @@ class PayloadFactoryAxis(unittest.TestCase):
         self.assertEqual(
             report["by_factory"][CACHE_STAMPEDE]["foreign_prefixes"], {}
         )
+
+    def test_preference_side_factory_stamps_feed_the_payload_axis(self):
+        destination = "tool-use-preference-factory"
+        foreign = "failure-as-fuel-preference-cascade"
+
+        def pair(record_id, factory):
+            return {
+                "id": record_id,
+                "chosen": {"meta": {"factory": factory}},
+                "rejected": {"meta": {"factory": factory}},
+            }
+
+        native = pair("tup-r1-native", destination)
+        stray = pair("tup-r2-foreign", foreign)
+        findings = {
+            finding.record_id: finding
+            for finding in index_of((destination, [native, stray])).findings()
+        }
+        self.assertIn(stray["id"], findings)
+        self.assertIn(
+            REASON_FOREIGN_PAYLOAD_FACTORY,
+            findings[stray["id"]].reason_codes,
+        )
+
+    def test_consistent_side_origin_beats_destination_wrapper_in_payload_axis(self):
+        destination = "tool-use-preference-factory"
+        foreign = "failure-as-fuel-preference-cascade"
+
+        def pair(record_id, side_factory):
+            return {
+                "id": record_id,
+                "meta": {"factory": destination},
+                "chosen": {"meta": {"factory": side_factory}},
+                "rejected": {"meta": {"factory": side_factory}},
+            }
+
+        native = pair("tup-r1-native", destination)
+        stray = pair("tup-r2-foreign", foreign)
+        findings = {
+            finding.record_id: finding
+            for finding in index_of((destination, [native, stray])).findings()
+        }
+        self.assertIn(stray["id"], findings)
+        self.assertIn(
+            REASON_FOREIGN_PAYLOAD_FACTORY,
+            findings[stray["id"]].reason_codes,
+        )
+        self.assertEqual(findings[stray["id"]].declared_factory, foreign)
 
 
 class GoalFamilyAxis(unittest.TestCase):
