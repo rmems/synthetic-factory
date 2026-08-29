@@ -1,0 +1,27 @@
+tests/test_preference_arms_protocol.py
+  s_0d456da8ea5328::t_d0819eb03348f6 85-89,91-99
+  s_0d456da8ea5328::t_1be33412e14ce5 90
+docs/preference-isolation.md
+  s_0d456da8ea5328::t_77a13878bd996e 130-139
+  s_0d456da8ea5328::t_df2f88a35ad6ed 179-181
+  s_0d456da8ea5328::t_10391aa836c724 361-364,367-372,375,381-382,385-386,389
+tests/test_preference_arms_isolation.py
+  s_0d456da8ea5328::t_972bb12aed6263 131-135,138,140,144
+  s_0d456da8ea5328::t_2991828dbc9286 124-130,136-137,139,141-143
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "55e81fa3fd108eaec4dec7dea8034d3aeb7002b7",
+  "prompts": {},
+  "sessions": {
+    "s_0d456da8ea5328": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "a8d33a4c-0324-4388-9173-61055dd33627",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Raul Montoya Cardenas <montoyaraul34@gmail.com>"
+    }
+  }
+}
