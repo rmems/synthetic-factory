@@ -240,9 +240,17 @@ def _jsonl_lines(raw: bytes, source_file: str):
         yield line_number, line_bytes, line
 
 
+def _is_safe_jsonl_name(name: Any) -> bool:
+    if not isinstance(name, str):
+        return False
+    if not name.endswith(".jsonl"):
+        return False
+    return Path(name).name == name
+
+
 def _validate_payload_name(name: Any) -> None:
     """A snapshot payload name must be a bare ``*.jsonl`` filename, not a path."""
-    if not isinstance(name, str) or not name.endswith(".jsonl") or Path(name).name != name:
+    if not _is_safe_jsonl_name(name):
         raise PayloadKindAuditError(f"unsafe snapshot payload name: {name!r}")
 
 
