@@ -237,6 +237,84 @@ class TestPromoteRecord(unittest.TestCase):
         self.assertIsNone(out["provenance"]["claimed"])
         self.assertEqual(out["provenance"]["inferred_from"], "meta.factory")
 
+    def test_rejected_provenance_kind_keeps_its_claim(self):
+        """A stateless wrapper whose provenance.kind is outside ALLOWED_KINDS
+        used to be re-stamped with remap_claimed(None), erasing the original
+        claim that PROVENANCE.md promises survives in provenance.claimed. The
+        stateful path kept it, so the two disagreed about the same real-world
+        claim (mergestorm #98, promote.py:153).
+        """
+        record = {
+            "id": "coding-episode-2",
+            "goal": "repair a queue consumer",
+            "steps": [],
+            "outcome": "verified",
+            "meta": {"factory": "agentic-coding-trajectory-factory"},
+            "provenance": {"kind": "real", "claimed": CLAIMED_LIVE},
+        }
+
+        out = promote.promote_record(record)
+
+        # Cleaned records never emit `real` (PROVENANCE.md); the claim itself
+        # is what survives, exactly as on the stateful path.
+        self.assertEqual(out["provenance"]["kind"], "designed")
+        self.assertEqual(out["provenance"]["claimed"], CLAIMED_LIVE)
+
+    def test_rejected_kind_without_a_claim_is_itself_the_claim(self):
+        record = {
+            "id": "coding-episode-3",
+            "steps": [],
+            "meta": {"factory": "agentic-coding-trajectory-factory"},
+            "provenance": {"kind": "real"},
+        }
+
+        out = promote.promote_record(record)
+
+        self.assertEqual(out["provenance"]["kind"], "designed")
+        self.assertEqual(out["provenance"]["claimed"], "real")
+
+    def test_mix_bucket_does_not_depend_on_factory_envelope_metadata(self):
+        """The same claim must land in the same mix bucket whether or not the
+        record happens to carry meta.factory; otherwise synthetic_ratio, and
+        the blocking mix verdict, moved on unrelated metadata.
+        """
+        def record(meta):
+            out = {
+                "id": "coding-episode-4",
+                "steps": [],
+                "provenance": {"kind": "real", "claimed": CLAIMED_LIVE},
+            }
+            if meta is not None:
+                out["meta"] = meta
+            return out
+
+        with_factory = promote.promote_record(
+            record({"factory": "agentic-coding-trajectory-factory"})
+        )
+        without_factory = promote.promote_record(record(None))
+
+        self.assertEqual(
+            with_factory["provenance"]["kind"], without_factory["provenance"]["kind"]
+        )
+        self.assertEqual(
+            with_factory["provenance"]["claimed"],
+            without_factory["provenance"]["claimed"],
+        )
+
+    def test_stateful_wrapper_without_sim_or_real_keeps_its_claim(self):
+        record = {
+            "id": "coding-episode-5",
+            "state": {"note": "no sim_or_real key here"},
+            "meta": {"factory": "agentic-coding-trajectory-factory"},
+            "provenance": {"kind": "real", "claimed": CLAIMED_LIVE},
+        }
+
+        out = promote.promote_record(record)
+
+        self.assertEqual(out["provenance"]["kind"], "designed")
+        self.assertEqual(out["provenance"]["claimed"], CLAIMED_LIVE)
+        self.assertEqual(out["state"]["provenance"]["claimed"], CLAIMED_LIVE)
+
     def test_unsorted_spikes_are_sorted_and_flagged(self):
         rec = json.loads((FIXTURES / "bad-spikes.jsonl").read_text().splitlines()[0])
         out = promote.promote_record(rec)

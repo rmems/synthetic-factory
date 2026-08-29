@@ -120,6 +120,26 @@ def _factory_origin_provenance(owner):
     return None
 
 
+def _rejected_claim(existing):
+    """Return the surviving claim from a provenance dict promotion rejects.
+
+    PROVENANCE.md promises that the original claim is kept in
+    ``provenance.claimed``. A ``kind`` outside ALLOWED_KINDS (``real`` above
+    all) is therefore re-read as a claim rather than dropped, so the stateless
+    path preserves the same evidence the stateful path keeps from
+    ``state.sim_or_real``.
+    """
+    if not isinstance(existing, dict):
+        return None
+    claimed = existing.get("claimed")
+    if claimed is not None:
+        return claimed
+    kind = existing.get("kind")
+    if isinstance(kind, str) and kind.strip():
+        return kind
+    return None
+
+
 def _attach_owner(owner):
     if not isinstance(owner, dict):
         return
@@ -145,12 +165,29 @@ def _attach_owner(owner):
                 inferred["claimed"] = existing.get("claimed")
                 owner["provenance"] = inferred
         return
+    # The existing provenance carries a kind this promotion cannot accept.
+    # Re-read it as a claim instead of discarding it: dropping it here made the
+    # two paths disagree about the same real-world claim, since the stateful
+    # branch above keeps `claimed` while this one returned claimed=None. It
+    # also made the mix bucket depend on unrelated envelope metadata, because
+    # a `real` claim landed on `designed` only when meta.factory happened to
+    # be present. Remapping the claim reaches `designed` either way, which is
+    # the documented promotion contract: cleaned records never emit `real`,
+    # and the original claim survives in provenance.claimed.
+    claimed = _rejected_claim(existing)
     if has_state:
-        prov = remap_claimed(None)
+        prov = remap_claimed(claimed)
         state["provenance"] = dict(prov)
         owner["provenance"] = dict(prov)
         return
-    owner["provenance"] = _factory_origin_provenance(owner) or remap_claimed(None)
+    prov = remap_claimed(claimed)
+    if prov["kind"] == "unknown":
+        # No usable claim; the factory envelope is the only evidence left.
+        inferred = _factory_origin_provenance(owner)
+        if inferred is not None:
+            inferred["claimed"] = prov["claimed"]
+            prov = inferred
+    owner["provenance"] = prov
 
 
 def _walk_state_owners(obj, seen):
