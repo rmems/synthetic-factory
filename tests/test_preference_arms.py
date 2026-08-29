@@ -179,8 +179,12 @@ class TwoSessionRoundClearsTheGate(unittest.TestCase):
         self.assertEqual(report["blockers"], [])
 
     def test_tighter_floor_is_honored(self):
+        # The committed round scores 0.93-0.95 now that each observable path
+        # is weighted equally, so the floor that demonstrates the flag is
+        # honored has to sit above that rather than at the 0.9 the pooled
+        # term vector used to leave room under.
         scan = preference_arms.scan_source(
-            TWO_SESSION_ROUND, preference_arms.GatePolicy(min_distance=0.9)
+            TWO_SESSION_ROUND, preference_arms.GatePolicy(min_distance=0.99)
         )
         self.assertTrue(scan.blocked)
         self.assertEqual(scan.summary["blocked_pairs"], 3)
@@ -188,7 +192,7 @@ class TwoSessionRoundClearsTheGate(unittest.TestCase):
             scan.summary["reason_codes"],
             {preference_arms.REASON_NEAR_VERBATIM: 3},
         )
-        code, _, _ = run_cli(["scan", str(TWO_SESSION_ROUND), "--min-distance", "0.9"])
+        code, _, _ = run_cli(["scan", str(TWO_SESSION_ROUND), "--min-distance", "0.99"])
         self.assertEqual(code, 1)
 
 if __name__ == "__main__":

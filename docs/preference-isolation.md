@@ -112,6 +112,21 @@ failures of the same class.
 - Session B does not open any `rejected-rNN*.json` file.
 - Final `batch-rNN.jsonl` has exactly 3 lines, each with `chosen` + `rejected` + non-empty `critique`.
 - Every record attests `meta.isolation: "two-session"`.
+- Publication binds each ordered Session A artifact to the pair published
+  beside it: `diagnosis-0i-rNN.md`'s Shared-context block must be the
+  published pair's own `state` and `proposed_action`, and `rejected-0i-rNN.json`
+  must be the published `rejected` arm, allowing only the launcher's
+  `meta.isolation` / `meta.round` / `meta.factory` assembly stamps. Validating
+  each diagnosis alone left both halves unbound: a batch could publish records
+  no authorized diagnosis described, and Session B could emit a `rejected` arm
+  of its own beside Session A's unrelated failures, which is the two-session
+  separation defeating itself.
+- Publication also refuses a chosen `safety_decision.rationale` that shares a
+  twelve-word run with its diagnosis's prose. The bounded diagnosis format
+  permits ordinary narrative and the arm gate deliberately excludes safety
+  rationale from its projection, so a chosen arm that restated its diagnosis
+  cleared both. Two writers describing one incident reuse its vocabulary;
+  they do not reuse a twelve-word run of it.
 - The same-context purity gate passes (Section 3).
 - The independent-arm gate passes (Section 3.6).
 - `NOTES-rNN.md` names residual weaknesses and the next densification target.
@@ -127,9 +142,16 @@ r.chosen.state  == r.rejected.state          (deep JSON equality)
 r.chosen.proposed_action == r.rejected.proposed_action
 ```
 
-- Equality is **deep structural equality** of JSON values: objects are
-  equal irrespective of key order; arrays are order-sensitive; numbers are
-  compared by value; strings by exact content.
+- Equality is **canonical equality** of JSON values: objects are equal
+  irrespective of key order; arrays are order-sensitive; strings match by
+  exact content; numbers match by canonical spelling, so `9` and `9.0` are
+  *different* context and `True` is never `1`.
+- The spelling rule is deliberate, not an oversight of value equality. Both
+  arms copy `state` and `proposed_action` from the one Shared context block
+  in the diagnosis. If the two spellings differ, the arms did not copy from
+  a single source, which is the divergence this gate exists to catch. The
+  strict-audit corpus pins that behaviour
+  (`test_loosely_equal_cross_type_context_values_are_excluded`).
 - The check applies to the entire `state` and `proposed_action` subtrees,
   including nested fields like `state.environment`, `state.timestamp_*`,
   `proposed_action.content`, `proposed_action.parameters`, etc.
@@ -167,16 +189,11 @@ Reference implementation (pure Python, no external deps):
 ```python
 import json, pathlib
 
-def is_number(x) -> bool:
-    # JSON numbers only: bool is a subclass of int and is NOT a number here.
-    return isinstance(x, (int, float)) and not isinstance(x, bool)
-
 def deep_equal(a, b) -> bool:
     if type(a) is not type(b):
-        # JSON numbers: int vs float with same value are equal;
-        # True/1 and False/0 are never equal (bool excluded above).
-        if is_number(a) and is_number(b):
-            return float(a) == float(b)
+        # Canonical spelling, not value: 42 and 42.0 are different context,
+        # and True is never 1. Both arms copy this subtree from the one
+        # Shared context block, so a spelling difference means they did not.
         return False
     if isinstance(a, dict):
         return set(a) == set(b) and all(deep_equal(a[k], b[k]) for k in a)
@@ -295,17 +312,30 @@ Each surface becomes a path-scoped term-frequency vector: string leaves
 contribute normalized lexical terms, non-string leaves stay atomic so `0.2`
 and `-0.2` never collide, and list positions are collapsed so a reordered list
 is not a different arm.
-The arm distance is then
+Each observable path is scored on its own vector and the results are averaged
+with equal weight:
 
 ```
-arm_distance = 1 - cosine_similarity(terms(chosen), terms(rejected))
+arm_distance = 1 - mean(
+    cosine_similarity(terms(chosen, path), terms(rejected, path))
+    for path in observable_paths
+)
 ```
+
+Weighting paths rather than pooling every term into one vector is what keeps
+the floor comparable across records: pooled, a long run of identical spike
+telemetry outvoted a changed `executed_action`, so whether a real contrast
+cleared the floor depended on how many events the record happened to carry.
 
 This is a deterministic, stdlib-only lexical metric, not an embedding-model
 surrogate. Its independent, fixture-calibrated default floor is 0.03; the
 separate corpus near-duplicate threshold in `quality_gate.py` makes no claim
-of metric equivalence. Compatibility decomposition removes accent-only
-inflation, common Greek/Cyrillic homoglyphs are folded, and invisible Unicode
+of metric equivalence. Floats are quantized to twelve significant digits, so
+arithmetic noise on an otherwise copied arm is not a delta. Compatibility
+decomposition removes accent-only inflation, common Greek/Cyrillic homoglyphs
+are folded, a word whose letters mix scripts is refused as an ambiguous
+skeleton rather than normalized, an identifier that swaps script between the
+arms is not a delta, and invisible Unicode
 format marks cannot split visible words. Other non-ASCII letters and digits
 are emitted as code-point terms so unspaced CJK edits are measured
 proportionally. A structural check also rejects arms whose only behavioral
@@ -370,34 +400,35 @@ it sees, so a Fable purity rate and a Grok retain rate are never mixed.
 
 ```
 # Content-blind controller reservation (before either arm-producing session)
-python3 pipelines/round_txn.py reserve outputs/raw/2026-08-17/failure-as-fuel-preference-cascade --round 5 --expected 3 --preference-isolation two-session
-# → staging_dir = outputs/staging/2026-08-17/failure-as-fuel-preference-cascade/r05-<token>
+# reserve returns an absolute staging_dir; verify-handoff requires one, so
+# capture it rather than rebuilding the path by hand.
+STAGE=$(python3 pipelines/round_txn.py reserve outputs/raw/2026-08-17/failure-as-fuel-preference-cascade --round 5 --expected 3 --preference-isolation two-session | jq -r .staging_dir)
+# → $STAGE = /<repo>/outputs/staging/2026-08-17/failure-as-fuel-preference-cascade/r05-<token>
 
 # Session A: write failures + diagnoses
-#   staging/r05-<token>/rejected-01-r05.json
-#   staging/r05-<token>/rejected-02-r05.json
-#   staging/r05-<token>/rejected-03-r05.json
-#   staging/r05-<token>/diagnosis-01-r05.md
-#   staging/r05-<token>/diagnosis-02-r05.md
-#   staging/r05-<token>/diagnosis-03-r05.md
+#   $STAGE/rejected-01-r05.json
+#   $STAGE/rejected-02-r05.json
+#   $STAGE/rejected-03-r05.json
+#   $STAGE/diagnosis-01-r05.md
+#   $STAGE/diagnosis-02-r05.md
+#   $STAGE/diagnosis-03-r05.md
 
 # Separate read-only context: bind the only files Session B may open
-python3 pipelines/preference_arms.py verify-handoff \
-  outputs/staging/2026-08-17/failure-as-fuel-preference-cascade/r05-<token> \
+python3 pipelines/preference_arms.py verify-handoff "$STAGE" \
   --file diagnosis-01-r05.md --file diagnosis-02-r05.md \
   --file diagnosis-03-r05.md --write-receipt
 # → diagnosis-handoff-receipt-r05.json (required and revalidated by publish)
 
 # Session B (fresh context): read only diagnosis-*-r05.md, synthesize chosen
-#   staging/r05-<token>/batch-r05.jsonl      (3 preference records)
-#   staging/r05-<token>/NOTES-r05.md
+#   $STAGE/batch-r05.jsonl      (3 preference records)
+#   $STAGE/NOTES-r05.md
 
 # Validate
-python3 pipelines/check_records.py outputs/staging/2026-08-17/failure-as-fuel-preference-cascade/r05-<token>
-python3 pipelines/curate_preferences.py scan outputs/staging/2026-08-17/failure-as-fuel-preference-cascade/r05-<token>/batch-r05.jsonl --json
+python3 pipelines/check_records.py "$STAGE"
+python3 pipelines/curate_preferences.py scan "$STAGE/batch-r05.jsonl" --json
 # purity gate: summary.unpublishable_pairs must be 0
 # (impure_pairs alone misses equal-context pairs the curator cannot emit)
-python3 pipelines/preference_arms.py scan outputs/staging/2026-08-17/failure-as-fuel-preference-cascade/r05-<token>/batch-r05.jsonl
+python3 pipelines/preference_arms.py scan "$STAGE/batch-r05.jsonl"
 # preview: must exit 0 (publish re-runs it against captured bytes)
 
 # Publish
@@ -422,8 +453,11 @@ python3 pipelines/round_txn.py publish outputs/raw/2026-08-17/failure-as-fuel-pr
   arm decisions, and stores their deterministic summary in the completion
   marker. The launcher obtains that reservation in a separate content-blind
   context. An arm-payload-blind verifier parses the bounded diagnosis envelope,
-  refuses Session-B outputs immediately before and after its exclusive receipt
-  write, and binds the exact allowlist, regular-file type, bytes, sizes, and
+  refuses every artifact Session A is not the author of immediately before and
+  after its exclusive receipt write -- an allowlist of `diagnosis-NN-rNN.md`
+  and `rejected-NN-rNN.json`, so no other spelling can carry chosen-side
+  output into a stage the receipt then certifies as pre-Session-B -- and binds
+  the exact allowlist, regular-file type, bytes, sizes, and
   SHA-256 digests before opening Session B. This is auditable orchestration
   evidence, not a cryptographic attestation of what happened inside an external
   model session; a manual operator invoking the reserve command is explicitly

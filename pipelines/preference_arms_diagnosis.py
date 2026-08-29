@@ -170,11 +170,14 @@ def _has_encoded_marker(lowered: str) -> bool:
 def _is_serialized_payload(text: str) -> bool:
     """Text that smuggles a serialized trajectory mapping or encoded blob."""
 
-    if _text_contains_rejected_trajectory_mapping(text):
+    # Compatibility spellings fold first, so a fullwidth delimiter reaches
+    # every pattern below in the ASCII form each one recognizes.
+    compatible = unicodedata.normalize("NFKC", text)
+    if _text_contains_rejected_trajectory_mapping(compatible):
         return True
-    if _ENCODED_BLOB_RE.search(text):
+    if _ENCODED_BLOB_RE.search(compatible):
         return True
-    return _has_encoded_marker(text.casefold())
+    return _has_encoded_marker(compatible.casefold())
 
 
 def _check_context_budget(budget: list[int], depth: int, label: str) -> None:
@@ -350,19 +353,24 @@ def _narrative_syntax_violation(narrative: str, lowered: str) -> str | None:
     return None
 
 
-def _narrative_violation(narrative: str, lowered: str) -> str | None:
+def _narrative_violation(narrative: str) -> str | None:
     """The first bounded-prose rule this section breaks, as a message suffix."""
 
     size = _narrative_size_violation(narrative)
     if size is not None:
         return size
-    return _narrative_syntax_violation(narrative, lowered)
+    # Size is measured on what Session A actually wrote; every syntax and
+    # payload check then runs on the compatibility-folded text, so fullwidth
+    # braces, colons, and backticks cannot spell a delimiter past a rule that
+    # recognizes only its ASCII form.
+    compatible = unicodedata.normalize("NFKC", narrative)
+    return _narrative_syntax_violation(compatible, compatible.casefold())
 
 
 def _validate_diagnosis_narratives(sections: dict[str, list[str]], label: str) -> None:
     for name in DIAGNOSIS_SECTIONS[1:-1]:
         narrative = "\n".join(sections[name]).strip()
-        violation = _narrative_violation(narrative, narrative.casefold())
+        violation = _narrative_violation(narrative)
         if violation is not None:
             raise PreferenceArmsError(f"{label} section {name!r} {violation}")
 
@@ -476,10 +484,44 @@ def validate_diagnosis_document(payload: bytes, *, label: str) -> dict[str, Any]
     return {"shared_context": context, "target_reward_delta": target}
 
 
-def _session_b_outputs(names: Sequence[str], round_text: str) -> list[str]:
-    forbidden_names = {
-        f"batch-r{round_text}.jsonl",
-        f"NOTES-r{round_text}.md",
+def rejected_scratch_filenames(round_number: int, count: int) -> tuple[str, ...]:
+    """The scratch failure artifacts Session A stages beside its diagnoses."""
+
+    if type(round_number) is not int or round_number < 1:
+        raise PreferenceArmsError("rejected scratch round must be a positive integer")
+    if type(count) is not int or count < 1:
+        raise PreferenceArmsError("rejected scratch count must be a positive integer")
+    round_text = f"{round_number:02d}"
+    return tuple(f"rejected-{index:02d}-r{round_text}.json" for index in range(1, count + 1))
+
+
+def diagnosis_narrative_text(payload: bytes, *, label: str) -> str:
+    """The document's bounded prose, for publisher-side isolation checks only.
+
+    ``validate_diagnosis_document`` deliberately never returns prose, so the
+    read-only verifier stays arm-payload-blind. The publisher already holds
+    both the diagnosis bytes and the batch, so it is the one place that can
+    check a chosen rationale was not lifted out of the diagnosis it was
+    written from.
+    """
+
+    text = _decoded_diagnosis_text(payload, label)
+    sections = _diagnosis_sections(text, label)
+    return "\n".join("\n".join(sections[name]).strip() for name in DIAGNOSIS_SECTIONS[1:-1])
+
+
+def _session_b_outputs(names: Sequence[str], round_number: int, count: int) -> list[str]:
+    """Names in the stage that Session A is not the author of.
+
+    This is an allowlist, not a blacklist. Enumerating Session B's known
+    filenames left every other spelling -- ``repair-01-rNN.json``, say --
+    free to carry chosen-side output into a stage whose receipt then
+    certified that it predated Session B.
+    """
+
+    allowed = {
+        *diagnosis_filenames(round_number, count),
+        *rejected_scratch_filenames(round_number, count),
+        diagnosis_receipt_filename(round_number),
     }
-    chosen_re = re.compile(rf"chosen-[A-Za-z0-9._-]+-r{re.escape(round_text)}\.json\Z")
-    return sorted(name for name in names if name in forbidden_names or chosen_re.fullmatch(name))
+    return sorted(set(names) - allowed)

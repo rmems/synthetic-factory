@@ -852,6 +852,61 @@ def gate_leftover_mill(
     return findings
 
 
+def _copy_payload_batches(batches, raw: Path, marker_state) -> tuple[int, int]:
+    """Copy each published batch into the mirror; return records and bytes.
+
+    The counts are taken from the copies rather than the sources, so the card
+    can only ever describe bytes that actually landed in the mirror.
+    """
+    records = 0
+    bytes_ = 0
+    for batch in batches:
+        copied = raw / batch.name
+        link_or_copy(batch, copied, snapshot_manifest_sha256(batch, marker_state))
+        records += count_jsonl_lines(copied)
+        bytes_ += copied.stat().st_size
+    return records, bytes_
+
+
+def _published_round_range(batches) -> tuple[str | None, str | None]:
+    """Return the first and last round token a card may claim, else two Nones.
+
+    A contiguous ``batch-rNN.jsonl`` span may only be claimed when every batch
+    carries a label and every label agrees with its own filename. Anything
+    else -- one unlabelled payload, or a name that disagrees with the round it
+    encodes -- yields no range, and the card falls back to naming the payload
+    files individually rather than asserting a span the mirror does not have.
+    """
+    labels = [
+        (batch, label)
+        for batch in batches
+        if (label := batch_label(batch)) is not None
+    ]
+    batch_only = len(labels) == len(batches) and all(
+        batch.name == f"batch-{label[2]}.jsonl" for batch, label in labels
+    )
+    if not labels or not batch_only:
+        return None, None
+    return (
+        min(label for _batch, label in labels)[2],
+        max(label for _batch, label in labels)[2],
+    )
+
+
+def _refuse_banned_yaml_tags(card: str, hub: str) -> None:
+    """Refuse a banned tag in the card's YAML front matter.
+
+    Front matter only: the prose body is allowed to say things like "not
+    labeled as Spikenaut", which must not trip the tag ban.
+    """
+    front_matter = card.split("---", 2)
+    tag_block = front_matter[1] if len(front_matter) >= 3 else ""
+    for line in tag_block.splitlines():
+        low = line.strip().lstrip("- ").lower()
+        if any(b == low or low.startswith(b + "-") for b in BANNED_TAG_SUBSTR):
+            raise SystemExit(f"banned YAML tag {low!r} on {hub}")
+
+
 def snapshot_one(item: dict) -> dict:
     src = factory_source(item["slug"])
     dest = hf_datasets_root() / item["hub"]
@@ -865,9 +920,6 @@ def snapshot_one(item: dict) -> dict:
     # below, so the card describes the bytes that actually landed.
     gate_leftover_mill(item, [(batch, batch.name) for batch in batches])
     raw, meta = snapshot_directories(dest)
-    records = 0
-    bytes_ = 0
-    labels = []
     desired_batch_names = {batch.name for batch in batches}
     desired_note_names = {note.name for note in notes}
     reconcile_snapshot_entries(
@@ -880,25 +932,11 @@ def snapshot_one(item: dict) -> dict:
     )
     reconcile_snapshot_entries(raw, desired_batch_names, "snapshot payload")
     reconcile_snapshot_entries(meta, desired_note_names, "snapshot metadata")
-    for b in batches:
-        copied = raw / b.name
-        link_or_copy(b, copied, snapshot_manifest_sha256(b, marker_state))
-        records += count_jsonl_lines(copied)
-        bytes_ += copied.stat().st_size
-        labels.append(batch_label(b))
+    records, bytes_ = _copy_payload_batches(batches, raw, marker_state)
     kind_mix = gate_leftover_mill(item, [(raw / b.name, b.name) for b in batches])
     for n in notes:
         link_or_copy(n, meta / n.name, snapshot_manifest_sha256(n, marker_state))
-    labels = [
-        (batch, label)
-        for batch, label in zip(batches, labels)
-        if label is not None
-    ]
-    batch_only = len(labels) == len(batches) and all(
-        batch.name == f"batch-{label[2]}.jsonl" for batch, label in labels
-    )
-    first = min(label for _batch, label in labels)[2] if labels and batch_only else None
-    last_s = max(label for _batch, label in labels)[2] if labels and batch_only else None
+    first, last_s = _published_round_range(batches)
     card = render_card(
         item,
         records=records,
@@ -915,13 +953,7 @@ def snapshot_one(item: dict) -> dict:
         dest / "ATTRIBUTION.md",
         ATTRIBUTION,
     )
-    # YAML tags only — body may say "not labeled as Spikenaut".
-    fm = card.split("---", 2)
-    tag_block = fm[1] if len(fm) >= 3 else ""
-    for line in tag_block.splitlines():
-        low = line.strip().lstrip("- ").lower()
-        if any(b == low or low.startswith(b + "-") for b in BANNED_TAG_SUBSTR):
-            raise SystemExit(f"banned YAML tag {low!r} on {item['hub']}")
+    _refuse_banned_yaml_tags(card, item["hub"])
     return {
         "hub": item["hub"],
         "slug": item["slug"],
@@ -1014,6 +1046,27 @@ schema; the raw snapshot is intentionally not rewritten.
     return ""
 
 
+def _unranged_payload_sentence(
+    records: int, kb: int, payload_names: list[str] | None
+) -> str:
+    """Describe a payload that cannot claim a contiguous batch-rNN span.
+
+    Named payloads are listed individually; no payload at all says so
+    explicitly rather than implying an empty range.
+    """
+    if not payload_names:
+        return (
+            "This snapshot currently contains no published raw batch files. "
+            "It does not claim a `data/raw/batch-rNN.jsonl` payload. The factory "
+            "source tree is"
+        )
+    names = ", ".join(f"`data/raw/{name}`" for name in payload_names)
+    return (
+        f"The release contains {records} raw records across {len(payload_names)} "
+        f"published JSONL payload(s) ({names}; ~{kb} KB), snapshotted from"
+    )
+
+
 def render_card(
     item: dict,
     *,
@@ -1027,18 +1080,7 @@ def render_card(
     tags = "\n".join(f"- {t}" for t in item["tags"])
     kb = max(1, bytes_ // 1024)
     if first is None or last is None:
-        if payload_names:
-            names = ", ".join(f"`data/raw/{name}`" for name in payload_names)
-            payload = (
-                f"The release contains {records} raw records across {len(payload_names)} "
-                f"published JSONL payload(s) ({names}; ~{kb} KB), snapshotted from"
-            )
-        else:
-            payload = (
-                "This snapshot currently contains no published raw batch files. "
-                "It does not claim a `data/raw/batch-rNN.jsonl` payload. The factory "
-                "source tree is"
-            )
+        payload = _unranged_payload_sentence(records, kb, payload_names)
     else:
         payload = (
             f"The release contains {records} raw records across\n"
@@ -1247,6 +1289,20 @@ def _validate_upload_snapshot_directories(raw: Path, meta: Path) -> None:
             raise SystemExit(f"incomplete upload snapshot directory: {directory}")
 
 
+def _validate_snapshot_digests(directory: Path, expected: dict, marker_state) -> None:
+    """Require every mirrored file in ``directory`` to match its source digest.
+
+    A source under a marker-mode legacy baseline is pinned by its recorded
+    manifest digest; anything else is hashed directly.
+    """
+    for name, source in expected.items():
+        expected_sha256 = snapshot_manifest_sha256(source, marker_state)
+        if expected_sha256 is None:
+            expected_sha256 = file_sha256(source)
+        if file_sha256(directory / name) != expected_sha256:
+            raise SystemExit(f"upload snapshot digest mismatch: {directory / name}")
+
+
 def _validate_upload_snapshot_payload(
     raw: Path,
     meta: Path,
@@ -1261,13 +1317,18 @@ def _validate_upload_snapshot_payload(
     if actual_notes != set(expected_notes):
         raise SystemExit(f"upload snapshot metadata set mismatch: {meta}")
 
-    for directory, expected in ((raw, expected_batches), (meta, expected_notes)):
-        for name, source in expected.items():
-            expected_sha256 = snapshot_manifest_sha256(source, marker_state)
-            if expected_sha256 is None:
-                expected_sha256 = file_sha256(source)
-            if file_sha256(directory / name) != expected_sha256:
-                raise SystemExit(f"upload snapshot digest mismatch: {directory / name}")
+    _validate_snapshot_digests(raw, expected_batches, marker_state)
+    _validate_snapshot_digests(meta, expected_notes, marker_state)
+
+
+def _validate_snapshot_attribution(dest: Path) -> None:
+    """Require the mirrored ATTRIBUTION.md to be exactly the pinned text."""
+    try:
+        attribution = (dest / "ATTRIBUTION.md").read_text()
+    except (OSError, UnicodeError) as exc:
+        raise SystemExit(f"cannot read upload snapshot attribution: {exc}") from exc
+    if attribution != ATTRIBUTION:
+        raise SystemExit(f"upload snapshot digest mismatch: {dest / 'ATTRIBUTION.md'}")
 
 
 def _validate_upload_snapshot_top_level_files(dest: Path) -> None:
@@ -1282,27 +1343,21 @@ def _validate_upload_snapshot_top_level_files(dest: Path) -> None:
             raise SystemExit(f"incomplete upload snapshot file: {path}")
     if file_sha256(dest / "LICENSE") != file_sha256(LICENSE_SRC):
         raise SystemExit(f"upload snapshot digest mismatch: {dest / 'LICENSE'}")
+    _validate_snapshot_attribution(dest)
+
+
+def _read_snapshot_card(dest: Path) -> str:
+    """Return the mirrored card text, or exit if it cannot be read."""
     try:
-        attribution = (dest / "ATTRIBUTION.md").read_text()
+        return (dest / "README.md").read_text()
     except (OSError, UnicodeError) as exc:
-        raise SystemExit(f"cannot read upload snapshot attribution: {exc}") from exc
-    if attribution != ATTRIBUTION:
-        raise SystemExit(f"upload snapshot digest mismatch: {dest / 'ATTRIBUTION.md'}")
+        raise SystemExit(f"cannot read upload snapshot card: {exc}") from exc
 
 
 def _validate_upload_snapshot_card(item: dict, dest: Path, raw: Path, batches, kind_mix) -> None:
     records = sum(count_jsonl_lines(raw / batch.name) for batch in batches)
     bytes_ = sum((raw / batch.name).stat().st_size for batch in batches)
-    labels = [
-        (batch, label)
-        for batch in batches
-        if (label := batch_label(batch)) is not None
-    ]
-    batch_only = len(labels) == len(batches) and all(
-        batch.name == f"batch-{label[2]}.jsonl" for batch, label in labels
-    )
-    first = min(label for _batch, label in labels)[2] if labels and batch_only else None
-    last = max(label for _batch, label in labels)[2] if labels and batch_only else None
+    first, last = _published_round_range(batches)
     expected_card = render_card(
         item,
         records=records,
@@ -1312,10 +1367,7 @@ def _validate_upload_snapshot_card(item: dict, dest: Path, raw: Path, batches, k
         payload_names=[batch.name for batch in batches],
         kind_mix=kind_mix,
     )
-    try:
-        card = (dest / "README.md").read_text()
-    except (OSError, UnicodeError) as exc:
-        raise SystemExit(f"cannot read upload snapshot card: {exc}") from exc
+    card = _read_snapshot_card(dest)
     if card != expected_card:
         raise SystemExit(f"upload snapshot digest mismatch: {dest / 'README.md'}")
 

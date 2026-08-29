@@ -82,6 +82,21 @@ class ProtocolIsDocumentedAndWired(unittest.TestCase):
             self.workflow,
         )
 
+    def test_end_to_end_example_passes_verify_handoff_an_absolute_path(self):
+        # `verify_diagnosis_handoff` refuses a relative staging path, so an
+        # operator following the example from the repository root has to be
+        # given the absolute one `reserve` already returned.
+        example = self.doc.split("## 4. End-to-end example", 1)[1]
+        verify = example.split("preference_arms.py verify-handoff", 1)[1].split("\n#", 1)[0]
+        self.assertNotIn("outputs/staging", verify)
+        self.assertIn("$STAGE", verify)
+
+    def test_end_to_end_example_captures_the_returned_staging_dir(self):
+        example = self.doc.split("## 4. End-to-end example", 1)[1]
+        reserve = example.index("round_txn.py reserve")
+        self.assertLess(example.index("STAGE=$("), reserve)
+        self.assertIn("staging_dir", example[: example.index("verify-handoff")])
+
     def test_read_only_verifier_runs_after_session_a_and_before_session_b(self):
         session_a = self.workflow.index("const sessionA = await agent")
         verification = self.workflow.index("const diagnosisVerification = await agent")

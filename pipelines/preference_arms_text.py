@@ -56,9 +56,19 @@ _SERIALIZED_TRAJECTORY_KEY_RE = re.compile(
 )
 
 
-_NARRATIVE_MAPPING_KEY_RE = re.compile(
-    r"(?:[\"'`]\s*)?([^\s:=\"'`]+)(?:\s*[\"'`])?\s*[:=]"
-)
+# A mapping label in prose may be spelled with spaces between its words
+# (``executed action:``) and may trail an ordinary sentence, so the whole
+# phrase in front of the separator is captured and its trailing word windows
+# are compared. Quoted keys are handled by the serialized pattern above.
+_NARRATIVE_MAPPING_KEY_RE = re.compile(r"([^\n:=\"'`{}\[\],]{1,128})\s*[:=]")
+
+
+#: Longest key phrase in :data:`_REJECTED_TRAJECTORY_KEYS`, plus one word of
+#: slack, bounding how far back a trailing window is taken.
+_MAX_LABEL_PHRASE_WORDS = 3
+
+
+_WORD_RE = re.compile(r"[^\W_]+")
 
 
 _ENCODED_BLOB_RE = re.compile(r"\b(?:[0-9a-fA-F]{256,}|[A-Za-z0-9_-]{256,}={0,2})\b")
@@ -128,18 +138,47 @@ def _normalized_payload_key(value: str) -> str:
 
 
 def _is_rejected_trajectory_key(value: str) -> bool:
+    """Whether one structural JSON key names a rejected-trajectory field."""
+
+    if _has_ambiguous_script(value):
+        return True
     normalized = _normalized_payload_key(value)
     return normalized.replace("_", "") in _REJECTED_TRAJECTORY_KEY_SHAPES
 
 
-def _text_contains_rejected_trajectory_mapping(value: str) -> bool:
-    """Reject ASCII and homoglyph YAML/JSON mapping keys in prose."""
+def _label_phrase_shapes(normalized: str) -> tuple[str, ...]:
+    """Collapsed shapes of a label's trailing word windows.
 
-    if _SERIALIZED_TRAJECTORY_KEY_RE.search(value):
+    Structural keys are matched whole, but a label written in prose can carry
+    an ordinary sentence in front of it, so the key phrase is looked for at
+    the end of the label rather than across the whole of it.
+    """
+
+    words = [word for word in normalized.split("_") if word]
+    first = max(0, len(words) - _MAX_LABEL_PHRASE_WORDS)
+    return tuple("".join(words[start:]) for start in range(first, len(words)))
+
+
+def _is_rejected_trajectory_label(value: str) -> bool:
+    """Whether a mapping label written in prose names a rejected field."""
+
+    if _has_ambiguous_script(value):
+        return True
+    shapes = _label_phrase_shapes(_normalized_payload_key(value))
+    return any(shape in _REJECTED_TRAJECTORY_KEY_SHAPES for shape in shapes)
+
+
+def _text_contains_rejected_trajectory_mapping(value: str) -> bool:
+    """Reject ASCII, spaced, and homoglyph YAML/JSON mapping keys in prose."""
+
+    # Compatibility spellings are folded first so a fullwidth colon or quote
+    # is the delimiter it renders as before either pattern is applied.
+    compatible = unicodedata.normalize("NFKC", value)
+    if _SERIALIZED_TRAJECTORY_KEY_RE.search(compatible):
         return True
     return any(
-        _is_rejected_trajectory_key(match.group(1))
-        for match in _NARRATIVE_MAPPING_KEY_RE.finditer(value)
+        _is_rejected_trajectory_label(match.group(1))
+        for match in _NARRATIVE_MAPPING_KEY_RE.finditer(compatible)
     )
 
 
@@ -246,6 +285,32 @@ def _identifier_character_script(character: str) -> str | None:
     return _named_character_script(character)
 
 
+def _letter_script(character: str) -> str:
+    """One letter's script, East Asian folded, ``""`` for anything else."""
+
+    if not character.isalpha():
+        return ""
+    return _named_character_script(character) or ""
+
+
+def _has_ambiguous_script(value: str) -> bool:
+    """Whether one word draws its letters from more than one script.
+
+    A hand-maintained lookalike table can never cover the whole Unicode
+    confusables set, so a word whose skeleton is ambiguous is refused rather
+    than normalized. Mixing scripts inside a single word is the shape every
+    cross-script homoglyph substitution takes, and it is what this reports;
+    wholly non-Latin words are single-script and pass through untouched.
+    """
+
+    normalized = unicodedata.normalize("NFKC", value)
+    for word in _WORD_RE.findall(normalized):
+        scripts = {script for script in map(_letter_script, word) if script}
+        if len(scripts) > 1:
+            return True
+    return False
+
+
 def _identifier_scripts(normalized: str) -> set[str] | None:
     """Collect the scripts an identifier draws on, or ``None`` to reject it."""
 
@@ -259,18 +324,29 @@ def _identifier_scripts(normalized: str) -> set[str] | None:
     return scripts
 
 
-def _bounded_machine_identifier(value: str) -> str | None:
-    """Return one Unicode-script identifier key, rejecting prose and controls."""
+def _bounded_identifier_script(value: str) -> str | None:
+    """The one script an identifier draws on, ``""`` for none, ``None`` to reject.
+
+    Callers compare this across the two arms: a machine identifier that swaps
+    script between them is a cross-script lookalike substitution, never a
+    behavioral change, whether or not the folding table happens to list it.
+    """
 
     normalized = unicodedata.normalize("NFKC", value)
     if not _has_bounded_identifier_shape(normalized):
         return None
     scripts = _identifier_scripts(normalized)
-    if scripts is None:
+    if scripts is None or len(scripts) > 1:
         return None
-    if len(scripts) > 1:
+    return next(iter(scripts), "")
+
+
+def _bounded_machine_identifier(value: str) -> str | None:
+    """Return one Unicode-script identifier key, rejecting prose and controls."""
+
+    if _bounded_identifier_script(value) is None:
         return None
-    terms = "".join(_unicode_terms(normalized))
+    terms = "".join(_unicode_terms(unicodedata.normalize("NFKC", value)))
     return terms or None
 
 
@@ -310,6 +386,37 @@ def _collect_terms(value: Any, path: str, terms: Counter[str]) -> None:
     # Non-strings (and strings with no word characters) stay atomic so that
     # 0.2 and -0.2, or true and false, are never the same term.
     terms[f"{path}={canonical_json(value)}"] += 1
+
+
+#: Two writers describing one incident reuse its vocabulary; they do not
+#: reuse a twelve-word run of it. Below the lower bound a shared run is short
+#: enough to be ordinary phrasing, so no claim is made either way.
+_COPIED_PHRASE_WORDS = 12
+_MIN_COPIED_PHRASE_WORDS = 6
+
+
+def _phrase_shingles(words: tuple[str, ...], size: int) -> set[tuple[str, ...]]:
+    """Every contiguous run of ``size`` normalized words in a text."""
+
+    return {tuple(words[start : start + size]) for start in range(len(words) - size + 1)}
+
+
+def shares_copied_phrasing(left: str, right: str) -> bool:
+    """Whether two texts share a word run long enough to be a copy.
+
+    The comparison runs on the same normalized terms the arm metric uses, so
+    casing, accents, and homoglyph spellings cannot disguise a lift. A text
+    shorter than the full run is compared at its own length, which catches a
+    one-line rationale taken whole without letting a short stock phrase read
+    as evidence of copying.
+    """
+
+    left_words = _unicode_terms(left)
+    right_words = _unicode_terms(right)
+    size = min(_COPIED_PHRASE_WORDS, len(left_words), len(right_words))
+    if size < _MIN_COPIED_PHRASE_WORDS:
+        return False
+    return bool(_phrase_shingles(left_words, size) & _phrase_shingles(right_words, size))
 
 
 def _term_vector_norm(vector: Counter[str]) -> float:

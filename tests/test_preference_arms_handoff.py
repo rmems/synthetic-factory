@@ -107,6 +107,43 @@ class DiagnosisHandoffVerification(unittest.TestCase):
 
             self.assertFalse((stage / preference_arms.diagnosis_receipt_filename(11)).exists())
 
+    def test_receipt_refuses_any_artifact_session_a_did_not_write(self):
+        # An allowlist, not a blacklist: enumerating Session B's filenames
+        # left every other spelling free to carry chosen-side output into a
+        # stage the receipt then certified as pre-Session-B.
+        intruders = (
+            "repair-01-r11.json",
+            "chosen.draft",
+            "scratch.json",
+            "diagnosis-04-r11.md",
+            "rejected-01-r12.json",
+        )
+        for intruder in intruders:
+            with self.subTest(name=intruder), tempfile.TemporaryDirectory() as td:
+                stage, names = self.stage(td)
+                (stage / intruder).write_text("{}\n", encoding="utf-8")
+
+                with self.assertRaisesRegex(
+                    preference_arms.PreferenceArmsError,
+                    "before Session B outputs",
+                ):
+                    preference_arms.write_diagnosis_handoff_receipt(stage, names)
+
+                self.assertFalse(
+                    (stage / preference_arms.diagnosis_receipt_filename(11)).exists()
+                )
+
+    def test_receipt_accepts_session_a_rejected_scratch_artifacts(self):
+        with tempfile.TemporaryDirectory() as td:
+            stage, names = self.stage(td)
+            for index in range(1, len(names) + 1):
+                (stage / f"rejected-{index:02d}-r11.json").write_text("{}\n", encoding="utf-8")
+
+            receipt = preference_arms.write_diagnosis_handoff_receipt(stage, names)
+
+            self.assertEqual(receipt["round"], 11)
+            self.assertTrue((stage / preference_arms.diagnosis_receipt_filename(11)).is_file())
+
     def test_session_b_output_race_removes_the_uncommitted_receipt(self):
         with tempfile.TemporaryDirectory() as td:
             stage, names = self.stage(td)

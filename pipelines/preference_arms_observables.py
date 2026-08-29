@@ -19,6 +19,7 @@ from curate_preferences import canonical_json  # noqa: E402
 
 from preference_arms_text import (  # noqa: E402
     ListAlignmentError,
+    _bounded_identifier_script,
     _bounded_machine_identifier,
     _collect_terms,
     cosine_similarity,
@@ -72,9 +73,14 @@ SPIKE_IDENTIFIER_KEYS = frozenset(
 MACHINE_IDENTIFIER_PATHS = frozenset(
     {
         ("executed_action", "action"),
+        # ``action_type`` is how the Thalamic trajectory fixtures have always
+        # named the step that ran; it carries the behavioral contrast for
+        # every factory that follows that schema.
+        ("executed_action", "action_type"),
         ("executed_action", "outcome"),
         ("executed_action", "result"),
         ("executed_action", "status"),
+        ("future_outcome", "hazard_avoided"),
         ("future_outcome", "outcome"),
         ("future_outcome", "result"),
         ("future_outcome", "status"),
@@ -141,16 +147,30 @@ def _approved_observable_value(path: tuple[str, ...], value: Any) -> bool:
     return False
 
 
+def _quantized_number(value: float) -> int | float:
+    """Collapse float spellings that differ only by representation noise.
+
+    Twelve significant digits sit well inside double precision and far
+    outside any producer metric, so ``1.8`` and ``1.8000000000000003`` are
+    one value while ``1.8`` and ``1.81`` stay two. Integral results collapse
+    onto the matching integer, so ``0``, ``0.0``, and ``-0.0`` cannot
+    manufacture a delta or a term either.
+    """
+
+    quantized = float(f"{value:.12g}")
+    return int(quantized) if quantized.is_integer() else quantized
+
+
 def _normalized_observable_value(path: tuple[str, ...], value: Any) -> Any:
     """Return the comparison value used by both scoring and delta detection."""
 
     if path in MACHINE_IDENTIFIER_PATHS:
         return _bounded_machine_identifier(value)
-    # JSON permits multiple spellings for one finite numeric value. Keep bools
-    # distinct, but collapse integral floats (including negative zero) onto the
-    # matching integer so 0, 0.0, and -0.0 cannot manufacture a delta or term.
-    if type(value) is float and value.is_integer():
-        return int(value)
+    # JSON permits multiple spellings for one finite numeric value, and
+    # arithmetic on an otherwise copied arm perturbs the last bits. Bools stay
+    # distinct; every float is quantized before it is compared or counted.
+    if type(value) is float:
+        return _quantized_number(value)
     return value
 
 
@@ -395,10 +415,25 @@ def _aligned_list_pairs(
     return tuple((left[left_index], right[right_index]) for left_index, right_index in index_pairs)
 
 
+def _identifier_scripts_agree(path: tuple[str, ...], left: Any, right: Any) -> bool:
+    """Whether an identifier pair stays inside one script across both arms."""
+
+    if path not in MACHINE_IDENTIFIER_PATHS:
+        return True
+    return _bounded_identifier_script(left) == _bounded_identifier_script(right)
+
+
 def _approved_observable_leaf(path: tuple[str, ...], left: Any, right: Any) -> bool:
     """Whether both values occupy one reviewed machine-observable path."""
 
-    return _approved_observable_value(path, left) and _approved_observable_value(path, right)
+    if not _approved_observable_value(path, left):
+        return False
+    if not _approved_observable_value(path, right):
+        return False
+    # An identifier that swaps script between the arms is a cross-script
+    # lookalike, never a behavioral change. Dropping the leaf denies it both
+    # a delta and a term, which no folding table can be trusted to do.
+    return _identifier_scripts_agree(path, left, right)
 
 
 def _common_mapping_leaves(
@@ -536,13 +571,41 @@ def arm_terms(arm: dict[str, Any]) -> Counter[str]:
     return terms
 
 
+def _leaves_by_path(
+    leaves: Sequence[tuple[tuple[str, ...], Any, Any]],
+) -> dict[tuple[str, ...], list[tuple[tuple[str, ...], Any, Any]]]:
+    """Group aligned leaves under the observable path each was read from."""
+
+    grouped: dict[tuple[str, ...], list[tuple[tuple[str, ...], Any, Any]]] = defaultdict(list)
+    for leaf in leaves:
+        grouped[leaf[0]].append(leaf)
+    return grouped
+
+
+def observable_similarity(leaves: Sequence[tuple[tuple[str, ...], Any, Any]]) -> float:
+    """Mean per-path cosine similarity over one aligned projection.
+
+    Each observable path is scored on its own vector and the results are
+    averaged with equal weight. Pooling every term into one vector instead
+    let a long run of unchanged telemetry outvote a changed execution
+    identifier, so whether a real contrast cleared the floor depended on how
+    many spike events the record happened to carry. An empty projection is
+    degenerate rather than distant, exactly as one pooled vector was; callers
+    flag it separately.
+    """
+
+    grouped = _leaves_by_path(leaves)
+    if not grouped:
+        return cosine_similarity(Counter(), Counter())
+    return sum(
+        cosine_similarity(*_observable_terms(path_leaves)) for path_leaves in grouped.values()
+    ) / len(grouped)
+
+
 def arm_distance(chosen: dict[str, Any], rejected: dict[str, Any]) -> float:
     """Return distance over the same aligned projection used for deltas."""
 
-    chosen_terms, rejected_terms = _observable_terms(
-        _common_arm_observable_leaves(chosen, rejected)
-    )
-    return 1.0 - cosine_similarity(chosen_terms, rejected_terms)
+    return 1.0 - observable_similarity(_common_arm_observable_leaves(chosen, rejected))
 
 
 def _validated_distance_floor(value: Any) -> float:
