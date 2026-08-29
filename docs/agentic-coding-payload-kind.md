@@ -250,9 +250,10 @@ stale. `--markdown` prints the per-record table above. The command is read-only:
 it opens the corpus for reading and writes only to stdout.
 
 `tests/test_payload_kind_audit.py` pins the same finding two ways. Its offline
-class runs against a committed fixture and against the committed audit itself,
-so the numbers in this document are checked in any checkout. Its raw-corpus
-class re-derives the audit's named file snapshot from
+class holds the committed audit JSON to its own arithmetic and holds this
+write-up to that audit, so the numbers quoted here stay internally consistent
+in any checkout. It does not re-derive those numbers from a committed payload
+fixture. Its raw-corpus class re-derives the audit's named file snapshot from
 `outputs/raw/2026-08-17/agentic-coding-trajectory-factory` and skips where that
 gitignored tree is absent. The source directory is append-only and may contain
 newer rounds that were not part of the published Hub revision.

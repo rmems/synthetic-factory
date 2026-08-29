@@ -371,6 +371,19 @@ class PayloadKindClassification(unittest.TestCase):
                 self.assertEqual(payload_kind_audit.main([str(directory), "--json"]), 0)
         self.assertEqual(default_out.getvalue(), explicit_out.getvalue())
 
+    def test_markdown_preserves_falsy_record_identifiers(self):
+        for identifier in (0, False):
+            with self.subTest(identifier=identifier):
+                record = _episode([])
+                record["id"] = identifier
+                audit = self._audit({"episodes.jsonl": [record]})
+                self.assertEqual(audit["records"][0]["id"], identifier)
+                rendered = payload_kind_audit.render_markdown(audit)
+                self.assertIn(f"| episode | `{identifier}` |", rendered)
+        audit = self._audit({"episodes.jsonl": [_episode([])]})
+        self.assertIsNone(audit["records"][0]["id"])
+        self.assertIn("| episode | — |", payload_kind_audit.render_markdown(audit))
+
     def test_markdown_escapes_dynamic_table_values(self):
         audit = {
             "records": [
@@ -507,6 +520,24 @@ class PayloadKindClassification(unittest.TestCase):
                 code = payload_kind_audit.main([str(directory), "--expect", str(expected)])
         self.assertEqual(code, 2)
         self.assertIn("non-standard JSON constant", err.getvalue())
+
+    def test_expect_rejects_duplicate_object_keys(self):
+        with tempfile.TemporaryDirectory() as raw:
+            directory = Path(raw)
+            _write_corpus(directory, {"episodes.jsonl": [_episode([])]})
+            published = payload_kind_audit.build_audit(directory)
+            serialized = json.dumps(published).replace(
+                "{", '{"summary":{"records":999},', 1
+            )
+            expected = directory / "audit.json"
+            expected.write_text(serialized, encoding="utf-8")
+            err = io.StringIO()
+            with redirect_stderr(err), redirect_stdout(io.StringIO()):
+                code = payload_kind_audit.main(
+                    [str(directory), "--expect", str(expected)]
+                )
+        self.assertEqual(code, 2)
+        self.assertIn("duplicate JSON object key", err.getvalue())
 
     def test_expect_rejects_numeric_literals_that_overflow_to_infinity(self):
         with tempfile.TemporaryDirectory() as raw:

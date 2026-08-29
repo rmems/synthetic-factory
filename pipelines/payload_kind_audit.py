@@ -336,7 +336,7 @@ def render_markdown(audit: Mapping[str, Any]) -> str:
         decision = row.get("gate_decision")
         if decision:
             gate = f"{gate} / {_markdown_cell(decision)}"
-        record_id = _markdown_code(row["id"]) if row.get("id") else "—"
+        record_id = _markdown_code(row["id"]) if row.get("id") is not None else "—"
         source = _markdown_code(f"{row['source_file']}:{row['source_line']}")
         lines.append(
             f"| {source} | {_markdown_cell(row['kind'])} | "
@@ -420,6 +420,7 @@ def main(argv: list[str] | None = None) -> int:
         try:
             published = json.loads(
                 args.expect.read_text(encoding="utf-8"),
+                object_pairs_hook=_reject_duplicate_object_keys,
                 parse_constant=_reject_json_constant,
                 parse_float=_parse_finite_float,
             )
