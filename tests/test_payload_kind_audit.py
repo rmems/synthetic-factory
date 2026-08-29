@@ -349,6 +349,19 @@ class PayloadKindClassification(unittest.TestCase):
         self.assertIsNone(audit["records"][0]["supervisor_id"])
         self.assertIn("| — / MODIFY |", payload_kind_audit.render_markdown(audit))
 
+    def test_markdown_preserves_falsy_gate_decisions(self):
+        for decision in (0, False, ""):
+            with self.subTest(decision=decision):
+                record = _thalamic("act-r02-001", _episode([]), decision=decision)
+                audit = self._audit({"batch-r02.jsonl": [record]})
+                self.assertEqual(audit["records"][0]["gate_decision"], decision)
+                rendered = payload_kind_audit.render_markdown(audit)
+                self.assertIn(f"| gate-v1 / {decision} |", rendered)
+        record = _thalamic("act-r02-001", _episode([]), decision=None)
+        audit = self._audit({"batch-r02.jsonl": [record]})
+        self.assertIsNone(audit["records"][0]["gate_decision"])
+        self.assertIn("| gate-v1 |", payload_kind_audit.render_markdown(audit))
+
     def test_markdown_escapes_dynamic_table_values(self):
         audit = {
             "records": [

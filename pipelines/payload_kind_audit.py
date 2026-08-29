@@ -431,7 +431,7 @@ def render_markdown(audit: Mapping[str, Any]) -> str:
         supervisor_id = row.get("supervisor_id")
         gate = _markdown_cell(supervisor_id) if supervisor_id is not None else "—"
         decision = row.get("gate_decision")
-        if decision:
+        if decision is not None:
             gate = f"{gate} / {_markdown_cell(decision)}"
         record_id = _markdown_code(row["id"]) if row.get("id") is not None else "—"
         source = _markdown_code(f"{row['source_file']}:{row['source_line']}")
