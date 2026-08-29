@@ -32,6 +32,7 @@ class ExecutionOverrideReason(unittest.TestCase):
             "     ",
             "brief",
             "12345678",
+            "12 34 56",
             "xxxxxxxx",
             "looks fine",
             "hi there",
@@ -171,15 +172,16 @@ class ExecutionOverrideReason(unittest.TestCase):
             batch = Path(td) / "batch-r01.jsonl"
             write(batch, [thalamic("historical-semantics")])
             recorded = execution_summary()
-            recorded["semantics_version"] = 1
-            with mock.patch.object(round_txn, "EXECUTION_VERIFIER_SEMANTICS_VERSION", 2):
-                with mock.patch.object(
-                    round_txn, "execution_gate", side_effect=AssertionError("rederived")
-                ):
-                    round_txn.validate_completed_execution_verification(
-                        batch,
-                        {"execution_verification": recorded, "records": 1},
-                    )
+            recorded["semantics_version"] = (
+                round_txn.EXECUTION_VERIFIER_SEMANTICS_VERSION - 1
+            )
+            with mock.patch.object(
+                round_txn, "execution_gate", side_effect=AssertionError("rederived")
+            ):
+                round_txn.validate_completed_execution_verification(
+                    batch,
+                    {"execution_verification": recorded, "records": 1},
+                )
 
     def test_historical_two_word_override_remains_readable(self):
         historical = execution_summary(

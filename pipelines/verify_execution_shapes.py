@@ -642,13 +642,6 @@ def _direct_record_envelope_verdict(
     return None
 
 
-def _verify_direct_record(obj, where, expected_kind, verifier):
-    envelope = _direct_record_envelope_verdict(obj, where, expected_kind)
-    if envelope is not None:
-        return envelope
-    return verifier(obj, where)
-
-
 def _thalamic_provenance_value(obj):
     state = obj.get("state")
     return state.get("sim_or_real") if isinstance(state, dict) else None
