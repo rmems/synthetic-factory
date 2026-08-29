@@ -1,0 +1,27 @@
+pipelines/card_schema.py
+  s_0d456da8ea5328::t_aea0e125b9ce18 58-63,71-82,86-99,173-177,179,182-184
+pipelines/card_schema_render.py
+  s_0d456da8ea5328::t_afd6411d4a73c0 1-289
+pipelines/card_schema_coverage.py
+  s_0d456da8ea5328::t_5fc8f0dac13a73 1-95
+pipelines/card_schema_core.py
+  s_0d456da8ea5328::t_fefdb139238162 1-33
+pipelines/card_schema_validate.py
+  s_0d456da8ea5328::t_a3c2c25c380f26 1-287
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "f6ebc7da7f42c0c6618eb331aa7c067569425893",
+  "prompts": {},
+  "sessions": {
+    "s_0d456da8ea5328": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "a8d33a4c-0324-4388-9173-61055dd33627",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Raul Montoya Cardenas <montoyaraul34@gmail.com>"
+    }
+  }
+}
