@@ -1,0 +1,26 @@
+pipelines/check_records.py
+  s_0d456da8ea5328::t_e6db0912d7b17b 428-441,449-450
+pipelines/training_audit.py
+  s_0d456da8ea5328::t_e44461af904c23 43,45,48
+  s_0d456da8ea5328::t_d8c9e21a3d08df 126-135,138-139,141
+tests/test_check_records.py
+  s_0d456da8ea5328::t_63f5b69e572653 262-284
+tests/test_training_audit.py
+  s_0d456da8ea5328::t_b0017abd94e0de 74-90
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "c8282e5011ebe561eeff53db7cb4b7fd0b386918",
+  "prompts": {},
+  "sessions": {
+    "s_0d456da8ea5328": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "a8d33a4c-0324-4388-9173-61055dd33627",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Raul Montoya Cardenas <montoyaraul34@gmail.com>"
+    }
+  }
+}
