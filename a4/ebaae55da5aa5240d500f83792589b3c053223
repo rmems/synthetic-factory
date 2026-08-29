@@ -1,0 +1,30 @@
+pipelines/oracle_grounded/families.py
+  s_0d456da8ea5328::t_64faf97565a159 254-264
+pipelines/oracle_generate.py
+  s_0d456da8ea5328::t_8219aa4bbfdf2e 231,235-236,255-267,280
+  s_0d456da8ea5328::t_a7e30e63544659 338-353
+tests/test_oracle_grounded_cli.py
+  s_0d456da8ea5328::t_e4720f0ff4a79e 988-1039
+  s_0d456da8ea5328::t_fea10e11a62ffb 884-917
+tests/test_oracle_grounded_record.py
+  s_0d456da8ea5328::t_ca59fc84ece59d 787-845
+  s_0d456da8ea5328::t_4abd3e8acef07d 288-308
+pipelines/oracle_grounded/record.py
+  s_0d456da8ea5328::t_7ec8b19bd87bc0 360,364-368
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "a4ebaae55da5aa5240d500f83792589b3c053223",
+  "prompts": {},
+  "sessions": {
+    "s_0d456da8ea5328": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "a8d33a4c-0324-4388-9173-61055dd33627",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Raul Montoya Cardenas <montoyaraul34@gmail.com>"
+    }
+  }
+}
