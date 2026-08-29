@@ -640,7 +640,14 @@ def _validate_raster(
             evidence["raster_expected_energy_pJ"] = (
                 expected_pj if comparable_pj is not None else None
             )
-            if comparable_pj is None or abs(float(energy_pj) - comparable_pj) > 1e-6:
+            # The schema's energy floor is zero, and a tolerance-only compare
+            # accepts a small negative value whenever the expected energy is
+            # zero, so the sign is checked before the magnitude.
+            if (
+                comparable_pj is None
+                or float(energy_pj) < 0
+                or abs(float(energy_pj) - comparable_pj) > 1e-6
+            ):
                 reason_codes.append(REASON_RASTER_ENERGY)
                 evidence["raster_energy_pJ_valid"] = False
             else:
@@ -648,7 +655,11 @@ def _validate_raster(
         if _is_finite_number(energy_uj):
             expected_uj = _spike_energy(spikes, RASTER_ENERGY_UJ_PER_SPIKE)
             evidence["raster_expected_energy_uJ"] = expected_uj
-            if expected_uj is None or abs(float(energy_uj) - expected_uj) > 1e-9:
+            if (
+                expected_uj is None
+                or float(energy_uj) < 0
+                or abs(float(energy_uj) - expected_uj) > 1e-9
+            ):
                 reason_codes.append(REASON_RASTER_ENERGY)
                 evidence["raster_energy_uJ_valid"] = False
             else:
@@ -756,6 +767,15 @@ def _validate_gate_compute(
         return
     evidence["gate_compute_present"] = True
     per_check = gate_compute.get("per_check")
+    if "per_check" in gate_compute and not isinstance(per_check, list):
+        # Only an absent optional block may be ignored.  A declared per_check
+        # that is a string, a number, an object or null is schema-invalid and
+        # carries no checkable budget, so it fails here rather than leaving
+        # the record with no reason code and raster_valid True.
+        reason_codes.append(REASON_RASTER_SPIKE_BUDGET)
+        evidence["gate_compute_error"] = "per_check must be an array"
+        evidence["gate_compute_spike_budget_valid"] = False
+        return
     if not isinstance(per_check, list) or not per_check:
         return
     budget_valid = True
@@ -827,9 +847,13 @@ def _validate_gate_compute(
             expected = _spike_energy(total_spikes, per_spike)
             # A declared but non-numeric total is a mismatch, not an absence,
             # and so is one whose expected value no float can represent.
+            # Same nonnegative bound as the raster energy fields: the schema
+            # floors both totals at zero, and a zero-spike gate makes the
+            # tolerance alone accept a small negative total.
             key_valid = (
                 expected is not None
                 and _is_finite_number(val)
+                and float(val) >= 0
                 and abs(float(val) - expected) <= tolerance
             )
             if not key_valid:
@@ -881,6 +905,21 @@ def _expected_gate_decision(record: dict[str, Any]) -> str | None:
     return None
 
 
+def _declared(container: Any, key: str) -> tuple[bool, Any]:
+    """Return ``(declared, value)`` for ``key`` on a mapping carrier.
+
+    Presence of the key -- not truthiness of its value -- is what makes a
+    carrier declared.  An explicit ``null`` is a declaration of a
+    schema-invalid sidecar, so it must win its precedence slot and fail
+    validation rather than fall through to a lower-precedence carrier and let
+    an ambiguous duplicate declaration publish unchecked.
+    """
+
+    if isinstance(container, dict) and key in container:
+        return True, container[key]
+    return False, None
+
+
 def raster_sidecar(record: Any) -> tuple[str | None, Any]:
     """Resolve the raster sidecar location and value for one record.
 
@@ -893,16 +932,17 @@ def raster_sidecar(record: Any) -> tuple[str | None, Any]:
         return None, None
     meta = record.get("meta")
     candidates = (
-        ("raster", record.get("raster")),
-        ("meta.raster", meta.get("raster") if isinstance(meta, dict) else None),
+        ("raster", *_declared(record, "raster")),
+        ("meta.raster", *_declared(meta, "raster")),
     )
     # The first declared carrier wins outright, valid or not. A malformed
     # higher-precedence declaration must surface as invalid rather than be
     # silently skipped in favor of a lower-precedence dict, which would let
     # ambiguous duplicate declarations through unchecked. Mirrors
-    # gate_snn_sidecar, which had the identical two-pass defect.
-    for location, value in candidates:
-        if value is not None:
+    # gate_snn_sidecar, which had the identical two-pass defect.  Declaration
+    # is key presence, so an explicit ``raster: null`` is a carrier too.
+    for location, declared, value in candidates:
+        if declared:
             return location, value
     return None, None
 
@@ -928,24 +968,24 @@ def gate_snn_sidecar(record: Any) -> tuple[str | None, Any]:
         trajectory.get("safety_decision") if isinstance(trajectory, dict) else None
     )
     candidates = (
-        (GATE_SNN_KEY, record.get(GATE_SNN_KEY)),
-        (f"meta.{GATE_SNN_KEY}", meta.get(GATE_SNN_KEY) if isinstance(meta, dict) else None),
+        (GATE_SNN_KEY, *_declared(record, GATE_SNN_KEY)),
+        (f"meta.{GATE_SNN_KEY}", *_declared(meta, GATE_SNN_KEY)),
         (
             f"language_view.trajectory.{GATE_SNN_KEY}",
-            trajectory.get(GATE_SNN_KEY) if isinstance(trajectory, dict) else None,
+            *_declared(trajectory, GATE_SNN_KEY),
         ),
         (
             f"language_view.trajectory.safety_decision.{GATE_SNN_KEY}",
-            decision.get(GATE_SNN_KEY) if isinstance(decision, dict) else None,
+            *_declared(decision, GATE_SNN_KEY),
         ),
     )
-    for location, value in candidates:
-        if value is not None:
+    for location, declared, value in candidates:
+        if declared:
             return location, value
     return None, None
 
 
-def _gate_compute_sidecar(record: dict[str, Any]) -> Any:
+def _gate_compute_sidecar(record: dict[str, Any]) -> tuple[str | None, Any]:
     """Return the record's first declared gate_compute block, valid or not.
 
     Accepted carriers, in precedence order: top-level ``gate_compute``,
@@ -959,19 +999,25 @@ def _gate_compute_sidecar(record: dict[str, Any]) -> Any:
     """
 
     if not isinstance(record, dict):
-        return None
+        return None, None
     view = record.get("language_view")
     trajectory = view.get("trajectory") if isinstance(view, dict) else None
     probe = trajectory.get("safety_decision") if isinstance(trajectory, dict) else None
     candidates = (
-        record.get("gate_compute"),
-        trajectory.get("gate_compute") if isinstance(trajectory, dict) else None,
-        probe.get("gate_compute") if isinstance(probe, dict) else None,
+        ("gate_compute", *_declared(record, "gate_compute")),
+        (
+            "language_view.trajectory.gate_compute",
+            *_declared(trajectory, "gate_compute"),
+        ),
+        (
+            "language_view.trajectory.safety_decision.gate_compute",
+            *_declared(probe, "gate_compute"),
+        ),
     )
-    for value in candidates:
-        if value is not None:
-            return value
-    return None
+    for location, declared, value in candidates:
+        if declared:
+            return location, value
+    return None, None
 
 
 def _raster_reasons(
@@ -989,20 +1035,21 @@ def _raster_reasons(
     reason_codes: list[str] = []
     evidence: dict[str, Any] = {}
     location, raster = raster_sidecar(record)
-    if raster is not None:
+    if location is not None:
         evidence["raster_location"] = location
         _validate_raster(raster, reason_codes=reason_codes, evidence=evidence)
     else:
         evidence["raster_present"] = False
         if require_raster:
             reason_codes.append(REASON_RASTER_MISSING)
-    gate_compute = _gate_compute_sidecar(record)
-    if gate_compute is not None:
+    gate_compute_location, gate_compute = _gate_compute_sidecar(record)
+    if gate_compute_location is not None:
+        evidence["gate_compute_location"] = gate_compute_location
         _validate_gate_compute(
             gate_compute, reason_codes=reason_codes, evidence=evidence
         )
     gate_snn_location, gate_snn = gate_snn_sidecar(record)
-    if gate_snn is not None:
+    if gate_snn_location is not None:
         evidence["gate_snn_location"] = gate_snn_location
         _validate_gate_snn(
             gate_snn,

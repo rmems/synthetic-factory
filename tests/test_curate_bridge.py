@@ -1135,7 +1135,9 @@ class RasterArithmeticReviewFollowUps(unittest.TestCase):
             ]
         }
 
-        self.assertEqual(curate_bridge._gate_compute_sidecar(record), "bad")
+        self.assertEqual(
+            curate_bridge._gate_compute_sidecar(record), ("gate_compute", "bad")
+        )
         status = curate_bridge.raster_status(record)
 
         self.assertFalse(status["raster_valid"])
@@ -1262,6 +1264,150 @@ class MaterializedLaneRequiresRasters(unittest.TestCase):
                 ],
                 ["quarantine"],
             )
+
+
+def zero_spike_record():
+    """The reference record retuned to a legitimately zero-spike raster.
+
+    ``round(1 * 1.0 * 0.02)`` is 0, so the budget, the 23 pJ/spike energy and
+    both declared totals are all exactly zero -- the case where an
+    absolute-tolerance comparison alone would accept a negative energy.
+    """
+
+    record = gate_snn_fixture()
+    record["raster"].update(
+        {
+            "neurons": 1,
+            "mean_rate_hz": 1.0,
+            "window_ms": 20,
+            "window_s": 0.02,
+            "spikes": 0,
+            "energy_pJ": 0,
+            "energy_uJ": 0,
+            "excerpt": [{"t_ms": 5.0, "neuron_id": 0}],
+        }
+    )
+    return record
+
+
+class DeclaredNullCarriersAndEnergyBounds(unittest.TestCase):
+    """PR #94 review follow-ups on the shared sidecar/energy contract.
+
+    Two holes the earlier carrier-precedence and overflow fixes left open:
+    an explicit ``null`` sidecar was read as an absence rather than as a
+    declaration, and the energy tolerance accepted small negative values
+    whenever the expected energy was zero.
+    """
+
+    def test_a_declared_null_raster_does_not_fall_through_to_meta(self):
+        record = gate_snn_fixture()
+        record["meta"] = {"raster": copy.deepcopy(record["raster"])}
+        record["raster"] = None
+
+        location, value = curate_bridge.raster_sidecar(record)
+
+        self.assertEqual(location, "raster")
+        self.assertIsNone(value)
+        status = curate_bridge.raster_status(record)
+        self.assertFalse(status["raster_valid"])
+        self.assertIn(curate_bridge.REASON_RASTER_EXCERPT, status["reason_codes"])
+
+    def test_a_declared_null_gate_snn_does_not_fall_through_to_meta(self):
+        record = gate_snn_fixture()
+        record["meta"] = {"gate_snn": copy.deepcopy(record["gate_snn"])}
+        record["gate_snn"] = None
+
+        location, value = curate_bridge.gate_snn_sidecar(record)
+
+        self.assertEqual(location, "gate_snn")
+        self.assertIsNone(value)
+        status = curate_bridge.raster_status(record)
+        self.assertFalse(status["raster_valid"])
+        self.assertIn(curate_bridge.REASON_GATE_SNN_INVALID, status["reason_codes"])
+
+    def test_a_declared_null_gate_compute_does_not_fall_through_to_nested(self):
+        record = gate_snn_fixture()
+        record["gate_compute"] = None
+        record["language_view"]["trajectory"]["gate_compute"] = {
+            "per_check": [
+                {"neurons": 2, "mean_rate_hz": 10.0, "window_s": 0.05, "spikes": 1}
+            ]
+        }
+
+        location, value = curate_bridge._gate_compute_sidecar(record)
+
+        self.assertEqual(location, "gate_compute")
+        self.assertIsNone(value)
+        status = curate_bridge.raster_status(record)
+        self.assertFalse(status["raster_valid"])
+        self.assertIn(
+            curate_bridge.REASON_RASTER_SPIKE_BUDGET, status["reason_codes"]
+        )
+
+    def test_a_declared_non_array_per_check_container_fails_validation(self):
+        for per_check in ("bad", 7, {"neurons": 2}, None):
+            with self.subTest(per_check=per_check):
+                record = gate_snn_fixture()
+                record["gate_compute"] = {"per_check": per_check}
+
+                status = curate_bridge.raster_status(record)
+
+                self.assertFalse(status["raster_valid"])
+                self.assertIn(
+                    curate_bridge.REASON_RASTER_SPIKE_BUDGET,
+                    status["reason_codes"],
+                )
+
+    def test_an_absent_per_check_block_stays_optional(self):
+        record = gate_snn_fixture()
+        record["gate_compute"] = {}
+
+        status = curate_bridge.raster_status(record)
+
+        self.assertTrue(status["raster_valid"])
+
+    def test_negative_declared_raster_energy_is_rejected_inside_tolerance(self):
+        for key, value in (("energy_pJ", -5e-7), ("energy_uJ", -5e-10)):
+            with self.subTest(key=key):
+                record = zero_spike_record()
+                record["raster"][key] = value
+
+                status = curate_bridge.raster_status(record)
+
+                self.assertFalse(status["raster_valid"])
+                self.assertIn(
+                    curate_bridge.REASON_RASTER_ENERGY, status["reason_codes"]
+                )
+
+    def test_negative_declared_gate_compute_totals_are_rejected(self):
+        for key, value in (("total_energy_pJ", -5e-7), ("total_energy_uJ", -5e-10)):
+            with self.subTest(key=key):
+                record = gate_snn_fixture()
+                record["gate_compute"] = {
+                    "per_check": [
+                        {
+                            "neurons": 1,
+                            "mean_rate_hz": 1.0,
+                            "window_s": 0.02,
+                            "spikes": 0,
+                        }
+                    ],
+                    key: value,
+                }
+
+                status = curate_bridge.raster_status(record)
+
+                self.assertFalse(status["raster_valid"])
+                self.assertIn(
+                    curate_bridge.REASON_RASTER_ENERGY, status["reason_codes"]
+                )
+
+    def test_zero_energy_on_a_zero_spike_raster_still_validates(self):
+        record = zero_spike_record()
+
+        status = curate_bridge.raster_status(record)
+
+        self.assertTrue(status["raster_valid"])
 
 
 if __name__ == "__main__":
