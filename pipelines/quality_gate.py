@@ -133,6 +133,19 @@ with an exact cosine, so banding can only cost recall, never precision. The
 weighted-tier representation below makes sketch overlap track term frequency;
 planted-clone and high-TF regressions guard recall."""
 
+EMBEDDING_MIN_THRESHOLD: float = (1.0 / EMBEDDING_LSH_BANDS) ** (
+    EMBEDDING_LSH_BANDS / EMBEDDING_MINHASH_SLOTS
+)
+"""Lowest threshold this candidate scheme can honour: the LSH S-curve knee,
+``(1/bands) ** (1/rows)`` -- about 0.59 for 8 bands of 4.
+
+Below the knee, band-collision probability falls away, so a pair can sit above
+the configured threshold and still never be nominated for scoring. The gate
+would then exit clean while silently failing the policy it was handed. The
+bound is a soundness bound, not taste: only thresholds the scheme was built
+for are accepted, and a run that genuinely needs a lower one needs exhaustive
+comparison rather than this sketch."""
+
 EMBEDDING_CANDIDATE_SKETCH = "weighted-tier-minhash/1"
 """Frequency-aware candidate representation, separate from exact identity
 and the semantic TF-IDF vector used for the final verdict."""
@@ -969,17 +982,19 @@ def audit_run(
         ``duplicate_clusters``, ``embedding``, ``reward_shapes``, ``errors``,
         ``warnings``, ``blockers``, ``blocked``, ``threshold``.
     """
-    if not math.isfinite(threshold) or not 0.0 <= threshold < 1.0:
-        # The lower bound is a soundness bound, not taste. TF-IDF weights here
-        # are strictly positive, so every cosine lands in [0, 1] and any
-        # negative threshold declares *every* pair a near-duplicate --
-        # including pairs with disjoint vocabularies, which the MinHash LSH
-        # candidate scheme never proposes. The gate would then exit clean
-        # while silently failing the policy it was handed. Accept only
-        # thresholds the candidate scheme is built for: a pair must share
-        # vocabulary to be scored at all.
+    if not math.isfinite(threshold) or not EMBEDDING_MIN_THRESHOLD <= threshold < 1.0:
+        # The lower bound is a soundness bound, not taste. Only *nominated*
+        # candidate pairs are scored, and MinHash-LSH nomination falls away
+        # below the banding scheme's S-curve knee, so under
+        # EMBEDDING_MIN_THRESHOLD a pair can sit above the configured
+        # threshold and never be compared. Zero is the extreme case: it
+        # demands that every pair with any positive cosine be excluded, while
+        # two records sharing a little vocabulary but no band are never
+        # nominated at all. The gate would exit clean while silently failing
+        # the policy it was handed, so the range excludes it.
         raise ValueError(
-            f"threshold must be a finite cosine in [0, 1), got {threshold!r}"
+            "threshold must be a finite cosine in "
+            f"[{EMBEDDING_MIN_THRESHOLD:.4f}, 1), got {threshold!r}"
         )
     if max_embedding_pairs < 1:
         raise ValueError(f"max_embedding_pairs must be >= 1, got {max_embedding_pairs!r}")

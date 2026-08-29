@@ -184,14 +184,19 @@ is ever held in memory. Consequences:
   records, six distinct (max pairwise cosine 0.06) and one planted
   near-duplicate that differs only in ``state.tick`` — invisible to
   exact hashing and above 0.97 to the encoder.
-- ``--threshold`` must be finite in ``[0, 1)``. The lower bound is a
-  soundness bound: TF-IDF weights here are strictly positive, so every cosine
-  lands in ``[0, 1]``, and a negative threshold would declare every pair a
-  near-duplicate — including pairs with disjoint vocabularies that the MinHash
-  LSH candidate scheme never proposes, leaving the gate to exit clean while
-  silently failing the policy it was given. ``1.0`` is rejected instead
-  of acting as a silent embedding-dedup disable switch; use the explicit
-  ``--no-embedding-dedup`` flag when that is truly intended.
+- ``--threshold`` must be finite in ``[EMBEDDING_MIN_THRESHOLD, 1)``, which is
+  about ``[0.5946, 1)``. The lower bound is a soundness bound, not taste: only
+  *nominated* candidate pairs are ever scored, and MinHash-LSH nomination
+  falls away below the banding scheme's S-curve knee,
+  ``(1/bands) ** (1/rows)`` — about 0.59 for the shipped 8 bands of 4. Below
+  it a pair can sit above the configured threshold and never be compared, so
+  the gate would exit clean while silently failing the policy it was given.
+  Zero is the extreme case: it demands that every pair with any positive
+  cosine be excluded, while two records that share a little vocabulary but no
+  band are never nominated at all. A run that genuinely needs a lower
+  threshold needs exhaustive comparison rather than this sketch. ``1.0`` is
+  rejected instead of acting as a silent embedding-dedup disable switch; use
+  the explicit ``--no-embedding-dedup`` flag when that is truly intended.
 
 ### Tuning
 

@@ -1001,7 +1001,7 @@ class EmbeddingDedup(unittest.TestCase):
             quality_gate.audit_run(EMBEDDING_FIXTURE, threshold=1.5)
 
     def test_threshold_one_is_rejected_instead_of_disabling_dedup(self):
-        with self.assertRaisesRegex(ValueError, r"\[0, 1\)"):
+        with self.assertRaisesRegex(ValueError, r"1\)"):
             quality_gate.audit_run(EMBEDDING_FIXTURE, threshold=1.0)
 
     def test_negative_thresholds_are_rejected_not_silently_under_reported(self):
@@ -1012,22 +1012,56 @@ class EmbeddingDedup(unittest.TestCase):
         configured policy, so the range excludes it (Codex #98)."""
         for threshold in (-0.5, -1.0, -0.000001):
             with self.subTest(threshold=threshold):
-                with self.assertRaisesRegex(ValueError, r"\[0, 1\)"):
+                with self.assertRaises(ValueError):
                     quality_gate.audit_run(EMBEDDING_FIXTURE, threshold=threshold)
 
-    def test_disjoint_records_are_not_candidates_so_zero_stays_the_floor(self):
-        """The premise of the bound above: two records sharing no vocabulary
-        produce no candidate pair, so no threshold below their cosine of 0
-        could ever have been honoured."""
+    def test_the_floor_is_the_banding_knee_not_zero(self):
+        """Zero was accepted as the floor on the premise that a pair the LSH
+        scheme never nominates has cosine 0 anyway. That premise only covers
+        *disjoint* pairs. A pair that shares a little vocabulary has a positive
+        cosine and, at threshold 0, must be excluded -- but it can still share
+        no band and never be scored, so the gate exits clean while failing the
+        policy it was handed. The floor is therefore the banding S-curve knee,
+        below which nomination is not dependable (Codex #98)."""
+        self.assertAlmostEqual(quality_gate.EMBEDDING_MIN_THRESHOLD, 0.5946, places=4)
+
         records = [
-            {"id": "d-1", "state": {"note": DISTINCT_NOTES[0]}},
-            {"id": "d-2", "state": {"note": DISTINCT_NOTES[1]}},
+            {"goal": "shared a0", "outcome": "left"},
+            {"goal": "shared b0", "outcome": "right"},
         ]
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
             write(root / "batch.jsonl", records)
-            report = quality_gate.audit_run(root, threshold=0.0)
 
+            for threshold in (0.0, 0.25, quality_gate.EMBEDDING_MIN_THRESHOLD - 1e-6):
+                with self.subTest(threshold=threshold):
+                    with self.assertRaises(ValueError):
+                        quality_gate.audit_run(root, threshold=threshold)
+
+            # The knee itself, and anything above it, is accepted.
+            report = quality_gate.audit_run(
+                root, threshold=quality_gate.EMBEDDING_MIN_THRESHOLD
+            )
+
+        self.assertEqual(report["threshold"], quality_gate.EMBEDDING_MIN_THRESHOLD)
+
+    def test_a_pair_below_the_knee_is_the_reason_zero_cannot_be_honoured(self):
+        """The evidence behind the bound: these two records share vocabulary,
+        so their cosine is positive and threshold 0 would have to exclude one,
+        yet they share no LSH band and are never nominated for scoring."""
+        records = [
+            {"goal": "shared a0", "outcome": "left"},
+            {"goal": "shared b0", "outcome": "right"},
+        ]
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            write(root / "batch.jsonl", records)
+            report = quality_gate.audit_run(
+                root, threshold=quality_gate.EMBEDDING_MIN_THRESHOLD
+            )
+
+        self.assertEqual(report["embedding"]["compared_records"], 2)
+        self.assertEqual(report["embedding"]["candidate_pairs"], 0)
         self.assertEqual(report["duplicates"], [])
 
     def test_planted_duplicates_are_all_recovered(self):
