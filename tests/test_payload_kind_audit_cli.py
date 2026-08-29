@@ -175,6 +175,20 @@ class PayloadKindAuditCLI(unittest.TestCase):
         self.assertEqual(code, 2)
         self.assertIn("outside the finite float range", err.getvalue())
 
+    def test_expect_rejects_excessively_nested_json_as_an_input_error(self):
+        depth = 200000
+        nested = "[" * depth + "]" * depth
+        with tempfile.TemporaryDirectory() as raw:
+            directory = Path(raw)
+            _write_corpus(directory, {"episodes.jsonl": [_episode([])]})
+            expected = directory / "audit.json"
+            expected.write_text(nested, encoding="utf-8")
+            err = io.StringIO()
+            with redirect_stderr(err), redirect_stdout(io.StringIO()):
+                code = payload_kind_audit.main([str(directory), "--expect", str(expected)])
+        self.assertEqual(code, 2)
+        self.assertIn("cannot read", err.getvalue())
+
 
 if __name__ == "__main__":
     unittest.main()

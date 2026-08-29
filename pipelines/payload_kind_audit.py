@@ -526,7 +526,7 @@ def _load_expected_audit(path: Path) -> tuple[dict, list[str]]:
             parse_constant=_reject_json_constant,
             parse_float=_parse_finite_float,
         )
-    except (OSError, UnicodeError, ValueError) as exc:
+    except (OSError, UnicodeError, ValueError, RecursionError) as exc:
         raise PayloadKindAuditError(f"cannot read {path}: {exc}") from exc
     if not isinstance(published, dict):
         raise PayloadKindAuditError(f"{path} is not a JSON object")
