@@ -38,7 +38,7 @@ import stat
 import struct
 import sys
 from collections import Counter
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath
 from typing import Any, Iterable, Mapping, Sequence
 
@@ -879,141 +879,233 @@ class _ReplaySnapshot:
     source_files: list[dict[str, Any]]
 
 
+@dataclass
+class _ReplayState:
+    """Mutable accumulators shared by every replayed source line."""
+
+    counts: Counter[str] = field(default_factory=Counter)
+    exclusions: Counter[str] = field(default_factory=Counter)
+    lane_actions: dict[str, Counter[str]] = field(
+        default_factory=lambda: {
+            lane: Counter() for lane in compose_curated.LANE_ORDER
+        }
+    )
+    expected_manifest: list[dict[str, Any]] = field(default_factory=list)
+    expected_sidecars: list[dict[str, Any]] = field(default_factory=list)
+    expected_outputs: list[dict[str, Any]] = field(default_factory=list)
+    expected_payloads: dict[str, bytes] = field(default_factory=dict)
+    emitted_ids: dict[str, str] = field(default_factory=dict)
+    source_files: list[dict[str, Any]] = field(default_factory=list)
+    seen_source_semantics: dict[str, tuple[str, int]] = field(default_factory=dict)
+    seen_curated_semantics: dict[str, tuple[str, int]] = field(default_factory=dict)
+
+
+def _replay_physical_lines(raw_file: bytes) -> list[bytes]:
+    """Split LF-framed JSONL exactly as the compose writer framed it."""
+
+    physical_lines = raw_file.split(b"\n")
+    if physical_lines and physical_lines[-1] == b"":
+        physical_lines.pop()
+    return physical_lines
+
+
+def _replayed_manifest_entry(
+    decision: Any, relative: str, line_number: int, digests: tuple[str, str]
+) -> dict[str, Any]:
+    """The manifest entry one replayed line is expected to have produced."""
+
+    source_sha256, source_file_sha256 = digests
+    return {
+        "compose_name": compose_curated.COMPOSE_NAME,
+        "compose_version": compose_curated.COMPOSE_VERSION,
+        "lane_order": list(compose_curated.LANE_ORDER),
+        "source_path": relative,
+        "source_line": line_number,
+        "source_sha256": source_sha256,
+        "source_file_sha256": source_file_sha256,
+        "action": decision.action,
+        "reason_codes": list(decision.reason_codes),
+        "stages": [dict(stage) for stage in decision.stages],
+    }
+
+
+def _claim_replayed_output_id(
+    state: _ReplayState, output_id: Any, location: str
+) -> None:
+    """Reserve a canonical ID across the replay, or refuse the export."""
+
+    if output_id is None:
+        return
+    previous = state.emitted_ids.get(output_id)
+    if previous is not None:
+        raise ExportError(
+            f"replayed canonical ID collision {output_id!r}: "
+            f"{previous} and {location}"
+        )
+    state.emitted_ids[output_id] = location
+
+
+def _record_replayed_retained(
+    state: _ReplayState,
+    decision: Any,
+    entry: dict[str, Any],
+    relative: str,
+    emitted: list[str],
+) -> None:
+    """Account one replayed record that compose would have emitted."""
+
+    line = compose_curated.canonical_json(decision.record)
+    _claim_replayed_output_id(
+        state, decision.output_id, f"{relative}:{entry['source_line']}"
+    )
+    emitted.append(line)
+    entry.update(
+        {
+            "output_path": f"{compose_curated.RECORDS_DIRNAME}/{relative}",
+            "output_line": len(emitted),
+            "output_id": decision.output_id,
+            "output_sha256": hashlib.sha256(line.encode("utf-8")).hexdigest(),
+        }
+    )
+    state.counts["retained"] += 1
+    if decision.reward_sidecar is not None:
+        entry["reward_sidecar_id"] = decision.reward_sidecar["sidecar_id"]
+        state.expected_sidecars.append(decision.reward_sidecar)
+
+
+def _record_replayed_excluded(
+    state: _ReplayState, decision: Any, entry: dict[str, Any]
+) -> None:
+    """Account one replayed record that compose would have excluded."""
+
+    entry.update(
+        {
+            "output_path": None,
+            "output_line": None,
+            "output_id": None,
+            "output_sha256": None,
+        }
+    )
+    state.counts["excluded"] += 1
+    for reason in decision.reason_codes or ("compose.unspecified",):
+        state.exclusions[reason] += 1
+
+
+def _replay_one_line(
+    state: _ReplayState,
+    physical_line: bytes,
+    coordinate: tuple[str, int],
+    context: tuple[str, Any, list[str]],
+) -> None:
+    """Replay one non-blank source line through the compose lanes."""
+
+    relative, line_number = coordinate
+    source_file_sha256, catalog, emitted = context
+    state.counts["source_records"] += 1
+    decision = compose_curated.compose_source_line(
+        physical_line,
+        source_path=relative,
+        source_line=line_number,
+        source_file_sha256=source_file_sha256,
+        calibration_catalog=catalog,
+        seen_source_semantics=state.seen_source_semantics,
+        seen_curated_semantics=state.seen_curated_semantics,
+    )
+    entry = _replayed_manifest_entry(
+        decision,
+        relative,
+        line_number,
+        (hashlib.sha256(physical_line).hexdigest(), source_file_sha256),
+    )
+    for stage in decision.stages:
+        lane = stage["lane"]
+        if lane in state.lane_actions:
+            state.lane_actions[lane][stage["action"]] += 1
+
+    if (
+        decision.action == compose_curated.ACTION_RETAINED
+        and decision.record is not None
+    ):
+        _record_replayed_retained(state, decision, entry, relative, emitted)
+    else:
+        _record_replayed_excluded(state, decision, entry)
+    state.expected_manifest.append(entry)
+
+
+def _record_replayed_output_file(
+    state: _ReplayState, relative: str, emitted: list[str]
+) -> None:
+    """Record the output file one replayed source file would have produced."""
+
+    output_path = f"{compose_curated.RECORDS_DIRNAME}/{relative}"
+    payload = "".join(line + "\n" for line in emitted).encode("utf-8")
+    state.expected_payloads[output_path] = payload
+    state.expected_outputs.append(
+        {
+            "path": output_path,
+            "records": len(emitted),
+            "sha256": hashlib.sha256(payload).hexdigest(),
+        }
+    )
+    state.counts["output_files"] += 1
+
+
+def _replay_source_file(
+    state: _ReplayState, source_root: Path, relative: str, catalog: Any
+) -> None:
+    """Replay every record of one source file and its resulting output."""
+
+    _path, raw_file = _read_exact_regular_file(
+        source_root, relative, f"compose source {relative}"
+    )
+    source_file_sha256 = hashlib.sha256(raw_file).hexdigest()
+    state.source_files.append(
+        {
+            "path": relative,
+            "bytes": len(raw_file),
+            "sha256": source_file_sha256,
+        }
+    )
+    state.counts["source_files"] += 1
+    emitted: list[str] = []
+
+    for line_number, physical_line in enumerate(_replay_physical_lines(raw_file), 1):
+        if not physical_line.strip():
+            state.counts["blank_lines"] += 1
+            continue
+        _replay_one_line(
+            state,
+            physical_line,
+            (relative, line_number),
+            (source_file_sha256, catalog, emitted),
+        )
+
+    if emitted:
+        _record_replayed_output_file(state, relative, emitted)
+
+
 def _replay_source_lines(source_root: Path, catalog: Any) -> _ReplaySnapshot:
     """Run every source JSONL line back through compose and record what it yields."""
-
-    counts: Counter[str] = Counter()
-    exclusions: Counter[str] = Counter()
-    lane_actions: dict[str, Counter[str]] = {
-        lane: Counter() for lane in compose_curated.LANE_ORDER
-    }
-    expected_manifest: list[dict[str, Any]] = []
-    expected_sidecars: list[dict[str, Any]] = []
-    expected_outputs: list[dict[str, Any]] = []
-    expected_payloads: dict[str, bytes] = {}
-    emitted_ids: dict[str, str] = {}
-    source_files: list[dict[str, Any]] = []
-    seen_source_semantics: dict[str, tuple[str, int]] = {}
-    seen_curated_semantics: dict[str, tuple[str, int]] = {}
 
     try:
         source_members = compose_curated.source_jsonl_members(source_root)
     except compose_curated.ComposeError as exc:
         raise ExportError(f"COMPOSE source tree cannot be replayed safely: {exc}") from exc
+
+    state = _ReplayState()
     for relative in source_members:
-        _path, raw_file = _read_exact_regular_file(
-            source_root, relative, f"compose source {relative}"
-        )
-        source_file_sha256 = hashlib.sha256(raw_file).hexdigest()
-        source_files.append(
-            {
-                "path": relative,
-                "bytes": len(raw_file),
-                "sha256": source_file_sha256,
-            }
-        )
-        counts["source_files"] += 1
-        emitted: list[str] = []
+        _replay_source_file(state, source_root, relative, catalog)
 
-        physical_lines = raw_file.split(b"\n")
-        if physical_lines and physical_lines[-1] == b"":
-            physical_lines.pop()
-        for line_number, physical_line in enumerate(physical_lines, 1):
-            if not physical_line.strip():
-                counts["blank_lines"] += 1
-                continue
-            counts["source_records"] += 1
-            source_sha256 = hashlib.sha256(physical_line).hexdigest()
-            decision = compose_curated.compose_source_line(
-                physical_line,
-                source_path=relative,
-                source_line=line_number,
-                source_file_sha256=source_file_sha256,
-                calibration_catalog=catalog,
-                seen_source_semantics=seen_source_semantics,
-                seen_curated_semantics=seen_curated_semantics,
-            )
-            entry: dict[str, Any] = {
-                "compose_name": compose_curated.COMPOSE_NAME,
-                "compose_version": compose_curated.COMPOSE_VERSION,
-                "lane_order": list(compose_curated.LANE_ORDER),
-                "source_path": relative,
-                "source_line": line_number,
-                "source_sha256": source_sha256,
-                "source_file_sha256": source_file_sha256,
-                "action": decision.action,
-                "reason_codes": list(decision.reason_codes),
-                "stages": [dict(stage) for stage in decision.stages],
-            }
-            for stage in decision.stages:
-                lane = stage["lane"]
-                if lane in lane_actions:
-                    lane_actions[lane][stage["action"]] += 1
-
-            if (
-                decision.action == compose_curated.ACTION_RETAINED
-                and decision.record is not None
-            ):
-                line = compose_curated.canonical_json(decision.record)
-                output_id = decision.output_id
-                if output_id is not None:
-                    previous = emitted_ids.get(output_id)
-                    if previous is not None:
-                        raise ExportError(
-                            f"replayed canonical ID collision {output_id!r}: "
-                            f"{previous} and {relative}:{line_number}"
-                        )
-                    emitted_ids[output_id] = f"{relative}:{line_number}"
-                emitted.append(line)
-                entry.update(
-                    {
-                        "output_path": f"{compose_curated.RECORDS_DIRNAME}/{relative}",
-                        "output_line": len(emitted),
-                        "output_id": output_id,
-                        "output_sha256": hashlib.sha256(line.encode("utf-8")).hexdigest(),
-                    }
-                )
-                counts["retained"] += 1
-                if decision.reward_sidecar is not None:
-                    entry["reward_sidecar_id"] = decision.reward_sidecar["sidecar_id"]
-                    expected_sidecars.append(decision.reward_sidecar)
-            else:
-                entry.update(
-                    {
-                        "output_path": None,
-                        "output_line": None,
-                        "output_id": None,
-                        "output_sha256": None,
-                    }
-                )
-                counts["excluded"] += 1
-                for reason in decision.reason_codes or ("compose.unspecified",):
-                    exclusions[reason] += 1
-            expected_manifest.append(entry)
-
-        if emitted:
-            output_path = f"{compose_curated.RECORDS_DIRNAME}/{relative}"
-            payload = "".join(line + "\n" for line in emitted).encode("utf-8")
-            expected_payloads[output_path] = payload
-            expected_outputs.append(
-                {
-                    "path": output_path,
-                    "records": len(emitted),
-                    "sha256": hashlib.sha256(payload).hexdigest(),
-                }
-            )
-            counts["output_files"] += 1
-
-    counts["reward_sidecars"] = len(expected_sidecars)
+    state.counts["reward_sidecars"] = len(state.expected_sidecars)
     return _ReplaySnapshot(
-        counts=counts,
-        exclusions=exclusions,
-        lane_actions=lane_actions,
-        expected_manifest=expected_manifest,
-        expected_sidecars=expected_sidecars,
-        expected_outputs=expected_outputs,
-        expected_payloads=expected_payloads,
-        source_files=source_files,
+        counts=state.counts,
+        exclusions=state.exclusions,
+        lane_actions=state.lane_actions,
+        expected_manifest=state.expected_manifest,
+        expected_sidecars=state.expected_sidecars,
+        expected_outputs=state.expected_outputs,
+        expected_payloads=state.expected_payloads,
+        source_files=state.source_files,
     )
 
 

@@ -1052,6 +1052,53 @@ def _compose_preferences_stage(
     return preference_decision.record
 
 
+def _coding_lane_curator(current: dict[str, Any], registered_kind: Any) -> Any:
+    """The coding-lane module for this record, or ``None`` if it has no lane.
+
+    Multi-agent and safety-case records are curated by ``curate_agentic``;
+    episode records by ``curate_coding``. Both expose the same
+    ``(curated, manifest)`` contract, so the caller treats them alike.
+    """
+
+    if registered_kind in {"multi_agent", "safety_case"}:
+        return curate_agentic
+    if is_episode_record(current):
+        return curate_coding
+    return None
+
+
+def _append_coding_lane_stage(
+    stages: list[dict[str, Any]],
+    module: Any,
+    curated: Any,
+    manifest: Mapping[str, Any],
+) -> "ComposeDecision | Any":
+    """Append one coding-lane stage; exclude the record if the lane refused it."""
+
+    reasons = list(manifest.get("reason_codes", []))
+    stages.append(
+        _stage(
+            "coding",
+            module.TRANSFORM_NAME,
+            module.TRANSFORM_VERSION,
+            ACTION_RETAINED if curated is not None else ACTION_EXCLUDED,
+            reason_codes=reasons,
+            lane_action=manifest.get("action"),
+            detail=manifest,
+        )
+    )
+    if curated is None:
+        return ComposeDecision(
+            ACTION_EXCLUDED,
+            None,
+            tuple(reasons),
+            tuple(stages),
+            None,
+            None,
+        )
+    return curated
+
+
 def _compose_coding_stage(
     current: dict[str, Any],
     registered_kind: Any,
@@ -1067,69 +1114,31 @@ def _compose_coding_stage(
     :class:`ComposeDecision` when coding curation excludes the record.
     """
 
-    if registered_kind in {"multi_agent", "safety_case"}:
-        curated_agentic, agentic_manifest = curate_agentic.curate_record(
-            current,
-            source_path=source_path,
-            source_line=source_line,
-            source_hash=source_sha256,
-        )
-        agentic_reasons = list(agentic_manifest.get("reason_codes", []))
-        stages.append(
-            _stage(
-                "coding",
-                curate_agentic.TRANSFORM_NAME,
-                curate_agentic.TRANSFORM_VERSION,
-                ACTION_RETAINED if curated_agentic is not None else ACTION_EXCLUDED,
-                reason_codes=agentic_reasons,
-                lane_action=agentic_manifest.get("action"),
-                detail=agentic_manifest,
-            )
-        )
-        if curated_agentic is None:
-            return ComposeDecision(
-                ACTION_EXCLUDED,
-                None,
-                tuple(agentic_reasons),
-                tuple(stages),
-                None,
-                None,
-            )
-        return curated_agentic
-    elif is_episode_record(current):
-        curated_episode, coding_manifest = curate_coding.curate_episode(
-            current,
-            source_path=source_path,
-            source_line=source_line,
-            source_hash=source_sha256,
-        )
-        coding_reasons = list(coding_manifest.get("reason_codes", []))
+    module = _coding_lane_curator(current, registered_kind)
+    if module is None:
         stages.append(
             _stage(
                 "coding",
                 curate_coding.TRANSFORM_NAME,
                 curate_coding.TRANSFORM_VERSION,
-                ACTION_RETAINED if curated_episode is not None else ACTION_EXCLUDED,
-                reason_codes=coding_reasons,
-                lane_action=coding_manifest.get("action"),
-                detail=coding_manifest,
+                ACTION_NOT_APPLICABLE,
+                lane_action=ACTION_NOT_APPLICABLE,
             )
         )
-        if curated_episode is None:
-            return ComposeDecision(
-                ACTION_EXCLUDED, None, tuple(coding_reasons), tuple(stages), None, None
-            )
-        return curated_episode
-    stages.append(
-        _stage(
-            "coding",
-            curate_coding.TRANSFORM_NAME,
-            curate_coding.TRANSFORM_VERSION,
-            ACTION_NOT_APPLICABLE,
-            lane_action=ACTION_NOT_APPLICABLE,
-        )
+        return current
+
+    curate = (
+        curate_agentic.curate_record
+        if module is curate_agentic
+        else curate_coding.curate_episode
     )
-    return current
+    curated, manifest = curate(
+        current,
+        source_path=source_path,
+        source_line=source_line,
+        source_hash=source_sha256,
+    )
+    return _append_coding_lane_stage(stages, module, curated, manifest)
 
 
 def _compose_rewards_stage(
