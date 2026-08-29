@@ -59,6 +59,7 @@ __all__ = [
     "factory_identity_for_path",
     "iter_sim_or_real",
     "main",
+    "reject_json_constant",
     "visible_jsonl_paths",
 ]
 

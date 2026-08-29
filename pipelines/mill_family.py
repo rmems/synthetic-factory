@@ -295,9 +295,11 @@ def _entry_label(entry: _Entry) -> str:
     id when present, else its ref stringified, else a fixed placeholder.
     """
 
-    return entry.record_id or (
-        str(entry.ref) if entry.ref is not None else "<unknown>"
-    )
+    # ``ref`` is annotated ``Hashable``, which declares only ``__hash__``.
+    # Bind it as a plain object so the stringification is well-typed; the
+    # resulting label is byte-identical to the expression this replaces.
+    ref: object = entry.ref
+    return entry.record_id or (str(ref) if ref is not None else "<unknown>")
 
 
 @dataclass(frozen=True)

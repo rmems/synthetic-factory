@@ -201,9 +201,9 @@ def _preference_context(
     if not isinstance(chosen, dict) or not isinstance(rejected, dict):
         return None
     if not all(
-        isinstance(side.get(field), dict)
+        isinstance(side.get(context_field), dict)
         for side in (chosen, rejected)
-        for field in ("state", "proposed_action")
+        for context_field in ("state", "proposed_action")
     ):
         return None
     return chosen, rejected
@@ -217,8 +217,8 @@ def context_is_pure(record: dict[str, Any]) -> bool:
         return False
     chosen, rejected = context
     return all(
-        canonical_json(chosen[field]) == canonical_json(rejected[field])
-        for field in ("state", "proposed_action")
+        canonical_json(chosen[context_field]) == canonical_json(rejected[context_field])
+        for context_field in ("state", "proposed_action")
     )
 
 
@@ -226,15 +226,15 @@ def _all_context_diffs(
     chosen: dict[str, Any], rejected: dict[str, Any]
 ) -> tuple[str, ...]:
     paths: list[str] = []
-    for field in ("state", "proposed_action"):
-        paths.extend(_context_diff_paths(chosen[field], rejected[field], field))
+    for context_field in ("state", "proposed_action"):
+        paths.extend(_context_diff_paths(chosen[context_field], rejected[context_field], context_field))
     return tuple(paths)
 
 
 def _identity_annotation_reference(
     chosen_value: dict[str, Any],
     rejected_value: dict[str, Any],
-    field: str,
+    context_field: str,
 ) -> tuple[dict[str, Any], str, str] | None:
     """Find an exact reference side for a top-level ``identity_note`` diff.
 
@@ -251,7 +251,7 @@ def _identity_annotation_reference(
         note = attester.get("identity_note")
         if "identity_note" in reference or not isinstance(note, str):
             continue
-        expected_prefix = f"IDENTICAL to {reference_name}.{field}"
+        expected_prefix = f"IDENTICAL to {reference_name}.{context_field}"
         if not note.strip().startswith(expected_prefix):
             continue
         stripped = copy.deepcopy(attester)
@@ -271,18 +271,18 @@ def _repair_identity_annotations(record: dict[str, Any]) -> CurationDecision | N
     repaired = copy.deepcopy(record)
     changed: list[str] = []
 
-    for field in ("state", "proposed_action"):
-        if canonical_json(chosen[field]) == canonical_json(rejected[field]):
+    for context_field in ("state", "proposed_action"):
+        if canonical_json(chosen[context_field]) == canonical_json(rejected[context_field]):
             continue
         reference = _identity_annotation_reference(
-            chosen[field], rejected[field], field
+            chosen[context_field], rejected[context_field], context_field
         )
         if reference is None:
             return None
         exact_value, attester_name, reference_name = reference
-        repaired[attester_name][field] = copy.deepcopy(exact_value)
-        repaired[reference_name][field] = copy.deepcopy(exact_value)
-        changed.append(f"{attester_name}.{field}")
+        repaired[attester_name][context_field] = copy.deepcopy(exact_value)
+        repaired[reference_name][context_field] = copy.deepcopy(exact_value)
+        changed.append(f"{attester_name}.{context_field}")
 
     if not changed or not context_is_pure(repaired):
         return None

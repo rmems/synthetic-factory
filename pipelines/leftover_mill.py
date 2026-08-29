@@ -98,9 +98,9 @@ def expected_factory_mix_ids() -> frozenset[str]:
     """Return all 30 record IDs frozen by the issue #43 census."""
 
     return frozenset(
-        record_id
+        mix_id
         for records in PUBLISHED_FACTORY_MIX.values()
-        for record_id in records
+        for mix_id in records
     )
 
 
@@ -113,8 +113,8 @@ def render_factory_mix_card_section(slug: str, records: int) -> str:
     skipped = len(mix)
     eligible = records - skipped
     ids = "\n".join(
-        f"- `{record_id}` (declared factory `{home}`)"
-        for record_id, home in sorted(mix.items())
+        f"- `{mix_id}` (declared factory `{home}`)"
+        for mix_id, home in sorted(mix.items())
     )
     return f"""
 ## Factory-mix quarantine
