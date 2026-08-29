@@ -99,6 +99,28 @@ def _validated_oracle_errors(
     return errors
 
 
+_CERTIFIER_ROLE_ALIASES = frozenset({"solver", "task_author"})
+_ACTOR_IDENTITY_FIELDS = ("model", "version", "run_id", "tool_policy", "prompt_hash")
+
+
+def _actor_identity_strings(actor: Mapping[str, Any]) -> frozenset[str]:
+    values: set[str] = set()
+    for field in _ACTOR_IDENTITY_FIELDS:
+        value = actor.get(field)
+        if isinstance(value, str) and value:
+            values.add(value)
+    return frozenset(values)
+
+
+def _certifier_is_actor(
+    certifier: str, solver: Mapping[str, Any], author: Mapping[str, Any]
+) -> bool:
+    if certifier.casefold() in _CERTIFIER_ROLE_ALIASES:
+        return True
+    forbidden = _actor_identity_strings(solver) | _actor_identity_strings(author)
+    return certifier in forbidden
+
+
 def _certifier_errors(
     certifier: Any, solver: Mapping[str, Any], author: Mapping[str, Any]
 ) -> list[VSetValidationError]:
@@ -109,16 +131,11 @@ def _certifier_errors(
                 "validated oracle requires an independent certifier",
             )
         ]
-    if certifier in {"solver", "task_author"} or certifier in {
-        solver.get("run_id"),
-        author.get("run_id"),
-        solver.get("model"),
-        author.get("model"),
-    }:
-        return [
-            VSetValidationError(
-                "vset.oracle_self_certified",
-                "oracle.certifier must not be the solver or task_author",
-            )
-        ]
-    return []
+    if not _certifier_is_actor(certifier, solver, author):
+        return []
+    return [
+        VSetValidationError(
+            "vset.oracle_self_certified",
+            "oracle.certifier must not be the solver or task_author",
+        )
+    ]

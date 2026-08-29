@@ -71,6 +71,21 @@ class ActorProvenanceContractTests(unittest.TestCase):
         codes = _codes(vset.validate_record(record))
         self.assertIn("vset.oracle_self_certified", codes)
 
+    def test_forged_oracle_certifier_identity_fields_fail_closed(self):
+        fixture = _load(REJECT / "forged-oracle-certifier-version.json")
+        self.assertEqual(fixture["oracle"]["kind"], "deterministic_fixture_reference")
+        self.assertEqual(fixture["oracle"]["status"], "validated")
+        self.assertEqual(fixture["oracle"]["certifier"], fixture["solver"]["version"])
+        self.assertIn("vset.oracle_self_certified", _codes(vset.validate_record(fixture)))
+
+        record = _load(ACCEPT / "issue-patch-validated.json")
+        record["oracle"]["certifier"] = "Solver"
+        self.assertIn("vset.oracle_self_certified", _codes(vset.validate_record(record)))
+
+        record = _load(ACCEPT / "issue-patch-validated.json")
+        record["oracle"]["certifier"] = record["solver"]["tool_policy"]
+        self.assertIn("vset.oracle_self_certified", _codes(vset.validate_record(record)))
+
     def test_source_kind_masquerade_fails_closed(self):
         record = _load(REJECT / "source-kind-masquerade.json")
         self.assertEqual(record["source_kind"], "synthetic")
