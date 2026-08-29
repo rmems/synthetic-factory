@@ -983,6 +983,51 @@ class ForeignMillQuarantine(unittest.TestCase):
         for control in STAMPEDE_CONTROLS + GRAPHQL_NATIVE:
             self.assertIn(control["id"], emitted)
 
+    def test_side_stamped_preference_mill_is_reported(self):
+        """Codex #96 P1: a preference attesting its factory on both sides.
+
+        The wrapper carries no ``meta.factory`` -- the legacy shape
+        ``curate_identity._payload_factory`` accepts. With a native
+        destination-stamped id prefix and a stopword-only goal, the id-prefix
+        and goal-family axes see nothing, so a wrapper-only payload lookup let
+        the record through with no FOREIGN_PAYLOAD_FACTORY at all. It is
+        reported rather than quarantined here because naming an out-of-scope
+        home factory leaves the ownership context incomplete, exactly as in
+        test_partial_context_reports_foreign_payload_without_quarantine.
+        """
+
+        def side(label, success):
+            return {
+                "steps": [
+                    _step(1, "Observation: the probe reproduced the report"),
+                    _step(2, f"Observation: the {label} branch was taken"),
+                ],
+                "outcome": f"{label} outcome",
+                "reward": {"success": success},
+                "meta": {
+                    "factory": "docker-build-cache-factory",
+                    "round": 1,
+                    "generator": "grok-4.6",
+                },
+            }
+
+        side_stamped = {
+            "id": "cst-r05-side-stamped-preference",
+            "goal": "fix verify",
+            "chosen": side("fixed", True),
+            "rejected": side("failed", False),
+        }
+        self.assertIsNone(side_stamped.get("meta"))
+
+        run = self._curate(list(STAMPEDE_CONTROLS) + [side_stamped])
+
+        self.assertEqual(run["summary"]["input_records"], 5)
+        mix = run["summary"]["mill_family"]
+        self.assertEqual(mix["record_ids"], [side_stamped["id"]])
+        self.assertEqual(mix["reason_codes"], {REASON_FOREIGN_PAYLOAD_FACTORY: 1})
+        self.assertFalse(mix["context_complete"])
+        self.assertEqual(run["summary"]["quarantined_foreign_mill_records"], 0)
+
     def test_nested_batches_use_the_enclosing_factory_root(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary) / "run"

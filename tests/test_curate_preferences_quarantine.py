@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Leftover-mill records never enter a preference pair denominator."""
 
+import json
 import tempfile
 import unittest
 from pathlib import Path
@@ -115,6 +116,73 @@ class LeftoverMillQuarantine(unittest.TestCase):
         report = curate_preferences._render_human(run)
         self.assertIn("Leftover mill (quarantined): 1", report)
         self.assertIn("quarantined [LEFTOVER_MILL_KIND_MIX]", report)
+
+    def test_an_encodable_quarantined_id_is_still_reported(self):
+        """The guard drops only what the destination cannot encode."""
+        run = self._run([leftover_mill_episode("dbc-r723-ordinary-id")])
+        quarantined = [
+            entry
+            for entry in run.manifest
+            if entry["action"] == curate_preferences.ACTION_QUARANTINED
+        ]
+        self.assertEqual(len(quarantined), 1)
+        self.assertEqual(quarantined[0]["source_record_id"], "dbc-r723-ordinary-id")
+
+    def test_a_quarantined_id_taken_from_meta_is_still_reported(self):
+        """record_id()'s meta.id fallback must survive the canonicalizability
+        guard: only the value is filtered, not the lookup."""
+        episode = leftover_mill_episode("unused")
+        del episode["id"]
+        episode["meta"]["id"] = "dbc-r723-meta-fallback-id"
+        run = self._run([episode])
+        quarantined = [
+            entry
+            for entry in run.manifest
+            if entry["action"] == curate_preferences.ACTION_QUARANTINED
+        ]
+        self.assertEqual(len(quarantined), 1)
+        self.assertEqual(
+            quarantined[0]["source_record_id"], "dbc-r723-meta-fallback-id"
+        )
+
+    def test_a_quarantined_id_the_manifest_cannot_encode_is_dropped_not_fatal(self):
+        """json.loads accepts an escaped lone surrogate, so a foreign-mill
+        record can carry an id that write_run cannot serialize. Storing it raw
+        made write_run raise UnicodeEncodeError, destroying the whole
+        auditable quarantine manifest rather than one field (Codex #92)."""
+        with tempfile.TemporaryDirectory() as td:
+            source = Path(td) / "source"
+            source.mkdir()
+            write_jsonl(
+                source / "batch-r723.jsonl",
+                [
+                    leftover_mill_episode("dbc-r723-\ud800-leftover"),
+                    pair("crp-r723-real-pair"),
+                ],
+            )
+            run = curate_preferences.curate_source(source)
+            output = Path(td) / "out.jsonl"
+            manifest = Path(td) / "manifest.jsonl"
+            curate_preferences.write_run(run, source, output, manifest)
+            rows = [
+                json.loads(line)
+                for line in manifest.read_text(encoding="utf-8").splitlines()
+            ]
+
+        quarantined = [
+            row for row in rows if row["action"] == curate_preferences.ACTION_QUARANTINED
+        ]
+        self.assertEqual(len(quarantined), 1)
+        entry = quarantined[0]
+        # The unencodable id is dropped; every other coordinate an auditor
+        # needs to find the record survives.
+        self.assertIsNone(entry["source_record_id"])
+        self.assertEqual(entry["source_path"], "batch-r723.jsonl")
+        self.assertEqual(entry["source_line"], 1)
+        self.assertEqual(entry["classification"], "leftover_mill_episode")
+        self.assertEqual(entry["reason_codes"], ["LEFTOVER_MILL_KIND_MIX"])
+        self.assertTrue(entry["source_sha256"])
+        self.assertTrue(entry["source_file_sha256"])
 
 
 if __name__ == "__main__":
