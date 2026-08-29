@@ -20,15 +20,19 @@
     "kind": "human_adjudication",
     "status": "invalid",
     "certifier": "vset_oracle",
-    "signals": ["human_adjudication"]
+    "signals": [
+      "human_adjudication"
+    ]
   },
   "curation": {
     "pipeline_version": "vset-validate-v1",
     "decision": "measure",
-    "reason_codes": ["vset.impossible_task"]
+    "reason_codes": [
+      "vset.impossible_task"
+    ]
   },
   "environment": {
-    "repo_snapshot_hash": "sha256:15def9dbe24a2c87dc9ee200d50c24a59cfa88708fdbd0932f9621b14529f665",
+    "repo_snapshot_hash": "sha256:04092bbd993ef2519c518a8b75b1b3301958ee7e6804bd1dbf64f92074f20a52",
     "task_id": "vset-counter-v1.impossible-halting",
     "repo_pack_id": "vset-counter-v1"
   },
@@ -49,6 +53,8 @@
   },
   "training_view": {
     "oracle_status": "invalid",
-    "reason_codes": ["vset.impossible_task"]
+    "reason_codes": [
+      "vset.impossible_task"
+    ]
   }
 }

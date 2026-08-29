@@ -22,10 +22,16 @@
     "command": "solver claimed hidden tests passed",
     "result_hash": "sha256:8d36ecc5cabbeafbb9c5705a571abd03074e20ac66dc7472bd3e389758c4b20b",
     "certifier": "solver",
-    "signals": ["solver_success"],
+    "signals": [
+      "solver_success"
+    ],
     "upgraded_from_solver_success": true,
-    "reference_tests": ["oracle/reference.py"],
-    "hidden_tests": ["oracle/hidden_sub.py"]
+    "reference_tests": [
+      "tests/reference.py"
+    ],
+    "hidden_tests": [
+      "tests/hidden_sub.py"
+    ]
   },
   "curation": {
     "pipeline_version": "vset-validate-v1",
@@ -33,7 +39,7 @@
     "reason_codes": []
   },
   "environment": {
-    "repo_snapshot_hash": "sha256:15def9dbe24a2c87dc9ee200d50c24a59cfa88708fdbd0932f9621b14529f665",
+    "repo_snapshot_hash": "sha256:04092bbd993ef2519c518a8b75b1b3301958ee7e6804bd1dbf64f92074f20a52",
     "task_id": "vset-counter-v1.add-sub",
     "repo_pack_id": "vset-counter-v1"
   },
