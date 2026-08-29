@@ -20,6 +20,7 @@ _PIPELINES = Path(__file__).resolve().parent
 if str(_PIPELINES) not in sys.path:
     sys.path.insert(0, str(_PIPELINES))
 
+from curate_identity import default_registry  # noqa: E402
 from mill_family import (  # noqa: E402
     MillIndex,
     factory_identity_for_path as shared_factory_identity_for_path,
@@ -27,7 +28,6 @@ from mill_family import (  # noqa: E402
 )
 from record_kind import THALAMIC_REQUIRED, classify_kind  # noqa: E402
 from round_txn import (  # noqa: E402
-    FACTORY_QUOTAS,
     TransactionError,
     committed_jsonl_paths,
     marker_mode_path,
@@ -137,7 +137,15 @@ def factory_identity_for_path(
         run_dir,
         path,
         marker_root=_enclosing_marker_root(run_dir, path),
-        known_factories=FACTORY_QUOTAS,
+        # The reviewed factory registry is the source of truth for which
+        # directory names are a known factory. The round-quota table
+        # (FACTORY_QUOTAS) only covers factories with an active quota; a
+        # registered-but-unquota'd factory (e.g. an identity-only generator)
+        # would otherwise read as unverified, and an unverified root lets an
+        # all-foreign batch redefine the destination from its own payload
+        # declaration -- so this report-only audit would miss the very
+        # contamination it exists to surface. Matches curate_agentic.
+        known_factories=default_registry().by_path_id,
     )
 
 

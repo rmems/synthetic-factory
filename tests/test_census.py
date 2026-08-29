@@ -190,6 +190,53 @@ class CensusMillMix(unittest.TestCase):
         # The mix is invisible to a factory-mix check: it is dest-stamped.
         self.assertNotIn("FOREIGN_PAYLOAD_FACTORY", mix["reason_codes"])
 
+    def test_registry_only_factory_root_is_verified_not_payload_redefined(self):
+        """Codex #96 P2: verify census roots from the reviewed registry.
+
+        ``config/FACTORY-REGISTRY.json`` registers two identity-only
+        generators (``gpt-5.6-sol-coding-factory``,
+        ``muse-spark-1.2-coding-factory``) that carry no round quota. Keying
+        verification on ``FACTORY_QUOTAS`` left a directory named after either
+        one unverified, and an unverified root falls back to trusting the
+        payload's own declaration -- so an all-foreign batch redefined the
+        destination and ``mill_mix`` reported nothing. Mirrors the
+        ``curate_agentic`` fix in 71c5401 for this report-only audit.
+        """
+
+        for root_name in (
+            "gpt-5.6-sol-coding-factory",
+            "muse-spark-1.2-coding-factory",
+        ):
+            with self.subTest(factory=root_name), tempfile.TemporaryDirectory() as td:
+                root = Path(td) / "run"
+                factory = root / root_name
+                factory.mkdir(parents=True)
+                (factory / "batch-r01.jsonl").write_text(
+                    json.dumps(
+                        _episode(
+                            "gql-r1405-postgraphile-wrap-resolver",
+                            "Fix PostGraphile makeWrapResolvers leftover after "
+                            "plugin order swap: leftover wrapMass after bind to "
+                            "wrapPull.",
+                            "graphql-nplusone-factory",
+                        )
+                    )
+                    + "\n",
+                    encoding="utf-8",
+                )
+                result = _invoke(str(root))
+
+                self.assertEqual(result.returncode, 0, result.stderr)
+                mix = json.loads(result.stdout)["mill_mix"]
+                self.assertEqual(mix["records"], 1)
+                self.assertEqual(
+                    mix["by_factory"],
+                    {root_name: {"records": 1, "foreign_prefixes": {"gql": 1}}},
+                )
+                self.assertEqual(
+                    mix["reason_codes"].get("FOREIGN_PAYLOAD_FACTORY"), 1
+                )
+
     def test_nested_batches_keep_their_enclosing_factory_identity(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary) / "run"
