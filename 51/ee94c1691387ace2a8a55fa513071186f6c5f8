@@ -1,0 +1,82 @@
+pipelines/census.py
+  s_98712805c1499b::t_210b2a75323d79 169-200,217-223,233-234
+pipelines/curate_rewards.py
+  s_940326c4ee4215::t_7b4b2e3e2b6c7d 626
+pipelines/curate_gate.py
+  s_940326c4ee4215::t_3c755c38fd7fd0 2868-2874,2878
+scripts/publish_grok46_hub.py
+  s_98712805c1499b::t_2c224c511593e1 330-331
+  s_98712805c1499b::t_d439b29ef20317 316,319,326-329,332-350,352,356-357
+pipelines/training_audit_mill.py
+  s_98712805c1499b::t_aa7bfbd73605d0 1-50
+tests/test_publish_grok46_hub_factories.py
+  s_98712805c1499b::t_2c48ccc3323857 1-71
+pipelines/mill_family.py
+  s_98712805c1499b::t_210b2a75323d79 395-401,404-405,726,743,763,777,794
+  s_98712805c1499b::t_eeabe656c23aca 402-403
+  s_98712805c1499b::t_d92d5c9bd5a372 280-291,304,308,886
+pipelines/round_txn.py
+  s_940326c4ee4215::t_553e2befc411e4 972-973
+pipelines/training_audit.py
+  s_98712805c1499b::t_aa7bfbd73605d0 53-60,97-114,228-231,240-254,256,260,271,318,391-410,514-520,551-564
+tests/test_curate_rewards.py
+  s_940326c4ee4215::t_811d18fafe43b5 463-466,468-472,474-477,479-504,506-516,519-534,538-541,544-548,551-582,584-586,588-600,602-610,612-623,625-628,630-631,633-651,653
+  s_940326c4ee4215::t_7b4b2e3e2b6c7d 454-455,458-459,461,517
+  s_940326c4ee4215::t_22073669bd2435 656
+pipelines/curate_preferences.py
+  s_940326c4ee4215::t_0709a146e77610 783,785-787,791
+  s_002cddb1a70571::t_1dd33f1fc8d3bb 53
+  s_940326c4ee4215::t_ef81917d0df703 166-173,213
+  s_940326c4ee4215::t_00dfa199712973 648-650,805-808
+  s_940326c4ee4215::t_7a5314ba67b706 709-719
+  s_002cddb1a70571::t_c635b335b19950 203-204
+  s_002cddb1a70571::t_b5c0aaaa366fe1 760-761
+tests/test_training_audit_mill.py
+  s_98712805c1499b::t_32e082a0b7e5bd 1-10,13-185
+  s_98712805c1499b::t_79b343a7c4805c 11-12
+pipelines/training_audit_report.py
+  s_98712805c1499b::t_aa7bfbd73605d0 1-4,6,12-13,15-17,23,27,29,31,34-87,89-94
+  s_98712805c1499b::t_6bd8804d8ed1c3 5,7-11,14,18-22,24-26,28,30,32-33,88
+tests/test_training_audit_hidden.py
+  s_98712805c1499b::t_79b343a7c4805c 7,12-13
+  s_98712805c1499b::t_32e082a0b7e5bd 1-6,8-11,14-248
+tests/test_census_mill_mix.py
+  s_98712805c1499b::t_c745bbce0b5147 1-4,6-9,12-210,212-245,247-253,259-438
+  s_98712805c1499b::t_32a02f846de6ff 246,254-258
+  s_98712805c1499b::t_79b343a7c4805c 5,10-11
+  s_98712805c1499b::t_6904f993ee65a4 211
+tests/test_curate_gate.py
+  s_002cddb1a70571::t_b29cf7d4523d54 12-29,1202
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "51ee94c1691387ace2a8a55fa513071186f6c5f8",
+  "prompts": {},
+  "sessions": {
+    "s_002cddb1a70571": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "abd260ba-6a6c-45a6-9db3-a4e0988ad60e",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Raul Montoya Cardenas <montoyaraul34@gmail.com>"
+    },
+    "s_940326c4ee4215": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a032e4-1904-7a82-8c8b-1ad3cfbeb0b0",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Raul Montoya Cardenas <montoyaraul34@gmail.com>"
+    },
+    "s_98712805c1499b": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a04a1f-1e33-7812-a5aa-c7b04b33b6b5",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Raul Montoya Cardenas <montoyaraul34@gmail.com>"
+    }
+  }
+}
