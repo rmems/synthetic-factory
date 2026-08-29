@@ -362,6 +362,30 @@ class PayloadKindClassification(unittest.TestCase):
         self.assertIsNone(audit["records"][0]["gate_decision"])
         self.assertIn("| gate-v1 |", payload_kind_audit.render_markdown(audit))
 
+    def test_record_identifiers_that_a_float_would_round_are_rejected(self):
+        self._assert_build_audit_rejects(
+            "episodes.jsonl",
+            '{"id":0.1234567890123456789012345,"goal":"g","steps":[]}\n',
+            "JSON decimal this audit cannot report exactly",
+        )
+
+    def test_thalamic_identifiers_that_a_float_would_round_are_rejected(self):
+        record = _thalamic("act-r02-001", _episode([]))
+        record["id"] = 0.1234567890123456789012345
+        with tempfile.TemporaryDirectory() as raw:
+            directory = Path(raw)
+            _write_corpus(directory, {"batch-r02.jsonl": [record]})
+            with self.assertRaises(payload_kind_audit.PayloadKindAuditError) as caught:
+                payload_kind_audit.build_audit(directory)
+        self.assertIn("batch-r02.jsonl:1", str(caught.exception))
+        self.assertIn("JSON decimal this audit cannot report exactly", str(caught.exception))
+
+    def test_integer_record_identifiers_round_trip_and_are_kept(self):
+        record = _episode([])
+        record["id"] = 12345678901234567890
+        audit = self._audit({"episodes.jsonl": [record]})
+        self.assertEqual(audit["records"][0]["id"], 12345678901234567890)
+
     def test_markdown_escapes_dynamic_table_values(self):
         audit = {
             "records": [

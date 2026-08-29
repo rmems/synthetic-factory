@@ -141,6 +141,21 @@ def _episode_row_fields(parsed: "_ParsedLine") -> dict:
     }
 
 
+def _reject_rounded_identifier(identifier: Any, where: str) -> None:
+    """Reject an identifier a binary float cannot carry back out unchanged.
+
+    ``parse_float`` turns every JSON decimal into a Python float, so a literal
+    like ``0.1234567890123456789`` would be reported — and pinned by
+    ``--expect`` — as a different number than the corpus holds. Integers and
+    strings round-trip exactly, so only the decimal case fails closed.
+    """
+    if isinstance(identifier, float):
+        raise PayloadKindAuditError(
+            f"{where}: record identifier is a JSON decimal this audit cannot "
+            f"report exactly: {identifier!r}"
+        )
+
+
 def _record_row(parsed: _ParsedLine) -> dict:
     row: dict[str, Any] = {
         "source_file": parsed.source_file,
@@ -149,6 +164,7 @@ def _record_row(parsed: _ParsedLine) -> dict:
         "sha256": parsed.digest,
     }
     fields = _thalamic_row_fields(parsed) if parsed.kind == "thalamic" else _episode_row_fields(parsed)
+    _reject_rounded_identifier(fields["id"], f"{parsed.source_file}:{parsed.line}")
     row.update(fields)
     return row
 
