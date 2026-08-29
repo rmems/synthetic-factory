@@ -1187,20 +1187,19 @@ def safe_upload_directory(item: dict) -> Path:
     return dest
 
 
-def validate_upload_snapshot(item: dict, dest: Path) -> None:
-    """Require the complete mirror to match the current validated source."""
-    src = factory_source(item["slug"])
-    marker_state = marker_mode_state(src)
-    batches = published_batches(src, marker_state)
-    notes = published_notes(src, batches, marker_state)
-    raw = dest / "data" / "raw"
-    meta = dest / "data" / "metadata"
+def _validate_upload_snapshot_directories(raw: Path, meta: Path) -> None:
     for directory in (raw, meta):
         if not directory.is_dir() or directory.is_symlink():
             raise SystemExit(f"incomplete upload snapshot directory: {directory}")
 
-    expected_batches = {path.name: path for path in batches}
-    expected_notes = {path.name: path for path in notes}
+
+def _validate_upload_snapshot_payload(
+    raw: Path,
+    meta: Path,
+    expected_batches: dict,
+    expected_notes: dict,
+    marker_state,
+) -> None:
     actual_batches = {path.name for path in raw.iterdir()}
     actual_notes = {path.name for path in meta.iterdir()}
     if actual_batches != set(expected_batches):
@@ -1216,6 +1215,8 @@ def validate_upload_snapshot(item: dict, dest: Path) -> None:
             if file_sha256(directory / name) != expected_sha256:
                 raise SystemExit(f"upload snapshot digest mismatch: {directory / name}")
 
+
+def _validate_upload_snapshot_top_level_files(dest: Path) -> None:
     required_top = {
         "README.md": None,
         "LICENSE": LICENSE_SRC,
@@ -1234,11 +1235,10 @@ def validate_upload_snapshot(item: dict, dest: Path) -> None:
     if attribution != ATTRIBUTION:
         raise SystemExit(f"upload snapshot digest mismatch: {dest / 'ATTRIBUTION.md'}")
 
+
+def _validate_upload_snapshot_card(item: dict, dest: Path, raw: Path, batches, kind_mix) -> None:
     records = sum(count_jsonl_lines(raw / batch.name) for batch in batches)
     bytes_ = sum((raw / batch.name).stat().st_size for batch in batches)
-    kind_mix = gate_leftover_mill(
-        item, [(raw / batch.name, batch.name) for batch in batches]
-    )
     labels = [
         (batch, label)
         for batch in batches
@@ -1265,6 +1265,29 @@ def validate_upload_snapshot(item: dict, dest: Path) -> None:
     if card != expected_card:
         raise SystemExit(f"upload snapshot digest mismatch: {dest / 'README.md'}")
 
+
+def validate_upload_snapshot(item: dict, dest: Path) -> None:
+    """Require the complete mirror to match the current validated source."""
+    src = factory_source(item["slug"])
+    marker_state = marker_mode_state(src)
+    batches = published_batches(src, marker_state)
+    notes = published_notes(src, batches, marker_state)
+    raw = dest / "data" / "raw"
+    meta = dest / "data" / "metadata"
+    _validate_upload_snapshot_directories(raw, meta)
+
+    expected_batches = {path.name: path for path in batches}
+    expected_notes = {path.name: path for path in notes}
+    _validate_upload_snapshot_payload(
+        raw, meta, expected_batches, expected_notes, marker_state
+    )
+
+    _validate_upload_snapshot_top_level_files(dest)
+
+    kind_mix = gate_leftover_mill(
+        item, [(raw / batch.name, batch.name) for batch in batches]
+    )
+    _validate_upload_snapshot_card(item, dest, raw, batches, kind_mix)
 
 def cmd_upload(only: str | None = None) -> None:
     for item in factories():
