@@ -91,6 +91,25 @@ def normalized_execution_override(reason):
     return text
 
 
+def _validate_recorded_override_phrase(verification, normalized):
+    semantics_version = verification.get("semantics_version")
+    if _historical_semantics_version(semantics_version):
+        # Historical completion markers are immutable audit evidence. Reasons
+        # canonical under their two-word grammar must remain readable.
+        _validate_legacy_override_phrase(normalized)
+        return
+    _validate_new_override_phrase(normalized)
+
+
+def _validated_waived_inconclusive(override):
+    waived = override.get("waived_inconclusive")
+    if not _is_positive_int(waived):
+        raise rt.TransactionError(
+            "publishing marker has invalid waived_inconclusive count"
+        )
+    return waived
+
+
 def _execution_override_from_block(verification):
     override = verification.get("override")
     if override is None:
@@ -99,20 +118,10 @@ def _execution_override_from_block(verification):
         raise rt.TransactionError("publishing marker has invalid execution override")
     reason = override.get("reason")
     normalized = _canonical_override_text(reason)
-    semantics_version = verification.get("semantics_version")
-    if _historical_semantics_version(semantics_version):
-        # Historical completion markers are immutable audit evidence. Reasons
-        # canonical under their two-word grammar must remain readable.
-        _validate_legacy_override_phrase(normalized)
-    else:
-        _validate_new_override_phrase(normalized)
+    _validate_recorded_override_phrase(verification, normalized)
     if normalized != reason:
         raise rt.TransactionError("publishing marker execution override is not canonical")
-    waived = override.get("waived_inconclusive")
-    if not _is_positive_int(waived):
-        raise rt.TransactionError(
-            "publishing marker has invalid waived_inconclusive count"
-        )
+    _validated_waived_inconclusive(override)
     return normalized
 
 

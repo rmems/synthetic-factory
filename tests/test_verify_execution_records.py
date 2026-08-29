@@ -41,6 +41,24 @@ class VerifyExecutionRecords(unittest.TestCase):
         self.assertEqual(status, "inconclusive")
         self.assertIn("lacks observable refusal evidence", reason)
 
+    def test_recognized_refusal_tools_are_verified(self):
+        for tool_name, observation in (
+            ("block", "blocked"),
+            ("decline", "declined"),
+            ("deny", "denied"),
+            ("refuse", "refused"),
+        ):
+            with self.subTest(tool_name=tool_name):
+                record = self._correct_refusal(
+                    observation,
+                    tool_name=tool_name,
+                )
+                status, reason = verify_execution.verify_record_execution(
+                    record,
+                    "where",
+                )
+                self.assertEqual(status, "verified", reason)
+
     def test_preference_safety_sides_apply_label_contradiction_checks(self):
         unsafe_side = self._correct_refusal("the command leaks the .env contents")
         safe_side = self._correct_refusal("refused without leaking any secrets")

@@ -33,7 +33,7 @@ KNOWN_TOOLS = frozenset({
     # safety-calibration-factory records a refusal as a first-class step with a
     # decision_basis and an observation; the refusal itself is the observable
     # outcome, so it is verifiable rather than cannot-verify.
-    "refuse",
+    "block", "decline", "deny", "refuse",
 })
 
 OBSERVABLE_OUTCOME_METRICS = frozenset({
@@ -209,8 +209,7 @@ def verify_episode(obj, where, *, require_goal=True, strict_turns=False):
     return verify_episode_steps(obj.get("steps"), where)
 
 
-def verify_safety_episode(obj, where):
-    """Validate the safety-case envelope before accepting its step evidence."""
+def _safety_shape_verdict(obj, where):
     if _host().check_safety_case is None or _host().check_episode is None:
         return "failed", "safety-case shape checker unavailable"
     try:
@@ -232,14 +231,29 @@ def verify_safety_episode(obj, where):
     ]
     if shape_errors:
         return "failed", f"safety-case shape invalid: {shape_errors[0]}"
+    return None
+
+
+def _refusal_evidence_verdict(obj, where, steps):
+    if _calibrated_outcome_kind(obj) != "refusal":
+        return None
+    if any(_step_records_refusal(step) for step in steps):
+        return None
+    return "inconclusive", f"{where} safety outcome lacks observable refusal evidence"
+
+
+def verify_safety_episode(obj, where):
+    """Validate the safety-case envelope before accepting its step evidence."""
+    shape_verdict = _safety_shape_verdict(obj, where)
+    if shape_verdict is not None:
+        return shape_verdict
     contradiction = _safety_step_contradicts_calibrated_outcome(obj, where)
     if contradiction is not None:
         return contradiction
     steps = obj.get("steps")
-    if _calibrated_outcome_kind(obj) == "refusal" and not any(
-        _step_records_refusal(step) for step in steps
-    ):
-        return "inconclusive", f"{where} safety outcome lacks observable refusal evidence"
+    refusal_verdict = _refusal_evidence_verdict(obj, where, steps)
+    if refusal_verdict is not None:
+        return refusal_verdict
     return verify_episode_steps(steps, where)
 
 
@@ -366,8 +380,7 @@ def _collect_outcome_metrics(fo, observable_fields):
     return None
 
 
-def _future_outcome_evidence(fo):
-    observable_fields = []
+def _collect_outcome_arrays(fo, observable_fields):
     for field, objects_only in (
         ("timeline", True),
         ("observed_effects", False),
@@ -380,7 +393,11 @@ def _future_outcome_evidence(fo):
             objects_only=objects_only,
         )
         if error:
-            return observable_fields, error
+            return error
+    return None
+
+
+def _collect_remaining_outcome_fields(fo, observable_fields):
     collectors = (
         _collect_new_state,
         _collect_state_delta,
@@ -390,7 +407,17 @@ def _future_outcome_evidence(fo):
     for collector in collectors:
         error = collector(fo, observable_fields)
         if error:
-            return observable_fields, error
+            return error
+    return None
+
+
+def _future_outcome_evidence(fo):
+    observable_fields = []
+    error = _collect_outcome_arrays(fo, observable_fields)
+    if error is None:
+        error = _collect_remaining_outcome_fields(fo, observable_fields)
+    if error:
+        return observable_fields, error
     return observable_fields, None
 
 
