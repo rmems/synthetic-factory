@@ -283,12 +283,8 @@ def build_manifest(args, selected, availability, commit, dirty, generated, files
     }
 
 
-def main(argv=None):
-    args = parse_args(list(sys.argv[1:] if argv is None else argv))
-    if args.list_families:
-        for name in families.FAMILY_NAMES:
-            print(name)
-        return 0
+def _argument_errors(args):
+    """Presence and range checks on the parsed arguments. Exit code, or None."""
     if not args.out_dir:
         print("oracle_generate: an output directory is required", file=sys.stderr)
         return 2
@@ -304,26 +300,102 @@ def main(argv=None):
             file=sys.stderr,
         )
         return 2
+    return None
 
+
+def _select_families(args):
+    """The requested families, de-duplicated in order. (selected, exit code)."""
     selected = list(dict.fromkeys(args.family_names or families.FAMILY_NAMES))
     unknown = [name for name in selected if name not in families.SPECS]
     if unknown:
         print(f"oracle_generate: unknown families: {', '.join(unknown)}", file=sys.stderr)
-        return 2
+        return None, 2
     if args.count * len(selected) > MAX_RUN_RECORDS:
         print(
             "oracle_generate: requested run would contain "
             f"{args.count * len(selected)} records; maximum is {MAX_RUN_RECORDS}",
             file=sys.stderr,
         )
-        return 2
+        return None, 2
+    return selected, None
 
-    selected_runtimes = tuple(
+
+def _stamp_contradicts_checkout(commit, availability):
+    """Whether an explicit --oracle-commit may not be trusted.
+
+    A bound named runtime can make this run's records publishable, so an
+    explicit --oracle-commit may not silently name a different revision than
+    the checkout that actually supplied module_digest and ran the oracle. When
+    git cannot resolve the checkout at all, fall back to trusting the caller's
+    stamp, same as the no-runtime-bound case.
+    """
+    if not any(probe["bound"] for probe in availability["runtimes"]):
+        return False
+    checkout_commit, _checkout_dirty = oracles.resolve_commit()
+    return checkout_commit != "unknown" and checkout_commit != commit
+
+
+def _resolve_stamp(args, availability):
+    """Resolve the oracle commit and dirty flag. (commit, dirty, exit code)."""
+    commit, dirty = args.oracle_commit, args.oracle_dirty
+    if commit is None:
+        commit, resolved_dirty = oracles.resolve_commit()
+        if dirty is None:
+            dirty = resolved_dirty
+    else:
+        if _stamp_contradicts_checkout(commit, availability):
+            checkout_commit, _checkout_dirty = oracles.resolve_commit()
+            print(
+                f"oracle_generate: --oracle-commit {commit!r} does not match the "
+                f"checked-out HEAD ({checkout_commit}); a bound named runtime can "
+                "produce publishable output, so the stamped commit must name the "
+                "checkout that supplied the implementation sources",
+                file=sys.stderr,
+            )
+            return None, None, 2
+    if commit == "unknown":
+        print(
+            "oracle_generate: could not resolve the oracle commit; pass "
+            "--oracle-commit to stamp it explicitly",
+            file=sys.stderr,
+        )
+        return None, None, 3
+    resolved_commit = oracles.resolve_source_commit(commit)
+    if resolved_commit is None:
+        print(
+            "oracle_generate: --oracle-commit must resolve to an existing lowercase "
+            "40- or 64-hex commit in this source repository",
+            file=sys.stderr,
+        )
+        return None, None, 2
+    return resolved_commit, dirty, None
+
+
+def _requested_runtimes(selected):
+    """Every runtime the selected families request, in first-seen order."""
+    return tuple(
         dict.fromkeys(
             runtime for family in selected for runtime in families.spec_for(family).runtimes
         )
     )
-    availability = oracles.availability_report(selected_runtimes)
+
+
+def main(argv=None):
+    args = parse_args(list(sys.argv[1:] if argv is None else argv))
+    if args.list_families:
+        for name in families.FAMILY_NAMES:
+            print(name)
+        return 0
+
+    argument_error = _argument_errors(args)
+    if argument_error is not None:
+        return argument_error
+
+    selected, selection_error = _select_families(args)
+    if selection_error is not None:
+        return selection_error
+
+    availability = oracles.availability_report(_requested_runtimes(selected))
     if args.require_runtime and not availability["all_bound"]:
         print(
             "oracle_generate: --require-runtime was passed but these oracles are "
@@ -332,43 +404,9 @@ def main(argv=None):
         )
         return 3
 
-    commit, dirty = args.oracle_commit, args.oracle_dirty
-    if commit is None:
-        commit, resolved_dirty = oracles.resolve_commit()
-        if dirty is None:
-            dirty = resolved_dirty
-    elif any(probe["bound"] for probe in availability["runtimes"]):
-        # A bound named runtime can make this run's records publishable, so an
-        # explicit --oracle-commit may not silently name a different revision
-        # than the checkout that actually supplied module_digest and ran the
-        # oracle. When git cannot resolve the checkout at all, fall back to
-        # trusting the caller's stamp, same as the no-runtime-bound case.
-        checkout_commit, _checkout_dirty = oracles.resolve_commit()
-        if checkout_commit != "unknown" and checkout_commit != commit:
-            print(
-                f"oracle_generate: --oracle-commit {commit!r} does not match the "
-                f"checked-out HEAD ({checkout_commit}); a bound named runtime can "
-                "produce publishable output, so the stamped commit must name the "
-                "checkout that supplied the implementation sources",
-                file=sys.stderr,
-            )
-            return 2
-    if commit == "unknown":
-        print(
-            "oracle_generate: could not resolve the oracle commit; pass "
-            "--oracle-commit to stamp it explicitly",
-            file=sys.stderr,
-        )
-        return 3
-    resolved_commit = oracles.resolve_source_commit(commit)
-    if resolved_commit is None:
-        print(
-            "oracle_generate: --oracle-commit must resolve to an existing lowercase "
-            "40- or 64-hex commit in this source repository",
-            file=sys.stderr,
-        )
-        return 2
-    commit = resolved_commit
+    commit, dirty, stamp_error = _resolve_stamp(args, availability)
+    if stamp_error is not None:
+        return stamp_error
 
     out_dir = Path(args.out_dir)
     try:
