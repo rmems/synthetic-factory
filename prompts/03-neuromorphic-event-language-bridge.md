@@ -54,8 +54,11 @@ D. Raster excerpt + routing + ISI + refractory (required for every record):
   `neuron_id` may appear twice with `|t_a − t_b| < 1.0`.
 - **Third-factor routing (required where neuromorphic)**: `raster.routing.third_factor`
   with a named `modulator`, a positive eligibility time constant `tau_e_s` (alias
-  `tau_e_ms`, e.g. τe 2.0 s), and the `eligibility` rule it gates. `raster.routing.table`
-  must carry at least one per-population `{from, to, weight}` entry.
+  `tau_e_ms`, e.g. τe 2.0 s), and the `eligibility` rule it gates. Declaring BOTH
+  representations is allowed only if they agree (`tau_e_ms / 1000 == tau_e_s` within
+  1e-9), exactly as `window_ms`/`window_s` must; a contradictory pair is quarantined.
+  `raster.routing.table` must carry at least one per-population `{from, to, weight}`
+  entry.
 
 E. Spike-implemented gate — at least one record per round:
 - Every round must contain **at least one `gate_snn` record**: the safety gate expressed

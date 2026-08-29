@@ -143,5 +143,44 @@ class NovelCoverageNotesContract(unittest.TestCase):
                 self.assertIn("5%", text, name)
 
 
+class RasterGateProducerContract(unittest.TestCase):
+    """Every lane the publish gate holds to the raster contract must say so.
+
+    ``round_txn.RASTER_FACTORY_SLUGS`` refuses a staged round whose records
+    carry no ``raster`` / ``gate_snn`` sidecar. A producer that follows its
+    prompt to the letter and still gets rejected would stall the lane, so the
+    prompt for each gated lane has to name the sidecars and the schema.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.prompts = {
+            path.name: path.read_text(encoding="utf-8")
+            for path in sorted(PROMPTS.glob("*.md"))
+        }
+
+    PROMPT_BY_SLUG = {
+        "thalamic-trajectory-factory": "01-thalamic-trajectory-factory.md",
+        "multi-agent-ouroboros-swarm": "02-multi-agent-ouroboros-swarm.md",
+        "neuromorphic-event-language-bridge": (
+            "03-neuromorphic-event-language-bridge.md"
+        ),
+    }
+
+    def test_every_gated_lane_has_a_prompt_that_documents_the_sidecars(self):
+        self.assertEqual(
+            sorted(round_txn.RASTER_FACTORY_SLUGS),
+            sorted(self.PROMPT_BY_SLUG),
+            "a lane joined the raster publish gate without a documented prompt",
+        )
+        for slug in sorted(round_txn.RASTER_FACTORY_SLUGS):
+            name = self.PROMPT_BY_SLUG[slug]
+            text = self.prompts[name]
+            with self.subTest(prompt=name):
+                self.assertIn("`raster`", text)
+                self.assertIn("`gate_snn`", text)
+                self.assertIn("schemas/raster.schema.json", text)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -641,6 +641,32 @@ class DistillationRasterAudit(unittest.TestCase):
         self.assertTrue(report["training_ready"], report["blockers"])
         self.assertEqual(report["bridge"]["raster_coverage_pct"], 0)
 
+    def test_wrong_kind_records_in_thalamic_factory_batches_block_training(self):
+        """A Bridge pair inside a TTF batch is wrong-kind, not covered data.
+
+        ``round_txn.validate_bridge_envelope`` refuses that exact batch
+        because TTF requires ``is_thalamic_record``, so the retroactive corpus
+        gate must not report the same batch as fully covered.
+        """
+
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            # A fully valid Bridge pair: the only defect is the lane it sits in.
+            pair = {
+                "id": "bridge-in-thalamic",
+                "spike_events": [
+                    {"channel": "a", "t_rel_ms": 1.0, "amplitude": 0.4},
+                    {"channel": "b", "t_rel_ms": 2.0, "amplitude": 0.5},
+                ],
+                "language_view": {"trajectory": thalamic("bridge-inner")},
+            }
+            pair.update(distillation_sidecars())
+            write(root / "thalamic-trajectory-factory" / "batch-r01.jsonl", [pair])
+            report = training_audit.audit_run(root)
+
+        self.assertFalse(report["training_ready"], report["blockers"])
+        self.assertEqual(report["bridge"]["wrong_kind_records"], 1)
+
     def test_wrong_kind_records_in_bridge_factory_batches_block_training(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)

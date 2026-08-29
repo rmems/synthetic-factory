@@ -1556,10 +1556,12 @@ class BridgeRasterEnvelope(unittest.TestCase):
                 round_txn.publish(factory, 1, reservation["token"])
 
     def test_other_factories_are_untouched_by_the_bridge_envelope(self):
+        # A lane that emits no neuromorphic records is skipped outright, so
+        # the envelope never even opens its batch file.
+        slug = "failure-as-fuel-preference-cascade"
+        self.assertNotIn(slug, round_txn.RASTER_FACTORY_SLUGS)
         with tempfile.TemporaryDirectory() as td:
-            factory = (
-                Path(td) / "outputs" / "raw" / "2099-01-01" / "multi-agent-ouroboros-swarm"
-            )
+            factory = Path(td) / "outputs" / "raw" / "2099-01-01" / slug
             factory.mkdir(parents=True)
             self.assertEqual(
                 round_txn.validate_bridge_envelope(factory / "batch-r01.jsonl", factory),
@@ -1588,6 +1590,105 @@ class BridgeRasterEnvelope(unittest.TestCase):
 
             with self.assertRaisesRegex(
                 round_txn.TransactionError, "20-50 ms raster excerpt sidecar"
+            ):
+                round_txn.publish(factory, 1, reservation["token"])
+            self.assertFalse((factory / "batch-r01.jsonl").exists())
+
+
+class OuroborosLaneRasterEnvelope(unittest.TestCase):
+    """The swarm lane emits Thalamic trajectories, so the gate must cover it.
+
+    ``prompts/02-multi-agent-ouroboros-swarm.md`` tells that lane to produce
+    Thalamic-trajectory training data against the same schema as
+    ``thalamic-trajectory-factory``, and ``spike_probe --strict`` already
+    recognizes those records and refuses them without a raster. Leaving the
+    lane out of the publish allowlist let a round publish as training-ready
+    that the distillation probe cannot load.
+    """
+
+    SLUG = "multi-agent-ouroboros-swarm"
+
+    def factory(self, root):
+        path = Path(root) / "outputs" / "raw" / "2099-01-01" / self.SLUG
+        path.mkdir(parents=True)
+        return path
+
+    def record(self, record_id):
+        record = thalamic(record_id)
+        record["meta"]["factory"] = self.SLUG
+        return record
+
+    def stage(self, factory, records):
+        reservation = round_txn.reserve(factory, 1, len(records))
+        staging = Path(reservation["staging_dir"])
+        write_records(staging / reservation["batch_file"], records)
+        (staging / reservation["notes_file"]).write_text(
+            "# Critique\n\nConcrete gap.\n\nNovel coverage: 100%\n"
+        )
+        return reservation
+
+    def test_a_swarm_round_without_a_raster_cannot_publish(self):
+        with tempfile.TemporaryDirectory() as td:
+            factory = self.factory(td)
+            record = self.record("swarm-prose-only")
+            del record["raster"]
+            del record["gate_snn"]
+            reservation = self.stage(factory, [record])
+
+            with self.assertRaisesRegex(
+                round_txn.TransactionError, "20-50 ms raster excerpt sidecar"
+            ):
+                round_txn.publish(factory, 1, reservation["token"])
+            self.assertFalse((factory / "batch-r01.jsonl").exists())
+
+    def test_a_raster_backed_swarm_round_still_publishes(self):
+        with tempfile.TemporaryDirectory() as td:
+            factory = self.factory(td)
+            reservation = self.stage(factory, [self.record("swarm-raster-1")])
+            manifest = round_txn.publish(
+                factory,
+                1,
+                reservation["token"],
+                execution_override="swarm envelope fixture has no live executor",
+            )
+
+        self.assertEqual(manifest["records"], 1)
+
+
+class UnboundedSpikeBudgetsAtPublish(unittest.TestCase):
+    """An oversized integer spike count is a reason code, not a crash.
+
+    ``check_jsonl`` accepts any JSON number, so the raster envelope is the
+    first layer that touches the 23 pJ/spike arithmetic; it has to classify an
+    unusable budget instead of raising ``OverflowError`` out of publish.
+    """
+
+    def factory(self, root):
+        path = (
+            Path(root)
+            / "outputs"
+            / "raw"
+            / "2099-01-01"
+            / "thalamic-trajectory-factory"
+        )
+        path.mkdir(parents=True)
+        return path
+
+    def test_an_unrepresentable_spike_count_is_refused_not_raised(self):
+        with tempfile.TemporaryDirectory() as td:
+            factory = self.factory(td)
+            record = thalamic("oversized-budget")
+            record["raster"]["spikes"] = 10**400
+            record["raster"]["energy_uJ"] = 1.0
+            reservation = round_txn.reserve(factory, 1, 1)
+            staging = Path(reservation["staging_dir"])
+            write_records(staging / reservation["batch_file"], [record])
+            (staging / reservation["notes_file"]).write_text(
+                "# Critique\n\nConcrete gap.\n\nNovel coverage: 100%\n"
+            )
+
+            with self.assertRaisesRegex(
+                round_txn.TransactionError, "spike-budget contract violated"
             ):
                 round_txn.publish(factory, 1, reservation["token"])
             self.assertFalse((factory / "batch-r01.jsonl").exists())

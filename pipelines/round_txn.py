@@ -114,10 +114,19 @@ FACTORY_QUOTAS = {
     "cache-stampede-factory": 2,
 }
 
-# NELB and TTF both carry the raster / gate-as-SNN publication contract.
+# Every lane that emits neuromorphic records carries the raster / gate-as-SNN
+# publication contract.  NELB emits paired Bridge records; TTF and the
+# Ouroboros swarm both emit top-level Thalamic trajectories against
+# schemas/thalamic-trajectory-v2.schema.json, and spike_probe.py already
+# recognizes those records and refuses them without a raster, so leaving the
+# swarm out let a round publish as training-ready that no distillation run
+# could load.
 BRIDGE_FACTORY_SLUG = "neuromorphic-event-language-bridge"
 THALAMIC_FACTORY_SLUG = "thalamic-trajectory-factory"
-RASTER_FACTORY_SLUGS = frozenset({BRIDGE_FACTORY_SLUG, THALAMIC_FACTORY_SLUG})
+OUROBOROS_FACTORY_SLUG = "multi-agent-ouroboros-swarm"
+RASTER_FACTORY_SLUGS = frozenset(
+    {BRIDGE_FACTORY_SLUG, THALAMIC_FACTORY_SLUG, OUROBOROS_FACTORY_SLUG}
+)
 
 # The original five lanes deliberately allow an operator-selected ``expected``
 # count. Every later Grok 4.6 factory is documented with a fixed quota and
@@ -1455,6 +1464,12 @@ def validate_bridge_envelope(batch: Path, factory_dir: Path):
     round carries at least one spike-implemented gate head.  ``curate_bridge``
     owns the spike arithmetic; this layer only refuses the publish.
 
+    ``RASTER_FACTORY_SLUGS`` names the gated lanes.  NELB must be paired Bridge
+    records; every other gated lane emits top-level Thalamic trajectories, and
+    ``prompts/01-thalamic-trajectory-factory.md`` and
+    ``prompts/02-multi-agent-ouroboros-swarm.md`` document the sidecars their
+    producers have to emit.
+
     This runs on the staged batch only.  Rounds committed before the contract
     existed keep their markers: retroactively rejecting them would break
     frontier discovery for every historical Bridge directory, and the corpus
@@ -1482,9 +1497,9 @@ def validate_bridge_envelope(batch: Path, factory_dir: Path):
                 "paired Bridge records with an object language_view.trajectory"
             )
             continue
-        if factory_slug == THALAMIC_FACTORY_SLUG and not is_thalamic_record(record):
+        if factory_slug != BRIDGE_FACTORY_SLUG and not is_thalamic_record(record):
             errors.append(
-                f"{batch.name}:{lineno}: {THALAMIC_FACTORY_SLUG} requires "
+                f"{batch.name}:{lineno}: {factory_slug} requires "
                 "Thalamic trajectory records with a raster sidecar"
             )
             continue

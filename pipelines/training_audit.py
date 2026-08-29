@@ -502,14 +502,25 @@ def audit_run(run_dir: Path):
                 if isinstance(values, list):
                     tags.update(value for value in values if isinstance(value, str))
 
-            if factory == BRIDGE_FACTORY_SLUG and kind != "bridge_pair":
+            # Both distillation lanes are wrong-kind gated, and each one only
+            # accepts its own kind.  round_txn.validate_bridge_envelope refuses
+            # a Bridge pair staged into a TTF batch because TTF requires
+            # is_thalamic_record, so counting that same pair as covered here
+            # would give the historical corpus a false clean result.
+            expected_kind = {
+                BRIDGE_FACTORY_SLUG: "bridge_pair",
+                THALAMIC_FACTORY_SLUG: "thalamic",
+            }.get(factory)
+            if expected_kind is not None and kind != expected_kind:
                 bridge["wrong_kind_records"] += 1
                 bridge_batches[str(rel)]["wrong_kind_records"] += 1
                 if len(wrong_kind_examples) < 5:
                     wrong_kind_examples.append(f"{where}:{kind}")
 
-            distillation_record = kind == "bridge_pair" or (
-                factory == THALAMIC_FACTORY_SLUG and kind == "thalamic"
+            distillation_record = (
+                kind == expected_kind
+                if expected_kind is not None
+                else kind == "bridge_pair"
             )
             if distillation_record:
                 bridge_batch = bridge_batches[str(rel)]
@@ -628,8 +639,9 @@ def audit_run(run_dir: Path):
     missing_tables = bridge.get("raster_routing_table_missing_pairs", 0)
     if bridge.get("wrong_kind_records"):
         blockers.append(
-            f"{bridge['wrong_kind_records']} non-Bridge records in "
-            f"{BRIDGE_FACTORY_SLUG} batches"
+            f"{bridge['wrong_kind_records']} wrong-kind distillation records "
+            f"(non-Bridge records in {BRIDGE_FACTORY_SLUG} batches, "
+            f"non-Thalamic records in {THALAMIC_FACTORY_SLUG} batches)"
         )
     if missing_rasters:
         blockers.append(

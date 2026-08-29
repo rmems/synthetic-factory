@@ -43,6 +43,47 @@ You MUST execute exactly 2 full densifying cycles per trajectory (per JSONL line
 - The Trajectory Builder's final JSON is the only JSON that counts toward `batch-rNN.jsonl`; intermediate patches stay as labeled text under their agent's heading (or as explicit JSON Patch blocks) and are NOT separate JSONL lines.
 - Preserve all prior injections when densifying — Cycle 2 must retain Cycle 1's domain and tail while adding its own.
 
+### Neuromorphic sidecars — `raster` + `gate_snn` (MANDATORY per record)
+
+`pipelines/round_txn.py publish` refuses this lane's round unless every record
+carries the distillation sidecars defined by `schemas/raster.schema.json`. The
+prose spike narrative above is NOT the contract: `pipelines/spike_probe.py` loads
+these fields and never parses prose, and a round without them cannot be loaded by
+an SNN distillation run even though it is schema-valid as a trajectory.
+
+- **`raster` sidecar per record** (top level or under `meta`): `window_ms` ∈ [20, 50]
+  inclusive with `window_s == window_ms/1000` within 1e-9; `neurons` (>0),
+  `mean_rate_hz` (>0) and `spikes` satisfying
+  `spikes = round(neurons * mean_rate_hz * window_s)` ±1; a non-empty `excerpt` of
+  `{t_ms, neuron_id}` with `0 ≤ t_ms ≤ window_ms` and `neuron_id` ∈ [0, neurons);
+  and `routing` with non-empty `source`/`target` plus at least one
+  `{from, to, weight}` entry in `routing.table`.
+- **Energy — Loihi 2 4-core 23 pJ/spike**: when declared, `energy_pJ = spikes * 23`
+  within 1e-6 and `energy_uJ = spikes * 23e-6` within 1e-9. Keep `spikes` a
+  realistic count: a spike budget whose 23 pJ product is not a finite double is
+  rejected rather than published.
+- **`routing.third_factor` required**: a named `modulator`, a positive eligibility
+  time constant `tau_e_s` (alias `tau_e_ms`), and the `eligibility` rule it gates.
+  Declaring BOTH representations is allowed only if they agree
+  (`tau_e_ms / 1000 == tau_e_s` within 1e-9); a contradictory pair is rejected.
+- **At least one `gate_snn` record per round**: the safety gate expressed as neuron
+  populations rather than a prose margin, so the gate head is distillable. Carriers:
+  top-level `gate_snn`, `meta.gate_snn`, `language_view.trajectory.gate_snn`, or
+  `language_view.trajectory.safety_decision.gate_snn`. Required fields:
+  `decision_window_ms` (>0; alias `decision_window_s`), a non-empty `populations`
+  array whose entries each declare `name`, `neurons` (>0) and a numeric firing
+  `threshold`, and a `decision` with at least one non-whitespace character that
+  MATCHES `safety_decision.decision`. A population that also declares
+  `mean_rate_hz` and `spikes` is held to the same ±1 spike budget.
+- **`gate_compute` if declared** (top level, `language_view.trajectory`, or
+  `language_view.trajectory.safety_decision`): each `per_check` entry needs
+  `neurons` (>0), `mean_rate_hz` (>0), `window_s` (>0) and non-negative `spikes`
+  meeting the same ±1 budget; a declared total must match at 23 pJ/spike. The first
+  declared carrier is the one validated, so do not leave a malformed one in place.
+- `prompts/03-neuromorphic-event-language-bridge.md` sections D and E carry the full
+  sidecar contract; `pipelines/curate_bridge.py` is the single owner of the spike
+  arithmetic that `publish`, `pipelines/training_audit.py`, and the probe all share.
+
 ### Transactional output
 
 1. Reserve: `python3 pipelines/round_txn.py reserve <factory-dir> --round N --expected Q`
