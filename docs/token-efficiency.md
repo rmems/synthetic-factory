@@ -31,18 +31,53 @@ The value is the agent's self-estimate of what fraction of this round's scenario
 
 > Include a line "Novel coverage: <N>%" estimating the fraction of this round's scenarios/edges that are novel vs prior rounds (used for token-efficiency early-stop: 2 consecutive rounds <5% triggers stop).
 
+The same requirement is written into the standing factory prompts, so a lane
+started by hand from `prompts/` produces latchable NOTES too:
+
+- `prompts/_factory-contract.md` — "Novel coverage (required NOTES line)",
+  binding on prompts 01–05.
+- `prompts/_agentic-factory-contract.md` — transactional step 4, binding on the
+  Grok 4.6 agentic lanes and every restart-lane slug.
+- Each round-transactional prompt repeats the line at its own NOTES step.
+
+`tests/test_workflow_contract.py` fails if a prompt that drives
+`round_txn.py publish` ever drops the requirement.
+
+**Publish is the gate.** `round_txn.py publish` refuses a round whose staged
+NOTES omit the line or report a value outside 0–100 — for every registered
+lane, not just the fixed agentic ones. Unknown custom transaction directories
+retain the generic nonempty-NOTES contract because they have no registered
+factory prompt or token-efficiency policy. The registered-lane check is
+forward-only: the history-reading paths (`completed_manifests`,
+legacy-baseline validation) keep their original fixed-agentic scope, so rounds
+committed before the contract existed stay readable and no raw file is ever
+rewritten. This is what closes the 2026-08-19 gap where 0/49 `NOTES-r*.md`
+emitted the line and the latch could never fire.
+
 Parsing is case-insensitive and tolerant:
 
 - `Novel coverage: 4.2%` ✓
 - `novel_coverage 3%` ✓
 - `Novel coverage (estimated): 12.5 %` ✓
 
-Regex: `novel[^%\r\n]*?(\d+(?:\.\d+)?)\s*%`, matched case-insensitively
-(`/…/i` in JS, `re.I` in Python — JS and Python share the same pattern).
-The character class excludes newlines so the match cannot run past the end of
-the `Novel coverage:` line: a later line such as `Test coverage: 80%` can no
-longer be captured as this round's novel coverage. Whitespace between the
-number and `%` is still tolerated.
+New publication uses the complete strict regex
+`^[ \t]*novel[ _-]?coverage[ \t]*(?:\([^)\r\n]*\))?[ \t]*[:=]?[ \t]*([0-9]+(?:\.[0-9]+)?)[ \t]*%[ \t]*$`,
+matched case-insensitively against exactly one labeled physical line. Python's
+`round_txn.NOVEL_COVERAGE_RE` and the workflow's `novelCoveragePct` share this
+forward contract. The label, optional annotation, separator, number, and
+percent sign must appear on one CRLF-, LF-, or CR-delimited physical line; only
+ASCII digits are accepted, and only horizontal spaces and tabs are accepted
+between the grammar elements.
+The label is anchored at the start of its own line, so prose percentages
+elsewhere in the notes can never be misread as this round's novel coverage:
+neither `Test coverage: 80%` nor `…the edges feel novel; Jaccard overlap peaked
+at 45%` matches. Whitespace between the number and `%` is still tolerated.
+
+Committed history is never rewritten. Transaction reads and the offline driver
+therefore retain the former multiline prefix grammar and first-match behavior,
+including previously accepted suffixes, duplicate labels, and split claims such
+as `Novel coverage:\n4%`. That compatibility parser does not relax new
+publication.
 
 Unparseable NOTES do **not** advance or reset the streak — they hold it and are logged for visibility, so a missing line cannot hide a plateau nor trigger a false stop.
 
@@ -96,15 +131,26 @@ python3 .claude/skills/run-synthetic-factory/driver.py token-efficiency outputs/
 - Reports per-round `novel_coverage_pct`, `is_low`, and `early_stop_at_round`.
 - Useful for post-hoc validation and for runs that predate the workflow guard.
 
+A committed convergence fixture exercises both directions of the latch:
+
+```bash
+python3 .claude/skills/run-synthetic-factory/driver.py \
+  token-efficiency tests/fixtures/token-efficiency --json
+```
+
+`thalamic-trajectory-factory` there reports 4.2% then 3.1% and early-stops at
+r02; `agentic-coding-trajectory-factory` reports 4.8% then 12.0% and keeps
+running. `tests/test_factory_driver.py` asserts both.
+
 Example output:
 
-```
-thalamic-trajectory-factory: EARLY-STOP at r07 — 2 consecutive NOTES <5% novel coverage (40% saving mode)
-  r06 NOTES-r06.md: 4.2% LOW
-  r07 NOTES-r07.md: 3.1% LOW
+```text
+thalamic-trajectory-factory: EARLY-STOP at r02 — 2 consecutive NOTES <5% novel coverage (40% saving mode)
+  r01 NOTES-r01.md: 4.2% LOW
+  r02 NOTES-r02.md: 3.1% LOW
 agentic-coding-trajectory-factory: no early-stop (1 low round(s), need 2 consecutive <5%)
-  r02 NOTES-r02.md: 4.8% LOW
-  r03 NOTES-r03.md: 12.0%
+  r01 NOTES-r01.md: 4.8% LOW
+  r02 NOTES-r02.md: 12.0%
 ```
 
 ### 4. Interaction with verification
@@ -130,4 +176,4 @@ Savings scale with backstop distance: a window starting at r12 with plateau at r
 ## References
 
 - Workflow: `.claude/skills/run-synthetic-factory/factory-window.workflow.js:95` (`TOKEN_EFFICIENCY`, `novelCoveragePct`, early-stop loop)
-- Driver: `.claude/skills/run-synthetic-factory/driver.py:34` (`TOKEN_EFFICIENCY_*`, `NOVEL_COVERAGE_RE`, `factory_token_efficiency`, `cmd_token_efficiency`)
+- Driver: `.claude/skills/run-synthetic-factory/driver.py:65` (`TOKEN_EFFICIENCY_*`), `:72` (`LEGACY_NOVEL_COVERAGE_RE`), `:392` (`factory_token_efficiency`), `:490` (`cmd_token_efficiency`)
