@@ -136,6 +136,115 @@ def _path_key(path, key):
     return f"{path}.{key}" if isinstance(key, str) and key.isidentifier() else f"{path}[{key!r}]"
 
 
+def _combinator_errors(value, schema, root, path):
+    """const, enum, not and anyOf."""
+    errors = []
+    if "const" in schema and not _json_equal(value, schema["const"]):
+        errors.append(f"{path} must equal {schema['const']!r}")
+    if "enum" in schema and not any(_json_equal(value, item) for item in schema["enum"]):
+        errors.append(f"{path} must be one of {schema['enum']!r}")
+    if "not" in schema and not _validate(value, schema["not"], root, path):
+        errors.append(f"{path} matches a forbidden schema")
+    if "anyOf" in schema and not any(
+        not _validate(value, option, root, path) for option in schema["anyOf"]
+    ):
+        errors.append(f"{path} does not match any allowed schema")
+    return errors
+
+
+def _numeric_errors(value, schema, path):
+    """minimum, maximum and their exclusive forms."""
+    if not isinstance(value, (int, float)) or isinstance(value, bool):
+        return []
+    errors = []
+    if "minimum" in schema and value < schema["minimum"]:
+        errors.append(f"{path} must be >= {schema['minimum']!r}")
+    if "maximum" in schema and value > schema["maximum"]:
+        errors.append(f"{path} must be <= {schema['maximum']!r}")
+    if "exclusiveMinimum" in schema and value <= schema["exclusiveMinimum"]:
+        errors.append(f"{path} must be > {schema['exclusiveMinimum']!r}")
+    if "exclusiveMaximum" in schema and value >= schema["exclusiveMaximum"]:
+        errors.append(f"{path} must be < {schema['exclusiveMaximum']!r}")
+    return errors
+
+
+def _string_errors(value, schema, path):
+    """minLength and pattern."""
+    if not isinstance(value, str):
+        return []
+    errors = []
+    if "minLength" in schema and len(value) < schema["minLength"]:
+        errors.append(f"{path} must contain at least {schema['minLength']} characters")
+    if "pattern" in schema and re.search(schema["pattern"], value) is None:
+        errors.append(f"{path} does not match pattern {schema['pattern']!r}")
+    return errors
+
+
+def _unique_items_errors(value, path):
+    """uniqueItems, reported once for the first repeat."""
+    seen = set()
+    for item in value:
+        key = _unique_item_key(item)
+        if key in seen:
+            return [f"{path} must contain unique items"]
+        seen.add(key)
+    return []
+
+
+def _array_errors(value, schema, root, path):
+    """minItems, maxItems, uniqueItems and items."""
+    if not isinstance(value, list):
+        return []
+    errors = []
+    if "minItems" in schema and len(value) < schema["minItems"]:
+        errors.append(f"{path} must contain at least {schema['minItems']} items")
+    if "maxItems" in schema and len(value) > schema["maxItems"]:
+        errors.append(f"{path} must contain at most {schema['maxItems']} items")
+    if schema.get("uniqueItems"):
+        errors.extend(_unique_items_errors(value, path))
+    item_schema = schema.get("items")
+    if isinstance(item_schema, dict):
+        for index, item in enumerate(value):
+            errors.extend(_validate(item, item_schema, root, f"{path}[{index}]"))
+    return errors
+
+
+def _object_errors(value, schema, root, path):
+    """minProperties, required, properties and additionalProperties."""
+    if not isinstance(value, dict):
+        return []
+    errors = []
+    if "minProperties" in schema and len(value) < schema["minProperties"]:
+        errors.append(f"{path} must contain at least {schema['minProperties']} properties")
+    for key in schema.get("required", ()):
+        if key not in value:
+            errors.append(f"{_path_key(path, key)} is required")
+    properties = schema.get("properties", {})
+    for key, child_schema in properties.items():
+        if key in value:
+            errors.extend(_validate(value[key], child_schema, root, _path_key(path, key)))
+    additional = schema.get("additionalProperties", True)
+    extras = [key for key in value if key not in properties]
+    if additional is False:
+        for key in extras:
+            errors.append(f"{_path_key(path, key)} is not allowed")
+    elif isinstance(additional, dict):
+        for key in extras:
+            errors.extend(_validate(value[key], additional, root, _path_key(path, key)))
+    return errors
+
+
+def _type_errors(value, schema, path):
+    """The declared type, which short-circuits every later keyword."""
+    expected = schema.get("type")
+    if expected is None:
+        return []
+    allowed = [expected] if isinstance(expected, str) else expected
+    if any(_type_matches(value, item) for item in allowed):
+        return []
+    return [f"{path} must have type {allowed!r}, got {_display_type(value)!r}"]
+
+
 def _validate(value, schema, root, path):
     errors = []
 
@@ -143,83 +252,21 @@ def _validate(value, schema, root, path):
     if reference is not None:
         errors.extend(_validate(value, _resolve_pointer(root, reference), root, path))
 
-    if "const" in schema and not _json_equal(value, schema["const"]):
-        errors.append(f"{path} must equal {schema['const']!r}")
-    if "enum" in schema and not any(_json_equal(value, item) for item in schema["enum"]):
-        errors.append(f"{path} must be one of {schema['enum']!r}")
+    errors.extend(_combinator_errors(value, schema, root, path))
 
-    if "not" in schema and not _validate(value, schema["not"], root, path):
-        errors.append(f"{path} matches a forbidden schema")
-
-    if "anyOf" in schema and not any(
-        not _validate(value, option, root, path) for option in schema["anyOf"]
-    ):
-        errors.append(f"{path} does not match any allowed schema")
-
-    expected = schema.get("type")
-    if expected is not None:
-        allowed = [expected] if isinstance(expected, str) else expected
-        if not any(_type_matches(value, item) for item in allowed):
-            errors.append(f"{path} must have type {allowed!r}, got {_display_type(value)!r}")
-            return errors
+    type_errors = _type_errors(value, schema, path)
+    if type_errors:
+        errors.extend(type_errors)
+        return errors
 
     if isinstance(value, float) and not math.isfinite(value):
         errors.append(f"{path} contains a non-finite number")
         return errors
 
-    if isinstance(value, (int, float)) and not isinstance(value, bool):
-        if "minimum" in schema and value < schema["minimum"]:
-            errors.append(f"{path} must be >= {schema['minimum']!r}")
-        if "maximum" in schema and value > schema["maximum"]:
-            errors.append(f"{path} must be <= {schema['maximum']!r}")
-        if "exclusiveMinimum" in schema and value <= schema["exclusiveMinimum"]:
-            errors.append(f"{path} must be > {schema['exclusiveMinimum']!r}")
-        if "exclusiveMaximum" in schema and value >= schema["exclusiveMaximum"]:
-            errors.append(f"{path} must be < {schema['exclusiveMaximum']!r}")
-
-    if isinstance(value, str):
-        if "minLength" in schema and len(value) < schema["minLength"]:
-            errors.append(f"{path} must contain at least {schema['minLength']} characters")
-        if "pattern" in schema and re.search(schema["pattern"], value) is None:
-            errors.append(f"{path} does not match pattern {schema['pattern']!r}")
-
-    if isinstance(value, list):
-        if "minItems" in schema and len(value) < schema["minItems"]:
-            errors.append(f"{path} must contain at least {schema['minItems']} items")
-        if "maxItems" in schema and len(value) > schema["maxItems"]:
-            errors.append(f"{path} must contain at most {schema['maxItems']} items")
-        if schema.get("uniqueItems"):
-            seen = set()
-            for item in value:
-                key = _unique_item_key(item)
-                if key in seen:
-                    errors.append(f"{path} must contain unique items")
-                    break
-                seen.add(key)
-        item_schema = schema.get("items")
-        if isinstance(item_schema, dict):
-            for index, item in enumerate(value):
-                errors.extend(_validate(item, item_schema, root, f"{path}[{index}]"))
-
-    if isinstance(value, dict):
-        if "minProperties" in schema and len(value) < schema["minProperties"]:
-            errors.append(f"{path} must contain at least {schema['minProperties']} properties")
-        required = schema.get("required", ())
-        for key in required:
-            if key not in value:
-                errors.append(f"{_path_key(path, key)} is required")
-        properties = schema.get("properties", {})
-        for key, child_schema in properties.items():
-            if key in value:
-                errors.extend(_validate(value[key], child_schema, root, _path_key(path, key)))
-        additional = schema.get("additionalProperties", True)
-        extras = [key for key in value if key not in properties]
-        if additional is False:
-            for key in extras:
-                errors.append(f"{_path_key(path, key)} is not allowed")
-        elif isinstance(additional, dict):
-            for key in extras:
-                errors.extend(_validate(value[key], additional, root, _path_key(path, key)))
+    errors.extend(_numeric_errors(value, schema, path))
+    errors.extend(_string_errors(value, schema, path))
+    errors.extend(_array_errors(value, schema, root, path))
+    errors.extend(_object_errors(value, schema, root, path))
     return errors
 
 
