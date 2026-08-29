@@ -37,6 +37,51 @@ QUEUE_BACKPRESSURE_MIRROR = (
 SHARD_NAMES = [f"batch-r{number:02d}.jsonl" for number in range(1, 142)]
 
 
+_needs_mirror = unittest.skipUnless(
+    QUEUE_BACKPRESSURE_MIRROR.is_dir(),
+    "read-only published mirror is not available",
+)
+
+
+def _load_mirror_records(mirror):
+    """Read every payload record in the mirror, tagged with its shard name."""
+    shards = sorted(mirror.glob("batch-*.jsonl"))
+    records = []
+    for shard in shards:
+        with shard.open(encoding="utf-8") as handle:
+            for line in handle:
+                if line.strip():
+                    records.append((shard.name, json.loads(line)))
+    return shards, records
+
+
+def _feature_index(features):
+    """Split a feature list into a name lookup and the set of optional names."""
+    names = {feature["name"]: feature for feature in features}
+    return names, {n for n, f in names.items() if f.get("optional")}
+
+
+def _iter_steps(records):
+    """Yield every (shard, step) pair, flattening the record/step nesting."""
+    for shard, record in records:
+        for step in record["steps"]:
+            yield shard, step
+
+
+def _bag_key_counts(records, bag):
+    """Count how many records carry each key of a free-form bag."""
+    seen = {}
+    for _shard, record in records:
+        for key in record[bag]:
+            seen[key] = seen.get(key, 0) + 1
+    return seen
+
+
+def _ids_where(records, predicate):
+    """The set of record ids whose record matches a predicate."""
+    return {record["id"] for _shard, record in records if predicate(record)}
+
+
 class QueueBackpressureDeclarationTests(unittest.TestCase):
     """Issue #70: thin `meta` vs designed/lane leftover schema.
 
@@ -163,32 +208,30 @@ class QueueBackpressureDeclarationTests(unittest.TestCase):
             )
         )
 
-    @unittest.skipUnless(
-        QUEUE_BACKPRESSURE_MIRROR.is_dir(),
-        "read-only published mirror is not available",
-    )
-    def test_declaration_counts_match_the_published_mirror(self):
-        """Re-derive the docstring's counts from the payload, not from the JSON.
+    # -- Re-derived from the payload, not from the declaration -------------
+    #
+    # Every assertion above compares the declaration against constants typed
+    # beside it, so none can fail when the declaration drifts from what was
+    # actually published. The tests below rescan the published mirror instead.
 
-        Every other assertion in this class compares the declaration against
-        constants typed beside it, so none can fail when the declaration drifts
-        from what was actually published. This one rescans the mirror.
+    @classmethod
+    def _mirror(cls):
+        """Scan the published mirror once, then reuse it across these tests."""
+        if getattr(cls, "_mirror_cache", None) is None:
+            cls._mirror_cache = _load_mirror_records(QUEUE_BACKPRESSURE_MIRROR)
+        return cls._mirror_cache
+
+    @_needs_mirror
+    def test_published_shards_are_exactly_the_declared_shard_list(self):
+        """The real published layout, not a fabricated name list.
+
+        Compared as a set because glob order is lexicographic (`batch-r100`
+        sorts before `batch-r11`) while the run is numbered numerically; equal
+        sets of equal length prove no gap, no extra and no suffixed shard.
         """
-        shards = sorted(QUEUE_BACKPRESSURE_MIRROR.glob("batch-*.jsonl"))
-        records = []
-        for shard in shards:
-            with shard.open(encoding="utf-8") as handle:
-                for line in handle:
-                    if line.strip():
-                        records.append((shard.name, json.loads(line)))
+        shards, records = self._mirror()
         self.assertEqual(len(shards), 141)
         self.assertEqual(len(records), 282)
-        total = len(records)
-
-        # The real published layout, not a fabricated name list. Compared as a
-        # set because glob order is lexicographic (`batch-r100` sorts before
-        # `batch-r11`) while the run is numbered numerically; equal sets of
-        # equal length prove no gap, no extra and no suffixed shard.
         published = [shard.name for shard in shards]
         self.assertEqual(len(published), len(SHARD_NAMES))
         self.assertEqual(set(published), set(SHARD_NAMES))
@@ -196,27 +239,35 @@ class QueueBackpressureDeclarationTests(unittest.TestCase):
             card_schema.payload_coverage_errors(self.declaration, published), []
         )
 
-        names = {feature["name"]: feature for feature in self.declaration["features"]}
-        optional = {n for n, f in names.items() if f.get("optional")}
+    @_needs_mirror
+    def test_every_record_carries_exactly_the_declared_top_level_fields(self):
+        _shards, records = self._mirror()
+        names, optional = _feature_index(self.declaration["features"])
         for shard, record in records:
             self.assertEqual(set(record) - set(names), set(), shard)
             self.assertEqual(set(names) - set(record) - optional, set(), shard)
             self.assertIsInstance(record["plan"], str)
-        self.assertIn(f"present on all {total} records", names["plan"]["note"])
+        self.assertIn(f"present on all {len(records)} records", names["plan"]["note"])
 
-        step_names = {feature["name"]: feature for feature in names["steps"]["list"]}
-        step_optional = {n for n, f in step_names.items() if f.get("optional")}
-        total_steps = reflections = bases = 0
-        for shard, record in records:
-            for step in record["steps"]:
-                total_steps += 1
-                self.assertEqual(set(step) - set(step_names), set(), shard)
-                self.assertEqual(
-                    set(step_names) - set(step) - step_optional, set(), shard
-                )
-                self.assertEqual(set(step["tool_call"]), {"name", "args"})
-                reflections += "reflection" in step
-                bases += bool(step["decision_basis"])
+    @_needs_mirror
+    def test_every_step_carries_exactly_the_declared_step_fields(self):
+        _shards, records = self._mirror()
+        names, _optional = _feature_index(self.declaration["features"])
+        step_names, step_optional = _feature_index(names["steps"]["list"])
+        for shard, step in _iter_steps(records):
+            self.assertEqual(set(step) - set(step_names), set(), shard)
+            self.assertEqual(set(step_names) - set(step) - step_optional, set(), shard)
+            self.assertEqual(set(step["tool_call"]), {"name", "args"})
+
+    @_needs_mirror
+    def test_step_notes_match_the_reflection_and_decision_basis_counts(self):
+        _shards, records = self._mirror()
+        names, _optional = _feature_index(self.declaration["features"])
+        step_names, _step_optional = _feature_index(names["steps"]["list"])
+        steps = [step for _shard, step in _iter_steps(records)]
+        total_steps = len(steps)
+        reflections = sum(1 for step in steps if "reflection" in step)
+        bases = sum(1 for step in steps if step["decision_basis"])
         self.assertIn(
             f"present on {reflections} of {total_steps} steps",
             step_names["reflection"]["note"],
@@ -224,57 +275,68 @@ class QueueBackpressureDeclarationTests(unittest.TestCase):
         self.assertEqual(bases, total_steps)
         self.assertIn(f"`decision_basis` ({bases} of {total_steps})", self.card)
 
-        bags = {}
-        for bag in ("reward", "meta"):
-            seen = {}
-            for _shard, record in records:
-                for key in record[bag]:
-                    seen[key] = seen.get(key, 0) + 1
-            bags[bag] = seen
-        reward_note = names["reward"]["note"]
+    @_needs_mirror
+    def test_reward_note_matches_the_published_reward_key_counts(self):
+        _shards, records = self._mirror()
+        names, _optional = _feature_index(self.declaration["features"])
+        counts = _bag_key_counts(records, "reward")
+        note = names["reward"]["note"]
         self.assertEqual(
-            {k for k, v in bags["reward"].items() if v == total},
+            {k for k, v in counts.items() if v == len(records)},
             {"success", "tests_passed", "cost_steps"},
         )
-        self.assertIn(f"`plan_changes` on {bags['reward']['plan_changes']}", reward_note)
-        self.assertIn(f"`retries` on {bags['reward']['retries']}", reward_note)
-        self.assertIn(
-            f"`wasted_calls` on {bags['reward']['wasted_calls']}", reward_note
-        )
-        self.assertIn(f"`xfailed` on {bags['reward']['xfailed']}", reward_note)
+        self.assertIn(f"`plan_changes` on {counts['plan_changes']}", note)
+        self.assertIn(f"`retries` on {counts['retries']}", note)
+        self.assertIn(f"`wasted_calls` on {counts['wasted_calls']}", note)
+        self.assertIn(f"`xfailed` on {counts['xfailed']}", note)
 
-        designed = bags["meta"]["kind"]
-        lane_count = bags["meta"]["lane"]
-        meta_note = names["meta"]["note"]
+    @_needs_mirror
+    def test_meta_note_matches_the_designed_and_lane_record_counts(self):
+        _shards, records = self._mirror()
+        names, _optional = _feature_index(self.declaration["features"])
+        total = len(records)
+        counts = _bag_key_counts(records, "meta")
+        designed = counts["kind"]
+        note = names["meta"]["note"]
         self.assertEqual(
-            {k for k, v in bags["meta"].items() if v == total},
+            {k for k, v in counts.items() if v == total},
             {"factory", "generator", "round"},
         )
-        self.assertIn(f"{designed} add `kind`", meta_note)
-        self.assertIn(f"{lane_count} of those also add `lane`", meta_note)
-        self.assertIn(f"{total - designed} carry the thin", meta_note)
+        self.assertIn(f"{designed} add `kind`", note)
+        self.assertIn(f"{counts['lane']} of those also add `lane`", note)
+        self.assertIn(f"{total - designed} carry the thin", note)
         self.assertIn(f"cast fails on the later {designed} designed records", self.card)
 
-        # Each disclosed id list must be exactly the set the payload produces.
-        disclosed = {}
-        for item in self.declaration["disclosures"]:
-            if isinstance(item, dict):
-                disclosed[frozenset(item["ids"])] = item
-        thin = {r["id"] for _s, r in records if "kind" not in r["meta"]}
-        lane = {r["id"] for _s, r in records if "lane" in r["meta"]}
-        sir = {r["id"] for _s, r in records if r["id"].startswith("sir-")}
+    @_needs_mirror
+    def test_each_disclosed_id_list_is_exactly_what_the_payload_produces(self):
+        _shards, records = self._mirror()
+        counts = _bag_key_counts(records, "meta")
+        disclosed = {
+            frozenset(item["ids"])
+            for item in self.declaration["disclosures"]
+            if isinstance(item, dict)
+        }
+        thin = _ids_where(records, lambda r: "kind" not in r["meta"])
+        lane = _ids_where(records, lambda r: "lane" in r["meta"])
+        sir = _ids_where(records, lambda r: r["id"].startswith("sir-"))
         for derived in (thin, lane, sir):
             self.assertIn(frozenset(derived), disclosed, sorted(derived))
-        self.assertEqual(len(thin), total - designed)
-        self.assertEqual(len(lane), lane_count)
+        self.assertEqual(len(thin), len(records) - counts["kind"])
+        self.assertEqual(len(lane), counts["lane"])
         self.assertEqual(len(sir), 6)
         # The 4 `lane` records are the same 4 whose reward omits `plan_changes`.
         self.assertEqual(
-            lane, {r["id"] for _s, r in records if "plan_changes" not in r["reward"]}
+            lane, _ids_where(records, lambda r: "plan_changes" not in r["reward"])
         )
-        # The dest-stamped foreign rows really are invisible to both detectors.
-        foreign = [r for _s, r in records if r["id"] in sir]
-        self.assertEqual({r["meta"]["factory"] for r in foreign}, {QUEUE_BACKPRESSURE.replace("-trajectories", "-factory")})
+
+    @_needs_mirror
+    def test_dest_stamped_foreign_rows_are_invisible_to_both_detectors(self):
+        _shards, records = self._mirror()
+        foreign = [r for _shard, r in records if r["id"].startswith("sir-")]
+        self.assertEqual(
+            {r["meta"]["factory"] for r in foreign},
+            {QUEUE_BACKPRESSURE.replace("-trajectories", "-factory")},
+        )
         self.assertEqual({r["meta"]["kind"] for r in foreign}, {"episode"})
         self.assertEqual(
             sum(
@@ -285,9 +347,12 @@ class QueueBackpressureDeclarationTests(unittest.TestCase):
             3,
         )
 
-        # The same-factory leftover naming counts the card prints.
-        own = [r for _s, r in records if r["id"].startswith("qbp-")]
-        self.assertEqual(len(own), total - len(sir))
+    @_needs_mirror
+    def test_same_factory_leftover_naming_counts_match_the_card(self):
+        _shards, records = self._mirror()
+        sir = _ids_where(records, lambda r: r["id"].startswith("sir-"))
+        own = [r for _shard, r in records if r["id"].startswith("qbp-")]
+        self.assertEqual(len(own), len(records) - len(sir))
         self.assertIn(
             f"{sum(1 for r in own if 'leftover' in r['id'])} name `leftover` in the id",
             self.card,
