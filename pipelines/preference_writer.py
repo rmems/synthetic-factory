@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import os
 import sys
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -103,7 +104,26 @@ def _refuse_opened_parent(parent_fd: int, destination: Path) -> None:
     _refuse_raw_destination(opened / destination.name, "destination")
 
 
-def _create_exclusive_file(path: Path, payload: str, created: list[Path]) -> None:
+@dataclass(frozen=True)
+class _CreatedFile:
+    """A file this invocation created, addressed by its pinned parent.
+
+    ``path`` is only a label for messages. The parent descriptor stays open
+    until the write is finished so that the durability fsync and any cleanup
+    both address the directory the file was actually created in. Resolving
+    the pathname again would let a directory renamed or repointed after
+    creation redirect either operation onto an unrelated file -- including,
+    in the worst case, immutable raw evidence.
+    """
+
+    parent_fd: int
+    name: str
+    path: Path
+
+
+def _create_exclusive_file(
+    path: Path, payload: str, created: list[_CreatedFile]
+) -> None:
     parent_fd = _open_destination_parent(path)
     try:
         _refuse_opened_parent(parent_fd, path)
@@ -113,33 +133,40 @@ def _create_exclusive_file(path: Path, payload: str, created: list[Path]) -> Non
             0o644,
             dir_fd=parent_fd,
         )
-    finally:
+    except BaseException:
         os.close(parent_fd)
-    created.append(path)
+        raise
+    created.append(_CreatedFile(parent_fd, path.name, path))
     with os.fdopen(descriptor, "w", encoding="utf-8", newline="\n") as handle:
         handle.write(payload)
         handle.flush()
         os.fsync(handle.fileno())
 
 
-def _fsync_parents(paths: list[Path]) -> None:
-    # Durable file contents still need a durable directory entry.
-    for directory in dict.fromkeys(path.parent for path in paths):
-        directory_descriptor = os.open(directory, os.O_RDONLY)
-        try:
-            os.fsync(directory_descriptor)
-        finally:
-            os.close(directory_descriptor)
+def _parent_descriptors(created: list[_CreatedFile]) -> list[int]:
+    return list(dict.fromkeys(entry.parent_fd for entry in created))
 
 
-def _unlink_created(created: list[Path]) -> None:
-    # Remove only files this invocation created; pre-existing paths are
-    # rejected before and during O_EXCL creation.
-    for path in created:
+def _fsync_parents(created: list[_CreatedFile]) -> None:
+    # Durable file contents still need a durable directory entry, and the
+    # directory to sync is the one the file was created in.
+    for parent_fd in _parent_descriptors(created):
+        os.fsync(parent_fd)
+
+
+def _unlink_created(created: list[_CreatedFile]) -> None:
+    # Remove only files this invocation created, through the descriptor they
+    # were created against rather than through their pathname.
+    for entry in created:
         try:
-            path.unlink()
+            os.unlink(entry.name, dir_fd=entry.parent_fd)
         except FileNotFoundError:
             pass
+
+
+def _close_parents(created: list[_CreatedFile]) -> None:
+    for parent_fd in _parent_descriptors(created):
+        os.close(parent_fd)
 
 
 def write_run(run: CurationRun, source: Path, output: Path, manifest: Path) -> None:
@@ -153,7 +180,7 @@ def write_run(run: CurationRun, source: Path, output: Path, manifest: Path) -> N
     _assert_new_destination(source, output, "output")
     _assert_new_destination(source, manifest, "manifest")
 
-    created: list[Path] = []
+    created: list[_CreatedFile] = []
     try:
         for path, payload in (
             (output, _jsonl_payload(run.records)),
@@ -164,3 +191,5 @@ def write_run(run: CurationRun, source: Path, output: Path, manifest: Path) -> N
     except Exception:
         _unlink_created(created)
         raise
+    finally:
+        _close_parents(created)

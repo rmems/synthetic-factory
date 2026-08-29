@@ -37,6 +37,11 @@ __all__ = [
 
 _MISSING = object()
 
+# Which document a reported fault came from. Named so a message can never
+# blame the scan for something the audit said, or the reverse.
+_AUDIT_SIDE = "the audit"
+_SCAN_SIDE = "this scan"
+
 
 # ``bool`` is a subclass of ``int``, so it has to be matched first or every
 # ``true`` in an audited document would name itself a number.
@@ -124,13 +129,20 @@ def _pairs_by_location(
     extra or conflicting row -- and disagree with its own summary -- while
     the drift check still exited successfully. Both sides are checked: a
     scan cannot currently emit a duplicate, and this is what would say so if
-    that ever stopped being true.
+    that ever stopped being true. A row that is not an object is reported for
+    the same reason, rather than quietly dropped.
     """
 
     located: dict[Any, dict[str, Any]] = {}
     duplicates: list[str] = []
-    for pair in pairs if isinstance(pairs, list) else ():
+    for index, pair in enumerate(pairs if isinstance(pairs, list) else ()):
         if not isinstance(pair, dict):
+            # Skipping the row would let a scalar appended to a published list
+            # pass as no drift at all, while the list stopped reconciling with
+            # its own summary.
+            duplicates.append(
+                f"impure_pairs[{index}]: row in {side} is not an object"
+            )
             continue
         location = _pair_location(pair)
         if location in located:
@@ -155,23 +167,33 @@ def source_files_by_path(files: Any) -> dict[str, dict[str, Any]]:
     }
 
 
-def _duplicate_source_paths(files: Any, side: str) -> list[str]:
-    """Name any relative path a source-file inventory lists more than once."""
+def _source_file_inventory_faults(files: Any, side: str) -> list[str]:
+    """Rows a source-file inventory cannot be compared through.
 
+    Two faults make a row uncomparable and both have to be reported rather
+    than skipped: a row the comparison cannot read or key, and a path that
+    would silently collapse onto an earlier row. Either one, left quiet,
+    would let an edited inventory reconcile against a scan it no longer
+    describes.
+    """
+
+    faults: list[str] = []
     seen: set[str] = set()
-    duplicates: list[str] = []
-    for entry in files if isinstance(files, (list, tuple)) else ():
+    for index, entry in enumerate(files if isinstance(files, (list, tuple)) else ()):
+        label = f"source_files[{index}]: row in {side}"
         if not isinstance(entry, dict):
+            faults.append(f"{label} is not an object")
             continue
         source_path = entry.get("source_path")
         if not isinstance(source_path, str):
+            faults.append(f"{label} has no string source_path")
             continue
         if source_path in seen:
-            duplicates.append(
+            faults.append(
                 f"{source_path}: source file is listed more than once in {side}"
             )
         seen.add(source_path)
-    return sorted(dict.fromkeys(duplicates))
+    return faults
 
 
 def _field_differences(
@@ -245,9 +267,11 @@ def _audit_source_file_differences(
 
     expected_files = source_files_by_path(expected.get("source_files"))
     actual_files = source_files_by_path(actual.get("source_files"))
-    differences = _duplicate_source_paths(expected.get("source_files"), "the audit")
+    differences = _source_file_inventory_faults(
+        expected.get("source_files"), _AUDIT_SIDE
+    )
     differences.extend(
-        _duplicate_source_paths(actual.get("source_files"), "this scan")
+        _source_file_inventory_faults(actual.get("source_files"), _SCAN_SIDE)
     )
     differences.extend(
         f"{source_path}: audited source file is absent from this scan"
@@ -274,12 +298,8 @@ def _audit_impure_pair_differences(
 ) -> list[str]:
     """Per-pair drift, by source location then by field."""
 
-    expected_pairs, differences = _pairs_by_location(
-        expected.get("impure_pairs"), "the audit"
-    )
-    actual_pairs, actual_duplicates = _pairs_by_location(
-        actual["impure_pairs"], "this scan"
-    )
+    expected_pairs, differences = _pairs_by_location(expected.get("impure_pairs"), _AUDIT_SIDE)
+    actual_pairs, actual_duplicates = _pairs_by_location(actual["impure_pairs"], _SCAN_SIDE)
     differences.extend(actual_duplicates)
     differences.extend(
         f"{_pair_location_text(expected_pairs[location])}: "

@@ -350,6 +350,44 @@ class CuratePreferenceSource(unittest.TestCase):
             self.assertFalse((safe / "out.jsonl").exists())
             self.assertEqual(list(outside.iterdir()), [])
 
+    def test_failed_write_cleanup_cannot_delete_a_file_it_did_not_create(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            source = root / "source.jsonl"
+            write_jsonl(source, [pair("cleanup-parent-swap")])
+            safe = root / "safe"
+            outside = root / "cleaned"
+            safe.mkdir()
+            outside.mkdir()
+            output = safe / "out.jsonl"
+            manifest = outside / "manifest.jsonl"
+            run = curate_preferences.curate_source(source)
+
+            moved = root / "safe.moved"
+            decoy = safe / "out.jsonl"
+
+            def swap_parent_then_fail(*_args, **_kwargs):
+                # Both files exist by now. Move the directory the output was
+                # actually created in out from under its pathname, and leave a
+                # different file of the same name where the path resolves.
+                safe.rename(moved)
+                safe.mkdir()
+                decoy.write_text("pre-existing evidence\n")
+                raise OSError("durability failure after both files were created")
+
+            with mock.patch.object(
+                preference_writer, "_fsync_parents", swap_parent_then_fail
+            ):
+                with self.assertRaises(OSError):
+                    curate_preferences.write_run(run, source, output, manifest)
+
+            # Cleanup must remove what this invocation created, addressed
+            # through the directory it was created in...
+            self.assertFalse((moved / "out.jsonl").exists())
+            # ...and must not touch the unrelated file now at that pathname.
+            self.assertEqual(decoy.read_text(), "pre-existing evidence\n")
+            self.assertFalse(manifest.exists())
+
     def test_non_encodable_record_is_excluded_without_aborting_the_scan(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)

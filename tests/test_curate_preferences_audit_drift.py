@@ -136,6 +136,42 @@ class DuplicateLocationsAreRejected(AuditDriftCase):
         self.assert_reports(differences, "more than once")
 
 
+class MalformedRowsAreRejected(AuditDriftCase):
+    """A row the comparison cannot read is drift, not a row to skip."""
+
+    def test_a_non_object_pair_row_is_reported(self):
+        differences = self.drift_after(
+            audit_document(impure_pair()),
+            lambda doc: doc["impure_pairs"].append("forged"),
+        )
+
+        self.assert_reports(differences, "not an object")
+
+    def test_a_non_object_source_file_row_is_reported(self):
+        differences = self.drift_after(
+            audit_document(source_files=[source_file()]),
+            lambda doc: doc["source_files"].append("forged"),
+        )
+
+        self.assert_reports(differences, "not an object")
+
+    def test_a_source_file_row_without_a_usable_path_is_reported(self):
+        differences = self.drift_after(
+            audit_document(source_files=[source_file()]),
+            lambda doc: doc["source_files"].append({"source_file_sha256": "c" * 64}),
+        )
+
+        self.assert_reports(differences, "source_path")
+
+    def test_impure_pairs_that_are_not_a_list_are_reported(self):
+        differences = self.drift_after(
+            audit_document(impure_pair()),
+            lambda doc: doc.__setitem__("impure_pairs", {"forged": True}),
+        )
+
+        self.assertTrue(differences, "a non-list impure_pairs reconciled cleanly")
+
+
 class JsonTypesAreComparedNotJustValues(AuditDriftCase):
     """``False`` is not ``0`` and ``True`` is not line ``1``."""
 

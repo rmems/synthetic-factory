@@ -21,6 +21,7 @@ pair as the impure evidence it is.
 from __future__ import annotations
 
 import copy
+import re
 import sys
 from pathlib import Path
 from typing import Any
@@ -47,6 +48,28 @@ __all__ = [
 ]
 
 
+# A claim ends where its subject ends. Any character that could continue an
+# identifier -- a word character, or the dot that extends a field path -- means
+# the text names something other than the subject the claim appeared to have.
+_CLAIM_CONTINUES = re.compile(r"[0-9A-Za-z_.]")
+
+
+def _claims_exactly(text: str, claim: str) -> bool:
+    """Whether ``text`` opens with ``claim`` and does not run straight past it.
+
+    ``startswith`` alone reads "IDENTICAL to rejected.stateful context is
+    actually different" as a claim about ``rejected.state``, and "... to the
+    rejected branching" as one about the rejected branch. Both name a
+    different subject, and both happen to be denials, so neither may
+    authorize a repair.
+    """
+
+    if not text.startswith(claim):
+        return False
+    rest = text[len(claim):]
+    return not rest or not _CLAIM_CONTINUES.match(rest)
+
+
 def _identity_annotation_reference(
     chosen_value: dict[str, Any],
     rejected_value: dict[str, Any],
@@ -67,8 +90,8 @@ def _identity_annotation_reference(
         note = attester.get("identity_note")
         if "identity_note" in reference or not isinstance(note, str):
             continue
-        expected_prefix = f"IDENTICAL to {reference_name}.{field}"
-        if not note.strip().startswith(expected_prefix):
+        expected_claim = f"IDENTICAL to {reference_name}.{field}"
+        if not _claims_exactly(note.strip(), expected_claim):
             continue
         stripped = copy.deepcopy(attester)
         stripped.pop("identity_note")
@@ -154,7 +177,7 @@ def _proposal_annotation_reference(
         if not isinstance(attester_source, str) or not isinstance(reference_source, str):
             continue
         marker = f" — IDENTICAL proposal to the {reference_name} branch"
-        if attester_source.startswith(reference_source + marker):
+        if _claims_exactly(attester_source, reference_source + marker):
             return copy.deepcopy(reference), attester_name, reference_name
     return None
 

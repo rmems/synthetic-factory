@@ -116,6 +116,50 @@ class CuratePreferenceRecord(unittest.TestCase):
         self.assertEqual(decision.reason_codes, ("STATE_CONTEXT_DIVERGES",))
         self.assertIsNone(decision.record)
 
+    def test_identity_note_naming_a_longer_field_cannot_authorize_a_repair(self):
+        # "rejected.stateful" merely begins with "rejected.state"; it is a
+        # claim about a different field, and an explicit denial at that.
+        source = pair()
+        source["chosen"]["state"]["identity_note"] = (
+            "IDENTICAL to rejected.stateful context is actually different"
+        )
+
+        decision = curate_preferences.curate_preference_record(source)
+
+        self.assertEqual(decision.action, curate_preferences.ACTION_EXCLUDED)
+        self.assertIsNone(decision.record)
+
+    def test_identity_note_naming_a_deeper_path_cannot_authorize_a_repair(self):
+        source = pair()
+        source["chosen"]["state"]["identity_note"] = (
+            "IDENTICAL to rejected.state.sim_or_real only"
+        )
+
+        decision = curate_preferences.curate_preference_record(source)
+
+        self.assertEqual(decision.action, curate_preferences.ACTION_EXCLUDED)
+        self.assertIsNone(decision.record)
+
+    def test_proposal_marker_naming_a_longer_branch_cannot_authorize_a_repair(self):
+        source = pair(
+            proposal={
+                "action": "route load",
+                "decision_basis": "fixture",
+                "source": "base policy (standard flow)",
+                "snn_readout": {"margin": 0.2, "note": "reference annotation"},
+            }
+        )
+        # "rejected branching" is not a claim about the rejected branch.
+        source["chosen"]["proposed_action"]["source"] = (
+            "base policy (standard flow) — IDENTICAL proposal to the "
+            "rejected branching was explored separately"
+        )
+
+        decision = curate_preferences.curate_preference_record(source)
+
+        self.assertEqual(decision.action, curate_preferences.ACTION_EXCLUDED)
+        self.assertIsNone(decision.record)
+
     def test_identity_note_attesting_the_wrong_side_is_excluded(self):
         source = pair()
         source["chosen"]["state"]["identity_note"] = (
