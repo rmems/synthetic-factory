@@ -285,6 +285,42 @@ class CurateAgenticTests(unittest.TestCase):
         for key in ("chainOfThought", "chain-of-thought", "Chain_Of_Thought"):
             self.assertNotIn(key, json.dumps(curated))
 
+    def test_strips_the_coding_reasoning_key_and_internal_reasoning_family(self):
+        """Codex #97 P2: this lane must refuse what training_audit refuses.
+
+        ``HIDDEN_THOUGHT_KEYS`` alone (thought/chain_of_thought/scratch/
+        inner_monologue) is narrower than ``training_audit``'s
+        ``is_hidden_thought_key``, which also refuses the coding-factory key
+        ``reasoning`` (exact match only -- ``reasoning_flaw`` stays visible)
+        and the whole ``internal_reasoning*`` prefix family. A multi_agent or
+        safety_case record carrying either was previously retained here with
+        the private field intact, then rejected downstream with no way to
+        repair it.
+        """
+        multi = multi_agent_fixture()
+        multi["transcript"][1]["reasoning"] = "hidden coding-style reasoning"
+        safety = safety_case_fixture()
+        safety["steps"][0]["internal_reasoning_optimizer"] = "hidden optimizer trace"
+
+        for source in (multi, safety):
+            self.assertTrue(contains_hidden_thought_key(source))
+            curated, decision = curate_record(source)
+            self.assertIsNotNone(curated)
+            self.assertFalse(contains_hidden_thought_key(curated))
+            self.assertIn(REASON_THOUGHT_REMOVED, decision["reason_codes"])
+            dumped = json.dumps(curated)
+            self.assertNotIn("reasoning", dumped)
+            self.assertNotIn("internal_reasoning_optimizer", dumped)
+            for path in training_audit.hidden_thought_paths(curated):
+                self.fail(f"training_audit still finds a hidden field: {path}")
+
+        # "reasoning" is an exact-match refusal; a merely similar key survives.
+        near_miss = multi_agent_fixture()
+        near_miss["transcript"][1]["reasoning_flaw"] = "visible critique, not hidden CoT"
+        self.assertFalse(contains_hidden_thought_key(near_miss))
+        curated, _decision = curate_record(near_miss)
+        self.assertIn("reasoning_flaw", json.dumps(curated))
+
     def test_output_does_not_depend_on_thought_content(self):
         first = episode_fixture(steps=[_step(1, thought="secret A")])
         second = episode_fixture(steps=[_step(1, thought="entirely different B")])

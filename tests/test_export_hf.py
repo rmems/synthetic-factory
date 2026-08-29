@@ -102,7 +102,7 @@ class ViewerParquet(unittest.TestCase):
         )
 
 
-class ExportHf(unittest.TestCase):
+class ExportPayloadAndProvenance(unittest.TestCase):
     def test_exports_payload_viewer_splits_and_provenance(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
@@ -207,6 +207,8 @@ class ExportHf(unittest.TestCase):
             )
             self.assertEqual(stored, provenance)
 
+
+class ExportSemanticDuplicateReplay(unittest.TestCase):
     def test_export_replays_pre_identity_semantic_duplicate_exclusions(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
@@ -279,6 +281,8 @@ class ExportHf(unittest.TestCase):
             self.assertEqual(len(train) + len(evaluate), 7)
             self.assertEqual(len(set(train + evaluate)), 7)
 
+
+class ExportCorpusGating(unittest.TestCase):
     def test_refuses_a_corpus_that_is_not_training_ready(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
@@ -321,6 +325,8 @@ class ExportHf(unittest.TestCase):
                         export_hf.export_run(root / "curated", root / "export")
                     self.assertFalse((root / "export").exists())
 
+
+class ExportViewerRecordFraming(unittest.TestCase):
     def test_viewer_rows_keep_line_separators_inside_records(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
@@ -342,6 +348,8 @@ class ExportHf(unittest.TestCase):
                 first["state"]["domain"],
             )
 
+
+class ExportDestinationSafety(unittest.TestCase):
     def test_refuses_empty_missing_and_existing_destinations(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
@@ -430,6 +438,8 @@ class ExportHf(unittest.TestCase):
             self.assertFalse((raw / destination.name).exists())
             self.assertFalse(destination.exists())
 
+
+class ExportSplitDeterminism(unittest.TestCase):
     def test_split_is_deterministic_and_salt_sensitive(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
@@ -490,6 +500,8 @@ class ExportHf(unittest.TestCase):
                 {(row.source_file, row.source_line) for row in rows},
             )
 
+
+class ExportSourceReplayAuthentication(unittest.TestCase):
     def test_compose_paths_digests_coordinates_and_sidecars_are_authenticated(self):
         mutations = (
             "output_digest",
@@ -729,6 +741,8 @@ class ExportHf(unittest.TestCase):
                     export_hf.export_run(curated, root / "export")
                 self.assertFalse((root / "export").exists())
 
+
+class ExportCompositionMemberSafety(unittest.TestCase):
     def test_rejects_symlink_and_hardlink_aliases_for_every_compose_member(self):
         mutations = (
             "summary_symlink",
@@ -794,6 +808,8 @@ class ExportHf(unittest.TestCase):
                     export_hf.export_run(curated, root / "export")
                 self.assertFalse((root / "export").exists())
 
+
+class ExportAuditByteCapture(unittest.TestCase):
     def test_audit_uses_captured_bytes_when_output_changes_before_the_gate(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
@@ -839,6 +855,8 @@ class ExportHf(unittest.TestCase):
                     export_hf.export_run(curated, root / "export")
             self.assertFalse((root / "export").exists())
 
+
+class ExportCli(unittest.TestCase):
     def test_cli_prints_provenance_and_reports_refusals(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)

@@ -480,18 +480,20 @@ def calibration_for(record: Mapping[str, Any], catalog: Mapping[str, Any] | None
     return catalog.get(record_id.lower())
 
 
-def compose_record(
+def _compose_identity_stage(
     record: Any,
+    stages: list[dict[str, Any]],
     *,
     source_path: str,
     source_line: int,
     source_sha256: str,
-    source_file_sha256: str | None = None,
-    calibration: Any = None,
-) -> ComposeDecision:
-    """Run every applicable lane over one record without mutating the input."""
+) -> "ComposeDecision | tuple[dict[str, Any], Any]":
+    """Run the identity lane and append its stage.
 
-    stages: list[dict[str, Any]] = []
+    Returns ``(current, registered_kind)`` to continue, or an early
+    :class:`ComposeDecision` when identity refuses the record.
+    """
+
     source_side_kinds = (
         preference_side_kinds(record)
         if is_preference_record(record) and isinstance(record, Mapping)
@@ -543,6 +545,23 @@ def compose_record(
         )
     current: dict[str, Any] = identity_result.record
     registered_kind = identity_result.mapping.get("record_kind")
+    return current, registered_kind
+
+
+def _compose_bridge_stage(
+    current: dict[str, Any],
+    stages: list[dict[str, Any]],
+    *,
+    source_path: str,
+    source_line: int,
+    source_sha256: str,
+    source_file_sha256: str | None,
+) -> "ComposeDecision | dict[str, Any]":
+    """Run the bridge lane and append its stage.
+
+    Returns the next ``current`` to continue, or an early
+    :class:`ComposeDecision` when bridge curation excludes the record.
+    """
 
     if is_bridge_record(current):
         bridge_decision = curate_bridge.curate_record(
@@ -569,214 +588,261 @@ def compose_record(
             return ComposeDecision(
                 ACTION_EXCLUDED, None, tuple(bridge_reasons), tuple(stages), None, None
             )
-        current = bridge_decision.output_record
-    else:
-        stages.append(
-            _stage(
-                "bridge",
-                curate_bridge.TRANSFORM_NAME,
-                curate_bridge.TRANSFORM_VERSION,
-                ACTION_NOT_APPLICABLE,
-                lane_action=ACTION_NOT_APPLICABLE,
+        return bridge_decision.output_record
+    stages.append(
+        _stage(
+            "bridge",
+            curate_bridge.TRANSFORM_NAME,
+            curate_bridge.TRANSFORM_VERSION,
+            ACTION_NOT_APPLICABLE,
+            lane_action=ACTION_NOT_APPLICABLE,
+        )
+    )
+    return current
+
+
+def _compose_same_state_preference(
+    current: dict[str, Any],
+    side_kinds: tuple[str, str],
+    stages: list[dict[str, Any]],
+    *,
+    source_path: str,
+    source_line: int,
+) -> "ComposeDecision | tuple[Any, list[str]]":
+    """Preferences branch for a same-state (Thalamic) trajectory pair."""
+
+    (
+        curated_sides,
+        side_curation,
+        side_curation_reasons,
+        side_curation_changed,
+    ) = _curate_trajectory_sides(
+        current,
+        source_path=source_path,
+        source_line=source_line,
+    )
+    if curated_sides is None:
+        preference_reasons = list(
+            dict.fromkeys(
+                [REASON_TRAJECTORY_SIDE_INVALID, *side_curation_reasons]
             )
         )
-
-    if is_preference_record(current):
-        side_kinds = preference_side_kinds(current)
-        if _is_same_state_pair(current):
-            (
-                curated_sides,
-                side_curation,
-                side_curation_reasons,
-                side_curation_changed,
-            ) = _curate_trajectory_sides(
-                current,
-                source_path=source_path,
-                source_line=source_line,
-            )
-            if curated_sides is None:
-                preference_reasons = list(
-                    dict.fromkeys(
-                        [REASON_TRAJECTORY_SIDE_INVALID, *side_curation_reasons]
-                    )
-                )
-                stages.append(
-                    _stage(
-                        "preferences",
-                        COMPOSE_NAME,
-                        COMPOSE_VERSION,
-                        ACTION_EXCLUDED,
-                        reason_codes=preference_reasons,
-                        lane_action=ACTION_EXCLUDED,
-                        classification="same_state_side_curation_failed",
-                        side_kinds=list(side_kinds),
-                        schema="same_state_pair",
-                        side_curation=side_curation,
-                        side_curation_changed=side_curation_changed,
-                    )
-                )
-                return ComposeDecision(
-                    ACTION_EXCLUDED,
-                    None,
-                    tuple(preference_reasons),
-                    tuple(stages),
-                    None,
-                    None,
-                )
-            preference_decision = curate_preferences.curate_preference_record(
-                curated_sides
-            )
-            retained = preference_decision.record is not None
-            preference_reasons = list(preference_decision.reason_codes)
-            if retained:
-                preference_reasons = list(
-                    dict.fromkeys(
-                        [*side_curation_reasons, *preference_reasons]
-                    )
-                )
-            stages.append(
-                _stage(
-                    "preferences",
-                    curate_preferences.TRANSFORM_NAME,
-                    curate_preferences.TRANSFORM_VERSION,
-                    ACTION_RETAINED if retained else ACTION_EXCLUDED,
-                    reason_codes=preference_reasons,
-                    lane_action=(
-                        "repaired"
-                        if retained and side_curation_changed
-                        else preference_decision.action
-                    ),
-                    classification=preference_decision.classification,
-                    side_kinds=list(side_kinds),
-                    schema="same_state_pair",
-                    context_diff_paths=list(preference_decision.context_diff_paths),
-                    side_curation=side_curation,
-                    side_curation_changed=side_curation_changed,
-                )
-            )
-        elif _mixed_preference_families(side_kinds):
-            preference_reasons = [REASON_MIXED_PREFERENCE_FAMILIES]
-            stages.append(
-                _stage(
-                    "preferences",
-                    COMPOSE_NAME,
-                    COMPOSE_VERSION,
-                    ACTION_EXCLUDED,
-                    reason_codes=preference_reasons,
-                    lane_action=ACTION_EXCLUDED,
-                    classification="mixed_preference_side_families",
-                    side_kinds=list(side_kinds),
-                )
-            )
-            return ComposeDecision(
+        stages.append(
+            _stage(
+                "preferences",
+                COMPOSE_NAME,
+                COMPOSE_VERSION,
                 ACTION_EXCLUDED,
-                None,
-                tuple(preference_reasons),
-                tuple(stages),
-                None,
-                None,
+                reason_codes=preference_reasons,
+                lane_action=ACTION_EXCLUDED,
+                classification="same_state_side_curation_failed",
+                side_kinds=list(side_kinds),
+                schema="same_state_pair",
+                side_curation=side_curation,
+                side_curation_changed=side_curation_changed,
             )
+        )
+        return ComposeDecision(
+            ACTION_EXCLUDED,
+            None,
+            tuple(preference_reasons),
+            tuple(stages),
+            None,
+            None,
+        )
+    preference_decision = curate_preferences.curate_preference_record(
+        curated_sides
+    )
+    retained = preference_decision.record is not None
+    preference_reasons = list(preference_decision.reason_codes)
+    if retained:
+        preference_reasons = list(
+            dict.fromkeys(
+                [*side_curation_reasons, *preference_reasons]
+            )
+        )
+    stages.append(
+        _stage(
+            "preferences",
+            curate_preferences.TRANSFORM_NAME,
+            curate_preferences.TRANSFORM_VERSION,
+            ACTION_RETAINED if retained else ACTION_EXCLUDED,
+            reason_codes=preference_reasons,
+            lane_action=(
+                "repaired"
+                if retained and side_curation_changed
+                else preference_decision.action
+            ),
+            classification=preference_decision.classification,
+            side_kinds=list(side_kinds),
+            schema="same_state_pair",
+            context_diff_paths=list(preference_decision.context_diff_paths),
+            side_curation=side_curation,
+            side_curation_changed=side_curation_changed,
+        )
+    )
+    return preference_decision, preference_reasons
 
-        elif side_kinds == ("episode", "episode"):
-            (
-                curated_sides,
-                side_curation,
-                side_curation_reasons,
-                side_curation_changed,
-            ) = _curate_trajectory_sides(
-                current,
-                source_path=source_path,
-                source_line=source_line,
+
+def _compose_mixed_family_preference_exclusion(
+    side_kinds: tuple[str, str],
+    stages: list[dict[str, Any]],
+) -> ComposeDecision:
+    """Preferences branch that refuses mixed-family (episode + Thalamic) sides."""
+
+    preference_reasons = [REASON_MIXED_PREFERENCE_FAMILIES]
+    stages.append(
+        _stage(
+            "preferences",
+            COMPOSE_NAME,
+            COMPOSE_VERSION,
+            ACTION_EXCLUDED,
+            reason_codes=preference_reasons,
+            lane_action=ACTION_EXCLUDED,
+            classification="mixed_preference_side_families",
+            side_kinds=list(side_kinds),
+        )
+    )
+    return ComposeDecision(
+        ACTION_EXCLUDED,
+        None,
+        tuple(preference_reasons),
+        tuple(stages),
+        None,
+        None,
+    )
+
+
+def _compose_episode_preference(
+    current: dict[str, Any],
+    side_kinds: tuple[str, str],
+    stages: list[dict[str, Any]],
+    *,
+    source_path: str,
+    source_line: int,
+) -> "ComposeDecision | tuple[Any, list[str]]":
+    """Preferences branch for an episode/episode (coding-style) trajectory pair."""
+
+    (
+        curated_sides,
+        side_curation,
+        side_curation_reasons,
+        side_curation_changed,
+    ) = _curate_trajectory_sides(
+        current,
+        source_path=source_path,
+        source_line=source_line,
+    )
+    if curated_sides is None:
+        preference_reasons = list(
+            dict.fromkeys(
+                [REASON_TRAJECTORY_SIDE_INVALID, *side_curation_reasons]
             )
-            if curated_sides is None:
-                preference_reasons = list(
-                    dict.fromkeys(
-                        [REASON_TRAJECTORY_SIDE_INVALID, *side_curation_reasons]
-                    )
-                )
-                stages.append(
-                    _stage(
-                        "preferences",
-                        COMPOSE_NAME,
-                        COMPOSE_VERSION,
-                        ACTION_EXCLUDED,
-                        reason_codes=preference_reasons,
-                        lane_action=ACTION_EXCLUDED,
-                        classification="trajectory_side_curation_failed",
-                        side_kinds=list(side_kinds),
-                        side_curation=side_curation,
-                        side_curation_changed=side_curation_changed,
-                    )
-                )
-                return ComposeDecision(
-                    ACTION_EXCLUDED,
-                    None,
-                    tuple(preference_reasons),
-                    tuple(stages),
-                    None,
-                    None,
-                )
-            preference_decision, transform_name, transform_version, implementation = (
-                _trajectory_preference(curated_sides)
-            )
-            preference_reasons = list(
-                dict.fromkeys(
-                    [*side_curation_reasons, *preference_decision.reason_codes]
-                )
-            )
-            retained = preference_decision.record is not None
-            stages.append(
-                _stage(
-                    "preferences",
-                    transform_name,
-                    transform_version,
-                    ACTION_RETAINED if retained else ACTION_EXCLUDED,
-                    reason_codes=preference_reasons,
-                    lane_action=(
-                        "repaired"
-                        if retained and side_curation_changed
-                        else preference_decision.action
-                    ),
-                    classification=preference_decision.classification,
-                    side_kinds=list(side_kinds),
-                    implementation=implementation,
-                    shared_goal=preference_decision.shared_goal,
-                    overlap=preference_decision.overlap,
-                    side_validation_errors=(
-                        preference_decision.side_validation_errors or {}
-                    ),
-                    side_curation=side_curation,
-                    side_curation_changed=side_curation_changed,
-                )
-            )
-        else:
-            preference_decision = curate_preferences.curate_preference_record(current)
-            preference_reasons = list(preference_decision.reason_codes)
-            retained = preference_decision.record is not None
-            stages.append(
-                _stage(
-                    "preferences",
-                    curate_preferences.TRANSFORM_NAME,
-                    curate_preferences.TRANSFORM_VERSION,
-                    ACTION_RETAINED if retained else ACTION_EXCLUDED,
-                    reason_codes=preference_reasons,
-                    lane_action=preference_decision.action,
-                    classification=preference_decision.classification,
-                    side_kinds=list(side_kinds),
-                    context_diff_paths=list(preference_decision.context_diff_paths),
-                )
-            )
-        if not retained:
-            return ComposeDecision(
+        )
+        stages.append(
+            _stage(
+                "preferences",
+                COMPOSE_NAME,
+                COMPOSE_VERSION,
                 ACTION_EXCLUDED,
-                None,
-                tuple(preference_reasons),
-                tuple(stages),
-                None,
-                None,
+                reason_codes=preference_reasons,
+                lane_action=ACTION_EXCLUDED,
+                classification="trajectory_side_curation_failed",
+                side_kinds=list(side_kinds),
+                side_curation=side_curation,
+                side_curation_changed=side_curation_changed,
             )
-        current = preference_decision.record
-    else:
+        )
+        return ComposeDecision(
+            ACTION_EXCLUDED,
+            None,
+            tuple(preference_reasons),
+            tuple(stages),
+            None,
+            None,
+        )
+    preference_decision, transform_name, transform_version, implementation = (
+        _trajectory_preference(curated_sides)
+    )
+    preference_reasons = list(
+        dict.fromkeys(
+            [*side_curation_reasons, *preference_decision.reason_codes]
+        )
+    )
+    retained = preference_decision.record is not None
+    stages.append(
+        _stage(
+            "preferences",
+            transform_name,
+            transform_version,
+            ACTION_RETAINED if retained else ACTION_EXCLUDED,
+            reason_codes=preference_reasons,
+            lane_action=(
+                "repaired"
+                if retained and side_curation_changed
+                else preference_decision.action
+            ),
+            classification=preference_decision.classification,
+            side_kinds=list(side_kinds),
+            implementation=implementation,
+            shared_goal=preference_decision.shared_goal,
+            overlap=preference_decision.overlap,
+            side_validation_errors=(
+                preference_decision.side_validation_errors or {}
+            ),
+            side_curation=side_curation,
+            side_curation_changed=side_curation_changed,
+        )
+    )
+    return preference_decision, preference_reasons
+
+
+def _compose_legacy_preference(
+    current: dict[str, Any],
+    side_kinds: tuple[str, str],
+    stages: list[dict[str, Any]],
+) -> tuple[Any, list[str]]:
+    """Preferences branch for a legacy (pre-episode) Thalamic-shaped pair."""
+
+    preference_decision = curate_preferences.curate_preference_record(current)
+    preference_reasons = list(preference_decision.reason_codes)
+    stages.append(
+        _stage(
+            "preferences",
+            curate_preferences.TRANSFORM_NAME,
+            curate_preferences.TRANSFORM_VERSION,
+            (
+                ACTION_RETAINED
+                if preference_decision.record is not None
+                else ACTION_EXCLUDED
+            ),
+            reason_codes=preference_reasons,
+            lane_action=preference_decision.action,
+            classification=preference_decision.classification,
+            side_kinds=list(side_kinds),
+            context_diff_paths=list(preference_decision.context_diff_paths),
+        )
+    )
+    return preference_decision, preference_reasons
+
+
+def _compose_preferences_stage(
+    current: dict[str, Any],
+    stages: list[dict[str, Any]],
+    *,
+    source_path: str,
+    source_line: int,
+) -> "ComposeDecision | dict[str, Any]":
+    """Run the preferences lane and append its stage.
+
+    Dispatches to the branch matching the pair's side kinds -- same-state
+    (Thalamic), mixed families (always refused), episode/episode, or legacy
+    -- then applies the one retained-or-excluded check every branch shares.
+    Returns the next ``current`` to continue, or an early
+    :class:`ComposeDecision` when preference curation excludes the record.
+    """
+
+    if not is_preference_record(current):
         stages.append(
             _stage(
                 "preferences",
@@ -786,6 +852,59 @@ def compose_record(
                 lane_action=ACTION_NOT_APPLICABLE,
             )
         )
+        return current
+
+    side_kinds = preference_side_kinds(current)
+    if _is_same_state_pair(current):
+        branch_outcome = _compose_same_state_preference(
+            current,
+            side_kinds,
+            stages,
+            source_path=source_path,
+            source_line=source_line,
+        )
+    elif _mixed_preference_families(side_kinds):
+        return _compose_mixed_family_preference_exclusion(side_kinds, stages)
+    elif side_kinds == ("episode", "episode"):
+        branch_outcome = _compose_episode_preference(
+            current,
+            side_kinds,
+            stages,
+            source_path=source_path,
+            source_line=source_line,
+        )
+    else:
+        branch_outcome = _compose_legacy_preference(current, side_kinds, stages)
+
+    if isinstance(branch_outcome, ComposeDecision):
+        return branch_outcome
+    preference_decision, preference_reasons = branch_outcome
+    if preference_decision.record is None:
+        return ComposeDecision(
+            ACTION_EXCLUDED,
+            None,
+            tuple(preference_reasons),
+            tuple(stages),
+            None,
+            None,
+        )
+    return preference_decision.record
+
+
+def _compose_coding_stage(
+    current: dict[str, Any],
+    registered_kind: Any,
+    stages: list[dict[str, Any]],
+    *,
+    source_path: str,
+    source_line: int,
+    source_sha256: str,
+) -> "ComposeDecision | dict[str, Any]":
+    """Run the coding lane and append its stage.
+
+    Returns the next ``current`` to continue, or an early
+    :class:`ComposeDecision` when coding curation excludes the record.
+    """
 
     if registered_kind in {"multi_agent", "safety_case"}:
         curated_agentic, agentic_manifest = curate_agentic.curate_record(
@@ -815,7 +934,7 @@ def compose_record(
                 None,
                 None,
             )
-        current = curated_agentic
+        return curated_agentic
     elif is_episode_record(current):
         curated_episode, coding_manifest = curate_coding.curate_episode(
             current,
@@ -839,17 +958,32 @@ def compose_record(
             return ComposeDecision(
                 ACTION_EXCLUDED, None, tuple(coding_reasons), tuple(stages), None, None
             )
-        current = curated_episode
-    else:
-        stages.append(
-            _stage(
-                "coding",
-                curate_coding.TRANSFORM_NAME,
-                curate_coding.TRANSFORM_VERSION,
-                ACTION_NOT_APPLICABLE,
-                lane_action=ACTION_NOT_APPLICABLE,
-            )
+        return curated_episode
+    stages.append(
+        _stage(
+            "coding",
+            curate_coding.TRANSFORM_NAME,
+            curate_coding.TRANSFORM_VERSION,
+            ACTION_NOT_APPLICABLE,
+            lane_action=ACTION_NOT_APPLICABLE,
         )
+    )
+    return current
+
+
+def _compose_rewards_stage(
+    current: dict[str, Any],
+    stages: list[dict[str, Any]],
+    *,
+    source_path: str,
+    source_line: int,
+    calibration: Any,
+) -> "ComposeDecision | tuple[dict[str, Any], dict[str, Any] | None]":
+    """Run the rewards lane and append its stage.
+
+    Returns ``(current, sidecar)`` to continue, or an early
+    :class:`ComposeDecision` when the reward ontology refuses the record.
+    """
 
     sidecar: dict[str, Any] | None = None
     try:
@@ -912,6 +1046,87 @@ def compose_record(
                 source_reward_count=0,
             )
         )
+
+    return current, sidecar
+
+
+def compose_record(
+    record: Any,
+    *,
+    source_path: str,
+    source_line: int,
+    source_sha256: str,
+    source_file_sha256: str | None = None,
+    calibration: Any = None,
+) -> ComposeDecision:
+    """Run every applicable lane over one record without mutating the input.
+
+    Each lane is a private ``_compose_<lane>_stage`` helper that appends its
+    own stage(s) to the shared ``stages`` list and either returns the next
+    ``current`` record to hand to the following lane, or an early
+    :class:`ComposeDecision` that this function returns immediately without
+    running any later lane -- the same short-circuiting order the lanes ran
+    in before this function was split: identity, then bridge, then
+    preferences, then coding, then rewards.
+    """
+
+    stages: list[dict[str, Any]] = []
+
+    identity_outcome = _compose_identity_stage(
+        record,
+        stages,
+        source_path=source_path,
+        source_line=source_line,
+        source_sha256=source_sha256,
+    )
+    if isinstance(identity_outcome, ComposeDecision):
+        return identity_outcome
+    current, registered_kind = identity_outcome
+
+    bridge_outcome = _compose_bridge_stage(
+        current,
+        stages,
+        source_path=source_path,
+        source_line=source_line,
+        source_sha256=source_sha256,
+        source_file_sha256=source_file_sha256,
+    )
+    if isinstance(bridge_outcome, ComposeDecision):
+        return bridge_outcome
+    current = bridge_outcome
+
+    preferences_outcome = _compose_preferences_stage(
+        current,
+        stages,
+        source_path=source_path,
+        source_line=source_line,
+    )
+    if isinstance(preferences_outcome, ComposeDecision):
+        return preferences_outcome
+    current = preferences_outcome
+
+    coding_outcome = _compose_coding_stage(
+        current,
+        registered_kind,
+        stages,
+        source_path=source_path,
+        source_line=source_line,
+        source_sha256=source_sha256,
+    )
+    if isinstance(coding_outcome, ComposeDecision):
+        return coding_outcome
+    current = coding_outcome
+
+    rewards_outcome = _compose_rewards_stage(
+        current,
+        stages,
+        source_path=source_path,
+        source_line=source_line,
+        calibration=calibration,
+    )
+    if isinstance(rewards_outcome, ComposeDecision):
+        return rewards_outcome
+    current, sidecar = rewards_outcome
 
     output_id = current.get("id") if isinstance(current, dict) else None
     reasons = tuple(

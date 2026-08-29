@@ -856,27 +856,27 @@ def _authenticated_calibration(
     return catalog, dict(descriptor)
 
 
-def _authenticate_source_replay(
-    curated_root: Path,
-    summary: dict[str, Any],
-    actual_outputs: dict[str, CuratedFile],
-    manifest_documents: Sequence[Any],
-    sidecar_documents: Sequence[Any],
-) -> dict[str, Any]:
-    """Replay current source bytes and authenticate the complete compose mapping.
+@dataclass(frozen=True)
+class _ReplaySnapshot:
+    """Everything replaying the source lines accumulates for authentication.
 
-    This proves that the currently available source snapshot deterministically
-    produces the declared outputs.  It deliberately does not claim that the
-    source directory was immutable between the original compose and this replay.
+    ``expected_*`` are what the compose lanes deterministically produce from
+    the current source snapshot; the caller compares them against the
+    already-published manifest, sidecars, and outputs.
     """
 
-    raw_source_root = summary.get("source_run")
-    if not isinstance(raw_source_root, str) or not Path(raw_source_root).is_absolute():
-        raise ExportError("COMPOSE.json: source_run must be an absolute directory string")
-    source_root = _require_exact_directory(Path(raw_source_root), "COMPOSE source_run")
-    if raw_source_root != str(source_root):
-        raise ExportError("COMPOSE.json: source_run must use its exact canonical path")
-    catalog, calibration_descriptor = _authenticated_calibration(summary, source_root)
+    counts: Counter[str]
+    exclusions: Counter[str]
+    lane_actions: dict[str, Counter[str]]
+    expected_manifest: list[dict[str, Any]]
+    expected_sidecars: list[dict[str, Any]]
+    expected_outputs: list[dict[str, Any]]
+    expected_payloads: dict[str, bytes]
+    source_files: list[dict[str, Any]]
+
+
+def _replay_source_lines(source_root: Path, catalog: Any) -> _ReplaySnapshot:
+    """Run every source JSONL line back through compose and record what it yields."""
 
     counts: Counter[str] = Counter()
     exclusions: Counter[str] = Counter()
@@ -1001,53 +1001,108 @@ def _authenticate_source_replay(
             counts["output_files"] += 1
 
     counts["reward_sidecars"] = len(expected_sidecars)
-    if list(manifest_documents) != expected_manifest:
+    return _ReplaySnapshot(
+        counts=counts,
+        exclusions=exclusions,
+        lane_actions=lane_actions,
+        expected_manifest=expected_manifest,
+        expected_sidecars=expected_sidecars,
+        expected_outputs=expected_outputs,
+        expected_payloads=expected_payloads,
+        source_files=source_files,
+    )
+
+
+def _verify_replay_matches(
+    snapshot: _ReplaySnapshot,
+    *,
+    summary: dict[str, Any],
+    actual_outputs: dict[str, CuratedFile],
+    manifest_documents: Sequence[Any],
+    sidecar_documents: Sequence[Any],
+) -> None:
+    """Raise ``ExportError`` unless every declared artifact reproduces from ``snapshot``."""
+
+    if list(manifest_documents) != snapshot.expected_manifest:
         raise ExportError(
             "compose manifest does not reproduce from the authenticated current source snapshot"
         )
-    if list(sidecar_documents) != expected_sidecars:
+    if list(sidecar_documents) != snapshot.expected_sidecars:
         raise ExportError(
             "reward sidecars do not reproduce from the authenticated current source snapshot"
         )
-    if summary.get("outputs") != expected_outputs:
+    if summary.get("outputs") != snapshot.expected_outputs:
         raise ExportError("COMPOSE.json: output declarations do not reproduce from source")
-    if set(actual_outputs) != set(expected_payloads):
+    if set(actual_outputs) != set(snapshot.expected_payloads):
         raise ExportError("curated output paths do not reproduce from the source snapshot")
-    for output_path, payload in expected_payloads.items():
+    for output_path, payload in snapshot.expected_payloads.items():
         if actual_outputs[output_path].payload != payload:
             raise ExportError(f"curated output bytes do not reproduce: {output_path}")
 
     expected_counts = {
-        "source_files": counts["source_files"],
-        "source_records": counts["source_records"],
-        "blank_lines": counts["blank_lines"],
-        "retained": counts["retained"],
-        "excluded": counts["excluded"],
-        "output_files": counts["output_files"],
-        "reward_sidecars": counts["reward_sidecars"],
+        "source_files": snapshot.counts["source_files"],
+        "source_records": snapshot.counts["source_records"],
+        "blank_lines": snapshot.counts["blank_lines"],
+        "retained": snapshot.counts["retained"],
+        "excluded": snapshot.counts["excluded"],
+        "output_files": snapshot.counts["output_files"],
+        "reward_sidecars": snapshot.counts["reward_sidecars"],
     }
     if summary.get("counts") != expected_counts:
         raise ExportError("COMPOSE.json: source/output counts do not reproduce")
     expected_lane_actions = {
-        lane: dict(sorted(actions.items())) for lane, actions in lane_actions.items()
+        lane: dict(sorted(actions.items()))
+        for lane, actions in snapshot.lane_actions.items()
     }
     if summary.get("lane_actions") != expected_lane_actions:
         raise ExportError("COMPOSE.json: lane action counts do not reproduce")
-    if summary.get("exclusions") != dict(sorted(exclusions.items())):
+    if summary.get("exclusions") != dict(sorted(snapshot.exclusions.items())):
         raise ExportError("COMPOSE.json: exclusions do not reproduce")
     if summary.get("transforms") != compose_curated.transform_contract():
         raise ExportError("COMPOSE.json: transform declarations do not match this contract")
 
+
+def _authenticate_source_replay(
+    curated_root: Path,
+    summary: dict[str, Any],
+    actual_outputs: dict[str, CuratedFile],
+    manifest_documents: Sequence[Any],
+    sidecar_documents: Sequence[Any],
+) -> dict[str, Any]:
+    """Replay current source bytes and authenticate the complete compose mapping.
+
+    This proves that the currently available source snapshot deterministically
+    produces the declared outputs.  It deliberately does not claim that the
+    source directory was immutable between the original compose and this replay.
+    """
+
+    raw_source_root = summary.get("source_run")
+    if not isinstance(raw_source_root, str) or not Path(raw_source_root).is_absolute():
+        raise ExportError("COMPOSE.json: source_run must be an absolute directory string")
+    source_root = _require_exact_directory(Path(raw_source_root), "COMPOSE source_run")
+    if raw_source_root != str(source_root):
+        raise ExportError("COMPOSE.json: source_run must use its exact canonical path")
+    catalog, calibration_descriptor = _authenticated_calibration(summary, source_root)
+
+    snapshot = _replay_source_lines(source_root, catalog)
+    _verify_replay_matches(
+        snapshot,
+        summary=summary,
+        actual_outputs=actual_outputs,
+        manifest_documents=manifest_documents,
+        sidecar_documents=sidecar_documents,
+    )
+
     snapshot_digest = hashlib.sha256(
-        compose_curated.canonical_json(source_files).encode("utf-8")
+        compose_curated.canonical_json(snapshot.source_files).encode("utf-8")
     ).hexdigest()
     return {
         "path": str(source_root),
         "authentication_scope": "current_source_snapshot_replayed",
         "historical_immutability_proven": False,
-        "files": counts["source_files"],
-        "records": counts["source_records"],
-        "blank_lines": counts["blank_lines"],
+        "files": snapshot.counts["source_files"],
+        "records": snapshot.counts["source_records"],
+        "blank_lines": snapshot.counts["blank_lines"],
         "snapshot_index_sha256": snapshot_digest,
         "calibration": calibration_descriptor,
     }
