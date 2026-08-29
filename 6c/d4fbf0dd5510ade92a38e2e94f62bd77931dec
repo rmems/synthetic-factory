@@ -1,0 +1,27 @@
+pipelines/preference_arms_fs.py
+  s_0d456da8ea5328::t_34d27f4726592d 70-71,73
+  s_0d456da8ea5328::t_945bc25b27feea 23-56,65,67-69,72,74-80,83,94-99,108,112-146,156,160-162,164-165,169
+  s_0d456da8ea5328::t_89060f8625b655 85
+pipelines/preference_arms_text.py
+  s_0d456da8ea5328::t_8ca1d7f30e2b15 277-300,303,306-308
+  s_0d456da8ea5328::t_b3e34f088e11ce 257-258
+  s_0d456da8ea5328::t_91f6dbe1c5be97 315-334,338-339,341-342
+  s_0d456da8ea5328::t_9d7344e3a9660f 197-198,200-220,222-251,254-255,259-270
+  s_0d456da8ea5328::t_a69f4878283e8b 146-170,185,187,189-191,193
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "6cd4fbf0dd5510ade92a38e2e94f62bd77931dec",
+  "prompts": {},
+  "sessions": {
+    "s_0d456da8ea5328": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "a8d33a4c-0324-4388-9173-61055dd33627",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Raul Montoya Cardenas <montoyaraul34@gmail.com>"
+    }
+  }
+}
