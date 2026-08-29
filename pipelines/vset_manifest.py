@@ -379,8 +379,8 @@ def _manifest_count_errors(
     errors.extend(
         _count_mismatch(
             counts.get("by_record_kind"),
-            _count_map(entries, ("record_kind",)),
-            "counts.by_record_kind does not match entries",
+            _count_map(entries, ("record_kind",), RECORD_KINDS),
+            "counts.by_record_kind must be zero-filled over every VSET record kind",
         )
     )
     errors.extend(

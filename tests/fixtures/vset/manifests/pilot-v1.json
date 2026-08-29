@@ -6,7 +6,9 @@
   "counts": {
     "records": 2,
     "by_record_kind": {
-      "issue_patch_v1": 2
+      "issue_patch_v1": 2,
+      "failure_recovery_v1": 0,
+      "review_remediation_v1": 0
     },
     "by_oracle_status": {
       "provisional": 0,
@@ -97,5 +99,5 @@
       }
     }
   ],
-  "manifest_hash": "sha256:0a6c0adaf7d312049e710daf38e4ffa130bf5c71194251cd8cc377254a024bd2"
+  "manifest_hash": "sha256:f14d0700d6ffb756bf4e2cc87c6d8484893d3efb98a16348e21059df1903a7d8"
 }
