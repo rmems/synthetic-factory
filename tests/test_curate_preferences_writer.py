@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 """Source-scan and writer tests for same-context preference curation."""
 
-import copy
 import hashlib
 import json
 import sys
@@ -13,52 +12,12 @@ from unittest import mock
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO / "pipelines"))
 
+from preference_test_support import pair, write_jsonl  # noqa: E402
 import curate_preferences  # noqa: E402
 import preference_model  # noqa: E402
 import preference_writer  # noqa: E402
 import training_audit  # noqa: E402
 from pipelines import raw_tree_guard  # noqa: E402
-
-
-def trajectory(record_id, state=None, proposal=None, decision="ACCEPT"):
-    return {
-        "id": record_id,
-        "state": state
-        or {"sim_or_real": "designed", "domain": "preference-curation-test"},
-        "proposed_action": proposal
-        or {"action": "bounded-noop", "decision_basis": "fixture"},
-        "safety_decision": {"decision": decision, "rationale": "fixture rationale"},
-        "executed_action": {"action": "bounded-noop"},
-        "future_outcome": {"success": decision != "REJECT"},
-        "reward_components": {"task_progress": 0.5, "safety": 0.5, "total": 1.0},
-        "meta": {"tags": ["preference", "fixture"]},
-    }
-
-
-def pair(record_id="pair-1", chosen_state=None, rejected_state=None, proposal=None):
-    shared_state = {"sim_or_real": "designed", "domain": "same-problem"}
-    shared_proposal = proposal or {"action": "inspect", "decision_basis": "fixture"}
-    return {
-        "id": record_id,
-        "chosen": trajectory(
-            f"{record_id}-chosen",
-            state=copy.deepcopy(chosen_state or shared_state),
-            proposal=copy.deepcopy(shared_proposal),
-            decision="MODIFY",
-        ),
-        "rejected": trajectory(
-            f"{record_id}-rejected",
-            state=copy.deepcopy(rejected_state or shared_state),
-            proposal=copy.deepcopy(shared_proposal),
-            decision="ACCEPT",
-        ),
-        "critique": "fixture preference",
-        "reward_delta": {"task_progress": 0.0, "safety": 0.0, "total": 0.0},
-    }
-
-
-def write_jsonl(path, records):
-    path.write_text("".join(json.dumps(record) + "\n" for record in records))
 
 
 class CuratePreferenceSource(unittest.TestCase):
