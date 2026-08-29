@@ -22,7 +22,7 @@ episode routes through `pipelines/validate_run.py:check_episode` and
 - Reserve before writing: `python3 pipelines/round_txn.py reserve <factory-dir> --round N --expected Q`
 - Write ONLY into the returned `staging_dir` at its exact `batch_file` and `notes_file`.
 - One JSON object per nonblank JSONL line — no fences, headings, comments, trailing prose, or multiline objects.
-- Stage self-critique in NOTES, then publish: `python3 pipelines/round_txn.py publish <factory-dir> --round N --token TOKEN`.
+- Stage self-critique in NOTES — including the mandatory `Novel coverage: <N>%` line (see below) — then publish: `python3 pipelines/round_txn.py publish <factory-dir> --round N --token TOKEN`.
 
 ### Episode envelope (per JSONL line)
 
@@ -124,5 +124,6 @@ In the staged `notes_file`, include:
 - Where the single plan-change lands and what observation triggered it.
 - `decision_basis` audit: confirm every step has one, none rely on hidden thought, and all are ≤240 chars.
 - Realism and weak recovery paths: what still looks synthetic and the next densification target (e.g., add corrupted fixture, adversarial input, or reviewer rejection).
+- A line `Novel coverage: <N>%` — your honest estimate of how much of this round is novel versus all prior committed rounds for this factory. `publish` rejects notes without it or with a value outside 0–100, and 2 consecutive rounds under 5% early-stop the lane (`docs/token-efficiency.md`). Report a low number when novelty really is low.
 
 Do not write generated content directly into `outputs/raw/`; do not invent `c` collision suffixes. A round is complete only when its `ROUND-rNN.complete.json` marker exists. Critique realism and weak recovery paths in NOTES for the next committed round.

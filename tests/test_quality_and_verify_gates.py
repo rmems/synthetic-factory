@@ -1,27 +1,16 @@
 #!/usr/bin/env python3
-"""Regression tests for the quality and execution gates.
+"""Regression tests for the quality-gate mix accounting."""
 
-Both gates run over untrusted generated JSONL, so malformed records must
-produce a verdict rather than an exception, and provenance must be counted
-from whichever field carries it.
-"""
-
-import json
 import sys
 import tempfile
 import unittest
 from pathlib import Path
 
-REPO = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(REPO / "pipelines"))
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "pipelines"))
 
+from gate_fixtures import write  # noqa: E402
 import quality_gate  # noqa: E402
-import verify_execution  # noqa: E402
-
-
-def write(path, records):
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text("".join(json.dumps(record) + "\n" for record in records))
 
 
 class QualityGate(unittest.TestCase):
@@ -60,31 +49,6 @@ class QualityGate(unittest.TestCase):
         mix = report["mix"] if "mix" in report else report
         self.assertEqual(mix["provenance"].get("hil"), 1)
 
-
-class VerifyExecution(unittest.TestCase):
-    def test_non_object_trajectory_returns_verdict(self):
-        status, reason = verify_execution.verify_thalamic("a string", "where")
-        self.assertEqual(status, "inconclusive")
-        self.assertIn("not an object", reason)
-
-    def test_non_string_rationale_does_not_raise(self):
-        status, _ = verify_execution.verify_thalamic(
-            {
-                "state": {"sim_or_real": "designed"},
-                "safety_decision": {"rationale": {"nested": "object"}},
-                "future_outcome": {},
-            },
-            "where",
-        )
-        self.assertEqual(status, "failed")
-
-    def test_bridge_with_non_object_trajectory_returns_verdict(self):
-        status, reason = verify_execution.verify_record_execution(
-            {"language_view": {"trajectory": "oops"}, "spike_events": [1]},
-            "where",
-        )
-        self.assertEqual(status, "inconclusive")
-        self.assertIn("not an object", reason)
 
 
 if __name__ == "__main__":
