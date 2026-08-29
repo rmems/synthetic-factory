@@ -31,6 +31,8 @@ class ExecutionOverrideReason(unittest.TestCase):
             "",
             "     ",
             "brief",
+            "12345678",
+            "xxxxxxxx",
             "ok\x00fine because",
             "\u200b" * 8,
             "audit \u202ereason",
