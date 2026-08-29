@@ -127,9 +127,16 @@ r.chosen.state  == r.rejected.state          (deep JSON equality)
 r.chosen.proposed_action == r.rejected.proposed_action
 ```
 
-- Equality is **deep structural equality** of JSON values: objects are
-  equal irrespective of key order; arrays are order-sensitive; numbers are
-  compared by value; strings by exact content.
+- Equality is **canonical equality** of JSON values: objects are equal
+  irrespective of key order; arrays are order-sensitive; strings match by
+  exact content; numbers match by canonical spelling, so `9` and `9.0` are
+  *different* context and `True` is never `1`.
+- The spelling rule is deliberate, not an oversight of value equality. Both
+  arms copy `state` and `proposed_action` from the one Shared context block
+  in the diagnosis. If the two spellings differ, the arms did not copy from
+  a single source, which is the divergence this gate exists to catch. The
+  strict-audit corpus pins that behaviour
+  (`test_loosely_equal_cross_type_context_values_are_excluded`).
 - The check applies to the entire `state` and `proposed_action` subtrees,
   including nested fields like `state.environment`, `state.timestamp_*`,
   `proposed_action.content`, `proposed_action.parameters`, etc.
@@ -167,16 +174,11 @@ Reference implementation (pure Python, no external deps):
 ```python
 import json, pathlib
 
-def is_number(x) -> bool:
-    # JSON numbers only: bool is a subclass of int and is NOT a number here.
-    return isinstance(x, (int, float)) and not isinstance(x, bool)
-
 def deep_equal(a, b) -> bool:
     if type(a) is not type(b):
-        # JSON numbers: int vs float with same value are equal;
-        # True/1 and False/0 are never equal (bool excluded above).
-        if is_number(a) and is_number(b):
-            return float(a) == float(b)
+        # Canonical spelling, not value: 42 and 42.0 are different context,
+        # and True is never 1. Both arms copy this subtree from the one
+        # Shared context block, so a spelling difference means they did not.
         return False
     if isinstance(a, dict):
         return set(a) == set(b) and all(deep_equal(a[k], b[k]) for k in a)
@@ -356,34 +358,35 @@ arms to clear the floor.
 
 ```
 # Content-blind controller reservation (before either arm-producing session)
-python3 pipelines/round_txn.py reserve outputs/raw/2026-08-17/failure-as-fuel-preference-cascade --round 5 --expected 3 --preference-isolation two-session
-# → staging_dir = outputs/staging/2026-08-17/failure-as-fuel-preference-cascade/r05-<token>
+# reserve returns an absolute staging_dir; verify-handoff requires one, so
+# capture it rather than rebuilding the path by hand.
+STAGE=$(python3 pipelines/round_txn.py reserve outputs/raw/2026-08-17/failure-as-fuel-preference-cascade --round 5 --expected 3 --preference-isolation two-session | jq -r .staging_dir)
+# → $STAGE = /<repo>/outputs/staging/2026-08-17/failure-as-fuel-preference-cascade/r05-<token>
 
 # Session A: write failures + diagnoses
-#   staging/r05-<token>/rejected-01-r05.json
-#   staging/r05-<token>/rejected-02-r05.json
-#   staging/r05-<token>/rejected-03-r05.json
-#   staging/r05-<token>/diagnosis-01-r05.md
-#   staging/r05-<token>/diagnosis-02-r05.md
-#   staging/r05-<token>/diagnosis-03-r05.md
+#   $STAGE/rejected-01-r05.json
+#   $STAGE/rejected-02-r05.json
+#   $STAGE/rejected-03-r05.json
+#   $STAGE/diagnosis-01-r05.md
+#   $STAGE/diagnosis-02-r05.md
+#   $STAGE/diagnosis-03-r05.md
 
 # Separate read-only context: bind the only files Session B may open
-python3 pipelines/preference_arms.py verify-handoff \
-  outputs/staging/2026-08-17/failure-as-fuel-preference-cascade/r05-<token> \
+python3 pipelines/preference_arms.py verify-handoff "$STAGE" \
   --file diagnosis-01-r05.md --file diagnosis-02-r05.md \
   --file diagnosis-03-r05.md --write-receipt
 # → diagnosis-handoff-receipt-r05.json (required and revalidated by publish)
 
 # Session B (fresh context): read only diagnosis-*-r05.md, synthesize chosen
-#   staging/r05-<token>/batch-r05.jsonl      (3 preference records)
-#   staging/r05-<token>/NOTES-r05.md
+#   $STAGE/batch-r05.jsonl      (3 preference records)
+#   $STAGE/NOTES-r05.md
 
 # Validate
-python3 pipelines/check_records.py outputs/staging/2026-08-17/failure-as-fuel-preference-cascade/r05-<token>
-python3 pipelines/curate_preferences.py scan outputs/staging/2026-08-17/failure-as-fuel-preference-cascade/r05-<token>/batch-r05.jsonl --json
+python3 pipelines/check_records.py "$STAGE"
+python3 pipelines/curate_preferences.py scan "$STAGE/batch-r05.jsonl" --json
 # purity gate: summary.unpublishable_pairs must be 0
 # (impure_pairs alone misses equal-context pairs the curator cannot emit)
-python3 pipelines/preference_arms.py scan outputs/staging/2026-08-17/failure-as-fuel-preference-cascade/r05-<token>/batch-r05.jsonl
+python3 pipelines/preference_arms.py scan "$STAGE/batch-r05.jsonl"
 # preview: must exit 0 (publish re-runs it against captured bytes)
 
 # Publish

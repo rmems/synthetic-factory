@@ -121,5 +121,26 @@ class ContextPurityIsDelegatedAndEnforced(unittest.TestCase):
         self.assertEqual(decision.reason_codes, (preference_arms.REASON_MALFORMED,))
         self.assertIsNone(decision.arm_distance)
 
+    def test_arm_gate_inherits_the_canonical_spelling_rule(self):
+        # Same-context purity is canonical equality, not value equality: both
+        # arms copy this subtree from the one Shared context block, so 9
+        # against 9.0 means they did not copy from a single source. The
+        # strict-audit corpus owns this rule; the arm gate delegates to it and
+        # must not soften it into `float(a) == float(b)`.
+        for chosen_value, rejected_value in ((9, 9.0), (9.0, 9), (True, 1), (0, 0.0)):
+            with self.subTest(chosen=chosen_value, rejected=rejected_value):
+                record = copy.deepcopy(first(TWO_SESSION_ROUND))
+                record["chosen"]["state"]["environment"]["door_cycles"] = chosen_value
+                record["rejected"]["state"]["environment"]["door_cycles"] = rejected_value
+                decision = check(record)
+                self.assertFalse(decision.same_context)
+                self.assertIn(preference_arms.REASON_CONTEXT_DIVERGES, decision.reason_codes)
+
+    def test_one_shared_spelling_is_pure(self):
+        record = copy.deepcopy(first(TWO_SESSION_ROUND))
+        for side in ("chosen", "rejected"):
+            record[side]["state"]["environment"]["door_cycles"] = 9.0
+        self.assertTrue(check(record).same_context)
+
 if __name__ == "__main__":
     unittest.main()
