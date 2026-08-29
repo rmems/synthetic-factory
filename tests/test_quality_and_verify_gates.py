@@ -917,8 +917,34 @@ class EmbeddingDedup(unittest.TestCase):
             quality_gate.audit_run(EMBEDDING_FIXTURE, threshold=1.5)
 
     def test_threshold_one_is_rejected_instead_of_disabling_dedup(self):
-        with self.assertRaisesRegex(ValueError, r"\[-1, 1\)"):
+        with self.assertRaisesRegex(ValueError, r"\[0, 1\)"):
             quality_gate.audit_run(EMBEDDING_FIXTURE, threshold=1.0)
+
+    def test_negative_thresholds_are_rejected_not_silently_under_reported(self):
+        """TF-IDF weights here are strictly positive, so every cosine is in
+        [0, 1] and a negative threshold declares every pair a near-duplicate --
+        including disjoint-vocabulary pairs the LSH candidate scheme never
+        proposes. Scoring only candidates would exit clean while failing the
+        configured policy, so the range excludes it (Codex #98)."""
+        for threshold in (-0.5, -1.0, -0.000001):
+            with self.subTest(threshold=threshold):
+                with self.assertRaisesRegex(ValueError, r"\[0, 1\)"):
+                    quality_gate.audit_run(EMBEDDING_FIXTURE, threshold=threshold)
+
+    def test_disjoint_records_are_not_candidates_so_zero_stays_the_floor(self):
+        """The premise of the bound above: two records sharing no vocabulary
+        produce no candidate pair, so no threshold below their cosine of 0
+        could ever have been honoured."""
+        records = [
+            {"id": "d-1", "state": {"note": DISTINCT_NOTES[0]}},
+            {"id": "d-2", "state": {"note": DISTINCT_NOTES[1]}},
+        ]
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            write(root / "batch.jsonl", records)
+            report = quality_gate.audit_run(root, threshold=0.0)
+
+        self.assertEqual(report["duplicates"], [])
 
     def test_planted_duplicates_are_all_recovered(self):
         """LSH banding may only cost recall, so guard it with planted clones.

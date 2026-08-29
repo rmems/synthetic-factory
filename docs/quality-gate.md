@@ -184,7 +184,12 @@ is ever held in memory. Consequences:
   records, six distinct (max pairwise cosine 0.06) and one planted
   near-duplicate that differs only in ``state.tick`` — invisible to
   exact hashing and above 0.97 to the encoder.
-- ``--threshold`` must be finite in ``[-1, 1)``. ``1.0`` is rejected instead
+- ``--threshold`` must be finite in ``[0, 1)``. The lower bound is a
+  soundness bound: TF-IDF weights here are strictly positive, so every cosine
+  lands in ``[0, 1]``, and a negative threshold would declare every pair a
+  near-duplicate — including pairs with disjoint vocabularies that the MinHash
+  LSH candidate scheme never proposes, leaving the gate to exit clean while
+  silently failing the policy it was given. ``1.0`` is rejected instead
   of acting as a silent embedding-dedup disable switch; use the explicit
   ``--no-embedding-dedup`` flag when that is truly intended.
 

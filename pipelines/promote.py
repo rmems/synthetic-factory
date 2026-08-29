@@ -496,9 +496,9 @@ def main(argv=None):
             manifest_path, cleaned_out, allow_within_run=True
         )
         policy.validate()
-        if not math.isfinite(args.threshold) or not -1.0 <= args.threshold < 1.0:
+        if not math.isfinite(args.threshold) or not 0.0 <= args.threshold < 1.0:
             raise ValueError(
-                f"threshold must be a finite cosine in [-1, 1), got {args.threshold!r}"
+                f"threshold must be a finite cosine in [0, 1), got {args.threshold!r}"
             )
         if args.max_embedding_pairs < 1:
             raise ValueError(

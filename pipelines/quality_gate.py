@@ -898,9 +898,17 @@ def audit_run(
         ``duplicate_clusters``, ``embedding``, ``reward_shapes``, ``errors``,
         ``warnings``, ``blockers``, ``blocked``, ``threshold``.
     """
-    if not math.isfinite(threshold) or not -1.0 <= threshold < 1.0:
+    if not math.isfinite(threshold) or not 0.0 <= threshold < 1.0:
+        # The lower bound is a soundness bound, not taste. TF-IDF weights here
+        # are strictly positive, so every cosine lands in [0, 1] and any
+        # negative threshold declares *every* pair a near-duplicate --
+        # including pairs with disjoint vocabularies, which the MinHash LSH
+        # candidate scheme never proposes. The gate would then exit clean
+        # while silently failing the policy it was handed. Accept only
+        # thresholds the candidate scheme is built for: a pair must share
+        # vocabulary to be scored at all.
         raise ValueError(
-            f"threshold must be a finite cosine in [-1, 1), got {threshold!r}"
+            f"threshold must be a finite cosine in [0, 1), got {threshold!r}"
         )
     if max_embedding_pairs < 1:
         raise ValueError(f"max_embedding_pairs must be >= 1, got {max_embedding_pairs!r}")
@@ -1187,7 +1195,7 @@ def main(argv=None):
         default=DEFAULT_EMBEDDING_THRESHOLD,
         help=(
             "cosine-similarity threshold for embedding near-duplicate exclusion "
-            "in [-1, 1) (default: %(default)s). Pairs strictly above it are excluded and "
+            "in [0, 1) (default: %(default)s). Pairs strictly above it are excluded and "
             "block the gate. See module docstring and docs/quality-gate.md for "
             "tuning guidance."
         ),

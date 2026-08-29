@@ -524,7 +524,22 @@ class TestPromoteRun(unittest.TestCase):
             proc = _cli([str(raw), str(cleaned), "--threshold", "1.0"])
 
             self.assertEqual(proc.returncode, 2, proc.stderr)
-            self.assertIn("[-1, 1)", proc.stderr)
+            self.assertIn("[0, 1)", proc.stderr)
+            self.assertFalse(cleaned.exists())
+
+    def test_cli_rejects_a_negative_threshold_before_writing_destination(self):
+        """A negative threshold claims every pair is a near-duplicate, which
+        the LSH candidate scheme cannot honour, so it is refused rather than
+        silently under-reported (Codex #98, quality_gate.py:848)."""
+        with tempfile.TemporaryDirectory() as td:
+            raw = Path(td) / "raw"
+            cleaned = Path(td) / "cleaned"
+            _write_jsonl(raw / "f" / "a.jsonl", [_thalamic()])
+
+            proc = _cli([str(raw), str(cleaned), "--threshold", "-0.5"])
+
+            self.assertEqual(proc.returncode, 2, proc.stderr)
+            self.assertIn("[0, 1)", proc.stderr)
             self.assertFalse(cleaned.exists())
 
 
