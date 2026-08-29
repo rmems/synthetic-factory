@@ -139,7 +139,8 @@ Cursor Cloud Agents build from `.cursor/Dockerfile` via
 same unit tests and operator smoke check.
 
 ## Structure
-- `schemas/` — Thalamic schema, the two parity-family schemas, + `provenance.md`; `oracle-grounded-v1.schema.json` and `oracle-grounded/` for the oracle-grounded families
+- `schemas/` — Thalamic schema, the two parity-family schemas, + `provenance.md`; `oracle-grounded-v1.schema.json` and `oracle-grounded/` for the oracle-grounded families, plus actor-provenance-v1 and vset-record-v1
+- `prompts/` — factory prompts 01–07. 01–05 start with a session bootstrap; shared rules in `prompts/_factory-contract.md`
 - `outputs/raw/` — dated dumps. `2026-08-17/` is the live run; `2026-08-17-prehalt/` is the pre-resume copy. `NEXT_ROUND.json` is a generated index, not a record
 - `outputs/cleaned/` — remapped copies (`sim_or_real` never `real`)
 - `outputs/curated/` — gitignored compose destinations (`records/`, `manifest/`, `COMPOSE.json`) built by `pipelines/compose_curated.py`, exports written by `pipelines/export_hf.py`, plus reviewed promotion snapshots written by `pipelines/curate_gate.py promote`
@@ -187,6 +188,9 @@ python3 pipelines/mill_script_inventory.py --check
 python3 pipelines/census.py outputs/raw/2026-08-17          # JSON counts + mill_mix; no writes
 python3 pipelines/curate_identity.py outputs/raw/2026-08-17 --out outputs/cleaned/<new-label>
 python3 pipelines/validate_run.py outputs/raw/2026-08-17    # shape gate; no manifest unless --write
+python3 pipelines/validate_vset.py tests/fixtures/vset/records/accept
+python3 pipelines/validate_vset.py --oracle --pack tests/fixtures/vset/repo-pack-counter \
+  tests/fixtures/vset/records/accept/issue-patch-validated.json
 python3 pipelines/check_records.py outputs/raw/2026-08-17   # reward / spike order / ids
 python3 pipelines/promote.py outputs/raw/2026-08-17 outputs/cleaned/2026-08-17
 ```

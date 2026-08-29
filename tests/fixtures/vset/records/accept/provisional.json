@@ -1,0 +1,59 @@
+{
+  "schema_version": "vset-record-v1",
+  "record_kind": "issue_patch_v1",
+  "actor_provenance_schema_version": "actor-provenance-v1",
+  "source_kind": "synthetic",
+  "task_author": {
+    "model": "fixture-author",
+    "version": "vset-pilot-0",
+    "prompt_hash": "sha256:573a6eb1f609119e623ef9ffab34e439bb9b0e4e876c50cde090602c0c525df0",
+    "run_id": "author-run-provisional"
+  },
+  "solver": {
+    "model": "fixture-solver",
+    "version": "vset-pilot-0",
+    "tool_policy": "bounded-repo-pack-edit",
+    "run_id": "solver-run-provisional",
+    "outcome": "success"
+  },
+  "oracle": {
+    "kind": "deterministic_fixture_reference",
+    "status": "provisional",
+    "command": "python3 -m unittest tests.test_reference",
+    "certifier": "vset_oracle",
+    "signals": ["reference_implementation"],
+    "reference_tests": ["tests/test_reference.py"]
+  },
+  "curation": {
+    "pipeline_version": "vset-validate-v1",
+    "decision": "measure",
+    "reason_codes": ["vset.oracle_provisional"]
+  },
+  "environment": {
+    "repo_snapshot_hash": "sha256:dbfe6f82b660c9f435899676b8071024ec1e35d71f5d8bb6a26a614dc857fe59",
+    "task_id": "vset-counter-v1.add-sub",
+    "repo_pack_id": "vset-counter-v1"
+  },
+  "release": {
+    "factory_contract_version": "factory-registry-v0.1",
+    "schema_version": "vset-record-v1",
+    "manifest_hash": "sha256:6a5b7a01801c44547fdc7ee765302ddb47bf3de69ae7e6e3fa44e2e0f1d1838c"
+  },
+  "payload": {
+    "task_specification": "Add Counter.sub(delta). Hidden tests are not yet independently confirmed.",
+    "patch": {
+      "files": {
+        "src/counter.py": "\"\"\"Tiny hardware-independent counter used by VSET oracle fixtures.\"\"\"\n\n\nclass Counter:\n    def __init__(self, value=0):\n        self._value = int(value)\n\n    def add(self, delta):\n        self._value += int(delta)\n        return self._value\n\n    def sub(self, delta):\n        self._value -= int(delta)\n        return self._value\n\n    def get(self):\n        return self._value\n"
+      }
+    },
+    "validation_evidence": {
+      "reference_ok": true,
+      "hidden_ok": null
+    },
+    "outcome": "provisional"
+  },
+  "training_view": {
+    "oracle_status": "provisional",
+    "decision_basis": "Reference suite only; hidden tests not certified."
+  }
+}
