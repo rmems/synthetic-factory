@@ -79,7 +79,7 @@ SCALAR_DTYPES = frozenset(
 
 DATASET_NAME_RE = re.compile(r"^[a-z0-9][a-z0-9-]*$")
 FIELD_NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_-]*$")
-DATA_FILE_RE = re.compile(r"^data/[A-Za-z0-9_*?./-]+$")
+DATA_FILE_RE = re.compile(r"^data/raw/[A-Za-z0-9_*?./-]+$")
 PLAIN_SCALAR_RE = re.compile(r"^[A-Za-z][A-Za-z0-9_.-]*$")
 YAML_RESERVED = frozenset(
     {
@@ -245,7 +245,7 @@ def validate(payload: object, dataset: str) -> dict:
     for pattern in raw_data_files:
         _require(
             isinstance(pattern, str) and DATA_FILE_RE.fullmatch(pattern) is not None,
-            f"data_files pattern must be a repo-relative data/ path: {pattern!r}",
+            f"data_files pattern must be a repo-relative data/raw/ path: {pattern!r}",
         )
         assert isinstance(pattern, str)
         _require(".." not in pattern, f"data_files pattern escapes the repo: {pattern!r}")

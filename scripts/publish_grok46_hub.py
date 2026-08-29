@@ -339,6 +339,31 @@ def card_schema_audit() -> tuple[list[str], list[str], list[str]]:
     return declared, undeclared, orphaned
 
 
+def require_no_orphaned_declarations() -> None:
+    """Refuse snapshot/upload when a declaration file names no known dataset."""
+    _declared, _undeclared, orphaned = card_schema_audit()
+    if not orphaned:
+        return
+    for name in orphaned:
+        print(
+            f"ORPHANED    config/card-schemas/{name}.json names no known dataset",
+            file=sys.stderr,
+        )
+    raise SystemExit(
+        "orphaned card schema declaration(s) block snapshot/upload: "
+        + ", ".join(orphaned)
+    )
+
+
+def rendered_card_schema(declaration: dict) -> tuple[str, str]:
+    """Render and UTF-8-check one validated declaration's card fragments."""
+    schema_yaml = card_schema.metadata_yaml(declaration)
+    schema_body = card_schema.body_section(declaration)
+    schema_yaml.encode("utf-8")
+    schema_body.encode("utf-8")
+    return schema_yaml, schema_body
+
+
 def card_declaration_for_payload(
     hub: str, payload_names: list[str]
 ) -> tuple[dict | None, str, str]:
@@ -359,10 +384,7 @@ def card_declaration_for_payload(
             + "; ".join(errors)
         )
     try:
-        schema_yaml = card_schema.metadata_yaml(declaration)
-        schema_body = card_schema.body_section(declaration)
-        schema_yaml.encode("utf-8")
-        schema_body.encode("utf-8")
+        schema_yaml, schema_body = rendered_card_schema(declaration)
     except (CardSchemaError, UnicodeEncodeError) as exc:
         raise SystemExit(f"cannot render card schema for {hub}: {exc}") from exc
     return declaration, schema_yaml, schema_body
@@ -1017,6 +1039,7 @@ training-ready or factual real-world measurements.
 
 
 def cmd_snapshot(only: str | None = None) -> list[dict]:
+    require_no_orphaned_declarations()
     items = factories()
     stats = []
     for item in items:
@@ -1214,6 +1237,7 @@ def validate_upload_snapshot(item: dict, dest: Path) -> None:
 
 
 def cmd_upload(only: str | None = None) -> None:
+    require_no_orphaned_declarations()
     for item in factories():
         if not is_selected(item, only):
             continue
@@ -1292,6 +1316,10 @@ def cmd_schemas(strict: bool = False) -> int:
         declaration = card_declaration(name)
         if declaration is None:
             raise SystemExit(f"card schema for {name} disappeared during the audit")
+        try:
+            rendered_card_schema(declaration)
+        except (CardSchemaError, UnicodeEncodeError) as exc:
+            raise SystemExit(f"cannot render card schema for {name}: {exc}") from exc
         kind = "schema" if declaration["features"] else "disclosure-only"
         issues = (
             " " + ", ".join(f"#{number}" for number in declaration["issues"])

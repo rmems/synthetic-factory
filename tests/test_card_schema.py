@@ -59,6 +59,12 @@ class DeclarationValidationTests(unittest.TestCase):
             ({**MINIMAL, "surprise": 1}, "unknown declaration key"),
             ({**MINIMAL, "data_files": ["../etc/passwd"]}, "repo-relative"),
             ({**MINIMAL, "data_files": ["/data/raw/x.jsonl"]}, "repo-relative"),
+            ({**MINIMAL, "data_files": ["data/**"]}, "repo-relative data/raw/"),
+            ({**MINIMAL, "data_files": ["data/*.jsonl"]}, "repo-relative data/raw/"),
+            (
+                {**MINIMAL, "data_files": ["data/metadata/NOTES-r*.md"]},
+                "repo-relative data/raw/",
+            ),
             ({**MINIMAL, "data_files": []}, "non-empty"),
             (
                 {**MINIMAL, "data_files": ["data/raw/***.jsonl"]},
@@ -428,7 +434,7 @@ class PayloadCoverageTests(unittest.TestCase):
 
     def test_recursive_glob_consumes_complete_path_segments(self):
         declaration = card_schema.validate(
-            {**MINIMAL, "data_files": ["data/**/batch-*.jsonl"]},
+            {**MINIMAL, "data_files": ["data/raw/**/batch-*.jsonl"]},
             "example-trajectories",
         )
         self.assertEqual(
@@ -456,7 +462,7 @@ class PayloadCoverageTests(unittest.TestCase):
                 )
 
     def test_many_recursive_segments_do_not_recurse_in_python(self):
-        pattern = "data/" + "/".join(["**"] * 1200) + "/batch-*.jsonl"
+        pattern = "data/raw/" + "/".join(["**"] * 1200) + "/batch-*.jsonl"
         declaration = card_schema.validate(
             {**MINIMAL, "data_files": [pattern]},
             "example-trajectories",
@@ -507,6 +513,24 @@ class PublisherIntegrationTests(unittest.TestCase):
             self.assertEqual((orphan_code, clean_code, strict_code), (2, 0, 1))
             self.assertIn("names no known dataset", errors.getvalue())
             self.assertIn("UNDECLARED  long-horizon-coding-trajectories", report.getvalue())
+
+    def test_schemas_command_rejects_an_unrenderable_declaration(self):
+        cases = (
+            ("config_name", {"config_name": "bad---name"}),
+            ("split", {"split": "bad---name"}),
+            ("body_utf8", {"note": "bad\ud800note"}),
+        )
+        for case, overrides in cases:
+            with self.subTest(case=case), tempfile.TemporaryDirectory() as td:
+                root = Path(td) / "card-schemas"
+                payload = {**MINIMAL, "dataset": LONG_HORIZON}
+                payload.update(overrides)
+                write_declaration(root, LONG_HORIZON, payload)
+                with mock.patch.object(card_schema, "SCHEMA_ROOT", root):
+                    with self.assertRaisesRegex(
+                        SystemExit, "cannot render card schema"
+                    ):
+                        publisher.cmd_schemas()
 
     def test_a_broken_declaration_fails_the_card_instead_of_degrading_it(self):
         item = {
