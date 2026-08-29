@@ -476,116 +476,179 @@ def parse_args(argv):
     return parser.parse_args(argv)
 
 
+@dataclass(frozen=True)
+class _FileScope:
+    """Per-file state shared by the steps that validate one record."""
+
+    path: object
+    relative: str
+    require_runtime: bool
+    reproduce: bool
+    selected: object
+    totals: object
+    errors: list
+    seen_ids: dict
+
+    def report(self, where, message):
+        """Record one finding against a file coordinate."""
+        self.errors.append(f"{where}: {message}")
+
+
+def _verdict_for_file(name):
+    """The verdict a run file name reserves, or None."""
+    return next(
+        (verdict for verdict in ("accepted", "rejected") if name.startswith(f"{verdict}-")),
+        None,
+    )
+
+
+def _parse_record_line(line, where, scope):
+    """Parse one JSONL line into a record object, or None with a finding."""
+    try:
+        item = strict_json_loads(line)
+    except (UnicodeError, json.JSONDecodeError, ValueError, RecursionError) as exc:
+        scope.totals["parse_failures"] += 1
+        scope.report(where, f"JSON parse error: {exc}")
+        return None
+    if not isinstance(item, dict):
+        scope.totals["parse_failures"] += 1
+        scope.report(where, "record is not a JSON object")
+        return None
+    return item
+
+
+def _duplicate_id_finding(item, where, seen_ids):
+    """Claim this record's id, reporting the coordinate that claimed it first."""
+    identifier = item.get("id")
+    if not isinstance(identifier, str):
+        return None
+    if identifier in seen_ids:
+        return f"duplicate record id {identifier!r}; first seen at {seen_ids[identifier]}"
+    seen_ids[identifier] = where
+    return None
+
+
+def _classify_layers(item, require_runtime):
+    """Classify one record, containing any internal failure as an envelope finding."""
+    try:
+        return record.classify(item, require_named_runtime=require_runtime)
+    except Exception as exc:  # final boundary around one untrusted record
+        return {
+            "envelope": [
+                f"record validation raised an internal exception: {type(exc).__name__}"
+            ],
+            "family": [],
+            "status": [],
+        }
+
+
+def _fatal_findings(item, layers, identity_finding, scope):
+    """The findings that make one record invalid, in emission order."""
+    fatal = layers["envelope"] + layers["status"]
+    if identity_finding:
+        fatal.append(identity_finding)
+    family = item.get("family")
+    if family != scope.path.parent.name:
+        fatal.append(
+            f"record family {family!r} does not match directory {scope.path.parent.name!r}"
+        )
+    declared_verdict = (
+        item.get("validation", {}).get("status")
+        if isinstance(item.get("validation"), dict)
+        else None
+    )
+    expected_verdict = _verdict_for_file(scope.path.name)
+    if expected_verdict and declared_verdict != expected_verdict:
+        fatal.append(
+            f"record declares verdict {declared_verdict!r} but is filed in "
+            f"{scope.path.name!r}, which is reserved for {expected_verdict!r} records"
+        )
+    return fatal
+
+
+def _count_valid_record(item, layers, totals):
+    """Roll one valid record into the per-run counters."""
+    if layers["family"]:
+        totals["rejected"] += 1
+    else:
+        totals["accepted"] += 1
+    implementation = item["oracle"]["implementation"]
+    if implementation == "reference":
+        totals["reference_oracle"] += 1
+    elif implementation == "named-runtime":
+        totals["named_runtime"] += 1
+    else:
+        totals["mixed_oracle"] += 1
+    if item["validation"].get("publishable"):
+        totals["publishable"] += 1
+
+
+def _reproduce_record(item, where, scope):
+    """Re-derive one record's oracle result and count the outcome."""
+    try:
+        status, detail = record.reproduce(item)
+    except Exception as exc:  # defensive boundary around stored data
+        status = "invalid"
+        detail = f"reproduction raised {type(exc).__name__}"
+    scope.totals[f"reproduce_{status}"] += 1
+    if status != "reproduced":
+        scope.totals["invalid"] += 1
+        scope.report(where, f"requested oracle reproduction was {status}: {detail}")
+
+
+def _validate_one_record(item, where, scope):
+    """Apply every per-record rule, updating the file's totals and findings."""
+    identity_finding = _duplicate_id_finding(item, where, scope.seen_ids)
+    if scope.selected and item.get("family") not in scope.selected:
+        scope.totals["skipped"] += 1
+        if identity_finding:
+            scope.totals["invalid"] += 1
+            scope.report(where, identity_finding)
+        return
+    scope.totals["records"] += 1
+    layers = _classify_layers(item, scope.require_runtime)
+    fatal = _fatal_findings(item, layers, identity_finding, scope)
+    if fatal:
+        scope.totals["invalid"] += 1
+        for finding in fatal:
+            scope.report(where, finding)
+        return
+    _count_valid_record(item, layers, scope.totals)
+    if scope.reproduce:
+        _reproduce_record(item, where, scope)
+
+
 def validate_file(snapshot, require_runtime, reproduce, selected, seen_ids=None):
     """Validate one captured JSONL snapshot. Returns totals, errors, records."""
-    totals = Counter()
-    errors = []
+    scope = _FileScope(
+        path=snapshot.path,
+        relative=snapshot.relative,
+        require_runtime=require_runtime,
+        reproduce=reproduce,
+        selected=selected,
+        totals=Counter(),
+        errors=[],
+        seen_ids={} if seen_ids is None else seen_ids,
+    )
+    expected_verdict = _verdict_for_file(scope.path.name)
     parsed_records = []
-    seen_ids = {} if seen_ids is None else seen_ids
-    path = snapshot.path
     for number, line in enumerate(io.BytesIO(snapshot.body), start=1):
         if not line.strip():
             continue
-        where = f"{path}:{number}"
-        try:
-            item = strict_json_loads(line)
-        except (UnicodeError, json.JSONDecodeError, ValueError, RecursionError) as exc:
-            totals["parse_failures"] += 1
-            errors.append(f"{where}: JSON parse error: {exc}")
+        where = f"{scope.path}:{number}"
+        item = _parse_record_line(line, where, scope)
+        if item is None:
             continue
-        if not isinstance(item, dict):
-            totals["parse_failures"] += 1
-            errors.append(f"{where}: record is not a JSON object")
-            continue
-        family = item.get("family")
-        expected_verdict = next(
-            (
-                verdict
-                for verdict in ("accepted", "rejected")
-                if path.name.startswith(f"{verdict}-")
-            ),
-            None,
-        )
         parsed_records.append(
             ParsedRecord(
                 item=item,
                 where=where,
-                relative=snapshot.relative,
+                relative=scope.relative,
                 verdict=expected_verdict,
             )
         )
-        identity_finding = None
-        identifier = item.get("id")
-        if isinstance(identifier, str):
-            if identifier in seen_ids:
-                identity_finding = (
-                    f"duplicate record id {identifier!r}; first seen at {seen_ids[identifier]}"
-                )
-            else:
-                seen_ids[identifier] = where
-        if selected and family not in selected:
-            totals["skipped"] += 1
-            if identity_finding:
-                totals["invalid"] += 1
-                errors.append(f"{where}: {identity_finding}")
-            continue
-        totals["records"] += 1
-
-        try:
-            layers = record.classify(item, require_named_runtime=require_runtime)
-        except Exception as exc:  # final boundary around one untrusted record
-            layers = {
-                "envelope": [
-                    f"record validation raised an internal exception: {type(exc).__name__}"
-                ],
-                "family": [],
-                "status": [],
-            }
-        fatal = layers["envelope"] + layers["status"]
-        if identity_finding:
-            fatal.append(identity_finding)
-        if family != path.parent.name:
-            fatal.append(f"record family {family!r} does not match directory {path.parent.name!r}")
-        declared_verdict = (
-            item.get("validation", {}).get("status")
-            if isinstance(item.get("validation"), dict)
-            else None
-        )
-        if expected_verdict and declared_verdict != expected_verdict:
-            fatal.append(
-                f"record declares verdict {declared_verdict!r} but is filed in "
-                f"{path.name!r}, which is reserved for {expected_verdict!r} records"
-            )
-        if fatal:
-            totals["invalid"] += 1
-            for finding in fatal:
-                errors.append(f"{where}: {finding}")
-            continue
-        if layers["family"]:
-            totals["rejected"] += 1
-        else:
-            totals["accepted"] += 1
-        implementation = item["oracle"]["implementation"]
-        if implementation == "reference":
-            totals["reference_oracle"] += 1
-        elif implementation == "named-runtime":
-            totals["named_runtime"] += 1
-        else:
-            totals["mixed_oracle"] += 1
-        if item["validation"].get("publishable"):
-            totals["publishable"] += 1
-
-        if reproduce:
-            try:
-                status, detail = record.reproduce(item)
-            except Exception as exc:  # defensive boundary around stored data
-                status = "invalid"
-                detail = f"reproduction raised {type(exc).__name__}"
-            totals[f"reproduce_{status}"] += 1
-            if status != "reproduced":
-                totals["invalid"] += 1
-                errors.append(f"{where}: requested oracle reproduction was {status}: {detail}")
-    return totals, errors, parsed_records
+        _validate_one_record(item, where, scope)
+    return scope.totals, scope.errors, parsed_records
 
 
 _RUN_FILE_RE = re.compile(
