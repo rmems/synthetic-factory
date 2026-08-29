@@ -170,11 +170,14 @@ def _has_encoded_marker(lowered: str) -> bool:
 def _is_serialized_payload(text: str) -> bool:
     """Text that smuggles a serialized trajectory mapping or encoded blob."""
 
-    if _text_contains_rejected_trajectory_mapping(text):
+    # Compatibility spellings fold first, so a fullwidth delimiter reaches
+    # every pattern below in the ASCII form each one recognizes.
+    compatible = unicodedata.normalize("NFKC", text)
+    if _text_contains_rejected_trajectory_mapping(compatible):
         return True
-    if _ENCODED_BLOB_RE.search(text):
+    if _ENCODED_BLOB_RE.search(compatible):
         return True
-    return _has_encoded_marker(text.casefold())
+    return _has_encoded_marker(compatible.casefold())
 
 
 def _check_context_budget(budget: list[int], depth: int, label: str) -> None:
@@ -350,19 +353,24 @@ def _narrative_syntax_violation(narrative: str, lowered: str) -> str | None:
     return None
 
 
-def _narrative_violation(narrative: str, lowered: str) -> str | None:
+def _narrative_violation(narrative: str) -> str | None:
     """The first bounded-prose rule this section breaks, as a message suffix."""
 
     size = _narrative_size_violation(narrative)
     if size is not None:
         return size
-    return _narrative_syntax_violation(narrative, lowered)
+    # Size is measured on what Session A actually wrote; every syntax and
+    # payload check then runs on the compatibility-folded text, so fullwidth
+    # braces, colons, and backticks cannot spell a delimiter past a rule that
+    # recognizes only its ASCII form.
+    compatible = unicodedata.normalize("NFKC", narrative)
+    return _narrative_syntax_violation(compatible, compatible.casefold())
 
 
 def _validate_diagnosis_narratives(sections: dict[str, list[str]], label: str) -> None:
     for name in DIAGNOSIS_SECTIONS[1:-1]:
         narrative = "\n".join(sections[name]).strip()
-        violation = _narrative_violation(narrative, narrative.casefold())
+        violation = _narrative_violation(narrative)
         if violation is not None:
             raise PreferenceArmsError(f"{label} section {name!r} {violation}")
 
