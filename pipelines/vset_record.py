@@ -103,27 +103,38 @@ def _required_role_errors(record: dict[str, Any]) -> list[VSetValidationError]:
     return errors
 
 
-def _actor_graph_errors(record: dict[str, Any], kind: str | None) -> list[VSetValidationError]:
-    errors: list[VSetValidationError] = []
-    author = None
-    solver = None
-    if isinstance(record.get("task_author"), dict):
-        try:
-            author = _check_actor(record["task_author"], "task_author", require_prompt_hash=True)
-        except VSetValidationError as exc:
-            errors.append(exc)
-    if isinstance(record.get("solver"), dict):
-        try:
-            solver = _check_actor(record["solver"], "solver", require_tool_policy=True)
-        except VSetValidationError as exc:
-            errors.append(exc)
-    if author is not None and solver is not None and author["run_id"] == solver["run_id"]:
-        errors.append(
-            VSetValidationError(
-                "vset.actors_conflated",
-                "task_author.run_id and solver.run_id must remain distinct",
-            )
+def _try_check_actor(
+    record: dict[str, Any], role: str, **kwargs: Any
+) -> tuple[dict[str, Any] | None, list[VSetValidationError]]:
+    value = record.get(role)
+    if not isinstance(value, dict):
+        return None, []
+    try:
+        return _check_actor(value, role, **kwargs), []
+    except VSetValidationError as exc:
+        return None, [exc]
+
+
+def _author_solver_conflated(
+    author: dict[str, Any] | None, solver: dict[str, Any] | None
+) -> list[VSetValidationError]:
+    if author is None or solver is None:
+        return []
+    if author["run_id"] != solver["run_id"]:
+        return []
+    return [
+        VSetValidationError(
+            "vset.actors_conflated",
+            "task_author.run_id and solver.run_id must remain distinct",
         )
+    ]
+
+
+def _actor_graph_errors(record: dict[str, Any], kind: str | None) -> list[VSetValidationError]:
+    author, errors = _try_check_actor(record, "task_author", require_prompt_hash=True)
+    solver, solver_errors = _try_check_actor(record, "solver", require_tool_policy=True)
+    errors.extend(solver_errors)
+    errors.extend(_author_solver_conflated(author, solver))
     errors.extend(_reviewer_errors(record.get("reviewer", None), kind))
     return errors
 

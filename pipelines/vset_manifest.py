@@ -305,6 +305,29 @@ def _entry_evidence_errors(
     return errors
 
 
+def _count_mismatch(actual: Any, expected: Any, message: str) -> list[VSetValidationError]:
+    if actual == expected:
+        return []
+    return [VSetValidationError("vset.payload_invalid", message)]
+
+
+def _invalid_or_impossible_count_errors(
+    counts: Mapping[str, Any], expected_invalid: int
+) -> list[VSetValidationError]:
+    if "invalid_or_impossible" not in counts:
+        return [
+            VSetValidationError(
+                "vset.payload_invalid",
+                "counts.invalid_or_impossible is required; invalid tasks are not silent drops",
+            )
+        ]
+    return _count_mismatch(
+        counts.get("invalid_or_impossible"),
+        expected_invalid,
+        "counts.invalid_or_impossible does not match retained invalid/impossible entries",
+    )
+
+
 def _manifest_count_errors(
     manifest: Mapping[str, Any], entries: list[Mapping[str, Any]]
 ) -> list[VSetValidationError]:
@@ -312,47 +335,34 @@ def _manifest_count_errors(
     if not isinstance(counts, dict):
         return [VSetValidationError("vset.payload_invalid", "manifest.counts must be an object")]
     errors: list[VSetValidationError] = []
-    expected_kinds = _count_map(entries, ("record_kind",))
-    expected_status = _count_map(entries, ("oracle", "status"), ORACLE_STATUSES)
-    expected_decision = _count_map(entries, ("curation", "decision"), CURATION_DECISIONS)
+    errors.extend(
+        _count_mismatch(
+            counts.get("records"),
+            len(entries),
+            "counts.records must equal the number of retained actor-graph entries",
+        )
+    )
+    errors.extend(
+        _count_mismatch(
+            counts.get("by_record_kind"),
+            _count_map(entries, ("record_kind",)),
+            "counts.by_record_kind does not match entries",
+        )
+    )
+    errors.extend(
+        _count_mismatch(
+            counts.get("by_oracle_status"),
+            _count_map(entries, ("oracle", "status"), ORACLE_STATUSES),
+            "counts.by_oracle_status does not match entries",
+        )
+    )
+    errors.extend(
+        _count_mismatch(
+            counts.get("by_curation_decision"),
+            _count_map(entries, ("curation", "decision"), CURATION_DECISIONS),
+            "counts.by_curation_decision does not match entries",
+        )
+    )
     expected_invalid = sum(1 for entry in entries if _is_invalid_or_impossible(entry))
-    if counts.get("records") != len(entries):
-        errors.append(
-            VSetValidationError(
-                "vset.payload_invalid",
-                "counts.records must equal the number of retained actor-graph entries",
-            )
-        )
-    if counts.get("by_record_kind") != expected_kinds:
-        errors.append(
-            VSetValidationError("vset.payload_invalid", "counts.by_record_kind does not match entries")
-        )
-    if counts.get("by_oracle_status") != expected_status:
-        errors.append(
-            VSetValidationError(
-                "vset.payload_invalid",
-                "counts.by_oracle_status does not match entries",
-            )
-        )
-    if counts.get("by_curation_decision") != expected_decision:
-        errors.append(
-            VSetValidationError(
-                "vset.payload_invalid",
-                "counts.by_curation_decision does not match entries",
-            )
-        )
-    if "invalid_or_impossible" not in counts:
-        errors.append(
-            VSetValidationError(
-                "vset.payload_invalid",
-                "counts.invalid_or_impossible is required; invalid tasks are not silent drops",
-            )
-        )
-    elif counts.get("invalid_or_impossible") != expected_invalid:
-        errors.append(
-            VSetValidationError(
-                "vset.payload_invalid",
-                "counts.invalid_or_impossible does not match retained invalid/impossible entries",
-            )
-        )
+    errors.extend(_invalid_or_impossible_count_errors(counts, expected_invalid))
     return errors
