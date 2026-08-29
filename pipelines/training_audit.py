@@ -15,6 +15,7 @@ import argparse
 import hashlib
 import json
 import math
+import stat
 import statistics
 import sys
 from collections import Counter, defaultdict
@@ -274,11 +275,24 @@ def audit_run(
 
     run_dir = Path(run_dir).resolve()
     if snapshot is None:
-        files = [
-            (path.relative_to(run_dir), path.read_bytes())
-            for path in sorted(run_dir.rglob("*.jsonl"))
-            if path.is_file()
-        ]
+        # Fail closed on any discovered ``.jsonl`` member that cannot be
+        # captured as an exact regular file. Skipping a broken symlink, a
+        # directory, or a fifo would let ``--strict`` certify a subset of the
+        # apparent corpus while still reporting ``training_ready: true``.
+        files = []
+        for path in sorted(run_dir.rglob("*.jsonl")):
+            relative = path.relative_to(run_dir)
+            try:
+                metadata = path.lstat()
+            except OSError as exc:
+                raise ValueError(
+                    f"audit member cannot be captured: {relative}: {exc}"
+                ) from exc
+            if not stat.S_ISREG(metadata.st_mode):
+                raise ValueError(
+                    f"audit member is not an exact regular file: {relative}"
+                )
+            files.append((relative, path.read_bytes()))
     else:
         files = []
         for raw_relative, payload in sorted(snapshot.items()):

@@ -594,16 +594,20 @@ def split_rows(
     return train, evaluate
 
 
-def _write_new_bytes(path: Path, payload: bytes) -> str:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o644)
+def _write_new_bytes(root_descriptor: int, relative: Any, payload: bytes) -> str:
+    """Create one new export file with every path component pinned.
+
+    Export shares compose's pinned writer so a same-user process cannot swap a
+    child such as ``data/splits`` for a symlink between its ``mkdir`` and the
+    matching ``open`` and steer derived output into ``outputs/raw/``.
+    """
+
     try:
-        with os.fdopen(descriptor, "wb") as handle:
-            handle.write(payload)
-    except BaseException:
-        path.unlink(missing_ok=True)
-        raise
-    return hashlib.sha256(payload).hexdigest()
+        return compose_curated._write_pinned_new_bytes(
+            root_descriptor, relative, payload, f"export {relative}"
+        )
+    except compose_curated.ComposeError as exc:
+        raise ExportError(str(exc)) from exc
 
 
 def _jsonl_payload(rows: Sequence[ViewerRow]) -> bytes:
@@ -1412,7 +1416,12 @@ def render_eval_protocol(provenance: dict[str, Any]) -> str:
         "",
         "1. Train only on `data/splits/train.jsonl`. Never fit on the eval file.",
         "2. Score `data/splits/eval.jsonl` record by record, grouped by the",
-        "   `meta.factory` value carried in each split record.",
+        "   `meta.factory` value carried in each split record. A legacy",
+        "   preference wrapper predates a wrapper-level `meta.factory` and",
+        "   attests the factory on both trajectories instead: when the row has",
+        "   no `meta.factory`, group it by the value `chosen.meta.factory` and",
+        "   `rejected.meta.factory` agree on, and treat a disagreement as",
+        "   unresolved provenance rather than guessing a side.",
         "3. Report per-record-kind metrics separately; the corpus mixes Thalamic",
         "   trajectories, bridge pairs, preference pairs, and coding episodes, and",
         "   a single averaged number hides a collapsed lane.",
@@ -1507,11 +1516,13 @@ def export_run(
     train, evaluate = split_rows(rows, eval_fraction=eval_fraction, salt=split_salt)
 
     pinned_destination = _create_pinned_destination(resolved_root, destination)
-    destination_root = pinned_destination.root
+    destination_descriptor = pinned_destination.destination_descriptor
     try:
         files: list[dict[str, Any]] = []
         for curated in curated_files:
-            digest = _write_new_bytes(destination_root / curated.source_file, curated.payload)
+            digest = _write_new_bytes(
+                destination_descriptor, curated.source_file, curated.payload
+            )
             files.append(
                 {
                     "path": curated.source_file,
@@ -1524,10 +1535,16 @@ def export_run(
         round_trip = read_viewer_parquet(viewer_bytes)
         if round_trip != list(rows):
             raise ExportError("viewer projection failed its lossless round-trip check")
-        viewer_digest = _write_new_bytes(destination_root / VIEWER_PATH, viewer_bytes)
+        viewer_digest = _write_new_bytes(
+            destination_descriptor, VIEWER_PATH, viewer_bytes
+        )
 
-        train_digest = _write_new_bytes(destination_root / TRAIN_PATH, _jsonl_payload(train))
-        eval_digest = _write_new_bytes(destination_root / EVAL_PATH, _jsonl_payload(evaluate))
+        train_digest = _write_new_bytes(
+            destination_descriptor, TRAIN_PATH, _jsonl_payload(train)
+        )
+        eval_digest = _write_new_bytes(
+            destination_descriptor, EVAL_PATH, _jsonl_payload(evaluate)
+        )
 
         provenance = {
             "document_type": "curated_export_provenance",
@@ -1563,11 +1580,14 @@ def export_run(
             },
         }
         protocol_digest = _write_new_bytes(
-            destination_root / PROTOCOL_PATH, render_eval_protocol(provenance).encode("utf-8")
+            destination_descriptor,
+            PROTOCOL_PATH,
+            render_eval_protocol(provenance).encode("utf-8"),
         )
         provenance["splits"]["protocol_sha256"] = protocol_digest
         _write_new_bytes(
-            destination_root / PROVENANCE_PATH,
+            destination_descriptor,
+            PROVENANCE_PATH,
             (json.dumps(provenance, ensure_ascii=False, indent=2, sort_keys=True) + "\n").encode(
                 "utf-8"
             ),

@@ -102,6 +102,31 @@ class ViewerParquet(unittest.TestCase):
         )
 
 
+class ExportPinnedWrites(unittest.TestCase):
+    def test_refuses_a_split_directory_swapped_for_a_symlink(self):
+        """A swapped ``data/splits`` must not divert exports into outputs/raw."""
+
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            destination = root / "export"
+            destination.mkdir()
+            raw = root / "outputs" / "raw"
+            raw.mkdir(parents=True)
+            (destination / "data").mkdir()
+            (destination / "data" / "splits").symlink_to(
+                raw, target_is_directory=True
+            )
+            descriptor = os.open(destination, os.O_RDONLY | os.O_DIRECTORY)
+            try:
+                with self.assertRaises(export_hf.ExportError):
+                    export_hf._write_new_bytes(
+                        descriptor, export_hf.TRAIN_PATH, b"{}\n"
+                    )
+            finally:
+                os.close(descriptor)
+            self.assertEqual(sorted(path.name for path in raw.iterdir()), [])
+
+
 class ExportPayloadAndProvenance(unittest.TestCase):
     def test_exports_payload_viewer_splits_and_provenance(self):
         with tempfile.TemporaryDirectory() as td:
@@ -179,6 +204,10 @@ class ExportPayloadAndProvenance(unittest.TestCase):
             self.assertIn(export_hf.TRAIN_PATH, protocol)
             self.assertIn(export_hf.EVAL_PATH, protocol)
             self.assertIn("`meta.factory` value", protocol)
+            # Codex #97 P2: preference wrappers may carry the factory only on
+            # their sides, so the grouping instruction has to stay possible.
+            self.assertIn("`chosen.meta.factory`", protocol)
+            self.assertIn("`rejected.meta.factory`", protocol)
             self.assertNotIn("in `source_file`", protocol)
             self.assertIn(
                 '`safety_decision.correctness == "incorrect"`',

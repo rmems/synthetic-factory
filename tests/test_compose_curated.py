@@ -571,6 +571,101 @@ class ComposeCurated(unittest.TestCase):
                 sample,
             )
 
+    def test_bridge_order_error_fragment_matches_the_validator(self):
+        """The deferral below keys off this exact validator phrasing."""
+
+        import validate_run
+
+        events = [
+            {"channel": "c", "amplitude": 1.0, "t_rel_ms": 3.0},
+            {"channel": "c", "amplitude": 1.0, "t_rel_ms": 1.0},
+        ]
+        errors = validate_run.check_spike_order(events, "record")
+        self.assertTrue(errors)
+        self.assertTrue(
+            all(
+                compose_curated.BRIDGE_ORDER_ERROR_FRAGMENT in error
+                for error in errors
+            ),
+            errors,
+        )
+
+    def test_unsorted_bridge_streams_reach_the_repair_instead_of_being_dropped(self):
+        """Codex #97 P2: identity must not make a repairable order terminal.
+
+        ``curate_bridge`` deterministically stable-sorts a single-clock stream
+        and records BRIDGE_EVENTS_STABLE_SORTED_SINGLE_GLOBAL_CLOCK. Identity
+        applies the same invariant first, so a terminal refusal there drops an
+        explicitly repairable supported record before its lane ever runs.
+        """
+
+        decision = compose_curated.compose_record(
+            bridge_pair(unsorted=True),
+            source_path="neuromorphic-event-language-bridge/batch-r01.jsonl",
+            source_line=1,
+            source_sha256="0" * 64,
+        )
+
+        self.assertEqual(decision.action, compose_curated.ACTION_RETAINED)
+        identity_stage = next(
+            stage for stage in decision.stages if stage["lane"] == "identity"
+        )
+        self.assertTrue(identity_stage["detail"]["bridge_order_deferred_to_bridge_lane"])
+        bridge_stage = next(
+            stage for stage in decision.stages if stage["lane"] == "bridge"
+        )
+        # The bridge lane, not identity, owns and records the repair.
+        self.assertIn(curate_bridge.REASON_REPAIRED, bridge_stage["reason_codes"])
+        times = [event["t_rel_ms"] for event in decision.record["spike_events"]]
+        self.assertEqual(times, sorted(times))
+
+    def test_bridge_deferral_does_not_smuggle_records_the_lane_refuses(self):
+        """Only a stream the bridge lane will actually repair may be deferred."""
+
+        record = bridge_pair(unsorted=True)
+        record["meta"]["event_order"] = "explicit"
+        decision = compose_curated.compose_record(
+            record,
+            source_path="neuromorphic-event-language-bridge/batch-r01.jsonl",
+            source_line=1,
+            source_sha256="0" * 64,
+        )
+
+        self.assertEqual(decision.action, compose_curated.ACTION_EXCLUDED)
+        identity_stage = next(
+            stage for stage in decision.stages if stage["lane"] == "identity"
+        )
+        self.assertNotIn(
+            "bridge_order_deferred_to_bridge_lane", identity_stage["detail"]
+        )
+
+    def test_coding_wrap_records_reach_the_coding_lane(self):
+        """A wrap keeps its steps at executed_action.steps; compose must route it."""
+
+        from coding_curation_helpers import visible_step, wrap_record
+
+        record = wrap_record([visible_step()])
+        record["meta"]["factory"] = "thalamic-trajectory-factory"
+        self.assertIsNone(record.get("steps"))
+        self.assertTrue(compose_curated.is_episode_record(record))
+
+        decision = compose_curated.compose_record(
+            record,
+            source_path="thalamic-trajectory-factory/batch-r02.jsonl",
+            source_line=1,
+            source_sha256="0" * 64,
+        )
+        coding_stage = next(
+            stage for stage in decision.stages if stage["lane"] == "coding"
+        )
+        self.assertNotEqual(
+            coding_stage["action"], compose_curated.ACTION_NOT_APPLICABLE
+        )
+        self.assertEqual(coding_stage["transform_name"], curate_coding.TRANSFORM_NAME)
+        if decision.record is not None:
+            steps = decision.record[curate_coding.WRAP_STEPS_PARENT]["steps"]
+            self.assertNotIn("thought", steps[0])
+
     def test_episode_preference_pairs_are_retained_and_mixed_families_are_explicit(self):
         pair = trajectory_preference_pair()
         decision = compose_curated.compose_record(
@@ -1085,6 +1180,47 @@ class ComposeCurated(unittest.TestCase):
                 {"agentic-coding-trajectory-factory", "agent-memory-compaction-factory"},
             )
 
+    def test_side_stamped_preference_duplicates_are_deduplicated(self):
+        """Codex #97 P1: side-level factory labels must not survive the digest.
+
+        A Fable preference wrapper predates a wrapper-level ``meta.factory``
+        and attests its factory on ``chosen``/``rejected`` instead --
+        ``curate_identity._payload_factory`` accepts exactly that shape. If the
+        semantic digest normalizes only ``semantic["meta"]``, the same pair
+        submitted under two authorized preference factories survives twice,
+        and on a two-record corpus the deterministic split necessarily puts
+        one copy in train and its twin in eval.
+        """
+
+        def side_stamped(factory, tag):
+            record = trajectory_preference_pair()
+            record["id"] = f"legacy-pref-{tag}"
+            record["meta"] = {"round": 1}
+            for side in ("chosen", "rejected"):
+                record[side]["meta"] = {"factory": factory}
+            return record
+
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            source = root / "run"
+            write_jsonl(
+                source / "tool-use-preference-factory" / "batch-r01.jsonl",
+                [side_stamped("tool-use-preference-factory", "a")],
+            )
+            write_jsonl(
+                source / "code-review-preference-factory" / "batch-r01.jsonl",
+                [side_stamped("code-review-preference-factory", "b")],
+            )
+
+            summary = compose_curated.compose_run(source, root / "curated")
+
+            self.assertEqual(summary["counts"]["source_records"], 2)
+            self.assertEqual(summary["counts"]["retained"], 1)
+            self.assertEqual(
+                summary["exclusions"],
+                {compose_curated.REASON_DUPLICATE_CURATED_RECORD: 1},
+            )
+
     def test_composition_rejects_source_symlink_and_hardlink_aliases(self):
         for mutation in (
             "source_root_symlink",
@@ -1371,6 +1507,79 @@ class ComposeCurated(unittest.TestCase):
                 compose_curated.compose_run(source, symlink_parent / "curated")
             self.assertFalse((real_parent / "curated").exists())
 
+    def test_pinned_writer_refuses_a_child_directory_swapped_for_a_symlink(self):
+        """A swapped child must not steer curated payload into outputs/raw."""
+
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            destination = root / "curated"
+            destination.mkdir()
+            raw = root / "outputs" / "raw"
+            raw.mkdir(parents=True)
+            # The window the pin closes: another same-user process replaces the
+            # freshly created child between ``mkdir`` and ``open``.
+            (destination / compose_curated.RECORDS_DIRNAME).symlink_to(
+                raw, target_is_directory=True
+            )
+            descriptor = os.open(destination, os.O_RDONLY | os.O_DIRECTORY)
+            try:
+                with self.assertRaises(compose_curated.ComposeError):
+                    compose_curated._write_new_text(
+                        descriptor,
+                        f"{compose_curated.RECORDS_DIRNAME}/escaped.jsonl",
+                        "{}\n",
+                    )
+            finally:
+                os.close(descriptor)
+            self.assertEqual(sorted(path.name for path in raw.iterdir()), [])
+
+    def test_pinned_writer_refuses_a_final_name_swapped_for_a_symlink(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            destination = root / "curated"
+            destination.mkdir()
+            outside = root / "outside.jsonl"
+            descriptor = os.open(destination, os.O_RDONLY | os.O_DIRECTORY)
+            try:
+                (destination / "COMPOSE.json").symlink_to(outside)
+                with self.assertRaises(compose_curated.ComposeError):
+                    compose_curated._write_new_text(
+                        descriptor, compose_curated.SUMMARY_FILENAME, "{}\n"
+                    )
+            finally:
+                os.close(descriptor)
+            self.assertFalse(outside.exists())
+
+    def test_pinned_writer_rejects_unsafe_relative_destinations(self):
+        with tempfile.TemporaryDirectory() as td:
+            destination = Path(td) / "curated"
+            destination.mkdir()
+            descriptor = os.open(destination, os.O_RDONLY | os.O_DIRECTORY)
+            try:
+                for unsafe in ("", "/absolute.jsonl", "../escape.jsonl", "a/./b.jsonl"):
+                    with self.subTest(unsafe=unsafe):
+                        with self.assertRaises(compose_curated.ComposeError):
+                            compose_curated._write_new_text(descriptor, unsafe, "{}\n")
+            finally:
+                os.close(descriptor)
+
+    def test_pinned_writer_creates_nested_components_and_hashes_bytes(self):
+        with tempfile.TemporaryDirectory() as td:
+            destination = Path(td) / "curated"
+            destination.mkdir()
+            descriptor = os.open(destination, os.O_RDONLY | os.O_DIRECTORY)
+            try:
+                digest = compose_curated._write_new_text(
+                    descriptor, "records/factory/rows.jsonl", "{}\n"
+                )
+            finally:
+                os.close(descriptor)
+            written = destination / "records" / "factory" / "rows.jsonl"
+            self.assertEqual(written.read_text(encoding="utf-8"), "{}\n")
+            self.assertEqual(
+                digest, hashlib.sha256(b"{}\n").hexdigest()
+            )
+
     def test_a_failed_composition_removes_the_new_destination(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
@@ -1379,10 +1588,10 @@ class ComposeCurated(unittest.TestCase):
 
             real_write = compose_curated._write_new_text
 
-            def fail_on_manifest(path, text):
-                if path.name == compose_curated.MANIFEST_FILENAME:
+            def fail_on_manifest(root_descriptor, relative, text):
+                if relative.endswith(compose_curated.MANIFEST_FILENAME):
                     raise OSError("simulated manifest write failure")
-                return real_write(path, text)
+                return real_write(root_descriptor, relative, text)
 
             with mock.patch.object(
                 compose_curated, "_write_new_text", side_effect=fail_on_manifest

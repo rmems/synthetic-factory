@@ -4,6 +4,7 @@
 import contextlib
 import io
 import json
+import os
 import sys
 import tempfile
 import unittest
@@ -85,6 +86,33 @@ class TrainingAudit(unittest.TestCase):
         self.assertEqual(report["totals"]["records"], 2)
         self.assertEqual(report["record_invariants"]["errors"], 0)
         self.assertTrue(report["training_ready"], report["blockers"])
+
+    def test_non_regular_jsonl_members_fail_the_audit_closed(self):
+        """Codex #97 P2: a member that cannot be captured must not be skipped.
+
+        Silently omitting a broken symlink, a directory, or a fifo named
+        ``*.jsonl`` leaves the file count and readiness unchanged, so
+        ``training_audit --strict`` would certify only a subset of the
+        apparent corpus.
+        """
+
+        for member in ("broken_symlink", "directory", "fifo"):
+            with self.subTest(member=member), tempfile.TemporaryDirectory() as td:
+                root = Path(td)
+                factory = root / "thalamic-trajectory-factory"
+                write(factory / "batch-r01.jsonl", [thalamic("clean-1")])
+                self.assertTrue(training_audit.audit_run(root)["training_ready"])
+
+                intruder = factory / "ignored.jsonl"
+                if member == "broken_symlink":
+                    intruder.symlink_to(root / "missing-target.jsonl")
+                elif member == "directory":
+                    intruder.mkdir()
+                else:
+                    os.mkfifo(intruder)
+
+                with self.assertRaises(ValueError):
+                    training_audit.audit_run(root)
 
     def test_clean_corpus_is_training_ready(self):
         with tempfile.TemporaryDirectory() as td:

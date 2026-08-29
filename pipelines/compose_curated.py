@@ -180,9 +180,19 @@ def is_preference_record(record: Mapping[str, Any]) -> bool:
 
 
 def is_episode_record(record: Mapping[str, Any]) -> bool:
-    """Mirror the shape gate ``curate_coding.curate_episode`` applies itself."""
+    """Mirror the shape gate ``curate_coding.curate_episode`` applies itself.
 
-    return isinstance(record, Mapping) and isinstance(record.get("steps"), list)
+    A retained Thalamic wrap keeps its coding episode under
+    ``executed_action``, so its steps live one level down.  ``curate_coding``
+    supports that layout through ``_steps_path``; routing only on a top-level
+    ``steps`` array would send a repairable wrap straight to the strict audit
+    with its hidden reasoning and ungrounded ``decision_basis`` intact.
+    """
+
+    return (
+        isinstance(record, Mapping)
+        and curate_coding._steps_path(dict(record)) is not None
+    )
 
 
 def _mixed_preference_families(side_kinds: tuple[str, str]) -> bool:
@@ -480,6 +490,61 @@ def calibration_for(record: Mapping[str, Any], catalog: Mapping[str, Any] | None
     return catalog.get(record_id.lower())
 
 
+REASON_IDENTITY_INVALID_PAYLOAD_SHAPE = "identity.invalid_payload_shape"
+
+# ``validate_run.check_spike_order`` phrases the ordering violation this way.
+# ``test_bridge_order_error_fragment_matches_the_validator`` pins the coupling
+# so a reworded validator message fails loudly instead of silently turning the
+# deferral below back into a terminal exclusion.
+BRIDGE_ORDER_ERROR_FRAGMENT = "spike_events not globally non-decreasing"
+
+
+def _is_bridge_order_only_rejection(mapping: Mapping[str, Any]) -> bool:
+    """Whether identity refused a record for spike ordering and nothing else."""
+
+    if list(mapping.get("reason_codes", [])) != [
+        REASON_IDENTITY_INVALID_PAYLOAD_SHAPE
+    ]:
+        return False
+    details = mapping.get("details")
+    if not isinstance(details, list) or not details:
+        return False
+    return all(
+        isinstance(detail, str) and BRIDGE_ORDER_ERROR_FRAGMENT in detail
+        for detail in details
+    )
+
+
+def _bridge_order_repaired_copy(
+    record: Mapping[str, Any],
+    *,
+    source_path: str,
+    source_line: int,
+    source_sha256: str,
+) -> dict[str, Any] | None:
+    """Return the bridge lane's stable-sorted copy, or None if it will not repair.
+
+    ``curate_bridge`` owns the ordering invariant and repairs a single-clock
+    stream deterministically.  Asking the lane itself keeps every guard it
+    applies -- explicit order fields, raster budgets, multiple clocks -- so a
+    record it would quarantine is never smuggled past identity.
+    """
+
+    try:
+        decision = curate_bridge.curate_record(
+            record,
+            source_path=source_path,
+            source_line=source_line,
+            source_hash=source_sha256,
+            source_file_hash=None,
+        )
+    except Exception:  # noqa: BLE001 - a probe must never fail composition
+        return None
+    if decision.action != "repair" or not isinstance(decision.output_record, dict):
+        return None
+    return decision.output_record
+
+
 def _compose_identity_stage(
     record: Any,
     stages: list[dict[str, Any]],
@@ -518,8 +583,43 @@ def _compose_identity_stage(
             source_sha256=source_sha256,
         )
     )
+    # A bridge stream with one valid global clock but unsorted events is
+    # explicitly repairable: ``curate_bridge`` stable-sorts it and records
+    # BRIDGE_EVENTS_STABLE_SORTED_SINGLE_GLOBAL_CLOCK. Identity applies the
+    # same ordering invariant first, so leaving its refusal terminal would drop
+    # a supported record the pipeline knows how to fix. Re-validate identity
+    # against the lane's own repaired copy, then hand the original order
+    # forward so the bridge stage performs and records the repair itself.
+    deferred_bridge_order = False
+    if (
+        identity_result.action != "retained"
+        and isinstance(record, Mapping)
+        and is_bridge_record(record)
+        and _is_bridge_order_only_rejection(identity_result.mapping)
+    ):
+        repaired = _bridge_order_repaired_copy(
+            record,
+            source_path=source_path,
+            source_line=source_line,
+            source_sha256=source_sha256,
+        )
+        if repaired is not None:
+            retry = curate_identity.curate_record(
+                curate_identity.SourceRecord(
+                    record=repaired,
+                    source_path=source_path,
+                    source_line=source_line,
+                    source_sha256=source_sha256,
+                )
+            )
+            if retry.action == "retained" and isinstance(retry.record, dict):
+                identity_result = retry
+                deferred_bridge_order = True
+
     identity_reasons = list(identity_result.mapping.get("reason_codes", []))
     identity_detail = copy.deepcopy(identity_result.mapping)
+    if deferred_bridge_order:
+        identity_detail["bridge_order_deferred_to_bridge_lane"] = True
     if source_side_kinds is not None:
         identity_detail["preference_side_kinds"] = list(source_side_kinds)
     if mixed_preference_families:
@@ -544,6 +644,10 @@ def _compose_identity_stage(
             ACTION_EXCLUDED, None, tuple(identity_reasons), tuple(stages), None, None
         )
     current: dict[str, Any] = identity_result.record
+    if deferred_bridge_order:
+        # Identity validated the repaired order; the bridge lane still has to
+        # see the source order so its manifest carries the repair.
+        current["spike_events"] = copy.deepcopy(record["spike_events"])
     registered_kind = identity_result.mapping.get("record_kind")
     return current, registered_kind
 
@@ -1208,6 +1312,22 @@ def _mapped_legacy_id_paths(detail: Mapping[str, Any] | None) -> tuple[str, ...]
     return tuple(paths)
 
 
+def _semantic_identity_owners(record: dict[str, Any]) -> list[dict[str, Any]]:
+    """Every owner that may carry a factory declaration for one record.
+
+    Mirrors ``curate_identity._payload_factory``: the wrapper itself plus both
+    preference sides, since a legacy preference wrapper attests its factory on
+    ``chosen``/``rejected`` and omits a wrapper-level ``meta`` entirely.
+    """
+
+    owners = [record]
+    for side in ("chosen", "rejected"):
+        owner = record.get(side)
+        if isinstance(owner, dict):
+            owners.append(owner)
+    return owners
+
+
 def _post_transform_semantic_sha256(decision: ComposeDecision) -> str:
     """Hash training content without coordinate-derived identity bindings."""
 
@@ -1230,19 +1350,22 @@ def _post_transform_semantic_sha256(decision: ComposeDecision) -> str:
     for path in _mapped_legacy_id_paths(detail if isinstance(detail, dict) else None):
         _pop_json_pointer(semantic, path)
 
-    meta = semantic.get("meta")
-    if isinstance(meta, dict):
-        # The same episode can be authorized under more than one factory
-        # path_id (the registry declares dozens of distinct "episode"-kind
-        # factories). ``meta.factory``/``meta.generator`` name which pipeline
-        # and model produced the row, not part of the trained-on content, so
-        # two rows that are otherwise byte-identical after curation must not
-        # be kept apart by that label alone -- doing so would let the same
-        # content land in both the train and eval split. Normalize both
-        # fields out of the digest; they stay untouched on the emitted
-        # record itself, since ``semantic`` is a deep copy.
-        meta.pop("factory", None)
-        meta.pop("generator", None)
+    # The same episode can be authorized under more than one factory path_id
+    # (the registry declares dozens of distinct "episode"-kind factories).
+    # ``meta.factory``/``meta.generator`` name which pipeline and model
+    # produced the row, not part of the trained-on content, so two rows that
+    # are otherwise byte-identical after curation must not be kept apart by
+    # that label alone -- doing so would let the same content land in both the
+    # train and eval split. Normalize both fields on every identity owner:
+    # a Fable preference wrapper predates a wrapper-level ``meta`` and carries
+    # the declaration on ``chosen``/``rejected`` instead, exactly as
+    # ``curate_identity._payload_factory`` resolves it. They stay untouched on
+    # the emitted record itself, since ``semantic`` is a deep copy.
+    for owner in _semantic_identity_owners(semantic):
+        meta = owner.get("meta")
+        if isinstance(meta, dict):
+            meta.pop("factory", None)
+            meta.pop("generator", None)
 
     annotation = semantic.get(curate_rewards.ANNOTATION_FIELD)
     if isinstance(annotation, dict):
@@ -1873,18 +1996,128 @@ def _create_pinned_destination(
         raise
 
 
-def _write_new_text(path: Path, text: str) -> str:
-    """Create one new file exclusively and return its SHA-256 digest."""
+def _destination_write_parts(relative: Any, label: str) -> tuple[str, ...]:
+    """Validate one destination-relative POSIX path used for a new file."""
 
-    path.parent.mkdir(parents=True, exist_ok=True)
-    descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o644)
+    raw = relative.as_posix() if isinstance(relative, PurePosixPath) else relative
+    if not isinstance(raw, str) or not raw or "\\" in raw:
+        raise ComposeError(f"{label}: destination path must be a nonempty POSIX string")
+    candidate = PurePosixPath(raw)
+    if (
+        candidate.as_posix() != raw
+        or candidate.is_absolute()
+        or any(part in {"", ".", ".."} for part in candidate.parts)
+    ):
+        raise ComposeError(f"{label}: unsafe destination path {raw!r}")
+    return candidate.parts
+
+
+def _open_pinned_child_directory(
+    parent_descriptor: int, name: str, label: str
+) -> int:
+    """Create or reuse one child directory and pin it without following links.
+
+    ``mkdir`` and the matching ``open`` are two syscalls, so a same-user
+    process can replace the new child with a symlink in between.  Opening the
+    component relative to its pinned parent with ``O_NOFOLLOW`` refuses that
+    swap outright, and comparing the opened identity against the directory
+    entry refuses a swap that lands between the two calls.
+    """
+
+    flags = (
+        os.O_RDONLY
+        | getattr(os, "O_DIRECTORY", 0)
+        | getattr(os, "O_NOFOLLOW", 0)
+        | getattr(os, "O_CLOEXEC", 0)
+    )
     try:
-        with os.fdopen(descriptor, "w", encoding="utf-8", newline="\n") as handle:
-            handle.write(text)
+        os.mkdir(name, 0o755, dir_fd=parent_descriptor)
+    except FileExistsError:
+        pass
+    except OSError as exc:
+        raise ComposeError(
+            f"{label}: cannot create directory component {name!r}: {exc}"
+        ) from exc
+    try:
+        descriptor = os.open(name, flags, dir_fd=parent_descriptor)
+    except OSError as exc:
+        raise ComposeError(
+            f"{label}: directory component {name!r} is not an exact directory"
+        ) from exc
+    try:
+        entry = os.stat(name, dir_fd=parent_descriptor, follow_symlinks=False)
+        opened = os.fstat(descriptor)
+        if (
+            not stat.S_ISDIR(entry.st_mode)
+            or not stat.S_ISDIR(opened.st_mode)
+            or _directory_identity(entry) != _directory_identity(opened)
+        ):
+            raise ComposeError(
+                f"{label}: directory component {name!r} changed while it was pinned"
+            )
     except BaseException:
-        path.unlink(missing_ok=True)
+        os.close(descriptor)
         raise
-    return sha256_hex(text.encode("utf-8"))
+    return descriptor
+
+
+def _write_pinned_new_bytes(
+    root_descriptor: int, relative: Any, payload: bytes, label: str = "destination"
+) -> str:
+    """Create one new file under a pinned root, pinning every component.
+
+    Every intermediate directory is created and reopened relative to the
+    descriptor above it, so no component of the write path is ever resolved
+    through a name that another process can swap for a symlink.  The final
+    file is created exclusively and never follows a link either, which keeps
+    derived output from escaping into the immutable ``outputs/raw/`` tree.
+    """
+
+    parts = _destination_write_parts(relative, label)
+    opened: list[int] = []
+    current = root_descriptor
+    try:
+        for name in parts[:-1]:
+            current = _open_pinned_child_directory(current, name, label)
+            opened.append(current)
+        leaf = parts[-1]
+        flags = (
+            os.O_WRONLY
+            | os.O_CREAT
+            | os.O_EXCL
+            | getattr(os, "O_NOFOLLOW", 0)
+            | getattr(os, "O_CLOEXEC", 0)
+        )
+        try:
+            descriptor = os.open(leaf, flags, 0o644, dir_fd=current)
+        except OSError as exc:
+            raise ComposeError(
+                f"{label}: cannot create new file {parts[-1]!r}: {exc}"
+            ) from exc
+        try:
+            with os.fdopen(descriptor, "wb") as handle:
+                handle.write(payload)
+        except BaseException:
+            try:
+                os.unlink(leaf, dir_fd=current)
+            except OSError:
+                pass
+            raise
+    finally:
+        for descriptor in reversed(opened):
+            os.close(descriptor)
+    return sha256_hex(payload)
+
+
+def _write_new_text(root_descriptor: int, relative: Any, text: str) -> str:
+    """Create one new destination file exclusively and hash its bytes."""
+
+    return _write_pinned_new_bytes(
+        root_descriptor,
+        relative,
+        text.encode("utf-8"),
+        f"destination {relative}",
+    )
 
 
 def _load_calibration(
@@ -1981,6 +2214,7 @@ def compose_run(
     )
     pinned_destination = _create_pinned_destination(resolved_source, destination)
     destination_root = pinned_destination.root
+    destination_descriptor = pinned_destination.destination_descriptor
     records_dir = destination_root / RECORDS_DIRNAME
     manifest_dir = destination_root / MANIFEST_DIRNAME
 
@@ -2080,7 +2314,9 @@ def compose_run(
 
             if emitted:
                 digest = _write_new_text(
-                    records_dir / relative, "".join(line + "\n" for line in emitted)
+                    destination_descriptor,
+                    f"{RECORDS_DIRNAME}/{relative}",
+                    "".join(line + "\n" for line in emitted),
                 )
                 outputs.append(
                     {
@@ -2091,13 +2327,15 @@ def compose_run(
                 )
                 counts["output_files"] += 1
 
-        manifest_path = manifest_dir / MANIFEST_FILENAME
         manifest_sha256 = _write_new_text(
-            manifest_path, "".join(line + "\n" for line in manifest_lines)
+            destination_descriptor,
+            f"{MANIFEST_DIRNAME}/{MANIFEST_FILENAME}",
+            "".join(line + "\n" for line in manifest_lines),
         )
-        sidecar_path = manifest_dir / REWARD_SIDECAR_FILENAME
         sidecar_sha256 = _write_new_text(
-            sidecar_path, "".join(line + "\n" for line in sidecar_lines)
+            destination_descriptor,
+            f"{MANIFEST_DIRNAME}/{REWARD_SIDECAR_FILENAME}",
+            "".join(line + "\n" for line in sidecar_lines),
         )
 
         summary = {
@@ -2136,7 +2374,8 @@ def compose_run(
             "audit": _audit_records(records_dir, counts["retained"]),
         }
         _write_new_text(
-            destination_root / SUMMARY_FILENAME,
+            destination_descriptor,
+            SUMMARY_FILENAME,
             json.dumps(summary, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
         )
     except BaseException:
