@@ -60,6 +60,47 @@ class SpikeOrderHasOneOwner(unittest.TestCase):
         errors = self._order_errors(record)
         self.assertEqual(len(errors), 1, errors)
 
+    def _clock_errors(self, record):
+        return [e for e in self._errors(record) if "one clock domain" in e]
+
+    def test_a_nested_stream_is_judged_against_its_own_owners_clock(self):
+        """A clock declaration sits on the stream's own parent. The deep walk
+        discarded that parent, so a nested stream whose owner declares one
+        clock and whose events declare another passed --strict while the
+        curator quarantines the same shape (Codex #87)."""
+        record = _thalamic(
+            future_outcome={
+                "clock_id": "record-clock",
+                "spike_events": [{"t_rel_ms": 1, "source_clock": "event-clock"}],
+            }
+        )
+        errors = self._clock_errors(record)
+        self.assertEqual(len(errors), 1, errors)
+        self.assertIn("future_outcome.spike_events", errors[0])
+        self.assertIn("record-clock", errors[0])
+        self.assertIn("event-clock", errors[0])
+
+    def test_a_nested_stream_agreeing_with_its_owner_is_one_domain(self):
+        """The owner's declaration must not manufacture a second domain."""
+        record = _thalamic(
+            future_outcome={
+                "clock_id": "one-clock",
+                "spike_events": [{"t_rel_ms": 1, "source_clock": "one-clock"}],
+            }
+        )
+        self.assertEqual(self._clock_errors(record), [])
+
+    def test_an_outer_record_clock_does_not_govern_a_nested_stream(self):
+        """Each stream answers to its own owner, not to the outermost record:
+        two sibling streams may legitimately run on different clocks."""
+        record = _thalamic(
+            spike_events=[{"channel": "a", "t_rel_ms": 1.0, "source_clock": "outer"}],
+            future_outcome={
+                "spike_events": [{"t_rel_ms": 1, "source_clock": "inner"}],
+            },
+        )
+        self.assertEqual(self._clock_errors(record), [])
+
     def test_mixed_timestamp_keys_are_not_compared_as_one_clock(self):
         record = {
             "id": "bridge-mixed-clock",

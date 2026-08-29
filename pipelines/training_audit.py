@@ -122,7 +122,7 @@ def reward_shape(value):
     return "|".join(shape)
 
 
-def event_stream_status(events):
+def event_stream_status(events, enclosing=None):
     """Classify presence, event validity, and global temporal order.
 
     Event-shape validity — required bridge keys, string/numeric field types,
@@ -132,10 +132,18 @@ def event_stream_status(events):
     ``amplitude``) is therefore never miscounted as merely 'sorted' just
     because its timestamp alone parses. Only a pure chronological-order
     violation on an otherwise-valid stream is classified 'unsorted'.
+
+    ``enclosing`` is the record owning the stream. A bridge may declare its
+    clock on the record or its ``meta``; without it a pair whose declared
+    clocks conflict counted as 'sorted' here while the record validator
+    reported the same pair as multi-clock, so the audit contradicted its own
+    invariant findings.
     """
     if not isinstance(events, list) or not events:
         return "missing"
-    errors = check_spike_order(events, "", require_keys=BRIDGE_SPIKE_EVENT_KEYS)
+    errors = check_spike_order(
+        events, "", require_keys=BRIDGE_SPIKE_EVENT_KEYS, enclosing=enclosing
+    )
     if any(SPIKE_ORDER_MISMATCH not in error for error in errors):
         return "invalid"
     return "unsorted" if errors else "sorted"
@@ -488,7 +496,7 @@ def audit_run(run_dir: Path):
                 if isinstance(events, list):
                     bridge["events"] += len(events)
                     bridge["pairs_48_plus"] += int(len(events) >= 48)
-                status = event_stream_status(events)
+                status = event_stream_status(events, obj)
                 bridge[f"{status}_pairs"] += 1
             if kind == "episode":
                 episodes["episodes"] += 1

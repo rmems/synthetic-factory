@@ -83,17 +83,29 @@ def claims_real(value):
     return lowered == "real" or lowered.startswith(("real_", "real-", "real "))
 
 
-def walk_key(obj, name, path=""):
-    """Yield (path, value) for every dict entry named `name`."""
+def _walk_key_owners(obj, name, path=""):
+    """Yield ``(path, value, owner)`` for every dict entry named ``name``.
+
+    ``owner`` is the object the entry was found on. A clock declaration sits
+    on the stream's own parent (and that parent's ``meta``), so a nested
+    stream needs its owner, not the outermost record, to be validated the way
+    curate_bridge validates the top-level one.
+    """
     if isinstance(obj, dict):
         for key, val in obj.items():
             child = f"{path}.{key}" if path else key
             if key == name:
-                yield child, val
-            yield from walk_key(val, name, child)
+                yield child, val, obj
+            yield from _walk_key_owners(val, name, child)
     elif isinstance(obj, list):
         for i, item in enumerate(obj):
-            yield from walk_key(item, name, f"{path}[{i}]")
+            yield from _walk_key_owners(item, name, f"{path}[{i}]")
+
+
+def walk_key(obj, name, path=""):
+    """Yield (path, value) for every dict entry named `name`."""
+    for found_path, value, _owner in _walk_key_owners(obj, name, path):
+        yield found_path, value
 
 
 def check_spike_stream_shape(
@@ -481,7 +493,7 @@ def check_record(obj, where, factory_staging=False):
     errors.extend(shape_errs)
 
     if isinstance(obj, dict):
-        for path, events in walk_key(obj, "spike_events"):
+        for path, events, owner in _walk_key_owners(obj, "spike_events"):
             if _is_reward_narrative_spike_events(path, events):
                 continue
             # Single owner of stream validity: shape_check drops the shape
@@ -495,11 +507,10 @@ def check_record(obj, where, factory_staging=False):
                     f"{where}: {path}",
                     require_keys=(BRIDGE_SPIKE_EVENT_KEYS if bridge_root else ()),
                     require_nonempty=bridge_root,
-                    # Only the record's own stream is governed by a clock the
-                    # record or its meta declares. walk_key does not hand back
-                    # a nested stream's parent, and check_spike_stream passes
-                    # its own owner for those.
-                    enclosing=(obj if path == "spike_events" else None),
+                    # Every stream is judged against the clock its own
+                    # owner declares, nested ones included: the owner and its
+                    # meta are the namespace curate_bridge uses.
+                    enclosing=owner,
                 )
             )
         for path, rc in walk_key(obj, "reward_components"):
