@@ -277,6 +277,23 @@ def _check_spike_event(event, index, where, require_keys):
     return errs, (index, key, current)
 
 
+def _spike_order_errors(timed, where):
+    """Report the first inversion in one stream of comparable timestamps.
+
+    Only the first is reported: a single misplaced event inverts every later
+    comparison, so one defect must not become a cascade of errors.
+    """
+    previous = None
+    for index, key, current in timed:
+        if previous is not None and current < previous[1]:
+            return [
+                f"{where}: {SPIKE_ORDER_MISMATCH} at index "
+                f"{index} ({key} {previous[1]} -> {current})"
+            ]
+        previous = (key, current)
+    return []
+
+
 def check_spike_order(events, where, require_keys=BRIDGE_SPIKE_EVENT_KEYS):
     """Require schema-valid events on one globally ordered clock key.
 
@@ -314,16 +331,7 @@ def check_spike_order(events, where, require_keys=BRIDGE_SPIKE_EVENT_KEYS):
         # timestamp key above: report the contract error, no order verdict.
         return errs + domain_errs
 
-    previous = None
-    for index, key, current in timed:
-        if previous is not None and current < previous[1]:
-            errs.append(
-                f"{where}: {SPIKE_ORDER_MISMATCH} at index "
-                f"{index} ({key} {previous[1]} -> {current})"
-            )
-            break
-        previous = (key, current)
-    return errs
+    return errs + _spike_order_errors(timed, where)
 
 
 def check_spike_stream(obj, where):
