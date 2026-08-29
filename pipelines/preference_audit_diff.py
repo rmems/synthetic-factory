@@ -25,9 +25,10 @@ _PIPELINES = Path(__file__).resolve().parent
 if str(_PIPELINES) not in sys.path:
     sys.path.insert(0, str(_PIPELINES))
 
-from preference_model import canonical_json  # noqa: E402
+from preference_model import json_equal, json_key  # noqa: E402
 
 __all__ = [
+    "AUDIT_COLLECTIONS",
     "AUDIT_HEADER_FIELDS",
     "AUDIT_PAIR_FIELDS",
     "AUDIT_SOURCE_FILE_FIELDS",
@@ -43,18 +44,6 @@ _MISSING = object()
 # blame the scan for something the audit said, or the reverse.
 _AUDIT_SIDE = "the audit"
 _SCAN_SIDE = "this scan"
-
-
-# ``bool`` is a subclass of ``int``, so it has to be matched first or every
-# ``true`` in an audited document would name itself a number.
-_JSON_TYPE_NAMES = (
-    (bool, "boolean"),
-    (str, "string"),
-    (int, "number"),
-    (float, "number"),
-    (list, "array"),
-    (dict, "object"),
-)
 
 
 def _reject_duplicate_members(members: list[tuple[str, Any]]) -> dict[str, Any]:
@@ -81,56 +70,8 @@ def parse_expected_audit(text: str) -> Any:
     return json.loads(text, object_pairs_hook=_reject_duplicate_members)
 
 
-def _json_type_name(value: Any) -> str:
-    """Name a value's JSON type, keeping ``true`` distinct from ``1``."""
-
-    if value is None:
-        return "null"
-    for python_type, type_name in _JSON_TYPE_NAMES:
-        if isinstance(value, python_type):
-            return type_name
-    return type(value).__name__
-
-
-def _json_equal(left: Any, right: Any) -> bool:
-    """Whether two audited values agree in JSON type as well as in value.
-
-    Python scores ``False == 0`` and ``True == 1``, so a value-only check
-    would accept an expected audit that rewrote ``same_state: false`` as the
-    number ``0``. The published document is evidence, and a change of type is
-    a change of evidence, so compare the two the way JSON does.
-    """
-
-    if _json_type_name(left) != _json_type_name(right):
-        return False
-    if isinstance(left, dict):
-        return set(left) == set(right) and all(
-            _json_equal(left[key], right[key]) for key in left
-        )
-    if isinstance(left, list):
-        return len(left) == len(right) and all(
-            _json_equal(one, other) for one, other in zip(left, right)
-        )
-    return left == right
-
-
-def _json_key(value: Any) -> tuple[str, str]:
-    """Key a JSON value by type and canonical text.
-
-    Keying by the value alone lets ``source_line: true`` index the same slot
-    as line ``1`` -- Python hashes them identically -- and raises outright on
-    a list or an object, so an audit with a structured location could not be
-    compared at all.
-    """
-
-    try:
-        return _json_type_name(value), canonical_json(value)
-    except (TypeError, ValueError):
-        return _json_type_name(value), repr(value)
-
-
 def _pair_location(pair: dict[str, Any]) -> tuple[tuple[str, str], tuple[str, str]]:
-    return _json_key(pair.get("source_path")), _json_key(pair.get("source_line"))
+    return json_key(pair.get("source_path")), json_key(pair.get("source_line"))
 
 
 def _pair_location_text(pair: dict[str, Any]) -> str:
@@ -247,7 +188,7 @@ def _field_differences(
             differences.append(f"{label}: absent from the audit, got {got!r}")
         elif got is _MISSING:
             differences.append(f"{label}: expected {want!r}, absent from this scan")
-        elif not _json_equal(want, got):
+        elif not json_equal(want, got):
             differences.append(f"{label}: expected {want!r}, got {got!r}")
     return differences
 
@@ -265,6 +206,28 @@ AUDIT_PAIR_FIELDS = (
     "context_diff_paths",
 )
 AUDIT_SOURCE_FILE_FIELDS = ("source_file_sha256",)
+
+
+AUDIT_COLLECTIONS = ("impure_pairs", "source_files")
+
+
+def _audit_collection_faults(document: dict[str, Any], side: str) -> list[str]:
+    """Collections that must be present and a list before any row is read.
+
+    Every row-level check below reads an absent or scalar collection as "no
+    rows". On a corpus that genuinely has none of that kind, deleting the
+    whole collection from a published audit would therefore match the scan
+    exactly and exit 0, underneath the per-row and per-field checks.
+    """
+
+    faults: list[str] = []
+    for name in AUDIT_COLLECTIONS:
+        value = document.get(name, _MISSING)
+        if value is _MISSING:
+            faults.append(f"{name}: absent from {side}")
+        elif not isinstance(value, list):
+            faults.append(f"{name}: is not a list in {side}")
+    return faults
 
 
 def _audit_header_differences(expected: dict[str, Any], actual: dict[str, Any]) -> list[str]:
@@ -364,6 +327,8 @@ def audit_differences(expected: Any, actual: dict[str, Any]) -> list[str]:
     if not isinstance(expected, dict):
         return ["expected audit document is not a JSON object"]
     return [
+        *_audit_collection_faults(expected, _AUDIT_SIDE),
+        *_audit_collection_faults(actual, _SCAN_SIDE),
         *_audit_header_differences(expected, actual),
         *_audit_summary_differences(expected, actual),
         *_audit_source_file_differences(expected, actual),

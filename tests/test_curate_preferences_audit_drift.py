@@ -138,6 +138,36 @@ class DuplicateLocationsAreRejected(AuditDriftCase):
         self.assert_reports(differences, "more than once")
 
 
+class CollectionsThemselvesAreValidated(AuditDriftCase):
+    """An absent collection reads as "no rows"; on a pure corpus that matches."""
+
+    def test_a_deleted_impure_pairs_collection_is_drift(self):
+        differences = self.drift_after(
+            audit_document(), lambda doc: doc.pop("impure_pairs")
+        )
+
+        self.assert_reports(differences, "impure_pairs")
+
+    def test_a_scalar_impure_pairs_collection_is_drift(self):
+        differences = self.drift_after(
+            audit_document(), lambda doc: doc.__setitem__("impure_pairs", "none")
+        )
+
+        self.assert_reports(differences, "impure_pairs")
+
+    def test_a_deleted_source_files_collection_is_drift(self):
+        differences = self.drift_after(
+            audit_document(), lambda doc: doc.pop("source_files")
+        )
+
+        self.assert_reports(differences, "source_files")
+
+    def test_an_empty_but_present_collection_still_reconciles(self):
+        # The point is presence and type, not contents: a genuinely pure
+        # corpus publishes an empty list and must keep verifying.
+        self.assertEqual(self.drift_after(audit_document(), lambda doc: None), [])
+
+
 class MalformedRowsAreRejected(AuditDriftCase):
     """A row the comparison cannot read is drift, not a row to skip."""
 

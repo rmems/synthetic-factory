@@ -45,6 +45,9 @@ __all__ = [
     "canonical_json",
     "is_canonicalizable",
     "is_under_raw",
+    "json_equal",
+    "json_key",
+    "json_type_name",
     "sha256_hex",
 ]
 
@@ -130,3 +133,63 @@ def is_canonicalizable(value: Any) -> bool:
         # caught here too; naming it as well would be redundant.
         return False
     return True
+
+
+# ``bool`` is a subclass of ``int``, so it has to be matched first or every
+# ``true`` in an audited document would name itself a number.
+JSON_TYPE_NAMES = (
+    (bool, "boolean"),
+    (str, "string"),
+    (int, "number"),
+    (float, "number"),
+    (list, "array"),
+    (dict, "object"),
+)
+
+
+def json_type_name(value: Any) -> str:
+    """Name a value's JSON type, keeping ``true`` distinct from ``1``."""
+
+    if value is None:
+        return "null"
+    for python_type, type_name in JSON_TYPE_NAMES:
+        if isinstance(value, python_type):
+            return type_name
+    return type(value).__name__
+
+
+def json_equal(left: Any, right: Any) -> bool:
+    """Whether two audited values agree in JSON type as well as in value.
+
+    Python scores ``False == 0`` and ``True == 1``, so a value-only check
+    would accept an expected audit that rewrote ``same_state: false`` as the
+    number ``0``. The published document is evidence, and a change of type is
+    a change of evidence, so compare the two the way JSON does.
+    """
+
+    if json_type_name(left) != json_type_name(right):
+        return False
+    if isinstance(left, dict):
+        return set(left) == set(right) and all(
+            json_equal(left[key], right[key]) for key in left
+        )
+    if isinstance(left, list):
+        return len(left) == len(right) and all(
+            json_equal(one, other) for one, other in zip(left, right)
+        )
+    return left == right
+
+
+def json_key(value: Any) -> tuple[str, str]:
+    """Key a JSON value by type and canonical text.
+
+    Keying by the value alone lets ``source_line: true`` index the same slot
+    as line ``1`` -- Python hashes them identically -- and raises outright on
+    a list or an object, so an audit with a structured location could not be
+    compared at all.
+    """
+
+    try:
+        return json_type_name(value), canonical_json(value)
+    except (TypeError, ValueError):
+        return json_type_name(value), repr(value)
