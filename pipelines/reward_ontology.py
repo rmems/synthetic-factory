@@ -374,10 +374,20 @@ def _classify(source_rewards, arithmetic, calibration=None):
     arithmetic_by_pointer = {
         item["json_pointer"]: item for item in arithmetic
     }
-    chosen_pointer, rejected_pointer = PREFERENCE_POINTERS
-    is_preference = (
-        chosen_pointer in rewards_by_pointer or rejected_pointer in rewards_by_pointer
-    )
+    # Preference-scope detection must agree exactly with ``_layout_scope``,
+    # which is what ``_require_declared_verdict`` uses to authorise whatever
+    # verdict this function returns. A narrower check here (e.g. requiring
+    # the literal canonical ``PREFERENCE_POINTERS`` to be present) would let
+    # a chosen/rejected record with a differently named reward pointer (for
+    # example an episode-style ``/chosen/reward``) fall through to
+    # ``_classify_single``, which can return a "single"-scoped verdict that
+    # ``_layout_scope`` — seeing the ``/chosen/`` or ``/rejected/`` prefix —
+    # will refuse as undeclared for "preference" scope. Routing every such
+    # record through ``_classify_preference`` instead is safe: its own
+    # ``set(rewards_by_pointer) != set(PREFERENCE_POINTERS)`` guard already
+    # maps anything that is not exactly the two canonical pointers to the
+    # dedicated P01 verdict before any pointer indexing happens.
+    is_preference = _layout_scope(source_rewards) == "preference"
     if not source_rewards:
         return _mapped_verdict("R00")
     if is_preference:
