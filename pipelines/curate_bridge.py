@@ -7,7 +7,9 @@ to print a summary, manifest, or complete decision bundle to stdout, or pass
 ``--out-dir`` to materialize one new gate-compatible lane tree.  Materialized
 trees preserve source-relative JSONL paths, include every disposition in
 ``BRIDGE-MANIFEST.jsonl``, and are published atomically without clobbering an
-existing destination.
+existing destination.  Because that tree is gate-compatible, materialization
+requires a raster sidecar per record; the pure decision API stays lenient
+unless a caller passes ``require_raster=True``.
 
 An unsorted stream is repaired only when every event has one finite timestamp
 under the same supported key, all declared clock-domain identifiers agree,
@@ -287,6 +289,33 @@ def _expected_spikes(neurons: int, mean_rate_hz: float, window_s: float) -> int 
         return None
 
 
+def _finite_float(value: Any) -> float | None:
+    """``float(value)`` when it lands inside the IEEE-754 double range.
+
+    JSON integers are unbounded, so a record can declare a spike count no
+    float can hold.  Every tolerance comparison in this module mixes that
+    count with a float, which raises ``OverflowError`` instead of reporting a
+    mismatch, so callers convert through here and read ``None`` as "this
+    budget cannot be evaluated" — a reason code, never an exception escaping
+    into the publish gate, the training audit, or the distillation probe.
+    """
+
+    try:
+        result = float(value)
+    except (OverflowError, TypeError, ValueError):
+        return None
+    return result if math.isfinite(result) else None
+
+
+def _spike_energy(spikes: int, per_spike: float) -> float | None:
+    """Energy for a spike count at 23 pJ/spike, or None when it is not finite."""
+
+    count = _finite_float(spikes)
+    if count is None:
+        return None
+    return _finite_float(count * per_spike)
+
+
 def _validate_third_factor(
     third_factor: Any,
     *,
@@ -308,11 +337,26 @@ def _validate_third_factor(
         return
     modulator = third_factor.get("modulator")
     tau_e_s = third_factor.get("tau_e_s")
+    tau_ms = third_factor.get("tau_e_ms")
     if tau_e_s is None:
-        tau_ms = third_factor.get("tau_e_ms")
         if _is_finite_number(tau_ms):
             tau_e_s = float(tau_ms) / 1000.0
             evidence["raster_third_factor_tau_e_s_derived"] = tau_e_s
+    elif "tau_e_ms" in third_factor:
+        # Both representations of the eligibility time constant are declared,
+        # so they must agree exactly as the raster window_ms/window_s aliases
+        # do.  Publishing tau_e_s: 2.0 next to tau_e_ms: 1 forwards two
+        # contradictory constants to every distillation consumer.
+        consistent = (
+            _is_finite_number(tau_e_s)
+            and _is_finite_number(tau_ms)
+            and abs(float(tau_ms) / 1000.0 - float(tau_e_s)) <= 1e-9
+        )
+        evidence["raster_third_factor_tau_consistent"] = consistent
+        if not consistent:
+            reason_codes.append(REASON_THIRD_FACTOR_INVALID)
+            evidence["raster_third_factor_valid"] = False
+            return
     eligibility = third_factor.get("eligibility")
     valid = (
         isinstance(modulator, str)
@@ -547,7 +591,15 @@ def _validate_raster(
     else:
         evidence["raster_rate_hz"] = float(mean_rate_hz)
         evidence["raster_rate_valid"] = True
-    if not isinstance(spikes, int) or isinstance(spikes, bool) or spikes < 0:
+    if (
+        not isinstance(spikes, int)
+        or isinstance(spikes, bool)
+        or spikes < 0
+        or _finite_float(spikes) is None
+    ):
+        # An integer too large to convert to a float cannot be held to the
+        # 23 pJ/spike budget by any consumer, so it is an invalid budget
+        # rather than a value the shared arithmetic may raise on.
         reason_codes.append(REASON_RASTER_SPIKE_BUDGET)
         evidence["raster_spikes_valid"] = False
     else:
@@ -579,17 +631,24 @@ def _validate_raster(
         energy_pj = raster.get("energy_pJ")
         energy_uj = raster.get("energy_uJ")
         if _is_finite_number(energy_pj):
+            # Picojoules stay exact integer arithmetic; the float conversion
+            # exists only for the tolerance comparison, and a product no float
+            # can hold is a mismatch rather than an OverflowError out of the
+            # publish gate.
             expected_pj = spikes * RASTER_ENERGY_PJ_PER_SPIKE
-            evidence["raster_expected_energy_pJ"] = expected_pj
-            if abs(float(energy_pj) - expected_pj) > 1e-6:
+            comparable_pj = _finite_float(expected_pj)
+            evidence["raster_expected_energy_pJ"] = (
+                expected_pj if comparable_pj is not None else None
+            )
+            if comparable_pj is None or abs(float(energy_pj) - comparable_pj) > 1e-6:
                 reason_codes.append(REASON_RASTER_ENERGY)
                 evidence["raster_energy_pJ_valid"] = False
             else:
                 evidence["raster_energy_pJ_valid"] = True
         if _is_finite_number(energy_uj):
-            expected_uj = spikes * RASTER_ENERGY_UJ_PER_SPIKE
+            expected_uj = _spike_energy(spikes, RASTER_ENERGY_UJ_PER_SPIKE)
             evidence["raster_expected_energy_uJ"] = expected_uj
-            if abs(float(energy_uj) - expected_uj) > 1e-9:
+            if expected_uj is None or abs(float(energy_uj) - expected_uj) > 1e-9:
                 reason_codes.append(REASON_RASTER_ENERGY)
                 evidence["raster_energy_uJ_valid"] = False
             else:
@@ -686,7 +745,16 @@ def _validate_gate_compute(
 ) -> None:
     """Validate per-check spikes = neurons*rate*window @23 pJ when gate_compute present."""
     if not isinstance(gate_compute, dict):
+        # The first declared carrier wins even when malformed (see
+        # _gate_compute_sidecar).  A non-object gate_compute is schema-invalid
+        # and its budget cannot be checked, so it fails here instead of
+        # disappearing from curation, publication, auditing, and probing.
+        reason_codes.append(REASON_RASTER_SPIKE_BUDGET)
+        evidence["gate_compute_present"] = True
+        evidence["gate_compute_error"] = "gate_compute must be an object"
+        evidence["gate_compute_spike_budget_valid"] = False
         return
+    evidence["gate_compute_present"] = True
     per_check = gate_compute.get("per_check")
     if not isinstance(per_check, list) or not per_check:
         return
@@ -712,14 +780,22 @@ def _validate_gate_compute(
         if not (
             isinstance(neurons, int)
             and not isinstance(neurons, bool)
+            and neurons >= 1
             and _is_finite_number(rate)
+            and float(rate) > 0
             and _is_finite_number(window_s)
+            and float(window_s) > 0
             and isinstance(spikes, int)
             and not isinstance(spikes, bool)
+            and spikes >= 0
+            and _finite_float(spikes) is not None
         ):
             # A per_check entry without a usable neurons/rate/window/spikes
             # quadruple cannot carry a spike budget, so it fails validation
-            # instead of silently passing the gate.
+            # instead of silently passing the gate.  The bounds are part of
+            # that shape: the schema requires positive neurons, rate, and
+            # window, and two negative operands otherwise multiply back into a
+            # plausible positive spike count.
             reason_codes.append(REASON_RASTER_SPIKE_BUDGET)
             evidence.setdefault("gate_compute_invalid_check_indices", []).append(idx)
             budget_valid = False
@@ -748,9 +824,14 @@ def _validate_gate_compute(
             if key not in gate_compute:
                 continue
             val = gate_compute[key]
-            expected = total_spikes * per_spike
-            # A declared but non-numeric total is a mismatch, not an absence.
-            key_valid = _is_finite_number(val) and abs(float(val) - expected) <= tolerance
+            expected = _spike_energy(total_spikes, per_spike)
+            # A declared but non-numeric total is a mismatch, not an absence,
+            # and so is one whose expected value no float can represent.
+            key_valid = (
+                expected is not None
+                and _is_finite_number(val)
+                and abs(float(val) - expected) <= tolerance
+            )
             if not key_valid:
                 reason_codes.append(REASON_RASTER_ENERGY)
             energy_valid = key_valid if energy_valid is None else (energy_valid and key_valid)
@@ -865,21 +946,32 @@ def gate_snn_sidecar(record: Any) -> tuple[str | None, Any]:
 
 
 def _gate_compute_sidecar(record: dict[str, Any]) -> Any:
-    """Return the record's gate_compute budget block, including legacy paths."""
+    """Return the record's first declared gate_compute block, valid or not.
 
-    gate_compute = record.get("gate_compute")
-    if isinstance(gate_compute, dict):
-        return gate_compute
+    Accepted carriers, in precedence order: top-level ``gate_compute``,
+    ``language_view.trajectory.gate_compute``, and
+    ``language_view.trajectory.safety_decision.gate_compute``.  As for the
+    raster and ``gate_snn`` sidecars, the first declared carrier wins
+    outright: a malformed higher-precedence declaration must surface as
+    invalid rather than be silently skipped in favor of a lower-precedence
+    dict, which would let an ambiguous duplicate declaration through
+    unchecked.
+    """
+
+    if not isinstance(record, dict):
+        return None
     view = record.get("language_view")
     trajectory = view.get("trajectory") if isinstance(view, dict) else None
-    if not isinstance(trajectory, dict):
-        return None
-    nested = trajectory.get("gate_compute")
-    if isinstance(nested, dict):
-        return nested
-    probe = trajectory.get("safety_decision")
-    nested = probe.get("gate_compute") if isinstance(probe, dict) else None
-    return nested if isinstance(nested, dict) else None
+    probe = trajectory.get("safety_decision") if isinstance(trajectory, dict) else None
+    candidates = (
+        record.get("gate_compute"),
+        trajectory.get("gate_compute") if isinstance(trajectory, dict) else None,
+        probe.get("gate_compute") if isinstance(probe, dict) else None,
+    )
+    for value in candidates:
+        if value is not None:
+            return value
+    return None
 
 
 def _raster_reasons(
@@ -1273,8 +1365,15 @@ def curate_jsonl(
     source: str | Path,
     *,
     source_root: str | Path | None = None,
+    require_raster: bool = False,
 ) -> list[CurationDecision]:
-    """Curate every physical JSONL line while preserving exact source hashes."""
+    """Curate every physical JSONL line while preserving exact source hashes.
+
+    ``require_raster`` is forwarded to :func:`curate_record`.  It stays False
+    here so the pure decision API and the reporting CLI keep their existing
+    lenient behavior; :func:`materialize_paths` turns it on because the tree
+    it publishes is advertised as gate-compatible.
+    """
 
     path = Path(source)
     if not path.is_file():
@@ -1328,6 +1427,7 @@ def curate_jsonl(
                 source_line=line_number,
                 source_hash=source_hash,
                 source_file_hash=source_file_hash,
+                require_raster=require_raster,
             )
         )
     return decisions
@@ -1337,6 +1437,7 @@ def curate_paths(
     sources: Iterable[str | Path],
     *,
     source_root: str | Path | None = None,
+    require_raster: bool = False,
 ) -> list[CurationDecision]:
     """Curate source files in stable path order, rejecting duplicate inputs."""
 
@@ -1346,7 +1447,11 @@ def curate_paths(
         raise BridgeCurationError("duplicate source path")
     decisions: list[CurationDecision] = []
     for path in sorted(paths, key=lambda item: item.as_posix()):
-        decisions.extend(curate_jsonl(path, source_root=source_root))
+        decisions.extend(
+            curate_jsonl(
+                path, source_root=source_root, require_raster=require_raster
+            )
+        )
     return decisions
 
 
@@ -1504,8 +1609,16 @@ def materialize_paths(
     source_root: str | Path,
     output_dir: str | Path,
     manifest_name: str = MANIFEST_NAME,
+    require_raster: bool = True,
 ) -> list[CurationDecision]:
-    """Publish a new gate-compatible Bridge lane tree without clobbering."""
+    """Publish a new gate-compatible Bridge lane tree without clobbering.
+
+    ``require_raster`` defaults to True here, unlike the pure decision API:
+    the publication gate, the training audit, and the distillation probe all
+    reject a record with no raster sidecar, so materializing one into the tree
+    this module calls gate-compatible would hand a distillation run a record
+    every other layer refuses.  Legacy callers opt out explicitly.
+    """
 
     root = Path(source_root)
     destination = Path(output_dir)
@@ -1546,7 +1659,9 @@ def materialize_paths(
     manifest_relative = _safe_relative_path(manifest_name, label="manifest_name")
     if manifest_relative.suffix != ".jsonl":
         raise BridgeCurationError("manifest_name must end in .jsonl")
-    decisions = curate_paths(source_paths, source_root=root)
+    decisions = curate_paths(
+        source_paths, source_root=root, require_raster=require_raster
+    )
     output_paths = {
         _safe_relative_path(
             decision.manifest["source_path"], label="manifest source_path"

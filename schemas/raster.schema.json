@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "raster.schema.json",
   "title": "RasterExcerpt",
-  "description": "20-50 ms raster excerpt + routing sidecar for neuromorphic Bridge records. Spike budget: spikes = round(neurons * mean_rate_hz * window_s) and energy = spikes * 23 pJ (Loihi-2-class 4-core, 23 pJ/spike). Window_ms must be 20-50 inclusive. The sidecar is optional here: pipelines/curate_bridge.py only requires one when called with require_raster=True, and accepts it either at the top level or under meta. The same file also defines gate_snn, the spike-implemented safety gate head that pipelines/training_audit.py requires at least once per window.",
+  "description": "20-50 ms raster excerpt + routing sidecar for neuromorphic Bridge records. Spike budget: spikes = round(neurons * mean_rate_hz * window_s) and energy = spikes * 23 pJ (Loihi-2-class 4-core, 23 pJ/spike). Window_ms must be 20-50 inclusive. The sidecar is optional here: pipelines/curate_bridge.py only requires one when called with require_raster=True (the default for materialize_paths, which publishes a gate-compatible lane tree), and accepts it either at the top level or under meta. pipelines/round_txn.py requires one from every record in the lanes named by RASTER_FACTORY_SLUGS. The same file also defines gate_snn, the spike-implemented safety gate head that pipelines/training_audit.py requires at least once per window.",
   "type": "object",
   "properties": {
     "raster": { "$ref": "#/$defs/raster" },
@@ -105,7 +105,9 @@
         },
         "decision": {
           "type": "string",
-          "description": "Gate outcome the spiking head produced, e.g. ACCEPT or REJECT"
+          "minLength": 1,
+          "pattern": "\\S",
+          "description": "Gate outcome the spiking head produced, e.g. ACCEPT or REJECT. Must contain at least one non-whitespace character: pipelines/curate_bridge.py rejects a blank or whitespace-only decision, so a producer validating against this schema would otherwise emit records that fail publication and probing."
         },
         "populations": {
           "type": "array",

@@ -123,8 +123,12 @@ def normalize_raster(record: Any, *, source: str | None = None) -> dict[str, Any
         "neurons": raster.get("neurons"),
         "mean_rate_hz": raster.get("mean_rate_hz"),
         "spikes": spikes,
+        # Exact integer picojoules.  Converting the spike count to a float
+        # first overflows to ``inf`` for an extreme but schema-valid raster,
+        # and ``--jsonl`` would then emit the non-standard ``Infinity`` token
+        # that this module's own reader (reject_json_constant) refuses.
         "energy_pJ": (
-            float(spikes) * RASTER_ENERGY_PJ_PER_SPIKE
+            spikes * RASTER_ENERGY_PJ_PER_SPIKE
             if isinstance(spikes, int) and not isinstance(spikes, bool)
             else None
         ),
@@ -181,7 +185,7 @@ def iter_records(paths: Iterable[Path]) -> Iterator[tuple[str, Any, str | None]]
         except OSError:
             yield f"{path}:0", None, REASON_INPUT_UNREADABLE
             continue
-        for line_number, line in enumerate(text.splitlines(), 1):
+        for line_number, line in enumerate(text.split("\n"), 1):
             if not line.strip():
                 continue
             where = f"{path}:{line_number}"
@@ -283,13 +287,18 @@ def main(argv=None):
     rasters, problems = load_rasters(args.targets)
     if args.jsonl:
         for raster in rasters:
-            print(json.dumps(raster, ensure_ascii=False, sort_keys=True))
+            print(
+                json.dumps(
+                    raster, ensure_ascii=False, sort_keys=True, allow_nan=False
+                )
+            )
         for problem in problems:
             print(
                 json.dumps(
                     {"unloadable": True, **problem},
                     ensure_ascii=False,
                     sort_keys=True,
+                    allow_nan=False,
                 ),
                 file=sys.stderr,
             )
@@ -299,6 +308,7 @@ def main(argv=None):
                 summarize(rasters, problems, args.targets),
                 indent=2,
                 ensure_ascii=False,
+                allow_nan=False,
             )
         )
     return 1 if problems and (args.strict or args.jsonl) else 0

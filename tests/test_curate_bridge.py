@@ -44,6 +44,13 @@ def bridge(events, record_id="bridge-fixture"):
     }
 
 
+def raster_sidecars():
+    """The committed raster + gate-as-SNN sidecars, as a producer emits them."""
+
+    record = gate_snn_fixture()
+    return {"raster": record["raster"], "gate_snn": record["gate_snn"]}
+
+
 def decide(record):
     raw = json.dumps(record, ensure_ascii=False).encode("utf-8")
     return curate_bridge.curate_record(
@@ -352,14 +359,16 @@ class BridgeMaterialization(unittest.TestCase):
         second = root / "factory-b" / "batch-r02.jsonl"
         first.parent.mkdir(parents=True)
         second.parent.mkdir(parents=True)
+        # The materialized tree is gate-compatible, so its retained and
+        # repaired records carry the raster sidecar that publication, the
+        # training audit, and the distillation probe all require.
+        retained = {**bridge([event(1, "already")], "retain"), **raster_sidecars()}
+        repaired = {
+            **bridge([event(2, "late"), event(1, "early")], "repair"),
+            **raster_sidecars(),
+        }
         first.write_text(
-            "\n".join(
-                (
-                    json.dumps(bridge([event(1, "already")], "retain")),
-                    json.dumps(bridge([event(2, "late"), event(1, "early")], "repair")),
-                    "",
-                )
-            ),
+            "\n".join((json.dumps(retained), json.dumps(repaired), "")),
             encoding="utf-8",
         )
         second.write_text(
@@ -1021,6 +1030,230 @@ class RasterSchemaParity(unittest.TestCase):
         self.assertEqual(table_entry["required"], ["from", "to"])
         population = gate["properties"]["populations"]["items"]
         self.assertTrue(population["allOf"])
+
+    def test_schema_rejects_a_blank_gate_decision_like_the_validator_does(self):
+        """The published schema is the producer contract; it must not be looser.
+
+        ``_validate_gate_snn`` refuses a blank or whitespace-only decision, so
+        a producer that validates against this schema and then fails
+        publication would have followed every documented instruction.
+        """
+
+        import jsonschema
+
+        validator = jsonschema.Draft202012Validator(self.schema)
+        gate = {
+            "decision_window_ms": 10,
+            "populations": [{"name": "p", "neurons": 4, "threshold": 0.5}],
+        }
+        for blank in ("", "   ", "\t\n"):
+            with self.subTest(decision=repr(blank)):
+                reason_codes: list[str] = []
+                curate_bridge._validate_gate_snn(
+                    {**gate, "decision": blank},
+                    reason_codes=reason_codes,
+                    evidence={},
+                )
+                self.assertIn(curate_bridge.REASON_GATE_SNN_INVALID, reason_codes)
+                self.assertTrue(
+                    list(
+                        validator.iter_errors({"gate_snn": {**gate, "decision": blank}})
+                    ),
+                    "schema must reject what the runtime validator rejects",
+                )
+
+        self.assertEqual(
+            list(validator.iter_errors({"gate_snn": {**gate, "decision": "ACCEPT"}})), []
+        )
+
+
+class RasterArithmeticReviewFollowUps(unittest.TestCase):
+    """Spike-arithmetic holes the PR #94 review found in the shared validator.
+
+    Every downstream consumer — the curator, the publish gate, the training
+    audit and the distillation probe — reads ``raster_status``, so a budget
+    the validator cannot evaluate has to surface as a reason code rather than
+    as an exception or as a silently accepted record.
+    """
+
+    def test_unrepresentable_spike_count_is_a_budget_defect_not_an_overflow(self):
+        record = gate_snn_fixture()
+        record["raster"]["spikes"] = 10**400
+        record["raster"]["energy_uJ"] = 1.0
+
+        status = curate_bridge.raster_status(record)
+
+        self.assertFalse(status["raster_valid"])
+        self.assertIn(
+            curate_bridge.REASON_RASTER_SPIKE_BUDGET, status["reason_codes"]
+        )
+
+    def test_unrepresentable_energy_evidence_stays_json_serializable(self):
+        record = gate_snn_fixture()
+        record["raster"]["spikes"] = 10**400
+        record["raster"]["energy_pJ"] = 1.0
+        record["raster"]["energy_uJ"] = 1.0
+
+        decision = decide(record)
+
+        self.assertEqual(decision.action, "quarantine")
+        json.dumps(decision.manifest, allow_nan=False)
+
+    def test_gate_compute_totals_survive_an_unrepresentable_spike_sum(self):
+        record = gate_snn_fixture()
+        record["gate_compute"] = {
+            "per_check": [
+                {
+                    "neurons": 4,
+                    "mean_rate_hz": 10.0,
+                    "window_s": 0.05,
+                    "spikes": 10**400,
+                }
+            ],
+            "total_energy_uJ": 1.0,
+        }
+
+        status = curate_bridge.raster_status(record)
+
+        self.assertFalse(status["raster_valid"])
+        json.dumps(status["evidence"], allow_nan=False)
+
+    def test_a_malformed_declared_gate_compute_carrier_is_not_skipped(self):
+        record = gate_snn_fixture()
+        record["gate_compute"] = "bad"
+        record["language_view"]["trajectory"]["gate_compute"] = {
+            "per_check": [
+                {"neurons": 2, "mean_rate_hz": 10.0, "window_s": 0.05, "spikes": 1}
+            ]
+        }
+
+        self.assertEqual(curate_bridge._gate_compute_sidecar(record), "bad")
+        status = curate_bridge.raster_status(record)
+
+        self.assertFalse(status["raster_valid"])
+        self.assertIn(
+            curate_bridge.REASON_RASTER_SPIKE_BUDGET, status["reason_codes"]
+        )
+
+    def test_gate_compute_budget_operands_must_be_physically_positive(self):
+        for check in (
+            {"neurons": -2, "mean_rate_hz": -3.0, "window_s": 1.0, "spikes": 6},
+            {"neurons": 0, "mean_rate_hz": 10.0, "window_s": 0.05, "spikes": 0},
+            {"neurons": 4, "mean_rate_hz": 10.0, "window_s": -0.05, "spikes": -2},
+        ):
+            with self.subTest(check=check):
+                record = gate_snn_fixture()
+                record["gate_compute"] = {"per_check": [check]}
+
+                status = curate_bridge.raster_status(record)
+
+                self.assertFalse(status["raster_valid"])
+                self.assertIn(
+                    curate_bridge.REASON_RASTER_SPIKE_BUDGET,
+                    status["reason_codes"],
+                )
+
+    def test_a_well_formed_gate_compute_budget_still_passes(self):
+        record = gate_snn_fixture()
+        record["gate_compute"] = {
+            "per_check": [
+                {"neurons": 4, "mean_rate_hz": 10.0, "window_s": 0.05, "spikes": 2}
+            ],
+            "total_energy_pJ": 2 * curate_bridge.RASTER_ENERGY_PJ_PER_SPIKE,
+        }
+
+        status = curate_bridge.raster_status(record)
+
+        self.assertTrue(status["raster_valid"], status["reason_codes"])
+        self.assertTrue(status["evidence"]["gate_compute_spike_budget_valid"])
+
+    def test_conflicting_eligibility_time_aliases_are_rejected(self):
+        record = gate_snn_fixture()
+        record["raster"]["routing"]["third_factor"]["tau_e_ms"] = 1
+
+        status = curate_bridge.raster_status(record)
+
+        self.assertFalse(status["raster_valid"])
+        self.assertIn(
+            curate_bridge.REASON_THIRD_FACTOR_INVALID, status["reason_codes"]
+        )
+
+    def test_agreeing_eligibility_time_aliases_stay_valid(self):
+        record = gate_snn_fixture()
+        record["raster"]["routing"]["third_factor"]["tau_e_ms"] = 2000
+
+        status = curate_bridge.raster_status(record)
+
+        self.assertTrue(status["raster_valid"], status["reason_codes"])
+        self.assertEqual(status["evidence"]["raster_third_factor_tau_e_s"], 2.0)
+
+
+class MaterializedLaneRequiresRasters(unittest.TestCase):
+    """``--out-dir`` publishes a *gate-compatible* tree, so it must gate.
+
+    The publication, audit and probe contracts all reject a Bridge record with
+    no raster sidecar; materializing one into the tree this module advertises
+    as gate-compatible would hand a downstream distillation run a record every
+    other layer refuses.
+    """
+
+    def source_tree(self, root, records):
+        source_root = Path(root) / "raw"
+        batch = source_root / "neuromorphic-event-language-bridge" / "batch-r02.jsonl"
+        batch.parent.mkdir(parents=True)
+        batch.write_text(
+            "".join(json.dumps(record, ensure_ascii=False) + "\n" for record in records),
+            encoding="utf-8",
+        )
+        return source_root, batch
+
+    def test_materialized_tree_quarantines_a_raster_less_record(self):
+        with tempfile.TemporaryDirectory() as td:
+            records = [bridge([event(1.0, "a"), event(2.0, "b")], "no-raster")]
+            source_root, batch = self.source_tree(td, records)
+            out_dir = Path(td) / "lane"
+
+            decisions = curate_bridge.materialize_paths(
+                [batch], source_root=source_root, output_dir=out_dir
+            )
+
+            self.assertEqual([d.action for d in decisions], ["quarantine"])
+            self.assertIn(
+                curate_bridge.REASON_RASTER_MISSING, decisions[0].manifest["reason_codes"]
+            )
+            self.assertFalse(
+                (out_dir / "neuromorphic-event-language-bridge" / "batch-r02.jsonl").exists()
+            )
+
+    def test_materialized_tree_keeps_a_raster_backed_record(self):
+        with tempfile.TemporaryDirectory() as td:
+            source_root, batch = self.source_tree(td, [gate_snn_fixture()])
+            out_dir = Path(td) / "lane"
+
+            decisions = curate_bridge.materialize_paths(
+                [batch], source_root=source_root, output_dir=out_dir
+            )
+
+            self.assertEqual([d.action for d in decisions], ["retain"])
+            self.assertTrue(
+                (out_dir / "neuromorphic-event-language-bridge" / "batch-r02.jsonl").exists()
+            )
+
+    def test_the_pure_decision_api_still_defaults_to_lenient(self):
+        with tempfile.TemporaryDirectory() as td:
+            records = [bridge([event(1.0, "a"), event(2.0, "b")], "no-raster")]
+            _source_root, batch = self.source_tree(td, records)
+
+            self.assertEqual(
+                [d.action for d in curate_bridge.curate_jsonl(batch)], ["retain"]
+            )
+            self.assertEqual(
+                [
+                    d.action
+                    for d in curate_bridge.curate_jsonl(batch, require_raster=True)
+                ],
+                ["quarantine"],
+            )
 
 
 if __name__ == "__main__":
