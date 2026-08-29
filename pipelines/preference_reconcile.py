@@ -25,7 +25,6 @@ if str(_PIPELINES) not in sys.path:
 
 from preference_audit import (  # noqa: E402
     AUDIT_SOURCE_FILE_FIELDS,
-    _location_sort_key,
     _source_files_by_path,
 )
 from preference_model import CurationRun  # noqa: E402
@@ -52,6 +51,14 @@ RECONCILE_COVERAGE_KEYS = (
     "preference_records",
     "skipped_non_preference_records",
 )
+
+
+def _location_sort_key(location: tuple[str, int]) -> tuple[str, int, str]:
+    """Order manifest locations by path, then by real line number."""
+
+    path_part, line_part = location
+    line_number = line_part if isinstance(line_part, int) else 0
+    return (str(path_part), line_number, str(line_part))
 
 
 def _manifest_by_location(run: CurationRun) -> dict[tuple[str, int], dict[str, Any]]:

@@ -518,7 +518,8 @@ def _render_human(run: CurationRun) -> str:
     ]
     for entry in run.manifest:
         location = f"{entry['source_path']}:{entry['source_line']}"
-        record_id = entry["source_record_id"] or "<no-id>"
+        source_id = entry["source_record_id"]
+        record_id = "<no-id>" if source_id is None else source_id
         reasons = ",".join(entry["reason_codes"])
         lines.append(f"- {location} {record_id}: {entry['action']} [{reasons}]")
     return "\n".join(lines)
@@ -577,7 +578,8 @@ def _print_audit_text(audit: dict[str, Any]) -> None:
     )
     for pair in audit["impure_pairs"]:
         location = f"{pair['source_path']}:{pair['source_line']}"
-        identifier = pair["record_id"] or "<no-id>"
+        record_id = pair["record_id"]
+        identifier = "<no-id>" if record_id is None else record_id
         fields = ",".join(pair["divergent_context_fields"]) or "<none>"
         reasons = ",".join(pair["reason_codes"])
         print(f"- {location} {identifier}: {pair['action']} [{fields}] [{reasons}]")

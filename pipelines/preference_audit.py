@@ -29,9 +29,11 @@ from preference_model import (  # noqa: E402
     ACTION_REPAIRED,
     CurationRun,
     PreferenceCurationError,
+    canonical_json,
 )
 
 __all__ = [
+    "AUDIT_HEADER_FIELDS",
     "AUDIT_NAME",
     "AUDIT_PAIR_FIELDS",
     "AUDIT_SCHEMA_VERSION",
@@ -144,7 +146,10 @@ def _markdown_cell_text(value: Any) -> str:
     text = str(value)
     for control in ("\r\n", "\r", "\n", "\t"):
         text = text.replace(control, " ")
-    return text.replace("|", "\\|")
+    # Backslashes first: escaping only the pipe turns a value that already
+    # ends in a backslash into ``\\|``, where the first backslash escapes the
+    # second and hands the pipe back to the table parser as a delimiter.
+    return text.replace("\\", "\\\\").replace("|", "\\|")
 
 
 def _markdown_code_cell(value: Any) -> str:
@@ -186,7 +191,13 @@ def render_audit_markdown(audit: dict[str, Any]) -> str:
     ]
     for pair in audit["impure_pairs"]:
         record_id = pair["record_id"]
-        identifier = _markdown_code_cell(record_id) if record_id else "_(no record id)_"
+        # ``0`` and ``false`` are record ids the JSON audit preserves; only
+        # a genuinely absent id may be rendered as one.
+        identifier = (
+            "_(no record id)_"
+            if record_id is None
+            else _markdown_code_cell(record_id)
+        )
         reasons = (
             ", ".join(_markdown_code_cell(code) for code in pair["reason_codes"])
             or "_(none)_"
@@ -204,18 +215,104 @@ def render_audit_markdown(audit: dict[str, Any]) -> str:
         )
     return "\n".join(lines)
 
-def _location_sort_key(location: tuple[Any, Any]) -> tuple[str, int, str]:
-    path_part, line_part = location
-    line_number = line_part if isinstance(line_part, int) else 0
-    return (str(path_part), line_number, str(line_part))
+
+_MISSING = object()
 
 
-def _pairs_by_location(pairs: Any) -> dict[tuple[Any, Any], dict[str, Any]]:
-    located: dict[tuple[Any, Any], dict[str, Any]] = {}
+def _json_type_name(value: Any) -> str:
+    """Name a value's JSON type, keeping ``true`` distinct from ``1``."""
+
+    if isinstance(value, bool):
+        return "boolean"
+    if isinstance(value, (int, float)):
+        return "number"
+    if isinstance(value, str):
+        return "string"
+    if isinstance(value, list):
+        return "array"
+    if isinstance(value, dict):
+        return "object"
+    if value is None:
+        return "null"
+    return type(value).__name__
+
+
+def _json_equal(left: Any, right: Any) -> bool:
+    """Whether two audited values agree in JSON type as well as in value.
+
+    Python scores ``False == 0`` and ``True == 1``, so a value-only check
+    would accept an expected audit that rewrote ``same_state: false`` as the
+    number ``0``. The published document is evidence, and a change of type is
+    a change of evidence, so compare the two the way JSON does.
+    """
+
+    if _json_type_name(left) != _json_type_name(right):
+        return False
+    if isinstance(left, dict):
+        return set(left) == set(right) and all(
+            _json_equal(left[key], right[key]) for key in left
+        )
+    if isinstance(left, list):
+        return len(left) == len(right) and all(
+            _json_equal(one, other) for one, other in zip(left, right)
+        )
+    return left == right
+
+
+def _json_key(value: Any) -> tuple[str, str]:
+    """Key a JSON value by type and canonical text.
+
+    Keying by the value alone lets ``source_line: true`` index the same slot
+    as line ``1`` -- Python hashes them identically -- and raises outright on
+    a list or an object, so an audit with a structured location could not be
+    compared at all.
+    """
+
+    try:
+        return (_json_type_name(value), canonical_json(value))
+    except (TypeError, ValueError):
+        return (_json_type_name(value), repr(value))
+
+
+def _pair_location(pair: dict[str, Any]) -> tuple[tuple[str, str], tuple[str, str]]:
+    return (_json_key(pair.get("source_path")), _json_key(pair.get("source_line")))
+
+
+def _pair_location_text(pair: dict[str, Any]) -> str:
+    return f"{pair.get('source_path')}:{pair.get('source_line')}"
+
+
+def _pair_order(pair: dict[str, Any]) -> tuple[str, int, str]:
+    """Sort pairs by path then by line, with real line numbers in order."""
+
+    line = pair.get("source_line")
+    number = line if isinstance(line, int) and not isinstance(line, bool) else 0
+    return (str(pair.get("source_path")), number, str(line))
+
+
+def _pairs_by_location(pairs: Any) -> tuple[dict[Any, dict[str, Any]], list[str]]:
+    """Index impure pairs by typed location, reporting any duplicate.
+
+    Two rows at one source location would silently overwrite each other. If
+    the survivor then matched the scan, the expected list could carry an
+    extra or conflicting row -- and disagree with its own summary -- while
+    the drift check still exited successfully.
+    """
+
+    located: dict[Any, dict[str, Any]] = {}
+    duplicates: list[str] = []
     for pair in pairs if isinstance(pairs, list) else ():
-        if isinstance(pair, dict):
-            located[(pair.get("source_path"), pair.get("source_line"))] = pair
-    return located
+        if not isinstance(pair, dict):
+            continue
+        location = _pair_location(pair)
+        if location in located:
+            duplicates.append(
+                f"{_pair_location_text(pair)}: "
+                "impure pair is listed more than once in the audit"
+            )
+            continue
+        located[location] = pair
+    return located, sorted(dict.fromkeys(duplicates))
 
 
 def _source_files_by_path(files: Any) -> dict[str, dict[str, Any]]:
@@ -230,6 +327,56 @@ def _source_files_by_path(files: Any) -> dict[str, dict[str, Any]]:
     }
 
 
+def _duplicate_source_paths(files: Any) -> list[str]:
+    """Name any relative path a source-file inventory lists more than once."""
+
+    seen: set[str] = set()
+    duplicates: list[str] = []
+    for entry in files if isinstance(files, (list, tuple)) else ():
+        if not isinstance(entry, dict):
+            continue
+        source_path = entry.get("source_path")
+        if not isinstance(source_path, str):
+            continue
+        if source_path in seen:
+            duplicates.append(
+                f"{source_path}: source file is listed more than once in the audit"
+            )
+        seen.add(source_path)
+    return sorted(dict.fromkeys(duplicates))
+
+
+def _field_differences(
+    prefix: str,
+    expected_entry: dict[str, Any],
+    actual_entry: dict[str, Any],
+    field_names: Any,
+) -> list[str]:
+    """Report each named field that is absent on either side or disagrees.
+
+    ``.get()`` alone cannot tell a dropped key from a key whose value is
+    ``null``, which is how a published row could quietly lose a field and
+    still reconcile. A sentinel keeps the two cases apart so the check
+    verifies that a required field is *present* as well as equal.
+    """
+
+    differences: list[str] = []
+    for field_name in field_names:
+        label = f"{prefix}{field_name}"
+        want = expected_entry.get(field_name, _MISSING)
+        got = actual_entry.get(field_name, _MISSING)
+        if want is _MISSING and got is _MISSING:
+            differences.append(f"{label}: absent from both the audit and this scan")
+        elif want is _MISSING:
+            differences.append(f"{label}: absent from the audit, got {got!r}")
+        elif got is _MISSING:
+            differences.append(f"{label}: expected {want!r}, absent from this scan")
+        elif not _json_equal(want, got):
+            differences.append(f"{label}: expected {want!r}, got {got!r}")
+    return differences
+
+
+AUDIT_HEADER_FIELDS = ("schema_version", "audit", "transform")
 AUDIT_PAIR_FIELDS = (
     "source_sha256",
     "record_id",
@@ -247,11 +394,7 @@ AUDIT_SOURCE_FILE_FIELDS = ("source_file_sha256",)
 def _audit_header_differences(expected: dict[str, Any], actual: dict[str, Any]) -> list[str]:
     """Identity fields that must match before any count is comparable."""
 
-    return [
-        f"{key}: expected {expected.get(key)!r}, got {actual.get(key)!r}"
-        for key in ("schema_version", "audit", "transform")
-        if expected.get(key) != actual.get(key)
-    ]
+    return _field_differences("", expected, actual, AUDIT_HEADER_FIELDS)
 
 
 def _audit_summary_differences(expected: dict[str, Any], actual: dict[str, Any]) -> list[str]:
@@ -259,12 +402,12 @@ def _audit_summary_differences(expected: dict[str, Any], actual: dict[str, Any])
 
     expected_summary = expected.get("summary")
     expected_summary = expected_summary if isinstance(expected_summary, dict) else {}
-    return [
-        f"summary.{key}: expected {expected_summary.get(key)!r}, "
-        f"got {actual['summary'].get(key)!r}"
-        for key in sorted(set(expected_summary) | set(actual["summary"]))
-        if expected_summary.get(key) != actual["summary"].get(key)
-    ]
+    return _field_differences(
+        "summary.",
+        expected_summary,
+        actual["summary"],
+        sorted(set(expected_summary) | set(actual["summary"])),
+    )
 
 
 def _audit_source_file_differences(
@@ -274,22 +417,24 @@ def _audit_source_file_differences(
 
     expected_files = _source_files_by_path(expected.get("source_files"))
     actual_files = _source_files_by_path(actual.get("source_files"))
-    differences = [
+    differences = _duplicate_source_paths(expected.get("source_files"))
+    differences.extend(
         f"{source_path}: audited source file is absent from this scan"
         for source_path in sorted(set(expected_files) - set(actual_files))
-    ]
+    )
     differences.extend(
         f"{source_path}: source file is absent from the audit"
         for source_path in sorted(set(actual_files) - set(expected_files))
     )
     for source_path in sorted(set(expected_files) & set(actual_files)):
-        for field_name in AUDIT_SOURCE_FILE_FIELDS:
-            want = expected_files[source_path].get(field_name)
-            got = actual_files[source_path].get(field_name)
-            if want != got:
-                differences.append(
-                    f"{source_path}: {field_name}: expected {want!r}, got {got!r}"
-                )
+        differences.extend(
+            _field_differences(
+                f"{source_path}: ",
+                expected_files[source_path],
+                actual_files[source_path],
+                AUDIT_SOURCE_FILE_FIELDS,
+            )
+        )
     return differences
 
 
@@ -298,31 +443,37 @@ def _audit_impure_pair_differences(
 ) -> list[str]:
     """Per-pair drift, by source location then by field."""
 
-    expected_pairs = _pairs_by_location(expected.get("impure_pairs"))
-    actual_pairs = _pairs_by_location(actual["impure_pairs"])
-    differences = [
-        f"{location[0]}:{location[1]}: audited impure pair is absent from this scan"
-        for location in sorted(
-            set(expected_pairs) - set(actual_pairs), key=_location_sort_key
-        )
-    ]
+    expected_pairs, differences = _pairs_by_location(expected.get("impure_pairs"))
+    actual_pairs, actual_duplicates = _pairs_by_location(actual["impure_pairs"])
+    differences.extend(actual_duplicates)
     differences.extend(
-        f"{location[0]}:{location[1]}: impure pair is absent from the audit"
+        f"{_pair_location_text(expected_pairs[location])}: "
+        "audited impure pair is absent from this scan"
         for location in sorted(
-            set(actual_pairs) - set(expected_pairs), key=_location_sort_key
+            set(expected_pairs) - set(actual_pairs),
+            key=lambda item: _pair_order(expected_pairs[item]),
+        )
+    )
+    differences.extend(
+        f"{_pair_location_text(actual_pairs[location])}: "
+        "impure pair is absent from the audit"
+        for location in sorted(
+            set(actual_pairs) - set(expected_pairs),
+            key=lambda item: _pair_order(actual_pairs[item]),
         )
     )
     for location in sorted(
-        set(expected_pairs) & set(actual_pairs), key=_location_sort_key
+        set(expected_pairs) & set(actual_pairs),
+        key=lambda item: _pair_order(actual_pairs[item]),
     ):
-        for field_name in AUDIT_PAIR_FIELDS:
-            want = expected_pairs[location].get(field_name)
-            got = actual_pairs[location].get(field_name)
-            if want != got:
-                differences.append(
-                    f"{location[0]}:{location[1]}: {field_name}: "
-                    f"expected {want!r}, got {got!r}"
-                )
+        differences.extend(
+            _field_differences(
+                f"{_pair_location_text(actual_pairs[location])}: ",
+                expected_pairs[location],
+                actual_pairs[location],
+                AUDIT_PAIR_FIELDS,
+            )
+        )
     return differences
 
 
