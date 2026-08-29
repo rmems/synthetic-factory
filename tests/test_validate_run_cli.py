@@ -171,7 +171,7 @@ class ValidateRunWriteFlag(unittest.TestCase):
             (run_dir / "bridge.jsonl").write_text(json.dumps(bridge) + "\n")
             result = _invoke(str(run_dir))
             self.assertEqual(result.returncode, 1, result.stderr)
-            self.assertIn("not globally non-decreasing", result.stderr)
+            self.assertIn(validate_run.SPIKE_ORDER_MISMATCH, result.stderr)
 
 
 class ValidateIdLayering(unittest.TestCase):
