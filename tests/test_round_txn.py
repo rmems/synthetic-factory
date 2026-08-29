@@ -23,7 +23,14 @@ def thalamic(record_id, round_number=1):
         "proposed_action": {"action": "noop", "decision_basis": "fixture"},
         "safety_decision": {"decision": "ACCEPT", "rationale": "bounded fixture"},
         "executed_action": {"action": "noop"},
-        "future_outcome": {"success": True},
+        # The publish gate runs verify_execution in strict mode, so the fixture
+        # has to carry the observable outcome evidence a real record carries.
+        "future_outcome": {
+            "success": True,
+            "timeline": [{"t_ms": 0, "event": "noop accepted"}],
+            "observed_effects": ["no actuator motion"],
+            "new_state": {"sim_or_real": "designed", "domain": "transaction-test"},
+        },
         "reward_components": {"task_progress": 0.5, "safety": 0.5, "total": 1.0},
         "meta": {
             "factory": "thalamic-trajectory-factory",
@@ -326,7 +333,7 @@ class RoundTransaction(unittest.TestCase):
 
     def test_resume_rejects_corrupted_immutable_publishing_fields(self):
         for field, value in (
-            ("version", 2),
+            ("version", 3),
             ("commit_point", "ROUND-r99.complete.json"),
         ):
             with self.subTest(field=field), tempfile.TemporaryDirectory() as td:

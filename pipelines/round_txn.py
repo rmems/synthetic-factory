@@ -6,10 +6,18 @@ visible to frontier readers only when ``ROUND-rNN.complete.json`` is linked
 into the factory directory after every staged file has passed validation and
 been copied without replacing an existing path.
 
+Publication also fails closed on execution evidence: ``validate_stage`` runs
+``verify_execution.verify_batch_for_frontier(..., strict=True)`` and refuses to
+link the completion marker while any record is ``failed`` or ``inconclusive``.
+Cannot-verify is never treated as verified; an operator may waive
+``inconclusive`` only by recording a written reason, which is stored in the
+completion marker.
+
 Usage:
   round_txn.py frontier <factory_dir>
   round_txn.py reserve <factory_dir> --round N --expected N
   round_txn.py publish <factory_dir> --round N --token TOKEN
+                       [--allow-inconclusive REASON]
 """
 
 from __future__ import annotations
@@ -25,7 +33,6 @@ import shutil
 import stat
 import sys
 import tempfile
-import unicodedata
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -36,7 +43,6 @@ if str(_PIPELINES) not in sys.path:
 
 from check_records import check_jsonl  # noqa: E402
 from validate_run import THALAMIC_CORE_KEYS, terminal_outcome_agrees  # noqa: E402
-
 
 MODE_FILE = ".round-marker-mode.json"
 BATCH_RE = re.compile(r"^batch-r(\d+)([a-z]*)\.jsonl$")
@@ -309,36 +315,77 @@ LEGACY_NOVEL_COVERAGE_RE = re.compile(
     r"(?:\([^)\n]*\))?\s*[:=]?\s*(\d+(?:\.\d+)?)\s*%",
     re.IGNORECASE | re.MULTILINE,
 )
-CASCADE_GENERIC_TERMS = frozenset(
-    {
-        "and",
-        "are",
-        "error",
-        "errors",
-        "failed",
-        "failure",
-        "fault",
-        "for",
-        "from",
-        "has",
-        "have",
-        "into",
-        "issue",
-        "not",
-        "problem",
-        "step",
-        "that",
-        "the",
-        "this",
-        "was",
-        "were",
-        "with",
-    }
-)
 
 
 class TransactionError(RuntimeError):
     """A round transaction cannot proceed safely."""
+
+
+def _is_int(value):
+    return isinstance(value, int) and not isinstance(value, bool)
+
+
+def _is_nonneg_int(value):
+    return _is_int(value) and value >= 0
+
+
+def _is_positive_int(value):
+    return _is_int(value) and value >= 1
+
+# An operator waiver has to read as a written reason, not as a keystroke.
+EXECUTION_OVERRIDE_MIN_CHARS = 8
+EXECUTION_OVERRIDE_MAX_CHARS = 500
+EXECUTION_GATE_LABEL = "pipelines/verify_execution.py:verify_batch_for_frontier"
+# Bump when KNOWN_TOOLS or verdict rules change so historical markers are not
+# re-derived under a different semantics snapshot.
+EXECUTION_VERIFIER_SEMANTICS_VERSION = 6
+# Fields a publish retry may legitimately re-derive without changing the plan.
+PUBLISH_PLAN_VOLATILE_KEYS = frozenset({"published_at", "execution_verification"})
+LEGACY_COMPLETION_MARKER_VERSION = 1
+EXECUTION_VERIFIED_COMPLETION_MARKER_VERSION = 2
+EXECUTION_CUTOVER_KEY = "execution_verified_from_round"
+EXECUTION_VERIFIED_ROUNDS_KEY = "execution_verified_rounds"
+CANONICAL_EXECUTION_VERIFICATION_KEYS = frozenset(
+    {"counts", "gate", "override", "semantics_version", "strict"}
+)
+EXECUTION_COUNT_KEYS = frozenset({"failed", "inconclusive", "total", "verified"})
+
+from round_txn_execution import (  # noqa: E402
+    comparable_execution_verification,
+    execution_gate,
+    load_execution_verifier,  # noqa: F401 - public compatibility re-export
+    normalized_execution_override,
+    recorded_execution_override,
+    validate_completed_execution_verification,
+    validated_execution_verification_summary,
+)
+from round_txn_coverage import (  # noqa: E402
+    abandoned_failed_hypotheses,
+    banned_agentic_wrapper_paths,
+    contiguous_step_number_errors,
+    demonstrates_ordered_scenario,
+    has_long_horizon_debug_loop,
+    long_horizon_scenario_signature,
+    nested_key_paths,
+    nested_strings,
+    normalized_category,
+    numbered_horizon_errors,
+    shares_visible_terms,
+    sparse_step_progress_errors,
+    visibly_names_fault,
+)
+
+
+def replace_json_atomically(path: Path, payload: dict):
+    """Atomically migrate one existing regular JSON marker under the run lock."""
+    temporary = path.parent / f".{path.name}.{uuid.uuid4().hex}.migrating"
+    try:
+        write_exclusive_json(temporary, payload)
+        if not path.is_file() or path.is_symlink():
+            raise TransactionError(f"unsafe publishing marker: {path}")
+        os.replace(temporary, path)
+    finally:
+        temporary.unlink(missing_ok=True)
 
 
 def utc_now():
@@ -750,6 +797,126 @@ def completed_rounds(factory_dir: Path):
         rounds.append(round_number)
     return sorted(set(rounds))
 
+SUPPORTED_COMPLETION_MARKER_VERSIONS = frozenset(
+    {
+        LEGACY_COMPLETION_MARKER_VERSION,
+        EXECUTION_VERIFIED_COMPLETION_MARKER_VERSION,
+    }
+)
+
+
+def completion_marker_version(manifest, where, *, for_batch=False):
+    marker_version = manifest.get("version")
+    if not _is_positive_int(marker_version):
+        if for_batch:
+            raise TransactionError(f"unsupported completion marker version for {where}")
+        raise TransactionError(f"unsupported completion marker version: {where}")
+    if marker_version in SUPPORTED_COMPLETION_MARKER_VERSIONS:
+        return marker_version
+    if for_batch:
+        raise TransactionError(f"unsupported completion marker version for {where}")
+    raise TransactionError(f"unsupported completion marker version: {where}")
+
+
+def _completion_round_matches(payload, round_number, path):
+    declared_round = payload.get("round")
+    if not _is_positive_int(declared_round):
+        raise TransactionError(f"completion marker round mismatch: {path}")
+    if declared_round != round_number:
+        raise TransactionError(f"completion marker round mismatch: {path}")
+
+
+def _completion_file_entry_is_safe(entry, names):
+    name = entry.get("name") if isinstance(entry, dict) else None
+    digest = entry.get("sha256") if isinstance(entry, dict) else None
+    if not isinstance(name, str) or not name:
+        return False
+    if Path(name).name != name or name in names:
+        return False
+    return isinstance(digest, str) and SHA256_RE.fullmatch(digest) is not None
+
+
+def _validated_completion_file_names(payload, round_number, path, factory_dir):
+    files = payload.get("files")
+    if not isinstance(files, list):
+        raise TransactionError(f"completion marker files must be an array: {path}")
+    names = set()
+    for entry in files:
+        if not _completion_file_entry_is_safe(entry, names):
+            raise TransactionError(f"completion marker has an unsafe file entry: {path}")
+        name = entry["name"]
+        names.add(name)
+        completion_manifest_file_matches(factory_dir / name, payload)
+    batch_name = f"batch-r{round_number:02d}.jsonl"
+    notes_name = f"NOTES-r{round_number:02d}.md"
+    if batch_name not in names:
+        raise TransactionError(
+            f"completion marker has no unique batch entry: {path}"
+        )
+    if notes_name not in names:
+        raise TransactionError(
+            f"completion marker has no unique notes entry: {path}"
+        )
+    return names, batch_name, notes_name
+
+
+def _bind_completion_execution_verdict(
+    factory_dir,
+    round_number,
+    payload,
+    path,
+    batch_name,
+    cutover,
+    bound_verified_rounds,
+):
+    marker_version = completion_marker_version(payload, path)
+    gated_round = (
+        _is_positive_int(cutover) and round_number >= cutover
+    ) or round_number in bound_verified_rounds
+    if marker_version == LEGACY_COMPLETION_MARKER_VERSION:
+        if gated_round:
+            raise TransactionError(
+                "completion marker version downgrade cannot skip execution "
+                f"verification: {path}"
+            )
+        return False
+    validate_completed_execution_verification(factory_dir / batch_name, payload)
+    return True
+
+
+def _validate_legacy_baseline_ids(factory_dir, seen_ids):
+    mode_path = marker_mode_path(factory_dir)
+    if mode_path is None:
+        return
+    baseline = validated_marker_mode(factory_dir, mode_path)["legacy_baseline"]
+    for legacy_path in legacy_baseline_jsonl_paths(factory_dir, baseline):
+        errors, _warnings, _kinds, _records = check_jsonl(
+            legacy_path,
+            legacy_path.name,
+            seen_ids=seen_ids,
+        )
+        if errors:
+            raise TransactionError(
+                f"legacy baseline ID validation failed: {legacy_path}\n"
+                + "\n".join(f"ERROR: {error}" for error in errors)
+            )
+
+
+def _load_completion_marker_payload(path, factory_dir):
+    match = COMPLETE_RE.fullmatch(path.name)
+    if match is None:
+        return None
+    if not path.is_file() or path.is_symlink():
+        raise TransactionError(f"unsafe completion marker: {path}")
+    round_number = int(match.group(1))
+    payload = read_json(path)
+    if payload.get("factory") != factory_dir.name:
+        raise TransactionError(f"completion marker identity mismatch: {path}")
+    _completion_round_matches(payload, round_number, path)
+    if payload.get("commit_point") != path.name:
+        raise TransactionError(f"completion marker commit point mismatch: {path}")
+    return round_number, payload
+
 
 def completed_manifests(factory_dir: Path) -> dict[int, dict]:
     """Return only completion manifests safe to use for batch visibility.
@@ -761,68 +928,21 @@ def completed_manifests(factory_dir: Path) -> dict[int, dict]:
     and matching regular, hashed files for every artifact it declares.
     """
     seen_ids = sibling_committed_and_inflight_ids(factory_dir)
-    mode_path = marker_mode_path(factory_dir)
-    if mode_path is not None:
-        baseline = validated_marker_mode(factory_dir, mode_path)["legacy_baseline"]
-        for legacy_path in legacy_baseline_jsonl_paths(factory_dir, baseline):
-            errors, _warnings, _kinds, _records = check_jsonl(
-                legacy_path,
-                legacy_path.name,
-                seen_ids=seen_ids,
-            )
-            if errors:
-                raise TransactionError(
-                    f"legacy baseline ID validation failed: {legacy_path}\n"
-                    + "\n".join(f"ERROR: {error}" for error in errors)
-                )
+    _validate_legacy_baseline_ids(factory_dir, seen_ids)
+    cutover, bound_verified_rounds = execution_gate_policy(factory_dir)
     manifests = {}
-    for path in sorted(factory_dir.glob("ROUND-r*.complete.json")):
-        match = COMPLETE_RE.fullmatch(path.name)
-        if match is None:
+    loaded_markers = []
+    for path in factory_dir.glob("ROUND-r*.complete.json"):
+        loaded = _load_completion_marker_payload(path, factory_dir)
+        if loaded is None:
             continue
-        if not path.is_file() or path.is_symlink():
-            raise TransactionError(f"unsafe completion marker: {path}")
-        round_number = int(match.group(1))
-        payload = read_json(path)
-        if payload.get("factory") != factory_dir.name:
-            raise TransactionError(f"completion marker identity mismatch: {path}")
-        declared_round = payload.get("round")
-        if (
-            not isinstance(declared_round, int)
-            or isinstance(declared_round, bool)
-            or declared_round != round_number
-        ):
-            raise TransactionError(f"completion marker round mismatch: {path}")
-        if payload.get("commit_point") != path.name:
-            raise TransactionError(f"completion marker commit point mismatch: {path}")
-        files = payload.get("files")
-        if not isinstance(files, list):
-            raise TransactionError(f"completion marker files must be an array: {path}")
-        batch_name = f"batch-r{round_number:02d}.jsonl"
-        notes_name = f"NOTES-r{round_number:02d}.md"
-        names = set()
-        for entry in files:
-            name = entry.get("name") if isinstance(entry, dict) else None
-            digest = entry.get("sha256") if isinstance(entry, dict) else None
-            if (
-                not isinstance(name, str)
-                or not name
-                or Path(name).name != name
-                or name in names
-            ):
-                raise TransactionError(f"completion marker has an unsafe file entry: {path}")
-            if not isinstance(digest, str) or SHA256_RE.fullmatch(digest) is None:
-                raise TransactionError(f"completion marker has invalid file hash: {path}")
-            names.add(name)
-            completion_manifest_file_matches(factory_dir / name, payload)
-        if batch_name not in names:
-            raise TransactionError(
-                f"completion marker has no unique batch entry: {path}"
-            )
-        if notes_name not in names:
-            raise TransactionError(
-                f"completion marker has no unique notes entry: {path}"
-            )
+        loaded_markers.append((loaded[0], path, loaded[1]))
+    for round_number, path, payload in sorted(
+        loaded_markers, key=lambda item: item[0]
+    ):
+        names, batch_name, notes_name = _validated_completion_file_names(
+            payload, round_number, path, factory_dir
+        )
         coverage_error = validate_novel_coverage(factory_dir / notes_name, factory_dir)
         if coverage_error:
             raise TransactionError(coverage_error)
@@ -834,6 +954,15 @@ def completed_manifests(factory_dir: Path) -> dict[int, dict]:
         # validation cannot advance the visible frontier.
         for name in names:
             completion_manifest_file_matches(factory_dir / name, payload)
+        _bind_completion_execution_verdict(
+            factory_dir,
+            round_number,
+            payload,
+            path,
+            batch_name,
+            cutover,
+            bound_verified_rounds,
+        )
         if round_number in manifests:
             raise TransactionError(f"duplicate completion markers for r{round_number:02d}")
         manifests[round_number] = payload
@@ -863,354 +992,6 @@ def batch_matches_completion_manifest(batch: Path, manifest: dict) -> bool:
     """Validate a committed batch against its unique completion entry."""
     completion_manifest_file_matches(batch, manifest)
     return True
-
-
-def nested_key_paths(value, key, path=""):
-    """Yield every nested occurrence of one forbidden field name."""
-    if isinstance(value, dict):
-        for child_key, item in value.items():
-            child_path = f"{path}.{child_key}" if path else child_key
-            if child_key == key:
-                yield child_path
-            yield from nested_key_paths(item, key, child_path)
-    elif isinstance(value, list):
-        for index, item in enumerate(value):
-            yield from nested_key_paths(item, key, f"{path}[{index}]")
-
-
-def nested_strings(value):
-    """Yield observable string values from a JSON-compatible value."""
-    if isinstance(value, str):
-        yield value
-    elif isinstance(value, dict):
-        for item in value.values():
-            yield from nested_strings(item)
-    elif isinstance(value, list):
-        for item in value:
-            yield from nested_strings(item)
-
-
-def agentic_trajectory_units(record: dict) -> list[str]:
-    """Return separate ordered steps/terminal fields, excluding the task goal."""
-    chosen = record.get("chosen")
-    rejected = record.get("rejected")
-
-    def step_units(owner):
-        steps = owner.get("steps") if isinstance(owner, dict) else None
-        return steps if isinstance(steps, list) else []
-
-    values = [*step_units(record)]
-    if isinstance(chosen, dict) or isinstance(rejected, dict):
-        values.extend(
-            (
-                *step_units(chosen),
-                *step_units(rejected),
-                record.get("critique"),
-                chosen.get("outcome") if isinstance(chosen, dict) else None,
-                rejected.get("outcome") if isinstance(rejected, dict) else None,
-            )
-        )
-    values.append(record.get("outcome"))
-    return [
-        " ".join(
-            text.strip().casefold()
-            for text in nested_strings(value)
-            if text.strip()
-        )
-        for value in values
-        if value is not None
-    ]
-
-
-def demonstrates_ordered_scenario(record: dict, scenario_terms) -> bool:
-    """Require failure, correction, and verification in distinct ordered units."""
-    units = agentic_trajectory_units(record)
-    cursor = 0
-    phase_start = max(0, len(scenario_terms) - 3)
-    for group_index, alternatives in enumerate(scenario_terms):
-        matches = [
-            index
-            for index in range(cursor, len(units))
-            if any(term in units[index] for term in alternatives)
-        ]
-        if not matches:
-            return False
-        matched_index = matches[0]
-        cursor = matched_index + (1 if group_index >= phase_start else 0)
-    return True
-
-
-def long_horizon_scenario_signature(record: dict):
-    """Return the required explicit codebase/bug-class category signature."""
-
-    def normalized_field(*values):
-        for value in values:
-            if isinstance(value, str) and value.strip():
-                return re.sub(r"\s+", " ", value.strip().casefold())
-        return None
-
-    codebase = normalized_field(record.get("codebase_type"))
-    bug_class = normalized_field(record.get("bug_class"))
-    return (codebase, bug_class) if codebase is not None and bug_class is not None else None
-
-
-def banned_agentic_wrapper_paths(value, path=""):
-    """Yield nested fields or values that introduce neuromorphic wrappers."""
-    if isinstance(value, dict):
-        for key, item in value.items():
-            child_path = f"{path}.{key}" if path else key
-            normalized = re.sub(
-                r"[^a-z0-9]+",
-                "_",
-                re.sub(r"(?<=[a-z0-9])(?=[A-Z])", "_", str(key)).casefold(),
-            ).strip("_")
-            if (
-                normalized in {"spike_events", "raster", "rasters"}
-                or re.search(r"(?:^|_)rasters?(?:_|$)", normalized) is not None
-                or "spikenaut" in normalized
-                or "neuromorphic" in normalized
-            ):
-                yield child_path
-            yield from banned_agentic_wrapper_paths(item, child_path)
-    elif isinstance(value, list):
-        for index, item in enumerate(value):
-            yield from banned_agentic_wrapper_paths(item, f"{path}[{index}]")
-    elif isinstance(value, str):
-        normalized = value.casefold()
-        if "spikenaut" in normalized or "neuromorphic" in normalized:
-            yield path or "<root>"
-
-
-def shares_visible_terms(left, right):
-    """Whether two observable strings name at least one meaningful common term."""
-    if not isinstance(left, str) or not isinstance(right, str):
-        return False
-    left_terms = {
-        term
-        for term in re.findall(r"[a-z0-9][a-z0-9_-]{2,}", left.lower())
-        if term not in CASCADE_GENERIC_TERMS
-    }
-    right_terms = {
-        term
-        for term in re.findall(r"[a-z0-9][a-z0-9_-]{2,}", right.lower())
-        if term not in CASCADE_GENERIC_TERMS
-    }
-    return bool(left_terms & right_terms)
-
-
-def normalized_category(value):
-    """Normalize a human category so punctuation cannot manufacture diversity."""
-    if not isinstance(value, str):
-        return ""
-    text = unicodedata.normalize("NFC", value).strip()
-    return re.sub(
-        r"_+", "_", re.sub(r"[^\w]+", "_", text.casefold())
-    ).strip("_")
-
-
-def visibly_names_fault(introduced_text, *fault_evidence):
-    """Whether one designated step explicitly names declared fault evidence."""
-    introduced = normalized_category(introduced_text)
-    preventive_terms = {
-        "avoid",
-        "avoided",
-        "avoiding",
-        "prevent",
-        "prevented",
-        "preventing",
-    }
-    for evidence in fault_evidence:
-        normalized = normalized_category(evidence)
-        if not introduced or not normalized:
-            continue
-        for match in re.finditer(
-            rf"(?:^|_){re.escape(normalized)}(?=_|$)", introduced
-        ):
-            prefix_tokens = introduced[: match.start()].strip("_").split("_")[-3:]
-            locally_prevented = any(
-                token in preventive_terms for token in prefix_tokens
-            )
-            locally_negated = any(
-                token in {"no", "not", "never", "without"}
-                and not (
-                    token == "not"
-                    and index + 1 < len(prefix_tokens)
-                    and prefix_tokens[index + 1] == "only"
-                )
-                for index, token in enumerate(prefix_tokens)
-            )
-            suffix = introduced[match.end() :].strip("_")
-            suffix_negated = re.match(
-                r"(?:(?:is|are|was|were|did)_)?(?:not|never)_"
-                r"(?:created|happened|introduced|occurred|present|produced|triggered)"
-                r"(?:_|$)|(?:(?:is|are|was|were)_)?(?:avoided|prevented)(?:_|$)",
-                suffix,
-            ) is not None
-            if not (locally_prevented or locally_negated or suffix_negated):
-                return True
-    return False
-
-
-def numbered_horizon_errors(where, steps, lane, minimum, maximum):
-    """Return lane-specific horizon and exact integer numbering errors."""
-    if not isinstance(steps, list):
-        return []
-    errors = []
-    if not minimum <= len(steps) <= maximum:
-        errors.append(f"{where}: {lane} episodes require {minimum} to {maximum} steps")
-    errors.extend(contiguous_step_number_errors(where, steps, lane))
-    return errors
-
-
-def contiguous_step_number_errors(where, steps, lane):
-    """Return an error unless list entries use exact integer numbering 1..K."""
-    if not isinstance(steps, list):
-        return []
-    step_numbers = [
-        step.get("n") if isinstance(step, dict) else None
-        for step in steps
-    ]
-    if any(
-        not isinstance(number, int)
-        or isinstance(number, bool)
-        or number != expected_number
-        for expected_number, number in enumerate(step_numbers, 1)
-    ):
-        return [f"{where}: {lane} steps must be numbered contiguously from 1"]
-    return []
-
-
-def observable_step_text(step):
-    """Flatten only publishable tool/basis/observation fields for lane checks."""
-    if not isinstance(step, dict):
-        return ""
-    values = [step.get("decision_basis"), step.get("observation")]
-    tool_call = step.get("tool_call")
-    if isinstance(tool_call, dict):
-        values.extend((tool_call.get("name"), tool_call.get("args")))
-    return " ".join(
-        value if isinstance(value, str) else json.dumps(value, sort_keys=True)
-        for value in values
-        if isinstance(value, (str, dict, list))
-    ).lower()
-
-
-def step_observation_text(step):
-    """Return only the recorded result of a step, excluding plans and commands."""
-    observation = step.get("observation") if isinstance(step, dict) else None
-    return observation.casefold() if isinstance(observation, str) else ""
-
-
-def has_long_horizon_debug_loop(steps):
-    """Whether observable steps contain edit, failing test, re-read, fix, verify."""
-    if not isinstance(steps, list):
-        return False
-    texts = [observable_step_text(step) for step in steps]
-    observations = [step_observation_text(step) for step in steps]
-
-    def includes(candidate_text, terms):
-        return any(term in candidate_text for term in terms)
-
-    edit_terms = ("edit", "write", "patch", "apply")
-    test_terms = ("test", "pytest", "cargo test", "npm test")
-    failure_terms = ("fail", "error", "nonzero", "red")
-    read_terms = ("re-read", "reread", "inspect", "read", "cat ", "sed ", "rg ")
-    fix_terms = ("fix", "repair", "patch", "edit", "write", "apply")
-    verify_terms = ("pass", "success", "green", "verified", "fixed")
-    for edit_index, text in enumerate(texts):
-        if not includes(text, edit_terms):
-            continue
-        for failure_index in range(edit_index + 1, len(texts)):
-            failure_text = texts[failure_index]
-            if not (
-                includes(failure_text, test_terms)
-                and includes(observations[failure_index], failure_terms)
-            ):
-                continue
-            for read_index in range(failure_index + 1, len(texts)):
-                if not includes(texts[read_index], read_terms):
-                    continue
-                for fix_index in range(read_index + 1, len(texts)):
-                    if not includes(texts[fix_index], fix_terms):
-                        continue
-                    return any(
-                        includes(texts[verify_index], test_terms)
-                        and includes(observations[verify_index], verify_terms)
-                        for verify_index in range(fix_index + 1, len(texts))
-                    )
-    return False
-
-
-def abandoned_failed_hypotheses(steps):
-    """Return distinct explicit hypothesis labels failed then abandoned later."""
-    if not isinstance(steps, list):
-        return set()
-    failed = []
-    failure_terms = ("fail", "disproved", "ruled out", "not the cause")
-    for index, step in enumerate(steps):
-        observation = step.get("observation") if isinstance(step, dict) else None
-        if not isinstance(observation, str) or not any(
-            term in observation.lower() for term in failure_terms
-        ):
-            continue
-        failed.extend(
-            (index, match.group(1))
-            for match in re.finditer(
-                r"\bhypothesis\s*[:#_-]?\s*([a-z0-9][a-z0-9_-]{2,})",
-                observation.lower(),
-            )
-        )
-    abandoned = set()
-    abandonment_terms = ("abandon", "discard", "reject", "disproved", "ruled out")
-    for failure_index, label in failed:
-        for step in steps[failure_index + 1 :]:
-            basis = step.get("decision_basis") if isinstance(step, dict) else None
-            if (
-                isinstance(basis, str)
-                and label in basis.lower()
-                and any(term in basis.lower() for term in abandonment_terms)
-            ):
-                abandoned.add(label)
-                break
-    return abandoned
-
-
-def sparse_step_progress_errors(where, steps):
-    """Reject sparse-horizon padding that changes neither state nor belief."""
-    if not isinstance(steps, list):
-        return []
-    progress_terms = re.compile(
-        r"\b(?:added|changed|created|deleted|disproved|edited|evidence|failed|"
-        r"fixed|found|hypothesis|learned|measured|patched|removed|reproduced|"
-        r"tested|updated|verified|wrote)\b"
-    )
-    stall_terms = re.compile(
-        r"\b(?:no[ -]?op|no change|nothing changed|unchanged)\b"
-    )
-    previous_observation = None
-    for index, step in enumerate(steps):
-        text = observable_step_text(step)
-        if stall_terms.search(text) is not None or progress_terms.search(text) is None:
-            return [
-                f"{where}: sparse long-task steps[{index}] must show observable "
-                "file, test, or belief progress rather than padding"
-            ]
-        observation = step.get("observation") if isinstance(step, dict) else None
-        normalized_observation = (
-            re.sub(r"\s+", " ", observation.strip().casefold())
-            if isinstance(observation, str) and observation.strip()
-            else None
-        )
-        if (
-            normalized_observation is not None
-            and normalized_observation == previous_observation
-        ):
-            return [
-                f"{where}: sparse long-task steps[{index}] repeats the prior "
-                "observation without observable progress"
-            ]
-        previous_observation = normalized_observation
-    return []
 
 
 def frontier_status(factory_dir: Path):
@@ -1311,6 +1092,79 @@ def validated_marker_mode(factory_dir: Path, mode_path: Path | None = None):
         )
     validate_legacy_baseline_payloads(factory_dir, baseline)
     return mode
+
+
+def _validated_execution_verified_rounds(mode, mode_path, cutover):
+    rounds = mode.get(EXECUTION_VERIFIED_ROUNDS_KEY, [])
+    if not isinstance(rounds, list):
+        raise TransactionError(f"invalid {EXECUTION_VERIFIED_ROUNDS_KEY} in {mode_path}")
+    if any(not _is_positive_int(round_number) for round_number in rounds):
+        raise TransactionError(f"invalid {EXECUTION_VERIFIED_ROUNDS_KEY} in {mode_path}")
+    if len(rounds) != len(set(rounds)) or rounds != sorted(rounds):
+        raise TransactionError(f"invalid {EXECUTION_VERIFIED_ROUNDS_KEY} in {mode_path}")
+    if cutover is None and rounds:
+        raise TransactionError(f"invalid {EXECUTION_VERIFIED_ROUNDS_KEY} in {mode_path}")
+    if cutover is not None and any(round_number >= cutover for round_number in rounds):
+        raise TransactionError(f"invalid {EXECUTION_VERIFIED_ROUNDS_KEY} in {mode_path}")
+    return frozenset(rounds)
+
+
+def execution_gate_policy(factory_dir: Path):
+    """Return the contiguous cutover and explicitly bound gap-filled rounds."""
+    mode_path = marker_mode_path(factory_dir)
+    if mode_path is None:
+        return None, frozenset()
+    mode = read_json(mode_path)
+    cutover = mode.get(EXECUTION_CUTOVER_KEY)
+    if cutover is None:
+        return None, _validated_execution_verified_rounds(mode, mode_path, None)
+    if not _is_positive_int(cutover):
+        raise TransactionError(f"invalid {EXECUTION_CUTOVER_KEY} in {mode_path}")
+    return cutover, _validated_execution_verified_rounds(mode, mode_path, cutover)
+
+
+def execution_gate_cutover_round(factory_dir: Path):
+    """Return the first round that must carry a version-2 execution verdict."""
+    cutover, _bound_verified_rounds = execution_gate_policy(factory_dir)
+    return cutover
+
+
+def remember_execution_gate_cutover(factory_dir: Path, round_number: int):
+    """Bind the cutover after every pre-existing legacy completion marker."""
+    mode_path = marker_mode_path(factory_dir)
+    if mode_path is None:
+        return
+    mode = read_json(mode_path)
+    existing = mode.get(EXECUTION_CUTOVER_KEY)
+    if existing is None:
+        legacy_rounds = []
+        for path in factory_dir.glob("ROUND-r*.complete.json"):
+            loaded = _load_completion_marker_payload(path, factory_dir)
+            if loaded is None:
+                continue
+            marker_round, payload = loaded
+            if (
+                completion_marker_version(payload, path)
+                == LEGACY_COMPLETION_MARKER_VERSION
+            ):
+                legacy_rounds.append(marker_round)
+        cutover = max(
+            [round_number, *(legacy_round + 1 for legacy_round in legacy_rounds)]
+        )
+        updated = dict(mode)
+        updated[EXECUTION_CUTOVER_KEY] = cutover
+        if round_number < cutover:
+            updated[EXECUTION_VERIFIED_ROUNDS_KEY] = [round_number]
+        replace_json_atomically(mode_path, updated)
+        return
+    if not _is_positive_int(existing):
+        raise TransactionError(f"invalid {EXECUTION_CUTOVER_KEY} in {mode_path}")
+    bound_rounds = _validated_execution_verified_rounds(mode, mode_path, existing)
+    if round_number >= existing or round_number in bound_rounds:
+        return
+    updated = dict(mode)
+    updated[EXECUTION_VERIFIED_ROUNDS_KEY] = sorted({*bound_rounds, round_number})
+    replace_json_atomically(mode_path, updated)
 
 
 def staging_dir(factory_dir: Path, round_number: int, token: str):
@@ -1560,8 +1414,9 @@ def committed_ids(factory_dir: Path):
                 check_jsonl(path, label, seen_ids=seen_ids)
     return seen_ids
 
-
 @contextlib.contextmanager
+
+
 def run_publish_lock(factory_dir: Path):
     """Serialize publish validation and the completion marker for one run."""
     path = factory_dir.parent / ".round-publish.lock"
@@ -1591,7 +1446,9 @@ def validate_agentic_envelope(batch: Path, factory_dir: Path, round_number: int)
     long_horizon_success_values = []
     long_horizon_scenario_signatures = []
     tool_use_lesson_signatures = []
-    for lineno, line in enumerate(batch.read_text().splitlines(), 1):
+    # JSONL framing is literal LF. ``splitlines()`` would also split U+2028
+    # and U+2029 characters that are valid payload inside a JSON string.
+    for lineno, line in enumerate(batch.read_text().split("\n"), 1):
         if not line.strip():
             continue
         # JSON parsing and base shape errors have already been checked by
@@ -1825,8 +1682,7 @@ def validate_agentic_envelope(batch: Path, factory_dir: Path, round_number: int)
                     where,
                     steps,
                     "long-horizon coding",
-                    18,
-                    28,
+                    (18, 28),
                 )
             )
             if not has_long_horizon_debug_loop(steps):
@@ -1953,8 +1809,7 @@ def validate_agentic_envelope(batch: Path, factory_dir: Path, round_number: int)
                         where,
                         steps,
                         "sparse long-task",
-                        25,
-                        60,
+                        (25, 60),
                     )
                 )
                 errors.extend(sparse_step_progress_errors(where, steps))
@@ -2067,8 +1922,7 @@ def validate_agentic_envelope(batch: Path, factory_dir: Path, round_number: int)
                             where,
                             side.get("steps"),
                             f"tool-use preference {side_name}",
-                            4,
-                            10,
+                            (4, 10),
                         )
                     )
                 side_reward = side.get("reward") if isinstance(side, dict) else None
@@ -2161,12 +2015,7 @@ def validate_agentic_envelope(batch: Path, factory_dir: Path, round_number: int)
     return errors
 
 
-def validate_completed_batch(
-    factory_dir: Path, round_number: int, manifest: dict, seen_ids=None
-):
-    """Re-run publication record, quota, and envelope checks for one marker."""
-    batch = factory_dir / f"batch-r{round_number:02d}.jsonl"
-    factory_staging = factory_dir.name in AGENTIC_FACTORY_KINDS
+def _completed_batch_is_training_ready(batch, seen_ids, factory_staging):
     errors, warnings, kinds, records = check_jsonl(
         batch,
         batch.name,
@@ -2181,38 +2030,64 @@ def validate_completed_batch(
         raise TransactionError(
             f"committed batch is not training-ready: {batch}\n" + "\n".join(details)
         )
+    return kinds, records
+
+
+def _completed_counts_match_manifest(manifest, records, kinds, batch):
     for field in ("records", "expected_records"):
-        if field not in manifest or (
-            not isinstance(manifest[field], int)
-            or isinstance(manifest[field], bool)
-            or manifest[field] != records
-        ):
+        value = manifest[field] if field in manifest else None
+        if not _is_nonneg_int(value):
             raise TransactionError(
                 f"completion marker {field} does not match batch records: {batch}"
             )
-    if "kinds" in manifest and manifest["kinds"] != kinds:
+        if value != records:
+            raise TransactionError(
+                f"completion marker {field} does not match batch records: {batch}"
+            )
+    if "kinds" not in manifest:
+        return
+    if manifest["kinds"] != kinds:
         raise TransactionError(f"completion marker kinds do not match batch: {batch}")
-    if manifest.get("version") != 1:
-        raise TransactionError(f"unsupported completion marker version for {batch}")
+
+
+def _completed_agentic_envelope_matches(
+    factory_dir, round_number, batch, kinds, records
+):
+    expected_kind = AGENTIC_FACTORY_KINDS[factory_dir.name]
+    if set(kinds) != {expected_kind}:
+        raise TransactionError(
+            f"{factory_dir.name} requires only {expected_kind!r} records; "
+            f"committed kinds are {sorted(kinds)!r}"
+        )
+    quota = FACTORY_QUOTAS[factory_dir.name]
+    if records != quota:
+        raise TransactionError(
+            f"committed batch has {records} records; {factory_dir.name} "
+            f"requires exactly {quota}: {batch}"
+        )
+    envelope_errors = validate_agentic_envelope(batch, factory_dir, round_number)
+    if envelope_errors:
+        raise TransactionError(
+            f"committed batch violates the agentic factory envelope: {batch}\n"
+            + "\n".join(f"ERROR: {error}" for error in envelope_errors)
+        )
+
+
+def validate_completed_batch(
+    factory_dir: Path, round_number: int, manifest: dict, seen_ids=None
+):
+    """Re-run publication record, quota, and envelope checks for one marker."""
+    batch = factory_dir / f"batch-r{round_number:02d}.jsonl"
+    factory_staging = factory_dir.name in AGENTIC_FACTORY_KINDS
+    kinds, records = _completed_batch_is_training_ready(
+        batch, seen_ids, factory_staging
+    )
+    _completed_counts_match_manifest(manifest, records, kinds, batch)
+    completion_marker_version(manifest, batch, for_batch=True)
     if factory_staging:
-        expected_kind = AGENTIC_FACTORY_KINDS[factory_dir.name]
-        if set(kinds) != {expected_kind}:
-            raise TransactionError(
-                f"{factory_dir.name} requires only {expected_kind!r} records; "
-                f"committed kinds are {sorted(kinds)!r}"
-            )
-        quota = FACTORY_QUOTAS[factory_dir.name]
-        if records != quota:
-            raise TransactionError(
-                f"committed batch has {records} records; {factory_dir.name} "
-                f"requires exactly {quota}: {batch}"
-            )
-        envelope_errors = validate_agentic_envelope(batch, factory_dir, round_number)
-        if envelope_errors:
-            raise TransactionError(
-                f"committed batch violates the agentic factory envelope: {batch}\n"
-                + "\n".join(f"ERROR: {error}" for error in envelope_errors)
-            )
+        _completed_agentic_envelope_matches(
+            factory_dir, round_number, batch, kinds, records
+        )
 
 
 def validate_novel_coverage(
@@ -2273,6 +2148,7 @@ def validate_stage(
     stage: Path,
     round_number: int,
     expected: int,
+    execution_override=None,
 ):
     if not stage.is_dir() or stage.is_symlink():
         raise TransactionError(f"staging directory missing or unsafe: {stage}")
@@ -2377,6 +2253,11 @@ def validate_stage(
                 "staged batch violates the agentic factory envelope:\n"
                 + "\n".join(f"ERROR: {error}" for error in envelope_errors)
             )
+        # Frontier gate: run over the captured copy so the verdict describes the
+        # same bytes the manifest hashes, not a batch swapped in mid-validation.
+        verification = execution_gate(
+            batch, stage / batch_name, override=execution_override
+        )
 
     files = [
         {
@@ -2386,13 +2267,16 @@ def validate_stage(
         }
         for path in initial_paths
     ]
-    return files, kinds, records
+    return files, kinds, records, verification
 
 
-def publish(factory_dir: Path, round_number: int, token: str):
+def publish(
+    factory_dir: Path, round_number: int, token: str, execution_override=None
+):
+    override = normalized_execution_override(execution_override)
     factory_dir = Path(factory_dir).resolve()
     with run_publish_lock(factory_dir):
-        return _publish_locked(factory_dir, round_number, token)
+        return _publish_locked(factory_dir, round_number, token, override)
 
 
 def finish_completed_publish(
@@ -2454,7 +2338,158 @@ def finish_completed_publish(
     return manifest
 
 
-def _publish_locked(factory_dir: Path, round_number: int, token: str):
+def _reservation_expected_records(factory_dir, reservation):
+    expected = reservation.get("expected_records")
+    if not _is_positive_int(expected):
+        raise TransactionError("reservation has an invalid expected_records value")
+    configured_quota = FACTORY_QUOTAS.get(factory_dir.name)
+    if factory_dir.name not in AGENTIC_FACTORY_KINDS:
+        return expected
+    if expected != configured_quota:
+        raise TransactionError(
+            f"reservation for {factory_dir.name} requires exactly "
+            f"{configured_quota} records; found {expected}"
+        )
+    return expected
+
+
+def _publishing_marker_identity_matches(existing, factory_dir, round_number, token, path):
+    if existing.get("factory") != factory_dir.name:
+        raise TransactionError(f"publishing marker identity mismatch: {path}")
+    if existing.get("round") != round_number:
+        raise TransactionError(f"publishing marker identity mismatch: {path}")
+    if existing.get("token") != token:
+        raise TransactionError(f"publishing marker identity mismatch: {path}")
+
+
+def _resume_execution_override(existing, execution_override, path):
+    """Reuse a recorded waiver, or migrate only a genuine version-1 marker."""
+    missing_block = "execution_verification" not in existing
+    legacy_marker = existing.get("version") == LEGACY_COMPLETION_MARKER_VERSION
+    if missing_block:
+        if not legacy_marker:
+            raise TransactionError(
+                "version 2 publishing marker is missing execution verification: "
+                f"{path}"
+            )
+        return execution_override, True
+    recorded_override = recorded_execution_override(existing)
+    if execution_override is None:
+        execution_override = recorded_override
+    return execution_override, legacy_marker
+
+
+def _load_resumed_publishing_state(
+    paths, factory_dir, round_number, token, execution_override
+):
+    publishing_exists = (
+        paths["publishing"].exists() or paths["publishing"].is_symlink()
+    )
+    if not publishing_exists:
+        return None, execution_override, False
+    if not paths["publishing"].is_file():
+        raise TransactionError(f"unsafe publishing marker: {paths['publishing']}")
+    if paths["publishing"].is_symlink():
+        raise TransactionError(f"unsafe publishing marker: {paths['publishing']}")
+    existing = read_json(paths["publishing"])
+    _publishing_marker_identity_matches(
+        existing, factory_dir, round_number, token, paths["publishing"]
+    )
+    override, migrate = _resume_execution_override(
+        existing, execution_override, paths["publishing"]
+    )
+    return existing, override, migrate
+
+
+def _plan_without_volatile_keys(payload, *, drop_version=False):
+    plan = {
+        key: value
+        for key, value in payload.items()
+        if key not in PUBLISH_PLAN_VOLATILE_KEYS
+    }
+    if drop_version:
+        plan.pop("version", None)
+    return plan
+
+
+def _reconcile_resumed_publish_plan(existing, manifest, path, migrate_marker):
+    # Timestamps differ across retries. Every other plan field is immutable,
+    # including the schema version and declared completion marker. Version 1
+    # publishing markers may still cut over onto the v2 verification contract.
+    legacy_publishing_marker = (
+        existing.get("version") == LEGACY_COMPLETION_MARKER_VERSION
+    )
+    existing_plan = _plan_without_volatile_keys(
+        existing, drop_version=legacy_publishing_marker
+    )
+    manifest_plan = _plan_without_volatile_keys(
+        manifest, drop_version=legacy_publishing_marker
+    )
+    if existing_plan != manifest_plan:
+        raise TransactionError(
+            f"publishing plan conflicts with staged content: {path}"
+        )
+    if migrate_marker:
+        # A publish interrupted before the execution gate was introduced
+        # has no persisted verdict to reuse. Re-derive it above and migrate
+        # the marker atomically before any completion link can expose it.
+        # Only version-1 markers may take this path.
+        replace_json_atomically(path, manifest)
+        return manifest
+    if legacy_publishing_marker:
+        replace_json_atomically(path, manifest)
+        return manifest
+    # Only the first canonical waiver reason is intentionally retained.
+    # Gate identity, strictness, counts, and waived count must still
+    # agree with the freshly derived verdict before completion.
+    if comparable_execution_verification(
+        existing["execution_verification"]
+    ) != comparable_execution_verification(manifest["execution_verification"]):
+        raise TransactionError(
+            "publishing marker execution verification conflicts with "
+            f"staged content: {path}"
+        )
+    return existing
+
+
+def _existing_published_file_is_reusable(destination, digest):
+    if not destination.is_file():
+        return False
+    if destination.is_symlink():
+        return False
+    return file_sha256(destination) == digest
+
+
+def _copy_published_files(stage, factory_dir, manifest, resumed):
+    for item in manifest["files"]:
+        source = stage / item["name"]
+        destination = factory_dir / item["name"]
+        if not destination.exists():
+            copy_verified_exclusive(source, destination, item["sha256"])
+            continue
+        if not resumed:
+            raise TransactionError(
+                f"refusing to replace existing output: {destination}"
+            )
+        if _existing_published_file_is_reusable(destination, item["sha256"]):
+            continue
+        raise TransactionError(
+            f"refusing to replace conflicting output: {destination}"
+        )
+
+
+def _link_completion_marker(paths):
+    try:
+        os.link(paths["publishing"], paths["complete"], follow_symlinks=False)
+    except FileExistsError as exc:
+        raise TransactionError(
+            f"completion marker already exists: {paths['complete']}"
+        ) from exc
+
+
+def _publish_locked(
+    factory_dir: Path, round_number: int, token: str, execution_override=None
+):
     """Publish while holding the run-wide identity/commit lock."""
     paths = marker_paths(factory_dir, round_number)
     if paths["complete"].exists() or paths["complete"].is_symlink():
@@ -2465,24 +2500,20 @@ def _publish_locked(factory_dir: Path, round_number: int, token: str):
     stage = validated_reservation_stage(
         factory_dir, round_number, token, reservation.get("staging_dir")
     )
-    expected = reservation.get("expected_records")
-    if not isinstance(expected, int) or isinstance(expected, bool) or expected < 1:
-        raise TransactionError("reservation has an invalid expected_records value")
-    configured_quota = FACTORY_QUOTAS.get(factory_dir.name)
-    if factory_dir.name in AGENTIC_FACTORY_KINDS and expected != configured_quota:
-        raise TransactionError(
-            f"reservation for {factory_dir.name} requires exactly "
-            f"{configured_quota} records; found {expected}"
-        )
+    expected = _reservation_expected_records(factory_dir, reservation)
+    existing, execution_override, migrate_marker = _load_resumed_publishing_state(
+        paths, factory_dir, round_number, token, execution_override
+    )
 
-    files, kinds, records = validate_stage(
+    files, kinds, records, verification = validate_stage(
         factory_dir,
         stage,
         round_number,
         expected,
+        execution_override=execution_override,
     )
     manifest = {
-        "version": 1,
+        "version": EXECUTION_VERIFIED_COMPLETION_MARKER_VERSION,
         "factory": factory_dir.name,
         "round": round_number,
         "token": token,
@@ -2490,49 +2521,24 @@ def _publish_locked(factory_dir: Path, round_number: int, token: str):
         "records": records,
         "kinds": kinds,
         "files": files,
+        "execution_verification": validated_execution_verification_summary(
+            verification, marker_kind="publish plan"
+        ),
         "published_at": utc_now(),
         "commit_point": paths["complete"].name,
     }
 
-    resumed = paths["publishing"].exists()
+    resumed = existing is not None
     if resumed:
-        existing = read_json(paths["publishing"])
-        # Timestamps differ across retries. Every other field is immutable,
-        # including the schema version and declared completion marker.
-        existing_plan = {
-            key: value for key, value in existing.items() if key != "published_at"
-        }
-        manifest_plan = {
-            key: value for key, value in manifest.items() if key != "published_at"
-        }
-        if existing_plan != manifest_plan:
-            raise TransactionError(
-                f"publishing plan conflicts with staged content: {paths['publishing']}"
-            )
-        manifest = existing
+        manifest = _reconcile_resumed_publish_plan(
+            existing, manifest, paths["publishing"], migrate_marker
+        )
     else:
         write_exclusive_json(paths["publishing"], manifest)
 
-    for item in manifest["files"]:
-        source = stage / item["name"]
-        destination = factory_dir / item["name"]
-        if destination.exists():
-            if not resumed:
-                raise TransactionError(f"refusing to replace existing output: {destination}")
-            if (
-                not destination.is_file()
-                or destination.is_symlink()
-                or file_sha256(destination) != item["sha256"]
-            ):
-                raise TransactionError(f"refusing to replace conflicting output: {destination}")
-            continue
-        copy_verified_exclusive(source, destination, item["sha256"])
-
-    # Linking this marker is the atomic visibility point for the whole round.
-    try:
-        os.link(paths["publishing"], paths["complete"], follow_symlinks=False)
-    except FileExistsError as exc:
-        raise TransactionError(f"completion marker already exists: {paths['complete']}") from exc
+    remember_execution_gate_cutover(factory_dir, round_number)
+    _copy_published_files(stage, factory_dir, manifest, resumed)
+    _link_completion_marker(paths)
 
     paths["publishing"].unlink(missing_ok=True)
     paths["reservation"].unlink(missing_ok=True)
@@ -2600,6 +2606,15 @@ def parse_args(argv=None):
     pub.add_argument("factory_dir")
     pub.add_argument("--round", type=int, required=True, dest="round_number")
     pub.add_argument("--token", required=True)
+    pub.add_argument(
+        "--allow-inconclusive",
+        dest="execution_override",
+        metavar="REASON",
+        help=(
+            "record an explicit operator waiver for records whose execution "
+            "evidence cannot be verified; failed records are never waivable"
+        ),
+    )
     abt = sub.add_parser("abort")
     abt.add_argument("factory_dir")
     abt.add_argument("--round", type=int, required=True, dest="round_number")
@@ -2617,13 +2632,17 @@ def main(argv=None):
         elif args.command == "abort":
             result = abort(Path(args.factory_dir), args.round_number, args.token)
         else:
-            result = publish(Path(args.factory_dir), args.round_number, args.token)
+            result = publish(
+                Path(args.factory_dir),
+                args.round_number,
+                args.token,
+                getattr(args, "execution_override", None),
+            )
     except (OSError, TransactionError) as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
         return 1
     print(json.dumps(result, indent=2, sort_keys=True))
     return 0
-
 
 if __name__ == "__main__":
     raise SystemExit(main())
