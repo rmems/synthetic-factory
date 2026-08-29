@@ -943,42 +943,53 @@ def _derive_safety(
     return (not violations), violations
 
 
-def check_family(record: dict[str, Any], where: str) -> list[str]:
-    """Family checks: measured cost, and a preference that respects limits."""
+@dataclass(frozen=True)
+class _CandidateContext:
+    """Record-level facts every candidate is checked against."""
+
+    measured_costs: dict[tuple[str, str], tuple[float, str]]
+    corpus_quantity: Any
+    can_derive_safety: bool
+    caps: Any
+    demand: Any
+
+
+def _check_scenario_constraints(
+    scenario: Any, where: str
+) -> tuple[list[str], float | None]:
+    """Constraint checks, and the quality floor the preference is held to."""
 
     errors: list[str] = []
-    scenario = record.get("scenario")
+    if not isinstance(scenario, dict):
+        return errors, None
+    constraints = scenario.get("constraints")
+    if not isinstance(constraints, dict):
+        errors.append(f"{where}.scenario.constraints must be an object")
+        return errors, None
     quality_floor: float | None = None
-    if isinstance(scenario, dict):
-        constraints = scenario.get("constraints")
-        if not isinstance(constraints, dict):
-            errors.append(f"{where}.scenario.constraints must be an object")
-        else:
-            floor = constraints.get("quality_floor")
-            if not oc.is_number(floor):
-                errors.append(
-                    f"{where}.scenario.constraints.quality_floor must be a number"
-                )
-            else:
-                quality_floor = float(floor)
-            if not str(constraints.get("safety_envelope") or "").strip():
-                errors.append(
-                    f"{where}.scenario.constraints.safety_envelope must be stated"
-                )
+    floor = constraints.get("quality_floor")
+    if not oc.is_number(floor):
+        errors.append(
+            f"{where}.scenario.constraints.quality_floor must be a number"
+        )
+    else:
+        quality_floor = float(floor)
+    if not str(constraints.get("safety_envelope") or "").strip():
+        errors.append(
+            f"{where}.scenario.constraints.safety_envelope must be stated"
+        )
+    return errors, quality_floor
 
-    result = record.get("result")
-    if not isinstance(result, dict):
-        return errors + [f"{where}.result must be an object"]
 
-    candidates = result.get("candidates")
-    if not isinstance(candidates, list) or len(candidates) < 2:
-        return errors + [
-            f"{where}.result.candidates must list at least two measured candidates"
-        ]
+def _check_cost_denomination(result: dict[str, Any], where: str) -> list[str]:
+    """The corpus quantity, and the energy flag that must follow from it.
 
-    # The flag that tells a joule corpus from a second corpus. Readers,
-    # MANIFEST.json and the "no theoretical energy" rule all lean on it, so it
-    # has to follow from the quantity rather than be asserted alongside it.
+    The flag that tells a joule corpus from a second corpus. Readers,
+    MANIFEST.json and the "no theoretical energy" rule all lean on it, so it
+    has to follow from the quantity rather than be asserted alongside it.
+    """
+
+    errors: list[str] = []
     corpus_quantity = result.get("cost_quantity")
     cost_is_energy = result.get("cost_is_energy")
     if corpus_quantity not in oc.QUANTITY_UNITS:
@@ -990,9 +1001,19 @@ def check_family(record: dict[str, Any], where: str) -> list[str]:
             f"{where}.result.cost_is_energy is {cost_is_energy} but cost_quantity "
             f"is {corpus_quantity!r} — the flag must follow the quantity"
         )
+    return errors
 
-    # Keyed by a tuple, not a joined string, so a candidate id containing the
-    # separator cannot be made to collide with another candidate's reading.
+
+def _collect_measured_costs(
+    result: dict[str, Any], where: str
+) -> tuple[list[str], dict[tuple[str, str], tuple[float, str]]]:
+    """Index the oracle measurements, reporting readings that contradict.
+
+    Keyed by a tuple, not a joined string, so a candidate id containing the
+    separator cannot be made to collide with another candidate's reading.
+    """
+
+    errors: list[str] = []
     measured_costs: dict[tuple[str, str], tuple[float, str]] = {}
     measurements = result.get("measurements")
     measurements = measurements if isinstance(measurements, list) else []
@@ -1027,6 +1048,11 @@ def check_family(record: dict[str, Any], where: str) -> list[str]:
                     )
                 continue
             measured_costs[key] = (item["value"], meter)
+    return errors, measured_costs
+
+
+def _safety_derivation_inputs(scenario: Any) -> tuple[bool, Any, Any]:
+    """The scenario state needed to re-derive a candidate's safety verdict."""
 
     state = scenario.get("state") if isinstance(scenario, dict) else None
     caps = state.get("actuator_caps") if isinstance(state, dict) else None
@@ -1037,119 +1063,218 @@ def check_family(record: dict[str, Any], where: str) -> list[str]:
         and all(oc.is_number(cap) for cap in caps)
         and oc.is_number(demand)
     )
+    return can_derive_safety, caps, demand
 
-    seen_candidate_ids: set[str] = set()
-    for index, candidate in enumerate(candidates):
-        spot = f"{where}.result.candidates[{index}]"
-        if not isinstance(candidate, dict):
-            errors.append(f"{spot} must be an object")
-            continue
-        candidate_id = candidate.get("id")
-        if not isinstance(candidate_id, str) or not candidate_id:
-            errors.append(f"{spot}.id must be a non-empty string")
-            continue
-        if candidate_id in seen_candidate_ids:
-            # The preference names a candidate by id. Two candidates sharing one
-            # makes the winning allocation ambiguous, and the cost measurements
-            # can no longer be attributed to either.
-            errors.append(
-                f"{spot}: DUPLICATE_CANDIDATE_ID — {candidate_id!r} is already "
-                "used by an earlier candidate"
-            )
-            continue
-        seen_candidate_ids.add(candidate_id)
-        if not isinstance(candidate.get("safety_ok"), bool):
-            errors.append(f"{spot}.safety_ok must be a boolean")
-        elif can_derive_safety:
-            # safety_ok summarises the allocation; it is not an independent
-            # fact. Trusting it lets an obviously over-cap allocation be
-            # preferred as the feasible minimum.
-            derived_ok, derived_violations = _derive_safety(
-                candidate.get("allocation"), float(demand), [float(c) for c in caps]
-            )
-            if candidate["safety_ok"] is not derived_ok:
-                errors.append(
-                    f"{spot}: SAFETY_NOT_REPRODUCIBLE — safety_ok is "
-                    f"{candidate['safety_ok']} but the recorded allocation "
-                    f"against the scenario state yields {derived_ok} "
-                    f"({sorted(derived_violations)})"
-                )
-            recorded_violations = candidate.get("safety_violations")
-            if isinstance(recorded_violations, list) and sorted(
-                str(item) for item in recorded_violations
-            ) != sorted(derived_violations):
-                errors.append(
-                    f"{spot}: SAFETY_NOT_REPRODUCIBLE — safety_violations are "
-                    f"{sorted(str(v) for v in recorded_violations)} but the "
-                    f"allocation yields {sorted(derived_violations)}"
-                )
-        if not oc.is_number(candidate.get("task_quality")):
-            errors.append(f"{spot}.task_quality must be a number")
-        quantity = candidate.get("cost_quantity")
-        if quantity not in oc.QUANTITY_UNITS:
-            errors.append(f"{spot}.cost_quantity must be a registered quantity")
-            continue
-        if corpus_quantity in oc.QUANTITY_UNITS and quantity != corpus_quantity:
-            errors.append(
-                f"{spot}.cost_quantity is {quantity!r} but the record is "
-                f"denominated in {corpus_quantity!r} — costs must be comparable"
-            )
-        if not oc.is_number(candidate.get("cost_value")):
-            errors.append(f"{spot}.cost_value must be a number")
-            continue
-        if float(candidate["cost_value"]) < 0.0:
-            # Cheapest wins, so a negative cost takes the preference outright.
-            # No meter in this pipeline can produce one.
-            errors.append(
-                f"{spot}: NEGATIVE_COST — {candidate['cost_value']} "
-                f"{quantity} is not a physically possible measurement"
-            )
-        candidate_meter = candidate.get("cost_meter")
-        if not isinstance(candidate_meter, str) or not candidate_meter:
-            errors.append(f"{spot}.cost_meter must be a non-empty string")
-            continue
-        # cost_meter names the *instrument*, not the oracle. On the replay path
-        # the oracle is `recorded_power_run` while the instrument that actually
-        # took the reading stays `external_power_meter`, so pinning cost_meter to
-        # oracle.name or meter_probe.selected would reject every recorded run.
-        # The binding that matters — cost_meter against the meter of the
-        # measurement it cites — is enforced below, against measured_meter.
-        # Quality gates the preference just as hard as cost does, so it has to
-        # be bound to its measurement too. Otherwise a candidate can claim 0.99
-        # while its oracle measurement says 0.0 and still clear the floor.
-        quality_key = (candidate_id, "task_quality")
-        if quality_key not in measured_costs:
-            errors.append(
-                f"{spot}: UNMEASURED_TASK_QUALITY — no oracle measurement of "
-                f"task_quality for candidate {candidate_id!r}"
-            )
-        else:
-            measured_quality, _ = measured_costs[quality_key]
-            if oc.is_number(candidate.get("task_quality")) and (
-                abs(measured_quality - float(candidate["task_quality"])) > 1e-9
-            ):
-                errors.append(
-                    f"{spot}.task_quality disagrees with the oracle measurement "
-                    f"({candidate['task_quality']} vs {measured_quality})"
-                )
-        key = (candidate_id, quantity)
-        if key not in measured_costs:
-            errors.append(
-                f"{spot}: UNMEASURED_COST — no oracle measurement of {quantity} "
-                f"for candidate {candidate_id!r}"
-            )
-        else:
-            measured_value, measured_meter = measured_costs[key]
-            if abs(measured_value - float(candidate["cost_value"])) > 1e-12:
-                errors.append(
-                    f"{spot}.cost_value disagrees with the oracle measurement "
-                    f"({candidate['cost_value']} vs {measured_value})"
-                )
-            if measured_meter != candidate_meter:
-                errors.append(
-                    f"{spot}.cost_meter is {candidate_meter!r} but the measurement meter is {measured_meter!r}"
-                )
 
+def _check_candidate_safety(
+    candidate: dict[str, Any], spot: str, context: _CandidateContext
+) -> list[str]:
+    """safety_ok and safety_violations, re-derived from the scenario state."""
+
+    errors: list[str] = []
+    if not isinstance(candidate.get("safety_ok"), bool):
+        errors.append(f"{spot}.safety_ok must be a boolean")
+    elif context.can_derive_safety:
+        # safety_ok summarises the allocation; it is not an independent
+        # fact. Trusting it lets an obviously over-cap allocation be
+        # preferred as the feasible minimum.
+        derived_ok, derived_violations = _derive_safety(
+            candidate.get("allocation"),
+            float(context.demand),
+            [float(c) for c in context.caps],
+        )
+        if candidate["safety_ok"] is not derived_ok:
+            errors.append(
+                f"{spot}: SAFETY_NOT_REPRODUCIBLE — safety_ok is "
+                f"{candidate['safety_ok']} but the recorded allocation "
+                f"against the scenario state yields {derived_ok} "
+                f"({sorted(derived_violations)})"
+            )
+        recorded_violations = candidate.get("safety_violations")
+        if isinstance(recorded_violations, list) and sorted(
+            str(item) for item in recorded_violations
+        ) != sorted(derived_violations):
+            errors.append(
+                f"{spot}: SAFETY_NOT_REPRODUCIBLE — safety_violations are "
+                f"{sorted(str(v) for v in recorded_violations)} but the "
+                f"allocation yields {sorted(derived_violations)}"
+            )
+    return errors
+
+
+def _check_candidate_measurements(
+    candidate: dict[str, Any],
+    candidate_id: str,
+    spot: str,
+    context: _CandidateContext,
+) -> list[str]:
+    """Bind a candidate's quality, cost and meter to the oracle measurements."""
+
+    errors: list[str] = []
+    quantity = candidate.get("cost_quantity")
+    if quantity not in oc.QUANTITY_UNITS:
+        errors.append(f"{spot}.cost_quantity must be a registered quantity")
+        return errors
+    if context.corpus_quantity in oc.QUANTITY_UNITS and quantity != context.corpus_quantity:
+        errors.append(
+            f"{spot}.cost_quantity is {quantity!r} but the record is "
+            f"denominated in {context.corpus_quantity!r} — costs must be comparable"
+        )
+    if not oc.is_number(candidate.get("cost_value")):
+        errors.append(f"{spot}.cost_value must be a number")
+        return errors
+    if float(candidate["cost_value"]) < 0.0:
+        # Cheapest wins, so a negative cost takes the preference outright.
+        # No meter in this pipeline can produce one.
+        errors.append(
+            f"{spot}: NEGATIVE_COST — {candidate['cost_value']} "
+            f"{quantity} is not a physically possible measurement"
+        )
+    candidate_meter = candidate.get("cost_meter")
+    if not isinstance(candidate_meter, str) or not candidate_meter:
+        errors.append(f"{spot}.cost_meter must be a non-empty string")
+        return errors
+    # cost_meter names the *instrument*, not the oracle. On the replay path
+    # the oracle is `recorded_power_run` while the instrument that actually
+    # took the reading stays `external_power_meter`, so pinning cost_meter to
+    # oracle.name or meter_probe.selected would reject every recorded run.
+    # The binding that matters — cost_meter against the meter of the
+    # measurement it cites — is enforced below, against measured_meter.
+    # Quality gates the preference just as hard as cost does, so it has to
+    # be bound to its measurement too. Otherwise a candidate can claim 0.99
+    # while its oracle measurement says 0.0 and still clear the floor.
+    measured_costs = context.measured_costs
+    quality_key = (candidate_id, "task_quality")
+    if quality_key not in measured_costs:
+        errors.append(
+            f"{spot}: UNMEASURED_TASK_QUALITY — no oracle measurement of "
+            f"task_quality for candidate {candidate_id!r}"
+        )
+    else:
+        measured_quality, _ = measured_costs[quality_key]
+        if oc.is_number(candidate.get("task_quality")) and (
+            abs(measured_quality - float(candidate["task_quality"])) > 1e-9
+        ):
+            errors.append(
+                f"{spot}.task_quality disagrees with the oracle measurement "
+                f"({candidate['task_quality']} vs {measured_quality})"
+            )
+    key = (candidate_id, quantity)
+    if key not in measured_costs:
+        errors.append(
+            f"{spot}: UNMEASURED_COST — no oracle measurement of {quantity} "
+            f"for candidate {candidate_id!r}"
+        )
+    else:
+        measured_value, measured_meter = measured_costs[key]
+        if abs(measured_value - float(candidate["cost_value"])) > 1e-12:
+            errors.append(
+                f"{spot}.cost_value disagrees with the oracle measurement "
+                f"({candidate['cost_value']} vs {measured_value})"
+            )
+        if measured_meter != candidate_meter:
+            errors.append(
+                f"{spot}.cost_meter is {candidate_meter!r} but the measurement meter is {measured_meter!r}"
+            )
+    return errors
+
+
+def _check_candidate(
+    candidate: Any,
+    spot: str,
+    seen_candidate_ids: set[str],
+    context: _CandidateContext,
+) -> list[str]:
+    """One measured candidate, in the order the findings were emitted."""
+
+    if not isinstance(candidate, dict):
+        return [f"{spot} must be an object"]
+    candidate_id = candidate.get("id")
+    if not isinstance(candidate_id, str) or not candidate_id:
+        return [f"{spot}.id must be a non-empty string"]
+    if candidate_id in seen_candidate_ids:
+        # The preference names a candidate by id. Two candidates sharing one
+        # makes the winning allocation ambiguous, and the cost measurements
+        # can no longer be attributed to either.
+        return [
+            f"{spot}: DUPLICATE_CANDIDATE_ID — {candidate_id!r} is already "
+            "used by an earlier candidate"
+        ]
+    seen_candidate_ids.add(candidate_id)
+    errors = _check_candidate_safety(candidate, spot, context)
+    if not oc.is_number(candidate.get("task_quality")):
+        errors.append(f"{spot}.task_quality must be a number")
+    errors += _check_candidate_measurements(candidate, candidate_id, spot, context)
+    return errors
+
+
+def _check_preferred_cost_minimality(
+    preferred: dict[str, Any],
+    candidates: list[Any],
+    quality_floor: float,
+    where: str,
+) -> list[str]:
+    """The preferred candidate must be the cheapest feasible one, tie-break included.
+
+    ``preferred`` came out of a ``{candidate["id"]: candidate}`` index, so its
+    ``id`` is the very object the preference named.
+    """
+
+    errors: list[str] = []
+    preferred_id = preferred["id"]
+    preferred_cost = float(preferred["cost_value"])
+    feasible_rivals = [
+        candidate
+        for candidate in candidates
+        if isinstance(candidate, dict)
+        and candidate.get("id") != preferred_id
+        and candidate.get("safety_ok") is True
+        and oc.is_number(candidate.get("task_quality"))
+        and float(candidate["task_quality"]) >= quality_floor
+        and oc.is_number(candidate.get("cost_value"))
+    ]
+    cheaper_feasible = [
+        candidate["id"]
+        for candidate in feasible_rivals
+        if float(candidate["cost_value"]) < preferred_cost - 1e-12
+    ]
+    if cheaper_feasible:
+        errors.append(
+            f"{where}.result.preference: NOT_MINIMAL_FEASIBLE_COST — "
+            f"{sorted(cheaper_feasible)} are feasible and cheaper than "
+            f"{preferred_id!r}"
+        )
+    # `choose_preference` breaks a cost tie by candidate id, which coarse
+    # counters make a real case rather than a theoretical one. Without this
+    # either side of a tie validates, so the label is not a function of the
+    # measurements.
+    tied_lower_id = [
+        candidate["id"]
+        for candidate in feasible_rivals
+        if abs(float(candidate["cost_value"]) - preferred_cost) <= 1e-12
+        and isinstance(candidate.get("id"), str)
+        and isinstance(preferred_id, str)
+        and candidate["id"] < preferred_id
+    ]
+    if tied_lower_id:
+        errors.append(
+            f"{where}.result.preference: TIE_NOT_BROKEN_BY_ID — "
+            f"{sorted(tied_lower_id)} tie {preferred_id!r} on measured cost "
+            "and sort before it, so the documented tie-break selects the "
+            "first of those instead"
+        )
+    return errors
+
+
+def _check_preference(
+    result: dict[str, Any],
+    candidates: list[Any],
+    quality_floor: float | None,
+    where: str,
+) -> list[str]:
+    """The preference, and the restatements of the winner it must agree with."""
+
+    errors: list[str] = []
     status = result.get("status")
     preference = result.get("preference")
     if status == oc.RESULT_ABSTAINED:
@@ -1209,48 +1334,51 @@ def check_family(record: dict[str, Any], where: str) -> list[str]:
     # does not catch that — one malformed record would abort validation of the
     # entire run instead of being reported as one bad line.
     if quality_floor is not None and oc.is_number(preferred.get("cost_value")):
-        preferred_cost = float(preferred["cost_value"])
-        feasible_rivals = [
-            candidate
-            for candidate in candidates
-            if isinstance(candidate, dict)
-            and candidate.get("id") != preferred_id
-            and candidate.get("safety_ok") is True
-            and oc.is_number(candidate.get("task_quality"))
-            and float(candidate["task_quality"]) >= quality_floor
-            and oc.is_number(candidate.get("cost_value"))
-        ]
-        cheaper_feasible = [
-            candidate["id"]
-            for candidate in feasible_rivals
-            if float(candidate["cost_value"]) < preferred_cost - 1e-12
-        ]
-        if cheaper_feasible:
-            errors.append(
-                f"{where}.result.preference: NOT_MINIMAL_FEASIBLE_COST — "
-                f"{sorted(cheaper_feasible)} are feasible and cheaper than "
-                f"{preferred_id!r}"
-            )
-        # `choose_preference` breaks a cost tie by candidate id, which coarse
-        # counters make a real case rather than a theoretical one. Without this
-        # either side of a tie validates, so the label is not a function of the
-        # measurements.
-        tied_lower_id = [
-            candidate["id"]
-            for candidate in feasible_rivals
-            if abs(float(candidate["cost_value"]) - preferred_cost) <= 1e-12
-            and isinstance(candidate.get("id"), str)
-            and isinstance(preferred_id, str)
-            and candidate["id"] < preferred_id
-        ]
-        if tied_lower_id:
-            errors.append(
-                f"{where}.result.preference: TIE_NOT_BROKEN_BY_ID — "
-                f"{sorted(tied_lower_id)} tie {preferred_id!r} on measured cost "
-                "and sort before it, so the documented tie-break selects the "
-                "first of those instead"
-            )
+        errors += _check_preferred_cost_minimality(
+            preferred, candidates, quality_floor, where
+        )
     return errors
+
+
+def check_family(record: dict[str, Any], where: str) -> list[str]:
+    """Family checks: measured cost, and a preference that respects limits."""
+
+    scenario = record.get("scenario")
+    errors, quality_floor = _check_scenario_constraints(scenario, where)
+
+    result = record.get("result")
+    if not isinstance(result, dict):
+        return errors + [f"{where}.result must be an object"]
+
+    candidates = result.get("candidates")
+    if not isinstance(candidates, list) or len(candidates) < 2:
+        return errors + [
+            f"{where}.result.candidates must list at least two measured candidates"
+        ]
+
+    errors += _check_cost_denomination(result, where)
+    measurement_errors, measured_costs = _collect_measured_costs(result, where)
+    errors += measurement_errors
+
+    can_derive_safety, caps, demand = _safety_derivation_inputs(scenario)
+    context = _CandidateContext(
+        measured_costs=measured_costs,
+        corpus_quantity=result.get("cost_quantity"),
+        can_derive_safety=can_derive_safety,
+        caps=caps,
+        demand=demand,
+    )
+
+    seen_candidate_ids: set[str] = set()
+    for index, candidate in enumerate(candidates):
+        errors += _check_candidate(
+            candidate,
+            f"{where}.result.candidates[{index}]",
+            seen_candidate_ids,
+            context,
+        )
+
+    return errors + _check_preference(result, candidates, quality_floor, where)
 
 
 def meters_report() -> dict[str, Any]:
