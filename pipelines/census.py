@@ -225,67 +225,91 @@ def _record_simulation_buckets(obj) -> Counter:
     return Counter(bucket_sim_or_real(value) for value in values)
 
 
+class _CensusTotals:
+    """Every axis one census pass accumulates while it walks a run.
+
+    These nine counters are one accumulator in practice: a single decoded
+    record advances several of them together, and none is meaningful without
+    the rest. Holding them as one value keeps reading a file, tallying a
+    record and assembling the report as three short steps instead of one
+    method that owns all three plus nine locals. It is a plain mutable class
+    rather than one of this module's frozen value objects because advancing
+    in place during the scan is the whole point.
+    """
+
+    def __init__(self):
+        self.by_kind = {kind: 0 for kind in KINDS}
+        self.sim_hist = {bucket: 0 for bucket in SIM_BUCKETS}
+        self.by_factory = Counter()
+        self.mills = MillIndex()
+        self.files = 0
+        self.records = 0
+        self.parse_failures = 0
+        self.decode_failures = 0
+        self.unreadable_files = []
+
+    def add_file(self, run_dir: Path, path: Path) -> None:
+        """Read one payload file into the running totals."""
+
+        self.files += 1
+        source = path.relative_to(run_dir).as_posix()
+        factory, factory_verified = factory_identity_for_path(run_dir, path)
+        decoded, parse_failures, unreadable = _read_census_records(
+            path, source
+        )
+        self.parse_failures += parse_failures
+        self.decode_failures += len(unreadable)
+        self.unreadable_files.extend(unreadable)
+        for lineno, obj in decoded:
+            self._add_record(obj, factory, factory_verified, (source, lineno))
+
+    def _add_record(self, obj, factory, factory_verified, ref) -> None:
+        """Tally one decoded record against every census axis."""
+
+        self.records += 1
+        self.by_factory[factory] += 1
+        self.mills.add(factory, obj, ref, factory_verified=factory_verified)
+        self.by_kind[classify_kind(obj)] += 1
+        for bucket, count in _record_simulation_buckets(obj).items():
+            self.sim_hist[bucket] += count
+
+    def report(self, run_dir: Path) -> dict:
+        """Return the census mapping these totals describe."""
+
+        findings = self.mills.findings()
+        quarantined_by_factory = Counter(
+            finding.factory for finding in findings
+        )
+        mill_mix = summarize_mill_mix(findings)
+        mill_mix["quarantined_records"] = [
+            _finding_row(finding) for finding in findings
+        ]
+        return {
+            "run_dir": str(run_dir),
+            "files": self.files,
+            "records": self.records,
+            "parse_failures": self.parse_failures,
+            "decode_failures": self.decode_failures,
+            "unreadable_files": self.unreadable_files,
+            "eligible_records": self.records - len(findings),
+            "by_kind": self.by_kind,
+            "sim_or_real": self.sim_hist,
+            "by_factory": dict(sorted(self.by_factory.items())),
+            "eligible_by_factory": {
+                factory: self.by_factory[factory]
+                - quarantined_by_factory[factory]
+                for factory in sorted(self.by_factory)
+            },
+            "mill_mix": mill_mix,
+        }
+
+
 def census_dir(run_dir):
     run_dir = Path(run_dir).resolve()
-    by_kind = {kind: 0 for kind in KINDS}
-    sim_hist = {bucket: 0 for bucket in SIM_BUCKETS}
-    by_factory = Counter()
-    mills = MillIndex()
-    files = 0
-    records = 0
-    parse_failures = 0
-    decode_failures = 0
-    unreadable_files = []
-
+    totals = _CensusTotals()
     for path in visible_jsonl_paths(run_dir):
-        files += 1
-        relative = path.relative_to(run_dir)
-        factory, factory_verified = factory_identity_for_path(run_dir, path)
-        decoded, failed, unreadable = _read_census_records(
-            path, relative.as_posix()
-        )
-        parse_failures += failed
-        decode_failures += len(unreadable)
-        unreadable_files.extend(unreadable)
-        for lineno, obj in decoded:
-            records += 1
-            by_factory[factory] += 1
-            mills.add(
-                factory,
-                obj,
-                (relative.as_posix(), lineno),
-                factory_verified=factory_verified,
-            )
-            by_kind[classify_kind(obj)] += 1
-            for bucket, count in _record_simulation_buckets(obj).items():
-                sim_hist[bucket] += count
-
-    findings = mills.findings()
-    quarantined_by_factory = Counter(finding.factory for finding in findings)
-    mill_mix = summarize_mill_mix(findings)
-    mill_mix["quarantined_records"] = [
-        _finding_row(finding) for finding in findings
-    ]
-
-    return {
-        "run_dir": str(run_dir),
-        "files": files,
-        "records": records,
-        "parse_failures": parse_failures,
-        "decode_failures": decode_failures,
-        "unreadable_files": unreadable_files,
-        "eligible_records": records - len(findings),
-        "by_kind": by_kind,
-        "sim_or_real": sim_hist,
-        "by_factory": dict(sorted(by_factory.items())),
-        "eligible_by_factory": {
-            factory: by_factory[factory] - quarantined_by_factory[factory]
-            for factory in sorted(by_factory)
-        },
-        "mill_mix": mill_mix,
-    }
-
-
+        totals.add_file(run_dir, path)
+    return totals.report(run_dir)
 def main(argv=None):
     argv = list(sys.argv[1:] if argv is None else argv)
     if not argv:
