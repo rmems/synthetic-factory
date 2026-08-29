@@ -69,12 +69,17 @@ def normalized_execution_override(reason):
             "execution verification override must not contain non-printable characters"
         )
     _validate_override_bounds(text)
-    # A waiver has to read as a written phrase, not a keystroke pad.
-    # "12345678" is 8 printable characters and is not a reason.
-    if " " not in text or not any(character.isalpha() for character in text):
+    # A waiver has to read as a written phrase, not a keystroke pad
+    # or a two-word aside such as "looks fine" / "hi there" / "a bbbbbb".
+    words = text.split()
+    if (
+        len(words) < 3
+        or not any(character.isalpha() for character in text)
+    ):
         raise rt.TransactionError(
-            "execution verification override must be a written phrase, "
-            "not a single token or a character pad"
+            "execution verification override must be a written phrase "
+            "of at least three words, not a single token, a keystroke pad, "
+            "or a weak aside"
         )
     return text
 

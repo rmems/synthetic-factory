@@ -327,14 +327,21 @@ class FrontierPublishGate(unittest.TestCase):
             ):
                 round_txn.execution_gate(batch, batch, override="12345678")
 
-            shortest = round_txn.execution_gate(batch, batch, override="see notes")
-            self.assertEqual(shortest["override"]["reason"], "see notes")
+            with self.assertRaisesRegex(
+                round_txn.TransactionError, "written phrase"
+            ):
+                round_txn.execution_gate(batch, batch, override="looks fine")
+
+            shortest = round_txn.execution_gate(
+                batch, batch, override="hil replay rig offline"
+            )
+            self.assertEqual(shortest["override"]["reason"], "hil replay rig offline")
 
         with tempfile.TemporaryDirectory() as td:
             batch = Path(td) / "batch-r01.jsonl"
             write(batch, [thalamic("gate-bounds-max", observable=False)])
             longest_reason = (
-                "see " + "x" * (round_txn.EXECUTION_OVERRIDE_MAX_CHARS - 4)
+                "see the " + "x" * (round_txn.EXECUTION_OVERRIDE_MAX_CHARS - 8)
             )
             longest = round_txn.execution_gate(
                 batch, batch, override=longest_reason
