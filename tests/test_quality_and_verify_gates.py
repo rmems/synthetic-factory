@@ -560,18 +560,102 @@ class EmbeddingDedup(unittest.TestCase):
         self.assertEqual(report["duplicates"], [])
 
     def test_repeated_sequence_order_is_position_qualified(self):
+        """A repeated element makes bigram multisets coincide, so those lists
+        carry an explicit positional feature. The feature is asserted by its
+        effect, not by its spelling: absolute ``/i:<index>`` path qualification
+        was replaced because it made every later leaf depend on its index."""
         records = [
             {"state": {"sequence": ["alpha", "beta", "alpha", "gamma", "alpha"]}},
             {"state": {"sequence": ["alpha", "gamma", "alpha", "beta", "alpha"]}},
         ]
         token_sets = [quality_gate.embedding_tokens(record) for record in records]
         self.assertNotEqual(token_sets[0], token_sets[1])
-        self.assertTrue(any("/i:1" in token for token in token_sets[0]))
+        self.assertTrue(
+            any(token.startswith(quality_gate._ORDER_MARK) for token in token_sets[0]),
+            "a list repeating an element must carry positional features",
+        )
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
             write(root / "batch.jsonl", records)
             report = quality_gate.audit_run(root)
         self.assertEqual(report["duplicates"], [])
+
+    def test_reordering_distinct_elements_is_still_not_a_duplicate(self):
+        """Distinct elements need no positional feature: the word-bigram chain
+        already orders them, which is why an insertion can leave them alone."""
+        records = [
+            {"state": {"sequence": ["alpha", "beta"]}},
+            {"state": {"sequence": ["beta", "alpha"]}},
+        ]
+        token_sets = [quality_gate.embedding_tokens(record) for record in records]
+        self.assertNotEqual(token_sets[0], token_sets[1])
+        self.assertFalse(
+            any(token.startswith(quality_gate._ORDER_MARK) for token in token_sets[0])
+        )
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            write(root / "batch.jsonl", records)
+            report = quality_gate.audit_run(root)
+        self.assertEqual(report["duplicates"], [])
+
+    def test_one_inserted_step_does_not_rewrite_every_later_step(self):
+        """Absolute ``/i:<index>`` qualification shifted every later leaf, so a
+        25-step trajectory and the same trajectory with one extra leading step
+        scored ~0.21 -- far below any usable threshold -- despite 25 identical
+        steps in identical order. Similarity must track the content that
+        actually differs."""
+
+        def trajectory(with_preamble):
+            steps = []
+            if with_preamble:
+                steps.append(
+                    {
+                        "n": 0,
+                        "decision_basis": "read the brief before touching the repo",
+                        "tool_call": "cat BRIEF.md",
+                        "observation": "the brief names the failing module",
+                    }
+                )
+            for index in range(1, 26):
+                steps.append(
+                    {
+                        "n": index,
+                        "decision_basis": f"inspect subsystem {index} for the fault",
+                        "tool_call": f"pytest tests/test_subsystem_{index}.py",
+                        "observation": f"subsystem {index} reported a clean run",
+                    }
+                )
+            return {
+                "id": f"traj-{int(with_preamble)}",
+                "goal": "find the failing subsystem and repair it",
+                "steps": steps,
+                "outcome": "the failing subsystem was repaired",
+                "reward": {"success": True},
+            }
+
+        plain, padded = trajectory(False), trajectory(True)
+        self.assertNotEqual(
+            quality_gate.record_hash(quality_gate.exact_identity_view(plain)),
+            quality_gate.record_hash(quality_gate.exact_identity_view(padded)),
+        )
+
+        shared = trajectory(False)["steps"][0]
+        for record in (plain, padded):
+            tokens = quality_gate.embedding_tokens(record)
+            self.assertTrue(
+                any("subsystem" in token for token in tokens),
+                "step content must still be encoded",
+            )
+        # The 25 shared steps must produce the same leaf features in both, so
+        # the pair is a near-duplicate at any threshold at or below its real
+        # content overlap rather than only below ~0.21.
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            write(root / "batch.jsonl", [plain, padded])
+            report = quality_gate.audit_run(root, threshold=0.90)
+
+        self.assertEqual(len(report["duplicates"]), 1)
+        self.assertIn(shared["tool_call"].split()[0], "pytest")
 
     def test_field_paths_distinguish_equal_values_under_different_keys(self):
         records = [

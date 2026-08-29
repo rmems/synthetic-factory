@@ -147,6 +147,10 @@ DEFAULT_MAX_EMBEDDING_PAIRS = 2_000_000
 audit cannot certify the corpus."""
 
 _BIGRAM_SEP = "\x00"
+_ORDER_MARK = "\x02"
+"""Prefixes a list-order feature. Order features are not words, so they are
+kept out of the word-bigram chain: letting them form bigrams with their
+neighbours made every element boundary shift when one element was inserted."""
 _PATH_SEP = "\x1f"
 _SKETCH_SEP = "\x1e"
 _GAP_SEP = "\x1d"
@@ -391,6 +395,17 @@ def record_hash(obj):
     return hashlib.sha256(blob.encode("utf-8")).hexdigest()[:16]
 
 
+def _element_digest(value):
+    """Short stable digest of one list element, for positional features.
+
+    Bounded to a handful of characters so a list contributes O(elements)
+    positional tokens against the O(words) content tokens beneath it: order
+    stays encoded without letting position dominate the similarity.
+    """
+    blob = canonical_blob(value)
+    return hashlib.sha256(blob.encode("utf-8")).hexdigest()[:8]
+
+
 def _path_child(path, key):
     """Return an unambiguous JSON-pointer-like child path."""
     escaped = str(key).replace("~", "~0").replace("/", "~1")
@@ -484,8 +499,16 @@ def _leaf_words(value, out, path="$"):
     Qualifying values by their full field path prevents equal words under
     semantically different fields from becoming identical features. Mapping
     keys are traversed in sorted order so JSON insertion order cannot change
-    cross-leaf bigrams. List positions are explicit: bigram multisets alone do
-    not distinguish all repeated-token sequences.
+    cross-leaf bigrams.
+
+    List order is carried by compact positional features rather than by
+    qualifying every leaf beneath an element with its absolute index.
+    Absolute qualification made a single inserted element rewrite the path of
+    every later leaf, so a trajectory and the same trajectory with one extra
+    leading step scored far below threshold despite identical content and
+    order. Those positional features are emitted only for lists that repeat an
+    element, which are exactly the lists whose order the word-bigram chain
+    cannot recover.
     """
     if isinstance(value, dict):
         if not value:
@@ -498,8 +521,17 @@ def _leaf_words(value, out, path="$"):
         if not value:
             out.append(f"{path}{_PATH_SEP}list-empty")
             return
-        for index, item in enumerate(value):
-            _leaf_words(item, out, f"{path}/i:{index}")
+        digests = [_element_digest(item) for item in value]
+        # Distinct elements are already ordered by the word-bigram chain, so a
+        # list of distinct elements carries no positional token at all and an
+        # insertion leaves every other element's features untouched. A list
+        # that repeats an element cannot be ordered by bigrams -- the multisets
+        # coincide -- so those lists keep a positional feature per element.
+        ambiguous = len(set(digests)) != len(digests)
+        for index, (item, digest) in enumerate(zip(value, digests)):
+            if ambiguous:
+                out.append(f"{_ORDER_MARK}{path}{_PATH_SEP}pos:{index}:{digest}")
+            _leaf_words(item, out, f"{path}/i")
         return
     elif value is None:
         out.append(f"{path}{_PATH_SEP}null")
@@ -556,8 +588,11 @@ def embedding_tokens(obj):
     words: list = []
     _leaf_words(semantic_similarity_view(obj), words)
     tokens = Counter(words)
+    # Bigrams chain the words only. Order features carry position themselves
+    # and must not also displace the word adjacencies around them.
+    chain = [word for word in words if not word.startswith(_ORDER_MARK)]
     tokens.update(
-        f"{first}{_BIGRAM_SEP}{second}" for first, second in zip(words, words[1:])
+        f"{first}{_BIGRAM_SEP}{second}" for first, second in zip(chain, chain[1:])
     )
     return tokens
 
