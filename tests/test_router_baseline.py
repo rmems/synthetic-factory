@@ -20,14 +20,23 @@ import router_baseline as rb  # noqa: E402
 FAST = {"logistic_iterations": 40, "mlp_iterations": 40, "mlp_hidden": 6}
 
 
-def separable_samples(count=120, classes=3, dim=6, noise=0.0, seed=5):
+# The shape of the toy set. No caller has ever varied these three, so they
+# are constants rather than parameters -- CodeScene counted five arguments.
+SEPARABLE_CLASSES = 3
+SEPARABLE_DIM = 6
+SEPARABLE_SEED = 5
+
+
+def separable_samples(count=120, noise=0.0):
     """A linearly separable toy set: one axis per class, plus optional noise."""
 
-    rng = random.Random(seed)
+    rng = random.Random(SEPARABLE_SEED)
     samples = []
     for index in range(count):
-        label = index % classes
-        features = [rng.gauss(0.0, noise) if noise else 0.0 for _ in range(dim)]
+        label = index % SEPARABLE_CLASSES
+        features = [
+            rng.gauss(0.0, noise) if noise else 0.0 for _ in range(SEPARABLE_DIM)
+        ]
         features[label] += 3.0
         samples.append(rb.Sample(f"sep-{index:04d}", tuple(features), label))
     return samples

@@ -491,21 +491,27 @@ class FamilyChecks(unittest.TestCase):
             any("BELOW_QUALITY_FLOOR" in error for error in errors)
         )
 
+    def _set_measured_cost(self, candidate: dict, value: float) -> None:
+        """Restate one candidate's measured cost, so it stays self-consistent."""
+
+        for item in self.record["result"]["measurements"]:
+            detail = item.get("detail") or {}
+            if (
+                detail.get("candidate") == candidate["id"]
+                and item["quantity"] == candidate["cost_quantity"]
+            ):
+                item["value"] = value
+
     def test_a_cheaper_feasible_candidate_makes_the_preference_non_minimal(self):
         preference = self.record["result"]["preference"]
         for candidate in self.record["result"]["candidates"]:
-            if candidate["id"] != preference["preferred"]:
-                candidate["safety_ok"] = True
-                candidate["task_quality"] = 1.0
-                candidate["cost_value"] = 0.0
-                for item in self.record["result"]["measurements"]:
-                    detail = item.get("detail") or {}
-                    if (
-                        detail.get("candidate") == candidate["id"]
-                        and item["quantity"] == candidate["cost_quantity"]
-                    ):
-                        item["value"] = 0.0
-                break
+            if candidate["id"] == preference["preferred"]:
+                continue
+            candidate["safety_ok"] = True
+            candidate["task_quality"] = 1.0
+            candidate["cost_value"] = 0.0
+            self._set_measured_cost(candidate, 0.0)
+            break
         errors = ep.check_family(self.record, "x")
         self.assertTrue(
             any("NOT_MINIMAL_FEASIBLE_COST" in error for error in errors)

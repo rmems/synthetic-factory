@@ -146,6 +146,49 @@ class EnergyPreferenceGaps(unittest.TestCase):
             f"an over-cap allocation passed as safe: {errors}",
         )
 
+    def _sync_measurements(self, record: dict, candidate_id: str, twin: dict) -> None:
+        """Point one candidate's oracle measurements at its own values."""
+
+        for item in record["result"]["measurements"]:
+            detail = item.get("detail")
+            if not isinstance(detail, dict) or detail.get("candidate") != candidate_id:
+                continue
+            if item["quantity"] == twin["cost_quantity"]:
+                item["value"] = twin["cost_value"]
+                item["meter"] = twin["cost_meter"]
+            elif item["quantity"] == "task_quality":
+                item["value"] = twin["task_quality"]
+
+    def _clone_onto(self, record: dict, template: dict, candidate_id: str) -> dict:
+        """Make one candidate identical to the template in all the rule reads."""
+
+        twin = next(
+            c for c in record["result"]["candidates"] if c["id"] == candidate_id
+        )
+        twin["allocation"] = list(template["allocation"])
+        twin["task_quality"] = template["task_quality"]
+        twin["safety_ok"] = True
+        twin["safety_violations"] = []
+        twin["cost_value"] = template["cost_value"]
+        twin["cost_quantity"] = template["cost_quantity"]
+        twin["cost_meter"] = template["cost_meter"]
+        self._sync_measurements(record, candidate_id, twin)
+        return twin
+
+    def _set_cost_measurement(
+        self, record: dict, candidate_id: str, quantity: str, value: float
+    ) -> None:
+        """Restate one candidate's measured cost."""
+
+        for item in record["result"]["measurements"]:
+            detail = item.get("detail")
+            if (
+                isinstance(detail, dict)
+                and detail.get("candidate") == candidate_id
+                and item["quantity"] == quantity
+            ):
+                item["value"] = value
+
     def test_an_equal_cost_tie_must_break_to_the_lower_id(self):
         record = self.record()
         candidates = record["result"]["candidates"]
@@ -158,33 +201,12 @@ class EnergyPreferenceGaps(unittest.TestCase):
             c["id"] for c in candidates if c["id"] != template["id"]
         )[:2]
         for candidate_id in (low_id, high_id):
-            twin = next(c for c in candidates if c["id"] == candidate_id)
-            twin["allocation"] = list(template["allocation"])
-            twin["task_quality"] = template["task_quality"]
-            twin["safety_ok"] = True
-            twin["safety_violations"] = []
-            twin["cost_value"] = template["cost_value"]
-            twin["cost_quantity"] = template["cost_quantity"]
-            twin["cost_meter"] = template["cost_meter"]
-            for item in record["result"]["measurements"]:
-                detail = item.get("detail")
-                if not isinstance(detail, dict) or detail.get("candidate") != candidate_id:
-                    continue
-                if item["quantity"] == twin["cost_quantity"]:
-                    item["value"] = twin["cost_value"]
-                    item["meter"] = twin["cost_meter"]
-                elif item["quantity"] == "task_quality":
-                    item["value"] = twin["task_quality"]
+            self._clone_onto(record, template, candidate_id)
         # Make the tie the cheapest pair, and name the wrong side of it.
         template["cost_value"] = float(template["cost_value"]) + 1.0
-        for item in record["result"]["measurements"]:
-            detail = item.get("detail")
-            if (
-                isinstance(detail, dict)
-                and detail.get("candidate") == template["id"]
-                and item["quantity"] == template["cost_quantity"]
-            ):
-                item["value"] = template["cost_value"]
+        self._set_cost_measurement(
+            record, template["id"], template["cost_quantity"], template["cost_value"]
+        )
         winner = next(c for c in candidates if c["id"] == high_id)
         preference["preferred"] = high_id
         preference["cost_value"] = winner["cost_value"]
