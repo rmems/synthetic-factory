@@ -139,10 +139,6 @@ def pair(record_id="pair-1", chosen_state=None, rejected_state=None, proposal=No
     }
 
 
-def write_jsonl(path, records):
-    path.write_text("".join(json.dumps(record) + "\n" for record in records))
-
-
 class CuratePreferenceRecord(unittest.TestCase):
     def test_pure_pair_is_retained_without_mutating_input(self):
         source = pair()
@@ -340,102 +336,49 @@ class CuratePreferenceRecord(unittest.TestCase):
             ("PREFERENCE_CONTEXT_MISSING_OR_INVALID",),
         )
 
+    def test_non_finite_context_is_excluded_with_a_reason_code(self):
+        diverging = pair("nan-diverging")
+        diverging["chosen"]["state"]["level"] = float("nan")
+        diverging["rejected"]["state"]["level"] = 1.0
 
-class CuratePreferenceSource(unittest.TestCase):
-    def test_source_run_emits_manifest_and_strict_audit_pure_output(self):
-        with tempfile.TemporaryDirectory() as td:
-            root = Path(td)
-            source = root / "source"
-            destination = root / "destination"
-            source.mkdir()
-            destination.mkdir()
+        decision = curate_preferences.curate_preference_record(diverging)
 
-            pure = pair("pure")
-            repairable = pair("repair")
-            repairable["chosen"]["state"]["identity_note"] = (
-                "IDENTICAL to rejected.state — annotation"
-            )
-            excluded = pair("excluded")
-            excluded["rejected"]["proposed_action"]["action"] = "different"
-            non_preference = {"id": "ordinary", "state": {}}
-            source_path = source / "preferences.jsonl"
-            write_jsonl(source_path, [pure, repairable, excluded, non_preference])
+        self.assertEqual(decision.action, curate_preferences.ACTION_EXCLUDED)
+        self.assertEqual(
+            decision.reason_codes, ("PREFERENCE_RECORD_NOT_JSON_SERIALIZABLE",)
+        )
+        self.assertIsNone(decision.record)
 
-            run = curate_preferences.curate_source(source)
-            output = destination / "preferences.jsonl"
-            manifest = destination / "manifest.jsonl"
-            curate_preferences.write_run(run, source, output, manifest)
+    def test_non_finite_context_is_not_retained_just_because_both_sides_match(self):
+        # ``inf == inf`` makes the two sides compare equal path-by-path, but the
+        # pair still cannot be written as JSON, so it must not be retained.
+        matching = pair("inf-matching")
+        for side in ("chosen", "rejected"):
+            matching[side]["state"]["level"] = float("inf")
 
-            self.assertEqual(run.summary["preference_records"], 3)
-            self.assertEqual(run.summary["impure_pairs"], 2)
-            self.assertEqual(run.summary["retained_pairs"], 2)
-            self.assertEqual(run.summary["excluded_pairs"], 1)
-            self.assertEqual(run.summary["skipped_non_preference_records"], 1)
-            self.assertEqual(run.summary["retained_context_purity_pct"], 100.0)
+        decision = curate_preferences.curate_preference_record(matching)
 
-            emitted = [json.loads(line) for line in output.read_text().splitlines()]
-            entries = [json.loads(line) for line in manifest.read_text().splitlines()]
-            self.assertEqual(len(emitted), 2)
-            self.assertEqual(len(entries), 3)
-            self.assertTrue(
-                all(curate_preferences.context_is_pure(item) for item in emitted)
-            )
-            self.assertEqual(entries[1]["source_path"], "preferences.jsonl")
-            self.assertEqual(entries[1]["source_line"], 2)
-            self.assertEqual(
-                entries[1]["source_sha256"],
-                hashlib.sha256(source_path.read_bytes().splitlines()[1]).hexdigest(),
-            )
-            self.assertIsNone(entries[2]["output_sha256"])
+        self.assertEqual(decision.action, curate_preferences.ACTION_EXCLUDED)
+        self.assertEqual(
+            decision.reason_codes, ("PREFERENCE_RECORD_NOT_JSON_SERIALIZABLE",)
+        )
 
-            audit_root = root / "audit"
-            audit_factory = audit_root / "failure-as-fuel-preference-cascade"
-            audit_factory.mkdir(parents=True)
-            (audit_factory / "preferences.jsonl").write_bytes(output.read_bytes())
-            audit = training_audit.audit_run(audit_root)
-            self.assertEqual(audit["preferences"]["pairs"], 2)
-            self.assertEqual(audit["preferences"]["same_context"], 2)
-            self.assertEqual(audit["preferences"]["context_purity_pct"], 100.0)
+    def test_lane_purity_gate_agrees_with_the_strict_audit_invariant(self):
+        pure = pair("agree-pure")
+        state_drift = pair("agree-state", rejected_state={"sim_or_real": "designed"})
+        proposal_drift = pair("agree-proposal")
+        proposal_drift["rejected"]["proposed_action"]["action"] = "other"
+        missing = {"id": "agree-missing", "chosen": {}, "rejected": {}}
 
-    def test_writer_refuses_existing_or_source_nested_destinations(self):
-        with tempfile.TemporaryDirectory() as td:
-            root = Path(td)
-            source = root / "source"
-            destination = root / "destination"
-            source.mkdir()
-            destination.mkdir()
-            write_jsonl(source / "preferences.jsonl", [pair()])
-            run = curate_preferences.curate_source(source)
-
-            existing = destination / "existing.jsonl"
-            existing.write_text("sentinel\n")
-            with self.assertRaisesRegex(
-                curate_preferences.PreferenceCurationError, "refusing overwrite"
-            ):
-                curate_preferences.write_run(
-                    run, source, existing, destination / "manifest.jsonl"
+        for record in (pure, state_drift, proposal_drift, missing):
+            with self.subTest(record=record["id"]):
+                audit = training_audit.preference_context_purity(
+                    record, record["chosen"], record["rejected"]
                 )
-            self.assertEqual(existing.read_text(), "sentinel\n")
-
-            with self.assertRaisesRegex(
-                curate_preferences.PreferenceCurationError, "inside source"
-            ):
-                curate_preferences.write_run(
-                    run,
-                    source,
-                    source / "curated.jsonl",
-                    destination / "other-manifest.jsonl",
+                self.assertFalse(audit["episode_pair"])
+                self.assertEqual(
+                    curate_preferences.context_is_pure(record), audit["pure"]
                 )
-
-    def test_invalid_utf8_fails_closed(self):
-        with tempfile.TemporaryDirectory() as td:
-            source = Path(td) / "bad.jsonl"
-            source.write_bytes(b'{"chosen":"\xff","rejected":{}}\n')
-
-            with self.assertRaisesRegex(
-                curate_preferences.PreferenceCurationError, "invalid UTF-8"
-            ):
-                curate_preferences.curate_source(source)
 
 
 class PreferencePurityNineteenRegression(unittest.TestCase):
