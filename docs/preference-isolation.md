@@ -112,6 +112,15 @@ failures of the same class.
 - Session B does not open any `rejected-rNN*.json` file.
 - Final `batch-rNN.jsonl` has exactly 3 lines, each with `chosen` + `rejected` + non-empty `critique`.
 - Every record attests `meta.isolation: "two-session"`.
+- Publication binds each ordered Session A artifact to the pair published
+  beside it: `diagnosis-0i-rNN.md`'s Shared-context block must be the
+  published pair's own `state` and `proposed_action`, and `rejected-0i-rNN.json`
+  must be the published `rejected` arm, allowing only the launcher's
+  `meta.isolation` / `meta.round` / `meta.factory` assembly stamps. Validating
+  each diagnosis alone left both halves unbound: a batch could publish records
+  no authorized diagnosis described, and Session B could emit a `rejected` arm
+  of its own beside Session A's unrelated failures, which is the two-session
+  separation defeating itself.
 - The same-context purity gate passes (Section 3).
 - The independent-arm gate passes (Section 3.6).
 - `NOTES-rNN.md` names residual weaknesses and the next densification target.

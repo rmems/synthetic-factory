@@ -38,6 +38,9 @@ class PreferenceHandoffExpectation:
     expected_records: int
     reservation_token: str
     expected_staging_dir: Path
+    #: The captured batch, so the ordered diagnoses and rejected scratch
+    #: artifacts can be bound to the pairs actually being published.
+    batch: Path | None = None
 
 
 @dataclass(frozen=True)
@@ -357,6 +360,7 @@ def validate_preference_diagnosis_handoff(
                 staging_dir=expectation.expected_staging_dir,
                 reservation_token=expectation.reservation_token,
                 expected_count=expectation.expected_records,
+                batch=expectation.batch,
             ),
         )
     except (OSError, PreferenceArmsError, ValueError) as exc:

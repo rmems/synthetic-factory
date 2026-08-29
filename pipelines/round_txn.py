@@ -2389,6 +2389,7 @@ def validate_stage(
                     expected_records=expected,
                     reservation_token=reservation_token,
                     expected_staging_dir=stage,
+                    batch=batch,
                 ),
             )
         # Frontier gate: run over the captured copy so the verdict describes the

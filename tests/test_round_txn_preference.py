@@ -14,8 +14,11 @@ from pathlib import Path
 from unittest import mock
 
 from round_txn_preference_support import (  # noqa: E402
+    PreferenceRoundHarness,
     diagnosis_document,
     ffpc_record,
+    rejected_scratch,
+    shared_context,
     thalamic_factory,
     write_records,
 )
@@ -24,117 +27,7 @@ import round_txn_preference  # noqa: E402
 import preference_arms  # noqa: E402
 
 
-class PreferencePublicationGate(unittest.TestCase):
-    def factory(self, root):
-        path = (
-            Path(root) / "outputs" / "raw" / "2099-01-01" / round_txn.PREFERENCE_ISOLATION_FACTORY
-        )
-        path.mkdir(parents=True)
-        return path
-
-    def reserve(self, factory, round_number=1):
-        return round_txn.reserve(
-            factory,
-            round_number,
-            round_txn.FACTORY_QUOTAS[round_txn.PREFERENCE_ISOLATION_FACTORY],
-            round_txn.PREFERENCE_TWO_SESSION,
-        )
-
-    def fill_stage(self, reservation, record, *, include_handoff=True):
-        stage = Path(reservation["staging_dir"])
-        round_number = reservation["round"]
-        records = [
-            record,
-            ffpc_record(round_number=round_number, index=1),
-            ffpc_record(round_number=round_number, index=2),
-        ]
-        if include_handoff:
-            names = preference_arms.diagnosis_filenames(round_number, len(records))
-            for index, name in enumerate(names, 1):
-                (stage / name).write_text(
-                    diagnosis_document(index),
-                    encoding="utf-8",
-                )
-            preference_arms.write_diagnosis_handoff_receipt(stage, names)
-        write_records(stage / reservation["batch_file"], records)
-        (stage / reservation["notes_file"]).write_text(
-            "# Critique\n\nIndependent arms were checked before publication.\n"
-            "\nNovel coverage: 42%\n"
-        )
-        return stage
-
-    def write_v1_completion(self, factory, round_number=1, *, version=1):
-        batch = factory / f"batch-r{round_number:02d}.jsonl"
-        notes = factory / f"NOTES-r{round_number:02d}.md"
-        write_records(batch, [ffpc_record(round_number=round_number)])
-        notes.write_text("# Critique\n\nHistorical pre-v2 preference evidence.\n")
-        marker = factory / f"ROUND-r{round_number:02d}.complete.json"
-        marker.write_text(
-            json.dumps(
-                {
-                    "version": version,
-                    "factory": factory.name,
-                    "round": round_number,
-                    "records": 1,
-                    "expected_records": 1,
-                    "commit_point": marker.name,
-                    "files": [
-                        {
-                            "name": batch.name,
-                            "sha256": round_txn.file_sha256(batch),
-                        },
-                        {
-                            "name": notes.name,
-                            "sha256": round_txn.file_sha256(notes),
-                        },
-                    ],
-                }
-            )
-            + "\n"
-        )
-        return marker
-
-    def stage_with_marker(self, factory, *, set_fields=None, drop_fields=()):
-        """Reserve, rewrite the reservation marker, and stage a valid pair."""
-        reservation = self.reserve(factory)
-        marker = factory / "ROUND-r01.reserved.json"
-        payload = json.loads(marker.read_text())
-        for field in drop_fields:
-            payload.pop(field)
-        payload.update(set_fields or {})
-        marker.write_text(json.dumps(payload) + "\n")
-        self.fill_stage(reservation, ffpc_record())
-        return reservation
-
-    def staged_round_paths(self, factory):
-        """Stage a valid pair; return its reservation, stage, and marker paths."""
-        reservation = self.reserve(factory)
-        stage = self.fill_stage(reservation, ffpc_record())
-        return (
-            reservation,
-            stage,
-            factory / "ROUND-r01.publishing.json",
-            factory / "ROUND-r01.complete.json",
-        )
-
-    def assert_reserve_refused(self, factory, pattern):
-        """Reserving a two-session preference round fails with ``pattern``."""
-        with self.assertRaisesRegex(round_txn.TransactionError, pattern):
-            round_txn.reserve(factory, 1, 1, round_txn.PREFERENCE_TWO_SESSION)
-
-    def assert_publish_refused(self, factory, reservation, pattern):
-        """Publication fails with ``pattern`` and commits no completion marker."""
-        with self.assertRaisesRegex(round_txn.TransactionError, pattern):
-            round_txn.publish(factory, 1, reservation["token"])
-        self.assertFalse((factory / "ROUND-r01.complete.json").exists())
-
-    def assert_recovery_state_preserved(self, factory, stage, publishing, complete):
-        """A refused publish leaves the round retryable, not half-committed."""
-        self.assertTrue(stage.is_dir())
-        self.assertTrue((factory / "ROUND-r01.reserved.json").is_file())
-        self.assertTrue(publishing.is_file())
-        self.assertFalse(complete.exists())
-
+class PreferencePublicationGate(PreferenceRoundHarness):
     def test_ffpc_reservation_requires_the_publisher_isolation_marker(self):
         with tempfile.TemporaryDirectory() as td:
             factory = self.factory(td)
@@ -405,119 +298,46 @@ class PreferencePublicationGate(unittest.TestCase):
             )
             self.assertEqual(round_txn.frontier_status(factory)["next_round"], 2)
 
-    def test_historical_v1_completion_marker_remains_visible(self):
+    def test_published_rejected_arm_must_be_session_as_scratch_failure(self):
+        # Session B assembles the batch by injecting each rejected scratch
+        # file. Nothing checked that it did, so both arms could be synthesized
+        # together in one session and published beside unrelated Session A
+        # failures.
         with tempfile.TemporaryDirectory() as td:
             factory = self.factory(td)
-            round_txn.ensure_marker_mode(factory)
-            marker = self.write_v1_completion(factory)
+            reservation = self.reserve(factory)
+            stage = self.fill_stage(reservation, ffpc_record())
+            forged = json.loads((stage / "rejected-01-r01.json").read_text())
+            forged["executed_action"]["action"] = "something-session-a-never-did"
+            (stage / "rejected-01-r01.json").write_text(json.dumps(forged))
 
-            with self.assertRaisesRegex(
-                round_txn.TransactionError,
-                "migrate-preference-v1",
-            ):
-                round_txn.frontier_status(factory)
-
-            migration = round_txn.migrate_preference_v1_markers(factory)
-            marker_digest = round_txn.file_sha256(marker)
-            ledger = factory / round_txn.PREFERENCE_V1_LEDGER_FILE
-
-            self.assertEqual(round_txn.frontier_status(factory)["next_round"], 2)
-            self.assertEqual(ledger.stat().st_mode & 0o222, 0)
-            reservation = self.reserve(factory, round_number=2)
-
-        self.assertEqual(migration["markers"], [{"round": 1, "sha256": marker_digest}])
-        self.assertEqual(reservation["round"], 2)
-        self.assertEqual(reservation["version"], 1)
-
-    def test_migrated_lane_survives_its_first_v2_publish(self):
-        # `remember_execution_gate_cutover` rewrites .round-marker-mode.json
-        # when the first v2 round publishes. A ledger frozen against the whole
-        # file was invalidated by that write, so the lane it had just upgraded
-        # could never be read again.
-        with tempfile.TemporaryDirectory() as td:
-            factory = self.factory(td)
-            round_txn.ensure_marker_mode(factory)
-            self.write_v1_completion(factory)
-            round_txn.migrate_preference_v1_markers(factory)
-            mode_path = round_txn.marker_mode_path(factory)
-            mode_before = round_txn.file_sha256(mode_path)
-
-            reservation = self.reserve(factory, round_number=2)
-            self.fill_stage(reservation, ffpc_record(round_number=2))
-            round_txn.publish(factory, 2, reservation["token"])
-
-            self.assertNotEqual(round_txn.file_sha256(mode_path), mode_before)
-            self.assertEqual(round_txn.frontier_status(factory)["next_round"], 3)
-            self.assertEqual(self.reserve(factory, round_number=3)["round"], 3)
-
-    def test_ledger_digest_covers_the_frozen_fields_and_only_those(self):
-        # Only the publish-time cutover bookkeeping is allowed to move; the
-        # declaration that decides how historical markers are read still seals
-        # the ledger.
-        with tempfile.TemporaryDirectory() as td:
-            factory = self.factory(td)
-            round_txn.ensure_marker_mode(factory)
-            self.write_v1_completion(factory)
-            round_txn.migrate_preference_v1_markers(factory)
-            mode_path = round_txn.marker_mode_path(factory)
-            frozen = round_txn_preference._ledger_marker_mode_digest(mode_path)
-
-            mode = json.loads(mode_path.read_text())
-            mode[round_txn.EXECUTION_CUTOVER_KEY] = 7
-            mode_path.write_text(json.dumps(mode))
-            self.assertEqual(
-                round_txn_preference._ledger_marker_mode_digest(mode_path), frozen
+            self.assert_publish_refused(
+                factory, reservation, "does not match Session A"
             )
 
-            mode["commit_point"] = "SOMETHING-ELSE-rNN.complete.json"
-            mode_path.write_text(json.dumps(mode))
-            self.assertNotEqual(
-                round_txn_preference._ledger_marker_mode_digest(mode_path), frozen
-            )
-
-    def test_v1_migration_ledger_does_not_expand_to_later_markers(self):
+    def test_publication_requires_every_rejected_scratch_artifact(self):
         with tempfile.TemporaryDirectory() as td:
             factory = self.factory(td)
-            round_txn.ensure_marker_mode(factory)
-            self.write_v1_completion(factory, round_number=1)
-            migration = round_txn.migrate_preference_v1_markers(factory)
-            self.write_v1_completion(factory, round_number=2)
+            reservation = self.reserve(factory)
+            stage = self.fill_stage(reservation, ffpc_record())
+            (stage / "rejected-02-r01.json").unlink()
 
-            with self.assertRaisesRegex(
-                round_txn.TransactionError,
-                "not in the frozen migration ledger",
-            ):
-                round_txn.frontier_status(factory)
+            self.assert_publish_refused(factory, reservation, "rejected scratch artifact")
 
-        self.assertEqual([entry["round"] for entry in migration["markers"]], [1])
-
-    def test_v1_migration_ledger_must_remain_read_only(self):
+    def test_published_pair_must_use_its_diagnosis_shared_context(self):
+        # The handoff validated each diagnosis and threw its parsed context
+        # away, so a batch could publish records that no authorized diagnosis
+        # ever described. The mismatch is written before the receipt, so this
+        # is the binding failing rather than the receipt digest.
         with tempfile.TemporaryDirectory() as td:
             factory = self.factory(td)
-            round_txn.ensure_marker_mode(factory)
-            self.write_v1_completion(factory)
-            round_txn.migrate_preference_v1_markers(factory)
-            ledger = factory / round_txn.PREFERENCE_V1_LEDGER_FILE
-            ledger.chmod(0o600)
+            reservation = self.reserve(factory)
+            record = ffpc_record()
+            unrelated = shared_context(record)
+            unrelated["state"] = {"sim_or_real": "designed", "domain": "somewhere_else"}
+            self.fill_stage(reservation, record, contexts={1: unrelated})
 
-            with self.assertRaisesRegex(
-                round_txn.TransactionError,
-                "migration ledger is writable",
-            ):
-                round_txn.frontier_status(factory)
-
-    def test_historical_completion_marker_version_must_be_an_integer(self):
-        for invalid_version in (True, 1.0):
-            with self.subTest(version=invalid_version), tempfile.TemporaryDirectory() as td:
-                factory = self.factory(td)
-                round_txn.ensure_marker_mode(factory)
-                self.write_v1_completion(factory, version=invalid_version)
-
-                with self.assertRaisesRegex(
-                    round_txn.TransactionError,
-                    "unsupported completion marker version",
-                ):
-                    round_txn.migrate_preference_v1_markers(factory)
+            self.assert_publish_refused(factory, reservation, "shared context")
 
     def test_completion_marker_cannot_forge_the_recorded_gate_result(self):
         with tempfile.TemporaryDirectory() as td:

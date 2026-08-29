@@ -15,16 +15,30 @@ _PIPELINES = Path(__file__).resolve().parent
 if str(_PIPELINES) not in sys.path:
     sys.path.insert(0, str(_PIPELINES))
 
+from curate_preferences import canonical_json  # noqa: E402
+
 from preference_arms_diagnosis import (  # noqa: E402
     HANDOFF_RECEIPT_VERSION,
     MAX_DIAGNOSIS_BYTES,
     _strict_json_object,
     diagnosis_filenames,
     diagnosis_receipt_filename,
+    rejected_scratch_filenames,
     validate_diagnosis_document,
 )
 from preference_arms_fs import _read_regular_artifact  # noqa: E402
 from preference_arms_text import PreferenceArmsError  # noqa: E402
+
+
+#: A scratch failure artifact carries a whole trajectory, including its spike
+#: stream, so it is bounded well above the prose-only diagnosis limit.
+MAX_ARM_ARTIFACT_BYTES = 4 * 1024 * 1024
+
+
+#: ``meta`` keys the launcher stamps onto an arm while assembling the batch.
+#: Everything else in Session A's scratch artifact must survive into
+#: publication byte for byte.
+_ORCHESTRATION_META_KEYS = frozenset({"factory", "isolation", "round"})
 
 
 _RECEIPT_KEYS = {
@@ -46,6 +60,11 @@ class ReceiptExpectation:
     staging_dir: Path
     reservation_token: str
     expected_count: int
+    #: The captured batch, when the caller is publishing. Supplying it binds
+    #: each ordered diagnosis and rejected scratch artifact to the pair that
+    #: is actually being published; the read-only verifier leaves it unset and
+    #: stays arm-payload-blind.
+    batch: Path | None = None
 
 
 def _diagnosis_artifact_root(artifact_dir: Path) -> Path:
@@ -178,7 +197,9 @@ def _validated_receipt_entries(
     ]
 
 
-def _reconcile_entry_bytes(root: Path, entry: tuple[str, int, str]) -> None:
+def _reconcile_entry_bytes(root: Path, entry: tuple[str, int, str]) -> dict[str, Any]:
+    """Revalidate one diagnosis against its receipt entry, returning its parse."""
+
     name, byte_count, digest = entry
     payload = _read_regular_artifact(
         root,
@@ -186,11 +207,113 @@ def _reconcile_entry_bytes(root: Path, entry: tuple[str, int, str]) -> None:
         label="diagnosis file",
         max_bytes=MAX_DIAGNOSIS_BYTES,
     )
-    validate_diagnosis_document(payload, label=f"diagnosis file {name}")
+    document = validate_diagnosis_document(payload, label=f"diagnosis file {name}")
     if len(payload) != byte_count:
         raise PreferenceArmsError(f"diagnosis file byte count does not match receipt: {name}")
     if hashlib.sha256(payload).hexdigest() != digest:
         raise PreferenceArmsError(f"diagnosis file SHA-256 does not match receipt: {name}")
+    return document
+
+
+def _batch_pairs(batch: Path, expected_count: int) -> list[dict[str, Any]]:
+    """The staged pairs, in the order the round's diagnoses are numbered."""
+
+    try:
+        lines = batch.read_bytes().splitlines()
+    except OSError as exc:
+        raise PreferenceArmsError(f"staged batch cannot be read: {batch}: {exc}") from exc
+    pairs = [
+        _strict_json_object(line, label=f"staged batch line {number}")
+        for number, line in enumerate(lines, 1)
+        if line.strip()
+    ]
+    if len(pairs) != expected_count:
+        raise PreferenceArmsError(
+            f"staged batch has {len(pairs)} pairs for {expected_count} diagnoses"
+        )
+    return pairs
+
+
+def _pair_shared_context(pair: dict[str, Any], label: str) -> dict[str, Any]:
+    """The pair's own context, in the two-key shape a diagnosis declares."""
+
+    chosen = pair.get("chosen")
+    if not isinstance(chosen, dict):
+        raise PreferenceArmsError(f"published pair for {label} has no chosen arm")
+    missing = sorted({"state", "proposed_action"} - set(chosen))
+    if missing:
+        raise PreferenceArmsError(
+            f"published pair for {label} has no " + ", ".join(missing)
+        )
+    return {"state": chosen["state"], "proposed_action": chosen["proposed_action"]}
+
+
+def _require_bound_shared_context(
+    document: dict[str, Any], pair: dict[str, Any], name: str
+) -> None:
+    """The diagnosis Session B was handed authorized this exact pair."""
+
+    if canonical_json(document["shared_context"]) != canonical_json(
+        _pair_shared_context(pair, name)
+    ):
+        raise PreferenceArmsError(
+            f"published pair does not use the shared context of {name}"
+        )
+
+
+def _without_orchestration_meta(arm: dict[str, Any]) -> dict[str, Any]:
+    """Return an arm with only the launcher's assembly stamps removed."""
+
+    meta = arm.get("meta")
+    if not isinstance(meta, dict):
+        return arm
+    kept = {key: value for key, value in meta.items() if key not in _ORCHESTRATION_META_KEYS}
+    return {**arm, "meta": kept}
+
+
+def _require_bound_rejected_arm(root: Path, name: str, pair: dict[str, Any]) -> None:
+    """The published rejected arm is Session A's failure, not a Session B forgery."""
+
+    payload = _read_regular_artifact(
+        root,
+        name,
+        label="rejected scratch artifact",
+        max_bytes=MAX_ARM_ARTIFACT_BYTES,
+    )
+    scratch = _strict_json_object(payload, label=f"rejected scratch artifact {name}")
+    published = pair.get("rejected")
+    if not isinstance(published, dict):
+        raise PreferenceArmsError(f"published pair for {name} has no rejected arm")
+    if canonical_json(_without_orchestration_meta(scratch)) != canonical_json(
+        _without_orchestration_meta(published)
+    ):
+        raise PreferenceArmsError(f"published rejected arm does not match Session A's {name}")
+
+
+def _require_bound_publication(
+    root: Path,
+    documents: list[dict[str, Any]],
+    expected_names: tuple[str, ...],
+    expectation: ReceiptExpectation,
+) -> None:
+    """Bind the ordered Session A artifacts to the pairs actually published.
+
+    Validating each diagnosis in isolation left both halves of the handoff
+    unbound: the batch could publish records no authorized diagnosis ever
+    described, and Session B could emit a rejected arm of its own instead of
+    the failure Session A recorded. Both are checked against the same ordering
+    the diagnosis filenames already define.
+    """
+
+    pairs = _batch_pairs(expectation.batch, expectation.expected_count)
+    scratch_names = rejected_scratch_filenames(
+        expectation.round_number, expectation.expected_count
+    )
+    for document, name, scratch_name, pair in zip(
+        documents, expected_names, scratch_names, pairs, strict=True
+    ):
+        _require_bound_shared_context(document, pair, name)
+        _require_bound_rejected_arm(root, scratch_name, pair)
 
 
 def validate_diagnosis_handoff_receipt(
@@ -215,6 +338,7 @@ def validate_diagnosis_handoff_receipt(
     # Every entry name is validated before any diagnosis file is opened, so a
     # forged name cannot cause a read outside the artifact root.
     entries = _validated_receipt_entries(receipt, expected_names, expectation.expected_count)
-    for entry in entries:
-        _reconcile_entry_bytes(root, entry)
+    documents = [_reconcile_entry_bytes(root, entry) for entry in entries]
+    if expectation.batch is not None:
+        _require_bound_publication(root, documents, expected_names, expectation)
     return receipt
