@@ -40,17 +40,19 @@ DTYPE_TYPES = {
 _SCAN: dict = {}
 
 
+def _read_shard(shard):
+    """Every non-blank record in one shard, tagged with the shard name."""
+    with shard.open(encoding="utf-8") as handle:
+        return [(shard.name, json.loads(line)) for line in handle if line.strip()]
+
+
 def _scan_mirror():
     """Read every published shard once and memoize it for the whole module."""
-    if "scan" not in _SCAN:
-        shards = sorted(CASCADING_MIRROR.glob("batch-*.jsonl"))
-        records = []
-        for shard in shards:
-            with shard.open(encoding="utf-8") as handle:
-                for line in handle:
-                    if line.strip():
-                        records.append((shard.name, json.loads(line)))
-        _SCAN["scan"] = (shards, records)
+    if "scan" in _SCAN:
+        return _SCAN["scan"]
+    shards = sorted(CASCADING_MIRROR.glob("batch-*.jsonl"))
+    records = [row for shard in shards for row in _read_shard(shard)]
+    _SCAN["scan"] = (shards, records)
     return _SCAN["scan"]
 
 
@@ -242,31 +244,34 @@ class CascadingErrorRecoveryDeclarationTests(unittest.TestCase):
         cast fails and the viewer index is never built.
         """
         if "struct" in feature:
-            self.assertIsInstance(value, dict, where)
-            children = {child["name"]: child for child in feature["struct"]}
-            self.assertEqual(set(value) - set(children), set(), where)
-            for name, child in children.items():
-                if name in value:
-                    self._assert_conforms(value[name], child, f"{where}.{name}")
-                else:
-                    self.assertTrue(child.get("optional"), f"{where}.{name} missing")
-            return
-        if "list" in feature:
-            self.assertIsInstance(value, list, where)
-            children = {child["name"]: child for child in feature["list"]}
-            for index, element in enumerate(value):
-                self.assertIsInstance(element, dict, f"{where}[{index}]")
-                self.assertEqual(set(element) - set(children), set(), f"{where}[{index}]")
-                for name, child in children.items():
-                    if name in element:
-                        self._assert_conforms(
-                            element[name], child, f"{where}[{index}].{name}"
-                        )
-                    else:
-                        self.assertTrue(
-                            child.get("optional"), f"{where}[{index}].{name} missing"
-                        )
-            return
+            self._assert_struct(value, feature["struct"], where)
+        elif "list" in feature:
+            self._assert_list(value, feature["list"], where)
+        else:
+            self._assert_scalar(value, feature, where)
+
+    def _assert_children(self, mapping, children, where):
+        """Each declared key is present and conforming, or declared optional."""
+        self.assertEqual(set(mapping) - set(children), set(), where)
+        for name, child in children.items():
+            if name in mapping:
+                self._assert_conforms(mapping[name], child, f"{where}.{name}")
+            else:
+                self.assertTrue(child.get("optional"), f"{where}.{name} missing")
+
+    def _assert_struct(self, value, struct, where):
+        self.assertIsInstance(value, dict, where)
+        self._assert_children(value, {c["name"]: c for c in struct}, where)
+
+    def _assert_list(self, value, item_features, where):
+        self.assertIsInstance(value, list, where)
+        children = {child["name"]: child for child in item_features}
+        for index, element in enumerate(value):
+            at = f"{where}[{index}]"
+            self.assertIsInstance(element, dict, at)
+            self._assert_children(element, children, at)
+
+    def _assert_scalar(self, value, feature, where):
         allowed = DTYPE_TYPES[feature["dtype"]]
         self.assertIsInstance(value, allowed, f"{where} is {type(value).__name__}")
         # `bool` is a subclass of `int`; an int64 column must not accept one.
