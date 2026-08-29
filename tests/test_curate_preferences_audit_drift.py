@@ -9,9 +9,11 @@ asserts that the check reports it.
 
 import copy
 import json
+import tempfile
 import unittest
+from pathlib import Path
 
-from preference_test_support import PURITY_FIXTURES  # noqa: E402
+from preference_test_support import PURITY_FIXTURES, run_cli  # noqa: E402
 import curate_preferences  # noqa: E402
 
 
@@ -216,6 +218,55 @@ class JsonTypesAreComparedNotJustValues(AuditDriftCase):
         )
 
         self.assert_reports(differences, "state_divergent_pairs")
+
+
+class DuplicateJsonMembersAreRejected(unittest.TestCase):
+    """``json.loads`` keeps the last of a repeated member; the audit must not."""
+
+    def expect_file(self, directory, mutate):
+        """A published audit of the fixtures, with ``mutate`` applied to its text."""
+
+        audit = curate_preferences.build_audit(
+            curate_preferences.curate_source(PURITY_FIXTURES)
+        )
+        text = json.dumps(audit, indent=2, sort_keys=True, ensure_ascii=False)
+        path = Path(directory) / "expected.json"
+        path.write_text(mutate(text), encoding="utf-8")
+        return path
+
+    def run_expect(self, path):
+        return run_cli("audit", str(PURITY_FIXTURES), "--expect", str(path))
+
+    def test_an_unmodified_published_audit_still_verifies(self):
+        with tempfile.TemporaryDirectory() as td:
+            status, _, stderr = self.run_expect(self.expect_file(td, lambda text: text))
+
+        self.assertEqual(status, 0, stderr)
+
+    def test_a_repeated_member_shadowing_a_forged_value_is_rejected(self):
+        # The forged value is overwritten by the real one during parsing, so
+        # the comparison itself can never see it.
+        with tempfile.TemporaryDirectory() as td:
+            path = self.expect_file(
+                td, lambda text: text.replace("{", '{\n  "audit": "forged",', 1)
+            )
+            status, _, stderr = self.run_expect(path)
+
+        self.assertEqual(status, 1, "a duplicated member reconciled cleanly")
+        self.assertIn("duplicate", stderr.lower())
+
+    def test_a_repeated_member_nested_in_a_pair_row_is_rejected(self):
+        with tempfile.TemporaryDirectory() as td:
+            path = self.expect_file(
+                td,
+                lambda text: text.replace(
+                    '"action":', '"record_id": "forged",\n        "action":', 1
+                ),
+            )
+            status, _, stderr = self.run_expect(path)
+
+        self.assertEqual(status, 1, "a duplicated nested member reconciled cleanly")
+        self.assertIn("duplicate", stderr.lower())
 
 
 class RealAuditsStillVerify(AuditDriftCase):

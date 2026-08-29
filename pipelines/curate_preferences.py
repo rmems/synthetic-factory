@@ -68,6 +68,7 @@ from preference_audit_diff import (  # noqa: E402
     AUDIT_PAIR_FIELDS,
     AUDIT_SOURCE_FILE_FIELDS,
     audit_differences,
+    parse_expected_audit,
 )
 from preference_model import (  # noqa: E402
     ACTION_EXCLUDED,
@@ -127,6 +128,7 @@ __all__ = [
     "audit_differences",
     "build_audit",
     "canonical_json",
+    "parse_expected_audit",
     "context_field_agreement",
     "context_is_pure",
     "curate_preference_record",
@@ -593,9 +595,13 @@ def _report_audit_drift(expect: Path, audit: dict[str, Any]) -> int:
     """Fail closed when this scan has drifted from a published audit."""
 
     try:
-        expected = json.loads(expect.read_text(encoding="utf-8"))
+        expected = parse_expected_audit(expect.read_text(encoding="utf-8"))
     except json.JSONDecodeError as exc:
         raise PreferenceCurationError(f"{expect}: invalid JSON: {exc}") from exc
+    except ValueError as exc:
+        # JSONDecodeError is itself a ValueError, so this only sees the
+        # repeated-member refusal above.
+        raise PreferenceCurationError(f"{expect}: {exc}") from exc
     differences = audit_differences(expected, audit)
     if not differences:
         return 0

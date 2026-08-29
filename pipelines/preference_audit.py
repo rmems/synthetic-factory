@@ -146,17 +146,39 @@ def _markdown_cell_text(value: Any) -> str:
     return text.replace("\\", "\\\\").replace("|", "\\|")
 
 
+def _code_span_pad(text: str) -> str:
+    """The padding a code span needs to hand ``text`` back unchanged.
+
+    A reader strips one leading and one trailing space from a span that has
+    both and is not made entirely of spaces. So a value bordered by a
+    backtick needs a pad to keep the backtick inside the span, and a value
+    bordered by a space needs one too -- without it the reader trims the
+    value itself and shows " x " as "x". An all-space value needs none,
+    because nothing is stripped from it.
+    """
+
+    if not text.strip(" "):
+        return ""
+    if text[0] in "` " or text[-1] in "` ":
+        return " "
+    return ""
+
+
 def _markdown_code_cell(value: Any) -> str:
     """Wrap a source-controlled value in a code span it cannot break out of."""
 
     text = _markdown_cell_text(value)
+    if not text:
+        # CommonMark cannot express an empty code span at all -- a bare ``
+        # is an unmatched backtick run, not an empty one -- so the empty
+        # value is stated instead of fenced. Every other value is fenced, so
+        # this marker cannot be confused with one.
+        return "_(empty)_"
     # CommonMark closes a code span at the first backtick run matching the
-    # opening one, so the fence must be longer than the longest run inside,
-    # and a value that starts or ends with a backtick needs the pad space
-    # that the reader strips back off.
+    # opening one, so the fence must be longer than the longest run inside.
     longest = max((len(run) for run in re.findall("`+", text)), default=0)
     fence = "`" * (longest + 1)
-    pad = " " if text.startswith("`") or text.endswith("`") else ""
+    pad = _code_span_pad(text)
     return f"{fence}{pad}{text}{pad}{fence}"
 
 

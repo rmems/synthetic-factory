@@ -16,6 +16,7 @@ silently overwriting its twin, so both inventories report a repeated key.
 
 from __future__ import annotations
 
+import json
 import sys
 from pathlib import Path
 from typing import Any
@@ -31,6 +32,7 @@ __all__ = [
     "AUDIT_PAIR_FIELDS",
     "AUDIT_SOURCE_FILE_FIELDS",
     "audit_differences",
+    "parse_expected_audit",
     "source_files_by_path",
 ]
 
@@ -53,6 +55,30 @@ _JSON_TYPE_NAMES = (
     (list, "array"),
     (dict, "object"),
 )
+
+
+def _reject_duplicate_members(members: list[tuple[str, Any]]) -> dict[str, Any]:
+    """Refuse a JSON object that names the same member twice.
+
+    ``json.loads`` keeps the last value for a repeated member, so a forged
+    one placed before the real one is parsed away before any comparison can
+    see it -- a bypass that sits underneath every check in this module,
+    including the duplicate-location checks, because it happens while the
+    document is still being read.
+    """
+
+    parsed: dict[str, Any] = {}
+    for key, value in members:
+        if key in parsed:
+            raise ValueError(f"duplicate object member: {key!r}")
+        parsed[key] = value
+    return parsed
+
+
+def parse_expected_audit(text: str) -> Any:
+    """Parse a published audit document, fail-closed on repeated members."""
+
+    return json.loads(text, object_pairs_hook=_reject_duplicate_members)
 
 
 def _json_type_name(value: Any) -> str:
