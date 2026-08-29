@@ -3,7 +3,7 @@
 
 import re
 
-import test_card_schema as _shared
+import test_card_schema_integration as _shared
 
 unittest = _shared.unittest
 io = _shared.io
@@ -74,6 +74,60 @@ def _safety_record(case_type: str, index: int) -> dict:
             "round": 7,
         },
     }
+
+
+_needs_mirror = unittest.skipUnless(
+    SAFETY_CALIBRATION_MIRROR.is_dir(),
+    "read-only published mirror is not available",
+)
+
+_ANNOTATION_EXTRAS = ("redirect", "vector", "benign_twin")
+
+
+def _feature_index(features):
+    """Split a feature list into a name lookup and the set of optional names."""
+    names = {feature["name"]: feature for feature in features}
+    return names, {n for n, f in names.items() if f.get("optional")}
+
+
+def _iter_steps(records):
+    """Yield every (shard, step) pair, flattening the record/step nesting."""
+    for shard, record in records:
+        for step in record["steps"]:
+            yield shard, step
+
+
+def _tally(values):
+    """Count occurrences of each value in an iterable."""
+    seen: dict = {}
+    for value in values:
+        seen[value] = seen.get(value, 0) + 1
+    return seen
+
+
+def _disclosure_text(declaration):
+    """The disclosure prose, flattened across string and structured entries."""
+    return " ".join(
+        item if isinstance(item, str) else item["summary"]
+        for item in declaration["disclosures"]
+    )
+
+
+def _reward_keysets(records):
+    """Distinct `reward` keysets with counts, and per-key record counts."""
+    keysets = _tally(frozenset(record["reward"]) for _shard, record in records)
+    reward_keys: dict = {}
+    for _shard, record in records:
+        for key in record["reward"]:
+            reward_keys[key] = reward_keys.get(key, 0) + 1
+    return keysets, reward_keys
+
+
+def _case_type_spread(records, field):
+    """How the records carrying `field` spread across `case_type`."""
+    return _tally(
+        record["case_type"] for _shard, record in records if field in record
+    )
 
 
 class SafetyCalibrationDeclarationTests(unittest.TestCase):
@@ -241,69 +295,90 @@ class SafetyCalibrationDeclarationTests(unittest.TestCase):
                     else:
                         self.assertTrue(offending)
 
-    @unittest.skipUnless(
-        SAFETY_CALIBRATION_MIRROR.is_dir(),
-        "read-only published mirror is not available",
-    )
-    def test_declaration_matches_the_published_mirror(self):
-        """Re-derive the declaration's counts from the payload, not from itself."""
+    # -- Re-derived from the payload, not from the declaration -------------
+    #
+    # The tests above compare the declaration against expectations typed
+    # beside it. The tests below re-derive the declaration's counts from the
+    # published payload instead, so they fail when the two drift apart.
+
+    @_needs_mirror
+    def test_published_shard_and_record_counts_match_the_declaration(self):
         shards, records = _scan_mirror()
         self.assertEqual(len(shards), 5354)
         self.assertEqual(len(records), 16062)
-        total = len(records)
-        names = {feature["name"]: feature for feature in self.declaration["features"]}
-        optional = {n for n, f in names.items() if f.get("optional")}
+
+    @_needs_mirror
+    def test_every_record_carries_exactly_the_declared_top_level_fields(self):
+        _shards, records = _scan_mirror()
+        names, optional = _feature_index(self.declaration["features"])
         for shard, record in records:
             self.assertEqual(set(record) - set(names), set(), shard)
             self.assertEqual(set(names) - set(record) - optional, set(), shard)
 
-        # The batch contract, observed rather than assumed.
-        per_shard: dict = {}
-        for shard, _record in records:
-            per_shard[shard] = per_shard.get(shard, 0) + 1
-        self.assertEqual(set(per_shard.values()), {round_txn.FACTORY_QUOTAS[SAFETY_FACTORY]})
-        by_case: dict = {}
-        for _shard, record in records:
-            by_case.setdefault(record["case_type"], []).append(record)
-        self.assertEqual({k: len(v) for k, v in by_case.items()}, {k: len(shards) for k in by_case})
+    @_needs_mirror
+    def test_the_batch_contract_holds_per_shard_and_per_case_type(self):
+        """The batch contract, observed rather than assumed."""
+        shards, records = _scan_mirror()
+        names, _optional = _feature_index(self.declaration["features"])
+        per_shard = _tally(shard for shard, _record in records)
+        self.assertEqual(
+            set(per_shard.values()), {round_txn.FACTORY_QUOTAS[SAFETY_FACTORY]}
+        )
+        by_case = _tally(record["case_type"] for _shard, record in records)
+        self.assertEqual(by_case, {k: len(shards) for k in by_case})
         self.assertEqual(len(by_case), 3)
         self.assertIn(f"{len(shards)} records each", names["case_type"]["note"])
         self.assertIn(" / ".join([str(len(shards))] * 3), self.card)
 
-        decisions: dict = {}
-        for _shard, record in records:
-            decisions[record["decision"]] = decisions.get(record["decision"], 0) + 1
+    @_needs_mirror
+    def test_the_decision_note_lists_every_published_decision_count(self):
+        _shards, records = _scan_mirror()
+        names, _optional = _feature_index(self.declaration["features"])
+        decisions = _tally(record["decision"] for _shard, record in records)
         for decision, count in decisions.items():
             with self.subTest(decision=decision):
                 self.assertIn(f"`{decision}` ({count})", names["decision"]["note"])
 
-        # --- `reward`: the three keysets and the key the cast died on. ---
-        keysets: dict = {}
-        reward_keys: dict = {}
-        for _shard, record in records:
-            keysets[frozenset(record["reward"])] = keysets.get(frozenset(record["reward"]), 0) + 1
-            for key in record["reward"]:
-                reward_keys[key] = reward_keys.get(key, 0) + 1
+    @_needs_mirror
+    def test_the_three_reward_keysets_match_the_note_and_disclosures(self):
+        """`reward`: the three keysets and the key the cast died on."""
+        _shards, records = _scan_mirror()
+        names, _optional = _feature_index(self.declaration["features"])
+        total = len(records)
+        keysets, reward_keys = _reward_keysets(records)
+        disclosures = _disclosure_text(self.declaration)
         self.assertEqual(len(keysets), 3)
         self.assertEqual(reward_keys["success"], total)
         reward_note = names["reward"]["note"]
-        self.assertIn(f"`calibration` (float) on {reward_keys['calibration']}", reward_note)
+        self.assertIn(
+            f"`calibration` (float) on {reward_keys['calibration']}", reward_note
+        )
         self.assertIn(
             f"`recovered_overrefusal` (bool) on {reward_keys['recovered_overrefusal']}",
             reward_note,
         )
-        recovered = [r for _s, r in records if "recovered_overrefusal" in r["reward"]]
-        self.assertEqual({r["case_type"] for r in recovered}, {"incorrect_refusal"})
-        true_count = sum(1 for r in recovered if r["reward"]["recovered_overrefusal"])
-        disclosures = " ".join(
-            item if isinstance(item, str) else item["summary"]
-            for item in self.declaration["disclosures"]
-        )
-        self.assertIn(f"({true_count} true, {len(recovered) - true_count} false)", disclosures)
         for keyset, count in keysets.items():
             with self.subTest(reward_keys=sorted(keyset)):
                 self.assertIn(f"{count} ", disclosures)
-        # The 771 `{success}`-only records are the same 771 without sim_or_real.
+
+    @_needs_mirror
+    def test_recovered_overrefusal_is_scoped_to_incorrect_refusals(self):
+        _shards, records = _scan_mirror()
+        disclosures = _disclosure_text(self.declaration)
+        recovered = [r for _s, r in records if "recovered_overrefusal" in r["reward"]]
+        self.assertEqual({r["case_type"] for r in recovered}, {"incorrect_refusal"})
+        true_count = sum(1 for r in recovered if r["reward"]["recovered_overrefusal"])
+        self.assertIn(
+            f"({true_count} true, {len(recovered) - true_count} false)", disclosures
+        )
+
+    @_needs_mirror
+    def test_success_only_records_are_exactly_those_without_sim_or_real(self):
+        """The 771 `{success}`-only records are the same 771 without sim_or_real."""
+        _shards, records = _scan_mirror()
+        names, _optional = _feature_index(self.declaration["features"])
+        total = len(records)
+        disclosures = _disclosure_text(self.declaration)
         success_only = {r["id"] for _s, r in records if set(r["reward"]) == {"success"}}
         no_sim = {r["id"] for _s, r in records if "sim_or_real" not in r["meta"]}
         self.assertEqual(success_only, no_sim)
@@ -312,7 +387,11 @@ class SafetyCalibrationDeclarationTests(unittest.TestCase):
             f"`sim_or_real` on {total - len(no_sim)} of {total}", names["meta"]["note"]
         )
 
-        # --- The four optional annotations. ---
+    @_needs_mirror
+    def test_each_optional_annotation_matches_its_declared_note(self):
+        _shards, records = _scan_mirror()
+        names, _optional = _feature_index(self.declaration["features"])
+        total = len(records)
         for field in ("trigger", "redirect", "vector", "benign_twin"):
             present = [r for _s, r in records if field in r]
             with self.subTest(field=field):
@@ -324,27 +403,41 @@ class SafetyCalibrationDeclarationTests(unittest.TestCase):
             f"{len({r['trigger'] for _s, r in records if 'trigger' in r})} distinct values",
             names["trigger"]["note"],
         )
-        extras = ("redirect", "vector", "benign_twin")
+
+    @_needs_mirror
+    def test_the_annotation_extras_are_exclusive_and_spread_as_declared(self):
+        _shards, records = _scan_mirror()
         self.assertEqual(
-            [], [r["id"] for _s, r in records if sum(f in r for f in extras) > 1]
+            [],
+            [
+                r["id"]
+                for _s, r in records
+                if sum(f in r for f in _ANNOTATION_EXTRAS) > 1
+            ],
         )
         for field, expected in (
-            ("redirect", {"correct_refusal": 5347, "incorrect_refusal": 257, "missed_refusal": 257}),
+            (
+                "redirect",
+                {
+                    "correct_refusal": 5347,
+                    "incorrect_refusal": 257,
+                    "missed_refusal": 257,
+                },
+            ),
             ("vector", {"missed_refusal": 5091, "correct_refusal": 1}),
             ("benign_twin", {"incorrect_refusal": 5091}),
         ):
-            spread: dict = {}
-            for _shard, record in records:
-                if field in record:
-                    spread[record["case_type"]] = spread.get(record["case_type"], 0) + 1
             with self.subTest(field=field):
-                self.assertEqual(spread, expected)
+                self.assertEqual(_case_type_spread(records, field), expected)
 
-        # --- The 18 annotation-free records. ---
+    @_needs_mirror
+    def test_the_eighteen_annotation_free_records_are_the_disclosed_ids(self):
+        _shards, records = _scan_mirror()
         gap = [
             (shard, record)
             for shard, record in records
-            if "trigger" not in record and not any(f in record for f in extras)
+            if "trigger" not in record
+            and not any(f in record for f in _ANNOTATION_EXTRAS)
         ]
         declared_ids = {
             record_id
@@ -354,19 +447,29 @@ class SafetyCalibrationDeclarationTests(unittest.TestCase):
         }
         self.assertEqual(declared_ids, {r["id"] for _s, r in gap})
         self.assertEqual(len(gap), 18)
-        self.assertEqual(sorted({r["meta"]["round"] for _s, r in gap}), list(range(123, 129)))
+        self.assertEqual(
+            sorted({r["meta"]["round"] for _s, r in gap}), list(range(123, 129))
+        )
 
-        # --- Steps and provenance. ---
-        step_names = {feature["name"]: feature for feature in names["steps"]["list"]}
-        total_steps = bases = 0
-        for shard, record in records:
-            for step in record["steps"]:
-                total_steps += 1
-                self.assertEqual(set(step), set(step_names), shard)
-                self.assertEqual(set(step["tool_call"]), {"name", "args"})
-                bases += bool(step["decision_basis"])
-        self.assertEqual(bases, total_steps)
-        self.assertIn(f"Every one of the {total_steps} steps", disclosures)
+    @_needs_mirror
+    def test_every_step_is_fully_populated_with_a_decision_basis(self):
+        _shards, records = _scan_mirror()
+        names, _optional = _feature_index(self.declaration["features"])
+        step_names, _step_optional = _feature_index(names["steps"]["list"])
+        steps = [step for _shard, step in _iter_steps(records)]
+        for shard, step in _iter_steps(records):
+            self.assertEqual(set(step), set(step_names), shard)
+            self.assertEqual(set(step["tool_call"]), {"name", "args"})
+        bases = sum(1 for step in steps if step["decision_basis"])
+        self.assertEqual(bases, len(steps))
+        self.assertIn(
+            f"Every one of the {len(steps)} steps", _disclosure_text(self.declaration)
+        )
+
+    @_needs_mirror
+    def test_provenance_and_round_range_match_the_disclosures(self):
+        shards, records = _scan_mirror()
+        disclosures = _disclosure_text(self.declaration)
         self.assertEqual({r["meta"]["factory"] for _s, r in records}, {SAFETY_FACTORY})
         self.assertEqual({r["meta"]["generator"] for _s, r in records}, {"grok-4.6"})
         rounds = {r["meta"]["round"] for _s, r in records}
