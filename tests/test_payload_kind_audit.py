@@ -79,6 +79,21 @@ class PayloadKindClassification(unittest.TestCase):
             self.assertEqual(before, after, "the audit must never write to the corpus")
             return audit
 
+    def _assert_build_audit_rejects(self, name, content, expected_substring):
+        """Write one raw-text payload file and assert build_audit fails closed.
+
+        Shares the boilerplate across the "one malformed file -> one
+        PayloadKindAuditError substring" tests without hiding any of their
+        per-input file name, content, or expected message - each caller still
+        states its own three values explicitly.
+        """
+        with tempfile.TemporaryDirectory() as raw:
+            directory = Path(raw)
+            (directory / name).write_text(content, encoding="utf-8")
+            with self.assertRaises(payload_kind_audit.PayloadKindAuditError) as caught:
+                payload_kind_audit.build_audit(directory)
+        self.assertIn(expected_substring, str(caught.exception))
+
     def test_a_mixed_corpus_reports_both_kinds_and_where_they_live(self):
         audit = self._audit(
             {
@@ -237,37 +252,25 @@ class PayloadKindClassification(unittest.TestCase):
         self.assertEqual(audit["summary"]["records"], 1)
 
     def test_non_standard_json_constants_are_rejected(self):
-        with tempfile.TemporaryDirectory() as raw:
-            directory = Path(raw)
-            (directory / "episodes.jsonl").write_text(
-                '{"goal":"g","steps":[],"meta":{"score":NaN}}\n',
-                encoding="utf-8",
-            )
-            with self.assertRaises(payload_kind_audit.PayloadKindAuditError) as caught:
-                payload_kind_audit.build_audit(directory)
-        self.assertIn("non-standard JSON constant", str(caught.exception))
+        self._assert_build_audit_rejects(
+            "episodes.jsonl",
+            '{"goal":"g","steps":[],"meta":{"score":NaN}}\n',
+            "non-standard JSON constant",
+        )
 
     def test_numeric_literals_that_overflow_to_infinity_are_rejected(self):
-        with tempfile.TemporaryDirectory() as raw:
-            directory = Path(raw)
-            (directory / "episodes.jsonl").write_text(
-                '{"id":1e400,"goal":"g","steps":[]}\n',
-                encoding="utf-8",
-            )
-            with self.assertRaises(payload_kind_audit.PayloadKindAuditError) as caught:
-                payload_kind_audit.build_audit(directory)
-        self.assertIn("outside the finite float range", str(caught.exception))
+        self._assert_build_audit_rejects(
+            "episodes.jsonl",
+            '{"id":1e400,"goal":"g","steps":[]}\n',
+            "outside the finite float range",
+        )
 
     def test_duplicate_object_keys_are_rejected(self):
-        with tempfile.TemporaryDirectory() as raw:
-            directory = Path(raw)
-            (directory / "episodes.jsonl").write_text(
-                '{"goal":"g","steps":"bad","steps":[]}\n',
-                encoding="utf-8",
-            )
-            with self.assertRaises(payload_kind_audit.PayloadKindAuditError) as caught:
-                payload_kind_audit.build_audit(directory)
-        self.assertIn("duplicate JSON object key", str(caught.exception))
+        self._assert_build_audit_rejects(
+            "episodes.jsonl",
+            '{"goal":"g","steps":"bad","steps":[]}\n',
+            "duplicate JSON object key",
+        )
 
     def test_unicode_whitespace_only_lines_are_rejected(self):
         with tempfile.TemporaryDirectory() as raw:
@@ -451,22 +454,16 @@ class PayloadKindClassification(unittest.TestCase):
         self.assertIn("batch-r02.jsonl:1", str(caught.exception))
 
     def test_a_malformed_line_fails_loudly_instead_of_being_skipped(self):
-        with tempfile.TemporaryDirectory() as raw:
-            directory = Path(raw)
-            (directory / "batch-r02.jsonl").write_text(
-                json.dumps(_episode([_step(1)])) + "\nnot json\n", encoding="utf-8"
-            )
-            with self.assertRaises(payload_kind_audit.PayloadKindAuditError) as caught:
-                payload_kind_audit.build_audit(directory)
-        self.assertIn("batch-r02.jsonl:2", str(caught.exception))
+        self._assert_build_audit_rejects(
+            "batch-r02.jsonl",
+            json.dumps(_episode([_step(1)])) + "\nnot json\n",
+            "batch-r02.jsonl:2",
+        )
 
     def test_a_non_object_record_is_rejected(self):
-        with tempfile.TemporaryDirectory() as raw:
-            directory = Path(raw)
-            (directory / "batch-r02.jsonl").write_text("[1, 2, 3]\n", encoding="utf-8")
-            with self.assertRaises(payload_kind_audit.PayloadKindAuditError) as caught:
-                payload_kind_audit.build_audit(directory)
-        self.assertIn("must be a JSON object", str(caught.exception))
+        self._assert_build_audit_rejects(
+            "batch-r02.jsonl", "[1, 2, 3]\n", "must be a JSON object"
+        )
 
     def test_a_missing_corpus_directory_is_rejected(self):
         with self.assertRaises(payload_kind_audit.PayloadKindAuditError):
