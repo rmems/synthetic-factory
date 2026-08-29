@@ -1,0 +1,22 @@
+pipelines/round_txn.py
+  s_0d456da8ea5328::t_3de197f5c631e2 1470
+pipelines/curate_bridge.py
+  s_0d456da8ea5328::t_1caa35445982c4 834-838
+  s_0d456da8ea5328::t_aa6f18016f9336 818-822
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "b931739e3c84ba47d19197fedadadd0f03b48169",
+  "prompts": {},
+  "sessions": {
+    "s_0d456da8ea5328": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "a8d33a4c-0324-4388-9173-61055dd33627",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Raul Montoya Cardenas <montoyaraul34@gmail.com>"
+    }
+  }
+}
