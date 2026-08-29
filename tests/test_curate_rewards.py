@@ -8,41 +8,24 @@ import tempfile
 import unittest
 from pathlib import Path
 
-REPO = Path(__file__).resolve().parents[1]
-PIPELINES = REPO / "pipelines"
-SCHEMA = REPO / "schemas" / "reward-ontology-v1.schema.json"
-sys.path.insert(0, str(PIPELINES))
+_TESTS = Path(__file__).resolve().parent
+if str(_TESTS) not in sys.path:
+    sys.path.insert(0, str(_TESTS))
+
+from reward_test_helpers import (  # noqa: E402
+    MAGNITUDE,
+    PIPELINES,
+    SCHEMA,
+    all_fixture_records,
+    components,
+    preference,
+    rich,
+)
+
+if str(PIPELINES) not in sys.path:
+    sys.path.insert(0, str(PIPELINES))
 
 import curate_rewards  # noqa: E402
-
-
-def rich(value):
-    return {"value": value, "detail": "fixture evidence"}
-
-
-def components(total, *, unit_usd=None, units=None, rich_values=False):
-    values = {
-        "task_progress": 1.2,
-        "safety": -0.4,
-        "efficiency": 0.2,
-    }
-    if rich_values:
-        values = {key: rich(value) for key, value in values.items()}
-    values["total"] = total
-    if unit_usd is not None:
-        values["unit_usd"] = unit_usd
-    if units is not None:
-        values["units"] = units
-    return values
-
-
-def preference(chosen_reward, rejected_reward):
-    return {
-        "id": "pref-fixture",
-        "chosen": {"reward_components": chosen_reward},
-        "rejected": {"reward_components": rejected_reward},
-        "critique": "chosen is preferred on observable process evidence",
-    }
 
 
 class RewardOntologyV1Tests(unittest.TestCase):
@@ -132,7 +115,7 @@ class RewardOntologyV1Tests(unittest.TestCase):
         }
 
         without_evidence, _ = curate_rewards.curate_record(record)
-        with_evidence, _ = curate_rewards.curate_record(
+        with_evidence, sidecar = curate_rewards.curate_record(
             record, calibration=calibration
         )
 
@@ -143,12 +126,25 @@ class RewardOntologyV1Tests(unittest.TestCase):
         annotation = with_evidence["reward_training"]
         self.assertEqual(annotation["comparability"], "magnitude_comparable")
         self.assertIn("external_calibration_evidence", annotation["reason_codes"])
-        self.assertTrue(
-            all(
-                value["calibration_source"]
-                == "units-migration.json#/records/1"
-                for value in annotation["magnitude"]["values"]
-            )
+        by_pointer = {
+            value["json_pointer"]: value.get("calibration_source")
+            for value in annotation["magnitude"]["values"]
+        }
+        self.assertEqual(
+            by_pointer["/chosen/reward_components"],
+            "units-migration.json#/records/1",
+        )
+        self.assertEqual(
+            by_pointer["/rejected/reward_components"],
+            "source_reward_fields",
+        )
+        self.assertEqual(
+            sidecar["calibration"]["source_unit_usd"],
+            2000,
+        )
+        self.assertEqual(
+            sidecar["calibration"]["evidence_ref"],
+            "units-migration.json#/records/1",
         )
 
     def test_units_migration_loader_ignores_null_and_coarse_guess(self):
@@ -342,6 +338,33 @@ class RewardOntologyV1Tests(unittest.TestCase):
         ):
             curate_rewards.validate_ontology_document(malformed)
 
+    def test_runtime_validator_rejects_class_reason_contradictions(self):
+        units = "1 reward unit = USD 10000 risk-adjusted"
+        record = {
+            "reward_components": components(
+                1.0, unit_usd=10000, units=units
+            )
+        }
+        curated, sidecar = curate_rewards.curate_record(record)
+
+        malformed_annotation = copy.deepcopy(curated["reward_training"])
+        malformed_annotation["reason_codes"] = ["no_source_reward"]
+        with self.assertRaisesRegex(
+            curate_rewards.RewardOntologyError,
+            "does not match any declared comparability rule",
+        ):
+            curate_rewards.validate_ontology_document(malformed_annotation)
+
+        malformed_sidecar = copy.deepcopy(sidecar)
+        malformed_sidecar["classification"]["reason_codes"] = ["no_source_reward"]
+        malformed_sidecar.pop("sidecar_id")
+        malformed_sidecar["sidecar_id"] = curate_rewards._sha256(malformed_sidecar)
+        with self.assertRaisesRegex(
+            curate_rewards.RewardOntologyError,
+            "does not match any declared comparability rule",
+        ):
+            curate_rewards.validate_ontology_document(malformed_sidecar)
+
     def test_sidecar_hash_and_annotation_link_are_enforced(self):
         record = preference(
             {"task_progress": 1.0, "safety": 0.0, "total": 1.0},
@@ -363,6 +386,229 @@ class RewardOntologyV1Tests(unittest.TestCase):
         ):
             curate_rewards.restore_source_record(wrong_link, sidecar)
 
+    def test_sidecar_reason_codes_must_be_strings_after_rehash(self):
+        record = preference(
+            {"task_progress": 1.0, "safety": 0.0, "total": 1.0},
+            {"task_progress": 0.0, "safety": 0.0, "total": 0.0},
+        )
+        _curated, sidecar = curate_rewards.curate_record(record)
+        malformed = copy.deepcopy(sidecar)
+        malformed["classification"]["reason_codes"].append(1)
+        malformed.pop("sidecar_id")
+        malformed["sidecar_id"] = curate_rewards._sha256(malformed)
+
+        with self.assertRaisesRegex(
+            curate_rewards.RewardOntologyError,
+            "invalid sidecar classification",
+        ):
+            curate_rewards.validate_ontology_document(malformed)
+
+    def test_annotation_reason_codes_reject_unhashable_elements(self):
+        record = {"id": "single-cal", "reward_components": components(1.0)}
+        curated, _sidecar = curate_rewards.curate_record(record)
+        malformed = copy.deepcopy(curated["reward_training"])
+        malformed["reason_codes"] = [{}]
+        with self.assertRaisesRegex(
+            curate_rewards.RewardOntologyError,
+            "reason_codes must be nonempty and unique",
+        ):
+            curate_rewards.validate_ontology_document(malformed)
+
+    def test_stored_preference_verdict_must_match_a_preference_rule(self):
+        record = preference(
+            {
+                "task_progress": 1.0,
+                "safety": 0.0,
+                "total": 1.0,
+                "unit_usd": 10000,
+                "units": "1.0 reward unit = USD 10,000 (risk-adjusted)",
+            },
+            {
+                "task_progress": 0.0,
+                "safety": 0.0,
+                "total": 0.0,
+                "unit_usd": 10000,
+                "units": "1.0 reward unit = USD 10,000 (risk-adjusted)",
+            },
+        )
+        _curated, sidecar = curate_rewards.curate_record(record)
+        malformed = copy.deepcopy(sidecar)
+        malformed["classification"] = {
+            "comparability": "magnitude_comparable",
+            "reason_codes": [
+                "explicit_usd_unit_calibration",
+                "reward_arithmetic_verified",
+            ],
+        }
+        malformed.pop("sidecar_id")
+        malformed["sidecar_id"] = curate_rewards._sha256(malformed)
+        with self.assertRaisesRegex(
+            curate_rewards.RewardOntologyError,
+            "does not match any declared comparability rule",
+        ):
+            curate_rewards.validate_ontology_document(malformed)
+
+    def test_jsonl_loader_rejects_overflow_float_literals(self):
+        with tempfile.TemporaryDirectory() as td:
+            path = Path(td) / "overflow.jsonl"
+            path.write_text(
+                '{"reward_components":{"total":1e400}}\n', encoding="utf-8"
+            )
+            with self.assertRaisesRegex(
+                curate_rewards.RewardOntologyError,
+                "non-finite JSON number",
+            ):
+                list(curate_rewards._load_jsonl(path))
+
+    def test_sidecar_arithmetic_must_be_a_list(self):
+        record = preference(
+            {"task_progress": 1.0, "safety": 0.0, "total": 1.0},
+            {"task_progress": 0.0, "safety": 0.0, "total": 0.0},
+        )
+        _curated, sidecar = curate_rewards.curate_record(record)
+        malformed = copy.deepcopy(sidecar)
+        malformed["arithmetic"] = None
+        malformed.pop("sidecar_id")
+        malformed["sidecar_id"] = curate_rewards._sha256(malformed)
+
+        with self.assertRaisesRegex(
+            curate_rewards.RewardOntologyError, "sidecar arithmetic must be a list"
+        ):
+            curate_rewards.validate_ontology_document(malformed)
+
+    def test_sidecar_arithmetic_entries_are_fail_closed(self):
+        record = preference(
+            {"task_progress": 1.0, "safety": 0.0, "total": 1.0},
+            {"task_progress": 0.0, "safety": 0.0, "total": 0.0},
+        )
+        _curated, sidecar = curate_rewards.curate_record(record)
+        cases = (
+            (["not-an-object"], "invalid sidecar arithmetic entry"),
+            (
+                [{"status": "bogus", "method": "unweighted_component_sum"}],
+                "invalid sidecar arithmetic status",
+            ),
+            (
+                [{"status": "valid", "method": "invented"}],
+                "uncatalogued arithmetic method",
+            ),
+        )
+        for arithmetic, message in cases:
+            malformed = copy.deepcopy(sidecar)
+            malformed["arithmetic"] = arithmetic
+            malformed.pop("sidecar_id")
+            malformed["sidecar_id"] = curate_rewards._sha256(malformed)
+            with self.assertRaisesRegex(
+                curate_rewards.RewardOntologyError, message
+            ):
+                curate_rewards.validate_ontology_document(malformed)
+
+    def test_s08_emits_external_calibration_evidence(self):
+        record = {"id": "single-cal", "reward_components": components(1.0)}
+        calibration = {
+            "source_unit_usd": 2000,
+            "canonical_factor": 0.2,
+            "evidence_ref": "units-migration.json#/records/1",
+        }
+
+        without_evidence, _ = curate_rewards.curate_record(record)
+        with_evidence, sidecar = curate_rewards.curate_record(
+            record, calibration=calibration
+        )
+
+        self.assertNotIn(
+            "external_calibration_evidence",
+            without_evidence["reward_training"]["reason_codes"],
+        )
+        annotation = with_evidence["reward_training"]
+        self.assertEqual(annotation["comparability"], "magnitude_comparable")
+        self.assertIn("external_calibration_evidence", annotation["reason_codes"])
+        self.assertNotIn("explicit_usd_unit_calibration", annotation["reason_codes"])
+        self.assertEqual(
+            sidecar["calibration"]["evidence_ref"],
+            "units-migration.json#/records/1",
+        )
+
+    def test_preference_order_uses_canonical_unit_conversion(self):
+        units_small = "1.0 reward unit = USD 1,000 (risk-adjusted); deltas vs baseline"
+        units_large = "1.0 reward unit = USD 10,000 (risk-adjusted); deltas vs baseline"
+        record = preference(
+            {
+                "task_progress": 3.0,
+                "safety": 0.0,
+                "total": 3.0,
+                "unit_usd": 1000,
+                "units": units_small,
+            },
+            {
+                "task_progress": 2.0,
+                "safety": 0.0,
+                "total": 2.0,
+                "unit_usd": 10000,
+                "units": units_large,
+            },
+        )
+        curated, _sidecar = curate_rewards.curate_record(record)
+        self.assertEqual(
+            curated["reward_training"]["comparability"],
+            "exclude_from_reward_training",
+        )
+        self.assertIn(
+            "reward_order_conflicts_with_preference",
+            curated["reward_training"]["reason_codes"],
+        )
+
+    def test_external_calibration_reason_is_reserved_to_p05_and_s08(self):
+        document = copy.deepcopy(curate_rewards.CONVERSION_POLICY)
+        r00 = next(
+            rule
+            for rule in document["policy"]["comparability_rules"]
+            if rule["id"] == "R00"
+        )
+        r00["reason_codes"] = list(r00["reason_codes"]) + [
+            "external_calibration_evidence"
+        ]
+        with self.assertRaisesRegex(
+            curate_rewards.RewardOntologyError,
+            "reserved for optional codes",
+        ):
+            curate_rewards.validate_conversion_policy(document)
+
+    def test_sidecar_calibration_reason_linkage_is_fail_closed(self):
+        record = {"id": "single-cal", "reward_components": components(1.0)}
+        calibration = {
+            "source_unit_usd": 2000,
+            "canonical_factor": 0.2,
+            "evidence_ref": "units-migration.json#/records/1",
+        }
+        _curated, sidecar = curate_rewards.curate_record(
+            record, calibration=calibration
+        )
+
+        missing_reason = copy.deepcopy(sidecar)
+        missing_reason["classification"]["reason_codes"] = [
+            code
+            for code in missing_reason["classification"]["reason_codes"]
+            if code != "external_calibration_evidence"
+        ]
+        missing_reason.pop("sidecar_id", None)
+        missing_reason["sidecar_id"] = curate_rewards._sha256(missing_reason)
+        with self.assertRaisesRegex(
+            curate_rewards.RewardOntologyError,
+            "sidecar calibration requires external_calibration_evidence",
+        ):
+            curate_rewards.validate_ontology_document(missing_reason)
+
+        missing_calibration = copy.deepcopy(sidecar)
+        missing_calibration.pop("calibration")
+        missing_calibration.pop("sidecar_id", None)
+        missing_calibration["sidecar_id"] = curate_rewards._sha256(missing_calibration)
+        with self.assertRaisesRegex(
+            curate_rewards.RewardOntologyError,
+            "external_calibration_evidence requires an applied sidecar calibration",
+        ):
+            curate_rewards.validate_ontology_document(missing_calibration)
+
     def test_runtime_validator_recomputes_canonical_conversion(self):
         units = "1.0 reward unit = USD 10,000 (risk-adjusted); deltas vs baseline"
         record = preference(
@@ -381,35 +627,91 @@ class RewardOntologyV1Tests(unittest.TestCase):
         ):
             curate_rewards.validate_ontology_document(malformed)
 
-    def test_jsonl_conversion_is_no_clobber_and_uses_reversible_sidecars(self):
-        record = preference(
-            {"task_progress": 0.8, "safety": 0.2, "total": 1.0},
-            {"task_progress": -0.5, "safety": -0.5, "total": -1.0},
+class MagnitudeMixingTests(unittest.TestCase):
+    """An uncalibrated record cannot enter a magnitude-weighted set."""
+
+    def curated(self, name, line_number):
+        for candidate_name, candidate_line, record in all_fixture_records():
+            if (candidate_name, candidate_line) == (name, line_number):
+                curated, _sidecar = curate_rewards.curate_record(
+                    record, source_path=name, source_line=line_number
+                )
+                return curated
+        raise AssertionError(f"no fixture record at {name}:{line_number}")
+
+    def test_a_comparable_cohort_yields_canonical_values(self):
+        cohort = curate_rewards.magnitude_training_cohort(
+            [
+                self.curated("ffpc-preferences.jsonl", 1),
+                self.curated("ffpc-preferences.jsonl", 2),
+                self.curated("thalamic-trajectories.jsonl", 2),
+            ]
         )
-        with tempfile.TemporaryDirectory() as td:
-            root = Path(td)
-            source = root / "input.jsonl"
-            output = root / "out" / "records.jsonl"
-            sidecars = root / "out" / "reward-sidecars.jsonl"
-            source.write_text(json.dumps(record) + "\n")
-
-            summary = curate_rewards.convert_jsonl(
-                source,
-                output,
-                sidecars,
-                source_path="factory/preferences.jsonl",
-            )
-            self.assertEqual(summary["records"], 1)
-            converted = json.loads(output.read_text())
-            sidecar = json.loads(sidecars.read_text())
+        self.assertEqual(len(cohort), 3)
+        for member in cohort:
             self.assertEqual(
-                curate_rewards.restore_source_record(converted, sidecar), record
+                member["canonical_unit"], curate_rewards.CANONICAL_UNIT
             )
+            self.assertEqual(
+                member["aggregation"], curate_rewards.MAGNITUDE_AGGREGATION
+            )
+            self.assertTrue(member["values"])
+        self.assertAlmostEqual(
+            cohort[0]["values"]["/chosen/reward_components"],
+            3.11 * 2.0,
+            places=9,
+        )
+
+    def test_one_uncalibrated_member_refuses_the_whole_cohort(self):
+        comparable = self.curated("ffpc-preferences.jsonl", 1)
+        for name, line_number in (
+            ("ffpc-preferences.jsonl", 4),
+            ("thalamic-trajectories.jsonl", 1),
+        ):
+            uncalibrated = self.curated(name, line_number)
             with self.assertRaisesRegex(
-                curate_rewards.RewardOntologyError, "refusing to overwrite"
+                curate_rewards.MagnitudeNotComparable,
+                "may contain only magnitude_comparable records",
             ):
-                curate_rewards.convert_jsonl(source, output, sidecars)
+                curate_rewards.magnitude_training_cohort([comparable, uncalibrated])
+            with self.assertRaises(curate_rewards.MagnitudeNotComparable):
+                curate_rewards.canonical_magnitudes(uncalibrated)
+
+    def test_an_unannotated_record_cannot_join_a_cohort(self):
+        with self.assertRaisesRegex(
+            curate_rewards.MagnitudeNotComparable, "no usable comparability class"
+        ):
+            curate_rewards.magnitude_training_cohort([{"reward_components": {}}])
+
+    def test_duplicate_magnitude_pointers_are_rejected(self):
+        curated = self.curated("ffpc-preferences.jsonl", 1)
+        values = curated[curate_rewards.ANNOTATION_FIELD]["magnitude"]["values"]
+        values.append(copy.deepcopy(values[0]))
+
+        with self.assertRaisesRegex(
+            curate_rewards.RewardOntologyError, "duplicate magnitude json_pointer"
+        ):
+            curate_rewards.canonical_magnitudes(curated)
+        with self.assertRaisesRegex(
+            curate_rewards.RewardOntologyError, "duplicate magnitude json_pointer"
+        ):
+            curate_rewards.magnitude_training_cohort([curated])
+
+    def test_uncalibrated_annotations_never_carry_canonical_values(self):
+        for name, line_number, record in all_fixture_records():
+            curated, _sidecar = curate_rewards.curate_record(
+                record, source_path=name, source_line=line_number
+            )
+            annotation = curated[curate_rewards.ANNOTATION_FIELD]
+            if annotation["comparability"] == MAGNITUDE:
+                self.assertIn("magnitude", annotation)
+            else:
+                self.assertNotIn("magnitude", annotation)
+                json_text = json.dumps(annotation)
+                self.assertNotIn("canonical_value", json_text)
+                self.assertNotIn(curate_rewards.CANONICAL_UNIT, json_text)
 
 
-if __name__ == "__main__":
+
+if __name__ == '__main__':
     unittest.main()

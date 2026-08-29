@@ -20,6 +20,9 @@ Write a new preference JSONL and manifest (both destinations must be absent)::
 ``source`` may be one JSONL file or a directory scanned recursively. Records
 without preference-pair fields are counted and skipped; malformed preference
 candidates are explicitly excluded rather than silently dropped.
+
+Writing anywhere under ``outputs/raw/`` is refused: raw runs are immutable
+evidence, and that includes adding new files beside them.
 """
 
 from __future__ import annotations
@@ -35,9 +38,16 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+try:
+    from pipelines.raw_tree_guard import is_under_raw as _guard_is_under_raw
+except ImportError:  # python3 pipelines/curate_preferences.py
+    from raw_tree_guard import is_under_raw as _guard_is_under_raw
+
 
 TRANSFORM_NAME = "same-context-preference-curation"
 TRANSFORM_VERSION = "1.0.0"
+REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
+RAW_OUTPUT_ROOT = REPOSITORY_ROOT / "outputs" / "raw"
 
 ACTION_RETAINED = "retained"
 ACTION_REPAIRED = "repaired"
@@ -69,6 +79,25 @@ class CurationRun:
     summary: dict[str, Any]
 
 
+@dataclass
+class _ScanState:
+    records: list[dict[str, Any]]
+    manifest: list[dict[str, Any]]
+    actions: Counter[str]
+    classifications: Counter[str]
+    reasons: Counter[str]
+    skipped_non_preferences: int = 0
+    json_records_seen: int = 0
+
+
+@dataclass(frozen=True)
+class _SourceLine:
+    relative_path: str
+    number: int
+    payload: bytes
+    file_sha256: str
+
+
 def canonical_json(value: Any) -> str:
     """Return the canonical JSON representation used for context equality."""
 
@@ -85,30 +114,64 @@ def _sha256(payload: bytes) -> str:
     return hashlib.sha256(payload).hexdigest()
 
 
+def _is_under_raw(path: Path) -> bool:
+    """Whether ``path`` names or aliases the repository's raw output tree."""
+
+    return _guard_is_under_raw(path, RAW_OUTPUT_ROOT)
+
+
+def _is_canonicalizable(value: Any) -> bool:
+    """Whether ``value`` survives canonical JSON and UTF-8 encoding.
+
+    ``json.loads`` accepts the non-standard ``NaN``/``Infinity`` literals, so a
+    raw JSONL line can carry floats that cannot be re-encoded. Such a pair is
+    excluded with a reason code instead of aborting the whole corpus scan.
+    Escaped lone surrogates also pass JSON parsing but cannot be written to the
+    UTF-8 JSONL destination, so exercise the actual output encoding here too.
+    """
+
+    try:
+        canonical_json(value).encode("utf-8")
+    except (UnicodeEncodeError, ValueError, TypeError):
+        return False
+    return True
+
+
+def _dict_diff_paths(left: dict[str, Any], right: dict[str, Any], prefix: str) -> list[str]:
+    paths: list[str] = []
+    for key in sorted(set(left) | set(right)):
+        path = f"{prefix}.{key}"
+        if key not in left:
+            paths.append(path)
+            continue
+        if key not in right:
+            paths.append(path)
+            continue
+        paths.extend(_context_diff_paths(left[key], right[key], path))
+    return paths
+
+
+def _list_diff_paths(left: list[Any], right: list[Any], prefix: str) -> list[str]:
+    if len(left) != len(right):
+        return [prefix]
+    paths: list[str] = []
+    for index, (left_item, right_item) in enumerate(zip(left, right)):
+        paths.extend(_context_diff_paths(left_item, right_item, f"{prefix}[{index}]"))
+    return paths
+
+
 def _context_diff_paths(left: Any, right: Any, prefix: str) -> list[str]:
     """Return stable leaf paths whose values differ."""
 
     if type(left) is not type(right):
         return [prefix]
     if isinstance(left, dict):
-        paths: list[str] = []
-        for key in sorted(set(left) | set(right)):
-            path = f"{prefix}.{key}"
-            if key not in left or key not in right:
-                paths.append(path)
-            else:
-                paths.extend(_context_diff_paths(left[key], right[key], path))
-        return paths
+        return _dict_diff_paths(left, right, prefix)
     if isinstance(left, list):
-        if len(left) != len(right):
-            return [prefix]
-        paths = []
-        for index, (left_item, right_item) in enumerate(zip(left, right)):
-            paths.extend(
-                _context_diff_paths(left_item, right_item, f"{prefix}[{index}]")
-            )
-        return paths
-    return [] if left == right else [prefix]
+        return _list_diff_paths(left, right, prefix)
+    if left == right:
+        return []
+    return [prefix]
 
 
 def _preference_context(
@@ -295,23 +358,30 @@ def _repair_proposal_annotations(record: dict[str, Any]) -> CurationDecision | N
     )
 
 
+def _paths_with_prefix(paths: tuple[str, ...], prefix: str) -> list[str]:
+    return [path for path in paths if path.startswith(prefix)]
+
+
+def _state_exclusion_reason(state_paths: list[str]) -> str | None:
+    if not state_paths:
+        return None
+    if set(state_paths).issubset({"state.episode_id", "state.note"}):
+        return "BRANCH_SPECIFIC_STATE_METADATA_UNSAFE_TO_NORMALIZE"
+    if any(path.startswith("state.agent.gate_memory") for path in state_paths):
+        return "POLICY_MEMORY_CONTEXT_DIVERGES"
+    return "STATE_CONTEXT_DIVERGES"
+
+
 def _exclusion_reasons(context_diff_paths: tuple[str, ...]) -> tuple[str, ...]:
     reasons: list[str] = []
-    state_paths = [path for path in context_diff_paths if path.startswith("state")]
-    proposal_paths = [
-        path for path in context_diff_paths if path.startswith("proposed_action")
-    ]
-
-    if state_paths and set(state_paths).issubset({"state.episode_id", "state.note"}):
-        reasons.append("BRANCH_SPECIFIC_STATE_METADATA_UNSAFE_TO_NORMALIZE")
-    elif any(path.startswith("state.agent.gate_memory") for path in state_paths):
-        reasons.append("POLICY_MEMORY_CONTEXT_DIVERGES")
-    elif state_paths:
-        reasons.append("STATE_CONTEXT_DIVERGES")
-
-    if proposal_paths:
+    state_reason = _state_exclusion_reason(_paths_with_prefix(context_diff_paths, "state"))
+    if state_reason is not None:
+        reasons.append(state_reason)
+    if _paths_with_prefix(context_diff_paths, "proposed_action"):
         reasons.append("PROPOSED_ACTION_CONTEXT_DIVERGES")
-    return tuple(reasons or ("PREFERENCE_CONTEXT_DIVERGES",))
+    if reasons:
+        return tuple(reasons)
+    return ("PREFERENCE_CONTEXT_DIVERGES",)
 
 
 def curate_preference_record(record: dict[str, Any]) -> CurationDecision:
@@ -322,6 +392,17 @@ def curate_preference_record(record: dict[str, Any]) -> CurationDecision:
             action=ACTION_EXCLUDED,
             classification="malformed_preference_context",
             reason_codes=("PREFERENCE_RECORD_NOT_AN_OBJECT",),
+            record=None,
+            context_diff_paths=(),
+        )
+    if not _is_canonicalizable(record):
+        # Checked before the context shape so a non-finite float anywhere in
+        # the pair is reported precisely instead of surfacing as a bare
+        # ValueError from the first canonical comparison.
+        return CurationDecision(
+            action=ACTION_EXCLUDED,
+            classification="malformed_preference_context",
+            reason_codes=("PREFERENCE_RECORD_NOT_JSON_SERIALIZABLE",),
             record=None,
             context_diff_paths=(),
         )
@@ -387,120 +468,249 @@ def _relative_source_path(source: Path, path: Path) -> str:
     return path.name
 
 
+def _jsonl_payload_lines(file_payload: bytes) -> tuple[tuple[int, bytes], ...]:
+    return tuple(
+        (line_number, raw_line)
+        for line_number, raw_line in enumerate(file_payload.splitlines(), 1)
+        if raw_line.strip()
+    )
+
+
+def _load_jsonl_record(line: _SourceLine) -> Any:
+    try:
+        text = line.payload.decode("utf-8")
+    except UnicodeDecodeError as exc:
+        raise PreferenceCurationError(
+            f"{line.relative_path}:{line.number}: invalid UTF-8: {exc}"
+        ) from exc
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError as exc:
+        raise PreferenceCurationError(
+            f"{line.relative_path}:{line.number}: invalid JSON: {exc}"
+        ) from exc
+
+
+def _manifest_source_id(record: Any) -> Any:
+    # An excluded record may itself hold a non-encodable id; the source
+    # reference survives as path, line, and hash either way.
+    source_record_id = record.get("id") if isinstance(record, dict) else None
+    if _is_canonicalizable(source_record_id):
+        return source_record_id
+    return None
+
+
+def _kept_output(
+    decision: CurationDecision, location: str
+) -> tuple[dict[str, Any] | None, Any, str | None]:
+    record = decision.record
+    if record is None:
+        return None, None, None
+    if not context_is_pure(record):
+        raise PreferenceCurationError(
+            f"internal error: emitted impure pair at {location}"
+        )
+    output_hash = _sha256(canonical_json(record).encode("utf-8"))
+    return record, record.get("id"), output_hash
+
+
+def _record_preference(state: _ScanState, line: _SourceLine, record: Any) -> None:
+    decision = curate_preference_record(record)
+    state.actions[decision.action] += 1
+    state.classifications[decision.classification] += 1
+    state.reasons.update(decision.reason_codes)
+    emitted, output_id, output_hash = _kept_output(
+        decision, f"{line.relative_path}:{line.number}"
+    )
+    if emitted is not None:
+        state.records.append(emitted)
+    state.manifest.append(
+        {
+            "source_path": line.relative_path,
+            "source_line": line.number,
+            # Hash excludes the JSONL line terminator by definition.
+            "source_sha256": _sha256(line.payload),
+            "source_file_sha256": line.file_sha256,
+            "source_record_id": _manifest_source_id(record),
+            "transform": {
+                "name": TRANSFORM_NAME,
+                "version": TRANSFORM_VERSION,
+            },
+            "action": decision.action,
+            "classification": decision.classification,
+            "reason_codes": list(decision.reason_codes),
+            "context_diff_paths": list(decision.context_diff_paths),
+            "changed_context_fields": list(decision.changed_context_fields),
+            "output_id": output_id,
+            "output_sha256": output_hash,
+        }
+    )
+
+
+def _curate_jsonl_file(source: Path, path: Path, state: _ScanState) -> None:
+    file_payload = path.read_bytes()
+    file_hash = _sha256(file_payload)
+    relative_path = _relative_source_path(source, path)
+    for line_number, raw_line in _jsonl_payload_lines(file_payload):
+        line = _SourceLine(relative_path, line_number, raw_line, file_hash)
+        state.json_records_seen += 1
+        record = _load_jsonl_record(line)
+        if not _is_preference_candidate(record):
+            state.skipped_non_preferences += 1
+            continue
+        _record_preference(state, line, record)
+
+
+def _curation_summary(source: Path, state: _ScanState) -> dict[str, Any]:
+    preference_records = sum(state.actions.values())
+    impure_pairs = state.actions[ACTION_REPAIRED] + state.actions[ACTION_EXCLUDED]
+    retained_pairs = state.actions[ACTION_RETAINED] + state.actions[ACTION_REPAIRED]
+    # Measured over the records actually emitted rather than asserted as a
+    # constant, so the reported purity is evidence and not a restatement of
+    # the invariant the loop above enforces.
+    pure_outputs = sum(1 for emitted in state.records if context_is_pure(emitted))
+    purity_pct = 0.0
+    if retained_pairs:
+        purity_pct = round(100.0 * pure_outputs / retained_pairs, 1)
+    return {
+        "transform": {"name": TRANSFORM_NAME, "version": TRANSFORM_VERSION},
+        "source": str(source),
+        "json_records_seen": state.json_records_seen,
+        "preference_records": preference_records,
+        "skipped_non_preference_records": state.skipped_non_preferences,
+        "impure_pairs": impure_pairs,
+        "retained_pairs": retained_pairs,
+        "excluded_pairs": state.actions[ACTION_EXCLUDED],
+        "actions": dict(sorted(state.actions.items())),
+        "classifications": dict(sorted(state.classifications.items())),
+        "reason_codes": dict(sorted(state.reasons.items())),
+        "retained_context_purity_pct": purity_pct,
+    }
+
+
 def curate_source(source: Path) -> CurationRun:
     """Read and classify all preference candidates under ``source``."""
 
     source = Path(source)
-    output_records: list[dict[str, Any]] = []
-    manifest: list[dict[str, Any]] = []
-    actions: Counter[str] = Counter()
-    classifications: Counter[str] = Counter()
-    reasons: Counter[str] = Counter()
-    skipped_non_preferences = 0
-    total_json_records = 0
-
+    state = _ScanState([], [], Counter(), Counter(), Counter())
     for path in _source_files(source):
-        file_payload = path.read_bytes()
-        file_hash = _sha256(file_payload)
-        relative_path = _relative_source_path(source, path)
-        for line_number, raw_line in enumerate(file_payload.splitlines(), 1):
-            if not raw_line.strip():
-                continue
-            total_json_records += 1
-            try:
-                text = raw_line.decode("utf-8")
-            except UnicodeDecodeError as exc:
-                raise PreferenceCurationError(
-                    f"{relative_path}:{line_number}: invalid UTF-8: {exc}"
-                ) from exc
-            try:
-                record = json.loads(text)
-            except json.JSONDecodeError as exc:
-                raise PreferenceCurationError(
-                    f"{relative_path}:{line_number}: invalid JSON: {exc}"
-                ) from exc
-            if not _is_preference_candidate(record):
-                skipped_non_preferences += 1
-                continue
-
-            decision = curate_preference_record(record)
-            actions[decision.action] += 1
-            classifications[decision.classification] += 1
-            reasons.update(decision.reason_codes)
-
-            output_hash = None
-            output_id = None
-            if decision.record is not None:
-                if not context_is_pure(decision.record):
-                    raise PreferenceCurationError(
-                        f"internal error: emitted impure pair at {relative_path}:{line_number}"
-                    )
-                output_line = canonical_json(decision.record).encode("utf-8")
-                output_hash = _sha256(output_line)
-                output_id = decision.record.get("id")
-                output_records.append(decision.record)
-
-            manifest.append(
-                {
-                    "source_path": relative_path,
-                    "source_line": line_number,
-                    # Hash excludes the JSONL line terminator by definition.
-                    "source_sha256": _sha256(raw_line),
-                    "source_file_sha256": file_hash,
-                    "source_record_id": record.get("id")
-                    if isinstance(record, dict)
-                    else None,
-                    "transform": {
-                        "name": TRANSFORM_NAME,
-                        "version": TRANSFORM_VERSION,
-                    },
-                    "action": decision.action,
-                    "classification": decision.classification,
-                    "reason_codes": list(decision.reason_codes),
-                    "context_diff_paths": list(decision.context_diff_paths),
-                    "changed_context_fields": list(decision.changed_context_fields),
-                    "output_id": output_id,
-                    "output_sha256": output_hash,
-                }
-            )
-
-    preference_records = sum(actions.values())
-    impure_pairs = actions[ACTION_REPAIRED] + actions[ACTION_EXCLUDED]
-    retained_pairs = actions[ACTION_RETAINED] + actions[ACTION_REPAIRED]
-    summary = {
-        "transform": {"name": TRANSFORM_NAME, "version": TRANSFORM_VERSION},
-        "source": str(source),
-        "json_records_seen": total_json_records,
-        "preference_records": preference_records,
-        "skipped_non_preference_records": skipped_non_preferences,
-        "impure_pairs": impure_pairs,
-        "retained_pairs": retained_pairs,
-        "excluded_pairs": actions[ACTION_EXCLUDED],
-        "actions": dict(sorted(actions.items())),
-        "classifications": dict(sorted(classifications.items())),
-        "reason_codes": dict(sorted(reasons.items())),
-        "retained_context_purity_pct": 100.0 if retained_pairs else 0.0,
-    }
-    return CurationRun(tuple(output_records), tuple(manifest), summary)
+        _curate_jsonl_file(source, path, state)
+    return CurationRun(
+        tuple(state.records),
+        tuple(state.manifest),
+        _curation_summary(source, state),
+    )
 
 
-def _assert_new_destination(source: Path, destination: Path, label: str) -> None:
-    source_resolved = source.resolve()
-    destination_resolved = destination.resolve(strict=False)
+def _refuse_raw_destination(destination: Path, label: str) -> None:
+    if not _is_under_raw(destination):
+        return
+    # A file source has no directory to nest inside, and a directory source
+    # does not contain its own siblings, so the remaining destination checks
+    # cannot keep a curated write out of the immutable raw tree on their own.
+    raise PreferenceCurationError(
+        f"{label} would write inside immutable raw evidence: {destination}"
+    )
+
+
+def _refuse_existing_destination(destination: Path, label: str) -> None:
     if destination.exists():
         raise PreferenceCurationError(
             f"{label} already exists; refusing overwrite: {destination}"
         )
-    if not destination.parent.is_dir():
-        raise PreferenceCurationError(
-            f"{label} parent does not exist: {destination.parent}"
-        )
-    if source_resolved == destination_resolved:
+    if destination.parent.is_dir():
+        return
+    raise PreferenceCurationError(
+        f"{label} parent does not exist: {destination.parent}"
+    )
+
+
+def _destination_replaces_source(source: Path, destination: Path) -> bool:
+    return source.resolve() == destination.resolve(strict=False)
+
+
+def _destination_inside_source(source: Path, destination: Path) -> bool:
+    if not source.is_dir():
+        return False
+    return source.resolve() in destination.resolve(strict=False).parents
+
+
+def _refuse_source_collision(source: Path, destination: Path, label: str) -> None:
+    if _destination_replaces_source(source, destination):
         raise PreferenceCurationError(f"{label} cannot replace source: {destination}")
-    if source.is_dir() and source_resolved in destination_resolved.parents:
+    if not _destination_inside_source(source, destination):
+        return
+    raise PreferenceCurationError(
+        f"{label} cannot be written inside source: {destination}"
+    )
+
+
+def _assert_new_destination(source: Path, destination: Path, label: str) -> None:
+    _refuse_raw_destination(destination, label)
+    _refuse_existing_destination(destination, label)
+    _refuse_source_collision(source, destination, label)
+
+
+def _jsonl_payload(records: tuple[dict[str, Any], ...]) -> str:
+    return "".join(canonical_json(record) + "\n" for record in records)
+
+
+def _open_destination_parent(path: Path) -> int:
+    flags = os.O_RDONLY | os.O_DIRECTORY | getattr(os, "O_NOFOLLOW", 0)
+    try:
+        return os.open(path.parent, flags)
+    except OSError as exc:
         raise PreferenceCurationError(
-            f"{label} cannot be written inside source: {destination}"
+            f"destination parent is not a pinned directory: {path.parent}"
+        ) from exc
+
+
+def _refuse_opened_parent(parent_fd: int, destination: Path) -> None:
+    try:
+        opened = Path(os.readlink(f"/proc/self/fd/{parent_fd}"))
+    except OSError:
+        opened = destination.parent
+    _refuse_raw_destination(opened, "destination")
+    _refuse_raw_destination(opened / destination.name, "destination")
+
+
+def _create_exclusive_file(path: Path, payload: str, created: list[Path]) -> None:
+    parent_fd = _open_destination_parent(path)
+    try:
+        _refuse_opened_parent(parent_fd, path)
+        descriptor = os.open(
+            path.name,
+            os.O_WRONLY | os.O_CREAT | os.O_EXCL,
+            0o644,
+            dir_fd=parent_fd,
         )
+    finally:
+        os.close(parent_fd)
+    created.append(path)
+    with os.fdopen(descriptor, "w", encoding="utf-8", newline="\n") as handle:
+        handle.write(payload)
+        handle.flush()
+        os.fsync(handle.fileno())
+
+
+def _fsync_parents(paths: list[Path]) -> None:
+    # Durable file contents still need a durable directory entry.
+    for directory in dict.fromkeys(path.parent for path in paths):
+        directory_descriptor = os.open(directory, os.O_RDONLY)
+        try:
+            os.fsync(directory_descriptor)
+        finally:
+            os.close(directory_descriptor)
+
+
+def _unlink_created(created: list[Path]) -> None:
+    # Remove only files this invocation created; pre-existing paths are
+    # rejected before and during O_EXCL creation.
+    for path in created:
+        try:
+            path.unlink()
+        except FileNotFoundError:
+            pass
 
 
 def write_run(run: CurationRun, source: Path, output: Path, manifest: Path) -> None:
@@ -514,32 +724,16 @@ def write_run(run: CurationRun, source: Path, output: Path, manifest: Path) -> N
     _assert_new_destination(source, output, "output")
     _assert_new_destination(source, manifest, "manifest")
 
-    output_payload = "".join(canonical_json(record) + "\n" for record in run.records)
-    manifest_payload = "".join(canonical_json(entry) + "\n" for entry in run.manifest)
     created: list[Path] = []
     try:
-        for path, payload in ((output, output_payload), (manifest, manifest_payload)):
-            descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o644)
-            created.append(path)
-            with os.fdopen(descriptor, "w", encoding="utf-8", newline="\n") as handle:
-                handle.write(payload)
-                handle.flush()
-                os.fsync(handle.fileno())
-        # Durable file contents still need a durable directory entry.
-        for directory in dict.fromkeys(path.parent for path in created):
-            directory_descriptor = os.open(directory, os.O_RDONLY)
-            try:
-                os.fsync(directory_descriptor)
-            finally:
-                os.close(directory_descriptor)
+        for path, payload in (
+            (output, _jsonl_payload(run.records)),
+            (manifest, _jsonl_payload(run.manifest)),
+        ):
+            _create_exclusive_file(path, payload, created)
+        _fsync_parents(created)
     except Exception:
-        # Remove only files this invocation created; pre-existing paths are
-        # rejected before and during O_EXCL creation.
-        for path in created:
-            try:
-                path.unlink()
-            except FileNotFoundError:
-                pass
+        _unlink_created(created)
         raise
 
 

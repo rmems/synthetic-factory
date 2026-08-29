@@ -7,11 +7,13 @@ and this layer only type-checks an id that is present.
 """
 
 import copy
+import io
 import json
 import subprocess
 import sys
 import tempfile
 import unittest
+from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
@@ -152,6 +154,27 @@ class ValidateRunWriteFlag(unittest.TestCase):
                 self.assertIn(
                     f"non-standard JSON numeric constant {constant}", result.stderr
                 )
+
+    def test_literal_unicode_line_separators_stay_inside_one_jsonl_record(self):
+        with tempfile.TemporaryDirectory() as raw:
+            run_dir = Path(raw) / "run"
+            run_dir.mkdir()
+            record = copy.deepcopy(TINY_THALAMIC)
+            record["safety_decision"]["rationale"] = "before\u2028middle\u2029after"
+            (run_dir / "unicode-separators.jsonl").write_text(
+                json.dumps(record, ensure_ascii=False) + "\n",
+                encoding="utf-8",
+            )
+            stdout = io.StringIO()
+            stderr = io.StringIO()
+
+            with redirect_stdout(stdout), redirect_stderr(stderr):
+                with self.assertRaises(SystemExit) as raised:
+                    validate_run.main([str(run_dir)])
+
+            self.assertEqual(raised.exception.code, 0, stderr.getvalue())
+            self.assertEqual(json.loads(stdout.getvalue()), EXPECTED_TOTALS)
+            self.assertEqual(stderr.getvalue(), "")
 
     def test_non_object_episode_step_is_error_not_traceback(self):
         with tempfile.TemporaryDirectory() as raw:
@@ -432,8 +455,8 @@ class VerifyFrontierMalformedRecords(unittest.TestCase):
 
     verify_batch_for_frontier runs over untrusted generated JSONL, so a
     non-string safety_decision.rationale or a non-object
-    language_view.trajectory must return failed/inconclusive instead of
-    raising and taking the frontier gate down with it.
+    language_view.trajectory must return failed instead of raising and taking
+    the frontier gate down with it.
     """
 
     def _verify(self, record):
@@ -459,10 +482,10 @@ class VerifyFrontierMalformedRecords(unittest.TestCase):
             "language_view": {"trajectory": "not-an-object"},
         }
         counts, findings, blocked = self._verify(record)
-        self.assertEqual(counts["inconclusive"], 1, findings)
+        self.assertEqual(counts["failed"], 1, findings)
         self.assertEqual(counts["verified"], 0, findings)
         self.assertTrue(blocked)
-        self.assertIn("not an object", findings[0]["reason"])
+        self.assertIn("missing or not an object", findings[0]["reason"])
 
 
 if __name__ == "__main__":

@@ -151,8 +151,13 @@ scratch artifacts.
      `total == sum(per_component)` within `1e-6`). Set
      `meta.isolation: "two-session"` on each record. Phase 1 and Phase 2
      do not add extra top-level JSONL lines.
-   - `NOTES-rNN.md` — self-critique: residual weaknesses and the next
-     round's densification target.
+   - `NOTES-rNN.md` — self-critique: residual weaknesses, the next
+     round's densification target, and the mandatory line
+     `Novel coverage: <N>%` (an honest estimate of how much of this round
+     is novel versus all prior committed rounds for this factory).
+     `publish` rejects notes without it or with a value outside 0–100, and
+     2 consecutive rounds under 5% early-stop the lane
+     (`docs/token-efficiency.md`).
    - Retain the `diagnosis-01-rNN.md` / `diagnosis-02-rNN.md` /
      `diagnosis-03-rNN.md` files alongside the batch — they are
      part of the published round and document the repair rationale.
