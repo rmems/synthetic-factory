@@ -88,25 +88,31 @@ def _suite_ok(result: _OracleResult) -> bool:
     return bool(executed)
 
 
-def _run_modules(work: Path, relatives: Iterable[str]) -> dict[str, Any]:
-    src = str(work / "src")
-    inserted = []
-    snapshot = sys.modules.copy()
-    for entry in (src, str(work)):
+def _push_pack_path(work: Path) -> list[str]:
+    inserted: list[str] = []
+    for entry in (str(work / "src"), str(work)):
         if entry not in sys.path:
             sys.path.insert(0, entry)
             inserted.append(entry)
+    return inserted
+
+
+def _pop_pack_path(inserted: list[str]) -> None:
+    for entry in inserted:
+        if entry in sys.path:
+            sys.path.remove(entry)
+
+
+def _execute_suite(work: Path, relatives: Iterable[str]) -> _OracleResult:
     suite = unittest.TestSuite()
-    try:
-        for relative in relatives:
-            suite.addTests(_load_tests(work, relative))
-        result = _OracleResult()
-        suite.run(result)
-    finally:
-        for entry in inserted:
-            if entry in sys.path:
-                sys.path.remove(entry)
-        _restore_sys_modules(snapshot)
+    for relative in relatives:
+        suite.addTests(_load_tests(work, relative))
+    result = _OracleResult()
+    suite.run(result)
+    return result
+
+
+def _suite_report(result: _OracleResult) -> dict[str, Any]:
     rows = sorted(result.rows, key=lambda item: item["id"])
     report = {
         "tests": rows,
@@ -116,6 +122,17 @@ def _run_modules(work: Path, relatives: Iterable[str]) -> dict[str, Any]:
     }
     report["result_hash"] = _sha256_text(_canonical_json(report["tests"]))
     return report
+
+
+def _run_modules(work: Path, relatives: Iterable[str]) -> dict[str, Any]:
+    snapshot = sys.modules.copy()
+    inserted = _push_pack_path(work)
+    try:
+        result = _execute_suite(work, relatives)
+    finally:
+        _pop_pack_path(inserted)
+        _restore_sys_modules(snapshot)
+    return _suite_report(result)
 
 
 def apply_patch(work: Path, patch: Any) -> None:
@@ -227,30 +244,37 @@ def _illegal_pack_relative(path: str) -> bool:
     return not path.strip() or candidate.is_absolute() or ".." in candidate.parts
 
 
-def _oracle_path_list_error(oracle: Mapping[str, Any]) -> VSetValidationError | None:
-    reference_tests = oracle.get("reference_tests") or ["tests/reference.py"]
-    hidden_tests = oracle.get("hidden_tests") or []
-    if not isinstance(reference_tests, list) or not all(
-        isinstance(item, str) for item in reference_tests
-    ):
-        return VSetValidationError(
-            "vset.oracle_execution_mismatch",
-            "oracle.reference_tests must be a list of paths",
-        )
-    if hidden_tests and (
-        not isinstance(hidden_tests, list) or not all(isinstance(item, str) for item in hidden_tests)
-    ):
-        return VSetValidationError(
-            "vset.oracle_execution_mismatch",
-            "oracle.hidden_tests must be a list of paths",
-        )
-    for item in list(reference_tests) + list(hidden_tests or []):
+def _string_path_list_error(value: Any, field: str, *, required: bool) -> VSetValidationError | None:
+    if not value and not required:
+        return None
+    if isinstance(value, list) and all(isinstance(item, str) for item in value):
+        return None
+    return VSetValidationError(
+        "vset.oracle_execution_mismatch",
+        f"oracle.{field} must be a list of paths",
+    )
+
+
+def _first_illegal_pack_path(paths: Iterable[Any]) -> VSetValidationError | None:
+    for item in paths:
         if isinstance(item, str) and _illegal_pack_relative(item):
             return VSetValidationError(
                 "vset.oracle_execution_mismatch",
                 f"oracle test path must stay under the pack: {item!r}",
             )
     return None
+
+
+def _oracle_path_list_error(oracle: Mapping[str, Any]) -> VSetValidationError | None:
+    reference_tests = oracle.get("reference_tests") or ["tests/reference.py"]
+    hidden_tests = oracle.get("hidden_tests") or []
+    typed = _string_path_list_error(reference_tests, "reference_tests", required=True)
+    if typed is not None:
+        return typed
+    typed = _string_path_list_error(hidden_tests, "hidden_tests", required=False)
+    if typed is not None:
+        return typed
+    return _first_illegal_pack_path(list(reference_tests) + list(hidden_tests or []))
 
 
 def _execution_match_errors(

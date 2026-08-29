@@ -38,18 +38,8 @@ def oracle_errors(
     return errors
 
 
-def _validated_oracle_errors(
-    record: Mapping[str, Any], oracle: Mapping[str, Any], kind: Any
-) -> list[VSetValidationError]:
+def _self_certify_kind_errors(kind: Any) -> list[VSetValidationError]:
     errors: list[VSetValidationError] = []
-    solver = record.get("solver") if isinstance(record.get("solver"), Mapping) else {}
-    author = record.get("task_author") if isinstance(record.get("task_author"), Mapping) else {}
-    certifier = oracle.get("certifier")
-    solver_success = solver.get("outcome") == "success"
-    evidence = oracle.get("signals")
-    only_solver_signal = (
-        isinstance(evidence, list) and evidence == ["solver_success"]
-    ) or oracle.get("upgraded_from_solver_success") is True
     if kind in SELF_CERTIFY_ORACLE_KINDS:
         errors.append(
             VSetValidationError(
@@ -64,21 +54,48 @@ def _validated_oracle_errors(
                 f"oracle.kind {kind!r} cannot independently certify validated",
             )
         )
-    if not _is_nonempty(oracle.get("command")) or not _is_sha256(oracle.get("result_hash")):
-        errors.append(
-            VSetValidationError(
-                "vset.oracle_validated_without_evidence",
-                "validated oracle requires command and result_hash",
-            )
+    return errors
+
+
+def _validated_evidence_errors(oracle: Mapping[str, Any]) -> list[VSetValidationError]:
+    if _is_nonempty(oracle.get("command")) and _is_sha256(oracle.get("result_hash")):
+        return []
+    return [
+        VSetValidationError(
+            "vset.oracle_validated_without_evidence",
+            "validated oracle requires command and result_hash",
         )
-    errors.extend(_certifier_errors(certifier, solver, author))
-    if only_solver_signal or (solver_success and kind in SELF_CERTIFY_ORACLE_KINDS):
-        errors.append(
-            VSetValidationError(
-                "vset.oracle_self_certified",
-                "solver success must not upgrade oracle_status to validated",
-            )
+    ]
+
+
+def _solver_upgrade_errors(
+    oracle: Mapping[str, Any], solver: Mapping[str, Any], kind: Any
+) -> list[VSetValidationError]:
+    evidence = oracle.get("signals")
+    only_solver_signal = (
+        isinstance(evidence, list) and evidence == ["solver_success"]
+    ) or oracle.get("upgraded_from_solver_success") is True
+    solver_success = solver.get("outcome") == "success"
+    if not (only_solver_signal or (solver_success and kind in SELF_CERTIFY_ORACLE_KINDS)):
+        return []
+    return [
+        VSetValidationError(
+            "vset.oracle_self_certified",
+            "solver success must not upgrade oracle_status to validated",
         )
+    ]
+
+
+def _validated_oracle_errors(
+    record: Mapping[str, Any], oracle: Mapping[str, Any], kind: Any
+) -> list[VSetValidationError]:
+    solver = record.get("solver") if isinstance(record.get("solver"), Mapping) else {}
+    author = record.get("task_author") if isinstance(record.get("task_author"), Mapping) else {}
+    errors: list[VSetValidationError] = []
+    errors.extend(_self_certify_kind_errors(kind))
+    errors.extend(_validated_evidence_errors(oracle))
+    errors.extend(_certifier_errors(oracle.get("certifier"), solver, author))
+    errors.extend(_solver_upgrade_errors(oracle, solver, kind))
     return errors
 
 

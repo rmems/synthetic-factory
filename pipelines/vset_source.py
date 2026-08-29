@@ -41,25 +41,34 @@ def source_kind_errors(record: Mapping[str, Any]) -> list[VSetValidationError]:
     return errors
 
 
+def _prometheus_identity_claimed(record: Mapping[str, Any], env: Mapping[str, Any]) -> bool:
+    scoped = {key: env.get(key) for key in IDENTITY_ENV_KEYS if key in env}
+    return _contains_prometheus_marker(scoped) or _contains_prometheus_marker(
+        record.get("prometheus_lineage")
+    )
+
+
+def _real_family_claimed(env: Mapping[str, Any]) -> bool:
+    if env.get("claimed_source_kind") == "real_public_engineering":
+        return True
+    family = env.get("source_family")
+    if not isinstance(family, str):
+        return False
+    return family.lower() in {"prometheus_real", "prometheus"}
+
+
 def _synthetic_masquerade_errors(
     record: Mapping[str, Any], env: Mapping[str, Any]
 ) -> list[VSetValidationError]:
     errors: list[VSetValidationError] = []
-    marked = _contains_prometheus_marker(
-        {key: env.get(key) for key in IDENTITY_ENV_KEYS if key in env}
-    ) or _contains_prometheus_marker(record.get("prometheus_lineage"))
-    if marked:
+    if _prometheus_identity_claimed(record, env):
         errors.append(
             VSetValidationError(
                 "vset.source_kind_masquerade",
                 "synthetic records must not claim Operation Prometheus as source identity",
             )
         )
-    claimed = env.get("claimed_source_kind")
-    family = env.get("source_family")
-    if claimed == "real_public_engineering" or (
-        isinstance(family, str) and family.lower() in {"prometheus_real", "prometheus"}
-    ):
+    if _real_family_claimed(env):
         errors.append(
             VSetValidationError(
                 "vset.source_kind_masquerade",
