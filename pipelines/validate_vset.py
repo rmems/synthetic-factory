@@ -76,7 +76,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     )
     parser.add_argument(
         "--pack",
-        help="repo-pack directory for --oracle (defaults next to fixtures)",
+        help="repo-pack directory; required with --oracle and rejected without it",
     )
     parser.add_argument(
         "--require-registry-sha",
@@ -96,8 +96,24 @@ def _print_errors(path: Path, errors: list[VSetValidationError]) -> None:
         print(f"ERROR: {path}: {error}", file=sys.stderr)
 
 
+def _unreadable(path: Path, exc: Exception) -> VSetValidationError:
+    """A file we cannot decode is a fail-closed record error, not a crash."""
+
+    return VSetValidationError(
+        "vset.record_not_object", f"unreadable JSON at {path}: {exc}"
+    )
+
+
+def _load_or_error(path: Path) -> tuple[Any, VSetValidationError | None]:
+    try:
+        return load_json(path), None
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        return None, _unreadable(path, exc)
+
+
 def _run_manifest(target: Path) -> int:
-    errors = validate_manifest(load_json(target))
+    manifest, load_error = _load_or_error(target)
+    errors = [load_error] if load_error is not None else validate_manifest(manifest)
     print(json.dumps({"path": str(target), **summarize(errors)}, indent=2))
     _print_errors(target, errors)
     return 1 if errors else 0
@@ -116,22 +132,31 @@ def _execution_summary(execution: dict[str, Any] | None) -> dict[str, Any]:
     }
 
 
+def _one_record_report(
+    path: Path, args: argparse.Namespace, pack: Path | None
+) -> tuple[dict[str, Any], list[VSetValidationError]]:
+    record, load_error = _load_or_error(path)
+    if load_error is not None:
+        return {"path": str(path), **summarize([load_error])}, [load_error]
+    if args.oracle:
+        assert pack is not None
+        errors, execution = validate_record_with_oracle(
+            record, pack, require_registry_sha=args.require_registry_sha
+        )
+    else:
+        errors = validate_record(record, require_registry_sha=args.require_registry_sha)
+        execution = None
+    item = {"path": str(path), **summarize(errors), **_execution_summary(execution)}
+    return item, errors
+
+
 def _run_records(target: Path, args: argparse.Namespace, pack: Path | None) -> int:
+    """One unreadable record is a reported failure, never a lost report."""
+
     reports = []
     failed = False
     for path in iter_record_paths(target):
-        record = load_json(path)
-        if args.oracle:
-            assert pack is not None
-            errors, execution = validate_record_with_oracle(
-                record, pack, require_registry_sha=args.require_registry_sha
-            )
-        else:
-            errors = validate_record(
-                record, require_registry_sha=args.require_registry_sha
-            )
-            execution = None
-        item = {"path": str(path), **summarize(errors), **_execution_summary(execution)}
+        item, errors = _one_record_report(path, args, pack)
         reports.append(item)
         if errors:
             failed = True
@@ -149,6 +174,10 @@ def main(argv: list[str] | None = None) -> int:
     pack = Path(args.pack) if args.pack else None
     if args.oracle and pack is None:
         print("--oracle requires --pack", file=sys.stderr)
+        return 2
+    if pack is not None and not args.oracle:
+        # A pack that never executes must not read as validated provenance.
+        print("--pack requires --oracle", file=sys.stderr)
         return 2
     if args.manifest:
         return _run_manifest(target)
