@@ -34,6 +34,15 @@ from pathlib import Path
 SCHEMA_VERSION = "1.0.0"
 MAX_CAPTURE_BYTES = 16 * 1024 * 1024
 
+# The determinism.meaning text every in-repo reference adapter's _envelope()
+# emits. oracle.software is always a reference adapter (never a physical
+# capture), so validators can bind its meaning text to this exact constant
+# instead of trusting whatever text the record declares.
+REFERENCE_DETERMINISM_MEANING = (
+    "bit-determinism of this reference implementation; it is not "
+    "evidence about run-to-run variability of physical hardware"
+)
+
 # ── Q8.8 fixed-point format ───────────────────────────────────────────
 # Signed 16-bit, 8 fractional bits: value = raw / 256, raw in [-32768, 32767].
 Q88_FRACTIONAL_BITS = 8
@@ -87,6 +96,17 @@ def canonical_json(obj):
 def digest(obj):
     """sha256 of the canonical JSON encoding, prefixed with the algorithm."""
     return "sha256:" + hashlib.sha256(canonical_json(obj).encode("utf-8")).hexdigest()
+
+
+def _reject_json_constant(value):
+    """Reject Python's non-standard NaN/Infinity JSON extensions.
+
+    Mirrors ``canonical_json``'s ``allow_nan=False`` on the read side: a
+    capture file smuggling ``NaN``/``Infinity`` must fail to parse rather
+    than load a value ``digest()`` (which forbids non-finite floats) can
+    never re-derive.
+    """
+    raise ValueError(f"non-standard JSON numeric constant {value}")
 
 
 def _round_half_away(value):
@@ -346,6 +366,37 @@ def _decode_action(spike_grid, labels):
     return {"index": best, "label": labels[best], "counts": counts, "rule": "argmax_count"}
 
 
+def _lif_step_neuron_float(i, row, model, membrane, refractory, previous, neurons):
+    """One neuron's float64 LIF update for one timestep.
+
+    Mutates ``membrane[i]``/``refractory[i]`` in place; returns 1 if the
+    neuron fires this step, else 0. Split out of ``simulate_float``'s nested
+    loop with the exact same operations in the exact same order, so this
+    does not change floating-point evaluation order or results.
+    """
+    if refractory[i] > 0:
+        refractory[i] -= 1
+        membrane[i] = 0.0
+        return 0
+    drive = model["bias"][i]
+    for j in range(model["inputs"]):
+        if row[j]:
+            drive += model["w_in"][i][j]
+    if model["w_rec"] is not None:
+        for k in range(neurons):
+            if previous[k]:
+                drive += model["w_rec"][i][k]
+    membrane[i] = model["decay"][i] * membrane[i] + drive
+    if membrane[i] >= model["threshold"][i]:
+        if model["reset"] == "zero":
+            membrane[i] = 0.0
+        else:
+            membrane[i] -= model["threshold"][i]
+        refractory[i] = model["refractory_steps"]
+        return 1
+    return 0
+
+
 def simulate_float(model, stimulus):
     """float64 LIF reference. Deterministic; consults no RNG."""
     model = normalize_model(model)
@@ -358,28 +409,10 @@ def simulate_float(model, stimulus):
     membrane_trace = []
     for step in range(stimulus["steps"]):
         row = stimulus["events"][step]
-        fired = [0] * neurons
-        for i in range(neurons):
-            if refractory[i] > 0:
-                refractory[i] -= 1
-                membrane[i] = 0.0
-                continue
-            drive = model["bias"][i]
-            for j in range(model["inputs"]):
-                if row[j]:
-                    drive += model["w_in"][i][j]
-            if model["w_rec"] is not None:
-                for k in range(neurons):
-                    if previous[k]:
-                        drive += model["w_rec"][i][k]
-            membrane[i] = model["decay"][i] * membrane[i] + drive
-            if membrane[i] >= model["threshold"][i]:
-                fired[i] = 1
-                if model["reset"] == "zero":
-                    membrane[i] = 0.0
-                else:
-                    membrane[i] -= model["threshold"][i]
-                refractory[i] = model["refractory_steps"]
+        fired = [
+            _lif_step_neuron_float(i, row, model, membrane, refractory, previous, neurons)
+            for i in range(neurons)
+        ]
         previous = fired
         spike_grid.append(fired)
         membrane_trace.append([round(value, 9) for value in membrane])
@@ -499,10 +532,7 @@ class OracleAdapter:
             "determinism": {
                 "identical_repeats": True,
                 "distinct_digests": 1,
-                "meaning": (
-                    "bit-determinism of this reference implementation; it is not "
-                    "evidence about run-to-run variability of physical hardware"
-                ),
+                "meaning": REFERENCE_DETERMINISM_MEANING,
             },
             "latency": latency,
             "output_digest": fingerprint,
@@ -613,7 +643,9 @@ class RecordedCaptureAdapter(OracleAdapter):
                     raise OSError(f"capture exceeds {MAX_CAPTURE_BYTES} bytes")
             finally:
                 os.close(descriptor)
-            self._capture = json.loads(payload.decode("utf-8"))
+            self._capture = json.loads(
+                payload.decode("utf-8"), parse_constant=_reject_json_constant
+            )
         except FileNotFoundError:
             self._error = ("CAPTURE_FILE_ABSENT", f"no capture at {self.capture_path}")
         except OSError as exc:
@@ -621,7 +653,7 @@ class RecordedCaptureAdapter(OracleAdapter):
                 "CAPTURE_UNREADABLE",
                 f"cannot read {self.capture_path}: {exc}",
             )
-        except (json.JSONDecodeError, UnicodeDecodeError) as exc:
+        except (json.JSONDecodeError, UnicodeDecodeError, ValueError) as exc:
             self._error = ("CAPTURE_UNREADABLE", str(exc))
         if self._capture is not None:
             if not isinstance(self._capture, dict):
@@ -648,6 +680,10 @@ class RecordedCaptureAdapter(OracleAdapter):
             raise OracleUnavailable(*self._error)
         capture = self._capture
         manifest = capture.get("manifest") or {}
+        if not isinstance(manifest, dict):
+            raise OracleUnavailable(
+                "CAPTURE_UNREADABLE", "capture manifest must be a JSON object"
+            )
         payload = capture.get("payload")
         if not isinstance(payload, dict):
             raise OracleUnavailable(

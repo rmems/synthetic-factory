@@ -1302,6 +1302,86 @@ def check_parity_envelope(obj, where):
     return oracle_contract.check_envelope(obj, where)
 
 
+def _finish_agentic(errors, kind, obj, where, factory_staging):
+    """Layer in the staging-only checks shared by every agentic record kind."""
+    if factory_staging:
+        errors += _staging_hidden_thought_errors(obj, where)
+        errors += [
+            error
+            for error in check_provenance_publish(obj, where)
+            if error not in errors
+        ]
+        if kind == "preference":
+            errors += _staging_preference_goal_errors(obj, where)
+    return errors, kind
+
+
+def _check_preference_pair(obj, where, factory_staging):
+    """Body of the `chosen`/`rejected` preference-pair branch of `check_line`."""
+    errs = []
+    chosen = obj.get("chosen")
+    rejected = obj.get("rejected")
+    episode_pref = _episode_like(chosen) or _episode_like(rejected)
+    if not isinstance(chosen, dict):
+        errs.append(f"{where}.chosen must be an object")
+    elif episode_pref:
+        errs += check_episode(
+            chosen,
+            f"{where}.chosen",
+            require_goal="goal" not in obj,
+            forbid_hidden_thought=factory_staging,
+        )
+    else:
+        errs += check_thalamic(chosen, f"{where}.chosen")
+    if not isinstance(rejected, dict):
+        errs.append(f"{where}.rejected must be an object")
+    elif episode_pref:
+        errs += check_episode(
+            rejected,
+            f"{where}.rejected",
+            require_goal="goal" not in obj,
+            forbid_hidden_thought=factory_staging,
+        )
+    else:
+        errs += check_thalamic(rejected, f"{where}.rejected")
+    if episode_pref and "goal" not in obj:
+        if not (isinstance(chosen, dict) and "goal" in chosen):
+            errs.append(f"{where}: preference episode needs a shared or chosen goal")
+    if episode_pref:
+        errs += _require_reward(obj, where)
+        reward = obj.get("reward")
+        if (
+            factory_staging
+            and isinstance(reward, dict)
+            and isinstance(reward.get("success"), bool)
+            and reward["success"] is not True
+        ):
+            errs.append(f"{where}: preference wrapper reward.success must be true")
+    if not isinstance(obj.get("critique"), str) or not obj["critique"].strip():
+        errs.append(f"{where}: preference record needs a non-empty critique")
+    return errs
+
+
+def _check_bridge_pair(obj, where):
+    """Body of the `language_view`/`spike_events` bridge-pair branch of `check_line`."""
+    errs = []
+    events = obj["spike_events"]
+    if not isinstance(events, list) or not events:
+        errs.append(f"{where}: spike_events must be a non-empty array")
+    else:
+        errs += check_spike_order(events, where)
+    view = obj.get("language_view")
+    if not isinstance(view, dict):
+        errs.append(f"{where}: language_view must be an object")
+    else:
+        traj = view.get("trajectory")
+        if isinstance(traj, dict):
+            errs += check_thalamic(traj, f"{where}.language_view.trajectory")
+        else:
+            errs.append(f"{where}: language_view.trajectory missing or not an object")
+    return errs
+
+
 def check_line(obj, where, factory_staging=False):
     """Route an object to the right checker based on its shape."""
     if not isinstance(obj, dict):
@@ -1314,18 +1394,6 @@ def check_line(obj, where, factory_staging=False):
     if kind in oracle_contract.RECORD_KINDS:
         return check_parity_envelope(obj, where), kind
 
-    def finish_agentic(errors, kind):
-        if factory_staging:
-            errors += _staging_hidden_thought_errors(obj, where)
-            errors += [
-                error
-                for error in check_provenance_publish(obj, where)
-                if error not in errors
-            ]
-            if kind == "preference":
-                errors += _staging_preference_goal_errors(obj, where)
-        return errors, kind
-
     # Route on the object-typed trajectory fields so legacy v1 records
     # (no canonical `id` yet) still reach the thalamic checker and have their
     # state / reward / provenance / meta.round invariants enforced instead of
@@ -1335,76 +1403,28 @@ def check_line(obj, where, factory_staging=False):
     if all(k in obj for k in THALAMIC_CORE_KEYS):
         return check_thalamic(obj, where), "thalamic"
     if "chosen" in obj and "rejected" in obj:
-        errs = []
-        chosen = obj.get("chosen")
-        rejected = obj.get("rejected")
-        episode_pref = _episode_like(chosen) or _episode_like(rejected)
-        if not isinstance(chosen, dict):
-            errs.append(f"{where}.chosen must be an object")
-        elif episode_pref:
-            errs += check_episode(
-                chosen,
-                f"{where}.chosen",
-                require_goal="goal" not in obj,
-                forbid_hidden_thought=factory_staging,
-            )
-        else:
-            errs += check_thalamic(chosen, f"{where}.chosen")
-        if not isinstance(rejected, dict):
-            errs.append(f"{where}.rejected must be an object")
-        elif episode_pref:
-            errs += check_episode(
-                rejected,
-                f"{where}.rejected",
-                require_goal="goal" not in obj,
-                forbid_hidden_thought=factory_staging,
-            )
-        else:
-            errs += check_thalamic(rejected, f"{where}.rejected")
-        if episode_pref and "goal" not in obj:
-            if not (isinstance(chosen, dict) and "goal" in chosen):
-                errs.append(f"{where}: preference episode needs a shared or chosen goal")
-        if episode_pref:
-            errs += _require_reward(obj, where)
-            reward = obj.get("reward")
-            if (
-                factory_staging
-                and isinstance(reward, dict)
-                and isinstance(reward.get("success"), bool)
-                and reward["success"] is not True
-            ):
-                errs.append(f"{where}: preference wrapper reward.success must be true")
-        if not isinstance(obj.get("critique"), str) or not obj["critique"].strip():
-            errs.append(f"{where}: preference record needs a non-empty critique")
-        return finish_agentic(errs, "preference")
+        errs = _check_preference_pair(obj, where, factory_staging)
+        return _finish_agentic(errs, "preference", obj, where, factory_staging)
     if "language_view" in obj and "spike_events" in obj:
-        errs = []
-        events = obj["spike_events"]
-        if not isinstance(events, list) or not events:
-            errs.append(f"{where}: spike_events must be a non-empty array")
-        else:
-            errs += check_spike_order(events, where)
-        view = obj.get("language_view")
-        if not isinstance(view, dict):
-            errs.append(f"{where}: language_view must be an object")
-        else:
-            traj = view.get("trajectory")
-            if isinstance(traj, dict):
-                errs += check_thalamic(traj, f"{where}.language_view.trajectory")
-            else:
-                errs.append(f"{where}: language_view.trajectory missing or not an object")
-        return errs, "bridge_pair"
+        return _check_bridge_pair(obj, where), "bridge_pair"
     if "case_type" in obj:
-        return finish_agentic(
+        return _finish_agentic(
             check_safety_case(obj, where, factory_staging=factory_staging),
             "safety_case",
+            obj,
+            where,
+            factory_staging,
         )
     if "transcript" in obj and "agents" in obj:
-        return finish_agentic(
-            check_multi_agent(obj, where, factory_staging=factory_staging), "multi_agent"
+        return _finish_agentic(
+            check_multi_agent(obj, where, factory_staging=factory_staging),
+            "multi_agent",
+            obj,
+            where,
+            factory_staging,
         )
     if "goal" in obj and "steps" in obj:
-        return finish_agentic(
+        return _finish_agentic(
             check_episode(
                 obj,
                 where,
@@ -1412,6 +1432,9 @@ def check_line(obj, where, factory_staging=False):
                 enforce_terminal_outcome=factory_staging,
             ),
             "episode",
+            obj,
+            where,
+            factory_staging,
         )
     return [f"{where}: unrecognized record shape (keys: {sorted(obj)[:8]})"], "unknown"
 

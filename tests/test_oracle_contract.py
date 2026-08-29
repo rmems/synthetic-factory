@@ -433,6 +433,14 @@ class TrainingViews(unittest.TestCase):
             errors,
         )
 
+    def test_unhashable_source_record_id_is_reported_not_raised(self):
+        # An unhashable id (e.g. a list) must not reach `in` on the
+        # view_id_counts dict, which raises TypeError for unhashable keys.
+        errors = contract.view_set_errors([{"id": []}], [])
+        self.assertTrue(
+            any("invalid non-string IDs" in error for error in errors), errors
+        )
+
     def test_unavailable_oracle_makes_the_view_incomplete(self):
         # `parity_failed: false` means the oracles that ran agreed. It does not
         # mean the intended oracles ran, and a consumer must be able to tell.

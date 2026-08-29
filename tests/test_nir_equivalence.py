@@ -1398,6 +1398,17 @@ class Cli(unittest.TestCase):
                 self.assertEqual(errors, [])
                 self.assertEqual(records, [{"id": f"left{separator}right"}])
 
+    def test_read_jsonl_rejects_non_standard_json_constants(self):
+        # A record containing NaN/Infinity must be a parse error, not a
+        # silently accepted value standards-compliant JSON parsers reject.
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "batch.jsonl"
+            path.write_text('{"pairing": NaN}\n', encoding="utf-8")
+            records, errors = nir.read_jsonl(path)
+            self.assertEqual(records, [])
+            self.assertTrue(errors)
+            self.assertIn("non-standard JSON numeric constant", errors[0])
+
 
 if __name__ == "__main__":
     unittest.main()

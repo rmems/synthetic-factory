@@ -117,18 +117,35 @@ class ParityMetrics(unittest.TestCase):
 
     def test_membrane_within_tolerance(self):
         metrics = hp.membrane_metrics(
-            {"observable": True, "trace": [[0.0, 1.0]]},
-            {"observable": True, "trace": [[0.0, 1.0]]},
+            {"observable": True, "units": hp.MEMBRANE_UNITS, "trace": [[0.0, 1.0]]},
+            {"observable": True, "units": hp.MEMBRANE_UNITS, "trace": [[0.0, 1.0]]},
         )
         self.assertTrue(metrics["within_tolerance"])
         self.assertEqual(metrics["max_abs_error"], 0.0)
 
     def test_membrane_beyond_tolerance_is_flagged(self):
         metrics = hp.membrane_metrics(
-            {"observable": True, "trace": [[0.0]]},
-            {"observable": True, "trace": [[1.0]]},
+            {"observable": True, "units": hp.MEMBRANE_UNITS, "trace": [[0.0]]},
+            {"observable": True, "units": hp.MEMBRANE_UNITS, "trace": [[1.0]]},
         )
         self.assertFalse(metrics["within_tolerance"])
+
+    def test_membrane_unit_mismatch_is_not_silently_compared(self):
+        # A recorded capture is untrusted input and may label its trace with
+        # another unit (or omit it); comparing raw numbers across units would
+        # be numerically valid but dimensionally meaningless.
+        metrics = hp.membrane_metrics(
+            {"observable": True, "units": hp.MEMBRANE_UNITS, "trace": [[0.0]]},
+            {"observable": True, "units": "volts", "trace": [[0.0]]},
+        )
+        self.assertEqual(metrics["reason_code"], "MEMBRANE_DIVERGENCE")
+        self.assertFalse(metrics["observable"])
+        metrics = hp.membrane_metrics(
+            {"observable": True, "units": hp.MEMBRANE_UNITS, "trace": [[0.0]]},
+            {"observable": True, "trace": [[0.0]]},  # units omitted entirely
+        )
+        self.assertEqual(metrics["reason_code"], "MEMBRANE_DIVERGENCE")
+        self.assertFalse(metrics["observable"])
 
     def test_unobservable_membrane_carries_a_reason_code(self):
         metrics = hp.membrane_metrics(
@@ -728,8 +745,8 @@ class ReSimulationGate(unittest.TestCase):
     def test_membrane_shape_mismatch_still_carries_a_reason_code(self):
         # Deleting evidence must never be quieter than reporting it.
         metrics = hp.membrane_metrics(
-            {"observable": True, "trace": [[0.0], [0.0]]},
-            {"observable": True, "trace": [[0.0]]},
+            {"observable": True, "units": hp.MEMBRANE_UNITS, "trace": [[0.0], [0.0]]},
+            {"observable": True, "units": hp.MEMBRANE_UNITS, "trace": [[0.0]]},
         )
         self.assertEqual(metrics["reason_code"], "MEMBRANE_DIVERGENCE")
 
@@ -811,6 +828,26 @@ class DeterminismEvidence(unittest.TestCase):
         errors = hp.validate_record(record, WHERE)
         self.assertTrue(any("PARITY_METRIC_MISMATCH" in error for error in errors))
 
+    def test_astronomically_large_repeats_does_not_attempt_the_allocation(self):
+        # A record-declared `repeats` this large must not reach
+        # `[output_digest] * repeats`; the mismatch with the actual digest
+        # count (already reported) must be bound before that multiplication.
+        record = copy.deepcopy(self.record)
+        record["oracle"]["deployment"]["repeats"] = 10**9
+        errors = hp.validate_record(record, WHERE)
+        self.assertTrue(any("REPEATABILITY_UNPROVEN" in error for error in errors))
+
+    def test_software_determinism_meaning_is_bound_to_the_reference_adapter(self):
+        # oracle.software is always a reference adapter (never a physical
+        # capture), so its determinism.meaning cannot claim measured
+        # hardware variability.
+        record = copy.deepcopy(self.record)
+        record["oracle"]["software"]["determinism"]["meaning"] = (
+            "run-to-run variability observed during the recorded capture"
+        )
+        errors = hp.validate_record(record, WHERE)
+        self.assertTrue(any("REPEATABILITY_UNPROVEN" in error for error in errors), errors)
+
 
 class MalformedRecordsDoNotCrash(unittest.TestCase):
     """A bad record must be reported, not raise and abort the whole scan."""
@@ -838,6 +875,15 @@ class MalformedRecordsDoNotCrash(unittest.TestCase):
     def test_ragged_spike_grid(self):
         def mutate(record):
             record["oracle"]["deployment"]["spikes"][0] = [1]
+
+        self._assert_reports(mutate)
+
+    def test_stimulus_steps_wildly_disagreeing_with_events_is_rejected(self):
+        # A record-declared `steps` this large must be bound to the actual
+        # event grid before it can reach build_scenario() as an allocation
+        # bound.
+        def mutate(record):
+            record["scenario"]["stimulus"]["steps"] = 10**9
 
         self._assert_reports(mutate)
 
@@ -1093,6 +1139,37 @@ class RecordedCapturePath(unittest.TestCase):
                     for error in errors
                 ),
                 errors,
+            )
+
+    def test_whitespace_only_recorded_at_does_not_bind(self):
+        # A whitespace-only value matched on both sides must not validate as
+        # bound provenance; `not recorded_at` alone only rejects "".
+        with tempfile.TemporaryDirectory() as tmp:
+            record = self._record(tmp)
+            record["oracle"]["deployment"]["capture"]["recorded_at"] = "   "
+            record["oracle"]["deployment"]["capture"]["source"]["manifest"][
+                "recorded_at"
+            ] = "   "
+            errors = hp.validate_record(record, WHERE)
+            self.assertTrue(
+                any(
+                    "recorded_at" in error and "HW_PROVENANCE_MISSING" in error
+                    for error in errors
+                ),
+                errors,
+            )
+
+    def test_capture_lineage_includes_physical_provenance_digest(self):
+        # Two captures with identical behavioural output but different
+        # physical provenance must not collapse to the same result lineage.
+        with tempfile.TemporaryDirectory() as tmp:
+            record = self._record(tmp)
+            derived = record["result"]["derived_from"]
+            self.assertEqual(len(derived), 3, derived)
+            record["result"]["derived_from"] = derived[:2]
+            errors = hp.validate_record(record, WHERE)
+            self.assertTrue(
+                any("RESULT_DIGEST_UNLINKED" in error for error in errors), errors
             )
 
     def test_physical_bitstream_requires_canonical_sha256(self):
@@ -1476,6 +1553,22 @@ class PhysicalTargetClaims(unittest.TestCase):
         errors = hp.validate_record(record, WHERE)
         self.assertTrue(any("HW_TARGET_UNKNOWN" in error for error in errors))
 
+    def test_fpga_available_true_is_not_corroborated(self):
+        # No adapter code path in this repository can produce a truthful
+        # `available: true` probe; a fixed-point record claiming one must
+        # still be rejected even though it does not claim a live FPGA
+        # deployment.
+        record = copy.deepcopy(hp.generate_records(round_number=1, steps=4, repeats=2)[0])
+        record["oracle"]["environment"]["fpga_hardware"] = {
+            "available": True,
+            "reason_code": None,
+            "detail": "board online",
+        }
+        errors = hp.validate_record(record, WHERE)
+        self.assertTrue(
+            any("fpga_hardware.available is true" in error for error in errors), errors
+        )
+
     def test_deleting_the_execution_target_is_not_a_way_out(self):
         # Removing an inconvenient label must not be quieter than declaring it.
         record = copy.deepcopy(hp.generate_records(round_number=1, steps=4, repeats=2)[0])
@@ -1636,6 +1729,17 @@ class Cli(unittest.TestCase):
                 records, errors = hp.read_jsonl(path)
                 self.assertEqual(errors, [])
                 self.assertEqual(records, [{"id": f"left{separator}right"}])
+
+    def test_read_jsonl_rejects_non_standard_json_constants(self):
+        # A record containing NaN/Infinity must be a parse error, not a
+        # silently accepted value standards-compliant JSON parsers reject.
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "batch.jsonl"
+            path.write_text('{"pairing": NaN}\n', encoding="utf-8")
+            records, errors = hp.read_jsonl(path)
+            self.assertEqual(records, [])
+            self.assertTrue(errors)
+            self.assertIn("non-standard JSON numeric constant", errors[0])
 
     def test_validate_rejects_a_tampered_file(self):
         with tempfile.TemporaryDirectory() as tmp:

@@ -375,6 +375,55 @@ def check_parity_record(obj, kind, where):
     return [f"{where}: no parity validator for record_kind {kind!r}"]
 
 
+def _check_nested_spike_and_reward_streams(obj, where, kind):
+    errors, warnings = [], []
+    for path, events in walk_key(obj, "spike_events"):
+        # The bridge shape validator checks its top-level stream with
+        # stricter event-shape rules. Keep this pass for nested streams,
+        # but do not report a top-level inversion twice.
+        if kind == "bridge_pair" and path == "spike_events":
+            continue
+        errors.extend(check_spikes(events, f"{where}: {path}"))
+    for path, rc in walk_key(obj, "reward_components"):
+        rc_errs, rc_warns = check_reward(rc, f"{where}: {path}")
+        errors.extend(rc_errs)
+        warnings.extend(rc_warns)
+    return errors, warnings
+
+
+def _check_expected_state_provenance(obj, where, kind):
+    """Strict provenance: expected states missing or invalid sim_or_real."""
+    warnings = []
+    for path, state in expected_states(obj, kind):
+        if isinstance(state, dict) and "sim_or_real" not in state:
+            warnings.append(f"{where}: missing sim_or_real on {path}")
+        elif isinstance(state, dict):
+            value = state.get("sim_or_real")
+            # 'real' claims are owned by check_provenance_publish so a
+            # single violation is not reported twice with different wording.
+            if not claims_real(value) and value not in ALLOWED_SIM_OR_REAL:
+                warnings.append(f"{where}: non-training provenance {value!r} on {path}")
+    return warnings
+
+
+def _check_legacy_thought_steps(obj, where, kind):
+    if kind != "episode":
+        return []
+    warnings = []
+    steps = obj.get("steps")
+    for index, step in enumerate(steps if isinstance(steps, list) else ()):
+        if (
+            isinstance(step, dict)
+            and "thought" in step
+            and "decision_basis" not in step
+        ):
+            warnings.append(
+                f"{where}: step {index} uses legacy 'thought' without "
+                "observable decision_basis"
+            )
+    return warnings
+
+
 def check_record(obj, where, factory_staging=False):
     errors, warnings = [], []
     shape_errs, kind = shape_check(obj, where, factory_staging=factory_staging)
@@ -405,43 +454,15 @@ def check_record(obj, where, factory_staging=False):
         return errors, warnings, kind, record_id
 
     if isinstance(obj, dict):
-        for path, events in walk_key(obj, "spike_events"):
-            # The bridge shape validator checks its top-level stream with
-            # stricter event-shape rules. Keep this pass for nested streams,
-            # but do not report a top-level inversion twice.
-            if kind == "bridge_pair" and path == "spike_events":
-                continue
-            errors.extend(check_spikes(events, f"{where}: {path}"))
-        for path, rc in walk_key(obj, "reward_components"):
-            rc_errs, rc_warns = check_reward(rc, f"{where}: {path}")
-            errors.extend(rc_errs)
-            warnings.extend(rc_warns)
-        # Strict provenance: expected states missing or invalid
-        for path, state in expected_states(obj, kind):
-            if isinstance(state, dict) and "sim_or_real" not in state:
-                warnings.append(f"{where}: missing sim_or_real on {path}")
-            elif isinstance(state, dict):
-                value = state.get("sim_or_real")
-                # 'real' claims are owned by check_provenance_publish so a
-                # single violation is not reported twice with different wording.
-                if not claims_real(value) and value not in ALLOWED_SIM_OR_REAL:
-                    warnings.append(
-                        f"{where}: non-training provenance {value!r} on {path}"
-                    )
+        stream_errors, stream_warnings = _check_nested_spike_and_reward_streams(
+            obj, where, kind
+        )
+        errors.extend(stream_errors)
+        warnings.extend(stream_warnings)
+        warnings.extend(_check_expected_state_provenance(obj, where, kind))
         # Publish-time deep provenance scan — owns every nested 'real' claim
         errors.extend(check_provenance_publish(obj, where))
-        if kind == "episode":
-            steps = obj.get("steps")
-            for index, step in enumerate(steps if isinstance(steps, list) else ()):
-                if (
-                    isinstance(step, dict)
-                    and "thought" in step
-                    and "decision_basis" not in step
-                ):
-                    warnings.append(
-                        f"{where}: step {index} uses legacy 'thought' without "
-                        "observable decision_basis"
-                    )
+        warnings.extend(_check_legacy_thought_steps(obj, where, kind))
 
     record_id = canonical_record_id(obj)
     if record_id is None:

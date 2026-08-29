@@ -161,6 +161,17 @@ def _is_object(value):
     return isinstance(value, dict)
 
 
+def reject_json_constant(value):
+    """Reject Python's non-standard NaN/Infinity JSON extensions.
+
+    Pass as ``json.loads(text, parse_constant=reject_json_constant)`` in both
+    family readers so a record smuggling ``NaN``/``Infinity``/``-Infinity``
+    is treated as a parse error rather than silently accepted with a value
+    standards-compliant downstream JSON parsers cannot consume.
+    """
+    raise ValueError(f"non-standard JSON numeric constant {value}")
+
+
 def strict_json_equal(recorded, expected):
     """Compare JSON-shaped evidence without Python's bool/number coercions."""
     if type(recorded) is not type(expected):
@@ -461,6 +472,34 @@ def build_training_view(record, prompt, completion, execution_targets):
     }
 
 
+def _hardware_parity_execution_targets(oracle):
+    targets = []
+    for side_name in ("software", "deployment"):
+        side = oracle.get(side_name)
+        if side is None:
+            continue
+        if not isinstance(side, dict) or not _nonempty_str(side.get("execution_target")):
+            return None
+        targets.append(side["execution_target"])
+    return targets
+
+
+def _nir_equivalence_execution_targets(oracle):
+    runtimes = oracle.get("runtimes")
+    if not isinstance(runtimes, list):
+        return None
+    targets = []
+    for entry in runtimes:
+        if (
+            not isinstance(entry, dict)
+            or not _nonempty_str(entry.get("runtime"))
+            or not _nonempty_str(entry.get("status"))
+        ):
+            return None
+        targets.append(f"{entry['runtime']}:{entry['status']}")
+    return targets
+
+
 def _record_execution_targets(record):
     """Re-derive the exact target list copied into a training view."""
     oracle = record.get("oracle")
@@ -468,38 +507,14 @@ def _record_execution_targets(record):
         return None
     kind = record.get("record_kind")
     if kind == KIND_HARDWARE_PARITY:
-        targets = []
-        for side_name in ("software", "deployment"):
-            side = oracle.get(side_name)
-            if side is None:
-                continue
-            if not isinstance(side, dict) or not _nonempty_str(
-                side.get("execution_target")
-            ):
-                return None
-            targets.append(side["execution_target"])
-        return targets
+        return _hardware_parity_execution_targets(oracle)
     if kind == KIND_NIR_EQUIVALENCE:
-        runtimes = oracle.get("runtimes")
-        if not isinstance(runtimes, list):
-            return None
-        targets = []
-        for entry in runtimes:
-            if (
-                not isinstance(entry, dict)
-                or not _nonempty_str(entry.get("runtime"))
-                or not _nonempty_str(entry.get("status"))
-            ):
-                return None
-            targets.append(f"{entry['runtime']}:{entry['status']}")
-        return targets
+        return _nir_equivalence_execution_targets(oracle)
     return None
 
 
-def training_view_errors(record, view, where):
-    """Reject a training view that softens, drops, or relabels a failure."""
-    if not _is_object(view):
-        return [f"{where}: training view must be an object [TRAINING_VIEW_HIDES_FAILURE]"]
+def _check_view_identity(record, view, where):
+    """The view's key set and its identity/verdict fields must mirror the record."""
     errors = []
     missing = [key for key in TRAINING_VIEW_KEYS if key not in view]
     if missing:
@@ -525,6 +540,13 @@ def training_view_errors(record, view, where):
             f"{where}: training view parity_failed must be {expected_failed} for verdict "
             f"{verdict!r} [TRAINING_VIEW_HIDES_FAILURE]"
         )
+    return errors
+
+
+def _check_view_reason_codes(record, view, where):
+    """Both sides' reason_codes must be well-formed and exactly match."""
+    errors = []
+    result = record.get("result") or {}
     raw_record_codes = result.get("reason_codes")
     record_codes = (
         [code for code in raw_record_codes if isinstance(code, str)]
@@ -571,6 +593,12 @@ def training_view_errors(record, view, where):
             "ordered reason_codes, with no additions, omissions, or reordering "
             f"[TRAINING_VIEW_HIDES_FAILURE]"
         )
+    return errors
+
+
+def _check_view_provenance(record, view, where):
+    """oracle_backed, execution_targets, and evidence_digests must all check out."""
+    errors = []
     if view.get("oracle_backed") is not True:
         errors.append(
             f"{where}: training view must stay oracle-backed [RESULT_NOT_ORACLE_BACKED]"
@@ -587,12 +615,23 @@ def training_view_errors(record, view, where):
             f"validator-derived targets {expected_targets!r} "
             f"[TRAINING_VIEW_HIDES_FAILURE]"
         )
+    result = record.get("result") or {}
     expected_digests = result.get("derived_from")
     if not strict_json_equal(view.get("evidence_digests"), expected_digests):
         errors.append(
             f"{where}: training view evidence_digests must exactly match "
             "result.derived_from [RESULT_DIGEST_UNLINKED]"
         )
+    return errors
+
+
+def training_view_errors(record, view, where):
+    """Reject a training view that softens, drops, or relabels a failure."""
+    if not _is_object(view):
+        return [f"{where}: training view must be an object [TRAINING_VIEW_HIDES_FAILURE]"]
+    errors = _check_view_identity(record, view, where)
+    errors += _check_view_reason_codes(record, view, where)
+    errors += _check_view_provenance(record, view, where)
     return errors
 
 
@@ -613,8 +652,17 @@ def view_set_errors(records, views, where="training-view"):
             f"{where}: training view set contains invalid non-string view IDs "
             f"{invalid_view_ids!r} [TRAINING_VIEW_HIDES_FAILURE]"
         )
+    invalid_record_ids = [rid for rid in record_ids if not isinstance(rid, str)]
+    if invalid_record_ids:
+        errors.append(
+            f"{where}: source record set contains invalid non-string IDs "
+            f"{invalid_record_ids!r} [TRAINING_VIEW_HIDES_FAILURE]"
+        )
     view_id_counts = Counter(vid for vid in view_ids if isinstance(vid, str))
-    dropped = [rid for rid in record_ids if rid not in view_id_counts]
+    # Only string record IDs are hashable-safe to check against view_id_counts;
+    # a malformed ID (e.g. a list) is already reported above and must not
+    # reach `in` on a dict, which raises TypeError for unhashable keys.
+    dropped = [rid for rid in record_ids if isinstance(rid, str) and rid not in view_id_counts]
     if dropped:
         errors.append(
             f"{where}: training view set drops records {dropped} "

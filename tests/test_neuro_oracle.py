@@ -362,6 +362,25 @@ class RecordedCapture(unittest.TestCase):
             adapter = oracle.RecordedCaptureAdapter(path)
             self.assertEqual(adapter.availability()["reason_code"], "CAPTURE_UNREADABLE")
 
+    def test_capture_with_non_finite_constant_is_unreadable(self):
+        # A separate, more permissive decode than the JSONL reader path; a
+        # NaN/Infinity anywhere outside `payload` must not reach digest()
+        # and raise an uncaught ValueError.
+        with tempfile.TemporaryDirectory() as tmp:
+            path = self._capture(tmp, hardware={"revision": float("nan")})
+            self.assertEqual(
+                oracle.RecordedCaptureAdapter(path).availability()["reason_code"],
+                "CAPTURE_UNREADABLE",
+            )
+
+    def test_non_object_manifest_is_refused(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = self._capture(tmp, manifest=["x"])
+            adapter = oracle.RecordedCaptureAdapter(path)
+            with self.assertRaises(oracle.OracleUnavailable) as caught:
+                adapter.run(_model(), _stimulus())
+            self.assertEqual(caught.exception.reason_code, "CAPTURE_UNREADABLE")
+
     def test_capture_path_that_is_a_directory_is_refused(self):
         with tempfile.TemporaryDirectory() as tmp:
             adapter = oracle.RecordedCaptureAdapter(tmp)

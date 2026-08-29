@@ -106,9 +106,11 @@ as proof that it did.
 ```bash
 python3 pipelines/neuro_oracle.py                           # which oracles can run here
 python3 pipelines/hardware_parity.py availability
-python3 pipelines/hardware_parity.py generate outputs/raw/<date> --round 1
+python3 pipelines/hardware_parity.py generate outputs/staging/<date> --round 1
 python3 pipelines/nir_equivalence.py availability
-python3 pipelines/nir_equivalence.py generate outputs/raw/<date> --round 1
+python3 pipelines/nir_equivalence.py generate outputs/staging/<date> --round 1
+# promote the staged round into outputs/raw/ via pipelines/round_txn.py
+# (outputs/raw/ itself is immutable committed evidence — never a generate target)
 ```
 
 Both route through `census.py`, `validate_run.py`, and `check_records.py` like

@@ -1889,32 +1889,9 @@ def _reexecute_in_repo_runtimes(record, where):
     return errors
 
 
-def _validate_record(record, where):
-    oracle = record.get("oracle") if isinstance(record, dict) else None
-    lineage = None
-    if isinstance(oracle, dict) and isinstance(oracle.get("runtimes"), list):
-        lineage = _evidence_lineage(oracle["runtimes"])
-    errors = contract.check_envelope(record, where, oracle_digests=lineage)
-    if not isinstance(record, dict) or record.get("record_kind") != RECORD_KIND:
-        return errors
-    # A truthy non-dict `oracle` would sail past every `(x or {}).get(...)`
-    # below and raise deep inside the comparison, so stop it here.
-    if not isinstance(oracle, dict):
-        return errors + [f"{where}: oracle must be an object [ENVELOPE_MALFORMED]"]
-    errors += _check_runtimes(record, where)
-    result = record.get("result")
-    if isinstance(result, dict) and lineage is not None:
-        recorded_lineage = result.get("derived_from")
-        if not _strict_json_equal(recorded_lineage, lineage):
-            errors.append(
-                f"{where}: result.derived_from must exactly match the rederived "
-                "ordered runtime lineage, including duplicate occurrences "
-                "[RESULT_DIGEST_UNLINKED]"
-            )
-
-    scenario = record.get("scenario") or {}
-    if not isinstance(scenario, dict):
-        return errors + [f"{where}: scenario must be an object [ENVELOPE_MALFORMED]"]
+def _check_envelope_identity(record, scenario, where):
+    """id/meta/generator/provenance/validation must match their canonical values."""
+    errors = []
     meta = record.get("meta")
     round_number = meta.get("round") if isinstance(meta, dict) else None
     scenario_id = scenario.get("id")
@@ -1988,137 +1965,197 @@ def _validate_record(record, where):
                 f"{where}: provenance.scenario_sha256 does not identify the recorded "
                 "graph and stimulus [STRUCTURE_DIGEST_MISMATCH]"
             )
-    graph = scenario.get("graph")
+    return errors
+
+
+def _check_graph_structure(record, scenario, graph, where):
+    """Re-derive structure/graph digests and bind the scenario to its catalog entry.
+
+    Returns ``(errors, graph_shape_valid)``; the caller must not attempt
+    re-execution when ``graph_shape_valid`` is false.
+    """
+    errors = []
     graph_shape_valid = False
-    if isinstance(graph, dict):
-        try:
-            fresh_graph_sha256 = digest(graph)
-        except CANONICAL_DATA_ERRORS as exc:
-            errors.append(
-                f"{where}: scenario.graph is not canonical JSON: {exc} "
-                "[ENVELOPE_MALFORMED]"
-            )
-            fresh_graph_sha256 = None
-        try:
-            fresh_structure_digest = structural_digest(graph)
-        except (
-            GraphError,
-            TypeError,
-            ValueError,
-            OverflowError,
-            RecursionError,
-            UnicodeEncodeError,
-        ) as exc:
-            errors.append(f"{where}: malformed scenario.graph: {exc} [ENVELOPE_MALFORMED]")
-            fresh_structure_digest = None
-        else:
-            graph_shape_valid = True
-        if (
-            fresh_structure_digest is not None
-            and scenario.get("structure_digest") != fresh_structure_digest
-        ):
-            errors.append(
-                f"{where}: scenario.structure_digest does not match the recorded graph "
-                "[STRUCTURE_DIGEST_MISMATCH]"
-            )
-        if (
-            fresh_graph_sha256 is not None
-            and scenario.get("graph_sha256") != fresh_graph_sha256
-        ):
-            errors.append(
-                f"{where}: scenario.graph_sha256 does not match the recorded graph "
-                "[STRUCTURE_DIGEST_MISMATCH]"
-            )
-        catalog_entry = _catalog_entry(scenario.get("id"))
-        if catalog_entry is None:
-            errors.append(
-                f"{where}: scenario.id {scenario.get('id')!r} is not in the validated "
-                "graph catalog [STRUCTURE_DIGEST_MISMATCH]"
-            )
-        else:
-            if fresh_graph_sha256 != catalog_entry["graph_sha256"]:
-                errors.append(
-                    f"{where}: scenario.graph does not match the validated catalog "
-                    f"digest for {scenario.get('id')!r} [STRUCTURE_DIGEST_MISMATCH]"
-                )
-            for key in ("name", "family", "class", "description"):
-                if not _strict_json_equal(scenario.get(key), catalog_entry[key]):
-                    errors.append(
-                        f"{where}: scenario.{key} {scenario.get(key)!r} does not match "
-                        f"the validated graph catalog value {catalog_entry[key]!r} for "
-                        f"{scenario.get('id')!r} [COMPARISON_MISMATCH]"
-                    )
-            if not _strict_json_equal(
-                record.get("intervention"), catalog_entry["intervention"]
-            ):
-                errors.append(
-                    f"{where}: intervention does not match the validated graph catalog "
-                    f"for {scenario.get('id')!r} [COMPARISON_MISMATCH]"
-                )
-            prediction = record.get("candidate_prediction")
-            if isinstance(prediction, dict):
-                expected_prediction = {
-                    "hypothesis": catalog_entry["hypothesis"],
-                    "expected_verdict": _expected_verdict(catalog_entry["class"]),
-                }
-                for key, expected in expected_prediction.items():
-                    if not _strict_json_equal(prediction.get(key), expected):
-                        errors.append(
-                            f"{where}: candidate_prediction.{key} does not match the "
-                            f"validated graph catalog for {scenario.get('id')!r} "
-                            "[COMPARISON_MISMATCH]"
-                        )
-    else:
-        errors.append(f"{where}: scenario.graph must be an object [ENVELOPE_MALFORMED]")
-    stimulus = scenario.get("stimulus")
-    stimulus_errors = _check_stimulus_shape(stimulus, where)
-    errors += stimulus_errors
-    stimulus_shape_valid = not stimulus_errors
-    if stimulus_shape_valid:
-        expected_stimulus = _catalog_stimulus(
-            scenario.get("id"), stimulus.get("steps")
+    if not isinstance(graph, dict):
+        return (
+            [f"{where}: scenario.graph must be an object [ENVELOPE_MALFORMED]"],
+            graph_shape_valid,
         )
-        if expected_stimulus is None or not _strict_json_equal(
-            stimulus, expected_stimulus
-        ):
+    try:
+        fresh_graph_sha256 = digest(graph)
+    except CANONICAL_DATA_ERRORS as exc:
+        errors.append(
+            f"{where}: scenario.graph is not canonical JSON: {exc} "
+            "[ENVELOPE_MALFORMED]"
+        )
+        fresh_graph_sha256 = None
+    try:
+        fresh_structure_digest = structural_digest(graph)
+    except (
+        GraphError,
+        TypeError,
+        ValueError,
+        OverflowError,
+        RecursionError,
+        UnicodeEncodeError,
+    ) as exc:
+        errors.append(f"{where}: malformed scenario.graph: {exc} [ENVELOPE_MALFORMED]")
+        fresh_structure_digest = None
+    else:
+        graph_shape_valid = True
+    if (
+        fresh_structure_digest is not None
+        and scenario.get("structure_digest") != fresh_structure_digest
+    ):
+        errors.append(
+            f"{where}: scenario.structure_digest does not match the recorded graph "
+            "[STRUCTURE_DIGEST_MISMATCH]"
+        )
+    if (
+        fresh_graph_sha256 is not None
+        and scenario.get("graph_sha256") != fresh_graph_sha256
+    ):
+        errors.append(
+            f"{where}: scenario.graph_sha256 does not match the recorded graph "
+            "[STRUCTURE_DIGEST_MISMATCH]"
+        )
+    catalog_entry = _catalog_entry(scenario.get("id"))
+    if catalog_entry is None:
+        errors.append(
+            f"{where}: scenario.id {scenario.get('id')!r} is not in the validated "
+            "graph catalog [STRUCTURE_DIGEST_MISMATCH]"
+        )
+        return errors, graph_shape_valid
+    if fresh_graph_sha256 != catalog_entry["graph_sha256"]:
+        errors.append(
+            f"{where}: scenario.graph does not match the validated catalog "
+            f"digest for {scenario.get('id')!r} [STRUCTURE_DIGEST_MISMATCH]"
+        )
+    for key in ("name", "family", "class", "description"):
+        if not _strict_json_equal(scenario.get(key), catalog_entry[key]):
             errors.append(
-                f"{where}: scenario.stimulus does not match the complete validated "
-                f"catalog stimulus for {scenario.get('id')!r} "
-                "[INPUT_FIXTURE_MISMATCH]"
+                f"{where}: scenario.{key} {scenario.get(key)!r} does not match "
+                f"the validated graph catalog value {catalog_entry[key]!r} for "
+                f"{scenario.get('id')!r} [COMPARISON_MISMATCH]"
             )
-        fixture = scenario.get("input_fixture") or {}
-        oracle_fixture = oracle.get("input_fixture") or {}
-        recomputed_fixture = digest(stimulus["events"])
-        expected_fixture = {
-            "name": stimulus["name"],
-            "steps": stimulus["steps"],
-            "channels": stimulus["channels"],
-            "sha256": recomputed_fixture,
+    if not _strict_json_equal(record.get("intervention"), catalog_entry["intervention"]):
+        errors.append(
+            f"{where}: intervention does not match the validated graph catalog "
+            f"for {scenario.get('id')!r} [COMPARISON_MISMATCH]"
+        )
+    prediction = record.get("candidate_prediction")
+    if isinstance(prediction, dict):
+        expected_prediction = {
+            "hypothesis": catalog_entry["hypothesis"],
+            "expected_verdict": _expected_verdict(catalog_entry["class"]),
         }
-        if not _strict_json_equal(fixture, expected_fixture):
-            errors.append(
-                f"{where}: scenario.input_fixture does not exactly describe the "
-                "recorded stimulus [INPUT_FIXTURE_MISMATCH]"
-            )
-        if not _strict_json_equal(oracle_fixture, expected_fixture):
-            errors.append(
-                f"{where}: oracle.input_fixture does not exactly describe the executed "
-                "stimulus [INPUT_FIXTURE_MISMATCH]"
-            )
-        if oracle.get("identical_input_fixture") is not True:
-            errors.append(
-                f"{where}: oracle.identical_input_fixture must be exactly true "
-                "[INPUT_FIXTURE_MISMATCH]"
-            )
+        for key, expected in expected_prediction.items():
+            if not _strict_json_equal(prediction.get(key), expected):
+                errors.append(
+                    f"{where}: candidate_prediction.{key} does not match the "
+                    f"validated graph catalog for {scenario.get('id')!r} "
+                    "[COMPARISON_MISMATCH]"
+                )
+    return errors, graph_shape_valid
+
+
+def _check_stimulus_and_fixture(scenario, oracle, where):
+    """Bind the stimulus and both input-fixture digests to the validated catalog.
+
+    Returns ``(errors, stimulus_shape_valid)``; the caller must not attempt
+    re-execution when ``stimulus_shape_valid`` is false.
+    """
+    stimulus = scenario.get("stimulus")
+    errors = _check_stimulus_shape(stimulus, where)
+    stimulus_shape_valid = not errors
+    if not stimulus_shape_valid:
+        return errors, stimulus_shape_valid
+    expected_stimulus = _catalog_stimulus(scenario.get("id"), stimulus.get("steps"))
+    if expected_stimulus is None or not _strict_json_equal(stimulus, expected_stimulus):
+        errors.append(
+            f"{where}: scenario.stimulus does not match the complete validated "
+            f"catalog stimulus for {scenario.get('id')!r} "
+            "[INPUT_FIXTURE_MISMATCH]"
+        )
+    fixture = scenario.get("input_fixture") or {}
+    oracle_fixture = oracle.get("input_fixture") or {}
+    recomputed_fixture = digest(stimulus["events"])
+    expected_fixture = {
+        "name": stimulus["name"],
+        "steps": stimulus["steps"],
+        "channels": stimulus["channels"],
+        "sha256": recomputed_fixture,
+    }
+    if not _strict_json_equal(fixture, expected_fixture):
+        errors.append(
+            f"{where}: scenario.input_fixture does not exactly describe the "
+            "recorded stimulus [INPUT_FIXTURE_MISMATCH]"
+        )
+    if not _strict_json_equal(oracle_fixture, expected_fixture):
+        errors.append(
+            f"{where}: oracle.input_fixture does not exactly describe the executed "
+            "stimulus [INPUT_FIXTURE_MISMATCH]"
+        )
+    if oracle.get("identical_input_fixture") is not True:
+        errors.append(
+            f"{where}: oracle.identical_input_fixture must be exactly true "
+            "[INPUT_FIXTURE_MISMATCH]"
+        )
+    return errors, stimulus_shape_valid
+
+
+def _check_evidence_scope_field(oracle, where):
     recorded_runtimes = oracle.get("runtimes")
     runtimes = recorded_runtimes if isinstance(recorded_runtimes, list) else []
     if oracle.get("evidence_scope") != _evidence_scope(
         [entry for entry in runtimes if isinstance(entry, dict)]
     ):
-        errors.append(
+        return [
             f"{where}: oracle.evidence_scope does not describe the runtimes that "
             "actually executed [COMPARISON_MISMATCH]"
-        )
+        ]
+    return []
+
+
+def _validate_record(record, where):
+    oracle = record.get("oracle") if isinstance(record, dict) else None
+    lineage = None
+    if isinstance(oracle, dict) and isinstance(oracle.get("runtimes"), list):
+        lineage = _evidence_lineage(oracle["runtimes"])
+    errors = contract.check_envelope(record, where, oracle_digests=lineage)
+    if not isinstance(record, dict) or record.get("record_kind") != RECORD_KIND:
+        return errors
+    # A truthy non-dict `oracle` would sail past every `(x or {}).get(...)`
+    # below and raise deep inside the comparison, so stop it here.
+    if not isinstance(oracle, dict):
+        return errors + [f"{where}: oracle must be an object [ENVELOPE_MALFORMED]"]
+    errors += _check_runtimes(record, where)
+    result = record.get("result")
+    if isinstance(result, dict) and lineage is not None:
+        recorded_lineage = result.get("derived_from")
+        if not _strict_json_equal(recorded_lineage, lineage):
+            errors.append(
+                f"{where}: result.derived_from must exactly match the rederived "
+                "ordered runtime lineage, including duplicate occurrences "
+                "[RESULT_DIGEST_UNLINKED]"
+            )
+
+    scenario = record.get("scenario") or {}
+    if not isinstance(scenario, dict):
+        return errors + [f"{where}: scenario must be an object [ENVELOPE_MALFORMED]"]
+
+    errors += _check_envelope_identity(record, scenario, where)
+
+    graph = scenario.get("graph")
+    graph_errors, graph_shape_valid = _check_graph_structure(record, scenario, graph, where)
+    errors += graph_errors
+
+    stimulus_errors, stimulus_shape_valid = _check_stimulus_and_fixture(
+        scenario, oracle, where
+    )
+    errors += stimulus_errors
+
+    errors += _check_evidence_scope_field(oracle, where)
 
     if not graph_shape_valid or not stimulus_shape_valid:
         return errors
@@ -2301,8 +2338,8 @@ def read_jsonl(path):
         if not line.strip():
             continue
         try:
-            records.append(json.loads(line))
-        except json.JSONDecodeError as exc:
+            records.append(json.loads(line, parse_constant=contract.reject_json_constant))
+        except (json.JSONDecodeError, ValueError) as exc:
             errors.append(f"{Path(path).name}:{lineno}: JSON parse error: {exc}")
     return records, errors
 

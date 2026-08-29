@@ -52,6 +52,7 @@ from neuro_oracle import (  # noqa: E402
     Q88_MAX_RAW,
     Q88_MIN_RAW,
     Q88_STEP,
+    REFERENCE_DETERMINISM_MEANING,
     TARGET_FIXED_POINT_MODEL,
     TARGET_FPGA_HARDWARE,
     FixedPointReferenceAdapter,
@@ -484,6 +485,9 @@ def timing_metrics(software, hardware, dt_ms):
     }
 
 
+MEMBRANE_UNITS = "mV_model"
+
+
 def membrane_metrics(software_membrane, hardware_membrane):
     """Membrane error where both sides expose an observable trace."""
     soft = (software_membrane or {}).get("trace")
@@ -495,6 +499,20 @@ def membrane_metrics(software_membrane, hardware_membrane):
             "observable": False,
             "reason_code": "MEMBRANE_DIVERGENCE",
             "reason": "at least one side does not expose membrane state",
+        }
+    if (
+        (software_membrane or {}).get("units") != MEMBRANE_UNITS
+        or (hardware_membrane or {}).get("units") != MEMBRANE_UNITS
+    ):
+        # A recorded capture is untrusted input and may label its observable
+        # trace with another unit (or omit it). Comparing numeric values
+        # across units would produce a numerically valid but dimensionally
+        # meaningless error, so treat a unit mismatch the same as a missing
+        # trace rather than silently comparing raw numbers.
+        return {
+            "observable": False,
+            "reason_code": "MEMBRANE_DIVERGENCE",
+            "reason": f"both membrane traces must be {MEMBRANE_UNITS!r} units",
         }
     if (
         not _rectangular(soft)
@@ -512,7 +530,7 @@ def membrane_metrics(software_membrane, hardware_membrane):
     diffs = [abs(a - b) for row_a, row_b in zip(soft, hard) for a, b in zip(row_a, row_b)]
     return {
         "observable": True,
-        "units": "mV_model",
+        "units": MEMBRANE_UNITS,
         "samples": len(diffs),
         "max_abs_error": max(diffs) if diffs else 0.0,
         "mean_abs_error": (sum(diffs) / len(diffs)) if diffs else 0.0,
@@ -817,11 +835,15 @@ def build_record(scenario, software_run, deployment_run, unavailable, round_numb
     oracle["software"] = _slim_run(software_run)
     oracle["deployment"] = _slim_run(deployment_run)
     parity, verdict, reason_codes = compute_parity(scenario, software_run, deployment_run)
+    derived_from = [software_run["output_digest"], deployment_run["output_digest"]]
+    capture_digest = _capture_evidence_digest(deployment_run)
+    if capture_digest is not None:
+        derived_from.append(capture_digest)
     record["result"] = {
         "oracle_backed": True,
         "verdict": verdict,
         "reason_codes": reason_codes,
-        "derived_from": [software_run["output_digest"], deployment_run["output_digest"]],
+        "derived_from": derived_from,
         "parity": parity,
         "summary": _summarize(scenario, parity, verdict, deployment_run),
     }
@@ -866,6 +888,31 @@ def _unavailable_evidence_digest(unavailable):
         {
             "evidence_kind": "deployment_unavailable_diagnostic",
             "diagnostic": unavailable,
+        }
+    )
+
+
+def _capture_evidence_digest(deployment_run):
+    """Fingerprint a physical capture's provenance for the lineage list.
+
+    ``deployment_run["output_digest"]`` covers only the behavioural outcome
+    (spikes/events/membrane/action/arithmetic). Two captures with identical
+    behaviour but different board identity, bitstream, or capture source
+    would otherwise collapse to the same ``result.derived_from`` lineage.
+    Returns ``None`` for a non-physical (e.g. fixed-point model) deployment,
+    which has no capture envelope to fingerprint.
+    """
+    capture = deployment_run.get("capture") if isinstance(deployment_run, dict) else None
+    if not isinstance(capture, dict):
+        return None
+    return digest(
+        {
+            "evidence_kind": "capture_physical_provenance",
+            "hardware": deployment_run.get("hardware"),
+            "bitstream": deployment_run.get("bitstream"),
+            "capture_manifest_sha256": capture.get("manifest_sha256"),
+            "capture_source_sha256": capture.get("source_sha256"),
+            "latency": deployment_run.get("latency"),
         }
     )
 
@@ -921,75 +968,81 @@ REQUIRED_HARDWARE_FIELDS = (
 )
 
 
-def _metrics_equal(recorded, recomputed, path, where):
-    """Deep-compare a recorded metric block against a recomputed one."""
+def _metric_mismatch(path, where, recorded, recomputed):
+    """The one mismatch message shared by every scalar branch below."""
+    return (
+        f"{where}: {path} recorded {recorded!r} but traces give {recomputed!r} "
+        "[PARITY_METRIC_MISMATCH]"
+    )
+
+
+def _metrics_equal_dict(recorded, recomputed, path, where):
+    if not isinstance(recorded, dict):
+        return [f"{where}: {path} must be an object [PARITY_METRIC_MISMATCH]"]
+    errors = [
+        f"{where}: {path}.{key} is unexpected [PARITY_METRIC_MISMATCH]"
+        for key in recorded.keys() - recomputed.keys()
+    ]
+    for key, value in recomputed.items():
+        if key not in recorded:
+            errors.append(f"{where}: {path}.{key} is missing [PARITY_METRIC_MISMATCH]")
+            continue
+        errors += _metrics_equal(recorded[key], value, f"{path}.{key}", where)
+    return errors
+
+
+def _metrics_equal_list(recorded, recomputed, path, where):
+    if not isinstance(recorded, list):
+        return [f"{where}: {path} must be an array [PARITY_METRIC_MISMATCH]"]
     errors = []
-    if isinstance(recomputed, dict):
-        if not isinstance(recorded, dict):
-            return [f"{where}: {path} must be an object [PARITY_METRIC_MISMATCH]"]
-        for key in recorded.keys() - recomputed.keys():
-            errors.append(
-                f"{where}: {path}.{key} is unexpected [PARITY_METRIC_MISMATCH]"
-            )
-        for key, value in recomputed.items():
-            if key not in recorded:
-                errors.append(
-                    f"{where}: {path}.{key} is missing [PARITY_METRIC_MISMATCH]"
-                )
-                continue
-            errors += _metrics_equal(recorded[key], value, f"{path}.{key}", where)
-        return errors
-    if isinstance(recomputed, list):
-        if not isinstance(recorded, list):
-            return [f"{where}: {path} must be an array [PARITY_METRIC_MISMATCH]"]
-        if len(recorded) != len(recomputed):
-            errors.append(
-                f"{where}: {path} has {len(recorded)} items but traces give "
-                f"{len(recomputed)} [PARITY_METRIC_MISMATCH]"
-            )
-        for index, (left, right) in enumerate(zip(recorded, recomputed)):
-            errors += _metrics_equal(left, right, f"{path}[{index}]", where)
-        return errors
+    if len(recorded) != len(recomputed):
+        errors.append(
+            f"{where}: {path} has {len(recorded)} items but traces give "
+            f"{len(recomputed)} [PARITY_METRIC_MISMATCH]"
+        )
+    for index, (left, right) in enumerate(zip(recorded, recomputed)):
+        errors += _metrics_equal(left, right, f"{path}[{index}]", where)
+    return errors
+
+
+def _metrics_equal_scalar(recorded, recomputed, path, where):
     # JSON numbers still arrive as distinct Python integer and float values,
     # while `bool` is a subclass of `int`. Keep those types exact and reject
     # non-finite floats before applying a tolerance; otherwise True can stand
     # in for 1 and NaN compares equal to every finite metric here.
     if isinstance(recomputed, bool):
         if not isinstance(recorded, bool) or recorded is not recomputed:
-            errors.append(
-                f"{where}: {path} recorded {recorded!r} but traces give {recomputed!r} "
-                "[PARITY_METRIC_MISMATCH]"
-            )
-        return errors
+            return [_metric_mismatch(path, where, recorded, recomputed)]
+        return []
     if isinstance(recomputed, int):
         if (
             not isinstance(recorded, int)
             or isinstance(recorded, bool)
             or recorded != recomputed
         ):
-            errors.append(
-                f"{where}: {path} recorded {recorded!r} but traces give {recomputed!r} "
-                "[PARITY_METRIC_MISMATCH]"
-            )
-        return errors
+            return [_metric_mismatch(path, where, recorded, recomputed)]
+        return []
     if isinstance(recomputed, float):
         if not isinstance(recorded, float) or not math.isfinite(recorded):
-            errors.append(
+            return [
                 f"{where}: {path} must be a finite float matching {recomputed!r}, got "
                 f"{recorded!r} [PARITY_METRIC_MISMATCH]"
-            )
-        elif not math.isfinite(recomputed) or abs(recorded - recomputed) > METRIC_TOL:
-            errors.append(
-                f"{where}: {path} recorded {recorded!r} but traces give {recomputed!r} "
-                "[PARITY_METRIC_MISMATCH]"
-            )
-        return errors
+            ]
+        if not math.isfinite(recomputed) or abs(recorded - recomputed) > METRIC_TOL:
+            return [_metric_mismatch(path, where, recorded, recomputed)]
+        return []
     if recorded != recomputed:
-        errors.append(
-            f"{where}: {path} recorded {recorded!r} but traces give {recomputed!r} "
-            "[PARITY_METRIC_MISMATCH]"
-        )
-    return errors
+        return [_metric_mismatch(path, where, recorded, recomputed)]
+    return []
+
+
+def _metrics_equal(recorded, recomputed, path, where):
+    """Deep-compare a recorded metric block against a recomputed one."""
+    if isinstance(recomputed, dict):
+        return _metrics_equal_dict(recorded, recomputed, path, where)
+    if isinstance(recomputed, list):
+        return _metrics_equal_list(recorded, recomputed, path, where)
+    return _metrics_equal_scalar(recorded, recomputed, path, where)
 
 
 def _check_input_fixture(record, where):
@@ -1050,6 +1103,17 @@ def _check_catalog_scenario(record, where):
     if not isinstance(steps, int) or isinstance(steps, bool) or steps < 1:
         return [
             f"{where}: scenario.stimulus.steps must be a positive integer before "
+            f"scenario {scenario_id!r} can be bound to the catalog "
+            "[SCENARIO_LABEL_MISMATCH]"
+        ]
+    events = stimulus.get("events") if isinstance(stimulus, dict) else None
+    if not isinstance(events, list) or steps != len(events):
+        # A record-declared `steps` this far out of line with its own event
+        # grid is already invalid; bind it to trusted evidence (the actual
+        # event count) before using it as an allocation bound below, rather
+        # than letting an untrusted huge integer reach build_scenario().
+        return [
+            f"{where}: scenario.stimulus.steps disagrees with the event grid before "
             f"scenario {scenario_id!r} can be bound to the catalog "
             "[SCENARIO_LABEL_MISMATCH]"
         ]
@@ -1207,12 +1271,24 @@ def _check_fpga_environment(record, where):
                 "[ENVELOPE_MALFORMED]"
             )
     current = availability_report().get("spikenaut_fpga")
+    current_available = isinstance(current, dict) and current.get("available") is True
+    if recorded.get("available") is True and not current_available:
+        # FpgaHardwareAdapter.run() always raises regardless of what
+        # availability() reports, so no adapter code path in this repository
+        # can produce a truthful ``available: true`` probe today. Unlike
+        # reason_code/detail (which legitimately drift with the generating
+        # host's environment and are intentionally not re-checked above),
+        # a bare ``true`` is never intact evidence to preserve.
+        errors.append(
+            f"{where}: oracle.environment.fpga_hardware.available is true but no "
+            "current adapter probe corroborates it [ORACLE_UNAVAILABLE]"
+        )
     deployment = oracle.get("deployment")
     if (
         isinstance(deployment, dict)
         and deployment.get("adapter") == FpgaHardwareAdapter.name
         and deployment.get("runtime_class") == FpgaHardwareAdapter.runtime_class
-        and (not isinstance(current, dict) or current.get("available") is not True)
+        and not current_available
     ):
         errors.append(
             f"{where}: a live {FpgaHardwareAdapter.name!r} deployment requires the "
@@ -1530,7 +1606,7 @@ def _check_capture_chain(record, deployment, where):
     manifest_recorded_at = manifest.get("recorded_at")
     if (
         not isinstance(recorded_at, str)
-        or not recorded_at
+        or not recorded_at.strip()
         or recorded_at != manifest_recorded_at
     ):
         errors.append(
@@ -2026,12 +2102,18 @@ def _reexecute_reference_sides(record, where):
     return errors
 
 
-def _check_determinism(run, label, where, require_rederived_repeats=False):
+def _check_determinism(
+    run, label, where, require_rederived_repeats=False, expected_meaning=None
+):
     """Cross-check a declared determinism block against its own repeat digests.
 
     ``determinism`` is a claim; ``repeat_digests`` is the evidence for it.
     Without this, a record could assert perfect repeatability over digests
-    that plainly disagree.
+    that plainly disagree. When ``expected_meaning`` is given, the recorded
+    ``determinism.meaning`` text must match it exactly, so a side that can
+    only ever be a reference adapter (the software side is never a physical
+    capture) cannot claim its bit-determinism is instead measured hardware
+    variability.
     """
     errors = []
     digests = run.get("repeat_digests")
@@ -2068,7 +2150,11 @@ def _check_determinism(run, label, where, require_rederived_repeats=False):
             f"{where}: oracle.{label}.output_digest is absent from its own "
             "repeat_digests [REPEATABILITY_UNPROVEN]"
         )
-    if require_rederived_repeats and valid_repeats:
+    if require_rederived_repeats and valid_repeats and repeats == len(digests):
+        # The `repeats == len(digests)` guard binds the multiplication bound
+        # to the trusted evidence (the actual digest list length) already
+        # checked above, rather than an untrusted `repeats` integer that
+        # could otherwise reach this allocation on its own when it disagrees.
         expected = [run.get("output_digest")] * repeats
         if digests != expected:
             errors.append(
@@ -2092,6 +2178,11 @@ def _check_determinism(run, label, where, require_rederived_repeats=False):
             f"{where}: oracle.{label}.determinism.identical_repeats disagrees with its "
             "own repeat digests [REPEATABILITY_UNPROVEN]"
         )
+    if expected_meaning is not None and determinism.get("meaning") != expected_meaning:
+        errors.append(
+            f"{where}: oracle.{label}.determinism.meaning does not match the "
+            "canonical reference-adapter text [REPEATABILITY_UNPROVEN]"
+        )
     return errors
 
 
@@ -2112,6 +2203,13 @@ def _validate_record(record, where):
                     digests.append(_unavailable_evidence_digest(unavailable[0]))
                 except (TypeError, ValueError, OverflowError):
                     pass
+        else:
+            try:
+                capture_digest = _capture_evidence_digest(oracle.get("deployment"))
+            except (TypeError, ValueError, OverflowError):
+                capture_digest = None
+            if capture_digest is not None:
+                digests.append(capture_digest)
     errors = contract.check_envelope(record, where, oracle_digests=digests)
     if not isinstance(record, dict) or record.get("record_kind") != RECORD_KIND:
         return errors
@@ -2164,7 +2262,11 @@ def _validate_record(record, where):
             return errors
         errors += _reexecute_reference_sides(record, where)
         errors += _check_determinism(
-            software, "software", where, require_rederived_repeats=True
+            software,
+            "software",
+            where,
+            require_rederived_repeats=True,
+            expected_meaning=REFERENCE_DETERMINISM_MEANING,
         )
         if result.get("verdict") != contract.VERDICT_INCONCLUSIVE:
             errors.append(
@@ -2201,7 +2303,11 @@ def _validate_record(record, where):
     errors += _check_quantization(record, where)
     errors += _reexecute_reference_sides(record, where)
     errors += _check_determinism(
-        software, "software", where, require_rederived_repeats=True
+        software,
+        "software",
+        where,
+        require_rederived_repeats=True,
+        expected_meaning=REFERENCE_DETERMINISM_MEANING,
     )
     errors += _check_determinism(
         deployment,
@@ -2363,8 +2469,8 @@ def read_jsonl(path):
         if not line.strip():
             continue
         try:
-            records.append(json.loads(line))
-        except json.JSONDecodeError as exc:
+            records.append(json.loads(line, parse_constant=contract.reject_json_constant))
+        except (json.JSONDecodeError, ValueError) as exc:
             errors.append(f"{Path(path).name}:{lineno}: JSON parse error: {exc}")
     return records, errors
 
