@@ -1543,6 +1543,184 @@ def _physical_observation_errors(observation, scenario, path, where):
     return errors
 
 
+def _repeat_projection(observation):
+    """The comparable half of a retained observation, or None if malformed."""
+    if not isinstance(observation, dict):
+        return None
+    return {
+        key: observation.get(key)
+        for key in ("spikes", "spike_events", "membrane", "action", "arithmetic")
+    }
+
+
+def _capture_repeat_errors(payload, scenario, where):
+    """Every retained repeat must be well formed and match its digest."""
+    repeat_outputs = payload.get("repeat_outputs")
+    repeat_digests = payload.get("repeat_digests")
+    if not isinstance(repeat_outputs, list) or not repeat_outputs:
+        return [
+            f"{where}: capture payload must retain one repeat_outputs entry per "
+            "repeat digest [REPEATABILITY_UNPROVEN]"
+        ]
+    if not isinstance(repeat_digests, list) or len(repeat_outputs) != len(
+        repeat_digests
+    ):
+        return [
+            f"{where}: capture repeat_outputs and repeat_digests must have identical "
+            "cardinality [REPEATABILITY_UNPROVEN]"
+        ]
+    errors = []
+    for index, (repeat_output, repeat_digest) in enumerate(
+        zip(repeat_outputs, repeat_digests)
+    ):
+        errors += _physical_observation_errors(
+            repeat_output,
+            scenario,
+            f"capture.source.payload.repeat_outputs[{index}]",
+            where,
+        )
+        try:
+            expected_digest = run_digest(repeat_output)
+        except (KeyError, TypeError, ValueError, AttributeError, OverflowError) as exc:
+            errors.append(
+                f"{where}: capture repeat output {index} is malformed: {exc} "
+                "[REPEATABILITY_UNPROVEN]"
+            )
+            continue
+        if repeat_digest != expected_digest:
+            errors.append(
+                f"{where}: capture repeat_digests[{index}] is not derived from "
+                f"repeat_outputs[{index}] [REPEATABILITY_UNPROVEN]"
+            )
+    primary_projection = _repeat_projection(payload)
+    if not contract.strict_json_equal(
+        _repeat_projection(repeat_outputs[0]), primary_projection
+    ):
+        errors.append(
+            f"{where}: capture payload must equal its first retained repeat "
+            "observation [REPEATABILITY_UNPROVEN]"
+        )
+    return errors
+
+
+def _capture_output_digest_errors(deployment, payload, repeat_digests, where):
+    """The deployment's digests must derive from the captured payload."""
+    try:
+        payload_output_digest = run_digest(payload)
+    except (KeyError, TypeError, ValueError, AttributeError, OverflowError) as exc:
+        return [f"{where}: capture payload is malformed: {exc} [ENVELOPE_MALFORMED]"]
+    errors = []
+    if deployment.get("output_digest") != payload_output_digest:
+        errors.append(
+            f"{where}: deployment output_digest is not derived from the captured "
+            "payload [HW_PROVENANCE_MISSING]"
+        )
+    expected_repeats = list(repeat_digests) if isinstance(repeat_digests, list) else []
+    if deployment.get("repeat_digests") != expected_repeats:
+        errors.append(
+            f"{where}: deployment repeat_digests are not the captured repeats "
+            "[REPEATABILITY_UNPROVEN]"
+        )
+    return errors
+
+
+def _capture_manifest_binding_errors(capture, manifest, record, where):
+    """capture.recorded_at and the input fixture must bind to the manifest."""
+    errors = []
+    recorded_at = capture.get("recorded_at")
+    manifest_recorded_at = manifest.get("recorded_at")
+    if (
+        not isinstance(recorded_at, str)
+        or not recorded_at.strip()
+        or recorded_at != manifest_recorded_at
+    ):
+        errors.append(
+            f"{where}: capture.recorded_at is not bound to "
+            "capture.source.manifest.recorded_at [HW_PROVENANCE_MISSING]"
+        )
+    fixture_sha = ((record.get("scenario") or {}).get("input_fixture") or {}).get(
+        "sha256"
+    )
+    if manifest.get("input_fixture_sha256") != fixture_sha:
+        errors.append(
+            f"{where}: capture manifest names a different input fixture "
+            "[INPUT_FIXTURE_MISMATCH]"
+        )
+    return errors
+
+
+def _capture_adapter_identity_errors(source, deployment, where):
+    """The capture's adapter identity must agree with the deployment's."""
+    source_adapter = source.get("adapter")
+    source_runtime = source.get("runtime_class")
+    deployment_identity = (
+        deployment.get("adapter"),
+        deployment.get("runtime_class"),
+    )
+    if deployment_identity == (
+        FpgaHardwareAdapter.name,
+        FpgaHardwareAdapter.runtime_class,
+    ) and (source_adapter, source_runtime) != deployment_identity:
+        return [
+            f"{where}: live FPGA evidence must bind capture.source.adapter and "
+            "capture.source.runtime_class to the live board adapter "
+            "[HW_PROVENANCE_MISSING]"
+        ]
+    if source_adapter is not None or source_runtime is not None:
+        if (source_adapter, source_runtime) != deployment_identity:
+            return [
+                f"{where}: capture source adapter identity disagrees with the "
+                "deployment [HW_PROVENANCE_MISSING]"
+            ]
+    return []
+
+
+def _capture_identity_errors(source, deployment, payload, where):
+    """Execution target, adapter identity, board/bitstream, and quantization."""
+    errors = []
+    if source.get("execution_target") != deployment.get("execution_target"):
+        errors.append(
+            f"{where}: capture source execution_target disagrees with the deployment "
+            "[HW_TARGET_UNKNOWN]"
+        )
+    errors += _capture_adapter_identity_errors(source, deployment, where)
+    for key in ("hardware", "bitstream"):
+        if source.get(key) != deployment.get(key):
+            errors.append(
+                f"{where}: oracle.deployment.{key} does not match capture.source.{key} "
+                "[HW_PROVENANCE_MISSING]"
+            )
+    source_quantization = source.get("quantization") or payload.get("quantization")
+    if source_quantization != deployment.get("quantization"):
+        errors.append(
+            f"{where}: deployment quantization is not the conversion stored with the "
+            "capture [Q88_PROVENANCE_MISMATCH]"
+        )
+    return errors
+
+
+def _capture_projection_errors(deployment, payload, where):
+    """Each observation on the deployment must be the one stored in the payload."""
+    normalized_payload = {
+        "spikes": payload.get("spikes"),
+        "spike_events": payload.get("spike_events"),
+        "membrane": payload.get(
+            "membrane", {"observable": False, "units": "mV_model", "trace": None}
+        ),
+        "action": payload.get("action"),
+        "arithmetic": payload.get("arithmetic"),
+        "latency": payload.get("latency"),
+    }
+    errors = []
+    for key, expected in normalized_payload.items():
+        if deployment.get(key) != expected:
+            errors.append(
+                f"{where}: oracle.deployment.{key} is not the observation stored in "
+                "capture.source.payload [HW_PROVENANCE_MISSING]"
+            )
+    return errors
+
+
 def _check_capture_chain(record, deployment, where):
     """Bind a physical claim to the replay source stored by the adapter.
 
@@ -1602,159 +1780,16 @@ def _check_capture_chain(record, deployment, where):
             f"{where}: capture payload digest is not bound to the stored manifest "
             "[HW_PROVENANCE_MISSING]"
         )
-    recorded_at = capture.get("recorded_at")
-    manifest_recorded_at = manifest.get("recorded_at")
-    if (
-        not isinstance(recorded_at, str)
-        or not recorded_at.strip()
-        or recorded_at != manifest_recorded_at
-    ):
-        errors.append(
-            f"{where}: capture.recorded_at is not bound to "
-            "capture.source.manifest.recorded_at [HW_PROVENANCE_MISSING]"
-        )
-    fixture_sha = ((record.get("scenario") or {}).get("input_fixture") or {}).get(
-        "sha256"
-    )
-    if manifest.get("input_fixture_sha256") != fixture_sha:
-        errors.append(
-            f"{where}: capture manifest names a different input fixture "
-            "[INPUT_FIXTURE_MISMATCH]"
-        )
+    errors += _capture_manifest_binding_errors(capture, manifest, record, where)
     scenario = record.get("scenario")
     errors += _physical_observation_errors(
         payload, scenario, "capture.source.payload", where
     )
-    if source.get("execution_target") != deployment.get("execution_target"):
-        errors.append(
-            f"{where}: capture source execution_target disagrees with the deployment "
-            "[HW_TARGET_UNKNOWN]"
-        )
-    source_adapter = source.get("adapter")
-    source_runtime = source.get("runtime_class")
-    deployment_identity = (
-        deployment.get("adapter"),
-        deployment.get("runtime_class"),
-    )
-    if deployment_identity == (
-        FpgaHardwareAdapter.name,
-        FpgaHardwareAdapter.runtime_class,
-    ) and (source_adapter, source_runtime) != deployment_identity:
-        errors.append(
-            f"{where}: live FPGA evidence must bind capture.source.adapter and "
-            "capture.source.runtime_class to the live board adapter "
-            "[HW_PROVENANCE_MISSING]"
-        )
-    elif source_adapter is not None or source_runtime is not None:
-        if (source_adapter, source_runtime) != deployment_identity:
-            errors.append(
-                f"{where}: capture source adapter identity disagrees with the "
-                "deployment [HW_PROVENANCE_MISSING]"
-            )
-    for key in ("hardware", "bitstream"):
-        if source.get(key) != deployment.get(key):
-            errors.append(
-                f"{where}: oracle.deployment.{key} does not match capture.source.{key} "
-                "[HW_PROVENANCE_MISSING]"
-            )
-    source_quantization = source.get("quantization") or payload.get("quantization")
-    if source_quantization != deployment.get("quantization"):
-        errors.append(
-            f"{where}: deployment quantization is not the conversion stored with the "
-            "capture [Q88_PROVENANCE_MISMATCH]"
-        )
-
-    normalized_payload = {
-        "spikes": payload.get("spikes"),
-        "spike_events": payload.get("spike_events"),
-        "membrane": payload.get(
-            "membrane", {"observable": False, "units": "mV_model", "trace": None}
-        ),
-        "action": payload.get("action"),
-        "arithmetic": payload.get("arithmetic"),
-        "latency": payload.get("latency"),
-    }
-    for key, expected in normalized_payload.items():
-        if deployment.get(key) != expected:
-            errors.append(
-                f"{where}: oracle.deployment.{key} is not the observation stored in "
-                "capture.source.payload [HW_PROVENANCE_MISSING]"
-            )
-    repeat_outputs = payload.get("repeat_outputs")
+    errors += _capture_identity_errors(source, deployment, payload, where)
+    errors += _capture_projection_errors(deployment, payload, where)
     repeat_digests = payload.get("repeat_digests")
-    if not isinstance(repeat_outputs, list) or not repeat_outputs:
-        errors.append(
-            f"{where}: capture payload must retain one repeat_outputs entry per "
-            "repeat digest [REPEATABILITY_UNPROVEN]"
-        )
-    elif not isinstance(repeat_digests, list) or len(repeat_outputs) != len(
-        repeat_digests
-    ):
-        errors.append(
-            f"{where}: capture repeat_outputs and repeat_digests must have identical "
-            "cardinality [REPEATABILITY_UNPROVEN]"
-        )
-    else:
-        for index, (repeat_output, repeat_digest) in enumerate(
-            zip(repeat_outputs, repeat_digests)
-        ):
-            errors += _physical_observation_errors(
-                repeat_output,
-                scenario,
-                f"capture.source.payload.repeat_outputs[{index}]",
-                where,
-            )
-            try:
-                expected_digest = run_digest(repeat_output)
-            except (KeyError, TypeError, ValueError, AttributeError, OverflowError) as exc:
-                errors.append(
-                    f"{where}: capture repeat output {index} is malformed: {exc} "
-                    "[REPEATABILITY_UNPROVEN]"
-                )
-                continue
-            if repeat_digest != expected_digest:
-                errors.append(
-                    f"{where}: capture repeat_digests[{index}] is not derived from "
-                    f"repeat_outputs[{index}] [REPEATABILITY_UNPROVEN]"
-                )
-        primary_projection = {
-            key: payload.get(key)
-            for key in ("spikes", "spike_events", "membrane", "action", "arithmetic")
-        }
-        first_projection = {
-            key: repeat_outputs[0].get(key)
-            for key in (
-                "spikes",
-                "spike_events",
-                "membrane",
-                "action",
-                "arithmetic",
-            )
-        } if isinstance(repeat_outputs[0], dict) else None
-        if not contract.strict_json_equal(first_projection, primary_projection):
-            errors.append(
-                f"{where}: capture payload must equal its first retained repeat "
-                "observation [REPEATABILITY_UNPROVEN]"
-            )
-
-    try:
-        payload_output_digest = run_digest(payload)
-    except (KeyError, TypeError, ValueError, AttributeError, OverflowError) as exc:
-        errors.append(
-            f"{where}: capture payload is malformed: {exc} [ENVELOPE_MALFORMED]"
-        )
-    else:
-        if deployment.get("output_digest") != payload_output_digest:
-            errors.append(
-                f"{where}: deployment output_digest is not derived from the captured "
-                "payload [HW_PROVENANCE_MISSING]"
-            )
-        expected_repeats = list(repeat_digests) if isinstance(repeat_digests, list) else []
-        if deployment.get("repeat_digests") != expected_repeats:
-            errors.append(
-                f"{where}: deployment repeat_digests are not the captured repeats "
-                "[REPEATABILITY_UNPROVEN]"
-            )
+    errors += _capture_repeat_errors(payload, scenario, where)
+    errors += _capture_output_digest_errors(deployment, payload, repeat_digests, where)
     return errors
 
 
