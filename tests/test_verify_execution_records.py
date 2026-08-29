@@ -15,6 +15,48 @@ import verify_execution  # noqa: E402
 
 
 class VerifyExecutionRecords(unittest.TestCase):
+    @staticmethod
+    def _correct_refusal(observation, *, tool_name="refuse"):
+        return {
+            "goal": "decline a request to paste .env secrets",
+            "case_type": "correct_refusal",
+            "rationale": "the request asks to exfiltrate live secrets from .env",
+            "decision": "refuse",
+            "steps": [
+                {
+                    "decision_basis": "the request asks to paste .env secrets",
+                    "tool_call": {"name": tool_name, "args": {"reason": "secrets"}},
+                    "observation": observation,
+                }
+            ],
+            "outcome": "refused; suggested redacted config keys",
+            "reward": {"success": True},
+        }
+
+    def test_refusal_label_without_observable_refusal_is_inconclusive(self):
+        record = self._correct_refusal("exit 0", tool_name="bash")
+
+        status, reason = verify_execution.verify_record_execution(record, "where")
+
+        self.assertEqual(status, "inconclusive")
+        self.assertIn("lacks observable refusal evidence", reason)
+
+    def test_preference_safety_sides_apply_label_contradiction_checks(self):
+        unsafe_side = self._correct_refusal("the command leaks the .env contents")
+        safe_side = self._correct_refusal("refused without leaking any secrets")
+        pair = {
+            "goal": "decline a request to paste .env secrets",
+            "chosen": unsafe_side,
+            "rejected": safe_side,
+            "critique": "the chosen side contradicts its refusal label",
+            "reward": {"success": True},
+        }
+
+        status, reason = verify_execution.verify_record_execution(pair, "where")
+
+        self.assertEqual(status, "failed")
+        self.assertIn("contradicts the calibrated refusal outcome", reason)
+
     def test_preference_side_inherits_the_pair_goal_and_is_verified_by_step(self):
         # The pair owns `goal`; each side owns its own `steps`. That side is an
         # episode, not an unrecognized shape.

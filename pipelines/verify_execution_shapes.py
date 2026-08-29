@@ -238,7 +238,12 @@ def verify_safety_episode(obj, where):
     contradiction = _safety_step_contradicts_calibrated_outcome(obj, where)
     if contradiction is not None:
         return contradiction
-    return verify_episode_steps(obj.get("steps"), where)
+    steps = obj.get("steps")
+    if _calibrated_outcome_is_refusal(obj) and not any(
+        _step_records_refusal(step) for step in steps
+    ):
+        return "inconclusive", f"{where} safety outcome lacks observable refusal evidence"
+    return verify_episode_steps(steps, where)
 
 
 def _nonempty_string_or_object(value):
@@ -510,22 +515,31 @@ def _shared_preference_goal_is_blank(obj):
     return not goal.strip()
 
 
+def _verify_episode_preference_side(side, where, *, require_goal):
+    if "case_type" in side:
+        return verify_safety_episode(side, where)
+    return verify_episode(
+        side,
+        where,
+        require_goal=require_goal,
+        strict_turns=True,
+    )
+
+
 def _verify_episode_preference_sides(obj, where, chosen, rejected):
     if _shared_preference_goal_is_blank(obj):
         return "failed", "preference shared goal must be a non-empty string"
     require_side_goal = "goal" not in obj
     return _combine_preference_side_verdicts(
-        verify_episode(
+        _verify_episode_preference_side(
             chosen,
             f"{where}.chosen",
             require_goal=require_side_goal,
-            strict_turns=True,
         ),
-        verify_episode(
+        _verify_episode_preference_side(
             rejected,
             f"{where}.rejected",
             require_goal=require_side_goal,
-            strict_turns=True,
         ),
     )
 
