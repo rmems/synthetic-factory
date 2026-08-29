@@ -25,7 +25,7 @@ if str(_PIPELINES) not in sys.path:
 
 from preference_audit import (  # noqa: E402
     AUDIT_SOURCE_FILE_FIELDS,
-    _source_files_by_path,
+    source_files_by_path,
 )
 from preference_model import CurationRun  # noqa: E402
 
@@ -58,7 +58,7 @@ def _location_sort_key(location: tuple[str, int]) -> tuple[str, int, str]:
 
     path_part, line_part = location
     line_number = line_part if isinstance(line_part, int) else 0
-    return (str(path_part), line_number, str(line_part))
+    return str(path_part), line_number, str(line_part)
 
 
 def _manifest_by_location(run: CurationRun) -> dict[tuple[str, int], dict[str, Any]]:
@@ -84,8 +84,8 @@ def _reconcile_source_files(
 ) -> tuple[list[str], list[str]]:
     """Source-file inventory drift, split into coverage and payload."""
 
-    first_files = _source_files_by_path(first.source_files)
-    second_files = _source_files_by_path(second.source_files)
+    first_files = source_files_by_path(first.source_files)
+    second_files = source_files_by_path(second.source_files)
     coverage = [
         f"{source_path}: file present in the first source only"
         for source_path in sorted(set(first_files) - set(second_files))

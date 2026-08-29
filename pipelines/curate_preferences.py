@@ -81,7 +81,6 @@ from preference_model import (  # noqa: E402
     canonical_json,
 )
 from preference_model import is_canonicalizable as _is_canonicalizable  # noqa: E402
-from preference_model import is_under_raw as _is_under_raw  # noqa: E402
 from preference_model import sha256_hex as _sha256  # noqa: E402
 from preference_record import (  # noqa: E402
     context_field_agreement,

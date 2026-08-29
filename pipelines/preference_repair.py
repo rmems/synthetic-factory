@@ -25,9 +25,9 @@ if str(_PIPELINES) not in sys.path:
     sys.path.insert(0, str(_PIPELINES))
 
 from preference_context import (  # noqa: E402
-    _all_context_diffs,
-    _context_diff_paths,
-    _preference_context,
+    all_context_diffs,
+    diff_paths_between,
+    pair_context,
     context_is_pure,
 )
 from preference_model import (  # noqa: E402
@@ -75,7 +75,7 @@ def _identity_annotation_reference(
 def _repair_identity_annotations(record: dict[str, Any]) -> CurationDecision | None:
     """Repair context that differs only by explicit branch identity notes."""
 
-    context = _preference_context(record)
+    context = pair_context(record)
     if context is None:
         return None
     chosen, rejected = context
@@ -104,7 +104,7 @@ def _repair_identity_annotations(record: dict[str, Any]) -> CurationDecision | N
             "BRANCH_ONLY_IDENTITY_NOTE_REMOVED",
         ),
         record=repaired,
-        context_diff_paths=_all_context_diffs(source_chosen, source_rejected),
+        context_diff_paths=all_context_diffs(source_chosen, source_rejected),
         changed_context_fields=tuple(changed),
     )
 
@@ -123,7 +123,7 @@ def _proposal_annotation_reference(
 ) -> tuple[dict[str, Any], str, str] | None:
     """Find an exact proposal reference under a literal branch-identity claim."""
 
-    diff_paths = set(_context_diff_paths(chosen, rejected, "proposed_action"))
+    diff_paths = set(diff_paths_between(chosen, rejected, "proposed_action"))
     allowed_paths = {
         "proposed_action.source",
         "proposed_action.snn_readout.note",
@@ -153,7 +153,7 @@ def _proposal_annotation_reference(
 def _repair_proposal_annotations(record: dict[str, Any]) -> CurationDecision | None:
     """Repair an attested proposal whose only differences are annotations."""
 
-    context = _preference_context(record)
+    context = pair_context(record)
     if context is None:
         return None
     chosen, rejected = context
@@ -179,7 +179,7 @@ def _repair_proposal_annotations(record: dict[str, Any]) -> CurationDecision | N
             "BRANCH_ONLY_PROPOSAL_ANNOTATION_REMOVED",
         ),
         record=repaired,
-        context_diff_paths=_all_context_diffs(chosen, rejected),
+        context_diff_paths=all_context_diffs(chosen, rejected),
         changed_context_fields=(f"{attester_name}.proposed_action",),
     )
 

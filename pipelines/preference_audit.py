@@ -41,6 +41,7 @@ __all__ = [
     "audit_differences",
     "build_audit",
     "render_audit_markdown",
+    "source_files_by_path",
 ]
 
 AUDIT_NAME = "same-context-preference-audit"
@@ -269,13 +270,13 @@ def _json_key(value: Any) -> tuple[str, str]:
     """
 
     try:
-        return (_json_type_name(value), canonical_json(value))
+        return _json_type_name(value), canonical_json(value)
     except (TypeError, ValueError):
-        return (_json_type_name(value), repr(value))
+        return _json_type_name(value), repr(value)
 
 
 def _pair_location(pair: dict[str, Any]) -> tuple[tuple[str, str], tuple[str, str]]:
-    return (_json_key(pair.get("source_path")), _json_key(pair.get("source_line")))
+    return _json_key(pair.get("source_path")), _json_key(pair.get("source_line"))
 
 
 def _pair_location_text(pair: dict[str, Any]) -> str:
@@ -287,7 +288,7 @@ def _pair_order(pair: dict[str, Any]) -> tuple[str, int, str]:
 
     line = pair.get("source_line")
     number = line if isinstance(line, int) and not isinstance(line, bool) else 0
-    return (str(pair.get("source_path")), number, str(line))
+    return str(pair.get("source_path")), number, str(line)
 
 
 def _pairs_by_location(pairs: Any) -> tuple[dict[Any, dict[str, Any]], list[str]]:
@@ -315,7 +316,7 @@ def _pairs_by_location(pairs: Any) -> tuple[dict[Any, dict[str, Any]], list[str]
     return located, sorted(dict.fromkeys(duplicates))
 
 
-def _source_files_by_path(files: Any) -> dict[str, dict[str, Any]]:
+def source_files_by_path(files: Any) -> dict[str, dict[str, Any]]:
     """Key a source-file inventory by its relative path."""
 
     if not isinstance(files, (list, tuple)):
@@ -415,8 +416,8 @@ def _audit_source_file_differences(
 ) -> list[str]:
     """Source-file inventory drift, by path then by field."""
 
-    expected_files = _source_files_by_path(expected.get("source_files"))
-    actual_files = _source_files_by_path(actual.get("source_files"))
+    expected_files = source_files_by_path(expected.get("source_files"))
+    actual_files = source_files_by_path(actual.get("source_files"))
     differences = _duplicate_source_paths(expected.get("source_files"))
     differences.extend(
         f"{source_path}: audited source file is absent from this scan"

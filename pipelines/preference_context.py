@@ -25,8 +25,11 @@ if str(_PIPELINES) not in sys.path:
 from preference_model import canonical_json  # noqa: E402
 
 __all__ = [
+    "all_context_diffs",
     "context_field_agreement",
     "context_is_pure",
+    "diff_paths_between",
+    "pair_context",
 ]
 
 
@@ -40,7 +43,7 @@ def _dict_diff_paths(left: dict[str, Any], right: dict[str, Any], prefix: str) -
         if key not in right:
             paths.append(path)
             continue
-        paths.extend(_context_diff_paths(left[key], right[key], path))
+        paths.extend(diff_paths_between(left[key], right[key], path))
     return paths
 
 
@@ -49,11 +52,11 @@ def _list_diff_paths(left: list[Any], right: list[Any], prefix: str) -> list[str
         return [prefix]
     paths: list[str] = []
     for index, (left_item, right_item) in enumerate(zip(left, right)):
-        paths.extend(_context_diff_paths(left_item, right_item, f"{prefix}[{index}]"))
+        paths.extend(diff_paths_between(left_item, right_item, f"{prefix}[{index}]"))
     return paths
 
 
-def _context_diff_paths(left: Any, right: Any, prefix: str) -> list[str]:
+def diff_paths_between(left: Any, right: Any, prefix: str) -> list[str]:
     """Return stable leaf paths whose values differ."""
 
     if type(left) is not type(right):
@@ -67,7 +70,7 @@ def _context_diff_paths(left: Any, right: Any, prefix: str) -> list[str]:
     return [prefix]
 
 
-def _preference_context(
+def pair_context(
     record: dict[str, Any],
 ) -> tuple[dict[str, Any], dict[str, Any]] | None:
     chosen = record.get("chosen")
@@ -86,7 +89,7 @@ def _preference_context(
 def context_is_pure(record: dict[str, Any]) -> bool:
     """Whether a preference record has canonical same-state/same-proposal context."""
 
-    context = _preference_context(record)
+    context = pair_context(record)
     if context is None:
         return False
     chosen, rejected = context
@@ -136,8 +139,8 @@ def context_field_agreement(
     )
 
 
-def _all_context_diffs(chosen: dict[str, Any], rejected: dict[str, Any]) -> tuple[str, ...]:
+def all_context_diffs(chosen: dict[str, Any], rejected: dict[str, Any]) -> tuple[str, ...]:
     paths: list[str] = []
     for field in ("state", "proposed_action"):
-        paths.extend(_context_diff_paths(chosen[field], rejected[field], field))
+        paths.extend(diff_paths_between(chosen[field], rejected[field], field))
     return tuple(paths)

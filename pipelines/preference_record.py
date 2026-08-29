@@ -27,8 +27,8 @@ if str(_PIPELINES) not in sys.path:
     sys.path.insert(0, str(_PIPELINES))
 
 from preference_context import (  # noqa: E402
-    _all_context_diffs,
-    _preference_context,
+    all_context_diffs,
+    pair_context,
     context_field_agreement,
     context_is_pure,
 )
@@ -101,7 +101,7 @@ def curate_preference_record(record: dict[str, Any]) -> CurationDecision:
             same_state=same_state,
             same_proposed_action=same_proposed_action,
         )
-    context = _preference_context(record)
+    context = pair_context(record)
     if context is None:
         return CurationDecision(
             action=ACTION_EXCLUDED,
@@ -114,7 +114,7 @@ def curate_preference_record(record: dict[str, Any]) -> CurationDecision:
         )
 
     chosen, rejected = context
-    context_diff_paths = _all_context_diffs(chosen, rejected)
+    context_diff_paths = all_context_diffs(chosen, rejected)
     if not context_diff_paths:
         return CurationDecision(
             action=ACTION_RETAINED,
