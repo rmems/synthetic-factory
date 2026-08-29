@@ -46,7 +46,9 @@ def emit(path, records):
 
 def mutate(source, defect, apply_defect):
     item = copy.deepcopy(source)
-    item["_defect"] = defect
+    meta = dict(item.get("meta") or {})
+    meta["_defect"] = defect
+    item["meta"] = meta
     apply_defect(item)
     return item
 

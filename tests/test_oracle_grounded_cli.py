@@ -337,20 +337,20 @@ class InvalidFixtures(unittest.TestCase):
         items = self.defects("invalid-oracle")
         self.assertGreaterEqual(len(items), 9)
         for item in items:
-            with self.subTest(defect=item["_defect"]):
+            with self.subTest(defect=item["meta"]["_defect"]):
                 self.assertTrue(
                     record.validate_record(item),
-                    f"{item['_defect']} was accepted",
+                    f"{item['meta']['_defect']} was accepted",
                 )
 
     def test_every_malformed_generator_record_is_rejected(self):
         items = self.defects("malformed-generator")
         self.assertGreaterEqual(len(items), 7)
         for item in items:
-            with self.subTest(defect=item["_defect"]):
+            with self.subTest(defect=item["meta"]["_defect"]):
                 self.assertTrue(
                     record.validate_record(item),
-                    f"{item['_defect']} was accepted",
+                    f"{item['meta']['_defect']} was accepted",
                 )
 
     def test_each_defect_is_caught_for_the_stated_reason(self):
@@ -375,7 +375,7 @@ class InvalidFixtures(unittest.TestCase):
         seen = set()
         for name in ("invalid-oracle", "malformed-generator"):
             for item in self.defects(name):
-                defect = item["_defect"]
+                defect = item["meta"]["_defect"]
                 seen.add(defect)
                 findings = " | ".join(record.validate_record(item))
                 with self.subTest(defect=defect):

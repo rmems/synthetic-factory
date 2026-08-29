@@ -968,6 +968,26 @@ def _shift_distractors(task):
     return sorted(shifted)
 
 
+def _memory_trial_task(scenario, name):
+    """Rebuild the stored trial that produced one baseline or control measurement."""
+    task = {
+        "cue": scenario["cue"],
+        "cue_ms": scenario["cue_ms"],
+        "probe_ms": scenario["probe_ms"],
+        "distractor_ms": list(scenario["distractor_ms"]),
+        "reset_ms": scenario["reset_ms"],
+    }
+    if name == "baseline":
+        return task
+    if name == "cue_ablation":
+        return dict(task, cue=None)
+    if name == "reset_ablation":
+        return dict(task, reset_ms=None)
+    if name == "distractor_swap":
+        return dict(task, distractor_ms=_shift_distractors(task))
+    return None
+
+
 def _memory_reference(request):
     config = request["configuration"]
     task = request["data"]["task"]
@@ -1072,6 +1092,21 @@ def _memory_checks(record):
             findings.append(f"{name}.response_latency_ms leaves the response window")
         if (trial["response"] == "none") is not (latency is None):
             findings.append(f"{name}.response and response_latency_ms disagree")
+        expected_task = _memory_trial_task(scenario, name)
+        if expected_task is None:
+            findings.append(f"{name} is not a known memory trial")
+        else:
+            try:
+                replayed = sim.run_memory_task(expected_task, configuration)
+            except Exception:
+                findings.append(
+                    f"{name}.response_latency_ms could not be derived from a trial replay"
+                )
+            else:
+                if not _measurement_matches(latency, replayed["response_latency_ms"]):
+                    findings.append(
+                        f"{name}.response_latency_ms does not match the first readout spike"
+                    )
         if trial["spike_budget_exhausted"]:
             findings.append(f"{name} hit the spike budget; the trajectory is truncated")
         if set(trial["output_spike_counts"]) != {"OA", "OB"}:

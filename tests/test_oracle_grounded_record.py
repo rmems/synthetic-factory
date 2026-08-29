@@ -97,6 +97,18 @@ class EnvelopeShape(unittest.TestCase):
                 self.assertEqual(item["family"], family)
                 self.assertEqual(item["schema"], record.SCHEMA_ID)
 
+
+    def test_unauthenticated_top_level_siblings_are_rejected(self):
+        item = build(families.MEMORY_FAMILY)
+        item["ground_truth"] = {"authoritative_label": "forged"}
+        findings = record.validate_record(item, check_declared_status=False)
+        self.assertTrue(
+            any("ground_truth" in f and "not allowed" in f for f in findings),
+            findings,
+        )
+        clean = build(families.MEMORY_FAMILY)
+        self.assertEqual(record.classify(clean)["envelope"], [])
+
     def test_the_envelope_carries_every_declared_key(self):
         item = build(families.ENCODER_FAMILY)
         for key in record.ENVELOPE_KEYS:
@@ -767,6 +779,29 @@ class FamilyInvariants(unittest.TestCase):
         self.assertEqual(sorted(item["result"]["measured"]), ["critic", "plasticity"])
         self.assertEqual(item["oracle"]["requested_runtime"], ["limbic-critic", "plasticity-lab"])
 
+
+    def test_memory_response_latency_is_derived_from_the_first_readout_spike(self):
+        item = next(
+            build(families.MEMORY_FAMILY, index)
+            for index in range(24)
+            if build(families.MEMORY_FAMILY, index)["result"]["measured"]["baseline"]["response"]
+            in ("A", "B")
+        )
+        trial = item["result"]["measured"]["baseline"]
+        original = trial["response_latency_ms"]
+        window = item["oracle"]["configuration"]["response_window_ms"]
+        forged = 0.0 if original != 0.0 else min(1.0, window)
+        self.assertIsNotNone(original)
+        self.assertNotEqual(original, forged)
+        self.assertGreaterEqual(forged, 0.0)
+        self.assertLessEqual(forged, window)
+        trial["response_latency_ms"] = forged
+        findings = result_findings(item)
+        self.assertTrue(
+            any("response_latency_ms" in f and "first readout spike" in f for f in findings),
+            findings,
+        )
+
     def test_memory_response_labels_are_derived_for_baseline_and_every_control(self):
         item = next(
             build(families.MEMORY_FAMILY, index)
@@ -924,6 +959,35 @@ class AuthoritativeRecordSemantics(unittest.TestCase):
         order.append(order[0])
         findings = result_findings(item)
         self.assertTrue(any("firing_order" in f and "unique" in f for f in findings), findings)
+
+
+    def test_unique_items_validation_is_linear_and_uses_json_equality(self):
+        schema = {"type": "array", "uniqueItems": True}
+        self.assertEqual(
+            schema_validation._validate([1, True, "1"], schema, schema, "$"),
+            [],
+        )
+        self.assertEqual(
+            schema_validation._validate([1, 1.0], schema, schema, "$"),
+            ["$ must contain unique items"],
+        )
+        self.assertEqual(
+            schema_validation._validate([{"a": 1}, {"a": 1.0}], schema, schema, "$"),
+            ["$ must contain unique items"],
+        )
+        values = list(range(8000))
+        started = time.perf_counter()
+        self.assertEqual(schema_validation._validate(values, schema, schema, "$"), [])
+        unique_elapsed = time.perf_counter() - started
+        values[-1] = 0
+        started = time.perf_counter()
+        self.assertEqual(
+            schema_validation._validate(values, schema, schema, "$"),
+            ["$ must contain unique items"],
+        )
+        duplicate_elapsed = time.perf_counter() - started
+        self.assertLess(unique_elapsed, 1.0, unique_elapsed)
+        self.assertLess(duplicate_elapsed, 1.0, duplicate_elapsed)
 
     def test_draft_integer_semantics_accept_integral_floats_only(self):
         schema = {"type": "integer"}

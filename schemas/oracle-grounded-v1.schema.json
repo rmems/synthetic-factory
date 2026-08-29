@@ -166,7 +166,7 @@
       "additionalProperties": true
     }
   },
-  "additionalProperties": true,
+  "additionalProperties": false,
   "$defs": {
     "digest": {
       "type": "string",

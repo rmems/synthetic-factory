@@ -49,6 +49,30 @@ def _json_equal(left, right):
     return left == right
 
 
+def _unique_item_key(value):
+    """Hashable key with JSON uniqueItems equality (bools ≠ numbers, 1 == 1.0)."""
+    if isinstance(value, bool):
+        return ("bool", value)
+    if value is None:
+        return ("null",)
+    if isinstance(value, str):
+        return ("str", value)
+    if isinstance(value, (int, float)):
+        if isinstance(value, float) and not math.isfinite(value):
+            return ("num", "nan" if math.isnan(value) else ("inf" if value > 0 else "-inf"))
+        if value == math.trunc(value):
+            return ("num", int(math.trunc(value)))
+        return ("num", float(value))
+    if isinstance(value, list):
+        return ("arr", tuple(_unique_item_key(item) for item in value))
+    if isinstance(value, dict):
+        return (
+            "obj",
+            tuple(sorted((key, _unique_item_key(item)) for key, item in value.items())),
+        )
+    return ("other", type(value).__name__, repr(value))
+
+
 def _type_matches(value, expected):
     if expected == "null":
         return value is None
@@ -165,10 +189,13 @@ def _validate(value, schema, root, path):
         if "maxItems" in schema and len(value) > schema["maxItems"]:
             errors.append(f"{path} must contain at most {schema['maxItems']} items")
         if schema.get("uniqueItems"):
-            for index, item in enumerate(value):
-                if any(_json_equal(item, earlier) for earlier in value[:index]):
+            seen = set()
+            for item in value:
+                key = _unique_item_key(item)
+                if key in seen:
                     errors.append(f"{path} must contain unique items")
                     break
+                seen.add(key)
         item_schema = schema.get("items")
         if isinstance(item_schema, dict):
             for index, item in enumerate(value):
@@ -221,9 +248,12 @@ def validate_record_schemas(instance, family, include_validation=True):
     if not include_validation:
         base = dict(base)
         base["required"] = [key for key in base.get("required", ()) if key != "validation"]
-        base["properties"] = {
-            key: value for key, value in base.get("properties", {}).items() if key != "validation"
-        }
+        properties = dict(base.get("properties", {}))
+        # The validation block is missing or provisional in this mode. Keep the
+        # key allowed so additionalProperties:false does not reject it, but do
+        # not enforce the completed validation schema.
+        properties["validation"] = {"type": "object"}
+        base["properties"] = properties
     findings.extend(f"base schema: {item}" for item in _validate(instance, base, base, "$"))
 
     family_path = FAMILY_SCHEMA_DIR / f"{family}.schema.json"
