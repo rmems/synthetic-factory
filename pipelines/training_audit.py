@@ -31,9 +31,28 @@ from check_records import (  # noqa: E402
     expected_states,
     reject_json_constant,
     root_record_id,
+    shape_check,
     walk_key,
 )
-from validate_run import HIDDEN_THOUGHT_KEYS, _episode_like, event_time  # noqa: E402
+from curate_coding import (  # noqa: E402
+    HIDDEN_REASONING_KEYS,
+    HIDDEN_REASONING_PREFIX,
+    normalized_key_name,
+)
+from validate_run import (  # noqa: E402
+    BRIDGE_SPIKE_EVENT_KEYS,
+    HIDDEN_THOUGHT_KEYS,
+    SPIKE_ORDER_MISMATCH,
+    _episode_like,
+    check_episode,
+    check_spike_order,
+)
+
+# A curated training view may expose neither the scratch-pad vocabulary the
+# structural validator already knows about, the coding-factory key
+# ``reasoning``, nor the ``internal_reasoning*`` family that Thalamic wrap
+# records publish on ``proposed_action``.
+CURATED_FORBIDDEN_REASONING_KEYS = HIDDEN_THOUGHT_KEYS | HIDDEN_REASONING_KEYS
 
 
 def percentile(values, fraction):
@@ -70,6 +89,24 @@ def thalamic_views(obj, kind):
             yield "language_view.trajectory", view["trajectory"]
 
 
+def wrapped_agentic_episodes(obj, kind):
+    """Yield coding episodes embedded in any supported Thalamic view."""
+    for view_path, trajectory in thalamic_views(obj, kind):
+        executed_action = trajectory.get("executed_action")
+        if not isinstance(executed_action, dict):
+            continue
+        if "steps" not in executed_action and not all(
+            key in executed_action for key in ("goal", "outcome", "reward")
+        ):
+            continue
+        path = (
+            "executed_action"
+            if view_path == "record"
+            else f"{view_path}.executed_action"
+        )
+        yield path, executed_action
+
+
 def reward_shape(value):
     if not isinstance(value, dict):
         return type(value).__name__
@@ -86,22 +123,22 @@ def reward_shape(value):
 
 
 def event_stream_status(events):
-    """Classify presence, event validity, and global temporal order."""
+    """Classify presence, event validity, and global temporal order.
+
+    Event-shape validity — required bridge keys, string/numeric field types,
+    one finite timestamp, one clock key throughout — is delegated to
+    ``check_spike_order``, the same function the strict publish gate uses.
+    A structurally invalid event (a boolean ``channel``, a non-numeric
+    ``amplitude``) is therefore never miscounted as merely 'sorted' just
+    because its timestamp alone parses. Only a pure chronological-order
+    violation on an otherwise-valid stream is classified 'unsorted'.
+    """
     if not isinstance(events, list) or not events:
         return "missing"
-    times = []
-    time_keys = set()
-    for event in events:
-        got = event_time(event)
-        if got is None:
-            return "invalid"
-        time_keys.add(got[0])
-        times.append(got[1])
-    if len(time_keys) > 1:
+    errors = check_spike_order(events, "", require_keys=BRIDGE_SPIKE_EVENT_KEYS)
+    if any(SPIKE_ORDER_MISMATCH not in error for error in errors):
         return "invalid"
-    if all(current >= previous for previous, current in zip(times, times[1:])):
-        return "sorted"
-    return "unsorted"
+    return "unsorted" if errors else "sorted"
 
 
 def preference_context_purity(obj, chosen, rejected):
@@ -187,6 +224,10 @@ def agentic_turns(obj, kind):
         for turn in transcript if isinstance(transcript, list) else ():
             if isinstance(turn, dict) and "tool_call" in turn:
                 yield turn
+    for _path, episode in wrapped_agentic_episodes(obj, kind):
+        steps = episode.get("steps")
+        if isinstance(steps, list):
+            yield from steps
 
 
 def has_observable_decision_basis(turn):
@@ -195,12 +236,27 @@ def has_observable_decision_basis(turn):
     )
 
 
+def is_hidden_thought_key(key):
+    """Return whether a JSON key names model-private reasoning text.
+
+    Covers the shared scratch-pad vocabulary from ``validate_run``, the
+    exact coding-factory key ``reasoning``, and the whole
+    ``internal_reasoning*`` family that Thalamic wrap records carry on
+    ``proposed_action``. Raw evidence may keep these keys; a curated training
+    view may not.
+    """
+    normalized = normalized_key_name(key)
+    return normalized in CURATED_FORBIDDEN_REASONING_KEYS or normalized.startswith(
+        HIDDEN_REASONING_PREFIX
+    )
+
+
 def hidden_thought_paths(value, path=""):
-    """Yield every recursively hidden-reasoning field in one agentic record."""
+    """Yield every recursively hidden-reasoning field in one record."""
     if isinstance(value, dict):
         for key, item in value.items():
             child_path = f"{path}.{key}" if path else key
-            if key in HIDDEN_THOUGHT_KEYS:
+            if is_hidden_thought_key(key):
                 yield child_path
             yield from hidden_thought_paths(item, child_path)
     elif isinstance(value, list):
@@ -256,6 +312,7 @@ def audit_run(run_dir: Path):
     tags = Counter()
     bridge = Counter()
     episodes = Counter()
+    hidden_thought_examples = []
 
     for path in files:
         rel = path.relative_to(run_dir)
@@ -312,6 +369,26 @@ def audit_run(run_dir: Path):
             kinds[kind] += 1
             bucket["by_kind"][kind] += 1
             record_errors.extend(errors)
+            # The outer record routes as Thalamic, preference, or bridge data,
+            # so its ordinary shape check cannot validate an embedded coding
+            # episode. Validate that nested episode explicitly with the same
+            # strict agentic contract used for top-level staged episodes.
+            for embedded_path, embedded in wrapped_agentic_episodes(obj, kind):
+                embedded_where = f"{where}.{embedded_path}"
+                if "steps" in embedded:
+                    embedded_errors, _embedded_kind = shape_check(
+                        embedded,
+                        embedded_where,
+                        factory_staging=True,
+                    )
+                else:
+                    embedded_errors = check_episode(
+                        embedded,
+                        embedded_where,
+                        forbid_hidden_thought=True,
+                        enforce_terminal_outcome=True,
+                    )
+                record_errors.extend(embedded_errors)
             unresolved_record_warnings.extend(
                 warning
                 for warning in warnings
@@ -415,16 +492,13 @@ def audit_run(run_dir: Path):
                 bridge[f"{status}_pairs"] += 1
             if kind == "episode":
                 episodes["episodes"] += 1
-            agentic_hidden_thoughts = kind in {"episode", "multi_agent", "safety_case"}
-            if kind == "preference":
-                agentic_hidden_thoughts = any(
-                    _episode_like(dict_field(obj, side_name))
-                    for side_name in ("chosen", "rejected")
-                )
-            if agentic_hidden_thoughts:
-                episodes["hidden_thought_fields"] += len(
-                    tuple(hidden_thought_paths(obj))
-                )
+            # Every kind is scanned, not only the agentic ones: Thalamic wrap
+            # records publish `proposed_action.internal_reasoning` and embed a
+            # coding episode with per-step `thought` under `executed_action`.
+            for hidden_path in hidden_thought_paths(obj):
+                episodes["hidden_thought_fields"] += 1
+                if len(hidden_thought_examples) < 10:
+                    hidden_thought_examples.append(f"{where}:{hidden_path}")
             for turn in agentic_turns(obj, kind):
                 if not isinstance(turn, dict):
                     continue
@@ -497,8 +571,8 @@ def audit_run(run_dir: Path):
         blockers.append(f"{len(exact_duplicates)} exact duplicate records")
     if episodes["hidden_thought_fields"]:
         blockers.append(
-            f"{episodes['hidden_thought_fields']} hidden-thought fields appear in "
-            "agentic records"
+            f"{episodes['hidden_thought_fields']} hidden-thought fields "
+            "(thought / internal_reasoning*) appear in records"
         )
     if episodes["missing_decision_basis_steps"]:
         blockers.append(
@@ -568,6 +642,7 @@ def audit_run(run_dir: Path):
         },
         "bridge": dict(bridge),
         "episodes": dict(episodes),
+        "hidden_thought_examples": hidden_thought_examples,
         "exact_duplicates": exact_duplicates,
         "record_invariants": {
             "errors": len(record_errors),

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Regression tests for the quality and execution gates.
+"""Regression tests for the quality gate.
 
-Both gates run over untrusted generated JSONL, so malformed records must
+The gate runs over untrusted generated JSONL, so malformed records must
 produce a verdict rather than an exception, and provenance must be counted
 from whichever field carries it.
 """
@@ -16,11 +16,11 @@ from contextlib import redirect_stderr, redirect_stdout
 from io import StringIO
 from pathlib import Path
 
-REPO = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(REPO / "pipelines"))
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "pipelines"))
 
+from gate_fixtures import REPO, write  # noqa: E402
 import quality_gate  # noqa: E402
-import verify_execution  # noqa: E402
 
 EMBEDDING_FIXTURE = REPO / "tests" / "fixtures" / "embedding-dedup"
 
@@ -34,11 +34,6 @@ DISTINCT_NOTES = [
     "turbine pitch bearing grease pressure spiked under yaw misalignment",
     "the milking robot logged a partial rinse against standing procedure",
 ]
-
-
-def write(path, records):
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text("".join(json.dumps(record) + "\n" for record in records))
 
 
 def mix_records(synthetic, real):
@@ -970,31 +965,6 @@ class RewardShapeReport(unittest.TestCase):
         self.assertEqual(rewards["unique_shapes"], 2)
         self.assertFalse(report["blocked"])
 
-
-class VerifyExecution(unittest.TestCase):
-    def test_non_object_trajectory_returns_verdict(self):
-        status, reason = verify_execution.verify_thalamic("a string", "where")
-        self.assertEqual(status, "inconclusive")
-        self.assertIn("not an object", reason)
-
-    def test_non_string_rationale_does_not_raise(self):
-        status, _ = verify_execution.verify_thalamic(
-            {
-                "state": {"sim_or_real": "designed"},
-                "safety_decision": {"rationale": {"nested": "object"}},
-                "future_outcome": {},
-            },
-            "where",
-        )
-        self.assertEqual(status, "failed")
-
-    def test_bridge_with_non_object_trajectory_returns_verdict(self):
-        status, reason = verify_execution.verify_record_execution(
-            {"language_view": {"trajectory": "oops"}, "spike_events": [1]},
-            "where",
-        )
-        self.assertEqual(status, "inconclusive")
-        self.assertIn("not an object", reason)
 
 
 if __name__ == "__main__":
