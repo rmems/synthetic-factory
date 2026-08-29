@@ -80,6 +80,104 @@ def assert_rebuildable(out: Path) -> None:
     raise SystemExit(f"{out} exists but is not a directory; refusing to delete it")
 
 
+def _write_records(out: Path, written: dict[str, Any]) -> dict[str, Any]:
+    """Write each batch and record its size and digest for the manifest."""
+
+    files: dict[str, Any] = {}
+    for relative, records in written.items():
+        destination = out / relative
+        oc.write_jsonl(destination, records)
+        files[relative] = {"records": len(records), "sha256": _sha256(destination)}
+    return files
+
+
+def _baseline_summary(router_records: list[Any]) -> dict[str, Any]:
+    """The student baseline the router records are scored against."""
+
+    samples = router_baseline.dataset_from_records(router_records)
+    baseline = router_baseline.evaluate_baselines(samples)
+    baseline["target"] = router_baseline.TARGET_TOP1
+    baseline["escalation"] = router_baseline.escalation_gate(baseline)
+    return baseline
+
+
+def _validation_summary(out: Path) -> dict[str, Any]:
+    """Re-validate what was just written, and keep the census keys."""
+
+    report = validate_distill.validate_path(out)
+    report.pop("_stamped", None)
+    return {
+        key: report[key]
+        for key in (
+            "records",
+            "valid",
+            "invalid",
+            "curation_eligible",
+            "curation_ineligible_reasons",
+            "families",
+            "fault_outcomes",
+            "preferred_policies",
+        )
+    }
+
+
+def _oracles_block(
+    meter: Any, meter_probe: dict[str, Any], router_oracle: Any, router_probe: dict[str, Any]
+) -> dict[str, Any]:
+    """An audit of which oracle actually ran, and what was unavailable here."""
+
+    return {
+        fault_recovery.FAMILY: {
+            "ran": fault_recovery.ORACLE_NAME,
+            "type": "deterministic_simulator",
+            "authority": oc.AUTHORITY_AUTHORITATIVE,
+            "unavailable": ["hardware_replay (no neuromorphic board present)"],
+        },
+        energy_preferences.FAMILY: {
+            "ran": meter.name,
+            "cost_quantity": meter.cost_quantity,
+            "cost_is_energy": meter.measures_energy,
+            "meter_probe": meter_probe,
+            "unavailable": [
+                entry["meter"]
+                for entry in meter_probe["probed"]
+                if not entry["available"]
+            ],
+        },
+        moe_router.FAMILY: {
+            "ran": router_oracle.name,
+            "authority": router_oracle.authority,
+            "is_llm_teacher": router_oracle.is_llm_teacher,
+            "oracle_probe": router_probe,
+            # Probed on this host, not hard-coded. The manifest is an audit
+            # of what was available where the fixture was built, so a
+            # rebuild on a host with transformers installed must say so
+            # rather than repeat the original machine's answer.
+            "unavailable": [
+                f"{entry['name']} ({entry['detail']})"
+                for entry in router_probe["oracles"]
+                if not entry["available"]
+            ],
+        },
+    }
+
+
+def _training_ready_note(meter: Any, router_oracle: Any) -> str:
+    """Why structural validity here is still not training-readiness."""
+
+    return (
+        "Structural validity is not training-readiness. The router records "
+        f"come from a {router_oracle.authority} oracle and are excluded by "
+        "oracle_contract.curation_eligible; the energy records are "
+        f"denominated in {meter.cost_quantity} "
+        + (
+            f"as measured by {meter.name}."
+            if meter.measures_energy
+            else "because no energy meter was readable on this host."
+        )
+    )
+
+
 def build(out: Path, force: bool = False) -> dict[str, Any]:
     if out.exists():
         if not force:
@@ -105,19 +203,8 @@ def build(out: Path, force: bool = False) -> dict[str, Any]:
         "energy-preferences/batch-r01.jsonl": energy_records,
         "moe-router/batch-r01.jsonl": router_records,
     }
-    files: dict[str, Any] = {}
-    for relative, records in written.items():
-        destination = out / relative
-        oc.write_jsonl(destination, records)
-        files[relative] = {"records": len(records), "sha256": _sha256(destination)}
-
-    samples = router_baseline.dataset_from_records(router_records)
-    baseline = router_baseline.evaluate_baselines(samples)
-    baseline["target"] = router_baseline.TARGET_TOP1
-    baseline["escalation"] = router_baseline.escalation_gate(baseline)
-
-    report = validate_distill.validate_path(out)
-    report.pop("_stamped", None)
+    files = _write_records(out, written)
+    baseline = _baseline_summary(router_records)
 
     manifest = {
         "issue": "rmems/synthetic-factory#78",
@@ -129,66 +216,11 @@ def build(out: Path, force: bool = False) -> dict[str, Any]:
             moe_router.FAMILY: ROUTER_SEED,
         },
         "files": files,
-        "validation": {
-            key: report[key]
-            for key in (
-                "records",
-                "valid",
-                "invalid",
-                "curation_eligible",
-                "curation_ineligible_reasons",
-                "families",
-                "fault_outcomes",
-                "preferred_policies",
-            )
-        },
-        "oracles": {
-            fault_recovery.FAMILY: {
-                "ran": fault_recovery.ORACLE_NAME,
-                "type": "deterministic_simulator",
-                "authority": oc.AUTHORITY_AUTHORITATIVE,
-                "unavailable": ["hardware_replay (no neuromorphic board present)"],
-            },
-            energy_preferences.FAMILY: {
-                "ran": meter.name,
-                "cost_quantity": meter.cost_quantity,
-                "cost_is_energy": meter.measures_energy,
-                "meter_probe": meter_probe,
-                "unavailable": [
-                    entry["meter"]
-                    for entry in meter_probe["probed"]
-                    if not entry["available"]
-                ],
-            },
-            moe_router.FAMILY: {
-                "ran": router_oracle.name,
-                "authority": router_oracle.authority,
-                "is_llm_teacher": router_oracle.is_llm_teacher,
-                "oracle_probe": router_probe,
-                # Probed on this host, not hard-coded. The manifest is an audit
-                # of what was available where the fixture was built, so a
-                # rebuild on a host with transformers installed must say so
-                # rather than repeat the original machine's answer.
-                "unavailable": [
-                    f"{entry['name']} ({entry['detail']})"
-                    for entry in router_probe["oracles"]
-                    if not entry["available"]
-                ],
-            },
-        },
+        "validation": _validation_summary(out),
+        "oracles": _oracles_block(meter, meter_probe, router_oracle, router_probe),
         "baseline": baseline,
         "training_ready": False,
-        "training_ready_note": (
-            "Structural validity is not training-readiness. The router records "
-            f"come from a {router_oracle.authority} oracle and are excluded by "
-            "oracle_contract.curation_eligible; the energy records are "
-            f"denominated in {meter.cost_quantity} "
-            + (
-                f"as measured by {meter.name}."
-                if meter.measures_energy
-                else "because no energy meter was readable on this host."
-            )
-        ),
+        "training_ready_note": _training_ready_note(meter, router_oracle),
     }
     (out / "MANIFEST.json").write_text(
         json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8"
