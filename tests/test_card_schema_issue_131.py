@@ -125,6 +125,8 @@ class RagRetrievalDebugDeclarationTests(unittest.TestCase):
         self.assertEqual(steps["n"]["dtype"], "int64")
         tool_call = {feature["name"]: feature for feature in steps["tool_call"]["struct"]}
         self.assertEqual(tool_call["args"]["dtype"], "json")
+
+    def test_yaml_projection_is_the_complete_annotation_free_feature_tree(self):
         self.assertEqual(
             card_schema.yaml_features(self.declaration["features"]),
             [
