@@ -1158,6 +1158,71 @@ class GenerateCli(unittest.TestCase):
             self.assertIn("exceeding the validator's", captured.getvalue())
             self.assertIn("per-file limit", captured.getvalue())
 
+    def test_a_destination_under_outputs_raw_is_refused_before_the_lock(self):
+        # AGENTS.md: outputs/raw/ is immutable. Even the sibling reservation
+        # lock must never be created there, so the refusal runs first.
+        with tempfile.TemporaryDirectory(prefix="oracle-raw-guard-") as temp:
+            raw = Path(temp) / "outputs" / "raw"
+            raw.mkdir(parents=True)
+            captured = io.StringIO()
+            with (
+                mock.patch.object(oracle_generate, "RAW_TREE", raw),
+                mock.patch("sys.stderr", captured),
+            ):
+                status = oracle_generate.main(
+                    [
+                        "--family",
+                        families.ENCODER_FAMILY,
+                        "--count",
+                        "1",
+                        "--oracle-commit",
+                        PINNED_COMMIT,
+                        "--no-oracle-dirty",
+                        str(raw / "2026-09-01"),
+                    ]
+                )
+            self.assertEqual(status, 2)
+            self.assertIn("immutable raw tree", captured.getvalue())
+            self.assertEqual(list(raw.iterdir()), [])
+
+    def test_a_destination_that_resolves_into_outputs_raw_is_refused(self):
+        # A path that only reaches the raw tree through a symlink must be
+        # refused too; realpath, not string prefixing, decides.
+        with tempfile.TemporaryDirectory(prefix="oracle-raw-symlink-") as temp:
+            raw = Path(temp) / "outputs" / "raw"
+            raw.mkdir(parents=True)
+            link = Path(temp) / "innocent-looking"
+            link.symlink_to(raw, target_is_directory=True)
+            captured = io.StringIO()
+            with (
+                mock.patch.object(oracle_generate, "RAW_TREE", raw),
+                mock.patch("sys.stderr", captured),
+            ):
+                status = oracle_generate.main(
+                    [
+                        "--family",
+                        families.ENCODER_FAMILY,
+                        "--count",
+                        "1",
+                        "--oracle-commit",
+                        PINNED_COMMIT,
+                        "--no-oracle-dirty",
+                        str(link / "run"),
+                    ]
+                )
+            self.assertEqual(status, 2)
+            self.assertIn("immutable raw tree", captured.getvalue())
+            self.assertEqual(list(raw.iterdir()), [])
+
+    def test_the_raw_destination_check_covers_the_repository_tree(self):
+        # Pure-function checks against the real repository constant: no
+        # filesystem writes happen on either path.
+        inside = oracle_generate.RAW_TREE / "2026-09-01"
+        self.assertIsNotNone(oracle_generate._raw_destination_error(inside))
+        self.assertIsNotNone(oracle_generate._raw_destination_error(oracle_generate.RAW_TREE))
+        with tempfile.TemporaryDirectory(prefix="oracle-raw-outside-") as temp:
+            self.assertIsNone(oracle_generate._raw_destination_error(Path(temp) / "run"))
+
     def test_an_oversized_run_refuses_to_publish(self):
         with tempfile.TemporaryDirectory(prefix="oracle-oversized-run-") as temp:
             out = Path(temp) / "run"
@@ -1182,6 +1247,38 @@ class GenerateCli(unittest.TestCase):
             self.assertFalse(out.exists())
             self.assertIn("exceeding the validator's", captured.getvalue())
             self.assertIn("per-run limit", captured.getvalue())
+
+    def test_the_run_byte_cap_counts_the_manifest(self):
+        # oracle_validate applies its per-run limit to every regular file,
+        # manifest.json included; a run whose payloads fit but whose manifest
+        # pushes it over would publish successfully and then always be
+        # rejected, so generation must count the manifest too.
+        with tempfile.TemporaryDirectory(prefix="oracle-manifest-cap-") as temp:
+            published = Path(temp) / "published"
+            args = [
+                "--family",
+                families.ENCODER_FAMILY,
+                "--count",
+                "1",
+                "--oracle-commit",
+                PINNED_COMMIT,
+                "--no-oracle-dirty",
+            ]
+            with mock.patch("builtins.print"):
+                self.assertEqual(oracle_generate.main([*args, str(published)]), 0)
+            payload_bytes = sum(
+                path.stat().st_size for path in published.rglob("*.jsonl")
+            )
+            capped = Path(temp) / "capped"
+            captured = io.StringIO()
+            with (
+                mock.patch.object(oracle_generate, "MAX_RUN_BYTES", payload_bytes),
+                mock.patch("sys.stderr", captured),
+            ):
+                status = oracle_generate.main([*args, str(capped)])
+            self.assertEqual(status, 1)
+            self.assertFalse(capped.exists())
+            self.assertIn("including the manifest", captured.getvalue())
 
     def test_generation_error_publishes_no_partial_run(self):
         with tempfile.TemporaryDirectory(prefix="oracle-transaction-build-") as temp:

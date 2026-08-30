@@ -39,7 +39,7 @@ import tempfile
 from pathlib import Path
 
 from oracle_grounded import canon, families, oracles, record
-from oracle_validate import MAX_JSONL_BYTES, MAX_RUN_BYTES
+from oracle_validate import MAX_JSONL_BYTES, MAX_MANIFEST_BYTES, MAX_RUN_BYTES
 
 DEFAULT_SEED = 20260823
 DEFAULT_COUNT = 8
@@ -48,6 +48,9 @@ MAX_RUN_RECORDS = 100_000
 MAX_ROUND = 99_999_999
 AT_FDCWD = -100
 RENAME_NOREPLACE = 1
+# The immutable raw tree (AGENTS.md): never a generation destination, and
+# never the parent of one -- even the sibling reservation lock would violate it.
+RAW_TREE = oracles.REPO_ROOT / "outputs" / "raw"
 
 
 def parse_args(argv):
@@ -130,6 +133,27 @@ def summarize(records):
 
 def _lexists(path):
     return os.path.lexists(os.fspath(path))
+
+
+def _raw_destination_error(out_dir):
+    """Why ``out_dir`` may not be used, or None. Runs before anything is written.
+
+    ``reserve_run`` creates a sibling lock before the staging tree exists, so a
+    destination beneath the repository's immutable ``outputs/raw/`` tree must be
+    refused before the reservation -- including a path that only resolves there
+    through symlinks.  An unresolvable path is refused rather than trusted.
+    """
+    try:
+        resolved = Path(os.path.realpath(out_dir))
+        raw_root = Path(os.path.realpath(RAW_TREE))
+    except (OSError, ValueError) as exc:
+        return f"could not resolve {out_dir} against the immutable raw tree: {type(exc).__name__}"
+    if resolved == raw_root or raw_root in resolved.parents:
+        return (
+            f"{out_dir} resolves into the immutable raw tree {RAW_TREE}; "
+            "outputs/raw/ is never a generation destination"
+        )
+    return None
 
 
 def reserve_run(out_dir):
@@ -409,6 +433,10 @@ def main(argv=None):
         return stamp_error
 
     out_dir = Path(args.out_dir)
+    raw_error = _raw_destination_error(out_dir)
+    if raw_error is not None:
+        print(f"oracle_generate: {raw_error}", file=sys.stderr)
+        return 2
     try:
         lock_descriptor = reserve_run(out_dir)
     except (FileExistsError, NotADirectoryError, OSError) as exc:
@@ -464,17 +492,6 @@ def main(argv=None):
                         f"{relative.as_posix()} is {byte_count} bytes, exceeding the "
                         f"validator's {MAX_JSONL_BYTES}-byte per-file limit"
                     )
-        if total_bytes > MAX_RUN_BYTES:
-            oversized.append(
-                f"the run is {total_bytes} bytes, exceeding the validator's "
-                f"{MAX_RUN_BYTES}-byte per-run limit"
-            )
-        if oversized:
-            # oracle_validate.py would always reject this run anyway; fail
-            # before publication instead of letting it exit successfully.
-            for error in oversized:
-                print(f"oracle_generate: {error}", file=sys.stderr)
-            return 1
         manifest = build_manifest(
             args,
             selected,
@@ -484,8 +501,29 @@ def main(argv=None):
             generated,
             files,
         )
+        # The validator counts every regular file -- the manifest included --
+        # against its per-run limit, so serialize it now and count it too.
+        manifest_text = json.dumps(canon.normalize(manifest), indent=2, sort_keys=True)
+        manifest_bytes = len(manifest_text.encode("utf-8")) + 1  # trailing newline
+        if manifest_bytes > MAX_MANIFEST_BYTES:
+            oversized.append(
+                f"manifest.json is {manifest_bytes} bytes, exceeding the "
+                f"validator's {MAX_MANIFEST_BYTES}-byte manifest limit"
+            )
+        total_bytes += manifest_bytes
+        if total_bytes > MAX_RUN_BYTES:
+            oversized.append(
+                f"the run is {total_bytes} bytes including the manifest, exceeding "
+                f"the validator's {MAX_RUN_BYTES}-byte per-run limit"
+            )
+        if oversized:
+            # oracle_validate.py would always reject this run anyway; fail
+            # before publication instead of letting it exit successfully.
+            for error in oversized:
+                print(f"oracle_generate: {error}", file=sys.stderr)
+            return 1
         (staging / "manifest.json").write_text(
-            json.dumps(canon.normalize(manifest), indent=2, sort_keys=True) + "\n",
+            manifest_text + "\n",
             encoding="utf-8",
         )
         # The publication point itself is no-replace; a non-cooperating writer
@@ -493,7 +531,6 @@ def main(argv=None):
         publish_noreplace(staging, out_dir, staging_identity)
         staging = None
         published = True
-        manifest_text = json.dumps(canon.normalize(manifest), indent=2, sort_keys=True)
     except (OSError, TypeError, ValueError) as exc:
         print(
             f"oracle_generate: transaction failed before publication: {type(exc).__name__}: {exc}",
