@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 """Source-scan and writer tests for same-context preference curation."""
 
-import copy
 import hashlib
 import json
 import sys
@@ -13,56 +12,12 @@ from unittest import mock
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO / "pipelines"))
 
+from preference_test_support import pair, write_jsonl  # noqa: E402
 import curate_preferences  # noqa: E402
-import preference_destination  # noqa: E402
+import preference_model  # noqa: E402
+import preference_writer  # noqa: E402
 import training_audit  # noqa: E402
 from pipelines import raw_tree_guard  # noqa: E402
-
-# The raw-tree refusal reads preference_destination.RAW_OUTPUT_ROOT, which is
-# the module that owns the destination layer. These tests stand in a fake raw
-# root to exercise symlink and bind-mount aliases, so they patch it there;
-# curate_preferences re-exports the same value for callers that only read it.
-
-
-def trajectory(record_id, state=None, proposal=None, decision="ACCEPT"):
-    return {
-        "id": record_id,
-        "state": state
-        or {"sim_or_real": "designed", "domain": "preference-curation-test"},
-        "proposed_action": proposal
-        or {"action": "bounded-noop", "decision_basis": "fixture"},
-        "safety_decision": {"decision": decision, "rationale": "fixture rationale"},
-        "executed_action": {"action": "bounded-noop"},
-        "future_outcome": {"success": decision != "REJECT"},
-        "reward_components": {"task_progress": 0.5, "safety": 0.5, "total": 1.0},
-        "meta": {"tags": ["preference", "fixture"]},
-    }
-
-
-def pair(record_id="pair-1", chosen_state=None, rejected_state=None, proposal=None):
-    shared_state = {"sim_or_real": "designed", "domain": "same-problem"}
-    shared_proposal = proposal or {"action": "inspect", "decision_basis": "fixture"}
-    return {
-        "id": record_id,
-        "chosen": trajectory(
-            f"{record_id}-chosen",
-            state=copy.deepcopy(chosen_state or shared_state),
-            proposal=copy.deepcopy(shared_proposal),
-            decision="MODIFY",
-        ),
-        "rejected": trajectory(
-            f"{record_id}-rejected",
-            state=copy.deepcopy(rejected_state or shared_state),
-            proposal=copy.deepcopy(shared_proposal),
-            decision="ACCEPT",
-        ),
-        "critique": "fixture preference",
-        "reward_delta": {"task_progress": 0.0, "safety": 0.0, "total": 0.0},
-    }
-
-
-def write_jsonl(path, records):
-    path.write_text("".join(json.dumps(record) + "\n" for record in records))
 
 
 class CuratePreferenceSource(unittest.TestCase):
@@ -219,7 +174,7 @@ class CuratePreferenceSource(unittest.TestCase):
                     destination = destination_for(outputs, external_raw)
                     run = curate_preferences.curate_source(source)
                     with mock.patch.object(
-                        preference_destination, "RAW_OUTPUT_ROOT", raw_root
+                        preference_model, "RAW_OUTPUT_ROOT", raw_root
                     ):
                         with self.assertRaisesRegex(
                             curate_preferences.PreferenceCurationError,
@@ -254,7 +209,7 @@ class CuratePreferenceSource(unittest.TestCase):
             run = curate_preferences.curate_source(source)
             output = outside / "curated.jsonl"
             manifest = alternate_alias / "manifest.jsonl"
-            with mock.patch.object(preference_destination, "RAW_OUTPUT_ROOT", raw_root):
+            with mock.patch.object(preference_model, "RAW_OUTPUT_ROOT", raw_root):
                 with self.assertRaisesRegex(
                     curate_preferences.PreferenceCurationError,
                     "immutable raw evidence",
@@ -281,7 +236,7 @@ class CuratePreferenceSource(unittest.TestCase):
             raw_run.mkdir(parents=True)
             destination = alias / "curated.jsonl"
             run = curate_preferences.curate_source(source)
-            with mock.patch.object(preference_destination, "RAW_OUTPUT_ROOT", raw_root):
+            with mock.patch.object(preference_model, "RAW_OUTPUT_ROOT", raw_root):
                 with mock.patch.object(
                     raw_tree_guard,
                     "_read_mountinfo",
@@ -335,7 +290,7 @@ class CuratePreferenceSource(unittest.TestCase):
                 (repo, Path("/project/repo"), "8:2"),
                 (alias, Path("/project/repo/outputs/raw/run"), "8:2"),
             )
-            with mock.patch.object(preference_destination, "RAW_OUTPUT_ROOT", raw_root):
+            with mock.patch.object(preference_model, "RAW_OUTPUT_ROOT", raw_root):
                 with mock.patch.object(
                     raw_tree_guard, "_read_mountinfo", return_value=mounts
                 ):
@@ -367,7 +322,7 @@ class CuratePreferenceSource(unittest.TestCase):
             raw_root = outputs / "raw"
             raw_root.mkdir()
             destination = safe / "out.jsonl"
-            original_assert = curate_preferences._assert_new_destination
+            original_assert = preference_writer._assert_new_destination
 
             def swap_parent_after_preflight(src, dest, label):
                 original_assert(src, dest, label)
@@ -378,9 +333,9 @@ class CuratePreferenceSource(unittest.TestCase):
                 parent.symlink_to(raw_root)
 
             run = curate_preferences.curate_source(source)
-            with mock.patch.object(preference_destination, "RAW_OUTPUT_ROOT", raw_root):
+            with mock.patch.object(preference_model, "RAW_OUTPUT_ROOT", raw_root):
                 with mock.patch.object(
-                    curate_preferences,
+                    preference_writer,
                     "_assert_new_destination",
                     swap_parent_after_preflight,
                 ):
@@ -394,6 +349,66 @@ class CuratePreferenceSource(unittest.TestCase):
             self.assertFalse((raw_root / "out.jsonl").exists())
             self.assertFalse((safe / "out.jsonl").exists())
             self.assertEqual(list(outside.iterdir()), [])
+
+    def test_failed_write_cleanup_cannot_delete_a_file_it_did_not_create(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            source = root / "source.jsonl"
+            write_jsonl(source, [pair("cleanup-parent-swap")])
+            safe = root / "safe"
+            outside = root / "cleaned"
+            safe.mkdir()
+            outside.mkdir()
+            output = safe / "out.jsonl"
+            manifest = outside / "manifest.jsonl"
+            run = curate_preferences.curate_source(source)
+
+            moved = root / "safe.moved"
+            decoy = safe / "out.jsonl"
+
+            def swap_parent_then_fail(*_args, **_kwargs):
+                # Both files exist by now. Move the directory the output was
+                # actually created in out from under its pathname, and leave a
+                # different file of the same name where the path resolves.
+                safe.rename(moved)
+                safe.mkdir()
+                decoy.write_text("pre-existing evidence\n")
+                raise OSError("durability failure after both files were created")
+
+            with mock.patch.object(
+                preference_writer, "_fsync_parents", swap_parent_then_fail
+            ):
+                with self.assertRaises(OSError):
+                    curate_preferences.write_run(run, source, output, manifest)
+
+            # Cleanup must remove what this invocation created, addressed
+            # through the directory it was created in...
+            self.assertFalse((moved / "out.jsonl").exists())
+            # ...and must not touch the unrelated file now at that pathname.
+            self.assertEqual(decoy.read_text(), "pre-existing evidence\n")
+            self.assertFalse(manifest.exists())
+
+    def test_an_interrupt_during_the_write_still_removes_both_files(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            source = root / "source.jsonl"
+            write_jsonl(source, [pair("interrupted-write")])
+            destination = root / "destination"
+            destination.mkdir()
+            output = destination / "curated.jsonl"
+            manifest = destination / "manifest.jsonl"
+            run = curate_preferences.curate_source(source)
+
+            def interrupt(*_args, **_kwargs):
+                raise KeyboardInterrupt
+
+            with mock.patch.object(preference_writer, "_fsync_parents", interrupt):
+                with self.assertRaises(KeyboardInterrupt):
+                    curate_preferences.write_run(run, source, output, manifest)
+
+            # A half-written transaction must not survive to block the retry.
+            self.assertFalse(output.exists())
+            self.assertFalse(manifest.exists())
 
     def test_non_encodable_record_is_excluded_without_aborting_the_scan(self):
         with tempfile.TemporaryDirectory() as td:

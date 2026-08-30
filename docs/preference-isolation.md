@@ -176,8 +176,34 @@ python3 pipelines/curate_preferences.py scan <batch-or-staging-dir> --json
 
 Its `summary.impure_pairs` counts same-context violations, and each impure
 `decisions[]` entry names the offending `source_line`, `reason_codes`
-(e.g. `STATE_CONTEXT_DIVERGES`) and `context_diff_paths`. Run it in CI before
-`round_txn.py publish`; any non-zero `impure_pairs` blocks publication.
+(e.g. `STATE_CONTEXT_DIVERGES`) and `context_diff_paths`.
+
+Run it in CI before `round_txn.py publish` and gate on
+`summary.unpublishable_pairs`, which must be 0. Gate on that field rather
+than on `impure_pairs`: `impure_pairs` deliberately counts only the four
+context-divergence and comparability buckets, so that the published
+same-context audit stays truthful. A pair can have equal, fully comparable
+context and still be unusable -- a non-finite `reward_delta`, for instance,
+is excluded by the curator while leaving `impure_pairs` at 0.
+`unpublishable_pairs` counts every pair that is impure *or* unemittable, so
+neither kind of defect can reach a published round.
+
+`summary` also splits the violations by field — `state_divergent_pairs`,
+`proposed_action_divergent_pairs`, and `proposed_action_only_divergent_pairs`
+— so a state-only audit can be reconciled against this gate. A published
+worked example of that reconciliation, with the per-pair ID list and reason
+codes, is [`ffpc-same-state-audit.md`](ffpc-same-state-audit.md):
+
+```
+python3 pipelines/curate_preferences.py audit <source> --markdown
+python3 pipelines/curate_preferences.py audit <source> --expect docs/ffpc-same-state-audit.json
+python3 pipelines/curate_preferences.py reconcile <source-a> <source-b>
+```
+
+The audit embeds a relative-path plus whole-file SHA-256 inventory. Both
+`audit --expect` and `reconcile` therefore cover retained pairs, skipped JSON
+records, non-preference-only files, line endings, and trailing blank lines in
+addition to the per-pair decisions.
 
 ### 3.4 Failure taxonomy
 
@@ -221,7 +247,8 @@ python3 pipelines/round_txn.py reserve outputs/raw/2026-08-17/failure-as-fuel-pr
 # Validate
 python3 pipelines/check_records.py outputs/staging/2026-08-17/failure-as-fuel-preference-cascade/r05-<token>
 python3 pipelines/curate_preferences.py scan outputs/staging/2026-08-17/failure-as-fuel-preference-cascade/r05-<token>/batch-r05.jsonl --json
-# purity gate: summary.impure_pairs must be 0
+# purity gate: summary.unpublishable_pairs must be 0
+# (impure_pairs alone misses equal-context pairs the curator cannot emit)
 
 # Publish
 python3 pipelines/round_txn.py publish outputs/raw/2026-08-17/failure-as-fuel-preference-cascade --round 5 --token <token>
