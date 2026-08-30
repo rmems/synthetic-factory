@@ -469,40 +469,47 @@ def check_generator_oracle_separation(record: dict[str, Any], where: str) -> lis
     return errors
 
 
+def _check_measurement_item(item: Any, spot: str) -> list[str]:
+    """One measurement's quantity, unit, meter and provenance."""
+
+    if not isinstance(item, dict):
+        return [f"{spot}: measurement must be an object"]
+    quantity = item.get("quantity")
+    if not is_enum_value(quantity, QUANTITY_UNITS):
+        return [f"{spot}: unknown quantity {quantity!r}"]
+    errors: list[str] = []
+    if not is_number(item.get("value")):
+        errors.append(f"{spot}: value must be a finite number")
+    expected_unit = QUANTITY_UNITS[quantity]
+    if item.get("unit") != expected_unit:
+        errors.append(
+            f"{spot}: {quantity} must declare unit {expected_unit!r}, "
+            f"got {item.get('unit')!r}"
+        )
+    meter = item.get("meter")
+    if not isinstance(meter, str) or not meter.strip():
+        errors.append(f"{spot}: meter must be a non-empty string")
+    if item.get("source") != "oracle":
+        errors.append(f"{spot}: source must be 'oracle'")
+    if not isinstance(item.get("measured"), bool):
+        errors.append(f"{spot}: measured must be a boolean")
+    return errors
+
+
 def check_measurements(record: dict[str, Any], where: str) -> list[str]:
     """Validate every measurement's quantity, unit, meter and provenance."""
 
-    errors: list[str] = []
     result = record.get("result")
     if not isinstance(result, dict):
         return [f"{where}.result must be an object"]
     measurements = result.get("measurements")
     if not isinstance(measurements, list):
         return [f"{where}.result.measurements must be an array"]
+    errors: list[str] = []
     for index, item in enumerate(measurements):
-        spot = f"{where}.result.measurements[{index}]"
-        if not isinstance(item, dict):
-            errors.append(f"{spot}: measurement must be an object")
-            continue
-        quantity = item.get("quantity")
-        if not is_enum_value(quantity, QUANTITY_UNITS):
-            errors.append(f"{spot}: unknown quantity {quantity!r}")
-            continue
-        if not is_number(item.get("value")):
-            errors.append(f"{spot}: value must be a finite number")
-        expected_unit = QUANTITY_UNITS[quantity]
-        if item.get("unit") != expected_unit:
-            errors.append(
-                f"{spot}: {quantity} must declare unit {expected_unit!r}, "
-                f"got {item.get('unit')!r}"
-            )
-        meter = item.get("meter")
-        if not isinstance(meter, str) or not meter.strip():
-            errors.append(f"{spot}: meter must be a non-empty string")
-        if item.get("source") != "oracle":
-            errors.append(f"{spot}: source must be 'oracle'")
-        if not isinstance(item.get("measured"), bool):
-            errors.append(f"{spot}: measured must be a boolean")
+        errors += _check_measurement_item(
+            item, f"{where}.result.measurements[{index}]"
+        )
     return errors
 
 
@@ -518,20 +525,12 @@ def _is_energy_key(key: str) -> bool:
     return any(hint in lowered for hint in ENERGY_KEY_HINTS)
 
 
-def check_no_theoretical_energy_claim(record: dict[str, Any], where: str) -> list[str]:
-    """Refuse an energy number that was modeled rather than measured.
-
-    Covers both directions: an energy-class quantity produced by a modeled
-    meter, and a preference/comparison denominated in an energy quantity that
-    has no measured energy behind it.
-    """
+def _energy_measurement_claims(
+    measurements: list[Any], where: str
+) -> tuple[list[str], set[str]]:
+    """Errors for modeled energy readings, plus the honestly measured ones."""
 
     errors: list[str] = []
-    result = record.get("result")
-    if not isinstance(result, dict):
-        return errors
-    measurements = result.get("measurements")
-    measurements = measurements if isinstance(measurements, list) else []
     measured_energy_quantities: set[str] = set()
     for index, item in enumerate(measurements):
         if not isinstance(item, dict):
@@ -554,10 +553,17 @@ def check_no_theoretical_energy_claim(record: dict[str, Any], where: str) -> lis
             )
             continue
         measured_energy_quantities.add(quantity)
+    return errors, measured_energy_quantities
 
-    # A bare energy number anywhere under `result` is an energy claim too.
-    # Without this, `result["energy_j"] = 1e-7` sails past the measurement
-    # checks because it never appears in `result.measurements` at all.
+
+def _bare_energy_field_errors(result: dict[str, Any]) -> list[str]:
+    """A bare energy number anywhere under ``result`` is an energy claim too.
+
+    Without this, ``result["energy_j"] = 1e-7`` sails past the measurement
+    checks because it never appears in ``result.measurements`` at all.
+    """
+
+    errors: list[str] = []
     for path, key, value in _walk_keys(result, "result"):
         # Only a number can be an energy value. A boolean is a flag
         # (`cost_is_energy`, `measures_energy`) and a string names a quantity.
@@ -567,6 +573,26 @@ def check_no_theoretical_energy_claim(record: dict[str, Any], where: str) -> lis
             f"{path}: THEORETICAL_ENERGY_CLAIM — an energy value must be carried "
             "as a measurement with a meter, not as a bare field"
         )
+    return errors
+
+
+def check_no_theoretical_energy_claim(record: dict[str, Any], where: str) -> list[str]:
+    """Refuse an energy number that was modeled rather than measured.
+
+    Covers both directions: an energy-class quantity produced by a modeled
+    meter, and a preference/comparison denominated in an energy quantity that
+    has no measured energy behind it.
+    """
+
+    result = record.get("result")
+    if not isinstance(result, dict):
+        return []
+    measurements = result.get("measurements")
+    measurements = measurements if isinstance(measurements, list) else []
+    errors, measured_energy_quantities = _energy_measurement_claims(
+        measurements, where
+    )
+    errors += _bare_energy_field_errors(result)
 
     preference = result.get("preference")
     if isinstance(preference, dict):
@@ -694,12 +720,18 @@ def _check_validation_block(block: Any, where: str) -> list[str]:
                 f"{where}.validation: unvalidated records must not name a validator"
             )
         return errors
+    return errors + _check_validator_object(validator, where)
+
+
+def _check_validator_object(validator: Any, where: str) -> list[str]:
+    """The validator identity a passed/failed verdict must carry."""
+
     if not isinstance(validator, dict):
-        errors.append(
+        return [
             f"{where}.validation.validator must be an object naming the validator "
             "that stamped this verdict"
-        )
-        return errors
+        ]
+    errors: list[str] = []
     for key in ("name", "version"):
         value = validator.get(key)
         if not isinstance(value, str) or not value.strip():
@@ -821,30 +853,40 @@ def curation_eligible(
     reasons: list[str] = []
     if findings:
         reasons.append(f"VALIDATION_FINDINGS:{len(findings)}")
-    oracle = record.get("oracle")
+    reasons += _oracle_authority_reasons(record.get("oracle"))
+    reasons += _measured_result_reasons(record.get("result"))
+    reasons += _digest_reasons(record)
+    return (not reasons), reasons
+
+
+def _oracle_authority_reasons(oracle: Any) -> list[str]:
     if not isinstance(oracle, dict):
-        reasons.append("ORACLE_BLOCK_MISSING")
-    elif oracle.get("authority") != AUTHORITY_AUTHORITATIVE:
-        reasons.append(
-            f"ORACLE_NOT_AUTHORITATIVE:{oracle.get('authority')!r}"
-        )
-    result = record.get("result")
+        return ["ORACLE_BLOCK_MISSING"]
+    if oracle.get("authority") != AUTHORITY_AUTHORITATIVE:
+        return [f"ORACLE_NOT_AUTHORITATIVE:{oracle.get('authority')!r}"]
+    return []
+
+
+def _measured_result_reasons(result: Any) -> list[str]:
     if not isinstance(result, dict):
-        reasons.append("ORACLE_RESULT_MISSING")
-    elif result.get("status") != RESULT_MEASURED:
-        reasons.append(f"ORACLE_RESULT_NOT_MEASURED:{result.get('status')!r}")
-    else:
-        measurements = result.get("measurements")
-        measurements = measurements if isinstance(measurements, list) else []
-        if not measurements:
-            reasons.append("ORACLE_RESULT_MISSING")
-        elif not any(
-            isinstance(item, dict) and item.get("measured") is True
-            for item in measurements
-        ):
-            # A list of `measured: false` readings is a modelled result wearing
-            # a measured status. Curating it would admit modelled labels.
-            reasons.append("NO_MEASURED_READING")
+        return ["ORACLE_RESULT_MISSING"]
+    if result.get("status") != RESULT_MEASURED:
+        return [f"ORACLE_RESULT_NOT_MEASURED:{result.get('status')!r}"]
+    measurements = result.get("measurements")
+    measurements = measurements if isinstance(measurements, list) else []
+    if not measurements:
+        return ["ORACLE_RESULT_MISSING"]
+    if not any(
+        isinstance(item, dict) and item.get("measured") is True
+        for item in measurements
+    ):
+        # A list of `measured: false` readings is a modelled result wearing
+        # a measured status. Curating it would admit modelled labels.
+        return ["NO_MEASURED_READING"]
+    return []
+
+
+def _digest_reasons(record: dict[str, Any]) -> list[str]:
     provenance = record.get("provenance")
     recorded_digest = (
         provenance.get("record_sha256") if isinstance(provenance, dict) else None
@@ -852,10 +894,10 @@ def curation_eligible(
     if not isinstance(recorded_digest, str) or not SHA256_RE.match(recorded_digest):
         # Without a digest there is nothing for check_digest to compare, so a
         # deleted digest would otherwise be a clean bypass of tamper detection.
-        reasons.append("RECORD_DIGEST_MISSING")
-    elif check_digest(record, "record"):
-        reasons.append("RECORD_DIGEST_MISMATCH")
-    return (not reasons), reasons
+        return ["RECORD_DIGEST_MISSING"]
+    if check_digest(record, "record"):
+        return ["RECORD_DIGEST_MISMATCH"]
+    return []
 
 
 def stamp_is_bound_to_content(record: dict[str, Any]) -> bool:

@@ -301,15 +301,8 @@ class ReferenceMoERouter(RouterOracle):
     implementation = "pipelines/moe_router.py:ReferenceMoERouter"
     is_llm_teacher = False
 
-    def __init__(
-        self,
-        *,
-        seed: int = 7,
-        num_experts: int = 8,
-        num_layers: int = 4,
-        top_k: int = 2,
-        dim: int = FEATURE_DIM,
-    ) -> None:
+    @staticmethod
+    def _check_gate_shape(top_k: int, num_experts: int, num_layers: int) -> None:
         if top_k < 2:
             raise oc.ContractError("top_k must be >= 2 to define a top1/top2 margin")
         if num_experts <= top_k:
@@ -319,6 +312,17 @@ class ReferenceMoERouter(RouterOracle):
             # then fails indexing `Counter(...).most_common(1)[0]`. Fail here
             # with a bounded contract error instead of crashing generation.
             raise oc.ContractError("num_layers must be >= 1")
+
+    def __init__(
+        self,
+        *,
+        seed: int = 7,
+        num_experts: int = 8,
+        num_layers: int = 4,
+        top_k: int = 2,
+        dim: int = FEATURE_DIM,
+    ) -> None:
+        self._check_gate_shape(top_k, num_experts, num_layers)
         self.seed = seed
         self.num_experts = num_experts
         self.num_layers = num_layers
@@ -748,6 +752,38 @@ def propose_contexts(seed: int, count: int) -> list[dict[str, Any]]:
     return proposals
 
 
+def _routing_result(
+    observation: RouterObservation, engine: RouterOracle, oracle_block: dict[str, Any]
+) -> dict[str, Any]:
+    """The oracle-owned result block for one routed context."""
+
+    last = observation.layers[-1]
+    measurements = [
+        oc.new_measurement(
+            "top1_top2_margin", last.top1_top2_margin, engine.name,
+            detail={"layer": last.layer},
+        ),
+        oc.new_measurement(
+            "routing_entropy", last.routing_entropy, engine.name,
+            detail={"layer": last.layer},
+        ),
+        oc.new_measurement(
+            "expert_agreement", observation.expert_agreement, engine.name,
+            detail={"across_layers": len(observation.layers)},
+        ),
+    ]
+    return oc.new_result(
+        measurements=measurements,
+        routing=observation.as_dict(),
+        top1_expert=observation.top1_expert,
+        is_llm_teacher=bool(engine.is_llm_teacher),
+        teacher_grounded=bool(
+            engine.is_llm_teacher
+            and oracle_block["authority"] == oc.AUTHORITY_AUTHORITATIVE
+        ),
+    )
+
+
 def build_records(
     seed: int,
     count: int,
@@ -774,32 +810,6 @@ def build_records(
         observation = engine.route(scenario["context"])
         if oracle_block is None:
             oracle_block = engine.oracle_block()
-        routing = observation.as_dict()
-        last = observation.layers[-1]
-        measurements = [
-            oc.new_measurement(
-                "top1_top2_margin", last.top1_top2_margin, engine.name,
-                detail={"layer": last.layer},
-            ),
-            oc.new_measurement(
-                "routing_entropy", last.routing_entropy, engine.name,
-                detail={"layer": last.layer},
-            ),
-            oc.new_measurement(
-                "expert_agreement", observation.expert_agreement, engine.name,
-                detail={"across_layers": len(observation.layers)},
-            ),
-        ]
-        result = oc.new_result(
-            measurements=measurements,
-            routing=routing,
-            top1_expert=observation.top1_expert,
-            is_llm_teacher=bool(engine.is_llm_teacher),
-            teacher_grounded=bool(
-                engine.is_llm_teacher
-                and oracle_block["authority"] == oc.AUTHORITY_AUTHORITATIVE
-            ),
-        )
         records.append(
             oc.build_record(
                 record_id=f"{id_prefix}-{seed}-{proposal['index']:04d}",
@@ -807,7 +817,7 @@ def build_records(
                 generator=generator,
                 scenario=scenario,
                 oracle=oracle_block,
-                result=result,
+                result=_routing_result(observation, engine, oracle_block),
                 provenance=oc.new_provenance("pipelines/moe_router.py"),
             )
         )
@@ -1086,6 +1096,14 @@ def _check_layer_index(layer: dict[str, Any], spot: str, order: _LayerOrder) -> 
     return errors
 
 
+def _invalid_expert_entries(experts: list[Any]) -> list[Any]:
+    return [
+        expert
+        for expert in experts
+        if not isinstance(expert, int) or isinstance(expert, bool)
+    ]
+
+
 def _check_layer_experts(
     layer: dict[str, Any], spot: str, expert_count: int | None
 ) -> list[str]:
@@ -1094,10 +1112,7 @@ def _check_layer_experts(
     experts = layer.get("top_k_experts")
     if not isinstance(experts, list) or len(experts) < 2:
         return [f"{spot}.top_k_experts must list at least the top two"]
-    invalid_experts = [
-        e for e in experts
-        if not isinstance(e, int) or isinstance(e, bool)
-    ]
+    invalid_experts = _invalid_expert_entries(experts)
     if invalid_experts:
         return [f"{spot}.top_k_experts contains invalid entries: {invalid_experts}"]
     if len(set(experts)) != len(experts):

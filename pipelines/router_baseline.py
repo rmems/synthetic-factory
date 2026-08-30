@@ -83,44 +83,18 @@ def dataset_from_records(
     samples: list[Sample] = []
     sampled_ids: set[str] = set()
     for record in records:
-        if not isinstance(record, dict):
+        sample = _record_sample(record, target)
+        if sample is None:
             continue
-        record_id = record.get("id")
-        if not isinstance(record_id, str) or not record_id:
-            # `split` partitions by hashing the id. `str(None)` gave every
-            # id-less record the literal id "None", so they all shared one
-            # train/test bucket.
-            continue
-        scenario = record.get("scenario")
-        result = record.get("result")
-        if not isinstance(scenario, dict) or not isinstance(result, dict):
-            continue
-        compact = scenario.get("compact_input")
-        if not isinstance(compact, dict):
-            continue
-        features = compact.get("features")
-        if not isinstance(features, list) or not features:
-            continue
-        if not all(oc.is_number(value) for value in features):
-            continue
-        label = _target_label(result, target)
-        if label is None:
-            continue
-        if record_id in sampled_ids:
+        if sample.record_id in sampled_ids:
             # Duplicates land in the same bucket by construction, so the
             # holdout would score correlated copies of its own training rows.
             raise BaselineError(
-                f"duplicate record id {record_id!r}; the id-keyed split "
-                "cannot partition duplicated records"
+                f"duplicate record id {sample.record_id!r}; the id-keyed "
+                "split cannot partition duplicated records"
             )
-        sampled_ids.add(record_id)
-        samples.append(
-            Sample(
-                record_id=record_id,
-                features=tuple(float(value) for value in features),
-                label=label,
-            )
-        )
+        sampled_ids.add(sample.record_id)
+        samples.append(sample)
     if samples:
         width = len(samples[0].features)
         if any(len(sample.features) != width for sample in samples):
@@ -128,10 +102,47 @@ def dataset_from_records(
     return samples
 
 
-def _target_label(result: dict[str, Any], target: str) -> int | None:
-    if target == TARGET_TOP1:
-        value = result.get("top1_expert")
-        return int(value) if isinstance(value, int) and not isinstance(value, bool) else None
+def _record_sample(record: Any, target: str) -> Sample | None:
+    """One record's (id, compact input, label), or None if it has no sample."""
+
+    if not isinstance(record, dict):
+        return None
+    record_id = record.get("id")
+    if not isinstance(record_id, str) or not record_id:
+        # `split` partitions by hashing the id. `str(None)` gave every
+        # id-less record the literal id "None", so they all shared one
+        # train/test bucket.
+        return None
+    scenario = record.get("scenario")
+    result = record.get("result")
+    if not isinstance(scenario, dict) or not isinstance(result, dict):
+        return None
+    features = _compact_features(scenario)
+    if features is None:
+        return None
+    label = _target_label(result, target)
+    if label is None:
+        return None
+    return Sample(record_id=record_id, features=features, label=label)
+
+
+def _compact_features(scenario: dict[str, Any]) -> tuple[float, ...] | None:
+    compact = scenario.get("compact_input")
+    if not isinstance(compact, dict):
+        return None
+    features = compact.get("features")
+    if not isinstance(features, list) or not features:
+        return None
+    if not all(oc.is_number(value) for value in features):
+        return None
+    return tuple(float(value) for value in features)
+
+
+def _genuine_int(value: Any) -> int | None:
+    return int(value) if isinstance(value, int) and not isinstance(value, bool) else None
+
+
+def _last_layer_top1(result: dict[str, Any]) -> int | None:
     routing = result.get("routing")
     if not isinstance(routing, dict):
         return None
@@ -144,8 +155,13 @@ def _target_label(result: dict[str, Any], target: str) -> int | None:
     experts = last.get("top_k_experts")
     if not isinstance(experts, list) or not experts:
         return None
-    top = experts[0]
-    return int(top) if isinstance(top, int) and not isinstance(top, bool) else None
+    return _genuine_int(experts[0])
+
+
+def _target_label(result: dict[str, Any], target: str) -> int | None:
+    if target == TARGET_TOP1:
+        return _genuine_int(result.get("top1_expert"))
+    return _last_layer_top1(result)
 
 
 def split(
@@ -234,6 +250,64 @@ def _softmax(values: list[float]) -> list[float]:
     return [value / total for value in exponentials]
 
 
+def _linear_scores(
+    weights: list[list[float]], bias: list[float], features: tuple[float, ...]
+) -> list[float]:
+    return [
+        sum(w * x for w, x in zip(row, features)) + offset
+        for row, offset in zip(weights, bias)
+    ]
+
+
+def _argmax_label(scores: list[float], labels: list[int]) -> int:
+    return labels[max(range(len(labels)), key=lambda idx: (scores[idx], -idx))]
+
+
+def _accumulate_outer(
+    errors: list[float],
+    inputs: tuple[float, ...] | list[float],
+    grad_rows: list[list[float]],
+    grad_bias: list[float],
+) -> None:
+    """Add ``error * input`` outer-product terms into the gradient rows."""
+
+    for c, error in enumerate(errors):
+        if error == 0.0:
+            continue
+        row = grad_rows[c]
+        for i, value in enumerate(inputs):
+            row[i] += error * value
+        grad_bias[c] += error
+
+
+def _prediction_errors(
+    scores: list[float], target_index: int
+) -> list[float]:
+    """Softmax probabilities with the target subtracted: dLoss/dLogit."""
+
+    errors = _softmax(scores)
+    errors[target_index] -= 1.0
+    return errors
+
+
+def _model_report(
+    name: str,
+    predict,
+    train: list[Sample],
+    test: list[Sample],
+    **hyper: Any,
+) -> dict[str, Any]:
+    truth = [sample.label for sample in test]
+    return {
+        "model": name,
+        "accuracy": round(_accuracy([predict(s) for s in test], truth), 6),
+        "train_accuracy": round(
+            _accuracy([predict(s) for s in train], [s.label for s in train]), 6
+        ),
+        **hyper,
+    }
+
+
 def logistic_baseline(
     train: list[Sample],
     test: list[Sample],
@@ -256,20 +330,9 @@ def logistic_baseline(
         grad_w = [[0.0] * width for _ in range(classes)]
         grad_b = [0.0] * classes
         for sample in train:
-            logits = [
-                sum(w * x for w, x in zip(weights[c], sample.features)) + bias[c]
-                for c in range(classes)
-            ]
-            probabilities = _softmax(logits)
-            probabilities[index_of[sample.label]] -= 1.0
-            for c in range(classes):
-                error = probabilities[c]
-                if error == 0.0:
-                    continue
-                row = grad_w[c]
-                for i, value in enumerate(sample.features):
-                    row[i] += error * value
-                grad_b[c] += error
+            scores = _linear_scores(weights, bias, sample.features)
+            errors = _prediction_errors(scores, index_of[sample.label])
+            _accumulate_outer(errors, sample.features, grad_w, grad_b)
         for c in range(classes):
             row = weights[c]
             grad_row = grad_w[c]
@@ -278,23 +341,88 @@ def logistic_baseline(
             bias[c] -= learning_rate * grad_b[c] * scale
 
     def predict(example: Sample) -> int:
-        scores = [
-            sum(w * x for w, x in zip(weights[label], example.features)) + bias[label]
-            for label in range(classes)
-        ]
-        return labels[max(range(classes), key=lambda idx: (scores[idx], -idx))]
+        return _argmax_label(_linear_scores(weights, bias, example.features), labels)
 
-    truth = [sample.label for sample in test]
-    return {
-        "model": "logistic_regression",
-        "accuracy": round(_accuracy([predict(s) for s in test], truth), 6),
-        "train_accuracy": round(
-            _accuracy([predict(s) for s in train], [s.label for s in train]), 6
-        ),
-        "iterations": iterations,
-        "learning_rate": learning_rate,
-        "l2": l2,
-    }
+    return _model_report(
+        "logistic_regression",
+        predict,
+        train,
+        test,
+        iterations=iterations,
+        learning_rate=learning_rate,
+        l2=l2,
+    )
+
+
+class _Mlp:
+    """One tanh hidden layer + softmax output, seeded exactly as before."""
+
+    def __init__(self, width: int, hidden: int, classes: int, seed: int) -> None:
+        rng = random.Random(seed)
+        limit = math.sqrt(6.0 / (width + hidden))
+        self.w1 = [
+            [rng.uniform(-limit, limit) for _ in range(width)] for _ in range(hidden)
+        ]
+        self.b1 = [0.0] * hidden
+        limit2 = math.sqrt(6.0 / (hidden + classes))
+        self.w2 = [
+            [rng.uniform(-limit2, limit2) for _ in range(hidden)]
+            for _ in range(classes)
+        ]
+        self.b2 = [0.0] * classes
+        self.width = width
+        self.hidden = hidden
+        self.classes = classes
+
+    def forward(self, features: tuple[float, ...]) -> tuple[list[float], list[float]]:
+        hidden_pre = _linear_scores(self.w1, self.b1, features)
+        activated = [math.tanh(value) for value in hidden_pre]
+        logits = [
+            sum(w * a for w, a in zip(row, activated)) + offset
+            for row, offset in zip(self.w2, self.b2)
+        ]
+        return activated, logits
+
+    def _hidden_errors(
+        self, delta_out: list[float], activated: list[float]
+    ) -> list[float]:
+        errors: list[float] = []
+        for h in range(self.hidden):
+            upstream = sum(
+                delta_out[c] * self.w2[c][h] for c in range(self.classes)
+            )
+            errors.append(upstream * (1.0 - activated[h] * activated[h]))
+        return errors
+
+    def train_epoch(
+        self, train: list[Sample], index_of: dict[int, int],
+        learning_rate: float, scale: float,
+    ) -> None:
+        gw1 = [[0.0] * self.width for _ in range(self.hidden)]
+        gb1 = [0.0] * self.hidden
+        gw2 = [[0.0] * self.hidden for _ in range(self.classes)]
+        gb2 = [0.0] * self.classes
+        for sample in train:
+            activated, logits = self.forward(sample.features)
+            delta_out = _prediction_errors(logits, index_of[sample.label])
+            _accumulate_outer(delta_out, activated, gw2, gb2)
+            _accumulate_outer(
+                self._hidden_errors(delta_out, activated), sample.features, gw1, gb1
+            )
+        self._descend(self.w2, self.b2, gw2, gb2, learning_rate, scale)
+        self._descend(self.w1, self.b1, gw1, gb1, learning_rate, scale)
+
+    @staticmethod
+    def _descend(
+        weights: list[list[float]], bias: list[float],
+        grad_rows: list[list[float]], grad_bias: list[float],
+        learning_rate: float, scale: float,
+    ) -> None:
+        for row, grad_row in zip(weights, grad_rows):
+            for i, gradient in enumerate(grad_row):
+                row[i] -= learning_rate * gradient * scale
+        for c, gradient in enumerate(grad_bias):
+            bias[c] -= learning_rate * gradient * scale
 
 
 def mlp_baseline(
@@ -310,78 +438,65 @@ def mlp_baseline(
     """One tanh hidden layer, softmax output, deterministic full-batch descent."""
 
     index_of = {label: index for index, label in enumerate(labels)}
-    classes = len(labels)
-    width = len(train[0].features)
-    rng = random.Random(seed)
-    limit = math.sqrt(6.0 / (width + hidden))
-    w1 = [[rng.uniform(-limit, limit) for _ in range(width)] for _ in range(hidden)]
-    b1 = [0.0] * hidden
-    limit2 = math.sqrt(6.0 / (hidden + classes))
-    w2 = [[rng.uniform(-limit2, limit2) for _ in range(hidden)] for _ in range(classes)]
-    b2 = [0.0] * classes
+    model = _Mlp(len(train[0].features), hidden, len(labels), seed)
     scale = 1.0 / len(train)
-
-    def forward(features: tuple[float, ...]) -> tuple[list[float], list[float]]:
-        hidden_pre = [
-            sum(w * x for w, x in zip(w1[h], features)) + b1[h] for h in range(hidden)
-        ]
-        activated = [math.tanh(value) for value in hidden_pre]
-        logits = [
-            sum(w * a for w, a in zip(w2[c], activated)) + b2[c] for c in range(classes)
-        ]
-        return activated, logits
-
     for _ in range(iterations):
-        gw1 = [[0.0] * width for _ in range(hidden)]
-        gb1 = [0.0] * hidden
-        gw2 = [[0.0] * hidden for _ in range(classes)]
-        gb2 = [0.0] * classes
-        for sample in train:
-            activated, logits = forward(sample.features)
-            delta_out = _softmax(logits)
-            delta_out[index_of[sample.label]] -= 1.0
-            for c in range(classes):
-                error = delta_out[c]
-                if error == 0.0:
-                    continue
-                row = gw2[c]
-                for h in range(hidden):
-                    row[h] += error * activated[h]
-                gb2[c] += error
-            for h in range(hidden):
-                upstream = sum(delta_out[c] * w2[c][h] for c in range(classes))
-                delta_hidden = upstream * (1.0 - activated[h] * activated[h])
-                if delta_hidden == 0.0:
-                    continue
-                row = gw1[h]
-                for i, value in enumerate(sample.features):
-                    row[i] += delta_hidden * value
-                gb1[h] += delta_hidden
-        for c in range(classes):
-            for h in range(hidden):
-                w2[c][h] -= learning_rate * gw2[c][h] * scale
-            b2[c] -= learning_rate * gb2[c] * scale
-        for h in range(hidden):
-            for i in range(width):
-                w1[h][i] -= learning_rate * gw1[h][i] * scale
-            b1[h] -= learning_rate * gb1[h] * scale
+        model.train_epoch(train, index_of, learning_rate, scale)
 
     def predict(example: Sample) -> int:
-        _, scores = forward(example.features)
-        return labels[max(range(classes), key=lambda idx: (scores[idx], -idx))]
+        _, scores = model.forward(example.features)
+        return _argmax_label(scores, labels)
 
-    truth = [sample.label for sample in test]
-    return {
-        "model": "mlp",
-        "accuracy": round(_accuracy([predict(s) for s in test], truth), 6),
-        "train_accuracy": round(
-            _accuracy([predict(s) for s in train], [s.label for s in train]), 6
-        ),
-        "hidden": hidden,
-        "iterations": iterations,
-        "learning_rate": learning_rate,
-        "seed": seed,
-    }
+    return _model_report(
+        "mlp",
+        predict,
+        train,
+        test,
+        hidden=hidden,
+        iterations=iterations,
+        learning_rate=learning_rate,
+        seed=seed,
+    )
+
+
+def _significance_floor(
+    accuracy: float, test_count: int, min_lift: float
+) -> tuple[float, float]:
+    """(stderr, required_lift) — the floor a lift must clear to mean anything.
+
+    A small holdout can manufacture a lift out of noise. Require the lift to
+    clear two standard errors of the test accuracy as well as ``min_lift``,
+    so a thin split reports "not learnable" instead of a flattering number.
+
+    The standard error uses the Agresti-Coull adjusted proportion rather than
+    the plug-in one. A plug-in estimate collapses to exactly zero when a tiny
+    holdout happens to score 0.0 or 1.0 — dropping the threshold to
+    ``min_lift`` precisely where the uncertainty is greatest — so two records
+    scoring 2/2 would read as a learnable target.
+    """
+
+    adjusted = (accuracy * test_count + 2.0) / (test_count + 4.0)
+    stderr = math.sqrt(adjusted * (1.0 - adjusted) / (test_count + 4.0))
+    return stderr, round(max(min_lift, 2.0 * stderr), 6)
+
+
+def _verdict(
+    *,
+    lift: float,
+    required_lift: float,
+    test_count: int,
+    min_test_records: int,
+    mlp_accuracy: float,
+    logistic_accuracy: float,
+    nonlinear_margin: float,
+) -> str:
+    if test_count < min_test_records:
+        return VERDICT_NOT_LEARNABLE
+    if lift < required_lift:
+        return VERDICT_NOT_LEARNABLE
+    if mlp_accuracy > logistic_accuracy + nonlinear_margin:
+        return VERDICT_NONLINEAR
+    return VERDICT_LINEAR
 
 
 def evaluate_baselines(
@@ -421,27 +536,16 @@ def evaluate_baselines(
     trained = [logistic, mlp]
     best = max(trained, key=lambda item: (item["accuracy"], item["model"]))
     lift = round(best["accuracy"] - majority["accuracy"], 6)
-    # A small holdout can manufacture a lift out of noise. Require the lift to
-    # clear two standard errors of the test accuracy as well as ``min_lift``,
-    # so a thin split reports "not learnable" instead of a flattering number.
-    #
-    # The standard error uses the Agresti-Coull adjusted proportion rather than
-    # the plug-in one. A plug-in estimate collapses to exactly zero when a tiny
-    # holdout happens to score 0.0 or 1.0 — dropping the threshold to
-    # ``min_lift`` precisely where the uncertainty is greatest — so two records
-    # scoring 2/2 would read as a learnable target.
-    accuracy = best["accuracy"]
-    adjusted = (accuracy * len(test) + 2.0) / (len(test) + 4.0)
-    stderr = math.sqrt(adjusted * (1.0 - adjusted) / (len(test) + 4.0))
-    required_lift = round(max(min_lift, 2.0 * stderr), 6)
-    if len(test) < min_test_records:
-        verdict = VERDICT_NOT_LEARNABLE
-    elif lift < required_lift:
-        verdict = VERDICT_NOT_LEARNABLE
-    elif mlp["accuracy"] > logistic["accuracy"] + nonlinear_margin:
-        verdict = VERDICT_NONLINEAR
-    else:
-        verdict = VERDICT_LINEAR
+    stderr, required_lift = _significance_floor(best["accuracy"], len(test), min_lift)
+    verdict = _verdict(
+        lift=lift,
+        required_lift=required_lift,
+        test_count=len(test),
+        min_test_records=min_test_records,
+        mlp_accuracy=mlp["accuracy"],
+        logistic_accuracy=logistic["accuracy"],
+        nonlinear_margin=nonlinear_margin,
+    )
     return {
         "samples": len(samples),
         "train": len(train),

@@ -212,6 +212,186 @@ DEFAULT_SYSTEM = {
 }
 
 
+@dataclass(frozen=True)
+class _DisturbanceSpec:
+    """The coerced numeric parameters one simulated disturbance consumes."""
+
+    kind: str
+    affected: tuple[str, ...]
+    onset_ms: float
+    duration_ms: float
+    jitter_ms: float
+    corrupt_ratio: float
+    malformed_count: int
+    malformed_kind: str
+    peak_c: float
+    ramp_ms: float
+    result_delay_ms: float
+
+    @classmethod
+    def from_parameters(
+        cls,
+        kind: str,
+        params: dict[str, Any],
+        system: dict[str, Any],
+        affected: list[str],
+    ) -> "_DisturbanceSpec":
+        return cls(
+            kind=kind,
+            affected=tuple(affected),
+            onset_ms=float(params.get("onset_ms", 0.0)),
+            duration_ms=float(params.get("duration_ms", 0.0)),
+            jitter_ms=float(params.get("jitter_ms", 0.0)),
+            corrupt_ratio=float(params.get("corrupt_ratio", 0.0)),
+            malformed_count=int(params.get("malformed_count", 0)),
+            malformed_kind=str(params.get("malformed_kind") or ""),
+            peak_c=float(params.get("peak_c", system["ambient_c"])),
+            ramp_ms=max(float(params.get("ramp_ms", 1.0)), 1e-6),
+            result_delay_ms=float(params.get("delay_ms", 0.0)),
+        )
+
+    def in_window(self, now_ms: float) -> bool:
+        return self.onset_ms <= now_ms < (self.onset_ms + self.duration_ms)
+
+
+class _StreamState:
+    """Counters the tick loop accumulates while stepping the event stream."""
+
+    def __init__(
+        self,
+        system: dict[str, Any],
+        channels: list[str],
+        live_channels: list[str],
+    ) -> None:
+        self.system = system
+        self.channel_count = len(channels)
+        self.live_channels = live_channels
+        self.last_fresh_ms = {channel: 0.0 for channel in channels}
+        self.saturated_since: dict[str, int] = {}
+        self.saturated_ticks = 0
+        self.dropped = 0
+        self.corrupt = 0
+        self.total = 0
+        self.max_staleness = 0.0
+        self.max_jitter = 0.0
+        self.integrity_violation = False
+        self.peak_temperature = float(system["ambient_c"])
+        self.worst_healthy = len(live_channels)
+        self.detection_ms: float | None = None
+        self.malformed_emitted = 0
+        self.trace: list[dict[str, Any]] = []
+
+    def step(self, spec: _DisturbanceSpec, tick: int, tick_ms: float) -> None:
+        """Advance one tick: thermal state, every live channel, detection."""
+
+        now_ms = tick * tick_ms
+        in_window = spec.in_window(now_ms)
+        self._update_thermal(spec, now_ms)
+        healthy_now = 0
+        for channel in self.live_channels:
+            healthy = self._channel_step(spec, channel, tick, now_ms, in_window)
+            healthy_now += 1 if healthy else 0
+        self.worst_healthy = min(self.worst_healthy, healthy_now)
+        if self._degraded_now(healthy_now) and self.detection_ms is None:
+            self.detection_ms = now_ms
+        self.trace.append(
+            {
+                "t_ms": now_ms,
+                "healthy": healthy_now,
+                "temperature_c": round(self.peak_temperature, 3),
+            }
+        )
+
+    def _update_thermal(self, spec: _DisturbanceSpec, now_ms: float) -> None:
+        if spec.kind == "thermal_excursion" and now_ms >= spec.onset_ms:
+            ramped = min(1.0, (now_ms - spec.onset_ms) / spec.ramp_ms)
+            temperature = self.system["ambient_c"] + ramped * (
+                spec.peak_c - float(self.system["ambient_c"])
+            )
+            self.peak_temperature = max(self.peak_temperature, temperature)
+
+    def _channel_step(
+        self,
+        spec: _DisturbanceSpec,
+        channel: str,
+        tick: int,
+        now_ms: float,
+        in_window: bool,
+    ) -> bool:
+        """Apply the disturbance to one channel; True when it stays healthy."""
+
+        self.total += 1
+        lost = spec.kind == "sensor_loss" and in_window and channel in spec.affected
+        stale = spec.kind == "stale_sensor" and channel in spec.affected and in_window
+        if lost:
+            self.dropped += 1
+        elif not stale:
+            self.last_fresh_ms[channel] = now_ms
+
+        self._apply_signal_faults(spec, channel, tick, in_window)
+        saturating = self._apply_saturation(spec, channel, tick, in_window)
+
+        staleness = now_ms - self.last_fresh_ms[channel]
+        self.max_staleness = max(self.max_staleness, staleness)
+        return (
+            not lost
+            and staleness <= float(self.system["stale_threshold_ms"])
+            and not saturating
+        )
+
+    def _apply_signal_faults(
+        self, spec: _DisturbanceSpec, channel: str, tick: int, in_window: bool
+    ) -> None:
+        if spec.kind == "event_jitter" and channel in spec.affected and in_window:
+            self.max_jitter = max(self.max_jitter, abs(spec.jitter_ms))
+
+        if spec.kind == "burst_corruption" and channel in spec.affected and in_window:
+            # Deterministic pseudo-random phase, fine enough that the
+            # realised corruption tracks the requested ratio instead of
+            # snapping to quarters.
+            if ((tick * 7919) % 1000) / 1000.0 < spec.corrupt_ratio:
+                self.corrupt += 1
+
+        if (
+            spec.kind == "malformed_spike_burst"
+            and channel in spec.affected
+            and self.malformed_emitted < spec.malformed_count
+        ):
+            self.malformed_emitted += 1
+            if spec.malformed_kind in MALFORMED_INTEGRITY_KINDS:
+                self.integrity_violation = True
+            else:
+                # Rejected at the relay boundary rather than trusted and
+                # later found corrupt.
+                self.dropped += 1
+
+    def _apply_saturation(
+        self, spec: _DisturbanceSpec, channel: str, tick: int, in_window: bool
+    ) -> bool:
+        saturating = (
+            spec.kind == "temporary_saturation"
+            and channel in spec.affected
+            and in_window
+        )
+        if saturating:
+            self.saturated_since.setdefault(channel, tick)
+            self.saturated_ticks = max(
+                self.saturated_ticks, tick - self.saturated_since[channel] + 1
+            )
+        else:
+            self.saturated_since.pop(channel, None)
+        return saturating
+
+    def _degraded_now(self, healthy_now: int) -> bool:
+        return (
+            healthy_now < self.channel_count
+            or self.integrity_violation
+            or self.corrupt > 0
+            or self.max_jitter > float(self.system["jitter_tolerance_ms"])
+            or self.peak_temperature >= float(self.system["thermal_warn_c"])
+        )
+
+
 class RelayReflexSimulator(FaultOracle):
     """Deterministic multi-channel relay with reflex, fallback and quarantine.
 
@@ -304,25 +484,24 @@ class RelayReflexSimulator(FaultOracle):
             return []
         return [channel for channel in affected if channel in channels]
 
-    def run(self, scenario: dict[str, Any], disturbance: dict[str, Any]) -> FaultResult:
-        system = {**DEFAULT_SYSTEM, **dict(scenario.get("system", {}))}
-        channels: list[str] = list(system["channels"])
-        kind = disturbance.get("kind")
-        if kind not in DISTURBANCES:
-            raise oc.ContractError(f"unknown disturbance kind: {kind!r}")
-        params = dict(disturbance.get("parameters", {}))
-        self._check_parameters(kind, params)
-        # ``affected`` is narrowed to the relay's own channels for the tick
-        # loop; ``declared`` keeps every name the disturbance claimed, so a
-        # disturbance that also hits the fallback source is seen as such.
-        affected = self._affected(params, channels)
-        declared = params.get("channels")
+    @staticmethod
+    def _declared_channels(
+        kind: str,
+        parameters: dict[str, Any],
+        system: dict[str, Any],
+        channels: list[str],
+    ) -> list[str]:
+        """Every channel name the disturbance claims, all of them known.
+
+        A declared channel the relay does not know cannot be silently narrowed
+        away: the whole disturbance (or part of it) would run as a no-op while
+        the record still claims it was simulated, and the no-op replays as an
+        authoritative ``continue``. The only names a disturbance may touch are
+        the relay's own channels and the fallback source.
+        """
+
+        declared = parameters.get("channels")
         declared = list(declared) if isinstance(declared, list) else []
-        # A declared channel the relay does not know cannot be silently
-        # narrowed away: the whole disturbance (or part of it) would run as a
-        # no-op while the record still claims it was simulated, and the no-op
-        # replays as an authoritative `continue`. The only names a disturbance
-        # may touch are the relay's own channels and the fallback source.
         known = set(channels)
         fallback_source = system.get("fallback_source")
         if fallback_source:
@@ -337,122 +516,13 @@ class RelayReflexSimulator(FaultOracle):
                 f"{kind} declares unknown channels {unknown_names}; this relay "
                 f"reads {sorted(known)} — an unknown name would run as a no-op"
             )
-        tick_ms = float(system["tick_ms"])
-        ticks = int(system["ticks"])
+        return declared
 
-        missing = set(affected) if kind == "missing_channel" else set()
-        live_channels = [channel for channel in channels if channel not in missing]
-
-        last_fresh_ms = {channel: 0.0 for channel in channels}
-        saturated_since: dict[str, int] = {}
-        saturated_ticks = 0
-        dropped = 0
-        corrupt = 0
-        total = 0
-        max_staleness = 0.0
-        max_jitter = 0.0
-        integrity_violation = False
-        peak_temperature = float(system["ambient_c"])
-        worst_healthy = len(live_channels)
-        detection_ms: float | None = None
-        trace: list[dict[str, Any]] = []
-
-        onset_ms = float(params.get("onset_ms", 0.0))
-        duration_ms = float(params.get("duration_ms", 0.0))
-        jitter_ms = float(params.get("jitter_ms", 0.0))
-        corrupt_ratio_target = float(params.get("corrupt_ratio", 0.0))
-        malformed_count = int(params.get("malformed_count", 0))
-        malformed_kind = str(params.get("malformed_kind") or "")
-        peak_c = float(params.get("peak_c", system["ambient_c"]))
-        ramp_ms = max(float(params.get("ramp_ms", 1.0)), 1e-6)
-        result_delay_ms = float(params.get("delay_ms", 0.0))
-        malformed_emitted = 0
-
-        for tick in range(ticks):
-            now_ms = tick * tick_ms
-            in_window = onset_ms <= now_ms < (onset_ms + duration_ms)
-
-            if kind == "thermal_excursion" and now_ms >= onset_ms:
-                ramped = min(1.0, (now_ms - onset_ms) / ramp_ms)
-                temperature = system["ambient_c"] + ramped * (
-                    peak_c - float(system["ambient_c"])
-                )
-                peak_temperature = max(peak_temperature, temperature)
-
-            healthy_now = 0
-            for channel in live_channels:
-                total += 1
-                lost = kind == "sensor_loss" and in_window and channel in affected
-                stale = kind == "stale_sensor" and channel in affected and in_window
-                if lost:
-                    dropped += 1
-                elif not stale:
-                    last_fresh_ms[channel] = now_ms
-
-                if kind == "event_jitter" and channel in affected and in_window:
-                    max_jitter = max(max_jitter, abs(jitter_ms))
-
-                if kind == "burst_corruption" and channel in affected and in_window:
-                    # Deterministic pseudo-random phase, fine enough that the
-                    # realised corruption tracks the requested ratio instead of
-                    # snapping to quarters.
-                    if ((tick * 7919) % 1000) / 1000.0 < corrupt_ratio_target:
-                        corrupt += 1
-
-                if (
-                    kind == "malformed_spike_burst"
-                    and channel in affected
-                    and malformed_emitted < malformed_count
-                ):
-                    malformed_emitted += 1
-                    if malformed_kind in MALFORMED_INTEGRITY_KINDS:
-                        integrity_violation = True
-                    else:
-                        # Rejected at the relay boundary rather than trusted
-                        # and later found corrupt.
-                        dropped += 1
-
-                saturating = (
-                    kind == "temporary_saturation" and channel in affected and in_window
-                )
-                if saturating:
-                    saturated_since.setdefault(channel, tick)
-                    saturated_ticks = max(
-                        saturated_ticks, tick - saturated_since[channel] + 1
-                    )
-                else:
-                    saturated_since.pop(channel, None)
-
-                staleness = now_ms - last_fresh_ms[channel]
-                max_staleness = max(max_staleness, staleness)
-
-                channel_healthy = (
-                    not lost
-                    and staleness <= float(system["stale_threshold_ms"])
-                    and not saturating
-                )
-                healthy_now += 1 if channel_healthy else 0
-
-            worst_healthy = min(worst_healthy, healthy_now)
-
-            degraded_now = (
-                healthy_now < len(channels)
-                or integrity_violation
-                or corrupt > 0
-                or max_jitter > float(system["jitter_tolerance_ms"])
-                or peak_temperature >= float(system["thermal_warn_c"])
-            )
-            if degraded_now and detection_ms is None:
-                detection_ms = now_ms
-            trace.append(
-                {
-                    "t_ms": now_ms,
-                    "healthy": healthy_now,
-                    "temperature_c": round(peak_temperature, 3),
-                }
-            )
-
-        if detection_ms is None and result_delay_ms > float(system["deadline_ms"]):
+    @staticmethod
+    def _detection_latency_ms(
+        detection_ms: float | None, spec: "_DisturbanceSpec", system: dict[str, Any]
+    ) -> float | None:
+        if detection_ms is None and spec.result_delay_ms > float(system["deadline_ms"]):
             # A late result is only observable once its deadline passes.
             detection_ms = float(system["deadline_ms"])
 
@@ -461,20 +531,45 @@ class RelayReflexSimulator(FaultOracle):
         # labels 8 ms apart despite identical post-onset behaviour, and the
         # target learns the arbitrary pre-fault idle time.
         if detection_ms is not None:
-            detection_ms = round(max(detection_ms - onset_ms, 0.0), 3)
+            detection_ms = round(max(detection_ms - spec.onset_ms, 0.0), 3)
+        return detection_ms
 
+    def run(self, scenario: dict[str, Any], disturbance: dict[str, Any]) -> FaultResult:
+        system = {**DEFAULT_SYSTEM, **dict(scenario.get("system", {}))}
+        channels: list[str] = list(system["channels"])
+        kind = disturbance.get("kind")
+        if kind not in DISTURBANCES:
+            raise oc.ContractError(f"unknown disturbance kind: {kind!r}")
+        params = dict(disturbance.get("parameters", {}))
+        self._check_parameters(kind, params)
+        # ``affected`` is narrowed to the relay's own channels for the tick
+        # loop; ``declared`` keeps every name the disturbance claimed, so a
+        # disturbance that also hits the fallback source is seen as such.
+        affected = self._affected(params, channels)
+        declared = self._declared_channels(kind, params, system, channels)
+        spec = _DisturbanceSpec.from_parameters(kind, params, system, affected)
+
+        missing = set(affected) if kind == "missing_channel" else set()
+        live_channels = [channel for channel in channels if channel not in missing]
+
+        state = _StreamState(system, channels, live_channels)
+        tick_ms = float(system["tick_ms"])
+        for tick in range(int(system["ticks"])):
+            state.step(spec, tick, tick_ms)
+
+        detection_ms = self._detection_latency_ms(state.detection_ms, spec, system)
         outcome, reasons = self._decide(
             system=system,
-            worst_healthy=worst_healthy,
-            integrity_violation=integrity_violation,
-            corrupt=corrupt,
-            total=total,
-            peak_temperature=peak_temperature,
-            saturated_ticks=saturated_ticks,
-            max_staleness=max_staleness,
-            max_jitter=max_jitter,
-            dropped=dropped,
-            result_delay_ms=result_delay_ms,
+            worst_healthy=state.worst_healthy,
+            integrity_violation=state.integrity_violation,
+            corrupt=state.corrupt,
+            total=state.total,
+            peak_temperature=state.peak_temperature,
+            saturated_ticks=state.saturated_ticks,
+            max_staleness=state.max_staleness,
+            max_jitter=state.max_jitter,
+            dropped=state.dropped,
+            result_delay_ms=spec.result_delay_ms,
             missing=missing,
             affected=declared,
         )
@@ -484,17 +579,17 @@ class RelayReflexSimulator(FaultOracle):
             reason_codes=tuple(reasons),
             detection_latency_ms=detection_ms,
             recovery_latency_ms=recovery_ms,
-            worst_healthy_channels=worst_healthy,
-            dropped_events=dropped,
-            corrupt_events=corrupt,
-            total_events=total,
-            peak_temperature_c=round(peak_temperature, 3),
-            max_staleness_ms=round(max_staleness, 3),
-            max_jitter_ms=round(max_jitter, 3),
-            saturated_ticks=saturated_ticks,
-            integrity_violation=integrity_violation,
-            result_delay_ms=result_delay_ms,
-            trace=tuple(trace),
+            worst_healthy_channels=state.worst_healthy,
+            dropped_events=state.dropped,
+            corrupt_events=state.corrupt,
+            total_events=state.total,
+            peak_temperature_c=round(state.peak_temperature, 3),
+            max_staleness_ms=round(state.max_staleness, 3),
+            max_jitter_ms=round(state.max_jitter, 3),
+            saturated_ticks=state.saturated_ticks,
+            integrity_violation=state.integrity_violation,
+            result_delay_ms=spec.result_delay_ms,
+            trace=tuple(state.trace),
         )
 
     # -- decision ------------------------------------------------------------
@@ -506,17 +601,10 @@ class RelayReflexSimulator(FaultOracle):
             return False
         return source not in missing and source not in set(affected)
 
-    def _decide(self, **state: Any) -> tuple[str, list[str]]:
-        """Apply the documented precedence and return ``(outcome, reasons)``."""
-
-        system = state["system"]
-        corrupt_ratio = (
-            state["corrupt"] / state["total"] if state["total"] else 0.0
-        )
-        fallback_ok = self._fallback_available(
-            system, state["missing"], state["affected"]
-        )
-
+    @staticmethod
+    def _fail_closed_reasons(
+        system: dict[str, Any], state: dict[str, Any], fallback_ok: bool
+    ) -> list[str]:
         reasons: list[str] = []
         if state["result_delay_ms"] >= float(system["hard_deadline_ms"]):
             reasons.append("NO_TIMELY_INPUT")
@@ -524,26 +612,41 @@ class RelayReflexSimulator(FaultOracle):
             reasons.append("THERMAL_SHUTDOWN")
         if state["worst_healthy"] < int(system["min_healthy_channels"]) and not fallback_ok:
             reasons.append("INSUFFICIENT_HEALTHY_CHANNELS_NO_FALLBACK")
-        if reasons:
-            return "fail_closed", reasons
+        return reasons
 
+    @staticmethod
+    def _quarantine_reasons(
+        system: dict[str, Any], state: dict[str, Any], corrupt_ratio: float
+    ) -> list[str]:
+        reasons: list[str] = []
         if state["integrity_violation"]:
             reasons.append("MALFORMED_STREAM_QUARANTINED")
         if corrupt_ratio >= float(system["corruption_quarantine_ratio"]):
             reasons.append("CORRUPTION_ABOVE_QUARANTINE_THRESHOLD")
-        if reasons:
-            return "quarantine", reasons
+        return reasons
 
+    @staticmethod
+    def _reflex_reasons(system: dict[str, Any], state: dict[str, Any]) -> list[str]:
+        reasons: list[str] = []
         if state["peak_temperature"] >= float(system["thermal_limit_c"]):
             reasons.append("THERMAL_LIMIT_REFLEX")
         if state["saturated_ticks"] >= int(system["reflex_saturation_ticks"]):
             reasons.append("SATURATION_REFLEX")
-        if reasons:
-            return "reflex_action", reasons
+        return reasons
 
+    @staticmethod
+    def _fallback_reasons(
+        system: dict[str, Any], state: dict[str, Any], fallback_ok: bool
+    ) -> list[str]:
         if state["worst_healthy"] < int(system["min_healthy_channels"]) and fallback_ok:
-            return "fallback", ["FALLBACK_SOURCE_ENGAGED"]
+            return ["FALLBACK_SOURCE_ENGAGED"]
+        return []
 
+    @staticmethod
+    def _degrade_reasons(
+        system: dict[str, Any], state: dict[str, Any], corrupt_ratio: float
+    ) -> list[str]:
+        reasons: list[str] = []
         if state["max_staleness"] > float(system["stale_threshold_ms"]):
             reasons.append("STALE_BEYOND_THRESHOLD")
         if state["max_jitter"] > float(system["jitter_tolerance_ms"]):
@@ -558,9 +661,36 @@ class RelayReflexSimulator(FaultOracle):
             reasons.append("RESULT_PAST_DEADLINE")
         if state["worst_healthy"] < len(system["channels"]):
             reasons.append("REDUCED_CHANNEL_SET")
-        if reasons:
-            return "degrade_gracefully", reasons
+        return reasons
 
+    def _decide(self, **state: Any) -> tuple[str, list[str]]:
+        """Apply the documented precedence and return ``(outcome, reasons)``.
+
+        Each tier's reason helper is pure, so evaluating the tiers in
+        precedence order and stopping at the first non-empty one is exactly
+        the original first-match rule.
+        """
+
+        system = state["system"]
+        corrupt_ratio = (
+            state["corrupt"] / state["total"] if state["total"] else 0.0
+        )
+        fallback_ok = self._fallback_available(
+            system, state["missing"], state["affected"]
+        )
+        tiers: tuple[tuple[str, list[str]], ...] = (
+            ("fail_closed", self._fail_closed_reasons(system, state, fallback_ok)),
+            ("quarantine", self._quarantine_reasons(system, state, corrupt_ratio)),
+            ("reflex_action", self._reflex_reasons(system, state)),
+            ("fallback", self._fallback_reasons(system, state, fallback_ok)),
+            (
+                "degrade_gracefully",
+                self._degrade_reasons(system, state, corrupt_ratio),
+            ),
+        )
+        for outcome, reasons in tiers:
+            if reasons:
+                return outcome, reasons
         return "continue", ["WITHIN_TOLERANCE"]
 
     @staticmethod
@@ -596,56 +726,63 @@ PREDICTION_BY_KIND = {
 }
 
 
+# kind -> (rng, channels, picked) -> parameters. The rng draws inside each
+# builder happen in the same order the old if/elif chain made them, so every
+# seed keeps producing the identical proposal stream.
+_DISTURBANCE_BUILDERS: dict[str, Any] = {
+    "sensor_loss": lambda rng, channels, picked: {
+        "channels": sorted(picked),
+        "onset_ms": float(rng.choice([4.0, 8.0, 12.0])),
+        "duration_ms": float(rng.choice([6.0, 14.0, 30.0])),
+    },
+    "stale_sensor": lambda rng, channels, picked: {
+        "channels": sorted(picked),
+        "onset_ms": float(rng.choice([2.0, 6.0])),
+        "duration_ms": float(rng.choice([4.0, 9.0, 22.0])),
+    },
+    "event_jitter": lambda rng, channels, picked: {
+        "channels": sorted(picked),
+        "onset_ms": 2.0,
+        "duration_ms": float(rng.choice([10.0, 40.0])),
+        "jitter_ms": float(rng.choice([0.4, 1.2, 3.0])),
+    },
+    "burst_corruption": lambda rng, channels, picked: {
+        "channels": sorted(picked),
+        "onset_ms": 4.0,
+        "duration_ms": float(rng.choice([10.0, 40.0])),
+        "corrupt_ratio": float(rng.choice([0.2, 0.5, 0.8])),
+    },
+    "thermal_excursion": lambda rng, channels, picked: {
+        "channels": sorted(picked),
+        "onset_ms": 6.0,
+        "ramp_ms": float(rng.choice([8.0, 20.0])),
+        "peak_c": float(rng.choice([58.0, 70.0, 84.0, 96.0])),
+    },
+    "missing_channel": lambda rng, channels, picked: {
+        "channels": [rng.choice(channels)],
+    },
+    "malformed_spike_burst": lambda rng, channels, picked: {
+        "channels": sorted(picked),
+        "malformed_count": rng.randint(1, 4),
+        "malformed_kind": rng.choice(MALFORMED_KINDS),
+    },
+    "delayed_result": lambda rng, channels, picked: {
+        "channels": sorted(picked),
+        "delay_ms": float(rng.choice([6.0, 18.0, 44.0])),
+    },
+    "temporary_saturation": lambda rng, channels, picked: {
+        "channels": sorted(picked),
+        "onset_ms": 2.0,
+        "duration_ms": float(rng.choice([4.0, 16.0])),
+    },
+}
+
+
 def _disturbance(rng: random.Random, kind: str, channels: list[str]) -> dict[str, Any]:
     """Build one generator-proposed disturbance. Parameters only, no labels."""
 
     picked = rng.sample(channels, rng.randint(1, max(1, len(channels) - 1)))
-    parameters: dict[str, Any] = {"channels": sorted(picked)}
-    if kind == "sensor_loss":
-        parameters |= {
-            "onset_ms": float(rng.choice([4.0, 8.0, 12.0])),
-            "duration_ms": float(rng.choice([6.0, 14.0, 30.0])),
-        }
-    elif kind == "stale_sensor":
-        parameters |= {
-            "onset_ms": float(rng.choice([2.0, 6.0])),
-            "duration_ms": float(rng.choice([4.0, 9.0, 22.0])),
-        }
-    elif kind == "event_jitter":
-        parameters |= {
-            "onset_ms": 2.0,
-            "duration_ms": float(rng.choice([10.0, 40.0])),
-            "jitter_ms": float(rng.choice([0.4, 1.2, 3.0])),
-        }
-    elif kind == "burst_corruption":
-        parameters |= {
-            "onset_ms": 4.0,
-            "duration_ms": float(rng.choice([10.0, 40.0])),
-            "corrupt_ratio": float(rng.choice([0.2, 0.5, 0.8])),
-        }
-    elif kind == "thermal_excursion":
-        parameters |= {
-            "onset_ms": 6.0,
-            "ramp_ms": float(rng.choice([8.0, 20.0])),
-            "peak_c": float(rng.choice([58.0, 70.0, 84.0, 96.0])),
-        }
-    elif kind == "missing_channel":
-        parameters = {"channels": [rng.choice(channels)]}
-    elif kind == "malformed_spike_burst":
-        parameters |= {
-            "malformed_count": rng.randint(1, 4),
-            "malformed_kind": rng.choice(MALFORMED_KINDS),
-        }
-    elif kind == "delayed_result":
-        parameters = {
-            "channels": sorted(picked),
-            "delay_ms": float(rng.choice([6.0, 18.0, 44.0])),
-        }
-    elif kind == "temporary_saturation":
-        parameters |= {
-            "onset_ms": 2.0,
-            "duration_ms": float(rng.choice([4.0, 16.0])),
-        }
+    parameters = _DISTURBANCE_BUILDERS[kind](rng, channels, picked)
     return {"kind": kind, "parameters": parameters}
 
 

@@ -147,6 +147,28 @@ class ProcessResourceMeter(EnergyOracle):
     def available(self) -> tuple[bool, str]:
         return True, "process clocks are always readable"
 
+    def _delta_extras(
+        self,
+        rss: tuple[float | None, float | None],
+        switches: tuple[float | None, float | None],
+    ) -> list[dict[str, Any]]:
+        extra: list[dict[str, Any]] = []
+        rss_before, rss_after = rss
+        if rss_after is not None and rss_before is not None:
+            extra.append(
+                oc.new_measurement("max_rss_kb", float(rss_after - rss_before), self.name)
+            )
+        switches_before, switches_after = switches
+        if switches_after is not None and switches_before is not None:
+            extra.append(
+                oc.new_measurement(
+                    "context_switches",
+                    float(switches_after - switches_before),
+                    self.name,
+                )
+            )
+        return extra
+
     def measure(
         self, workload: Callable[[], Any], *, repeats: int, warmup: int
     ) -> MeterReading:
@@ -173,19 +195,9 @@ class ProcessResourceMeter(EnergyOracle):
             oc.new_measurement("wall_time_s", wall_median, self.name),
             oc.new_measurement("latency_ms", wall_median * 1000.0, self.name),
             oc.new_measurement("repeats", float(repeats), self.name),
-        ]
-        if rss_after is not None and rss_before is not None:
-            extra.append(
-                oc.new_measurement("max_rss_kb", float(rss_after - rss_before), self.name)
-            )
-        if switches_after is not None and switches_before is not None:
-            extra.append(
-                oc.new_measurement(
-                    "context_switches",
-                    float(switches_after - switches_before),
-                    self.name,
-                )
-            )
+        ] + self._delta_extras(
+            (rss_before, rss_after), (switches_before, switches_after)
+        )
         return MeterReading(
             meter=self.name,
             cost_quantity=self.cost_quantity,
@@ -277,6 +289,31 @@ class RaplEnergyMeter(EnergyOracle):
                 continue
         return ranges
 
+    def _unwrapped_delta(
+        self, name: str, start: int, end: int, ranges: dict[str, int]
+    ) -> int:
+        delta = end - start
+        if delta < 0:
+            # The counter wrapped. Unwrapping needs the domain's range; if
+            # that is missing or unreadable, clamping to zero would report
+            # a real workload as free and could reverse the preference. An
+            # unmeasurable interval is unmeasured, not zero.
+            wrap_range = ranges.get(name, 0)
+            if wrap_range <= 0:
+                raise oc.OracleUnavailable(
+                    self.name,
+                    f"{name} energy_uj wrapped and max_energy_range_uj is "
+                    "missing or unreadable, so the interval cannot be measured",
+                )
+            delta += wrap_range
+            if delta < 0:
+                raise oc.OracleUnavailable(
+                    self.name,
+                    f"{name} energy_uj is still negative after unwrapping "
+                    f"by {wrap_range}",
+                )
+        return delta
+
     def measure(
         self, workload: Callable[[], Any], *, repeats: int, warmup: int
     ) -> MeterReading:
@@ -294,30 +331,10 @@ class RaplEnergyMeter(EnergyOracle):
             workload()
         wall_s = (time.perf_counter_ns() - wall_start) / 1e9
         after = self._read_uj()
-        total_uj = 0
-        for name, start in before.items():
-            end = after.get(name, start)
-            delta = end - start
-            if delta < 0:
-                # The counter wrapped. Unwrapping needs the domain's range; if
-                # that is missing or unreadable, clamping to zero would report
-                # a real workload as free and could reverse the preference. An
-                # unmeasurable interval is unmeasured, not zero.
-                wrap_range = ranges.get(name, 0)
-                if wrap_range <= 0:
-                    raise oc.OracleUnavailable(
-                        self.name,
-                        f"{name} energy_uj wrapped and max_energy_range_uj is "
-                        "missing or unreadable, so the interval cannot be measured",
-                    )
-                delta += wrap_range
-                if delta < 0:
-                    raise oc.OracleUnavailable(
-                        self.name,
-                        f"{name} energy_uj is still negative after unwrapping "
-                        f"by {wrap_range}",
-                    )
-            total_uj += delta
+        total_uj = sum(
+            self._unwrapped_delta(name, start, after.get(name, start), ranges)
+            for name, start in before.items()
+        )
         joules = total_uj / 1e6 / repeats
         return MeterReading(
             meter=self.name,
@@ -629,6 +646,28 @@ POLICY_DESCRIPTIONS = {
 }
 
 
+def _allocation_state(rng: random.Random) -> dict[str, Any]:
+    """One randomly drawn capped-allocation problem."""
+
+    n = 4
+    weights = [round(rng.uniform(0.6, 2.4), 3) for _ in range(n)]
+    demand = round(rng.uniform(0.8, 1.6), 3)
+    headroom = rng.uniform(1.25, 1.8)
+    caps = [round(demand / n * headroom, 3) for _ in range(n)]
+    # Bind the cap of the cheapest actuator just under the share an
+    # uncapped policy would give it, so the fast unclipped policy always
+    # has a real safety violation to be rejected for.
+    binding = min(range(n), key=lambda i: weights[i])
+    caps[binding] = round(unclipped_allocation(demand, weights)[binding] * 0.9, 3)
+    if sum(caps) <= demand:
+        caps = [round(cap + demand / n, 3) for cap in caps]
+    return {
+        "demand": demand,
+        "actuator_weights": weights,
+        "actuator_caps": caps,
+    }
+
+
 def propose_scenarios(seed: int, count: int) -> list[dict[str, Any]]:
     """Generator side: equivalent policy alternatives, with no cost attached."""
 
@@ -637,28 +676,12 @@ def propose_scenarios(seed: int, count: int) -> list[dict[str, Any]]:
     rng = random.Random(seed)
     proposals: list[dict[str, Any]] = []
     for index in range(count):
-        n = 4
-        weights = [round(rng.uniform(0.6, 2.4), 3) for _ in range(n)]
-        demand = round(rng.uniform(0.8, 1.6), 3)
-        headroom = rng.uniform(1.25, 1.8)
-        caps = [round(demand / n * headroom, 3) for _ in range(n)]
-        # Bind the cap of the cheapest actuator just under the share an
-        # uncapped policy would give it, so the fast unclipped policy always
-        # has a real safety violation to be rejected for.
-        binding = min(range(n), key=lambda i: weights[i])
-        caps[binding] = round(unclipped_allocation(demand, weights)[binding] * 0.9, 3)
-        if sum(caps) <= demand:
-            caps = [round(cap + demand / n, 3) for cap in caps]
         proposals.append(
             {
                 "index": index,
                 "scenario": {
                     "task": "capped quadratic actuator allocation",
-                    "state": {
-                        "demand": demand,
-                        "actuator_weights": weights,
-                        "actuator_caps": caps,
-                    },
+                    "state": _allocation_state(rng),
                     "constraints": {
                         "quality_floor": 0.98,
                         "safety_envelope": "0 <= x_i <= cap_i and sum(x_i) == demand",
@@ -709,14 +732,7 @@ def choose_preference(
         out. This is what makes the constraint visibly load-bearing.
     """
 
-    feasible = [
-        candidate
-        for candidate in candidates
-        if candidate.get("safety_ok") is True
-        and oc.is_number(candidate.get("task_quality"))
-        and candidate["task_quality"] >= quality_floor
-        and oc.is_number(candidate.get("cost_value"))
-    ]
+    feasible = _feasible_candidates(candidates, quality_floor)
     if not feasible:
         return None, ABSTAIN_NO_FEASIBLE
     preferred = min(feasible, key=lambda item: (item["cost_value"], item["id"]))
@@ -744,6 +760,21 @@ def choose_preference(
         },
         None,
     )
+
+
+def _feasible_candidates(
+    candidates: list[dict[str, Any]], quality_floor: float
+) -> list[dict[str, Any]]:
+    """The candidates that are safe, clear the floor, and carry a cost."""
+
+    return [
+        candidate
+        for candidate in candidates
+        if candidate.get("safety_ok") is True
+        and oc.is_number(candidate.get("task_quality"))
+        and candidate["task_quality"] >= quality_floor
+        and oc.is_number(candidate.get("cost_value"))
+    ]
 
 
 def workload_key(
@@ -809,6 +840,179 @@ def _read_cost(
     return meter.measure(workload, repeats=repeats, warmup=warmup)
 
 
+@dataclass(frozen=True)
+class _MeterRun:
+    """The meter and knobs one measured batch runs with."""
+
+    meter: EnergyOracle
+    probe: dict[str, Any]
+    repeats: int
+    warmup: int
+    fine_steps: int
+    coarse_steps: int
+
+
+def _resolve_meter(
+    meter: EnergyOracle | None, meter_probe: dict[str, Any] | None
+) -> tuple[EnergyOracle, dict[str, Any]]:
+    """The meter to measure with, and the probe documenting that choice."""
+
+    if meter is None:
+        return select_meter(prefer_energy=True)
+    ok, detail = meter.available()
+    probe = meter_probe
+    if probe is None:
+        probe = {
+            "probed": [
+                {
+                    "meter": meter.name,
+                    "measures_energy": meter.measures_energy,
+                    "available": ok,
+                    "detail": detail,
+                }
+            ],
+            "selected": meter.name,
+            "cost_quantity": meter.cost_quantity,
+            "cost_is_energy": meter.measures_energy,
+        }
+    if not ok:
+        raise oc.OracleUnavailable(meter.name, detail)
+    return meter, probe
+
+
+def _oracle_block(run: _MeterRun) -> dict[str, Any]:
+    meter = run.meter
+    return oc.new_oracle(
+        meter.name,
+        oracle_type="measured_execution",
+        implementation=f"pipelines/energy_preferences.py:{type(meter).__name__}",
+        version=meter.version,
+        authority=oc.AUTHORITY_AUTHORITATIVE,
+        configuration={
+            "repeats": run.repeats,
+            "warmup": run.warmup,
+            "fine_steps": run.fine_steps,
+            "coarse_steps": run.coarse_steps,
+            "meter_probe": run.probe,
+        },
+        seed=None,
+        commit=None,
+        fingerprint=meter.fingerprint(),
+    )
+
+
+def _measure_candidate(
+    run: _MeterRun,
+    policy_id: str,
+    workload: Callable[[], Any],
+    scenario: dict[str, Any],
+    evaluation: PolicyEvaluation,
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    """One executed policy's measurements and its candidate summary."""
+
+    reading = _read_cost(
+        run.meter,
+        workload,
+        policy_id=policy_id,
+        scenario=scenario,
+        repeats=run.repeats,
+        warmup=run.warmup,
+        fine_steps=run.fine_steps,
+        coarse_steps=run.coarse_steps,
+    )
+    measurements = [
+        oc.new_measurement(
+            reading.cost_quantity,
+            reading.cost_value,
+            reading.meter,
+            detail={"candidate": policy_id, **(reading.detail or {})},
+        )
+    ]
+    for extra in reading.extra:
+        enriched = dict(extra)
+        detail = dict(enriched.get("detail") or {})
+        detail["candidate"] = policy_id
+        enriched["detail"] = detail
+        measurements.append(enriched)
+    measurements.append(
+        oc.new_measurement(
+            "task_quality",
+            evaluation.task_quality,
+            "task_reference_solver",
+            detail={"candidate": policy_id},
+        )
+    )
+    candidate = {
+        "id": policy_id,
+        "description": POLICY_DESCRIPTIONS[policy_id],
+        "allocation": list(evaluation.allocation),
+        "task_quality": evaluation.task_quality,
+        "safety_ok": evaluation.safety_ok,
+        "safety_violations": list(evaluation.violations),
+        "success": evaluation.success,
+        "cost_quantity": reading.cost_quantity,
+        "cost_value": reading.cost_value,
+        "cost_meter": reading.meter,
+    }
+    return measurements, candidate
+
+
+def _scenario_result(run: _MeterRun, scenario: dict[str, Any]) -> dict[str, Any]:
+    """Execute and meter every candidate policy for one scenario."""
+
+    state = scenario["state"]
+    demand = float(state["demand"])
+    weights = [float(value) for value in state["actuator_weights"]]
+    caps = [float(value) for value in state["actuator_caps"]]
+    quality_floor = float(scenario["constraints"]["quality_floor"])
+    optimum = objective(weights, analytic_allocation(demand, weights, caps))
+
+    workloads = _policy_workloads(
+        demand,
+        weights,
+        caps,
+        fine_steps=run.fine_steps,
+        coarse_steps=run.coarse_steps,
+    )
+    measurements: list[dict[str, Any]] = []
+    candidates: list[dict[str, Any]] = []
+    for policy_id in sorted(workloads):
+        workload = workloads[policy_id]
+        allocation = workload()
+        evaluation = evaluate_allocation(
+            None if allocation is None else list(allocation),
+            demand=demand,
+            weights=weights,
+            caps=caps,
+            optimum=optimum,
+            quality_floor=quality_floor,
+        )
+        policy_measurements, candidate = _measure_candidate(
+            run, policy_id, workload, scenario, evaluation
+        )
+        measurements += policy_measurements
+        candidates.append(candidate)
+
+    preference, abstention = choose_preference(candidates, quality_floor)
+    result_fields: dict[str, Any] = {
+        "candidates": candidates,
+        "cost_quantity": run.meter.cost_quantity,
+        "cost_is_energy": run.meter.measures_energy,
+        "reference_objective": round(optimum, 12),
+        "meter_probe": run.probe,
+    }
+    if preference is None:
+        return oc.new_result(
+            status=oc.RESULT_ABSTAINED,
+            measurements=measurements,
+            abstention_reason=abstention,
+            **result_fields,
+        )
+    return oc.new_result(
+        measurements=measurements, preference=preference, **result_fields
+    )
+
+
 def build_records(
     seed: int,
     count: int,
@@ -823,142 +1027,22 @@ def build_records(
 ) -> list[dict[str, Any]]:
     """Execute every candidate policy, meter it, and build measured records."""
 
-    if meter is None:
-        meter, probe = select_meter(prefer_energy=True)
-    else:
-        if meter_probe is not None:
-            probe = meter_probe
-        else:
-            ok, detail = meter.available()
-            probe = {
-                "probed": [
-                    {
-                        "meter": meter.name,
-                        "measures_energy": meter.measures_energy,
-                        "available": ok,
-                        "detail": detail,
-                    }
-                ],
-                "selected": meter.name,
-                "cost_quantity": meter.cost_quantity,
-                "cost_is_energy": meter.measures_energy,
-            }
-        ok, detail = meter.available()
-        if not ok:
-            raise oc.OracleUnavailable(meter.name, detail)
-
+    meter, probe = _resolve_meter(meter, meter_probe)
+    run = _MeterRun(
+        meter=meter,
+        probe=probe,
+        repeats=repeats,
+        warmup=warmup,
+        fine_steps=fine_steps,
+        coarse_steps=coarse_steps,
+    )
     generator = oc.new_generator(
         GENERATOR_NAME, version=GENERATOR_VERSION, kind="programmatic", seed=seed
     )
-    oracle = oc.new_oracle(
-        meter.name,
-        oracle_type="measured_execution",
-        implementation=f"pipelines/energy_preferences.py:{type(meter).__name__}",
-        version=meter.version,
-        authority=oc.AUTHORITY_AUTHORITATIVE,
-        configuration={
-            "repeats": repeats,
-            "warmup": warmup,
-            "fine_steps": fine_steps,
-            "coarse_steps": coarse_steps,
-            "meter_probe": probe,
-        },
-        seed=None,
-        commit=None,
-        fingerprint=meter.fingerprint(),
-    )
-
+    oracle = _oracle_block(run)
     records: list[dict[str, Any]] = []
     for proposal in propose_scenarios(seed, count):
         scenario = proposal["scenario"]
-        state = scenario["state"]
-        demand = float(state["demand"])
-        weights = [float(value) for value in state["actuator_weights"]]
-        caps = [float(value) for value in state["actuator_caps"]]
-        quality_floor = float(scenario["constraints"]["quality_floor"])
-        optimum = objective(weights, analytic_allocation(demand, weights, caps))
-
-        workloads = _policy_workloads(
-            demand, weights, caps, fine_steps=fine_steps, coarse_steps=coarse_steps
-        )
-        measurements: list[dict[str, Any]] = []
-        candidates: list[dict[str, Any]] = []
-        for policy_id in sorted(workloads):
-            workload = workloads[policy_id]
-            allocation = workload()
-            evaluation = evaluate_allocation(
-                None if allocation is None else list(allocation),
-                demand=demand,
-                weights=weights,
-                caps=caps,
-                optimum=optimum,
-                quality_floor=quality_floor,
-            )
-            reading = _read_cost(
-                meter,
-                workload,
-                policy_id=policy_id,
-                scenario=scenario,
-                repeats=repeats,
-                warmup=warmup,
-                fine_steps=fine_steps,
-                coarse_steps=coarse_steps,
-            )
-            cost_measurement = oc.new_measurement(
-                reading.cost_quantity,
-                reading.cost_value,
-                reading.meter,
-                detail={"candidate": policy_id, **(reading.detail or {})},
-            )
-            measurements.append(cost_measurement)
-            for extra in reading.extra:
-                enriched = dict(extra)
-                detail = dict(enriched.get("detail") or {})
-                detail["candidate"] = policy_id
-                enriched["detail"] = detail
-                measurements.append(enriched)
-            measurements.append(
-                oc.new_measurement(
-                    "task_quality",
-                    evaluation.task_quality,
-                    "task_reference_solver",
-                    detail={"candidate": policy_id},
-                )
-            )
-            candidates.append(
-                {
-                    "id": policy_id,
-                    "description": POLICY_DESCRIPTIONS[policy_id],
-                    "allocation": list(evaluation.allocation),
-                    "task_quality": evaluation.task_quality,
-                    "safety_ok": evaluation.safety_ok,
-                    "safety_violations": list(evaluation.violations),
-                    "success": evaluation.success,
-                    "cost_quantity": reading.cost_quantity,
-                    "cost_value": reading.cost_value,
-                    "cost_meter": reading.meter,
-                }
-            )
-
-        preference, abstention = choose_preference(candidates, quality_floor)
-        result_fields: dict[str, Any] = {
-            "candidates": candidates,
-            "cost_quantity": meter.cost_quantity,
-            "cost_is_energy": meter.measures_energy,
-            "reference_objective": round(optimum, 12),
-            "meter_probe": probe,
-        }
-        if preference is None:
-            result = oc.new_result(
-                status=oc.RESULT_ABSTAINED,
-                measurements=measurements,
-                abstention_reason=abstention,
-                **result_fields,
-            )
-        else:
-            result = oc.new_result(
-                measurements=measurements, preference=preference, **result_fields
-            )
         records.append(
             oc.build_record(
                 record_id=f"{id_prefix}-{seed}-{proposal['index']:04d}",
@@ -966,7 +1050,7 @@ def build_records(
                 generator=generator,
                 scenario=scenario,
                 oracle=oracle,
-                result=result,
+                result=_scenario_result(run, scenario),
                 provenance=oc.new_provenance(
                     "pipelines/energy_preferences.py",
                     host={
