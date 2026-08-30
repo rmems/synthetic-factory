@@ -1,22 +1,21 @@
 #!/usr/bin/env python3
-"""Issue #62 leaf tests for the per-dataset card schema declaration."""
+"""Issue #62 leaf tests for the per-dataset card schema declaration.
 
-import test_card_schema as _shared
+Self-contained on the public ``card_schema`` / ``publish_grok46_hub``
+surface so this module imports identically before and after the shared
+``tests/test_card_schema.py`` module is split.
+"""
 
-unittest = _shared.unittest
-io = _shared.io
-json = _shared.json
-tempfile = _shared.tempfile
-redirect_stderr = _shared.redirect_stderr
-redirect_stdout = _shared.redirect_stdout
-Path = _shared.Path
-mock = _shared.mock
-REPO = _shared.REPO
-card_schema = _shared.card_schema
-publisher = _shared.publisher
-LONG_HORIZON = _shared.LONG_HORIZON
-MINIMAL = _shared.MINIMAL
-write_declaration = _shared.write_declaration
+import sys
+import unittest
+from pathlib import Path
+
+REPO = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(REPO / "pipelines"))
+sys.path.insert(0, str(REPO / "scripts"))
+
+import card_schema  # noqa: E402
+import publish_grok46_hub as publisher  # noqa: E402
 
 
 EVAL_HARNESS = "eval-harness-trajectories"
