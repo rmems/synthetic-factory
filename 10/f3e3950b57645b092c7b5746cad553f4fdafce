@@ -1,0 +1,23 @@
+pipelines/nir_equivalence.py
+  s_f3ffb7db87dca1::t_e5b635acd2a422 1619-1658,1660-1661,1663-1665,1667,1670,1672-1673,1675-1692,1694-1695,1697-1765
+pipelines/hardware_parity.py
+  s_f3ffb7db87dca1::t_166797a9a964ac 1417-1450,1458,1460-1462
+pipelines/oracle_contract.py
+  s_f3ffb7db87dca1::t_36eb6900bfe4e8 789-805,813-829
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "10f3e3950b57645b092c7b5746cad553f4fdafce",
+  "prompts": {},
+  "sessions": {
+    "s_f3ffb7db87dca1": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "510a01e2-1e9d-4f64-a445-6971413485be",
+        "model": "claude-fable-5"
+      },
+      "human_author": "Raul Montoya Cardenas <montoyaraul34@gmail.com>"
+    }
+  }
+}
