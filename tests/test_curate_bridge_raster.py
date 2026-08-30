@@ -51,6 +51,25 @@ class RasterAndGateSnnCuration(unittest.TestCase):
         self.assertTrue(evidence["gate_snn_valid"])
         self.assertEqual(evidence["gate_snn_total_neurons"], 128)
 
+    def test_excerpt_uses_microseconds_and_the_declared_window_bound(self):
+        record = gate_snn_fixture()
+        record["raster"]["excerpt"][-1]["t_us"] = 40_000
+        self.assertTrue(curate_bridge.raster_status(record)["raster_valid"])
+
+        record["raster"]["excerpt"][-1]["t_us"] = 40_001
+        status = curate_bridge.raster_status(record)
+        self.assertFalse(status["raster_valid"])
+        self.assertIn(curate_bridge.REASON_RASTER_EXCERPT, status["reason_codes"])
+
+    def test_millisecond_only_raster_event_is_not_a_canonical_excerpt(self):
+        record = gate_snn_fixture()
+        record["raster"]["excerpt"][0] = {"t_ms": 0.8, "neuron_id": 7}
+
+        status = curate_bridge.raster_status(record)
+
+        self.assertFalse(status["raster_valid"])
+        self.assertIn(curate_bridge.REASON_RASTER_EXCERPT, status["reason_codes"])
+
     def test_missing_raster_quarantines_only_when_required(self):
         record = bridge([event(1.0, "a"), event(2.0, "b")])
         self.assertEqual(decide(record).action, "retain")
@@ -292,6 +311,13 @@ class RasterSchemaParity(unittest.TestCase):
 
     def setUp(self):
         self.schema = json.loads(RASTER_SCHEMA.read_text(encoding="utf-8"))
+
+    def test_excerpt_schema_uses_bounded_microsecond_timestamps(self):
+        event = self.schema["$defs"]["raster"]["properties"]["excerpt"]["items"]
+        self.assertEqual(event["required"], ["t_us", "neuron_id"])
+        self.assertEqual(event["properties"]["t_us"]["minimum"], 0)
+        self.assertEqual(event["properties"]["t_us"]["maximum"], 50_000)
+        self.assertNotIn("t_ms", event["properties"])
 
     def test_nested_gate_snn_carriers_reference_the_canonical_definition(self):
         trajectory = self.schema["properties"]["language_view"]["properties"]["trajectory"][

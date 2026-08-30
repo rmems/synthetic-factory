@@ -12,7 +12,7 @@ import json
 from pathlib import Path
 
 from check_records import read_utf8_jsonl
-from curate_bridge import is_bridge_record, is_thalamic_record, raster_status
+from curate_bridge import _finite_float, is_bridge_record, is_thalamic_record, raster_status
 from validate_run import reject_json_constant
 
 # Every lane that emits neuromorphic records carries the raster / gate-as-SNN
@@ -29,6 +29,15 @@ RASTER_FACTORY_SLUGS = frozenset(
 )
 
 
+def _parse_finite_json_float(text: str) -> float:
+    """Decode a JSON float token without accepting finite-token overflow."""
+
+    value = _finite_float(text)
+    if value is None:
+        raise ValueError(f"non-finite JSON number {text}")
+    return value
+
+
 def _jsonl_records(batch: Path):
     """Return physical-LF-framed JSON records plus fail-closed parse errors."""
 
@@ -42,7 +51,11 @@ def _jsonl_records(batch: Path):
         if not line.strip():
             continue
         try:
-            record = json.loads(line, parse_constant=reject_json_constant)
+            record = json.loads(
+                line,
+                parse_constant=reject_json_constant,
+                parse_float=_parse_finite_json_float,
+            )
         except (json.JSONDecodeError, ValueError) as exc:
             errors.append(f"{batch.name}:{lineno}: JSON parse error: {exc}")
             continue

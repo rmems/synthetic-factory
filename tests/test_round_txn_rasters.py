@@ -138,6 +138,22 @@ class BridgeRasterEnvelope(RasterPublishAssertions):
         payload = (json.dumps(record, ensure_ascii=False) + "\n").encode("utf-8")
         self.assertEqual(self.validate_payload(payload), [])
 
+    def test_exponent_overflow_in_a_forwarded_gate_field_cannot_publish(self):
+        with tempfile.TemporaryDirectory() as td:
+            factory = raw_factory(td, BRIDGE_SLUG)
+            reservation = stage_round(round_txn, factory, [bridge("bridge-overflow")])
+            batch = Path(reservation["staging_dir"]) / reservation["batch_file"]
+            payload = batch.read_text(encoding="utf-8").replace(
+                '"gate_snn": {',
+                '"gate_snn": {"forward_compatible_extra": 1e999, ',
+                1,
+            )
+            batch.write_text(payload, encoding="utf-8")
+
+            with self.assertRaisesRegex(round_txn.TransactionError, "non-finite JSON number 1e999"):
+                round_txn.publish(factory, 1, reservation["token"])
+            self.assertFalse((factory / reservation["batch_file"]).exists())
+
 
 class OuroborosLaneRasterEnvelope(RasterPublishAssertions):
     """The swarm lane emits Thalamic trajectories and shares the raster gate."""

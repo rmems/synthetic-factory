@@ -53,17 +53,19 @@ from validate_run import (  # noqa: E402
     check_episode,
 )
 from training_audit_bridge import event_stream_status as _event_stream_status  # noqa: E402
-from distillation_audit import (  # noqa: E402
-    BRIDGE_FACTORY_SLUG as BRIDGE_FACTORY_SLUG,
-    THALAMIC_FACTORY_SLUG as THALAMIC_FACTORY_SLUG,
-    DistillationAudit,
-)
+import distillation_audit as _distillation_audit  # noqa: E402
+from distillation_audit import DistillationAudit  # noqa: E402
 from training_audit_mill import index_mill_quarantine  # noqa: E402
 from training_audit_report import (  # noqa: E402
     build_report,
     percentile as _percentile,
     render_markdown as _render_markdown,
 )
+
+# Compatibility exports retained for callers that imported the factory slugs
+# from this module before distillation accounting moved into its own helper.
+BRIDGE_FACTORY_SLUG = _distillation_audit.BRIDGE_FACTORY_SLUG
+THALAMIC_FACTORY_SLUG = _distillation_audit.THALAMIC_FACTORY_SLUG
 
 # A curated training view may expose neither the scratch-pad vocabulary the
 # structural validator already knows about, the coding-factory key

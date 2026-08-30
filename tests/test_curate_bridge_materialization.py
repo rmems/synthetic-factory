@@ -9,6 +9,8 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
+from unittest import mock
 
 try:
     from tests.test_curate_bridge import bridge, curate_bridge, event, gate_snn_fixture
@@ -21,6 +23,7 @@ except ModuleNotFoundError:
     )
 
 import curate_gate  # noqa: E402
+import curate_bridge_materialize  # noqa: E402
 
 
 def raster_sidecars():
@@ -31,6 +34,16 @@ def raster_sidecars():
 
 
 class BridgeMaterialization(unittest.TestCase):
+    @staticmethod
+    def _write_source(root, relative, records):
+        source = root / relative
+        source.parent.mkdir(parents=True, exist_ok=True)
+        source.write_text(
+            "".join(json.dumps(record, ensure_ascii=False) + "\n" for record in records),
+            encoding="utf-8",
+        )
+        return source
+
     def _source_tree(self, root):
         first = root / "factory-a" / "batch-r01.jsonl"
         second = root / "factory-b" / "batch-r02.jsonl"
@@ -198,6 +211,104 @@ class BridgeMaterialization(unittest.TestCase):
                 )
             with self.assertRaisesRegex(curate_bridge.BridgeCurationError, "safe relative path"):
                 curate_bridge._safe_relative_path("../escape.jsonl", label="manifest_name")
+
+    def test_staged_manifest_uses_only_literal_lf_record_boundaries(self):
+        context = SimpleNamespace(reject_json_constant=curate_bridge._reject_json_constant)
+        with tempfile.TemporaryDirectory() as td:
+            path = Path(td) / "manifest.jsonl"
+            path.write_bytes('{"text":"left\u2028middle\u2029right"}\r\n'.encode("utf-8"))
+            self.assertEqual(
+                curate_bridge_materialize._read_manifest(path, context),
+                [{"text": "left\u2028middle\u2029right"}],
+            )
+
+            path.write_bytes(b'{"first":1}\r{"second":2}\n')
+            with self.assertRaisesRegex(curate_bridge.BridgeCurationError, "invalid staged"):
+                curate_bridge_materialize._read_manifest(path, context)
+
+            path.write_bytes(b'{"value":NaN}\n')
+            with self.assertRaisesRegex(curate_bridge.BridgeCurationError, "non-standard"):
+                curate_bridge_materialize._read_manifest(path, context)
+
+    def test_atomic_publication_fails_explicitly_off_linux_and_windows(self):
+        source = Path("unused-source")
+        destination = Path("unused-destination")
+        with (
+            mock.patch.object(curate_bridge_materialize.os, "name", "posix"),
+            mock.patch.object(curate_bridge_materialize.sys, "platform", "darwin"),
+            self.assertRaisesRegex(
+                curate_bridge.BridgeCurationError,
+                "unsupported on platform 'darwin'",
+            ),
+        ):
+            curate_bridge_materialize._rename_noreplace(source, destination)
+
+    def test_routing_validation_is_independent_of_raster_requirement(self):
+        record = gate_snn_fixture()
+        record["raster"]["routing"]["table"] = []
+        with tempfile.TemporaryDirectory() as td:
+            temporary = Path(td)
+            root = temporary / "source"
+            source = self._write_source(root, "bridge/batch-r01.jsonl", [record])
+            decisions = curate_bridge.materialize_paths(
+                [source],
+                source_root=root,
+                output_dir=temporary / "tree",
+                require_raster=False,
+            )
+
+        self.assertEqual([decision.action for decision in decisions], ["quarantine"])
+        self.assertIn(
+            curate_bridge.REASON_RASTER_ROUTING,
+            decisions[0].manifest["reason_codes"],
+        )
+
+    def test_each_materialized_source_batch_requires_a_valid_gate_head(self):
+        gated = gate_snn_fixture()
+        ungated = gate_snn_fixture()
+        ungated.pop("gate_snn")
+        with tempfile.TemporaryDirectory() as td:
+            temporary = Path(td)
+            root = temporary / "source"
+            first = self._write_source(root, "factory-a/batch-r01.jsonl", [gated])
+            second = self._write_source(root, "factory-b/batch-r02.jsonl", [ungated])
+            destination = temporary / "tree"
+
+            with self.assertRaisesRegex(
+                curate_bridge.BridgeCurationError,
+                "valid spike-implemented gate.*factory-b/batch-r02.jsonl",
+            ):
+                curate_bridge.materialize_paths(
+                    [first, second],
+                    source_root=root,
+                    output_dir=destination,
+                )
+
+            self.assertFalse(destination.exists())
+
+    def test_one_valid_gate_covers_its_materialized_source_batch(self):
+        gated = gate_snn_fixture()
+        gated["id"] = "gated"
+        ungated = gate_snn_fixture()
+        ungated["id"] = "ungated"
+        ungated.pop("gate_snn")
+        with tempfile.TemporaryDirectory() as td:
+            temporary = Path(td)
+            root = temporary / "source"
+            source = self._write_source(
+                root,
+                "bridge/batch-r01.jsonl",
+                [ungated, gated],
+            )
+            destination = temporary / "tree"
+            decisions = curate_bridge.materialize_paths(
+                [source],
+                source_root=root,
+                output_dir=destination,
+            )
+
+            self.assertEqual([decision.action for decision in decisions], ["retain", "retain"])
+            self.assertTrue(destination.is_dir())
 
 
 if __name__ == "__main__":

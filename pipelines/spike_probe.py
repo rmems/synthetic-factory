@@ -52,8 +52,14 @@ US_PER_MS = 1000
 REASON_INPUT_UNREADABLE = "BRIDGE_SOURCE_UNREADABLE"
 
 
+def _is_exact_int(value: Any) -> bool:
+    return isinstance(value, int) and not isinstance(value, bool)
+
+
 def _finite(value: Any) -> bool:
-    return type(value) is int or (type(value) is float and math.isfinite(value))
+    if _is_exact_int(value):
+        return True
+    return isinstance(value, float) and math.isfinite(value)
 
 
 def _window_us(raster: dict[str, Any]) -> int | None:
@@ -71,13 +77,13 @@ def _normalized_event(item: Any) -> dict[str, Any] | None:
 
     if not isinstance(item, dict):
         return None
-    t_ms = item.get("t_ms")
+    t_us = item.get("t_us")
     neuron_id = item.get("neuron_id")
-    if not _finite(t_ms) or type(neuron_id) is not int:
+    if not _finite(t_us) or not _is_exact_int(neuron_id):
         return None
     event: dict[str, Any] = {
         "neuron_id": neuron_id,
-        "t_us": int(round(float(t_ms) * US_PER_MS)),
+        "t_us": int(round(float(t_us))),
     }
     channel = item.get("channel")
     if isinstance(channel, str) and channel:
@@ -318,7 +324,7 @@ def load_rasters(
 def _exact_integer(value: Any) -> int:
     """Return an exact JSON integer, treating booleans and other types as zero."""
 
-    return value if type(value) is int else 0
+    return value if _is_exact_int(value) else 0
 
 
 def summarize(rasters, problems, targets):

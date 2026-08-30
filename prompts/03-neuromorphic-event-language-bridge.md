@@ -37,8 +37,8 @@ D. Raster excerpt + routing + ISI + refractory (required for every record):
 - `raster` sidecar with a **20–50 ms** window (the bound `schemas/raster.schema.json`
   and `pipelines/curate_bridge.py` actually enforce): `raster.window_ms` ∈ [20, 50]
   inclusive, `raster.window_s == window_ms/1000` within 1e-9, per-neuron spike times
-  (`raster.excerpt` with {t_ms, neuron_id, channel}) sorted non-decreasing by `t_ms`
-  with `0 ≤ t_ms ≤ window_ms`, `neuron_id` ∈ [0, neurons), and routing metadata
+  (`raster.excerpt` with {t_us, neuron_id, channel}) sorted non-decreasing by `t_us`
+  with `0 ≤ t_us ≤ window_ms * 1000`, `neuron_id` ∈ [0, neurons), and routing metadata
   (`raster.routing` with {source, target, table} — `source`/`target` non-empty strings).
 - Spike budget (every gate/compute check and `raster`): declare `neurons` (>0),
   `mean_rate_hz` (>0), `window_s` (or `window_ms`), `spikes`; enforce
@@ -50,8 +50,8 @@ D. Raster excerpt + routing + ISI + refractory (required for every record):
   derived from the FULL window's per-neuron inter-spike intervals (the `excerpt` may be
   a display subset and is NOT the histogram's source); ≥1 ms bins must be explicit, and
   bin counts sum to `(spikes − distinct_active_neurons)` computed over the full window.
-- **Refractory 1 ms**: for any neuron, consecutive spikes satisfy Δt ≥ 1.0 ms; no
-  `neuron_id` may appear twice with `|t_a − t_b| < 1.0`.
+- **Refractory 1 ms**: for any neuron, consecutive spikes satisfy Δt ≥ 1000 µs; no
+  `neuron_id` may appear twice with `|t_us_a − t_us_b| < 1000`.
 - **Third-factor routing (required where neuromorphic)**: `raster.routing.third_factor`
   with a named `modulator`, a positive eligibility time constant `tau_e_s` (alias
   `tau_e_ms`, e.g. τe 2.0 s), and the `eligibility` rule it gates. Declaring BOTH
@@ -82,7 +82,7 @@ F. Contract & enforcement status:
 - **Quarantined per record today** (machine-readable reason codes): missing raster when
   the caller requires one, window outside 20–50 ms, `window_s` mismatch, spike-budget
   mismatch, energy mismatch (pJ or uJ), missing/empty routing `source`/`target`, an
-  excerpt that is empty or has an out-of-window `t_ms` or an out-of-range `neuron_id`,
+  excerpt that is empty or has an out-of-window `t_us` or an out-of-range `neuron_id`,
   a malformed `third_factor`, and a malformed `gate_snn` spec.
 - **Blocked per round by the training audit**: any bridge pair without a raster sidecar,
   any raster whose `routing.table` is empty, any raster or gate defect above, and a round

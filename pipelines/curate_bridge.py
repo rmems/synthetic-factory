@@ -41,14 +41,14 @@ from pathlib import Path
 from typing import Any, Iterable, Sequence
 
 from curate_bridge_events import (
-    CLOCK_DOMAIN_KEYS,  # noqa: F401 - preserve the established public constant
-    EXPLICIT_ORDER_KEYS,  # noqa: F401 - preserve the established public constant
+    CLOCK_DOMAIN_KEYS as _EVENT_CLOCK_DOMAIN_KEYS,
+    EXPLICIT_ORDER_KEYS as _EVENT_EXPLICIT_ORDER_KEYS,
     TIME_KEYS,
     _adjacent_descents,
-    _canonical_marker,  # noqa: F401 - preserve the established private hook
+    _canonical_marker as _event_canonical_marker,
     _declared_clock_domains,
     _explicit_order_fields,
-    _finite_float,  # noqa: F401 - preserve the established private hook
+    _finite_float as _event_finite_float,
     _is_finite_number,
     _record_locator,
 )
@@ -57,13 +57,22 @@ from curate_bridge_materialize import (
     BridgeCurationError,
     MaterializationConfig,
     MaterializationContext,
-    _safe_relative_path,  # noqa: F401 - preserve the established private hook
+    _safe_relative_path as _materialize_safe_relative_path,
     materialize_paths as _materialize_paths,
 )
 from curate_bridge_raster import (
     _validate_raster,
-    _validate_third_factor,  # noqa: F401 - preserve the established private hook
+    _validate_third_factor as _raster_validate_third_factor,
 )
+
+# Compatibility re-exports used by downstream tests and integrations.  The
+# explicit assignments keep the ownership boundary visible to static analyzers.
+CLOCK_DOMAIN_KEYS = _EVENT_CLOCK_DOMAIN_KEYS
+EXPLICIT_ORDER_KEYS = _EVENT_EXPLICIT_ORDER_KEYS
+_canonical_marker = _event_canonical_marker
+_finite_float = _event_finite_float
+_safe_relative_path = _materialize_safe_relative_path
+_validate_third_factor = _raster_validate_third_factor
 
 
 TRANSFORM_NAME = "bridge_event_time_order"
@@ -233,44 +242,38 @@ def _declared(container: Any, key: str) -> tuple[bool, Any]:
     return False, None
 
 
-def raster_sidecar(record: Any) -> tuple[str | None, Any]:
-    """Resolve the raster sidecar location and value for one record.
+def _first_declared(
+    candidates: Sequence[tuple[str, Any, str]],
+) -> tuple[str | None, Any]:
+    """Return the first declared carrier, valid or not.
 
-    A valid top-level ``raster`` wins, otherwise a valid ``meta.raster``
-    sidecar.  A malformed sidecar is still returned (with its location) so its
-    reason codes survive; ``(None, None)`` means no sidecar exists at all.
+    Declaration is key presence rather than value truthiness.  An explicit
+    ``null`` or malformed higher-precedence carrier must therefore fail its
+    validation instead of falling through to a lower-precedence declaration.
     """
 
-    if not isinstance(record, dict):
-        return None, None
-    meta = record.get("meta")
-    candidates = (
-        ("raster", *_declared(record, "raster")),
-        ("meta.raster", *_declared(meta, "raster")),
-    )
-    # The first declared carrier wins outright, valid or not. A malformed
-    # higher-precedence declaration must surface as invalid rather than be
-    # silently skipped in favor of a lower-precedence dict, which would let
-    # ambiguous duplicate declarations through unchecked. Mirrors
-    # gate_snn_sidecar, which had the identical two-pass defect.  Declaration
-    # is key presence, so an explicit ``raster: null`` is a carrier too.
-    for location, declared, value in candidates:
+    for location, container, key in candidates:
+        declared, value = _declared(container, key)
         if declared:
             return location, value
     return None, None
 
 
-def gate_snn_sidecar(record: Any) -> tuple[str | None, Any]:
-    """Resolve the spike-implemented gate spec location and value.
+def raster_sidecar(record: Any) -> tuple[str | None, Any]:
+    """Resolve the first declared raster carrier for one record."""
 
-    Accepted carriers, in precedence order: top-level ``gate_snn``,
-    ``meta.gate_snn``, ``language_view.trajectory.gate_snn``, and
-    ``language_view.trajectory.safety_decision.gate_snn``. The first declared
-    carrier wins outright, valid or not — a malformed higher-precedence
-    declaration (e.g. a non-dict top-level ``gate_snn``) must surface as
-    invalid rather than being silently skipped in favor of a lower-precedence
-    dict, which would let ambiguous duplicate declarations through unchecked.
-    """
+    if not isinstance(record, dict):
+        return None, None
+    return _first_declared(
+        (
+            ("raster", record, "raster"),
+            ("meta.raster", record.get("meta"), "raster"),
+        )
+    )
+
+
+def gate_snn_sidecar(record: Any) -> tuple[str | None, Any]:
+    """Resolve the first declared spike-implemented gate carrier."""
 
     if not isinstance(record, dict):
         return None, None
@@ -278,57 +281,39 @@ def gate_snn_sidecar(record: Any) -> tuple[str | None, Any]:
     view = record.get("language_view")
     trajectory = view.get("trajectory") if isinstance(view, dict) else None
     decision = trajectory.get("safety_decision") if isinstance(trajectory, dict) else None
-    candidates = (
-        (GATE_SNN_KEY, *_declared(record, GATE_SNN_KEY)),
-        (f"meta.{GATE_SNN_KEY}", *_declared(meta, GATE_SNN_KEY)),
+    return _first_declared(
         (
-            f"language_view.trajectory.{GATE_SNN_KEY}",
-            *_declared(trajectory, GATE_SNN_KEY),
-        ),
-        (
-            f"language_view.trajectory.safety_decision.{GATE_SNN_KEY}",
-            *_declared(decision, GATE_SNN_KEY),
-        ),
+            (GATE_SNN_KEY, record, GATE_SNN_KEY),
+            (f"meta.{GATE_SNN_KEY}", meta, GATE_SNN_KEY),
+            (f"language_view.trajectory.{GATE_SNN_KEY}", trajectory, GATE_SNN_KEY),
+            (
+                f"language_view.trajectory.safety_decision.{GATE_SNN_KEY}",
+                decision,
+                GATE_SNN_KEY,
+            ),
+        )
     )
-    for location, declared, value in candidates:
-        if declared:
-            return location, value
-    return None, None
 
 
 def _gate_compute_sidecar(record: dict[str, Any]) -> tuple[str | None, Any]:
-    """Return the record's first declared gate_compute block, valid or not.
-
-    Accepted carriers, in precedence order: top-level ``gate_compute``,
-    ``language_view.trajectory.gate_compute``, and
-    ``language_view.trajectory.safety_decision.gate_compute``.  As for the
-    raster and ``gate_snn`` sidecars, the first declared carrier wins
-    outright: a malformed higher-precedence declaration must surface as
-    invalid rather than be silently skipped in favor of a lower-precedence
-    dict, which would let an ambiguous duplicate declaration through
-    unchecked.
-    """
+    """Resolve the first declared gate-compute carrier for one record."""
 
     if not isinstance(record, dict):
         return None, None
     view = record.get("language_view")
     trajectory = view.get("trajectory") if isinstance(view, dict) else None
     probe = trajectory.get("safety_decision") if isinstance(trajectory, dict) else None
-    candidates = (
-        ("gate_compute", *_declared(record, "gate_compute")),
+    return _first_declared(
         (
-            "language_view.trajectory.gate_compute",
-            *_declared(trajectory, "gate_compute"),
-        ),
-        (
-            "language_view.trajectory.safety_decision.gate_compute",
-            *_declared(probe, "gate_compute"),
-        ),
+            ("gate_compute", record, "gate_compute"),
+            ("language_view.trajectory.gate_compute", trajectory, "gate_compute"),
+            (
+                "language_view.trajectory.safety_decision.gate_compute",
+                probe,
+                "gate_compute",
+            ),
+        )
     )
-    for location, declared, value in candidates:
-        if declared:
-            return location, value
-    return None, None
 
 
 def _raster_reasons(
@@ -883,13 +868,11 @@ def materialize_paths(
         options,
         {"manifest_name": MANIFEST_NAME, "require_raster": True},
     )
-    manifest_name = resolved["manifest_name"]
-    require_raster = resolved["require_raster"]
     config = MaterializationConfig(
         source_root=source_root,
         output_dir=output_dir,
-        manifest_name=manifest_name,
-        require_raster=require_raster,
+        manifest_name=resolved["manifest_name"],
+        require_raster=resolved["require_raster"],
     )
     context = MaterializationContext(
         canonical_json_bytes=canonical_json_bytes,

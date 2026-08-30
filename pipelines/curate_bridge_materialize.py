@@ -8,10 +8,15 @@ import errno
 import json
 import os
 import shutil
+import sys
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Iterable, Sequence
+
+
+_AT_FDCWD = -100
+_RENAME_NOREPLACE = 1
 
 
 class BridgeCurationError(ValueError):
@@ -26,6 +31,7 @@ class MaterializationConfig:
     output_dir: str | Path
     manifest_name: str
     require_raster: bool
+    require_routing_table: bool = True
 
 
 @dataclass(frozen=True)
@@ -80,11 +86,13 @@ def _rename_windows(source: Path, destination: Path) -> None:
         ) from exc
 
 
-def _rename_posix(source: Path, destination: Path) -> None:
+def _rename_linux(source: Path, destination: Path) -> None:
     libc = ctypes.CDLL(None, use_errno=True)
     renameat2 = getattr(libc, "renameat2", None)
     if renameat2 is None:
-        raise BridgeCurationError("atomic no-replace publication is unavailable on this platform")
+        raise BridgeCurationError(
+            "atomic no-replace publication requires Linux renameat2 with RENAME_NOREPLACE"
+        )
     renameat2.argtypes = [
         ctypes.c_int,
         ctypes.c_char_p,
@@ -94,11 +102,11 @@ def _rename_posix(source: Path, destination: Path) -> None:
     ]
     renameat2.restype = ctypes.c_int
     result = renameat2(
-        -100,
+        _AT_FDCWD,
         os.fsencode(source),
-        -100,
+        _AT_FDCWD,
         os.fsencode(destination),
-        1,
+        _RENAME_NOREPLACE,
     )
     if result == 0:
         return
@@ -114,14 +122,21 @@ def _rename_noreplace(source: Path, destination: Path) -> None:
     if os.name == "nt":
         _rename_windows(source, destination)
         return
-    _rename_posix(source, destination)
+    if sys.platform != "linux":
+        raise BridgeCurationError(
+            f"atomic no-replace publication is unsupported on platform {sys.platform!r}"
+        )
+    _rename_linux(source, destination)
 
 
 def _read_manifest(path: Path, context: MaterializationContext) -> list[Any]:
     try:
         return [
-            json.loads(line, parse_constant=context.reject_json_constant)
-            for line in path.read_text(encoding="utf-8").splitlines()
+            json.loads(
+                line.decode("utf-8"),
+                parse_constant=context.reject_json_constant,
+            )
+            for line in path.read_bytes().split(b"\n")
             if line.strip()
         ]
     except (OSError, UnicodeError, json.JSONDecodeError, ValueError) as exc:
@@ -336,6 +351,36 @@ def _output_paths(decisions: Sequence[Any]) -> set[Path]:
     }
 
 
+def _materialized_raster_evidence(decision: Any) -> dict[str, Any] | None:
+    if decision.output_record is None:
+        return None
+    evidence = decision.manifest.get("evidence")
+    if not isinstance(evidence, dict):
+        return None
+    raster = evidence.get("raster")
+    if not isinstance(raster, dict) or not raster.get("raster_present"):
+        return None
+    return raster
+
+
+def _require_batch_gate_coverage(decisions: Sequence[Any]) -> None:
+    covered: dict[str, bool] = {}
+    for decision in decisions:
+        evidence = _materialized_raster_evidence(decision)
+        if evidence is None:
+            continue
+        source_path = decision.manifest["source_path"]
+        covered[source_path] = covered.get(source_path, False) or bool(
+            evidence.get("gate_snn_valid")
+        )
+    missing = sorted(path for path, has_gate in covered.items() if not has_gate)
+    if missing:
+        raise BridgeCurationError(
+            "materialized raster-backed source batches require at least one valid "
+            f"spike-implemented gate: {missing}"
+        )
+
+
 def materialize_paths(
     sources: Iterable[str | Path],
     config: MaterializationConfig,
@@ -355,8 +400,9 @@ def materialize_paths(
         source_paths,
         source_root=root,
         require_raster=config.require_raster,
-        require_routing_table=config.require_raster,
+        require_routing_table=config.require_routing_table,
     )
+    _require_batch_gate_coverage(decisions)
     manifest_relative = _manifest_path(config.manifest_name)
     if manifest_relative in _output_paths(decisions):
         raise BridgeCurationError(

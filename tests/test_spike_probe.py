@@ -53,6 +53,13 @@ class NormalizeRaster(unittest.TestCase):
         for event in raster["events"]:
             self.assertIsInstance(event["t_us"], int)
 
+    def test_source_microseconds_are_consumed_without_millisecond_scaling(self):
+        self.assertEqual(
+            spike_probe._normalized_event({"t_us": 1234, "neuron_id": 7}),
+            {"t_us": 1234, "neuron_id": 7},
+        )
+        self.assertIsNone(spike_probe._normalized_event({"t_ms": 1.234, "neuron_id": 7}))
+
     def test_routing_third_factor_and_gate_head_are_structured(self):
         raster = spike_probe.normalize_raster(gate_snn_record())
 
@@ -354,7 +361,7 @@ class FiniteProbeEnergy(unittest.TestCase):
         raster["neurons"] = 1
         raster["mean_rate_hz"] = 1.7e308
         raster["spikes"] = round(1.0 * 1.7e308 * 0.05)
-        raster["excerpt"] = [{"t_ms": 1.0, "neuron_id": 0}]
+        raster["excerpt"] = [{"t_us": 1000, "neuron_id": 0}]
         # No declared energy: the record is schema-valid, and only the derived
         # 23 pJ/spike product leaves the IEEE-754 double range.
         raster.pop("energy_pJ", None)

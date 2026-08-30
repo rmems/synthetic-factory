@@ -47,22 +47,24 @@ if str(_PIPELINES) not in sys.path:
     sys.path.insert(0, str(_PIPELINES))
 
 from check_records import FactoryStaging, check_jsonl  # noqa: E402
-from round_txn_raster import (  # noqa: E402,F401
-    BRIDGE_FACTORY_SLUG,
-    OUROBOROS_FACTORY_SLUG,
-    RASTER_FACTORY_SLUGS,
-    THALAMIC_FACTORY_SLUG,
-    _distillation_kind_error,
-    _jsonl_records,
-    _raster_contract_errors,
-    _validate_distillation_record,
-    enforce_bridge_envelope,
-    validate_bridge_envelope,
-)
+import round_txn_raster as _round_txn_raster  # noqa: E402
 from validate_run import (  # noqa: E402
     THALAMIC_CORE_KEYS,
     terminal_outcome_agrees,
 )
+
+# Compatibility exports retained after the raster contract moved to its own
+# module. These explicit assignments are intentional API, not unused imports.
+BRIDGE_FACTORY_SLUG = _round_txn_raster.BRIDGE_FACTORY_SLUG
+OUROBOROS_FACTORY_SLUG = _round_txn_raster.OUROBOROS_FACTORY_SLUG
+RASTER_FACTORY_SLUGS = _round_txn_raster.RASTER_FACTORY_SLUGS
+THALAMIC_FACTORY_SLUG = _round_txn_raster.THALAMIC_FACTORY_SLUG
+_distillation_kind_error = _round_txn_raster._distillation_kind_error
+_jsonl_records = _round_txn_raster._jsonl_records
+_raster_contract_errors = _round_txn_raster._raster_contract_errors
+_validate_distillation_record = _round_txn_raster._validate_distillation_record
+enforce_bridge_envelope = _round_txn_raster.enforce_bridge_envelope
+validate_bridge_envelope = _round_txn_raster.validate_bridge_envelope
 
 MODE_FILE = ".round-marker-mode.json"
 PREFERENCE_V1_LEDGER_FILE = ".preference-v1-marker-ledger.json"
@@ -2448,25 +2450,41 @@ def _reservation_expected_records(factory_dir, reservation):
         raise TransactionError("reservation has an invalid expected_records value")
     configured_quota = FACTORY_QUOTAS.get(factory_dir.name)
     if (
-        factory_dir.name not in AGENTIC_FACTORY_KINDS
-        and factory_dir.name != PREFERENCE_ISOLATION_FACTORY
+        factory_dir.name in AGENTIC_FACTORY_KINDS
+        or factory_dir.name == PREFERENCE_ISOLATION_FACTORY
     ):
-        return expected
-    if expected != configured_quota:
-        raise TransactionError(
-            f"reservation for {factory_dir.name} requires exactly "
-            f"{configured_quota} records; found {expected}"
-        )
+        if expected != configured_quota:
+            raise TransactionError(
+                f"reservation for {factory_dir.name} requires exactly "
+                f"{configured_quota} records; found {expected}"
+            )
     return expected
 
 
-def _publishing_marker_identity_matches(existing, factory_dir, round_number, token, path):
-    if existing.get("factory") != factory_dir.name:
-        raise TransactionError(f"publishing marker identity mismatch: {path}")
-    if existing.get("round") != round_number:
-        raise TransactionError(f"publishing marker identity mismatch: {path}")
-    if existing.get("token") != token:
-        raise TransactionError(f"publishing marker identity mismatch: {path}")
+def _validated_publish_reservation(factory_dir, round_number, token, reservation):
+    if not _supported_reservation_version(reservation):
+        raise TransactionError("reservation has an unsupported version")
+    if (reservation.get("round"), reservation.get("token")) != (round_number, token):
+        raise TransactionError("reservation round/token does not match publish request")
+    stage = validated_reservation_stage(
+        factory_dir, round_number, token, reservation.get("staging_dir")
+    )
+    expected = _reservation_expected_records(factory_dir, reservation)
+    preference_isolation = reservation.get("preference_isolation")
+    expected_isolation = {PREFERENCE_ISOLATION_FACTORY: PREFERENCE_TWO_SESSION}.get(
+        factory_dir.name
+    )
+    if preference_isolation != expected_isolation:
+        message = {
+            PREFERENCE_ISOLATION_FACTORY: (
+                "reservation lacks the two-session orchestration assertion"
+            )
+        }.get(
+            factory_dir.name,
+            "reservation carries preference isolation for an unrelated factory",
+        )
+        raise TransactionError(message)
+    return stage, expected, preference_isolation
 
 
 def _resume_execution_override(existing, execution_override, path):
@@ -2489,18 +2507,22 @@ def _load_resumed_publishing_state(paths, factory_dir, round_number, token, exec
     publishing_exists = paths["publishing"].exists() or paths["publishing"].is_symlink()
     if not publishing_exists:
         return None, execution_override, False
-    if not paths["publishing"].is_file():
-        raise TransactionError(f"unsafe publishing marker: {paths['publishing']}")
-    if paths["publishing"].is_symlink():
+    unsafe_marker = not paths["publishing"].is_file()
+    unsafe_marker |= paths["publishing"].is_symlink()
+    if unsafe_marker:
         raise TransactionError(f"unsafe publishing marker: {paths['publishing']}")
     existing = (
         read_readonly_json(paths["publishing"], label="publishing plan")
         if factory_dir.name == PREFERENCE_ISOLATION_FACTORY
         else read_json(paths["publishing"])
     )
-    _publishing_marker_identity_matches(
-        existing, factory_dir, round_number, token, paths["publishing"]
+    existing_identity = (
+        existing.get("factory"),
+        existing.get("round"),
+        existing.get("token"),
     )
+    if existing_identity != (factory_dir.name, round_number, token):
+        raise TransactionError(f"publishing marker identity mismatch: {paths['publishing']}")
     override, migrate = _resume_execution_override(
         existing, execution_override, paths["publishing"]
     )
@@ -2572,42 +2594,12 @@ def _copy_published_files(stage, factory_dir, manifest, resumed):
         raise TransactionError(f"refusing to replace conflicting output: {destination}")
 
 
-def _link_completion_marker(paths, factory_dir, manifest):
-    # Linking this exact, revalidated inode is the atomic visibility point for
-    # the whole round. Recovery state is removed only after the linked marker
-    # is proven to carry the in-memory plan bytes.
-    link_verified_completion_marker(
-        paths["publishing"],
-        paths["complete"],
-        manifest,
-        require_readonly=factory_dir.name == PREFERENCE_ISOLATION_FACTORY,
-    )
-
-
-def _publish_locked(factory_dir: Path, round_number: int, token: str, execution_override=None):
-    """Publish while holding the run-wide identity/commit lock."""
-    paths = marker_paths(factory_dir, round_number)
-    if paths["complete"].exists() or paths["complete"].is_symlink():
-        return finish_completed_publish(factory_dir, round_number, token, paths)
-    reservation = read_json(paths["reservation"])
-    if not _supported_reservation_version(reservation):
-        raise TransactionError("reservation has an unsupported version")
-    if reservation.get("round") != round_number or reservation.get("token") != token:
-        raise TransactionError("reservation round/token does not match publish request")
-    stage = validated_reservation_stage(
-        factory_dir, round_number, token, reservation.get("staging_dir")
-    )
-    expected = _reservation_expected_records(factory_dir, reservation)
-    preference_isolation = reservation.get("preference_isolation")
-    if factory_dir.name == PREFERENCE_ISOLATION_FACTORY:
-        if preference_isolation != PREFERENCE_TWO_SESSION:
-            raise TransactionError("reservation lacks the two-session orchestration assertion")
-    elif preference_isolation is not None:
-        raise TransactionError("reservation carries preference isolation for an unrelated factory")
-    existing, execution_override, migrate_marker = _load_resumed_publishing_state(
-        paths, factory_dir, round_number, token, execution_override
-    )
-
+def _build_publish_manifest(
+    factory_dir,
+    reservation,
+    paths,
+    validated_stage,
+):
     (
         files,
         kinds,
@@ -2615,21 +2607,13 @@ def _publish_locked(factory_dir: Path, round_number: int, token: str, execution_
         verification,
         preference_arm_gate,
         preference_diagnosis_handoff,
-    ) = validate_stage(
-        factory_dir,
-        stage,
-        round_number,
-        expected,
-        token,
-        preference_isolation,
-        execution_override=execution_override,
-    )
+    ) = validated_stage
     manifest = {
         "version": EXECUTION_VERIFIED_COMPLETION_MARKER_VERSION,
         "factory": factory_dir.name,
-        "round": round_number,
-        "token": token,
-        "expected_records": expected,
+        "round": reservation["round"],
+        "token": reservation["token"],
+        "expected_records": reservation["expected_records"],
         "records": records,
         "kinds": kinds,
         "files": files,
@@ -2640,9 +2624,35 @@ def _publish_locked(factory_dir: Path, round_number: int, token: str, execution_
         "commit_point": paths["complete"].name,
     }
     if factory_dir.name == PREFERENCE_ISOLATION_FACTORY:
-        manifest["preference_isolation"] = preference_isolation
+        manifest["preference_isolation"] = reservation["preference_isolation"]
         manifest["preference_arm_gate"] = preference_arm_gate
         manifest["preference_diagnosis_handoff"] = preference_diagnosis_handoff
+    return manifest
+
+
+def _publish_locked(factory_dir: Path, round_number: int, token: str, execution_override=None):
+    """Publish while holding the run-wide identity/commit lock."""
+    paths = marker_paths(factory_dir, round_number)
+    if paths["complete"].exists() or paths["complete"].is_symlink():
+        return finish_completed_publish(factory_dir, round_number, token, paths)
+    reservation = read_json(paths["reservation"])
+    stage, expected, preference_isolation = _validated_publish_reservation(
+        factory_dir, round_number, token, reservation
+    )
+    existing, execution_override, migrate_marker = _load_resumed_publishing_state(
+        paths, factory_dir, round_number, token, execution_override
+    )
+
+    validated_stage = validate_stage(
+        factory_dir,
+        stage,
+        round_number,
+        expected,
+        token,
+        preference_isolation,
+        execution_override=execution_override,
+    )
+    manifest = _build_publish_manifest(factory_dir, reservation, paths, validated_stage)
 
     resumed = existing is not None
     if resumed:
@@ -2658,7 +2668,15 @@ def _publish_locked(factory_dir: Path, round_number: int, token: str, execution_
 
     remember_execution_gate_cutover(factory_dir, round_number)
     _copy_published_files(stage, factory_dir, manifest, resumed)
-    _link_completion_marker(paths, factory_dir, manifest)
+    # Linking this exact, revalidated inode is the atomic visibility point for
+    # the whole round. Recovery state is removed only after the linked marker
+    # is proven to carry the in-memory plan bytes.
+    link_verified_completion_marker(
+        paths["publishing"],
+        paths["complete"],
+        manifest,
+        require_readonly=factory_dir.name == PREFERENCE_ISOLATION_FACTORY,
+    )
 
     paths["publishing"].unlink(missing_ok=True)
     paths["reservation"].unlink(missing_ok=True)

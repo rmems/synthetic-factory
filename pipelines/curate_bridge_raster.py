@@ -273,25 +273,11 @@ def _invalid_declared_energy_keys(raster: dict[str, Any]) -> list[str]:
     ]
 
 
-def _validate_raster_energy(
-    raster: dict[str, Any],
-    spikes: Any,
-    budget_ready: bool,
-    state: _ValidationState,
-) -> None:
-    for evidence_key in _invalid_declared_energy_keys(raster):
-        _mark_invalid(
-            state.reason_codes,
-            state.evidence,
-            REASON_RASTER_ENERGY,
-            evidence_key,
-        )
-    if not budget_ready:
-        return
+def _raster_energy_checks(spikes: Any) -> tuple[tuple[Any, ...], ...]:
     expected_pj = spikes * RASTER_ENERGY_PJ_PER_SPIKE
     comparable_pj = _finite_float(expected_pj)
     expected_uj = _spike_energy(spikes, RASTER_ENERGY_UJ_PER_SPIKE)
-    checks = (
+    return (
         (
             "energy_pJ",
             comparable_pj,
@@ -309,6 +295,24 @@ def _validate_raster_energy(
             "raster_energy_uJ_valid",
         ),
     )
+
+
+def _validate_raster_energy(
+    raster: dict[str, Any],
+    spikes: Any,
+    budget_ready: bool,
+    state: _ValidationState,
+) -> None:
+    for evidence_key in _invalid_declared_energy_keys(raster):
+        _mark_invalid(
+            state.reason_codes,
+            state.evidence,
+            REASON_RASTER_ENERGY,
+            evidence_key,
+        )
+    if not budget_ready:
+        return
+    checks = _raster_energy_checks(spikes)
     results = [
         (
             expected_key,
@@ -401,11 +405,12 @@ def _validate_raster_routing(
 def _valid_excerpt_item(item: Any, window_ms: float | None, neurons: Any) -> bool:
     if not isinstance(item, dict):
         return False
-    timestamp = item.get("t_ms")
+    timestamp = item.get("t_us")
     neuron_id = item.get("neuron_id")
     if not _is_finite_number(timestamp) or not _nonnegative_int(neuron_id):
         return False
-    if window_ms is not None and not (-1e-9 <= float(timestamp) <= window_ms + 1e-9):
+    window_us = window_ms * 1000 if window_ms is not None else None
+    if window_us is not None and not (-1e-9 <= float(timestamp) <= window_us + 1e-9):
         return False
     if _positive_int(neurons) and neuron_id >= neurons:
         return False

@@ -52,7 +52,7 @@ Every trajectory must expose neuromorphic temporal dynamics with verifiable micr
 - SNN value: `spike_events` + `state` must support Thalamic-Relay → Spikenaut distillation (sparse events, adaptation, noise, refractory). Add `meta.snn_tags: [race, refractory, adaptation]` and `meta.distillation_value: 1–2 sentence why this trajectory helps SNN training`.
 - Provenance & IDs: `id: thalamic-v2-r<RR>-<slug>-<hash>` unique; `state.sim_or_real` correct; invented plants → `designed`.
 
-### Neuromorphic sidecars — `raster` + `gate_snn` (MANDATORY per record)
+### Neuromorphic sidecars — `raster` per record + `gate_snn` per round (MANDATORY)
 
 `pipelines/round_txn.py publish` refuses this lane's round unless every record
 carries the distillation sidecars defined by `schemas/raster.schema.json`. The
@@ -64,7 +64,8 @@ an SNN distillation run even though it is schema-valid as a trajectory.
   inclusive with `window_s == window_ms/1000` within 1e-9; `neurons` (>0),
   `mean_rate_hz` (>0) and `spikes` satisfying
   `spikes = round(neurons * mean_rate_hz * window_s)` ±1; a non-empty `excerpt` of
-  `{t_ms, neuron_id}` with `0 ≤ t_ms ≤ window_ms` and `neuron_id` ∈ [0, neurons);
+  `{t_us, neuron_id}` with `0 ≤ t_us ≤ window_ms * 1000` and
+  `neuron_id` ∈ [0, neurons);
   and `routing` with non-empty `source`/`target` plus at least one
   `{from, to, weight}` entry in `routing.table`.
 - **Energy — Loihi 2 4-core 23 pJ/spike**: when declared, `energy_pJ = spikes * 23`

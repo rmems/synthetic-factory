@@ -46,12 +46,15 @@ python3 pipelines/leftover_mill.py outputs/raw/<date>   # add --strict to gate
 `validate` is structural/invariant evidence. `audit` additionally checks reward
 arithmetic, IDs, provenance, preference context purity, duplicates, reward/tag
 entropy, record lengths, neuromorphic ordering/density, and SNN distillation
-readiness — a 20-50 ms raster excerpt with a routing table on every bridge
-record, the `spikes = round(neurons * rate * window_s)` budget, and at least one
-spike-implemented `gate_snn` head per round. A nonzero audit is a real training
-blocker; report it rather than relabeling the corpus as clean.
+readiness. Every raster-gated record in the NELB, Thalamic trajectory (TTF), and
+Ouroboros swarm lanes needs a 20-50 ms excerpt of source `(neuron_id, t_us)`
+events, a non-empty routing table, and the
+`spikes = round(neurons * rate * window_s)` budget; every raster-gated round
+also needs at least one spike-implemented `gate_snn` head. A nonzero audit is a
+real training blocker; report it rather than relabeling the corpus as clean.
 
-To load those rasters for a distillation probe — `(neuron_id, t_us)` events,
+To load those rasters for a distillation probe — canonical source
+`(neuron_id, t_us)` events (kept in microseconds, not converted from `t_ms`),
 populations, routing, third-factor eligibility, and gate heads, all read from
 structured JSON and never from prose counts:
 

@@ -151,7 +151,8 @@ def percentile(values, fraction):
 
 def _factory_report(factories):
     output = {}
-    for name, bucket in sorted(factories.items()):
+    for name, source_bucket in sorted(factories.items()):
+        bucket = dict(source_bucket)
         lengths = bucket.pop("record_tokens")
         bucket["by_kind"] = dict(sorted(bucket["by_kind"].items()))
         bucket["length_tokens"] = {
@@ -299,6 +300,39 @@ def build_report(**state):
     }
 
 
+def _corpus_observation_lines(report):
+    """Return the stable corpus-observation section of the Markdown report."""
+
+    bridge = report["bridge"]
+    distillation_records = bridge.get("distillation_records", bridge.get("pairs", 0))
+    return [
+        "",
+        "## Corpus observations",
+        "",
+        f"- Canonical ID coverage: {report['identity']['coverage_pct']}%.",
+        f"- Canonical provenance coverage: {report['provenance']['canonical_pct']}%.",
+        f"- Preference context purity: {report['preferences']['context_purity_pct']}%; "
+        f"chosen decisions `{json.dumps(report['preferences']['chosen_decisions'], sort_keys=True)}`.",
+        f"- Reward vocabulary: {report['rewards']['unique_component_keys']} component keys "
+        f"across {report['rewards']['unique_shapes']} structural shapes.",
+        f"- Tags: {report['tags']['uses']} uses / {report['tags']['unique']} unique.",
+        f"- Bridge fidelity: {bridge.get('sorted_pairs', 0)}/"
+        f"{bridge.get('pairs', 0)} pairs globally time-ordered; "
+        f"{bridge.get('pairs_48_plus', 0)} have at least 48 events.",
+        f"- Distillation rasters: {bridge.get('raster_valid_pairs', 0)}/"
+        f"{distillation_records} NELB/TTF records carry a valid 20-50 ms "
+        f"excerpt ({bridge.get('raster_coverage_pct', 0)}%), "
+        f"{bridge.get('raster_spikes', 0)} budgeted spikes, "
+        f"{bridge.get('third_factor_pairs', 0)} third-factor routes, "
+        f"{bridge.get('gate_snn_valid_records', 0)} valid spike-implemented "
+        f"gate specs across {bridge.get('gate_snn_covered_batches', 0)}/"
+        f"{bridge.get('gate_snn_batches', 0)} distillation batches.",
+        f"- Intentional gate-error records (marked): {report['gate_errors']['marked']} "
+        f"`{json.dumps(report['gate_errors']['by_type'], sort_keys=True)}` — "
+        "exclude from gate-rationale supervision lanes.",
+    ]
+
+
 def render_markdown(report):
     """Render the concise operator-facing Markdown report."""
 
@@ -330,35 +364,5 @@ def render_markdown(report):
         lines.extend(f"- {item}" for item in report["blockers"])
     else:
         lines.append("- None detected.")
-
-    bridge = report["bridge"]
-    distillation_records = bridge.get("distillation_records", bridge.get("pairs", 0))
-    lines.extend(
-        [
-            "",
-            "## Corpus observations",
-            "",
-            f"- Canonical ID coverage: {report['identity']['coverage_pct']}%.",
-            f"- Canonical provenance coverage: {report['provenance']['canonical_pct']}%.",
-            f"- Preference context purity: {report['preferences']['context_purity_pct']}%; "
-            f"chosen decisions `{json.dumps(report['preferences']['chosen_decisions'], sort_keys=True)}`.",
-            f"- Reward vocabulary: {report['rewards']['unique_component_keys']} component keys "
-            f"across {report['rewards']['unique_shapes']} structural shapes.",
-            f"- Tags: {report['tags']['uses']} uses / {report['tags']['unique']} unique.",
-            f"- Bridge fidelity: {bridge.get('sorted_pairs', 0)}/"
-            f"{bridge.get('pairs', 0)} pairs globally time-ordered; "
-            f"{bridge.get('pairs_48_plus', 0)} have at least 48 events.",
-            f"- Distillation rasters: {bridge.get('raster_valid_pairs', 0)}/"
-            f"{distillation_records} NELB/TTF records carry a valid 20-50 ms "
-            f"excerpt ({bridge.get('raster_coverage_pct', 0)}%), "
-            f"{bridge.get('raster_spikes', 0)} budgeted spikes, "
-            f"{bridge.get('third_factor_pairs', 0)} third-factor routes, "
-            f"{bridge.get('gate_snn_valid_records', 0)} valid spike-implemented "
-            f"gate specs across {bridge.get('gate_snn_covered_batches', 0)}/"
-            f"{bridge.get('gate_snn_batches', 0)} distillation batches.",
-            f"- Intentional gate-error records (marked): {report['gate_errors']['marked']} "
-            f"`{json.dumps(report['gate_errors']['by_type'], sort_keys=True)}` — "
-            "exclude from gate-rationale supervision lanes.",
-        ]
-    )
+    lines.extend(_corpus_observation_lines(report))
     return "\n".join(lines) + "\n"

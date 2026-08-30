@@ -222,7 +222,7 @@ def zero_spike_record():
             "spikes": 0,
             "energy_pJ": 0,
             "energy_uJ": 0,
-            "excerpt": [{"t_ms": 5.0, "neuron_id": 0}],
+            "excerpt": [{"t_us": 5000, "neuron_id": 0}],
         }
     )
     return record

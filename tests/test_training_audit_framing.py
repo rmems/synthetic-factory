@@ -84,5 +84,31 @@ class TrainingAuditCompatibilityExports(unittest.TestCase):
         self.assertEqual(training_audit.percentile([4, 1, 3, 2], 0.95), 4)
 
 
+class TrainingAuditReportIdempotence(unittest.TestCase):
+    def test_repeated_report_does_not_consume_factory_record_tokens(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            path = root / THALAMIC_FACTORY / "batch-r01.jsonl"
+            path.parent.mkdir(parents=True)
+            path.write_text(json.dumps(thalamic("repeatable-report")) + "\n", encoding="utf-8")
+            mill_findings, mill_mix = training_audit.index_mill_quarantine(root, [path])
+            audit = training_audit._CorpusAudit(root, mill_findings, mill_mix)
+            audit.observe_file(path)
+            record_tokens = list(audit.factories[THALAMIC_FACTORY]["record_tokens"])
+
+            first = audit.report()
+            second = audit.report()
+
+        self.assertEqual(second, first)
+        self.assertEqual(
+            audit.factories[THALAMIC_FACTORY]["record_tokens"],
+            record_tokens,
+        )
+        self.assertEqual(
+            training_audit.render_markdown(first),
+            training_audit.render_markdown(first),
+        )
+
+
 if __name__ == "__main__":
     unittest.main()
