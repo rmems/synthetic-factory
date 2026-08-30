@@ -223,6 +223,26 @@ def _is_bridge_near_match(record: Any) -> bool:
     return isinstance(view, dict) and "trajectory" in view and "spike_events" in record
 
 
+def _is_supported_raster_record(record: Any) -> bool:
+    return is_bridge_record(record) or is_thalamic_record(record)
+
+
+def _malformed_raster_problem(
+    where: str,
+    record: Any,
+    *,
+    raster_gated_path: bool,
+) -> dict[str, Any] | None:
+    if not raster_gated_path and not _is_bridge_near_match(record):
+        return None
+    return _problem(
+        where,
+        "bridge_record",
+        (REASON_NOT_BRIDGE,),
+        record_id=_record_id(record),
+    )
+
+
 def jsonl_paths(targets: Iterable[str | Path]) -> list[Path]:
     """Expand run directories into sorted JSONL paths; keep explicit files.
 
@@ -324,14 +344,11 @@ def _probe_record(
 
     if input_problem is not None:
         return None, _problem(where, "input", (input_problem,))
-    if not is_bridge_record(record) and not is_thalamic_record(record):
-        if not raster_gated_path and not _is_bridge_near_match(record):
-            return None, None
-        return None, _problem(
+    if not _is_supported_raster_record(record):
+        return None, _malformed_raster_problem(
             where,
-            "bridge_record",
-            (REASON_NOT_BRIDGE,),
-            record_id=_record_id(record),
+            record,
+            raster_gated_path=raster_gated_path,
         )
     normalized = normalize_raster(record, source=where)
     if normalized is not None:
