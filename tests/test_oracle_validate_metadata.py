@@ -16,6 +16,8 @@ must validate with no findings at all, which pins the accept path.
 import copy
 import io
 import json
+import os
+import shutil
 import sys
 import tempfile
 import unittest
@@ -242,6 +244,99 @@ class ValidateRunTest(unittest.TestCase):
             report, errors = oracle_validate.validate_run(GOLDEN)
         self.assertFalse(report["manifest_valid"])
         self.assertTrue(any("raised an internal exception: RuntimeError" in e for e in errors))
+
+
+class RunTreeGuardTest(unittest.TestCase):
+    """The run-tree walk and manifest authentication refuse hostile trees.
+
+    The subprocess suite already proves the CLI contract for several of
+    these; this class exercises the same guards in process so the walk's
+    refusal branches are measured, each against a scratch copy of the
+    golden run with exactly one thing wrong.
+    """
+
+    def scratch_run(self):
+        temp = tempfile.TemporaryDirectory(prefix="oracle-guard-")
+        self.addCleanup(temp.cleanup)
+        run = Path(temp.name) / "run"
+        shutil.copytree(GOLDEN, run)
+        return run
+
+    def assert_authentication_reports(self, run, fragment):
+        _manifest, _snapshots, errors = oracle_validate.authenticate_manifest(run)
+        matched = [error for error in errors if fragment in error]
+        self.assertTrue(matched, f"expected a finding containing {fragment!r}, got {errors}")
+
+    def test_a_symlink_inside_the_run_is_refused(self):
+        run = self.scratch_run()
+        (run / "alias.jsonl").symlink_to(run / "manifest.json")
+        self.assert_authentication_reports(run, "symbolic links are not allowed")
+
+    def test_a_hard_linked_payload_is_refused(self):
+        run = self.scratch_run()
+        source = next(run.rglob("accepted-*.jsonl"))
+        os.link(source, source.with_name("twin.jsonl"))
+        self.assert_authentication_reports(run, "hard-linked files are not allowed")
+
+    def test_a_special_file_inside_the_run_is_refused(self):
+        run = self.scratch_run()
+        os.mkfifo(run / "pipe.jsonl")
+        self.assert_authentication_reports(run, "only regular files and directories are allowed")
+
+    def test_nesting_beyond_the_depth_limit_is_refused(self):
+        run = self.scratch_run()
+        (run / "a" / "b" / "c").mkdir(parents=True)
+        with mock.patch.object(oracle_validate, "MAX_RUN_DEPTH", 2):
+            self.assert_authentication_reports(run, "run nesting exceeds 2 directories")
+
+    def test_an_entry_flood_halts_the_walk(self):
+        run = self.scratch_run()
+        with mock.patch.object(oracle_validate, "MAX_RUN_ENTRIES", 3):
+            self.assert_authentication_reports(run, "more than 3 entries")
+
+    def test_a_file_flood_halts_the_walk(self):
+        run = self.scratch_run()
+        with mock.patch.object(oracle_validate, "MAX_RUN_FILES", 2):
+            self.assert_authentication_reports(run, "run contains more than 2 files")
+
+    def test_an_oversized_run_halts_the_walk(self):
+        run = self.scratch_run()
+        with mock.patch.object(oracle_validate, "MAX_RUN_BYTES", 10):
+            self.assert_authentication_reports(run, "run exceeds the 10-byte snapshot limit")
+
+    def test_a_missing_manifest_is_reported(self):
+        run = self.scratch_run()
+        (run / "manifest.json").unlink()
+        self.assert_authentication_reports(run, "required run manifest is missing")
+
+    def test_a_corrupt_manifest_is_reported(self):
+        run = self.scratch_run()
+        (run / "manifest.json").write_text("not json\n", encoding="utf-8")
+        self.assert_authentication_reports(run, "invalid manifest snapshot")
+
+    def test_a_symlinked_run_root_is_refused(self):
+        run = self.scratch_run()
+        link = run.parent / "run-link"
+        link.symlink_to(run, target_is_directory=True)
+        self.assert_authentication_reports(link, "could not pin run directory")
+
+    def test_an_unmanifested_file_is_reported(self):
+        run = self.scratch_run()
+        (run / "stray.jsonl").write_text("", encoding="utf-8")
+        self.assert_authentication_reports(run, "unmanifested file is present: stray.jsonl")
+
+    def test_a_missing_declared_file_is_reported(self):
+        run = self.scratch_run()
+        victim = next(run.rglob("accepted-*.jsonl"))
+        victim.unlink()
+        self.assert_authentication_reports(run, "manifest file is missing")
+
+    def test_a_tampered_payload_fails_its_digest(self):
+        run = self.scratch_run()
+        victim = next(run.rglob("accepted-*.jsonl"))
+        with victim.open("a", encoding="utf-8") as handle:
+            handle.write("{}\n")
+        self.assert_authentication_reports(run, "sha256 mismatch")
 
 
 class MainExitCodeTest(unittest.TestCase):

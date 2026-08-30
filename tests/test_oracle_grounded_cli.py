@@ -1158,6 +1158,38 @@ class GenerateCli(unittest.TestCase):
             self.assertIn("exceeding the validator's", captured.getvalue())
             self.assertIn("per-file limit", captured.getvalue())
 
+    def test_argument_guards_reject_in_process(self):
+        # The subprocess suite proves these exits end to end; exercising the
+        # same guards in process keeps the refusal branches measured.
+        cases = (
+            ([], "an output directory is required"),
+            (["--count", "0", "run"], "--count must be in"),
+            (["--round", "0", "run"], "--round must be in"),
+            (["--family", "no-such-family", "run"], "unknown families"),
+            (
+                ["--count", str(oracle_generate.MAX_RUN_RECORDS), "run"],
+                "requested run would contain",
+            ),
+            (["--oracle-commit", "zz", "run"], "must resolve to an existing"),
+            (["--oracle-commit", "a" * 40, "run"], "must resolve to an existing"),
+        )
+        with tempfile.TemporaryDirectory(prefix="oracle-arg-guards-") as temp:
+            for argv, fragment in cases:
+                argv = [str(Path(temp) / arg) if arg == "run" else arg for arg in argv]
+                captured = io.StringIO()
+                with mock.patch("sys.stderr", captured):
+                    status = oracle_generate.main(argv)
+                with self.subTest(argv=argv):
+                    self.assertEqual(status, 2, captured.getvalue())
+                    self.assertIn(fragment, captured.getvalue())
+
+    def test_list_families_prints_the_five_families_in_process(self):
+        captured = io.StringIO()
+        with mock.patch("sys.stdout", captured):
+            status = oracle_generate.main(["--list-families"])
+        self.assertEqual(status, 0)
+        self.assertEqual(captured.getvalue().split(), list(families.FAMILY_NAMES))
+
     def test_a_destination_under_outputs_raw_is_refused_before_the_lock(self):
         # AGENTS.md: outputs/raw/ is immutable. Even the sibling reservation
         # lock must never be created there, so the refusal runs first.
