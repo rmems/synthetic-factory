@@ -89,6 +89,7 @@ __all__ = (
     "body_section",
     "declaration_path",
     "declared_datasets",
+    "field_notes",
     "json_columns",
     "load",
     "metadata_yaml",

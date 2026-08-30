@@ -155,6 +155,27 @@ def write_valid_completed_long_horizon(path, round_number):
     path.write_text("".join(json.dumps(record) + "\n" for record in records))
 
 
+def mirror_file_bytes(mirror):
+    """Snapshot every mirror file's bytes, keyed by mirror-relative path."""
+    return {
+        path.relative_to(mirror): path.read_bytes()
+        for path in mirror.rglob("*")
+        if path.is_file()
+    }
+
+
+def seed_mirror_with_previous_snapshot(destination_root):
+    """Create ITEM's mirror holding a previous publish; return it and its bytes."""
+    mirror = destination_root / publisher.HF_DATASETS_DIRNAME / ITEM["hub"]
+    mirror.mkdir(parents=True)
+    (mirror / "README.md").write_text("previous card\n", encoding="utf-8")
+    (mirror / "previous-snapshot.json").write_text(
+        '{"state":"complete"}\n',
+        encoding="utf-8",
+    )
+    return mirror, mirror_file_bytes(mirror)
+
+
 class PublishGrok46HubTests(unittest.TestCase):
     def test_schema_coverage_failure_preserves_the_existing_mirror(self):
         with tempfile.TemporaryDirectory() as td:
@@ -164,17 +185,7 @@ class PublishGrok46HubTests(unittest.TestCase):
             write_valid_legacy(source / "batch-r01.jsonl")
 
             destination_root = root / "hf"
-            mirror = destination_root / publisher.HF_DATASETS_DIRNAME / ITEM["hub"]
-            mirror.mkdir(parents=True)
-            readme = mirror / "README.md"
-            sentinel = mirror / "previous-snapshot.json"
-            readme.write_text("previous card\n", encoding="utf-8")
-            sentinel.write_text('{"state":"complete"}\n', encoding="utf-8")
-            before = {
-                path.relative_to(mirror): path.read_bytes()
-                for path in mirror.rglob("*")
-                if path.is_file()
-            }
+            mirror, before = seed_mirror_with_previous_snapshot(destination_root)
 
             schema_root = root / "card-schemas"
             schema_root.mkdir()
@@ -203,12 +214,7 @@ class PublishGrok46HubTests(unittest.TestCase):
                 ):
                     publisher.snapshot_one(ITEM)
 
-            after = {
-                path.relative_to(mirror): path.read_bytes()
-                for path in mirror.rglob("*")
-                if path.is_file()
-            }
-            self.assertEqual(after, before)
+            self.assertEqual(mirror_file_bytes(mirror), before)
             self.assertFalse((mirror / "data").exists())
 
     def test_schema_render_failure_preserves_the_existing_mirror(self):
@@ -225,18 +231,7 @@ class PublishGrok46HubTests(unittest.TestCase):
                 write_valid_legacy(source / "batch-r01.jsonl")
 
                 destination_root = root / "hf"
-                mirror = destination_root / publisher.HF_DATASETS_DIRNAME / ITEM["hub"]
-                mirror.mkdir(parents=True)
-                (mirror / "README.md").write_text("previous card\n", encoding="utf-8")
-                (mirror / "previous-snapshot.json").write_text(
-                    '{"state":"complete"}\n',
-                    encoding="utf-8",
-                )
-                before = {
-                    path.relative_to(mirror): path.read_bytes()
-                    for path in mirror.rglob("*")
-                    if path.is_file()
-                }
+                mirror, before = seed_mirror_with_previous_snapshot(destination_root)
 
                 schema_root = root / "card-schemas"
                 schema_root.mkdir()
@@ -262,12 +257,7 @@ class PublishGrok46HubTests(unittest.TestCase):
                     with self.assertRaisesRegex(SystemExit, "cannot render card schema"):
                         publisher.snapshot_one(ITEM)
 
-                after = {
-                    path.relative_to(mirror): path.read_bytes()
-                    for path in mirror.rglob("*")
-                    if path.is_file()
-                }
-                self.assertEqual(after, before)
+                self.assertEqual(mirror_file_bytes(mirror), before)
                 self.assertFalse((mirror / "data").exists())
 
     def test_snapshot_and_upload_refuse_orphaned_declarations(self):

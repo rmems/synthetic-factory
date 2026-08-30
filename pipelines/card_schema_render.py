@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 import re
+from typing import cast
 
 from card_schema_core import DEFAULT_CONFIG_NAME, _require
 
@@ -49,7 +50,7 @@ def _yaml_scalar(value: object) -> str:
     if isinstance(value, int):
         return str(value)
     _require(isinstance(value, str), f"cannot emit YAML scalar: {value!r}")
-    assert isinstance(value, str)
+    value = cast(str, value)
     # A card's YAML front matter is delimited by ``---``; a scalar containing it
     # would truncate the block and silently drop metadata.
     _require("---" not in value, f"YAML scalar may not contain '---': {value!r}")
@@ -64,7 +65,7 @@ def _yaml_block(value: object, indent: int) -> list[str]:
     if isinstance(value, dict):
         return _yaml_block_mapping(value, indent)
     _require(isinstance(value, list), f"cannot emit YAML for {value!r}")
-    assert isinstance(value, list)
+    value = cast(list, value)
     return _yaml_block_sequence(value, indent)
 
 
