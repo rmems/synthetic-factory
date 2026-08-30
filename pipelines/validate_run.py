@@ -320,7 +320,8 @@ def check_provenance(obj, where):
             errs.append(f"{where}: provenance must be an object")
         else:
             kind = prov.get("kind")
-            if kind not in ALLOWED_PROVENANCE_KIND:
+            # Keep validation total: an unhashable kind is invalid, not a crash.
+            if not isinstance(kind, str) or kind not in ALLOWED_PROVENANCE_KIND:
                 errs.append(
                     f"{where}: provenance.kind must be one of {sorted(ALLOWED_PROVENANCE_KIND)}"
                 )
@@ -414,7 +415,10 @@ def check_thalamic(obj, where):
             errs.append(f"{where}: '{key}' must be a non-empty string")
     sd = obj.get("safety_decision")
     if isinstance(sd, dict):
-        if sd.get("decision") not in SAFETY_DECISIONS:
+        # The isinstance guard keeps validation total over decoded JSON: an
+        # unhashable decision (list/object) must report as invalid, not raise.
+        decision = sd.get("decision")
+        if not isinstance(decision, str) or decision not in SAFETY_DECISIONS:
             errs.append(f"{where}: safety_decision.decision must be ACCEPT|MODIFY|REJECT")
         rationale = sd.get("rationale")
         if not isinstance(rationale, str) or not rationale.strip():

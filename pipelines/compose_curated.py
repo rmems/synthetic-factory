@@ -46,6 +46,7 @@ import copy
 import hashlib
 import json
 import os
+import re
 import shutil
 import stat
 import sys
@@ -602,6 +603,54 @@ def _bridge_order_repaired_copy(
     return decision.output_record
 
 
+# Identity's step-shape diagnostics for a top-level episode. Wrap records
+# validate through the Thalamic structural path and never produce this form.
+CODING_STEP_ERROR_RE = re.compile(r"^record step \d+: ")
+
+
+def _is_coding_step_only_rejection(mapping: Mapping[str, Any]) -> bool:
+    """Whether identity refused an episode for step shape and nothing else."""
+
+    if list(mapping.get("reason_codes", [])) != [
+        REASON_IDENTITY_INVALID_PAYLOAD_SHAPE
+    ]:
+        return False
+    details = mapping.get("details")
+    if not isinstance(details, list) or not details:
+        return False
+    return all(
+        isinstance(detail, str) and CODING_STEP_ERROR_RE.match(detail)
+        for detail in details
+    )
+
+
+def _coding_steps_repaired_copy(
+    record: Mapping[str, Any],
+    *,
+    source_path: str,
+    source_line: int,
+    source_sha256: str,
+) -> dict[str, Any] | None:
+    """Return the coding lane's own repaired copy, or None if it will not repair.
+
+    ``curate_coding`` owns step-level repair: it excludes an unusable step and
+    retains the episode with ``coding_steps_excluded``. Asking the lane itself
+    keeps every guard it applies, so an episode it would exclude outright is
+    never smuggled past identity.
+    """
+
+    try:
+        curated, _manifest = curate_coding.curate_episode(
+            copy.deepcopy(dict(record)),
+            source_path=source_path,
+            source_line=source_line,
+            source_hash=source_sha256,
+        )
+    except Exception:  # noqa: BLE001 - a probe must never fail composition
+        return None
+    return curated if isinstance(curated, dict) else None
+
+
 def _compose_identity_stage(
     record: Any,
     stages: list[dict[str, Any]],
@@ -673,10 +722,47 @@ def _compose_identity_stage(
                 identity_result = retry
                 deferred_bridge_order = True
 
+    # The coding lane owns step-level repair the same way the bridge lane owns
+    # event ordering: an episode with one usable step plus an unusable one is
+    # explicitly repairable (``coding_steps_excluded`` drops just that step).
+    # Identity applies the same step-shape invariant first, so leaving its
+    # refusal terminal would wholly exclude a record the pipeline knows how to
+    # fix. Re-validate identity against the lane's own repaired copy, then
+    # hand the original steps forward so the coding stage performs and records
+    # the repair itself.
+    deferred_coding_steps = False
+    if (
+        not deferred_bridge_order
+        and identity_result.action != "retained"
+        and isinstance(record, Mapping)
+        and isinstance(record.get("steps"), list)
+        and _is_coding_step_only_rejection(identity_result.mapping)
+    ):
+        repaired = _coding_steps_repaired_copy(
+            record,
+            source_path=source_path,
+            source_line=source_line,
+            source_sha256=source_sha256,
+        )
+        if repaired is not None:
+            retry = curate_identity.curate_record(
+                curate_identity.SourceRecord(
+                    record=repaired,
+                    source_path=source_path,
+                    source_line=source_line,
+                    source_sha256=source_sha256,
+                )
+            )
+            if retry.action == "retained" and isinstance(retry.record, dict):
+                identity_result = retry
+                deferred_coding_steps = True
+
     identity_reasons = list(identity_result.mapping.get("reason_codes", []))
     identity_detail = copy.deepcopy(identity_result.mapping)
     if deferred_bridge_order:
         identity_detail["bridge_order_deferred_to_bridge_lane"] = True
+    if deferred_coding_steps:
+        identity_detail["coding_steps_deferred_to_coding_lane"] = True
     if source_side_kinds is not None:
         identity_detail["preference_side_kinds"] = list(source_side_kinds)
     if mixed_preference_families:
@@ -705,6 +791,10 @@ def _compose_identity_stage(
         # Identity validated the repaired order; the bridge lane still has to
         # see the source order so its manifest carries the repair.
         current["spike_events"] = copy.deepcopy(record["spike_events"])
+    if deferred_coding_steps:
+        # Identity validated the repaired steps; the coding lane still has to
+        # see the source steps so its manifest carries the repair.
+        current["steps"] = copy.deepcopy(record["steps"])
     registered_kind = identity_result.mapping.get("record_kind")
     return current, registered_kind
 
@@ -1426,10 +1516,11 @@ def _post_transform_semantic_sha256(decision: ComposeDecision) -> str:
     # The same episode can be authorized under more than one factory path_id
     # (the registry declares dozens of distinct "episode"-kind factories).
     # ``meta.factory``/``meta.generator`` name which pipeline and model
-    # produced the row, not part of the trained-on content, so two rows that
-    # are otherwise byte-identical after curation must not be kept apart by
-    # that label alone -- doing so would let the same content land in both the
-    # train and eval split. Normalize both fields on every identity owner:
+    # produced the row, and ``meta.run``/``meta.round`` name when it was
+    # produced -- none of that is trained-on content, so two rows that are
+    # otherwise byte-identical after curation must not be kept apart by
+    # those labels alone -- doing so would let the same content land in both
+    # the train and eval split. Normalize the fields on every identity owner:
     # a Fable preference wrapper predates a wrapper-level ``meta`` and carries
     # the declaration on ``chosen``/``rejected`` instead, exactly as
     # ``curate_identity._payload_factory`` resolves it. They stay untouched on
@@ -1437,8 +1528,8 @@ def _post_transform_semantic_sha256(decision: ComposeDecision) -> str:
     for owner in _semantic_identity_owners(semantic):
         meta = owner.get("meta")
         if isinstance(meta, dict):
-            meta.pop("factory", None)
-            meta.pop("generator", None)
+            for provenance_field in ("factory", "generator", "run", "round"):
+                meta.pop(provenance_field, None)
 
     annotation = semantic.get(curate_rewards.ANNOTATION_FIELD)
     if isinstance(annotation, dict):
@@ -1540,8 +1631,16 @@ def compose_source_line(
         # is not a ``ValueError``, so leaving it unguarded let one malformed
         # line abort the whole composition with a traceback and roll the
         # destination back. Excluded per line instead, as the other curation
-        # readers already do (``curate_coding``, ``tag_jsonl``).
-        record = json.loads(text, parse_constant=reject_json_constant)
+        # readers already do (``curate_coding``, ``tag_jsonl``). Duplicate
+        # object keys are rejected with the identity lane's own hook: plain
+        # ``json.loads`` keeps the last value silently, which creates
+        # parser-dependent source semantics and hides which value the raw
+        # record actually asserted.
+        record = json.loads(
+            text,
+            object_pairs_hook=curate_identity._reject_duplicate_object_keys,
+            parse_constant=reject_json_constant,
+        )
         semantic_sha256 = _canonical_sha256(record)
     except (json.JSONDecodeError, ValueError, RecursionError) as exc:
         return _excluded_source_line(REASON_INVALID_JSON, {"error": str(exc)})
@@ -1556,20 +1655,30 @@ def compose_source_line(
                     "first_source_line": first_coordinate[1],
                 },
             )
-    decision = compose_record(
-        record,
-        source_path=source_path,
-        source_line=source_line,
-        source_sha256=source_sha256,
-        source_file_sha256=source_file_sha256,
-        calibration=calibration_for(record, calibration_catalog),
-    )
-    decision = _deduplicate_curated_record(
-        decision,
-        source_path=source_path,
-        source_line=source_line,
-        seen_curated_semantics=seen_curated_semantics,
-    )
+    try:
+        decision = compose_record(
+            record,
+            source_path=source_path,
+            source_line=source_line,
+            source_sha256=source_sha256,
+            source_file_sha256=source_file_sha256,
+            calibration=calibration_for(record, calibration_catalog),
+        )
+        decision = _deduplicate_curated_record(
+            decision,
+            source_path=source_path,
+            source_line=source_line,
+            seen_curated_semantics=seen_curated_semantics,
+        )
+    except RecursionError as exc:
+        # A depth that survives decoding and the canonical hash can still
+        # exhaust the stack inside a lane (``copy.deepcopy`` uses several
+        # frames per level). The record is unwalkable evidence, not a reason
+        # to roll back the whole destination.
+        return _excluded_source_line(
+            REASON_INVALID_JSON,
+            {"error": f"recursion depth exhausted during curation: {exc}"},
+        )
     if (
         seen_source_semantics is not None
         and decision.action == ACTION_RETAINED

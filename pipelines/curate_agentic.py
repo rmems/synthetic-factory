@@ -77,7 +77,11 @@ from round_txn import (
 
 
 TRANSFORM_NAME = "agentic_observability"
-TRANSFORM_VERSION = "2"
+# 3: the hidden-thought stripper widened from the scratch-pad vocabulary to
+# the full ``training_audit`` refusal set (the coding-factory ``reasoning``
+# key and the ``internal_reasoning*`` family), so v2 and v3 curate different
+# bytes from the same input and must not share a transform identity.
+TRANSFORM_VERSION = "3"
 
 SAFETY_CASE_TYPES = frozenset(
     {"correct_refusal", "incorrect_refusal", "missed_refusal"}

@@ -836,6 +836,18 @@ def _authenticated_calibration(
     if mode == "none":
         if descriptor.get("path") is not None or descriptor.get("sha256") is not None:
             raise ExportError("COMPOSE.json: absent calibration must not name a file")
+        # Compose auto-discovers the canonical default calibration file, so a
+        # "none" descriptor only replays the current source snapshot if that
+        # file is still absent. Trusting the stale descriptor once the default
+        # has appeared would export uncalibrated rewards while claiming the
+        # snapshot was replayed; require recomposition instead.
+        default_calibration = source_root / compose_curated.FFPC_UNITS_MIGRATION
+        if os.path.lexists(default_calibration):
+            raise ExportError(
+                "COMPOSE.json: compose recorded no calibration, but default "
+                f"calibration evidence now exists at {default_calibration}; "
+                "recompose the source run before exporting"
+            )
         catalog: dict[str, Any] = {}
     elif mode in {"source_run", "explicit"}:
         raw_path = descriptor.get("path")

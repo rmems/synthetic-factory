@@ -363,6 +363,21 @@ class CalibrationAuthentication(unittest.TestCase):
         self.assertEqual(catalog, {})
         self.assertEqual(descriptor["mode"], "none")
 
+    def test_an_absent_calibration_is_refused_once_the_default_appears(self):
+        # Codex #97 P1: compose auto-discovers the canonical default file, so
+        # a stale mode="none" descriptor no longer replays the current source
+        # snapshot once that file exists. Trusting it would export
+        # uncalibrated rewards while claiming the snapshot was replayed.
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            self.write_calibration(root)
+
+            self.assert_refused(
+                self.summary_for(None, None, mode="none", records=0),
+                root,
+                "recompose the source run before exporting",
+            )
+
     def test_the_calibration_path_must_be_an_absolute_string(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)

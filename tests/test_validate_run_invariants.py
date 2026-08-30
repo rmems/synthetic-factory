@@ -182,5 +182,33 @@ class ValidateMetaRound(unittest.TestCase):
         self.assertIn("meta.round", result.stderr)
 
 
+class ValidationIsTotalOverDecodedJson(unittest.TestCase):
+    """Codex #97 P2: unhashable JSON values must report invalid, never raise.
+
+    ``x not in frozenset`` raises ``TypeError`` for a list or object value,
+    which crashed the validator (and rolled back a whole compose destination)
+    instead of reporting the field as invalid.
+    """
+
+    def test_unhashable_safety_decision_reports_invalid(self):
+        rec = copy.deepcopy(TINY_THALAMIC)
+        rec["safety_decision"] = {"decision": [], "rationale": "test fixture"}
+        result = _run_with_record(rec)
+        self.assertEqual(result.returncode, 1, result.stderr)
+        self.assertIn(
+            "safety_decision.decision must be ACCEPT|MODIFY|REJECT",
+            result.stdout + result.stderr,
+        )
+        self.assertNotIn("Traceback", result.stderr)
+
+    def test_unhashable_provenance_kind_reports_invalid(self):
+        rec = copy.deepcopy(TINY_THALAMIC)
+        rec["provenance"] = {"kind": [], "claimed": "designed"}
+        result = _run_with_record(rec)
+        self.assertEqual(result.returncode, 1, result.stderr)
+        self.assertIn("provenance.kind must be one of", result.stdout + result.stderr)
+        self.assertNotIn("Traceback", result.stderr)
+
+
 if __name__ == "__main__":
     unittest.main()

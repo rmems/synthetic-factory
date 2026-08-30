@@ -15,6 +15,7 @@ import argparse
 import hashlib
 import json
 import math
+import os
 import stat
 import statistics
 import sys
@@ -258,6 +259,37 @@ def hidden_thought_paths(value, path=""):
             yield from hidden_thought_paths(item, f"{path}[{index}]")
 
 
+def _read_pinned_member(path: Path, relative: Path) -> bytes:
+    """Read one member from a descriptor that cannot follow a swapped path.
+
+    A plain ``lstat`` + ``read_bytes`` pair leaves a window where the member
+    can be replaced by a symlink or FIFO between the check and the read.
+    ``O_NOFOLLOW`` refuses a symlink at open time, ``O_NONBLOCK`` keeps a
+    swapped FIFO from hanging the open, and ``fstat`` validates the very
+    descriptor the bytes are then read from.
+    """
+    try:
+        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+    except OSError as exc:
+        raise ValueError(
+            f"audit member cannot be captured: {relative}: {exc}"
+        ) from exc
+    try:
+        if not stat.S_ISREG(os.fstat(fd).st_mode):
+            raise ValueError(
+                f"audit member is not an exact regular file: {relative}"
+            )
+        chunks = []
+        while True:
+            chunk = os.read(fd, 1 << 20)
+            if not chunk:
+                break
+            chunks.append(chunk)
+        return b"".join(chunks)
+    finally:
+        os.close(fd)
+
+
 def _captured_run_files(run_dir: Path) -> list[tuple[Path, bytes]]:
     """Capture every visible JSONL member of ``run_dir`` as exact bytes.
 
@@ -282,7 +314,7 @@ def _captured_run_files(run_dir: Path) -> list[tuple[Path, bytes]]:
                 f"audit member is not an exact regular file: {relative}"
             )
         if path in visible:
-            files.append((relative, path.read_bytes()))
+            files.append((relative, _read_pinned_member(path, relative)))
     return files
 
 

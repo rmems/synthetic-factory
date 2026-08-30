@@ -1226,6 +1226,42 @@ class ComposeCurated(unittest.TestCase):
                 {compose_curated.REASON_DUPLICATE_CURATED_RECORD: 1},
             )
 
+    def test_run_and_round_provenance_duplicates_are_deduplicated(self):
+        """Codex #97 P1: run/round provenance must not survive the digest.
+
+        ``meta.run``/``meta.round`` name when a row was produced, exactly as
+        ``meta.factory``/``meta.generator`` name who produced it. Two rows
+        that are otherwise identical after curation must converge, or on a
+        two-record corpus the deterministic split necessarily places one
+        substantive copy in train and its twin in eval.
+        """
+        first = episode("provenance-twin")
+        second = episode("provenance-twin")
+        second["meta"]["round"] = 7
+        second["meta"]["run"] = "2026-08-18"
+        second["meta"]["factory"] = "agent-memory-compaction-factory"
+
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            source = root / "run"
+            write_jsonl(
+                source / "agentic-coding-trajectory-factory" / "batch-r01.jsonl",
+                [first],
+            )
+            write_jsonl(
+                source / "agent-memory-compaction-factory" / "batch-r01.jsonl",
+                [second],
+            )
+
+            summary = compose_curated.compose_run(source, root / "curated")
+
+            self.assertEqual(summary["counts"]["source_records"], 2)
+            self.assertEqual(summary["counts"]["retained"], 1)
+            self.assertEqual(
+                summary["exclusions"],
+                {compose_curated.REASON_DUPLICATE_CURATED_RECORD: 1},
+            )
+
     def test_composition_rejects_source_symlink_and_hardlink_aliases(self):
         for mutation in (
             "source_root_symlink",
@@ -1724,6 +1760,59 @@ class ComposeSourceLineResourceLimits(unittest.TestCase):
         )
         self.assertIsNone(decision.record)
 
+    def test_curation_depth_recursion_is_excluded_per_line(self):
+        # Codex #97 P2: a depth that survives the guarded decode and canonical
+        # hash can still exhaust the stack inside a lane (``copy.deepcopy``
+        # spends several frames per level), so the curation and deduplication
+        # path needs the same per-line guard.
+        record = episode()
+        deep = None
+        for _ in range(500):
+            deep = [deep]
+        record["extra"] = deep
+        payload = json.dumps(record).encode("utf-8")
+
+        decision = compose_curated.compose_source_line(
+            payload,
+            source_path="agentic-coding-trajectory-factory/batch-r01.jsonl",
+            source_line=1,
+            source_file_sha256="7" * 64,
+        )
+
+        self.assertEqual(decision.action, compose_curated.ACTION_EXCLUDED)
+        self.assertEqual(
+            decision.reason_codes, (compose_curated.REASON_INVALID_JSON,)
+        )
+        self.assertIsNone(decision.record)
+        self.assertIn(
+            "recursion depth exhausted", decision.stages[0]["detail"]["error"]
+        )
+
+    def test_duplicate_object_keys_are_excluded_per_line(self):
+        # Codex #97 P2: plain ``json.loads`` keeps the last duplicate key
+        # silently, creating parser-dependent source semantics that the
+        # identity lane's own reader already refuses. The composed reader must
+        # refuse the same shape instead of exporting an ambiguous record.
+        payload = (
+            json.dumps(episode())
+            .replace(
+                '"goal": "fix the failing test"',
+                '"goal": "another goal", "goal": "fix the failing test"',
+            )
+            .encode("utf-8")
+        )
+        self.assertIn(b'"goal": "another goal", "goal"', payload)
+
+        decision = self.compose(payload)
+
+        self.assertEqual(decision.action, compose_curated.ACTION_EXCLUDED)
+        self.assertEqual(
+            decision.reason_codes, (compose_curated.REASON_INVALID_JSON,)
+        )
+        self.assertIn(
+            "duplicate JSON object key", decision.stages[0]["detail"]["error"]
+        )
+
     def test_a_fatal_line_does_not_roll_back_the_whole_run(self):
         # The unguarded ``RecursionError`` escaped ``compose_run``, which
         # discards the destination on any error, so one deep line destroyed
@@ -1752,6 +1841,105 @@ class ComposeSourceLineResourceLimits(unittest.TestCase):
                 summary["exclusions"],
                 {compose_curated.REASON_INVALID_JSON: 1},
             )
+
+
+class IdentityLaneTotality(unittest.TestCase):
+    """Codex #97 P2: malformed field types become identity exclusions.
+
+    A structurally invalid but valid-JSON value (a list where an enum string
+    belongs) used to raise ``TypeError`` out of ``check_thalamic``'s
+    set-membership test, rolling back the whole destination over one line.
+    """
+
+    def test_unhashable_safety_decision_is_excluded_not_a_crash(self):
+        record = thalamic("unhashable-decision")
+        record["safety_decision"] = {"decision": [], "rationale": "bounded"}
+
+        decision = compose_curated.compose_record(
+            record,
+            source_path="thalamic-trajectory-factory/batch-r01.jsonl",
+            source_line=1,
+            source_sha256="4" * 64,
+        )
+
+        self.assertEqual(decision.action, compose_curated.ACTION_EXCLUDED)
+        self.assertIsNone(decision.record)
+
+    def test_unhashable_provenance_kind_is_excluded_not_a_crash(self):
+        record = thalamic("unhashable-kind")
+        record["provenance"] = {"kind": [], "claimed": "designed"}
+
+        decision = compose_curated.compose_record(
+            record,
+            source_path="thalamic-trajectory-factory/batch-r01.jsonl",
+            source_line=1,
+            source_sha256="5" * 64,
+        )
+
+        self.assertEqual(decision.action, compose_curated.ACTION_EXCLUDED)
+        self.assertIsNone(decision.record)
+
+
+class CodingStepRepairDeferral(unittest.TestCase):
+    """Codex #97 P2: coding-owned step errors defer to the coding lane.
+
+    ``curate_coding.curate_episode`` is designed to exclude only an unusable
+    step and retain the episode with ``coding_steps_excluded``. Identity
+    applies the same step-shape invariant first, so its refusal must defer to
+    the lane that knows how to repair, exactly like the bridge-order path.
+    """
+
+    def compose(self, record, line=1):
+        return compose_curated.compose_record(
+            record,
+            source_path="agentic-coding-trajectory-factory/batch-r01.jsonl",
+            source_line=line,
+            source_sha256="6" * 64,
+        )
+
+    def test_a_repairable_invalid_step_is_dropped_not_the_whole_record(self):
+        record = episode()
+        record["steps"] = record["steps"] + [None]
+
+        decision = self.compose(record)
+
+        self.assertEqual(decision.action, compose_curated.ACTION_RETAINED)
+        self.assertIn(
+            curate_coding.REASON_STEPS_EXCLUDED, decision.reason_codes
+        )
+        self.assertEqual(len(decision.record["steps"]), 1)
+        identity_stage = next(
+            stage for stage in decision.stages if stage["lane"] == "identity"
+        )
+        self.assertTrue(
+            identity_stage["detail"]["coding_steps_deferred_to_coding_lane"]
+        )
+        coding_stage = next(
+            stage for stage in decision.stages if stage["lane"] == "coding"
+        )
+        self.assertIn(
+            curate_coding.REASON_STEPS_EXCLUDED, coding_stage["reason_codes"]
+        )
+
+    def test_an_episode_with_no_usable_step_stays_excluded(self):
+        record = episode()
+        record["steps"] = [None, 17]
+
+        decision = self.compose(record)
+
+        self.assertEqual(decision.action, compose_curated.ACTION_EXCLUDED)
+        self.assertEqual(
+            decision.reason_codes, ("identity.invalid_payload_shape",)
+        )
+
+    def test_a_non_step_shape_error_is_not_deferred(self):
+        record = episode()
+        record["steps"] = record["steps"] + [None]
+        record.pop("goal")
+
+        decision = self.compose(record)
+
+        self.assertEqual(decision.action, compose_curated.ACTION_EXCLUDED)
 
 
 class TrajectorySideGroundingScope(unittest.TestCase):
