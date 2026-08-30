@@ -20,6 +20,9 @@ write_declaration = _shared.write_declaration
 
 
 INFRA_AS_CODE = "infra-as-code-trajectories"
+INFRA_AS_CODE_MIRROR = (
+    Path.home() / "rmems" / "hf" / "grok-4.6" / INFRA_AS_CODE / "data" / "raw"
+)
 
 
 class InfraAsCodeDeclarationTests(unittest.TestCase):
@@ -37,11 +40,11 @@ class InfraAsCodeDeclarationTests(unittest.TestCase):
         }
         self.card = publisher.render_card(
             self.item,
-            records=2832,
-            bytes_=18113106,
+            records=5208,
+            bytes_=29388051,
             first="r01",
-            last="r1416",
-            payload_names=["batch-r01.jsonl", "batch-r1416.jsonl"],
+            last="r2604",
+            payload_names=["batch-r01.jsonl", "batch-r1416.jsonl", "batch-r2604.jsonl"],
         )
 
     def test_declaration_matches_the_observed_union_schema(self):
@@ -50,7 +53,7 @@ class InfraAsCodeDeclarationTests(unittest.TestCase):
             set(names),
             {"id", "goal", "plan", "steps", "outcome", "reward", "meta"},
         )
-        # `plan` is a string on all 2832 records here; the worked example's
+        # `plan` is a string on all 5208 records here; the worked example's
         # optional `plan` must not be copied over.
         self.assertEqual(names["plan"]["dtype"], "string")
         self.assertNotIn("optional", names["plan"])
@@ -61,7 +64,7 @@ class InfraAsCodeDeclarationTests(unittest.TestCase):
             set(steps), {"n", "decision_basis", "tool_call", "observation", "reflection"}
         )
         self.assertTrue(steps["reflection"]["optional"])
-        self.assertIn("17436 of 48350", steps["reflection"]["note"])
+        self.assertIn("17436 of 87554", steps["reflection"]["note"])
         tool_call = {feature["name"]: feature for feature in steps["tool_call"]["struct"]}
         self.assertEqual(tool_call["args"]["dtype"], "json")
         self.assertEqual(self.declaration["issues"], [67])
@@ -78,8 +81,8 @@ class InfraAsCodeDeclarationTests(unittest.TestCase):
             for feature in self.declaration["features"]
             if feature["name"] == "meta"
         )
-        # 1814 thin + 1018 wide = 2832 records; the wide rounds are contiguous.
-        for fragment in ("1018", "78-586", "1814", "1-77", "587-1416", "sim_or_real"):
+        # 4190 thin + 1018 wide = 5208 records; the wide rounds are contiguous.
+        for fragment in ("1018", "78-586", "4190", "1-77", "587-2604", "sim_or_real"):
             self.assertIn(fragment, meta["note"])
 
     def test_reward_note_names_the_only_type_varying_key(self):
@@ -92,6 +95,76 @@ class InfraAsCodeDeclarationTests(unittest.TestCase):
         self.assertIn("`handoff` is the only key whose value type varies", reward["note"])
         for singleton in ("wrong_cluster_apply", "replicas", "targets_healthy"):
             self.assertIn(singleton, reward["note"])
+
+    @unittest.skipUnless(
+        INFRA_AS_CODE_MIRROR.is_dir(),
+        "read-only published mirror is not available",
+    )
+    def test_published_mirror_reconciles_the_post_r1416_growth(self):
+        """Re-derive the declared censuses from the mirror at the r2604 frontier.
+
+        Rounds 1417-2604 were published on 2026-08-26, after the issue #67
+        census was derived at the r1416 frontier. This reconciliation fails on
+        any declaration still carrying the r1416-frontier totals and pins the
+        claim that the growth widened nothing: no new reward key, no new tool,
+        no new arg key, and no `reflection` outside rounds 1-1416.
+        """
+        payloads = sorted(INFRA_AS_CODE_MIRROR.glob("batch-*.jsonl"))
+        self.assertEqual(len(payloads), 2604)
+        records = []
+        for payload in payloads:
+            with payload.open(encoding="utf-8") as handle:
+                rows = [json.loads(line) for line in handle if line.strip()]
+            self.assertEqual(len(rows), 2, payload.name)
+            records.extend(rows)
+        self.assertEqual(len(records), 5208)
+        self.assertEqual(len({record["id"] for record in records}), 5208)
+
+        steps = [step for record in records for step in record["steps"]]
+        self.assertEqual(len(steps), 87554)
+        reflections = [
+            record["meta"]["round"]
+            for record in records
+            for step in record["steps"]
+            if "reflection" in step
+        ]
+        self.assertEqual(len(reflections), 17436)
+        self.assertLessEqual(max(reflections), 1416)
+
+        thin = sum(
+            1
+            for record in records
+            if set(record["meta"]) == {"factory", "generator", "round"}
+        )
+        wide_rounds = sorted(
+            record["meta"]["round"] for record in records if "kind" in record["meta"]
+        )
+        self.assertEqual(thin, 4190)
+        self.assertEqual(len(wide_rounds), 1018)
+        self.assertEqual((wide_rounds[0], wide_rounds[-1]), (78, 586))
+
+        handoff_types = {}
+        reward_counts = {}
+        for record in records:
+            for key, value in record["reward"].items():
+                reward_counts[key] = reward_counts.get(key, 0) + 1
+                if key == "handoff":
+                    kind = type(value).__name__
+                    handoff_types[kind] = handoff_types.get(kind, 0) + 1
+        self.assertEqual(reward_counts["tests_passed"], 5180)
+        self.assertEqual(reward_counts["handoff"], 2606)
+        self.assertEqual(reward_counts["tests_failed"], 2576)
+        self.assertEqual(handoff_types, {"int": 2593, "str": 13})
+
+        names = {feature["name"]: feature for feature in self.declaration["features"]}
+        self.assertIn(f"on all {len(records)} records", names["meta"]["note"])
+        self.assertIn(f"`handoff` on {reward_counts['handoff']}", names["reward"]["note"])
+        reflection = next(
+            feature
+            for feature in names["steps"]["list"]
+            if feature["name"] == "reflection"
+        )
+        self.assertIn(f"{len(reflections)} of {len(steps)}", reflection["note"])
 
     def test_card_front_matter_declares_the_default_config_over_raw_batches(self):
         front_matter = self.card.split("---", 2)[1]
