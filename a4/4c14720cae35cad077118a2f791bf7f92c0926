@@ -1,0 +1,32 @@
+pipelines/curate_identity.py
+  s_98712805c1499b::t_8120fa17cf23c2 909
+tests/test_curate_identity_bridge_clocks.py
+  s_98712805c1499b::t_41a12327514a7a 1-3,5,7,13-43
+  s_98712805c1499b::t_9448dd7a1b0896 4,6,8-12
+pipelines/training_audit_bridge.py
+  s_98712805c1499b::t_8120fa17cf23c2 31
+  s_98712805c1499b::t_41a12327514a7a 30
+tests/test_training_audit_bridge.py
+  s_98712805c1499b::t_8120fa17cf23c2 62-69
+pipelines/check_records.py
+  s_98712805c1499b::t_8120fa17cf23c2 498-501,519,521,523,545
+  s_98712805c1499b::t_41a12327514a7a 491,507-509,522
+tests/test_check_records_rewards.py
+  s_98712805c1499b::t_8120fa17cf23c2 162-171
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "a44c14720cae35cad077118a2f791bf7f92c0926",
+  "prompts": {},
+  "sessions": {
+    "s_98712805c1499b": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a04a1f-1e33-7812-a5aa-c7b04b33b6b5",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Raul Montoya Cardenas <montoyaraul34@gmail.com>"
+    }
+  }
+}
