@@ -1,0 +1,84 @@
+tests/test_spike_probe.py
+  s_98712805c1499b::t_4f7c5c5d5ace76 383-399
+pipelines/check_records.py
+  s_98712805c1499b::t_eaad3908a2be0d 24-27,167
+pipelines/validate_run_spikes.py
+  s_98712805c1499b::t_eaad3908a2be0d 10-11,196
+pipelines/exact_json.py
+  s_98712805c1499b::t_d4092f5f29e732 19-28,48-53,56-70,75,182,219-228,237
+  s_98712805c1499b::t_b246fffc72621b 33-34
+  s_98712805c1499b::t_6ba7279723a12f 98-106
+  s_98712805c1499b::t_af7c5249e45d7c 29-32,35-47,54-55,139,149-153,164-176
+pipelines/quality_gate_embedding.py
+  s_98712805c1499b::t_eca096f4588556 284
+pipelines/spike_probe.py
+  s_98712805c1499b::t_4dd364f215fd15 329
+pipelines/curate_bridge_raster.py
+  s_98712805c1499b::t_b246fffc72621b 184-187
+  s_98712805c1499b::t_f531450e37ca8e 51,67,70-73,75-76,156,170-182,188-189,335-345,347
+  s_98712805c1499b::t_71b44531fef6b4 157,183
+tests/test_exact_json.py
+  s_98712805c1499b::t_6537904574f78f 6,64-65,67-68,70-104,109-113
+  s_98712805c1499b::t_b246fffc72621b 66,69
+  s_98712805c1499b::t_00e464f3530907 105-108
+tests/test_curate_bridge.py
+  s_98712805c1499b::t_9e668c37d09952 20,56-91
+pipelines/promote.py
+  s_98712805c1499b::t_b213b548e74dc2 60-64,67,270,466-471,490-492
+tests/test_promote_exact_json.py
+  s_98712805c1499b::t_90669e2e6a1e8f 1-54
+pipelines/curate_bridge_events.py
+  s_98712805c1499b::t_8c351087c0372e 9-10,103,112
+tests/test_check_records_spikes.py
+  s_98712805c1499b::t_6f6d5e6e4c1c3e 12,178-195
+tests/test_validate_run_cli.py
+  s_98712805c1499b::t_aaa61831554001 176-196
+tests/test_curate_bridge_raster_regressions.py
+  s_98712805c1499b::t_b246fffc72621b 218-227
+  s_98712805c1499b::t_d45b7fdb08059c 185-187,205-207
+  s_98712805c1499b::t_aaa61831554001 31,179-184,188-204,208-216
+tests/test_quality_gate_embedding_regressions.py
+  s_98712805c1499b::t_eca096f4588556 17,33-40
+pipelines/validate_run.py
+  s_98712805c1499b::t_eaad3908a2be0d 22,1446-1450
+  s_98712805c1499b::t_c415da52e03cd6 23
+pipelines/quality_gate_identity.py
+  s_98712805c1499b::t_ba3b2a789bb077 14,119-123,125-127,137-138,140-144,161
+  s_98712805c1499b::t_eca096f4588556 150-155
+  s_98712805c1499b::t_427d5ec753f08e 262,265,307
+  s_98712805c1499b::t_b31307215fdb82 117,124
+  s_98712805c1499b::t_a17839f2d28842 115,118,128-136
+  s_98712805c1499b::t_b246fffc72621b 139,149,162
+  s_98712805c1499b::t_c04bf7d30dc7a5 148,156-160,451
+tests/test_curate_bridge_materialization.py
+  s_98712805c1499b::t_6d1f32e0ff3a6c 166-171,186
+  s_98712805c1499b::t_a19f18ddcfb7c2 207-229
+pipelines/curate_bridge.py
+  s_98712805c1499b::t_1ec4e483ed6496 70,232,659,683,722-723,725,741-742
+  s_98712805c1499b::t_ffdaf52b6d17bf 684-689
+  s_98712805c1499b::t_b246fffc72621b 724
+tests/test_quality_gate_identity_regressions.py
+  s_98712805c1499b::t_4d6dc692275c8f 194,197
+  s_98712805c1499b::t_b246fffc72621b 206-233
+  s_98712805c1499b::t_aaa61831554001 15,184-193,195-196,198-204
+  s_98712805c1499b::t_ba3b2a789bb077 234-246,248
+  s_98712805c1499b::t_ea052d42aa80c1 247
+pipelines/quality_gate_audit.py
+  s_98712805c1499b::t_3439eb626662c2 14,26,251-256
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "7ffa8b0066f308c11bd8f908731342099e740567",
+  "prompts": {},
+  "sessions": {
+    "s_98712805c1499b": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a04a1f-1e33-7812-a5aa-c7b04b33b6b5",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Raul Montoya Cardenas <montoyaraul34@gmail.com>"
+    }
+  }
+}
