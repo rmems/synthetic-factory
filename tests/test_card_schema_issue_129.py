@@ -61,6 +61,41 @@ def _reward_census(records):
     return reward_counts, handoff_types
 
 
+def _reflection_rounds(records):
+    """The `meta.round` of every step that carries a `reflection`."""
+    return [
+        record["meta"]["round"]
+        for record in records
+        for step in record["steps"]
+        if "reflection" in step
+    ]
+
+
+def _meta_split(records):
+    """The thin-`meta` record count and the sorted rounds of the wide records."""
+    thin = sum(
+        1
+        for record in records
+        if set(record["meta"]) == {"factory", "generator", "round"}
+    )
+    wide_rounds = sorted(
+        record["meta"]["round"] for record in records if "kind" in record["meta"]
+    )
+    return thin, wide_rounds
+
+
+def _feature(declaration, name):
+    """The top-level feature declaration called ``name``."""
+    return next(f for f in declaration["features"] if f["name"] == name)
+
+
+def _step_feature(declaration, name):
+    """The step-list feature declaration called ``name``."""
+    return next(
+        f for f in _feature(declaration, "steps")["list"] if f["name"] == name
+    )
+
+
 class InfraAsCodeDeclarationTests(unittest.TestCase):
     """Issue #67: thin `meta` vs the `plant` / `kind` rounds kills the cast."""
 
@@ -112,21 +147,13 @@ class InfraAsCodeDeclarationTests(unittest.TestCase):
         )
 
     def test_meta_note_records_the_split_the_viewer_dies_on(self):
-        meta = next(
-            feature
-            for feature in self.declaration["features"]
-            if feature["name"] == "meta"
-        )
+        meta = _feature(self.declaration, "meta")
         # 4190 thin + 1018 wide = 5208 records; the wide rounds are contiguous.
         for fragment in ("1018", "78-586", "4190", "1-77", "587-2604", "sim_or_real"):
             self.assertIn(fragment, meta["note"])
 
     def test_reward_note_names_the_only_type_varying_key(self):
-        reward = next(
-            feature
-            for feature in self.declaration["features"]
-            if feature["name"] == "reward"
-        )
+        reward = _feature(self.declaration, "reward")
         # `handoff` is the single int-or-string key; the tests_* counters are not.
         self.assertIn("`handoff` is the only key whose value type varies", reward["note"])
         for singleton in ("wrong_cluster_apply", "replicas", "targets_healthy"):
@@ -152,35 +179,23 @@ class InfraAsCodeDeclarationTests(unittest.TestCase):
     @_needs_mirror
     def test_published_mirror_reconciles_the_reflection_and_meta_growth(self):
         _per_shard, records = _scan_mirror()
-        steps = [step for record in records for step in record["steps"]]
-        self.assertEqual(len(steps), 87554)
-        reflections = [
-            record["meta"]["round"]
-            for record in records
-            for step in record["steps"]
-            if "reflection" in step
-        ]
+        steps_total = sum(len(record["steps"]) for record in records)
+        reflections = _reflection_rounds(records)
+        thin, wide_rounds = _meta_split(records)
+        self.assertEqual(steps_total, 87554)
         self.assertEqual(len(reflections), 17436)
         self.assertLessEqual(max(reflections), 1416)
-        thin = sum(
-            1
-            for record in records
-            if set(record["meta"]) == {"factory", "generator", "round"}
-        )
-        wide_rounds = sorted(
-            record["meta"]["round"] for record in records if "kind" in record["meta"]
-        )
         self.assertEqual(thin, 4190)
         self.assertEqual(len(wide_rounds), 1018)
         self.assertEqual((wide_rounds[0], wide_rounds[-1]), (78, 586))
-        names = {feature["name"]: feature for feature in self.declaration["features"]}
-        self.assertIn(f"on all {len(records)} records", names["meta"]["note"])
-        reflection = next(
-            feature
-            for feature in names["steps"]["list"]
-            if feature["name"] == "reflection"
+        self.assertIn(
+            f"on all {len(records)} records",
+            _feature(self.declaration, "meta")["note"],
         )
-        self.assertIn(f"{len(reflections)} of {len(steps)}", reflection["note"])
+        self.assertIn(
+            f"{len(reflections)} of {steps_total}",
+            _step_feature(self.declaration, "reflection")["note"],
+        )
 
     @_needs_mirror
     def test_published_mirror_reconciles_the_reward_census(self):
@@ -190,12 +205,10 @@ class InfraAsCodeDeclarationTests(unittest.TestCase):
         self.assertEqual(reward_counts["handoff"], 2606)
         self.assertEqual(reward_counts["tests_failed"], 2576)
         self.assertEqual(handoff_types, {"int": 2593, "str": 13})
-        reward = next(
-            feature
-            for feature in self.declaration["features"]
-            if feature["name"] == "reward"
+        self.assertIn(
+            f"`handoff` on {reward_counts['handoff']}",
+            _feature(self.declaration, "reward")["note"],
         )
-        self.assertIn(f"`handoff` on {reward_counts['handoff']}", reward["note"])
 
     def test_card_front_matter_declares_the_default_config_over_raw_batches(self):
         front_matter = self.card.split("---", 2)[1]
