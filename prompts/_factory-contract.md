@@ -40,8 +40,12 @@ start factories 06 or 07 from this contract.
 - Preference `chosen` and `rejected` share the exact same state and proposed
   action. The contrast must teach gate/execution/recovery quality, not reward a
   changed problem.
-- Bridge `spike_events` are globally non-decreasing by finite timestamp and
-  include finite amplitudes, channel IDs, realistic density, refractory gaps,
+- Any `spike_events` stream — on a Bridge pair or on a trajectory — is one
+  train in global time order: every event carries exactly one finite
+  `t_rel_ms` (or the `t_ms` alias), every event in the stream uses that same
+  key, and the timestamps are non-decreasing. Never mix timestamp keys or
+  group events by channel. Bridge streams additionally carry finite
+  amplitudes, non-empty channel IDs, realistic density, refractory gaps,
   adaptation, and noise.
 
 ## Novel coverage (required NOTES line)

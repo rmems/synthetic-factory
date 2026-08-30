@@ -7,8 +7,15 @@ reserved names, flags missing ``decision_basis``, and requires preference
 sides to share a goal. Prefix overlap of leading steps is noted in the
 report and is not a hard fail.
 
+Records whose mill signals belong to another factory are quarantined rather
+than composed into the cleaned tree. Mill identity is keyed on the declared
+payload factory, the mill id prefix, and the goal family (``mill_family.py``);
+it is deliberately not keyed on ``leftover`` appearing in a record id, nor on
+a destination-specific field being absent.
+
 Never writes into ``outputs/raw/``. Default is a ``--dry-run`` JSON report
-on stdout. ``--out DIR`` writes a brand-new cleaned tree only when passed.
+on stdout. ``--out DIR`` writes a brand-new cleaned tree only when passed and
+the source supplies resolved, verified multi-factory ownership evidence.
 
 Inspired by ToolMind turn-level filtering (Yang et al., 2025) and DPO
 prefix sharing (Wang & Hegde, 2024): drop hidden CoT, flag ungrounded
@@ -18,39 +25,60 @@ turns, keep the preference contrast on one problem.
 from __future__ import annotations
 
 import argparse
-import copy
-import hashlib
 import json
-import os
-import re
 import sys
-from collections import Counter
+from collections import Counter, defaultdict
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
 from check_records import reject_json_constant
-from coding_constants import HIDDEN_REASONING_KEYS, HIDDEN_REASONING_PREFIX
-from record_kind import (
-    classify_kind as classify_payload_kind,
-    preference_side_kinds,
+from curate_agentic_output import (
+    preflight_out as _preflight_out,
+    write_cleaned_tree,
 )
-from round_txn import TransactionError, committed_jsonl_paths, marker_mode_path
+from curate_agentic_shapes import (
+    HIDDEN_THOUGHT_KEYS,
+    INVALID_PREFERENCE_KIND,
+    REASON_GOAL_DIVERGES,
+    REASON_GOAL_MISSING,
+    REASON_GOAL_NOT_TEXT,
+    REASON_SIDES_NOT_OBJECTS,
+    canonical_json,
+    classify_record,
+    contains_hidden_thought_key,
+    hash_bytes,
+    hash_value,
+    iter_turn_locations,
+    missing_decision_basis_paths,
+    normalized_key_name,
+    preference_goals,
+    prefix_overlap,
+    record_identifier as _record_id,
+    shared_preference_goal,
+    strip_hidden_thought_keys,
+)
+from curate_identity import default_registry
+from mill_family import (
+    REASON_FOREIGN_MILL_GOAL_FAMILY,
+    REASON_FOREIGN_MILL_ID_PREFIX,
+    REASON_FOREIGN_PAYLOAD_FACTORY,
+    MillFinding,
+    MillIndex,
+    factory_identity_for_path,
+    summarize as summarize_mill_mix,
+)
+from record_kind import preference_side_kinds
+from round_txn import (
+    TransactionError,
+    committed_jsonl_paths,
+    marker_mode_path,
+)
 
 
 TRANSFORM_NAME = "agentic_observability"
-TRANSFORM_VERSION = "1"
+TRANSFORM_VERSION = "2"
 
-HIDDEN_THOUGHT_KEYS = frozenset(
-    {"thought", "chain_of_thought", "scratch", "inner_monologue"}
-)
-# training_audit.is_hidden_thought_key refuses HIDDEN_THOUGHT_KEYS *and*
-# coding_constants.HIDDEN_REASONING_KEYS (the coding-factory ``reasoning``
-# key plus the ``internal_reasoning*`` family Thalamic wrap records carry),
-# via an exact-or-prefix match. A multi_agent or safety_case record this
-# lane retains without stripping one of those keys would still fail that
-# stricter audit downstream, so the stripper below must refuse the same
-# union, not just the narrower scratch-pad vocabulary.
-FORBIDDEN_REASONING_KEYS = HIDDEN_THOUGHT_KEYS | HIDDEN_REASONING_KEYS
 SAFETY_CASE_TYPES = frozenset(
     {"correct_refusal", "incorrect_refusal", "missed_refusal"}
 )
@@ -66,10 +94,6 @@ ACTION_SKIPPED = "skipped"
 
 REASON_THOUGHT_REMOVED = "HIDDEN_THOUGHT_REMOVED"
 REASON_MISSING_BASIS = "MISSING_DECISION_BASIS"
-REASON_GOAL_DIVERGES = "PREFERENCE_GOAL_DIVERGES"
-REASON_GOAL_MISSING = "PREFERENCE_GOAL_MISSING"
-REASON_GOAL_NOT_TEXT = "PREFERENCE_GOAL_NOT_TEXT"
-REASON_SIDES_NOT_OBJECTS = "PREFERENCE_SIDES_NOT_OBJECTS"
 REASON_SIDE_SHAPE_INVALID = "PREFERENCE_SIDE_SHAPE_INVALID"
 REASON_PREFERENCE_COLLAPSED = "PREFERENCE_COLLAPSED_AFTER_THOUGHT_STRIP"
 REASON_SAFETY_CASE_TYPE_INVALID = "SAFETY_CASE_TYPE_INVALID"
@@ -78,248 +102,66 @@ REASON_RECORD_NOT_OBJECT = "RECORD_NOT_OBJECT"
 REASON_INVALID_JSON = "INVALID_JSON"
 REASON_INVALID_UTF8 = "INVALID_UTF8"
 REASON_SKIPPED_KIND = "SKIPPED_NON_AGENTIC"
-
-INVALID_PREFERENCE_KIND = "invalid_preference"
-
-
-def canonical_json(value: Any) -> str:
-    """Stable JSON used for hashes and step-prefix equality."""
-    return json.dumps(
-        value,
-        ensure_ascii=False,
-        separators=(",", ":"),
-        sort_keys=True,
-    )
+# Foreign-mill quarantine codes, resolved across the whole source tree rather
+# than per record; re-exported so callers import one curation vocabulary.
+MILL_FAMILY_REASON_CODES = (
+    REASON_FOREIGN_PAYLOAD_FACTORY,
+    REASON_FOREIGN_MILL_ID_PREFIX,
+    REASON_FOREIGN_MILL_GOAL_FAMILY,
+)
 
 
-def hash_value(value: Any) -> str:
-    return hashlib.sha256(canonical_json(value).encode("utf-8")).hexdigest()
-
-
-def hash_bytes(payload: bytes) -> str:
-    return hashlib.sha256(payload).hexdigest()
-
-
-def normalized_key_name(value: Any) -> str:
-    """Normalize JSON keys across case, separators, and camel-case boundaries."""
-    return re.sub(
-        r"[^a-z0-9]+",
-        "_",
-        re.sub(r"(?<=[a-z0-9])(?=[A-Z])", "_", str(value)).casefold(),
-    ).strip("_")
-
-
-def _is_under_raw(path: Path) -> bool:
-    parts = path.resolve(strict=False).parts
-    return any(
-        parts[index : index + 2] == ("outputs", "raw")
-        for index in range(len(parts) - 1)
-    )
-
-
-def _is_forbidden_reasoning_key(key: Any) -> bool:
-    """Whether a JSON key names model-private reasoning text.
-
-    Mirrors ``training_audit.is_hidden_thought_key`` exactly: the shared
-    scratch-pad vocabulary, the exact coding-factory key ``reasoning``, and
-    the whole ``internal_reasoning*`` family.
-    """
-    normalized = normalized_key_name(key)
-    return normalized in FORBIDDEN_REASONING_KEYS or normalized.startswith(
-        HIDDEN_REASONING_PREFIX
-    )
-
-
-def contains_hidden_thought_key(value: Any) -> bool:
-    """Return whether any nested mapping exposes a banned hidden-thought key."""
-    if isinstance(value, dict):
-        return any(
-            _is_forbidden_reasoning_key(key) for key in value
-        ) or any(contains_hidden_thought_key(item) for item in value.values())
-    if isinstance(value, list):
-        return any(contains_hidden_thought_key(item) for item in value)
-    return False
-
-
-def strip_hidden_thought_keys(value: Any) -> tuple[Any, int]:
-    """Deep-copy ``value`` while removing banned hidden-thought keys."""
-    if isinstance(value, dict):
-        cleaned: dict[str, Any] = {}
-        removed = 0
-        for key, item in value.items():
-            if _is_forbidden_reasoning_key(key):
-                removed += 1
-                continue
-            clean_item, nested = strip_hidden_thought_keys(item)
-            cleaned[key] = clean_item
-            removed += nested
-        return cleaned, removed
-    if isinstance(value, list):
-        cleaned_items = []
-        removed = 0
-        for item in value:
-            clean_item, nested = strip_hidden_thought_keys(item)
-            cleaned_items.append(clean_item)
-            removed += nested
-        return cleaned_items, removed
-    return copy.deepcopy(value), 0
-
-
-def classify_record(obj: Any) -> str:
-    """Route a record to an agentic kind, or a skippable non-agentic kind.
-
-    Kind order is the shared payload classifier. ``legacy_preference`` remains
-    an agentic skip subkind after that function returns ``preference``.
-    """
-    kind = classify_payload_kind(obj)
-    if kind != "preference":
-        return kind
-    sides = (obj.get("chosen"), obj.get("rejected"))
-    if not all(isinstance(side, dict) for side in sides):
-        return "preference"
-    side_kinds = preference_side_kinds(obj)
-    if side_kinds == ("thalamic", "thalamic"):
-        # Legacy Thalamic preference pairs deliberately have chosen/rejected
-        # trajectory objects rather than agentic episode sides. They belong
-        # in the skipped bucket, not in the agentic goal-impurity statistics.
-        return "legacy_preference"
-    if side_kinds == ("episode", "episode"):
-        return "preference"
-    if any(side_kind != "unknown" for side_kind in side_kinds):
-        return INVALID_PREFERENCE_KIND
-    return "preference"
-
-
-def _record_id(record: Any) -> str | None:
-    if not isinstance(record, dict):
-        return None
-    value = record.get("id")
-    if isinstance(value, str) and value.strip():
-        return value.strip()
-    meta = record.get("meta")
-    if isinstance(meta, dict):
-        value = meta.get("id")
-        if isinstance(value, str) and value.strip():
-            return value.strip()
-    return None
-
-
-def _norm_goal(value: Any) -> str | None:
-    if not isinstance(value, str):
-        return None
-    normalized = " ".join(value.split())
-    return normalized or None
-
-
-def preference_goals(record: dict[str, Any]) -> tuple[str | None, ...]:
-    """Return (top, chosen, rejected) normalized goals; missing sides are None."""
-    chosen = record.get("chosen")
-    rejected = record.get("rejected")
-    top = _norm_goal(record.get("goal"))
-    chosen_goal = (
-        _norm_goal(chosen.get("goal")) if isinstance(chosen, dict) else None
-    )
-    rejected_goal = (
-        _norm_goal(rejected.get("goal")) if isinstance(rejected, dict) else None
-    )
-    return top, chosen_goal, rejected_goal
-
-
-def shared_preference_goal(record: dict[str, Any]) -> tuple[bool, str | None]:
-    """Whether chosen/rejected describe one problem.
-
-    A shared goal is required. Top-level ``goal`` may stand in for a missing
-    side goal. Any present goals must be identical after whitespace normalize.
-    """
-    chosen = record.get("chosen")
-    rejected = record.get("rejected")
-    if not isinstance(chosen, dict) or not isinstance(rejected, dict):
-        return False, REASON_SIDES_NOT_OBJECTS
-    raw_goals = (
-        record.get("goal"),
-        chosen.get("goal"),
-        rejected.get("goal"),
-    )
-    if any(value is not None and _norm_goal(value) is None for value in raw_goals):
-        return False, REASON_GOAL_NOT_TEXT
-    top, chosen_goal, rejected_goal = preference_goals(record)
-    present = [goal for goal in (top, chosen_goal, rejected_goal) if goal is not None]
-    if not present:
-        return False, REASON_GOAL_MISSING
-    if top is None and (chosen_goal is None or rejected_goal is None):
-        return False, REASON_GOAL_MISSING
-    if len(set(present)) != 1:
-        return False, REASON_GOAL_DIVERGES
-    return True, None
-
-
-def _basis_missing(step: Any) -> bool:
-    if not isinstance(step, dict):
-        return True
-    basis = step.get("decision_basis")
-    return not (isinstance(basis, str) and basis.strip())
-
-
-def iter_turn_locations(record: Any) -> list[tuple[str, Any]]:
-    """ToolMind-style turn sites: ``steps`` arrays and tool-using transcript turns."""
-    locations: list[tuple[str, Any]] = []
-    if not isinstance(record, dict):
-        return locations
-
-    def add_steps(prefix: str, owner: Any) -> None:
-        if not isinstance(owner, dict):
-            return
-        steps = owner.get("steps")
-        if not isinstance(steps, list):
-            return
-        for step_index, step in enumerate(steps):
-            locations.append((f"{prefix}steps[{step_index}]", step))
-
-    add_steps("", record)
-    for side in ("chosen", "rejected"):
-        add_steps(f"{side}.", record.get(side))
-
-    transcript = record.get("transcript")
-    if isinstance(transcript, list):
-        for turn_index, turn in enumerate(transcript):
-            if isinstance(turn, dict) and "tool_call" in turn:
-                locations.append((f"transcript[{turn_index}]", turn))
-    return locations
-
-
-def missing_decision_basis_paths(record: Any) -> list[str]:
-    """Return turn paths that lack a non-empty observable ``decision_basis``."""
-    return [
-        path
-        for path, step in iter_turn_locations(record)
-        if _basis_missing(step)
-    ]
-
-
-def prefix_overlap(chosen: Any, rejected: Any) -> dict[str, Any]:
-    """Count leading thought-stripped steps shared by chosen and rejected.
-
-    Zero overlap is recorded and is not a fail. A positive count is an
-    optional purity note: DPO prefers a shared prefix and a suffix contrast.
-    """
-    chosen_steps = chosen.get("steps") if isinstance(chosen, dict) else None
-    rejected_steps = rejected.get("steps") if isinstance(rejected, dict) else None
-    chosen_len = len(chosen_steps) if isinstance(chosen_steps, list) else 0
-    rejected_len = len(rejected_steps) if isinstance(rejected_steps, list) else 0
-    shared = 0
-    if isinstance(chosen_steps, list) and isinstance(rejected_steps, list):
-        for left, right in zip(chosen_steps, rejected_steps):
-            clean_left, _ = strip_hidden_thought_keys(left)
-            clean_right, _ = strip_hidden_thought_keys(right)
-            if canonical_json(clean_left) != canonical_json(clean_right):
-                break
-            shared += 1
-    return {
-        "shared_steps": shared,
-        "chosen_steps": chosen_len,
-        "rejected_steps": rejected_len,
-        "noted": shared > 0,
-    }
+# Every name callers import from this module, including the ones re-exported
+# from curate_agentic_shapes / curate_agentic_output after the split.
+__all__ = [
+    "ACTION_EXCLUDED",
+    "ACTION_FLAGGED",
+    "ACTION_MODIFIED",
+    "ACTION_RETAINED",
+    "ACTION_SKIPPED",
+    "AGENTIC_KINDS",
+    "HIDDEN_THOUGHT_KEYS",
+    "INVALID_PREFERENCE_KIND",
+    "MILL_FAMILY_REASON_CODES",
+    "PREFERENCE_GOAL_IMPURE_REASONS",
+    "REASON_FOREIGN_MILL_GOAL_FAMILY",
+    "REASON_FOREIGN_MILL_ID_PREFIX",
+    "REASON_FOREIGN_PAYLOAD_FACTORY",
+    "REASON_GOAL_DIVERGES",
+    "REASON_GOAL_MISSING",
+    "REASON_GOAL_NOT_TEXT",
+    "REASON_INVALID_JSON",
+    "REASON_INVALID_UTF8",
+    "REASON_MISSING_BASIS",
+    "REASON_PREFERENCE_COLLAPSED",
+    "REASON_PREFIX_OVERLAP",
+    "REASON_RECORD_NOT_OBJECT",
+    "REASON_SAFETY_CASE_TYPE_INVALID",
+    "REASON_SIDES_NOT_OBJECTS",
+    "REASON_SIDE_SHAPE_INVALID",
+    "REASON_SKIPPED_KIND",
+    "REASON_THOUGHT_REMOVED",
+    "SAFETY_CASE_TYPES",
+    "TRANSFORM_NAME",
+    "TRANSFORM_VERSION",
+    "canonical_json",
+    "classify_record",
+    "contains_hidden_thought_key",
+    "curate_record",
+    "curate_source",
+    "hash_bytes",
+    "hash_value",
+    "iter_turn_locations",
+    "main",
+    "missing_decision_basis_paths",
+    "normalized_key_name",
+    "parse_args",
+    "preference_goals",
+    "prefix_overlap",
+    "shared_preference_goal",
+    "strip_hidden_thought_keys",
+    "write_cleaned_tree",
+]
 
 
 def _base_decision(
@@ -390,8 +232,8 @@ def curate_record(
         cleaned_chosen = cleaned.get("chosen")
         cleaned_rejected = cleaned.get("rejected")
         if all(
-            cleaned_chosen.get(field) == cleaned_rejected.get(field)
-            for field in ("steps", "outcome")
+            cleaned_chosen.get(name) == cleaned_rejected.get(name)
+            for name in ("steps", "outcome")
         ):
             decision["reason_codes"] = reasons + [REASON_PREFERENCE_COLLAPSED]
             return None, decision
@@ -432,7 +274,9 @@ def curate_record(
     return cleaned, decision
 
 
-def _source_jsonl_files(source: Path) -> tuple[Path, ...]:
+def _source_jsonl_entries(source: Path) -> tuple[tuple[Path, str, bool], ...]:
+    """Return visible JSONL paths paired with their enclosing factory names."""
+
     if not source.exists():
         return ()
     if source.is_file():
@@ -479,7 +323,24 @@ def _source_jsonl_files(source: Path) -> tuple[Path, ...]:
             }
         return path.resolve() in visible_by_factory[factory]
 
-    return tuple(path for path in paths if visible(path))
+    def factory_identity(path: Path) -> tuple[str, bool]:
+        return factory_identity_for_path(
+            source,
+            path,
+            marker_root=marker_factory(path),
+            # The reviewed factory registry is the source of truth for which
+            # directory names are a known factory. The round-quota table
+            # (FACTORY_QUOTAS) only covers factories with an active quota;
+            # a registered-but-unquota'd factory (e.g. an identity-only
+            # generator) would otherwise be treated as unverified, letting
+            # an all-foreign batch under that root redefine the destination
+            # from its own payload majority instead of being quarantined.
+            known_factories=default_registry().by_path_id,
+        )
+
+    return tuple(
+        (path, *factory_identity(path)) for path in paths if visible(path)
+    )
 
 
 def _relative_source_path(source: Path, path: Path) -> str:
@@ -488,209 +349,320 @@ def _relative_source_path(source: Path, path: Path) -> str:
     return path.name
 
 
+def _quarantine_foreign_mills(
+    scan: "_SourceScan", findings: tuple[MillFinding, ...]
+) -> list[MillFinding]:
+    """Flip surviving records whose mill is foreign to their directory.
+
+    Mill ownership can only be resolved once the whole source has been read,
+    so this runs after the per-record pass and rewrites the affected decisions
+    in place. Records this pass already excluded keep their original reason.
+    """
+    survivors = {
+        index
+        for _relative, index, _curated, _factory, _verified in scan.kept
+    }
+    quarantined = []
+    for finding in findings:
+        if finding.ref not in survivors:
+            continue
+        decision = scan.decisions[finding.ref]
+        scan.tally.actions[decision["action"]] -= 1
+        scan.tally.actions[ACTION_EXCLUDED] += 1
+        decision["action"] = ACTION_EXCLUDED
+        decision["reason_codes"] = list(decision["reason_codes"]) + list(
+            finding.reason_codes
+        )
+        decision["output_id"] = None
+        decision["output_hash"] = None
+        decision["mill_family"] = finding.as_dict()
+        scan.tally.reasons.update(finding.reason_codes)
+        quarantined.append(finding)
+    return quarantined
+
+
+# The preference verdicts that mean "these two sides are not one problem".
+# Collected as a set so the per-record tally asks one membership question
+# instead of a four-way ``or`` chain.
+PREFERENCE_GOAL_IMPURE_REASONS = frozenset(
+    {
+        REASON_GOAL_DIVERGES,
+        REASON_GOAL_MISSING,
+        REASON_GOAL_NOT_TEXT,
+        REASON_SIDES_NOT_OBJECTS,
+    }
+)
+
+
+@dataclass
+class _CurationTally:
+    """Running counters the per-record pass accumulates for one source."""
+
+    actions: Counter[str] = field(default_factory=Counter)
+    kinds: Counter[str] = field(default_factory=Counter)
+    reasons: Counter[str] = field(default_factory=Counter)
+    thought_removed: int = 0
+    missing_basis: int = 0
+    preference_pairs: int = 0
+    preference_shared: int = 0
+    preference_diverged: int = 0
+    overlap_shared_total: int = 0
+    overlap_zero: int = 0
+    files: int = 0
+    input_records: int = 0
+
+
+@dataclass
+class _SourceScan:
+    """What the per-record pass produces before mill ownership is known.
+
+    ``kept`` is (relative source file, index into ``decisions``, curated
+    record, enclosing factory, factory-verified flag) for every record that
+    survived per-record curation. The cleaned tree is assembled from it only
+    after the cross-record mill-family pass has run.
+    """
+
+    decisions: list[dict[str, Any]] = field(default_factory=list)
+    kept: list[tuple[str, int, dict[str, Any], str, bool]] = field(
+        default_factory=list
+    )
+    mills: MillIndex = field(default_factory=MillIndex)
+    tally: _CurationTally = field(default_factory=_CurationTally)
+
+
+@dataclass(frozen=True)
+class _RecordSite:
+    """Where one source line came from, and which factory published it."""
+
+    relative: str
+    line_number: int
+    source_hash: str
+    factory: str
+    factory_verified: bool
+
+
+def _record_undecodable(
+    scan: _SourceScan, site: _RecordSite, reason: str
+) -> None:
+    """Record one source line that could not be decoded into a record at all."""
+    decision = _base_decision(
+        source_path=site.relative,
+        source_line=site.line_number,
+        source_hash=site.source_hash,
+        kind="unknown",
+    )
+    decision["reason_codes"] = [reason]
+    scan.decisions.append(decision)
+    scan.tally.actions[ACTION_EXCLUDED] += 1
+    scan.tally.reasons[reason] += 1
+
+
+def _tally_preference(decision: dict[str, Any], tally: _CurationTally) -> None:
+    """Fold one preference decision into the preference statistics."""
+    tally.preference_pairs += 1
+    impure = not PREFERENCE_GOAL_IMPURE_REASONS.isdisjoint(
+        decision["reason_codes"]
+    )
+    if decision["action"] == ACTION_EXCLUDED and impure:
+        tally.preference_diverged += 1
+    elif decision["action"] != ACTION_SKIPPED:
+        tally.preference_shared += 1
+    overlap = decision.get("prefix_overlap") or {}
+    tally.overlap_shared_total += int(overlap.get("shared_steps") or 0)
+    if overlap and not overlap.get("noted"):
+        tally.overlap_zero += 1
+
+
+def _tally_decision(decision: dict[str, Any], tally: _CurationTally) -> None:
+    """Fold one curated decision into the running counters."""
+    tally.actions[decision["action"]] += 1
+    tally.kinds[decision["kind"]] += 1
+    tally.reasons.update(decision["reason_codes"])
+    tally.thought_removed += decision["thought_fields_removed"]
+    tally.missing_basis += len(decision["missing_decision_basis"])
+    if decision["kind"] == "preference":
+        _tally_preference(decision, tally)
+
+
+def _keep_curated(
+    scan: _SourceScan, site: _RecordSite, curated: dict[str, Any]
+) -> None:
+    """Index one surviving record for the cross-record mill-family pass."""
+    decision_index = len(scan.decisions) - 1
+    # Only records that survive ordinary curation may teach mill identity.
+    # Skipped or already-excluded objects are not native ownership evidence
+    # and cannot poison the cross-record model.
+    scan.mills.add(
+        site.factory,
+        curated,
+        decision_index,
+        factory_verified=site.factory_verified,
+    )
+    scan.kept.append(
+        (
+            site.relative,
+            decision_index,
+            curated,
+            site.factory,
+            site.factory_verified,
+        )
+    )
+
+
+def _scan_line(scan: _SourceScan, site: _RecordSite, raw_line: bytes) -> None:
+    """Decode and curate one source line into ``scan``."""
+    try:
+        text = raw_line.decode("utf-8")
+    except UnicodeDecodeError:
+        _record_undecodable(scan, site, REASON_INVALID_UTF8)
+        return
+    try:
+        record = json.loads(text, parse_constant=reject_json_constant)
+    except (json.JSONDecodeError, ValueError):
+        _record_undecodable(scan, site, REASON_INVALID_JSON)
+        return
+
+    curated, decision = curate_record(
+        record,
+        source_path=site.relative,
+        source_line=site.line_number,
+        source_hash=site.source_hash,
+    )
+    scan.decisions.append(decision)
+    _tally_decision(decision, scan.tally)
+    if curated is not None:
+        _keep_curated(scan, site, curated)
+
+
+def _scan_source(source: Path) -> _SourceScan:
+    """Run the per-record curation pass over every visible line of ``source``."""
+    scan = _SourceScan()
+    for path, factory, factory_verified in _source_jsonl_entries(source):
+        scan.tally.files += 1
+        relative = _relative_source_path(source, path)
+        for line_number, raw_line in enumerate(
+            path.read_bytes().splitlines(), 1
+        ):
+            if not raw_line.strip():
+                continue
+            scan.tally.input_records += 1
+            _scan_line(
+                scan,
+                _RecordSite(
+                    relative=relative,
+                    line_number=line_number,
+                    source_hash=hash_bytes(raw_line),
+                    factory=factory,
+                    factory_verified=factory_verified,
+                ),
+                raw_line,
+            )
+    return scan
+
+
+def _mill_summary(
+    mill_findings: tuple[MillFinding, ...], ownership: dict[str, Any]
+) -> dict[str, Any]:
+    """The mill-mix block, plus why ownership was or was not resolved.
+
+    A partial dry run cannot safely mutate records, but it must still report
+    every foreign-mill finding that is independently determinable.
+    """
+    context_complete = ownership["complete"]
+    summary = summarize_mill_mix(mill_findings)
+    summary.update(
+        {
+            "context_complete": context_complete,
+            "reference_scope_complete": ownership["reference_scope_complete"],
+            "context_factories": ownership["verified_factories"],
+            "unresolved_destinations": ownership["unresolved_destinations"],
+            "unresolved_prefixes": ownership["unresolved_prefixes"],
+            "unresolved_goal_records": ownership["unresolved_goal_records"],
+            "missing_home_factories": ownership["missing_home_factories"],
+            "quarantine_applied": context_complete,
+        }
+    )
+    return summary
+
+
+def _records_by_rel(
+    kept: list[tuple[str, int, dict[str, Any], str, bool]],
+    dropped: set[int],
+) -> dict[str, list[dict[str, Any]]]:
+    """Group surviving curated records by source file, dropping emptied files."""
+    grouped: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    for relative, index, curated, _factory, _verified in kept:
+        if index not in dropped:
+            grouped[relative].append(curated)
+    return {
+        relative: items
+        for relative, items in sorted(grouped.items())
+        if items
+    }
+
+
+def _build_summary(
+    source: Path,
+    tally: _CurationTally,
+    mill_summary: dict[str, Any],
+    totals: tuple[int, int],
+) -> dict[str, Any]:
+    """Assemble the report summary block."""
+    output_records, quarantined_records = totals
+    return {
+        "transform": {"name": TRANSFORM_NAME, "version": TRANSFORM_VERSION},
+        "source": str(source),
+        "files": tally.files,
+        "input_records": tally.input_records,
+        "output_records": output_records,
+        "excluded_records": tally.actions[ACTION_EXCLUDED],
+        "skipped_records": tally.actions[ACTION_SKIPPED],
+        "quarantined_foreign_mill_records": quarantined_records,
+        "thought_fields_removed": tally.thought_removed,
+        "missing_decision_basis_turns": tally.missing_basis,
+        "by_kind": dict(sorted(tally.kinds.items())),
+        "actions": {
+            action: count
+            for action, count in sorted(tally.actions.items())
+            if count
+        },
+        "reason_codes": dict(sorted(tally.reasons.items())),
+        "mill_family": mill_summary,
+        "preference": {
+            "pairs": tally.preference_pairs,
+            "shared_goal": tally.preference_shared,
+            "goal_impure": tally.preference_diverged,
+            "prefix_overlap_zero": tally.overlap_zero,
+            "prefix_overlap_shared_steps_sum": tally.overlap_shared_total,
+        },
+    }
+
+
 def curate_source(source: Path) -> dict[str, Any]:
     """Read-only scan of ``source`` (file or directory). Missing paths are empty."""
     source = Path(source)
-    records_by_rel: dict[str, list[dict[str, Any]]] = {}
-    decisions: list[dict[str, Any]] = []
-    actions: Counter[str] = Counter()
-    kinds: Counter[str] = Counter()
-    reasons: Counter[str] = Counter()
-    thought_removed = 0
-    missing_basis = 0
-    preference_pairs = 0
-    preference_shared = 0
-    preference_diverged = 0
-    overlap_shared_total = 0
-    overlap_zero = 0
-    files = 0
-    input_records = 0
+    scan = _scan_source(source)
 
-    for path in _source_jsonl_files(source):
-        files += 1
-        relative = _relative_source_path(source, path)
-        retained: list[dict[str, Any]] = []
-        payload = path.read_bytes()
-        for line_number, raw_line in enumerate(payload.splitlines(), 1):
-            if not raw_line.strip():
-                continue
-            input_records += 1
-            source_hash = hash_bytes(raw_line)
-            try:
-                text = raw_line.decode("utf-8")
-            except UnicodeDecodeError:
-                decision = _base_decision(
-                    source_path=relative,
-                    source_line=line_number,
-                    source_hash=source_hash,
-                    kind="unknown",
-                )
-                decision["reason_codes"] = [REASON_INVALID_UTF8]
-                decisions.append(decision)
-                actions[ACTION_EXCLUDED] += 1
-                reasons[REASON_INVALID_UTF8] += 1
-                continue
-            try:
-                record = json.loads(text, parse_constant=reject_json_constant)
-            except (json.JSONDecodeError, ValueError):
-                decision = _base_decision(
-                    source_path=relative,
-                    source_line=line_number,
-                    source_hash=source_hash,
-                    kind="unknown",
-                )
-                decision["reason_codes"] = [REASON_INVALID_JSON]
-                decisions.append(decision)
-                actions[ACTION_EXCLUDED] += 1
-                reasons[REASON_INVALID_JSON] += 1
-                continue
-
-            curated, decision = curate_record(
-                record,
-                source_path=relative,
-                source_line=line_number,
-                source_hash=source_hash,
-            )
-            decisions.append(decision)
-            actions[decision["action"]] += 1
-            kinds[decision["kind"]] += 1
-            reasons.update(decision["reason_codes"])
-            thought_removed += decision["thought_fields_removed"]
-            missing_basis += len(decision["missing_decision_basis"])
-            if decision["kind"] == "preference":
-                preference_pairs += 1
-                if decision["action"] == ACTION_EXCLUDED and (
-                    REASON_GOAL_DIVERGES in decision["reason_codes"]
-                    or REASON_GOAL_MISSING in decision["reason_codes"]
-                    or REASON_GOAL_NOT_TEXT in decision["reason_codes"]
-                    or REASON_SIDES_NOT_OBJECTS in decision["reason_codes"]
-                ):
-                    preference_diverged += 1
-                elif decision["action"] != ACTION_SKIPPED:
-                    preference_shared += 1
-                overlap = decision.get("prefix_overlap") or {}
-                overlap_shared_total += int(overlap.get("shared_steps") or 0)
-                if overlap and not overlap.get("noted"):
-                    overlap_zero += 1
-            if curated is not None:
-                retained.append(curated)
-        if retained:
-            records_by_rel[relative] = retained
-
+    ownership = scan.mills.ownership_context()
+    mill_findings = scan.mills.findings()
+    quarantined = (
+        _quarantine_foreign_mills(scan, mill_findings)
+        if ownership["complete"]
+        else []
+    )
+    dropped = {finding.ref for finding in quarantined}
+    records_by_rel = _records_by_rel(scan.kept, dropped)
     output_records = sum(len(items) for items in records_by_rel.values())
-    summary = {
-        "transform": {"name": TRANSFORM_NAME, "version": TRANSFORM_VERSION},
-        "source": str(source),
-        "files": files,
-        "input_records": input_records,
-        "output_records": output_records,
-        "excluded_records": actions[ACTION_EXCLUDED],
-        "skipped_records": actions[ACTION_SKIPPED],
-        "thought_fields_removed": thought_removed,
-        "missing_decision_basis_turns": missing_basis,
-        "by_kind": dict(sorted(kinds.items())),
-        "actions": dict(sorted(actions.items())),
-        "reason_codes": dict(sorted(reasons.items())),
-        "preference": {
-            "pairs": preference_pairs,
-            "shared_goal": preference_shared,
-            "goal_impure": preference_diverged,
-            "prefix_overlap_zero": overlap_zero,
-            "prefix_overlap_shared_steps_sum": overlap_shared_total,
-        },
-    }
     return {
         "records_by_rel": records_by_rel,
-        "decisions": decisions,
-        "summary": summary,
+        "decisions": scan.decisions,
+        "summary": _build_summary(
+            source,
+            scan.tally,
+            _mill_summary(mill_findings, ownership),
+            (output_records, len(quarantined)),
+        ),
     }
-
-
-def _preflight_out(source: Path, out: Path) -> None:
-    source_resolved = source.resolve(strict=False)
-    out_resolved = out.resolve(strict=False)
-    if _is_under_raw(out):
-        raise ValueError(f"refusing to write inside immutable raw evidence: {out}")
-    if out.exists():
-        raise FileExistsError(f"refusing to replace existing destination: {out}")
-    if source_resolved == out_resolved:
-        raise ValueError(f"output cannot replace source: {out}")
-    if source.is_dir() and source_resolved in out_resolved.parents:
-        raise ValueError(f"output cannot be written inside source: {out}")
-
-
-def _write_new_jsonl(path: Path, values: list[dict[str, Any]]) -> None:
-    if _is_under_raw(path):
-        raise ValueError(f"refusing to write inside immutable raw evidence: {path}")
-    path.parent.mkdir(parents=True, exist_ok=True)
-    descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o644)
-    try:
-        with os.fdopen(descriptor, "w", encoding="utf-8", newline="\n") as handle:
-            for value in values:
-                handle.write(canonical_json(value))
-                handle.write("\n")
-            handle.flush()
-            os.fsync(handle.fileno())
-    except BaseException:
-        path.unlink(missing_ok=True)
-        raise
-
-
-def _write_new_json(path: Path, value: Any) -> None:
-    """Write one metadata document without making it a record-scanner input."""
-    if _is_under_raw(path):
-        raise ValueError(f"refusing to write inside immutable raw evidence: {path}")
-    path.parent.mkdir(parents=True, exist_ok=True)
-    descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o644)
-    try:
-        with os.fdopen(descriptor, "w", encoding="utf-8", newline="\n") as handle:
-            json.dump(value, handle, ensure_ascii=False, indent=2, sort_keys=True)
-            handle.write("\n")
-            handle.flush()
-            os.fsync(handle.fileno())
-    except BaseException:
-        path.unlink(missing_ok=True)
-        raise
-
-
-def write_cleaned_tree(run: dict[str, Any], out: Path) -> None:
-    """Write retained JSONL plus scanner-safe JSON metadata in a new directory."""
-    out = Path(out)
-    created: list[Path] = []
-    try:
-        out.mkdir(parents=True, exist_ok=False)
-        for relative, records in sorted(run["records_by_rel"].items()):
-            dest = out / relative
-            _write_new_jsonl(dest, records)
-            created.append(dest)
-        # Metadata must not have a .jsonl suffix: every standard validator and
-        # training audit recursively treats that extension as record payload.
-        manifest_path = out / "CURATE-MANIFEST.json"
-        _write_new_json(manifest_path, run["decisions"])
-        created.append(manifest_path)
-        report_path = out / "CURATE-REPORT.json"
-        _write_new_json(report_path, run["summary"])
-        created.append(report_path)
-    except BaseException:
-        for path in reversed(created):
-            try:
-                path.unlink()
-            except FileNotFoundError:
-                pass
-        if out.exists() and out.is_dir():
-            for leftover in sorted(out.rglob("*"), reverse=True):
-                if leftover.is_file():
-                    leftover.unlink(missing_ok=True)
-                elif leftover.is_dir():
-                    try:
-                        leftover.rmdir()
-                    except OSError:
-                        pass
-            try:
-                out.rmdir()
-            except OSError:
-                pass
-        raise
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -698,7 +670,10 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "source",
         type=Path,
-        help="JSONL file or run directory (missing/empty is a zero report)",
+        help=(
+            "JSONL file or run directory (missing/empty is a zero report; "
+            "cleaned output requires multi-factory context)"
+        ),
     )
     parser.add_argument(
         "--dry-run",

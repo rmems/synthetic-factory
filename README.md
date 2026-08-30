@@ -90,12 +90,22 @@ Do **not** start prompts 06 or 07 until 01–05 have a cleaned slice you are wil
 ## Pipelines
 
 ```bash
-python3 pipelines/census.py outputs/raw/2026-08-17          # JSON counts; no writes
+python3 pipelines/census.py outputs/raw/2026-08-17          # JSON counts + mill_mix; no writes
 python3 pipelines/curate_identity.py outputs/raw/2026-08-17 --out outputs/cleaned/<new-label>
 python3 pipelines/validate_run.py outputs/raw/2026-08-17    # shape gate; no manifest unless --write
 python3 pipelines/check_records.py outputs/raw/2026-08-17   # reward / spike order / ids
 python3 pipelines/promote.py outputs/raw/2026-08-17 outputs/cleaned/2026-08-17
 ```
+
+The census `mill_mix` section reports records whose mill signals — declared
+payload factory, mill id prefix, goal family (`pipelines/mill_family.py`) —
+belong to a different factory than the directory they were published under.
+`curate_agentic.py` quarantines the same records instead of composing them
+into a cleaned tree. Neither keys on `leftover` appearing in a record id, nor
+on a destination-specific field being absent: published mixes defeat both.
+Because prefix and goal ownership are cross-factory properties, a single file
+or one-factory source remains dry-run only; cleaned output fails closed until
+the source provides multi-factory ownership context.
 
 ### Curation integration and promotion gate
 

@@ -202,6 +202,11 @@ def trajectory_preference_pair():
     return {
         "id": "trajectory-pref-1",
         "goal": "Fix the shared failing assertion",
+        # The reviewed trajectory gate (PR #93) also validates the pair
+        # envelope: a non-empty pair outcome and a pair-level reward object
+        # whose directional evidence agrees with the side labels.
+        "outcome": "Chosen fixed the assertion; rejected left it failing.",
+        "reward": {"success": True, "preference_margin": 0.6, "same_goal": 1.0},
         "chosen": side("fixed", True),
         "rejected": side("failed", False),
         "meta": {

@@ -37,6 +37,11 @@ from check_records import (  # noqa: E402
     shape_check,
     walk_key,
 )
+from census import (  # noqa: E402
+    factory_for_path,
+    visible_jsonl_paths,
+)
+from round_txn import TransactionError  # noqa: E402
 from curate_coding import (  # noqa: E402
     HIDDEN_REASONING_KEYS,
     HIDDEN_REASONING_PREFIX,
@@ -46,14 +51,21 @@ from validate_run import (  # noqa: E402
     HIDDEN_THOUGHT_KEYS,
     _episode_like,
     check_episode,
-    event_time,
 )
+from training_audit_bridge import event_stream_status as _event_stream_status  # noqa: E402
+from training_audit_mill import index_mill_quarantine  # noqa: E402
+from training_audit_report import build_blockers  # noqa: E402
 
 # A curated training view may expose neither the scratch-pad vocabulary the
 # structural validator already knows about, the coding-factory key
 # ``reasoning``, nor the ``internal_reasoning*`` family that Thalamic wrap
 # records publish on ``proposed_action``.
 CURATED_FORBIDDEN_REASONING_KEYS = HIDDEN_THOUGHT_KEYS | HIDDEN_REASONING_KEYS
+
+
+def event_stream_status(events, enclosing=None):
+    """Compatibility facade for the extracted bridge audit classifier."""
+    return _event_stream_status(events, enclosing)
 
 
 def percentile(values, fraction):
@@ -121,21 +133,6 @@ def reward_shape(value):
             subtype = type(item).__name__
         shape.append(f"{key}:{subtype}")
     return "|".join(shape)
-
-
-def event_stream_status(events):
-    """Classify presence, event validity, and global temporal order."""
-    if not isinstance(events, list) or not events:
-        return "missing"
-    times = []
-    for event in events:
-        got = event_time(event)
-        if got is None:
-            return "invalid"
-        times.append(got[1])
-    if all(current >= previous for previous, current in zip(times, times[1:])):
-        return "sorted"
-    return "unsorted"
 
 
 def preference_context_purity(obj, chosen, rejected):
@@ -261,6 +258,55 @@ def hidden_thought_paths(value, path=""):
             yield from hidden_thought_paths(item, f"{path}[{index}]")
 
 
+def _captured_run_files(run_dir: Path) -> list[tuple[Path, bytes]]:
+    """Capture every visible JSONL member of ``run_dir`` as exact bytes.
+
+    Fail closed on any discovered ``.jsonl`` member that is not an exact
+    regular file. Skipping a broken symlink, a directory, or a fifo would let
+    ``--strict`` certify a subset of the apparent corpus while still reporting
+    ``training_ready: true``. Regular files the round-transaction contract
+    keeps invisible are excluded by that contract, not silently lost.
+    """
+    visible = set(visible_jsonl_paths(run_dir))
+    files = []
+    for path in sorted(run_dir.rglob("*.jsonl")):
+        relative = path.relative_to(run_dir)
+        try:
+            metadata = path.lstat()
+        except OSError as exc:
+            raise ValueError(
+                f"audit member cannot be captured: {relative}: {exc}"
+            ) from exc
+        if not stat.S_ISREG(metadata.st_mode):
+            raise ValueError(
+                f"audit member is not an exact regular file: {relative}"
+            )
+        if path in visible:
+            files.append((relative, path.read_bytes()))
+    return files
+
+
+def _validated_snapshot_files(
+    snapshot: Mapping[str, bytes],
+) -> list[tuple[Path, bytes]]:
+    """Validate caller-supplied snapshot bytes into audit members."""
+    files = []
+    for raw_relative, payload in sorted(snapshot.items()):
+        if not isinstance(raw_relative, str) or not raw_relative:
+            raise ValueError("audit snapshot paths must be nonempty strings")
+        relative = PurePosixPath(raw_relative)
+        if relative.is_absolute() or any(
+            part in {"", ".", ".."} for part in relative.parts
+        ):
+            raise ValueError(f"unsafe audit snapshot path: {raw_relative!r}")
+        if not isinstance(payload, bytes):
+            raise TypeError(
+                f"audit snapshot payload for {raw_relative!r} must be bytes"
+            )
+        files.append((Path(*relative.parts), payload))
+    return files
+
+
 def audit_run(
     run_dir: Path,
     *,
@@ -274,44 +320,17 @@ def audit_run(
     """
 
     run_dir = Path(run_dir).resolve()
-    if snapshot is None:
-        # Fail closed on any discovered ``.jsonl`` member that cannot be
-        # captured as an exact regular file. Skipping a broken symlink, a
-        # directory, or a fifo would let ``--strict`` certify a subset of the
-        # apparent corpus while still reporting ``training_ready: true``.
-        files = []
-        for path in sorted(run_dir.rglob("*.jsonl")):
-            relative = path.relative_to(run_dir)
-            try:
-                metadata = path.lstat()
-            except OSError as exc:
-                raise ValueError(
-                    f"audit member cannot be captured: {relative}: {exc}"
-                ) from exc
-            if not stat.S_ISREG(metadata.st_mode):
-                raise ValueError(
-                    f"audit member is not an exact regular file: {relative}"
-                )
-            files.append((relative, path.read_bytes()))
-    else:
-        files = []
-        for raw_relative, payload in sorted(snapshot.items()):
-            if not isinstance(raw_relative, str) or not raw_relative:
-                raise ValueError("audit snapshot paths must be nonempty strings")
-            relative = PurePosixPath(raw_relative)
-            if relative.is_absolute() or any(
-                part in {"", ".", ".."} for part in relative.parts
-            ):
-                raise ValueError(f"unsafe audit snapshot path: {raw_relative!r}")
-            if not isinstance(payload, bytes):
-                raise TypeError(
-                    f"audit snapshot payload for {raw_relative!r} must be bytes"
-                )
-            files.append((Path(*relative.parts), payload))
+    files = (
+        _captured_run_files(run_dir)
+        if snapshot is None
+        else _validated_snapshot_files(snapshot)
+    )
+    mill_findings_by_ref, mill_mix = index_mill_quarantine(run_dir, files)
     factories = defaultdict(
         lambda: {
             "files": 0,
             "records": 0,
+            "eligible_records": 0,
             "bytes": 0,
             "approx_tokens": 0,
             "by_kind": Counter(),
@@ -362,40 +381,55 @@ def audit_run(
     )
     hidden_thought_examples = []
 
-    for rel, raw_text in files:
-        factory = rel.parts[0] if len(rel.parts) > 1 else "_root"
-        payload_bytes = len(raw_text)
+    for rel, raw_payload in files:
+        factory = factory_for_path(run_dir, run_dir / rel)
+        payload_bytes = len(raw_payload)
         bucket = factories[factory]
         bucket["files"] += 1
         bucket["bytes"] += payload_bytes
         totals["files"] += 1
         totals["bytes"] += payload_bytes
 
-        try:
-            text = raw_text.decode("utf-8")
-        except UnicodeDecodeError as exc:
-            record_errors.append(f"{rel}: invalid UTF-8: {exc}")
-            text = raw_text.decode("utf-8", errors="replace")
-        # JSONL is framed by LF bytes only. ``splitlines`` also treats literal
-        # U+2028/U+2029 characters inside otherwise valid JSON strings as
-        # record boundaries, which creates phantom rows and parse failures.
-        for line_number, line in enumerate(text.split("\n"), 1):
-            if not line.strip():
+        # Byte splitlines keeps mill-finding coordinates aligned with census
+        # and does not treat U+2028/U+2029 inside JSON strings as record breaks.
+        for line_number, raw_line in enumerate(raw_payload.splitlines(), 1):
+            if not raw_line.strip():
                 continue
             where = f"{rel}:{line_number}"
+            try:
+                line = raw_line.decode("utf-8")
+            except UnicodeDecodeError as exc:
+                record_errors.append(f"{where}: invalid UTF-8: {exc}")
+                continue
             totals["records"] += 1
             bucket["records"] += 1
             token_estimate = max(1, math.ceil(len(line.encode("utf-8")) / 4))
-            totals["approx_tokens"] += token_estimate
-            bucket["approx_tokens"] += token_estimate
-            bucket["record_tokens"].append(token_estimate)
             try:
                 obj = json.loads(line, parse_constant=reject_json_constant)
             except (json.JSONDecodeError, ValueError) as exc:
+                # Preserve the existing raw-input accounting for malformed
+                # records; unlike a proven mill quarantine, they have not been
+                # classified as belonging to another destination.
+                totals["approx_tokens"] += token_estimate
+                bucket["approx_tokens"] += token_estimate
+                bucket["record_tokens"].append(token_estimate)
                 record_errors.append(f"{where}: JSON parse error: {exc}")
                 kinds["unknown"] += 1
                 bucket["by_kind"]["unknown"] += 1
                 continue
+
+            finding = mill_findings_by_ref.get((rel.as_posix(), line_number))
+            if finding is not None:
+                # A shared-detector finding is raw evidence, but not eligible
+                # training data. Exclude it before every invariant, identity,
+                # duplicate, reward, provenance, and corpus metric below.
+                totals["quarantined"] += 1
+                continue
+            totals["approx_tokens"] += token_estimate
+            bucket["approx_tokens"] += token_estimate
+            bucket["record_tokens"].append(token_estimate)
+            totals["eligible_records"] += 1
+            bucket["eligible_records"] += 1
 
             strict_agentic = isinstance(obj, dict) and (
                 ("case_type" in obj)
@@ -535,7 +569,7 @@ def audit_run(
                 if isinstance(events, list):
                     bridge["events"] += len(events)
                     bridge["pairs_48_plus"] += int(len(events) >= 48)
-                status = event_stream_status(events)
+                status = event_stream_status(events, obj)
                 bridge[f"{status}_pairs"] += 1
             if kind == "episode":
                 episodes["episodes"] += 1
@@ -572,75 +606,45 @@ def audit_run(
         factory_output[name] = bucket
 
     total_records = totals["records"]
+    eligible_records = totals["eligible_records"]
     provenance_total = sum(provenance.values())
     tag_uses = sum(tags.values())
-    blockers = []
-    if record_errors:
-        blockers.append(f"{len(record_errors)} record shape/invariant errors")
-    if unresolved_record_warnings:
-        blockers.append(
-            f"{len(unresolved_record_warnings)} unresolved record-invariant warnings"
-        )
-    if duplicate_ids:
-        blockers.append(f"{len(duplicate_ids)} duplicate canonical IDs")
-    if missing_root_ids:
-        blockers.append(
-            f"{len(missing_root_ids)} records missing canonical top-level IDs"
-        )
     provenance_bad = provenance.get("missing", 0) + provenance.get("non_training", 0)
-    if provenance_bad:
-        blockers.append(f"{provenance_bad}/{provenance_total} expected states lack canonical provenance")
-    missing_streams = bridge.get("missing_pairs", 0)
-    invalid_streams = bridge.get("invalid_pairs", 0)
-    unsorted_pairs = bridge.get("unsorted_pairs", 0)
-    if missing_streams:
-        blockers.append(f"{missing_streams}/{bridge['pairs']} bridge pairs lack event streams")
-    if invalid_streams:
-        blockers.append(
-            f"{invalid_streams}/{bridge['pairs']} bridge pairs contain invalid events"
-        )
-    if unsorted_pairs:
-        blockers.append(f"{unsorted_pairs}/{bridge['pairs']} bridge pairs have invalid event ordering")
-    impure_pairs = preference["pairs"] - preference["same_context"]
-    if impure_pairs:
-        if preference["episode_pairs"]:
-            blockers.append(
-                f"{impure_pairs}/{preference['pairs']} preference pairs violate their "
-                "state/proposal or shared-goal context invariant"
-            )
-        else:
-            # Retain the established all-Thalamic diagnostic as a stable
-            # operator-facing contract for existing corpus reports.
-            blockers.append(
-                f"{impure_pairs}/{preference['pairs']} preference pairs change state or proposal"
-            )
-    if exact_duplicates:
-        blockers.append(f"{len(exact_duplicates)} exact duplicate records")
-    if episodes["hidden_thought_fields"]:
-        blockers.append(
-            f"{episodes['hidden_thought_fields']} hidden-thought fields "
-            "(thought / internal_reasoning*) appear in records"
-        )
-    if episodes["missing_decision_basis_steps"]:
-        blockers.append(
-            f"{episodes['missing_decision_basis_steps']} agentic turns lack a "
-            "non-empty textual decision_basis"
-        )
+    blockers = build_blockers(
+        record_errors=record_errors,
+        eligible_records=eligible_records,
+        quarantined_records=totals["quarantined"],
+        unresolved_warnings=unresolved_record_warnings,
+        duplicate_ids=duplicate_ids,
+        missing_root_ids=missing_root_ids,
+        provenance_bad=provenance_bad,
+        provenance_total=provenance_total,
+        bridge=bridge,
+        preference=preference,
+        exact_duplicates=exact_duplicates,
+        episodes=episodes,
+    )
 
     report = {
         "run_dir": str(run_dir),
         "totals": {
             "files": totals["files"],
             "records": total_records,
+            "eligible_records": eligible_records,
             "bytes": totals["bytes"],
             "approx_tokens": totals["approx_tokens"],
             "by_kind": dict(sorted(kinds.items())),
         },
         "factories": factory_output,
+        "mill_mix": mill_mix,
         "identity": {
             "top_level_id_records": root_id_records,
             "unique_top_level_ids": len(root_ids),
-            "coverage_pct": round(100 * root_id_records / total_records, 1) if total_records else 0,
+            "coverage_pct": (
+                round(100 * root_id_records / eligible_records, 1)
+                if eligible_records
+                else 0
+            ),
             "legacy_meta_fallback_records": canonical_id_records - root_id_records,
             "missing_top_level": len(missing_root_ids),
             "missing_all_id_forms": len(missing_ids),
@@ -711,16 +715,20 @@ def render_markdown(report):
         f"- **Scale:** {totals['files']} JSONL files, {totals['records']} records, "
         f"{totals['bytes']:,} bytes, approximately {totals['approx_tokens']:,} tokens",
         f"- **Kinds:** {json.dumps(totals['by_kind'], sort_keys=True)}",
+        f"- **Eligible after foreign-mill quarantine:** {totals['eligible_records']} "
+        f"({report['mill_mix']['records']} quarantined, "
+        f"`{json.dumps(report['mill_mix']['reason_codes'], sort_keys=True)}`)",
         f"- **Training-ready:** {'yes' if report['training_ready'] else 'no'}",
         "",
         "## Per factory",
         "",
-        "| Factory | Files | Records | Approx. tokens | Kinds |",
-        "|---|---:|---:|---:|---|",
+        "| Factory | Files | Records | Eligible | Approx. tokens | Kinds |",
+        "|---|---:|---:|---:|---:|---|",
     ]
     for factory, data in report["factories"].items():
         lines.append(
             f"| {factory} | {data['files']} | {data['records']} | "
+            f"{data['eligible_records']} | "
             f"{data['approx_tokens']:,} | `{json.dumps(data['by_kind'], sort_keys=True)}` |"
         )
     lines.extend(["", "## Training blockers", ""])
@@ -761,7 +769,11 @@ def parse_args(argv=None):
 
 def main(argv=None):
     args = parse_args(argv)
-    report = audit_run(Path(args.run_dir))
+    try:
+        report = audit_run(Path(args.run_dir))
+    except TransactionError as exc:
+        print(f"training_audit failed: {exc}", file=sys.stderr)
+        return 1
     if args.markdown:
         print(render_markdown(report), end="")
     else:
