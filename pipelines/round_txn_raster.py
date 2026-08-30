@@ -75,7 +75,7 @@ def jsonl_records(batch: Path):
                 parse_constant=reject_json_constant,
                 parse_float=_parse_finite_json_float,
             )
-        except (json.JSONDecodeError, ValueError) as exc:
+        except ValueError as exc:
             errors.append(f"{batch.name}:{lineno}: JSON parse error: {exc}")
             continue
         records.append((lineno, record))

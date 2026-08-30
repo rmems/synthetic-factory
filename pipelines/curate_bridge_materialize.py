@@ -136,7 +136,7 @@ def _read_manifest(path: Path, context: MaterializationContext) -> list[Any]:
             path.read_bytes().decode("utf-8"),
             parse_constant=context.reject_json_constant,
         )
-    except (OSError, UnicodeError, json.JSONDecodeError, ValueError) as exc:
+    except (OSError, ValueError) as exc:
         raise BridgeCurationError(f"invalid staged Bridge manifest: {exc}") from exc
     if not isinstance(document, list):
         raise BridgeCurationError("invalid staged Bridge manifest: expected a JSON array")
@@ -179,7 +179,7 @@ def _read_output_hashes(
                 line.decode("utf-8"),
                 parse_constant=context.reject_json_constant,
             )
-        except (UnicodeError, json.JSONDecodeError, ValueError) as exc:
+        except ValueError as exc:
             raise BridgeCurationError(f"invalid staged Bridge output {relative}: {exc}") from exc
         hashes.append(context.sha256_hex(context.canonical_json_bytes(record)))
     return hashes

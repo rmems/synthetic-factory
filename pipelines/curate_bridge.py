@@ -65,6 +65,7 @@ from curate_bridge_raster import (
     _validate_raster,
     _validate_third_factor as _raster_validate_third_factor,
 )
+from validate_run import SAFETY_DECISIONS
 
 # Compatibility re-exports used by downstream tests and integrations.  The
 # explicit assignments keep the ownership boundary visible to static analyzers.
@@ -115,6 +116,7 @@ REASON_GATE_SNN_INVALID = "BRIDGE_GATE_SNN_SPEC_INVALID"
 # neuron population with thresholds and a decision window, so a distillation
 # probe reads neuron counts instead of prose.
 GATE_SNN_KEY = "gate_snn"
+_SOURCE_LINE_ERROR = "source_line must be a positive integer"
 
 
 @dataclass(frozen=True)
@@ -230,8 +232,15 @@ def _expected_gate_decision(record: dict[str, Any]) -> str | None:
         view = record.get("language_view")
         trajectory = view.get("trajectory") if isinstance(view, dict) else None
         safety = trajectory.get("safety_decision") if isinstance(trajectory, dict) else None
-    decision = safety.get("decision") if isinstance(safety, dict) else None
-    return decision if isinstance(decision, str) and decision.strip() else None
+    if not isinstance(safety, dict):
+        return None
+    decision = safety.get("decision")
+    rationale = safety.get("rationale")
+    if decision not in SAFETY_DECISIONS:
+        return None
+    if not isinstance(rationale, str) or not rationale.strip():
+        return None
+    return decision
 
 
 def _declared(container: Any, key: str) -> tuple[bool, Any]:
@@ -403,6 +412,10 @@ def _raster_reasons(
     reason_codes: list[str] = []
     evidence: dict[str, Any] = {}
     state = _SidecarValidationState(reason_codes, evidence)
+    expected_gate_decision = _expected_gate_decision(record)
+    if require_routing_table and expected_gate_decision is None:
+        reason_codes.append(REASON_GATE_SNN_INVALID)
+        evidence["gate_snn_decision_valid"] = False
     raster_present = _validate_declared_sidecars(
         _raster_candidates(record),
         lambda value, reasons, details: _validate_raster(
@@ -432,7 +445,7 @@ def _raster_reasons(
             value,
             reason_codes=reasons,
             evidence=details,
-            expected_decision=_expected_gate_decision(record),
+            expected_decision=expected_gate_decision,
         ),
         state,
         "gate_snn",
@@ -598,7 +611,10 @@ def curate_record(
     options = _resolve_options(
         "curate_record",
         requirements,
-        {"require_raster": False, "require_routing_table": False},
+        {
+            "require_raster": False,
+            "require_routing_table": False,
+        },
     )
     require_raster = options["require_raster"]
     require_routing_table = options["require_routing_table"]
@@ -606,11 +622,11 @@ def curate_record(
     if not isinstance(source_path, str) or not source_path:
         raise BridgeCurationError("source_path must be a non-empty string")
     if not isinstance(source_line, int):
-        raise BridgeCurationError("source_line must be a positive integer")
+        raise BridgeCurationError(_SOURCE_LINE_ERROR)
     if isinstance(source_line, bool):
-        raise BridgeCurationError("source_line must be a positive integer")
+        raise BridgeCurationError(_SOURCE_LINE_ERROR)
     if source_line < 1:
-        raise BridgeCurationError("source_line must be a positive integer")
+        raise BridgeCurationError(_SOURCE_LINE_ERROR)
     if not isinstance(source_hash, str) or not source_hash:
         raise BridgeCurationError("source_hash must be a non-empty string")
 
@@ -887,7 +903,7 @@ def curate_jsonl(
             continue
         try:
             record = _parse_source_record(text)
-        except (json.JSONDecodeError, ValueError) as exc:
+        except ValueError as exc:
             decisions.append(
                 _source_failure_decision(
                     source_path=display_path,

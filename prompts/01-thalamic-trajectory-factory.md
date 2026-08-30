@@ -89,7 +89,8 @@ an SNN distillation run even though it is schema-valid as a trajectory.
   `language_view.trajectory.safety_decision`): each `per_check` entry needs
   `neurons` (>0), `mean_rate_hz` (>0), `window_s` (>0) and non-negative `spikes`
   meeting the same ±1 budget; a declared total must match at 23 pJ/spike. The first
-  declared carrier is the one validated, so do not leave a malformed one in place.
+  declared carrier is selected for canonical evidence, but every declared carrier
+  is validated; any malformed declaration rejects the record.
 - `prompts/03-neuromorphic-event-language-bridge.md` sections D and E carry the full
   sidecar contract; `pipelines/curate_bridge.py` is the single owner of the spike
   arithmetic that `publish`, `pipelines/training_audit.py`, and the probe all share.

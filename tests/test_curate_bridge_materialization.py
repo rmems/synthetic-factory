@@ -9,14 +9,12 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
-from types import SimpleNamespace
 from unittest import mock
 
 try:
-    from tests.test_curate_bridge import bridge, curate_bridge, event, gate_snn_fixture
+    from tests.test_curate_bridge import curate_bridge, event, gate_snn_fixture
 except ModuleNotFoundError:
     from test_curate_bridge import (  # type: ignore[no-redef]
-        bridge,
         curate_bridge,
         event,
         gate_snn_fixture,
@@ -29,11 +27,26 @@ import training_audit  # noqa: E402
 from census import visible_jsonl_paths  # noqa: E402
 
 
-def raster_sidecars():
-    """Return raster and gate sidecars in their producer representation."""
+def materialized_record(events, record_id):
+    """Return a strict-valid Bridge record with caller-selected events."""
 
     record = gate_snn_fixture()
-    return {"raster": record["raster"], "gate_snn": record["gate_snn"]}
+    record["id"] = record_id
+    record["spike_events"] = events
+    trajectory = record["language_view"]["trajectory"]
+    trajectory["id"] = f"{record_id}-trajectory"
+    trajectory["state"]["episode_id"] = record_id
+    return record
+
+
+def materialization_context():
+    return curate_bridge_materialize.MaterializationContext(
+        canonical_json_bytes=curate_bridge.canonical_json_bytes,
+        canonical_json_line=curate_bridge.canonical_json_line,
+        curate_paths=curate_bridge.curate_paths,
+        reject_json_constant=curate_bridge._reject_json_constant,
+        sha256_hex=curate_bridge.sha256_hex,
+    )
 
 
 class BridgeMaterialization(unittest.TestCase):
@@ -52,11 +65,8 @@ class BridgeMaterialization(unittest.TestCase):
         second = root / "factory-b" / "batch-r02.jsonl"
         first.parent.mkdir(parents=True)
         second.parent.mkdir(parents=True)
-        retained = {**bridge([event(1, "already")], "retain"), **raster_sidecars()}
-        repaired = {
-            **bridge([event(2, "late"), event(1, "early")], "repair"),
-            **raster_sidecars(),
-        }
+        retained = materialized_record([event(1, "already")], "retain")
+        repaired = materialized_record([event(2, "late"), event(1, "early")], "repair")
         first.write_text(
             "\n".join((json.dumps(retained), json.dumps(repaired), "")),
             encoding="utf-8",
@@ -117,6 +127,79 @@ class BridgeMaterialization(unittest.TestCase):
             {record["output_id"] for record in prepared["records"]},
             {"retain", "repair"},
         )
+
+    def test_materialization_quarantines_invalid_safety_supervision(self):
+        cases = ("missing", "non_object", "invalid_enum", "blank_rationale")
+        for case in cases:
+            with self.subTest(case=case), tempfile.TemporaryDirectory() as td:
+                temporary = Path(td)
+                source_root = temporary / "source"
+                relative = Path("factory-a/batch-r01.jsonl")
+                record = materialized_record([event(1, "gate")], f"bad-{case}")
+                safety = record["language_view"]["trajectory"]["safety_decision"]
+                if case == "missing":
+                    del record["language_view"]["trajectory"]["safety_decision"]
+                elif case == "non_object":
+                    record["language_view"]["trajectory"]["safety_decision"] = "ACCEPT"
+                elif case == "invalid_enum":
+                    safety["decision"] = "ALLOW"
+                    record["gate_snn"]["decision"] = "ALLOW"
+                else:
+                    safety["rationale"] = "   "
+                source = self._write_source(source_root, relative, [record])
+                output = temporary / "lane-bridge"
+
+                decisions = curate_bridge.materialize_paths(
+                    [source],
+                    source_root=source_root,
+                    output_dir=output,
+                )
+
+                self.assertEqual([decision.action for decision in decisions], ["quarantine"])
+                self.assertIn(
+                    curate_bridge.REASON_GATE_SNN_INVALID,
+                    decisions[0].manifest["reason_codes"],
+                )
+                self.assertFalse(
+                    decisions[0].manifest["evidence"]["raster"]["gate_snn_decision_valid"]
+                )
+                self.assertFalse((output / relative).exists())
+
+    def test_mixed_batch_cannot_hide_unsupervised_record_without_gate_head(self):
+        with tempfile.TemporaryDirectory() as td:
+            temporary = Path(td)
+            source_root = temporary / "source"
+            relative = Path("factory-a/batch-r01.jsonl")
+            unsupervised = materialized_record([event(1, "unsafe")], "unsupervised")
+            del unsupervised["language_view"]["trajectory"]["safety_decision"]
+            del unsupervised["gate_snn"]
+            supervised = materialized_record([event(2, "safe")], "supervised")
+            source = self._write_source(
+                source_root,
+                relative,
+                [unsupervised, supervised],
+            )
+            output = temporary / "lane-bridge"
+
+            decisions = curate_bridge.materialize_paths(
+                [source],
+                source_root=source_root,
+                output_dir=output,
+            )
+
+            self.assertEqual(
+                [decision.action for decision in decisions],
+                ["quarantine", "retain"],
+            )
+            self.assertIn(
+                curate_bridge.REASON_GATE_SNN_INVALID,
+                decisions[0].manifest["reason_codes"],
+            )
+            emitted = [
+                json.loads(line)
+                for line in (output / relative).read_text(encoding="utf-8").splitlines()
+            ]
+            self.assertEqual([record["id"] for record in emitted], ["supervised"])
 
     def test_materialization_refuses_clobber_and_preserves_existing_tree(self):
         with tempfile.TemporaryDirectory() as td:
@@ -214,7 +297,7 @@ class BridgeMaterialization(unittest.TestCase):
                 curate_bridge._safe_relative_path("../escape.jsonl", label="manifest_name")
 
     def test_staged_manifest_is_one_strict_json_document(self):
-        context = SimpleNamespace(reject_json_constant=curate_bridge._reject_json_constant)
+        context = materialization_context()
         with tempfile.TemporaryDirectory() as td:
             path = Path(td) / "manifest.json"
             path.write_bytes('[{"text":"left\u2028middle\u2029right"}]\r\n'.encode("utf-8"))

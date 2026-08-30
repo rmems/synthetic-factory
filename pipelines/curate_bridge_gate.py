@@ -28,6 +28,9 @@ from curate_bridge_raster import (
 )
 
 
+_NO_EXPECTED_DECISION = object()
+
+
 def _rate_aliases(container: dict[str, Any]) -> _PositiveAliases:
     return _positive_aliases(container, "mean_rate_hz", "rate_hz", alias_scale=1.0)
 
@@ -82,7 +85,7 @@ def _gate_window(spec: dict[str, Any], evidence: dict[str, Any]) -> tuple[float 
 
 def _gate_decision(
     spec: dict[str, Any],
-    expected_decision: str | None,
+    expected_decision: str | None | object,
     evidence: dict[str, Any],
 ) -> bool:
     decision = spec.get("decision")
@@ -91,9 +94,12 @@ def _gate_decision(
         return False
     normalized = decision.strip().upper()
     evidence["gate_snn_decision"] = normalized
-    if expected_decision is None:
+    if expected_decision is _NO_EXPECTED_DECISION:
         evidence["gate_snn_decision_valid"] = True
         return True
+    if expected_decision is None:
+        evidence["gate_snn_decision_valid"] = False
+        return False
     expected = expected_decision.strip().upper()
     evidence["gate_snn_expected_decision"] = expected
     evidence["gate_snn_decision_valid"] = normalized == expected
@@ -157,7 +163,9 @@ def _gate_population(
         return True, False, neurons
     if budget == "invalid":
         return False, True, neurons
-    spikes = population["spikes"]
+    spikes = _nonnegative_json_integer(population["spikes"])
+    if spikes is None:
+        return False, True, neurons
     if abs(spikes - expected) <= 1:
         return True, False, neurons
     state.reason_codes.append(REASON_RASTER_SPIKE_BUDGET)
@@ -220,7 +228,7 @@ def _validate_gate_snn(
     *,
     reason_codes: list[str],
     evidence: dict[str, Any],
-    expected_decision: str | None = None,
+    expected_decision: str | None | object = _NO_EXPECTED_DECISION,
 ) -> None:
     """Validate a spike gate through small fail-closed contract checks."""
 
@@ -252,13 +260,14 @@ def _gate_check(
     rate = _rate_aliases(check)
     window = _compute_window_aliases(check)
     neurons = check.get("neurons")
-    spikes = check.get("spikes")
+    spikes = _nonnegative_json_integer(check.get("spikes"))
     shape_valid = _gate_shape_valid(neurons, rate, window, spikes)
     if not shape_valid:
         return _invalid_gate_check(index, reason_codes, evidence)
     expected = _expected_spikes(neurons, float(rate.primary), float(window.primary))
-    if expected is not None and abs(spikes - expected) <= 1:
-        return True
+    if expected is not None:
+        if abs(spikes - expected) <= 1:
+            return True
     _append_mismatch(
         evidence.setdefault("gate_compute_spike_mismatches", []), index, expected, spikes
     )

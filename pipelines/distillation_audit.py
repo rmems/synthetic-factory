@@ -100,13 +100,11 @@ class DistillationAudit:
         self._observe_gate(status, batch)
 
     def _raster_quality_observer(self, status):
-        return (
-            self._observe_missing_raster
-            if not status["raster_present"]
-            else self._observe_defective_raster
-            if status["reason_codes"]
-            else self._observe_valid_raster
-        )
+        if not status["raster_present"]:
+            return self._observe_missing_raster
+        if status["reason_codes"]:
+            return self._observe_defective_raster
+        return self._observe_valid_raster
 
     def _observe_missing_raster(self, _status, where):
         self.metrics["raster_missing_pairs"] += 1

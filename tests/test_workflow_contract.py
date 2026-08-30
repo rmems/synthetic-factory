@@ -9,6 +9,7 @@ REPO = Path(__file__).resolve().parents[1]
 WORKFLOW = REPO / ".claude" / "skills" / "run-synthetic-factory" / "factory-window.workflow.js"
 PROMPTS = REPO / "prompts"
 DOCS = REPO / "docs" / "token-efficiency.md"
+QODANA_WORKFLOW = REPO / ".github" / "workflows" / "qodana.yml"
 
 sys.path.insert(0, str(REPO / "pipelines"))
 import round_txn  # noqa: E402
@@ -169,6 +170,34 @@ class RasterGateProducerContract(unittest.TestCase):
                 self.assertIn("`raster`", text)
                 self.assertIn("`gate_snn`", text)
                 self.assertIn("schemas/raster.schema.json", text)
+
+    def test_gate_compute_prompts_describe_all_carrier_validation(self):
+        for name in (
+            "01-thalamic-trajectory-factory.md",
+            "02-multi-agent-ouroboros-swarm.md",
+        ):
+            text = " ".join(self.prompts[name].split())
+            with self.subTest(prompt=name):
+                self.assertIn("first declared carrier is selected", text)
+                self.assertIn("every declared carrier", text)
+                self.assertIn("any malformed declaration rejects the record", text)
+                self.assertNotIn("first declared carrier is the one validated", text)
+
+
+class QodanaWorkflowContract(unittest.TestCase):
+    def test_pull_requests_scan_only_changed_files(self):
+        text = QODANA_WORKFLOW.read_text(encoding="utf-8")
+        self.assertIn("pr-mode: ${{ github.event_name == 'pull_request' }}", text)
+        self.assertNotIn("pr-mode: false", text)
+
+    def test_actions_are_pinned_without_persisted_checkout_credentials(self):
+        text = QODANA_WORKFLOW.read_text(encoding="utf-8")
+        self.assertIn("actions/checkout@11d5960a326750d5838078e36cf38b85af677262", text)
+        self.assertIn(
+            "JetBrains/qodana-action@4861e015da555e86a72b862892aba6c2b93e6891",
+            text,
+        )
+        self.assertIn("persist-credentials: false", text)
 
 
 if __name__ == "__main__":

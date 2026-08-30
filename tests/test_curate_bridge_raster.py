@@ -81,6 +81,26 @@ class RasterAndGateSnnCuration(unittest.TestCase):
         self.assertFalse(status["raster_valid"])
         self.assertIn(curate_bridge.REASON_RASTER_EXCERPT, status["reason_codes"])
 
+    def test_raster_window_schema_bounds_are_exact_in_both_units(self):
+        for window_ms, window_s in (
+            (50.0000000005, 0.0500000000005),
+            (50, 0.0500000000005),
+            (19.9999999995, 0.0199999999995),
+        ):
+            with self.subTest(window_ms=window_ms, window_s=window_s):
+                record = gate_snn_fixture()
+                record["raster"]["window_ms"] = window_ms
+                record["raster"]["window_s"] = window_s
+
+                status = curate_bridge.raster_status(record)
+
+                self.assertFalse(status["raster_valid"])
+                self.assertFalse(status["evidence"]["raster_window_valid"])
+                self.assertIn(
+                    curate_bridge.REASON_RASTER_WINDOW,
+                    status["reason_codes"],
+                )
+
     def test_integral_json_number_timestamp_matches_schema_integer_semantics(self):
         record = gate_snn_fixture()
         record["raster"]["excerpt"][0]["t_us"] = 800.0
@@ -348,7 +368,7 @@ class RasterAndGateSnnCuration(unittest.TestCase):
             {
                 "state": {"sim_or_real": "designed"},
                 "proposed_action": {"action": "noop"},
-                "safety_decision": {"decision": "REJECT"},
+                "safety_decision": {"decision": "REJECT", "rationale": "blocked"},
                 "executed_action": {"action": "noop"},
                 "future_outcome": {"success": True},
                 "reward_components": {"total": 1.0},

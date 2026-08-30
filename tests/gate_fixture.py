@@ -20,6 +20,7 @@ import curate_identity  # noqa: E402
 import curate_rewards  # noqa: E402
 
 BRIDGE_FIXTURE = REPO / "tests" / "fixtures" / "bridge_gate_snn.jsonl"
+REWARD_SIDECARS_FILE = "reward-sidecars.jsonl"
 
 
 def _distillation_sidecars(decision="ACCEPT"):
@@ -281,8 +282,8 @@ _INTEGRATION_PLAN = {
             "artifacts": [
                 {
                     "kind": "reward_source_sidecars",
-                    "path": "lane-reward/reward-sidecars.jsonl",
-                    "destination": "reward-sidecars.jsonl",
+                    "path": f"lane-reward/{REWARD_SIDECARS_FILE}",
+                    "destination": REWARD_SIDECARS_FILE,
                 }
             ],
         },
@@ -436,7 +437,7 @@ class GateFixture:
         self.manifest_paths = []
         for lane_index in range(len(self.lanes)):
             self.sync_lane_manifest(lane_index)
-        with (self.lane_reward / "reward-sidecars.jsonl").open("w", encoding="utf-8") as handle:
+        with (self.lane_reward / REWARD_SIDECARS_FILE).open("w", encoding="utf-8") as handle:
             for sidecar in self.reward_sidecars:
                 handle.write(json.dumps(sidecar, ensure_ascii=False, sort_keys=True) + "\n")
 
@@ -455,7 +456,7 @@ class GateFixture:
         lane_dir, transform, version = self.lanes[lane_index]
         entries = []
         for path in sorted(lane_dir.rglob("*.jsonl")):
-            if path.name == "reward-sidecars.jsonl":
+            if path.name == REWARD_SIDECARS_FILE:
                 continue
             relative = path.relative_to(lane_dir).as_posix()
             records = _read_jsonl(path)

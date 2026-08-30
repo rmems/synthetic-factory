@@ -15,6 +15,7 @@ import sys
 import tempfile
 import unittest
 from contextlib import redirect_stderr, redirect_stdout
+from fractions import Fraction
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
@@ -80,6 +81,25 @@ class NormalizeRaster(unittest.TestCase):
         self.assertIsInstance(raster["neurons"], int)
         self.assertIsInstance(raster["spikes"], int)
         self.assertEqual(raster["energy_pJ"], 123 * 23)
+
+    def test_integral_gate_population_counts_are_normalized_without_mutation(self):
+        record = gate_snn_record()
+        populations = record["gate_snn"]["populations"]
+        for population in populations:
+            population["neurons"] = json.loads("6.4e1")
+            population["spikes"] = float(population["spikes"])
+        original_threshold = populations[0]["threshold"]
+
+        raster = spike_probe.normalize_raster(record)
+
+        self.assertIsNotNone(raster)
+        emitted = raster["gate_snn"]["populations"]
+        for population in emitted:
+            self.assertIsInstance(population["neurons"], int)
+            self.assertIsInstance(population["spikes"], int)
+        self.assertEqual(emitted[0]["threshold"], original_threshold)
+        self.assertIsInstance(populations[0]["neurons"], float)
+        self.assertIsInstance(populations[0]["spikes"], float)
 
     def test_declared_channel_is_preserved_or_rejected_by_type(self):
         self.assertEqual(
@@ -504,7 +524,7 @@ class FiniteProbeEnergy(unittest.TestCase):
         raster["window_s"] = 0.05
         raster["neurons"] = 1
         raster["mean_rate_hz"] = 1.7e308
-        raster["spikes"] = round(1.0 * 1.7e308 * 0.05)
+        raster["spikes"] = round(Fraction(str(1.7e308)) * Fraction(str(0.05)))
         raster["excerpt"] = [{"t_us": 1000, "neuron_id": 0}]
         # No declared energy: the record is schema-valid, and only the derived
         # 23 pJ/spike product leaves the IEEE-754 double range.

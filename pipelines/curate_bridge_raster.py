@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
+from fractions import Fraction
 from typing import Any
 
 
@@ -37,15 +38,24 @@ def _is_finite_number(value: Any) -> bool:
     )
 
 
-def _expected_spikes(neurons: int, mean_rate_hz: float, window_s: float) -> int | None:
-    try:
-        product = float(neurons) * float(mean_rate_hz) * float(window_s)
-    except OverflowError:
+def _expected_spikes(neurons: Any, mean_rate_hz: float, window_s: float) -> int | None:
+    normalized_neurons = _nonnegative_json_integer(neurons)
+    if normalized_neurons is None or _finite_float(normalized_neurons) is None:
         return None
-    if not math.isfinite(product):
+    rate = _finite_float(mean_rate_hz)
+    window = _finite_float(window_s)
+    if rate is None or window is None:
+        return None
+    scale = rate * window
+    if not math.isfinite(scale):
         return None
     try:
-        return int(round(product))
+        # Keep the validated JSON integer exact and interpret the two numeric
+        # factors using their JSON-decimal spellings.  Converting either the
+        # population or the final product to float can erase many spike units
+        # above 2**53; multiplying the binary approximation of 0.1 by a large
+        # population can also magnify representation noise into false defects.
+        return round(Fraction(str(rate)) * Fraction(str(window)) * normalized_neurons)
     except (OverflowError, ValueError):
         return None
 
@@ -222,8 +232,11 @@ def _raster_window(
         alias_evidence_key="raster_window_ms_derived",
         evidence=evidence,
     )
-    in_range = window.valid and (
-        RASTER_WINDOW_MIN_MS - 1e-9 <= float(window.alias) <= RASTER_WINDOW_MAX_MS + 1e-9
+    in_range = window.valid and all(
+        (
+            RASTER_WINDOW_MIN_MS <= float(window.alias) <= RASTER_WINDOW_MAX_MS,
+            RASTER_WINDOW_MIN_MS / 1000 <= float(window.primary) <= RASTER_WINDOW_MAX_MS / 1000,
+        )
     )
     valid = in_range and window.consistent
     evidence["raster_window_ms"] = window.alias
@@ -280,13 +293,11 @@ def _raster_energy_field(
     expected: float | int | None,
     tolerance: float,
 ) -> bool:
-    return (
-        expected is not None
-        and _is_finite_number(expected)
-        and _is_finite_number(value)
-        and value >= 0
-        and abs(value - expected) <= tolerance
-    )
+    if expected is None or not _is_finite_number(expected):
+        return False
+    if not _is_finite_number(value) or value < 0:
+        return False
+    return abs(value - expected) <= tolerance
 
 
 def _invalid_declared_energy_keys(raster: dict[str, Any]) -> list[str]:

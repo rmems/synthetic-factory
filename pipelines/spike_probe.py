@@ -78,6 +78,34 @@ def _json_integer(value: Any) -> int | None:
     return int(value)
 
 
+def _normalized_gate_population(value: Any) -> Any:
+    """Copy one gate population with schema-integer fields normalized."""
+
+    if not isinstance(value, dict):
+        return value
+    normalized = dict(value)
+    for key in ("neurons", "spikes"):
+        if key in value:
+            integer = _json_integer(value[key])
+            if integer is not None:
+                normalized[key] = integer
+    return normalized
+
+
+def _normalized_gate_snn(value: Any) -> dict[str, Any] | None:
+    """Copy a validated gate head with schema-integer fields normalized."""
+
+    if not isinstance(value, dict):
+        return None
+    normalized = dict(value)
+    populations = value.get("populations")
+    if isinstance(populations, list):
+        normalized["populations"] = [
+            _normalized_gate_population(population) for population in populations
+        ]
+    return normalized
+
+
 def _finite(value: Any) -> bool:
     if _is_exact_int(value):
         return True
@@ -172,7 +200,7 @@ def normalize_raster(record: Any, *, source: str | None = None) -> dict[str, Any
         # that this module's own reader (reject_json_constant) refuses.
         "energy_pJ": spikes * RASTER_ENERGY_PJ_PER_SPIKE if spikes is not None else None,
         "routing": _routing(raster),
-        "gate_snn": gate_snn if isinstance(gate_snn, dict) else None,
+        "gate_snn": _normalized_gate_snn(gate_snn),
         "events": _events_us(raster),
     }
     return normalized
@@ -300,7 +328,7 @@ def _parse_record(line: str) -> tuple[Any, str | None]:
             parse_constant=reject_json_constant,
             parse_float=_parse_finite_json_float,
         )
-    except (json.JSONDecodeError, ValueError):
+    except ValueError:
         return None, REASON_INVALID_JSON
     return record, None
 

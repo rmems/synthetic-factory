@@ -2449,15 +2449,15 @@ def _reservation_expected_records(factory_dir, reservation):
     if not _is_positive_int(expected):
         raise TransactionError("reservation has an invalid expected_records value")
     configured_quota = FACTORY_QUOTAS.get(factory_dir.name)
-    if (
+    fixed_quota = (
         factory_dir.name in AGENTIC_FACTORY_KINDS
         or factory_dir.name == PREFERENCE_ISOLATION_FACTORY
-    ):
-        if expected != configured_quota:
-            raise TransactionError(
-                f"reservation for {factory_dir.name} requires exactly "
-                f"{configured_quota} records; found {expected}"
-            )
+    )
+    if fixed_quota and expected != configured_quota:
+        raise TransactionError(
+            f"reservation for {factory_dir.name} requires exactly "
+            f"{configured_quota} records; found {expected}"
+        )
     return expected
 
 
