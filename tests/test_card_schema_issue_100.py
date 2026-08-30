@@ -140,6 +140,23 @@ def _case_type_spread(records, field):
     )
 
 
+def _annotation_free(record):
+    """True when a record omits `trigger` and all three case extras."""
+    return "trigger" not in record and not any(
+        field in record for field in _ANNOTATION_EXTRAS
+    )
+
+
+def _disclosed_ids(declaration):
+    """Every record id listed by the structured disclosure entries."""
+    return {
+        record_id
+        for item in declaration["disclosures"]
+        if isinstance(item, dict)
+        for record_id in item["ids"]
+    }
+
+
 class SafetyCalibrationDeclarationTests(unittest.TestCase):
     """Issue #40: `reward.recovered_overrefusal` plus mutually exclusive extras.
 
@@ -444,17 +461,9 @@ class SafetyCalibrationDeclarationTests(unittest.TestCase):
     def test_the_eighteen_annotation_free_records_are_the_disclosed_ids(self):
         _shards, records = _scan_mirror()
         gap = [
-            (shard, record)
-            for shard, record in records
-            if "trigger" not in record
-            and not any(f in record for f in _ANNOTATION_EXTRAS)
+            (shard, record) for shard, record in records if _annotation_free(record)
         ]
-        declared_ids = {
-            record_id
-            for item in self.declaration["disclosures"]
-            if isinstance(item, dict)
-            for record_id in item["ids"]
-        }
+        declared_ids = _disclosed_ids(self.declaration)
         self.assertEqual(declared_ids, {r["id"] for _s, r in gap})
         self.assertEqual(len(gap), 18)
         self.assertEqual(
