@@ -1,0 +1,21 @@
+pipelines/quality_gate_embedding.py
+  s_98712805c1499b::t_de203f334929f5 17,109-141,148,150-151,490,492,517,519
+tests/test_quality_gate_embedding_encoder.py
+  s_98712805c1499b::t_de203f334929f5 17,20-21,28-48
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "ce157b41ee22e9bd24b5adc367e5b5ba8692feaf",
+  "prompts": {},
+  "sessions": {
+    "s_98712805c1499b": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a04a1f-1e33-7812-a5aa-c7b04b33b6b5",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Raul Montoya Cardenas <montoyaraul34@gmail.com>"
+    }
+  }
+}
