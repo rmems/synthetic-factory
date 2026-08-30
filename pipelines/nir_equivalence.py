@@ -85,6 +85,11 @@ VALIDATION_DATA_ERRORS = CANONICAL_DATA_ERRORS + (KeyError, IndexError, Attribut
 # be marked executed here.
 RUNTIME_CLASSES = ("in_repo_reference", "upstream_runtime")
 
+# The one pairing this family measures. Free text here would let a record
+# advertise an execution its runtime entries do not substantiate, so
+# validation pins it to this canonical value.
+ORACLE_PAIRING = "cross-runtime NIR execution"
+
 STATEFUL_TYPES = frozenset({"LIF", "IF", "LI", "Delay"})
 ALL_KNOWN_TYPES = frozenset(
     {"Input", "Output", "Affine", "Linear", "LIF", "IF", "LI", "Delay", "Threshold"}
@@ -1489,7 +1494,7 @@ def build_record(scenario, entries, round_number):
         "intervention": copy.deepcopy(scenario["intervention"]),
         "candidate_prediction": prediction,
         "oracle": {
-            "pairing": "cross-runtime NIR execution",
+            "pairing": ORACLE_PAIRING,
             "runtimes": entries,
             "identical_input_fixture": True,
             "input_fixture": copy.deepcopy(scenario["input_fixture"]),
@@ -2156,6 +2161,13 @@ def _validate_record(record, where):
     # below and raise deep inside the comparison, so stop it here.
     if not isinstance(oracle, dict):
         return errors + [f"{where}: oracle must be an object [ENVELOPE_MALFORMED]"]
+    # Execution-facing oracle metadata is validated, not trusted: free text
+    # here could advertise an execution the runtime entries never ran.
+    if oracle.get("pairing") != ORACLE_PAIRING:
+        errors.append(
+            f"{where}: oracle.pairing must be the canonical {ORACLE_PAIRING!r} "
+            "[ENVELOPE_MALFORMED]"
+        )
     errors += _check_runtimes(record, where)
     result = record.get("result")
     if isinstance(result, dict) and lineage is not None:
@@ -2184,7 +2196,14 @@ def _validate_record(record, where):
 
     errors += _check_evidence_scope_field(oracle, where)
 
-    if not graph_shape_valid or not stimulus_shape_valid:
+    # Never execute a graph that failed any structural or catalog check: the
+    # graph (and its node sizes / delay depths) is record-controlled, and the
+    # in-repo interpreters allocate state proportional to those declared
+    # values. `graph_shape_valid` only says `structural_digest` could
+    # traverse the object, so gating on it alone would let one JSONL entry
+    # whose digest already failed the catalog binding exhaust memory before
+    # its accumulated errors are ever returned.
+    if graph_errors or not graph_shape_valid or not stimulus_shape_valid:
         return errors
     errors += _reexecute_in_repo_runtimes(record, where)
     if errors:
@@ -2341,8 +2360,15 @@ def build_training_views(records, source="record"):
     validation_errors = validate_records(records, source=source)
     if validation_errors:
         return [], validation_errors
+    # Authenticate the batch against the fixed graph catalog before
+    # projecting it: a pre-filtered input would otherwise pass every view/set
+    # check against its own subset while silently dropping the divergences
+    # the round produced. Runs after per-record validation, which bound each
+    # scenario id and round to its own evidence.
+    errors = contract.catalog_batch_errors(
+        records, list(_GRAPH_CATALOG_BY_ID), source
+    )
     views = [training_view(record) for record in records]
-    errors = []
     for index, (record, view) in enumerate(zip(records, views), 1):
         errors += training_view_errors(record, view, f"{source}:{index}")
     errors += contract.view_set_errors(records, views, source)

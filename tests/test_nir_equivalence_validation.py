@@ -63,6 +63,62 @@ class Validation(unittest.TestCase):
         errors = nir.validate_record(record, WHERE)
         self.assertTrue(any("DIVERGENCE_SUPPRESSED" in error for error in errors))
 
+    def test_oracle_pairing_is_bound_to_the_canonical_value(self):
+        # `pairing` is execution-facing oracle metadata: free text here could
+        # advertise an execution the runtime entries never ran.
+        record = copy.deepcopy(self.records[0])
+        record["oracle"]["pairing"] = "an FPGA physically executed this graph"
+        errors = nir.validate_record(record, WHERE)
+        self.assertTrue(
+            any(
+                "oracle.pairing" in error and "ENVELOPE_MALFORMED" in error
+                for error in errors
+            ),
+            errors,
+        )
+
+    def test_catalog_mismatched_graph_is_never_executed(self):
+        # The graph is record-controlled and the interpreters allocate state
+        # proportional to declared node sizes and delay depths, so a graph
+        # whose digest already failed the catalog binding must be rejected
+        # before re-execution, not merely after it returns.
+        record = copy.deepcopy(
+            next(
+                item
+                for item in _fixture_records()
+                if "Delay" in {
+                    node.get("type")
+                    for node in item["scenario"]["graph"]["nodes"].values()
+                }
+            )
+        )
+        delay = next(
+            node
+            for node in record["scenario"]["graph"]["nodes"].values()
+            if node.get("type") == "Delay"
+        )
+        delay["delay"] = 10**9
+        delay["size"] = 10**9
+
+        original = nir._reexecute_in_repo_runtimes
+        calls = []
+
+        def sentinel(*args, **kwargs):
+            # Never run the real interpreters here: with the gate broken the
+            # inflated buffer would exhaust memory instead of failing fast.
+            calls.append(args)
+            return []
+
+        nir._reexecute_in_repo_runtimes = sentinel
+        try:
+            errors = nir.validate_record(record, WHERE)
+        finally:
+            nir._reexecute_in_repo_runtimes = original
+        self.assertEqual(calls, [], "re-execution ran on a catalog-failed graph")
+        self.assertTrue(
+            any("STRUCTURE_DIGEST_MISMATCH" in error for error in errors), errors
+        )
+
     def test_fabricated_output_trace_is_caught_by_re_execution(self):
         record = copy.deepcopy(self.records[0])
         entry = next(

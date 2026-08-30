@@ -770,3 +770,49 @@ def view_set_errors(records, views, where="training-view"):
     errors = _view_id_validity_errors(record_ids, view_ids, where)
     errors += _view_id_mapping_errors(record_ids, view_ids, where)
     return errors
+
+
+def catalog_batch_errors(records, catalog_ids, where="training-view"):
+    """Each round in the batch must cover the fixed scenario catalog exactly.
+
+    `view_set_errors` proves the views mirror the records it was handed, but
+    that is vacuous when the input file was already filtered: a batch with
+    only the agreeable scenarios retained projects into a view set that
+    passes every per-record and set check while silently omitting the
+    failures the round actually produced. Generation always emits exactly
+    one record per catalog scenario per round, so that catalog is the ground
+    truth this authentication replays. Callers run it only after per-record
+    validation, which is what binds each record's scenario id and round to
+    its own evidence.
+    """
+    expected = Counter(catalog_ids)
+    scenario_ids_by_round = {}
+    for record in records:
+        meta = record.get("meta") if isinstance(record, dict) else None
+        round_number = meta.get("round") if isinstance(meta, dict) else None
+        scenario = record.get("scenario") if isinstance(record, dict) else None
+        scenario_id = scenario.get("id") if isinstance(scenario, dict) else None
+        scenario_ids_by_round.setdefault(round_number, Counter())[scenario_id] += 1
+    errors = []
+    if not scenario_ids_by_round:
+        errors.append(
+            f"{where}: no records to project; a training-view batch must carry "
+            "at least one complete catalog round [TRAINING_VIEW_HIDES_FAILURE]"
+        )
+    for round_number in sorted(scenario_ids_by_round, key=repr):
+        got = scenario_ids_by_round[round_number]
+        if got == expected:
+            continue
+        missing = sorted((expected - got).elements(), key=repr)
+        surplus = sorted((got - expected).elements(), key=repr)
+        detail = []
+        if missing:
+            detail.append(f"missing catalog scenarios {missing}")
+        if surplus:
+            detail.append(f"carrying scenarios outside the catalog count {surplus}")
+        errors.append(
+            f"{where}: round {round_number!r} does not cover the scenario catalog "
+            f"exactly once ({'; '.join(detail)}); a filtered batch cannot be "
+            "projected into training views [TRAINING_VIEW_HIDES_FAILURE]"
+        )
+    return errors

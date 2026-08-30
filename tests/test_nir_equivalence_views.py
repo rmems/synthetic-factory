@@ -97,6 +97,27 @@ class TrainingViews(unittest.TestCase):
         errors = contract.view_set_errors(records, views)
         self.assertTrue(any("TRAINING_VIEW_HIDES_FAILURE" in error for error in errors))
 
+    def test_prefiltered_batch_fails_catalog_authentication(self):
+        # The view/set checks compare views against the records they were
+        # handed, which is vacuous when the input file was already filtered;
+        # the batch itself must cover the fixed graph catalog.
+        records = _fixture_records()
+        retained = [
+            record
+            for record in records
+            if record["result"]["verdict"] == contract.VERDICT_MATCH
+        ]
+        self.assertTrue(retained and len(retained) < len(records))
+        views, errors = nir.build_training_views(retained, source="filtered")
+        self.assertTrue(
+            any(
+                "does not cover the scenario catalog" in error
+                and "TRAINING_VIEW_HIDES_FAILURE" in error
+                for error in errors
+            ),
+            errors,
+        )
+
     def test_completion_is_rederived_instead_of_copying_summary(self):
         record = copy.deepcopy(_fixture_records()[0])
         record["result"]["summary"] = "fabricated completion"

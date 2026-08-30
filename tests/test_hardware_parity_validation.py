@@ -250,6 +250,46 @@ class Validation(unittest.TestCase):
         errors = hp.validate_record(record, WHERE)
         self.assertTrue(any("PARITY_METRIC_MISMATCH" in error for error in errors), errors)
 
+    def test_paired_record_requires_an_empty_unavailable_list(self):
+        # A validated record must never simultaneously claim a completed
+        # deployment and an unavailable oracle, and consumers rely on the
+        # documented array shape.
+        fabricated = [
+            {
+                "adapter": "spikenaut_fpga",
+                "execution_target": "fpga_hardware",
+                "reason_code": "NO_BOARD",
+                "detail": "fabricated diagnostic on a paired record",
+            }
+        ]
+        for value in (fabricated, "not-an-array", None):
+            with self.subTest(value=value):
+                record = copy.deepcopy(self.records[0])
+                record["oracle"]["unavailable"] = value
+                errors = hp.validate_record(record, WHERE)
+                self.assertTrue(
+                    any(
+                        "oracle.unavailable" in error
+                        and "ENVELOPE_MALFORMED" in error
+                        for error in errors
+                    ),
+                    errors,
+                )
+
+    def test_oracle_pairing_is_bound_to_the_canonical_value(self):
+        # `pairing` is execution-facing oracle metadata: free text here could
+        # advertise an execution the checked adapter legs never ran.
+        record = copy.deepcopy(self.records[0])
+        record["oracle"]["pairing"] = "an FPGA physically executed this network"
+        errors = hp.validate_record(record, WHERE)
+        self.assertTrue(
+            any(
+                "oracle.pairing" in error and "ENVELOPE_MALFORMED" in error
+                for error in errors
+            ),
+            errors,
+        )
+
 
 class ReSimulationGate(unittest.TestCase):
     """The traces themselves must be re-derivable, not merely self-consistent.
@@ -444,6 +484,32 @@ class DeterminismEvidence(unittest.TestCase):
         record["oracle"]["deployment"]["repeats"] = 500
         errors = hp.validate_record(record, WHERE)
         self.assertTrue(any("REPEATABILITY_UNPROVEN" in error for error in errors))
+
+    def test_boolean_cannot_impersonate_the_distinct_digest_count(self):
+        # Python treats True == 1, and an unpaired record has no result.parity
+        # to catch the substitution through a second strict comparison, so the
+        # determinism check itself must require an exact non-Boolean integer.
+        scenario = hp.build_scenarios(steps=4)[0]
+        adapter = oracle.FpgaHardwareAdapter(env={})
+        software, deployment, unavailable = hp.run_pair(scenario, adapter, repeats=2)
+        record = hp.build_record(
+            scenario,
+            software,
+            deployment,
+            unavailable,
+            1,
+            oracle.availability_report(env={})["spikenaut_fpga"],
+        )
+        self.assertEqual(hp.validate_record(copy.deepcopy(record), WHERE), [])
+        record["oracle"]["software"]["determinism"]["distinct_digests"] = True
+        errors = hp.validate_record(record, WHERE)
+        self.assertTrue(
+            any(
+                "distinct_digests" in error and "REPEATABILITY_UNPROVEN" in error
+                for error in errors
+            ),
+            errors,
+        )
 
     def test_output_digest_must_appear_among_the_repeats(self):
         record = copy.deepcopy(self.record)

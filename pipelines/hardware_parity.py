@@ -93,6 +93,11 @@ VALIDATION_DATA_ERRORS = (
     AttributeError,
 )
 
+# The one pairing this family measures. Free text here would let a record
+# advertise an execution (e.g. a live FPGA) that its adapter legs do not
+# substantiate, so validation pins it to this canonical value.
+ORACLE_PAIRING = "software_simulator <-> deployment_target"
+
 GENERATOR_BLOCK = {
     "name": "synthetic-factory.hardware_parity.scenario_catalog",
     "model": "deterministic-stdlib-catalog",
@@ -722,7 +727,7 @@ def build_record(scenario, software_run, deployment_run, unavailable, round_numb
     # other, which is precisely the failure mode these records exist to catch.
     fixture = copy.deepcopy(scenario["input_fixture"])
     oracle = {
-        "pairing": "software_simulator <-> deployment_target",
+        "pairing": ORACLE_PAIRING,
         "input_fixture": fixture,
         "identical_input_fixture": True,
         "software": None,
@@ -1691,7 +1696,10 @@ def _capture_identity_errors(source, deployment, payload, where):
                 "[HW_PROVENANCE_MISSING]"
             )
     source_quantization = source.get("quantization") or payload.get("quantization")
-    if source_quantization != deployment.get("quantization"):
+    # Strict JSON typing: an ordinary `!=` treats False as 0, letting a
+    # capture source violate the documented quantization types while still
+    # binding to the deployment.
+    if not contract.strict_json_equal(source_quantization, deployment.get("quantization")):
         errors.append(
             f"{where}: deployment quantization is not the conversion stored with the "
             "capture [Q88_PROVENANCE_MISMATCH]"
@@ -1713,7 +1721,11 @@ def _capture_projection_errors(deployment, payload, where):
     }
     errors = []
     for key, expected in normalized_payload.items():
-        if deployment.get(key) != expected:
+        # Strict JSON typing: `True == 1` under an ordinary comparison, so a
+        # payload observation could violate its documented shape (for example
+        # latency.measured as an integer) while still projecting onto the
+        # deployment.
+        if not contract.strict_json_equal(deployment.get(key), expected):
             errors.append(
                 f"{where}: oracle.deployment.{key} is not the observation stored in "
                 "capture.source.payload [HW_PROVENANCE_MISSING]"
@@ -2202,10 +2214,18 @@ def _check_determinism(
             "[REPEATABILITY_UNPROVEN]"
         ]
     distinct = len(set(digests))
-    if determinism.get("distinct_digests") != distinct:
+    recorded_distinct = determinism.get("distinct_digests")
+    # `bool` is an `int` subclass, so `True == 1`: an ordinary comparison
+    # would accept a Boolean where the documented evidence shape is an exact
+    # integer count.
+    if (
+        not isinstance(recorded_distinct, int)
+        or isinstance(recorded_distinct, bool)
+        or recorded_distinct != distinct
+    ):
         errors.append(
             f"{where}: oracle.{label}.determinism.distinct_digests claims "
-            f"{determinism.get('distinct_digests')!r} but the repeat digests contain "
+            f"{recorded_distinct!r} but the repeat digests contain "
             f"{distinct} [REPEATABILITY_UNPROVEN]"
         )
     if determinism.get("identical_repeats") is not (distinct == 1):
@@ -2252,6 +2272,13 @@ def _validate_record(record, where):
     # below and raise deep inside a metric function, so stop it here.
     if not isinstance(oracle, dict):
         return errors + [f"{where}: oracle must be an object [ENVELOPE_MALFORMED]"]
+    # Execution-facing oracle metadata is validated, not trusted: free text
+    # here could advertise a pairing the checked adapter legs never ran.
+    if oracle.get("pairing") != ORACLE_PAIRING:
+        errors.append(
+            f"{where}: oracle.pairing must be the canonical {ORACLE_PAIRING!r} "
+            "[ENVELOPE_MALFORMED]"
+        )
     scenario = record.get("scenario")
     if not isinstance(scenario, dict):
         return errors
@@ -2334,6 +2361,15 @@ def _validate_record(record, where):
         return errors + [
             f"{where}: oracle.deployment must be an object or absent [ENVELOPE_MALFORMED]"
         ]
+
+    # A paired record has no unavailable oracle to diagnose; anything but an
+    # empty list is either a fabricated diagnostic contradicting the completed
+    # deployment or a shape violation consumers cannot rely on.
+    if oracle.get("unavailable") != []:
+        errors.append(
+            f"{where}: a paired record must carry exactly an empty "
+            "oracle.unavailable list [ENVELOPE_MALFORMED]"
+        )
 
     errors += _check_quantization(record, where)
     errors += _reexecute_reference_sides(record, where)
@@ -2480,8 +2516,15 @@ def build_training_views(records, source="record"):
     validation_errors = validate_records(records, source=source)
     if validation_errors:
         return [], validation_errors
+    # Authenticate the batch against the fixed scenario catalog before
+    # projecting it: a pre-filtered input would otherwise pass every view/set
+    # check against its own subset while silently dropping the failures the
+    # round produced. Runs after per-record validation, which bound each
+    # scenario id and round to its own evidence.
+    errors = contract.catalog_batch_errors(
+        records, [spec["id"] for spec in SCENARIO_SPECS], source
+    )
     views = [training_view(record) for record in records]
-    errors = []
     for index, (record, view) in enumerate(zip(records, views), 1):
         errors += training_view_errors(record, view, f"{source}:{index}")
     errors += contract.view_set_errors(records, views, source)

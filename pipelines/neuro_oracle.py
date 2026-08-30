@@ -759,6 +759,15 @@ class RecordedCaptureAdapter(OracleAdapter):
                 "CAPTURE_QUANTIZATION_MISSING",
                 "capture must record the Q8.8 conversion that produced the bitstream",
             )
+        # A truthy non-object (e.g. an array) would flow into the record as
+        # provenance and crash `quantization_metrics` with an uncaught
+        # AttributeError mid-generation instead of a coded diagnostic.
+        if not isinstance(quantization, dict):
+            raise OracleUnavailable(
+                "CAPTURE_UNREADABLE",
+                "capture quantization must be a JSON object describing the "
+                "Q8.8 conversion",
+            )
         missing = [
             key
             for key in (

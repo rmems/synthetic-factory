@@ -432,6 +432,93 @@ class RecordedCapturePath(unittest.TestCase):
                 errors,
             )
 
+    def _reseal_capture(self, record):
+        """Refresh every digest that binds the capture source to the record."""
+        deployment = record["oracle"]["deployment"]
+        capture = deployment["capture"]
+        source = capture["source"]
+        payload = source["payload"]
+        payload_sha = oracle.digest(payload)
+        source["manifest"]["payload_sha256"] = payload_sha
+        capture["payload_sha256"] = payload_sha
+        capture["manifest_sha256"] = oracle.digest(source["manifest"])
+        capture["source_sha256"] = oracle.digest(source)
+        record["result"]["derived_from"][-1] = hp._capture_evidence_digest(deployment)
+        return record
+
+    def test_capture_source_quantization_types_are_strict(self):
+        # A parsed record shares no sub-objects, so a Boolean smuggled into
+        # the capture source's quantization (False where the documented type
+        # is the integer 0) must not bind to the deployment through an
+        # ordinary comparison's bool/int coercion.
+        with tempfile.TemporaryDirectory() as tmp:
+            record = json.loads(json.dumps(self._record(tmp)))
+            source = record["oracle"]["deployment"]["capture"]["source"]
+            self.assertEqual(source["quantization"]["saturated_parameter_count"], 0)
+            source["quantization"]["saturated_parameter_count"] = False
+            self._reseal_capture(record)
+            errors = hp.validate_record(record, WHERE)
+        self.assertTrue(
+            any(
+                "not the conversion stored with the capture" in error
+                and "Q88_PROVENANCE_MISMATCH" in error
+                for error in errors
+            ),
+            errors,
+        )
+
+    def test_capture_payload_latency_types_are_strict(self):
+        # latency.measured is documented as a Boolean; the integer 1 in the
+        # authenticated capture payload must not project onto the
+        # deployment's True through bool/int coercion.
+        with tempfile.TemporaryDirectory() as tmp:
+            record = json.loads(json.dumps(self._record(tmp)))
+            payload = record["oracle"]["deployment"]["capture"]["source"]["payload"]
+            self.assertIs(payload["latency"]["measured"], True)
+            payload["latency"]["measured"] = 1
+            self._reseal_capture(record)
+            errors = hp.validate_record(record, WHERE)
+        self.assertTrue(
+            any(
+                "oracle.deployment.latency is not the observation stored in "
+                "capture.source.payload" in error
+                for error in errors
+            ),
+            errors,
+        )
+
+    def test_non_object_capture_quantization_is_a_coded_diagnostic(self):
+        # A truthy non-object quantization used to flow into build_record and
+        # crash the generation CLI with an uncaught AttributeError; it must be
+        # an OracleUnavailable diagnostic instead.
+        with tempfile.TemporaryDirectory() as tmp:
+            scenario = hp.build_scenarios(steps=6)[0]
+            adapter = self._capture_adapter(tmp, scenario)
+            raw = json.loads(adapter.capture_path.read_text(encoding="utf-8"))
+            raw["quantization"] = ["truthy-but-not-an-object"]
+            adapter.capture_path.write_text(json.dumps(raw), encoding="utf-8")
+            reloaded = oracle.RecordedCaptureAdapter(adapter.capture_path)
+            with self.assertRaises(oracle.OracleUnavailable) as caught:
+                reloaded.run(scenario["model_float"], scenario["stimulus"], repeats=3)
+            self.assertEqual(caught.exception.reason_code, "CAPTURE_UNREADABLE")
+            records = hp.generate_records(
+                round_number=1,
+                steps=6,
+                deployment_adapter=oracle.RecordedCaptureAdapter(
+                    adapter.capture_path
+                ),
+                repeats=3,
+            )
+            record = records[0]
+            self.assertIsNone(record["oracle"]["deployment"])
+            self.assertEqual(
+                record["oracle"]["unavailable"][0]["reason_code"],
+                "CAPTURE_UNREADABLE",
+            )
+            # Validation replays the availability probe against the capture
+            # path, so it must run while the capture file still exists.
+            self.assertEqual(hp.validate_record(record, WHERE), [])
+
     def test_repeat_digest_binds_the_complete_retained_observation(self):
         with tempfile.TemporaryDirectory() as tmp:
             record = self._record(tmp)
