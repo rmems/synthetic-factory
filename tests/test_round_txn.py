@@ -12,50 +12,10 @@ from unittest import mock
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO / "pipelines"))
+sys.path.insert(0, str(REPO / "tests"))
 
 import round_txn  # noqa: E402
-
-BRIDGE_FIXTURE = REPO / "tests" / "fixtures" / "bridge_gate_snn.jsonl"
-
-
-def distillation_sidecars(decision="ACCEPT"):
-    record = json.loads(BRIDGE_FIXTURE.read_text(encoding="utf-8").splitlines()[0])
-    sidecars = {
-        "raster": record["raster"],
-        "gate_snn": dict(record["gate_snn"]),
-    }
-    sidecars["gate_snn"]["decision"] = decision
-    return sidecars
-
-
-def thalamic(record_id, round_number=1):
-    record = {
-        "id": record_id,
-        "state": {"sim_or_real": "designed", "domain": "transaction-test"},
-        "proposed_action": {"action": "noop", "decision_basis": "fixture"},
-        "safety_decision": {"decision": "ACCEPT", "rationale": "bounded fixture"},
-        "executed_action": {"action": "noop"},
-        # The publish gate runs verify_execution in strict mode, so the fixture
-        # has to carry the observable outcome evidence a real record carries.
-        "future_outcome": {
-            "success": True,
-            "timeline": [{"t_ms": 0, "event": "noop accepted"}],
-            "observed_effects": ["no actuator motion"],
-            "new_state": {"sim_or_real": "designed", "domain": "transaction-test"},
-        },
-        "reward_components": {"task_progress": 0.5, "safety": 0.5, "total": 1.0},
-        "meta": {
-            "factory": "thalamic-trajectory-factory",
-            "round": round_number,
-            "tags": ["transaction-test"],
-        },
-    }
-    record.update(distillation_sidecars())
-    return record
-
-
-def write_records(path, records):
-    path.write_text("".join(json.dumps(record) + "\n" for record in records))
+from round_txn_test_helpers import thalamic, write_records  # noqa: E402
 
 
 class RoundTransaction(unittest.TestCase):
@@ -65,13 +25,7 @@ class RoundTransaction(unittest.TestCase):
         return path
 
     def fixed_agentic_factory(self, root):
-        path = (
-            Path(root)
-            / "outputs"
-            / "raw"
-            / "2099-01-01"
-            / "cache-stampede-factory"
-        )
+        path = Path(root) / "outputs" / "raw" / "2099-01-01" / "cache-stampede-factory"
         path.mkdir(parents=True)
         return path
 
@@ -111,9 +65,7 @@ class RoundTransaction(unittest.TestCase):
             staging_root = Path(td) / "outputs" / "staging"
             staging_root.symlink_to(outside, target_is_directory=True)
 
-            with self.assertRaisesRegex(
-                round_txn.TransactionError, "staging directory is unsafe"
-            ):
+            with self.assertRaisesRegex(round_txn.TransactionError, "staging directory is unsafe"):
                 round_txn.reserve(factory, 1, 1)
 
             self.assertEqual(list(outside.iterdir()), [])
@@ -231,9 +183,7 @@ class RoundTransaction(unittest.TestCase):
             stage.rmdir()
             stage.symlink_to(outside, target_is_directory=True)
 
-            with self.assertRaisesRegex(
-                round_txn.TransactionError, "staging directory is unsafe"
-            ):
+            with self.assertRaisesRegex(round_txn.TransactionError, "staging directory is unsafe"):
                 round_txn.publish(factory, 1, reservation["token"])
 
             self.assertEqual(sentinel.read_text(), "do not delete\n")
@@ -363,9 +313,7 @@ class RoundTransaction(unittest.TestCase):
                         raise OSError("simulated interruption")
                     return real_link(*args, **kwargs)
 
-                with mock.patch.object(
-                    round_txn.os, "link", side_effect=interrupt_completion_link
-                ):
+                with mock.patch.object(round_txn.os, "link", side_effect=interrupt_completion_link):
                     with self.assertRaisesRegex(OSError, "simulated interruption"):
                         round_txn.publish(factory, 1, reservation["token"])
 
@@ -417,10 +365,9 @@ class RoundTransaction(unittest.TestCase):
                 with real_lock(lock_factory):
                     yield
 
-            with mock.patch.object(
-                round_txn, "validate_stage", side_effect=pause_validation
-            ), mock.patch.object(
-                round_txn, "run_publish_lock", side_effect=observed_publish_lock
+            with (
+                mock.patch.object(round_txn, "validate_stage", side_effect=pause_validation),
+                mock.patch.object(round_txn, "run_publish_lock", side_effect=observed_publish_lock),
             ):
                 publisher = threading.Thread(target=publish_round, name="publisher")
                 publisher.start()
@@ -569,9 +516,7 @@ class RoundTransaction(unittest.TestCase):
             self.assertEqual(manifest["records"], 1)
             self.assertTrue((factory / "ROUND-r01.complete.json").is_file())
 
-    def _assert_publish_rejects_notes(
-        self, td, notes_text, pattern, record_suffix="txn"
-    ):
+    def _assert_publish_rejects_notes(self, td, notes_text, pattern, record_suffix="txn"):
         factory = self.factory(td)
         reservation = round_txn.reserve(factory, 1, 1)
         stage = Path(reservation["staging_dir"])
@@ -585,9 +530,7 @@ class RoundTransaction(unittest.TestCase):
             round_txn.publish(factory, 1, reservation["token"])
         self.assertFalse((factory / "ROUND-r01.complete.json").exists())
 
-    def _assert_legacy_notes_tolerance(
-        self, td, notes_text, expected_publish_err
-    ):
+    def _assert_legacy_notes_tolerance(self, td, notes_text, expected_publish_err):
         factory = self.fixed_agentic_factory(td)
         notes = factory / "NOTES-r01.md"
         notes.write_text(notes_text)
@@ -743,12 +686,8 @@ class RoundTransaction(unittest.TestCase):
                     batch.write_text("{not-json\n")
                 return result
 
-            with mock.patch.object(
-                round_txn, "check_jsonl", side_effect=mutate_after_check
-            ):
-                with self.assertRaisesRegex(
-                    round_txn.TransactionError, "changed while publishing"
-                ):
+            with mock.patch.object(round_txn, "check_jsonl", side_effect=mutate_after_check):
+                with self.assertRaisesRegex(round_txn.TransactionError, "changed while publishing"):
                     round_txn.publish(factory, 1, reservation["token"])
 
             self.assertFalse((factory / "ROUND-r01.complete.json").exists())
@@ -759,9 +698,7 @@ class RoundTransaction(unittest.TestCase):
             outside = Path(td) / "outside-factory"
             outside.mkdir()
             write_records(outside / "records.jsonl", [thalamic("shared-id")])
-            (factory.parent / "symlinked-sibling").symlink_to(
-                outside, target_is_directory=True
-            )
+            (factory.parent / "symlinked-sibling").symlink_to(outside, target_is_directory=True)
             reservation = round_txn.reserve(factory, 1, 1)
             self.fill_stage(reservation, [thalamic("shared-id")])
 
@@ -790,9 +727,7 @@ class RoundTransaction(unittest.TestCase):
             round_txn.ensure_marker_mode(factory)
             (factory / "ROUND-r01.complete.json").write_bytes(b"{\xff}\n")
 
-            with self.assertRaisesRegex(
-                round_txn.TransactionError, "cannot read transaction file"
-            ):
+            with self.assertRaisesRegex(round_txn.TransactionError, "cannot read transaction file"):
                 round_txn.frontier_status(factory)
 
     def test_invalid_utf8_staged_notes_report_a_transaction_error(self):
@@ -894,7 +829,9 @@ class RoundTransaction(unittest.TestCase):
             self.assertEqual(status["highest_flushed"], 2)
             self.assertEqual(status["next_round"], 3)
             reservation = round_txn.reserve(factory, 3, 5)
-            self.assertEqual(json.loads((factory / round_txn.MODE_FILE).read_text())["legacy_baseline"], 2)
+            self.assertEqual(
+                json.loads((factory / round_txn.MODE_FILE).read_text())["legacy_baseline"], 2
+            )
             self.assertEqual(reservation["round"], 3)
 
     def test_marker_baseline_rejects_malformed_lower_legacy_payload(self):
@@ -926,9 +863,7 @@ class RoundTransaction(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             factory = self.factory(td)
             legacy_records = [thalamic("shared-id")]
-            legacy_records.extend(
-                thalamic(f"legacy-{index}") for index in range(1, 5)
-            )
+            legacy_records.extend(thalamic(f"legacy-{index}") for index in range(1, 5))
             write_records(factory / "trajectories.jsonl", legacy_records)
             (factory / round_txn.MODE_FILE).write_text(
                 json.dumps(
@@ -1064,7 +999,7 @@ class RoundTransaction(unittest.TestCase):
                             {
                                 "name": notes.name,
                                 "sha256": round_txn.file_sha256(notes),
-                            }
+                            },
                         ],
                     }
                 )
@@ -1424,274 +1359,6 @@ class RoundTransaction(unittest.TestCase):
 
             with self.assertRaisesRegex(round_txn.TransactionError, "identity mismatch"):
                 round_txn.reserve(factory, 2, 1)
-
-
-def bridge(record_id, *, gate_snn=True):
-    """The committed raster + gate-as-SNN reference record, re-identified."""
-
-    record = json.loads(BRIDGE_FIXTURE.read_text(encoding="utf-8").splitlines()[0])
-    record["id"] = record_id
-    trajectory = record["language_view"]["trajectory"]
-    trajectory["id"] = f"{record_id}-traj"
-    trajectory["state"]["episode_id"] = record_id
-    trajectory["meta"]["round"] = 1
-    if not gate_snn:
-        del record["gate_snn"]
-    return record
-
-
-class BridgeRasterEnvelope(unittest.TestCase):
-    """A newly published Bridge round must be loadable by a distillation probe.
-
-    ``curate_bridge`` owns the spike arithmetic; this layer only refuses the
-    publish, and only for the staged batch — rounds committed before the
-    contract existed keep their markers.
-    """
-
-    def factory(self, root):
-        path = (
-            Path(root)
-            / "outputs"
-            / "raw"
-            / "2099-01-01"
-            / "neuromorphic-event-language-bridge"
-        )
-        path.mkdir(parents=True)
-        return path
-
-    def stage(self, factory, records):
-        reservation = round_txn.reserve(factory, 1, len(records))
-        staging = Path(reservation["staging_dir"])
-        write_records(staging / reservation["batch_file"], records)
-        (staging / reservation["notes_file"]).write_text(
-            "# Critique\n\nConcrete gap.\n\nNovel coverage: 100%\n"
-        )
-        return reservation
-
-    def test_raster_backed_round_with_a_gate_head_publishes(self):
-        with tempfile.TemporaryDirectory() as td:
-            factory = self.factory(td)
-            reservation = self.stage(
-                factory, [bridge("bridge-1", gate_snn=False), bridge("bridge-2")]
-            )
-            manifest = round_txn.publish(
-                factory,
-                1,
-                reservation["token"],
-                execution_override="bridge envelope fixture has no live executor",
-            )
-
-        self.assertEqual(manifest["records"], 2)
-
-    def test_record_without_a_raster_cannot_be_published(self):
-        with tempfile.TemporaryDirectory() as td:
-            factory = self.factory(td)
-            bare = bridge("bridge-1")
-            del bare["raster"]
-            reservation = self.stage(factory, [bare])
-
-            with self.assertRaisesRegex(
-                round_txn.TransactionError, "20-50 ms raster excerpt sidecar"
-            ):
-                round_txn.publish(factory, 1, reservation["token"])
-            self.assertFalse((factory / "batch-r01.jsonl").exists())
-
-    def test_broken_spike_product_cannot_be_published(self):
-        with tempfile.TemporaryDirectory() as td:
-            factory = self.factory(td)
-            record = bridge("bridge-1")
-            record["raster"]["spikes"] = 999
-            reservation = self.stage(factory, [record])
-
-            with self.assertRaisesRegex(
-                round_txn.TransactionError, "BRIDGE_SPIKE_BUDGET_MISMATCH"
-            ):
-                round_txn.publish(factory, 1, reservation["token"])
-
-    def test_malformed_declared_raster_fields_cannot_be_published(self):
-        with tempfile.TemporaryDirectory() as td:
-            factory = self.factory(td)
-            record = bridge("bridge-1")
-            record["raster"]["window_s"] = "bogus"
-            reservation = self.stage(factory, [record])
-
-            with self.assertRaisesRegex(
-                round_txn.TransactionError, "BRIDGE_RASTER_WINDOW_INVALID"
-            ):
-                round_txn.publish(factory, 1, reservation["token"])
-
-    def test_raster_without_a_routing_table_cannot_be_published(self):
-        with tempfile.TemporaryDirectory() as td:
-            factory = self.factory(td)
-            record = bridge("bridge-1")
-            record["raster"]["routing"]["table"] = []
-            reservation = self.stage(factory, [record])
-
-            with self.assertRaisesRegex(
-                round_txn.TransactionError, "routing.table must carry at least one"
-            ):
-                round_txn.publish(factory, 1, reservation["token"])
-
-    def test_round_without_a_spike_implemented_gate_cannot_be_published(self):
-        with tempfile.TemporaryDirectory() as td:
-            factory = self.factory(td)
-            reservation = self.stage(
-                factory,
-                [bridge("bridge-1", gate_snn=False), bridge("bridge-2", gate_snn=False)],
-            )
-
-            with self.assertRaisesRegex(
-                round_txn.TransactionError, "at least one spike-implemented gate"
-            ):
-                round_txn.publish(factory, 1, reservation["token"])
-
-    def test_non_bridge_record_cannot_be_published_by_the_bridge_factory(self):
-        with tempfile.TemporaryDirectory() as td:
-            factory = self.factory(td)
-            reservation = self.stage(factory, [thalamic("not-bridge")])
-
-            with self.assertRaisesRegex(
-                round_txn.TransactionError, "requires only paired Bridge records"
-            ):
-                round_txn.publish(factory, 1, reservation["token"])
-
-    def test_other_factories_are_untouched_by_the_bridge_envelope(self):
-        # A lane that emits no neuromorphic records is skipped outright, so
-        # the envelope never even opens its batch file.
-        slug = "failure-as-fuel-preference-cascade"
-        self.assertNotIn(slug, round_txn.RASTER_FACTORY_SLUGS)
-        with tempfile.TemporaryDirectory() as td:
-            factory = Path(td) / "outputs" / "raw" / "2099-01-01" / slug
-            factory.mkdir(parents=True)
-            self.assertEqual(
-                round_txn.validate_bridge_envelope(factory / "batch-r01.jsonl", factory),
-                [],
-            )
-
-    def test_thalamic_factory_cannot_publish_prose_only_spike_counts(self):
-        with tempfile.TemporaryDirectory() as td:
-            factory = (
-                Path(td)
-                / "outputs"
-                / "raw"
-                / "2099-01-01"
-                / "thalamic-trajectory-factory"
-            )
-            factory.mkdir(parents=True)
-            record = thalamic("prose-only")
-            del record["raster"]
-            del record["gate_snn"]
-            reservation = round_txn.reserve(factory, 1, 1)
-            staging = Path(reservation["staging_dir"])
-            write_records(staging / reservation["batch_file"], [record])
-            (staging / reservation["notes_file"]).write_text(
-                "# Critique\n\nConcrete gap.\n\nNovel coverage: 42%\n"
-            )
-
-            with self.assertRaisesRegex(
-                round_txn.TransactionError, "20-50 ms raster excerpt sidecar"
-            ):
-                round_txn.publish(factory, 1, reservation["token"])
-            self.assertFalse((factory / "batch-r01.jsonl").exists())
-
-
-class OuroborosLaneRasterEnvelope(unittest.TestCase):
-    """The swarm lane emits Thalamic trajectories, so the gate must cover it.
-
-    ``prompts/02-multi-agent-ouroboros-swarm.md`` tells that lane to produce
-    Thalamic-trajectory training data against the same schema as
-    ``thalamic-trajectory-factory``, and ``spike_probe --strict`` already
-    recognizes those records and refuses them without a raster. Leaving the
-    lane out of the publish allowlist let a round publish as training-ready
-    that the distillation probe cannot load.
-    """
-
-    SLUG = "multi-agent-ouroboros-swarm"
-
-    def factory(self, root):
-        path = Path(root) / "outputs" / "raw" / "2099-01-01" / self.SLUG
-        path.mkdir(parents=True)
-        return path
-
-    def record(self, record_id):
-        record = thalamic(record_id)
-        record["meta"]["factory"] = self.SLUG
-        return record
-
-    def stage(self, factory, records):
-        reservation = round_txn.reserve(factory, 1, len(records))
-        staging = Path(reservation["staging_dir"])
-        write_records(staging / reservation["batch_file"], records)
-        (staging / reservation["notes_file"]).write_text(
-            "# Critique\n\nConcrete gap.\n\nNovel coverage: 100%\n"
-        )
-        return reservation
-
-    def test_a_swarm_round_without_a_raster_cannot_publish(self):
-        with tempfile.TemporaryDirectory() as td:
-            factory = self.factory(td)
-            record = self.record("swarm-prose-only")
-            del record["raster"]
-            del record["gate_snn"]
-            reservation = self.stage(factory, [record])
-
-            with self.assertRaisesRegex(
-                round_txn.TransactionError, "20-50 ms raster excerpt sidecar"
-            ):
-                round_txn.publish(factory, 1, reservation["token"])
-            self.assertFalse((factory / "batch-r01.jsonl").exists())
-
-    def test_a_raster_backed_swarm_round_still_publishes(self):
-        with tempfile.TemporaryDirectory() as td:
-            factory = self.factory(td)
-            reservation = self.stage(factory, [self.record("swarm-raster-1")])
-            manifest = round_txn.publish(
-                factory,
-                1,
-                reservation["token"],
-                execution_override="swarm envelope fixture has no live executor",
-            )
-
-        self.assertEqual(manifest["records"], 1)
-
-
-class UnboundedSpikeBudgetsAtPublish(unittest.TestCase):
-    """An oversized integer spike count is a reason code, not a crash.
-
-    ``check_jsonl`` accepts any JSON number, so the raster envelope is the
-    first layer that touches the 23 pJ/spike arithmetic; it has to classify an
-    unusable budget instead of raising ``OverflowError`` out of publish.
-    """
-
-    def factory(self, root):
-        path = (
-            Path(root)
-            / "outputs"
-            / "raw"
-            / "2099-01-01"
-            / "thalamic-trajectory-factory"
-        )
-        path.mkdir(parents=True)
-        return path
-
-    def test_an_unrepresentable_spike_count_is_refused_not_raised(self):
-        with tempfile.TemporaryDirectory() as td:
-            factory = self.factory(td)
-            record = thalamic("oversized-budget")
-            record["raster"]["spikes"] = 10**400
-            record["raster"]["energy_uJ"] = 1.0
-            reservation = round_txn.reserve(factory, 1, 1)
-            staging = Path(reservation["staging_dir"])
-            write_records(staging / reservation["batch_file"], [record])
-            (staging / reservation["notes_file"]).write_text(
-                "# Critique\n\nConcrete gap.\n\nNovel coverage: 100%\n"
-            )
-
-            with self.assertRaisesRegex(
-                round_txn.TransactionError, "spike-budget contract violated"
-            ):
-                round_txn.publish(factory, 1, reservation["token"])
-            self.assertFalse((factory / "batch-r01.jsonl").exists())
 
 
 if __name__ == "__main__":

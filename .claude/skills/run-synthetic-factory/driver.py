@@ -85,9 +85,7 @@ def rename_snapshot_noreplace(src, dst):
     try:
         renameat2 = ctypes.CDLL(None, use_errno=True).renameat2
     except AttributeError as exc:
-        raise TransactionError(
-            "atomic no-replace snapshot rename is unavailable"
-        ) from exc
+        raise TransactionError("atomic no-replace snapshot rename is unavailable") from exc
     renameat2.argtypes = (
         ctypes.c_int,
         ctypes.c_char_p,
@@ -111,9 +109,7 @@ def rename_snapshot_noreplace(src, dst):
     if error_number in {errno.EEXIST, errno.ENOTEMPTY}:
         raise FileExistsError(error_number, os.strerror(error_number), dst)
     if error_number in {errno.EINVAL, errno.ENOSYS}:
-        raise TransactionError(
-            "atomic no-replace snapshot rename is unavailable"
-        )
+        raise TransactionError("atomic no-replace snapshot rename is unavailable")
     raise OSError(error_number, os.strerror(error_number), f"{src} -> {dst}")
 
 
@@ -159,12 +155,8 @@ def _copy_snapshot_directory(source_fd, destination_fd, source_path):
                         dir_fd=destination_fd,
                     )
                     try:
-                        _copy_snapshot_directory(
-                            entry_fd, child_destination_fd, entry_path
-                        )
-                        os.fchmod(
-                            child_destination_fd, stat.S_IMODE(entry_stat.st_mode)
-                        )
+                        _copy_snapshot_directory(entry_fd, child_destination_fd, entry_path)
+                        os.fchmod(child_destination_fd, stat.S_IMODE(entry_stat.st_mode))
                     finally:
                         os.close(child_destination_fd)
                 elif stat.S_ISREG(entry_stat.st_mode):
@@ -174,18 +166,17 @@ def _copy_snapshot_directory(source_fd, destination_fd, source_path):
                         mode=0o600,
                         dir_fd=destination_fd,
                     )
-                    with os.fdopen(os.dup(entry_fd), "rb") as source_file, os.fdopen(
-                        destination_file_fd, "wb"
-                    ) as destination_file:
+                    with (
+                        os.fdopen(os.dup(entry_fd), "rb") as source_file,
+                        os.fdopen(destination_file_fd, "wb") as destination_file,
+                    ):
                         shutil.copyfileobj(source_file, destination_file)
                         os.fchmod(
                             destination_file.fileno(),
                             stat.S_IMODE(entry_stat.st_mode),
                         )
                 else:
-                    raise TransactionError(
-                        f"cannot snapshot unsafe non-file path: {entry_path}"
-                    )
+                    raise TransactionError(f"cannot snapshot unsafe non-file path: {entry_path}")
             finally:
                 os.close(entry_fd)
 
@@ -195,20 +186,14 @@ def copy_snapshot_tree(src, dst):
     try:
         source_fd = os.open(src, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
     except OSError as exc:
-        raise TransactionError(
-            f"cannot snapshot source safely: {src}: {exc.strerror}"
-        ) from exc
+        raise TransactionError(f"cannot snapshot source safely: {src}: {exc.strerror}") from exc
     try:
         source_stat = os.fstat(source_fd)
         try:
             dst.mkdir(mode=0o700)
-            destination_fd = os.open(
-                dst, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
-            )
+            destination_fd = os.open(dst, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
         except OSError as exc:
-            raise TransactionError(
-                f"cannot stage snapshot safely: {dst}: {exc.strerror}"
-            ) from exc
+            raise TransactionError(f"cannot stage snapshot safely: {dst}: {exc.strerror}") from exc
         try:
             _copy_snapshot_directory(source_fd, destination_fd, src)
             os.fchmod(destination_fd, stat.S_IMODE(source_stat.st_mode))
@@ -235,11 +220,7 @@ def marker_visible_jsonl_paths(run_dir):
     """Resolve marker visibility while the original staging layout is intact."""
     visible = {}
     for factory in run_dir.iterdir():
-        if (
-            not factory.is_dir()
-            or factory.is_symlink()
-            or marker_mode_path(factory) is None
-        ):
+        if not factory.is_dir() or factory.is_symlink() or marker_mode_path(factory) is None:
             continue
         visible[factory.name] = {
             path.relative_to(factory) for path in committed_jsonl_paths(factory)
@@ -293,9 +274,7 @@ def require_run_dir(run_dir):
 def cmd_validate(run_dir):
     """Shape/invariant validation on a stable copy of a possibly live tree."""
     src = require_run_dir(run_dir)
-    temp, snap, visible_by_factory = marker_visible_snapshot(
-        src, "factory-validate-"
-    )
+    temp, snap, visible_by_factory = marker_visible_snapshot(src, "factory-validate-")
     try:
         prune_snapshot_to_marker_visibility(snap, visible_by_factory)
         code, out, err = run_tool(VALIDATOR, snap)
@@ -303,19 +282,14 @@ def cmd_validate(run_dir):
         temp.cleanup()
     sys.stdout.write(out)
     sys.stderr.write(err)
-    print(
-        f"structural validator exit: {code} "
-        f"({'CLEAN' if code == 0 else 'DEFECTS FOUND'})"
-    )
+    print(f"structural validator exit: {code} ({'CLEAN' if code == 0 else 'DEFECTS FOUND'})")
     return code
 
 
 def cmd_audit(run_dir):
     """Run all three layers on one stable snapshot; never mutate the source."""
     src = require_run_dir(run_dir)
-    temp, snap, visible_by_factory = marker_visible_snapshot(
-        src, "factory-audit-"
-    )
+    temp, snap, visible_by_factory = marker_visible_snapshot(src, "factory-audit-")
     results = []
     try:
         prune_snapshot_to_marker_visibility(snap, visible_by_factory)
@@ -336,10 +310,7 @@ def cmd_audit(run_dir):
         if err:
             sys.stderr.write(f"\n--- {title} findings ---\n{err}")
     failed = [title for title, code, _out, _err in results if code]
-    print(
-        "\nAUDIT RESULT: "
-        + ("BLOCKED — " + ", ".join(failed) if failed else "TRAINING-READY")
-    )
+    print("\nAUDIT RESULT: " + ("BLOCKED — " + ", ".join(failed) if failed else "TRAINING-READY"))
     return 1 if failed else 0
 
 
@@ -496,7 +467,9 @@ def cmd_token_efficiency(run_dir, as_json=False):
     """
     src = require_run_dir(run_dir)
     factories = []
-    for directory in sorted(path for path in src.iterdir() if path.is_dir() and not path.name.startswith("_")):
+    for directory in sorted(
+        path for path in src.iterdir() if path.is_dir() and not path.name.startswith("_")
+    ):
         info = factory_token_efficiency(directory)
         factories.append(info)
     payload = {"run_dir": str(src), "token_efficiency": factories}
@@ -505,15 +478,25 @@ def cmd_token_efficiency(run_dir, as_json=False):
     else:
         for info in factories:
             if info["early_stop"]:
-                print(f"{info['factory']}: EARLY-STOP at r{info['early_stop_at_round']:02d} — {TOKEN_EFFICIENCY_CONSECUTIVE} consecutive NOTES <{TOKEN_EFFICIENCY_THRESHOLD_PCT:.0f}% novel coverage (40% saving mode, {info['saving_docs']})")
+                print(
+                    f"{info['factory']}: EARLY-STOP at r{info['early_stop_at_round']:02d} — {TOKEN_EFFICIENCY_CONSECUTIVE} consecutive NOTES <{TOKEN_EFFICIENCY_THRESHOLD_PCT:.0f}% novel coverage (40% saving mode, {info['saving_docs']})"
+                )
             else:
                 lows = sum(1 for r in info["rounds"] if r["is_low"])
-                print(f"{info['factory']}: no early-stop ({lows} low round(s), need {TOKEN_EFFICIENCY_CONSECUTIVE} consecutive <{TOKEN_EFFICIENCY_THRESHOLD_PCT:.0f}%) — {info['saving_note']}")
+                print(
+                    f"{info['factory']}: no early-stop ({lows} low round(s), need {TOKEN_EFFICIENCY_CONSECUTIVE} consecutive <{TOKEN_EFFICIENCY_THRESHOLD_PCT:.0f}%) — {info['saving_note']}"
+                )
             for r in info["rounds"]:
-                pct_str = f"{r['novel_coverage_pct']:.1f}%" if r["novel_coverage_pct"] is not None else "n/a"
+                pct_str = (
+                    f"{r['novel_coverage_pct']:.1f}%"
+                    if r["novel_coverage_pct"] is not None
+                    else "n/a"
+                )
                 flag = " LOW" if r["is_low"] else ""
                 print(f"  r{r['round']:02d} {r['file']}: {pct_str}{flag}")
-        print(f"\nToken-efficiency docs: {TOKEN_EFFICIENCY_DOCS} — 40% saving mode enabled by default in workflow.")
+        print(
+            f"\nToken-efficiency docs: {TOKEN_EFFICIENCY_DOCS} — 40% saving mode enabled by default in workflow."
+        )
     return payload
 
 
@@ -526,8 +509,7 @@ def cmd_frontiers(run_dir, as_json=False):
         status = frontier_status(directory)
         if status["mode"] == "marker":
             status["records"] = sum(
-                count_nonblank_lines(path)
-                for path in committed_jsonl_paths(directory)
+                count_nonblank_lines(path) for path in committed_jsonl_paths(directory)
             )
         else:
             status["records"] = count_records(directory)
@@ -553,9 +535,7 @@ def cmd_snapshot(run_dir, label):
     dst = src.parent / f"{src.name}-{label}"
     if dst.exists() or dst.is_symlink():
         raise SystemExit(f"refusing to overwrite existing snapshot: {dst}")
-    temp, staged, visible_by_factory = marker_visible_snapshot(
-        src, f".{dst.name}-", src.parent
-    )
+    temp, staged, visible_by_factory = marker_visible_snapshot(src, f".{dst.name}-", src.parent)
     try:
         prune_snapshot_to_marker_visibility(staged, visible_by_factory)
         if dst.exists() or dst.is_symlink():
@@ -563,9 +543,7 @@ def cmd_snapshot(run_dir, label):
         try:
             rename_snapshot_noreplace(staged, dst)
         except FileExistsError as exc:
-            raise SystemExit(
-                f"refusing to overwrite existing snapshot: {dst}"
-            ) from exc
+            raise SystemExit(f"refusing to overwrite existing snapshot: {dst}") from exc
     finally:
         temp.cleanup()
     records = sum(count_nonblank_lines(path) for path in dst.rglob("*.jsonl"))
@@ -710,9 +688,7 @@ def _smoke_check_notes_gate(root: Path, failures: list) -> None:
         # instead of rewriting a path that no longer exists; cmd_smoke will
         # report the recorded gate regression as a structured SMOKE FAIL.
         return
-    notes.write_text(
-        "# Self-critique\n\nFixture only.\n\nNovel coverage: 42%\n"
-    )
+    notes.write_text("# Self-critique\n\nFixture only.\n\nNovel coverage: 42%\n")
     manifest = publish(factory, 1, reservation["token"])
     if manifest.get("records") != 1 or frontier_status(factory)["next_round"] != 2:
         failures.append("transaction reserve/publish did not commit exactly one round")

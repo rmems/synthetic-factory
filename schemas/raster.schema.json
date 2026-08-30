@@ -138,7 +138,7 @@
               }
             ],
             "properties": {
-              "name": { "type": "string", "minLength": 1 },
+              "name": { "type": "string", "minLength": 1, "pattern": "\\S" },
               "neurons": { "type": "integer", "minimum": 1 },
               "threshold": {
                 "type": "number",
@@ -209,8 +209,8 @@
           "required": ["source", "target", "third_factor"],
           "description": "Address-event routing for this raster population",
           "properties": {
-            "source": { "type": "string", "minLength": 1 },
-            "target": { "type": "string", "minLength": 1 },
+            "source": { "type": "string", "minLength": 1, "pattern": "\\S" },
+            "target": { "type": "string", "minLength": 1, "pattern": "\\S" },
             "table": {
               "type": "array",
               "description": "Per-population routing table. Optional to this schema, but pipelines/training_audit.py blocks a run whose rasters carry no table entries.",
@@ -239,6 +239,7 @@
                 "modulator": {
                   "type": "string",
                   "minLength": 1,
+                  "pattern": "\\S",
                   "description": "Neuromodulator carrying the third factor, e.g. dopamine"
                 },
                 "tau_e_s": {
@@ -254,6 +255,7 @@
                 "eligibility": {
                   "type": "string",
                   "minLength": 1,
+                  "pattern": "\\S",
                   "description": "Eligibility rule the third factor gates, e.g. pre_post_stdp"
                 }
               },

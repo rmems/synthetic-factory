@@ -135,9 +135,7 @@ def _stamp_canonical_identity_ids(records, relative):
         if not isinstance(record, dict):
             continue
         kind = curate_identity.record_kind(record)
-        record["id"] = curate_gate._canonical_identity_output_id(
-            relative, line_no, kind, "/"
-        )
+        record["id"] = curate_gate._canonical_identity_output_id(relative, line_no, kind, "/")
         owners = curate_gate._identity_owner_specs(record, kind, "fixture")
         for owner_path, owner in owners:
             if owner_path != "/":
@@ -252,9 +250,7 @@ def _lane_manifest_entry(
 class GateFixture:
     """A six-lane curation scenario laid out under one temporary root."""
 
-    def __init__(
-        self, root, bridge_records=None, thalamic_records=None, *, canonical_ids=True
-    ):
+    def __init__(self, root, bridge_records=None, thalamic_records=None, *, canonical_ids=True):
         self.root = Path(root)
         self.source_run = self.root / "raw"
         self.lane_bridge = self.root / "lane-bridge"
@@ -286,12 +282,8 @@ class GateFixture:
         identity_bridge_records = copy.deepcopy(raw_bridge_records)
         identity_core_records = copy.deepcopy(raw_core_records)
         if canonical_ids:
-            _stamp_canonical_identity_ids(
-                identity_bridge_records, "bridge-factory/batch-r02.jsonl"
-            )
-            _stamp_canonical_identity_ids(
-                identity_core_records, "thalamic-mini/batch-r02.jsonl"
-            )
+            _stamp_canonical_identity_ids(identity_bridge_records, "bridge-factory/batch-r02.jsonl")
+            _stamp_canonical_identity_ids(identity_core_records, "thalamic-mini/batch-r02.jsonl")
         annotated_bridge_records = _reward_annotated(
             raw_bridge_records,
             "bridge-factory/batch-r02.jsonl",
@@ -310,9 +302,7 @@ class GateFixture:
             self.lane_coding,
             self.lane_tag,
         ):
-            _write_jsonl(
-                lane_dir / "thalamic-mini" / "batch-r02.jsonl", identity_core_records
-            )
+            _write_jsonl(lane_dir / "thalamic-mini" / "batch-r02.jsonl", identity_core_records)
         _write_jsonl(
             self.lane_reward / "bridge-factory" / "batch-r02.jsonl",
             annotated_bridge_records,
@@ -533,4 +523,3 @@ class GateFixture:
                 str(curated or self.curated),
             ]
         )
-

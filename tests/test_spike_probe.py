@@ -60,9 +60,7 @@ class NormalizeRaster(unittest.TestCase):
         self.assertEqual(len(raster["routing"]["table"]), 2)
         self.assertEqual(raster["routing"]["third_factor"]["tau_e_s"], 2.0)
         self.assertEqual(raster["gate_snn"]["decision_window_ms"], 25)
-        self.assertEqual(
-            [pop["neurons"] for pop in raster["gate_snn"]["populations"]], [64, 64]
-        )
+        self.assertEqual([pop["neurons"] for pop in raster["gate_snn"]["populations"]], [64, 64])
         self.assertEqual(
             [pop["threshold"] for pop in raster["gate_snn"]["populations"]], [1.0, 1.0]
         )
@@ -176,9 +174,7 @@ class LoadRasters(unittest.TestCase):
         self.assertEqual(len(rasters), 1)
         self.assertEqual(len(problems), 1)
         self.assertEqual(problems[0]["scope"], "input")
-        self.assertEqual(
-            problems[0]["reason_codes"], ["BRIDGE_SOURCE_JSON_INVALID"]
-        )
+        self.assertEqual(problems[0]["reason_codes"], ["BRIDGE_SOURCE_JSON_INVALID"])
 
     def test_invalid_utf8_is_reported_as_an_input_problem(self):
         with tempfile.TemporaryDirectory() as td:
@@ -189,9 +185,7 @@ class LoadRasters(unittest.TestCase):
 
         self.assertEqual(rasters, [])
         self.assertEqual(problems[0]["scope"], "input")
-        self.assertEqual(
-            problems[0]["reason_codes"], ["BRIDGE_SOURCE_UTF8_INVALID"]
-        )
+        self.assertEqual(problems[0]["reason_codes"], ["BRIDGE_SOURCE_UTF8_INVALID"])
 
 
 class ProbeCli(unittest.TestCase):
@@ -264,9 +258,54 @@ class ProbeCli(unittest.TestCase):
         report = json.loads(stdout.getvalue())
         self.assertEqual(code, 1)
         self.assertEqual(report["input_errors"], 1)
-        self.assertEqual(
-            report["problems"][0]["reason_codes"], ["BRIDGE_SOURCE_JSON_INVALID"]
+        self.assertEqual(report["problems"][0]["reason_codes"], ["BRIDGE_SOURCE_JSON_INVALID"])
+
+    def test_exponent_overflow_is_an_input_problem_not_an_export_crash(self):
+        record = gate_snn_record()
+        serialized = json.dumps(record)
+        needle = '"gate_snn": {'
+        self.assertIn(needle, serialized)
+        serialized = serialized.replace(
+            needle,
+            '"gate_snn": {"extra": 1e999, ',
+            1,
         )
+
+        with tempfile.TemporaryDirectory() as td:
+            path = Path(td) / "overflow.jsonl"
+            path.write_text(serialized + "\n", encoding="utf-8")
+            summary_out = io.StringIO()
+            with redirect_stdout(summary_out):
+                strict_code = spike_probe.main(["--strict", str(path)])
+            jsonl_out = io.StringIO()
+            jsonl_err = io.StringIO()
+            with redirect_stdout(jsonl_out), redirect_stderr(jsonl_err):
+                jsonl_code = spike_probe.main(["--jsonl", str(path)])
+
+        report = json.loads(summary_out.getvalue())
+        self.assertEqual((strict_code, jsonl_code), (1, 1))
+        self.assertEqual((report["loaded"], report["input_errors"]), (0, 1))
+        self.assertEqual(jsonl_out.getvalue(), "")
+        problem = json.loads(jsonl_err.getvalue())
+        self.assertEqual(problem["reason_codes"], ["BRIDGE_SOURCE_JSON_INVALID"])
+
+    def test_finite_exponent_in_a_forwarded_field_remains_loadable(self):
+        record = gate_snn_record()
+        serialized = json.dumps(record).replace(
+            '"gate_snn": {',
+            '"gate_snn": {"extra": 1e200, ',
+            1,
+        )
+        with tempfile.TemporaryDirectory() as td:
+            path = Path(td) / "finite-exponent.jsonl"
+            path.write_text(serialized + "\n", encoding="utf-8")
+            stdout = io.StringIO()
+            with redirect_stdout(stdout):
+                code = spike_probe.main(["--strict", str(path)])
+
+        report = json.loads(stdout.getvalue())
+        self.assertEqual(code, 0)
+        self.assertEqual((report["loaded"], report["input_errors"]), (1, 0))
 
     def test_strict_mode_fails_on_an_unloadable_raster(self):
         with tempfile.TemporaryDirectory() as td:
@@ -369,6 +408,40 @@ class FiniteProbeEnergy(unittest.TestCase):
         self.assertEqual(code, 0)
         self.assertEqual(report["loaded"], 1)
         self.assertEqual(report["input_errors"], 0)
+
+    def test_bare_carriage_return_is_not_treated_as_a_jsonl_record_boundary(self):
+        first = json.dumps(gate_snn_record()).encode("utf-8")
+        second_record = gate_snn_record()
+        second_record["id"] = "bridge-gate-snn-fixture-002"
+        second = json.dumps(second_record).encode("utf-8")
+
+        with tempfile.TemporaryDirectory() as td:
+            path = Path(td) / "bare-cr.jsonl"
+            path.write_bytes(first + b"\r" + second)
+            stdout = io.StringIO()
+            with redirect_stdout(stdout):
+                code = spike_probe.main(["--strict", str(path)])
+
+        report = json.loads(stdout.getvalue())
+        self.assertEqual(code, 1)
+        self.assertEqual((report["loaded"], report["input_errors"]), (0, 1))
+
+    def test_crlf_remains_a_valid_physical_jsonl_delimiter(self):
+        first = json.dumps(gate_snn_record()).encode("utf-8")
+        second_record = gate_snn_record()
+        second_record["id"] = "bridge-gate-snn-fixture-002"
+        second = json.dumps(second_record).encode("utf-8")
+
+        with tempfile.TemporaryDirectory() as td:
+            path = Path(td) / "crlf.jsonl"
+            path.write_bytes(first + b"\r\n" + second + b"\r\n")
+            stdout = io.StringIO()
+            with redirect_stdout(stdout):
+                code = spike_probe.main(["--strict", str(path)])
+
+        report = json.loads(stdout.getvalue())
+        self.assertEqual(code, 0)
+        self.assertEqual((report["loaded"], report["input_errors"]), (2, 0))
 
 
 if __name__ == "__main__":

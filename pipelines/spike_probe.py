@@ -24,7 +24,9 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import sys
+from collections import Counter
 from pathlib import Path
 from typing import Any, Iterable, Iterator
 
@@ -51,7 +53,7 @@ REASON_INPUT_UNREADABLE = "BRIDGE_SOURCE_UNREADABLE"
 
 
 def _finite(value: Any) -> bool:
-    return isinstance(value, (int, float)) and not isinstance(value, bool)
+    return type(value) is int or (type(value) is float and math.isfinite(value))
 
 
 def _window_us(raster: dict[str, Any]) -> int | None:
@@ -64,27 +66,32 @@ def _window_us(raster: dict[str, Any]) -> int | None:
     return int(round(float(window_ms) * US_PER_MS))
 
 
-def _events_us(raster: dict[str, Any]) -> list[dict[str, int]]:
+def _normalized_event(item: Any) -> dict[str, Any] | None:
+    """Normalize one well-shaped excerpt event into integer microseconds."""
+
+    if not isinstance(item, dict):
+        return None
+    t_ms = item.get("t_ms")
+    neuron_id = item.get("neuron_id")
+    if not _finite(t_ms) or type(neuron_id) is not int:
+        return None
+    event: dict[str, Any] = {
+        "neuron_id": neuron_id,
+        "t_us": int(round(float(t_ms) * US_PER_MS)),
+    }
+    channel = item.get("channel")
+    if isinstance(channel, str) and channel:
+        event["channel"] = channel
+    return event
+
+
+def _events_us(raster: dict[str, Any]) -> list[dict[str, Any]]:
     """Return excerpt events as integer-microsecond (neuron_id, t_us) pairs."""
 
     excerpt = raster.get("excerpt")
-    if not isinstance(excerpt, list):
-        return []
-    events = []
-    for item in excerpt:
-        if not isinstance(item, dict):
-            continue
-        t_ms = item.get("t_ms")
-        neuron_id = item.get("neuron_id")
-        if not _finite(t_ms) or not isinstance(neuron_id, int) or isinstance(neuron_id, bool):
-            continue
-        event = {"neuron_id": neuron_id, "t_us": int(round(float(t_ms) * US_PER_MS))}
-        channel = item.get("channel")
-        if isinstance(channel, str) and channel:
-            event["channel"] = channel
-        events.append(event)
-    events.sort(key=lambda event: (event["t_us"], event["neuron_id"]))
-    return events
+    items = excerpt if isinstance(excerpt, list) else []
+    events = filter(None, map(_normalized_event, items))
+    return sorted(events, key=lambda event: (event["t_us"], event["neuron_id"]))
 
 
 def _routing(raster: dict[str, Any]) -> dict[str, Any]:
@@ -139,25 +146,41 @@ def normalize_raster(record: Any, *, source: str | None = None) -> dict[str, Any
     return normalized
 
 
+def _mapping(value: Any) -> dict[str, Any]:
+    """Return mapping-shaped JSON data, or an empty read-only fallback."""
+
+    return value if isinstance(value, dict) else {}
+
+
+def _nonblank_text(value: Any) -> str | None:
+    """Return stripped non-blank text without coercing another JSON type."""
+
+    text = value.strip() if isinstance(value, str) else ""
+    return text or None
+
+
 def _record_id(record: Any) -> str | None:
-    if not isinstance(record, dict):
-        return None
-    value = record.get("id")
-    if isinstance(value, str) and value.strip():
-        return value.strip()
-    meta = record.get("meta")
-    if isinstance(meta, dict):
-        value = meta.get("id")
-        if isinstance(value, str) and value.strip():
-            return value.strip()
-    view = record.get("language_view")
-    trajectory = view.get("trajectory") if isinstance(view, dict) else None
-    state = trajectory.get("state") if isinstance(trajectory, dict) else None
-    if isinstance(state, dict):
-        value = state.get("episode_id")
-        if isinstance(value, str) and value.strip():
-            return value.strip()
+    """Return the first documented record identifier carrier."""
+
+    root = _mapping(record)
+    meta = _mapping(root.get("meta"))
+    view = _mapping(root.get("language_view"))
+    trajectory = _mapping(view.get("trajectory"))
+    state = _mapping(trajectory.get("state"))
+    candidates = (root.get("id"), meta.get("id"), state.get("episode_id"))
+    for candidate in candidates:
+        identifier = _nonblank_text(candidate)
+        if identifier is not None:
+            return identifier
     return None
+
+
+def _expanded_jsonl_targets(targets: Iterable[str | Path]) -> Iterator[Path]:
+    """Yield each explicit file or sorted JSONL member of a directory."""
+
+    for target in targets:
+        path = Path(target)
+        yield from sorted(path.rglob("*.jsonl")) if path.is_dir() else (path,)
 
 
 def jsonl_paths(targets: Iterable[str | Path]) -> list[Path]:
@@ -171,40 +194,109 @@ def jsonl_paths(targets: Iterable[str | Path]) -> list[Path]:
     one file (a symlink, ``./x`` vs ``x``) also count once.
     """
 
-    paths: list[Path] = []
-    seen: set[Path] = set()
-    for target in targets:
-        path = Path(target)
-        expanded = sorted(path.rglob("*.jsonl")) if path.is_dir() else [path]
-        for item in expanded:
-            key = item.resolve(strict=False)
-            if key in seen:
-                continue
-            seen.add(key)
-            paths.append(item)
-    return paths
+    unique: dict[Path, Path] = {}
+    for path in _expanded_jsonl_targets(targets):
+        unique.setdefault(path.resolve(strict=False), path)
+    return list(unique.values())
+
+
+def _read_jsonl(path: Path) -> tuple[str | None, str | None]:
+    """Read UTF-8 without universal-newline translation."""
+
+    try:
+        payload = path.read_bytes()
+    except OSError:
+        return None, REASON_INPUT_UNREADABLE
+    try:
+        return payload.decode("utf-8"), None
+    except UnicodeDecodeError:
+        return None, REASON_INVALID_UTF8
+
+
+def _parse_finite_json_float(text: str) -> float:
+    """Reject a finite JSON token such as ``1e999`` that overflows to infinity."""
+
+    value = float(text)
+    if not math.isfinite(value):
+        raise ValueError(f"non-finite JSON number {text}")
+    return value
+
+
+def _parse_record(line: str) -> tuple[Any, str | None]:
+    """Parse one physical JSONL record using strict numeric hooks."""
+
+    try:
+        record = json.loads(
+            line,
+            parse_constant=reject_json_constant,
+            parse_float=_parse_finite_json_float,
+        )
+    except (json.JSONDecodeError, ValueError):
+        return None, REASON_INVALID_JSON
+    return record, None
+
+
+def _records_in_path(path: Path) -> Iterator[tuple[str, Any, str | None]]:
+    """Yield parsed records and named input problems from one JSONL path."""
+
+    text, read_problem = _read_jsonl(path)
+    if read_problem is not None:
+        yield f"{path}:0", None, read_problem
+        return
+    for line_number, line in enumerate(text.split("\n"), 1):
+        if line.strip():
+            record, parse_problem = _parse_record(line)
+            yield f"{path}:{line_number}", record, parse_problem
 
 
 def iter_records(paths: Iterable[Path]) -> Iterator[tuple[str, Any, str | None]]:
     """Yield ``(where, record, problem_code)`` for every JSONL input line."""
 
     for path in paths:
-        try:
-            text = path.read_text(encoding="utf-8")
-        except UnicodeDecodeError:
-            yield f"{path}:0", None, REASON_INVALID_UTF8
-            continue
-        except OSError:
-            yield f"{path}:0", None, REASON_INPUT_UNREADABLE
-            continue
-        for line_number, line in enumerate(text.split("\n"), 1):
-            if not line.strip():
-                continue
-            where = f"{path}:{line_number}"
-            try:
-                yield where, json.loads(line, parse_constant=reject_json_constant), None
-            except (json.JSONDecodeError, ValueError):
-                yield where, None, REASON_INVALID_JSON
+        yield from _records_in_path(path)
+
+
+def _problem(
+    where: str,
+    scope: str,
+    reason_codes: Iterable[str],
+    *,
+    record_id: str | None = None,
+) -> dict[str, Any]:
+    """Build the stable problem envelope shared by input and record failures."""
+
+    return {
+        "source": where,
+        "record_id": record_id,
+        "scope": scope,
+        "reason_codes": list(reason_codes),
+    }
+
+
+def _probe_record(
+    where: str,
+    record: Any,
+    input_problem: str | None,
+) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
+    """Classify one parsed input as a raster, a problem, or out of scope."""
+
+    if input_problem is not None:
+        return None, _problem(where, "input", (input_problem,))
+    if not is_bridge_record(record) and not is_thalamic_record(record):
+        return None, None
+    normalized = normalize_raster(record, source=where)
+    if normalized is not None:
+        return normalized, None
+    status = raster_status(record)
+    reason_codes = list(status["reason_codes"])
+    if status["raster_valid"] and status["routing_table_entries"] < 1:
+        reason_codes.append("BRIDGE_RASTER_ROUTING_MISSING")
+    return None, _problem(
+        where,
+        "bridge_record",
+        reason_codes,
+        record_id=_record_id(record),
+    )
 
 
 def load_rasters(
@@ -214,66 +306,38 @@ def load_rasters(
 
     rasters: list[dict[str, Any]] = []
     problems: list[dict[str, Any]] = []
-    for where, record, input_problem in iter_records(jsonl_paths(targets)):
-        if input_problem is not None:
-            problems.append(
-                {
-                    "source": where,
-                    "record_id": None,
-                    "scope": "input",
-                    "reason_codes": [input_problem],
-                }
-            )
-            continue
-        if not is_bridge_record(record) and not is_thalamic_record(record):
-            continue
-        normalized = normalize_raster(record, source=where)
-        if normalized is None:
-            status = raster_status(record)
-            reason_codes = list(status["reason_codes"])
-            if status["raster_valid"] and status["routing_table_entries"] < 1:
-                reason_codes.append("BRIDGE_RASTER_ROUTING_MISSING")
-            problems.append(
-                {
-                    "source": where,
-                    "record_id": _record_id(record),
-                    "scope": "bridge_record",
-                    "reason_codes": reason_codes,
-                }
-            )
-            continue
-        rasters.append(normalized)
+    for item in iter_records(jsonl_paths(targets)):
+        normalized, problem = _probe_record(*item)
+        if normalized is not None:
+            rasters.append(normalized)
+        if problem is not None:
+            problems.append(problem)
     return rasters, problems
+
+
+def _exact_integer(value: Any) -> int:
+    """Return an exact JSON integer, treating booleans and other types as zero."""
+
+    return value if type(value) is int else 0
 
 
 def summarize(rasters, problems, targets):
     """Aggregate loaded rasters into a machine-readable probe report."""
 
-    spikes = sum(
-        raster["spikes"]
-        for raster in rasters
-        if isinstance(raster["spikes"], int) and not isinstance(raster["spikes"], bool)
-    )
-    bridge_problems = [
-        problem for problem in problems if problem.get("scope") == "bridge_record"
-    ]
-    input_problems = [problem for problem in problems if problem.get("scope") == "input"]
+    spikes = sum(_exact_integer(raster["spikes"]) for raster in rasters)
+    scope_counts = Counter(problem.get("scope") for problem in problems)
     return {
         "targets": [str(target) for target in targets],
-        "bridge_records": len(rasters) + len(bridge_problems),
+        "bridge_records": len(rasters) + scope_counts["bridge_record"],
         "loaded": len(rasters),
-        "unloadable": len(bridge_problems),
-        "input_errors": len(input_problems),
+        "unloadable": scope_counts["bridge_record"],
+        "input_errors": scope_counts["input"],
         "events": sum(len(raster["events"]) for raster in rasters),
         "spikes": spikes,
         "energy_pJ": spikes * RASTER_ENERGY_PJ_PER_SPIKE,
-        "routing_tables": sum(
-            1 for raster in rasters if raster["routing"]["table"]
-        ),
-        "third_factor_routes": sum(
-            1 for raster in rasters if raster["routing"]["third_factor"]
-        ),
-        "gate_snn_records": sum(1 for raster in rasters if raster["gate_snn"]),
+        "routing_tables": sum(bool(raster["routing"]["table"]) for raster in rasters),
+        "third_factor_routes": sum(bool(raster["routing"]["third_factor"]) for raster in rasters),
+        "gate_snn_records": sum(bool(raster["gate_snn"]) for raster in rasters),
         "problems": problems[:20],
     }
 
@@ -299,11 +363,7 @@ def main(argv=None):
     rasters, problems = load_rasters(args.targets)
     if args.jsonl:
         for raster in rasters:
-            print(
-                json.dumps(
-                    raster, ensure_ascii=False, sort_keys=True, allow_nan=False
-                )
-            )
+            print(json.dumps(raster, ensure_ascii=False, sort_keys=True, allow_nan=False))
         for problem in problems:
             print(
                 json.dumps(

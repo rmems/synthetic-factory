@@ -46,6 +46,12 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Iterable, Sequence
 
+from curate_bridge_gate import _validate_gate_compute, _validate_gate_snn
+from curate_bridge_raster import (
+    _validate_raster,
+    _validate_third_factor,  # noqa: F401 - preserve the established private hook
+)
+
 
 TRANSFORM_NAME = "bridge_event_time_order"
 TRANSFORM_VERSION = "1.0.0"
@@ -326,571 +332,6 @@ def _spike_energy(spikes: int, per_spike: float) -> float | None:
     return _finite_float(count * per_spike)
 
 
-def _validate_third_factor(
-    third_factor: Any,
-    *,
-    reason_codes: list[str],
-    evidence: dict[str, Any],
-) -> None:
-    """Validate the per-population third-factor (neuromodulatory) routing entry.
-
-    A third factor is the eligibility-trace channel that gates plasticity for
-    one population: a named modulator and a positive eligibility time constant
-    ``tau_e_s``.  Mutates ``reason_codes`` and ``evidence`` in place.
-    """
-
-    evidence["raster_third_factor_present"] = True
-    if not isinstance(third_factor, dict):
-        reason_codes.append(REASON_THIRD_FACTOR_INVALID)
-        evidence["raster_third_factor_valid"] = False
-        evidence["raster_third_factor_error"] = "third_factor must be an object"
-        return
-    modulator = third_factor.get("modulator")
-    tau_e_s = third_factor.get("tau_e_s")
-    tau_ms = third_factor.get("tau_e_ms")
-    if tau_e_s is None:
-        if _is_finite_number(tau_ms):
-            tau_e_s = float(tau_ms) / 1000.0
-            evidence["raster_third_factor_tau_e_s_derived"] = tau_e_s
-    elif "tau_e_ms" in third_factor:
-        # Both representations of the eligibility time constant are declared,
-        # so they must agree exactly as the raster window_ms/window_s aliases
-        # do.  Publishing tau_e_s: 2.0 next to tau_e_ms: 1 forwards two
-        # contradictory constants to every distillation consumer.
-        consistent = (
-            _is_finite_number(tau_e_s)
-            and _is_finite_number(tau_ms)
-            and abs(float(tau_ms) / 1000.0 - float(tau_e_s)) <= 1e-9
-        )
-        evidence["raster_third_factor_tau_consistent"] = consistent
-        if not consistent:
-            reason_codes.append(REASON_THIRD_FACTOR_INVALID)
-            evidence["raster_third_factor_valid"] = False
-            return
-    eligibility = third_factor.get("eligibility")
-    valid = (
-        isinstance(modulator, str)
-        and bool(modulator.strip())
-        and isinstance(eligibility, str)
-        and bool(eligibility.strip())
-        and _is_finite_number(tau_e_s)
-        and float(tau_e_s) > 0
-    )
-    if not valid:
-        reason_codes.append(REASON_THIRD_FACTOR_INVALID)
-        evidence["raster_third_factor_valid"] = False
-        return
-    evidence["raster_third_factor_valid"] = True
-    evidence["raster_third_factor_modulator"] = modulator
-    evidence["raster_third_factor_tau_e_s"] = float(tau_e_s)
-    evidence["raster_third_factor_eligibility"] = eligibility.strip()
-
-
-def _validate_gate_snn(
-    spec: Any,
-    *,
-    reason_codes: list[str],
-    evidence: dict[str, Any],
-    expected_decision: str | None = None,
-) -> None:
-    """Validate a spike-implemented gate head (neurons, thresholds, window).
-
-    The gate-as-SNN spec is what makes the safety decision distillable: each
-    population declares a neuron count and a firing threshold, and the whole
-    head declares the decision window it integrates over.  A population that
-    also declares ``mean_rate_hz`` and ``spikes`` is held to the same
-    ``spikes = round(neurons * rate * window_s)`` budget as a raster.
-    """
-
-    evidence["gate_snn_present"] = True
-    if not isinstance(spec, dict):
-        reason_codes.append(REASON_GATE_SNN_INVALID)
-        evidence["gate_snn_valid"] = False
-        evidence["gate_snn_error"] = "gate_snn must be an object"
-        return
-
-    valid = True
-    window_ms = spec.get("decision_window_ms")
-    window_s = spec.get("decision_window_s")
-    if window_ms is None and _is_finite_number(window_s) and float(window_s) > 0:
-        window_ms = float(window_s) * 1000.0
-        evidence["gate_snn_decision_window_ms_derived"] = window_ms
-    elif window_s is None and _is_finite_number(window_ms) and float(window_ms) > 0:
-        window_s = float(window_ms) / 1000.0
-        evidence["gate_snn_decision_window_s_derived"] = window_s
-
-    window_valid = (
-        _is_finite_number(window_ms)
-        and float(window_ms) > 0
-        and _is_finite_number(window_s)
-        and float(window_s) > 0
-    )
-    window_consistent = window_valid and abs(
-        float(window_s) - float(window_ms) / 1000.0
-    ) <= 1e-9
-    if not window_valid or not window_consistent:
-        reason_codes.append(REASON_GATE_SNN_INVALID)
-        evidence["gate_snn_decision_window_valid"] = False
-        evidence["gate_snn_decision_window_consistent"] = bool(window_consistent)
-        valid = False
-    else:
-        evidence["gate_snn_decision_window_ms"] = float(window_ms)
-        evidence["gate_snn_decision_window_s"] = float(window_s)
-        evidence["gate_snn_decision_window_valid"] = True
-        evidence["gate_snn_decision_window_consistent"] = True
-
-    decision = spec.get("decision")
-    decision_valid = isinstance(decision, str) and bool(decision.strip())
-    if decision_valid:
-        normalized_decision = decision.strip().upper()
-        evidence["gate_snn_decision"] = normalized_decision
-        if expected_decision is not None:
-            expected = expected_decision.strip().upper()
-            evidence["gate_snn_expected_decision"] = expected
-            decision_valid = normalized_decision == expected
-    if not decision_valid:
-        reason_codes.append(REASON_GATE_SNN_INVALID)
-        evidence["gate_snn_decision_valid"] = False
-        valid = False
-    else:
-        evidence["gate_snn_decision_valid"] = True
-
-    populations = spec.get("populations")
-    if not isinstance(populations, list) or not populations:
-        reason_codes.append(REASON_GATE_SNN_INVALID)
-        evidence["gate_snn_populations_valid"] = False
-        evidence["gate_snn_population_count"] = (
-            len(populations) if isinstance(populations, list) else 0
-        )
-        return
-
-    evidence["gate_snn_population_count"] = len(populations)
-    bad: list[int] = []
-    total_neurons = 0
-    for index, population in enumerate(populations):
-        if not isinstance(population, dict):
-            bad.append(index)
-            continue
-        name = population.get("name")
-        neurons = population.get("neurons")
-        threshold = population.get("threshold")
-        if (
-            not isinstance(name, str)
-            or not name.strip()
-            or not isinstance(neurons, int)
-            or isinstance(neurons, bool)
-            or neurons < 1
-            or not _is_finite_number(threshold)
-        ):
-            bad.append(index)
-            continue
-        total_neurons += neurons
-        rate = population.get("mean_rate_hz")
-        if rate is None:
-            rate = population.get("rate_hz")
-        spikes = population.get("spikes")
-        has_rate = rate is not None
-        has_spikes = spikes is not None
-        if has_rate or has_spikes:
-            budget_shape_valid = (
-                has_rate
-                and has_spikes
-                and _is_finite_number(rate)
-                and float(rate) > 0
-                and isinstance(spikes, int)
-                and not isinstance(spikes, bool)
-                and spikes >= 0
-                and window_valid
-                and window_consistent
-            )
-            if not budget_shape_valid:
-                bad.append(index)
-                continue
-            expected = _expected_spikes(neurons, float(rate), float(window_s))
-            if expected is None:
-                bad.append(index)
-                continue
-            if abs(spikes - expected) > 1:
-                reason_codes.append(REASON_RASTER_SPIKE_BUDGET)
-                evidence.setdefault("gate_snn_spike_mismatches", []).append(
-                    {"index": index, "expected": expected, "actual": spikes}
-                )
-                valid = False
-    if bad:
-        reason_codes.append(REASON_GATE_SNN_INVALID)
-        evidence["gate_snn_invalid_population_indices"] = bad
-        valid = False
-    evidence["gate_snn_total_neurons"] = total_neurons
-    evidence["gate_snn_valid"] = valid
-
-
-def _validate_raster(
-    raster: Any,
-    *,
-    reason_codes: list[str],
-    evidence: dict[str, Any],
-    require_routing_table: bool = False,
-) -> None:
-    """Validate 20-50 ms raster excerpt + routing and spike budget at 23 pJ/spike.
-
-    ``require_routing_table`` is set by callers that publish a tree the
-    distillation probe must be able to load; the probe refuses a raster
-    carrying no routing entry.  It is separate from ``require_raster`` so the
-    publish gate keeps reporting its own routing failure in its own words.
-
-    Mutates ``reason_codes`` and ``evidence`` in place.  Records evidence
-    even on success so manifests remain auditable.
-    """
-    if not isinstance(raster, dict):
-        reason_codes.append(REASON_RASTER_EXCERPT)
-        evidence["raster_error"] = "raster must be an object"
-        evidence["raster_present"] = False
-        return
-    evidence["raster_present"] = True
-    window_ms = raster.get("window_ms")
-    window_s = raster.get("window_s")
-    neurons = raster.get("neurons")
-    mean_rate_hz = raster.get("mean_rate_hz")
-    spikes = raster.get("spikes")
-    routing = raster.get("routing")
-    excerpt = raster.get("excerpt")
-
-    if "window_ms" in raster and not _is_finite_number(window_ms):
-        reason_codes.append(REASON_RASTER_WINDOW)
-        evidence["raster_declared_window_ms_valid"] = False
-    if "window_s" in raster and not _is_finite_number(window_s):
-        reason_codes.append(REASON_RASTER_WINDOW)
-        evidence["raster_declared_window_s_valid"] = False
-    if "energy_pJ" in raster and not _is_finite_number(raster.get("energy_pJ")):
-        reason_codes.append(REASON_RASTER_ENERGY)
-        evidence["raster_declared_energy_pJ_valid"] = False
-    if "energy_uJ" in raster and not _is_finite_number(raster.get("energy_uJ")):
-        reason_codes.append(REASON_RASTER_ENERGY)
-        evidence["raster_declared_energy_uJ_valid"] = False
-
-    # Derive window_s if only window_ms given, or vice versa, and check consistency.
-    if _is_finite_number(window_ms) and not _is_finite_number(window_s):
-        window_s = float(window_ms) / 1000.0
-        evidence["raster_window_s_derived"] = window_s
-    elif _is_finite_number(window_s) and not _is_finite_number(window_ms):
-        window_ms = float(window_s) * 1000.0
-        evidence["raster_window_ms_derived"] = window_ms
-
-    # Window must be 20-50 ms inclusive.
-    if not _is_finite_number(window_ms) or not (
-        RASTER_WINDOW_MIN_MS - 1e-9 <= float(window_ms) <= RASTER_WINDOW_MAX_MS + 1e-9
-    ):
-        reason_codes.append(REASON_RASTER_WINDOW)
-        evidence["raster_window_ms"] = window_ms
-        evidence["raster_window_valid"] = False
-    else:
-        evidence["raster_window_ms"] = float(window_ms)
-        evidence["raster_window_valid"] = True
-        if _is_finite_number(window_s):
-            evidence["raster_window_s"] = float(window_s)
-            if abs(float(window_s) - float(window_ms) / 1000.0) > 1e-9:
-                reason_codes.append(REASON_RASTER_WINDOW)
-                evidence["raster_window_consistent"] = False
-            else:
-                evidence["raster_window_consistent"] = True
-
-    # Neurons / rate / spikes must be present and consistent.
-    if not isinstance(neurons, int) or isinstance(neurons, bool) or neurons < 1:
-        reason_codes.append(REASON_RASTER_SPIKE_BUDGET)
-        evidence["raster_neurons_valid"] = False
-    else:
-        evidence["raster_neurons"] = neurons
-        evidence["raster_neurons_valid"] = True
-    if not _is_finite_number(mean_rate_hz) or float(mean_rate_hz) <= 0:
-        reason_codes.append(REASON_RASTER_SPIKE_BUDGET)
-        evidence["raster_rate_valid"] = False
-    else:
-        evidence["raster_rate_hz"] = float(mean_rate_hz)
-        evidence["raster_rate_valid"] = True
-    if (
-        not isinstance(spikes, int)
-        or isinstance(spikes, bool)
-        or spikes < 0
-        or _finite_float(spikes) is None
-    ):
-        # An integer too large to convert to a float cannot be held to the
-        # 23 pJ/spike budget by any consumer, so it is an invalid budget
-        # rather than a value the shared arithmetic may raise on.
-        reason_codes.append(REASON_RASTER_SPIKE_BUDGET)
-        evidence["raster_spikes_valid"] = False
-    else:
-        evidence["raster_spikes"] = spikes
-        evidence["raster_spikes_valid"] = True
-
-    # Check spike budget when all three are valid.
-    if (
-        isinstance(neurons, int)
-        and not isinstance(neurons, bool)
-        and neurons >= 1
-        and _is_finite_number(mean_rate_hz)
-        and float(mean_rate_hz) > 0
-        and isinstance(spikes, int)
-        and not isinstance(spikes, bool)
-        and _is_finite_number(window_ms)
-        and RASTER_WINDOW_MIN_MS - 1e-9 <= float(window_ms) <= RASTER_WINDOW_MAX_MS + 1e-9
-    ):
-        ws = float(window_ms) / 1000.0 if not _is_finite_number(window_s) else float(window_s)
-        expected = _expected_spikes(neurons, float(mean_rate_hz), ws)
-        evidence["raster_expected_spikes"] = expected
-        evidence["raster_spike_budget_tolerance"] = 1
-        if expected is None or abs(spikes - expected) > 1:
-            reason_codes.append(REASON_RASTER_SPIKE_BUDGET)
-            evidence["raster_spike_budget_valid"] = False
-        else:
-            evidence["raster_spike_budget_valid"] = True
-        # Energy checks (23 pJ/spike) if present.
-        energy_pj = raster.get("energy_pJ")
-        energy_uj = raster.get("energy_uJ")
-        if _is_finite_number(energy_pj):
-            # Picojoules stay exact integer arithmetic; the float conversion
-            # exists only for the tolerance comparison, and a product no float
-            # can hold is a mismatch rather than an OverflowError out of the
-            # publish gate.
-            expected_pj = spikes * RASTER_ENERGY_PJ_PER_SPIKE
-            comparable_pj = _finite_float(expected_pj)
-            evidence["raster_expected_energy_pJ"] = (
-                expected_pj if comparable_pj is not None else None
-            )
-            # The schema's energy floor is zero, and a tolerance-only compare
-            # accepts a small negative value whenever the expected energy is
-            # zero, so the sign is checked before the magnitude.
-            if (
-                comparable_pj is None
-                or float(energy_pj) < 0
-                or abs(float(energy_pj) - comparable_pj) > 1e-6
-            ):
-                reason_codes.append(REASON_RASTER_ENERGY)
-                evidence["raster_energy_pJ_valid"] = False
-            else:
-                evidence["raster_energy_pJ_valid"] = True
-        if _is_finite_number(energy_uj):
-            expected_uj = _spike_energy(spikes, RASTER_ENERGY_UJ_PER_SPIKE)
-            evidence["raster_expected_energy_uJ"] = expected_uj
-            if (
-                expected_uj is None
-                or float(energy_uj) < 0
-                or abs(float(energy_uj) - expected_uj) > 1e-9
-            ):
-                reason_codes.append(REASON_RASTER_ENERGY)
-                evidence["raster_energy_uJ_valid"] = False
-            else:
-                evidence["raster_energy_uJ_valid"] = True
-
-    # Routing must be present with source/target.
-    if not isinstance(routing, dict):
-        reason_codes.append(REASON_RASTER_ROUTING)
-        evidence["raster_routing_present"] = False
-    else:
-        src = routing.get("source")
-        tgt = routing.get("target")
-        if not isinstance(src, str) or not src.strip() or not isinstance(tgt, str) or not tgt.strip():
-            reason_codes.append(REASON_RASTER_ROUTING)
-            evidence["raster_routing_valid"] = False
-        else:
-            evidence["raster_routing_valid"] = True
-        evidence["raster_routing_present"] = True
-        table = routing.get("table")
-        valid_table_entries = []
-        invalid_table_indices = []
-        if isinstance(table, list):
-            for index, entry in enumerate(table):
-                if not isinstance(entry, dict):
-                    invalid_table_indices.append(index)
-                    continue
-                source = entry.get("from")
-                target = entry.get("to")
-                weight = entry.get("weight")
-                # The producer contract is a ``{from, to, weight}`` triple
-                # (prompts/03-neuromorphic-event-language-bridge.md): without a
-                # synaptic weight a distillation consumer cannot reconstruct
-                # the declared connection, so a missing weight is as invalid as
-                # a non-numeric one.
-                if (
-                    not isinstance(source, str)
-                    or not source.strip()
-                    or not isinstance(target, str)
-                    or not target.strip()
-                    or not _is_finite_number(weight)
-                ):
-                    invalid_table_indices.append(index)
-                    continue
-                valid_table_entries.append(entry)
-        elif table is not None:
-            invalid_table_indices.append(0)
-        evidence["raster_routing_table_entries"] = len(valid_table_entries)
-        evidence["raster_routing_table_declared_entries"] = (
-            len(table) if isinstance(table, list) else 0
-        )
-        if require_routing_table and not valid_table_entries:
-            # materialize_paths advertises a gate-compatible tree, and the
-            # distillation probe refuses a raster with no routing entry.
-            # Retaining one here would publish a tree the probe rejects on
-            # sight.
-            reason_codes.append(REASON_RASTER_ROUTING)
-            evidence["raster_routing_table_valid"] = False
-        if invalid_table_indices:
-            reason_codes.append(REASON_RASTER_ROUTING)
-            evidence["raster_routing_table_invalid_indices"] = invalid_table_indices
-        if "third_factor" in routing:
-            _validate_third_factor(
-                routing["third_factor"],
-                reason_codes=reason_codes,
-                evidence=evidence,
-            )
-        else:
-            reason_codes.append(REASON_THIRD_FACTOR_INVALID)
-            evidence["raster_third_factor_present"] = False
-            evidence["raster_third_factor_valid"] = False
-
-    # Excerpt must be non-empty and within window, neuron_id in range.
-    if not isinstance(excerpt, list) or not excerpt:
-        reason_codes.append(REASON_RASTER_EXCERPT)
-        evidence["raster_excerpt_valid"] = False
-    else:
-        evidence["raster_excerpt_count"] = len(excerpt)
-        bad = []
-        for idx, item in enumerate(excerpt):
-            if not isinstance(item, dict):
-                bad.append(idx)
-                continue
-            t = item.get("t_ms")
-            nid = item.get("neuron_id")
-            if not _is_finite_number(t) or not isinstance(nid, int) or isinstance(nid, bool):
-                bad.append(idx)
-                continue
-            if _is_finite_number(window_ms) and not (0 - 1e-9 <= float(t) <= float(window_ms) + 1e-9):
-                bad.append(idx)
-                continue
-            if isinstance(neurons, int) and not isinstance(neurons, bool) and not (0 <= nid < neurons):
-                bad.append(idx)
-        if bad:
-            reason_codes.append(REASON_RASTER_EXCERPT)
-            evidence["raster_excerpt_invalid_indices"] = bad
-            evidence["raster_excerpt_valid"] = False
-        else:
-            evidence["raster_excerpt_valid"] = True
-
-
-def _validate_gate_compute(
-    gate_compute: Any,
-    *,
-    reason_codes: list[str],
-    evidence: dict[str, Any],
-) -> None:
-    """Validate per-check spikes = neurons*rate*window @23 pJ when gate_compute present."""
-    if not isinstance(gate_compute, dict):
-        # The first declared carrier wins even when malformed (see
-        # _gate_compute_sidecar).  A non-object gate_compute is schema-invalid
-        # and its budget cannot be checked, so it fails here instead of
-        # disappearing from curation, publication, auditing, and probing.
-        reason_codes.append(REASON_RASTER_SPIKE_BUDGET)
-        evidence["gate_compute_present"] = True
-        evidence["gate_compute_error"] = "gate_compute must be an object"
-        evidence["gate_compute_spike_budget_valid"] = False
-        return
-    evidence["gate_compute_present"] = True
-    per_check = gate_compute.get("per_check")
-    if "per_check" in gate_compute and not isinstance(per_check, list):
-        # Only an absent optional block may be ignored.  A declared per_check
-        # that is a string, a number, an object or null is schema-invalid and
-        # carries no checkable budget, so it fails here rather than leaving
-        # the record with no reason code and raster_valid True.
-        reason_codes.append(REASON_RASTER_SPIKE_BUDGET)
-        evidence["gate_compute_error"] = "per_check must be an array"
-        evidence["gate_compute_spike_budget_valid"] = False
-        return
-    if not isinstance(per_check, list) or not per_check:
-        return
-    budget_valid = True
-    for idx, check in enumerate(per_check):
-        if not isinstance(check, dict):
-            reason_codes.append(REASON_RASTER_SPIKE_BUDGET)
-            evidence.setdefault("gate_compute_invalid_check_indices", []).append(idx)
-            budget_valid = False
-            continue
-        neurons = check.get("neurons")
-        rate = check.get("mean_rate_hz")
-        # accept rate_hz alias
-        if rate is None:
-            rate = check.get("rate_hz")
-        window_s = check.get("window_s")
-        if window_s is None:
-            # derive from latency_ms or window_ms if present
-            wms = check.get("window_ms")
-            if _is_finite_number(wms):
-                window_s = float(wms) / 1000.0
-        spikes = check.get("spikes")
-        if not (
-            isinstance(neurons, int)
-            and not isinstance(neurons, bool)
-            and neurons >= 1
-            and _is_finite_number(rate)
-            and float(rate) > 0
-            and _is_finite_number(window_s)
-            and float(window_s) > 0
-            and isinstance(spikes, int)
-            and not isinstance(spikes, bool)
-            and spikes >= 0
-            and _finite_float(spikes) is not None
-        ):
-            # A per_check entry without a usable neurons/rate/window/spikes
-            # quadruple cannot carry a spike budget, so it fails validation
-            # instead of silently passing the gate.  The bounds are part of
-            # that shape: the schema requires positive neurons, rate, and
-            # window, and two negative operands otherwise multiply back into a
-            # plausible positive spike count.
-            reason_codes.append(REASON_RASTER_SPIKE_BUDGET)
-            evidence.setdefault("gate_compute_invalid_check_indices", []).append(idx)
-            budget_valid = False
-            continue
-        expected = _expected_spikes(neurons, float(rate), float(window_s))
-        if expected is None or abs(spikes - expected) > 1:
-            reason_codes.append(REASON_RASTER_SPIKE_BUDGET)
-            evidence.setdefault("gate_compute_spike_mismatches", []).append(
-                {"index": idx, "expected": expected, "actual": spikes}
-            )
-            budget_valid = False
-    evidence["gate_compute_spike_budget_valid"] = budget_valid
-    # Energy check if total present
-    if isinstance(per_check, list):
-        total_spikes = sum(
-            c.get("spikes", 0)
-            for c in per_check
-            if isinstance(c, dict) and isinstance(c.get("spikes"), int) and not isinstance(c.get("spikes"), bool)
-        )
-        evidence["gate_compute_total_spikes"] = total_spikes
-        energy_valid: bool | None = None
-        for key, per_spike, tolerance in (
-            ("total_energy_uJ", RASTER_ENERGY_UJ_PER_SPIKE, 1e-9),
-            ("total_energy_pJ", RASTER_ENERGY_PJ_PER_SPIKE, 1e-6),
-        ):
-            if key not in gate_compute:
-                continue
-            val = gate_compute[key]
-            expected = _spike_energy(total_spikes, per_spike)
-            # A declared but non-numeric total is a mismatch, not an absence,
-            # and so is one whose expected value no float can represent.
-            # Same nonnegative bound as the raster energy fields: the schema
-            # floors both totals at zero, and a zero-spike gate makes the
-            # tolerance alone accept a small negative total.
-            key_valid = (
-                expected is not None
-                and _is_finite_number(val)
-                and float(val) >= 0
-                and abs(float(val) - expected) <= tolerance
-            )
-            if not key_valid:
-                reason_codes.append(REASON_RASTER_ENERGY)
-            energy_valid = key_valid if energy_valid is None else (energy_valid and key_valid)
-        if energy_valid is not None:
-            evidence["gate_compute_energy_valid"] = energy_valid
-
-
 def is_bridge_record(record: Any) -> bool:
     """Return True for a paired spike/language Bridge record."""
 
@@ -992,9 +433,7 @@ def gate_snn_sidecar(record: Any) -> tuple[str | None, Any]:
     meta = record.get("meta")
     view = record.get("language_view")
     trajectory = view.get("trajectory") if isinstance(view, dict) else None
-    decision = (
-        trajectory.get("safety_decision") if isinstance(trajectory, dict) else None
-    )
+    decision = trajectory.get("safety_decision") if isinstance(trajectory, dict) else None
     candidates = (
         (GATE_SNN_KEY, *_declared(record, GATE_SNN_KEY)),
         (f"meta.{GATE_SNN_KEY}", *_declared(meta, GATE_SNN_KEY)),
@@ -1079,9 +518,7 @@ def _raster_reasons(
     gate_compute_location, gate_compute = _gate_compute_sidecar(record)
     if gate_compute_location is not None:
         evidence["gate_compute_location"] = gate_compute_location
-        _validate_gate_compute(
-            gate_compute, reason_codes=reason_codes, evidence=evidence
-        )
+        _validate_gate_compute(gate_compute, reason_codes=reason_codes, evidence=evidence)
     gate_snn_location, gate_snn = gate_snn_sidecar(record)
     if gate_snn_location is not None:
         evidence["gate_snn_location"] = gate_snn_location
@@ -1243,11 +680,7 @@ def curate_record(
 
     if not isinstance(source_path, str) or not source_path:
         raise BridgeCurationError("source_path must be a non-empty string")
-    if (
-        not isinstance(source_line, int)
-        or isinstance(source_line, bool)
-        or source_line < 1
-    ):
+    if not isinstance(source_line, int) or isinstance(source_line, bool) or source_line < 1:
         raise BridgeCurationError("source_line must be a positive integer")
     if not isinstance(source_hash, str) or not source_hash:
         raise BridgeCurationError("source_hash must be a non-empty string")
@@ -1572,10 +1005,7 @@ def summarize(decisions: Sequence[CurationDecision]) -> dict[str, Any]:
 
 def _is_under_raw(path: Path) -> bool:
     parts = path.resolve(strict=False).parts
-    return any(
-        parts[index : index + 2] == ("outputs", "raw")
-        for index in range(len(parts) - 1)
-    )
+    return any(parts[index : index + 2] == ("outputs", "raw") for index in range(len(parts) - 1))
 
 
 def _safe_relative_path(value: str, *, label: str) -> Path:
@@ -1615,9 +1045,7 @@ def _rename_noreplace(source: Path, destination: Path) -> None:
     libc = ctypes.CDLL(None, use_errno=True)
     renameat2 = getattr(libc, "renameat2", None)
     if renameat2 is None:
-        raise BridgeCurationError(
-            "atomic no-replace publication is unavailable on this platform"
-        )
+        raise BridgeCurationError("atomic no-replace publication is unavailable on this platform")
     renameat2.argtypes = [
         ctypes.c_int,
         ctypes.c_char_p,
@@ -1637,12 +1065,8 @@ def _rename_noreplace(source: Path, destination: Path) -> None:
         return
     error = ctypes.get_errno()
     if error in {errno.EEXIST, errno.ENOTEMPTY}:
-        raise BridgeCurationError(
-            f"destination already exists; refusing overwrite: {destination}"
-        )
-    raise BridgeCurationError(
-        f"cannot atomically publish {destination}: {os.strerror(error)}"
-    )
+        raise BridgeCurationError(f"destination already exists; refusing overwrite: {destination}")
+    raise BridgeCurationError(f"cannot atomically publish {destination}: {os.strerror(error)}")
 
 
 def _validate_materialized_tree(
@@ -1688,9 +1112,7 @@ def _validate_materialized_tree(
             if not line.strip():
                 continue
             try:
-                record = json.loads(
-                    line.decode("utf-8"), parse_constant=_reject_json_constant
-                )
+                record = json.loads(line.decode("utf-8"), parse_constant=_reject_json_constant)
             except (UnicodeError, json.JSONDecodeError, ValueError) as exc:
                 raise BridgeCurationError(
                     f"invalid staged Bridge output {relative}: {exc}"
@@ -1702,6 +1124,107 @@ def _validate_materialized_tree(
             )
 
 
+def _materialization_roots(
+    source_root: str | Path, output_dir: str | Path
+) -> tuple[Path, Path, Path]:
+    root = Path(source_root)
+    destination = Path(output_dir)
+    checks = (
+        (root.is_dir(), f"source_root must be a real directory: {root}"),
+        (not root.is_symlink(), f"source_root must be a real directory: {root}"),
+        (
+            not os.path.lexists(destination),
+            f"destination already exists; refusing overwrite: {destination}",
+        ),
+        (
+            destination.parent.is_dir(),
+            f"destination parent must be a real directory: {destination.parent}",
+        ),
+        (
+            not destination.parent.is_symlink(),
+            f"destination parent must be a real directory: {destination.parent}",
+        ),
+        (
+            not _is_under_raw(destination),
+            f"refusing to write inside immutable raw evidence: {destination}",
+        ),
+    )
+    failure = next((message for valid, message in checks if not valid), None)
+    if failure is not None:
+        raise BridgeCurationError(failure)
+    root_resolved = root.resolve(strict=True)
+    destination_resolved = destination.resolve(strict=False)
+    separated = (
+        destination_resolved != root_resolved and root_resolved not in destination_resolved.parents
+    )
+    if not separated:
+        raise BridgeCurationError(f"destination cannot be inside source_root: {destination}")
+    return root, destination, root_resolved
+
+
+def _materialization_sources(sources: Iterable[str | Path], root_resolved: Path) -> list[Path]:
+    source_paths = list(map(Path, sources))
+    invalid = [
+        source for source in source_paths if not all((source.is_file(), not source.is_symlink()))
+    ]
+    if invalid:
+        raise BridgeCurationError(f"source must be a real JSONL file: {invalid[0]}")
+    outside = [
+        source
+        for source in source_paths
+        if not source.resolve(strict=True).is_relative_to(root_resolved)
+    ]
+    if outside:
+        raise BridgeCurationError(f"source is outside source_root: {outside[0]}")
+    return source_paths
+
+
+def _write_materialized_tree(
+    staged: Path,
+    decisions: Sequence[CurationDecision],
+    manifest_relative: Path,
+) -> None:
+    by_path: dict[Path, list[dict[str, Any]]] = {}
+    for decision in decisions:
+        if decision.output_record is None:
+            continue
+        relative = _safe_relative_path(
+            decision.manifest["source_path"], label="manifest source_path"
+        )
+        by_path.setdefault(relative, []).append(decision.output_record)
+    for relative, records in sorted(by_path.items(), key=lambda item: item[0].as_posix()):
+        target = staged / relative
+        target.parent.mkdir(parents=True, exist_ok=True)
+        _write_exclusive(
+            target,
+            b"".join(canonical_json_line(record) for record in records),
+        )
+    manifest_path = staged / manifest_relative
+    manifest_path.parent.mkdir(parents=True, exist_ok=True)
+    _write_exclusive(
+        manifest_path,
+        b"".join(canonical_json_line(decision.manifest) for decision in decisions),
+    )
+
+
+def _publish_materialized_tree(
+    destination: Path,
+    decisions: Sequence[CurationDecision],
+    manifest_relative: Path,
+) -> None:
+    stage_root = Path(
+        tempfile.mkdtemp(prefix=f".{destination.name}.staging-", dir=destination.parent)
+    )
+    staged = stage_root / "tree"
+    try:
+        staged.mkdir()
+        _write_materialized_tree(staged, decisions, manifest_relative)
+        _validate_materialized_tree(staged, decisions, manifest_relative)
+        _rename_noreplace(staged, destination)
+    finally:
+        shutil.rmtree(stage_root, ignore_errors=True)
+
+
 def materialize_paths(
     sources: Iterable[str | Path],
     *,
@@ -1710,64 +1233,24 @@ def materialize_paths(
     manifest_name: str = MANIFEST_NAME,
     require_raster: bool = True,
 ) -> list[CurationDecision]:
-    """Publish a new gate-compatible Bridge lane tree without clobbering.
+    """Publish one atomically validated, gate-compatible Bridge lane tree."""
 
-    ``require_raster`` defaults to True here, unlike the pure decision API:
-    the publication gate, the training audit, and the distillation probe all
-    reject a record with no raster sidecar, so materializing one into the tree
-    this module calls gate-compatible would hand a distillation run a record
-    every other layer refuses.  Legacy callers opt out explicitly.
-    """
-
-    root = Path(source_root)
-    destination = Path(output_dir)
-    if not root.is_dir() or root.is_symlink():
-        raise BridgeCurationError(f"source_root must be a real directory: {root}")
-    if os.path.lexists(destination):
-        raise BridgeCurationError(
-            f"destination already exists; refusing overwrite: {destination}"
-        )
-    if not destination.parent.is_dir() or destination.parent.is_symlink():
-        raise BridgeCurationError(
-            f"destination parent must be a real directory: {destination.parent}"
-        )
-    if _is_under_raw(destination):
-        raise BridgeCurationError(
-            f"refusing to write inside immutable raw evidence: {destination}"
-        )
-    root_resolved = root.resolve(strict=True)
-    destination_resolved = destination.resolve(strict=False)
-    if destination_resolved == root_resolved or root_resolved in destination_resolved.parents:
-        raise BridgeCurationError(
-            f"destination cannot be inside source_root: {destination}"
-        )
-
-    source_paths = [Path(source) for source in sources]
+    root, destination, root_resolved = _materialization_roots(source_root, output_dir)
+    source_paths = list(map(Path, sources))
     if not source_paths:
         raise BridgeCurationError("at least one Bridge JSONL source is required")
-    for source in source_paths:
-        if not source.is_file() or source.is_symlink():
-            raise BridgeCurationError(f"source must be a real JSONL file: {source}")
-        try:
-            source.resolve(strict=True).relative_to(root_resolved)
-        except ValueError as exc:
-            raise BridgeCurationError(
-                f"source is outside source_root: {source}"
-            ) from exc
-
-    manifest_relative = _safe_relative_path(manifest_name, label="manifest_name")
-    if manifest_relative.suffix != ".jsonl":
-        raise BridgeCurationError("manifest_name must end in .jsonl")
+    source_paths = _materialization_sources(source_paths, root_resolved)
     decisions = curate_paths(
         source_paths,
         source_root=root,
         require_raster=require_raster,
         require_routing_table=require_raster,
     )
+    manifest_relative = _safe_relative_path(manifest_name, label="manifest_name")
+    if manifest_relative.suffix != ".jsonl":
+        raise BridgeCurationError("manifest_name must end in .jsonl")
     output_paths = {
-        _safe_relative_path(
-            decision.manifest["source_path"], label="manifest source_path"
-        )
+        _safe_relative_path(decision.manifest["source_path"], label="manifest source_path")
         for decision in decisions
         if decision.output_record is not None
     }
@@ -1775,39 +1258,8 @@ def materialize_paths(
         raise BridgeCurationError(
             f"manifest path collides with a curated output: {manifest_relative}"
         )
-
-    stage_root = Path(
-        tempfile.mkdtemp(prefix=f".{destination.name}.staging-", dir=destination.parent)
-    )
-    staged = stage_root / "tree"
-    try:
-        staged.mkdir()
-        by_path: dict[Path, list[dict[str, Any]]] = {}
-        for decision in decisions:
-            if decision.output_record is None:
-                continue
-            relative = _safe_relative_path(
-                decision.manifest["source_path"], label="manifest source_path"
-            )
-            by_path.setdefault(relative, []).append(decision.output_record)
-        for relative, records in sorted(by_path.items(), key=lambda item: item[0].as_posix()):
-            target = staged / relative
-            target.parent.mkdir(parents=True, exist_ok=True)
-            _write_exclusive(
-                target,
-                b"".join(canonical_json_line(record) for record in records),
-            )
-        manifest_path = staged / manifest_relative
-        manifest_path.parent.mkdir(parents=True, exist_ok=True)
-        _write_exclusive(
-            manifest_path,
-            b"".join(canonical_json_line(decision.manifest) for decision in decisions),
-        )
-        _validate_materialized_tree(staged, decisions, manifest_relative)
-        _rename_noreplace(staged, destination)
-        return decisions
-    finally:
-        shutil.rmtree(stage_root, ignore_errors=True)
+    _publish_materialized_tree(destination, decisions, manifest_relative)
+    return decisions
 
 
 def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
@@ -1861,11 +1313,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             "summary": summarize(decisions),
             "decisions": [decision.as_dict() for decision in decisions],
         }
-    print(
-        json.dumps(
-            payload, ensure_ascii=False, indent=2, sort_keys=True, allow_nan=False
-        )
-    )
+    print(json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True, allow_nan=False))
     return 0
 
 

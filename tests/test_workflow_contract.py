@@ -67,21 +67,15 @@ class NovelCoverageNotesContract(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        cls.prompts = {
-            path.name: path.read_text() for path in sorted(PROMPTS.glob("*.md"))
-        }
+        cls.prompts = {path.name: path.read_text() for path in sorted(PROMPTS.glob("*.md"))}
         cls.transactional = {
-            name: text
-            for name, text in cls.prompts.items()
-            if "round_txn.py" in text
+            name: text for name, text in cls.prompts.items() if "round_txn.py" in text
         }
 
     def test_every_transactional_prompt_requires_the_notes_line(self):
         self.assertTrue(self.transactional, "no transactional prompts found")
         missing = sorted(
-            name
-            for name, text in self.transactional.items()
-            if "Novel coverage: <N>%" not in text
+            name for name, text in self.transactional.items() if "Novel coverage: <N>%" not in text
         )
         self.assertEqual(missing, [], f"prompts missing the NOTES contract: {missing}")
 
@@ -111,9 +105,7 @@ class NovelCoverageNotesContract(unittest.TestCase):
     def test_strict_publish_and_workflow_parsers_require_one_physical_line(self):
         split_claim = "Novel coverage:\n80% of tests passed.\n"
         self.assertIsNone(round_txn.NOVEL_COVERAGE_RE.search(split_claim))
-        self.assertIsNotNone(
-            round_txn.LEGACY_NOVEL_COVERAGE_RE.search(split_claim)
-        )
+        self.assertIsNotNone(round_txn.LEGACY_NOVEL_COVERAGE_RE.search(split_claim))
         workflow = WORKFLOW.read_text()
         self.assertIn(r"^[ \t]*novel", workflow)
         self.assertNotIn(r"/^\s*novel", workflow)
@@ -155,16 +147,13 @@ class RasterGateProducerContract(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.prompts = {
-            path.name: path.read_text(encoding="utf-8")
-            for path in sorted(PROMPTS.glob("*.md"))
+            path.name: path.read_text(encoding="utf-8") for path in sorted(PROMPTS.glob("*.md"))
         }
 
     PROMPT_BY_SLUG = {
         "thalamic-trajectory-factory": "01-thalamic-trajectory-factory.md",
         "multi-agent-ouroboros-swarm": "02-multi-agent-ouroboros-swarm.md",
-        "neuromorphic-event-language-bridge": (
-            "03-neuromorphic-event-language-bridge.md"
-        ),
+        "neuromorphic-event-language-bridge": ("03-neuromorphic-event-language-bridge.md"),
     }
 
     def test_every_gated_lane_has_a_prompt_that_documents_the_sidecars(self):
