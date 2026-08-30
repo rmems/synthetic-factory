@@ -549,6 +549,94 @@ class PublishGrok46HubTests(unittest.TestCase):
             card = (root / "hf" / publisher.HF_DATASETS_DIRNAME / ITEM["hub"] / "README.md").read_text()
             self.assertIn("`data/raw/batch-r1a.jsonl`", card)
             self.assertNotIn("`data/raw/batch-r01a.jsonl`", card)
+            self.assertNotIn("## Factory-mix quarantine", card)
+
+    def test_snapshot_card_discloses_issue_43_factory_mix(self):
+        item = {
+            "slug": "email-webhook-retry-factory",
+            "hub": "email-webhook-retry-trajectories",
+            "pretty": "Email Webhook Retry Trajectories",
+            "blurb": "Test factory.",
+            "tags": ["synthetic-data"],
+        }
+        card = publisher.render_card(
+            item,
+            records=100,
+            bytes_=4096,
+            first="r56",
+            last="r58",
+            payload_names=["batch-r56.jsonl", "batch-r57.jsonl", "batch-r58.jsonl"],
+        )
+        self.assertIn("## Factory-mix quarantine", card)
+        self.assertIn("**94**, not 100", card)
+        self.assertIn("`sir-r56-meili-swap-leftover3c-rebuild`", card)
+
+    def test_preference_pair_cards_disclose_the_trajectory_schema(self):
+        # The two published Grok preference repos are trajectory DPO, not Fable
+        # same-state pairs; the card must say so and claim no FFPC purity.
+        for slug in ("code-review-preference-factory", "tool-use-preference-factory"):
+            hub = publisher.hub_name(slug)
+            card = publisher.render_card(
+                {**ITEM, "slug": slug, "hub": hub},
+                records=3,
+                bytes_=4096,
+                first="r01",
+                last="r02",
+            )
+
+            self.assertTrue(hub.endswith("-preference-pairs"), hub)
+            self.assertIn("## Record schema", card)
+            self.assertIn("trajectory preference pair", card)
+            self.assertIn("`proposed_action` field", card)
+            self.assertIn("curate_trajectory_preferences.py", card)
+            self.assertIn("no FFPC-equivalent same-state", card)
+            self.assertIn("payload is unfiltered", card)
+            # The YAML tag block must still be the first --- delimited section.
+            self.assertEqual(len(card.split("---", 2)), 3)
+
+    def test_code_review_card_discloses_leftover_episode_lines(self):
+        kind_mix = [
+            SimpleNamespace(
+                record_id=f"leftover-{index}",
+                source_name="batch-r723.jsonl",
+                source_line=index + 1,
+                record_kind="episode",
+                source_sha256=f"{index:064x}",
+            )
+            for index in range(12)
+        ]
+        card = publisher.render_card(
+            {
+                **ITEM,
+                "slug": "code-review-preference-factory",
+                "hub": "code-review-preference-pairs",
+            },
+            records=2976,
+            bytes_=4096,
+            first="r01",
+            last="r02",
+            kind_mix=kind_mix,
+        )
+
+        self.assertIn("2,964 trajectory", card)
+        self.assertIn("12 quarantined\nleftover-mill episode records", card)
+        self.assertIn("without `chosen` / `rejected`\nobjects", card)
+        self.assertNotIn("Each line is a **trajectory preference pair**", card)
+
+    def test_trajectory_cards_omit_the_preference_pair_disclosure(self):
+        # ITEM's hub owns a card-schema declaration, so the render must name
+        # the payload the declared data_files glob covers, exactly as
+        # snapshot_one does; an empty payload list is a coverage failure.
+        card = publisher.render_card(
+            ITEM,
+            records=1,
+            bytes_=1024,
+            first="r01",
+            last="r01",
+            payload_names=["batch-r01.jsonl"],
+        )
+
+        self.assertNotIn("## Record schema", card)
 
     def test_snapshot_keeps_legacy_baseline_and_filters_uncommitted_marker_batches(self):
         with tempfile.TemporaryDirectory() as td:
