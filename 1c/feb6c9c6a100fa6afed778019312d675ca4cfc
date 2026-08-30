@@ -1,0 +1,45 @@
+.claude/skills/run-synthetic-factory/SKILL.md
+  s_98712805c1499b::t_e60395e001fa66 51-53
+pipelines/spike_probe.py
+  s_98712805c1499b::t_bc8025116fe413 41,48,209-222,224-225,320-321,328-335,358-368
+  s_98712805c1499b::t_dfc944535cadf8 151-152,157,164
+tests/test_spike_probe.py
+  s_98712805c1499b::t_bc8025116fe413 191,195,205-221,398-414
+  s_98712805c1499b::t_d877a464e1d167 196-199
+  s_98712805c1499b::t_dfc944535cadf8 70-82
+prompts/03-neuromorphic-event-language-bridge.md
+  s_98712805c1499b::t_34167f41a2b6dc 40-41
+pipelines/curate_bridge_raster.py
+  s_98712805c1499b::t_d948d3c3433e09 97-98,115-123,243,245,247-252,254,443-444,446
+pipelines/curate_bridge.py
+  s_98712805c1499b::t_d3cc24950d8a43 64,226-234
+  s_98712805c1499b::t_2d166141bff62f 9,84
+  s_98712805c1499b::t_76af3ae9549650 804-817,889
+pipelines/curate_bridge_materialize.py
+  s_98712805c1499b::t_2d166141bff62f 135-138,141-143,316,341-342
+pipelines/curate_bridge_gate.py
+  s_98712805c1499b::t_63fcf7d0a993f4 21,108-109,276-277,281
+pipelines/promote.py
+  s_98712805c1499b::t_76af3ae9549650 423-431,455
+tests/test_curate_bridge_materialization.py
+  s_98712805c1499b::t_2d166141bff62f 27-29,91,106,198,203,216,219-220,226,230,234-237,262-264,268-286,288-292,294-305
+  s_98712805c1499b::t_0dad86addfccab 287,293
+tests/test_curate_bridge_raster.py
+  s_98712805c1499b::t_870b595122dad4 87,97-125,332-364
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "1cfeb6c9c6a100fa6afed778019312d675ca4cfc",
+  "prompts": {},
+  "sessions": {
+    "s_98712805c1499b": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a04a1f-1e33-7812-a5aa-c7b04b33b6b5",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Raul Montoya Cardenas <montoyaraul34@gmail.com>"
+    }
+  }
+}
