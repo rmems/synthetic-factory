@@ -1,7 +1,15 @@
 #!/usr/bin/env python3
 """PR #132 / issue #66 leaf tests for the per-dataset card schema declaration."""
 
-import test_card_schema as _shared
+try:
+    # The shared card-schema test module was renamed on the stack's shared
+    # infrastructure branch (`test_card_schema` -> `test_card_schema_integration`)
+    # after this branch was cut. Prefer the new name so this leaf still imports
+    # on the post-merge tree, where the old monolith no longer exists; fall back
+    # to the old name, which is what this branch's own history carries today.
+    import test_card_schema_integration as _shared
+except ModuleNotFoundError:
+    import test_card_schema as _shared
 
 unittest = _shared.unittest
 io = _shared.io
@@ -24,7 +32,7 @@ INCIDENT_RESPONSE_MIRROR = (
     Path.home() / "rmems/hf/grok-4.6/incident-response-oncall-trajectories/data/raw"
 )
 INCIDENT_RESPONSE_PAYLOAD_NAMES = tuple(
-    f"batch-r{round_number:02}.jsonl" for round_number in range(1, 3853)
+    f"batch-r{round_number:02}.jsonl" for round_number in range(1, 5027)
 )
 
 
@@ -86,10 +94,13 @@ class IncidentResponseOncallDeclarationTests(unittest.TestCase):
 
     The counts asserted here were derived by scanning every published record in
     the read-only mirror at
-    ``~/rmems/hf/grok-4.6/incident-response-oncall-trajectories`` (7704 records
-    across 3852 shards, 0 parse failures, 139086 steps), not transcribed from
-    the issue. The three families are 7668 on-call RCA episodes, 20 OpenSRE
-    seed rows, and the 16 dest-stamped ``sir-*`` search-index rows.
+    ``~/rmems/hf/grok-4.6/incident-response-oncall-trajectories`` (10052 records
+    across 5026 shards, 0 parse failures, 178998 steps), not transcribed from
+    the issue. The three families are 10016 on-call RCA episodes, 20 OpenSRE
+    seed rows, and the 16 dest-stamped ``sir-*`` search-index rows. The census
+    was re-grounded on 2026-08-30 after the factory appended rounds
+    r3853-r5026 (2348 further on-call episodes; no new field, family, reward
+    key set, or foreign row).
     """
 
     def setUp(self):
@@ -107,10 +118,10 @@ class IncidentResponseOncallDeclarationTests(unittest.TestCase):
         }
         self.card = publisher.render_card(
             self.item,
-            records=7704,
-            bytes_=66481787,
+            records=10052,
+            bytes_=85596311,
             first="01",
-            last="3852",
+            last="5026",
             payload_names=list(INCIDENT_RESPONSE_PAYLOAD_NAMES),
         )
 
@@ -137,11 +148,11 @@ class IncidentResponseOncallDeclarationTests(unittest.TestCase):
             ],
         )
         names = {feature["name"]: feature for feature in features}
-        # Present on every one of the 7704 records, so never flagged optional.
+        # Present on every one of the 10052 records, so never flagged optional.
         for name in ("id", "goal", "plan", "steps", "outcome", "reward", "meta"):
             with self.subTest(field=name):
                 self.assertFalse(names[name].get("optional", False))
-        # `plan` is a plain string on all 7704 records: it is neither optional
+        # `plan` is a plain string on all 10052 records: it is neither optional
         # (as in the worked #36 example) nor list-vs-string.
         self.assertEqual(names["plan"]["dtype"], "string")
         # Each of these belongs to exactly one family, so each is absent on the
@@ -196,7 +207,7 @@ class IncidentResponseOncallDeclarationTests(unittest.TestCase):
             if feature["name"] == "false_lead"
         )
         children = {child["name"]: child for child in false_lead["struct"]}
-        # All 7668 on-call episodes carry exactly these three keys, and none of
+        # All 10016 on-call episodes carry exactly these three keys, and none of
         # them varies in type, so the nullable struct is castable and more
         # useful in the viewer than an opaque json blob.
         self.assertEqual(set(children), {"claim", "survived_steps", "falsified_at"})
@@ -215,7 +226,7 @@ class IncidentResponseOncallDeclarationTests(unittest.TestCase):
             set(children), {"n", "decision_basis", "tool_call", "observation", "reflection"}
         )
         self.assertFalse(children["decision_basis"].get("optional", False))
-        # 40625 of 139086 steps carry a reflection.
+        # 54713 of 178998 steps carry a reflection.
         self.assertTrue(children["reflection"]["optional"])
         tool_call = {child["name"]: child for child in children["tool_call"]["struct"]}
         self.assertEqual(set(tool_call), {"name", "args"})
@@ -243,7 +254,7 @@ class IncidentResponseOncallDeclarationTests(unittest.TestCase):
         self.assertIn("**not training-ready**", self.card)
 
     def test_declared_glob_covers_the_complete_published_payload_snapshot(self):
-        self.assertEqual(len(INCIDENT_RESPONSE_PAYLOAD_NAMES), 3852)
+        self.assertEqual(len(INCIDENT_RESPONSE_PAYLOAD_NAMES), 5026)
         self.assertEqual(
             card_schema.payload_coverage_errors(
                 self.declaration,
@@ -365,10 +376,10 @@ class IncidentResponseOncallDeclarationTests(unittest.TestCase):
                     reflections += sum("reflection" in step for step in record["steps"])
                     records += 1
 
-        self.assertEqual(records, 7704)
-        self.assertEqual(steps, 139086)
-        self.assertEqual(reflections, 40625)
-        self.assertEqual(family_counts, {"oncall": 7668, "opensre": 20, "sir": 16})
+        self.assertEqual(records, 10052)
+        self.assertEqual(steps, 178998)
+        self.assertEqual(reflections, 54713)
+        self.assertEqual(family_counts, {"oncall": 10016, "opensre": 20, "sir": 16})
         self.assertEqual(
             field_counts,
             {
@@ -379,8 +390,8 @@ class IncidentResponseOncallDeclarationTests(unittest.TestCase):
             },
         )
         self.assertEqual(leftover_irc_ids, 113)
-        self.assertEqual(leftover_irc_goals, 1701)
-        self.assertEqual(leftover_all_goals, 1717)
+        self.assertEqual(leftover_irc_goals, 4049)
+        self.assertEqual(leftover_all_goals, 4065)
         self.assertEqual(sir_ids, set(INCIDENT_RESPONSE_SIR_IDS))
 
 

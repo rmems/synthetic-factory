@@ -2,7 +2,7 @@
   "version": 1,
   "dataset": "incident-response-oncall-trajectories",
   "issues": [66],
-  "note": "The viewer schema is declared by hand because three record families share this destination and no two of them agree on `meta`, on `reward`, or on which extra top-level fields exist: 7668 on-call RCA episodes carry `kind` / `false_lead` / `rca` / `remediate` with `meta` `{alert_source, factory, generator, plant, round, ticket}`, 20 OpenSRE seed rows carry `true_root_cause` / `red_herring` (and `forbidden_diagnosis` / `required_evidence` on subsets of those 20) with `meta` `{factory, generator, opensre_seed, round}`, and 16 dest-stamped search-index `sir-*` rows carry none of them with `meta` `{designed, domain, factory, generator, kind, round, seed, stack}`, so the datasets-server infers one shape from an early shard and then cannot cast the other two. Declaring the union fixes the index without rewriting a single historical raw record.",
+  "note": "The viewer schema is declared by hand because three record families share this destination and no two of them agree on `meta`, on `reward`, or on which extra top-level fields exist: 10016 on-call RCA episodes carry `kind` / `false_lead` / `rca` / `remediate` with `meta` `{alert_source, factory, generator, plant, round, ticket}`, 20 OpenSRE seed rows carry `true_root_cause` / `red_herring` (and `forbidden_diagnosis` / `required_evidence` on subsets of those 20) with `meta` `{factory, generator, opensre_seed, round}`, and 16 dest-stamped search-index `sir-*` rows carry none of them with `meta` `{designed, domain, factory, generator, kind, round, seed, stack}`, so the datasets-server infers one shape from an early shard and then cannot cast the other two. Declaring the union fixes the index without rewriting a single historical raw record. Counts throughout this declaration are the published census through round 5026.",
   "config_name": "default",
   "split": "train",
   "data_files": ["data/raw/batch-*.jsonl"],
@@ -12,19 +12,19 @@
     {
       "name": "plan",
       "dtype": "string",
-      "note": "on all 7704 records and always a plain string: never absent, never a list"
+      "note": "on all 10052 records and always a plain string: never absent, never a list"
     },
     {
       "name": "kind",
       "dtype": "string",
       "optional": true,
-      "note": "present on 7668 of 7704 records, always the literal `episode`. Absent on the 20 OpenSRE seed rows and on the 16 `sir-*` rows disclosed below, which carry `meta.kind` instead"
+      "note": "present on 10016 of 10052 records, always the literal `episode`. Absent on the 20 OpenSRE seed rows and on the 16 `sir-*` rows disclosed below, which carry `meta.kind` instead"
     },
     {
       "name": "true_root_cause",
       "dtype": "string",
       "optional": true,
-      "note": "present on 20 of 7704 records — every OpenSRE seed row and only those; always a plain string"
+      "note": "present on 20 of 10052 records — every OpenSRE seed row and only those; always a plain string"
     },
     {
       "name": "red_herring",
@@ -65,7 +65,7 @@
           "name": "reflection",
           "dtype": "string",
           "optional": true,
-          "note": "present on 40625 of 139086 steps"
+          "note": "present on 54713 of 178998 steps"
         }
       ]
     },
@@ -73,12 +73,12 @@
     {
       "name": "reward",
       "dtype": "json",
-      "note": "key-bag over 22 distinct key sets: `success` on every record, and the 7668 on-call episodes carry exactly `{false_lead_steps, http_retries, steps, success}`. The 36 OpenSRE and `sir-*` rows drop those three and add `cost_steps` (36), `plan_changes` (16), `tests_passed` (16), `handoff` (15), `red_herring_dismissed` (14), `retries` (8), `xfailed` (8), `forbidden_diagnosis_avoided` (4), `p99_s_after` (4), `instance_class_unchanged` (3), `replica_lag_s_after` (3), `five_xx_rps_end` (2), `missing_metric` (2), `wrong_mitigation_rollback` (2) and 14 single-record extras. `handoff` is itself type-varying: an integer on the 8 `sir-*` rows and a team-name string on 7 OpenSRE rows"
+      "note": "key-bag over 22 distinct key sets: `success` on every record, and the 10016 on-call episodes carry exactly `{false_lead_steps, http_retries, steps, success}`. The 36 OpenSRE and `sir-*` rows drop those three and add `cost_steps` (36), `plan_changes` (16), `tests_passed` (16), `handoff` (15), `red_herring_dismissed` (14), `retries` (8), `xfailed` (8), `forbidden_diagnosis_avoided` (4), `p99_s_after` (4), `instance_class_unchanged` (3), `replica_lag_s_after` (3), `five_xx_rps_end` (2), `missing_metric` (2), `wrong_mitigation_rollback` (2) and 14 single-record extras. `handoff` is itself type-varying: an integer on the 8 `sir-*` rows and a team-name string on 7 OpenSRE rows"
     },
     {
       "name": "false_lead",
       "optional": true,
-      "note": "present on 7668 of 7704 records — the on-call RCA family and only it; always an object with exactly these three keys",
+      "note": "present on 10016 of 10052 records — the on-call RCA family and only it; always an object with exactly these three keys",
       "struct": [
         {"name": "claim", "dtype": "string"},
         {"name": "survived_steps", "list": "int64"},
@@ -89,22 +89,22 @@
       "name": "rca",
       "dtype": "string",
       "optional": true,
-      "note": "present on the same 7668 on-call RCA episodes; always a plain string"
+      "note": "present on the same 10016 on-call RCA episodes; always a plain string"
     },
     {
       "name": "remediate",
       "dtype": "string",
       "optional": true,
-      "note": "present on the same 7668 on-call RCA episodes; always a plain string"
+      "note": "present on the same 10016 on-call RCA episodes; always a plain string"
     },
     {
       "name": "meta",
       "dtype": "json",
-      "note": "key-bag with exactly three shapes: `factory`, `generator`, `round` on every record, plus `alert_source` / `plant` / `ticket` on the 7668 on-call episodes, `opensre_seed` on the 20 OpenSRE seed rows, and `designed` / `domain` / `kind` / `seed` / `stack` on the 16 `sir-*` rows"
+      "note": "key-bag with exactly three shapes: `factory`, `generator`, `round` on every record, plus `alert_source` / `plant` / `ticket` on the 10016 on-call episodes, `opensre_seed` on the 20 OpenSRE seed rows, and `designed` / `domain` / `kind` / `seed` / `stack` on the 16 `sir-*` rows"
     }
   ],
   "disclosures": [
-    "The 7704 published records split into three families by payload, not by slug: 7668 on-call leftover-signal RCA episodes (`kind` + `false_lead` + `rca` + `remediate`), 20 OpenSRE seed rows (`true_root_cause` + `red_herring`), and the 16 dest-stamped search-index rows disclosed below. Every record declares `meta.factory` `incident-response-oncall-factory` and `meta.generator` `grok-4.6`.",
+    "The 10052 published records split into three families by payload, not by slug: 10016 on-call leftover-signal RCA episodes (`kind` + `false_lead` + `rca` + `remediate`), 20 OpenSRE seed rows (`true_root_cause` + `red_herring`), and the 16 dest-stamped search-index rows disclosed below. Every record declares `meta.factory` `incident-response-oncall-factory` and `meta.generator` `grok-4.6`.",
     {
       "summary": "Sixteen records published into rounds r3382-r3389 of this destination are search-index-rebuild leftover3c episodes, not incident-response episodes: their ids carry the `sir-` prefix, their `meta` is the search-index mill's `{designed, domain, kind, seed, stack}` shape, and their goals are Meilisearch / Typesense / Sonic / Tantivy / Xapian / Manticore / Zinc / OpenSearch rebuild-and-handoff tickets. The mill rewrites `meta.factory` to the destination it hopped into, which is why they are stamped `incident-response-oncall-factory`. They are kept exactly as generated and are not re-censused here. They are outside the frozen mill censuses of the related issues, which cover other destinations.",
       "ids": [
@@ -128,7 +128,7 @@
       "issues": [43, 44, 66]
     },
     "The 20 OpenSRE seed rows are `incident-response-oncall-factory` episodes generated by `grok-4.6`, same as the rest of the destination; they are an alternate RCA labelling (`true_root_cause` / `red_herring` instead of `false_lead` / `rca` / `remediate`), not foreign payload. They are not confined to the opening rounds: they sit in rounds r2, r681-r684, r760-r762, r770 and r775, two per round, and each names its seed in `meta.opensre_seed`.",
-    "The 113 `irc-*` records whose id contains `leftover` (and the 1701 `irc-*` records whose goal does) are this factory's own advertised leftover-signal mechanic, not a foreign dump: they run from r96 through r3125, usually one every twentieth round. Across the complete 7704-record destination, 1717 goals contain `leftover` because all 16 dest-stamped `sir-*` rows disclosed above do too; those 16 remain a separate foreign-payload class. The `irc-*` rows carry the standard on-call shape and are not disclosed as mill mix.",
-    "Every one of the 139086 steps publishes a public `decision_basis`. There are no hidden `thought` or `internal_reasoning` fields."
+    "The 113 `irc-*` records whose id contains `leftover` (and the 4049 `irc-*` records whose goal does) are this factory's own advertised leftover-signal mechanic, not a foreign dump: the id-named rows run from r96 through r3125, usually one every twentieth round, and the goal-named rows run from r2965 through r5026. Across the complete 10052-record destination, 4065 goals contain `leftover` because all 16 dest-stamped `sir-*` rows disclosed above do too; those 16 remain a separate foreign-payload class. The `irc-*` rows carry the standard on-call shape and are not disclosed as mill mix.",
+    "Every one of the 178998 steps publishes a public `decision_basis`. There are no hidden `thought` or `internal_reasoning` fields."
   ]
 }
