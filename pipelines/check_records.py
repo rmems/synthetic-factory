@@ -15,6 +15,7 @@ import json
 import math
 import re
 import sys
+from dataclasses import dataclass
 from pathlib import Path
 
 _PIPELINES = Path(__file__).resolve().parent
@@ -62,6 +63,18 @@ ALLOWED_PROVENANCE = ALLOWED_SIM_OR_REAL
 ROUNDING_RE = re.compile(r"(?:rounded?\s+(?:to\s+)?)?(\d+)[- ]decimal", re.I)
 
 
+@dataclass(frozen=True)
+class SpikeStreamContract:
+    """Shape requirements and clock context for one spike stream."""
+
+    require_keys: tuple = ()
+    require_nonempty: bool = False
+    enclosing: object = None
+
+
+DEFAULT_SPIKE_STREAM_CONTRACT = SpikeStreamContract()
+
+
 def is_number(value):
     return (
         isinstance(value, (int, float))
@@ -83,23 +96,30 @@ def claims_real(value):
     return lowered == "real" or lowered.startswith(("real_", "real-", "real "))
 
 
-def _walk_key_owners(obj, name, path=""):
-    """Yield ``(path, value, owner)`` for every dict entry named ``name``.
+def _mapping_item_key_owners(owner, name, path, item):
+    key, value = item
+    child = f"{path}.{key}" if path else key
+    if key == name:
+        yield child, value, owner
+    yield from _walk_key_owners(value, name, child)
 
-    ``owner`` is the object the entry was found on. A clock declaration sits
-    on the stream's own parent (and that parent's ``meta``), so a nested
-    stream needs its owner, not the outermost record, to be validated the way
-    curate_bridge validates the top-level one.
-    """
+
+def _mapping_key_owners(obj, name, path):
+    for item in obj.items():
+        yield from _mapping_item_key_owners(obj, name, path, item)
+
+
+def _sequence_key_owners(obj, name, path):
+    for index, item in enumerate(obj):
+        yield from _walk_key_owners(item, name, f"{path}[{index}]")
+
+
+def _walk_key_owners(obj, name, path=""):
+    """Yield a named entry's path, value, and immediate owning mapping."""
     if isinstance(obj, dict):
-        for key, val in obj.items():
-            child = f"{path}.{key}" if path else key
-            if key == name:
-                yield child, val, obj
-            yield from _walk_key_owners(val, name, child)
+        yield from _mapping_key_owners(obj, name, path)
     elif isinstance(obj, list):
-        for i, item in enumerate(obj):
-            yield from _walk_key_owners(item, name, f"{path}[{i}]")
+        yield from _sequence_key_owners(obj, name, path)
 
 
 def walk_key(obj, name, path=""):
@@ -108,9 +128,7 @@ def walk_key(obj, name, path=""):
         yield found_path, value
 
 
-def check_spike_stream_shape(
-    events, where, *, require_keys=(), require_nonempty=False, enclosing=None
-):
+def check_spike_stream_shape(events, where, contract=DEFAULT_SPIKE_STREAM_CONTRACT):
     """Strict shape/order validation for one discovered ``spike_events`` stream.
 
     The deep record checker uses this for every stream it discovers — the
@@ -119,9 +137,14 @@ def check_spike_stream_shape(
     """
     if not isinstance(events, list):
         return [f"{where}: spike_events must be an array"]
-    if require_nonempty and not events:
+    if contract.require_nonempty and not events:
         return [f"{where}: spike_events must be a non-empty array"]
-    return check_spike_order(events, where, require_keys=require_keys, enclosing=enclosing)
+    return check_spike_order(
+        events,
+        where,
+        require_keys=contract.require_keys,
+        enclosing=contract.enclosing,
+    )
 
 
 def _timed_spike_events(events):
@@ -501,16 +524,19 @@ def check_record(obj, where, factory_staging=False):
             # is reported exactly once from here. Only the bridge root requires
             # channel/amplitude and a non-empty array.
             bridge_root = kind == "bridge_pair" and path == "spike_events"
+            contract = SpikeStreamContract(
+                require_keys=(BRIDGE_SPIKE_EVENT_KEYS if bridge_root else ()),
+                require_nonempty=bridge_root,
+                # Every stream is judged against the clock its own owner
+                # declares, nested ones included: the owner and its meta are
+                # the namespace curate_bridge uses.
+                enclosing=owner,
+            )
             errors.extend(
                 check_spike_stream_shape(
                     events,
                     f"{where}: {path}",
-                    require_keys=(BRIDGE_SPIKE_EVENT_KEYS if bridge_root else ()),
-                    require_nonempty=bridge_root,
-                    # Every stream is judged against the clock its own
-                    # owner declares, nested ones included: the owner and its
-                    # meta are the namespace curate_bridge uses.
-                    enclosing=owner,
+                    contract,
                 )
             )
         for path, rc in walk_key(obj, "reward_components"):
@@ -552,7 +578,48 @@ def check_record(obj, where, factory_staging=False):
     return errors, warnings, kind, record_id
 
 
-def check_jsonl(path, rel, seen_ids=None, factory_staging=False):
+@dataclass(frozen=True)
+class FactoryStaging:
+    """Whether factory-staging contract rules apply, and to which lines.
+
+    ``enabled`` turns on the stricter staging shape rules for a payload.
+    ``exempt_lines`` holds the 1-based line numbers of quarantined records,
+    which stay graded under the legacy rules even while staging is on. Both
+    are decided together at every call site, so they travel as one value.
+    """
+
+    enabled: bool = False
+    exempt_lines: frozenset[int] = frozenset()
+
+    def applies_to(self, lineno):
+        """Whether line ``lineno`` is graded under the staging rules."""
+        return self.enabled and lineno not in self.exempt_lines
+
+
+# The default: legacy grading, nothing exempt because nothing is stricter.
+NO_FACTORY_STAGING = FactoryStaging()
+
+
+def _claim_record_id(record_id, where, seen_ids):
+    """Claim ``record_id`` for ``where``, or report the collision it hit.
+
+    ``seen_ids`` maps an already-claimed id to the location that claimed it
+    first, and is mutated in place so the claim survives across files in one
+    run. A record with no canonical id claims nothing and collides with
+    nothing.
+    """
+    if record_id is None:
+        return []
+    if record_id in seen_ids:
+        return [
+            f"{where}: duplicate record id {record_id!r} "
+            f"(first {seen_ids[record_id]})"
+        ]
+    seen_ids[record_id] = where
+    return []
+
+
+def check_jsonl(path, rel, seen_ids=None, staging=NO_FACTORY_STAGING):
     errors, warnings = [], []
     kinds = {}
     records = 0
@@ -574,20 +641,13 @@ def check_jsonl(path, rel, seen_ids=None, factory_staging=False):
             errors.append(f"{where}: JSON parse error: {exc}")
             continue
         rec_errs, rec_warns, kind, record_id = check_record(
-            obj, where, factory_staging=factory_staging
+            obj, where, factory_staging=staging.applies_to(lineno)
         )
         records += 1
         kinds[kind] = kinds.get(kind, 0) + 1
         errors.extend(rec_errs)
         warnings.extend(rec_warns)
-        if record_id is not None:
-            if record_id in seen_ids:
-                errors.append(
-                    f"{where}: duplicate record id {record_id!r} "
-                    f"(first {seen_ids[record_id]})"
-                )
-            else:
-                seen_ids[record_id] = where
+        errors.extend(_claim_record_id(record_id, where, seen_ids))
     return errors, warnings, kinds, records
 
 

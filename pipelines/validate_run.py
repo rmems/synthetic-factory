@@ -19,9 +19,25 @@ import re
 import sys
 from pathlib import Path
 
-REPO = Path(__file__).resolve().parents[1]
-SCHEMA_PATH = REPO / "schemas" / "thalamic-trajectory.schema.json"
-THALAMIC_SCHEMA = json.loads(SCHEMA_PATH.read_text())
+from validate_run_spikes import (
+    BRIDGE_SPIKE_EVENT_KEYS,
+    REPO,
+    SCHEMA_PATH,
+    SPIKE_CLOCK_DOMAIN_KEYS,
+    SPIKE_CLOCK_DOMAIN_MISMATCH,
+    SPIKE_EVENT_NUMBER_KEYS,
+    SPIKE_EVENT_STRING_KEYS,
+    SPIKE_ORDER_MISMATCH,
+    SPIKE_TIME_KEYS,
+    SPIKE_TIME_KEY_MISMATCH,
+    THALAMIC_SCHEMA,
+    check_spike_order as _check_spike_order,
+    check_spike_stream as _check_spike_stream,
+    declared_clock_domains as _declared_clock_domains,
+    event_time as _event_time,
+    is_number as _is_number,
+)
+
 THALAMIC_REQUIRED = tuple(THALAMIC_SCHEMA["required"])
 # Type-check required keys against the schema's own declared types: the six
 # trajectory fields (+ meta) are objects, but canonical `id` is a string.
@@ -43,34 +59,6 @@ THALAMIC_CORE_KEYS = tuple(
 SAFETY_DECISIONS = frozenset(
     THALAMIC_SCHEMA["properties"]["safety_decision"]["properties"]
     ["decision"]["enum"]
-)
-# Spike-train contract, read from the schema so the declared shape and the
-# runtime checker cannot drift. `spike_event` requires exactly one finite
-# timestamp (canonical t_rel_ms, alias t_ms); `bridge_spike_event` layers the
-# extra per-event keys that bridge-pair streams must carry. Global
-# non-decreasing order and one clock key per stream are enforced by
-# check_spike_order() below because neither cross-item rule is expressible in
-# JSON Schema.
-SPIKE_EVENT_PROPERTIES = THALAMIC_SCHEMA["$defs"]["spike_event"]["properties"]
-SPIKE_TIME_KEYS = tuple(
-    key
-    for branch in THALAMIC_SCHEMA["$defs"]["spike_event"]["oneOf"]
-    for key in branch["required"]
-)
-SPIKE_EVENT_STRING_KEYS = tuple(
-    key
-    for key, definition in SPIKE_EVENT_PROPERTIES.items()
-    if definition.get("type") == "string"
-)
-SPIKE_EVENT_NUMBER_KEYS = tuple(
-    key
-    for key, definition in SPIKE_EVENT_PROPERTIES.items()
-    if definition.get("type") == "number"
-)
-BRIDGE_SPIKE_EVENT_KEYS = tuple(
-    key
-    for part in THALAMIC_SCHEMA["$defs"]["bridge_spike_event"]["allOf"]
-    for key in part.get("required", ())
 )
 
 # provenance.kind allows 'unknown'; state.sim_or_real does not. Both
@@ -122,257 +110,39 @@ def reject_json_constant(value):
 
 
 def is_number(value):
-    if not isinstance(value, (int, float)) or isinstance(value, bool):
-        return False
-    try:
-        # math.isfinite converts integers to float. A syntactically valid JSON
-        # integer may exceed that range, so treat conversion overflow as an
-        # invalid runtime number instead of crashing the validator.
-        return math.isfinite(value)
-    except OverflowError:
-        return False
+    """Compatibility facade for the shared finite-number predicate."""
+    return _is_number(value)
 
 
 def event_time(event):
-    """Return the event's sole supported finite timestamp without precision loss."""
-    if not isinstance(event, dict):
-        return None
-    present = [key for key in SPIKE_TIME_KEYS if key in event]
-    if len(present) != 1:
-        return None
-    key = present[0]
-    value = event[key]
-    if not is_number(value):
-        return None
-    # Preserve JSON integers as integers. Converting every timestamp to float
-    # collapses adjacent values above 2**53 and can hide a decreasing stream.
-    return key, value
-
-
-# Marker substring of the inversion message built in check_spike_order.
-# check_records imports it to drop the shape layer's order errors: that layer
-# owns spike order and would otherwise report the same inversion twice.
-SPIKE_ORDER_MISMATCH = "spike_events not globally non-decreasing"
-SPIKE_TIME_KEY_MISMATCH = "spike_events must use one timestamp key throughout"
-SPIKE_CLOCK_DOMAIN_MISMATCH = "spike_events must declare one clock domain throughout"
-
-# The event fields that name the clock a timestamp was taken against. Kept in
-# step with pipelines/curate_bridge.py's CLOCK_DOMAIN_KEYS, which quarantines
-# BRIDGE_MULTIPLE_CLOCK_DOMAINS for exactly this stream shape; curate_bridge is
-# deliberately dependency-free, so the two tuples are pinned equal by
-# tests/test_validate_run_spikes.py rather than shared by import.
-SPIKE_CLOCK_DOMAIN_KEYS = (
-    "clock_id",
-    "clock_domain",
-    "timebase",
-    "timebase_id",
-    "source_clock",
-    "source_clock_id",
-)
-
-
-def _clock_domain_containers(events, enclosing):
-    """Yield every container whose keys can declare this stream's clock.
-
-    ``curate_bridge._declared_clock_domains`` reads the record and its
-    ``meta`` alongside the events, so a record-level ``clock_id`` conflicting
-    with an event-level ``source_clock`` is one stream spanning two domains.
-    Reading only the events lets the publish gate admit a stream the bridge
-    curator quarantines as BRIDGE_MULTIPLE_CLOCK_DOMAINS.
-    """
-    if isinstance(enclosing, dict):
-        yield enclosing
-        meta = enclosing.get("meta")
-        if isinstance(meta, dict):
-            yield meta
-    for event in events:
-        if isinstance(event, dict):
-            yield event
+    """Compatibility facade for schema-derived spike timestamps."""
+    return _event_time(event)
 
 
 def declared_clock_domains(events, enclosing=None):
-    """Return the distinct clock identifiers one stream declares.
-
-    Aliased field names carrying the same scalar name one domain, so compare
-    the declared values and not the keys — the rule curate_bridge applies.
-    ``enclosing`` is the record that owns the stream, when the caller has it.
-    """
-    domains = set()
-    for container in _clock_domain_containers(events, enclosing):
-        for key in SPIKE_CLOCK_DOMAIN_KEYS:
-            if key in container:
-                domains.add(_clock_domain_marker(container[key]))
-    return domains
+    """Compatibility facade for spike clock-domain discovery."""
+    return _declared_clock_domains(events, enclosing)
 
 
-def _clock_domain_marker(value):
-    """Make an arbitrary JSON-compatible clock identifier comparable."""
-    try:
-        return json.dumps(value, sort_keys=True)
-    except (TypeError, ValueError):
-        return repr(value)
-
-
-def _clock_domain_errors(events, where, enclosing=None):
-    """Report a stream timed against more than one clock.
-
-    The declaration may sit on an event, on the enclosing record, or on that
-    record's ``meta`` — curate_bridge treats all three as one namespace.
-    """
-    domains = declared_clock_domains(events, enclosing)
-    if len(domains) <= 1:
-        return []
-    return [
-        f"{where}: {SPIKE_CLOCK_DOMAIN_MISMATCH}; found {', '.join(sorted(domains))}"
-    ]
-
-
-def _missing_spike_event_key_errors(event, index, where, require_keys):
-    return [
-        f"{where}: spike_events[{index}] missing '{key}'"
-        for key in require_keys
-        if key not in event
-    ]
-
-
-def _invalid_spike_event_string_errors(event, index, where):
-    return [
-        f"{where}: spike_events[{index}].{key} must be a non-empty string"
-        for key in SPIKE_EVENT_STRING_KEYS
-        if key in event and (
-            not isinstance(event[key], str) or not event[key].strip()
-        )
-    ]
-
-
-def _invalid_spike_event_number_errors(event, index, where):
-    return [
-        f"{where}: spike_events[{index}].{key} must be a finite number"
-        for key in SPIKE_EVENT_NUMBER_KEYS
-        if key in event and not is_number(event[key])
-    ]
-
-
-def _spike_event_field_errors(event, index, where, require_keys):
-    """Required-key, string-type, and numeric-type errors for one event.
-
-    Pure field-shape checks only; the timestamp/clock contract lives in
-    ``_check_spike_event``, which owns the single-clock decision logic.
-    """
-    return [
-        *_missing_spike_event_key_errors(event, index, where, require_keys),
-        *_invalid_spike_event_string_errors(event, index, where),
-        *_invalid_spike_event_number_errors(event, index, where),
-    ]
-
-
-def _check_spike_event(event, index, where, require_keys):
-    """Validate one event's required keys, schema types, and single clock.
-
-    Returns ``(errors, timed)``. ``timed`` is ``(index, key, value)`` when the
-    event has exactly one finite timestamp; otherwise it is ``None``.
-    """
-    if not isinstance(event, dict):
-        return [f"{where}: spike_events[{index}] must be an object"], None
-
-    errs = _spike_event_field_errors(event, index, where, require_keys)
-
-    present_time_keys = [key for key in SPIKE_TIME_KEYS if key in event]
-    if not present_time_keys:
-        errs.append(
-            f"{where}: spike_events[{index}] needs finite "
-            f"{' or '.join(SPIKE_TIME_KEYS)}"
-        )
-        return errs, None
-    if len(present_time_keys) != 1:
-        errs.append(
-            f"{where}: spike_events[{index}] must use exactly one of "
-            f"{' or '.join(SPIKE_TIME_KEYS)}"
-        )
-        return errs, None
-    got = event_time(event)
-    if got is None:
-        # The invalid present timestamp was reported by the number-field
-        # loop above. Do not add a second error for the same value.
-        return errs, None
-    key, current = got
-    return errs, (index, key, current)
-
-
-def _spike_order_errors(timed, where):
-    """Report the first inversion in one stream of comparable timestamps.
-
-    Only the first is reported: a single misplaced event inverts every later
-    comparison, so one defect must not become a cascade of errors.
-    """
-    previous = None
-    for index, key, current in timed:
-        if previous is not None and current < previous[1]:
-            return [
-                f"{where}: {SPIKE_ORDER_MISMATCH} at index "
-                f"{index} ({key} {previous[1]} -> {current})"
-            ]
-        previous = (key, current)
-    return []
-
-
-def check_spike_order(events, where, require_keys=BRIDGE_SPIKE_EVENT_KEYS, *, enclosing=None):
-    """Require schema-valid events on one globally ordered clock key.
-
-    `require_keys` is the per-event key requirement, defaulting to the bridge
-    stream's ($defs/bridge_spike_event). Thalamic trajectories may carry a
-    stream annotated with fewer keys, so their caller passes an empty tuple.
-    Optional channel/amplitude fields still obey their schema types whenever
-    present. A stream may use t_rel_ms or t_ms, but never both or a mixture,
-    and every event that names its clock must name the same one: timestamps
-    from distinct clock domains are not a comparable timeline. ``enclosing``
-    is the record owning the stream; pass it so a clock declared on the
-    record or its ``meta`` is weighed with the event-level ones, matching
-    curate_bridge.
-    """
-    errs = []
-    timed = []
-    for index, event in enumerate(events):
-        event_errs, got = _check_spike_event(event, index, where, require_keys)
-        errs.extend(event_errs)
-        if got is not None:
-            timed.append(got)
-
-    stream_time_keys = {key for _, key, _ in timed}
-    if len(stream_time_keys) > 1:
-        errs.append(
-            f"{where}: {SPIKE_TIME_KEY_MISMATCH}; found "
-            f"{', '.join(sorted(stream_time_keys))}"
-        )
-        # Numeric values from relative and alias clock scopes are not
-        # chronologically comparable. Report the contract error without also
-        # manufacturing an order verdict.
-        return errs
-
-    domain_errs = _clock_domain_errors(events, where, enclosing)
-    if domain_errs:
-        # Timestamps taken against different clocks are not one timeline, so
-        # sorting them would fabricate an order. Same rule as the mismatched
-        # timestamp key above: report the contract error, no order verdict.
-        return errs + domain_errs
-
-    return errs + _spike_order_errors(timed, where)
+def check_spike_order(
+    events,
+    where,
+    require_keys=BRIDGE_SPIKE_EVENT_KEYS,
+    *,
+    enclosing=None,
+):
+    """Compatibility facade for strict spike-stream validation."""
+    return _check_spike_order(
+        events,
+        where,
+        require_keys=require_keys,
+        enclosing=enclosing,
+    )
 
 
 def check_spike_stream(obj, where):
-    """Check an optional trajectory-level spike train.
-
-    A thalamic trajectory need not carry spike_events, but when it does the
-    stream must be an array of timestamped events in globally non-decreasing
-    time — the same ordering contract the bridge stream already had, which
-    previously went unchecked outside bridge pairs.
-    """
-    if "spike_events" not in obj:
-        return []
-    events = obj["spike_events"]
-    if not isinstance(events, list):
-        return [f"{where}: spike_events must be an array"]
-    return check_spike_order(events, where, require_keys=(), enclosing=obj)
+    """Compatibility facade for optional trajectory spike streams."""
+    return _check_spike_stream(obj, where)
 
 
 def _component_numeric(value):
