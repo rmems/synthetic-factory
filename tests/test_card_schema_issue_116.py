@@ -24,6 +24,25 @@ MINIMAL = _shared.MINIMAL
 write_declaration = _shared.write_declaration
 
 
+def _is_numeric_note(value):
+    """True for a `note` string that pins at least one digit-bearing count."""
+    return isinstance(value, str) and any(character.isdigit() for character in value)
+
+
+def _numeric_notes(value):
+    """Yield every digit-bearing `note` string nested anywhere under ``value``."""
+    if isinstance(value, dict):
+        if _is_numeric_note(value.get("note")):
+            yield value["note"]
+        children = [item for key, item in value.items() if key != "note"]
+    elif isinstance(value, list):
+        children = value
+    else:
+        return
+    for child in children:
+        yield from _numeric_notes(child)
+
+
 class PaymentIdempotencyDeclarationTests(unittest.TestCase):
     """Issue #55: dest-stamped `sir-*` leftover mill plus thin `meta` vs designed.
 
@@ -123,20 +142,7 @@ class PaymentIdempotencyDeclarationTests(unittest.TestCase):
         self.assertIn(scope, self.declaration["note"])
         self.assertIn(scope, self.card)
 
-        def numeric_notes(value):
-            if isinstance(value, dict):
-                for key, item in value.items():
-                    if key == "note" and isinstance(item, str) and any(
-                        character.isdigit() for character in item
-                    ):
-                        yield item
-                    else:
-                        yield from numeric_notes(item)
-            elif isinstance(value, list):
-                for item in value:
-                    yield from numeric_notes(item)
-
-        for note in numeric_notes(self.declaration["features"]):
+        for note in _numeric_notes(self.declaration["features"]):
             with self.subTest(note=note):
                 self.assertIn(scope, note)
 
