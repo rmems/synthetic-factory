@@ -141,16 +141,35 @@ def _rejected_claim(existing):
     return None
 
 
-def _provenance_for_state_claim(claimed):
+def _matching_existing_claim(default, kind, candidates):
+    """Keep an earlier claim when its canonical kind still matches."""
+    for candidate in candidates:
+        if not isinstance(candidate, dict):
+            continue
+        if candidate.get("kind") != kind:
+            continue
+        if "claimed" in candidate:
+            return candidate["claimed"]
+    return default
+
+
+def _provenance_for_state_claim(claimed, candidates=()):
     """Normalize a state claim while retaining an already-canonical label."""
     if isinstance(claimed, str) and claimed.strip().lower() in ALLOWED_KINDS:
-        return {"kind": claimed.strip().lower(), "claimed": claimed}
+        kind = claimed.strip().lower()
+        return {
+            "kind": kind,
+            "claimed": _matching_existing_claim(claimed, kind, candidates),
+        }
     return remap_claimed(claimed)
 
 
 def _record_state_claim(owner, state):
     """Normalize and mirror ``state.sim_or_real`` provenance."""
-    prov = _provenance_for_state_claim(state.get("sim_or_real"))
+    prov = _provenance_for_state_claim(
+        state.get("sim_or_real"),
+        (state.get("provenance"), owner.get("provenance")),
+    )
     state["sim_or_real"] = prov["kind"]
     state["provenance"] = dict(prov)
     owner["provenance"] = dict(prov)
@@ -159,8 +178,8 @@ def _record_state_claim(owner, state):
 def _preserve_accepted_provenance(owner, state, existing):
     """Mirror or strengthen provenance that already has an accepted kind."""
     if state is not None:
-        if "provenance" not in state:
-            state["provenance"] = dict(existing)
+        state["provenance"] = dict(existing)
+        owner["provenance"] = dict(existing)
         return
     if existing.get("kind") != "unknown":
         return
@@ -168,6 +187,15 @@ def _preserve_accepted_provenance(owner, state, existing):
     if inferred is not None:
         inferred["claimed"] = existing.get("claimed")
         owner["provenance"] = inferred
+
+
+def _provenance_carrier(owner, state):
+    """Resolve meaningful provenance in state-then-owner authority order."""
+    nested = state.get("provenance") if state is not None else None
+    for candidate in (nested, owner.get("provenance")):
+        if isinstance(candidate, dict) and _rejected_claim(candidate) is not None:
+            return candidate
+    return None
 
 
 def _provenance_from_rejected_claim(owner, existing):
@@ -191,8 +219,8 @@ def _attach_owner(owner):
     if state is not None and "sim_or_real" in state:
         _record_state_claim(owner, state)
         return
-    existing = owner.get("provenance")
-    if isinstance(existing, dict) and existing.get("kind") in ALLOWED_KINDS:
+    existing = _provenance_carrier(owner, state)
+    if existing is not None and existing.get("kind") in ALLOWED_KINDS:
         _preserve_accepted_provenance(owner, state, existing)
         return
     # The existing provenance carries a kind this promotion cannot accept.

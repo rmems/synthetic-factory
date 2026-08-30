@@ -22,7 +22,7 @@ from quality_gate_identity import canonical_blob, semantic_similarity_view
 DEFAULT_EMBEDDING_THRESHOLD: float = 0.97
 """Default cosine-similarity threshold for embedding deduplication."""
 
-EMBEDDING_ENCODER = "lexical-tfidf/10"
+EMBEDDING_ENCODER = "lexical-tfidf/11"
 """Versioned identifier for the deterministic semantic encoder."""
 
 EMBEDDING_MINHASH_SLOTS = 32
@@ -30,7 +30,7 @@ EMBEDDING_LSH_BANDS = 8
 EMBEDDING_MIN_THRESHOLD: float = (1.0 / EMBEDDING_LSH_BANDS) ** (
     EMBEDDING_LSH_BANDS / EMBEDDING_MINHASH_SLOTS
 )
-EMBEDDING_CANDIDATE_SKETCH = "weighted-tier-minhash/1"
+EMBEDDING_CANDIDATE_SKETCH = "weighted-tier-minhash/2"
 EMBEDDING_SKETCH_LEVELS = 64
 DEFAULT_MAX_EMBEDDING_PAIRS = 2_000_000
 
@@ -365,6 +365,16 @@ def candidate_sketch_features(vector):
             yield f"{token}{_SKETCH_SEP}{tier}"
 
 
+def _nonchain_candidate_sketch_features(vector):
+    """Yield exact-boundary tiers only when no lexical sketch exists."""
+    for token in sorted(vector):
+        if not token.startswith(_NONCHAIN_STRING_MARK):
+            continue
+        tiers = max(1, math.ceil(vector[token] * EMBEDDING_SKETCH_LEVELS))
+        for tier in range(tiers):
+            yield f"{token}{_SKETCH_SEP}{tier}"
+
+
 def _cosine(left, right) -> float:
     """Return the bounded dot product of two normalized sparse vectors."""
     if len(left) > len(right):
@@ -417,6 +427,20 @@ def _minhash_signature(tokens):
     if not any(value is not None for value in bins):
         return None
     return _densify_minhash_bins(bins)
+
+
+def _candidate_signature(vector):
+    """Return the lexical signature, or an isolated non-chain fallback.
+
+    Boundary and whole-sequence evidence must not perturb ordinary lexical
+    nomination.  A vector made solely from that evidence still needs a
+    signature, however, or identifier-stripped semantic clones evade cosine
+    comparison entirely.
+    """
+    signature = _minhash_signature(candidate_sketch_features(vector))
+    if signature is not None:
+        return signature
+    return _minhash_signature(_nonchain_candidate_sketch_features(vector))
 
 
 def _lsh_buckets(signatures):
@@ -518,7 +542,7 @@ def _vectors_and_signatures(records, indices, idf):
         if vector is None:
             continue
         vectors[index] = vector
-        signature = _minhash_signature(candidate_sketch_features(vector))
+        signature = _candidate_signature(vector)
         if signature is not None:
             signatures.append((index, signature))
     return vectors, signatures

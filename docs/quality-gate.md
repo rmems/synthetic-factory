@@ -68,11 +68,12 @@ The gate does not reuse one lossy projection for three different jobs:
    Preference actions and outcomes are included, while wrapper bookkeeping ids
    stay outside modeled state/action records. Per-factory supervision counts as
    modeled content: Thalamic ``spike_events``, the event-language bridge's
-   ``language_view``, ``bridge_notes``, and ``raster`` (normalized from either
-   the top-level or accepted ``meta.raster`` carrier), and the safety-
-   calibration ``case_type`` / ``rationale`` / ``decision`` labels are all
-   part of the identity, so records that differ only there are distinct
-   training units.
+   ``language_view``, ``bridge_notes``, ``raster`` (normalized from either
+   the top-level or accepted ``meta.raster`` carrier), and ``gate_compute``
+   spike-budget evidence (normalized from its top-level, trajectory, or
+   trajectory-safety carrier). Safety-calibration ``case_type`` /
+   ``rationale`` / ``decision`` labels are also part of the identity, so
+   records that differ only there are distinct training units.
 2. ``semantic_similarity_view`` removes canonical record identifiers such as
    ``id`` and ``episode_id``, plus root bookkeeping metadata, before lexical
    encoding. This includes both the bridge's ``language_view.trajectory``
@@ -88,7 +89,7 @@ The gate does not reuse one lossy projection for three different jobs:
 This repository is stdlib-only (see ``AGENTS.md``), so the encoder is
 lexical, not learned:
 
-- **``EMBEDDING_ENCODER = "lexical-tfidf/10"``** — TF-IDF over Unicode word
+- **``EMBEDDING_ENCODER = "lexical-tfidf/11"``** — TF-IDF over Unicode word
   unigrams *and* bigrams of every **path-qualified leaf value** in the
   semantic-similarity view. A feature combines the full field path with the leaf
   word, so shared schema alone contributes nothing while the same value under
@@ -155,13 +156,17 @@ temperature-collapse signature, not a genuine paraphrase.
 
 All-pairs cosine is quadratic, so candidates come from a **frequency-aware,
 banded one-permutation MinHash sketch**
-(``EMBEDDING_CANDIDATE_SKETCH = "weighted-tier-minhash/1"``;
+(``EMBEDDING_CANDIDATE_SKETCH = "weighted-tier-minhash/2"``;
 ``EMBEDDING_MINHASH_SLOTS = 32`` slots read as
 ``EMBEDDING_LSH_BANDS = 8`` bands of 4) and every candidate is then scored
 with an exact cosine. Normalized TF-IDF weights expand into deterministic
 tiers before one hash per sketch feature fills the sketch;
 empty slots are densified by rotation, so no per-token permutation table
-is ever held in memory. Consequences:
+is ever held in memory. Exact boundary/whole-sequence features remain outside
+ordinary nomination so they cannot perturb lexical recall; when a vector has
+only that non-chain evidence (for example a whitespace-only semantic leaf),
+the sketch uses it as an isolated fallback so semantic clones still reach the
+exact cosine comparison. Consequences:
 
 - **Precision is exact.** Nothing is excluded without a real cosine above
   the threshold.
@@ -256,9 +261,12 @@ still harms diversity.
   unlabeled == total``, and ``synthetic_ratio`` stays ``synthetic /
   total`` over that same population.
 - Promotion already normalizes ``sim_or_real → provenance.kind`` so mix
-  counting is consistent between raw and cleaned trees. Stateless records with
-  a nonempty ``meta.factory`` origin are stamped/count as ``designed`` rather
-  than ``unknown``. For preference pairs,
+  counting is consistent between raw and cleaned trees. ``state.sim_or_real``
+  is authoritative when present; otherwise canonical ``state.provenance``
+  precedes root provenance. A repeated promotion preserves the original
+  ``provenance.claimed`` value. Stateless records with a nonempty
+  ``meta.factory`` origin are stamped/count as ``designed`` rather than
+  ``unknown``. For preference pairs,
   matching ``chosen``/``rejected`` provenance is counted once per pair; a
   partial or conflicting pair remains unlabeled. Bridge wrappers use their
   nested trajectory provenance before a generic top-level ``unknown`` stamp.
@@ -354,17 +362,17 @@ JSON output fields:
     {"file": "batch-r03.jsonl", "line": 8, "kind": "embedding", "similarity": 0.9889,
      "duplicate_of": {"file": "batch-r03.jsonl", "line": 7},
      "matched_with": {"file": "batch-r03.jsonl", "line": 7},
-     "reason": "embedding near-duplicate: cosine 0.9889 > 0.97 vs retained representative batch-r03.jsonl:7 (encoder lexical-tfidf/10)"}
+     "reason": "embedding near-duplicate: cosine 0.9889 > 0.97 vs retained representative batch-r03.jsonl:7 (encoder lexical-tfidf/11)"}
   ],
   "duplicate_clusters": [
-    {"kind": "embedding", "size": 2, "threshold": 0.97, "encoder": "lexical-tfidf/10",
+    {"kind": "embedding", "size": 2, "threshold": 0.97, "encoder": "lexical-tfidf/11",
      "max_similarity": 0.9889,
      "representative": {"file": "batch-r03.jsonl", "line": 7},
      "members": [{"file": "batch-r03.jsonl", "line": 7}, {"file": "batch-r03.jsonl", "line": 8}],
      "reason": "1 excluded record(s) linked by cosine > 0.97; representative batch-r03.jsonl:7 is retained"}
   ],
-  "embedding": {"enabled": true, "encoder": "lexical-tfidf/10",
-                "candidate_sketch": "weighted-tier-minhash/1", "threshold": 0.97,
+  "embedding": {"enabled": true, "encoder": "lexical-tfidf/11",
+                "candidate_sketch": "weighted-tier-minhash/2", "threshold": 0.97,
                 "compared_records": 1230, "candidate_pairs": 418, "truncated": false},
   "reward_shapes": {"records_with_reward_components": 1180, "unique_component_keys": 510,
                     "unique_shapes": 140, "top_component_keys": [], "top_shapes": []},

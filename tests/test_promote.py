@@ -177,6 +177,15 @@ class TestPromoteRecord(unittest.TestCase):
         self.assertEqual(out["state"]["sim_or_real"], "designed")
         self.assertNotEqual(out["state"]["sim_or_real"].lower(), "real")
 
+    def test_remapped_state_claim_is_idempotent_across_two_passes(self):
+        first = promote.promote_record(_thalamic(sim_or_real="real"))
+        second = promote.promote_record(json.loads(json.dumps(first)))
+
+        self.assertEqual(first["state"]["sim_or_real"], "designed")
+        self.assertEqual(first["state"]["provenance"]["claimed"], "real")
+        self.assertEqual(first["provenance"]["claimed"], "real")
+        self.assertEqual(second, first)
+
     def test_nested_chosen_rejected_and_trajectory(self):
         pair = {
             "chosen": _thalamic(sim_or_real="real", meta={"id": "c"}),
@@ -219,6 +228,58 @@ class TestPromoteRecord(unittest.TestCase):
         self.assertIsNone(out["provenance"]["claimed"])
         self.assertEqual(out["state"]["provenance"]["kind"], "unknown")
         self.assertNotIn("sim_or_real", out["state"])
+
+    def test_nested_state_provenance_precedes_default_unknown(self):
+        record = {
+            "id": "nested-provenance-1",
+            "state": {
+                "domain": "test",
+                "provenance": {
+                    "kind": "hil",
+                    "claimed": "hardware-in-the-loop rig",
+                },
+            },
+        }
+
+        out = promote.promote_record(record)
+
+        expected = {
+            "kind": "hil",
+            "claimed": "hardware-in-the-loop rig",
+        }
+        self.assertEqual(out["state"]["provenance"], expected)
+        self.assertEqual(out["provenance"], expected)
+        self.assertNotIn("sim_or_real", out["state"])
+
+    def test_nested_state_provenance_precedes_root_provenance(self):
+        record = {
+            "id": "nested-provenance-2",
+            "state": {
+                "provenance": {
+                    "kind": "simulated",
+                    "claimed": "high-fidelity simulation",
+                },
+            },
+            "provenance": {"kind": "unknown", "claimed": None},
+        }
+
+        out = promote.promote_record(record)
+
+        self.assertEqual(out["state"]["provenance"]["kind"], "simulated")
+        self.assertEqual(out["provenance"], out["state"]["provenance"])
+
+    def test_rejected_nested_state_claim_precedes_canonical_root(self):
+        record = {
+            "id": "nested-provenance-3",
+            "state": {"provenance": {"kind": "real"}},
+            "provenance": {"kind": "hil", "claimed": "test rig"},
+        }
+
+        out = promote.promote_record(record)
+
+        expected = {"kind": "designed", "claimed": "real"}
+        self.assertEqual(out["state"]["provenance"], expected)
+        self.assertEqual(out["provenance"], expected)
 
     def test_stateless_factory_record_is_stamped_designed(self):
         record = {

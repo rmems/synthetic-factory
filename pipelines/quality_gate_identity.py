@@ -45,14 +45,16 @@ _IDENTITY_FIELDS = (
     "diagnosis",
     # Thalamic distillation is driven by ``spike_events`` + ``state``
     # (prompts/01-thalamic-trajectory-factory.md), and the event-language
-    # bridge models the paired language view, bridge notes, and raster sidecar
-    # (prompts/03-neuromorphic-event-language-bridge.md). Listing all four
+    # bridge models the paired language view, bridge notes, raster sidecar,
+    # and per-check gate-compute budget
+    # (prompts/03-neuromorphic-event-language-bridge.md). Listing all five
     # keeps a bridge record's whole modeled content in the projection rather
     # than only its stream.
     "spike_events",
     "language_view",
     "bridge_notes",
     "raster",
+    "gate_compute",
     # Safety-calibration supervision is the gate label and its observable
     # reason (prompts/12-safety-calibration-factory.md); goal/outcome/reward
     # alone cannot separate a correct refusal from a missed one.
@@ -94,6 +96,9 @@ _PREFERENCE_WRAPPER_FIELDS = _IDENTITY_FIELDS + (
     "reward_delta",
     "lesson_category",
 )
+
+_TRAJECTORY_GATE_COMPUTE = ("trajectory", "gate_compute")
+_SAFETY_GATE_COMPUTE = ("trajectory", "safety_decision", "gate_compute")
 
 
 def canonical_blob(value):
@@ -144,6 +149,104 @@ def _bridge_raster_sidecar(obj):
     return None
 
 
+def _bridge_gate_compute_sidecar(obj):
+    """Return the curator-selected gate-compute budget and nested carrier.
+
+    ``curate_bridge`` prefers a dictionary at the record root, then under the
+    language trajectory, then under that trajectory's safety decision.  The
+    returned carrier is relative to ``language_view`` and is ``None`` for the
+    canonical root location.
+    """
+    if "language_view" not in obj or "spike_events" not in obj:
+        return None, None
+    top_level = obj.get("gate_compute")
+    if isinstance(top_level, dict):
+        return top_level, None
+    language_view = obj.get("language_view")
+    if not isinstance(language_view, dict):
+        return None, None
+    trajectory = language_view.get("trajectory")
+    if not isinstance(trajectory, dict):
+        return None, None
+    nested = trajectory.get("gate_compute")
+    if isinstance(nested, dict):
+        return nested, _TRAJECTORY_GATE_COMPUTE
+    safety_decision = trajectory.get("safety_decision")
+    safety_budget = (
+        safety_decision.get("gate_compute")
+        if isinstance(safety_decision, dict)
+        else None
+    )
+    if isinstance(safety_budget, dict):
+        return safety_budget, _SAFETY_GATE_COMPUTE
+    return None, None
+
+
+def _value_at_path(value, path):
+    for key in path:
+        if not isinstance(value, dict):
+            return None
+        value = value.get(key)
+    return value
+
+
+def _nested_gate_compute_removals(language_view, selected, carrier):
+    """Return selected/redundant nested carrier paths to remove."""
+    removals = [] if carrier is None else [carrier]
+    if carrier is None:
+        lower_carriers = (_TRAJECTORY_GATE_COMPUTE, _SAFETY_GATE_COMPUTE)
+    elif carrier == _TRAJECTORY_GATE_COMPUTE:
+        lower_carriers = (_SAFETY_GATE_COMPUTE,)
+    else:
+        lower_carriers = ()
+    selected_blob = canonical_blob(selected)
+    for path in lower_carriers:
+        candidate = _value_at_path(language_view, path)
+        if isinstance(candidate, dict) and canonical_blob(candidate) == selected_blob:
+            removals.append(path)
+    return removals
+
+
+def _copy_without_path(value, path):
+    """Copy dictionaries along ``path`` and remove only its final key."""
+    copied = dict(value)
+    key = path[0]
+    if len(path) == 1:
+        copied.pop(key)
+    else:
+        child = _copy_without_path(copied[key], path[1:])
+        if key == "safety_decision" and not child:
+            copied.pop(key)
+        else:
+            copied[key] = child
+    return copied
+
+
+def _copy_without_paths(value, paths):
+    copied = value
+    for path in paths:
+        copied = _copy_without_path(copied, path)
+    return copied
+
+
+def _with_bridge_sidecars(obj, modeled):
+    """Normalize accepted bridge sidecars into the modeled identity fields."""
+    bridge_raster = _bridge_raster_sidecar(obj)
+    if bridge_raster is not None:
+        modeled["raster"] = bridge_raster
+    bridge_gate_compute, nested_carrier = _bridge_gate_compute_sidecar(obj)
+    if bridge_gate_compute is not None:
+        modeled["gate_compute"] = bridge_gate_compute
+        removals = _nested_gate_compute_removals(
+            obj["language_view"], bridge_gate_compute, nested_carrier
+        )
+        if removals:
+            modeled["language_view"] = _copy_without_paths(
+                obj["language_view"], removals
+            )
+    return modeled
+
+
 def exact_identity_view(obj):
     """Return the canonical training identity used by exact-hash dedup.
 
@@ -159,10 +262,9 @@ def exact_identity_view(obj):
         # Malformed pairs must hash rather than raise. Both side keys remain in
         # the view so a one-sided record stays distinguishable.
         return _preference_identity_view(obj)
-    modeled = {key: obj[key] for key in _IDENTITY_FIELDS if key in obj}
-    bridge_raster = _bridge_raster_sidecar(obj)
-    if bridge_raster is not None:
-        modeled["raster"] = bridge_raster
+    modeled = _with_bridge_sidecars(
+        obj, {key: obj[key] for key in _IDENTITY_FIELDS if key in obj}
+    )
     if modeled:
         return modeled
     # Shapes this gate does not model must not all hash to an empty key set.

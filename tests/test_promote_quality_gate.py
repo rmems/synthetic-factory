@@ -281,6 +281,36 @@ class TestPromoteGateFlags(unittest.TestCase):
         self.assertTrue(report["blocked"])
         self.assertEqual(report["mix_policy"]["max_synthetic_ratio"], 0.1)
 
+    def test_nested_state_provenance_stays_in_the_synthetic_mix(self):
+        record = _record()
+        del record["state"]["sim_or_real"]
+        record["state"]["provenance"] = {
+            "kind": "hil",
+            "claimed": "hardware-in-the-loop rig",
+        }
+        with tempfile.TemporaryDirectory() as td:
+            raw = Path(td) / "raw"
+            cleaned = Path(td) / "cleaned"
+            _write_jsonl(raw / "f" / "a.jsonl", [record])
+
+            proc = _cli(
+                [
+                    str(raw),
+                    str(cleaned),
+                    "--max-synthetic-ratio",
+                    "1.0",
+                ]
+            )
+            report = json.loads((cleaned / "quality-manifest.json").read_text())
+            promoted = json.loads((cleaned / "f" / "a.jsonl").read_text())
+
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertEqual(promoted["provenance"]["kind"], "hil")
+        self.assertEqual(promoted["state"]["provenance"]["kind"], "hil")
+        self.assertEqual(report["mix"]["provenance"], {"hil": 1})
+        self.assertEqual(report["mix"]["synthetic"], 1)
+        self.assertEqual(report["mix"]["unlabeled"], 0)
+
     def test_synthetic_floor_flag_blocks_through_promote(self):
         with tempfile.TemporaryDirectory() as td:
             proc, report = self._run(
