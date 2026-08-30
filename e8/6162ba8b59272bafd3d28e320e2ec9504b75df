@@ -1,0 +1,22 @@
+tests/test_oracle_grounded_cli.py
+  s_f3ffb7db87dca1::t_cc83a94bffc731 1161-1192
+tests/test_oracle_validate_metadata.py
+  s_f3ffb7db87dca1::t_6f3927b440be5c 249-341
+  s_f3ffb7db87dca1::t_ba348d2bfec338 19-20
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "e86162ba8b59272bafd3d28e320e2ec9504b75df",
+  "prompts": {},
+  "sessions": {
+    "s_f3ffb7db87dca1": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "510a01e2-1e9d-4f64-a445-6971413485be",
+        "model": "claude-fable-5"
+      },
+      "human_author": "Raul Montoya Cardenas <montoyaraul34@gmail.com>"
+    }
+  }
+}
