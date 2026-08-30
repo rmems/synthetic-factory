@@ -1,0 +1,32 @@
+pipelines/moe_router.py
+  s_f3ffb7db87dca1::t_0db52b9890d3d4 886-890
+  s_f3ffb7db87dca1::t_1ace8d6cae3d14 71-75
+  s_f3ffb7db87dca1::t_30a8aac7c69e98 923-924
+tests/test_distillation_review_gaps.py
+  s_f3ffb7db87dca1::t_4983a35eb880ae 958-968
+docs/distillation-datasets.md
+  s_f3ffb7db87dca1::t_992f2858defba0 215-225
+  s_f3ffb7db87dca1::t_2f9840bf0eb2ef 77-86
+  s_f3ffb7db87dca1::t_9b286b3ccbe249 119-123,126-130
+  s_f3ffb7db87dca1::t_35c3989c789c93 163-169
+tests/test_energy_preferences.py
+  s_f3ffb7db87dca1::t_ea01152a8ca8f2 137-150
+  s_f3ffb7db87dca1::t_9a66f5b10125a0 174
+  s_f3ffb7db87dca1::t_345389a4acb219 191,207,221
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "c6cf3b5c7a56a56df76c05c59777e65107674e15",
+  "prompts": {},
+  "sessions": {
+    "s_f3ffb7db87dca1": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "510a01e2-1e9d-4f64-a445-6971413485be",
+        "model": "claude-fable-5"
+      },
+      "human_author": "Raul Montoya Cardenas <montoyaraul34@gmail.com>"
+    }
+  }
+}
