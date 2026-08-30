@@ -18,9 +18,14 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "pipelines"))
 from mill_test_support import (  # noqa: E402
     CACHE_STAMPEDE,
     DEST_STAMPED_MILL,
+    GRAPHQL,
+    STAMPEDE_CONTROLS,
+    index_of,
 )
 from mill_family import (  # noqa: E402
+    REASON_FOREIGN_PAYLOAD_FACTORY,
     declared_factory,
+    declared_factory_claims,
     goal_family,
     mill_prefix,
     record_id,
@@ -52,6 +57,52 @@ class MillSignals(unittest.TestCase):
         self.assertEqual(declared_factory(DEST_STAMPED_MILL[0]), CACHE_STAMPEDE)
         self.assertIsNone(declared_factory({"meta": {}}))
         self.assertIsNone(declared_factory({"meta": "cache"}))
+
+    def test_declared_factory_reads_consistent_preference_side_stamps(self):
+        pair = {
+            "chosen": {"meta": {"factory": CACHE_STAMPEDE}},
+            "rejected": {"meta": {"factory": CACHE_STAMPEDE}},
+        }
+        self.assertEqual(declared_factory(pair), CACHE_STAMPEDE)
+        pair["rejected"]["meta"]["factory"] = GRAPHQL
+        self.assertIsNone(declared_factory(pair))
+
+    def test_consistent_preference_sides_override_destination_wrapper_stamp(self):
+        """Agreeing side stamps, not the destination wrapper, name the origin.
+
+        #96 made ``declared_factory`` strict: a wrapper claim that contradicts
+        its sides is no longer ownership evidence, so it can no longer define
+        a prefix home. The override this test pins therefore resolves one
+        layer out -- ``declared_factory_claims`` keeps both claims in
+        wrapper-then-side order and the finding reports the side origin over
+        the destination wrapper stamp.
+        """
+
+        pair = {
+            "id": "cst-r08-dest-wrapped-side-origin",
+            "goal": "fix verify",
+            "meta": {"factory": CACHE_STAMPEDE, "round": 1},
+            "chosen": {"goal": "fix verify", "meta": {"factory": GRAPHQL}},
+            "rejected": {"goal": "fix verify", "meta": {"factory": GRAPHQL}},
+        }
+        # The wrapper never outvotes its sides: the clash names no owner...
+        self.assertIsNone(declared_factory(pair))
+        # ...both claims stay visible, so the origin is not dropped...
+        self.assertEqual(declared_factory_claims(pair), (CACHE_STAMPEDE, GRAPHQL))
+
+        # ...and the reported declaration is the side origin, not the
+        # destination the wrapper stamps.
+        findings = {
+            finding.record_id: finding
+            for finding in index_of(
+                (CACHE_STAMPEDE, STAMPEDE_CONTROLS + [pair])
+            ).findings()
+        }
+        self.assertIn(pair["id"], findings)
+        finding = findings[pair["id"]]
+        self.assertIn(REASON_FOREIGN_PAYLOAD_FACTORY, finding.reason_codes)
+        self.assertEqual(finding.declared_factory, GRAPHQL)
+        self.assertEqual(finding.expected_factory, CACHE_STAMPEDE)
 
     def test_goal_family_drops_shared_leftover_vocabulary(self):
         family = goal_family(DEST_STAMPED_MILL[0])

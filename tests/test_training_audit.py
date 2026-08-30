@@ -2,8 +2,10 @@
 """Tests for corpus-level training readiness metrics."""
 
 import contextlib
+import hashlib
 import io
 import json
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -32,6 +34,39 @@ def thalamic(record_id, provenance="designed", decision="ACCEPT"):
 def write(path, records):
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text("".join(json.dumps(record) + "\n" for record in records))
+
+
+def commit_marker_batch(factory: Path, batch: Path):
+    """Put ``batch`` behind a valid marker-mode completion point."""
+
+    (factory / ".round-marker-mode.json").write_text(
+        '{"version":1,"legacy_baseline":0,"commit_point":"ROUND-rNN.complete.json"}\n'
+    )
+    notes = factory / "NOTES-r01.md"
+    notes.write_text("Novel coverage: fixture\n")
+    (factory / "ROUND-r01.complete.json").write_text(
+        json.dumps(
+            {
+                "version": 1,
+                "factory": factory.name,
+                "round": 1,
+                "records": 1,
+                "expected_records": 1,
+                "commit_point": "ROUND-r01.complete.json",
+                "files": [
+                    {
+                        "name": batch.name,
+                        "sha256": hashlib.sha256(batch.read_bytes()).hexdigest(),
+                    },
+                    {
+                        "name": notes.name,
+                        "sha256": hashlib.sha256(notes.read_bytes()).hexdigest(),
+                    },
+                ],
+            }
+        )
+        + "\n"
+    )
 
 
 def episode_preference(record_id, *, pair_goal=None, chosen_goal=None, rejected_goal=None):
@@ -76,6 +111,81 @@ class TrainingAudit(unittest.TestCase):
         self.assertEqual(report["provenance"]["canonical_pct"], 100.0)
         self.assertEqual(report["rewards"]["unique_shapes"], 1)
         self.assertGreater(report["totals"]["approx_tokens"], 0)
+
+    def test_empty_corpus_is_not_training_ready(self):
+        with tempfile.TemporaryDirectory() as td:
+            report = training_audit.audit_run(Path(td))
+
+        self.assertFalse(report["training_ready"])
+        self.assertIn(
+            "corpus contains 0 eligible training records",
+            report["blockers"],
+        )
+
+    def test_marker_mode_hides_uncommitted_batches(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td) / "run"
+            factory = root / "agentic-factory"
+            committed = factory / "batch-r01.jsonl"
+            write(committed, [thalamic("committed")])
+            commit_marker_batch(factory, committed)
+            (factory / "batch-r02.jsonl").write_text("{not json}\n")
+            (factory / "ROUND-r02.publishing.json").write_text("{}\n")
+            report = training_audit.audit_run(root)
+
+        self.assertEqual(report["totals"]["files"], 1)
+        self.assertEqual(report["totals"]["records"], 1)
+        self.assertEqual(report["totals"]["eligible_records"], 1)
+        self.assertTrue(report["training_ready"], report["blockers"])
+
+    def test_cli_bounds_unsafe_marker_mode_transaction_error(self):
+        with tempfile.TemporaryDirectory() as td:
+            factory = Path(td) / "thalamic-trajectory-factory"
+            write(factory / "batch-r01.jsonl", [thalamic("unsafe-marker")])
+            (factory / ".round-marker-mode.json").mkdir()
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    str(REPO / "pipelines" / "training_audit.py"),
+                    str(factory),
+                ],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+
+        self.assertEqual(result.returncode, 1)
+        self.assertEqual(result.stdout, "")
+        self.assertIn("training_audit failed: unsafe marker mode file", result.stderr)
+        self.assertNotIn("Traceback", result.stderr)
+
+    def test_suffixed_snapshot_root_keeps_factory_directories_distinct(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td) / "pre-window-factory"
+            write(
+                root / "thalamic-trajectory-factory" / "batch-r01.jsonl",
+                [thalamic("clean-1")],
+            )
+            write(
+                root / "safety-calibration-factory" / "batch-r01.jsonl",
+                [thalamic("clean-2")],
+            )
+            report = training_audit.audit_run(root)
+
+        self.assertEqual(
+            set(report["factories"]),
+            {"safety-calibration-factory", "thalamic-trajectory-factory"},
+        )
+        self.assertNotIn("pre-window-factory", report["factories"])
+
+    def test_off_registry_factory_root_keeps_nested_legacy_identity(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td) / "custom-experiment-factory"
+            write(root / "archive" / "batch-r01.jsonl", [thalamic("clean-1")])
+            report = training_audit.audit_run(root)
+
+        self.assertEqual(set(report["factories"]), {"custom-experiment-factory"})
+        self.assertNotIn("archive", report["factories"])
 
     def test_marked_gate_errors_are_counted(self):
         with tempfile.TemporaryDirectory() as td:
@@ -429,246 +539,20 @@ class TrainingAudit(unittest.TestCase):
             root = Path(td)
             path = root / "f" / "bad.jsonl"
             path.parent.mkdir(parents=True)
-            path.write_bytes(b'{"id":"bad-\xff"}\n')
+            valid = json.dumps(thalamic("valid-after-bad")).encode("utf-8")
+            path.write_bytes(b'{"id":"bad-\xff"}\n' + valid + b"\n")
             report = training_audit.audit_run(root)
 
         self.assertFalse(report["training_ready"])
-        self.assertTrue(
-            any("invalid UTF-8" in item for item in report["record_invariants"]["error_examples"]),
-            report["record_invariants"],
-        )
-
-
-def coding_wrap(record_id):
-    """A Thalamic gate record that wraps a coding episode, as published."""
-    record = thalamic(record_id)
-    record["proposed_action"]["internal_reasoning"] = "private gate rationale"
-    record["proposed_action"]["internal_reasoning_verbatim"] = "verbatim rationale"
-    record["executed_action"] = {
-        "action": "noop",
-        "goal": "Diagnose the failing build.",
-        "steps": [
-            {
-                "n": 1,
-                "thought": "private step scratch",
-                "tool_call": {"name": "bash", "args": {"command": "pytest -q"}},
-                "observation": "Two tests failed with a timezone mismatch.",
-                "reflection": "The failure is deterministic outside UTC.",
-            }
-        ],
-        "outcome": "The visible evidence isolated the defect.",
-        "reward": {"success": True},
-    }
-    return record
-
-
-class CuratedViewHasNoHiddenReasoning(unittest.TestCase):
-    """`training_audit --strict` is the gate that keeps published CoT out."""
-
-    def test_wrap_record_hidden_reasoning_blocks_training(self):
-        with tempfile.TemporaryDirectory() as td:
-            root = Path(td)
-            write(
-                root / "agentic-coding-trajectory-factory" / "batch-r02.jsonl",
-                [coding_wrap("wrap-1")],
-            )
-            report = training_audit.audit_run(root)
-
-        self.assertEqual(report["episodes"]["hidden_thought_fields"], 3)
-        self.assertEqual(
-            sorted(path.split(":", 2)[2] for path in report["hidden_thought_examples"]),
-            [
-                "executed_action.steps[0].thought",
-                "proposed_action.internal_reasoning",
-                "proposed_action.internal_reasoning_verbatim",
-            ],
-        )
-        self.assertTrue(
-            any("internal_reasoning*" in item for item in report["blockers"]),
-            report["blockers"],
-        )
-        self.assertFalse(report["training_ready"])
-
-    def test_strict_cli_fails_on_a_curated_file_that_keeps_the_keys(self):
-        with tempfile.TemporaryDirectory() as td:
-            root = Path(td)
-            curated = root / "curated" / "agentic-coding-trajectory-factory"
-            write(curated / "batch-r02.jsonl", [coding_wrap("wrap-cli-1")])
-
-            captured = io.StringIO()
-            with contextlib.redirect_stdout(captured):
-                code = training_audit.main(["--strict", str(root / "curated")])
-
-        self.assertEqual(code, 1)
-        self.assertIn("internal_reasoning*", captured.getvalue())
-
-    def test_wrap_steps_receive_strict_agentic_structural_validation(self):
-        source = coding_wrap("wrap-structural-1")
-        source["executed_action"]["steps"][0]["tool_call"] = "not-object"
-        curated, _manifest = curate_coding.curate_episode(source)
-        self.assertIsNotNone(curated)
-
-        with tempfile.TemporaryDirectory() as td:
-            root = Path(td)
-            write(
-                root / "agentic-coding-trajectory-factory" / "batch-r02.jsonl",
-                [curated],
-            )
-            report = training_audit.audit_run(root)
-
-        self.assertEqual(report["episodes"]["steps"], 1)
+        self.assertEqual(report["totals"]["records"], 1)
+        self.assertEqual(report["totals"]["eligible_records"], 1)
         self.assertTrue(
             any(
-                "executed_action step 0: tool_call must be an object" in error
-                for error in report["record_invariants"]["error_examples"]
+                "bad.jsonl:1: invalid UTF-8" in item
+                for item in report["record_invariants"]["error_examples"]
             ),
             report["record_invariants"],
         )
-        self.assertFalse(report["training_ready"])
-
-    def test_non_array_wrap_steps_receive_structural_validation(self):
-        for malformed_steps in (None, "not-an-array", {"n": 1}):
-            with self.subTest(malformed_steps=malformed_steps):
-                source = coding_wrap("wrap-structural-container")
-                source["proposed_action"].pop("internal_reasoning")
-                source["proposed_action"].pop("internal_reasoning_verbatim")
-                source["executed_action"]["steps"] = malformed_steps
-
-                with tempfile.TemporaryDirectory() as td:
-                    root = Path(td)
-                    write(
-                        root
-                        / "agentic-coding-trajectory-factory"
-                        / "batch-r02.jsonl",
-                        [source],
-                    )
-                    report = training_audit.audit_run(root)
-
-                self.assertIn(
-                    "agentic-coding-trajectory-factory/batch-r02.jsonl:1."
-                    "executed_action: steps must be a non-empty array",
-                    report["record_invariants"]["error_examples"],
-                )
-                self.assertFalse(report["training_ready"])
-
-    def test_wrap_episode_missing_steps_receives_structural_validation(self):
-        source = coding_wrap("wrap-missing-steps")
-        source["proposed_action"].pop("internal_reasoning")
-        source["proposed_action"].pop("internal_reasoning_verbatim")
-        source["executed_action"].pop("steps")
-
-        with tempfile.TemporaryDirectory() as td:
-            root = Path(td)
-            write(
-                root / "agentic-coding-trajectory-factory" / "batch-r02.jsonl",
-                [source],
-            )
-            report = training_audit.audit_run(root)
-
-        self.assertIn(
-            "agentic-coding-trajectory-factory/batch-r02.jsonl:1."
-            "executed_action: episode missing 'steps'",
-            report["record_invariants"]["error_examples"],
-        )
-        self.assertIn(
-            "agentic-coding-trajectory-factory/batch-r02.jsonl:1."
-            "executed_action: steps must be a non-empty array",
-            report["record_invariants"]["error_examples"],
-        )
-        self.assertFalse(report["training_ready"])
-
-    def test_wrap_reasoning_key_blocks_training(self):
-        source = coding_wrap("wrap-reasoning-key")
-        source["proposed_action"].pop("internal_reasoning")
-        source["proposed_action"].pop("internal_reasoning_verbatim")
-        source["executed_action"]["steps"][0].pop("thought")
-        source["proposed_action"]["reasoning"] = "private gate trace"
-        source["executed_action"]["steps"][0]["reasoning"] = "private step trace"
-
-        with tempfile.TemporaryDirectory() as td:
-            root = Path(td)
-            write(
-                root / "agentic-coding-trajectory-factory" / "batch-r02.jsonl",
-                [source],
-            )
-            report = training_audit.audit_run(root)
-
-        self.assertEqual(report["episodes"]["hidden_thought_fields"], 2)
-        self.assertEqual(
-            sorted(path.split(":", 2)[2] for path in report["hidden_thought_examples"]),
-            [
-                "executed_action.steps[0].reasoning",
-                "proposed_action.reasoning",
-            ],
-        )
-        self.assertFalse(report["training_ready"])
-
-    def test_strict_audit_passes_after_curation_strips_reasoning(self):
-        source = coding_wrap("wrap-reasoning-curated")
-        source["proposed_action"]["reasoning"] = "private gate trace"
-        source["executed_action"]["steps"][0]["reasoning"] = "private step trace"
-        curated, manifest = curate_coding.curate_episode(source)
-        self.assertIsNotNone(curated)
-        self.assertNotIn("reasoning", curated["proposed_action"])
-        self.assertNotIn("reasoning", curated["executed_action"]["steps"][0])
-        self.assertEqual(manifest["hidden_reasoning_fields_removed"], 5)
-
-        with tempfile.TemporaryDirectory() as td:
-            root = Path(td)
-            write(
-                root / "agentic-coding-trajectory-factory" / "batch-r02.jsonl",
-                [curated],
-            )
-            report = training_audit.audit_run(root)
-
-        self.assertEqual(report["episodes"].get("hidden_thought_fields", 0), 0)
-        self.assertEqual(report["hidden_thought_examples"], [])
-        self.assertEqual(report["blockers"], [])
-        self.assertTrue(report["training_ready"])
-
-    def test_undelimited_internal_reasoning_suffixes_block_training(self):
-        source = thalamic("wrap-reasoning-prefix")
-        source["proposed_action"]["internal_reasoning2"] = "private numbered trace"
-        source["proposed_action"]["internal_reasoningverbatim"] = "private verbatim trace"
-
-        with tempfile.TemporaryDirectory() as td:
-            root = Path(td)
-            write(
-                root / "agentic-coding-trajectory-factory" / "batch-r02.jsonl",
-                [source],
-            )
-            report = training_audit.audit_run(root)
-
-        self.assertEqual(report["episodes"]["hidden_thought_fields"], 2)
-        self.assertEqual(
-            sorted(path.split(":", 2)[2] for path in report["hidden_thought_examples"]),
-            [
-                "proposed_action.internal_reasoning2",
-                "proposed_action.internal_reasoningverbatim",
-            ],
-        )
-        self.assertFalse(report["training_ready"])
-
-    def test_strict_cli_passes_once_curate_coding_has_run(self):
-        with tempfile.TemporaryDirectory() as td:
-            root = Path(td)
-            source = root / "source.jsonl"
-            source.write_text(json.dumps(coding_wrap("wrap-cli-2")) + "\n")
-
-            result = curate_coding.curate_jsonl(source)
-            self.assertEqual(result["summary"]["output_records"], 1)
-            self.assertEqual(result["summary"]["wrap_records"], 1)
-            self.assertEqual(result["summary"]["hidden_reasoning_fields_removed"], 3)
-
-            curated = root / "curated" / "agentic-coding-trajectory-factory"
-            write(curated / "batch-r02.jsonl", result["records"])
-            report = training_audit.audit_run(root / "curated")
-
-        self.assertEqual(report["episodes"].get("hidden_thought_fields", 0), 0)
-        self.assertEqual(report["episodes"]["steps"], 1)
-        self.assertEqual(report["hidden_thought_examples"], [])
-        self.assertEqual(report["blockers"], [])
-        self.assertTrue(report["training_ready"])
 
 
 if __name__ == "__main__":

@@ -37,6 +37,10 @@ python3 .claude/skills/run-synthetic-factory/driver.py audit outputs/raw/<date>
 
 # Marker-aware, validated per-factory frontiers
 python3 .claude/skills/run-synthetic-factory/driver.py frontiers outputs/raw/<date> --json
+
+# Shared-detector leftover-mill report; names foreign-mill records and prints
+# the eligible denominator per destination without rewriting raw evidence
+python3 pipelines/leftover_mill.py outputs/raw/<date>   # add --strict to gate
 ```
 
 `validate` is structural/invariant evidence. `audit` additionally checks reward
@@ -162,6 +166,16 @@ Take a stable snapshot or use `driver.py audit`, then report:
   content, bridge ordering/density, and factories that under-produce;
 - exact timestamp and whether numbers came from live raw, a snapshot, or a
   workflow journal.
+
+Quote a destination's yield against its **eligible** denominator, not its raw
+record count. `audit`, `census.py`, and `leftover_mill.py` all consume the
+same `mill_family.py` ownership result and subtract proven foreign-mill
+records. `leftover` inside a record id is a goal-naming convention, never
+grounds for quarantine; those records stay eligible unless payload-factory,
+mill-prefix, or goal-family evidence proves that they belong elsewhere. Raw
+JSONL is named and skipped, never rewritten or deleted. In marker mode these
+readers count only transactionally visible batches; a linked batch does not
+enter an eligible denominator before its completion marker exists.
 
 Never estimate agent-token usage from output bytes without labeling the method.
 Output-token estimates (`bytes / 4`) and model usage tokens are different units.

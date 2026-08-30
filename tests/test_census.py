@@ -38,12 +38,20 @@ EXPECTED = {
         "failure-as-fuel-preference-cascade": 1,
         "thalamic-trajectory-factory": 2,
     },
+    "decode_failures": 0,
+    "unreadable_files": [],
+    "eligible_records": 3,
+    "eligible_by_factory": {
+        "failure-as-fuel-preference-cascade": 1,
+        "thalamic-trajectory-factory": 2,
+    },
     "mill_mix": {
         "records": 0,
         "reason_codes": {},
         "by_factory": {},
         "record_ids": [],
         "record_ids_truncated": False,
+        "quarantined_records": [],
     },
 }
 

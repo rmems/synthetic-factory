@@ -39,6 +39,7 @@ PIPELINES_ROOT = REPO_ROOT / "pipelines"
 if str(PIPELINES_ROOT) not in sys.path:
     sys.path.insert(0, str(PIPELINES_ROOT))
 
+import leftover_mill  # noqa: E402
 from round_txn import (  # noqa: E402
     TransactionError,
     completed_manifests as transaction_completed_manifests,
@@ -311,39 +312,48 @@ def factory_source(slug: str) -> Path:
     return source
 
 
-def factories() -> list[dict]:
+def _factory_slugs() -> list[str]:
     if FACTORY_ROOT.is_symlink() or not FACTORY_ROOT.is_dir():
         raise SystemExit(f"unsafe factory root: {FACTORY_ROOT}")
-    slugs = []
+    slugs: list[str] = []
     for path in sorted(FACTORY_ROOT.iterdir()):
         if path.is_symlink():
             raise SystemExit(f"unsafe factory directory: {path}")
         if path.is_dir():
             factory_source(path.name)
             slugs.append(path.name)
+    return slugs
+
+
+def _factory_tags(hub: str, extra: list[str], slug: str) -> list[str]:
+    tags = ["synthetic-data", "agentic-workflows", "grok-4.6", "provenance",
+            "preference-data" if "pairs" in hub else "trajectories", *extra]
+    clean: list[str] = []
+    for tag in dict.fromkeys(tags):
+        if any(banned in tag.lower() for banned in BANNED_TAG_SUBSTR):
+            raise SystemExit(f"banned tag {tag} on {slug}")
+        clean.append(tag)
+    return clean
+
+
+def _factory_hub(slug: str) -> str:
+    hub = hub_name(slug)
+    expected_hub = leftover_mill.PUBLISHED_HUB_NAME.get(slug)
+    if expected_hub is not None and hub != expected_hub:
+        raise SystemExit(
+            f"issue #43 hub name drift for {slug}: {hub} != {expected_hub}"
+        )
+    return hub
+
+
+def factories() -> list[dict]:
     out = []
-    for slug in slugs:
+    for slug in _factory_slugs():
         if slug not in META:
             raise SystemExit(f"missing META for {slug}")
         blurb, extra = META[slug]
-        hub = hub_name(slug)
-        tags = ["synthetic-data", "agentic-workflows", "grok-4.6", "provenance"]
-        if "pairs" in hub:
-            tags.append("preference-data")
-        else:
-            tags.append("trajectories")
-        tags.extend(extra)
-        # de-dupe preserve order
-        seen = set()
-        clean = []
-        for t in tags:
-            if t in seen:
-                continue
-            low = t.lower()
-            if any(b in low for b in BANNED_TAG_SUBSTR):
-                raise SystemExit(f"banned tag {t} on {slug}")
-            seen.add(t)
-            clean.append(t)
+        hub = _factory_hub(slug)
+        clean = _factory_tags(hub, extra, slug)
         out.append({"slug": slug, "hub": hub, "pretty": pretty_name(hub), "blurb": blurb, "tags": clean})
     return out
 
@@ -863,6 +873,7 @@ def render_card(
             f"`data/raw/batch-{first}.jsonl` through `data/raw/batch-{last}.jsonl` "
             f"(~{kb} KB), snapshotted from"
         )
+    factory_mix = leftover_mill.render_factory_mix_card_section(item["slug"], records)
     return f"""---
 pretty_name: {item['pretty']}
 license: apache-2.0
@@ -914,7 +925,7 @@ reflection evidence instead.
 
 Curated training publication remains blocked until a later audit and export
 pass. Do not treat this repository as a training corpus.
-
+{factory_mix}
 ## Links
 
 - [Synthetic data factory: Grok 4.6]({COLLECTION_URL})
