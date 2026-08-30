@@ -28,7 +28,6 @@ import math
 import sys
 from collections import Counter
 from decimal import Decimal
-from numbers import Real
 from pathlib import Path
 from typing import Any, Iterable, Iterator
 
@@ -85,7 +84,7 @@ def _finite(value: Any) -> bool:
     return isinstance(value, float) and math.isfinite(value)
 
 
-def _window_us(raster: dict[str, Any]) -> Real | None:
+def _window_us(raster: dict[str, Any]) -> Any:
     """Return the validated window in microseconds without rounding it."""
 
     window_s = raster.get("window_s")
