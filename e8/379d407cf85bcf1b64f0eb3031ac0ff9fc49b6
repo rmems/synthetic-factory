@@ -1,0 +1,86 @@
+pipelines/validate_distill.py
+  s_f3ffb7db87dca1::t_72c5b62d28c0aa 57-59
+pipelines/energy_preferences.py
+  s_f3ffb7db87dca1::t_0f0efe6d298161 1124,1132,1139-1142,1148-1149,1156-1157
+  s_f3ffb7db87dca1::t_6be52ede4163ba 48
+  s_f3ffb7db87dca1::t_1de511350499b2 820-821
+  s_f3ffb7db87dca1::t_11a7c3740cbced 1391,1394-1397
+  s_f3ffb7db87dca1::t_09fd6e3d070e1f 1690-1692
+  s_f3ffb7db87dca1::t_728f32365bf595 904-905
+  s_f3ffb7db87dca1::t_5d05d1f8551f49 1452
+  s_f3ffb7db87dca1::t_27f8dbe9095278 1100-1101,1115-1118
+  s_f3ffb7db87dca1::t_fc2d5f2bda3e24 1316-1317,1322-1331,1333,1335,1337-1339
+  s_f3ffb7db87dca1::t_9139c0e2f6320f 1717-1719,1726-1727,1729
+  s_f3ffb7db87dca1::t_da003c6c19711c 1088,1092
+  s_f3ffb7db87dca1::t_007e96ecd275b1 1029-1036,1041,1046-1047
+  s_f3ffb7db87dca1::t_85dc4ab0e806d3 75-83
+  s_f3ffb7db87dca1::t_7d43bf66f2e12d 1150
+  s_f3ffb7db87dca1::t_e1e65376816b97 1523-1588
+  s_f3ffb7db87dca1::t_9e12eacaf8a0c9 1352-1353,1359-1368,1371,1373,1375-1376
+  s_f3ffb7db87dca1::t_5759dfb536419b 213-215,219-225,227-239,242,245-246,248-251
+  s_f3ffb7db87dca1::t_256aa74c65ef6c 1177-1266
+  s_f3ffb7db87dca1::t_3ce398284b2b9c 749-763,767-775,787-788
+  s_f3ffb7db87dca1::t_77f312c7357183 359
+  s_f3ffb7db87dca1::t_a9452ee3be5678 801-808
+tests/test_moe_router.py
+  s_f3ffb7db87dca1::t_5971ae8a059314 50-54
+tests/test_distillation_review_gaps.py
+  s_f3ffb7db87dca1::t_c1281fa9af185d 117-298
+  s_f3ffb7db87dca1::t_25034208ab5e70 506-687,691-716
+  s_f3ffb7db87dca1::t_183ef2f3375be0 27
+  s_f3ffb7db87dca1::t_f46c804926a1d1 688-690
+  s_f3ffb7db87dca1::t_6d15e048833f8c 797-958,962-1007
+  s_f3ffb7db87dca1::t_827565149b8d66 1039-1040,1042-1045
+  s_f3ffb7db87dca1::t_1977e7b9ac5661 1082-1143
+pipelines/oracle_contract.py
+  s_f3ffb7db87dca1::t_2e3f346e56ccfc 622
+  s_f3ffb7db87dca1::t_4ab1ce77fa36cb 639
+  s_f3ffb7db87dca1::t_f13a265195206a 575
+  s_f3ffb7db87dca1::t_625781b3e3a2e4 685
+  s_f3ffb7db87dca1::t_e0b2c12bbeb415 592
+  s_f3ffb7db87dca1::t_ea3d94e47d758e 488
+  s_f3ffb7db87dca1::t_457d8fb83914a0 216-228
+  s_f3ffb7db87dca1::t_9fff8dc0c9bd66 540
+  s_f3ffb7db87dca1::t_513a0d46fe676d 544,550
+  s_f3ffb7db87dca1::t_0206c1f6d02ccc 616
+pipelines/router_baseline.py
+  s_f3ffb7db87dca1::t_45566dd4e7713b 45,47
+  s_f3ffb7db87dca1::t_ab1a2120039865 553-587,600
+  s_f3ffb7db87dca1::t_fe08f4de8c9106 84,88-93,109-116,119
+pipelines/moe_router.py
+  s_f3ffb7db87dca1::t_a1e2a9db59fe0c 1375-1387
+  s_f3ffb7db87dca1::t_3f4740f90b8d42 471-523,531
+  s_f3ffb7db87dca1::t_249aaeb8a4a99e 66-70
+  s_f3ffb7db87dca1::t_2a21fd54fd5f3e 867-920
+  s_f3ffb7db87dca1::t_d5da5e94a7e3aa 968
+  s_f3ffb7db87dca1::t_bd93c805ac6391 739
+  s_f3ffb7db87dca1::t_dbf30d58d08952 449-456
+  s_f3ffb7db87dca1::t_abbec0f7f4fc15 1120-1129,1141-1152
+scripts/build_distillation_fixture.py
+  s_f3ffb7db87dca1::t_d6c0fe810fbc68 52-74,78-83,88-89,91-94
+  s_f3ffb7db87dca1::t_37dce588112a80 104-106
+  s_f3ffb7db87dca1::t_e560d726999da0 133,137-146
+pipelines/fault_recovery.py
+  s_f3ffb7db87dca1::t_bfb42e024531a8 688-779,790,809
+  s_f3ffb7db87dca1::t_cd178d2532f474 135-144
+  s_f3ffb7db87dca1::t_43160904b4511c 229-231
+  s_f3ffb7db87dca1::t_fdd82a3baef14c 876
+  s_f3ffb7db87dca1::t_8a8b3787b5496a 280,285-295
+  s_f3ffb7db87dca1::t_f16b4aa4fe2fba 321-339
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "e8379d407cf85bcf1b64f0eb3031ac0ff9fc49b6",
+  "prompts": {},
+  "sessions": {
+    "s_f3ffb7db87dca1": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "510a01e2-1e9d-4f64-a445-6971413485be",
+        "model": "claude-fable-5"
+      },
+      "human_author": "Raul Montoya Cardenas <montoyaraul34@gmail.com>"
+    }
+  }
+}
