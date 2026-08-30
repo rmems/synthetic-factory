@@ -1,0 +1,29 @@
+tests/test_oracle_grounded_cli.py
+  s_f3ffb7db87dca1::t_171f104c3e9c12 335-342,345-348,351,355-358,361
+  s_f3ffb7db87dca1::t_3d9e35b28033db 385
+schemas/oracle-grounded-v1.schema.json
+  s_f3ffb7db87dca1::t_1827a011cbae9c 166
+tests/test_oracle_grounded_record.py
+  s_f3ffb7db87dca1::t_c88d7953214534 182-189,192,195-211
+  s_f3ffb7db87dca1::t_2f4f972f3c30b4 190-191,193-194
+pipelines/oracle_grounded/record.py
+  s_f3ffb7db87dca1::t_9e1485e9ab4812 424-426
+  s_f3ffb7db87dca1::t_8c0c387f3ee088 60-63,65-68
+  s_f3ffb7db87dca1::t_99d9d81ab89f77 558-562
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "eaebe47ba475dccf5575497257598d07b8ce15a3",
+  "prompts": {},
+  "sessions": {
+    "s_f3ffb7db87dca1": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "510a01e2-1e9d-4f64-a445-6971413485be",
+        "model": "claude-fable-5"
+      },
+      "human_author": "Raul Montoya Cardenas <montoyaraul34@gmail.com>"
+    }
+  }
+}
