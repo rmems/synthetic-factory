@@ -1,0 +1,43 @@
+pipelines/curate_bridge_raster.py
+  s_98712805c1499b::t_7b582f3bb477ae 454
+tests/test_curate_bridge_materialization.py
+  s_98712805c1499b::t_a874877081f029 233-262
+tests/test_spike_probe.py
+  s_98712805c1499b::t_a874877081f029 70-78
+tests/test_census.py
+  s_98712805c1499b::t_a874877081f029 510-523
+tests/test_curate_bridge.py
+  s_98712805c1499b::t_a874877081f029 305-323
+tests/test_promote.py
+  s_98712805c1499b::t_a874877081f029 424-439
+pipelines/census.py
+  s_98712805c1499b::t_7b582f3bb477ae 202-205
+tests/test_curate_bridge_raster.py
+  s_98712805c1499b::t_a874877081f029 105-119
+pipelines/promote.py
+  s_98712805c1499b::t_7b582f3bb477ae 446-450,476-479
+pipelines/quality_gate_audit.py
+  s_98712805c1499b::t_7b582f3bb477ae 229-230
+pipelines/spike_probe.py
+  s_98712805c1499b::t_7b582f3bb477ae 104-107
+pipelines/curate_bridge.py
+  s_98712805c1499b::t_7b582f3bb477ae 796-804,876-884
+tests/test_quality_gate_audit.py
+  s_98712805c1499b::t_a874877081f029 68-79
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "27e4075153e41c08ee1ee1df8f12d03d0c96b9b6",
+  "prompts": {},
+  "sessions": {
+    "s_98712805c1499b": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a04a1f-1e33-7812-a5aa-c7b04b33b6b5",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Raul Montoya Cardenas <montoyaraul34@gmail.com>"
+    }
+  }
+}
