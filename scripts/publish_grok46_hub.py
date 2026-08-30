@@ -21,6 +21,7 @@ config/card-schemas/<hub-dataset-name>.json; see pipelines/card_schema.py.
 from __future__ import annotations
 
 import argparse
+import dataclasses
 import hashlib
 import json
 import os
@@ -1028,11 +1029,13 @@ def snapshot_one(item: dict) -> dict:
     first, last_s = _published_round_range(batches)
     card = render_card(
         item,
-        records=records,
-        bytes_=bytes_,
-        first=first,
-        last=last_s,
-        payload_names=[batch.name for batch in batches],
+        summary=PayloadSummary(
+            records=records,
+            bytes_=bytes_,
+            first=first,
+            last=last_s,
+            names=[batch.name for batch in batches],
+        ),
         schema=(schema_yaml, schema_body),
         kind_mix=kind_mix,
     )
@@ -1194,21 +1197,31 @@ schema; the raw snapshot is intentionally not rewritten.
     return ""
 
 
+@dataclasses.dataclass(frozen=True)
+class PayloadSummary:
+    """Everything a card says about its published payload: counts, span, names."""
+
+    records: int
+    bytes_: int
+    first: str | None
+    last: str | None
+    names: list[str] | None = None
+
+
 def render_card(
     item: dict,
     *,
-    records: int,
-    bytes_: int,
-    first: str | None,
-    last: str | None,
-    payload_names: list[str] | None = None,
+    summary: PayloadSummary,
     schema: tuple[str, str] | None = None,
     kind_mix: list[leftover_mill.KindMixFinding] | None = None,
 ) -> str:
     tags = "\n".join(f"- {t}" for t in item["tags"])
-    kb = max(1, bytes_ // 1024)
-    schema_block, schema_section = _resolved_card_schema(item, payload_names, schema)
-    payload = _release_payload_text(records, kb, first, last, payload_names)
+    records = summary.records
+    kb = max(1, summary.bytes_ // 1024)
+    schema_block, schema_section = _resolved_card_schema(item, summary.names, schema)
+    payload = _release_payload_text(
+        records, kb, summary.first, summary.last, summary.names
+    )
     kind_mix = list(kind_mix or ())
     quarantine = render_quarantine_section(records, kind_mix)
     factory_mix = leftover_mill.render_factory_mix_card_section(item["slug"], records)
@@ -1484,11 +1497,13 @@ def _validate_upload_snapshot_card(item: dict, dest: Path, raw: Path, batches, k
     first, last = _published_round_range(batches)
     expected_card = render_card(
         item,
-        records=records,
-        bytes_=bytes_,
-        first=first,
-        last=last,
-        payload_names=[batch.name for batch in batches],
+        summary=PayloadSummary(
+            records=records,
+            bytes_=bytes_,
+            first=first,
+            last=last,
+            names=[batch.name for batch in batches],
+        ),
         kind_mix=kind_mix,
     )
     card = _read_snapshot_card(dest)

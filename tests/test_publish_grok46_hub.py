@@ -551,11 +551,13 @@ class PublishGrok46HubTests(unittest.TestCase):
         }
         card = publisher.render_card(
             item,
-            records=100,
-            bytes_=4096,
-            first="r56",
-            last="r58",
-            payload_names=["batch-r56.jsonl", "batch-r57.jsonl", "batch-r58.jsonl"],
+            summary=publisher.PayloadSummary(
+                records=100,
+                bytes_=4096,
+                first="r56",
+                last="r58",
+                names=["batch-r56.jsonl", "batch-r57.jsonl", "batch-r58.jsonl"],
+            ),
         )
         self.assertIn("## Factory-mix quarantine", card)
         self.assertIn("**94**, not 100", card)
@@ -568,10 +570,9 @@ class PublishGrok46HubTests(unittest.TestCase):
             hub = publisher.hub_name(slug)
             card = publisher.render_card(
                 {**ITEM, "slug": slug, "hub": hub},
-                records=3,
-                bytes_=4096,
-                first="r01",
-                last="r02",
+                summary=publisher.PayloadSummary(
+                    records=3, bytes_=4096, first="r01", last="r02"
+                ),
             )
 
             self.assertTrue(hub.endswith("-preference-pairs"), hub)
@@ -601,10 +602,9 @@ class PublishGrok46HubTests(unittest.TestCase):
                 "slug": "code-review-preference-factory",
                 "hub": "code-review-preference-pairs",
             },
-            records=2976,
-            bytes_=4096,
-            first="r01",
-            last="r02",
+            summary=publisher.PayloadSummary(
+                records=2976, bytes_=4096, first="r01", last="r02"
+            ),
             kind_mix=kind_mix,
         )
 
@@ -619,11 +619,13 @@ class PublishGrok46HubTests(unittest.TestCase):
         # snapshot_one does; an empty payload list is a coverage failure.
         card = publisher.render_card(
             ITEM,
-            records=1,
-            bytes_=1024,
-            first="r01",
-            last="r01",
-            payload_names=["batch-r01.jsonl"],
+            summary=publisher.PayloadSummary(
+                records=1,
+                bytes_=1024,
+                first="r01",
+                last="r01",
+                names=["batch-r01.jsonl"],
+            ),
         )
 
         self.assertNotIn("## Record schema", card)
