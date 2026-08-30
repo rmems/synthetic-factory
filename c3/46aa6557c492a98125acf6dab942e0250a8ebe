@@ -1,0 +1,70 @@
+pipelines/round_txn_raster.py
+  s_98712805c1499b::t_e57e70f55a4c3b 78
+pipelines/curate_bridge.py
+  s_98712805c1499b::t_52b70f38bb05c9 614-617
+  s_98712805c1499b::t_b77b8ec7705502 68,235-243
+  s_98712805c1499b::t_4313ddbdc591db 906
+  s_98712805c1499b::t_4962a068c9df4f 119,625,627,629
+  s_98712805c1499b::t_74601b7aad9eda 415-418,448
+pipelines/spike_probe.py
+  s_98712805c1499b::t_e57e70f55a4c3b 95-101,106-108,203,331
+  s_98712805c1499b::t_b77b8ec7705502 81-94,102-105
+.github/workflows/qodana.yml
+  s_98712805c1499b::t_e57e70f55a4c3b 14,18,22,24
+  s_98712805c1499b::t_74601b7aad9eda 26
+pipelines/curate_bridge_raster.py
+  s_98712805c1499b::t_e57e70f55a4c3b 8,50,235-237,239,296-300
+  s_98712805c1499b::t_74601b7aad9eda 53-58,238
+  s_98712805c1499b::t_52b70f38bb05c9 41-43,45-49
+pipelines/round_txn.py
+  s_98712805c1499b::t_e57e70f55a4c3b 2452,2455-2460
+tests/test_spike_probe.py
+  s_98712805c1499b::t_41262b82994d69 85-103
+  s_98712805c1499b::t_74601b7aad9eda 18,527
+tests/test_curate_bridge_integer_precision.py
+  s_98712805c1499b::t_9633011c86795d 1-6,8-37,39-42,44-59,61-69,93-96
+  s_98712805c1499b::t_74601b7aad9eda 7,38,43,60,70-92
+tests/test_curate_bridge_materialization.py
+  s_98712805c1499b::t_1bfc240fb4ccec 131-159,161-162,165-166,203
+  s_98712805c1499b::t_07bc2c297b0e2b 164,167-202
+  s_98712805c1499b::t_52b70f38bb05c9 15,30-31,34-49,68,300
+  s_98712805c1499b::t_b77b8ec7705502 69,160,163
+prompts/02-multi-agent-ouroboros-swarm.md
+  s_98712805c1499b::t_e57e70f55a4c3b 83-84
+pipelines/distillation_audit.py
+  s_98712805c1499b::t_e57e70f55a4c3b 103-107
+prompts/01-thalamic-trajectory-factory.md
+  s_98712805c1499b::t_e57e70f55a4c3b 92-93
+pipelines/curate_bridge_materialize.py
+  s_98712805c1499b::t_52b70f38bb05c9 139,182
+tests/test_curate_bridge_raster.py
+  s_98712805c1499b::t_41262b82994d69 84-103
+  s_98712805c1499b::t_12c53b5eba80e7 371
+tests/test_workflow_contract.py
+  s_98712805c1499b::t_74601b7aad9eda 190
+  s_98712805c1499b::t_41262b82994d69 12,174-178,180-189,191-200
+  s_98712805c1499b::t_7b43e44aa8ea9e 179
+tests/gate_fixture.py
+  s_98712805c1499b::t_41262b82994d69 23,285-286,440,459
+pipelines/curate_bridge_gate.py
+  s_98712805c1499b::t_b77b8ec7705502 101-102
+  s_98712805c1499b::t_74601b7aad9eda 166-168,263
+  s_98712805c1499b::t_12c53b5eba80e7 31-33,88,97,231
+  s_98712805c1499b::t_31c1df64a36191 268-270
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "c346aa6557c492a98125acf6dab942e0250a8ebe",
+  "prompts": {},
+  "sessions": {
+    "s_98712805c1499b": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a04a1f-1e33-7812-a5aa-c7b04b33b6b5",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Raul Montoya Cardenas <montoyaraul34@gmail.com>"
+    }
+  }
+}
