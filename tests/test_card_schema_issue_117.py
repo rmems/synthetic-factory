@@ -28,6 +28,28 @@ CACHE_STAMPEDE = "cache-stampede-trajectories"
 AUDITED_SCOPE = "audited 3456-record snapshot through round 1728"
 
 
+def _has_digit(text):
+    """True for a string that pins at least one digit-bearing count."""
+    return isinstance(text, str) and any(character.isdigit() for character in text)
+
+
+def _numeric_feature_notes(features):
+    """Yield every digit-bearing feature `note`, recursing into list/struct."""
+    for feature in features:
+        if _has_digit(feature.get("note")):
+            yield feature["note"]
+        for key in ("list", "struct"):
+            nested = feature.get(key)
+            if isinstance(nested, list):
+                yield from _numeric_feature_notes(nested)
+
+
+def _disclosure_texts(disclosures):
+    """Yield each disclosure's prose: the sentence itself or its summary."""
+    for disclosure in disclosures:
+        yield disclosure if isinstance(disclosure, str) else disclosure["summary"]
+
+
 class CacheStampedeDeclarationTests(unittest.TestCase):
     """Issue #57: thin `meta` vs the designed / dest-stamped union on this dump."""
 
@@ -129,21 +151,15 @@ class CacheStampedeDeclarationTests(unittest.TestCase):
         self.assertIn("no hidden `thought` or `internal_reasoning`", self.card)
 
     def test_all_fixed_counts_are_scoped_to_the_audited_snapshot(self):
-        def numeric_notes(features):
-            for feature in features:
-                note = feature.get("note")
-                if isinstance(note, str) and any(char.isdigit() for char in note):
-                    yield note
-                for key in ("list", "struct"):
-                    nested = feature.get(key)
-                    if isinstance(nested, list):
-                        yield from numeric_notes(nested)
-
-        annotations = [self.declaration["note"], *numeric_notes(self.declaration["features"])]
-        for disclosure in self.declaration["disclosures"]:
-            text = disclosure if isinstance(disclosure, str) else disclosure["summary"]
-            if any(char.isdigit() for char in text):
-                annotations.append(text)
+        annotations = [
+            self.declaration["note"],
+            *_numeric_feature_notes(self.declaration["features"]),
+            *(
+                text
+                for text in _disclosure_texts(self.declaration["disclosures"])
+                if _has_digit(text)
+            ),
+        ]
 
         self.assertTrue(annotations)
         for annotation in annotations:
