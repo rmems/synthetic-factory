@@ -48,8 +48,6 @@ from curate_bridge_events import (
     _canonical_marker as _event_canonical_marker,
     _declared_clock_domains,
     _explicit_order_fields,
-    _finite_float as _event_finite_float,
-    _is_finite_number,
     _record_locator,
 )
 from curate_bridge_gate import _validate_gate_compute, _validate_gate_snn
@@ -61,6 +59,8 @@ from curate_bridge_materialize import (
     materialize_paths as _materialize_paths,
 )
 from curate_bridge_raster import (
+    _finite_float as _raster_finite_float,
+    _is_finite_number,
     _validate_raster,
     _validate_third_factor as _raster_validate_third_factor,
 )
@@ -70,7 +70,7 @@ from curate_bridge_raster import (
 CLOCK_DOMAIN_KEYS = _EVENT_CLOCK_DOMAIN_KEYS
 EXPLICIT_ORDER_KEYS = _EVENT_EXPLICIT_ORDER_KEYS
 _canonical_marker = _event_canonical_marker
-_finite_float = _event_finite_float
+_finite_float = _raster_finite_float
 _safe_relative_path = _materialize_safe_relative_path
 _validate_third_factor = _raster_validate_third_factor
 

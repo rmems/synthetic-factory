@@ -88,11 +88,12 @@ def _rename_windows(source: Path, destination: Path) -> None:
 
 def _rename_linux(source: Path, destination: Path) -> None:
     libc = ctypes.CDLL(None, use_errno=True)
-    renameat2 = getattr(libc, "renameat2", None)
-    if renameat2 is None:
+    try:
+        renameat2 = libc.renameat2
+    except AttributeError as exc:
         raise BridgeCurationError(
             "atomic no-replace publication requires Linux renameat2 with RENAME_NOREPLACE"
-        )
+        ) from exc
     renameat2.argtypes = [
         ctypes.c_int,
         ctypes.c_char_p,

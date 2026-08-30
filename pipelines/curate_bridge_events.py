@@ -4,7 +4,6 @@
 from __future__ import annotations
 
 import json
-import math
 from typing import Any, Sequence
 
 
@@ -38,22 +37,6 @@ EXPLICIT_ORDER_KEYS = (
     "sequence_index",
     "trial_id",
 )
-
-
-def _finite_float(value: Any) -> float | None:
-    try:
-        result = float(value)
-    except (OverflowError, TypeError, ValueError):
-        return None
-    return result if math.isfinite(result) else None
-
-
-def _is_finite_number(value: Any) -> bool:
-    return (
-        isinstance(value, (int, float))
-        and not isinstance(value, bool)
-        and _finite_float(value) is not None
-    )
 
 
 def _record_locator(record: Any) -> str | None:

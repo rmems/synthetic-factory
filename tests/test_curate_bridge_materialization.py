@@ -243,6 +243,23 @@ class BridgeMaterialization(unittest.TestCase):
         ):
             curate_bridge_materialize._rename_noreplace(source, destination)
 
+    def test_linux_publication_fails_explicitly_without_renameat2(self):
+        with (
+            mock.patch.object(
+                curate_bridge_materialize.ctypes,
+                "CDLL",
+                return_value=object(),
+            ),
+            self.assertRaisesRegex(
+                curate_bridge.BridgeCurationError,
+                "requires Linux renameat2",
+            ),
+        ):
+            curate_bridge_materialize._rename_linux(
+                Path("unused-source"),
+                Path("unused-destination"),
+            )
+
     def test_routing_validation_is_independent_of_raster_requirement(self):
         record = gate_snn_fixture()
         record["raster"]["routing"]["table"] = []
