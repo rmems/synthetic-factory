@@ -1,0 +1,34 @@
+tests/test_quality_gate_identity.py
+  s_98712805c1499b::t_ac20af648dfb6e 4,17-20,216-242
+tests/test_quality_gate_embedding_regressions.py
+  s_98712805c1499b::t_a1089659bc71af 32-48
+docs/quality-gate.md
+  s_98712805c1499b::t_269b351838f524 110-113
+  s_98712805c1499b::t_d51e92760a3ac3 87,193-202,344,347,353
+  s_98712805c1499b::t_a1089659bc71af 107-109
+pipelines/quality_gate_identity.py
+  s_98712805c1499b::t_ac20af648dfb6e 86
+tests/test_promote_quality_gate.py
+  s_98712805c1499b::t_d51e92760a3ac3 65
+pipelines/quality_gate.py
+  s_98712805c1499b::t_d51e92760a3ac3 10-14
+pipelines/quality_gate_embedding.py
+  s_98712805c1499b::t_d51e92760a3ac3 25,56
+  s_98712805c1499b::t_a1089659bc71af 66,68
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "394b95b45cf526789fd9b9c9ca11d7d1ae4964d7",
+  "prompts": {},
+  "sessions": {
+    "s_98712805c1499b": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a04a1f-1e33-7812-a5aa-c7b04b33b6b5",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Raul Montoya Cardenas <montoyaraul34@gmail.com>"
+    }
+  }
+}
