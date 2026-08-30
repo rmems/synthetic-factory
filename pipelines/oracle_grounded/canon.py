@@ -24,6 +24,17 @@ class NonFiniteNumber(ValueError):
     """A float that JSON cannot carry reached the canonicaliser."""
 
 
+def _normalize_float(value, precision):
+    """Round one finite float, normalising -0.0 away."""
+    if not math.isfinite(value):
+        raise NonFiniteNumber(f"non-finite number in record: {value!r}")
+    rounded = round(value, precision)
+    # round() can return -0.0; JSON keeps the sign and breaks equality.
+    if rounded == 0.0:
+        return 0.0
+    return rounded
+
+
 def normalize(value, precision=PRECISION):
     """Recursively round floats and normalise -0.0, rejecting NaN/Inf.
 
@@ -33,13 +44,7 @@ def normalize(value, precision=PRECISION):
     if isinstance(value, bool) or value is None or isinstance(value, (str, int)):
         return value
     if isinstance(value, float):
-        if not math.isfinite(value):
-            raise NonFiniteNumber(f"non-finite number in record: {value!r}")
-        rounded = round(value, precision)
-        # round() can return -0.0; JSON keeps the sign and breaks equality.
-        if rounded == 0.0:
-            return 0.0
-        return rounded
+        return _normalize_float(value, precision)
     if isinstance(value, dict):
         return {str(key): normalize(item, precision) for key, item in value.items()}
     if isinstance(value, (list, tuple)):

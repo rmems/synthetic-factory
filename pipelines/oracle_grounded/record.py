@@ -96,18 +96,26 @@ class GenerationError(RuntimeError):
     """A record could not be produced; the caller decides whether to skip."""
 
 
-def _reserved_key_hits(value, path=""):
+def _reserved_hits_in_mapping(value, path):
     hits = []
-    if isinstance(value, dict):
-        for key, item in value.items():
-            here = f"{path}.{key}" if path else str(key)
-            if key in RESERVED_GENERATOR_KEYS:
-                hits.append(here)
-            hits.extend(_reserved_key_hits(item, here))
-    elif isinstance(value, list):
-        for index, item in enumerate(value):
-            hits.extend(_reserved_key_hits(item, f"{path}[{index}]"))
+    for key, item in value.items():
+        here = f"{path}.{key}" if path else str(key)
+        if key in RESERVED_GENERATOR_KEYS:
+            hits.append(here)
+        hits.extend(_reserved_key_hits(item, here))
     return hits
+
+
+def _reserved_key_hits(value, path=""):
+    if isinstance(value, dict):
+        return _reserved_hits_in_mapping(value, path)
+    if isinstance(value, list):
+        return [
+            hit
+            for index, item in enumerate(value)
+            for hit in _reserved_key_hits(item, f"{path}[{index}]")
+        ]
+    return []
 
 
 def proposal_of(record):

@@ -156,6 +156,28 @@ def _raw_destination_error(out_dir):
     return None
 
 
+def _locked_lock_descriptor(lock_path):
+    """Open, authenticate, and exclusively lock one reservation file.
+
+    The descriptor is closed on any failure after the open; the open itself
+    propagates without a descriptor to clean up.
+    """
+    descriptor = os.open(
+        lock_path,
+        os.O_CREAT | os.O_RDWR | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0),
+        0o600,
+    )
+    try:
+        lock_stat = os.fstat(descriptor)
+        if not stat.S_ISREG(lock_stat.st_mode) or lock_stat.st_nlink != 1:
+            raise OSError(errno.EINVAL, "reservation lock is not a regular file")
+        fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        os.close(descriptor)
+        raise
+    return descriptor
+
+
 def reserve_run(out_dir):
     """Hold a kernel lock for this output name for the full transaction."""
     parent = out_dir.parent
@@ -163,23 +185,9 @@ def reserve_run(out_dir):
     stem = out_dir.name or "oracle-run"
     lock_path = parent / f".{stem}.oracle-generate.lock"
     try:
-        descriptor = os.open(
-            lock_path,
-            os.O_CREAT | os.O_RDWR | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0),
-            0o600,
-        )
-        lock_stat = os.fstat(descriptor)
-        if not stat.S_ISREG(lock_stat.st_mode) or lock_stat.st_nlink != 1:
-            raise OSError(errno.EINVAL, "reservation lock is not a regular file")
-        fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        descriptor = _locked_lock_descriptor(lock_path)
     except (BlockingIOError, FileExistsError) as exc:
-        if "descriptor" in locals():
-            os.close(descriptor)
         raise FileExistsError(f"another generation owns reservation {lock_path}") from exc
-    except OSError:
-        if "descriptor" in locals():
-            os.close(descriptor)
-        raise
     if _lexists(out_dir):
         fcntl.flock(descriptor, fcntl.LOCK_UN)
         os.close(descriptor)
