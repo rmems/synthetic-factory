@@ -48,16 +48,17 @@ Co-authored-by: Muse Code powered by Muse Spark <muse-spark@meta.com>
 
 import argparse
 import json
-import math
 import re
 import sys
 from pathlib import Path
+from typing import NamedTuple
 
 _PIPELINES = Path(__file__).resolve().parent
 if str(_PIPELINES) not in sys.path:
     sys.path.insert(0, str(_PIPELINES))
 from check_records import check_spikes, event_time  # noqa: E402
 import quality_gate  # noqa: E402
+from quality_gate import validate_embedding_threshold  # noqa: E402
 
 FFPC = "failure-as-fuel-preference-cascade"
 ALLOWED_KINDS = frozenset({"designed", "simulated", "hil", "unknown"})
@@ -140,30 +141,59 @@ def _rejected_claim(existing):
     return None
 
 
+def _provenance_for_state_claim(claimed):
+    """Normalize a state claim while retaining an already-canonical label."""
+    if isinstance(claimed, str) and claimed.strip().lower() in ALLOWED_KINDS:
+        return {"kind": claimed.strip().lower(), "claimed": claimed}
+    return remap_claimed(claimed)
+
+
+def _record_state_claim(owner, state):
+    """Normalize and mirror ``state.sim_or_real`` provenance."""
+    prov = _provenance_for_state_claim(state.get("sim_or_real"))
+    state["sim_or_real"] = prov["kind"]
+    state["provenance"] = dict(prov)
+    owner["provenance"] = dict(prov)
+
+
+def _preserve_accepted_provenance(owner, state, existing):
+    """Mirror or strengthen provenance that already has an accepted kind."""
+    if state is not None:
+        if "provenance" not in state:
+            state["provenance"] = dict(existing)
+        return
+    if existing.get("kind") != "unknown":
+        return
+    inferred = _factory_origin_provenance(owner)
+    if inferred is not None:
+        inferred["claimed"] = existing.get("claimed")
+        owner["provenance"] = inferred
+
+
+def _provenance_from_rejected_claim(owner, existing):
+    """Remap rejected provenance, using the factory envelope as a fallback."""
+    prov = remap_claimed(_rejected_claim(existing))
+    if prov["kind"] != "unknown":
+        return prov
+    inferred = _factory_origin_provenance(owner)
+    if inferred is None:
+        return prov
+    inferred["claimed"] = prov["claimed"]
+    return inferred
+
+
 def _attach_owner(owner):
     if not isinstance(owner, dict):
         return
     state = owner.get("state")
-    has_state = isinstance(state, dict)
-    if has_state and "sim_or_real" in state:
-        claimed = state.get("sim_or_real")
-        if isinstance(claimed, str) and claimed.strip().lower() in ALLOWED_KINDS:
-            prov = {"kind": claimed.strip().lower(), "claimed": claimed}
-        else:
-            prov = remap_claimed(claimed)
-        state["sim_or_real"] = prov["kind"]
-        state["provenance"] = dict(prov)
-        owner["provenance"] = dict(prov)
+    if not isinstance(state, dict):
+        state = None
+    if state is not None and "sim_or_real" in state:
+        _record_state_claim(owner, state)
         return
     existing = owner.get("provenance")
     if isinstance(existing, dict) and existing.get("kind") in ALLOWED_KINDS:
-        if has_state and "provenance" not in state:
-            state["provenance"] = dict(existing)
-        elif not has_state and existing.get("kind") == "unknown":
-            inferred = _factory_origin_provenance(owner)
-            if inferred is not None:
-                inferred["claimed"] = existing.get("claimed")
-                owner["provenance"] = inferred
+        _preserve_accepted_provenance(owner, state, existing)
         return
     # The existing provenance carries a kind this promotion cannot accept.
     # Re-read it as a claim instead of discarding it: dropping it here made the
@@ -174,20 +204,12 @@ def _attach_owner(owner):
     # be present. Remapping the claim reaches `designed` either way, which is
     # the documented promotion contract: cleaned records never emit `real`,
     # and the original claim survives in provenance.claimed.
-    claimed = _rejected_claim(existing)
-    if has_state:
-        prov = remap_claimed(claimed)
+    if state is not None:
+        prov = remap_claimed(_rejected_claim(existing))
         state["provenance"] = dict(prov)
         owner["provenance"] = dict(prov)
         return
-    prov = remap_claimed(claimed)
-    if prov["kind"] == "unknown":
-        # No usable claim; the factory envelope is the only evidence left.
-        inferred = _factory_origin_provenance(owner)
-        if inferred is not None:
-            inferred["claimed"] = prov["claimed"]
-            prov = inferred
-    owner["provenance"] = prov
+    owner["provenance"] = _provenance_from_rejected_claim(owner, existing)
 
 
 def _walk_state_owners(obj, seen):
@@ -510,59 +532,79 @@ def parse_args(argv=None):
     return parser.parse_args(argv)
 
 
-def main(argv=None):
-    args = parse_args(argv)
-    raw_run = Path(args.raw_run)
-    cleaned_out = Path(args.cleaned_out)
+class _PromotionPlan(NamedTuple):
+    raw_run: Path
+    cleaned_out: Path
+    manifest_path: Path
+    policy: quality_gate.MixPolicy
+
+
+def _require_raw_directory(value):
+    raw_run = Path(value)
     if not raw_run.is_dir():
-        print(f"error: not a directory: {raw_run}", file=sys.stderr)
-        sys.exit(2)
-    manifest_path = (
-        Path(args.quality_manifest)
-        if args.quality_manifest
-        else cleaned_out / "quality-manifest.json"
-    )
+        raise ValueError(f"not a directory: {raw_run}")
+    return raw_run
+
+
+def _quality_manifest_path(args, cleaned_out):
+    if args.quality_manifest:
+        return Path(args.quality_manifest)
+    return cleaned_out / "quality-manifest.json"
+
+
+def _validate_manifest_outside_raw(raw_run, manifest_path):
     resolved_raw = raw_run.resolve()
     resolved_manifest = manifest_path.resolve()
     if resolved_manifest == resolved_raw or resolved_raw in resolved_manifest.parents:
-        print("error: quality manifest must not be written inside raw_run", file=sys.stderr)
-        sys.exit(2)
-    policy = quality_gate.MixPolicy(
+        raise ValueError("quality manifest must not be written inside raw_run")
+
+
+def _mix_policy_from_args(args):
+    return quality_gate.MixPolicy(
         target=args.mix_target,
         tolerance=args.mix_tolerance,
         max_synthetic_ratio=args.max_synthetic_ratio,
         min_synthetic_ratio=args.min_synthetic_ratio,
         max_unlabeled_ratio=args.max_unlabeled_ratio,
     )
-    try:
-        quality_gate.validate_manifest_target(
-            manifest_path, cleaned_out, allow_within_run=True
-        )
-        policy.validate()
-        if not math.isfinite(args.threshold) or not 0.0 <= args.threshold < 1.0:
-            raise ValueError(
-                f"threshold must be a finite cosine in [0, 1), got {args.threshold!r}"
-            )
-        if args.max_embedding_pairs < 1:
-            raise ValueError(
-                "max_embedding_pairs must be >= 1, got "
-                f"{args.max_embedding_pairs!r}"
-            )
-        summary = promote_run(raw_run, cleaned_out)
-        report = quality_gate.audit_run(
-            cleaned_out,
-            threshold=args.threshold,
-            mix_policy=policy,
-            embedding_dedup=args.embedding_dedup,
-            max_embedding_pairs=args.max_embedding_pairs,
-        )
-        written = quality_gate.write_manifest(
-            manifest_path, cleaned_out, report, allow_within_run=True
-        )
-    except ValueError as exc:
-        print(f"error: {exc}", file=sys.stderr)
-        sys.exit(2)
-    summary["quality_gate"] = {
+
+
+def _validate_embedding_pair_cap(value):
+    if value < 1:
+        raise ValueError(f"max_embedding_pairs must be >= 1, got {value!r}")
+
+
+def _prepare_promotion(args):
+    raw_run = _require_raw_directory(args.raw_run)
+    cleaned_out = Path(args.cleaned_out)
+    manifest_path = _quality_manifest_path(args, cleaned_out)
+    _validate_manifest_outside_raw(raw_run, manifest_path)
+    quality_gate.validate_manifest_target(
+        manifest_path, cleaned_out, allow_within_run=True
+    )
+    policy = _mix_policy_from_args(args).validate()
+    validate_embedding_threshold(args.threshold)
+    _validate_embedding_pair_cap(args.max_embedding_pairs)
+    return _PromotionPlan(raw_run, cleaned_out, manifest_path, policy)
+
+
+def _promote_with_quality_gate(args, plan):
+    summary = promote_run(plan.raw_run, plan.cleaned_out)
+    report = quality_gate.audit_run(
+        plan.cleaned_out,
+        threshold=args.threshold,
+        mix_policy=plan.policy,
+        embedding_dedup=args.embedding_dedup,
+        max_embedding_pairs=args.max_embedding_pairs,
+    )
+    written = quality_gate.write_manifest(
+        plan.manifest_path, plan.cleaned_out, report, allow_within_run=True
+    )
+    return summary, report, written
+
+
+def _quality_gate_summary(report, written):
+    return {
         "blocked": report["blocked"],
         "blockers": report["blockers"],
         "warnings": report["warnings"],
@@ -571,12 +613,27 @@ def main(argv=None):
         "threshold": report["threshold"],
         "manifest": str(written),
     }
-    print(json.dumps(summary, indent=2))
+
+
+def _emit_gate_messages(report):
     for blocker in report["blockers"]:
         print(f"BLOCKED: {blocker}", file=sys.stderr)
     for warning in report["warnings"]:
         print(f"WARN: {warning}", file=sys.stderr)
-    sys.exit(1 if report["blocked"] else 0)
+
+
+def main(argv=None):
+    args = parse_args(argv)
+    try:
+        plan = _prepare_promotion(args)
+        summary, report, written = _promote_with_quality_gate(args, plan)
+    except ValueError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        raise SystemExit(2) from None
+    summary["quality_gate"] = _quality_gate_summary(report, written)
+    print(json.dumps(summary, indent=2))
+    _emit_gate_messages(report)
+    raise SystemExit(1 if report["blocked"] else 0)
 
 
 if __name__ == "__main__":

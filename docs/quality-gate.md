@@ -84,7 +84,7 @@ The gate does not reuse one lossy projection for three different jobs:
 This repository is stdlib-only (see ``AGENTS.md``), so the encoder is
 lexical, not learned:
 
-- **``EMBEDDING_ENCODER = "lexical-tfidf/6"``** — TF-IDF over Unicode word
+- **``EMBEDDING_ENCODER = "lexical-tfidf/7"``** — TF-IDF over Unicode word
   unigrams *and* bigrams of every **path-qualified leaf value** in the
   semantic-similarity view. A feature combines the full field path with the leaf
   word, so shared schema alone contributes nothing while the same value under
@@ -104,8 +104,12 @@ lexical, not learned:
   separator — ``a b c d`` and ``a c b d`` would embed identically.
 - Mapping keys are traversed in canonical sorted order before bigrams are
   formed. Equivalent JSON objects therefore embed identically regardless of
-  insertion order. List elements carry explicit positions; this distinguishes
-  repeated-token sequences that have the same unigram and bigram multisets.
+  insertion order. Every list carries directed adjacent-element digest
+  features, so reversing distinct elements cannot preserve the embedding by
+  sharing boundary words. Lists with repeated elements additionally carry
+  explicit positions because their adjacency multisets can still be
+  ambiguous. A leading insertion preserves the untouched adjacency edges
+  instead of renumbering every later semantic leaf.
 - Unicode tokenization preserves non-ASCII scripts instead of reducing two
   unrelated multilingual records to their shared ASCII metadata. Combining
   marks stay attached to their base grapheme, so Thai text is not fragmented
@@ -216,7 +220,8 @@ still harms diversity.
 
 ### Constants
 
-- Default lives in ``pipelines/quality_gate.py:DEFAULT_EMBEDDING_THRESHOLD``.
+- Default is exported by ``pipelines/quality_gate.py`` as
+  ``DEFAULT_EMBEDDING_THRESHOLD``.
   Downstream embedding stages should ``from quality_gate import
   DEFAULT_EMBEDDING_THRESHOLD`` rather than re-defining the value.
 - CLI override: ``--threshold <float>`` (e.g., ``--threshold 0.95``).
@@ -337,16 +342,16 @@ JSON output fields:
     {"file": "batch-r03.jsonl", "line": 8, "kind": "embedding", "similarity": 0.9889,
      "duplicate_of": {"file": "batch-r03.jsonl", "line": 7},
      "matched_with": {"file": "batch-r03.jsonl", "line": 7},
-     "reason": "embedding near-duplicate: cosine 0.9889 > 0.97 vs retained representative batch-r03.jsonl:7 (encoder lexical-tfidf/6)"}
+     "reason": "embedding near-duplicate: cosine 0.9889 > 0.97 vs retained representative batch-r03.jsonl:7 (encoder lexical-tfidf/7)"}
   ],
   "duplicate_clusters": [
-    {"kind": "embedding", "size": 2, "threshold": 0.97, "encoder": "lexical-tfidf/6",
+    {"kind": "embedding", "size": 2, "threshold": 0.97, "encoder": "lexical-tfidf/7",
      "max_similarity": 0.9889,
      "representative": {"file": "batch-r03.jsonl", "line": 7},
      "members": [{"file": "batch-r03.jsonl", "line": 7}, {"file": "batch-r03.jsonl", "line": 8}],
      "reason": "1 excluded record(s) linked by cosine > 0.97; representative batch-r03.jsonl:7 is retained"}
   ],
-  "embedding": {"enabled": true, "encoder": "lexical-tfidf/6",
+  "embedding": {"enabled": true, "encoder": "lexical-tfidf/7",
                 "candidate_sketch": "weighted-tier-minhash/1", "threshold": 0.97,
                 "compared_records": 1230, "candidate_pairs": 418, "truncated": false},
   "reward_shapes": {"records_with_reward_components": 1180, "unique_component_keys": 510,
