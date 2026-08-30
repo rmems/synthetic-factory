@@ -41,6 +41,19 @@ _needs_mirror = unittest.skipUnless(
 )
 
 
+def _load_mirror_records(mirror):
+    """Read every payload record in the mirror, tagged with its location."""
+    payloads = sorted(mirror.glob("*.jsonl"))
+    records = []
+    for payload in payloads:
+        with payload.open(encoding="utf-8") as handle:
+            for line_number, line in enumerate(handle, start=1):
+                if line.strip():
+                    location = f"{payload.name}:{line_number}"
+                    records.append((location, json.loads(line)))
+    return payloads, records
+
+
 # Minimal values copied from one published record in each payload family. These
 # fixtures ground the declaration tests in observed values instead of deriving
 # both the expected and actual types from the declaration under test.
@@ -305,15 +318,7 @@ class IncidentResponseOncallDeclarationTests(unittest.TestCase):
     def _mirror(cls):
         """Scan the published mirror once, then reuse it across these tests."""
         if getattr(cls, "_mirror_cache", None) is None:
-            payloads = sorted(INCIDENT_RESPONSE_MIRROR.glob("*.jsonl"))
-            records = []
-            for payload in payloads:
-                with payload.open(encoding="utf-8") as handle:
-                    for line_number, line in enumerate(handle, start=1):
-                        if line.strip():
-                            location = f"{payload.name}:{line_number}"
-                            records.append((location, json.loads(line)))
-            cls._mirror_cache = (payloads, records)
+            cls._mirror_cache = _load_mirror_records(INCIDENT_RESPONSE_MIRROR)
         return cls._mirror_cache
 
     @staticmethod
