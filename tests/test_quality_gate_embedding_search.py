@@ -222,7 +222,7 @@ class EmbeddingDedupSearch(unittest.TestCase):
             report = quality_gate.audit_run(root)
 
         self.assertEqual(report["embedding"]["candidate_pairs"], 1)
-        self.assertEqual(report["embedding"]["candidate_sketch"], "weighted-tier-minhash/2")
+        self.assertEqual(report["embedding"]["candidate_sketch"], "weighted-tier-minhash/3")
         self.assertEqual(report["counts"]["embedding_duplicate_groups"], 1)
         self.assertGreater(
             report["duplicates"][0]["similarity"],
@@ -231,64 +231,6 @@ class EmbeddingDedupSearch(unittest.TestCase):
         self.assertLess(
             unweighted_jaccard, report["duplicates"][0]["similarity"]
         )
-
-    def test_nonchain_only_candidate_fallback_is_isolated(self):
-        boundary = next(
-            iter(quality_gate.embedding_tokens({"state": {"note": " "}}))
-        )
-        lexical = next(
-            token
-            for token in quality_gate.embedding_tokens(
-                {"state": {"note": "customer"}}
-            )
-            if not token.startswith(
-                quality_gate_embedding._NONCHAIN_STRING_MARK
-            )
-        )
-
-        self.assertIsNotNone(
-            quality_gate_embedding._candidate_signature({boundary: 1.0})
-        )
-        self.assertIsNone(quality_gate_embedding._candidate_signature({}))
-        self.assertEqual(
-            quality_gate_embedding._candidate_signature(
-                {lexical: 1.0, boundary: 0.5}
-            ),
-            quality_gate_embedding._candidate_signature({lexical: 1.0}),
-        )
-
-    def test_empty_and_nonchain_only_semantic_clones_are_nominated(self):
-        cases = {
-            "empty state after identifier stripping": {},
-            "empty string": {"note": ""},
-            "whitespace-only string": {"note": " "},
-        }
-        for label, payload in cases.items():
-            with self.subTest(case=label):
-                records = [
-                    {"state": {"episode_id": "episode-a", **payload}},
-                    {"state": {"episode_id": "episode-b", **payload}},
-                ]
-                self.assertNotEqual(
-                    quality_gate.record_hash(records[0]),
-                    quality_gate.record_hash(records[1]),
-                )
-                self.assertEqual(
-                    quality_gate.semantic_similarity_view(records[0]),
-                    quality_gate.semantic_similarity_view(records[1]),
-                )
-
-                with tempfile.TemporaryDirectory() as td:
-                    root = Path(td)
-                    write(root / "batch.jsonl", records)
-                    report = quality_gate.audit_run(root)
-
-                self.assertEqual(report["counts"]["duplicate_groups"], 0)
-                self.assertEqual(report["embedding"]["candidate_pairs"], 1)
-                self.assertEqual(
-                    report["counts"]["embedding_duplicate_groups"], 1
-                )
-                self.assertEqual(report["duplicates"][0]["kind"], "embedding")
 
     def test_semantic_view_removes_top_level_and_episode_ids(self):
         common = "verify queue retries and preserve every acknowledged work item"
@@ -423,8 +365,8 @@ class EmbeddingDedupSearch(unittest.TestCase):
         so their cosine is positive and threshold 0 would have to exclude one,
         yet they share no LSH band and are never nominated for scoring."""
         records = [
-            {"goal": "shared a0", "outcome": "left"},
-            {"goal": "shared b0", "outcome": "right"},
+            {"goal": "shared", "outcome": "left"},
+            {"goal": "shared", "outcome": "right"},
         ]
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)

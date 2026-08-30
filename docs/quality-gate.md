@@ -71,15 +71,22 @@ The gate does not reuse one lossy projection for three different jobs:
    ``language_view``, ``bridge_notes``, ``raster`` (normalized from either
    the top-level or accepted ``meta.raster`` carrier), and ``gate_compute``
    spike-budget evidence (normalized from its top-level, trajectory, or
-   trajectory-safety carrier). Safety-calibration ``case_type`` /
+   trajectory-safety carrier). The same bridge-sidecar normalization composes
+   inside each preference arm. Conflicting or malformed unselected raster
+   carriers remain as ``raster_unselected``; when gate-compute curation falls
+   through a malformed higher-priority root value to a valid nested budget,
+   that root remains as ``gate_compute_unselected``. Records with different
+   ignored payloads therefore cannot exact-collapse. Safety-calibration
+   ``case_type`` /
    ``rationale`` / ``decision`` labels are also part of the identity, so
    records that differ only there are distinct training units.
 2. ``semantic_similarity_view`` removes canonical record identifiers such as
    ``id`` and ``episode_id``, plus root bookkeeping metadata, before lexical
    encoding. This includes both the bridge's ``language_view.trajectory``
-   carrier and its nested ``state`` without stripping identifier-shaped action
-   arguments. An id, promotion provenance claim, or round-stamp change cannot
-   hide an otherwise identical training example.
+   carrier and its nested ``state``, at the record root or inside either
+   preference arm, without stripping identifier-shaped action arguments. An
+   id, promotion provenance claim, or round-stamp change cannot hide an
+   otherwise identical training example.
 3. ``candidate_sketch_features`` turns normalized TF-IDF weights into
    deterministic tiers for LSH recall. The exact cosine vector remains the
    only near-duplicate verdict.
@@ -89,7 +96,7 @@ The gate does not reuse one lossy projection for three different jobs:
 This repository is stdlib-only (see ``AGENTS.md``), so the encoder is
 lexical, not learned:
 
-- **``EMBEDDING_ENCODER = "lexical-tfidf/11"``** — TF-IDF over Unicode word
+- **``EMBEDDING_ENCODER = "lexical-tfidf/12"``** — TF-IDF over Unicode word
   unigrams *and* bigrams of every **path-qualified leaf value** in the
   semantic-similarity view. A feature combines the full field path with the leaf
   word, so shared schema alone contributes nothing while the same value under
@@ -104,15 +111,20 @@ lexical, not learned:
 - Repeated word/operator units additionally carry one path-qualified full
   SHA-256 sequence feature. This distinguishes ambiguous adjacent-bigram
   multisets such as ``a+A+`` / ``A+a+`` and ``a-a/a`` / ``a/a-a`` without
-  adding each sequence marker to MinHash candidate nomination; shared lexical
-  evidence still nominates the pair, and the exact cosine remains the verdict.
-- **Whitespace is a boundary, not a token.** Each unit carries the exact
-  whitespace run that preceded it, so indentation and ``https://safe /admin``
-  versus ``https://safe/admin`` stay distinguishable. Terminal and whitespace-
-  only runs are retained in a separate path-qualified feature. Emitting
-  whitespace as an ordinary token instead would place it between every pair of
-  prose words, and the adjacent-token bigrams would then relate each word only
-  to a shared separator — ``a b c d`` and ``a c b d`` would embed identically.
+  perturbing the lexical-only MinHash signature. The independent combined
+  signature can use the sequence marker alongside shared lexical evidence,
+  and the exact cosine remains the verdict.
+- **Whitespace is exact boundary evidence, not an ordinary lexical token.**
+  Word, operator, and unsegmented-script features are gap-independent, so long
+  single- versus double-spaced formatting clones retain their strong lexical
+  overlap and reach candidate comparison. One bounded, path-qualified
+  ``str-gap-layout`` digest preserves the complete leading/internal gap layout;
+  terminal and whitespace-only runs retain their own exact path-qualified
+  features. Short semantic distinctions such as indentation and
+  ``https://safe /admin`` versus ``https://safe/admin`` therefore remain below
+  the default duplicate threshold. Keeping all boundary evidence outside the
+  ordinary word chain also avoids making a shared separator the neighbor of
+  every prose word — ``a b c d`` and ``a c b d`` must not embed identically.
 - Mapping keys are traversed in canonical sorted order before bigrams are
   formed. Equivalent JSON objects therefore embed identically regardless of
   insertion order. Every list carries directed adjacent-element full SHA-256
@@ -156,17 +168,22 @@ temperature-collapse signature, not a genuine paraphrase.
 
 All-pairs cosine is quadratic, so candidates come from a **frequency-aware,
 banded one-permutation MinHash sketch**
-(``EMBEDDING_CANDIDATE_SKETCH = "weighted-tier-minhash/2"``;
+(``EMBEDDING_CANDIDATE_SKETCH = "weighted-tier-minhash/3"``;
 ``EMBEDDING_MINHASH_SLOTS = 32`` slots read as
-``EMBEDDING_LSH_BANDS = 8`` bands of 4) and every candidate is then scored
-with an exact cosine. Normalized TF-IDF weights expand into deterministic
-tiers before one hash per sketch feature fills the sketch;
-empty slots are densified by rotation, so no per-token permutation table
-is ever held in memory. Exact boundary/whole-sequence features remain outside
-ordinary nomination so they cannot perturb lexical recall; when a vector has
-only that non-chain evidence (for example a whitespace-only semantic leaf),
-the sketch uses it as an isolated fallback so semantic clones still reach the
-exact cosine comparison. Consequences:
+``EMBEDDING_LSH_BANDS = 8`` bands of 4 for lexical-only evidence and
+``EMBEDDING_COMBINED_LSH_BANDS = 16`` bands of 2 for combined evidence) and
+every candidate is then scored with an exact cosine. Normalized TF-IDF weights
+expand into deterministic tiers before one hash per sketch feature fills the
+sketch; empty slots are densified by rotation, so no per-token permutation
+table is ever held in memory. Every vector retains an ordinary lexical-only
+signature. When exact boundary or whole-sequence evidence exists, a
+separately namespaced combined signature contains both lexical and non-chain tiers;
+boundary-only vectors use only that combined channel. The 16-by-2 layout gives
+additive lexical-plus-boundary overlap a recall path without perturbing the
+lexical signature or creating cross-channel/self pairs. Boundary-only,
+boundary-dominated, and additive semantic clones can therefore reach exact
+comparison without changing the cosine verdict.
+Consequences:
 
 - **Precision is exact.** Nothing is excluded without a real cosine above
   the threshold.
@@ -362,17 +379,17 @@ JSON output fields:
     {"file": "batch-r03.jsonl", "line": 8, "kind": "embedding", "similarity": 0.9889,
      "duplicate_of": {"file": "batch-r03.jsonl", "line": 7},
      "matched_with": {"file": "batch-r03.jsonl", "line": 7},
-     "reason": "embedding near-duplicate: cosine 0.9889 > 0.97 vs retained representative batch-r03.jsonl:7 (encoder lexical-tfidf/11)"}
+     "reason": "embedding near-duplicate: cosine 0.9889 > 0.97 vs retained representative batch-r03.jsonl:7 (encoder lexical-tfidf/12)"}
   ],
   "duplicate_clusters": [
-    {"kind": "embedding", "size": 2, "threshold": 0.97, "encoder": "lexical-tfidf/11",
+    {"kind": "embedding", "size": 2, "threshold": 0.97, "encoder": "lexical-tfidf/12",
      "max_similarity": 0.9889,
      "representative": {"file": "batch-r03.jsonl", "line": 7},
      "members": [{"file": "batch-r03.jsonl", "line": 7}, {"file": "batch-r03.jsonl", "line": 8}],
      "reason": "1 excluded record(s) linked by cosine > 0.97; representative batch-r03.jsonl:7 is retained"}
   ],
-  "embedding": {"enabled": true, "encoder": "lexical-tfidf/11",
-                "candidate_sketch": "weighted-tier-minhash/2", "threshold": 0.97,
+  "embedding": {"enabled": true, "encoder": "lexical-tfidf/12",
+                "candidate_sketch": "weighted-tier-minhash/3", "threshold": 0.97,
                 "compared_records": 1230, "candidate_pairs": 418, "truncated": false},
   "reward_shapes": {"records_with_reward_components": 1180, "unique_component_keys": 510,
                     "unique_shapes": 140, "top_component_keys": [], "top_shapes": []},

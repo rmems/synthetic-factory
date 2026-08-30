@@ -68,7 +68,12 @@ _CANONICAL_ID_KEYS = frozenset(
 )
 _SEMANTIC_ROOT_BOOKKEEPING_KEYS = frozenset({"id", "meta"})
 _SEMANTIC_CONTAINER_BOOKKEEPING_PARENTS = frozenset(
-    {(), ("language_view", "trajectory")}
+    {
+        (),
+        ("language_view", "trajectory"),
+        ("chosen", "language_view", "trajectory"),
+        ("rejected", "language_view", "trajectory"),
+    }
 )
 # Promotion rewrites ``sim_or_real`` and files the original wording under
 # ``provenance.claimed``, at the root or inside ``state``. That claim is
@@ -88,6 +93,10 @@ _SEMANTIC_BOOKKEEPING_PARENTS = frozenset(
         ("rejected",),
         ("chosen", "state"),
         ("rejected", "state"),
+        ("chosen", "language_view", "trajectory"),
+        ("rejected", "language_view", "trajectory"),
+        ("chosen", "language_view", "trajectory", "state"),
+        ("rejected", "language_view", "trajectory", "state"),
     }
 )
 
@@ -99,6 +108,8 @@ _PREFERENCE_WRAPPER_FIELDS = _IDENTITY_FIELDS + (
 
 _TRAJECTORY_GATE_COMPUTE = ("trajectory", "gate_compute")
 _SAFETY_GATE_COMPUTE = ("trajectory", "safety_decision", "gate_compute")
+_RASTER_ROOT = "root"
+_RASTER_META = "meta"
 
 
 def canonical_blob(value):
@@ -116,7 +127,9 @@ def _preference_identity_side(value):
     """
     if not isinstance(value, dict):
         return value
-    modeled = {key: value[key] for key in _IDENTITY_FIELDS if key in value}
+    modeled = _with_bridge_sidecars(
+        value, {key: value[key] for key in _IDENTITY_FIELDS if key in value}
+    )
     return modeled or value
 
 
@@ -140,13 +153,15 @@ def _bridge_raster_sidecar(obj):
     field so carrier placement alone does not change the training identity.
     """
     if "language_view" not in obj or "spike_events" not in obj:
-        return None
+        return None, None
+    top_level = obj.get("raster")
+    if isinstance(top_level, dict):
+        return top_level, _RASTER_ROOT
     meta = obj.get("meta")
     nested = meta.get("raster") if isinstance(meta, dict) else None
-    for candidate in (obj.get("raster"), nested):
-        if isinstance(candidate, dict):
-            return candidate
-    return None
+    if isinstance(nested, dict):
+        return nested, _RASTER_META
+    return None, None
 
 
 def _bridge_gate_compute_sidecar(obj):
@@ -229,22 +244,77 @@ def _copy_without_paths(value, paths):
     return copied
 
 
+def _unselected_root_gate_compute(obj, nested_carrier):
+    """Return an ignored malformed root carrier when curation fell through."""
+    if nested_carrier is None:
+        return None
+    if "gate_compute" not in obj:
+        return None
+    root_value = obj["gate_compute"]
+    if isinstance(root_value, dict):
+        return None
+    return {"root": root_value}
+
+
+def _same_canonical_dict(candidate, selected):
+    if not isinstance(candidate, dict):
+        return False
+    return canonical_blob(candidate) == canonical_blob(selected)
+
+
+def _unselected_raster_carriers(obj, selected, carrier):
+    """Return non-selected raster evidence that must remain in identity."""
+    if carrier == _RASTER_META:
+        if "raster" not in obj:
+            return None
+        return {_RASTER_ROOT: obj["raster"]}
+    if carrier != _RASTER_ROOT:
+        return None
+    meta = obj.get("meta")
+    if not isinstance(meta, dict):
+        return None
+    if "raster" not in meta:
+        return None
+    nested = meta["raster"]
+    if _same_canonical_dict(nested, selected):
+        return None
+    return {_RASTER_META: nested}
+
+
+def _with_bridge_raster(obj, modeled):
+    bridge_raster, raster_carrier = _bridge_raster_sidecar(obj)
+    if bridge_raster is None:
+        return modeled
+    unselected_raster = _unselected_raster_carriers(
+        obj, bridge_raster, raster_carrier
+    )
+    if unselected_raster is not None:
+        modeled["raster_unselected"] = unselected_raster
+    modeled["raster"] = bridge_raster
+    return modeled
+
+
+def _with_bridge_gate_compute(obj, modeled):
+    bridge_gate_compute, nested_carrier = _bridge_gate_compute_sidecar(obj)
+    if bridge_gate_compute is None:
+        return modeled
+    unselected_root = _unselected_root_gate_compute(obj, nested_carrier)
+    if unselected_root is not None:
+        modeled["gate_compute_unselected"] = unselected_root
+    modeled["gate_compute"] = bridge_gate_compute
+    removals = _nested_gate_compute_removals(
+        obj["language_view"], bridge_gate_compute, nested_carrier
+    )
+    if removals:
+        modeled["language_view"] = _copy_without_paths(
+            obj["language_view"], removals
+        )
+    return modeled
+
+
 def _with_bridge_sidecars(obj, modeled):
     """Normalize accepted bridge sidecars into the modeled identity fields."""
-    bridge_raster = _bridge_raster_sidecar(obj)
-    if bridge_raster is not None:
-        modeled["raster"] = bridge_raster
-    bridge_gate_compute, nested_carrier = _bridge_gate_compute_sidecar(obj)
-    if bridge_gate_compute is not None:
-        modeled["gate_compute"] = bridge_gate_compute
-        removals = _nested_gate_compute_removals(
-            obj["language_view"], bridge_gate_compute, nested_carrier
-        )
-        if removals:
-            modeled["language_view"] = _copy_without_paths(
-                obj["language_view"], removals
-            )
-    return modeled
+    return _with_bridge_gate_compute(obj, _with_bridge_raster(obj, modeled))
 
 
 def exact_identity_view(obj):

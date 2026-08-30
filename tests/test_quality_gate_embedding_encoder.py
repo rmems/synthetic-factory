@@ -11,6 +11,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "pipelines"))
 
 from gate_fixtures import write  # noqa: E402
 import quality_gate  # noqa: E402
+import quality_gate_embedding  # noqa: E402
 
 
 class EmbeddingEncoder(unittest.TestCase):
@@ -414,9 +415,48 @@ class EmbeddingEncoder(unittest.TestCase):
                     quality_gate.embedding_tokens(first),
                     quality_gate.embedding_tokens(second),
                 )
+                self.assertTrue(
+                    any(
+                        "str-gap-layout:" in token
+                        for token in quality_gate.embedding_tokens(first)
+                    )
+                )
 
                 report = self._audit_pair(first, second)
                 self.assertEqual(report["duplicates"], [])
+
+    def test_gap_independent_lexical_channel_recalls_spacing_clone(self):
+        words = [f"word{index:03d}" for index in range(100)]
+        first = {"state": {"note": " ".join(words)}}
+        second = {"state": {"note": "  ".join(words)}}
+        first_tokens = quality_gate.embedding_tokens(first)
+        second_tokens = quality_gate.embedding_tokens(second)
+
+        self.assertNotEqual(first_tokens, second_tokens)
+        self.assertEqual(
+            {
+                token: count
+                for token, count in first_tokens.items()
+                if not token.startswith(
+                    quality_gate_embedding._NONCHAIN_STRING_MARK
+                )
+            },
+            {
+                token: count
+                for token, count in second_tokens.items()
+                if not token.startswith(
+                    quality_gate_embedding._NONCHAIN_STRING_MARK
+                )
+            },
+        )
+
+        report = self._audit_pair(first, second)
+        self.assertEqual(report["embedding"]["candidate_pairs"], 1)
+        self.assertEqual(report["counts"]["embedding_duplicate_groups"], 1)
+        self.assertGreater(
+            report["duplicates"][0]["similarity"],
+            quality_gate.DEFAULT_EMBEDDING_THRESHOLD,
+        )
 
     def test_terminal_and_whitespace_only_gaps_remain_distinct(self):
         """The scanner must not discard a gap that has no following unit."""

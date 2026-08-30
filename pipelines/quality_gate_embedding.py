@@ -22,15 +22,16 @@ from quality_gate_identity import canonical_blob, semantic_similarity_view
 DEFAULT_EMBEDDING_THRESHOLD: float = 0.97
 """Default cosine-similarity threshold for embedding deduplication."""
 
-EMBEDDING_ENCODER = "lexical-tfidf/11"
+EMBEDDING_ENCODER = "lexical-tfidf/12"
 """Versioned identifier for the deterministic semantic encoder."""
 
 EMBEDDING_MINHASH_SLOTS = 32
 EMBEDDING_LSH_BANDS = 8
+EMBEDDING_COMBINED_LSH_BANDS = 16
 EMBEDDING_MIN_THRESHOLD: float = (1.0 / EMBEDDING_LSH_BANDS) ** (
     EMBEDDING_LSH_BANDS / EMBEDDING_MINHASH_SLOTS
 )
-EMBEDDING_CANDIDATE_SKETCH = "weighted-tier-minhash/2"
+EMBEDDING_CANDIDATE_SKETCH = "weighted-tier-minhash/3"
 EMBEDDING_SKETCH_LEVELS = 64
 DEFAULT_MAX_EMBEDDING_PAIRS = 2_000_000
 
@@ -180,10 +181,10 @@ def _string_units(text: str):
         yield "terminal-gap", "", state.pending_gap
 
 
-def _unsegmented_features(path: str, unit: str, gap: str) -> list[str]:
+def _unsegmented_features(path: str, unit: str) -> list[str]:
     """Return recall-friendly graphemes plus one order-sensitive whole unit."""
     features = [f"{path}{_PATH_SEP}str-char:{cluster}" for cluster in _graphemes(unit)]
-    features.append(f"{path}{_PATH_SEP}str-seq:{unit}{_GAP_SEP}{gap}")
+    features.append(f"{path}{_PATH_SEP}str-seq:{unit}")
     return features
 
 
@@ -194,13 +195,22 @@ def _string_unit_features(path: str, kind: str, unit: str, gap: str) -> list[str
             f"{_NONCHAIN_STRING_MARK}{path}{_PATH_SEP}str-terminal-gap:{gap}"
         ]
     if kind == "operator":
-        return [f"{path}{_PATH_SEP}str-op:{unit}{_GAP_SEP}{gap}"]
+        return [f"{path}{_PATH_SEP}str-op:{unit}"]
     if _uses_unsegmented_script(unit):
-        return _unsegmented_features(path, unit, gap)
+        return _unsegmented_features(path, unit)
     return [
-        f"{path}{_PATH_SEP}str-fold:{unit.casefold()}{_GAP_SEP}{gap}",
-        f"{path}{_PATH_SEP}str-case:{unit}{_GAP_SEP}{gap}",
+        f"{path}{_PATH_SEP}str-fold:{unit.casefold()}",
+        f"{path}{_PATH_SEP}str-case:{unit}",
     ]
+
+
+def _string_gap_features(path: str, units):
+    """Yield one bounded exact layout feature for leading/internal gaps."""
+    gaps = [gap for kind, _unit, gap in units if kind != "terminal-gap"]
+    if not any(gaps):
+        return
+    digest = hashlib.sha256(canonical_blob(gaps).encode("utf-8")).hexdigest()
+    yield f"{_NONCHAIN_STRING_MARK}{path}{_PATH_SEP}str-gap-layout:{digest}"
 
 
 def _features_repeat_across_string_units(path: str, units) -> bool:
@@ -256,6 +266,7 @@ def _append_string_features(text: str, out: list[str], path: str) -> None:
     units = list(_string_units(normalized))
     for kind, unit, gap in units:
         out.extend(_string_unit_features(path, kind, unit, gap))
+    out.extend(_string_gap_features(path, units))
     out.extend(_string_sequence_features(path, units))
     if not units:
         out.append(f"{path}{_PATH_SEP}str-whitespace")
@@ -429,35 +440,67 @@ def _minhash_signature(tokens):
     return _densify_minhash_bins(bins)
 
 
-def _candidate_signature(vector):
-    """Return the lexical signature, or an isolated non-chain fallback.
+def _candidate_signatures(vector):
+    """Yield channel-separated signatures that can nominate an accepted pair.
 
-    Boundary and whole-sequence evidence must not perturb ordinary lexical
-    nomination.  A vector made solely from that evidence still needs a
-    signature, however, or identifier-stripped semantic clones evade cosine
-    comparison entirely.
+    The lexical signature remains unchanged. When non-chain evidence exists,
+    an independent combined signature captures pairs whose accepted cosine is
+    distributed across lexical and exact-boundary channels. Boundary-only
+    vectors use only that combined channel.
     """
-    signature = _minhash_signature(candidate_sketch_features(vector))
-    if signature is not None:
-        return signature
-    return _minhash_signature(_nonchain_candidate_sketch_features(vector))
+    lexical = _minhash_signature(candidate_sketch_features(vector))
+    if lexical is not None:
+        yield "lexical", lexical
+    has_nonchain = any(
+        token.startswith(_NONCHAIN_STRING_MARK)
+        for token in vector
+    )
+    if has_nonchain:
+        combined = _minhash_signature(
+            itertools.chain(
+                candidate_sketch_features(vector),
+                _nonchain_candidate_sketch_features(vector),
+            )
+        )
+        if combined is not None:
+            yield "combined", combined
+
+
+def _candidate_signature(vector):
+    """Return the primary signature for compatibility with direct callers."""
+    return next((signature for _channel, signature in _candidate_signatures(vector)), None)
+
+
+def _signature_parts(entry):
+    """Normalize legacy and channel-qualified signature entries."""
+    if len(entry) == 2:
+        index, signature = entry
+        return index, "lexical", signature
+    return entry
 
 
 def _lsh_buckets(signatures):
     """Group record indices by equal MinHash bands."""
-    rows = EMBEDDING_MINHASH_SLOTS // EMBEDDING_LSH_BANDS
     buckets = defaultdict(list)
-    for index, signature in signatures:
-        for band in range(EMBEDDING_LSH_BANDS):
+    for entry in signatures:
+        index, channel, signature = _signature_parts(entry)
+        bands = (
+            EMBEDDING_COMBINED_LSH_BANDS
+            if channel == "combined"
+            else EMBEDDING_LSH_BANDS
+        )
+        rows = EMBEDDING_MINHASH_SLOTS // bands
+        for band in range(bands):
             start = band * rows
-            buckets[(band, signature[start: start + rows])].append(index)
+            buckets[(channel, band, signature[start: start + rows])].append(index)
     return buckets
 
 
 def _distinct_bucket_pairs(buckets):
     """Yield each pair nominated by one or more LSH buckets exactly once."""
     seen = set()
-    for members in buckets.values():
+    for key in sorted(buckets):
+        members = sorted(set(buckets[key]))
         for pair in itertools.combinations(members, 2):
             if pair not in seen:
                 seen.add(pair)
@@ -542,9 +585,10 @@ def _vectors_and_signatures(records, indices, idf):
         if vector is None:
             continue
         vectors[index] = vector
-        signature = _candidate_signature(vector)
-        if signature is not None:
-            signatures.append((index, signature))
+        signatures.extend(
+            (index, channel, signature)
+            for channel, signature in _candidate_signatures(vector)
+        )
     return vectors, signatures
 
 
