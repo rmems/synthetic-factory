@@ -1,0 +1,60 @@
+pipelines/round_txn_raster.py
+  s_98712805c1499b::t_6af233e34d4679 15
+  s_98712805c1499b::t_fcf51072885c64 16,55
+pipelines/curate_bridge_raster.py
+  s_98712805c1499b::t_f3dd95ca89e97a 11-12,43,47-51,53,62,106-107,119,121-122
+  s_98712805c1499b::t_65d1702ec5fa95 150-151,154-155,158-159
+  s_98712805c1499b::t_3c2706ba2f4bb9 149,153,157,161-168,230,248-249,252-257,267-269,274,300,462,466-467,469-471
+pipelines/curate_gate.py
+  s_98712805c1499b::t_5cee53ff166b8f 1268
+  s_98712805c1499b::t_cc9ba019b18663 108,339
+  s_98712805c1499b::t_621a42aaf00085 365-369,459-463,722-726,942-946,1352-1356,1365-1369,1539-1543,2470-2474
+tests/test_curate_bridge_integer_precision.py
+  s_98712805c1499b::t_3a5853595f188c 6,17-22,24-25,31,33,39,42,47,49,53,55,60,63,68,93-130
+tests/test_spike_probe.py
+  s_98712805c1499b::t_1f6b7ec9c200c8 34-35,178
+  s_98712805c1499b::t_b9276f176b9fcd 25
+pipelines/exact_json.py
+  s_98712805c1499b::t_e85f143dd5e4b1 93
+  s_98712805c1499b::t_65d1702ec5fa95 120-194
+  s_98712805c1499b::t_53ddf52e7666a3 1-92,94-119
+pipelines/check_records.py
+  s_98712805c1499b::t_fcf51072885c64 24,601
+tests/test_curate_bridge_materialization.py
+  s_98712805c1499b::t_41fa8fc6278ef0 48
+  s_98712805c1499b::t_3bb1b49fdd7d5a 11,133-163
+tests/test_exact_json.py
+  s_98712805c1499b::t_e2066f1da010ef 43-46
+  s_98712805c1499b::t_85497fe503d165 6,9,11,26,28,30,62-85
+  s_98712805c1499b::t_3a5853595f188c 1-5,7-8,10,12-25,27,29,31-42,47-61,86-89
+pipelines/curate_bridge.py
+  s_98712805c1499b::t_d76988735b086f 68-71,164,226,238-247,816,997
+pipelines/training_audit_mill.py
+  s_98712805c1499b::t_2635214d692053 9,33-37
+pipelines/curate_bridge_materialize.py
+  s_98712805c1499b::t_41fa8fc6278ef0 44,139,183
+pipelines/training_audit.py
+  s_98712805c1499b::t_fcf51072885c64 26-27,91,97,372
+pipelines/spike_probe.py
+  s_98712805c1499b::t_c3c54376653979 49-55,74,76,118-119,124-128,317,472
+tests/spike_probe_test_helpers.py
+  s_98712805c1499b::t_b9276f176b9fcd 1-17
+pipelines/curate_bridge_gate.py
+  s_98712805c1499b::t_ca6c4bd3444bd1 68,81-83,123,144,153,267-269
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "40e9f316aa971a102c2777d99824052b9981c371",
+  "prompts": {},
+  "sessions": {
+    "s_98712805c1499b": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a04a1f-1e33-7812-a5aa-c7b04b33b6b5",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Raul Montoya Cardenas <montoyaraul34@gmail.com>"
+    }
+  }
+}
