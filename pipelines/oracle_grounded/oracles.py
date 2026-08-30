@@ -18,6 +18,7 @@ command fails, times out, or answers off-protocol, the run raises
 """
 
 import json
+import math
 import os
 import re
 import select
@@ -67,6 +68,15 @@ class OracleError(RuntimeError):
 
 def _reject_json_constant(value):
     raise ValueError(f"non-finite JSON token {value}")
+
+
+def _parse_finite_json_float(text):
+    """parse_constant only sees the bare NaN/Infinity tokens; a numeric
+    literal that merely overflows to inf (1e400) must be refused here."""
+    parsed = float(text)
+    if not math.isfinite(parsed):
+        raise ValueError(f"JSON numeric literal is not finitely representable: {text}")
+    return parsed
 
 
 def _reject_duplicate_object_keys(pairs):
@@ -348,6 +358,7 @@ class ExternalCommandOracle(OracleAdapter):
                 stdout,
                 object_pairs_hook=_reject_duplicate_object_keys,
                 parse_constant=_reject_json_constant,
+                parse_float=_parse_finite_json_float,
             )
             response = canon.normalize(response)
         except (json.JSONDecodeError, RecursionError, TypeError, ValueError) as exc:

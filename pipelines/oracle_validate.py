@@ -22,6 +22,7 @@ import argparse
 import hashlib
 import io
 import json
+import math
 import os
 import re
 import stat
@@ -83,11 +84,21 @@ def _reject_constant(value):
     raise ValueError(f"non-finite JSON token {value!r}")
 
 
+def _parse_finite_float(text):
+    """parse_constant only sees the bare NaN/Infinity tokens; a numeric
+    literal that merely overflows to inf (1e400) must be refused here."""
+    parsed = float(text)
+    if not math.isfinite(parsed):
+        raise ValueError(f"JSON numeric literal is not finitely representable: {text}")
+    return parsed
+
+
 def strict_json_loads(text):
     value = json.loads(
         text,
         object_pairs_hook=_object_from_pairs,
         parse_constant=_reject_constant,
+        parse_float=_parse_finite_float,
     )
     return value
 
@@ -931,6 +942,9 @@ def _record_availability_errors(parsed, oracle, context):
     """Runtime availability probes must stay identical across the run."""
     availability = oracle.get("availability")
     if not isinstance(availability, dict):
+        # The record envelope already rejects this shape; report rather than
+        # skip so this cross-check never silently passes a malformed block.
+        context.report(f"{parsed.where} has malformed runtime availability")
         return
     record_probes = availability.get("runtimes")
     if not isinstance(record_probes, list):
@@ -938,6 +952,7 @@ def _record_availability_errors(parsed, oracle, context):
         record_probes = []
     for probe in record_probes:
         if not (isinstance(probe, dict) and isinstance(probe.get("runtime"), str)):
+            context.report(f"{parsed.where} has malformed runtime availability")
             continue
         try:
             normalized = canon.normalize(probe)
@@ -1043,11 +1058,12 @@ def _expected_runtime_set(actual_families):
 def _availability_probe_errors(probes, context):
     """Each declared probe must match the one captured in the records."""
     for probe in probes:
-        if not isinstance(probe, dict):
+        if not isinstance(probe, dict) or not isinstance(probe.get("runtime"), str):
+            # The sibling runtime-name check already rejects these shapes;
+            # report rather than skip so a malformed probe can never pass.
+            context.report("availability declares a malformed runtime probe")
             continue
-        runtime = probe.get("runtime")
-        if not isinstance(runtime, str):
-            continue
+        runtime = probe["runtime"]
         expected_probe = context.probe_values.get(runtime)
         if (
             expected_probe is None

@@ -339,6 +339,85 @@ class RunTreeGuardTest(unittest.TestCase):
         self.assert_authentication_reports(run, "sha256 mismatch")
 
 
+class StrictParsingTest(unittest.TestCase):
+    """The JSON boundary refuses what canonical JSON cannot represent."""
+
+    def test_overflowing_numeric_literals_are_rejected_at_parse_time(self):
+        # parse_constant only sees the bare NaN/Infinity tokens; a literal
+        # that merely overflows float conversion (1e400) must be refused by
+        # the parser itself, not depend on a later non-finite walk.
+        for payload in ('{"x": 1e400}', '{"x": -1e400}', '[1e309]'):
+            with self.subTest(payload=payload):
+                with self.assertRaises(ValueError):
+                    oracle_validate.strict_json_loads(payload)
+
+    def test_non_finite_tokens_are_still_rejected(self):
+        for payload in ('{"x": NaN}', '{"x": Infinity}', '{"x": -Infinity}'):
+            with self.subTest(payload=payload):
+                with self.assertRaises(ValueError):
+                    oracle_validate.strict_json_loads(payload)
+
+    def test_finite_floats_still_parse_exactly(self):
+        self.assertEqual(
+            oracle_validate.strict_json_loads('{"x": 1.5, "y": -0.25}'),
+            {"x": 1.5, "y": -0.25},
+        )
+
+
+class _FakeMetadataContext:
+    """Collects reports for the availability cross-check unit tests."""
+
+    def __init__(self):
+        self.errors = []
+        self.probe_values = {}
+
+    def report(self, message):
+        self.errors.append(message)
+
+
+class AvailabilityShapeTest(unittest.TestCase):
+    """Malformed availability shapes report findings instead of skipping.
+
+    The record envelope and the manifest runtime-name check already reject
+    these shapes upstream; these branches must still fail closed on their
+    own rather than silently passing a malformed block.
+    """
+
+    def test_a_non_object_availability_block_is_reported(self):
+        context = _FakeMetadataContext()
+        parsed = mock.Mock(where="records.jsonl:1")
+        oracle_validate._record_availability_errors(
+            parsed, {"availability": "not-an-object"}, context
+        )
+        self.assertTrue(
+            any("malformed runtime availability" in e for e in context.errors),
+            context.errors,
+        )
+
+    def test_a_malformed_record_probe_is_reported(self):
+        context = _FakeMetadataContext()
+        parsed = mock.Mock(where="records.jsonl:1")
+        oracle_validate._record_availability_errors(
+            parsed,
+            {"availability": {"runtimes": ["not-a-probe", {"runtime": 7}]}},
+            context,
+        )
+        self.assertEqual(
+            [e for e in context.errors if "malformed runtime availability" in e],
+            ["records.jsonl:1 has malformed runtime availability"] * 2,
+        )
+
+    def test_a_malformed_manifest_probe_is_reported(self):
+        context = _FakeMetadataContext()
+        oracle_validate._availability_probe_errors(
+            ["not-a-probe", {"runtime": None}], context
+        )
+        self.assertEqual(
+            context.errors,
+            ["availability declares a malformed runtime probe"] * 2,
+        )
+
+
 class MainExitCodeTest(unittest.TestCase):
     """main() maps validation outcomes onto CLI exit codes."""
 

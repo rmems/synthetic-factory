@@ -24,10 +24,21 @@ def _reject_constant(value):
     raise ValueError(f"non-finite JSON number {value!r}")
 
 
+def _parse_finite_float(text):
+    """parse_constant only sees the bare NaN/Infinity tokens; a numeric
+    literal that merely overflows to inf (1e400) must be refused here."""
+    parsed = float(text)
+    if not math.isfinite(parsed):
+        raise ValueError(f"JSON numeric literal is not finitely representable: {text}")
+    return parsed
+
+
 @lru_cache(maxsize=None)
 def _load_schema(path):
     with Path(path).open(encoding="utf-8") as handle:
-        return json.load(handle, parse_constant=_reject_constant)
+        return json.load(
+            handle, parse_constant=_reject_constant, parse_float=_parse_finite_float
+        )
 
 
 def _json_equal(left, right):
@@ -112,7 +123,9 @@ def _display_type(value):
     if isinstance(value, int):
         return "integer"
     if isinstance(value, float):
-        return "number"
+        # A non-finite float fails the "number" type check, so displaying it
+        # as plain "number" would produce a self-contradictory finding.
+        return "number" if math.isfinite(value) else "non-finite number"
     if isinstance(value, str):
         return "string"
     if isinstance(value, list):
