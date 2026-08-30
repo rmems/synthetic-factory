@@ -73,7 +73,7 @@ class CorrelatedArmsAreBlocked(unittest.TestCase):
     def test_timestamp_only_spike_edit_cannot_establish_independence(self):
         record = copy.deepcopy(first(TWO_SESSION_ROUND))
         record["chosen"] = copy.deepcopy(record["rejected"])
-        record["chosen"]["spike_events"][0]["t"] += 0.01
+        record["chosen"]["spike_events"][0]["t_rel_ms"] += 0.01
 
         decision = check(record)
 
@@ -144,7 +144,11 @@ class CorrelatedArmsAreBlocked(unittest.TestCase):
                 record["chosen"] = copy.deepcopy(record["rejected"])
                 record["chosen"]["spike_events"].insert(
                     insertion,
-                    {"t": 0.25, "unit": "inserted_only", "amplitude": 0.5},
+                    {
+                        "t_rel_ms": 0.25,
+                        "unit": "inserted_only",
+                        "amplitude": 0.5,
+                    },
                 )
 
                 decision = check(record)
@@ -197,7 +201,11 @@ class CorrelatedArmsAreBlocked(unittest.TestCase):
         record = copy.deepcopy(first(TWO_SESSION_ROUND))
         record["chosen"] = copy.deepcopy(record["rejected"])
         events = [
-            {"t": index / 1000, "unit": f"event_{index}", "amplitude": 0.5}
+            {
+                "t_rel_ms": index / 1000,
+                "unit": f"event_{index}",
+                "amplitude": 0.5,
+            }
             for index in range(preference_arms.MAX_ALIGNMENT_LIST_ITEMS + 1)
         ]
         record["chosen"]["spike_events"] = copy.deepcopy(events)

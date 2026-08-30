@@ -481,5 +481,3 @@ class GateRepairPath(unittest.TestCase):
         self.assertEqual(first.action, ctp.ACTION_REPAIRED)
         self.assertEqual(second.action, ctp.ACTION_RETAINED)
         self.assertEqual(first.record, second.record)
-
-

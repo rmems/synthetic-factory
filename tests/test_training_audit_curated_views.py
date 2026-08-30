@@ -1,5 +1,11 @@
 #!/usr/bin/env python3
-"""Training-audit coverage for curated hidden-reasoning removal."""
+"""`training_audit --strict` as the gate that keeps published CoT out.
+
+A curated training view may not carry the historical thought/reflection
+vocabulary, the coding-factory 'reasoning' key, or the
+'internal_reasoning*' family Thalamic wrap records publish on
+proposed_action — before or after pipelines/curate_coding.py has run.
+"""
 
 import contextlib
 import io
@@ -9,9 +15,14 @@ import tempfile
 import unittest
 from pathlib import Path
 
-TESTS = Path(__file__).resolve().parent
-sys.path.insert(0, str(TESTS))
-from test_training_audit import curate_coding, thalamic, training_audit, write
+_TESTS = Path(__file__).resolve().parent
+if str(_TESTS) not in sys.path:
+    sys.path.insert(0, str(_TESTS))
+
+from training_audit_test_helpers import thalamic, write  # noqa: E402
+
+import curate_coding  # noqa: E402
+import training_audit  # noqa: E402
 
 
 def coding_wrap(record_id):
@@ -246,3 +257,5 @@ class CuratedViewHasNoHiddenReasoning(unittest.TestCase):
         self.assertTrue(report["training_ready"])
 
 
+if __name__ == "__main__":
+    unittest.main()

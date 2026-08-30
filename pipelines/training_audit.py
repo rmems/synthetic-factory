@@ -48,8 +48,8 @@ from validate_run import (  # noqa: E402
     HIDDEN_THOUGHT_KEYS,
     _episode_like,
     check_episode,
-    event_time,
 )
+from training_audit_bridge import event_stream_status as _event_stream_status  # noqa: E402
 from training_audit_mill import index_mill_quarantine  # noqa: E402
 from training_audit_report import build_blockers  # noqa: E402
 
@@ -58,6 +58,11 @@ from training_audit_report import build_blockers  # noqa: E402
 # ``reasoning``, nor the ``internal_reasoning*`` family that Thalamic wrap
 # records publish on ``proposed_action``.
 CURATED_FORBIDDEN_REASONING_KEYS = HIDDEN_THOUGHT_KEYS | HIDDEN_REASONING_KEYS
+
+
+def event_stream_status(events, enclosing=None):
+    """Compatibility facade for the extracted bridge audit classifier."""
+    return _event_stream_status(events, enclosing)
 
 
 def percentile(values, fraction):
@@ -125,21 +130,6 @@ def reward_shape(value):
             subtype = type(item).__name__
         shape.append(f"{key}:{subtype}")
     return "|".join(shape)
-
-
-def event_stream_status(events):
-    """Classify presence, event validity, and global temporal order."""
-    if not isinstance(events, list) or not events:
-        return "missing"
-    times = []
-    for event in events:
-        got = event_time(event)
-        if got is None:
-            return "invalid"
-        times.append(got[1])
-    if all(current >= previous for previous, current in zip(times, times[1:])):
-        return "sorted"
-    return "unsorted"
 
 
 def preference_context_purity(obj, chosen, rejected):
@@ -507,7 +497,7 @@ def audit_run(run_dir: Path):
                 if isinstance(events, list):
                     bridge["events"] += len(events)
                     bridge["pairs_48_plus"] += int(len(events) >= 48)
-                status = event_stream_status(events)
+                status = event_stream_status(events, obj)
                 bridge[f"{status}_pairs"] += 1
             if kind == "episode":
                 episodes["episodes"] += 1

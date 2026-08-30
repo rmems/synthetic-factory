@@ -261,4 +261,3 @@ class PreferenceRoundHarness(unittest.TestCase):
         self.assertTrue((factory / "ROUND-r01.reserved.json").is_file())
         self.assertTrue(publishing.is_file())
         self.assertFalse(complete.exists())
-

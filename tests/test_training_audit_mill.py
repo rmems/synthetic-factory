@@ -9,8 +9,12 @@ import unittest
 from pathlib import Path
 
 TESTS = Path(__file__).resolve().parent
-sys.path.insert(0, str(TESTS))
-from test_training_audit import REPO, thalamic, training_audit, write
+if str(TESTS) not in sys.path:
+    sys.path.insert(0, str(TESTS))
+
+from training_audit_test_helpers import REPO, thalamic, write  # noqa: E402
+
+import training_audit  # noqa: E402
 
 
 class LeftoverMillDenominator(unittest.TestCase):
@@ -181,5 +185,3 @@ class LeftoverMillDenominator(unittest.TestCase):
         self.assertEqual(report["mill_mix"]["quarantined_records"], [])
         markdown = training_audit.render_markdown(report)
         self.assertIn("Eligible after foreign-mill quarantine", markdown)
-
-

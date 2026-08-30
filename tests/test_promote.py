@@ -231,12 +231,109 @@ class TestPromoteRecord(unittest.TestCase):
     def test_already_sorted_spikes_not_flagged(self):
         rec = _thalamic()
         rec["spike_events"] = [
-            {"channel": "a", "t_rel_ms": 1.0},
+            {"channel": "a", "t_ms": 1.0},
             {"channel": "b", "t_ms": 2.0},
         ]
         out = promote.promote_record(rec)
         self.assertNotIn("spike_events_resorted", out.get("meta", {}))
         self.assertEqual([e.get("t_rel_ms") or e.get("t_ms") for e in out["spike_events"]], [1.0, 2.0])
+
+    def test_mixed_timestamp_keys_are_not_resorted_as_one_clock(self):
+        rec = _thalamic()
+        rec["spike_events"] = [
+            {"channel": "a", "t_rel_ms": 120.0},
+            {"channel": "b", "t_ms": 90.0},
+        ]
+        out = promote.promote_record(rec)
+        self.assertEqual(
+            [event.get("t_rel_ms") or event.get("t_ms") for event in out["spike_events"]],
+            [120.0, 90.0],
+        )
+        self.assertNotIn("spike_events_resorted", out.get("meta", {}))
+
+    def test_events_declaring_two_clocks_are_not_resorted(self):
+        """One timestamp key is not one timeline. Sorting an inversion between
+        incomparable clocks fabricates an ordering the hardened validator
+        explicitly refuses to assert, and promote_run() writes the cleaned copy
+        without validating it (Codex #87)."""
+        rec = _thalamic()
+        rec["spike_events"] = [
+            {"channel": "a", "t_rel_ms": 2, "clock_id": "a"},
+            {"channel": "b", "t_rel_ms": 1, "clock_id": "b"},
+        ]
+        out = promote.promote_record(rec)
+        self.assertEqual([event["t_rel_ms"] for event in out["spike_events"]], [2, 1])
+        self.assertNotIn("spike_events_resorted", out.get("meta", {}))
+
+    def test_a_clock_declared_on_the_record_blocks_an_event_clock_resort(self):
+        rec = _thalamic()
+        rec["clock_id"] = "record-clock"
+        rec["spike_events"] = [
+            {"channel": "a", "t_rel_ms": 2, "source_clock": "event-clock"},
+            {"channel": "b", "t_rel_ms": 1, "source_clock": "event-clock"},
+        ]
+        out = promote.promote_record(rec)
+        self.assertEqual([event["t_rel_ms"] for event in out["spike_events"]], [2, 1])
+        self.assertNotIn("spike_events_resorted", out.get("meta", {}))
+
+    def test_one_declared_clock_domain_is_still_resorted(self):
+        """The guard blocks incomparable streams, not annotated ones: events
+        that agree on their clock remain a single sortable timeline."""
+        rec = _thalamic()
+        rec["spike_events"] = [
+            {"channel": "a", "t_rel_ms": 2, "clock_id": "same"},
+            {"channel": "b", "t_rel_ms": 1, "clock_id": "same"},
+        ]
+        out = promote.promote_record(rec)
+        self.assertEqual([event["t_rel_ms"] for event in out["spike_events"]], [1, 2])
+        self.assertTrue(out["meta"]["spike_events_resorted"])
+
+    def test_aliased_clock_fields_naming_one_domain_are_still_resorted(self):
+        rec = _thalamic()
+        rec["spike_events"] = [
+            {"channel": "a", "t_rel_ms": 2, "clock_id": "same"},
+            {"channel": "b", "t_rel_ms": 1, "timebase": "same"},
+        ]
+        out = promote.promote_record(rec)
+        self.assertEqual([event["t_rel_ms"] for event in out["spike_events"]], [1, 2])
+        self.assertTrue(out["meta"]["spike_events_resorted"])
+
+    def test_large_integer_timestamp_order_is_resorted_without_precision_loss(self):
+        rec = _thalamic()
+        rec["spike_events"] = [
+            {"channel": "a", "t_rel_ms": 9007199254740993},
+            {"channel": "b", "t_rel_ms": 9007199254740992},
+        ]
+        out = promote.promote_record(rec)
+        self.assertEqual(
+            [event["t_rel_ms"] for event in out["spike_events"]],
+            [9007199254740992, 9007199254740993],
+        )
+        self.assertTrue(out["meta"]["spike_events_resorted"])
+
+    def test_dual_key_event_is_not_moved_to_the_end_of_an_inverted_stream(self):
+        rec = _thalamic()
+        rec["spike_events"] = [
+            {"channel": "a", "t_rel_ms": 10.0, "t_ms": 99.0},
+            {"channel": "b", "t_rel_ms": 5.0},
+            {"channel": "c", "t_rel_ms": 1.0},
+        ]
+        original = json.loads(json.dumps(rec["spike_events"]))
+        out = promote.promote_record(rec)
+        self.assertEqual(out["spike_events"], original)
+        self.assertNotIn("spike_events_resorted", out.get("meta", {}))
+
+    def test_non_object_event_blocks_resort_of_an_inverted_stream(self):
+        rec = _thalamic()
+        rec["spike_events"] = [
+            "not-an-event",
+            {"channel": "b", "t_rel_ms": 5.0},
+            {"channel": "c", "t_rel_ms": 1.0},
+        ]
+        original = json.loads(json.dumps(rec["spike_events"]))
+        out = promote.promote_record(rec)
+        self.assertEqual(out["spike_events"], original)
+        self.assertNotIn("spike_events_resorted", out.get("meta", {}))
 
 
 class TestPromoteRun(unittest.TestCase):

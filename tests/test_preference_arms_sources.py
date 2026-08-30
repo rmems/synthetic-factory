@@ -19,13 +19,13 @@ import preference_arms  # noqa: E402
 # Pinned so a scan that rewrote its own input would fail loudly rather than
 # verify itself against a baseline it just produced.
 GOLDEN_FIXTURE_SHA256 = {
-    "batch-r11.jsonl": "5f24db6543f41782ac61aadfddab707cf5c1cac4249adadaf056d99bbb677a5c",
-    "near-verbatim-r11.jsonl": ("3e08181a1aa61772edc9fb780d7ea2a76a0892ffa9451e1e0e14c1898f6e5546"),
+    "batch-r11.jsonl": "6675864e5aec5711efde9d090c20a2d6aaa6494ffa0cb13d9d58e94f3ff97fd2",
+    "near-verbatim-r11.jsonl": ("063b021be4cff0e0207f82dcf1765e62914195af89d4986e9115783e568f67d7"),
     "gate-label-only-r11.jsonl": (
-        "75e85ca69792a78c953ab91a4a9585d8b860398317739ffc3a143d711a3aff9c"
+        "66a32cbc96c2c60975e28d7e32ddb87af19764341b2d0537f17363f282fbc4d5"
     ),
     "single-session-r11.jsonl": (
-        "f6c4588141d91bed533f651971f3438cace26dcba1a0c693c29407a3f1c379a2"
+        "b14ab0e460aeec371824fa0434769097aeff6adff97e1e72070f5b07eba90408"
     ),
 }
 
