@@ -1,0 +1,41 @@
+pipelines/hardware_parity.py
+  s_f3ffb7db87dca1::t_db0b00d415020b 1105-1110,1114,1121,1132,1138,1140,1145-1147,1174-1194
+  s_f3ffb7db87dca1::t_af4a28f56ce3b1 496-497,501,511,520-531,535
+  s_f3ffb7db87dca1::t_1ca8875a5a142b 2358-2367,2369,2371-2383,2395,2397-2442,2444-2452,2454-2461,2463-2465,2467-2470,2472-2478,2481-2483,2523
+  s_f3ffb7db87dca1::t_718d4c57859ac2 1198-1199,1224-1230
+  s_f3ffb7db87dca1::t_5cd04afc88c10c 1476-1477,1481,1499-1500,1502-1505,1510-1526,1528-1531,1533,1536-1554,1557,1559,1561-1564,1566,1569-1573,1584,1587-1594,1598-1612
+  s_f3ffb7db87dca1::t_e947335ca409d0 1955-1957
+  s_f3ffb7db87dca1::t_e52c37bbf76d61 2257-2261,2263-2280,2285,2292,2297-2298,2324-2329
+  s_f3ffb7db87dca1::t_c3ef9f597d374a 2533-2580
+  s_f3ffb7db87dca1::t_b051eadd320e72 1999-2007,2009-2010,2012-2016,2029,2034-2040,2076-2094
+  s_f3ffb7db87dca1::t_6f2219231ad840 1595-1597
+  s_f3ffb7db87dca1::t_9c6cf466cbc726 2731-2736,2738-2758,2761-2789,2799-2809
+  s_f3ffb7db87dca1::t_369003c9bce105 1873-1924
+  s_f3ffb7db87dca1::t_d4835545552530 831,836-854,860
+.claude/skills/run-synthetic-factory/driver.py
+  s_f3ffb7db87dca1::t_630661f50f73c4 831-839
+  s_f3ffb7db87dca1::t_c5303cedd642fb 791-796,798
+pipelines/neuro_oracle.py
+  s_f3ffb7db87dca1::t_e4fb8228c5ccdc 886-887
+  s_f3ffb7db87dca1::t_8a91aedd5415e0 719-720,745-749,757-762,777-781,800,805,875-885
+  s_f3ffb7db87dca1::t_b40539b51da97b 806-808,838-842,874
+pipelines/nir_equivalence.py
+  s_f3ffb7db87dca1::t_3609a953773dd5 2429-2440,2443-2471,2481-2491
+  s_f3ffb7db87dca1::t_d2beff6b723017 2212-2216,2224-2225
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "8a973cd8a5267e08dc00b3a0f08331de00d98aca",
+  "prompts": {},
+  "sessions": {
+    "s_f3ffb7db87dca1": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "510a01e2-1e9d-4f64-a445-6971413485be",
+        "model": "claude-fable-5"
+      },
+      "human_author": "Raul Montoya Cardenas <montoyaraul34@gmail.com>"
+    }
+  }
+}
