@@ -24,6 +24,42 @@ INFRA_AS_CODE_MIRROR = (
     Path.home() / "rmems" / "hf" / "grok-4.6" / INFRA_AS_CODE / "data" / "raw"
 )
 
+_SCAN: dict = {}
+
+_needs_mirror = unittest.skipUnless(
+    INFRA_AS_CODE_MIRROR.is_dir(),
+    "read-only published mirror is not available",
+)
+
+
+def _scan_mirror():
+    """Read every published shard once and memoize it for the whole module."""
+    if "scan" in _SCAN:
+        return _SCAN["scan"]
+    payloads = sorted(INFRA_AS_CODE_MIRROR.glob("batch-*.jsonl"))
+    per_shard = []
+    for payload in payloads:
+        with payload.open(encoding="utf-8") as handle:
+            per_shard.append(
+                (payload.name, [json.loads(line) for line in handle if line.strip()])
+            )
+    records = [record for _name, rows in per_shard for record in rows]
+    _SCAN["scan"] = (per_shard, records)
+    return _SCAN["scan"]
+
+
+def _reward_census(records):
+    """Per-key record counts plus the value type census of `reward.handoff`."""
+    reward_counts: dict = {}
+    handoff_types: dict = {}
+    for record in records:
+        for key, value in record["reward"].items():
+            reward_counts[key] = reward_counts.get(key, 0) + 1
+            if key == "handoff":
+                kind = type(value).__name__
+                handoff_types[kind] = handoff_types.get(kind, 0) + 1
+    return reward_counts, handoff_types
+
 
 class InfraAsCodeDeclarationTests(unittest.TestCase):
     """Issue #67: thin `meta` vs the `plant` / `kind` rounds kills the cast."""
@@ -96,30 +132,26 @@ class InfraAsCodeDeclarationTests(unittest.TestCase):
         for singleton in ("wrong_cluster_apply", "replicas", "targets_healthy"):
             self.assertIn(singleton, reward["note"])
 
-    @unittest.skipUnless(
-        INFRA_AS_CODE_MIRROR.is_dir(),
-        "read-only published mirror is not available",
-    )
-    def test_published_mirror_reconciles_the_post_r1416_growth(self):
-        """Re-derive the declared censuses from the mirror at the r2604 frontier.
+    # -- Re-derived from the payload, not from the declaration -------------
+    #
+    # Rounds 1417-2604 were published on 2026-08-26, after the issue #67
+    # census was derived at the r1416 frontier. The three mirror-backed tests
+    # below re-derive the declared totals from the payload, so a declaration
+    # still carrying the r1416-frontier counts fails, and they pin the claim
+    # that the growth widened nothing: no new reward key, no new tool, no new
+    # arg key, and no `reflection` outside rounds 1-1416.
 
-        Rounds 1417-2604 were published on 2026-08-26, after the issue #67
-        census was derived at the r1416 frontier. This reconciliation fails on
-        any declaration still carrying the r1416-frontier totals and pins the
-        claim that the growth widened nothing: no new reward key, no new tool,
-        no new arg key, and no `reflection` outside rounds 1-1416.
-        """
-        payloads = sorted(INFRA_AS_CODE_MIRROR.glob("batch-*.jsonl"))
-        self.assertEqual(len(payloads), 2604)
-        records = []
-        for payload in payloads:
-            with payload.open(encoding="utf-8") as handle:
-                rows = [json.loads(line) for line in handle if line.strip()]
-            self.assertEqual(len(rows), 2, payload.name)
-            records.extend(rows)
+    @_needs_mirror
+    def test_published_mirror_layout_matches_the_r2604_release(self):
+        per_shard, records = _scan_mirror()
+        self.assertEqual(len(per_shard), 2604)
+        self.assertEqual({len(rows) for _name, rows in per_shard}, {2})
         self.assertEqual(len(records), 5208)
         self.assertEqual(len({record["id"] for record in records}), 5208)
 
+    @_needs_mirror
+    def test_published_mirror_reconciles_the_reflection_and_meta_growth(self):
+        _per_shard, records = _scan_mirror()
         steps = [step for record in records for step in record["steps"]]
         self.assertEqual(len(steps), 87554)
         reflections = [
@@ -130,7 +162,6 @@ class InfraAsCodeDeclarationTests(unittest.TestCase):
         ]
         self.assertEqual(len(reflections), 17436)
         self.assertLessEqual(max(reflections), 1416)
-
         thin = sum(
             1
             for record in records
@@ -142,29 +173,29 @@ class InfraAsCodeDeclarationTests(unittest.TestCase):
         self.assertEqual(thin, 4190)
         self.assertEqual(len(wide_rounds), 1018)
         self.assertEqual((wide_rounds[0], wide_rounds[-1]), (78, 586))
-
-        handoff_types = {}
-        reward_counts = {}
-        for record in records:
-            for key, value in record["reward"].items():
-                reward_counts[key] = reward_counts.get(key, 0) + 1
-                if key == "handoff":
-                    kind = type(value).__name__
-                    handoff_types[kind] = handoff_types.get(kind, 0) + 1
-        self.assertEqual(reward_counts["tests_passed"], 5180)
-        self.assertEqual(reward_counts["handoff"], 2606)
-        self.assertEqual(reward_counts["tests_failed"], 2576)
-        self.assertEqual(handoff_types, {"int": 2593, "str": 13})
-
         names = {feature["name"]: feature for feature in self.declaration["features"]}
         self.assertIn(f"on all {len(records)} records", names["meta"]["note"])
-        self.assertIn(f"`handoff` on {reward_counts['handoff']}", names["reward"]["note"])
         reflection = next(
             feature
             for feature in names["steps"]["list"]
             if feature["name"] == "reflection"
         )
         self.assertIn(f"{len(reflections)} of {len(steps)}", reflection["note"])
+
+    @_needs_mirror
+    def test_published_mirror_reconciles_the_reward_census(self):
+        _per_shard, records = _scan_mirror()
+        reward_counts, handoff_types = _reward_census(records)
+        self.assertEqual(reward_counts["tests_passed"], 5180)
+        self.assertEqual(reward_counts["handoff"], 2606)
+        self.assertEqual(reward_counts["tests_failed"], 2576)
+        self.assertEqual(handoff_types, {"int": 2593, "str": 13})
+        reward = next(
+            feature
+            for feature in self.declaration["features"]
+            if feature["name"] == "reward"
+        )
+        self.assertIn(f"`handoff` on {reward_counts['handoff']}", reward["note"])
 
     def test_card_front_matter_declares_the_default_config_over_raw_batches(self):
         front_matter = self.card.split("---", 2)[1]
