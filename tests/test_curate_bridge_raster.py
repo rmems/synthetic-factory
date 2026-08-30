@@ -84,6 +84,7 @@ class RasterAndGateSnnCuration(unittest.TestCase):
     def test_integral_json_number_timestamp_matches_schema_integer_semantics(self):
         record = gate_snn_fixture()
         record["raster"]["excerpt"][0]["t_us"] = 800.0
+        record["raster"]["excerpt"][0]["neuron_id"] = 7.0
 
         self.assertTrue(curate_bridge.raster_status(record)["raster_valid"])
 
@@ -92,6 +93,35 @@ class RasterAndGateSnnCuration(unittest.TestCase):
         status = curate_bridge.raster_status(record)
         self.assertFalse(status["raster_valid"])
         self.assertIn(curate_bridge.REASON_RASTER_EXCERPT, status["reason_codes"])
+
+    def test_every_schema_integer_budget_field_accepts_integral_json_numbers(self):
+        record = gate_snn_fixture()
+        record["raster"]["neurons"] = json.loads("2.56e2")
+        record["raster"]["spikes"] = 123.0
+        for population in record["gate_snn"]["populations"]:
+            population["neurons"] = float(population["neurons"])
+            population["spikes"] = float(population["spikes"])
+        record["gate_compute"] = {
+            "per_check": [
+                {
+                    "neurons": 2.0,
+                    "mean_rate_hz": 10.0,
+                    "window_s": 0.05,
+                    "spikes": 1.0,
+                }
+            ],
+            "total_energy_pJ": 23,
+        }
+
+        status = curate_bridge.raster_status(record)
+
+        self.assertTrue(status["raster_valid"], status["reason_codes"])
+        self.assertEqual(status["spikes"], 123)
+        self.assertIsInstance(status["spikes"], int)
+        self.assertEqual(status["evidence"]["gate_snn_total_neurons"], 128)
+        self.assertIsInstance(status["evidence"]["gate_snn_total_neurons"], int)
+        self.assertEqual(status["evidence"]["gate_compute_total_spikes"], 1)
+        self.assertIsInstance(status["evidence"]["gate_compute_total_spikes"], int)
 
     def test_millisecond_only_raster_event_is_not_a_canonical_excerpt(self):
         record = gate_snn_fixture()
@@ -298,6 +328,40 @@ class RasterAndGateSnnCuration(unittest.TestCase):
                 )
                 evidence = result.manifest["evidence"]["raster"]
                 self.assertFalse(evidence["gate_snn_decision_valid"])
+
+    def test_bridge_gate_decision_ignores_a_conflicting_top_level_carrier(self):
+        record = gate_snn_fixture()
+        record["safety_decision"] = {"decision": "REJECT"}
+
+        status = curate_bridge.raster_status(record)
+
+        self.assertTrue(curate_bridge.is_bridge_record(record))
+        self.assertFalse(curate_bridge.is_thalamic_record(record))
+        self.assertTrue(status["raster_valid"], status["reason_codes"])
+        self.assertEqual(status["evidence"]["gate_snn_expected_decision"], "ACCEPT")
+
+    def test_thalamic_gate_decision_ignores_a_conflicting_nested_carrier(self):
+        record = gate_snn_fixture()
+        record.pop("spike_events")
+        record["language_view"] = {"trajectory": {"safety_decision": {"decision": "ACCEPT"}}}
+        record.update(
+            {
+                "state": {"sim_or_real": "designed"},
+                "proposed_action": {"action": "noop"},
+                "safety_decision": {"decision": "REJECT"},
+                "executed_action": {"action": "noop"},
+                "future_outcome": {"success": True},
+                "reward_components": {"total": 1.0},
+            }
+        )
+        record["gate_snn"]["decision"] = "REJECT"
+
+        status = curate_bridge.raster_status(record)
+
+        self.assertTrue(curate_bridge.is_thalamic_record(record))
+        self.assertFalse(curate_bridge.is_bridge_record(record))
+        self.assertTrue(status["raster_valid"], status["reason_codes"])
+        self.assertEqual(status["evidence"]["gate_snn_expected_decision"], "REJECT")
 
     def test_gate_snn_is_found_under_every_supported_carrier(self):
         spec = gate_snn_fixture()["gate_snn"]

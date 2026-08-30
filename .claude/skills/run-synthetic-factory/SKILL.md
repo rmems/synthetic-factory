@@ -48,7 +48,9 @@ arithmetic, IDs, provenance, preference context purity, duplicates, reward/tag
 entropy, record lengths, neuromorphic ordering/density, and SNN distillation
 readiness. Every raster-gated record in the NELB, Thalamic trajectory (TTF), and
 Ouroboros swarm lanes needs a 20-50 ms excerpt of source `(neuron_id, t_us)`
-events with integer-microsecond `t_us`, a non-empty routing table, and the
+events with integer-microsecond `t_us`, a non-empty routing table, third-factor
+routing with a named modulator, non-empty eligibility rule, and positive
+`tau_e_s` (or `tau_e_ms`), and the
 `spikes = round(neurons * rate * window_s)` budget; every raster-gated round
 also needs at least one spike-implemented `gate_snn` head. A nonzero audit is a
 real training blocker; report it rather than relabeling the corpus as clean.

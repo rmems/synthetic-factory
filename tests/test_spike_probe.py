@@ -67,6 +67,19 @@ class NormalizeRaster(unittest.TestCase):
             {"t_us": 800, "neuron_id": 7},
         )
 
+    def test_integral_population_and_spike_numbers_are_normalized_to_integers(self):
+        record = gate_snn_record()
+        record["raster"]["neurons"] = 256.0
+        record["raster"]["spikes"] = 123.0
+
+        raster = spike_probe.normalize_raster(record)
+
+        self.assertIsNotNone(raster)
+        self.assertEqual((raster["neurons"], raster["spikes"]), (256, 123))
+        self.assertIsInstance(raster["neurons"], int)
+        self.assertIsInstance(raster["spikes"], int)
+        self.assertEqual(raster["energy_pJ"], 123 * 23)
+
     def test_declared_channel_is_preserved_or_rejected_by_type(self):
         self.assertEqual(
             spike_probe._normalized_event({"t_us": 800, "neuron_id": 7, "channel": ""}),
@@ -175,16 +188,36 @@ class LoadRasters(unittest.TestCase):
         self.assertEqual(len(rasters), 1)
         self.assertEqual(rasters[0]["spikes"], 123)
 
-    def test_non_bridge_records_are_ignored(self):
+    def test_unrelated_records_outside_raster_factories_are_ignored(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
             write(
-                root / "thalamic-trajectory-factory" / "batch-r01.jsonl",
-                [{"id": "t-1", "state": {"sim_or_real": "designed"}}],
+                root / "unrelated-factory" / "batch-r01.jsonl",
+                [
+                    {"id": "view-only", "language_view": {"trajectory": {}}},
+                    {"id": "events-only", "spike_events": []},
+                ],
             )
             rasters, problems = spike_probe.load_rasters([root])
 
         self.assertEqual((rasters, problems), ([], []))
+
+    def test_malformed_record_in_known_raster_factory_is_reported(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            record = gate_snn_record()
+            record["spike_events"] = "not-an-event-stream"
+            write(
+                root / "neuromorphic-event-language-bridge" / "batch-r01.jsonl",
+                [record],
+            )
+            rasters, problems = spike_probe.load_rasters([root])
+
+        self.assertEqual(rasters, [])
+        self.assertEqual(len(problems), 1)
+        self.assertEqual(problems[0]["scope"], "bridge_record")
+        self.assertEqual(problems[0]["record_id"], "bridge-gate-snn-fixture-001")
+        self.assertEqual(problems[0]["reason_codes"], ["BRIDGE_RECORD_SHAPE_INVALID"])
 
     def test_unparsable_lines_are_reported_without_crashing_the_probe(self):
         with tempfile.TemporaryDirectory() as td:
@@ -361,6 +394,24 @@ class ProbeCli(unittest.TestCase):
 
         self.assertEqual(lenient, 0)
         self.assertEqual(strict, 1)
+
+    def test_strict_mode_fails_on_a_malformed_bridge_near_match(self):
+        with tempfile.TemporaryDirectory() as td:
+            path = Path(td) / "candidate.jsonl"
+            record = gate_snn_record()
+            record["spike_events"] = "not-an-event-stream"
+            write(path, [record])
+            stdout = io.StringIO()
+            with redirect_stdout(stdout):
+                code = spike_probe.main(["--strict", str(path)])
+
+        report = json.loads(stdout.getvalue())
+        self.assertEqual(code, 1)
+        self.assertEqual((report["loaded"], report["unloadable"]), (0, 1))
+        self.assertEqual(
+            report["problems"][0]["reason_codes"],
+            ["BRIDGE_RECORD_SHAPE_INVALID"],
+        )
 
     def test_strict_mode_fails_on_missing_and_invalid_inputs(self):
         with tempfile.TemporaryDirectory() as td:

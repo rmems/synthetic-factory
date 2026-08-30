@@ -89,26 +89,13 @@ def _positive_number(value: Any) -> bool:
     return _is_finite_number(value) and float(value) > 0
 
 
-def _positive_int(value: Any) -> bool:
-    return isinstance(value, int) and not isinstance(value, bool) and value > 0
-
-
-def _nonnegative_int(value: Any) -> bool:
-    return (
-        isinstance(value, int)
-        and not isinstance(value, bool)
-        and value >= 0
-        and _finite_float(value) is not None
-    )
-
-
 def _nonnegative_json_integer(value: Any) -> int | None:
     """Return the integer value represented by one JSON number.
 
     JSON Schema treats finite integral-valued numbers such as ``800.0`` and
     ``8e2`` as integers.  Python's JSON decoder represents those spellings as
-    ``float``, so excerpt validation must normalize them explicitly to stay in
-    lockstep with the published schema.
+    ``float``, so every schema-integer raster and gate field must normalize
+    them explicitly to stay in lockstep with the published schema.
     """
 
     if isinstance(value, bool):
@@ -123,6 +110,15 @@ def _nonnegative_json_integer(value: Any) -> int | None:
         return None
     integer = int(value)
     return integer if integer >= 0 else None
+
+
+def _positive_int(value: Any) -> bool:
+    integer = _nonnegative_json_integer(value)
+    return integer is not None and integer > 0
+
+
+def _nonnegative_int(value: Any) -> bool:
+    return _nonnegative_json_integer(value) is not None
 
 
 def _nonblank_text(value: Any) -> bool:
@@ -244,13 +240,18 @@ def _raster_spike_budget(
     reason_codes: list[str],
     evidence: dict[str, Any],
 ) -> tuple[Any, Any, bool]:
-    neurons = raster.get("neurons")
+    neurons = _nonnegative_json_integer(raster.get("neurons"))
     rate = raster.get("mean_rate_hz")
-    spikes = raster.get("spikes")
+    spikes = _nonnegative_json_integer(raster.get("spikes"))
     fields = (
-        ("raster_neurons", "raster_neurons_valid", neurons, _positive_int(neurons)),
+        (
+            "raster_neurons",
+            "raster_neurons_valid",
+            neurons,
+            neurons is not None and neurons > 0,
+        ),
         ("raster_rate_hz", "raster_rate_valid", _finite_float(rate), _positive_number(rate)),
-        ("raster_spikes", "raster_spikes_valid", spikes, _nonnegative_int(spikes)),
+        ("raster_spikes", "raster_spikes_valid", spikes, spikes is not None),
     )
     for value_key, valid_key, value, valid in fields:
         evidence[valid_key] = valid
@@ -439,9 +440,10 @@ def _neuron_within_population(neuron_id: Any, neurons: Any) -> bool:
     normalized_neuron = _nonnegative_json_integer(neuron_id)
     if normalized_neuron is None:
         return False
-    if not _positive_int(neurons):
+    population_size = _nonnegative_json_integer(neurons)
+    if population_size is None or population_size <= 0:
         return True
-    return normalized_neuron < neurons
+    return normalized_neuron < population_size
 
 
 def _valid_excerpt_item(item: Any, window_ms: float | None, neurons: Any) -> bool:

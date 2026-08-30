@@ -24,6 +24,9 @@ except ModuleNotFoundError:
 
 import curate_gate  # noqa: E402
 import curate_bridge_materialize  # noqa: E402
+import check_records  # noqa: E402
+import training_audit  # noqa: E402
+from census import visible_jsonl_paths  # noqa: E402
 
 
 def raster_sidecars():
@@ -85,9 +88,7 @@ class BridgeMaterialization(unittest.TestCase):
             self.assertEqual(exit_code, 0)
             self.assertEqual(json.loads(stdout.getvalue())["records"], 3)
             manifest_path = output / curate_bridge.MANIFEST_NAME
-            entries = [
-                json.loads(line) for line in manifest_path.read_text(encoding="utf-8").splitlines()
-            ]
+            entries = json.loads(manifest_path.read_text(encoding="utf-8"))
             self.assertEqual(
                 [entry["action"] for entry in entries],
                 ["retain", "repair", "quarantine"],
@@ -102,7 +103,7 @@ class BridgeMaterialization(unittest.TestCase):
                 "version": curate_bridge.TRANSFORM_VERSION,
                 "outputs_dir": output,
                 "manifest_path": manifest_path,
-                "manifest_format": "jsonl",
+                "manifest_format": "json",
                 "artifacts": [],
             }
             prepared = curate_gate._prepare_lane(
@@ -194,12 +195,12 @@ class BridgeMaterialization(unittest.TestCase):
                     source_root=source_root,
                     output_dir=source_root / "nested-out",
                 )
-            with self.assertRaisesRegex(curate_bridge.BridgeCurationError, "end in .jsonl"):
+            with self.assertRaisesRegex(curate_bridge.BridgeCurationError, "end in .json"):
                 curate_bridge.materialize_paths(
                     sources,
                     source_root=source_root,
                     output_dir=temporary / "out-manifest",
-                    manifest_name="manifest.json",
+                    manifest_name="manifest.jsonl",
                 )
             outside = temporary / "outside.jsonl"
             outside.write_text("{}\n", encoding="utf-8")
@@ -212,22 +213,26 @@ class BridgeMaterialization(unittest.TestCase):
             with self.assertRaisesRegex(curate_bridge.BridgeCurationError, "safe relative path"):
                 curate_bridge._safe_relative_path("../escape.jsonl", label="manifest_name")
 
-    def test_staged_manifest_uses_only_literal_lf_record_boundaries(self):
+    def test_staged_manifest_is_one_strict_json_document(self):
         context = SimpleNamespace(reject_json_constant=curate_bridge._reject_json_constant)
         with tempfile.TemporaryDirectory() as td:
-            path = Path(td) / "manifest.jsonl"
-            path.write_bytes('{"text":"left\u2028middle\u2029right"}\r\n'.encode("utf-8"))
+            path = Path(td) / "manifest.json"
+            path.write_bytes('[{"text":"left\u2028middle\u2029right"}]\r\n'.encode("utf-8"))
             self.assertEqual(
                 curate_bridge_materialize._read_manifest(path, context),
                 [{"text": "left\u2028middle\u2029right"}],
             )
 
-            path.write_bytes(b'{"first":1}\r{"second":2}\n')
+            path.write_bytes(b'[{"first":1}\r{"second":2}]\n')
             with self.assertRaisesRegex(curate_bridge.BridgeCurationError, "invalid staged"):
                 curate_bridge_materialize._read_manifest(path, context)
 
-            path.write_bytes(b'{"value":NaN}\n')
+            path.write_bytes(b'[{"value":NaN}]\n')
             with self.assertRaisesRegex(curate_bridge.BridgeCurationError, "non-standard"):
+                curate_bridge_materialize._read_manifest(path, context)
+
+            path.write_bytes(b'{"value":1}\n')
+            with self.assertRaisesRegex(curate_bridge.BridgeCurationError, "expected a JSON array"):
                 curate_bridge_materialize._read_manifest(path, context)
 
     def test_materialization_quarantines_nonfinite_and_nonscalar_json(self):
@@ -254,11 +259,50 @@ class BridgeMaterialization(unittest.TestCase):
                 output_dir=output,
             )
 
-            manifest = (output / curate_bridge.MANIFEST_NAME).read_text(encoding="utf-8")
+            manifest = json.loads(
+                (output / curate_bridge.MANIFEST_NAME).read_text(encoding="utf-8")
+            )
 
         self.assertEqual([decision.action for decision in decisions], ["quarantine"] * 2)
         self.assertTrue(all(decision.output_record is None for decision in decisions))
-        self.assertEqual(len(manifest.splitlines()), 2)
+        self.assertEqual(len(manifest), 2)
+
+    def test_materialized_manifest_is_not_consumed_as_training_data(self):
+        with tempfile.TemporaryDirectory() as td:
+            temporary = Path(td)
+            source_root = temporary / "source"
+            source = self._write_source(
+                source_root,
+                "bridge/batch-r01.jsonl",
+                [gate_snn_fixture()],
+            )
+            output = temporary / "lane-bridge"
+
+            decisions = curate_bridge.materialize_paths(
+                [source],
+                source_root=source_root,
+                output_dir=output,
+            )
+            manifest_path = output / curate_bridge.MANIFEST_NAME
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            visible = [path.relative_to(output).as_posix() for path in visible_jsonl_paths(output)]
+            structural = check_records.check_run(output, strict=True)
+            readiness = training_audit.audit_run(output)
+
+        self.assertEqual([decision.action for decision in decisions], ["retain"])
+        self.assertEqual(len(manifest), 1)
+        self.assertEqual(visible, ["bridge/batch-r01.jsonl"])
+        self.assertEqual(structural["totals"]["files"], 1)
+        self.assertEqual(structural["totals"]["records"], 1)
+        self.assertEqual(structural["exit_code"], 0)
+        self.assertEqual(readiness["totals"]["files"], 1)
+        self.assertEqual(readiness["totals"]["records"], 1)
+        self.assertFalse(
+            any(
+                curate_bridge.MANIFEST_NAME in example
+                for example in readiness["record_invariants"]["error_examples"]
+            )
+        )
 
     def test_atomic_publication_fails_explicitly_off_linux_and_windows(self):
         source = Path("unused-source")

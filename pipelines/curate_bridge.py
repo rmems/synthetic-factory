@@ -6,7 +6,7 @@ and compose the returned decisions with the other curation lanes, use the CLI
 to print a summary, manifest, or complete decision bundle to stdout, or pass
 ``--out-dir`` to materialize one new gate-compatible lane tree.  Materialized
 trees preserve source-relative JSONL paths, include every disposition in
-``BRIDGE-MANIFEST.jsonl``, and are published atomically without clobbering an
+``BRIDGE-MANIFEST.json``, and are published atomically without clobbering an
 existing destination.  Because that tree is gate-compatible, materialization
 requires a raster sidecar per record; the pure decision API stays lenient
 unless a caller passes ``require_raster=True``.
@@ -61,6 +61,7 @@ from curate_bridge_materialize import (
 from curate_bridge_raster import (
     _finite_float as _raster_finite_float,
     _is_finite_number,
+    _nonnegative_json_integer,
     _validate_raster,
     _validate_third_factor as _raster_validate_third_factor,
 )
@@ -80,7 +81,7 @@ TRANSFORM_VERSION = "1.0.0"
 HASH_ALGORITHM = "sha256"
 SOURCE_HASH_SCOPE = "jsonl_record_bytes_without_line_terminator"
 OUTPUT_HASH_SCOPE = "canonical_json_utf8_without_line_terminator"
-MANIFEST_NAME = "BRIDGE-MANIFEST.jsonl"
+MANIFEST_NAME = "BRIDGE-MANIFEST.json"
 
 REASON_RETAINED = "BRIDGE_EVENTS_ALREADY_GLOBALLY_ORDERED"
 REASON_REPAIRED = "BRIDGE_EVENTS_STABLE_SORTED_SINGLE_GLOBAL_CLOCK"
@@ -222,15 +223,15 @@ def is_thalamic_record(record: Any) -> bool:
 def _expected_gate_decision(record: dict[str, Any]) -> str | None:
     """Return the structured safety decision a gate-SNN head must reproduce."""
 
-    view = record.get("language_view")
-    trajectory = view.get("trajectory") if isinstance(view, dict) else None
-    nested = trajectory.get("safety_decision") if isinstance(trajectory, dict) else None
-    top = record.get("safety_decision")
-    for safety in (nested, top):
-        decision = safety.get("decision") if isinstance(safety, dict) else None
-        if isinstance(decision, str) and decision.strip():
-            return decision
-    return None
+    safety: Any = None
+    if is_thalamic_record(record):
+        safety = record.get("safety_decision")
+    elif is_bridge_record(record):
+        view = record.get("language_view")
+        trajectory = view.get("trajectory") if isinstance(view, dict) else None
+        safety = trajectory.get("safety_decision") if isinstance(trajectory, dict) else None
+    decision = safety.get("decision") if isinstance(safety, dict) else None
+    return decision if isinstance(decision, str) and decision.strip() else None
 
 
 def _declared(container: Any, key: str) -> tuple[bool, Any]:
@@ -474,9 +475,7 @@ def raster_status(
         require_routing_table=require_routing_table,
     )
     location, raster = raster_sidecar(record)
-    spikes = raster.get("spikes") if isinstance(raster, dict) else None
-    if not isinstance(spikes, int) or isinstance(spikes, bool):
-        spikes = None
+    spikes = _nonnegative_json_integer(raster.get("spikes")) if isinstance(raster, dict) else None
     present = bool(evidence.get("raster_present"))
     return {
         "bridge_record": is_bridge_record(record),
@@ -802,6 +801,20 @@ def _parse_finite_json_float(text: str) -> float:
     return value
 
 
+def _parse_source_record(text: str) -> Any:
+    """Parse one source record and verify its canonical UTF-8 representation."""
+
+    record = json.loads(
+        text,
+        parse_constant=_reject_json_constant,
+        parse_float=_parse_finite_json_float,
+    )
+    # Parsing can produce lone-surrogate strings from escaped input.  Curated
+    # output is canonical UTF-8, so reject values that cannot enter it.
+    canonical_json_bytes(record)
+    return record
+
+
 def _source_failure_decision(
     *,
     source_path: str,
@@ -873,15 +886,7 @@ def curate_jsonl(
             )
             continue
         try:
-            record = json.loads(
-                text,
-                parse_constant=_reject_json_constant,
-                parse_float=_parse_finite_json_float,
-            )
-            # Parsing can produce lone-surrogate strings from escaped input.
-            # Curated output is canonical UTF-8, so reject values that cannot
-            # enter that representation before curation or materialization.
-            canonical_json_bytes(record)
+            record = _parse_source_record(text)
         except (json.JSONDecodeError, ValueError) as exc:
             decisions.append(
                 _source_failure_decision(

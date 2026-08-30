@@ -132,16 +132,15 @@ def _rename_noreplace(source: Path, destination: Path) -> None:
 
 def _read_manifest(path: Path, context: MaterializationContext) -> list[Any]:
     try:
-        return [
-            json.loads(
-                line.decode("utf-8"),
-                parse_constant=context.reject_json_constant,
-            )
-            for line in path.read_bytes().split(b"\n")
-            if line.strip()
-        ]
+        document = json.loads(
+            path.read_bytes().decode("utf-8"),
+            parse_constant=context.reject_json_constant,
+        )
     except (OSError, UnicodeError, json.JSONDecodeError, ValueError) as exc:
         raise BridgeCurationError(f"invalid staged Bridge manifest: {exc}") from exc
+    if not isinstance(document, list):
+        raise BridgeCurationError("invalid staged Bridge manifest: expected a JSON array")
+    return document
 
 
 def _expected_outputs(decisions: Sequence[Any]) -> dict[str, list[str]]:
@@ -314,7 +313,7 @@ def _write_materialized_tree(
     _write_outputs(staged, _records_by_path(decisions), context)
     manifest_path = staged / manifest_relative
     manifest_path.parent.mkdir(parents=True, exist_ok=True)
-    payload = b"".join(context.canonical_json_line(item.manifest) for item in decisions)
+    payload = context.canonical_json_bytes([item.manifest for item in decisions]) + b"\n"
     _write_exclusive(manifest_path, payload)
 
 
@@ -339,8 +338,8 @@ def _publish_materialized_tree(
 
 def _manifest_path(name: str) -> Path:
     relative = _safe_relative_path(name, label="manifest_name")
-    if relative.suffix != ".jsonl":
-        raise BridgeCurationError("manifest_name must end in .jsonl")
+    if relative.suffix != ".json":
+        raise BridgeCurationError("manifest_name must end in .json")
     return relative
 
 

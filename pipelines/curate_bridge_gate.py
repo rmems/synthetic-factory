@@ -18,6 +18,7 @@ from curate_bridge_raster import (
     _is_finite_number,
     _nonblank_text,
     _nonnegative_int,
+    _nonnegative_json_integer,
     _positive_aliases,
     _positive_int,
     _raster_energy_field,
@@ -104,8 +105,8 @@ def _gate_population_neurons(population: Any) -> int | None:
         return None
     if not _nonblank_text(population.get("name")):
         return None
-    neurons = population.get("neurons")
-    if not _positive_int(neurons):
+    neurons = _nonnegative_json_integer(population.get("neurons"))
+    if neurons is None or neurons <= 0:
         return None
     if not _is_finite_number(population.get("threshold")):
         return None
@@ -272,13 +273,12 @@ def _invalid_gate_check(index: int, reason_codes: list[str], evidence: dict[str,
 
 
 def _total_gate_spikes(checks: list[Any]) -> int:
-    return sum(
-        check.get("spikes", 0)
+    normalized = (
+        _nonnegative_json_integer(check.get("spikes"))
         for check in checks
         if isinstance(check, dict)
-        and isinstance(check.get("spikes"), int)
-        and not isinstance(check.get("spikes"), bool)
     )
+    return sum(spikes for spikes in normalized if spikes is not None)
 
 
 def _validate_gate_checks(

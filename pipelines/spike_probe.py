@@ -38,12 +38,14 @@ from curate_bridge import (  # noqa: E402
     RASTER_ENERGY_PJ_PER_SPIKE,
     REASON_INVALID_JSON,
     REASON_INVALID_UTF8,
+    REASON_NOT_BRIDGE,
     gate_snn_sidecar,
     is_bridge_record,
     is_thalamic_record,
     raster_sidecar,
     raster_status,
 )
+from round_txn_raster import RASTER_FACTORY_SLUGS  # noqa: E402
 from validate_run import reject_json_constant  # noqa: E402
 
 # Rasters are declared in milliseconds; probes want integer microseconds so a
@@ -146,23 +148,20 @@ def normalize_raster(record: Any, *, source: str | None = None) -> dict[str, Any
         return None
     _location, raster = raster_sidecar(record)
     _gate_location, gate_snn = gate_snn_sidecar(record)
-    spikes = raster.get("spikes")
+    neurons = _json_integer(raster.get("neurons"))
+    spikes = _json_integer(raster.get("spikes"))
     normalized: dict[str, Any] = {
         "record_id": _record_id(record),
         "source": source,
         "window_us": _window_us(raster),
-        "neurons": raster.get("neurons"),
+        "neurons": neurons,
         "mean_rate_hz": raster.get("mean_rate_hz"),
         "spikes": spikes,
         # Exact integer picojoules.  Converting the spike count to a float
         # first overflows to ``inf`` for an extreme but schema-valid raster,
         # and ``--jsonl`` would then emit the non-standard ``Infinity`` token
         # that this module's own reader (reject_json_constant) refuses.
-        "energy_pJ": (
-            spikes * RASTER_ENERGY_PJ_PER_SPIKE
-            if isinstance(spikes, int) and not isinstance(spikes, bool)
-            else None
-        ),
+        "energy_pJ": spikes * RASTER_ENERGY_PJ_PER_SPIKE if spikes is not None else None,
         "routing": _routing(raster),
         "gate_snn": gate_snn if isinstance(gate_snn, dict) else None,
         "events": _events_us(raster),
@@ -205,6 +204,23 @@ def _expanded_jsonl_targets(targets: Iterable[str | Path]) -> Iterator[Path]:
     for target in targets:
         path = Path(target)
         yield from sorted(path.rglob("*.jsonl")) if path.is_dir() else (path,)
+
+
+def _is_raster_factory_path(path: Path) -> bool:
+    """Return whether a JSONL path is enclosed by a raster-gated factory."""
+
+    supplied_parts = path.parts
+    resolved_parts = path.resolve(strict=False).parts
+    return any(part in RASTER_FACTORY_SLUGS for part in (*supplied_parts, *resolved_parts))
+
+
+def _is_bridge_near_match(record: Any) -> bool:
+    """Recognize an unmistakable Bridge declaration with malformed carriers."""
+
+    if not isinstance(record, dict):
+        return False
+    view = record.get("language_view")
+    return isinstance(view, dict) and "trajectory" in view and "spike_events" in record
 
 
 def jsonl_paths(targets: Iterable[str | Path]) -> list[Path]:
@@ -301,13 +317,22 @@ def _probe_record(
     where: str,
     record: Any,
     input_problem: str | None,
+    *,
+    raster_gated_path: bool = False,
 ) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
     """Classify one parsed input as a raster, a problem, or out of scope."""
 
     if input_problem is not None:
         return None, _problem(where, "input", (input_problem,))
     if not is_bridge_record(record) and not is_thalamic_record(record):
-        return None, None
+        if not raster_gated_path and not _is_bridge_near_match(record):
+            return None, None
+        return None, _problem(
+            where,
+            "bridge_record",
+            (REASON_NOT_BRIDGE,),
+            record_id=_record_id(record),
+        )
     normalized = normalize_raster(record, source=where)
     if normalized is not None:
         return normalized, None
@@ -330,12 +355,17 @@ def load_rasters(
 
     rasters: list[dict[str, Any]] = []
     problems: list[dict[str, Any]] = []
-    for item in iter_records(jsonl_paths(targets)):
-        normalized, problem = _probe_record(*item)
-        if normalized is not None:
-            rasters.append(normalized)
-        if problem is not None:
-            problems.append(problem)
+    for path in jsonl_paths(targets):
+        raster_gated_path = _is_raster_factory_path(path)
+        for item in _records_in_path(path):
+            normalized, problem = _probe_record(
+                *item,
+                raster_gated_path=raster_gated_path,
+            )
+            if normalized is not None:
+                rasters.append(normalized)
+            if problem is not None:
+                problems.append(problem)
     return rasters, problems
 
 

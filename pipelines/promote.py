@@ -420,6 +420,15 @@ def _iter_jsonl(raw_run):
         yield path, path.relative_to(raw_run)
 
 
+def _literal_lf_lines(path):
+    """Decode JSONL using only literal LF bytes as record boundaries."""
+
+    physical_lines = path.read_bytes().split(b"\n")
+    if physical_lines and physical_lines[-1] == b"":
+        physical_lines.pop()
+    return [raw_line.decode("utf-8") for raw_line in physical_lines]
+
+
 def promote_run(raw_run, cleaned_out):
     """Copy/remap every jsonl. Return a summary dict. Does not touch raw bytes."""
     raw_run = Path(raw_run).resolve()
@@ -443,11 +452,7 @@ def promote_run(raw_run, cleaned_out):
         dest = cleaned_out / rel
         dest.parent.mkdir(parents=True, exist_ok=True)
         lines_out = []
-        physical_lines = src.read_bytes().split(b"\n")
-        if physical_lines and physical_lines[-1] == b"":
-            physical_lines.pop()
-        for raw_line in physical_lines:
-            line = raw_line.decode("utf-8")
+        for line in _literal_lf_lines(src):
             if not line.strip():
                 lines_out.append("")
                 continue
