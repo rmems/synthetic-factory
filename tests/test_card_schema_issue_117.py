@@ -33,15 +33,24 @@ def _has_digit(text):
     return isinstance(text, str) and any(character.isdigit() for character in text)
 
 
+def _nested_features(feature):
+    """Return the child features declared under a `list` or `struct` key."""
+    children = []
+    for key in ("list", "struct"):
+        nested = feature.get(key)
+        if isinstance(nested, list):
+            children.extend(nested)
+    return children
+
+
 def _numeric_feature_notes(features):
-    """Yield every digit-bearing feature `note`, recursing into list/struct."""
-    for feature in features:
+    """Yield every digit-bearing feature `note`, descending into list/struct."""
+    stack = list(reversed(features))
+    while stack:
+        feature = stack.pop()
         if _has_digit(feature.get("note")):
             yield feature["note"]
-        for key in ("list", "struct"):
-            nested = feature.get(key)
-            if isinstance(nested, list):
-                yield from _numeric_feature_notes(nested)
+        stack.extend(reversed(_nested_features(feature)))
 
 
 def _disclosure_texts(disclosures):
