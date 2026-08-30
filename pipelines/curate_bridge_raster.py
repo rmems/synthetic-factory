@@ -50,7 +50,7 @@ def _expected_spikes(neurons: int, mean_rate_hz: float, window_s: float) -> int 
         return None
 
 
-def _spike_energy(spikes: int, per_spike: float | int) -> float | int | None:
+def _spike_energy(spikes: int, per_spike: float) -> float | None:
     if _finite_float(spikes) is None or _finite_float(per_spike) is None:
         return None
     try:

@@ -84,7 +84,7 @@ def _finite(value: Any) -> bool:
     return isinstance(value, float) and math.isfinite(value)
 
 
-def _window_us(raster: dict[str, Any]) -> int | float | None:
+def _window_us(raster: dict[str, Any]) -> float | None:
     """Return the validated window in microseconds without rounding it."""
 
     window_s = raster.get("window_s")
