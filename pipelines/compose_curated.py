@@ -651,6 +651,125 @@ def _coding_steps_repaired_copy(
     return curated if isinstance(curated, dict) else None
 
 
+def _source_preference_shape(record: Any) -> tuple[Any, bool]:
+    """Return (side kinds, mixed-family flag) for a source preference record."""
+
+    if not (is_preference_record(record) and isinstance(record, Mapping)):
+        return None, False
+    side_kinds = preference_side_kinds(record)
+    mixed = not _is_same_state_pair(record) and _mixed_preference_families(
+        side_kinds
+    )
+    return side_kinds, mixed
+
+
+def _identity_retry(
+    repaired: dict[str, Any] | None,
+    *,
+    source_path: str,
+    source_line: int,
+    source_sha256: str,
+):
+    """Re-validate identity against a lane's repaired copy.
+
+    Returns the retained identity result, or None when the repair did not
+    satisfy identity either.
+    """
+
+    if repaired is None:
+        return None
+    retry = curate_identity.curate_record(
+        curate_identity.SourceRecord(
+            record=repaired,
+            source_path=source_path,
+            source_line=source_line,
+            source_sha256=source_sha256,
+        )
+    )
+    if retry.action == "retained" and isinstance(retry.record, dict):
+        return retry
+    return None
+
+
+def _deferred_lane_repair(
+    record: Any,
+    identity_result: Any,
+    *,
+    source_path: str,
+    source_line: int,
+    source_sha256: str,
+) -> tuple[Any, str | None]:
+    """Hand an identity refusal to the downstream lane that can repair it.
+
+    A bridge stream with one valid global clock but unsorted events is
+    explicitly repairable: ``curate_bridge`` stable-sorts it and records
+    BRIDGE_EVENTS_STABLE_SORTED_SINGLE_GLOBAL_CLOCK. The coding lane owns
+    step-level repair the same way: an episode with one usable step plus an
+    unusable one keeps its usable steps under ``coding_steps_excluded``.
+    Identity applies the same invariants first, so leaving its refusal
+    terminal would drop a record the pipeline knows how to fix. Re-validate
+    identity against the owning lane's repaired copy; the caller then hands
+    the original payload forward so that lane performs and records the repair
+    itself. Returns ``(identity_result, deferred lane name or None)``.
+    """
+
+    if identity_result.action == "retained" or not isinstance(record, Mapping):
+        return identity_result, None
+    coordinates = {
+        "source_path": source_path,
+        "source_line": source_line,
+        "source_sha256": source_sha256,
+    }
+
+    def lane_retry(applies: bool, repaired_copy):
+        if not applies:
+            return None
+        return _identity_retry(
+            repaired_copy(record, **coordinates), **coordinates
+        )
+
+    retry = lane_retry(
+        is_bridge_record(record)
+        and _is_bridge_order_only_rejection(identity_result.mapping),
+        _bridge_order_repaired_copy,
+    )
+    if retry is not None:
+        return retry, "bridge"
+    retry = lane_retry(
+        isinstance(record.get("steps"), list)
+        and _is_coding_step_only_rejection(identity_result.mapping),
+        _coding_steps_repaired_copy,
+    )
+    if retry is not None:
+        return retry, "coding"
+    return identity_result, None
+
+
+def _identity_stage_evidence(
+    identity_result: Any,
+    deferred_lane: str | None,
+    source_side_kinds: Any,
+    mixed_preference_families: bool,
+) -> tuple[list[str], dict[str, Any]]:
+    """Assemble the identity stage's reason codes and detail mapping."""
+
+    identity_reasons = list(identity_result.mapping.get("reason_codes", []))
+    identity_detail = copy.deepcopy(identity_result.mapping)
+    if deferred_lane == "bridge":
+        identity_detail["bridge_order_deferred_to_bridge_lane"] = True
+    if deferred_lane == "coding":
+        identity_detail["coding_steps_deferred_to_coding_lane"] = True
+    if source_side_kinds is not None:
+        identity_detail["preference_side_kinds"] = list(source_side_kinds)
+    if mixed_preference_families:
+        # Identity correctly refuses this shape first. Replace its generic
+        # unsupported-shape summary with the composition contract's explicit
+        # family mismatch while retaining the identity diagnostics as detail.
+        identity_detail["identity_reason_codes"] = identity_reasons
+        identity_reasons = [REASON_MIXED_PREFERENCE_FAMILIES]
+    return identity_reasons, identity_detail
+
+
 def _compose_identity_stage(
     record: Any,
     stages: list[dict[str, Any]],
@@ -665,21 +784,7 @@ def _compose_identity_stage(
     :class:`ComposeDecision` when identity refuses the record.
     """
 
-    source_side_kinds = (
-        preference_side_kinds(record)
-        if is_preference_record(record) and isinstance(record, Mapping)
-        else None
-    )
-    source_same_state_pair = (
-        _is_same_state_pair(record)
-        if is_preference_record(record) and isinstance(record, Mapping)
-        else False
-    )
-    mixed_preference_families = (
-        source_side_kinds is not None
-        and not source_same_state_pair
-        and _mixed_preference_families(source_side_kinds)
-    )
+    source_side_kinds, mixed_preference_families = _source_preference_shape(record)
 
     identity_result = curate_identity.curate_record(
         curate_identity.SourceRecord(
@@ -689,88 +794,22 @@ def _compose_identity_stage(
             source_sha256=source_sha256,
         )
     )
-    # A bridge stream with one valid global clock but unsorted events is
-    # explicitly repairable: ``curate_bridge`` stable-sorts it and records
-    # BRIDGE_EVENTS_STABLE_SORTED_SINGLE_GLOBAL_CLOCK. Identity applies the
-    # same ordering invariant first, so leaving its refusal terminal would drop
-    # a supported record the pipeline knows how to fix. Re-validate identity
-    # against the lane's own repaired copy, then hand the original order
-    # forward so the bridge stage performs and records the repair itself.
-    deferred_bridge_order = False
-    if (
-        identity_result.action != "retained"
-        and isinstance(record, Mapping)
-        and is_bridge_record(record)
-        and _is_bridge_order_only_rejection(identity_result.mapping)
-    ):
-        repaired = _bridge_order_repaired_copy(
-            record,
-            source_path=source_path,
-            source_line=source_line,
-            source_sha256=source_sha256,
-        )
-        if repaired is not None:
-            retry = curate_identity.curate_record(
-                curate_identity.SourceRecord(
-                    record=repaired,
-                    source_path=source_path,
-                    source_line=source_line,
-                    source_sha256=source_sha256,
-                )
-            )
-            if retry.action == "retained" and isinstance(retry.record, dict):
-                identity_result = retry
-                deferred_bridge_order = True
+    identity_result, deferred_lane = _deferred_lane_repair(
+        record,
+        identity_result,
+        source_path=source_path,
+        source_line=source_line,
+        source_sha256=source_sha256,
+    )
+    deferred_bridge_order = deferred_lane == "bridge"
+    deferred_coding_steps = deferred_lane == "coding"
 
-    # The coding lane owns step-level repair the same way the bridge lane owns
-    # event ordering: an episode with one usable step plus an unusable one is
-    # explicitly repairable (``coding_steps_excluded`` drops just that step).
-    # Identity applies the same step-shape invariant first, so leaving its
-    # refusal terminal would wholly exclude a record the pipeline knows how to
-    # fix. Re-validate identity against the lane's own repaired copy, then
-    # hand the original steps forward so the coding stage performs and records
-    # the repair itself.
-    deferred_coding_steps = False
-    if (
-        not deferred_bridge_order
-        and identity_result.action != "retained"
-        and isinstance(record, Mapping)
-        and isinstance(record.get("steps"), list)
-        and _is_coding_step_only_rejection(identity_result.mapping)
-    ):
-        repaired = _coding_steps_repaired_copy(
-            record,
-            source_path=source_path,
-            source_line=source_line,
-            source_sha256=source_sha256,
-        )
-        if repaired is not None:
-            retry = curate_identity.curate_record(
-                curate_identity.SourceRecord(
-                    record=repaired,
-                    source_path=source_path,
-                    source_line=source_line,
-                    source_sha256=source_sha256,
-                )
-            )
-            if retry.action == "retained" and isinstance(retry.record, dict):
-                identity_result = retry
-                deferred_coding_steps = True
-
-    identity_reasons = list(identity_result.mapping.get("reason_codes", []))
-    identity_detail = copy.deepcopy(identity_result.mapping)
-    if deferred_bridge_order:
-        identity_detail["bridge_order_deferred_to_bridge_lane"] = True
-    if deferred_coding_steps:
-        identity_detail["coding_steps_deferred_to_coding_lane"] = True
-    if source_side_kinds is not None:
-        identity_detail["preference_side_kinds"] = list(source_side_kinds)
-    if mixed_preference_families:
-        # Identity correctly refuses this shape first. Replace its generic
-        # unsupported-shape summary with the composition contract's explicit
-        # family mismatch while retaining the identity diagnostics as detail.
-        identity_detail["identity_reason_codes"] = identity_reasons
-        identity_reasons = [REASON_MIXED_PREFERENCE_FAMILIES]
+    identity_reasons, identity_detail = _identity_stage_evidence(
+        identity_result,
+        deferred_lane,
+        source_side_kinds,
+        mixed_preference_families,
+    )
     stages.append(
         _stage(
             "identity",
@@ -852,6 +891,46 @@ def _compose_bridge_stage(
     return current
 
 
+def _side_curation_failed_decision(
+    stages: list[dict[str, Any]],
+    side_curation: dict[str, dict[str, Any]],
+    side_curation_reasons: list[str],
+    side_curation_changed: bool,
+    *,
+    side_kinds: tuple[str, str],
+    classification: str,
+    **stage_extra: Any,
+) -> ComposeDecision:
+    """Exclusion shared by both trajectory branches when a side will not repair."""
+
+    preference_reasons = list(
+        dict.fromkeys([REASON_TRAJECTORY_SIDE_INVALID, *side_curation_reasons])
+    )
+    stages.append(
+        _stage(
+            "preferences",
+            COMPOSE_NAME,
+            COMPOSE_VERSION,
+            ACTION_EXCLUDED,
+            reason_codes=preference_reasons,
+            lane_action=ACTION_EXCLUDED,
+            classification=classification,
+            side_kinds=list(side_kinds),
+            **stage_extra,
+            side_curation=side_curation,
+            side_curation_changed=side_curation_changed,
+        )
+    )
+    return ComposeDecision(
+        ACTION_EXCLUDED,
+        None,
+        tuple(preference_reasons),
+        tuple(stages),
+        None,
+        None,
+    )
+
+
 def _compose_same_state_preference(
     current: dict[str, Any],
     side_kinds: tuple[str, str],
@@ -873,33 +952,14 @@ def _compose_same_state_preference(
         source_line=source_line,
     )
     if curated_sides is None:
-        preference_reasons = list(
-            dict.fromkeys(
-                [REASON_TRAJECTORY_SIDE_INVALID, *side_curation_reasons]
-            )
-        )
-        stages.append(
-            _stage(
-                "preferences",
-                COMPOSE_NAME,
-                COMPOSE_VERSION,
-                ACTION_EXCLUDED,
-                reason_codes=preference_reasons,
-                lane_action=ACTION_EXCLUDED,
-                classification="same_state_side_curation_failed",
-                side_kinds=list(side_kinds),
-                schema="same_state_pair",
-                side_curation=side_curation,
-                side_curation_changed=side_curation_changed,
-            )
-        )
-        return ComposeDecision(
-            ACTION_EXCLUDED,
-            None,
-            tuple(preference_reasons),
-            tuple(stages),
-            None,
-            None,
+        return _side_curation_failed_decision(
+            stages,
+            side_curation,
+            side_curation_reasons,
+            side_curation_changed,
+            side_kinds=side_kinds,
+            classification="same_state_side_curation_failed",
+            schema="same_state_pair",
         )
     preference_decision = curate_preferences.curate_preference_record(
         curated_sides
@@ -985,32 +1045,13 @@ def _compose_episode_preference(
         source_line=source_line,
     )
     if curated_sides is None:
-        preference_reasons = list(
-            dict.fromkeys(
-                [REASON_TRAJECTORY_SIDE_INVALID, *side_curation_reasons]
-            )
-        )
-        stages.append(
-            _stage(
-                "preferences",
-                COMPOSE_NAME,
-                COMPOSE_VERSION,
-                ACTION_EXCLUDED,
-                reason_codes=preference_reasons,
-                lane_action=ACTION_EXCLUDED,
-                classification="trajectory_side_curation_failed",
-                side_kinds=list(side_kinds),
-                side_curation=side_curation,
-                side_curation_changed=side_curation_changed,
-            )
-        )
-        return ComposeDecision(
-            ACTION_EXCLUDED,
-            None,
-            tuple(preference_reasons),
-            tuple(stages),
-            None,
-            None,
+        return _side_curation_failed_decision(
+            stages,
+            side_curation,
+            side_curation_reasons,
+            side_curation_changed,
+            side_kinds=side_kinds,
+            classification="trajectory_side_curation_failed",
         )
     preference_decision, transform_name, transform_version, implementation = (
         _trajectory_preference(curated_sides)
@@ -1491,52 +1532,78 @@ def _semantic_identity_owners(record: dict[str, Any]) -> list[dict[str, Any]]:
     return owners
 
 
+def _identity_stage_detail_of(decision: ComposeDecision) -> dict[str, Any] | None:
+    """Return the identity stage's detail mapping, when one was recorded."""
+
+    identity_stage = next(
+        (stage for stage in decision.stages if stage.get("lane") == "identity"),
+        None,
+    )
+    detail = identity_stage.get("detail") if isinstance(identity_stage, dict) else None
+    return detail if isinstance(detail, dict) else None
+
+
+def _strip_assigned_ids(semantic: dict[str, Any], detail: dict[str, Any] | None) -> None:
+    """Drop the coordinate-derived ids the identity lane assigned."""
+
+    mappings = detail.get("id_mappings") if isinstance(detail, dict) else None
+    for mapping in mappings if isinstance(mappings, list) else ():
+        if not isinstance(mapping, dict):
+            continue
+        owner = _identity_owner(semantic, mapping.get("owner_path"))
+        if owner is not None and owner.get("id") == mapping.get("output_id"):
+            owner.pop("id", None)
+    for path in _mapped_legacy_id_paths(detail):
+        _pop_json_pointer(semantic, path)
+
+
+def _strip_provenance_labels(semantic: dict[str, Any]) -> None:
+    """Drop pipeline-provenance labels from every identity owner.
+
+    The same episode can be authorized under more than one factory path_id
+    (the registry declares dozens of distinct "episode"-kind factories).
+    ``meta.factory``/``meta.generator`` name which pipeline and model produced
+    the row, and ``meta.run``/``meta.round`` name when it was produced -- none
+    of that is trained-on content, so two rows that are otherwise
+    byte-identical after curation must not be kept apart by those labels
+    alone -- doing so would let the same content land in both the train and
+    eval split. Normalize the fields on every identity owner: a Fable
+    preference wrapper predates a wrapper-level ``meta`` and carries the
+    declaration on ``chosen``/``rejected`` instead, exactly as
+    ``curate_identity._payload_factory`` resolves it. They stay untouched on
+    the emitted record itself, since ``semantic`` is a deep copy.
+    """
+
+    for owner in _semantic_identity_owners(semantic):
+        meta = owner.get("meta")
+        if not isinstance(meta, dict):
+            continue
+        for provenance_field in ("factory", "generator", "run", "round"):
+            meta.pop(provenance_field, None)
+
+
+def _strip_sidecar_binding(semantic: dict[str, Any]) -> None:
+    """Drop the reward annotation's source-coordinate binding.
+
+    The sidecar digest authenticates source coordinates. Keep the
+    comparability class and any magnitude/order payload, but remove the
+    coordinate binding that would otherwise hide converged examples.
+    """
+
+    annotation = semantic.get(curate_rewards.ANNOTATION_FIELD)
+    if isinstance(annotation, dict):
+        annotation.pop("source_sidecar_id", None)
+
+
 def _post_transform_semantic_sha256(decision: ComposeDecision) -> str:
     """Hash training content without coordinate-derived identity bindings."""
 
     if decision.record is None:
         raise ComposeError("cannot hash a missing curated record")
     semantic = copy.deepcopy(decision.record)
-    identity_stage = next(
-        (stage for stage in decision.stages if stage.get("lane") == "identity"),
-        None,
-    )
-    detail = identity_stage.get("detail") if isinstance(identity_stage, dict) else None
-    mappings = detail.get("id_mappings") if isinstance(detail, dict) else None
-    if isinstance(mappings, list):
-        for mapping in mappings:
-            if not isinstance(mapping, dict):
-                continue
-            owner = _identity_owner(semantic, mapping.get("owner_path"))
-            if owner is not None and owner.get("id") == mapping.get("output_id"):
-                owner.pop("id", None)
-    for path in _mapped_legacy_id_paths(detail if isinstance(detail, dict) else None):
-        _pop_json_pointer(semantic, path)
-
-    # The same episode can be authorized under more than one factory path_id
-    # (the registry declares dozens of distinct "episode"-kind factories).
-    # ``meta.factory``/``meta.generator`` name which pipeline and model
-    # produced the row, and ``meta.run``/``meta.round`` name when it was
-    # produced -- none of that is trained-on content, so two rows that are
-    # otherwise byte-identical after curation must not be kept apart by
-    # those labels alone -- doing so would let the same content land in both
-    # the train and eval split. Normalize the fields on every identity owner:
-    # a Fable preference wrapper predates a wrapper-level ``meta`` and carries
-    # the declaration on ``chosen``/``rejected`` instead, exactly as
-    # ``curate_identity._payload_factory`` resolves it. They stay untouched on
-    # the emitted record itself, since ``semantic`` is a deep copy.
-    for owner in _semantic_identity_owners(semantic):
-        meta = owner.get("meta")
-        if isinstance(meta, dict):
-            for provenance_field in ("factory", "generator", "run", "round"):
-                meta.pop(provenance_field, None)
-
-    annotation = semantic.get(curate_rewards.ANNOTATION_FIELD)
-    if isinstance(annotation, dict):
-        # The sidecar digest authenticates source coordinates.  Keep the
-        # comparability class and any magnitude/order payload, but remove the
-        # coordinate binding that would otherwise hide converged examples.
-        annotation.pop("source_sidecar_id", None)
+    _strip_assigned_ids(semantic, _identity_stage_detail_of(decision))
+    _strip_provenance_labels(semantic)
+    _strip_sidecar_binding(semantic)
     return _canonical_sha256(semantic)
 
 
@@ -2184,6 +2251,54 @@ def _assert_new_destination(
     return parent, _directory_identity(parent.lstat())
 
 
+def _refuse_existing_destination(parent_descriptor: int, destination: Path) -> None:
+    """Refuse a destination name that already exists under the pinned parent."""
+
+    try:
+        os.stat(
+            destination.name,
+            dir_fd=parent_descriptor,
+            follow_symlinks=False,
+        )
+    except FileNotFoundError:
+        return
+    raise ComposeError(
+        f"refusing to overwrite an existing destination: {destination}"
+    )
+
+
+def _pinned_root_path(destination_descriptor: int) -> Path:
+    """Return the descriptor-addressed root every later write goes through."""
+
+    root = Path(f"/proc/self/fd/{destination_descriptor}")
+    if not root.is_dir():
+        raise ComposeError("pinned destination descriptor is not path-addressable")
+    return root
+
+
+def _discard_created_destination(
+    parent_descriptor: int,
+    destination: Path,
+    created_identity: tuple[int, int, int],
+) -> None:
+    """Remove a partly created destination, but only the one we created."""
+
+    try:
+        current = os.stat(
+            destination.name,
+            dir_fd=parent_descriptor,
+            follow_symlinks=False,
+        )
+    except (FileNotFoundError, OSError):
+        current = None
+    if current is not None and _directory_identity(current) == created_identity:
+        shutil.rmtree(
+            destination.name,
+            ignore_errors=True,
+            dir_fd=parent_descriptor,
+        )
+
+
 def _create_pinned_destination(
     source_run: Path, destination: Path
 ) -> _PinnedDestination:
@@ -2209,18 +2324,7 @@ def _create_pinned_destination(
             "destination parent",
             expected_identity=expected_parent_identity,
         )
-        try:
-            os.stat(
-                destination.name,
-                dir_fd=parent_descriptor,
-                follow_symlinks=False,
-            )
-        except FileNotFoundError:
-            pass
-        else:
-            raise ComposeError(
-                f"refusing to overwrite an existing destination: {destination}"
-            )
+        _refuse_existing_destination(parent_descriptor, destination)
         os.mkdir(destination.name, 0o755, dir_fd=parent_descriptor)
         created = os.stat(
             destination.name,
@@ -2237,12 +2341,9 @@ def _create_pinned_destination(
         )
         if _directory_identity(os.fstat(destination_descriptor)) != created_identity:
             raise ComposeError("destination identity changed while opening")
-        root = Path(f"/proc/self/fd/{destination_descriptor}")
-        if not root.is_dir():
-            raise ComposeError("pinned destination descriptor is not path-addressable")
         return _PinnedDestination(
             path=destination,
-            root=root,
+            root=_pinned_root_path(destination_descriptor),
             parent_descriptor=parent_descriptor,
             destination_descriptor=destination_descriptor,
             parent_identity=expected_parent_identity,
@@ -2252,20 +2353,9 @@ def _create_pinned_destination(
         if destination_descriptor is not None:
             os.close(destination_descriptor)
         if created_identity is not None:
-            try:
-                current = os.stat(
-                    destination.name,
-                    dir_fd=parent_descriptor,
-                    follow_symlinks=False,
-                )
-            except (FileNotFoundError, OSError):
-                current = None
-            if current is not None and _directory_identity(current) == created_identity:
-                shutil.rmtree(
-                    destination.name,
-                    ignore_errors=True,
-                    dir_fd=parent_descriptor,
-                )
+            _discard_created_destination(
+                parent_descriptor, destination, created_identity
+            )
         os.close(parent_descriptor)
         raise
 
@@ -2277,11 +2367,8 @@ def _destination_write_parts(relative: Any, label: str) -> tuple[str, ...]:
     if not isinstance(raw, str) or not raw or "\\" in raw:
         raise ComposeError(f"{label}: destination path must be a nonempty POSIX string")
     candidate = PurePosixPath(raw)
-    if (
-        candidate.as_posix() != raw
-        or candidate.is_absolute()
-        or any(part in {"", ".", ".."} for part in candidate.parts)
-    ):
+    non_canonical = candidate.as_posix() != raw or candidate.is_absolute()
+    if non_canonical or any(part in {"", ".", ".."} for part in candidate.parts):
         raise ComposeError(f"{label}: unsafe destination path {raw!r}")
     return candidate.parts
 
@@ -2319,20 +2406,27 @@ def _open_pinned_child_directory(
             f"{label}: directory component {name!r} is not an exact directory"
         ) from exc
     try:
-        entry = os.stat(name, dir_fd=parent_descriptor, follow_symlinks=False)
-        opened = os.fstat(descriptor)
-        if (
-            not stat.S_ISDIR(entry.st_mode)
-            or not stat.S_ISDIR(opened.st_mode)
-            or _directory_identity(entry) != _directory_identity(opened)
-        ):
-            raise ComposeError(
-                f"{label}: directory component {name!r} changed while it was pinned"
-            )
+        _verify_pinned_child(descriptor, parent_descriptor, name, label)
     except BaseException:
         os.close(descriptor)
         raise
     return descriptor
+
+
+def _verify_pinned_child(
+    descriptor: int, parent_descriptor: int, name: str, label: str
+) -> None:
+    """Require the opened child and its directory entry to be one directory."""
+
+    entry = os.stat(name, dir_fd=parent_descriptor, follow_symlinks=False)
+    opened = os.fstat(descriptor)
+    entries_diverge = not stat.S_ISDIR(entry.st_mode) or not stat.S_ISDIR(
+        opened.st_mode
+    )
+    if entries_diverge or _directory_identity(entry) != _directory_identity(opened):
+        raise ComposeError(
+            f"{label}: directory component {name!r} changed while it was pinned"
+        )
 
 
 def _write_pinned_new_bytes(
