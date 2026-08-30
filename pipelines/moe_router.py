@@ -435,22 +435,24 @@ class RecordedTeacherRouter(RouterOracle):
     def key_for(text: str) -> str:
         return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
-    def available(self) -> tuple[bool, str]:
+    def _teacher_identity_problem(self) -> str | None:
+        """Why the recorded teacher identity cannot ground labels, if any."""
+
         missing = [
             field
             for field in ("model", "revision_or_checkpoint", "configuration_sha256")
             if not self.teacher.get(field)
         ]
         if missing:
-            return False, f"recording is missing teacher fields: {sorted(missing)}"
+            return f"recording is missing teacher fields: {sorted(missing)}"
         if not self.is_llm_teacher:
-            return False, (
+            return (
                 "recording does not declare is_llm_teacher: true — a recorded "
                 "replay may only ground labels for a real teacher run"
             )
         model = self.teacher.get("model")
         if isinstance(model, str) and model in NON_TEACHER_ORACLE_NAMES:
-            return False, (
+            return (
                 f"recording names {model!r} as its teacher, which is a "
                 "non-teacher stand-in; its routing may not be curated as "
                 "teacher truth"
@@ -459,10 +461,16 @@ class RecordedTeacherRouter(RouterOracle):
             # Without a declared expert count, nothing bounds the replayed
             # expert ids: a recording with no logits could serve ids like
             # [-1, 999] as authoritative routing labels.
-            return False, (
+            return (
                 "recording does not declare a positive num_local_experts, so "
                 "replayed expert ids cannot be range-checked"
             )
+        return None
+
+    def available(self) -> tuple[bool, str]:
+        problem = self._teacher_identity_problem()
+        if problem is not None:
+            return False, problem
         if not self.observations:
             return False, "recording contains no routing observations"
         return True, f"{len(self.observations)} recorded context(s)"
@@ -1140,6 +1148,27 @@ def _check_layer_experts(
     return []
 
 
+def _experts_index_logits(experts: list[Any], size: int) -> bool:
+    """True when every expert id is a genuine int indexing the logit array."""
+
+    return all(
+        isinstance(expert, int)
+        and not isinstance(expert, bool)
+        and 0 <= expert < size
+        for expert in experts
+    )
+
+
+def _is_top_of_logits(experts: list[int], logits: list[Any]) -> bool:
+    """True when the experts carry, position for position, the top values."""
+
+    recorded_values = [float(logits[expert]) for expert in experts]
+    top_values = sorted(
+        (float(value) for value in logits), reverse=True
+    )[: len(experts)]
+    return recorded_values == top_values
+
+
 def _check_layer_logits(layer: dict[str, Any], spot: str) -> list[str]:
     """Router logits, and the expert order they imply.
 
@@ -1162,18 +1191,9 @@ def _check_layer_logits(layer: dict[str, Any], spot: str) -> list[str]:
     experts = layer.get("top_k_experts")
     if not isinstance(experts, list) or not experts:
         return []
-    if not all(
-        isinstance(expert, int)
-        and not isinstance(expert, bool)
-        and 0 <= expert < len(logits)
-        for expert in experts
+    if not _experts_index_logits(experts, len(logits)) or not _is_top_of_logits(
+        experts, logits
     ):
-        return [f"{spot}.top_k_experts disagrees with router_logits ordering"]
-    recorded_values = [float(logits[expert]) for expert in experts]
-    top_values = sorted(
-        (float(value) for value in logits), reverse=True
-    )[: len(experts)]
-    if recorded_values != top_values:
         return [f"{spot}.top_k_experts disagrees with router_logits ordering"]
     return []
 
@@ -1374,6 +1394,40 @@ def _check_measurement_reconciliation(
     return errors
 
 
+def _check_declared_count_authority(
+    expert_count: int | None, oracle: Any, where: str
+) -> list[str]:
+    if (
+        expert_count is None
+        and isinstance(oracle, dict)
+        and oracle.get("authority") == oc.AUTHORITY_AUTHORITATIVE
+    ):
+        # Without a declared count the per-layer range check is disabled, so
+        # an authoritative recording with no logits could carry expert ids
+        # like [-1, 999] straight into curation.
+        return [
+            f"{where}.oracle.fingerprint.num_local_experts must declare a "
+            "positive expert count for an authoritative router record — "
+            "without it the routed expert ids cannot be range-checked"
+        ]
+    return []
+
+
+def _check_routing_layers(
+    layers: list[Any], expert_count: int | None, where: str
+) -> list[str]:
+    errors: list[str] = []
+    order = _LayerOrder()
+    for index, layer in enumerate(layers):
+        spot = f"{where}.result.routing.layers[{index}]"
+        if not isinstance(layer, dict):
+            errors.append(f"{spot} must be an object")
+            continue
+        errors += _check_layer_index(layer, spot, order)
+        errors += _check_layer_signals(layer, spot, expert_count)
+    return errors
+
+
 def check_family(record: dict[str, Any], where: str) -> list[str]:
     """Family checks: real routing, recorded teacher identity, sane targets."""
 
@@ -1396,28 +1450,8 @@ def check_family(record: dict[str, Any], where: str) -> list[str]:
         return errors + [f"{where}.result.routing.layers must be a non-empty array"]
 
     expert_count = _declared_expert_count(fingerprint)
-    if (
-        expert_count is None
-        and isinstance(oracle, dict)
-        and oracle.get("authority") == oc.AUTHORITY_AUTHORITATIVE
-    ):
-        # Without a declared count the per-layer range check is disabled, so
-        # an authoritative recording with no logits could carry expert ids
-        # like [-1, 999] straight into curation.
-        errors.append(
-            f"{where}.oracle.fingerprint.num_local_experts must declare a "
-            "positive expert count for an authoritative router record — "
-            "without it the routed expert ids cannot be range-checked"
-        )
-    order = _LayerOrder()
-    for index, layer in enumerate(layers):
-        spot = f"{where}.result.routing.layers[{index}]"
-        if not isinstance(layer, dict):
-            errors.append(f"{spot} must be an object")
-            continue
-        errors += _check_layer_index(layer, spot, order)
-        errors += _check_layer_signals(layer, spot, expert_count)
-
+    errors += _check_declared_count_authority(expert_count, oracle, where)
+    errors += _check_routing_layers(layers, expert_count, where)
     errors += _check_derived_routing_labels(result, routing, layers, where)
     errors += _check_measurement_reconciliation(result, routing, layers, where)
     return errors

@@ -352,18 +352,19 @@ class _StreamState:
             if ((tick * 7919) % 1000) / 1000.0 < spec.corrupt_ratio:
                 self.corrupt += 1
 
-        if (
-            spec.kind == "malformed_spike_burst"
-            and channel in spec.affected
-            and self.malformed_emitted < spec.malformed_count
-        ):
-            self.malformed_emitted += 1
-            if spec.malformed_kind in MALFORMED_INTEGRITY_KINDS:
-                self.integrity_violation = True
-            else:
-                # Rejected at the relay boundary rather than trusted and
-                # later found corrupt.
-                self.dropped += 1
+        if spec.kind == "malformed_spike_burst" and channel in spec.affected:
+            self._apply_malformed_event(spec)
+
+    def _apply_malformed_event(self, spec: _DisturbanceSpec) -> None:
+        if self.malformed_emitted >= spec.malformed_count:
+            return
+        self.malformed_emitted += 1
+        if spec.malformed_kind in MALFORMED_INTEGRITY_KINDS:
+            self.integrity_violation = True
+        else:
+            # Rejected at the relay boundary rather than trusted and
+            # later found corrupt.
+            self.dropped += 1
 
     def _apply_saturation(
         self, spec: _DisturbanceSpec, channel: str, tick: int, in_window: bool
@@ -390,6 +391,35 @@ class _StreamState:
             or self.max_jitter > float(self.system["jitter_tolerance_ms"])
             or self.peak_temperature >= float(self.system["thermal_warn_c"])
         )
+
+
+def _result_from_state(
+    state: _StreamState,
+    spec: _DisturbanceSpec,
+    outcome: str,
+    reasons: list[str],
+    detection_ms: float | None,
+    recovery_ms: float,
+) -> FaultResult:
+    """Freeze the accumulated stream state into one FaultResult."""
+
+    return FaultResult(
+        outcome=outcome,
+        reason_codes=tuple(reasons),
+        detection_latency_ms=detection_ms,
+        recovery_latency_ms=recovery_ms,
+        worst_healthy_channels=state.worst_healthy,
+        dropped_events=state.dropped,
+        corrupt_events=state.corrupt,
+        total_events=state.total,
+        peak_temperature_c=round(state.peak_temperature, 3),
+        max_staleness_ms=round(state.max_staleness, 3),
+        max_jitter_ms=round(state.max_jitter, 3),
+        saturated_ticks=state.saturated_ticks,
+        integrity_violation=state.integrity_violation,
+        result_delay_ms=spec.result_delay_ms,
+        trace=tuple(state.trace),
+    )
 
 
 class RelayReflexSimulator(FaultOracle):
@@ -451,6 +481,12 @@ class RelayReflexSimulator(FaultOracle):
                 f"{kind} does not use parameters {unknown}; it reads "
                 f"{sorted(required + optional)}"
             )
+        RelayReflexSimulator._check_parameter_values(kind, parameters)
+
+    @staticmethod
+    def _check_parameter_values(kind: str, parameters: dict[str, Any]) -> None:
+        """Value ranges whose violation would also run as a silent no-op."""
+
         if kind == "malformed_spike_burst":
             # The tick loop branches on this value. A typo used to fall through
             # to the `unknown_channel` arm, so `negative_amplitdue` became a
@@ -574,23 +610,7 @@ class RelayReflexSimulator(FaultOracle):
             affected=declared,
         )
         recovery_ms = self._recovery_latency(system, outcome, detection_ms)
-        return FaultResult(
-            outcome=outcome,
-            reason_codes=tuple(reasons),
-            detection_latency_ms=detection_ms,
-            recovery_latency_ms=recovery_ms,
-            worst_healthy_channels=state.worst_healthy,
-            dropped_events=state.dropped,
-            corrupt_events=state.corrupt,
-            total_events=state.total,
-            peak_temperature_c=round(state.peak_temperature, 3),
-            max_staleness_ms=round(state.max_staleness, 3),
-            max_jitter_ms=round(state.max_jitter, 3),
-            saturated_ticks=state.saturated_ticks,
-            integrity_violation=state.integrity_violation,
-            result_delay_ms=spec.result_delay_ms,
-            trace=tuple(state.trace),
-        )
+        return _result_from_state(state, spec, outcome, reasons, detection_ms, recovery_ms)
 
     # -- decision ------------------------------------------------------------
 

@@ -249,18 +249,21 @@ class RaplEnergyMeter(EnergyOracle):
         only root zone, it is the measurement.
         """
 
+        roots = self._root_zones()
+        psys = [domain for domain in roots if self._zone_label(domain) == "psys"]
+        if psys and len(psys) < len(roots):
+            roots = [domain for domain in roots if self._zone_label(domain) != "psys"]
+        return roots
+
+    def _root_zones(self) -> list[Path]:
         if not self.root.is_dir():
             return []
-        roots = sorted(
+        return sorted(
             child
             for child in self.root.iterdir()
             if self._ROOT_ZONE_RE.match(child.name)
             and (child / "energy_uj").exists()
         )
-        psys = [domain for domain in roots if self._zone_label(domain) == "psys"]
-        if psys and len(psys) < len(roots):
-            roots = [domain for domain in roots if self._zone_label(domain) != "psys"]
-        return roots
 
     def available(self) -> tuple[bool, str]:
         domains = self._domains()
@@ -901,25 +904,11 @@ def _oracle_block(run: _MeterRun) -> dict[str, Any]:
     )
 
 
-def _measure_candidate(
-    run: _MeterRun,
-    policy_id: str,
-    workload: Callable[[], Any],
-    scenario: dict[str, Any],
-    evaluation: PolicyEvaluation,
-) -> tuple[list[dict[str, Any]], dict[str, Any]]:
-    """One executed policy's measurements and its candidate summary."""
+def _reading_measurements(
+    reading: MeterReading, policy_id: str, evaluation: PolicyEvaluation
+) -> list[dict[str, Any]]:
+    """The oracle measurements one policy's reading and evaluation yield."""
 
-    reading = _read_cost(
-        run.meter,
-        workload,
-        policy_id=policy_id,
-        scenario=scenario,
-        repeats=run.repeats,
-        warmup=run.warmup,
-        fine_steps=run.fine_steps,
-        coarse_steps=run.coarse_steps,
-    )
     measurements = [
         oc.new_measurement(
             reading.cost_quantity,
@@ -942,6 +931,29 @@ def _measure_candidate(
             detail={"candidate": policy_id},
         )
     )
+    return measurements
+
+
+def _measure_candidate(
+    run: _MeterRun,
+    policy_id: str,
+    workload: Callable[[], Any],
+    scenario: dict[str, Any],
+    evaluation: PolicyEvaluation,
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    """One executed policy's measurements and its candidate summary."""
+
+    reading = _read_cost(
+        run.meter,
+        workload,
+        policy_id=policy_id,
+        scenario=scenario,
+        repeats=run.repeats,
+        warmup=run.warmup,
+        fine_steps=run.fine_steps,
+        coarse_steps=run.coarse_steps,
+    )
+    measurements = _reading_measurements(reading, policy_id, evaluation)
     candidate = {
         "id": policy_id,
         "description": POLICY_DESCRIPTIONS[policy_id],
@@ -1265,28 +1277,57 @@ def _safety_derivation_inputs(scenario: Any) -> tuple[bool, Any, Any]:
 QUALITY_TOLERANCE = 2e-6
 
 
+def _usable_weights(scenario: Any, caps: Any) -> list[float] | None:
+    """The actuator weights, when they can parameterise the objective."""
+
+    state = scenario.get("state") if isinstance(scenario, dict) else None
+    weights = state.get("actuator_weights") if isinstance(state, dict) else None
+    if (
+        isinstance(weights, list)
+        and len(weights) == len(caps)
+        and all(oc.is_number(w) and float(w) > 0.0 for w in weights)
+    ):
+        return [float(w) for w in weights]
+    return None
+
+
 def _quality_derivation_inputs(
     scenario: Any, *, can_derive_safety: bool, caps: Any, demand: Any
 ) -> tuple[list[float] | None, float | None]:
     """The weights and re-derived optimum quality is measured against."""
 
-    state = scenario.get("state") if isinstance(scenario, dict) else None
-    weights = state.get("actuator_weights") if isinstance(state, dict) else None
-    if not (
-        can_derive_safety
-        and isinstance(weights, list)
-        and len(weights) == len(caps)
-        and all(oc.is_number(w) and float(w) > 0.0 for w in weights)
-    ):
+    if not can_derive_safety:
         return None, None
-    numeric_weights = [float(w) for w in weights]
+    weights = _usable_weights(scenario, caps)
+    if weights is None:
+        return None, None
     optimum = objective(
-        numeric_weights,
-        analytic_allocation(
-            float(demand), numeric_weights, [float(cap) for cap in caps]
-        ),
+        weights,
+        analytic_allocation(float(demand), weights, [float(cap) for cap in caps]),
     )
-    return numeric_weights, optimum
+    return weights, optimum
+
+
+def _derived_quality(allocation: Any, context: _CandidateContext) -> float | None:
+    """The task quality this allocation earns, or None when unevaluable.
+
+    Non-numeric or wrong-width allocations are already reported by the safety
+    derivation; a policy that produced no answer has quality 0.0 by definition.
+    """
+
+    caps = [float(cap) for cap in context.caps]
+    if _allocation_rejection(allocation, caps) is None:
+        return evaluate_allocation(
+            [float(value) for value in allocation],
+            demand=float(context.demand),
+            weights=context.weights,
+            caps=caps,
+            optimum=context.optimum,
+            quality_floor=0.0,
+        ).task_quality
+    if allocation is None or (isinstance(allocation, list) and not allocation):
+        return 0.0
+    return None
 
 
 def _check_quality_derivation(
@@ -1304,23 +1345,8 @@ def _check_quality_derivation(
 
     if context.optimum is None or context.weights is None:
         return []
-    allocation = candidate.get("allocation")
-    caps = [float(cap) for cap in context.caps]
-    if _allocation_rejection(allocation, caps) is None:
-        derived = evaluate_allocation(
-            [float(value) for value in allocation],
-            demand=float(context.demand),
-            weights=context.weights,
-            caps=caps,
-            optimum=context.optimum,
-            quality_floor=0.0,
-        ).task_quality
-    elif allocation is None or (isinstance(allocation, list) and not allocation):
-        # A policy that produced no answer has quality 0.0 by definition.
-        derived = 0.0
-    else:
-        # Non-numeric or wrong-width allocations are already reported by the
-        # safety derivation; there is nothing coherent to evaluate.
+    derived = _derived_quality(candidate.get("allocation"), context)
+    if derived is None:
         return []
     recorded = candidate.get("task_quality")
     if oc.is_number(recorded) and abs(float(recorded) - derived) > QUALITY_TOLERANCE:
@@ -1604,6 +1630,49 @@ def _check_preferred_cost_minimality(
     return errors
 
 
+def _derived_membership(
+    candidates: list[Any], quality_floor: float, preferred: dict[str, Any]
+) -> dict[str, list[str]]:
+    """The membership lists ``choose_preference`` would derive."""
+
+    rows = [
+        candidate
+        for candidate in candidates
+        if isinstance(candidate, dict) and isinstance(candidate.get("id"), str)
+    ]
+    preferred_id = preferred["id"]
+    preferred_cost = float(preferred["cost_value"])
+    return {
+        "over": sorted(row["id"] for row in rows if row["id"] != preferred_id),
+        "feasible": sorted(
+            row["id"] for row in _feasible_candidates(rows, quality_floor)
+        ),
+        "cheaper_but_constraint_violating": sorted(
+            row["id"]
+            for row in rows
+            if row["id"] != preferred_id
+            and oc.is_number(row.get("cost_value"))
+            and float(row["cost_value"]) < preferred_cost
+        ),
+    }
+
+
+def _membership_field_error(
+    preference: dict[str, Any], field: str, expected: list[str], where: str
+) -> list[str]:
+    recorded = preference.get(field)
+    recorded_ids = (
+        sorted(str(item) for item in recorded) if isinstance(recorded, list) else None
+    )
+    if recorded_ids == expected:
+        return []
+    return [
+        f"{where}.result.preference.{field}: "
+        f"PREFERENCE_MEMBERSHIP_NOT_REPRODUCIBLE — recorded "
+        f"{recorded!r} but the measured candidates yield {expected}"
+    ]
+
+
 def _check_preference_membership(
     preference: dict[str, Any],
     candidates: list[Any],
@@ -1621,44 +1690,9 @@ def _check_preference_membership(
     """
 
     errors: list[str] = []
-    rows = [
-        candidate
-        for candidate in candidates
-        if isinstance(candidate, dict) and isinstance(candidate.get("id"), str)
-    ]
-    preferred_id = preferred["id"]
-    preferred_cost = float(preferred["cost_value"])
-    derived = {
-        "over": sorted(row["id"] for row in rows if row["id"] != preferred_id),
-        "feasible": sorted(
-            row["id"]
-            for row in rows
-            if row.get("safety_ok") is True
-            and oc.is_number(row.get("task_quality"))
-            and float(row["task_quality"]) >= quality_floor
-            and oc.is_number(row.get("cost_value"))
-        ),
-        "cheaper_but_constraint_violating": sorted(
-            row["id"]
-            for row in rows
-            if row["id"] != preferred_id
-            and oc.is_number(row.get("cost_value"))
-            and float(row["cost_value"]) < preferred_cost
-        ),
-    }
+    derived = _derived_membership(candidates, quality_floor, preferred)
     for field, expected in derived.items():
-        recorded = preference.get(field)
-        recorded_ids = (
-            sorted(str(item) for item in recorded)
-            if isinstance(recorded, list)
-            else None
-        )
-        if recorded_ids != expected:
-            errors.append(
-                f"{where}.result.preference.{field}: "
-                f"PREFERENCE_MEMBERSHIP_NOT_REPRODUCIBLE — recorded "
-                f"{recorded!r} but the measured candidates yield {expected}"
-            )
+        errors += _membership_field_error(preference, field, expected, where)
     restated_floor = preference.get("quality_floor")
     if not oc.is_number(restated_floor) or (
         abs(float(restated_floor) - quality_floor) > 1e-12
