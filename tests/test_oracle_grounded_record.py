@@ -57,6 +57,56 @@ def proposal_findings(item):
     return record.validate_record(item, check_declared_status=False)
 
 
+def relabel_plasticity_stage_as_named(item):
+    """A structurally valid mixed chain: reference critic, named plasticity."""
+    item = copy.deepcopy(item)
+    oracle = item["oracle"]
+    oracle["implementation"] = "mixed"
+    oracle["authority"] = "mixed-reference-and-runtime"
+    item["provenance"]["claimed"] = "mixed-reference-and-runtime"
+    item["meta"]["tags"][-1] = "mixed"
+    stage = oracle["stages"][1]
+    runtime = oracle["requested_runtime"][1]
+    stage["implementation"] = "named-runtime"
+    stage["oracle_id"] = runtime
+    stage["version"] = "0.0.0-double"
+    stage["runtime_commit"] = "a" * 40
+    stage["executable"] = runtime
+    stage.pop("module_digest", None)
+    oracle["availability"]["runtimes"][1]["bound"] = True
+    oracle["availability"]["all_bound"] = False
+    oracle["availability"]["unbound"] = [oracle["requested_runtime"][0]]
+    oracle["runtime_bound"] = False
+    oracle["id"] = "+".join(entry["oracle_id"] for entry in oracle["stages"])
+    item["result"]["produced_by"] = oracle["id"]
+    item["result_hash"] = canon.digest(item["result"])
+    item["validation"] = record.assess(item)
+    return item
+
+
+def forge_consistent_eligibility(item, offset=0.05):
+    """Shift eligibility[0] and recompute the retained update from the rule."""
+    plasticity = item["result"]["measured"]["plasticity"]
+    critic = item["result"]["measured"]["critic"]
+    config = item["oracle"]["configuration"]["plasticity"]
+    plasticity["eligibility"][0] = round(plasticity["eligibility"][0] + offset, 6)
+    raw_delta = (
+        config["learning_rate"]
+        * plasticity["eligibility"][0]
+        * critic["dopamine_phasic"]
+        * plasticity["modulatory_gain"]
+    )
+    updated = sim.clamp(
+        plasticity["weights_before"][0] + raw_delta, config["w_min"], config["w_max"]
+    )
+    plasticity["weight_deltas"][0] = updated - plasticity["weights_before"][0]
+    plasticity["weights_after"][0] = updated
+    plasticity["update_applied"] = any(
+        abs(delta) > sim.WEIGHT_UPDATE_EPS for delta in plasticity["weight_deltas"]
+    )
+    return item
+
+
 def relabel_as_named_runtime(item):
     """Create a structurally valid synthetic named-runtime record for gate tests."""
     item = copy.deepcopy(item)
@@ -108,6 +158,45 @@ class EnvelopeShape(unittest.TestCase):
         )
         clean = build(families.MEMORY_FAMILY)
         self.assertEqual(record.classify(clean)["envelope"], [])
+
+    def test_unauthenticated_oracle_siblings_are_rejected(self):
+        # The oracle block is execution provenance that no content hash
+        # covers, so an injected sibling would be a free attestation claim.
+        item = build(families.ENCODER_FAMILY)
+        item["oracle"]["external_attestation"] = "verified-by-vendor"
+        findings = record.validate_record(item, check_declared_status=False)
+        self.assertTrue(
+            any("external_attestation" in f and "not allowed" in f for f in findings),
+            findings,
+        )
+
+    def test_unauthenticated_oracle_stage_siblings_are_rejected(self):
+        item = build(families.ENCODER_FAMILY)
+        item["oracle"]["stages"][0]["attestation"] = "vendor-signed"
+        findings = record.validate_record(item, check_declared_status=False)
+        self.assertTrue(
+            any("attestation" in f and "not allowed" in f for f in findings),
+            findings,
+        )
+
+    def test_the_oracle_key_vocabulary_is_closed_without_the_schema_layer(self):
+        # Belt and braces: the record validator itself refuses oracle and
+        # stage siblings even when the JSON Schema layer is unavailable.
+        item = build(families.ENCODER_FAMILY)
+        item["oracle"]["external_attestation"] = "verified-by-vendor"
+        item["oracle"]["stages"][0]["attestation"] = "vendor-signed"
+        findings = record._validate_oracle_side(item, require_named_runtime=False)
+        self.assertTrue(
+            any("oracle carries unauthenticated sibling keys" in f for f in findings),
+            findings,
+        )
+        self.assertTrue(
+            any(
+                "oracle.stages[0] carries unauthenticated sibling keys" in f
+                for f in findings
+            ),
+            findings,
+        )
 
     def test_the_envelope_carries_every_declared_key(self):
         item = build(families.ENCODER_FAMILY)
@@ -770,6 +859,71 @@ class FamilyInvariants(unittest.TestCase):
         findings = result_findings(item)
         self.assertTrue(
             any("post_update_behavior" in finding and "re-run" in finding for finding in findings),
+            findings,
+        )
+
+    def test_a_named_runtime_critic_result_is_not_required_to_match_the_reference(self):
+        # The documented boundary leaves agreement with limbic-critic
+        # unverified: a bound runtime returning a different in-range modulator
+        # level is authenticated through its own reproduction path, not by
+        # equality with sim.run_critic.
+        item = relabel_as_named_runtime(build(families.CREDIT_FAMILY))
+        critic = item["result"]["measured"]["critic"]
+        critic["serotonin"] = (
+            round(critic["serotonin"] + 0.07, 6)
+            if critic["serotonin"] <= 0.9
+            else round(critic["serotonin"] - 0.07, 6)
+        )
+        findings = result_findings(item)
+        self.assertFalse(
+            [f for f in findings if "derived from the scenario outcome" in f],
+            findings,
+        )
+
+    def test_a_named_runtime_plasticity_result_is_not_required_to_match_the_reference(self):
+        # A named plasticity-lab owns its spike timing and eligibility; only
+        # the retained update rule still binds its outputs together.
+        item = forge_consistent_eligibility(
+            relabel_as_named_runtime(build(families.CREDIT_FAMILY))
+        )
+        findings = result_findings(item)
+        gated = (
+            "does not match the STDP trace",
+            "does not match a re-run of the circuit",
+        )
+        self.assertFalse(
+            [f for f in findings if any(message in f for message in gated)],
+            findings,
+        )
+
+    def test_a_named_runtime_plasticity_update_must_still_follow_its_own_factors(self):
+        # Scoping the reference rerun away must not unhook the update rule: a
+        # named-runtime delta that contradicts the record's own retained
+        # eligibility, dopamine, and gain is still rejected.
+        item = relabel_as_named_runtime(build(families.CREDIT_FAMILY))
+        plasticity = item["result"]["measured"]["plasticity"]
+        plasticity["weight_deltas"][0] += 0.25
+        plasticity["weights_after"][0] += 0.25
+        findings = result_findings(item)
+        self.assertTrue(
+            any("weight 0 delta does not match" in f for f in findings),
+            findings,
+        )
+
+    def test_a_mixed_chain_still_recomputes_the_reference_critic_stage(self):
+        item = relabel_plasticity_stage_as_named(build(families.CREDIT_FAMILY))
+        self.assertEqual(record.validate_record(item, check_declared_status=False), [])
+        tolerated = forge_consistent_eligibility(copy.deepcopy(item))
+        findings = result_findings(tolerated)
+        self.assertFalse(
+            [f for f in findings if "does not match the STDP trace" in f],
+            findings,
+        )
+        forged = relabel_plasticity_stage_as_named(build(families.CREDIT_FAMILY))
+        forged["result"]["measured"]["critic"]["serotonin"] = 0.0
+        findings = result_findings(forged)
+        self.assertTrue(
+            any("critic.serotonin" in f for f in findings),
             findings,
         )
 

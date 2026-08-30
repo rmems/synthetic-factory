@@ -242,7 +242,12 @@ and modulatory gain, applies the retained weight bounds, and requires
 into a second run of the same circuit on the same input, and
 `post_update_behavior` is a measurement of that run. When every derived delta
 falls below the update epsilon, `update_applied` is `false` and no learning claim
-is published.
+is published. Reference reruns — recomputing the critic modulators, the STDP
+eligibility traces, and the pre/post circuit behaviour — apply per stage and
+only to stages the record says were run by the in-repo reference; a
+named-runtime stage is authenticated through its own reproduction path (the
+boundary above leaves agreement with the named runtimes unverified), while its
+retained measurements still close against the update rule.
 
 ### 5. `temporal-memory-spike-challenges`
 
@@ -265,10 +270,12 @@ that derivation.
 
 **Temporal dependence is measured.** The same network is re-run with the cue
 removed, and with the reset removed when there is one. A record is accepted only
-if an ablation changes the measured response. Trials where the loop had already
-forgotten are written to `rejected-*.jsonl` with exactly that reason — a
-forgotten cue is a real measurement of the retention limit, and it is kept as
-evidence rather than deleted.
+if an ablation changes the measured response or the retained latch state at the
+probe: two `none` responses whose `state_retained_at_probe` flags disagree still
+demonstrate dependence. Trials where the loop had already forgotten are written
+to `rejected-*.jsonl` with exactly that reason — a forgotten cue is a real
+measurement of the retention limit, and it is kept as evidence rather than
+deleted.
 
 ## Running it
 

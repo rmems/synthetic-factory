@@ -57,6 +57,22 @@ ORACLE_KEYS = (
     "stages",
     "availability",
 )
+# The oracle block is authoritative execution provenance, so its vocabulary is
+# closed: a sibling key that no oracle wrote (an "attestation", say) would be
+# an unsupported provenance claim that no content hash covers.
+ORACLE_ALLOWED_KEYS = frozenset(ORACLE_KEYS) | {"description"}
+STAGE_ALLOWED_KEYS = frozenset(
+    {
+        "stage",
+        "requested_runtime",
+        "implementation",
+        "oracle_id",
+        "version",
+        "module_digest",
+        "runtime_commit",
+        "executable",
+    }
+)
 # Measurement-shaped keys a generator must never author. The scan is over the
 # generator subtrees only; the oracle is of course free to use them.
 RESERVED_GENERATOR_KEYS = frozenset(
@@ -552,6 +568,11 @@ def _validate_oracle_side(record, require_named_runtime):
     if missing:
         findings.append(f"oracle is missing: {', '.join(missing)}")
         return findings
+    unknown = sorted(key for key in oracle if key not in ORACLE_ALLOWED_KEYS)
+    if unknown:
+        findings.append(
+            "oracle carries unauthenticated sibling keys: " + ", ".join(unknown)
+        )
     _oracle_shape_findings(oracle, findings)
     if oracle["implementation"] not in ("reference", "named-runtime", "mixed"):
         findings.append(f"unknown oracle.implementation: {oracle['implementation']!r}")
@@ -645,6 +666,12 @@ def _stage_kind_findings(stages, evidence):
         if not isinstance(stage, dict):
             findings.append(f"oracle.stages[{position}] is not an object")
             continue
+        unknown = sorted(key for key in stage if key not in STAGE_ALLOWED_KEYS)
+        if unknown:
+            findings.append(
+                f"oracle.stages[{position}] carries unauthenticated sibling keys: "
+                + ", ".join(unknown)
+            )
         kind = stage.get("implementation")
         kinds.add(kind)
         requested_runtime = spec.runtimes[position] if position < len(spec.runtimes) else None

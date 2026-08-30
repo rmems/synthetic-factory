@@ -97,7 +97,7 @@
               "properties": {
                 "demonstrated": {
                   "type": "boolean",
-                  "description": "True only when removing an earlier event changed the measured response. Accepted records must have this true."
+                  "description": "True only when removing an earlier event changed the measured response or the retained latch state at the probe (two 'none' responses with differing state_retained_at_probe still count as dependence). Accepted records must have this true."
                 },
                 "changed_by": { "type": "array", "items": { "type": "string" } },
                 "method": { "type": "string" }

@@ -779,6 +779,19 @@ def _credit_propose(rng):
     return scenario, None, generators.predict_reward_effect(scenario)
 
 
+def _stage_is_reference(record, suffix):
+    """Whether the named chain stage was run by the in-repo reference.
+
+    Anything other than an explicit named-runtime claim is treated as the
+    reference implementation, so a malformed stage list keeps the reference
+    reruns (fail closed) rather than skipping them.
+    """
+    for stage in record["oracle"].get("stages") or ():
+        if isinstance(stage, dict) and str(stage.get("stage", "")).endswith(f":{suffix}"):
+            return stage.get("implementation") != "named-runtime"
+    return True
+
+
 def _credit_checks(record):
     measured = record["result"]["measured"]
     findings = []
@@ -787,23 +800,38 @@ def _credit_checks(record):
     if not isinstance(critic, dict) or not isinstance(plasticity, dict):
         return ["result.measured must carry both a critic and a plasticity stage"]
 
+    # The documented boundary leaves agreement with the named runtimes
+    # unverified: only a reference stage is authenticated by rerunning the
+    # reference here. A named-runtime stage is authenticated through its own
+    # reproduction path, and its retained measurements still bind every
+    # downstream consistency check below.
+    critic_is_reference = _stage_is_reference(record, "critic")
+    plasticity_is_reference = _stage_is_reference(record, "plasticity")
+
     outcome = record["scenario"]["outcome"]
     critic_config = record["oracle"]["configuration"]["critic"]
-    expected_critic = sim.run_critic(outcome, critic_config)
-    for field in (
-        "reward_prediction_error",
-        "dopamine_phasic",
-        "dopamine",
-        "serotonin",
-        "acetylcholine",
-        "norepinephrine",
-        "valence",
-    ):
-        if not _measurement_matches(critic.get(field), expected_critic[field]):
-            findings.append(
-                f"critic.{field} does not match the value derived from the "
-                "scenario outcome and critic configuration"
-            )
+    if critic_is_reference:
+        expected_critic = sim.run_critic(outcome, critic_config)
+        for field in (
+            "reward_prediction_error",
+            "dopamine_phasic",
+            "dopamine",
+            "serotonin",
+            "acetylcholine",
+            "norepinephrine",
+            "valence",
+        ):
+            if not _measurement_matches(critic.get(field), expected_critic[field]):
+                findings.append(
+                    f"critic.{field} does not match the value derived from the "
+                    "scenario outcome and critic configuration"
+                )
+    else:
+        expected_critic = None
+    # The modulator levels the executed critic stage actually reported; for a
+    # reference critic the recomputed values, so a forged retained level cannot
+    # feed the plasticity checks.
+    critic_factors = expected_critic if expected_critic is not None else critic
 
     before = plasticity["weights_before"]
     after = plasticity["weights_after"]
@@ -829,23 +857,33 @@ def _credit_checks(record):
         plasticity_config = record["oracle"]["configuration"]["plasticity"]
         eligibility = plasticity["eligibility"]
         pre_spikes = scenario_circuit["pre_spike_times_ms"]
-        expected_pre = sim._plasticity_circuit(before, pre_spikes, plasticity_config)
-        expected_traces = sim.eligibility_traces(
-            before, pre_spikes, expected_pre["spike_times_ms"], plasticity_config
-        )
+        if plasticity_is_reference:
+            expected_pre = sim._plasticity_circuit(before, pre_spikes, plasticity_config)
+            expected_traces = sim.eligibility_traces(
+                before, pre_spikes, expected_pre["spike_times_ms"], plasticity_config
+            )
+        else:
+            expected_traces = None
         derived_deltas = []
         for index, (start, end, delta, trace) in enumerate(
             zip(before, after, deltas, eligibility, strict=True)
         ):
-            if not _measurement_matches(trace, expected_traces[index]):
-                findings.append(
-                    f"weight {index} eligibility does not match the STDP trace "
-                    "derived from the pre-synaptic trains and pre-update spikes"
-                )
+            if expected_traces is None:
+                # A named plasticity stage owns its spike timing, so its
+                # retained eligibility is the factor the update rule is
+                # checked against.
+                bound_trace = trace
+            else:
+                bound_trace = expected_traces[index]
+                if not _measurement_matches(trace, expected_traces[index]):
+                    findings.append(
+                        f"weight {index} eligibility does not match the STDP trace "
+                        "derived from the pre-synaptic trains and pre-update spikes"
+                    )
             raw_delta = (
                 plasticity_config["learning_rate"]
-                * expected_traces[index]
-                * expected_critic["dopamine_phasic"]
+                * bound_trace
+                * critic_factors["dopamine_phasic"]
                 * plasticity["modulatory_gain"]
             )
             derived_after = sim.clamp(
@@ -865,7 +903,8 @@ def _credit_checks(record):
                     f"weight {index} does not satisfy after = before + delta "
                     "derived from the retained learning rule"
                 )
-        expected_post = sim._plasticity_circuit(after, pre_spikes, plasticity_config)
+        if plasticity_is_reference:
+            expected_post = sim._plasticity_circuit(after, pre_spikes, plasticity_config)
     for index, times in enumerate(scenario_circuit["pre_spike_times_ms"]):
         if any(later < earlier for earlier, later in pairwise(times)):
             findings.append(f"scenario pre-synaptic spike train {index} is not ordered")
@@ -878,8 +917,8 @@ def _credit_checks(record):
     plasticity_config = record["oracle"]["configuration"]["plasticity"]
     expected_gain = (
         1.0
-        + plasticity_config["modulatory_gain_ach"] * expected_critic["acetylcholine"]
-        + plasticity_config["modulatory_gain_ne"] * expected_critic["norepinephrine"]
+        + plasticity_config["modulatory_gain_ach"] * critic_factors["acetylcholine"]
+        + plasticity_config["modulatory_gain_ne"] * critic_factors["norepinephrine"]
     )
     if not _measurement_matches(plasticity["modulatory_gain"], expected_gain):
         findings.append("plasticity.modulatory_gain does not match critic modulators")

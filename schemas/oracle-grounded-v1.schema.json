@@ -264,7 +264,7 @@
                 "description": "Basename-only executable identity. Command arguments are never retained because they may contain secrets."
               }
             },
-            "additionalProperties": true
+            "additionalProperties": false
           }
         },
         "availability": {
@@ -291,7 +291,7 @@
           "additionalProperties": false
         }
       },
-      "additionalProperties": true
+      "additionalProperties": false
     }
   }
 }
