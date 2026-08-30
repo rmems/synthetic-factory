@@ -88,6 +88,15 @@ def canonical_blob(value):
     return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
 
 
+def _parse_finite_json_float(text: str) -> float:
+    """Decode a JSON float token without accepting exponent overflow."""
+
+    value = float(text)
+    if not math.isfinite(value):
+        raise ValueError(f"non-finite JSON number {text}")
+    return value
+
+
 def dict_field(value, key):
     """Return a nested mapping, treating malformed values as absent."""
     if not isinstance(value, dict):
@@ -355,7 +364,11 @@ class _CorpusAudit:
         bucket["records"] += 1
         token_estimate = max(1, math.ceil(len(line.encode("utf-8")) / 4))
         try:
-            obj = json.loads(line, parse_constant=reject_json_constant)
+            obj = json.loads(
+                line,
+                parse_constant=reject_json_constant,
+                parse_float=_parse_finite_json_float,
+            )
         except (json.JSONDecodeError, ValueError) as exc:
             self._record_parse_error(where, exc, token_estimate, bucket)
             return
@@ -369,7 +382,7 @@ class _CorpusAudit:
         self._account_tokens(token_estimate, bucket)
         self.totals["eligible_records"] += 1
         bucket["eligible_records"] += 1
-        kind = self._observe_record(obj, where, factory, rel)
+        kind = self._observe_record(obj, where, factory)
         self.kinds[kind] += 1
         bucket["by_kind"][kind] += 1
 
@@ -384,7 +397,7 @@ class _CorpusAudit:
         bucket["approx_tokens"] += token_estimate
         bucket["record_tokens"].append(token_estimate)
 
-    def _observe_record(self, obj, where, factory, rel):
+    def _observe_record(self, obj, where, factory):
         errors, warnings, kind, checked_id = check_record(
             obj,
             where,

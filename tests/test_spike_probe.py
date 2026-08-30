@@ -58,6 +58,7 @@ class NormalizeRaster(unittest.TestCase):
             spike_probe._normalized_event({"t_us": 1234, "neuron_id": 7}),
             {"t_us": 1234, "neuron_id": 7},
         )
+        self.assertIsNone(spike_probe._normalized_event({"t_us": 1234.4, "neuron_id": 7}))
         self.assertIsNone(spike_probe._normalized_event({"t_ms": 1.234, "neuron_id": 7}))
 
     def test_routing_third_factor_and_gate_head_are_structured(self):

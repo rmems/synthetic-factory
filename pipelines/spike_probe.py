@@ -79,11 +79,11 @@ def _normalized_event(item: Any) -> dict[str, Any] | None:
         return None
     t_us = item.get("t_us")
     neuron_id = item.get("neuron_id")
-    if not _finite(t_us) or not _is_exact_int(neuron_id):
+    if not _is_exact_int(t_us) or not _is_exact_int(neuron_id):
         return None
     event: dict[str, Any] = {
         "neuron_id": neuron_id,
-        "t_us": int(round(float(t_us))),
+        "t_us": t_us,
     }
     channel = item.get("channel")
     if isinstance(channel, str) and channel:

@@ -61,6 +61,12 @@ class RasterAndGateSnnCuration(unittest.TestCase):
         self.assertFalse(status["raster_valid"])
         self.assertIn(curate_bridge.REASON_RASTER_EXCERPT, status["reason_codes"])
 
+        record = gate_snn_fixture()
+        record["raster"]["excerpt"][0]["t_us"] = 800.4
+        status = curate_bridge.raster_status(record)
+        self.assertFalse(status["raster_valid"])
+        self.assertIn(curate_bridge.REASON_RASTER_EXCERPT, status["reason_codes"])
+
     def test_millisecond_only_raster_event_is_not_a_canonical_excerpt(self):
         record = gate_snn_fixture()
         record["raster"]["excerpt"][0] = {"t_ms": 0.8, "neuron_id": 7}
@@ -315,6 +321,7 @@ class RasterSchemaParity(unittest.TestCase):
     def test_excerpt_schema_uses_bounded_microsecond_timestamps(self):
         event = self.schema["$defs"]["raster"]["properties"]["excerpt"]["items"]
         self.assertEqual(event["required"], ["t_us", "neuron_id"])
+        self.assertEqual(event["properties"]["t_us"]["type"], "integer")
         self.assertEqual(event["properties"]["t_us"]["minimum"], 0)
         self.assertEqual(event["properties"]["t_us"]["maximum"], 50_000)
         self.assertNotIn("t_ms", event["properties"])

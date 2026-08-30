@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "raster.schema.json",
   "title": "RasterExcerpt",
-  "description": "20-50 ms raster excerpt + routing sidecar for raster-gated neuromorphic records. Excerpt source events use (neuron_id, t_us) in microseconds. Spike budget: spikes = round(neurons * mean_rate_hz * window_s) and energy = spikes * 23 pJ (Loihi-2-class 4-core, 23 pJ/spike). Window_ms must be 20-50 inclusive. The sidecar is optional here: pipelines/curate_bridge.py only requires one when called with require_raster=True (the default for materialize_paths, which publishes a gate-compatible lane tree), and accepts it either at the top level or under meta. pipelines/round_txn.py requires one from every record in the lanes named by RASTER_FACTORY_SLUGS. The same file also defines gate_snn, the spike-implemented safety gate head that pipelines/training_audit.py requires at least once per raster-gated round.",
+  "description": "20-50 ms raster excerpt + routing sidecar for raster-gated neuromorphic records. Excerpt source events use (neuron_id, t_us) in integer microseconds. Spike budget: spikes = round(neurons * mean_rate_hz * window_s) and energy = spikes * 23 pJ (Loihi-2-class 4-core, 23 pJ/spike). Window_ms must be 20-50 inclusive. The sidecar is optional here: pipelines/curate_bridge.py only requires one when called with require_raster=True (the default for materialize_paths, which publishes a gate-compatible lane tree), and accepts it either at the top level or under meta. pipelines/round_txn.py requires one from every record in the lanes named by RASTER_FACTORY_SLUGS. The same file also defines gate_snn, the spike-implemented safety gate head that pipelines/training_audit.py requires at least once per raster-gated round.",
   "type": "object",
   "properties": {
     "raster": { "$ref": "#/$defs/raster" },
@@ -266,13 +266,13 @@
         },
         "excerpt": {
           "type": "array",
-          "description": "Per-neuron spike times in microseconds within the 20-50 ms window. Runtime validation additionally requires each t_us value to be at most window_ms * 1000.",
+          "description": "Per-neuron spike times in integer microseconds within the 20-50 ms window. Runtime validation additionally requires each t_us value to be at most window_ms * 1000.",
           "minItems": 1,
           "items": {
             "type": "object",
             "required": ["t_us", "neuron_id"],
             "properties": {
-              "t_us": { "type": "number", "minimum": 0, "maximum": 50000 },
+              "t_us": { "type": "integer", "minimum": 0, "maximum": 50000 },
               "neuron_id": { "type": "integer", "minimum": 0 },
               "channel": { "type": "string" }
             },

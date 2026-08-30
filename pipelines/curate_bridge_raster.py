@@ -402,19 +402,32 @@ def _validate_raster_routing(
     _validate_routing_third_factor(routing, state)
 
 
+def _timestamp_within_raster_window(timestamp: Any, window_ms: float | None) -> bool:
+    if not _nonnegative_int(timestamp):
+        return False
+    window_us = window_ms * 1000 if window_ms is not None else None
+    if window_us is None:
+        return True
+    return timestamp <= window_us
+
+
+def _neuron_within_population(neuron_id: Any, neurons: Any) -> bool:
+    if not _nonnegative_int(neuron_id):
+        return False
+    if not _positive_int(neurons):
+        return True
+    return neuron_id < neurons
+
+
 def _valid_excerpt_item(item: Any, window_ms: float | None, neurons: Any) -> bool:
     if not isinstance(item, dict):
         return False
-    timestamp = item.get("t_us")
-    neuron_id = item.get("neuron_id")
-    if not _is_finite_number(timestamp) or not _nonnegative_int(neuron_id):
-        return False
-    window_us = window_ms * 1000 if window_ms is not None else None
-    if window_us is not None and not (-1e-9 <= float(timestamp) <= window_us + 1e-9):
-        return False
-    if _positive_int(neurons) and neuron_id >= neurons:
-        return False
-    return True
+    return all(
+        (
+            _timestamp_within_raster_window(item.get("t_us"), window_ms),
+            _neuron_within_population(item.get("neuron_id"), neurons),
+        )
+    )
 
 
 def _validate_raster_excerpt(

@@ -55,7 +55,7 @@ an SNN distillation run even though it is schema-valid as a trajectory.
   inclusive with `window_s == window_ms/1000` within 1e-9; `neurons` (>0),
   `mean_rate_hz` (>0) and `spikes` satisfying
   `spikes = round(neurons * mean_rate_hz * window_s)` ±1; a non-empty `excerpt` of
-  `{t_us, neuron_id}` with `0 ≤ t_us ≤ window_ms * 1000` and
+  `{t_us, neuron_id}` with integer `t_us`, `0 ≤ t_us ≤ window_ms * 1000`, and
   `neuron_id` ∈ [0, neurons);
   and `routing` with non-empty `source`/`target` plus at least one
   `{from, to, weight}` entry in `routing.table`.

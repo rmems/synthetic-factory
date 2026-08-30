@@ -66,6 +66,26 @@ class TrainingAuditPhysicalFraming(unittest.TestCase):
         self.assertEqual(report["totals"]["records"], 1)
         self.assertEqual(report["bridge"]["distillation_records"], 1)
 
+    def test_exponent_overflow_is_not_training_eligible(self):
+        serialized = json.dumps(thalamic("ttf-overflow")).replace(
+            '"gate_snn": {',
+            '"gate_snn": {"extra": 1e999, ',
+            1,
+        )
+
+        report = self._audit_payload((serialized + "\n").encode("utf-8"))
+
+        self.assertFalse(report["training_ready"])
+        self.assertEqual(report["totals"]["records"], 1)
+        self.assertEqual(report["totals"]["eligible_records"], 0)
+        self.assertTrue(
+            any(
+                "non-finite JSON number 1e999" in item
+                for item in report["record_invariants"]["error_examples"]
+            ),
+            report["record_invariants"],
+        )
+
 
 class TrainingAuditCompatibilityExports(unittest.TestCase):
     def test_factory_slugs_remain_public(self):

@@ -37,8 +37,9 @@ D. Raster excerpt + routing + ISI + refractory (required for every record):
 - `raster` sidecar with a **20–50 ms** window (the bound `schemas/raster.schema.json`
   and `pipelines/curate_bridge.py` actually enforce): `raster.window_ms` ∈ [20, 50]
   inclusive, `raster.window_s == window_ms/1000` within 1e-9, per-neuron spike times
-  (`raster.excerpt` with {t_us, neuron_id, channel}) sorted non-decreasing by `t_us`
-  with `0 ≤ t_us ≤ window_ms * 1000`, `neuron_id` ∈ [0, neurons), and routing metadata
+  (`raster.excerpt` with {t_us, neuron_id, channel}) sorted non-decreasing by `t_us`,
+  where `t_us` is an integer with `0 ≤ t_us ≤ window_ms * 1000`,
+  `neuron_id` ∈ [0, neurons), and routing metadata
   (`raster.routing` with {source, target, table} — `source`/`target` non-empty strings).
 - Spike budget (every gate/compute check and `raster`): declare `neurons` (>0),
   `mean_rate_hz` (>0), `window_s` (or `window_ms`), `spikes`; enforce

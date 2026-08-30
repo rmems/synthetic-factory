@@ -307,7 +307,14 @@ _INTEGRATION_PLAN = {
 class GateFixture:
     """A six-lane curation scenario laid out under one temporary root."""
 
-    def __init__(self, root, bridge_records=None, thalamic_records=None, *, canonical_ids=True):
+    def __init__(
+        self,
+        root,
+        bridge_records=None,
+        thalamic_records=None,
+        *,
+        canonical_ids=True,
+    ) -> None:
         self._initialize_paths(root)
         raw_bridge_records, raw_core_records = self._write_source_records(
             bridge_records,
@@ -325,7 +332,7 @@ class GateFixture:
         self.cleaned = self.root / "cleaned-v1"
         self.curated = self.root / "curated-v1"
 
-    def _initialize_paths(self, root):
+    def _initialize_paths(self, root) -> None:
         self.root = Path(root)
         self.source_run = self.root / "raw"
         self.lane_bridge = self.root / "lane-bridge"
@@ -336,7 +343,11 @@ class GateFixture:
         self.lane_tag = self.root / "lane-tag"
         self.reward_sidecars = []
 
-    def _write_source_records(self, bridge_records, thalamic_records):
+    def _write_source_records(
+        self,
+        bridge_records,
+        thalamic_records,
+    ) -> tuple[list[dict], list[dict]]:
         raw_bridge_records = copy.deepcopy(
             bridge_records if bridge_records is not None else [_bridge()]
         )
@@ -357,7 +368,12 @@ class GateFixture:
         )
         return raw_bridge_records, raw_core_records
 
-    def _build_lane_records(self, raw_bridge_records, raw_core_records, canonical_ids):
+    def _build_lane_records(
+        self,
+        raw_bridge_records,
+        raw_core_records,
+        canonical_ids,
+    ) -> dict[str, list[dict]]:
         identity_bridge_records = copy.deepcopy(raw_bridge_records)
         identity_core_records = copy.deepcopy(raw_core_records)
         if canonical_ids:
@@ -378,7 +394,7 @@ class GateFixture:
             "annotated_core": annotated_core_records,
         }
 
-    def _write_lane_records(self, records):
+    def _write_lane_records(self, records) -> None:
         _write_jsonl(
             self.lane_bridge / "bridge-factory" / "batch-r02.jsonl",
             records["identity_bridge"],
@@ -406,7 +422,7 @@ class GateFixture:
             records["annotated_core"],
         )
 
-    def _configure_lanes(self):
+    def _configure_lanes(self) -> None:
         self.lanes = [
             (self.lane_bridge, "bridge_event_time_order", "1.0.0"),
             (self.lane_core, "curate_identity", "identity-provenance-v1"),
@@ -416,7 +432,7 @@ class GateFixture:
             (self.lane_tag, "tag_taxonomy", "1"),
         ]
 
-    def _sync_initial_manifests(self):
+    def _sync_initial_manifests(self) -> None:
         self.manifest_paths = []
         for lane_index in range(len(self.lanes)):
             self.sync_lane_manifest(lane_index)
@@ -424,7 +440,7 @@ class GateFixture:
             for sidecar in self.reward_sidecars:
                 handle.write(json.dumps(sidecar, ensure_ascii=False, sort_keys=True) + "\n")
 
-    def _write_integration_plan(self):
+    def _write_integration_plan(self) -> None:
         self.plan_path = self.root / "plan.json"
         self.plan_path.write_text(json.dumps(_INTEGRATION_PLAN, indent=2))
 
