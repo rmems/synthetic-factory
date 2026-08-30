@@ -955,6 +955,17 @@ class CompactInputGaps(unittest.TestCase):
             f"a record without a declared feature_dim passed: {errors}",
         )
 
+    def test_an_absurd_feature_dim_is_a_finding_not_an_allocation(self):
+        # Recomputation must not be a memory amplifier: a declared dimension
+        # of a few billion gets a finding, never a bucket allocation.
+        self.record["scenario"]["compact_input"]["feature_dim"] = 10**12
+        rehash(self.record)
+        errors = mr.check_family(self.record, "x")
+        self.assertTrue(
+            any("feature_dim" in error for error in errors),
+            f"an absurd feature_dim passed: {errors}",
+        )
+
 
 class BaselineGaps(unittest.TestCase):
     """router_baseline.py"""

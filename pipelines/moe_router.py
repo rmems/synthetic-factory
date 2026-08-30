@@ -68,6 +68,11 @@ COMPACT_SUMMARY_STATS = 4
 # than trust the vector it was handed.
 FEATURIZER_ID = "blake2b-char-trigram-hashing/1.0.0"
 
+# The largest dimensions the validator will recompute. Without a ceiling a
+# malformed record declaring feature_dim of a few billion would make the
+# recomputation allocate that many buckets before anything could object.
+MAX_RECOMPUTE_DIM = 4096
+
 # Oracles that compute real routing but are not language-model teachers. A
 # recording may never name one of these as the teacher it replays.
 NON_TEACHER_ORACLE_NAMES = frozenset({"reference_moe_router"})
@@ -878,7 +883,11 @@ def _check_compact_input(scenario: dict[str, Any], where: str) -> list[str]:
 
 
 def _positive_dim(value: Any, floor: int) -> int | None:
-    if isinstance(value, int) and not isinstance(value, bool) and value >= floor:
+    if (
+        isinstance(value, int)
+        and not isinstance(value, bool)
+        and floor <= value <= MAX_RECOMPUTE_DIM
+    ):
         return value
     return None
 
@@ -911,8 +920,8 @@ def _check_compact_recompute(
     if feature_dim is None or compact_dim is None:
         return [
             f"{where}.scenario.compact_input must declare integer "
-            "feature_dim (>= 4) and compact_dim (>= 1) so the student input "
-            "can be recomputed"
+            f"feature_dim (4..{MAX_RECOMPUTE_DIM}) and compact_dim "
+            f"(1..{MAX_RECOMPUTE_DIM}) so the student input can be recomputed"
         ]
     context = scenario.get("context")
     if not isinstance(context, str) or not context.strip():

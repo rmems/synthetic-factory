@@ -74,11 +74,16 @@ Each kind declares the parameters it reads in `PARAMETER_SPEC`, and the
 simulator refuses a disturbance that is missing one or that carries one it does
 not read. A parameter that is silently ignored turns a scenario into a no-op
 that still looks like a disturbance in the record, which is worse than an
-error. For the same reason the simulator records the corruption ratio it
-actually applied alongside the one that was requested, and `malformed_kind` is
-a real behavioural difference: times that run backwards and negative amplitudes
-corrupt an accepted stream and quarantine it, while events tagged with an
-unknown channel are rejected at the boundary and simply counted as drops.
+error. The same fail-closed rule covers parameter *values*: a disturbance may
+only name channels the relay actually reads (its own channels plus the
+fallback source), and `burst_corruption` requires a finite `corrupt_ratio` in
+`[0, 1]` — an unknown channel name or an out-of-range ratio would run as a
+no-op and replay as an authoritative `continue`. For the same reason the
+simulator records the corruption ratio it actually applied alongside the one
+that was requested, and `malformed_kind` is a real behavioural difference:
+times that run backwards and negative amplitudes corrupt an accepted stream
+and quarantine it, while events tagged with an unknown channel are rejected at
+the boundary and simply counted as drops.
 
 **Outcomes**, canonical snake_case with the issue's prose spelling kept in
 `result.outcome_label`: `continue`, `degrade_gracefully`, `fallback`,
@@ -111,12 +116,18 @@ influence the label.
 workload, behind `pipelines/energy_preferences.py:EnergyOracle`:
 
 - `RaplEnergyMeter` — `/sys/class/powercap/intel-rapl:*/energy_uj` before and
-  after the workload, handling counter wraparound. Real joules. **Unavailable
-  in this environment**: the counters are not readable by a non-root user
+  after the workload, handling counter wraparound. Only non-overlapping root
+  zones are summed: a package counter already contains its core/uncore
+  subzones, and `psys` beside package zones contains the packages, so summing
+  the flat listing would double-count. Real joules. **Unavailable in this
+  environment**: the counters are not readable by a non-root user
   (`Permission denied`), which `meters_report()` states verbatim.
 - `RecordedEnergyMeter` — replays a measurement recorded by a real metered run
-  elsewhere, keyed by `workload_key(policy_id, scenario)` so a reading is only
-  valid for the workload it was taken over. Fails closed on an unknown key.
+  elsewhere, keyed by `workload_key(policy_id, scenario, ...)`, which binds
+  the policy to the scenario state *and* to the solver configuration
+  (`fine_steps`/`coarse_steps`, plus the policy-suite version), so a reading
+  is only valid for the exact workload it was taken over. Fails closed on an
+  unknown key.
   `build_records` uses this path automatically when the meter exposes
   `lookup`, which is how a host with no readable energy counter still produces
   a joule-denominated corpus: the recording supplies the cost, while task
@@ -149,7 +160,13 @@ doing work rather than asserting it.
 `check_family` re-derives the decision: it rejects a preferred candidate that is
 unsafe, one below the quality floor, one whose `cost_value` disagrees with the
 oracle measurement it claims, and any preference where a feasible candidate was
-measured cheaper.
+measured cheaper. The readings backing a candidate's cost and `task_quality`
+must themselves be `measured: true`; `task_quality` and
+`result.reference_objective` are re-derived from the recorded allocation and
+scenario state, so editing a quality and its measurement together still fails;
+and `preference.over` / `feasible` / `cheaper_but_constraint_violating` and
+the restated `quality_floor` are re-derived from the measured candidates
+rather than trusted.
 
 It also ties the bookkeeping together, because those fields are what a reader
 uses to tell a joule corpus from a second corpus. `result.cost_is_energy` must
@@ -195,14 +212,17 @@ oracle exposes them, `top1_top2_margin`, `routing_entropy` (nats). Per record:
 `top1_expert` and `expert_agreement` across layers.
 
 `check_family` treats every derived field as derived rather than as an
-independent fact. It re-derives the expert ordering from the logits, recomputes
-`top1_expert` and `expert_agreement` from the recorded layers, reconciles the
-compact measurements against the routing they summarise, bounds the entropy by
-`ln(num_experts)` (falling back to the recorded expert count when an oracle
-exposes no logits), and requires `result.teacher_grounded` to follow from the
-oracle's authority and `is_llm_teacher` rather than being asserted. An
-`authoritative` router oracle must be teacher-grounded; a non-teacher oracle
-belongs in `reference_only`.
+independent fact. It re-derives the expert ordering from the logits (tolerating
+tie-breaks among values that round together at the six-decimal serialisation,
+while never admitting a strictly smaller logit), recomputes `top1_expert` and
+`expert_agreement` from the recorded layers, recomputes the compact student
+input from the recorded context, reconciles the compact measurements against
+the routing they summarise, bounds the entropy by `ln(num_experts)` (falling
+back to the recorded expert count when an oracle exposes no logits), and
+requires `result.teacher_grounded` to follow from the oracle's authority and
+`is_llm_teacher` rather than being asserted. An `authoritative` router record
+must also declare a positive `num_local_experts` in its fingerprint so expert
+ids stay range-checked; a non-teacher oracle belongs in `reference_only`.
 
 **Student input.** `scenario.compact_input.features` is a deliberately lossy
 view of the gate input — the leading components plus tail mean/energy/max/min —

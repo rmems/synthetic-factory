@@ -134,6 +134,20 @@ class AllocationTask(unittest.TestCase):
         self.assertIn("DEMAND_NOT_MET", short.violations)
 
 
+def rapl_domain(
+    root: Path, microjoules: int, *, name: str = "intel-rapl:0",
+    range_uj: int | None = None,
+) -> Path:
+    """One synthetic powercap zone with an energy counter."""
+
+    domain = root / name
+    domain.mkdir()
+    (domain / "energy_uj").write_text(f"{microjoules}\n")
+    if range_uj is not None:
+        (domain / "max_energy_range_uj").write_text(f"{range_uj}\n")
+    return domain
+
+
 class MeterBoundary(unittest.TestCase):
     def test_process_meter_measures_a_real_execution(self):
         calls = {"n": 0}
@@ -157,9 +171,7 @@ class MeterBoundary(unittest.TestCase):
     def test_rapl_meter_rejects_zero_repeats(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            domain = root / "intel-rapl:0"
-            domain.mkdir()
-            (domain / "energy_uj").write_text("1000000\n")
+            rapl_domain(root, 1_000_000)
             meter = ep.RaplEnergyMeter(root=root)
             with self.assertRaises(oc.ContractError):
                 meter.measure(lambda: None, repeats=0, warmup=0)
@@ -176,10 +188,7 @@ class MeterBoundary(unittest.TestCase):
     def test_rapl_meter_reads_a_synthetic_powercap_tree(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            domain = root / "intel-rapl:0"
-            domain.mkdir()
-            (domain / "energy_uj").write_text("1000000\n")
-            (domain / "max_energy_range_uj").write_text("262143328850\n")
+            domain = rapl_domain(root, 1_000_000, range_uj=262_143_328_850)
             meter = ep.RaplEnergyMeter(root=root)
             self.assertTrue(meter.available()[0])
 
@@ -195,9 +204,7 @@ class MeterBoundary(unittest.TestCase):
         # free, which can reverse the measured preference.
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            domain = root / "intel-rapl:0"
-            domain.mkdir()
-            (domain / "energy_uj").write_text("5000000\n")
+            domain = rapl_domain(root, 5_000_000)
             meter = ep.RaplEnergyMeter(root=root)
             self.assertTrue(meter.available()[0])
 
@@ -211,10 +218,7 @@ class MeterBoundary(unittest.TestCase):
     def test_a_wrapped_counter_with_a_range_unwraps_correctly(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            domain = root / "intel-rapl:0"
-            domain.mkdir()
-            (domain / "energy_uj").write_text("5000000\n")
-            (domain / "max_energy_range_uj").write_text("6000000\n")
+            domain = rapl_domain(root, 5_000_000, range_uj=6_000_000)
             meter = ep.RaplEnergyMeter(root=root)
 
             def wrap():
