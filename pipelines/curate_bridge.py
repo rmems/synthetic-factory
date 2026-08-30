@@ -33,20 +33,33 @@ from __future__ import annotations
 
 import argparse
 import copy
-import ctypes
-import errno
 import hashlib
 import json
-import math
-import os
-import shutil
-import tempfile
 from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Iterable, Sequence
 
+from curate_bridge_events import (
+    CLOCK_DOMAIN_KEYS,  # noqa: F401 - preserve the established public constant
+    EXPLICIT_ORDER_KEYS,  # noqa: F401 - preserve the established public constant
+    TIME_KEYS,
+    _adjacent_descents,
+    _canonical_marker,  # noqa: F401 - preserve the established private hook
+    _declared_clock_domains,
+    _explicit_order_fields,
+    _finite_float,  # noqa: F401 - preserve the established private hook
+    _is_finite_number,
+    _record_locator,
+)
 from curate_bridge_gate import _validate_gate_compute, _validate_gate_snn
+from curate_bridge_materialize import (
+    BridgeCurationError,
+    MaterializationConfig,
+    MaterializationContext,
+    _safe_relative_path,  # noqa: F401 - preserve the established private hook
+    materialize_paths as _materialize_paths,
+)
 from curate_bridge_raster import (
     _validate_raster,
     _validate_third_factor,  # noqa: F401 - preserve the established private hook
@@ -59,37 +72,6 @@ HASH_ALGORITHM = "sha256"
 SOURCE_HASH_SCOPE = "jsonl_record_bytes_without_line_terminator"
 OUTPUT_HASH_SCOPE = "canonical_json_utf8_without_line_terminator"
 MANIFEST_NAME = "BRIDGE-MANIFEST.jsonl"
-
-TIME_KEYS = ("t_rel_ms", "t_ms")
-CLOCK_DOMAIN_KEYS = (
-    "clock_id",
-    "clock_domain",
-    "timebase",
-    "timebase_id",
-    "source_clock",
-    "source_clock_id",
-)
-EXPLICIT_ORDER_KEYS = (
-    "burst_id",
-    "causal_group",
-    "causal_group_id",
-    "caused_by",
-    "event_group",
-    "event_group_id",
-    "event_order",
-    "event_ordering",
-    "event_sequence",
-    "follows",
-    "group_id",
-    "happens_before",
-    "parent_event_id",
-    "precedes",
-    "predecessor_id",
-    "segment_id",
-    "sequence_id",
-    "sequence_index",
-    "trial_id",
-)
 
 REASON_RETAINED = "BRIDGE_EVENTS_ALREADY_GLOBALLY_ORDERED"
 REASON_REPAIRED = "BRIDGE_EVENTS_STABLE_SORTED_SINGLE_GLOBAL_CLOCK"
@@ -123,10 +105,6 @@ REASON_GATE_SNN_INVALID = "BRIDGE_GATE_SNN_SPEC_INVALID"
 # neuron population with thresholds and a decision window, so a distillation
 # probe reads neuron counts instead of prose.
 GATE_SNN_KEY = "gate_snn"
-
-
-class BridgeCurationError(ValueError):
-    """The curation input or source-root contract is invalid."""
 
 
 @dataclass(frozen=True)
@@ -196,140 +174,6 @@ def _evidence_hash(value: Any) -> str:
             default=repr,
         ).encode("utf-8")
     return sha256_hex(payload)
-
-
-def _is_finite_number(value: Any) -> bool:
-    """True for a real number this module's float arithmetic can evaluate.
-
-    JSON integers are unbounded, so ``math.isfinite`` on a declared
-    ``10**400`` raises ``OverflowError`` instead of returning False. Every
-    caller here is guarding a float comparison, so the conversion itself is
-    the test: an integer no float can hold is not a finite number for this
-    purpose, and it becomes a reason code rather than an exception escaping
-    into the publish gate, the training audit, or the distillation probe.
-    """
-
-    return (
-        isinstance(value, (int, float))
-        and not isinstance(value, bool)
-        and _finite_float(value) is not None
-    )
-
-
-def _record_locator(record: Any) -> str | None:
-    if not isinstance(record, dict):
-        return None
-    record_id = record.get("id")
-    if isinstance(record_id, str) and record_id.strip():
-        return record_id
-    view = record.get("language_view")
-    if not isinstance(view, dict):
-        return None
-    trajectory = view.get("trajectory")
-    if not isinstance(trajectory, dict):
-        return None
-    state = trajectory.get("state")
-    if not isinstance(state, dict):
-        return None
-    episode_id = state.get("episode_id")
-    if isinstance(episode_id, str) and episode_id.strip():
-        return episode_id
-    return None
-
-
-def _canonical_marker(value: Any) -> str:
-    """Make arbitrary JSON-compatible clock identifiers comparable."""
-
-    try:
-        return canonical_json_bytes(value).decode("utf-8")
-    except (TypeError, ValueError):
-        return repr(value)
-
-
-def _declared_clock_domains(record: dict[str, Any], events: list[Any]) -> list[str]:
-    values: set[str] = set()
-    containers: list[dict[str, Any]] = [record]
-    meta = record.get("meta")
-    if isinstance(meta, dict):
-        containers.append(meta)
-    containers.extend(event for event in events if isinstance(event, dict))
-    for container in containers:
-        for key in CLOCK_DOMAIN_KEYS:
-            if key in container:
-                values.add(f"{key}={_canonical_marker(container[key])}")
-
-    # Different aliases with the same scalar identify one domain.  Strip the
-    # field names for the ambiguity check while preserving full evidence.
-    semantic_values = {item.split("=", 1)[1] for item in values}
-    if len(semantic_values) <= 1:
-        return sorted(values)
-    return sorted(values)
-
-
-def _explicit_order_fields(record: dict[str, Any], events: list[Any]) -> list[str]:
-    found: set[str] = set()
-    containers: list[dict[str, Any]] = [record]
-    meta = record.get("meta")
-    if isinstance(meta, dict):
-        containers.append(meta)
-    containers.extend(event for event in events if isinstance(event, dict))
-    for container in containers:
-        found.update(key for key in EXPLICIT_ORDER_KEYS if key in container)
-    return sorted(found)
-
-
-def _adjacent_descents(times: Sequence[float]) -> list[dict[str, Any]]:
-    return [
-        {
-            "left_index": index - 1,
-            "right_index": index,
-            "left_time": times[index - 1],
-            "right_time": times[index],
-        }
-        for index in range(1, len(times))
-        if times[index] < times[index - 1]
-    ]
-
-
-def _expected_spikes(neurons: int, mean_rate_hz: float, window_s: float) -> int | None:
-    """Spike budget: neurons * rate * window, Loihi-2-class 23 pJ/spike model."""
-    try:
-        product = float(neurons) * float(mean_rate_hz) * float(window_s)
-    except OverflowError:
-        return None
-    if not math.isfinite(product):
-        return None
-    try:
-        return int(round(product))
-    except (OverflowError, ValueError):
-        return None
-
-
-def _finite_float(value: Any) -> float | None:
-    """``float(value)`` when it lands inside the IEEE-754 double range.
-
-    JSON integers are unbounded, so a record can declare a spike count no
-    float can hold.  Every tolerance comparison in this module mixes that
-    count with a float, which raises ``OverflowError`` instead of reporting a
-    mismatch, so callers convert through here and read ``None`` as "this
-    budget cannot be evaluated" — a reason code, never an exception escaping
-    into the publish gate, the training audit, or the distillation probe.
-    """
-
-    try:
-        result = float(value)
-    except (OverflowError, TypeError, ValueError):
-        return None
-    return result if math.isfinite(result) else None
-
-
-def _spike_energy(spikes: int, per_spike: float) -> float | None:
-    """Energy for a spike count at 23 pJ/spike, or None when it is not finite."""
-
-    count = _finite_float(spikes)
-    if count is None:
-        return None
-    return _finite_float(count * per_spike)
 
 
 def is_bridge_record(record: Any) -> bool:
@@ -658,6 +502,17 @@ def _quarantine(
     )
 
 
+def _resolve_options(
+    function_name: str,
+    supplied: dict[str, Any],
+    defaults: dict[str, Any],
+) -> dict[str, Any]:
+    unexpected = sorted(set(supplied).difference(defaults))
+    if unexpected:
+        raise TypeError(f"{function_name}() got an unexpected keyword argument {unexpected[0]!r}")
+    return defaults | supplied
+
+
 def curate_record(
     record: Any,
     *,
@@ -665,8 +520,7 @@ def curate_record(
     source_line: int,
     source_hash: str,
     source_file_hash: str | None = None,
-    require_raster: bool = False,
-    require_routing_table: bool = False,
+    **requirements: Any,
 ) -> CurationDecision:
     """Return a deterministic Bridge timing decision without mutating ``record``.
 
@@ -678,9 +532,21 @@ def curate_record(
     unless their budgets or specs are wrong.
     """
 
+    options = _resolve_options(
+        "curate_record",
+        requirements,
+        {"require_raster": False, "require_routing_table": False},
+    )
+    require_raster = options["require_raster"]
+    require_routing_table = options["require_routing_table"]
+
     if not isinstance(source_path, str) or not source_path:
         raise BridgeCurationError("source_path must be a non-empty string")
-    if not isinstance(source_line, int) or isinstance(source_line, bool) or source_line < 1:
+    if not isinstance(source_line, int):
+        raise BridgeCurationError("source_line must be a positive integer")
+    if isinstance(source_line, bool):
+        raise BridgeCurationError("source_line must be a positive integer")
+    if source_line < 1:
         raise BridgeCurationError("source_line must be a positive integer")
     if not isinstance(source_hash, str) or not source_hash:
         raise BridgeCurationError("source_hash must be a non-empty string")
@@ -1003,263 +869,36 @@ def summarize(decisions: Sequence[CurationDecision]) -> dict[str, Any]:
     }
 
 
-def _is_under_raw(path: Path) -> bool:
-    parts = path.resolve(strict=False).parts
-    return any(parts[index : index + 2] == ("outputs", "raw") for index in range(len(parts) - 1))
-
-
-def _safe_relative_path(value: str, *, label: str) -> Path:
-    path = Path(value)
-    if path.is_absolute() or not path.parts or ".." in path.parts:
-        raise BridgeCurationError(f"{label} must be a safe relative path: {value!r}")
-    parts = tuple(part for part in path.parts if part not in {"", "."})
-    if not parts:
-        raise BridgeCurationError(f"{label} must name a file")
-    return Path(*parts)
-
-
-def _write_exclusive(path: Path, payload: bytes) -> None:
-    descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o644)
-    try:
-        with os.fdopen(descriptor, "wb") as handle:
-            handle.write(payload)
-            handle.flush()
-            os.fsync(handle.fileno())
-    except BaseException:
-        path.unlink(missing_ok=True)
-        raise
-
-
-def _rename_noreplace(source: Path, destination: Path) -> None:
-    """Atomically publish ``source`` while refusing any existing destination."""
-
-    if os.name == "nt":
-        try:
-            source.rename(destination)
-        except FileExistsError as exc:
-            raise BridgeCurationError(
-                f"destination already exists; refusing overwrite: {destination}"
-            ) from exc
-        return
-
-    libc = ctypes.CDLL(None, use_errno=True)
-    renameat2 = getattr(libc, "renameat2", None)
-    if renameat2 is None:
-        raise BridgeCurationError("atomic no-replace publication is unavailable on this platform")
-    renameat2.argtypes = [
-        ctypes.c_int,
-        ctypes.c_char_p,
-        ctypes.c_int,
-        ctypes.c_char_p,
-        ctypes.c_uint,
-    ]
-    renameat2.restype = ctypes.c_int
-    result = renameat2(
-        -100,
-        os.fsencode(source),
-        -100,
-        os.fsencode(destination),
-        1,
-    )
-    if result == 0:
-        return
-    error = ctypes.get_errno()
-    if error in {errno.EEXIST, errno.ENOTEMPTY}:
-        raise BridgeCurationError(f"destination already exists; refusing overwrite: {destination}")
-    raise BridgeCurationError(f"cannot atomically publish {destination}: {os.strerror(error)}")
-
-
-def _validate_materialized_tree(
-    root: Path,
-    decisions: Sequence[CurationDecision],
-    manifest_relative: Path,
-) -> None:
-    """Authenticate staged output records and manifest before publication."""
-
-    manifest_path = root / manifest_relative
-    try:
-        manifest_lines = [
-            json.loads(line, parse_constant=_reject_json_constant)
-            for line in manifest_path.read_text(encoding="utf-8").splitlines()
-            if line.strip()
-        ]
-    except (OSError, UnicodeError, json.JSONDecodeError, ValueError) as exc:
-        raise BridgeCurationError(f"invalid staged Bridge manifest: {exc}") from exc
-    expected_manifest = [decision.manifest for decision in decisions]
-    if manifest_lines != expected_manifest:
-        raise BridgeCurationError("staged Bridge manifest differs from decisions")
-
-    expected: dict[str, list[str]] = {}
-    for decision in decisions:
-        if decision.output_record is None:
-            continue
-        expected.setdefault(decision.manifest["source_path"], []).append(
-            decision.manifest["output_hash"]
-        )
-    actual_paths = {
-        path.relative_to(root).as_posix(): path
-        for path in sorted(root.rglob("*.jsonl"))
-        if path.is_file() and path != manifest_path
-    }
-    if set(actual_paths) != set(expected):
-        raise BridgeCurationError(
-            "staged Bridge output paths differ from manifest: "
-            f"expected={sorted(expected)}, actual={sorted(actual_paths)}"
-        )
-    for relative, expected_hashes in sorted(expected.items()):
-        actual_hashes: list[str] = []
-        for line in actual_paths[relative].read_bytes().split(b"\n"):
-            if not line.strip():
-                continue
-            try:
-                record = json.loads(line.decode("utf-8"), parse_constant=_reject_json_constant)
-            except (UnicodeError, json.JSONDecodeError, ValueError) as exc:
-                raise BridgeCurationError(
-                    f"invalid staged Bridge output {relative}: {exc}"
-                ) from exc
-            actual_hashes.append(sha256_hex(canonical_json_bytes(record)))
-        if actual_hashes != expected_hashes:
-            raise BridgeCurationError(
-                f"staged Bridge output hashes differ from manifest: {relative}"
-            )
-
-
-def _materialization_roots(
-    source_root: str | Path, output_dir: str | Path
-) -> tuple[Path, Path, Path]:
-    root = Path(source_root)
-    destination = Path(output_dir)
-    checks = (
-        (root.is_dir(), f"source_root must be a real directory: {root}"),
-        (not root.is_symlink(), f"source_root must be a real directory: {root}"),
-        (
-            not os.path.lexists(destination),
-            f"destination already exists; refusing overwrite: {destination}",
-        ),
-        (
-            destination.parent.is_dir(),
-            f"destination parent must be a real directory: {destination.parent}",
-        ),
-        (
-            not destination.parent.is_symlink(),
-            f"destination parent must be a real directory: {destination.parent}",
-        ),
-        (
-            not _is_under_raw(destination),
-            f"refusing to write inside immutable raw evidence: {destination}",
-        ),
-    )
-    failure = next((message for valid, message in checks if not valid), None)
-    if failure is not None:
-        raise BridgeCurationError(failure)
-    root_resolved = root.resolve(strict=True)
-    destination_resolved = destination.resolve(strict=False)
-    separated = (
-        destination_resolved != root_resolved and root_resolved not in destination_resolved.parents
-    )
-    if not separated:
-        raise BridgeCurationError(f"destination cannot be inside source_root: {destination}")
-    return root, destination, root_resolved
-
-
-def _materialization_sources(sources: Iterable[str | Path], root_resolved: Path) -> list[Path]:
-    source_paths = list(map(Path, sources))
-    invalid = [
-        source for source in source_paths if not all((source.is_file(), not source.is_symlink()))
-    ]
-    if invalid:
-        raise BridgeCurationError(f"source must be a real JSONL file: {invalid[0]}")
-    outside = [
-        source
-        for source in source_paths
-        if not source.resolve(strict=True).is_relative_to(root_resolved)
-    ]
-    if outside:
-        raise BridgeCurationError(f"source is outside source_root: {outside[0]}")
-    return source_paths
-
-
-def _write_materialized_tree(
-    staged: Path,
-    decisions: Sequence[CurationDecision],
-    manifest_relative: Path,
-) -> None:
-    by_path: dict[Path, list[dict[str, Any]]] = {}
-    for decision in decisions:
-        if decision.output_record is None:
-            continue
-        relative = _safe_relative_path(
-            decision.manifest["source_path"], label="manifest source_path"
-        )
-        by_path.setdefault(relative, []).append(decision.output_record)
-    for relative, records in sorted(by_path.items(), key=lambda item: item[0].as_posix()):
-        target = staged / relative
-        target.parent.mkdir(parents=True, exist_ok=True)
-        _write_exclusive(
-            target,
-            b"".join(canonical_json_line(record) for record in records),
-        )
-    manifest_path = staged / manifest_relative
-    manifest_path.parent.mkdir(parents=True, exist_ok=True)
-    _write_exclusive(
-        manifest_path,
-        b"".join(canonical_json_line(decision.manifest) for decision in decisions),
-    )
-
-
-def _publish_materialized_tree(
-    destination: Path,
-    decisions: Sequence[CurationDecision],
-    manifest_relative: Path,
-) -> None:
-    stage_root = Path(
-        tempfile.mkdtemp(prefix=f".{destination.name}.staging-", dir=destination.parent)
-    )
-    staged = stage_root / "tree"
-    try:
-        staged.mkdir()
-        _write_materialized_tree(staged, decisions, manifest_relative)
-        _validate_materialized_tree(staged, decisions, manifest_relative)
-        _rename_noreplace(staged, destination)
-    finally:
-        shutil.rmtree(stage_root, ignore_errors=True)
-
-
 def materialize_paths(
     sources: Iterable[str | Path],
     *,
     source_root: str | Path,
     output_dir: str | Path,
-    manifest_name: str = MANIFEST_NAME,
-    require_raster: bool = True,
+    **options: Any,
 ) -> list[CurationDecision]:
     """Publish one atomically validated, gate-compatible Bridge lane tree."""
 
-    root, destination, root_resolved = _materialization_roots(source_root, output_dir)
-    source_paths = list(map(Path, sources))
-    if not source_paths:
-        raise BridgeCurationError("at least one Bridge JSONL source is required")
-    source_paths = _materialization_sources(source_paths, root_resolved)
-    decisions = curate_paths(
-        source_paths,
-        source_root=root,
-        require_raster=require_raster,
-        require_routing_table=require_raster,
+    resolved = _resolve_options(
+        "materialize_paths",
+        options,
+        {"manifest_name": MANIFEST_NAME, "require_raster": True},
     )
-    manifest_relative = _safe_relative_path(manifest_name, label="manifest_name")
-    if manifest_relative.suffix != ".jsonl":
-        raise BridgeCurationError("manifest_name must end in .jsonl")
-    output_paths = {
-        _safe_relative_path(decision.manifest["source_path"], label="manifest source_path")
-        for decision in decisions
-        if decision.output_record is not None
-    }
-    if manifest_relative in output_paths:
-        raise BridgeCurationError(
-            f"manifest path collides with a curated output: {manifest_relative}"
-        )
-    _publish_materialized_tree(destination, decisions, manifest_relative)
-    return decisions
+    manifest_name = resolved["manifest_name"]
+    require_raster = resolved["require_raster"]
+    config = MaterializationConfig(
+        source_root=source_root,
+        output_dir=output_dir,
+        manifest_name=manifest_name,
+        require_raster=require_raster,
+    )
+    context = MaterializationContext(
+        canonical_json_bytes=canonical_json_bytes,
+        canonical_json_line=canonical_json_line,
+        curate_paths=curate_paths,
+        reject_json_constant=_reject_json_constant,
+        sha256_hex=sha256_hex,
+    )
+    return _materialize_paths(sources, config, context)
 
 
 def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:

@@ -37,6 +37,33 @@ class RoundTransaction(unittest.TestCase):
         )
         return stage
 
+    def _assert_symlinked_stage_refused(
+        self,
+        root,
+        operation,
+        *,
+        outside_name,
+        populate_outside=False,
+    ):
+        factory = self.factory(root)
+        reservation = round_txn.reserve(factory, 1, 1)
+        stage = Path(reservation["staging_dir"])
+        outside = Path(root) / outside_name
+        outside.mkdir()
+        if populate_outside:
+            write_records(outside / reservation["batch_file"], [thalamic("outside")])
+            (outside / reservation["notes_file"]).write_text("# Critique\n\nExternal.\n")
+        sentinel = outside / "keep.txt"
+        sentinel.write_text("do not delete\n")
+        stage.rmdir()
+        stage.symlink_to(outside, target_is_directory=True)
+
+        with self.assertRaisesRegex(round_txn.TransactionError, "staging directory is unsafe"):
+            operation(factory, 1, reservation["token"])
+
+        self.assertEqual(sentinel.read_text(), "do not delete\n")
+        return factory, outside
+
     def test_reserve_stage_publish_commits_once(self):
         with tempfile.TemporaryDirectory() as td:
             factory = self.factory(td)
@@ -153,40 +180,21 @@ class RoundTransaction(unittest.TestCase):
 
     def test_abort_refuses_a_symlinked_staging_directory(self):
         with tempfile.TemporaryDirectory() as td:
-            factory = self.factory(td)
-            reservation = round_txn.reserve(factory, 1, 1)
-            stage = Path(reservation["staging_dir"])
-            outside = Path(td) / "outside-stage"
-            outside.mkdir()
-            sentinel = outside / "keep.txt"
-            sentinel.write_text("do not delete\n")
-            stage.rmdir()
-            stage.symlink_to(outside, target_is_directory=True)
-
-            with self.assertRaisesRegex(round_txn.TransactionError, "staging directory is unsafe"):
-                round_txn.abort(factory, 1, reservation["token"])
-
-            self.assertEqual(sentinel.read_text(), "do not delete\n")
+            factory, _outside = self._assert_symlinked_stage_refused(
+                td,
+                round_txn.abort,
+                outside_name="outside-stage",
+            )
             self.assertTrue((factory / "ROUND-r01.reserved.json").is_file())
 
     def test_publish_refuses_a_symlinked_staging_directory(self):
         with tempfile.TemporaryDirectory() as td:
-            factory = self.factory(td)
-            reservation = round_txn.reserve(factory, 1, 1)
-            stage = Path(reservation["staging_dir"])
-            outside = Path(td) / "outside-publish-stage"
-            outside.mkdir()
-            write_records(outside / reservation["batch_file"], [thalamic("outside")])
-            (outside / reservation["notes_file"]).write_text("# Critique\n\nExternal.\n")
-            sentinel = outside / "keep.txt"
-            sentinel.write_text("do not delete\n")
-            stage.rmdir()
-            stage.symlink_to(outside, target_is_directory=True)
-
-            with self.assertRaisesRegex(round_txn.TransactionError, "staging directory is unsafe"):
-                round_txn.publish(factory, 1, reservation["token"])
-
-            self.assertEqual(sentinel.read_text(), "do not delete\n")
+            factory, outside = self._assert_symlinked_stage_refused(
+                td,
+                round_txn.publish,
+                outside_name="outside-publish-stage",
+                populate_outside=True,
+            )
             self.assertTrue(outside.is_dir())
             self.assertFalse((factory / "ROUND-r01.complete.json").exists())
 

@@ -531,29 +531,41 @@ class _CorpusAudit:
 
     def _observe_vocabulary(self, obj):
         for _path, reward in walk_key(obj, "reward_components"):
-            if isinstance(reward, dict):
-                self.reward_keys.update(reward.keys())
-            self.reward_shapes[reward_shape(reward)] += 1
+            self._observe_reward(reward)
         for _path, values in walk_key(obj, "tags"):
-            if isinstance(values, list):
-                self.tags.update(value for value in values if isinstance(value, str))
+            self._observe_tags(values)
+
+    def _observe_reward(self, reward):
+        if isinstance(reward, dict):
+            self.reward_keys.update(reward.keys())
+        self.reward_shapes[reward_shape(reward)] += 1
+
+    def _observe_tags(self, values):
+        if isinstance(values, list):
+            self.tags.update(value for value in values if isinstance(value, str))
 
     def _observe_agentic(self, obj, kind, where):
         self.episodes["episodes"] += int(kind == "episode")
         for hidden_path in hidden_thought_paths(obj):
-            self.episodes["hidden_thought_fields"] += 1
-            if len(self.hidden_thought_examples) < 10:
-                self.hidden_thought_examples.append(f"{where}:{hidden_path}")
+            self._observe_hidden_thought(hidden_path, where)
         for turn in agentic_turns(obj, kind):
-            if not isinstance(turn, dict):
-                continue
-            has_basis = has_observable_decision_basis(turn)
-            self.episodes["steps"] += 1
-            self.episodes["decision_basis_steps"] += int(has_basis)
-            self.episodes["missing_decision_basis_steps"] += int(not has_basis)
-            self.episodes["legacy_thought_only_steps"] += int(
-                "thought" in turn and "decision_basis" not in turn
-            )
+            self._observe_agentic_turn(turn)
+
+    def _observe_hidden_thought(self, hidden_path, where):
+        self.episodes["hidden_thought_fields"] += 1
+        if len(self.hidden_thought_examples) < 10:
+            self.hidden_thought_examples.append(f"{where}:{hidden_path}")
+
+    def _observe_agentic_turn(self, turn):
+        if not isinstance(turn, dict):
+            return
+        has_basis = has_observable_decision_basis(turn)
+        self.episodes["steps"] += 1
+        self.episodes["decision_basis_steps"] += int(has_basis)
+        self.episodes["missing_decision_basis_steps"] += int(not has_basis)
+        self.episodes["legacy_thought_only_steps"] += int(
+            "thought" in turn and "decision_basis" not in turn
+        )
 
     def report(self):
         return build_report(
