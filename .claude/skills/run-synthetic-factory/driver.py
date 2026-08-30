@@ -788,15 +788,14 @@ def _generate_and_validate_smoke_families(hardware_parity, nir_equivalence, orac
     return failures, hardware, graphs
 
 
-def _check_relabelled_mismatch_is_refused(
-    hardware, graphs, hardware_parity, nir_equivalence, oracle_contract
-):
-    """A verdict that contradicts its own evidence must be refused."""
+def _check_relabelled_mismatch_is_refused(cases, oracle_contract):
+    """A verdict that contradicts its own evidence must be refused.
+
+    ``cases`` pairs each family's records with its validator and the reason
+    code a relabelled mismatch must surface.
+    """
     failures = []
-    for records, validate, code in (
-        (hardware, hardware_parity.validate_record, "PARITY_VERDICT_INCONSISTENT"),
-        (graphs, nir_equivalence.validate_record, "DIVERGENCE_SUPPRESSED"),
-    ):
+    for records, validate, code in cases:
         divergent = [
             record
             for record in records
@@ -829,7 +828,15 @@ def smoke_parity_families():
     )
     failures += family_failures
     failures += _check_relabelled_mismatch_is_refused(
-        hardware, graphs, hardware_parity, nir_equivalence, oracle_contract
+        (
+            (
+                hardware,
+                hardware_parity.validate_record,
+                "PARITY_VERDICT_INCONSISTENT",
+            ),
+            (graphs, nir_equivalence.validate_record, "DIVERGENCE_SUPPRESSED"),
+        ),
+        oracle_contract,
     )
     return failures
 

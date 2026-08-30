@@ -716,9 +716,8 @@ class RecordedCaptureAdapter(OracleAdapter):
             "detail": f"capture {self.capture_path.name}",
         }
 
-    def run(self, model, stimulus, repeats=1):
-        if self._error:
-            raise OracleUnavailable(*self._error)
+    def _authenticated_manifest_and_payload(self):
+        """The capture's manifest and payload, with the digest chain checked."""
         capture = self._capture
         manifest = capture.get("manifest") or {}
         if not isinstance(manifest, dict):
@@ -743,6 +742,11 @@ class RecordedCaptureAdapter(OracleAdapter):
                 f"capture payload digest {actual} != manifest "
                 f"{manifest.get('payload_sha256')}",
             )
+        return manifest, payload, actual
+
+    @staticmethod
+    def _check_fixture_binding(manifest, model, stimulus):
+        """The capture must name the exact encoded input fixture it saw."""
         model = normalize_model(model)
         fixture = stimulus_fixture(normalize_stimulus(stimulus, model["inputs"]))
         if manifest.get("input_fixture_sha256") != fixture["sha256"]:
@@ -750,10 +754,12 @@ class RecordedCaptureAdapter(OracleAdapter):
                 "CAPTURE_INPUT_FIXTURE_MISMATCH",
                 "capture was taken against a different encoded input fixture",
             )
-        # The Q8.8 export is what was loaded onto the board. Report its absence
-        # before checking the retained observation so the failure identifies
-        # the actual missing provenance rather than a secondary shape detail.
-        quantization = capture.get("quantization") or payload.get("quantization")
+
+    def _quantization_provenance(self, payload):
+        """The Q8.8 conversion the capture claims produced its bitstream."""
+        quantization = self._capture.get("quantization") or payload.get(
+            "quantization"
+        )
         if not quantization:
             raise OracleUnavailable(
                 "CAPTURE_QUANTIZATION_MISSING",
@@ -768,6 +774,11 @@ class RecordedCaptureAdapter(OracleAdapter):
                 "capture quantization must be a JSON object describing the "
                 "Q8.8 conversion",
             )
+        return quantization
+
+    @staticmethod
+    def _retained_observation_fingerprint(payload):
+        """The payload must carry a complete, digestible observation."""
         missing = [
             key
             for key in (
@@ -786,11 +797,15 @@ class RecordedCaptureAdapter(OracleAdapter):
                 "CAPTURE_UNREADABLE", f"capture payload is missing {missing}"
             )
         try:
-            fingerprint = run_digest(payload)
+            return run_digest(payload)
         except (KeyError, TypeError, AttributeError) as exc:
             raise OracleUnavailable(
                 "CAPTURE_UNREADABLE", f"capture payload is malformed: {exc}"
             ) from exc
+
+    @staticmethod
+    def _authenticated_repeats(payload):
+        """Every retained repeat must re-derive the digest recorded for it."""
         repeat_outputs = payload["repeat_outputs"]
         repeat_digests = payload["repeat_digests"]
         if (
@@ -820,6 +835,11 @@ class RecordedCaptureAdapter(OracleAdapter):
                     f"capture repeat_digests[{index}] is not derived from "
                     f"repeat_outputs[{index}]",
                 )
+        return repeat_outputs, repeat_digests
+
+    @staticmethod
+    def _check_primary_matches_first_repeat(payload, repeat_outputs):
+        """The payload's primary observation must equal its first repeat."""
         primary = {
             key: payload.get(key)
             for key in ("spikes", "spike_events", "membrane", "action", "arithmetic")
@@ -851,6 +871,20 @@ class RecordedCaptureAdapter(OracleAdapter):
                 "CAPTURE_DIGEST_MISMATCH",
                 "capture payload does not match its first retained repeat output",
             )
+
+    def run(self, model, stimulus, repeats=1):
+        if self._error:
+            raise OracleUnavailable(*self._error)
+        capture = self._capture
+        manifest, payload, actual = self._authenticated_manifest_and_payload()
+        self._check_fixture_binding(manifest, model, stimulus)
+        # The Q8.8 export is what was loaded onto the board. Report its absence
+        # before checking the retained observation so the failure identifies
+        # the actual missing provenance rather than a secondary shape detail.
+        quantization = self._quantization_provenance(payload)
+        fingerprint = self._retained_observation_fingerprint(payload)
+        repeat_outputs, repeat_digests = self._authenticated_repeats(payload)
+        self._check_primary_matches_first_repeat(payload, repeat_outputs)
         return {
             "quantization": quantization,
             "adapter": self.name,

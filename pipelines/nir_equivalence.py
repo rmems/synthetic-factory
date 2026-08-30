@@ -2209,6 +2209,11 @@ def _validate_record(record, where):
     if errors:
         return errors
 
+    return errors + _recorded_comparison_errors(record, scenario, graph, oracle, where)
+
+
+def _recorded_comparison_errors(record, scenario, graph, oracle, where):
+    """The recorded result must reproduce the freshly recomputed comparison."""
     entries = oracle["runtimes"]
     recomputed = compare_runtimes(
         {"structure_digest": scenario.get("structure_digest"), "graph": graph}, entries
@@ -2216,7 +2221,8 @@ def _validate_record(record, where):
     verdict, reason_codes = verdict_for(recomputed)
     result = record.get("result") or {}
     if not isinstance(result, dict):
-        return errors + [f"{where}: result must be an object [ENVELOPE_MALFORMED]"]
+        return [f"{where}: result must be an object [ENVELOPE_MALFORMED]"]
+    errors = []
     recorded = result.get("comparison")
     if not isinstance(recorded, dict):
         errors.append(f"{where}: result.comparison must be an object [COMPARISON_MISMATCH]")
@@ -2420,49 +2426,49 @@ def parse_args(argv=None):
     return parser.parse_args(argv)
 
 
-def main(argv=None):
-    args = parse_args(argv)
-    if args.command == "availability":
-        print(json.dumps(availability_report(), indent=2, sort_keys=True))
-        return 0
-    if args.command == "generate":
-        out = Path(args.out_dir) / FACTORY_SLUG / f"batch-r{args.round:02d}.jsonl"
-        if out.exists():
-            print(
-                f"nir_equivalence: refusing to overwrite existing round {out}",
-                file=sys.stderr,
-            )
-            return 2
-        records = generate_records(round_number=args.round, steps=args.steps)
-        errors = validate_records(records, source="generated")
-        if errors:
-            for error in errors:
-                print("ERROR:", error, file=sys.stderr)
-            print("nir_equivalence: refusing to write invalid records", file=sys.stderr)
-            return 1
-        try:
-            write_jsonl(out, records)
-        except FileExistsError:
-            print(
-                f"nir_equivalence: refusing to overwrite existing round {out}",
-                file=sys.stderr,
-            )
-            return 2
-        verdicts = {}
-        for record in records:
-            verdict = record["result"]["verdict"]
-            verdicts[verdict] = verdicts.get(verdict, 0) + 1
-        print(json.dumps({"written": str(out), "records": len(records),
-                          "by_verdict": verdicts}, indent=2, sort_keys=True))
-        return 0
-    records, parse_errors = read_jsonl(args.path)
-    if args.command == "validate":
-        errors = parse_errors + validate_records(records, source=Path(args.path).name)
-        print(json.dumps({"records": len(records), "errors": len(errors)}, indent=2))
+def _cmd_generate(args):
+    """Write one validated round, refusing overwrites."""
+    out = Path(args.out_dir) / FACTORY_SLUG / f"batch-r{args.round:02d}.jsonl"
+    if out.exists():
+        print(
+            f"nir_equivalence: refusing to overwrite existing round {out}",
+            file=sys.stderr,
+        )
+        return 2
+    records = generate_records(round_number=args.round, steps=args.steps)
+    errors = validate_records(records, source="generated")
+    if errors:
         for error in errors:
             print("ERROR:", error, file=sys.stderr)
-        return 1 if errors else 0
-    views, errors = build_training_views(records, source=Path(args.path).name)
+        print("nir_equivalence: refusing to write invalid records", file=sys.stderr)
+        return 1
+    try:
+        write_jsonl(out, records)
+    except FileExistsError:
+        print(
+            f"nir_equivalence: refusing to overwrite existing round {out}",
+            file=sys.stderr,
+        )
+        return 2
+    verdicts = {}
+    for record in records:
+        verdict = record["result"]["verdict"]
+        verdicts[verdict] = verdicts.get(verdict, 0) + 1
+    print(json.dumps({"written": str(out), "records": len(records),
+                      "by_verdict": verdicts}, indent=2, sort_keys=True))
+    return 0
+
+
+def _cmd_validate(records, parse_errors, source):
+    errors = parse_errors + validate_records(records, source=source)
+    print(json.dumps({"records": len(records), "errors": len(errors)}, indent=2))
+    for error in errors:
+        print("ERROR:", error, file=sys.stderr)
+    return 1 if errors else 0
+
+
+def _cmd_training_view(records, parse_errors, source):
+    views, errors = build_training_views(records, source=source)
     if parse_errors or errors:
         for error in parse_errors + errors:
             print("ERROR:", error, file=sys.stderr)
@@ -2470,6 +2476,19 @@ def main(argv=None):
     for view in views:
         print(json.dumps(view, sort_keys=True))
     return 0
+
+
+def main(argv=None):
+    args = parse_args(argv)
+    if args.command == "availability":
+        print(json.dumps(availability_report(), indent=2, sort_keys=True))
+        return 0
+    if args.command == "generate":
+        return _cmd_generate(args)
+    records, parse_errors = read_jsonl(args.path)
+    if args.command == "validate":
+        return _cmd_validate(records, parse_errors, Path(args.path).name)
+    return _cmd_training_view(records, parse_errors, Path(args.path).name)
 
 
 if __name__ == "__main__":
