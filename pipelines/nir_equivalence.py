@@ -1616,121 +1616,153 @@ def _check_runtimes(record, where):
                 "[RUNTIME_STATUS_UNKNOWN]"
             )
             continue
-        expected_class = expected_runtime.runtime_class
-        if entry.get("runtime_class") != expected_class:
+        errors += _runtime_identity_errors(entry, expected_runtime, label)
+        errors += _runtime_status_errors(entry, label)
+        errors += _runtime_probe_errors(entry, expected_runtime, label)
+    return errors
+
+
+def _runtime_identity_errors(entry, expected_runtime, label):
+    """The entry's identity fields must be the selected implementation's."""
+    errors = []
+    expected_class = expected_runtime.runtime_class
+    if entry.get("runtime_class") != expected_class:
+        errors.append(
+            f"{label}: runtime_class must be {expected_class!r}, got "
+            f"{entry.get('runtime_class')!r} [RUNTIME_STATUS_UNKNOWN]"
+        )
+    expected_conventions = dict(getattr(expected_runtime, "conventions", {}))
+    if entry.get("conventions") != expected_conventions:
+        errors.append(
+            f"{label}: conventions do not match the selected runtime implementation "
+            "[COMPARISON_MISMATCH]"
+        )
+    expected_supported = list(getattr(expected_runtime, "supported_types", ()))
+    if entry.get("supported_types") != expected_supported:
+        errors.append(
+            f"{label}: supported_types do not match the selected runtime "
+            "implementation [COMPARISON_MISMATCH]"
+        )
+    return errors
+
+
+def _runtime_status_errors(entry, label):
+    """What the declared status obliges the entry to carry (or not carry)."""
+    errors = []
+    if entry.get("status") not in RUNTIME_STATUSES:
+        errors.append(
+            f"{label}: status must be one of {list(RUNTIME_STATUSES)} "
+            "[RUNTIME_STATUS_UNKNOWN]"
+        )
+    if entry.get("status") in (STATUS_UNAVAILABLE, STATUS_UNSUPPORTED):
+        if entry.get("outputs") is not None or entry.get("output_digest") is not None:
             errors.append(
-                f"{label}: runtime_class must be {expected_class!r}, got "
-                f"{entry.get('runtime_class')!r} [RUNTIME_STATUS_UNKNOWN]"
+                f"{label}: a runtime that did not execute must not carry outputs "
+                "[UNAVAILABLE_RUNTIME_HAS_OUTPUT]"
             )
-        expected_conventions = dict(getattr(expected_runtime, "conventions", {}))
-        if entry.get("conventions") != expected_conventions:
+        if not isinstance(entry.get("reason_code"), str) or not entry[
+            "reason_code"
+        ].strip():
             errors.append(
-                f"{label}: conventions do not match the selected runtime implementation "
-                "[COMPARISON_MISMATCH]"
-            )
-        expected_supported = list(getattr(expected_runtime, "supported_types", ()))
-        if entry.get("supported_types") != expected_supported:
-            errors.append(
-                f"{label}: supported_types do not match the selected runtime "
-                "implementation [COMPARISON_MISMATCH]"
-            )
-        if entry.get("status") not in RUNTIME_STATUSES:
-            errors.append(
-                f"{label}: status must be one of {list(RUNTIME_STATUSES)} "
+                f"{label}: a runtime that did not execute needs a reason code "
                 "[RUNTIME_STATUS_UNKNOWN]"
             )
-        if entry.get("status") in (STATUS_UNAVAILABLE, STATUS_UNSUPPORTED):
-            if entry.get("outputs") is not None or entry.get("output_digest") is not None:
-                errors.append(
-                    f"{label}: a runtime that did not execute must not carry outputs "
-                    "[UNAVAILABLE_RUNTIME_HAS_OUTPUT]"
-                )
-            if not isinstance(entry.get("reason_code"), str) or not entry[
-                "reason_code"
-            ].strip():
-                errors.append(
-                    f"{label}: a runtime that did not execute needs a reason code "
-                    "[RUNTIME_STATUS_UNKNOWN]"
-                )
-            if not isinstance(entry.get("detail"), str) or not entry["detail"].strip():
-                errors.append(
-                    f"{label}: a runtime that did not execute needs a finite text "
-                    "diagnostic [ENVELOPE_MALFORMED]"
-                )
-        if entry.get("status") == STATUS_EXECUTED:
-            outputs = entry.get("outputs")
-            if not isinstance(outputs, dict):
-                errors.append(f"{label}: an executed runtime must carry outputs")
-            else:
-                missing = [
-                    key
-                    for key in ("output_trace", "spike_events", "spike_count")
-                    if key not in outputs
-                ]
-                if missing:
-                    errors.append(
-                        f"{label}: executed outputs are missing {missing} "
-                        "[ENVELOPE_MALFORMED]"
-                    )
-            if not entry.get("output_digest"):
-                errors.append(f"{label}: an executed runtime must carry an output digest")
-            # An `executed` claim naming a runtime this validator cannot
-            # re-execute is unfalsifiable. Without this, a record could name
-            # nir_rs -- which is not installed -- as having produced a trace,
-            # and nothing downstream would contradict it.
-            if entry.get("runtime") not in _RUNTIME_BY_NAME:
-                errors.append(
-                    f"{label}: only runtimes this validator can re-execute may be "
-                    f"marked {STATUS_EXECUTED!r}; {entry.get('runtime')!r} is not one "
-                    f"of {sorted(_RUNTIME_BY_NAME)} [RUNTIME_STATUS_UNKNOWN]"
-                )
-        try:
-            availability = expected_runtime.availability()
-        except Exception as exc:  # noqa: BLE001 - adapter failures are local findings
+        if not isinstance(entry.get("detail"), str) or not entry["detail"].strip():
             errors.append(
-                f"{label}: runtime availability probe failed locally: {exc} "
-                "[RUNTIME_STATUS_UNKNOWN]"
+                f"{label}: a runtime that did not execute needs a finite text "
+                "diagnostic [ENVELOPE_MALFORMED]"
             )
-            continue
-        available = availability.get("available") if isinstance(availability, dict) else None
-        if not isinstance(availability, dict) or (
-            available is not True and available is not False
-        ):
+    if entry.get("status") == STATUS_EXECUTED:
+        errors += _executed_status_errors(entry, label)
+    return errors
+
+
+def _executed_status_errors(entry, label):
+    """An executed claim must carry outputs and stay falsifiable."""
+    errors = []
+    outputs = entry.get("outputs")
+    if not isinstance(outputs, dict):
+        errors.append(f"{label}: an executed runtime must carry outputs")
+    else:
+        missing = [
+            key
+            for key in ("output_trace", "spike_events", "spike_count")
+            if key not in outputs
+        ]
+        if missing:
             errors.append(
-                f"{label}: runtime availability probe returned a malformed capability "
-                "[RUNTIME_STATUS_UNKNOWN]"
+                f"{label}: executed outputs are missing {missing} "
+                "[ENVELOPE_MALFORMED]"
             )
-            continue
-        if available is False:
-            if entry.get("status") != STATUS_UNAVAILABLE:
-                errors.append(
-                    f"{label}: unavailable runtime must be recorded as "
-                    f"{STATUS_UNAVAILABLE!r}, not {entry.get('status')!r} "
-                    "[RUNTIME_STATUS_UNKNOWN]"
-                )
-            expected_reason = availability.get("reason_code")
-            if expected_reason not in UNAVAILABLE_REASON_CODES:
-                errors.append(
-                    f"{label}: runtime probe returned unsupported reason_code "
-                    f"{expected_reason!r} [RUNTIME_STATUS_UNKNOWN]"
-                )
-            elif entry.get("reason_code") != expected_reason:
-                errors.append(
-                    f"{label}: unavailable reason_code {entry.get('reason_code')!r} "
-                    f"does not match the runtime probe {expected_reason!r} "
-                    "[RUNTIME_STATUS_UNKNOWN]"
-                )
-            expected_detail = availability.get("detail")
-            if entry.get("detail") != expected_detail:
-                errors.append(
-                    f"{label}: unavailable diagnostic detail does not match the "
-                    "runtime probe [RUNTIME_STATUS_UNKNOWN]"
-                )
-            if entry.get("roundtrip") is not None:
-                errors.append(
-                    f"{label}: an unavailable runtime cannot claim parse/write evidence "
-                    "[RUNTIME_STATUS_UNKNOWN]"
-                )
+    if not entry.get("output_digest"):
+        errors.append(f"{label}: an executed runtime must carry an output digest")
+    # An `executed` claim naming a runtime this validator cannot
+    # re-execute is unfalsifiable. Without this, a record could name
+    # nir_rs -- which is not installed -- as having produced a trace,
+    # and nothing downstream would contradict it.
+    if entry.get("runtime") not in _RUNTIME_BY_NAME:
+        errors.append(
+            f"{label}: only runtimes this validator can re-execute may be "
+            f"marked {STATUS_EXECUTED!r}; {entry.get('runtime')!r} is not one "
+            f"of {sorted(_RUNTIME_BY_NAME)} [RUNTIME_STATUS_UNKNOWN]"
+        )
+    return errors
+
+
+def _runtime_probe_errors(entry, expected_runtime, label):
+    """Replay the availability probe and hold the entry to what it says."""
+    try:
+        availability = expected_runtime.availability()
+    except Exception as exc:  # noqa: BLE001 - adapter failures are local findings
+        return [
+            f"{label}: runtime availability probe failed locally: {exc} "
+            "[RUNTIME_STATUS_UNKNOWN]"
+        ]
+    available = availability.get("available") if isinstance(availability, dict) else None
+    if not isinstance(availability, dict) or (
+        available is not True and available is not False
+    ):
+        return [
+            f"{label}: runtime availability probe returned a malformed capability "
+            "[RUNTIME_STATUS_UNKNOWN]"
+        ]
+    if available is False:
+        return _unavailable_probe_errors(entry, availability, label)
+    return []
+
+
+def _unavailable_probe_errors(entry, availability, label):
+    """An unavailable probe pins the entry's status, reason, and detail."""
+    errors = []
+    if entry.get("status") != STATUS_UNAVAILABLE:
+        errors.append(
+            f"{label}: unavailable runtime must be recorded as "
+            f"{STATUS_UNAVAILABLE!r}, not {entry.get('status')!r} "
+            "[RUNTIME_STATUS_UNKNOWN]"
+        )
+    expected_reason = availability.get("reason_code")
+    if expected_reason not in UNAVAILABLE_REASON_CODES:
+        errors.append(
+            f"{label}: runtime probe returned unsupported reason_code "
+            f"{expected_reason!r} [RUNTIME_STATUS_UNKNOWN]"
+        )
+    elif entry.get("reason_code") != expected_reason:
+        errors.append(
+            f"{label}: unavailable reason_code {entry.get('reason_code')!r} "
+            f"does not match the runtime probe {expected_reason!r} "
+            "[RUNTIME_STATUS_UNKNOWN]"
+        )
+    expected_detail = availability.get("detail")
+    if entry.get("detail") != expected_detail:
+        errors.append(
+            f"{label}: unavailable diagnostic detail does not match the "
+            "runtime probe [RUNTIME_STATUS_UNKNOWN]"
+        )
+    if entry.get("roundtrip") is not None:
+        errors.append(
+            f"{label}: an unavailable runtime cannot claim parse/write evidence "
+            "[RUNTIME_STATUS_UNKNOWN]"
+        )
     return errors
 
 

@@ -1414,41 +1414,52 @@ def _expected_action(spikes, labels):
     }
 
 
+def _matrix_cell_valid(cell, binary, integer):
+    """Exact-typed cell domains: `bool` never impersonates an int."""
+    if binary:
+        return type(cell) is int and cell in (0, 1)
+    if integer:
+        return type(cell) is int
+    return type(cell) in (int, float) and (type(cell) is int or math.isfinite(cell))
+
+
+def _matrix_cell_domain(binary, integer):
+    if binary:
+        return "an exact integer 0 or 1"
+    if integer:
+        return "an exact integer"
+    return "a finite JSON number"
+
+
+def _matrix_row_errors(row, row_index, columns, path, where, binary, integer):
+    """One row's shape and cell-domain findings."""
+    if not isinstance(row, list) or len(row) != columns:
+        observed = len(row) if isinstance(row, list) else None
+        return [
+            f"{where}: {path}[{row_index}] must have exactly {columns} cells, "
+            f"got {observed!r} [ENVELOPE_MALFORMED]"
+        ]
+    return [
+        f"{where}: {path}[{row_index}][{column_index}] must be "
+        f"{_matrix_cell_domain(binary, integer)}, got {cell!r} "
+        "[ENVELOPE_MALFORMED]"
+        for column_index, cell in enumerate(row)
+        if not _matrix_cell_valid(cell, binary, integer)
+    ]
+
+
 def _matrix_errors(value, rows, columns, path, where, *, binary=False, integer=False):
-    errors = []
     if not isinstance(value, list) or len(value) != rows:
         observed = len(value) if isinstance(value, list) else None
         return [
             f"{where}: {path} must have exactly {rows} rows, got {observed!r} "
             "[ENVELOPE_MALFORMED]"
         ]
+    errors = []
     for row_index, row in enumerate(value):
-        if not isinstance(row, list) or len(row) != columns:
-            observed = len(row) if isinstance(row, list) else None
-            errors.append(
-                f"{where}: {path}[{row_index}] must have exactly {columns} cells, "
-                f"got {observed!r} [ENVELOPE_MALFORMED]"
-            )
-            continue
-        for column_index, cell in enumerate(row):
-            cell_path = f"{path}[{row_index}][{column_index}]"
-            if binary:
-                valid = type(cell) is int and cell in (0, 1)
-            elif integer:
-                valid = type(cell) is int
-            else:
-                valid = (
-                    type(cell) in (int, float)
-                    and (type(cell) is int or math.isfinite(cell))
-                )
-            if not valid:
-                domain = "an exact integer 0 or 1" if binary else (
-                    "an exact integer" if integer else "a finite JSON number"
-                )
-                errors.append(
-                    f"{where}: {cell_path} must be {domain}, got {cell!r} "
-                    "[ENVELOPE_MALFORMED]"
-                )
+        errors += _matrix_row_errors(
+            row, row_index, columns, path, where, binary, integer
+        )
     return errors
 
 

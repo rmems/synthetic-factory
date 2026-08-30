@@ -786,6 +786,23 @@ def catalog_batch_errors(records, catalog_ids, where="training-view"):
     its own evidence.
     """
     expected = Counter(catalog_ids)
+    scenario_ids_by_round = _scenario_ids_by_round(records)
+    if not scenario_ids_by_round:
+        return [
+            f"{where}: no records to project; a training-view batch must carry "
+            "at least one complete catalog round [TRAINING_VIEW_HIDES_FAILURE]"
+        ]
+    return [
+        _round_coverage_error(round_number, got, expected, where)
+        for round_number, got in sorted(
+            scenario_ids_by_round.items(), key=lambda item: repr(item[0])
+        )
+        if got != expected
+    ]
+
+
+def _scenario_ids_by_round(records):
+    """Count each declared scenario id per declared round."""
     scenario_ids_by_round = {}
     for record in records:
         meta = record.get("meta") if isinstance(record, dict) else None
@@ -793,26 +810,20 @@ def catalog_batch_errors(records, catalog_ids, where="training-view"):
         scenario = record.get("scenario") if isinstance(record, dict) else None
         scenario_id = scenario.get("id") if isinstance(scenario, dict) else None
         scenario_ids_by_round.setdefault(round_number, Counter())[scenario_id] += 1
-    errors = []
-    if not scenario_ids_by_round:
-        errors.append(
-            f"{where}: no records to project; a training-view batch must carry "
-            "at least one complete catalog round [TRAINING_VIEW_HIDES_FAILURE]"
-        )
-    for round_number in sorted(scenario_ids_by_round, key=repr):
-        got = scenario_ids_by_round[round_number]
-        if got == expected:
-            continue
-        missing = sorted((expected - got).elements(), key=repr)
-        surplus = sorted((got - expected).elements(), key=repr)
-        detail = []
-        if missing:
-            detail.append(f"missing catalog scenarios {missing}")
-        if surplus:
-            detail.append(f"carrying scenarios outside the catalog count {surplus}")
-        errors.append(
-            f"{where}: round {round_number!r} does not cover the scenario catalog "
-            f"exactly once ({'; '.join(detail)}); a filtered batch cannot be "
-            "projected into training views [TRAINING_VIEW_HIDES_FAILURE]"
-        )
-    return errors
+    return scenario_ids_by_round
+
+
+def _round_coverage_error(round_number, got, expected, where):
+    """Describe how one round's scenario ids diverge from the catalog."""
+    missing = sorted((expected - got).elements(), key=repr)
+    surplus = sorted((got - expected).elements(), key=repr)
+    detail = []
+    if missing:
+        detail.append(f"missing catalog scenarios {missing}")
+    if surplus:
+        detail.append(f"carrying scenarios outside the catalog count {surplus}")
+    return (
+        f"{where}: round {round_number!r} does not cover the scenario catalog "
+        f"exactly once ({'; '.join(detail)}); a filtered batch cannot be "
+        "projected into training views [TRAINING_VIEW_HIDES_FAILURE]"
+    )
