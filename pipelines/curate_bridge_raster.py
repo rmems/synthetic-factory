@@ -112,12 +112,12 @@ def _nonnegative_json_integer(value: Any) -> int | None:
     return integer if integer >= 0 else None
 
 
-def _positive_int(value: Any) -> bool:
+def _positive_int(value: object) -> bool:
     integer = _nonnegative_json_integer(value)
     return integer is not None and integer > 0
 
 
-def _nonnegative_int(value: Any) -> bool:
+def _nonnegative_int(value: object) -> bool:
     return _nonnegative_json_integer(value) is not None
 
 

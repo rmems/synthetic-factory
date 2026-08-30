@@ -45,6 +45,7 @@ from curate_bridge import (  # noqa: E402
     raster_sidecar,
     raster_status,
 )
+from census import visible_jsonl_paths  # noqa: E402
 from round_txn_raster import RASTER_FACTORY_SLUGS  # noqa: E402
 from validate_run import reject_json_constant  # noqa: E402
 
@@ -199,11 +200,11 @@ def _record_id(record: Any) -> str | None:
 
 
 def _expanded_jsonl_targets(targets: Iterable[str | Path]) -> Iterator[Path]:
-    """Yield each explicit file or sorted JSONL member of a directory."""
+    """Yield explicit files or transaction-visible JSONL from directories."""
 
     for target in targets:
         path = Path(target)
-        yield from sorted(path.rglob("*.jsonl")) if path.is_dir() else (path,)
+        yield from visible_jsonl_paths(path) if path.is_dir() else (path,)
 
 
 def _is_raster_factory_path(path: Path) -> bool:

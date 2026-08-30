@@ -524,6 +524,32 @@ class RoundTransaction(unittest.TestCase):
             self.assertEqual(manifest["records"], 1)
             self.assertTrue((factory / "ROUND-r01.complete.json").is_file())
 
+    def test_custom_lane_publish_rejects_exponent_overflow(self):
+        with tempfile.TemporaryDirectory() as td:
+            factory = Path(td) / "outputs" / "raw" / "2099-01-01" / "custom-factory"
+            factory.mkdir(parents=True)
+            reservation = round_txn.reserve(factory, 1, 1)
+            stage = Path(reservation["staging_dir"])
+            record = thalamic("custom-overflow")
+            record["meta"]["factory"] = factory.name
+            serialized = json.dumps(record).replace(
+                '"state": {',
+                '"state": {"extra": 1e999, ',
+                1,
+            )
+            (stage / reservation["batch_file"]).write_text(serialized + "\n")
+            (stage / reservation["notes_file"]).write_text(
+                "# Custom critique\n\nNo registered token-efficiency policy.\n"
+            )
+
+            with self.assertRaisesRegex(
+                round_txn.TransactionError,
+                "non-finite JSON number 1e999",
+            ):
+                round_txn.publish(factory, 1, reservation["token"])
+
+            self.assertFalse((factory / "ROUND-r01.complete.json").exists())
+
     def _assert_publish_rejects_notes(self, td, notes_text, pattern, record_suffix="txn"):
         factory = self.factory(td)
         reservation = round_txn.reserve(factory, 1, 1)

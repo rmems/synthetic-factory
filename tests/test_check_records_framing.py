@@ -64,6 +64,20 @@ class CheckRecordsPhysicalFraming(unittest.TestCase):
         self.assertEqual(kinds, {"thalamic": 1})
         self.assertEqual(records, 1)
 
+    def test_exponent_overflow_is_rejected_before_record_validation(self):
+        serialized = json.dumps(_thalamic(id="overflow")).replace(
+            '"state": {',
+            '"state": {"extra": 1e999, ',
+            1,
+        )
+
+        errors, warnings, kinds, records = self.check_payload((serialized + "\n").encode("utf-8"))
+
+        self.assertTrue(any("non-finite JSON number 1e999" in error for error in errors), errors)
+        self.assertEqual(warnings, [])
+        self.assertEqual(kinds, {})
+        self.assertEqual(records, 0)
+
 
 if __name__ == "__main__":
     unittest.main()

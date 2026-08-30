@@ -594,6 +594,15 @@ def read_utf8_jsonl(path):
     return Path(path).read_bytes().decode("utf-8")
 
 
+def _parse_finite_json_float(text):
+    """Decode a JSON float token without accepting exponent overflow."""
+
+    value = float(text)
+    if not math.isfinite(value):
+        raise ValueError(f"non-finite JSON number {text}")
+    return value
+
+
 def _claim_record_id(record_id, where, seen_ids):
     """Claim ``record_id`` for ``where``, or report the collision it hit.
 
@@ -627,7 +636,11 @@ def check_jsonl(path, rel, seen_ids=None, staging=NO_FACTORY_STAGING):
             continue
         where = f"{rel}:{lineno}"
         try:
-            obj = json.loads(line, parse_constant=reject_json_constant)
+            obj = json.loads(
+                line,
+                parse_constant=reject_json_constant,
+                parse_float=_parse_finite_json_float,
+            )
         except (json.JSONDecodeError, ValueError) as exc:
             errors.append(f"{where}: JSON parse error: {exc}")
             continue

@@ -21,6 +21,7 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO / "pipelines"))
 
 import spike_probe  # noqa: E402
+from training_audit_test_helpers import commit_marker_batch  # noqa: E402
 
 FIXTURES = REPO / "tests" / "fixtures"
 GATE_SNN_FIXTURE = FIXTURES / "bridge_gate_snn.jsonl"
@@ -231,6 +232,31 @@ class LoadRasters(unittest.TestCase):
         self.assertEqual(len(problems), 1)
         self.assertEqual(problems[0]["scope"], "input")
         self.assertEqual(problems[0]["reason_codes"], ["BRIDGE_SOURCE_JSON_INVALID"])
+
+    def test_run_directory_hides_uncommitted_marker_mode_batches(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td) / "run"
+            factory = root / "neuromorphic-event-language-bridge"
+            committed = factory / "batch-r01.jsonl"
+            write(committed, [gate_snn_record()])
+            commit_marker_batch(factory, committed)
+            uncommitted_record = gate_snn_record()
+            uncommitted_record["id"] = "uncommitted-raster"
+            write(factory / "batch-r02.jsonl", [uncommitted_record])
+
+            run_rasters, run_problems = spike_probe.load_rasters([root])
+            explicit_rasters, explicit_problems = spike_probe.load_rasters(
+                [factory / "batch-r02.jsonl"]
+            )
+
+        self.assertEqual(run_problems, [])
+        self.assertEqual(
+            [raster["record_id"] for raster in run_rasters], ["bridge-gate-snn-fixture-001"]
+        )
+        self.assertEqual(explicit_problems, [])
+        self.assertEqual(
+            [raster["record_id"] for raster in explicit_rasters], ["uncommitted-raster"]
+        )
 
     def test_invalid_utf8_is_reported_as_an_input_problem(self):
         with tempfile.TemporaryDirectory() as td:

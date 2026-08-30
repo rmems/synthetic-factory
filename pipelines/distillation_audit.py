@@ -4,8 +4,8 @@
 Bridge event fidelity and SNN distillation readiness intentionally have
 different denominators.  ``pairs`` contains only Bridge records and owns the
 event-order metrics.  ``distillation_records`` contains eligible records from
-the NELB and TTF lanes (plus legacy Bridge records outside those named lanes)
-and owns raster, routing, and gate-head coverage.
+the NELB, TTF, and Ouroboros lanes (plus legacy Bridge records outside those
+named lanes) and owns raster, routing, and gate-head coverage.
 """
 
 from __future__ import annotations
@@ -18,10 +18,12 @@ from training_audit_bridge import event_stream_status
 
 BRIDGE_FACTORY_SLUG = "neuromorphic-event-language-bridge"
 THALAMIC_FACTORY_SLUG = "thalamic-trajectory-factory"
+OUROBOROS_FACTORY_SLUG = "multi-agent-ouroboros-swarm"
 
 _EXPECTED_KIND = {
     BRIDGE_FACTORY_SLUG: "bridge_pair",
     THALAMIC_FACTORY_SLUG: "thalamic",
+    OUROBOROS_FACTORY_SLUG: "thalamic",
 }
 
 

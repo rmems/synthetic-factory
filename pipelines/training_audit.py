@@ -66,6 +66,7 @@ from training_audit_report import (  # noqa: E402
 # from this module before distillation accounting moved into its own helper.
 BRIDGE_FACTORY_SLUG = _distillation_audit.BRIDGE_FACTORY_SLUG
 THALAMIC_FACTORY_SLUG = _distillation_audit.THALAMIC_FACTORY_SLUG
+OUROBOROS_FACTORY_SLUG = _distillation_audit.OUROBOROS_FACTORY_SLUG
 
 # A curated training view may expose neither the scratch-pad vocabulary the
 # structural validator already knows about, the coding-factory key

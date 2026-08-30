@@ -16,6 +16,7 @@ import training_audit
 
 BRIDGE_FACTORY = "neuromorphic-event-language-bridge"
 THALAMIC_FACTORY = "thalamic-trajectory-factory"
+OUROBOROS_FACTORY = "multi-agent-ouroboros-swarm"
 
 
 class DistillationRasterAudit(unittest.TestCase):
@@ -188,6 +189,21 @@ class DistillationRasterAudit(unittest.TestCase):
         self.assertEqual(report["bridge"]["pairs"], 0)
         self.assertEqual(report["bridge"]["distillation_records"], 0)
         self.assertEqual(report["bridge"]["raster_coverage_pct"], 0)
+
+    def test_ouroboros_thalamic_record_is_distillation_data(self):
+        record = thalamic("ouroboros-no-raster")
+        record.pop("raster")
+        record.pop("gate_snn")
+        temporary, report = self._audit(OUROBOROS_FACTORY, [record])
+        temporary.cleanup()
+
+        self.assertFalse(report["training_ready"])
+        self.assertEqual(report["bridge"]["distillation_records"], 1)
+        self.assertEqual(report["bridge"]["raster_missing_pairs"], 1)
+        self.assertTrue(
+            any("lack a 20-50 ms raster" in item for item in report["blockers"]),
+            report["blockers"],
+        )
 
     def test_bridge_record_in_thalamic_lane_is_wrong_kind(self):
         pair = {

@@ -420,7 +420,7 @@ def _iter_jsonl(raw_run):
         yield path, path.relative_to(raw_run)
 
 
-def _literal_lf_lines(path):
+def _literal_lf_lines(path) -> list[str]:
     """Decode JSONL using only literal LF bytes as record boundaries."""
 
     physical_lines = path.read_bytes().split(b"\n")
@@ -481,6 +481,7 @@ def promote_run(raw_run, cleaned_out):
         dest.write_text(
             "\n".join(lines_out) + ("\n" if lines_out else ""),
             encoding="utf-8",
+            newline="",
         )
         files += 1
         rels.append(rel)
