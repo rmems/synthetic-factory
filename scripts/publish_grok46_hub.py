@@ -1033,8 +1033,7 @@ def snapshot_one(item: dict) -> dict:
         first=first,
         last=last_s,
         payload_names=[batch.name for batch in batches],
-        schema_yaml=schema_yaml,
-        schema_body=schema_body,
+        schema=(schema_yaml, schema_body),
         kind_mix=kind_mix,
     )
     replace_snapshot_text(dest / "README.md", card)
@@ -1079,14 +1078,14 @@ def _reconcile_snapshot_layout(
 def _resolved_card_schema(
     item: dict,
     payload_names: list[str] | None,
-    schema_yaml: str | None,
-    schema_body: str | None,
+    schema: tuple[str, str] | None,
 ) -> tuple[str, str]:
-    if schema_yaml is None or schema_body is None:
+    if schema is None:
         _, schema_yaml, schema_body = card_declaration_for_payload(
             item["hub"], payload_names or []
         )
-    return schema_yaml, schema_body
+        return schema_yaml, schema_body
+    return schema
 
 
 def _release_payload_text(
@@ -1203,15 +1202,12 @@ def render_card(
     first: str | None,
     last: str | None,
     payload_names: list[str] | None = None,
-    schema_yaml: str | None = None,
-    schema_body: str | None = None,
+    schema: tuple[str, str] | None = None,
     kind_mix: list[leftover_mill.KindMixFinding] | None = None,
 ) -> str:
     tags = "\n".join(f"- {t}" for t in item["tags"])
     kb = max(1, bytes_ // 1024)
-    schema_block, schema_section = _resolved_card_schema(
-        item, payload_names, schema_yaml, schema_body
-    )
+    schema_block, schema_section = _resolved_card_schema(item, payload_names, schema)
     payload = _release_payload_text(records, kb, first, last, payload_names)
     kind_mix = list(kind_mix or ())
     quarantine = render_quarantine_section(records, kind_mix)

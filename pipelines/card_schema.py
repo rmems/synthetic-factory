@@ -58,9 +58,10 @@ working viewer projection must not be replaced by a default raw config.
 
 The declaration mechanism is split by responsibility across sibling modules --
 ``card_schema_core`` (shared errors/constants), ``card_schema_validate``
-(payload validation), ``card_schema_render`` (YAML + Markdown rendering), and
-``card_schema_coverage`` (declared-vs-published glob matching) -- and re-exported
-here so ``import card_schema`` remains the one entry point callers use.
+(payload validation), ``card_schema_yaml`` (YAML front-matter emission),
+``card_schema_render`` (Markdown body rendering), and ``card_schema_coverage``
+(declared-vs-published glob matching) -- and re-exported here so
+``import card_schema`` remains the one entry point callers use.
 """
 
 from __future__ import annotations
@@ -71,15 +72,13 @@ from pathlib import Path
 from card_schema_core import CardSchemaError, DATASET_NAME_RE, _require
 from card_schema_coverage import payload_coverage_errors
 from card_schema_render import (
-    _yaml_scalar,
     body_section,
     field_notes,
     json_columns,
-    metadata_yaml,
     undeclared_body_section,
-    yaml_features,
 )
 from card_schema_validate import validate
+from card_schema_yaml import _yaml_scalar, metadata_yaml, yaml_features
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 SCHEMA_ROOT = REPO_ROOT / "config" / "card-schemas"
