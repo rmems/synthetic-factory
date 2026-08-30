@@ -84,7 +84,7 @@ The gate does not reuse one lossy projection for three different jobs:
 This repository is stdlib-only (see ``AGENTS.md``), so the encoder is
 lexical, not learned:
 
-- **``EMBEDDING_ENCODER = "lexical-tfidf/7"``** — TF-IDF over Unicode word
+- **``EMBEDDING_ENCODER = "lexical-tfidf/8"``** — TF-IDF over Unicode word
   unigrams *and* bigrams of every **path-qualified leaf value** in the
   semantic-similarity view. A feature combines the full field path with the leaf
   word, so shared schema alone contributes nothing while the same value under
@@ -104,12 +104,13 @@ lexical, not learned:
   separator — ``a b c d`` and ``a c b d`` would embed identically.
 - Mapping keys are traversed in canonical sorted order before bigrams are
   formed. Equivalent JSON objects therefore embed identically regardless of
-  insertion order. Every list carries directed adjacent-element digest
-  features, so reversing distinct elements cannot preserve the embedding by
-  sharing boundary words. Lists with repeated elements additionally carry
-  explicit positions because their adjacency multisets can still be
-  ambiguous. A leading insertion preserves the untouched adjacency edges
-  instead of renumbering every later semantic leaf.
+  insertion order. Every list carries directed adjacent-element full SHA-256
+  digest features, so reversing distinct elements cannot preserve the
+  embedding by sharing boundary words or a shortened-digest collision. Lists
+  with repeated elements additionally carry explicit positions because their
+  adjacency multisets can still be ambiguous. A leading insertion preserves
+  the untouched adjacency edges instead of renumbering every later semantic
+  leaf.
 - Unicode tokenization preserves non-ASCII scripts instead of reducing two
   unrelated multilingual records to their shared ASCII metadata. Combining
   marks stay attached to their base grapheme, so Thai text is not fragmented
@@ -189,18 +190,16 @@ is ever held in memory. Consequences:
   near-duplicate that differs only in ``state.tick`` — invisible to
   exact hashing and above 0.97 to the encoder.
 - ``--threshold`` must be finite in ``[EMBEDDING_MIN_THRESHOLD, 1)``, which is
-  about ``[0.5946, 1)``. The lower bound is a soundness bound, not taste: only
-  *nominated* candidate pairs are ever scored, and MinHash-LSH nomination
-  falls away below the banding scheme's S-curve knee,
-  ``(1/bands) ** (1/rows)`` — about 0.59 for the shipped 8 bands of 4. Below
-  it a pair can sit above the configured threshold and never be compared, so
-  the gate would exit clean while silently failing the policy it was given.
-  Zero is the extreme case: it demands that every pair with any positive
-  cosine be excluded, while two records that share a little vocabulary but no
-  band are never nominated at all. A run that genuinely needs a lower
-  threshold needs exhaustive comparison rather than this sketch. ``1.0`` is
-  rejected instead of acting as a silent embedding-dedup disable switch; use
-  the explicit ``--no-embedding-dedup`` flag when that is truly intended.
+  about ``[0.5946, 1)``. The lower bound is the supported operating floor for
+  this sketch: MinHash-LSH nomination degrades sharply below the banding
+  scheme's S-curve knee, ``(1/bands) ** (1/rows)`` — about 0.59 for the shipped
+  8 bands of 4. Recall remains approximate above the knee, as stated earlier;
+  the floor prevents configurations that the sketch is especially unsuited to
+  honor, but it is not a deterministic recall guarantee. A run that requires
+  exhaustive enforcement needs an exhaustive comparator rather than this
+  sketch. ``1.0`` is rejected instead of acting as a silent embedding-dedup
+  disable switch; use the explicit ``--no-embedding-dedup`` flag when that is
+  truly intended.
 
 ### Tuning
 
@@ -342,16 +341,16 @@ JSON output fields:
     {"file": "batch-r03.jsonl", "line": 8, "kind": "embedding", "similarity": 0.9889,
      "duplicate_of": {"file": "batch-r03.jsonl", "line": 7},
      "matched_with": {"file": "batch-r03.jsonl", "line": 7},
-     "reason": "embedding near-duplicate: cosine 0.9889 > 0.97 vs retained representative batch-r03.jsonl:7 (encoder lexical-tfidf/7)"}
+     "reason": "embedding near-duplicate: cosine 0.9889 > 0.97 vs retained representative batch-r03.jsonl:7 (encoder lexical-tfidf/8)"}
   ],
   "duplicate_clusters": [
-    {"kind": "embedding", "size": 2, "threshold": 0.97, "encoder": "lexical-tfidf/7",
+    {"kind": "embedding", "size": 2, "threshold": 0.97, "encoder": "lexical-tfidf/8",
      "max_similarity": 0.9889,
      "representative": {"file": "batch-r03.jsonl", "line": 7},
      "members": [{"file": "batch-r03.jsonl", "line": 7}, {"file": "batch-r03.jsonl", "line": 8}],
      "reason": "1 excluded record(s) linked by cosine > 0.97; representative batch-r03.jsonl:7 is retained"}
   ],
-  "embedding": {"enabled": true, "encoder": "lexical-tfidf/7",
+  "embedding": {"enabled": true, "encoder": "lexical-tfidf/8",
                 "candidate_sketch": "weighted-tier-minhash/1", "threshold": 0.97,
                 "compared_records": 1230, "candidate_pairs": 418, "truncated": false},
   "reward_shapes": {"records_with_reward_components": 1180, "unique_component_keys": 510,

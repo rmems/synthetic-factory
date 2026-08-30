@@ -7,12 +7,11 @@ stable import facade and CLI. Exact identity lives in
 ``quality_gate_embedding``, and run scanning/reporting live in
 ``quality_gate_audit``.
 
-The deterministic encoder blocks pairs whose exact TF-IDF cosine is strictly
-above the configured threshold. Candidate generation is approximate, but its
-accepted threshold range is bounded by the LSH recall design and every
-nominated pair is scored exactly. The synthetic/real policy is independently
-blocking, with a default target of 30 percent synthetic and 20 points of
-slack.
+The deterministic encoder blocks nominated pairs whose exact TF-IDF cosine is
+strictly above the configured threshold. Candidate generation has approximate
+recall within a calibrated LSH operating range, and every nominated pair is
+scored exactly. The synthetic/real policy is independently blocking, with a
+default target of 30 percent synthetic and 20 points of slack.
 
 Usage:
   python3 pipelines/quality_gate.py RUN_DIR [--json] [--threshold 0.97]

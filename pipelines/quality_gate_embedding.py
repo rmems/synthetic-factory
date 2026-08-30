@@ -22,7 +22,7 @@ from quality_gate_identity import canonical_blob, semantic_similarity_view
 DEFAULT_EMBEDDING_THRESHOLD: float = 0.97
 """Default cosine-similarity threshold for embedding deduplication."""
 
-EMBEDDING_ENCODER = "lexical-tfidf/7"
+EMBEDDING_ENCODER = "lexical-tfidf/8"
 """Versioned identifier for the deterministic semantic encoder."""
 
 EMBEDDING_MINHASH_SLOTS = 32
@@ -53,7 +53,7 @@ _UNSEGMENTED_SCRIPT_MARKERS = (
 
 
 def validate_embedding_threshold(threshold: float) -> float:
-    """Return a sound threshold, or reject values below the LSH recall bound."""
+    """Return a threshold inside the calibrated LSH operating range."""
     if math.isfinite(threshold) and EMBEDDING_MIN_THRESHOLD <= threshold < 1.0:
         return threshold
     raise ValueError(
@@ -63,9 +63,9 @@ def validate_embedding_threshold(threshold: float) -> float:
 
 
 def _element_digest(value) -> str:
-    """Return a short stable digest for one complete list element."""
+    """Return the full stable digest for one complete list element."""
     blob = canonical_blob(value)
-    return hashlib.sha256(blob.encode("utf-8")).hexdigest()[:8]
+    return hashlib.sha256(blob.encode("utf-8")).hexdigest()
 
 
 def _path_child(path: str, key) -> str:

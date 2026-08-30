@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Exact-identity and semantic-projection quality-gate tests."""
 
+import json
 import sys
 import tempfile
 import unittest
@@ -12,6 +13,10 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "pipelines"))
 from gate_fixtures import write  # noqa: E402
 from quality_gate_test_support import DISTINCT_NOTES  # noqa: E402
 import quality_gate  # noqa: E402
+
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
+
 
 class ExactDedup(unittest.TestCase):
     @staticmethod
@@ -207,6 +212,34 @@ class ExactDedup(unittest.TestCase):
 
         self.assertEqual(report["counts"]["duplicate_groups"], 0)
         self.assertEqual(report["counts"]["excluded_records"], 0)
+
+    def test_preference_wrapper_outcomes_from_real_shapes_are_exact_identity(self):
+        cases = (
+            (
+                "tests/fixtures/grok-trajectory-preferences/batch-r01.jsonl",
+                1,
+                "outcome",
+                "a different wrapper-level comparison outcome",
+            ),
+            (
+                "tests/fixtures/reward-ontology/ffpc-preferences.jsonl",
+                9,
+                "future_outcome",
+                {"reward_components": {"task_progress": 0.9, "total": 0.9}},
+            ),
+        )
+        for relative_path, line_number, field, replacement in cases:
+            with self.subTest(field=field):
+                lines = (REPO_ROOT / relative_path).read_text(encoding="utf-8").splitlines()
+                record = json.loads(lines[line_number - 1])
+                changed = {**record, field: replacement}
+
+                view = quality_gate.exact_identity_view(record)
+                self.assertEqual(view[field], record[field])
+                self.assertNotEqual(
+                    quality_gate.record_hash(record),
+                    quality_gate.record_hash(changed),
+                )
 
     def test_episode_preference_side_steps_are_exact_identity(self):
         rejected = self._agentic_episode("bash")

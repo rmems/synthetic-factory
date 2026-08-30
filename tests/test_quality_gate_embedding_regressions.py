@@ -29,6 +29,23 @@ def _pair_vectors(left, right):
 
 
 class EmbeddingOrderRegressions(unittest.TestCase):
+    def test_adjacent_edges_do_not_alias_on_legacy_short_digest_collision(self):
+        left = "A token33795 A"
+        right = "A token104439 A"
+        self.assertEqual(
+            embedding._element_digest(left)[:8],
+            embedding._element_digest(right)[:8],
+        )
+
+        forward_tokens = embedding.embedding_tokens(
+            {"state": {"sequence": [left, right]}}
+        )
+        reverse_tokens = embedding.embedding_tokens(
+            {"state": {"sequence": [right, left]}}
+        )
+
+        self.assertNotEqual(forward_tokens, reverse_tokens)
+
     def test_directed_list_edges_distinguish_shared_boundary_reversal(self):
         forward = {"state": {"sequence": ["A B A", "A C A"]}}
         reverse = {"state": {"sequence": ["A C A", "A B A"]}}

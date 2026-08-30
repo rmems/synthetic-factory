@@ -83,10 +83,8 @@ _SEMANTIC_BOOKKEEPING_PARENTS = frozenset(
     }
 )
 
-_PREFERENCE_WRAPPER_FIELDS = (
-    "goal",
+_PREFERENCE_WRAPPER_FIELDS = _IDENTITY_FIELDS + (
     "critique",
-    "reward",
     "reward_delta",
     "lesson_category",
 )

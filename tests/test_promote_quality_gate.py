@@ -62,7 +62,7 @@ class TestPromoteQualityGatePreflight(unittest.TestCase):
             self.assertFalse(cleaned.exists())
 
     def test_sub_lsh_threshold_is_rejected_before_any_output_is_created(self):
-        """A threshold below the LSH soundness floor must not promote first."""
+        """A threshold below the LSH operating floor must not promote first."""
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
             raw = root / "raw"
