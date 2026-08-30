@@ -1,0 +1,44 @@
+pipelines/training_audit.py
+  s_98712805c1499b::t_4dd877356eed9e 91-99,367-371
+  s_98712805c1499b::t_7f267b923db122 385,400
+pipelines/curate_bridge_raster.py
+  s_98712805c1499b::t_6aad7827d844c4 405,409-410,412-415,417-423,425-430
+  s_98712805c1499b::t_4dd877356eed9e 406,411
+prompts/02-multi-agent-ouroboros-swarm.md
+  s_98712805c1499b::t_34334cfabd3af2 58
+schemas/raster.schema.json
+  s_98712805c1499b::t_4dd877356eed9e 269,275
+  s_98712805c1499b::t_34334cfabd3af2 5
+prompts/03-neuromorphic-event-language-bridge.md
+  s_98712805c1499b::t_34334cfabd3af2 40-42
+pipelines/spike_probe.py
+  s_98712805c1499b::t_4dd877356eed9e 82,86
+tests/test_spike_probe.py
+  s_98712805c1499b::t_4dd877356eed9e 61
+tests/gate_fixture.py
+  s_98712805c1499b::t_231766314158f0 310-317,335,346-350,371-376,397,425,435,443
+.claude/skills/run-synthetic-factory/SKILL.md
+  s_98712805c1499b::t_34334cfabd3af2 51,57
+prompts/01-thalamic-trajectory-factory.md
+  s_98712805c1499b::t_34334cfabd3af2 67
+tests/test_training_audit_framing.py
+  s_98712805c1499b::t_4dd877356eed9e 69-88
+tests/test_curate_bridge_raster.py
+  s_98712805c1499b::t_4dd877356eed9e 64-69,324
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "3a46616298a5bb058064098bb4582f5e39b2f88a",
+  "prompts": {},
+  "sessions": {
+    "s_98712805c1499b": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a04a1f-1e33-7812-a5aa-c7b04b33b6b5",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Raul Montoya Cardenas <montoyaraul34@gmail.com>"
+    }
+  }
+}
