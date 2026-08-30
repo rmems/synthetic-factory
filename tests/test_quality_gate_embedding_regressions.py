@@ -79,7 +79,7 @@ class EmbeddingOrderRegressions(unittest.TestCase):
         self.assertTrue(any("pos:" in token for token in order_features))
 
     def test_leading_insertion_preserves_shared_sequence_similarity(self):
-        shared = [
+        plain_steps = [
             {
                 "n": index,
                 "decision_basis": f"inspect subsystem {index} for the fault",
@@ -89,36 +89,70 @@ class EmbeddingOrderRegressions(unittest.TestCase):
             for index in range(1, 26)
         ]
         preamble = {
-            "n": 0,
-            "decision_basis": "read the brief before touching the repo",
+            "n": 1,
+            "decision_basis": "read brief",
             "tool_call": "cat BRIEF.md",
-            "observation": "the brief names the failing module",
+            "observation": "brief names module",
         }
+        padded_steps = [
+            {**step, "n": index}
+            for index, step in enumerate(plain_steps, 2)
+        ]
         plain = {
             "goal": "find the failing subsystem and repair it",
-            "steps": shared,
+            "steps": plain_steps,
             "outcome": "the failing subsystem was repaired",
         }
-        padded = {**plain, "steps": [preamble, *shared]}
+        padded = {**plain, "steps": [preamble, *padded_steps]}
 
         plain_tokens = embedding.embedding_tokens(plain)
         padded_tokens = embedding.embedding_tokens(padded)
         plain_vector, padded_vector = _pair_vectors(plain_tokens, padded_tokens)
 
-        self.assertGreater(embedding._cosine(plain_vector, padded_vector), 0.90)
+        similarity = embedding._cosine(plain_vector, padded_vector)
+        self.assertGreater(similarity, embedding.DEFAULT_EMBEDDING_THRESHOLD)
         plain_edges = {token for token in plain_tokens if "adj:" in token}
         padded_edges = {token for token in padded_tokens if "adj:" in token}
-        self.assertEqual(len(plain_edges - padded_edges), 0)
+        self.assertEqual(plain_edges - padded_edges, set())
+        self.assertEqual(len(plain_edges), 24)
 
         records = [
             {"file": "batch.jsonl", "line": 1, "tokens": plain_tokens.copy()},
             {"file": "batch.jsonl", "line": 2, "tokens": padded_tokens.copy()},
         ]
         duplicates, _clusters, stats = embedding._embedding_duplicates(
-            records, 0.90, embedding.DEFAULT_MAX_EMBEDDING_PAIRS
+            records,
+            embedding.DEFAULT_EMBEDDING_THRESHOLD,
+            embedding.DEFAULT_MAX_EMBEDDING_PAIRS,
         )
         self.assertEqual(stats["candidate_pairs"], 1)
         self.assertEqual(len(duplicates), 1)
+
+    def test_semantic_n_outside_contiguous_steps_remains_in_order_digest(self):
+        first = {
+            "state": {
+                "measurements": [
+                    {"n": 10, "value": "warm"},
+                    {"n": 20, "value": "cool"},
+                ]
+            }
+        }
+        second = {
+            "state": {
+                "measurements": [
+                    {"n": 11, "value": "warm"},
+                    {"n": 21, "value": "cool"},
+                ]
+            }
+        }
+
+        first_edges = {
+            token for token in embedding.embedding_tokens(first) if "adj:" in token
+        }
+        second_edges = {
+            token for token in embedding.embedding_tokens(second) if "adj:" in token
+        }
+        self.assertNotEqual(first_edges, second_edges)
 
 
 class EmbeddingResourceRegressions(unittest.TestCase):

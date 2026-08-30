@@ -329,6 +329,11 @@ class IdentityAndSemanticProjectionReviewFollowUps(unittest.TestCase):
             write(root / "batch.jsonl", records)
             return quality_gate.audit_run(root)
 
+    @staticmethod
+    def _bridge_raster_fixture():
+        fixture = REPO_ROOT / "tests/fixtures/bridge_raster_valid.jsonl"
+        return json.loads(fixture.read_text(encoding="utf-8").splitlines()[0])
+
     def _cascading(self, kind, payload, diagnosis):
         return {
             "id": f"cer-r01-{kind}",
@@ -408,6 +413,68 @@ class IdentityAndSemanticProjectionReviewFollowUps(unittest.TestCase):
         report = self._audit([first, second])
 
         self.assertEqual(report["duplicates"], [])
+
+    def test_bridge_episode_bookkeeping_is_removed_without_erasing_action_ids(self):
+        first = self._bridge_raster_fixture()
+        second = self._bridge_raster_fixture()
+        first["id"] = "bridge-wrapper-a"
+        second["id"] = "bridge-wrapper-b"
+        first_trajectory = first["language_view"]["trajectory"]
+        second_trajectory = second["language_view"]["trajectory"]
+        first_trajectory["state"]["episode_id"] = "bridge-episode-a"
+        second_trajectory["state"]["episode_id"] = "bridge-episode-b"
+        first_trajectory["executed_action"] = {
+            "action_type": "load_record",
+            "record_id": "modeled-asset-42",
+        }
+        second_trajectory["executed_action"] = {
+            "action_type": "load_record",
+            "record_id": "modeled-asset-42",
+        }
+
+        first_view = quality_gate.semantic_similarity_view(first)
+        trajectory_view = first_view["language_view"]["trajectory"]
+        self.assertNotIn("episode_id", trajectory_view["state"])
+        self.assertEqual(
+            trajectory_view["executed_action"]["record_id"],
+            "modeled-asset-42",
+        )
+        self.assertEqual(first_view, quality_gate.semantic_similarity_view(second))
+
+        different_action = self._bridge_raster_fixture()
+        different_trajectory = different_action["language_view"]["trajectory"]
+        different_trajectory["state"]["episode_id"] = "bridge-episode-a"
+        different_trajectory["executed_action"] = {
+            "action_type": "load_record",
+            "record_id": "modeled-asset-99",
+        }
+        self.assertNotEqual(
+            first_view,
+            quality_gate.semantic_similarity_view(different_action),
+        )
+
+    def test_bridge_meta_raster_is_normalized_into_exact_identity(self):
+        top_level = self._bridge_raster_fixture()
+        meta_carried = self._bridge_raster_fixture()
+        meta_carried["meta"] = {"raster": meta_carried.pop("raster")}
+
+        top_view = quality_gate.exact_identity_view(top_level)
+        meta_view = quality_gate.exact_identity_view(meta_carried)
+        self.assertEqual(meta_view["raster"], meta_carried["meta"]["raster"])
+        self.assertNotIn("meta", meta_view)
+        self.assertEqual(top_view, meta_view)
+        self.assertEqual(
+            quality_gate.record_hash(top_level),
+            quality_gate.record_hash(meta_carried),
+        )
+
+        changed = self._bridge_raster_fixture()
+        changed["meta"] = {"raster": changed.pop("raster")}
+        changed["meta"]["raster"]["routing"]["target"] = "pop_output_100"
+        self.assertNotEqual(
+            quality_gate.record_hash(meta_carried),
+            quality_gate.record_hash(changed),
+        )
 
     @staticmethod
     def _claimed(claim):

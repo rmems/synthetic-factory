@@ -68,13 +68,16 @@ The gate does not reuse one lossy projection for three different jobs:
    Preference actions and outcomes are included, while wrapper bookkeeping ids
    stay outside modeled state/action records. Per-factory supervision counts as
    modeled content: Thalamic ``spike_events``, the event-language bridge's
-   ``language_view`` and ``raster``, and the safety-calibration ``case_type`` /
-   ``rationale`` / ``decision`` labels are all part of the identity, so records
-   that differ only there are distinct training units.
+   ``language_view`` and ``raster`` (normalized from either the top-level or
+   accepted ``meta.raster`` carrier), and the safety-calibration ``case_type``
+   / ``rationale`` / ``decision`` labels are all part of the identity, so
+   records that differ only there are distinct training units.
 2. ``semantic_similarity_view`` removes canonical record identifiers such as
    ``id`` and ``episode_id``, plus root bookkeeping metadata, before lexical
-   encoding. An id or round-stamp change cannot hide an otherwise identical
-   training example.
+   encoding. This includes the bridge's nested
+   ``language_view.trajectory.state`` carrier without stripping identifier-
+   shaped action arguments. An id or round-stamp change cannot hide an
+   otherwise identical training example.
 3. ``candidate_sketch_features`` turns normalized TF-IDF weights into
    deterministic tiers for LSH recall. The exact cosine vector remains the
    only near-duplicate verdict.
@@ -84,7 +87,7 @@ The gate does not reuse one lossy projection for three different jobs:
 This repository is stdlib-only (see ``AGENTS.md``), so the encoder is
 lexical, not learned:
 
-- **``EMBEDDING_ENCODER = "lexical-tfidf/8"``** — TF-IDF over Unicode word
+- **``EMBEDDING_ENCODER = "lexical-tfidf/9"``** — TF-IDF over Unicode word
   unigrams *and* bigrams of every **path-qualified leaf value** in the
   semantic-similarity view. A feature combines the full field path with the leaf
   word, so shared schema alone contributes nothing while the same value under
@@ -110,7 +113,10 @@ lexical, not learned:
   with repeated elements additionally carry explicit positions because their
   adjacency multisets can still be ambiguous. A leading insertion preserves
   the untouched adjacency edges instead of renumbering every later semantic
-  leaf.
+  leaf. For a ``steps`` list with valid contiguous one-based ``n`` values, the
+  structural ordinal is omitted only from these order digests; it remains an
+  ordinary leaf feature, while renumbering after an insertion no longer
+  destroys every shared edge.
 - Unicode tokenization preserves non-ASCII scripts instead of reducing two
   unrelated multilingual records to their shared ASCII metadata. Combining
   marks stay attached to their base grapheme, so Thai text is not fragmented
@@ -341,16 +347,16 @@ JSON output fields:
     {"file": "batch-r03.jsonl", "line": 8, "kind": "embedding", "similarity": 0.9889,
      "duplicate_of": {"file": "batch-r03.jsonl", "line": 7},
      "matched_with": {"file": "batch-r03.jsonl", "line": 7},
-     "reason": "embedding near-duplicate: cosine 0.9889 > 0.97 vs retained representative batch-r03.jsonl:7 (encoder lexical-tfidf/8)"}
+     "reason": "embedding near-duplicate: cosine 0.9889 > 0.97 vs retained representative batch-r03.jsonl:7 (encoder lexical-tfidf/9)"}
   ],
   "duplicate_clusters": [
-    {"kind": "embedding", "size": 2, "threshold": 0.97, "encoder": "lexical-tfidf/8",
+    {"kind": "embedding", "size": 2, "threshold": 0.97, "encoder": "lexical-tfidf/9",
      "max_similarity": 0.9889,
      "representative": {"file": "batch-r03.jsonl", "line": 7},
      "members": [{"file": "batch-r03.jsonl", "line": 7}, {"file": "batch-r03.jsonl", "line": 8}],
      "reason": "1 excluded record(s) linked by cosine > 0.97; representative batch-r03.jsonl:7 is retained"}
   ],
-  "embedding": {"enabled": true, "encoder": "lexical-tfidf/8",
+  "embedding": {"enabled": true, "encoder": "lexical-tfidf/9",
                 "candidate_sketch": "weighted-tier-minhash/1", "threshold": 0.97,
                 "compared_records": 1230, "candidate_pairs": 418, "truncated": false},
   "reward_shapes": {"records_with_reward_components": 1180, "unique_component_keys": 510,

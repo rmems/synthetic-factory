@@ -22,7 +22,7 @@ from quality_gate_identity import canonical_blob, semantic_similarity_view
 DEFAULT_EMBEDDING_THRESHOLD: float = 0.97
 """Default cosine-similarity threshold for embedding deduplication."""
 
-EMBEDDING_ENCODER = "lexical-tfidf/8"
+EMBEDDING_ENCODER = "lexical-tfidf/9"
 """Versioned identifier for the deterministic semantic encoder."""
 
 EMBEDDING_MINHASH_SLOTS = 32
@@ -66,6 +66,30 @@ def _element_digest(value) -> str:
     """Return the full stable digest for one complete list element."""
     blob = canonical_blob(value)
     return hashlib.sha256(blob.encode("utf-8")).hexdigest()
+
+
+def _is_structural_step_ordinal(item, index: int) -> bool:
+    """Whether one step carries its required one-based list position."""
+    return (
+        isinstance(item, dict)
+        and type(item.get("n")) is int
+        and item["n"] == index
+    )
+
+
+def _has_structural_step_ordinals(value, path: str) -> bool:
+    """Whether this is a valid ``steps`` list with contiguous ordinals."""
+    return path.endswith("/k:steps") and all(
+        _is_structural_step_ordinal(item, index)
+        for index, item in enumerate(value, 1)
+    )
+
+
+def _order_element_digest(item, omit_step_ordinal: bool) -> str:
+    """Digest one list element, omitting only a proven structural ordinal."""
+    if not omit_step_ordinal:
+        return _element_digest(item)
+    return _element_digest({key: value for key, value in item.items() if key != "n"})
 
 
 def _path_child(path: str, key) -> str:
@@ -217,7 +241,8 @@ def _append_sequence_features(value, out: list[str], path: str) -> None:
     if not value:
         out.append(f"{path}{_PATH_SEP}list-empty")
         return
-    digests = [_element_digest(item) for item in value]
+    omit_step_ordinal = _has_structural_step_ordinals(value, path)
+    digests = [_order_element_digest(item, omit_step_ordinal) for item in value]
     out.extend(_adjacent_digest_features(path, digests))
     repeated = len(set(digests)) != len(digests)
     for index, (item, digest) in enumerate(zip(value, digests)):

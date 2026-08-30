@@ -113,25 +113,28 @@ class EmbeddingEncoder(unittest.TestCase):
         actually differs."""
 
         def trajectory(with_preamble):
-            steps = []
+            steps = [
+                {
+                    "n": index,
+                    "decision_basis": f"inspect subsystem {index} for the fault",
+                    "tool_call": f"pytest tests/test_subsystem_{index}.py",
+                    "observation": f"subsystem {index} reported a clean run",
+                }
+                for index in range(1, 26)
+            ]
             if with_preamble:
-                steps.append(
+                steps = [
                     {
-                        "n": 0,
-                        "decision_basis": "read the brief before touching the repo",
+                        "n": 1,
+                        "decision_basis": "read brief",
                         "tool_call": "cat BRIEF.md",
-                        "observation": "the brief names the failing module",
-                    }
-                )
-            for index in range(1, 26):
-                steps.append(
-                    {
-                        "n": index,
-                        "decision_basis": f"inspect subsystem {index} for the fault",
-                        "tool_call": f"pytest tests/test_subsystem_{index}.py",
-                        "observation": f"subsystem {index} reported a clean run",
-                    }
-                )
+                        "observation": "brief names module",
+                    },
+                    *(
+                        {**step, "n": index}
+                        for index, step in enumerate(steps, 2)
+                    ),
+                ]
             return {
                 "id": f"traj-{int(with_preamble)}",
                 "goal": "find the failing subsystem and repair it",
@@ -153,15 +156,18 @@ class EmbeddingEncoder(unittest.TestCase):
                 any("subsystem" in token for token in tokens),
                 "step content must still be encoded",
             )
-        # The 25 shared steps must produce the same leaf features in both, so
-        # the pair is a near-duplicate at any threshold at or below its real
-        # content overlap rather than only below ~0.21.
+        # Renumbering after the insertion must preserve all shared adjacency
+        # edges, keeping the pair above the calibrated default threshold.
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
             write(root / "batch.jsonl", [plain, padded])
-            report = quality_gate.audit_run(root, threshold=0.90)
+            report = quality_gate.audit_run(root)
 
         self.assertEqual(len(report["duplicates"]), 1)
+        self.assertGreater(
+            report["duplicates"][0]["similarity"],
+            quality_gate.DEFAULT_EMBEDDING_THRESHOLD,
+        )
         self.assertIn(shared["tool_call"].split()[0], "pytest")
 
     def test_field_paths_distinguish_equal_values_under_different_keys(self):

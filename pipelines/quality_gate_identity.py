@@ -76,6 +76,7 @@ _SEMANTIC_BOOKKEEPING_PARENTS = frozenset(
     {
         (),
         ("state",),
+        ("language_view", "trajectory", "state"),
         ("chosen",),
         ("rejected",),
         ("chosen", "state"),
@@ -120,6 +121,24 @@ def _preference_identity_view(obj):
     return view
 
 
+def _bridge_raster_sidecar(obj):
+    """Return the modeled raster regardless of its accepted carrier.
+
+    Bridge curation accepts a dictionary raster at the record root or under
+    ``meta.raster``, preferring the root carrier.  Exact identity uses the same
+    resolution order but normalizes either location to the modeled ``raster``
+    field so carrier placement alone does not change the training identity.
+    """
+    if "language_view" not in obj or "spike_events" not in obj:
+        return None
+    meta = obj.get("meta")
+    nested = meta.get("raster") if isinstance(meta, dict) else None
+    for candidate in (obj.get("raster"), nested):
+        if isinstance(candidate, dict):
+            return candidate
+    return None
+
+
 def exact_identity_view(obj):
     """Return the canonical training identity used by exact-hash dedup.
 
@@ -136,6 +155,9 @@ def exact_identity_view(obj):
         # the view so a one-sided record stays distinguishable.
         return _preference_identity_view(obj)
     modeled = {key: obj[key] for key in _IDENTITY_FIELDS if key in obj}
+    bridge_raster = _bridge_raster_sidecar(obj)
+    if bridge_raster is not None:
+        modeled["raster"] = bridge_raster
     if modeled:
         return modeled
     # Shapes this gate does not model must not all hash to an empty key set.
@@ -167,9 +189,10 @@ def _without_mapping_bookkeeping(value, path):
 def _without_canonical_ids(value, path=()):
     """Copy ``value`` while removing semantic-view bookkeeping.
 
-    Removal is scoped to the record root, ``state``, and either preference
-    side (including its ``state``). Identifier-shaped action arguments deeper
-    in a modeled payload therefore remain observable to the encoder.
+    Removal is scoped to the record root, modeled state carriers (including a
+    bridge's ``language_view.trajectory.state``), and either preference side.
+    Identifier-shaped action arguments deeper in a modeled payload therefore
+    remain observable to the encoder.
     """
     if isinstance(value, dict):
         return _without_mapping_bookkeeping(value, path)
