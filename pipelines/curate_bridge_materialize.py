@@ -41,6 +41,7 @@ class MaterializationContext:
     canonical_json_bytes: Callable[[Any], bytes]
     canonical_json_line: Callable[[Any], bytes]
     curate_paths: Callable[..., list[Any]]
+    parse_json_float: Callable[[str], float]
     reject_json_constant: Callable[[str], None]
     sha256_hex: Callable[[bytes], str]
 
@@ -135,6 +136,7 @@ def _read_manifest(path: Path, context: MaterializationContext) -> list[Any]:
         document = json.loads(
             path.read_bytes().decode("utf-8"),
             parse_constant=context.reject_json_constant,
+            parse_float=context.parse_json_float,
         )
     except (OSError, ValueError) as exc:
         raise BridgeCurationError(f"invalid staged Bridge manifest: {exc}") from exc
@@ -178,6 +180,7 @@ def _read_output_hashes(
             record = json.loads(
                 line.decode("utf-8"),
                 parse_constant=context.reject_json_constant,
+                parse_float=context.parse_json_float,
             )
         except ValueError as exc:
             raise BridgeCurationError(f"invalid staged Bridge output {relative}: {exc}") from exc

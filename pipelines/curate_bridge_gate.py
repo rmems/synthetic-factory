@@ -65,7 +65,7 @@ def _append_mismatch(bucket: list[dict[str, Any]], index: int, expected: Any, ac
     bucket.append({"index": index, "expected": expected, "actual": actual})
 
 
-def _gate_window(spec: dict[str, Any], evidence: dict[str, Any]) -> tuple[float | None, bool]:
+def _gate_window(spec: dict[str, Any], evidence: dict[str, Any]) -> tuple[Any | None, bool]:
     window = _decision_window_aliases(spec)
     _record_alias_derivation(
         window,
@@ -78,9 +78,9 @@ def _gate_window(spec: dict[str, Any], evidence: dict[str, Any]) -> tuple[float 
     evidence["gate_snn_decision_window_consistent"] = bool(window.consistent)
     if not valid:
         return None, False
-    evidence["gate_snn_decision_window_ms"] = float(window.alias)
-    evidence["gate_snn_decision_window_s"] = float(window.primary)
-    return float(window.primary), True
+    evidence["gate_snn_decision_window_ms"] = window.alias
+    evidence["gate_snn_decision_window_s"] = window.primary
+    return window.primary, True
 
 
 def _gate_decision(
@@ -120,7 +120,7 @@ def _gate_population_neurons(population: Any) -> int | None:
 
 
 def _gate_population_budget(
-    population: dict[str, Any], neurons: int, window_s: float | None
+    population: dict[str, Any], neurons: int, window_s: Any | None
 ) -> tuple[str, int | None]:
     """Return ``(absent|invalid|valid, expected_spikes)``."""
 
@@ -141,7 +141,7 @@ def _gate_population_budget(
     )
     if not ready:
         return "invalid", None
-    expected = _expected_spikes(neurons, float(rate.primary), window_s)
+    expected = _expected_spikes(neurons, rate.primary, window_s)
     if expected is None:
         return "invalid", None
     return "valid", expected
@@ -150,7 +150,7 @@ def _gate_population_budget(
 def _gate_population(
     population: Any,
     index: int,
-    window_s: float | None,
+    window_s: Any | None,
     state: _ValidationState,
 ) -> tuple[bool, bool, int]:
     """Return ``(valid, malformed, neurons)`` for one gate population."""
@@ -264,10 +264,9 @@ def _gate_check(
     shape_valid = _gate_shape_valid(neurons, rate, window, spikes)
     if not shape_valid:
         return _invalid_gate_check(index, reason_codes, evidence)
-    expected = _expected_spikes(neurons, float(rate.primary), float(window.primary))
-    if expected is not None:
-        if abs(spikes - expected) <= 1:
-            return True
+    expected = _expected_spikes(neurons, rate.primary, window.primary)
+    if expected is not None and abs(spikes - expected) <= 1:
+        return True
     _append_mismatch(
         evidence.setdefault("gate_compute_spike_mismatches", []), index, expected, spikes
     )

@@ -27,7 +27,6 @@ import json
 import math
 import sys
 from collections import Counter
-from decimal import Decimal
 from pathlib import Path
 from typing import Any, Iterable, Iterator
 
@@ -47,6 +46,13 @@ from curate_bridge import (  # noqa: E402
     raster_status,
 )
 from census import visible_jsonl_paths  # noqa: E402
+from exact_json import (  # noqa: E402
+    dumps_exact_json,
+    exact_fraction,
+    exact_json_integer,
+    json_number_from_fraction,
+    parse_finite_json_float as _parse_exact_json_float,
+)
 from round_txn_raster import RASTER_FACTORY_SLUGS  # noqa: E402
 from validate_run import reject_json_constant  # noqa: E402
 
@@ -65,17 +71,9 @@ def _is_exact_int(value: Any) -> bool:
 def _json_integer(value: Any) -> int | None:
     """Return the integer represented by a schema-valid JSON number."""
 
-    if isinstance(value, bool):
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
         return None
-    if isinstance(value, int):
-        return value
-    if not isinstance(value, float):
-        return None
-    if not math.isfinite(value):
-        return None
-    if not value.is_integer():
-        return None
-    return int(value)
+    return exact_json_integer(value)
 
 
 def _normalized_gate_population(value: Any) -> Any:
@@ -117,14 +115,17 @@ def _window_us(raster: dict[str, Any]) -> Any:
 
     window_s = raster.get("window_s")
     if _finite(window_s):
-        microseconds = Decimal(str(window_s)) * US_PER_S
+        window = exact_fraction(window_s)
+        scale = US_PER_S
     else:
         window_ms = raster.get("window_ms")
         if not _finite(window_ms):
             return None
-        microseconds = Decimal(str(window_ms)) * US_PER_MS
-    integral = microseconds.to_integral_value()
-    return int(integral) if microseconds == integral else float(microseconds)
+        window = exact_fraction(window_ms)
+        scale = US_PER_MS
+    if window is None:
+        return None
+    return json_number_from_fraction(window * scale)
 
 
 def _normalized_event(item: Any) -> dict[str, Any] | None:
@@ -313,10 +314,7 @@ def _read_jsonl(path: Path) -> tuple[str | None, str | None]:
 def _parse_finite_json_float(text: str) -> float:
     """Reject a finite JSON token such as ``1e999`` that overflows to infinity."""
 
-    value = float(text)
-    if not math.isfinite(value):
-        raise ValueError(f"non-finite JSON number {text}")
-    return value
+    return _parse_exact_json_float(text)
 
 
 def _parse_record(line: str) -> tuple[Any, str | None]:
@@ -471,7 +469,7 @@ def main(argv=None):
     rasters, problems = load_rasters(args.targets)
     if args.jsonl:
         for raster in rasters:
-            print(json.dumps(raster, ensure_ascii=True, sort_keys=True, allow_nan=False))
+            print(dumps_exact_json(raster, ensure_ascii=True, sort_keys=True))
         for problem in problems:
             print(
                 json.dumps(

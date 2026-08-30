@@ -6,6 +6,7 @@ from pathlib import Path
 
 from check_records import reject_json_constant
 from census import factory_identity_for_path
+from exact_json import parse_finite_json_float
 from mill_family import MillFinding, MillIndex, summarize
 
 
@@ -29,7 +30,11 @@ def _index_findings(run_dir: Path, files: list[Path]):
                 continue
             try:
                 line = raw_line.decode("utf-8")
-                record = json.loads(line, parse_constant=reject_json_constant)
+                record = json.loads(
+                    line,
+                    parse_constant=reject_json_constant,
+                    parse_float=parse_finite_json_float,
+                )
             except (UnicodeDecodeError, json.JSONDecodeError, ValueError):
                 continue
             mills.add(

@@ -8,6 +8,8 @@ from dataclasses import dataclass
 from fractions import Fraction
 from typing import Any
 
+from exact_json import exact_fraction, exact_json_integer, json_number_from_fraction
+
 
 RASTER_WINDOW_MIN_MS = 20
 RASTER_WINDOW_MAX_MS = 50
@@ -38,15 +40,17 @@ def _is_finite_number(value: Any) -> bool:
     )
 
 
-def _expected_spikes(neurons: Any, mean_rate_hz: float, window_s: float) -> int | None:
+def _expected_spikes(neurons: Any, mean_rate_hz: Any, window_s: Any) -> int | None:
     normalized_neurons = _nonnegative_json_integer(neurons)
     if normalized_neurons is None or _finite_float(normalized_neurons) is None:
         return None
-    rate = _finite_float(mean_rate_hz)
-    window = _finite_float(window_s)
-    if rate is None or window is None:
+    rate_float = _finite_float(mean_rate_hz)
+    window_float = _finite_float(window_s)
+    rate = exact_fraction(mean_rate_hz)
+    window = exact_fraction(window_s)
+    if rate_float is None or window_float is None or rate is None or window is None:
         return None
-    scale = rate * window
+    scale = rate_float * window_float
     if not math.isfinite(scale):
         return None
     try:
@@ -55,7 +59,7 @@ def _expected_spikes(neurons: Any, mean_rate_hz: float, window_s: float) -> int 
         # population or the final product to float can erase many spike units
         # above 2**53; multiplying the binary approximation of 0.1 by a large
         # population can also magnify representation noise into false defects.
-        return round(Fraction(str(rate)) * Fraction(str(window)) * normalized_neurons)
+        return round(rate * window * normalized_neurons)
     except (OverflowError, ValueError):
         return None
 
@@ -99,7 +103,8 @@ def _validation_state(reason_codes: list[str], evidence: dict[str, Any]) -> _Val
 
 
 def _positive_number(value: Any) -> bool:
-    return _is_finite_number(value) and float(value) > 0
+    fraction = exact_fraction(value)
+    return _is_finite_number(value) and fraction is not None and fraction > 0
 
 
 def _nonnegative_json_integer(value: Any) -> int | None:
@@ -111,17 +116,11 @@ def _nonnegative_json_integer(value: Any) -> int | None:
     them explicitly to stay in lockstep with the published schema.
     """
 
-    if isinstance(value, bool):
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
         return None
-    if isinstance(value, int):
-        return value if value >= 0 else None
-    if not isinstance(value, float):
+    integer = exact_json_integer(value)
+    if integer is None:
         return None
-    if not math.isfinite(value):
-        return None
-    if not value.is_integer():
-        return None
-    integer = int(value)
     return integer if integer >= 0 else None
 
 
@@ -147,12 +146,26 @@ def _positive_aliases(
     alias_declared = alias_key in container
     primary = container.get(primary_key)
     alias = container.get(alias_key)
+    scale = exact_fraction(alias_scale)
+    if scale is None or scale <= 0:
+        return _PositiveAliases(primary, alias, primary_declared, alias_declared, False, False)
     if not primary_declared and _positive_number(alias):
-        primary = float(alias) * alias_scale
+        alias_fraction = exact_fraction(alias)
+        if alias_fraction is not None:
+            primary = json_number_from_fraction(alias_fraction * scale)
     if not alias_declared and _positive_number(primary):
-        alias = float(primary) / alias_scale
+        primary_fraction = exact_fraction(primary)
+        if primary_fraction is not None:
+            alias = json_number_from_fraction(primary_fraction / scale)
     valid = _positive_number(primary) and _positive_number(alias)
-    consistent = valid and abs(float(primary) - float(alias) * alias_scale) <= 1e-9
+    primary_fraction = exact_fraction(primary)
+    alias_fraction = exact_fraction(alias)
+    consistent = (
+        valid
+        and primary_fraction is not None
+        and alias_fraction is not None
+        and abs(primary_fraction - alias_fraction * scale) <= Fraction(1, 10**9)
+    )
     return _PositiveAliases(primary, alias, primary_declared, alias_declared, valid, consistent)
 
 
@@ -214,7 +227,7 @@ def _validate_third_factor(
 
 def _raster_window(
     raster: dict[str, Any], reason_codes: list[str], evidence: dict[str, Any]
-) -> tuple[float | None, float | None, bool]:
+) -> tuple[Any | None, Any | None, bool]:
     window = _positive_aliases(raster, "window_s", "window_ms", alias_scale=0.001)
     invalid_declared = [
         evidence_key
@@ -232,10 +245,16 @@ def _raster_window(
         alias_evidence_key="raster_window_ms_derived",
         evidence=evidence,
     )
+    primary_fraction = exact_fraction(window.primary)
+    alias_fraction = exact_fraction(window.alias)
     in_range = window.valid and all(
         (
-            RASTER_WINDOW_MIN_MS <= float(window.alias) <= RASTER_WINDOW_MAX_MS,
-            RASTER_WINDOW_MIN_MS / 1000 <= float(window.primary) <= RASTER_WINDOW_MAX_MS / 1000,
+            alias_fraction is not None,
+            primary_fraction is not None,
+            RASTER_WINDOW_MIN_MS <= alias_fraction <= RASTER_WINDOW_MAX_MS,
+            Fraction(RASTER_WINDOW_MIN_MS, 1000)
+            <= primary_fraction
+            <= Fraction(RASTER_WINDOW_MAX_MS, 1000),
         )
     )
     valid = in_range and window.consistent
@@ -245,14 +264,14 @@ def _raster_window(
     if not valid:
         reason_codes.append(REASON_RASTER_WINDOW)
         return None, None, False
-    evidence["raster_window_ms"] = float(window.alias)
-    evidence["raster_window_s"] = float(window.primary)
-    return float(window.primary), float(window.alias), True
+    evidence["raster_window_ms"] = window.alias
+    evidence["raster_window_s"] = window.primary
+    return window.primary, window.alias, True
 
 
 def _raster_spike_budget(
     raster: dict[str, Any],
-    window_s: float | None,
+    window_s: Any | None,
     reason_codes: list[str],
     evidence: dict[str, Any],
 ) -> tuple[Any, Any, bool]:
@@ -278,7 +297,7 @@ def _raster_spike_budget(
     ready = all((*validity, window_s is not None))
     if not ready:
         return neurons, spikes, False
-    expected = _expected_spikes(neurons, float(rate), window_s)
+    expected = _expected_spikes(neurons, rate, window_s)
     evidence["raster_expected_spikes"] = expected
     evidence["raster_spike_budget_tolerance"] = 1
     valid = expected is not None and abs(spikes - expected) <= 1
@@ -440,14 +459,16 @@ def _validate_raster_routing(
     _validate_routing_third_factor(routing, state)
 
 
-def _timestamp_within_raster_window(timestamp: Any, window_ms: float | None) -> bool:
+def _timestamp_within_raster_window(timestamp: Any, window_ms: Any | None) -> bool:
     timestamp_us = _nonnegative_json_integer(timestamp)
     if timestamp_us is None:
         return False
-    window_us = window_ms * 1000 if window_ms is not None else None
-    if window_us is None:
+    window = exact_fraction(window_ms)
+    if window_ms is None:
         return True
-    return timestamp_us <= window_us + 1e-9
+    if window is None:
+        return False
+    return Fraction(timestamp_us) <= window * 1000 + Fraction(1, 10**9)
 
 
 def _neuron_within_population(neuron_id: Any, neurons: Any) -> bool:

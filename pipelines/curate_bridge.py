@@ -65,6 +65,10 @@ from curate_bridge_raster import (
     _validate_raster,
     _validate_third_factor as _raster_validate_third_factor,
 )
+from exact_json import (
+    dumps_exact_json,
+    parse_finite_json_float as _parse_exact_json_float,
+)
 from validate_run import SAFETY_DECISIONS
 
 # Compatibility re-exports used by downstream tests and integrations.  The
@@ -157,13 +161,7 @@ def sha256_hex(data: bytes) -> str:
 def canonical_json_bytes(value: Any) -> bytes:
     """Serialize JSON deterministically for output and transformation hashes."""
 
-    return json.dumps(
-        value,
-        ensure_ascii=False,
-        separators=(",", ":"),
-        sort_keys=True,
-        allow_nan=False,
-    ).encode("utf-8")
+    return dumps_exact_json(value, ensure_ascii=False, sort_keys=True).encode("utf-8")
 
 
 def canonical_json_line(value: Any) -> bytes:
@@ -225,13 +223,7 @@ def is_thalamic_record(record: Any) -> bool:
 def _expected_gate_decision(record: dict[str, Any]) -> str | None:
     """Return the structured safety decision a gate-SNN head must reproduce."""
 
-    safety: Any = None
-    if is_thalamic_record(record):
-        safety = record.get("safety_decision")
-    elif is_bridge_record(record):
-        view = record.get("language_view")
-        trajectory = view.get("trajectory") if isinstance(view, dict) else None
-        safety = trajectory.get("safety_decision") if isinstance(trajectory, dict) else None
+    safety = _record_safety_decision(record)
     if not isinstance(safety, dict):
         return None
     decision = safety.get("decision")
@@ -241,6 +233,16 @@ def _expected_gate_decision(record: dict[str, Any]) -> str | None:
     if not isinstance(rationale, str) or not rationale.strip():
         return None
     return decision
+
+
+def _record_safety_decision(record: dict[str, Any]) -> Any:
+    """Return the canonical safety carrier without validating its contents."""
+
+    if is_thalamic_record(record):
+        return record.get("safety_decision")
+    view = record.get("language_view") if is_bridge_record(record) else None
+    trajectory = view.get("trajectory") if isinstance(view, dict) else None
+    return trajectory.get("safety_decision") if isinstance(trajectory, dict) else None
 
 
 def _declared(container: Any, key: str) -> tuple[bool, Any]:
@@ -811,10 +813,7 @@ def _reject_json_constant(value: str) -> None:
 def _parse_finite_json_float(text: str) -> float:
     """Decode a JSON float token without accepting exponent overflow."""
 
-    value = _finite_float(text)
-    if value is None:
-        raise ValueError(f"non-finite JSON number: {text}")
-    return value
+    return _parse_exact_json_float(text)
 
 
 def _parse_source_record(text: str) -> Any:
@@ -995,6 +994,7 @@ def materialize_paths(
         canonical_json_bytes=canonical_json_bytes,
         canonical_json_line=canonical_json_line,
         curate_paths=curate_paths,
+        parse_json_float=_parse_finite_json_float,
         reject_json_constant=_reject_json_constant,
         sha256_hex=sha256_hex,
     )

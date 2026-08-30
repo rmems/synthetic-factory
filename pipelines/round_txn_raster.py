@@ -12,7 +12,8 @@ import json
 from pathlib import Path
 
 from check_records import read_utf8_jsonl
-from curate_bridge import _finite_float, is_bridge_record, is_thalamic_record, raster_status
+from curate_bridge import is_bridge_record, is_thalamic_record, raster_status
+from exact_json import parse_finite_json_float as _parse_exact_json_float
 from record_kind import classify_kind
 from validate_run import reject_json_constant
 
@@ -51,10 +52,7 @@ _DISTILLATION_KIND_CONTRACTS = {
 def _parse_finite_json_float(text: str) -> float:
     """Decode a JSON float token without accepting finite-token overflow."""
 
-    value = _finite_float(text)
-    if value is None:
-        raise ValueError(f"non-finite JSON number {text}")
-    return value
+    return _parse_exact_json_float(text)
 
 
 def jsonl_records(batch: Path):

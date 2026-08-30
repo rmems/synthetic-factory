@@ -22,19 +22,8 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO / "pipelines"))
 
 import spike_probe  # noqa: E402
+from spike_probe_test_helpers import GATE_SNN_FIXTURE, gate_snn_record, write  # noqa: E402
 from training_audit_test_helpers import commit_marker_batch  # noqa: E402
-
-FIXTURES = REPO / "tests" / "fixtures"
-GATE_SNN_FIXTURE = FIXTURES / "bridge_gate_snn.jsonl"
-
-
-def gate_snn_record():
-    return json.loads(GATE_SNN_FIXTURE.read_text(encoding="utf-8").splitlines()[0])
-
-
-def write(path, records):
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text("".join(json.dumps(record) + "\n" for record in records))
 
 
 class NormalizeRaster(unittest.TestCase):
@@ -42,10 +31,8 @@ class NormalizeRaster(unittest.TestCase):
         raster = spike_probe.normalize_raster(gate_snn_record())
 
         self.assertEqual(raster["record_id"], "bridge-gate-snn-fixture-001")
-        self.assertEqual(raster["window_us"], 40000)
-        self.assertEqual(raster["neurons"], 256)
-        self.assertEqual(raster["spikes"], 123)
-        self.assertEqual(raster["energy_pJ"], 123 * 23)
+        self.assertEqual((raster["window_us"], raster["neurons"]), (40000, 256))
+        self.assertEqual((raster["spikes"], raster["energy_pJ"]), (123, 123 * 23))
         self.assertEqual(
             [(event["neuron_id"], event["t_us"]) for event in raster["events"]],
             [(7, 800), (131, 4600), (44, 17200), (200, 29500), (255, 38100)],
@@ -188,9 +175,7 @@ class LoadRasters(unittest.TestCase):
             write(root / "neuromorphic-event-language-bridge" / "batch-r01.jsonl", [record])
             rasters, problems = spike_probe.load_rasters([root])
 
-        self.assertEqual(problems, [])
-        self.assertEqual(len(rasters), 1)
-        self.assertEqual(rasters[0]["spikes"], 123)
+        self.assertEqual((problems, len(rasters), rasters[0]["spikes"]), ([], 1, 123))
         self.assertNotIn("366", json.dumps(rasters[0]))
 
     def test_missing_and_broken_rasters_are_reported_as_problems(self):

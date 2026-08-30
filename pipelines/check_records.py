@@ -21,6 +21,7 @@ from pathlib import Path
 _PIPELINES = Path(__file__).resolve().parent
 if str(_PIPELINES) not in sys.path:
     sys.path.insert(0, str(_PIPELINES))
+from exact_json import parse_finite_json_float as _parse_exact_json_float  # noqa: E402
 from validate_run import (  # noqa: E402
     ALLOWED_SIM_OR_REAL,
     BRIDGE_SPIKE_EVENT_KEYS,
@@ -597,10 +598,7 @@ def read_utf8_jsonl(path):
 def _parse_finite_json_float(text):
     """Decode a JSON float token without accepting exponent overflow."""
 
-    value = float(text)
-    if not math.isfinite(value):
-        raise ValueError(f"non-finite JSON number {text}")
-    return value
+    return _parse_exact_json_float(text)
 
 
 def _claim_record_id(record_id, where, seen_ids):

@@ -8,6 +8,7 @@ import io
 import json
 import tempfile
 import unittest
+from fractions import Fraction
 from pathlib import Path
 from unittest import mock
 
@@ -44,6 +45,7 @@ def materialization_context():
         canonical_json_bytes=curate_bridge.canonical_json_bytes,
         canonical_json_line=curate_bridge.canonical_json_line,
         curate_paths=curate_bridge.curate_paths,
+        parse_json_float=curate_bridge._parse_finite_json_float,
         reject_json_constant=curate_bridge._reject_json_constant,
         sha256_hex=curate_bridge.sha256_hex,
     )
@@ -127,6 +129,38 @@ class BridgeMaterialization(unittest.TestCase):
             {record["output_id"] for record in prepared["records"]},
             {"retain", "repair"},
         )
+
+    def test_materialization_preserves_exact_decimal_tokens_and_hashes(self):
+        neurons = 10**18 + 2
+        expected = round(Fraction("25.000000000000001") * Fraction("0.04") * neurons)
+        record = materialized_record([event(1, "exact")], "exact-decimal")
+        record["raster"].update(
+            {"neurons": neurons, "mean_rate_hz": 25, "spikes": expected}
+        )
+        record["raster"].pop("energy_pJ", None)
+        record["raster"].pop("energy_uJ", None)
+        payload = json.dumps(record, separators=(",", ":")).replace(
+            '"mean_rate_hz":25',
+            '"mean_rate_hz":25.000000000000001',
+            1,
+        )
+
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td) / "source"
+            source = root / "bridge" / "batch-r01.jsonl"
+            source.parent.mkdir(parents=True)
+            source.write_text(payload + "\n", encoding="utf-8")
+            output = Path(td) / "materialized"
+
+            decisions = curate_bridge.materialize_paths(
+                [source], source_root=root, output_dir=output
+            )
+            materialized = (output / "bridge" / "batch-r01.jsonl").read_text(
+                encoding="utf-8"
+            )
+
+        self.assertEqual([decision.action for decision in decisions], ["retain"])
+        self.assertIn('"mean_rate_hz":25.000000000000001', materialized)
 
     def test_materialization_quarantines_invalid_safety_supervision(self):
         cases = ("missing", "non_object", "invalid_enum", "blank_rationale")

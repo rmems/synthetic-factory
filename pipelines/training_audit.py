@@ -23,6 +23,8 @@ import sys
 from collections import Counter, defaultdict
 from pathlib import Path
 
+from exact_json import dumps_exact_json, parse_finite_json_float as _parse_exact_json_float
+
 _PIPELINES = Path(__file__).resolve().parent
 if str(_PIPELINES) not in sys.path:
     sys.path.insert(0, str(_PIPELINES))
@@ -86,16 +88,13 @@ def percentile(values, fraction):
 
 
 def canonical_blob(value):
-    return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+    return dumps_exact_json(value, sort_keys=True, ensure_ascii=False)
 
 
 def _parse_finite_json_float(text: str) -> float:
     """Decode a JSON float token without accepting exponent overflow."""
 
-    value = float(text)
-    if not math.isfinite(value):
-        raise ValueError(f"non-finite JSON number {text}")
-    return value
+    return _parse_exact_json_float(text)
 
 
 def dict_field(value, key):
@@ -370,7 +369,7 @@ class _CorpusAudit:
                 parse_constant=reject_json_constant,
                 parse_float=_parse_finite_json_float,
             )
-        except (json.JSONDecodeError, ValueError) as exc:
+        except ValueError as exc:
             self._record_parse_error(where, exc, token_estimate, bucket)
             return
 

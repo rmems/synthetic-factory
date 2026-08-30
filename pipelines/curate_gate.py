@@ -105,6 +105,7 @@ import curate_rewards  # noqa: E402
 import curate_identity  # noqa: E402
 import training_audit  # noqa: E402
 from check_records import canonical_record_id, reject_json_constant  # noqa: E402
+from exact_json import dumps_exact_json, parse_finite_json_float  # noqa: E402
 from validate_run import check_line  # noqa: E402
 
 TOOL_NAME = "curate_gate"
@@ -335,13 +336,7 @@ def corpus_digest(root: Path) -> str:
 
 def record_sha256(value: Any) -> str:
     try:
-        blob = json.dumps(
-            value,
-            ensure_ascii=False,
-            allow_nan=False,
-            sort_keys=True,
-            separators=(",", ":"),
-        )
+        blob = dumps_exact_json(value, ensure_ascii=False, sort_keys=True)
     except (TypeError, ValueError) as exc:
         raise GateError(f"record is not canonical JSON data: {exc}") from exc
     return sha256_hex(blob.encode("utf-8"))
@@ -367,7 +362,11 @@ def _load_json(path: Path) -> Any:
     except OSError as exc:
         raise GateError(f"cannot read {path}: {exc}") from exc
     try:
-        return json.loads(text, parse_constant=reject_json_constant)
+        return json.loads(
+            text,
+            parse_constant=reject_json_constant,
+            parse_float=parse_finite_json_float,
+        )
     except (json.JSONDecodeError, ValueError) as exc:
         raise GateError(f"{path}: invalid JSON: {exc}") from exc
 
@@ -457,7 +456,11 @@ def load_plan(plan_path: Path) -> dict[str, Any]:
     except UnicodeDecodeError as exc:
         raise GateError(f"{plan_path}: integration plan is not UTF-8: {exc}") from exc
     try:
-        plan = json.loads(text, parse_constant=reject_json_constant)
+        plan = json.loads(
+            text,
+            parse_constant=reject_json_constant,
+            parse_float=parse_finite_json_float,
+        )
     except (json.JSONDecodeError, ValueError) as exc:
         raise GateError(f"{plan_path}: invalid JSON: {exc}") from exc
     if not isinstance(plan, dict):
@@ -716,7 +719,11 @@ def _load_source_records(source_run: Path) -> dict[tuple[str, int], dict[str, An
             parse_error: str | None = None
             try:
                 text = raw_line.decode("utf-8")
-                record = json.loads(text, parse_constant=reject_json_constant)
+                record = json.loads(
+                    text,
+                    parse_constant=reject_json_constant,
+                    parse_float=parse_finite_json_float,
+                )
             except (UnicodeError, json.JSONDecodeError, ValueError) as exc:
                 parse_error = str(exc)
             records[(relative, line_number)] = {
@@ -932,7 +939,11 @@ def _prepare_lane(
                 continue
             records += 1
             try:
-                record = json.loads(line, parse_constant=reject_json_constant)
+                record = json.loads(
+                    line,
+                    parse_constant=reject_json_constant,
+                    parse_float=parse_finite_json_float,
+                )
             except (json.JSONDecodeError, ValueError) as exc:
                 raise GateError(f"{path}:{line_number}: invalid lane output JSON: {exc}") from exc
             digest = record_sha256(record)
@@ -1254,13 +1265,7 @@ def compose(
         target = destination / relative
         target.parent.mkdir(parents=True, exist_ok=True)
         payload = "".join(
-            json.dumps(
-                item["record"],
-                ensure_ascii=False,
-                allow_nan=False,
-                sort_keys=True,
-                separators=(",", ":"),
-            )
+            dumps_exact_json(item["record"], ensure_ascii=False, sort_keys=True)
             + "\n"
             for item in records
         )
@@ -1344,7 +1349,11 @@ def _manifest_entries(
             if not line.strip():
                 continue
             try:
-                entry = json.loads(line, parse_constant=reject_json_constant)
+                entry = json.loads(
+                    line,
+                    parse_constant=reject_json_constant,
+                    parse_float=parse_finite_json_float,
+                )
             except (json.JSONDecodeError, ValueError) as exc:
                 raise GateError(f"{path}:{number}: invalid JSON manifest line: {exc}") from exc
             if not isinstance(entry, dict):
@@ -1353,7 +1362,11 @@ def _manifest_entries(
         return entries
 
     try:
-        document = json.loads(text, parse_constant=reject_json_constant)
+        document = json.loads(
+            text,
+            parse_constant=reject_json_constant,
+            parse_float=parse_finite_json_float,
+        )
     except (json.JSONDecodeError, ValueError) as exc:
         raise GateError(f"{path}: invalid JSON: {exc}") from exc
     if isinstance(document, list):
@@ -1523,7 +1536,11 @@ def _load_reward_sidecars(
         if not line.strip():
             continue
         try:
-            document = json.loads(line, parse_constant=reject_json_constant)
+            document = json.loads(
+                line,
+                parse_constant=reject_json_constant,
+                parse_float=parse_finite_json_float,
+            )
         except (json.JSONDecodeError, ValueError) as exc:
             raise GateError(f"{path}:{line_number}: invalid reward sidecar JSON: {exc}") from exc
         if (
@@ -2450,7 +2467,11 @@ def iter_records(root: Path) -> Iterable[tuple[str, int, Any]]:
             if not line.strip():
                 continue
             try:
-                obj = json.loads(line, parse_constant=reject_json_constant)
+                obj = json.loads(
+                    line,
+                    parse_constant=reject_json_constant,
+                    parse_float=parse_finite_json_float,
+                )
             except (json.JSONDecodeError, ValueError):
                 yield rel, number, None
                 continue
