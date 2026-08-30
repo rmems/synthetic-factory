@@ -43,16 +43,13 @@ from __future__ import annotations
 
 import argparse
 import copy
-import hashlib
 import json
 import os
 import re
-import shutil
-import stat
 import sys
 from collections import Counter
 from dataclasses import dataclass, field
-from pathlib import Path, PurePosixPath
+from pathlib import Path
 from typing import Any, Mapping, MutableMapping
 
 _PIPELINES = Path(__file__).resolve().parent
@@ -67,8 +64,7 @@ import curate_preferences  # noqa: E402
 import curate_rewards  # noqa: E402
 import training_audit  # noqa: E402
 from check_records import reject_json_constant  # noqa: E402
-from record_kind import PREFERENCE_SIDE_KINDS, preference_side_kinds  # noqa: E402
-from validate_run import THALAMIC_CORE_KEYS, check_episode  # noqa: E402
+from record_kind import preference_side_kinds  # noqa: E402
 
 try:  # PR #93 is a sibling stack; consume its reviewed contract when present.
     import curate_trajectory_preferences  # type: ignore[import-not-found]  # noqa: E402
@@ -77,363 +73,116 @@ except ModuleNotFoundError as exc:  # pragma: no cover - branch topology decides
         raise
     curate_trajectory_preferences = None
 
-COMPOSE_NAME = "compose_curated"
-COMPOSE_VERSION = "curated-compose-v4"
-LANE_ORDER = ("identity", "bridge", "preferences", "coding", "rewards")
-
-RECORDS_DIRNAME = "records"
-MANIFEST_DIRNAME = "manifest"
-MANIFEST_FILENAME = "compose-manifest.jsonl"
-REWARD_SIDECAR_FILENAME = "reward-sidecars.jsonl"
-SUMMARY_FILENAME = "COMPOSE.json"
-
-ACTION_RETAINED = "retained"
-ACTION_EXCLUDED = "excluded"
-ACTION_NOT_APPLICABLE = "not_applicable"
-
-REASON_INVALID_UTF8 = "compose.source_line_invalid_utf8"
-REASON_INVALID_JSON = "compose.source_line_invalid_json"
-REASON_DUPLICATE_SOURCE_RECORD = "compose.source_record_semantic_duplicate"
-REASON_DUPLICATE_CURATED_RECORD = "compose.curated_record_semantic_duplicate"
-REASON_REWARD_ONTOLOGY = "compose.reward_ontology_refused"
-REASON_MIXED_PREFERENCE_FAMILIES = "compose.preference_side_families_mixed"
-REASON_TRAJECTORY_SIDE_INVALID = "TRAJECTORY_PAIR_SIDE_EPISODE_INVALID"
-REASON_TRAJECTORY_STEPS_INVALID = "TRAJECTORY_STEPS_MISSING_OR_INVALID"
-REASON_TRAJECTORY_STEPS_EMPTY = "TRAJECTORY_STEPS_EMPTY"
-REASON_TRAJECTORY_IDENTICAL = "TRAJECTORY_PAIR_IDENTICAL"
-REASON_TRAJECTORY_PREFIX_ABSENT = "TRAJECTORY_PREFIX_OVERLAP_ABSENT"
-REASON_TRAJECTORY_OUTCOME_MISSING = "TRAJECTORY_OUTCOME_MISSING"
-REASON_TRAJECTORY_OUTCOME_NOT_DIVERGENT = "TRAJECTORY_OUTCOME_DOES_NOT_DIVERGE"
-REASON_TRAJECTORY_REWARD_MISSING = "TRAJECTORY_REWARD_MISSING"
-REASON_TRAJECTORY_REWARD_NOT_DIVERGENT = "TRAJECTORY_REWARD_DOES_NOT_DIVERGE"
-REASON_TRAJECTORY_GATE_PASSED = "TRAJECTORY_PAIR_SHARED_GOAL_AND_PREFIX"
-REASON_TRAJECTORY_GOAL_NORMALIZED = "TRAJECTORY_GOAL_WHITESPACE_NORMALIZED"
-REASON_EMPTY_CORPUS = "curated corpus contains no records"
-
-# ``curate_preferences`` keeps its candidate predicate private.  These are the
-# same keys it selects on; ``tests/test_compose_curated.py`` pins the parity so
-# the two cannot drift apart silently.
-PREFERENCE_CANDIDATE_KEYS = ("chosen", "rejected", "reward_delta")
-
-FFPC_UNITS_MIGRATION = "failure-as-fuel-preference-cascade/units-migration.json"
-TRAJECTORY_GOAL_LOCATIONS = (("goal",), ("chosen", "goal"), ("rejected", "goal"))
-
-
-class ComposeError(RuntimeError):
-    """Raised when composition input, output, or run integrity is unsafe."""
-
-
-@dataclass(frozen=True)
-class ComposeDecision:
-    """One deterministic compose decision and its per-lane evidence."""
-
-    action: str
-    record: dict[str, Any] | None
-    reason_codes: tuple[str, ...]
-    stages: tuple[dict[str, Any], ...]
-    reward_sidecar: dict[str, Any] | None
-    output_id: str | None
-
-
-@dataclass(frozen=True)
-class _TrajectoryPreferenceDecision:
-    """Small compatibility surface for the reviewed PR #93 trajectory gate."""
-
-    action: str
-    classification: str
-    reason_codes: tuple[str, ...]
-    record: dict[str, Any] | None
-    shared_goal: bool | None
-    overlap: dict[str, Any] | None
-    side_validation_errors: dict[str, tuple[str, ...]] | None = None
-
-
-def canonical_json(value: Any) -> str:
-    """Serialize JSON data byte-stably (shared with the curation lanes)."""
-
-    return curate_identity.canonical_json(value)
-
-
-def sha256_hex(data: bytes) -> str:
-    return hashlib.sha256(data).hexdigest()
-
-
-def _canonical_sha256(value: Any) -> str:
-    return sha256_hex(canonical_json(value).encode("utf-8"))
-
-
-def is_bridge_record(record: Mapping[str, Any]) -> bool:
-    """Mirror the shape gate ``curate_bridge.curate_record`` applies itself."""
-
-    return (
-        isinstance(record, Mapping)
-        and "language_view" in record
-        and isinstance(record.get("spike_events"), list)
-    )
-
-
-def is_preference_record(record: Mapping[str, Any]) -> bool:
-    """Mirror the candidate gate ``curate_preferences`` applies to a corpus."""
-
-    return isinstance(record, Mapping) and any(
-        key in record for key in PREFERENCE_CANDIDATE_KEYS
-    )
-
-
-def is_episode_record(record: Mapping[str, Any]) -> bool:
-    """Mirror the shape gate ``curate_coding.curate_episode`` applies itself.
-
-    A retained Thalamic wrap keeps its coding episode under
-    ``executed_action``, so its steps live one level down.  ``curate_coding``
-    supports that layout through ``_steps_path``; routing only on a top-level
-    ``steps`` array would send a repairable wrap straight to the strict audit
-    with its hidden reasoning and ungrounded ``decision_basis`` intact.
-    """
-
-    return (
-        isinstance(record, Mapping)
-        and curate_coding._steps_path(dict(record)) is not None
-    )
-
-
-def _mixed_preference_families(side_kinds: tuple[str, str]) -> bool:
-    """Whether two recognized preference-side families disagree."""
-
-    return (
-        all(kind in PREFERENCE_SIDE_KINDS for kind in side_kinds)
-        and side_kinds[0] != side_kinds[1]
-    )
-
-
-def _is_same_state_pair(record: Mapping[str, Any]) -> bool:
-    """Match PR #93's precedence for Fable same-context preference pairs.
-
-    A side can carry episode fields in addition to ``state`` and
-    ``proposed_action``.  Those extra fields must not move the pair into the
-    trajectory lane and bypass its state/proposal equality contract.
-    """
-
-    sides = (record.get("chosen"), record.get("rejected"))
-    return all(
-        isinstance(side, Mapping)
-        and all(
-            isinstance(side.get(field_name), Mapping)
-            for field_name in ("state", "proposed_action")
-        )
-        for side in sides
-    )
-
-
-def _trajectory_side_validation_errors(
-    record: Mapping[str, Any],
-) -> dict[str, tuple[str, ...]]:
-    """Run the canonical episode validator over each trajectory-preference side."""
-
-    found: dict[str, tuple[str, ...]] = {}
-    for side_name in ("chosen", "rejected"):
-        side = record.get(side_name)
-        if not isinstance(side, dict):
-            continue
-        errors = check_episode(side, side_name, require_goal=False)
-        if all(key in side for key in THALAMIC_CORE_KEYS):
-            errors.append(f"{side_name}: Thalamic trajectory side is not an episode")
-        if errors:
-            found[side_name] = tuple(errors)
-    return found
-
-
-def _trajectory_goal_owner(
-    record: dict[str, Any], path: tuple[str, ...]
-) -> dict[str, Any] | None:
-    owner: Any = record
-    for key in path[:-1]:
-        owner = owner.get(key) if isinstance(owner, dict) else None
-    return owner if isinstance(owner, dict) else None
-
-
-def _present_trajectory_goals(
-    record: dict[str, Any],
-) -> list[tuple[tuple[str, ...], str]]:
-    """Every goal location this record actually carries as a string."""
-
-    present: list[tuple[tuple[str, ...], str]] = []
-    for path in TRAJECTORY_GOAL_LOCATIONS:
-        owner = _trajectory_goal_owner(record, path)
-        if owner is None:
-            continue
-        value = owner.get(path[-1])
-        if isinstance(value, str):
-            present.append((path, value))
-    return present
-
-
-def _whitespace_only_goal(present: list[tuple[tuple[str, ...], str]]) -> str | None:
-    """The single canonical goal, when the goals differ only in whitespace.
-
-    ``None`` whenever the repair would invent evidence: fewer than two goals
-    to reconcile, goals that already agree, goals that still differ once
-    whitespace is collapsed, or a goal that collapses to nothing.
-    """
-
-    if len(present) < 2:
-        return None
-    values = [value for _path, value in present]
-    normalized = {" ".join(value.split()) for value in values}
-    if len(set(values)) == 1 or len(normalized) != 1:
-        return None
-    return normalized.pop() or None
-
-
-def _normalize_trajectory_goal_whitespace(
-    record: dict[str, Any],
-) -> dict[str, Any] | None:
-    """Apply PR #93's evidence-preserving goal whitespace repair."""
-
-    present = _present_trajectory_goals(record)
-    canonical_goal = _whitespace_only_goal(present)
-    if canonical_goal is None:
-        return None
-
-    repaired = copy.deepcopy(record)
-    for path, _value in present:
-        owner = _trajectory_goal_owner(repaired, path)
-        if owner is not None:
-            owner[path[-1]] = canonical_goal
-    return repaired
-
-
-_TRAJECTORY_DIVERGENCE_FIELDS = (
-    (
-        "outcome",
-        REASON_TRAJECTORY_OUTCOME_MISSING,
-        REASON_TRAJECTORY_OUTCOME_NOT_DIVERGENT,
-    ),
-    (
-        "reward",
-        REASON_TRAJECTORY_REWARD_MISSING,
-        REASON_TRAJECTORY_REWARD_NOT_DIVERGENT,
-    ),
+# ``compose_curated`` split by responsibility (CodeScene: Lines of Code in a
+# Single File): the shared contract, the trajectory-preference gate core, and
+# the filesystem safety layer live in sibling modules. Every name is
+# re-imported here so existing ``compose_curated.X`` call sites, the export
+# authenticator, and tests resolve unchanged.
+from compose_contract import (  # noqa: E402,F401
+    ACTION_EXCLUDED,
+    ACTION_NOT_APPLICABLE,
+    ACTION_RETAINED,
+    COMPOSE_NAME,
+    COMPOSE_VERSION,
+    ComposeDecision,
+    ComposeError,
+    FFPC_UNITS_MIGRATION,
+    LANE_ORDER,
+    MANIFEST_DIRNAME,
+    MANIFEST_FILENAME,
+    PREFERENCE_CANDIDATE_KEYS,
+    REASON_DUPLICATE_CURATED_RECORD,
+    REASON_DUPLICATE_SOURCE_RECORD,
+    REASON_EMPTY_CORPUS,
+    REASON_INVALID_JSON,
+    REASON_INVALID_UTF8,
+    REASON_MIXED_PREFERENCE_FAMILIES,
+    REASON_REWARD_ONTOLOGY,
+    REASON_TRAJECTORY_GATE_PASSED,
+    REASON_TRAJECTORY_GOAL_NORMALIZED,
+    REASON_TRAJECTORY_IDENTICAL,
+    REASON_TRAJECTORY_OUTCOME_MISSING,
+    REASON_TRAJECTORY_OUTCOME_NOT_DIVERGENT,
+    REASON_TRAJECTORY_PREFIX_ABSENT,
+    REASON_TRAJECTORY_REWARD_MISSING,
+    REASON_TRAJECTORY_REWARD_NOT_DIVERGENT,
+    REASON_TRAJECTORY_SIDE_INVALID,
+    REASON_TRAJECTORY_STEPS_EMPTY,
+    REASON_TRAJECTORY_STEPS_INVALID,
+    RECORDS_DIRNAME,
+    REWARD_SIDECAR_FILENAME,
+    SUMMARY_FILENAME,
+    TRAJECTORY_GOAL_LOCATIONS,
+    _TrajectoryPreferenceDecision,
+    _canonical_sha256,
+    canonical_json,
+    sha256_hex,
 )
-
-
-def _trajectory_step_reasons(
-    chosen: Any, rejected: Any, overlap: Mapping[str, Any]
-) -> list[str]:
-    """Why the pair's step arrays fail PR #93's gate, in gate order."""
-
-    chosen_steps = chosen.get("steps") if isinstance(chosen, dict) else None
-    rejected_steps = rejected.get("steps") if isinstance(rejected, dict) else None
-    if not isinstance(chosen_steps, list) or not isinstance(rejected_steps, list):
-        return [REASON_TRAJECTORY_STEPS_INVALID]
-    if not chosen_steps or not rejected_steps:
-        return [REASON_TRAJECTORY_STEPS_EMPTY]
-
-    reasons: list[str] = []
-    if canonical_json(chosen_steps) == canonical_json(rejected_steps):
-        reasons.append(REASON_TRAJECTORY_IDENTICAL)
-    if not overlap["shared_steps"]:
-        reasons.append(REASON_TRAJECTORY_PREFIX_ABSENT)
-    return reasons
-
-
-def _trajectory_divergence_reasons(chosen: Any, rejected: Any) -> list[str]:
-    """Why the pair's outcome and reward evidence fails to diverge."""
-
-    if not isinstance(chosen, dict) or not isinstance(rejected, dict):
-        return []
-
-    reasons: list[str] = []
-    for field_name, missing_reason, same_reason in _TRAJECTORY_DIVERGENCE_FIELDS:
-        if chosen.get(field_name) is None or rejected.get(field_name) is None:
-            reasons.append(missing_reason)
-        elif canonical_json(chosen[field_name]) == canonical_json(rejected[field_name]):
-            reasons.append(same_reason)
-    return reasons
-
-
-def _trajectory_gate_passed(
-    curated: dict[str, Any],
-    overlap: Mapping[str, Any],
-    *,
-    removed_thoughts: Any,
-    normalized: Any,
-) -> _TrajectoryPreferenceDecision:
-    """The accepted decision, repaired if the gate had to touch the record."""
-
-    repaired = bool(removed_thoughts) or normalized is not None
-    reasons: list[str] = []
-    if removed_thoughts:
-        reasons.append(curate_agentic.REASON_THOUGHT_REMOVED)
-    if normalized is not None:
-        reasons.append(REASON_TRAJECTORY_GOAL_NORMALIZED)
-    reasons.append(REASON_TRAJECTORY_GATE_PASSED)
-    return _TrajectoryPreferenceDecision(
-        action="repaired" if repaired else ACTION_RETAINED,
-        classification=(
-            "trajectory_pair_repaired" if repaired else "trajectory_pair_gate_passed"
-        ),
-        reason_codes=tuple(reasons),
-        record=curated,
-        shared_goal=True,
-        overlap=overlap,
-    )
-
-
-def _compat_trajectory_preference(
-    record: dict[str, Any],
-) -> _TrajectoryPreferenceDecision:
-    """Enforce PR #93's non-repairing core when its sibling module is absent.
-
-    The sibling owns richer reject diagnostics. This compatibility path keeps
-    its acceptance contract and evidence-preserving repairs: valid episode
-    sides, one goal, a non-empty shared step prefix, non-identical trajectories,
-    divergent outcome and reward evidence, hidden-thought removal, and
-    whitespace-only goal normalization.
-    """
-
-    curated, removed_thoughts = curate_agentic.strip_hidden_thought_keys(record)
-    normalized = _normalize_trajectory_goal_whitespace(curated)
-    if normalized is not None:
-        curated = normalized
-
-    shared_goal, goal_reason = curate_agentic.shared_preference_goal(curated)
-    side_errors = _trajectory_side_validation_errors(curated)
-    chosen = curated.get("chosen")
-    rejected = curated.get("rejected")
-    overlap = curate_agentic.prefix_overlap(chosen, rejected)
-
-    # Collected in gate order: the reason codes are public evidence, so the
-    # sequence a reader sees has to stay stable.
-    reasons: list[str] = []
-    if not shared_goal and goal_reason is not None:
-        reasons.append(goal_reason)
-    if side_errors:
-        reasons.append(REASON_TRAJECTORY_SIDE_INVALID)
-    reasons.extend(_trajectory_step_reasons(chosen, rejected, overlap))
-    reasons.extend(_trajectory_divergence_reasons(chosen, rejected))
-
-    if reasons:
-        return _TrajectoryPreferenceDecision(
-            action=ACTION_EXCLUDED,
-            classification="unsupported_trajectory_pair",
-            reason_codes=tuple(dict.fromkeys(reasons)),
-            record=None,
-            shared_goal=shared_goal,
-            overlap=overlap,
-            side_validation_errors=side_errors or None,
-        )
-    return _trajectory_gate_passed(
-        curated,
-        overlap,
-        removed_thoughts=removed_thoughts,
-        normalized=normalized,
-    )
+from compose_destination import (  # noqa: E402,F401
+    _PinnedDestination,
+    _assert_destination_disjoint,
+    _assert_new_destination,
+    _assert_opened_source_identity,
+    _assert_source_path_unchanged,
+    _assert_unaliased_regular_member,
+    _collect_source_directory,
+    _contains_raw_segments,
+    _create_pinned_destination,
+    _destination_write_parts,
+    _directory_binding_matches,
+    _directory_identity,
+    _discard_created_destination,
+    _drain_descriptor,
+    _is_under_raw,
+    _open_pinned_child,
+    _open_pinned_child_directory,
+    _pinned_root_path,
+    _read_exact_child_file,
+    _read_exact_regular_file,
+    _read_pinned_child_bytes,
+    _refuse_existing_destination,
+    _require_exact_directory,
+    _scan_source_directory,
+    _source_entry_metadata,
+    _source_member_path,
+    _stable_file_identity,
+    _validated_member_relative,
+    _verify_directory_binding,
+    _verify_pinned_child,
+    _write_new_text,
+    _write_pinned_new_bytes,
+    source_jsonl_members,
+)
+from compose_trajectory import (  # noqa: E402,F401
+    _TRAJECTORY_DIVERGENCE_FIELDS,
+    _compat_trajectory_preference,
+    _curate_trajectory_sides,
+    _is_same_state_pair,
+    _mixed_preference_families,
+    _normalize_trajectory_goal_whitespace,
+    _present_trajectory_goals,
+    _trajectory_divergence_reasons,
+    _trajectory_gate_passed,
+    _trajectory_goal_owner,
+    _trajectory_side_needs_coding,
+    _trajectory_side_validation_errors,
+    _trajectory_step_reasons,
+    _whitespace_only_goal,
+    is_bridge_record,
+    is_episode_record,
+    is_preference_record,
+)
 
 
 def _trajectory_preference(
     record: dict[str, Any],
 ) -> tuple[Any, str, str, str]:
-    """Return a trajectory decision plus transform identity and implementation."""
+    """Return a trajectory decision plus transform identity and implementation.
+
+    Reads the optional reviewed module through this module's own global so a
+    test (or a stacked branch) that patches
+    ``compose_curated.curate_trajectory_preferences`` steers the dispatch.
+    """
 
     if curate_trajectory_preferences is not None:
         return (
@@ -447,73 +196,6 @@ def _trajectory_preference(
         "trajectory-pair-preference-curation",
         "1.1.0-compatible-core",
         "compatible_core",
-    )
-
-
-def _trajectory_side_needs_coding(side: Any) -> bool:
-    """Whether an episode side runs the coding lane before preference checks.
-
-    Every side that carries a step array does. A nonblank ``decision_basis``
-    is not evidence that the basis is *grounded*: ``curate_coding`` derives it
-    from the step's visible plan, observation, and tool call and overwrites
-    whatever was there, while the later audit only checks that the field is
-    nonempty. Skipping a side whose steps already hold some text would let an
-    ungrounded value such as "private hunch" survive into a ``training_ready``
-    export. The lane is idempotent, so an already-grounded side is retained
-    unchanged and only its manifest gains the evidence-source reason.
-    """
-
-    if not isinstance(side, dict):
-        return False
-    if curate_coding.contains_hidden_reasoning_key(side):
-        return True
-    return isinstance(side.get("steps"), list)
-
-
-def _curate_trajectory_sides(
-    record: dict[str, Any],
-    *,
-    source_path: str,
-    source_line: int,
-) -> tuple[dict[str, Any] | None, dict[str, dict[str, Any]], list[str], bool]:
-    """Migrate repairable episode sides before the trajectory preference gate."""
-
-    curated = copy.deepcopy(record)
-    manifests: dict[str, dict[str, Any]] = {}
-    reasons: list[str] = []
-    changed = False
-    failed = False
-    for side_name in ("chosen", "rejected"):
-        side = curated.get(side_name)
-        if not _trajectory_side_needs_coding(side):
-            manifests[side_name] = {
-                "transform_name": curate_coding.TRANSFORM_NAME,
-                "transform_version": curate_coding.TRANSFORM_VERSION,
-                "action": ACTION_NOT_APPLICABLE,
-                "reason_codes": [],
-            }
-            continue
-        curated_side, manifest = curate_coding.curate_episode(
-            side,
-            source_path=f"{source_path}#{side_name}",
-            source_line=source_line,
-            source_hash=_canonical_sha256(side),
-        )
-        detail = copy.deepcopy(manifest)
-        detail["transform_name"] = curate_coding.TRANSFORM_NAME
-        detail["transform_version"] = curate_coding.TRANSFORM_VERSION
-        manifests[side_name] = detail
-        reasons.extend(detail.get("reason_codes", []))
-        if curated_side is None:
-            failed = True
-            continue
-        changed = changed or curated_side != side
-        curated[side_name] = curated_side
-    return (
-        None if failed else curated,
-        manifests,
-        list(dict.fromkeys(reasons)),
-        changed,
     )
 
 
@@ -1802,690 +1484,6 @@ def transform_contract() -> dict[str, Any]:
             "version": curate_rewards.ONTOLOGY_VERSION,
         },
     }
-
-
-def _contains_raw_segments(parts: tuple[str, ...]) -> bool:
-    return any(
-        parts[index : index + 2] == ("outputs", "raw") for index in range(len(parts) - 1)
-    )
-
-
-def _is_under_raw(path: Path) -> bool:
-    """Reject lexical raw aliases as well as symlink-resolved raw paths."""
-
-    return _contains_raw_segments(path.parts) or _contains_raw_segments(
-        path.resolve(strict=False).parts
-    )
-
-
-def _require_exact_directory(path: Path, label: str) -> Path:
-    """Require a real directory reached without a symlinked path alias."""
-
-    try:
-        metadata = path.lstat()
-        resolved = path.resolve(strict=True)
-    except FileNotFoundError as exc:
-        raise ComposeError(f"{label} is missing: {path}") from exc
-    absolute = Path(os.path.abspath(path))
-    if not stat.S_ISDIR(metadata.st_mode) or resolved != absolute:
-        raise ComposeError(f"{label} must be an exact non-symlink directory: {path}")
-    return resolved
-
-
-def _directory_identity(metadata: os.stat_result) -> tuple[int, int, int]:
-    """Identity fields that do not change when directory entries are added."""
-
-    return (metadata.st_dev, metadata.st_ino, stat.S_IFMT(metadata.st_mode))
-
-
-def _directory_binding_matches(
-    metadata: os.stat_result,
-    opened: os.stat_result,
-    resolved: Path,
-    absolute: Path,
-    expected_identity: tuple[int, int, int] | None,
-) -> bool:
-    """Whether a path and its pinned descriptor still name one directory."""
-
-    if not stat.S_ISDIR(metadata.st_mode) or not stat.S_ISDIR(opened.st_mode):
-        return False
-    if resolved != absolute:
-        return False
-    opened_identity = _directory_identity(opened)
-    if _directory_identity(metadata) != opened_identity:
-        return False
-    return expected_identity is None or opened_identity == expected_identity
-
-
-def _verify_directory_binding(
-    path: Path,
-    descriptor: int,
-    label: str,
-    *,
-    expected_identity: tuple[int, int, int] | None = None,
-) -> None:
-    """Require ``path`` and a pinned descriptor to name the same directory."""
-
-    try:
-        metadata = path.lstat()
-        resolved = path.resolve(strict=True)
-        opened = os.fstat(descriptor)
-    except (FileNotFoundError, OSError) as exc:
-        raise ComposeError(f"{label} changed while it was pinned: {path}") from exc
-
-    if not _directory_binding_matches(
-        metadata,
-        opened,
-        resolved,
-        Path(os.path.abspath(path)),
-        expected_identity,
-    ):
-        raise ComposeError(f"{label} changed while it was pinned: {path}")
-
-
-@dataclass
-class _PinnedDestination:
-    """A new destination held by directory descriptors until commit or cleanup."""
-
-    path: Path
-    root: Path
-    parent_descriptor: int
-    destination_descriptor: int
-    parent_identity: tuple[int, int, int]
-    destination_identity: tuple[int, int, int]
-    closed: bool = False
-
-    def _entry_is_ours(self) -> bool:
-        try:
-            current = os.stat(
-                self.path.name,
-                dir_fd=self.parent_descriptor,
-                follow_symlinks=False,
-            )
-        except (FileNotFoundError, OSError):
-            return False
-        return (
-            stat.S_ISDIR(current.st_mode)
-            and _directory_identity(current) == self.destination_identity
-        )
-
-    def cleanup(self) -> None:
-        """Remove only the directory created through the pinned parent."""
-
-        if self.closed:
-            return
-        os.close(self.destination_descriptor)
-        if self._entry_is_ours():
-            shutil.rmtree(
-                self.path.name,
-                ignore_errors=True,
-                dir_fd=self.parent_descriptor,
-            )
-        os.close(self.parent_descriptor)
-        self.closed = True
-
-    def finish(self) -> None:
-        """Verify the lexical bindings survived, then release the descriptors."""
-
-        if self.closed:
-            raise ComposeError("destination pin was already closed")
-        try:
-            _verify_directory_binding(
-                self.path.parent,
-                self.parent_descriptor,
-                "destination parent",
-                expected_identity=self.parent_identity,
-            )
-            _verify_directory_binding(
-                self.path,
-                self.destination_descriptor,
-                "destination",
-                expected_identity=self.destination_identity,
-            )
-        except BaseException:
-            self.cleanup()
-            raise
-        os.close(self.destination_descriptor)
-        os.close(self.parent_descriptor)
-        self.closed = True
-
-
-def _validated_member_relative(raw_path: Any, label: str) -> PurePosixPath:
-    """Reject anything that is not a plain, in-tree POSIX relative path."""
-
-    if not isinstance(raw_path, str) or not raw_path or "\\" in raw_path:
-        raise ComposeError(f"{label}: path must be a nonempty POSIX string")
-    relative = PurePosixPath(raw_path)
-    if (
-        relative.as_posix() != raw_path
-        or relative.is_absolute()
-        or any(part in {"", ".", ".."} for part in relative.parts)
-    ):
-        raise ComposeError(f"{label}: unsafe relative path {raw_path!r}")
-    return relative
-
-
-def _assert_unaliased_regular_member(
-    metadata: os.stat_result, *, label: str, raw_path: Any
-) -> None:
-    """A source member must be exactly one regular file, not an alias of one."""
-
-    if not stat.S_ISREG(metadata.st_mode):
-        raise ComposeError(f"{label}: source member is not a regular file: {raw_path}")
-    if metadata.st_nlink != 1:
-        raise ComposeError(f"{label}: hard-link aliases are not accepted: {raw_path}")
-
-
-def _source_member_path(root: Path, raw_path: Any, label: str) -> Path:
-    """Resolve one exact regular source member without aliases or tree escape."""
-
-    relative = _validated_member_relative(raw_path, label)
-    root_resolved = root.resolve(strict=True)
-    candidate = root_resolved.joinpath(*relative.parts)
-    try:
-        resolved = candidate.resolve(strict=True)
-        metadata = candidate.lstat()
-    except FileNotFoundError as exc:
-        raise ComposeError(f"{label}: source member is missing: {raw_path}") from exc
-    expected = root_resolved.joinpath(*relative.parts)
-    if resolved != expected or root_resolved not in resolved.parents:
-        raise ComposeError(f"{label}: source member is a symlink alias: {raw_path}")
-    _assert_unaliased_regular_member(metadata, label=label, raw_path=raw_path)
-    return candidate
-
-
-def _stable_file_identity(metadata: os.stat_result) -> tuple[int, ...]:
-    """Fields that must remain stable while one source member is read."""
-
-    return (
-        metadata.st_dev,
-        metadata.st_ino,
-        metadata.st_mode,
-        metadata.st_nlink,
-        metadata.st_size,
-        metadata.st_mtime_ns,
-        metadata.st_ctime_ns,
-    )
-
-
-def _drain_descriptor(descriptor: int) -> bytes:
-    """Read one already-pinned descriptor to EOF without re-opening it."""
-
-    chunks: list[bytes] = []
-    while True:
-        chunk = os.read(descriptor, 1024 * 1024)
-        if not chunk:
-            break
-        chunks.append(chunk)
-    return b"".join(chunks)
-
-
-def _assert_opened_source_identity(
-    before: os.stat_result, opened: os.stat_result, label: str
-) -> None:
-    """The descriptor we hold must be the file we stat-ed by path."""
-
-    if not stat.S_ISREG(opened.st_mode):
-        raise ComposeError(f"{label}: opened identity is not a regular file")
-    if opened.st_nlink != 1:
-        raise ComposeError(f"{label}: hard-link aliases are not accepted")
-    if _stable_file_identity(before) != _stable_file_identity(opened):
-        raise ComposeError(f"{label}: source identity changed while opening")
-
-
-def _assert_source_path_unchanged(
-    path: Path,
-    root: Path,
-    raw_path: Any,
-    opened_after: os.stat_result | None,
-    label: str,
-) -> None:
-    """After the read the path must still name that same unaliased file."""
-
-    try:
-        after = path.lstat()
-    except FileNotFoundError as exc:
-        raise ComposeError(f"{label}: source member disappeared while reading") from exc
-    if opened_after is None or _stable_file_identity(after) != _stable_file_identity(
-        opened_after
-    ):
-        raise ComposeError(f"{label}: source path identity changed while reading")
-    expected = root.resolve(strict=True).joinpath(*PurePosixPath(str(raw_path)).parts)
-    if path.resolve(strict=True) != expected:
-        raise ComposeError(f"{label}: source path became a symlink alias while reading")
-
-
-def _read_exact_regular_file(root: Path, raw_path: Any, label: str) -> tuple[Path, bytes]:
-    """Read one unique source file through a pinned descriptor."""
-
-    path = _source_member_path(root, raw_path, label)
-    before = path.lstat()
-    flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
-    try:
-        descriptor = os.open(path, flags)
-    except OSError as exc:
-        raise ComposeError(f"{label}: cannot open exact source file: {exc}") from exc
-
-    opened_after: os.stat_result | None = None
-    try:
-        opened_before = os.fstat(descriptor)
-        _assert_opened_source_identity(before, opened_before, label)
-        payload = _drain_descriptor(descriptor)
-        opened_after = os.fstat(descriptor)
-        if _stable_file_identity(opened_before) != _stable_file_identity(opened_after):
-            raise ComposeError(f"{label}: source identity changed while reading")
-    finally:
-        os.close(descriptor)
-
-    _assert_source_path_unchanged(path, root, raw_path, opened_after, label)
-    return path, payload
-
-
-def _open_pinned_child(
-    name: str, parent_descriptor: int, label: str
-) -> tuple[os.stat_result, int]:
-    """Stat and open one child through its already-pinned parent descriptor."""
-
-    try:
-        before = os.stat(name, dir_fd=parent_descriptor, follow_symlinks=False)
-        descriptor = os.open(
-            name,
-            os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_CLOEXEC", 0),
-            dir_fd=parent_descriptor,
-        )
-    except OSError as exc:
-        raise ComposeError(f"{label}: cannot open exact source file: {exc}") from exc
-    return before, descriptor
-
-
-def _read_pinned_child_bytes(
-    name: str,
-    parent_descriptor: int,
-    file_descriptor: int,
-    before: os.stat_result,
-    label: str,
-) -> bytes:
-    """Read the opened child, proving its identity held across the read."""
-
-    opened_before = os.fstat(file_descriptor)
-    _assert_opened_source_identity(before, opened_before, label)
-    payload = _drain_descriptor(file_descriptor)
-    opened_after = os.fstat(file_descriptor)
-    after = os.stat(name, dir_fd=parent_descriptor, follow_symlinks=False)
-    if (
-        _stable_file_identity(opened_before) != _stable_file_identity(opened_after)
-        or _stable_file_identity(after) != _stable_file_identity(opened_after)
-    ):
-        raise ComposeError(f"{label}: source identity changed while reading")
-    return payload
-
-
-def _read_exact_child_file(parent: Path, name: str, label: str) -> tuple[Path, bytes]:
-    """Read one direct child while its exact parent directory remains pinned."""
-
-    parent = _require_exact_directory(parent, f"{label} parent")
-    expected_parent_identity = _directory_identity(parent.lstat())
-    directory_flags = (
-        os.O_RDONLY
-        | getattr(os, "O_DIRECTORY", 0)
-        | getattr(os, "O_NOFOLLOW", 0)
-        | getattr(os, "O_CLOEXEC", 0)
-    )
-    try:
-        parent_descriptor = os.open(parent, directory_flags)
-    except OSError as exc:
-        raise ComposeError(f"{label} parent changed while it was pinned: {parent}") from exc
-
-    file_descriptor: int | None = None
-    try:
-        # The parent identity is proved before the child is opened and again
-        # after it is read, so a swapped directory cannot slip a different
-        # file into the same name mid-read.
-        _verify_directory_binding(
-            parent,
-            parent_descriptor,
-            f"{label} parent",
-            expected_identity=expected_parent_identity,
-        )
-        before, file_descriptor = _open_pinned_child(name, parent_descriptor, label)
-        payload = _read_pinned_child_bytes(
-            name, parent_descriptor, file_descriptor, before, label
-        )
-        _verify_directory_binding(
-            parent,
-            parent_descriptor,
-            f"{label} parent",
-            expected_identity=expected_parent_identity,
-        )
-        return parent / name, payload
-    finally:
-        if file_descriptor is not None:
-            os.close(file_descriptor)
-        os.close(parent_descriptor)
-
-
-def _scan_source_directory(directory: Path) -> list[Any]:
-    """List one source directory in a stable, name-sorted order."""
-
-    try:
-        with os.scandir(directory) as scan:
-            return sorted(scan, key=lambda entry: entry.name)
-    except OSError as exc:
-        raise ComposeError(
-            f"cannot enumerate source directory {directory}: {exc}"
-        ) from exc
-
-
-def _source_entry_metadata(entry: Any, path: Path) -> os.stat_result:
-    """Stat one source entry without following, or accepting, an alias."""
-
-    try:
-        metadata = entry.stat(follow_symlinks=False)
-    except OSError as exc:
-        raise ComposeError(f"cannot inspect source member {path}: {exc}") from exc
-    if stat.S_ISLNK(metadata.st_mode):
-        raise ComposeError(f"source tree contains a symlink alias: {path}")
-    return metadata
-
-
-def _collect_source_directory(
-    root: Path, directory: Path, members: list[str]
-) -> list[Path]:
-    """Append this directory's JSONL members; return its child directories."""
-
-    child_directories: list[Path] = []
-    for entry in _scan_source_directory(directory):
-        path = Path(entry.path)
-        metadata = _source_entry_metadata(entry, path)
-        if stat.S_ISDIR(metadata.st_mode):
-            child_directories.append(path)
-            continue
-        if not entry.name.endswith(".jsonl"):
-            continue
-        relative = path.relative_to(root).as_posix()
-        _source_member_path(root, relative, f"compose source {relative}")
-        members.append(relative)
-    return child_directories
-
-
-def source_jsonl_members(root: Path) -> tuple[str, ...]:
-    """Enumerate a source tree without silently following filesystem aliases."""
-
-    root = _require_exact_directory(root, "source run")
-    members: list[str] = []
-    pending = [root]
-    while pending:
-        directory = pending.pop()
-        if _require_exact_directory(directory, "source directory") != directory:
-            raise ComposeError(f"source directory identity changed: {directory}")
-        pending.extend(
-            reversed(_collect_source_directory(root, directory, members))
-        )
-    return tuple(sorted(members))
-
-
-def _assert_destination_disjoint(
-    resolved_source: Path, resolved_destination: Path
-) -> None:
-    """The destination may neither be, contain, nor sit inside the source run."""
-
-    if resolved_source == resolved_destination:
-        raise ComposeError("destination cannot replace the source run")
-    if resolved_source in resolved_destination.parents:
-        raise ComposeError("destination cannot be written inside the source run")
-    if resolved_destination in resolved_source.parents:
-        raise ComposeError("destination cannot contain the source run")
-
-
-def _assert_new_destination(
-    source_run: Path, destination: Path
-) -> tuple[Path, tuple[int, int, int]]:
-    if os.path.lexists(destination):
-        raise ComposeError(f"refusing to overwrite an existing destination: {destination}")
-    if _is_under_raw(destination):
-        raise ComposeError(f"refusing to write inside immutable raw evidence: {destination}")
-    _assert_destination_disjoint(
-        source_run.resolve(), destination.resolve(strict=False)
-    )
-    parent = _require_exact_directory(destination.parent, "destination parent")
-    return parent, _directory_identity(parent.lstat())
-
-
-def _refuse_existing_destination(parent_descriptor: int, destination: Path) -> None:
-    """Refuse a destination name that already exists under the pinned parent."""
-
-    try:
-        os.stat(
-            destination.name,
-            dir_fd=parent_descriptor,
-            follow_symlinks=False,
-        )
-    except FileNotFoundError:
-        return
-    raise ComposeError(
-        f"refusing to overwrite an existing destination: {destination}"
-    )
-
-
-def _pinned_root_path(destination_descriptor: int) -> Path:
-    """Return the descriptor-addressed root every later write goes through."""
-
-    root = Path(f"/proc/self/fd/{destination_descriptor}")
-    if not root.is_dir():
-        raise ComposeError("pinned destination descriptor is not path-addressable")
-    return root
-
-
-def _discard_created_destination(
-    parent_descriptor: int,
-    destination: Path,
-    created_identity: tuple[int, int, int],
-) -> None:
-    """Remove a partly created destination, but only the one we created."""
-
-    try:
-        current = os.stat(
-            destination.name,
-            dir_fd=parent_descriptor,
-            follow_symlinks=False,
-        )
-    except (FileNotFoundError, OSError):
-        current = None
-    if current is not None and _directory_identity(current) == created_identity:
-        shutil.rmtree(
-            destination.name,
-            ignore_errors=True,
-            dir_fd=parent_descriptor,
-        )
-
-
-def _create_pinned_destination(
-    source_run: Path, destination: Path
-) -> _PinnedDestination:
-    """Create one exclusive destination relative to a pinned parent descriptor."""
-
-    parent, expected_parent_identity = _assert_new_destination(
-        source_run, destination
-    )
-    destination = Path(os.path.abspath(destination))
-    flags = (
-        os.O_RDONLY
-        | getattr(os, "O_DIRECTORY", 0)
-        | getattr(os, "O_NOFOLLOW", 0)
-        | getattr(os, "O_CLOEXEC", 0)
-    )
-    parent_descriptor = os.open(parent, flags)
-    destination_descriptor: int | None = None
-    created_identity: tuple[int, int, int] | None = None
-    try:
-        _verify_directory_binding(
-            parent,
-            parent_descriptor,
-            "destination parent",
-            expected_identity=expected_parent_identity,
-        )
-        _refuse_existing_destination(parent_descriptor, destination)
-        os.mkdir(destination.name, 0o755, dir_fd=parent_descriptor)
-        created = os.stat(
-            destination.name,
-            dir_fd=parent_descriptor,
-            follow_symlinks=False,
-        )
-        created_identity = _directory_identity(created)
-        if not stat.S_ISDIR(created.st_mode):
-            raise ComposeError(f"new destination is not a directory: {destination}")
-        destination_descriptor = os.open(
-            destination.name,
-            flags,
-            dir_fd=parent_descriptor,
-        )
-        if _directory_identity(os.fstat(destination_descriptor)) != created_identity:
-            raise ComposeError("destination identity changed while opening")
-        return _PinnedDestination(
-            path=destination,
-            root=_pinned_root_path(destination_descriptor),
-            parent_descriptor=parent_descriptor,
-            destination_descriptor=destination_descriptor,
-            parent_identity=expected_parent_identity,
-            destination_identity=created_identity,
-        )
-    except BaseException:
-        if destination_descriptor is not None:
-            os.close(destination_descriptor)
-        if created_identity is not None:
-            _discard_created_destination(
-                parent_descriptor, destination, created_identity
-            )
-        os.close(parent_descriptor)
-        raise
-
-
-def _destination_write_parts(relative: Any, label: str) -> tuple[str, ...]:
-    """Validate one destination-relative POSIX path used for a new file."""
-
-    raw = relative.as_posix() if isinstance(relative, PurePosixPath) else relative
-    if not isinstance(raw, str) or not raw or "\\" in raw:
-        raise ComposeError(f"{label}: destination path must be a nonempty POSIX string")
-    candidate = PurePosixPath(raw)
-    non_canonical = candidate.as_posix() != raw or candidate.is_absolute()
-    if non_canonical or any(part in {"", ".", ".."} for part in candidate.parts):
-        raise ComposeError(f"{label}: unsafe destination path {raw!r}")
-    return candidate.parts
-
-
-def _open_pinned_child_directory(
-    parent_descriptor: int, name: str, label: str
-) -> int:
-    """Create or reuse one child directory and pin it without following links.
-
-    ``mkdir`` and the matching ``open`` are two syscalls, so a same-user
-    process can replace the new child with a symlink in between.  Opening the
-    component relative to its pinned parent with ``O_NOFOLLOW`` refuses that
-    swap outright, and comparing the opened identity against the directory
-    entry refuses a swap that lands between the two calls.
-    """
-
-    flags = (
-        os.O_RDONLY
-        | getattr(os, "O_DIRECTORY", 0)
-        | getattr(os, "O_NOFOLLOW", 0)
-        | getattr(os, "O_CLOEXEC", 0)
-    )
-    try:
-        os.mkdir(name, 0o755, dir_fd=parent_descriptor)
-    except FileExistsError:
-        pass
-    except OSError as exc:
-        raise ComposeError(
-            f"{label}: cannot create directory component {name!r}: {exc}"
-        ) from exc
-    try:
-        descriptor = os.open(name, flags, dir_fd=parent_descriptor)
-    except OSError as exc:
-        raise ComposeError(
-            f"{label}: directory component {name!r} is not an exact directory"
-        ) from exc
-    try:
-        _verify_pinned_child(descriptor, parent_descriptor, name, label)
-    except BaseException:
-        os.close(descriptor)
-        raise
-    return descriptor
-
-
-def _verify_pinned_child(
-    descriptor: int, parent_descriptor: int, name: str, label: str
-) -> None:
-    """Require the opened child and its directory entry to be one directory."""
-
-    entry = os.stat(name, dir_fd=parent_descriptor, follow_symlinks=False)
-    opened = os.fstat(descriptor)
-    entries_diverge = not stat.S_ISDIR(entry.st_mode) or not stat.S_ISDIR(
-        opened.st_mode
-    )
-    if entries_diverge or _directory_identity(entry) != _directory_identity(opened):
-        raise ComposeError(
-            f"{label}: directory component {name!r} changed while it was pinned"
-        )
-
-
-def _write_pinned_new_bytes(
-    root_descriptor: int, relative: Any, payload: bytes, label: str = "destination"
-) -> str:
-    """Create one new file under a pinned root, pinning every component.
-
-    Every intermediate directory is created and reopened relative to the
-    descriptor above it, so no component of the write path is ever resolved
-    through a name that another process can swap for a symlink.  The final
-    file is created exclusively and never follows a link either, which keeps
-    derived output from escaping into the immutable ``outputs/raw/`` tree.
-    """
-
-    parts = _destination_write_parts(relative, label)
-    opened: list[int] = []
-    current = root_descriptor
-    try:
-        for name in parts[:-1]:
-            current = _open_pinned_child_directory(current, name, label)
-            opened.append(current)
-        leaf = parts[-1]
-        flags = (
-            os.O_WRONLY
-            | os.O_CREAT
-            | os.O_EXCL
-            | getattr(os, "O_NOFOLLOW", 0)
-            | getattr(os, "O_CLOEXEC", 0)
-        )
-        try:
-            descriptor = os.open(leaf, flags, 0o644, dir_fd=current)
-        except OSError as exc:
-            raise ComposeError(
-                f"{label}: cannot create new file {parts[-1]!r}: {exc}"
-            ) from exc
-        try:
-            with os.fdopen(descriptor, "wb") as handle:
-                handle.write(payload)
-        except BaseException:
-            try:
-                os.unlink(leaf, dir_fd=current)
-            except OSError:
-                pass
-            raise
-    finally:
-        for descriptor in reversed(opened):
-            os.close(descriptor)
-    return sha256_hex(payload)
-
-
-def _write_new_text(root_descriptor: int, relative: Any, text: str) -> str:
-    """Create one new destination file exclusively and hash its bytes."""
-
-    return _write_pinned_new_bytes(
-        root_descriptor,
-        relative,
-        text.encode("utf-8"),
-        f"destination {relative}",
-    )
 
 
 def _load_calibration(
