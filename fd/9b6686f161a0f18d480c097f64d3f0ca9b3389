@@ -1,0 +1,26 @@
+pipelines/oracle_generate.py
+  s_f3ffb7db87dca1::t_d873fb9437b3a2 138-158
+  s_f3ffb7db87dca1::t_85865e9f10c9ef 436-439
+  s_f3ffb7db87dca1::t_6cb3ff5db6fdb9 504-524,526
+  s_f3ffb7db87dca1::t_1eec73e8eb3672 42
+  s_f3ffb7db87dca1::t_14d0f37a305378 51-53
+tests/test_oracle_grounded_cli.py
+  s_f3ffb7db87dca1::t_6dbcae6d8d550b 1161-1225
+  s_f3ffb7db87dca1::t_14f0b9c2d52f72 1251-1282
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "fd9b6686f161a0f18d480c097f64d3f0ca9b3389",
+  "prompts": {},
+  "sessions": {
+    "s_f3ffb7db87dca1": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "510a01e2-1e9d-4f64-a445-6971413485be",
+        "model": "claude-fable-5"
+      },
+      "human_author": "Raul Montoya Cardenas <montoyaraul34@gmail.com>"
+    }
+  }
+}
