@@ -1,0 +1,39 @@
+pipelines/round_txn_raster.py
+  s_98712805c1499b::t_9393e6fff645e5 18-23
+  s_98712805c1499b::t_b011d5ff85e115 1-17,24-132
+pipelines/curate_bridge.py
+  s_98712805c1499b::t_36dcbc4e967069 888-891,894-901
+  s_98712805c1499b::t_305ac4aeff05ee 56-62
+  s_98712805c1499b::t_44447d3bf2f80b 44-45,512
+  s_98712805c1499b::t_d3a98aefce319d 43,46-54
+  s_98712805c1499b::t_aab9fb99720228 505-511,513-515,523,535-541,877,881-887
+  s_98712805c1499b::t_d2ab87a04af290 545-549
+pipelines/round_txn.py
+  s_98712805c1499b::t_e152f8094e5a79 2347
+  s_98712805c1499b::t_be3f9ff0c549bb 49-60
+pipelines/curate_bridge_materialize.py
+  s_98712805c1499b::t_ef1c91ba788c7e 47,49,51-57,59
+  s_98712805c1499b::t_7faba6748f90d6 1-46,48,50,58,60-366
+pipelines/curate_bridge_events.py
+  s_98712805c1499b::t_1c513121cc01aa 1-128
+tests/test_round_txn.py
+  s_98712805c1499b::t_a908ab29947395 40-66,183-187,192-197
+pipelines/training_audit.py
+  s_98712805c1499b::t_4e5318bf85c554 534,536-545,550,552-568
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "d9960f24874fdb6ba440196ea439c09c69876163",
+  "prompts": {},
+  "sessions": {
+    "s_98712805c1499b": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a04a1f-1e33-7812-a5aa-c7b04b33b6b5",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Raul Montoya Cardenas <montoyaraul34@gmail.com>"
+    }
+  }
+}
