@@ -14,20 +14,37 @@ import quality_gate  # noqa: E402
 
 
 class EmbeddingEncoder(unittest.TestCase):
-    def test_string_operators_remain_semantically_distinct(self):
-        records = [
-            {"state": {"predicate": "queue_depth < hard_limit"}},
-            {"state": {"predicate": "queue_depth > hard_limit"}},
-        ]
+    def _assert_string_channel_distinct(self, records, markers):
         token_sets = [quality_gate.embedding_tokens(record) for record in records]
         self.assertNotEqual(token_sets[0], token_sets[1])
-        self.assertTrue(any("str-op:<" in token for token in token_sets[0]))
-        self.assertTrue(any("str-op:>" in token for token in token_sets[1]))
+        for marker, tokens in zip(markers, token_sets):
+            self.assertTrue(any(marker in token for token in tokens), marker)
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
             write(root / "batch.jsonl", records)
             report = quality_gate.audit_run(root)
         self.assertEqual(report["duplicates"], [])
+
+    def test_case_and_operator_channels_remain_semantically_distinct(self):
+        cases = (
+            (
+                [
+                    {"state": {"predicate": "queue_depth < hard_limit"}},
+                    {"state": {"predicate": "queue_depth > hard_limit"}},
+                ],
+                ("str-op:<", "str-op:>"),
+            ),
+            (
+                [
+                    {"state": {"principal": "User"}},
+                    {"state": {"principal": "user"}},
+                ],
+                ("str-case:User", "str-case:user"),
+            ),
+        )
+        for records, markers in cases:
+            with self.subTest(markers=markers):
+                self._assert_string_channel_distinct(records, markers)
 
     def test_null_and_empty_values_have_typed_sentinels(self):
         records = [
@@ -42,20 +59,6 @@ class EmbeddingEncoder(unittest.TestCase):
             ("null", "str-empty", "list-empty", "dict-empty"), token_sets
         ):
             self.assertTrue(any(marker in token for token in tokens), marker)
-
-    def test_case_sensitive_identifiers_remain_distinct(self):
-        records = [
-            {"state": {"principal": "User"}},
-            {"state": {"principal": "user"}},
-        ]
-        token_sets = [quality_gate.embedding_tokens(record) for record in records]
-        self.assertNotEqual(token_sets[0], token_sets[1])
-        self.assertTrue(any("str-case:User" in token for token in token_sets[0]))
-        with tempfile.TemporaryDirectory() as td:
-            root = Path(td)
-            write(root / "batch.jsonl", records)
-            report = quality_gate.audit_run(root)
-        self.assertEqual(report["duplicates"], [])
 
     def test_repeated_sequence_order_is_position_qualified(self):
         """A repeated element makes bigram multisets coincide, so those lists

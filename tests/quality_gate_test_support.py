@@ -23,4 +23,3 @@ def mix_records(synthetic, real):
         {"id": f"m-{index}", "state": {"sim_or_real": kind, "note": DISTINCT_NOTES[index]}}
         for index, kind in enumerate(kinds)
     ]
-

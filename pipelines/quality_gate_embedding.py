@@ -14,6 +14,7 @@ import itertools
 import math
 import unicodedata
 from collections import Counter, defaultdict
+from dataclasses import dataclass, field
 
 from quality_gate_identity import canonical_blob, semantic_similarity_view
 
@@ -105,32 +106,49 @@ def _character_unit_kind(char: str, active_kind: str | None) -> str:
     return "operator"
 
 
+@dataclass
+class _StringScan:
+    active_kind: str | None = None
+    active_chars: list[str] = field(default_factory=list)
+    active_gap: str = ""
+    pending_gap: str = ""
+
+
+def _flush_string_scan(state):
+    if not state.active_chars:
+        return ()
+    unit = (state.active_kind, "".join(state.active_chars), state.active_gap)
+    state.active_kind = None
+    state.active_chars.clear()
+    state.active_gap = ""
+    return (unit,)
+
+
+def _consume_string_char(state, char):
+    kind = _character_unit_kind(char, state.active_kind)
+    if kind == "space":
+        emitted = _flush_string_scan(state)
+        state.pending_gap += char
+        return emitted
+    emitted = ()
+    if state.active_kind != kind:
+        emitted = _flush_string_scan(state)
+        state.active_kind = kind
+        state.active_gap, state.pending_gap = state.pending_gap, ""
+    state.active_chars.append(char)
+    return emitted
+
+
 def _string_units(text: str):
     """Yield ordered ``(kind, unit, preceding_gap)`` triples.
 
     Whitespace rides on the following unit.  This preserves exact gaps without
     breaking the word-to-word bigram chain that carries prose and code order.
     """
-    active_kind = None
-    active_chars: list[str] = []
-    active_gap = ""
-    pending_gap = ""
+    state = _StringScan()
     for char in unicodedata.normalize("NFC", text):
-        kind = _character_unit_kind(char, active_kind)
-        if kind == "space":
-            if active_chars:
-                yield active_kind, "".join(active_chars), active_gap
-                active_kind, active_chars = None, []
-            pending_gap += char
-            continue
-        if active_kind != kind:
-            if active_chars:
-                yield active_kind, "".join(active_chars), active_gap
-            active_kind, active_chars = kind, []
-            active_gap, pending_gap = pending_gap, ""
-        active_chars.append(char)
-    if active_chars:
-        yield active_kind, "".join(active_chars), active_gap
+        yield from _consume_string_char(state, char)
+    yield from _flush_string_scan(state)
 
 
 def _unsegmented_features(path: str, unit: str, gap: str) -> list[str]:
@@ -469,8 +487,9 @@ def _match_relationship(records, members, other) -> str:
     )
 
 
-def _duplicate_entry(records, members, index, best_match, threshold) -> dict:
+def _duplicate_entry(context, index) -> dict:
     """Render one excluded member of an embedding cluster."""
+    records, members, best_match, threshold = context
     keeper = records[members[0]]
     similarity, other = best_match[index]
     match = records[other]
@@ -495,8 +514,9 @@ def _render_embedding_groups(records, union, best_match, threshold):
     clusters = []
     for members in union.groups():
         clusters.append(_cluster_summary(records, members, best_match, threshold))
+        context = records, members, best_match, threshold
         duplicates.extend(
-            _duplicate_entry(records, members, index, best_match, threshold)
+            _duplicate_entry(context, index)
             for index in members[1:]
         )
     duplicates.sort(key=lambda entry: (entry["file"], entry["line"]))
