@@ -7,6 +7,8 @@ import json
 import math
 from pathlib import Path
 
+from exact_json import exact_fraction
+
 
 REPO = Path(__file__).resolve().parents[1]
 SCHEMA_PATH = REPO / "schemas" / "thalamic-trajectory.schema.json"
@@ -191,7 +193,7 @@ def _spike_order_errors(timed, where):
     """Report only the first inversion in a comparable stream."""
     previous = None
     for index, key, current in timed:
-        if previous is not None and current < previous[1]:
+        if previous is not None and exact_fraction(current) < exact_fraction(previous[1]):
             return [
                 f"{where}: {SPIKE_ORDER_MISMATCH} at index "
                 f"{index} ({key} {previous[1]} -> {current})"

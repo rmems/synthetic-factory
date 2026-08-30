@@ -28,6 +28,7 @@ except ModuleNotFoundError:
     )
 
 import spike_probe  # noqa: E402
+from exact_json import parse_finite_json_float  # noqa: E402
 
 
 class RasterArithmeticReviewFollowUps(unittest.TestCase):
@@ -174,6 +175,55 @@ class RasterArithmeticReviewFollowUps(unittest.TestCase):
         mismatch = curate_bridge.raster_status(record)
         self.assertFalse(mismatch["raster_valid"])
         self.assertIn(curate_bridge.REASON_RASTER_ENERGY, mismatch["reason_codes"])
+
+    def test_decimal_pj_token_does_not_hide_one_pj_mismatch(self):
+        record = gate_snn_fixture()
+        spikes = 10**16
+        record["raster"].update(
+            {
+                "neurons": spikes,
+                "mean_rate_hz": 25,
+                "window_ms": 40,
+                "window_s": 0.04,
+                "spikes": spikes,
+                "energy_pJ": parse_finite_json_float("230000000000000001.0"),
+            }
+        )
+        record["raster"].pop("energy_uJ", None)
+
+        status = curate_bridge.raster_status(record)
+
+        self.assertFalse(status["raster_valid"])
+        self.assertIn(curate_bridge.REASON_RASTER_ENERGY, status["reason_codes"])
+
+    def test_large_exact_uj_token_matches_integer_spike_energy(self):
+        record = gate_snn_fixture()
+        spikes = 2**52
+        record["raster"].update(
+            {
+                "neurons": spikes,
+                "mean_rate_hz": 25,
+                "window_ms": 40,
+                "window_s": 0.04,
+                "spikes": spikes,
+                "energy_uJ": parse_finite_json_float("103582791429.521408"),
+            }
+        )
+        record["raster"].pop("energy_pJ", None)
+
+        status = curate_bridge.raster_status(record)
+
+        self.assertTrue(status["raster_valid"], status["reason_codes"])
+
+    def test_derived_alias_beyond_exact_bound_fails_closed(self):
+        record = gate_snn_fixture()
+        record["raster"].pop("window_s", None)
+        record["raster"]["window_ms"] = parse_finite_json_float("1e-4096")
+
+        status = curate_bridge.raster_status(record)
+
+        self.assertFalse(status["raster_valid"])
+        self.assertIn(curate_bridge.REASON_RASTER_WINDOW, status["reason_codes"])
 
     def test_conflicting_eligibility_time_aliases_are_rejected(self):
         record = gate_snn_fixture()

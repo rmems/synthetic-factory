@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import copy
 import io
 import json
 import sys
@@ -59,6 +60,57 @@ class ExactJSONNumbers(unittest.TestCase):
     def test_overflowing_float_token_is_rejected(self):
         with self.assertRaisesRegex(ValueError, "non-finite JSON number"):
             parse_finite_json_float("1e999")
+
+    def test_exact_decimal_expansion_is_bounded_before_fraction_construction(self):
+        self.assertEqual(float(parse_finite_json_float("1e308")), 1e308)
+        self.assertEqual(exact_fraction(parse_finite_json_float("1e-00000")), 1)
+        hostile_tokens = (
+            "1e-4097",
+            "1e-10000",
+            "0." + ("1" * 4097),
+        )
+        for token in hostile_tokens:
+            with self.subTest(token=token[:32]), self.assertRaisesRegex(
+                ValueError, "exact-decimal limit"
+            ):
+                parse_finite_json_float(token)
+
+        with self.assertRaisesRegex(ValueError, "exact-decimal limit"):
+            json_number_from_fraction(Fraction(1, 10**4097))
+
+    def test_exact_float_is_immutable_across_copy_operations(self):
+        value = parse_finite_json_float("25.000000000000001")
+
+        self.assertIs(copy.copy(value), value)
+        self.assertIs(copy.deepcopy(value), value)
+
+    def test_scalar_serialization_matches_json_contract(self):
+        payload = {
+            "none": None,
+            "true": True,
+            "false": False,
+            "integer": -7,
+            "float": -0.0,
+            "exact": parse_finite_json_float("1.00000000000000001"),
+            "unicode": "café",
+        }
+
+        encoded = dumps_exact_json(payload, ensure_ascii=False)
+        self.assertIn('"exact":1.00000000000000001', encoded)
+        self.assertIn('"unicode":"café"', encoded)
+        self.assertIn('"float":-0.0', encoded)
+        self.assertIn('"true":true', encoded)
+        self.assertIn('"false":false', encoded)
+        self.assertIn('"none":null', encoded)
+        self.assertIn(
+            '"unicode":"caf\\u00e9"',
+            dumps_exact_json(payload, ensure_ascii=True),
+        )
+        for value in (float("nan"), float("inf"), float("-inf")):
+            with self.subTest(value=value), self.assertRaises(ValueError):
+                dumps_exact_json(value)
+        with self.assertRaises(TypeError):
+            dumps_exact_json(object())
 
     def test_probe_jsonl_preserves_a_contractual_decimal_token(self):
         neurons = 10**18 + 2

@@ -67,6 +67,7 @@ from curate_bridge_raster import (
 )
 from exact_json import (
     dumps_exact_json,
+    exact_fraction,
     parse_finite_json_float as _parse_exact_json_float,
 )
 from validate_run import SAFETY_DECISIONS
@@ -228,7 +229,7 @@ def _expected_gate_decision(record: dict[str, Any]) -> str | None:
         return None
     decision = safety.get("decision")
     rationale = safety.get("rationale")
-    if decision not in SAFETY_DECISIONS:
+    if not isinstance(decision, str) or decision not in SAFETY_DECISIONS:
         return None
     if not isinstance(rationale, str) or not rationale.strip():
         return None
@@ -655,7 +656,7 @@ def curate_record(
 
     reason_codes: list[str] = []
     event_time_keys: list[str | None] = []
-    times: list[float] = []
+    times: list[Any] = []
     invalid_event_indices: list[int] = []
     invalid_time_indices: list[int] = []
     negative_time_indices: list[int] = []
@@ -679,9 +680,13 @@ def curate_record(
             reason_codes.append(REASON_INVALID_TIME)
             invalid_time_indices.append(index)
             continue
-        numeric = float(value)
-        times.append(numeric)
-        if key == "t_rel_ms" and numeric < 0:
+        times.append(value)
+        if key != "t_rel_ms":
+            continue
+        value_fraction = exact_fraction(value)
+        if value_fraction is None:
+            continue
+        if value_fraction < 0:
             reason_codes.append(REASON_NEGATIVE_RELATIVE_TIME)
             negative_time_indices.append(index)
 
@@ -714,7 +719,10 @@ def curate_record(
     # Every event contributed exactly one valid timestamp at this point.
     time_key = next(iter(valid_keys))
     descents = _adjacent_descents(times)
-    permutation = sorted(range(len(events)), key=times.__getitem__)
+    permutation = sorted(
+        range(len(events)),
+        key=lambda event_index: exact_fraction(times[event_index]),
+    )
     sorted_events = [copy.deepcopy(events[index]) for index in permutation]
     sorted_times = [times[index] for index in permutation]
     moved = sum(index != source_index for index, source_index in enumerate(permutation))
@@ -730,8 +738,8 @@ def curate_record(
             "stable_sort_permutation": permutation,
             "stable_ties_preserved": True,
             "moved_event_count": moved,
-            "time_min": min(times),
-            "time_max": max(times),
+            "time_min": min(times, key=exact_fraction),
+            "time_max": max(times, key=exact_fraction),
             "output_event_order_hash": sha256_hex(canonical_json_bytes(sorted_events)),
         }
     )

@@ -19,7 +19,8 @@ import re
 import sys
 from pathlib import Path
 
-from validate_run_spikes import (
+from exact_json import parse_finite_json_float as _parse_exact_json_float
+from validate_run_spikes import (  # noqa: F401 - compatibility re-exports
     BRIDGE_SPIKE_EVENT_KEYS,
     REPO,
     SCHEMA_PATH,
@@ -1442,7 +1443,11 @@ def main(argv=None):
                 continue
             where = f"{rel}:{lineno}"
             try:
-                obj = json.loads(line, parse_constant=reject_json_constant)
+                obj = json.loads(
+                    line,
+                    parse_constant=reject_json_constant,
+                    parse_float=_parse_exact_json_float,
+                )
             except (json.JSONDecodeError, ValueError) as exc:
                 entry["errors"].append(f"{where}: JSON parse error: {exc}")
                 continue

@@ -48,7 +48,7 @@ def _expected_spikes(neurons: Any, mean_rate_hz: Any, window_s: Any) -> int | No
     window_float = _finite_float(window_s)
     rate = exact_fraction(mean_rate_hz)
     window = exact_fraction(window_s)
-    if rate_float is None or window_float is None or rate is None or window is None:
+    if any(value is None for value in (rate_float, window_float, rate, window)):
         return None
     scale = rate_float * window_float
     if not math.isfinite(scale):
@@ -64,12 +64,16 @@ def _expected_spikes(neurons: Any, mean_rate_hz: Any, window_s: Any) -> int | No
         return None
 
 
-def _spike_energy(spikes: int, per_spike: float) -> float | None:
+def _spike_energy(spikes: int, per_spike: float) -> float | int | None:
     if _finite_float(spikes) is None or _finite_float(per_spike) is None:
         return None
+    spike_fraction = exact_fraction(spikes)
+    per_spike_fraction = exact_fraction(per_spike)
+    if spike_fraction is None or per_spike_fraction is None:
+        return None
     try:
-        energy = spikes * per_spike
-    except OverflowError:
+        energy = json_number_from_fraction(spike_fraction * per_spike_fraction)
+    except (OverflowError, ValueError):
         return None
     return energy if _finite_float(energy) is not None else None
 
@@ -149,14 +153,8 @@ def _positive_aliases(
     scale = exact_fraction(alias_scale)
     if scale is None or scale <= 0:
         return _PositiveAliases(primary, alias, primary_declared, alias_declared, False, False)
-    if not primary_declared and _positive_number(alias):
-        alias_fraction = exact_fraction(alias)
-        if alias_fraction is not None:
-            primary = json_number_from_fraction(alias_fraction * scale)
-    if not alias_declared and _positive_number(primary):
-        primary_fraction = exact_fraction(primary)
-        if primary_fraction is not None:
-            alias = json_number_from_fraction(primary_fraction / scale)
+    primary = _derive_positive_alias(primary_declared, primary, alias, scale)
+    alias = _derive_positive_alias(alias_declared, alias, primary, 1 / scale)
     valid = _positive_number(primary) and _positive_number(alias)
     primary_fraction = exact_fraction(primary)
     alias_fraction = exact_fraction(alias)
@@ -167,6 +165,26 @@ def _positive_aliases(
         and abs(primary_fraction - alias_fraction * scale) <= Fraction(1, 10**9)
     )
     return _PositiveAliases(primary, alias, primary_declared, alias_declared, valid, consistent)
+
+
+def _derive_positive_alias(
+    declared: bool,
+    current: Any,
+    source: Any,
+    scale: Fraction,
+) -> Any:
+    """Derive only a missing alias while preserving explicit null values."""
+
+    if declared or not _positive_number(source):
+        return current
+    source_fraction = exact_fraction(source)
+    if source_fraction is None:
+        return current
+    derived = source_fraction * scale
+    try:
+        return json_number_from_fraction(derived)
+    except (ValueError, OverflowError):
+        return current
 
 
 def _record_alias_derivation(
@@ -314,9 +332,19 @@ def _raster_energy_field(
 ) -> bool:
     if expected is None or not _is_finite_number(expected):
         return False
-    if not _is_finite_number(value) or value < 0:
+    if not _is_finite_number(value):
         return False
-    return abs(value - expected) <= tolerance
+    value_fraction = exact_fraction(value)
+    expected_fraction = exact_fraction(expected)
+    tolerance_fraction = exact_fraction(tolerance)
+    if any(
+        item is None
+        for item in (value_fraction, expected_fraction, tolerance_fraction)
+    ):
+        return False
+    if value_fraction < 0:
+        return False
+    return abs(value_fraction - expected_fraction) <= tolerance_fraction
 
 
 def _invalid_declared_energy_keys(raster: dict[str, Any]) -> list[str]:

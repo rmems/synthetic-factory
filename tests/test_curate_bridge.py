@@ -17,6 +17,7 @@ sys.path.insert(0, str(REPO / "pipelines"))
 
 import check_records  # noqa: E402
 import curate_bridge  # noqa: E402
+from exact_json import parse_finite_json_float  # noqa: E402
 import training_audit  # noqa: E402
 
 FIXTURES = REPO / "tests" / "fixtures"
@@ -52,6 +53,42 @@ def decide(record):
 
 
 class BridgeTimingCuration(unittest.TestCase):
+    @staticmethod
+    def _literal_timing_decision(left: str, right: str):
+        payload = (
+            '{"id":"exact-order","spike_events":['
+            f'{{"channel":"left","t_rel_ms":{left},"amplitude":0.5}},'
+            f'{{"channel":"right","t_rel_ms":{right},"amplitude":0.5}}],'
+            '"language_view":{"trajectory":{"state":{"episode_id":"exact-order"}}}}'
+        )
+        record = json.loads(payload, parse_float=parse_finite_json_float)
+        return curate_bridge.curate_record(
+            record,
+            source_path="bridge/exact.jsonl",
+            source_line=1,
+            source_hash=hashlib.sha256(payload.encode("utf-8")).hexdigest(),
+            source_file_hash="f" * 64,
+        )
+
+    def test_decimal_tokens_drive_ordering_without_float_rounding(self):
+        descending = self._literal_timing_decision("1.0000000000000001", "1.0")
+
+        self.assertEqual(descending.action, "repair")
+        self.assertEqual(
+            descending.manifest["evidence"]["stable_sort_permutation"],
+            [1, 0],
+        )
+        self.assertEqual(
+            [event["channel"] for event in descending.output_record["spike_events"]],
+            ["right", "left"],
+        )
+        encoded = curate_bridge.canonical_json_bytes(descending.output_record).decode()
+        self.assertIn('"t_rel_ms":1.0000000000000001', encoded)
+
+        tied = self._literal_timing_decision("1.0", "1.00")
+        self.assertEqual(tied.action, "retain")
+        self.assertEqual(tied.manifest["evidence"]["stable_sort_permutation"], [0, 1])
+
     def test_single_relative_clock_is_stably_sorted_with_full_evidence(self):
         source = bridge(
             [

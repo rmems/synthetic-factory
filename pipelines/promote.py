@@ -57,8 +57,14 @@ _PIPELINES = Path(__file__).resolve().parent
 if str(_PIPELINES) not in sys.path:
     sys.path.insert(0, str(_PIPELINES))
 from check_records import check_spikes, event_time  # noqa: E402
+from exact_json import (  # noqa: E402
+    dumps_exact_json,
+    exact_fraction,
+    parse_finite_json_float as _parse_exact_json_float,
+)
 import quality_gate  # noqa: E402
 from quality_gate import validate_embedding_threshold  # noqa: E402
+from validate_run import reject_json_constant  # noqa: E402
 
 FFPC = "failure-as-fuel-preference-cascade"
 ALLOWED_KINDS = frozenset({"designed", "simulated", "hil", "unknown"})
@@ -261,7 +267,7 @@ def _events_are_singly_timed(events):
 
 
 def _sort_events(events):
-    return sorted(events, key=lambda event: event_time(event)[1])
+    return sorted(events, key=lambda event: exact_fraction(event_time(event)[1]))
 
 
 def _spike_stream_needs_resort(events, enclosing=None):
@@ -457,8 +463,12 @@ def promote_run(raw_run, cleaned_out):
                 lines_out.append("")
                 continue
             try:
-                obj = json.loads(line)
-            except json.JSONDecodeError:
+                obj = json.loads(
+                    line,
+                    parse_constant=reject_json_constant,
+                    parse_float=_parse_exact_json_float,
+                )
+            except (ValueError, RecursionError):
                 lines_out.append(line)
                 continue
             before_flag = False
@@ -477,7 +487,9 @@ def promote_run(raw_run, cleaned_out):
             if after_flag and not before_flag:
                 resorted += 1
             records += 1
-            lines_out.append(json.dumps(obj, ensure_ascii=False))
+            lines_out.append(
+                dumps_exact_json(obj, ensure_ascii=False, sort_keys=False)
+            )
         dest.write_text(
             "\n".join(lines_out) + ("\n" if lines_out else ""),
             encoding="utf-8",

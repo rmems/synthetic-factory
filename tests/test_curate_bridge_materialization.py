@@ -163,7 +163,12 @@ class BridgeMaterialization(unittest.TestCase):
         self.assertIn('"mean_rate_hz":25.000000000000001', materialized)
 
     def test_materialization_quarantines_invalid_safety_supervision(self):
-        cases = ("missing", "non_object", "invalid_enum", "blank_rationale")
+        cases = (
+            "missing",
+            "non_object",
+            "invalid_enum",
+            "blank_rationale",
+        )
         for case in cases:
             with self.subTest(case=case), tempfile.TemporaryDirectory() as td:
                 temporary = Path(td)
@@ -178,7 +183,7 @@ class BridgeMaterialization(unittest.TestCase):
                 elif case == "invalid_enum":
                     safety["decision"] = "ALLOW"
                     record["gate_snn"]["decision"] = "ALLOW"
-                else:
+                elif case == "blank_rationale":
                     safety["rationale"] = "   "
                 source = self._write_source(source_root, relative, [record])
                 output = temporary / "lane-bridge"
@@ -196,6 +201,32 @@ class BridgeMaterialization(unittest.TestCase):
                 )
                 self.assertFalse(
                     decisions[0].manifest["evidence"]["raster"]["gate_snn_decision_valid"]
+                )
+                self.assertFalse((output / relative).exists())
+
+    def test_materialization_quarantines_unhashable_safety_decisions(self):
+        for malformed_decision in ([], {}):
+            with self.subTest(decision=malformed_decision), tempfile.TemporaryDirectory() as td:
+                temporary = Path(td)
+                source_root = temporary / "source"
+                relative = Path("factory-a/batch-r01.jsonl")
+                record = materialized_record([event(1, "gate")], "bad-decision-type")
+                record["language_view"]["trajectory"]["safety_decision"]["decision"] = (
+                    malformed_decision
+                )
+                source = self._write_source(source_root, relative, [record])
+                output = temporary / "lane-bridge"
+
+                decisions = curate_bridge.materialize_paths(
+                    [source],
+                    source_root=source_root,
+                    output_dir=output,
+                )
+
+                self.assertEqual([decision.action for decision in decisions], ["quarantine"])
+                self.assertIn(
+                    curate_bridge.REASON_GATE_SNN_INVALID,
+                    decisions[0].manifest["reason_codes"],
                 )
                 self.assertFalse((output / relative).exists())
 

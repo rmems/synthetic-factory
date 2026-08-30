@@ -21,7 +21,10 @@ from pathlib import Path
 _PIPELINES = Path(__file__).resolve().parent
 if str(_PIPELINES) not in sys.path:
     sys.path.insert(0, str(_PIPELINES))
-from exact_json import parse_finite_json_float as _parse_exact_json_float  # noqa: E402
+from exact_json import (  # noqa: E402
+    exact_fraction,
+    parse_finite_json_float as _parse_exact_json_float,
+)
 from validate_run import (  # noqa: E402
     ALLOWED_SIM_OR_REAL,
     BRIDGE_SPIKE_EVENT_KEYS,
@@ -161,7 +164,7 @@ def _timed_spike_events(events):
 def _first_spike_order_violation(where, timed):
     """The first global non-decreasing-order violation among timed events, if any."""
     for (i0, key0, t0), (i1, key1, t1) in zip(timed, timed[1:]):
-        if t1 < t0:
+        if exact_fraction(t1) < exact_fraction(t0):
             key = key1 if key1 == key0 else f"{key0}/{key1}"
             return [
                 f"{where}: spike_events not globally non-decreasing "

@@ -11,6 +11,8 @@ from __future__ import annotations
 import hashlib
 import json
 
+from exact_json import dumps_exact_json, exact_fraction
+
 
 _IDENTITY_FIELDS = (
     "state",
@@ -110,11 +112,54 @@ _TRAJECTORY_GATE_COMPUTE = ("trajectory", "gate_compute")
 _SAFETY_GATE_COMPUTE = ("trajectory", "safety_decision", "gate_compute")
 _RASTER_ROOT = "root"
 _RASTER_META = "meta"
+_NOT_CANONICAL_PRIMITIVE = object()
+
+
+def _canonical_identity_primitive(value):
+    if value is None:
+        return ["null"]
+    if isinstance(value, bool):
+        return ["boolean", value]
+    fraction = exact_fraction(value)
+    if fraction is not None:
+        return ["number", str(fraction.numerator), str(fraction.denominator)]
+    if isinstance(value, str):
+        return ["string", value]
+    return _NOT_CANONICAL_PRIMITIVE
+
+
+def _canonical_identity_value(value):
+    """Return a collision-safe typed projection with exact numeric values."""
+
+    primitive = _canonical_identity_primitive(value)
+    if primitive is not _NOT_CANONICAL_PRIMITIVE:
+        return primitive
+    if isinstance(value, (list, tuple)):
+        return ["array", [_canonical_identity_value(child) for child in value]]
+    if isinstance(value, dict):
+        return [
+            "object",
+            [[key, _canonical_identity_value(value[key])] for key in sorted(value)],
+        ]
+    raise TypeError(f"Object of type {type(value).__name__} is not JSON serializable")
 
 
 def canonical_blob(value):
-    """Return the stable JSON representation used by identity digests."""
-    return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+    """Return the stable JSON representation used by semantic encoders."""
+
+    return json.dumps(
+        value,
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=False,
+    )
+
+
+def _canonical_record_blob(value):
+    """Return collision-safe record identity with numeric values canonicalized."""
+
+    normalized = _canonical_identity_value(value)
+    return dumps_exact_json(normalized, sort_keys=True, ensure_ascii=False)
 
 
 def _preference_identity_side(value):
@@ -214,10 +259,10 @@ def _nested_gate_compute_removals(language_view, selected, carrier):
         lower_carriers = (_SAFETY_GATE_COMPUTE,)
     else:
         lower_carriers = ()
-    selected_blob = canonical_blob(selected)
+    selected_blob = _canonical_record_blob(selected)
     for path in lower_carriers:
         candidate = _value_at_path(language_view, path)
-        if isinstance(candidate, dict) and canonical_blob(candidate) == selected_blob:
+        if isinstance(candidate, dict) and _canonical_record_blob(candidate) == selected_blob:
             removals.append(path)
     return removals
 
@@ -259,7 +304,7 @@ def _unselected_root_gate_compute(obj, nested_carrier):
 def _same_canonical_dict(candidate, selected):
     if not isinstance(candidate, dict):
         return False
-    return canonical_blob(candidate) == canonical_blob(selected)
+    return _canonical_record_blob(candidate) == _canonical_record_blob(selected)
 
 
 def _unselected_raster_carriers(obj, selected, carrier):
@@ -403,5 +448,5 @@ def semantic_similarity_view(obj):
 
 def record_hash(obj):
     """Return the quality gate's compact SHA-256 exact-identity digest."""
-    blob = canonical_blob(exact_identity_view(obj))
+    blob = _canonical_record_blob(exact_identity_view(obj))
     return hashlib.sha256(blob.encode("utf-8")).hexdigest()[:16]

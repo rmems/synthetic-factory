@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import NamedTuple, Optional
 
 from check_records import walk_key
+from exact_json import parse_finite_json_float as _parse_exact_json_float
 from quality_gate_embedding import (
     DEFAULT_EMBEDDING_THRESHOLD,
     DEFAULT_MAX_EMBEDDING_PAIRS,
@@ -22,6 +23,7 @@ from quality_gate_embedding import (
 )
 from quality_gate_identity import record_hash
 from training_audit import reward_shape
+from validate_run import reject_json_constant
 
 
 DEFAULT_TARGET_SYNTHETIC_RATIO: float = 0.30
@@ -246,8 +248,12 @@ _PARSE_FAILED = object()
 
 def _parse_record(line, rel, lineno, state):
     try:
-        return json.loads(line)
-    except json.JSONDecodeError as exc:
+        return json.loads(
+            line,
+            parse_constant=reject_json_constant,
+            parse_float=_parse_exact_json_float,
+        )
+    except (ValueError, RecursionError) as exc:
         _record_malformed(state, rel, lineno, exc)
         return _PARSE_FAILED
 

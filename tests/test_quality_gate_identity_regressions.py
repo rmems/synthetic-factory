@@ -12,6 +12,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "pipelines"))
 
 from gate_fixtures import write  # noqa: E402
+from exact_json import parse_finite_json_float  # noqa: E402
 import quality_gate  # noqa: E402
 import quality_gate_identity  # noqa: E402
 
@@ -179,6 +180,71 @@ class QualityGateIdentityRegressions(unittest.TestCase):
         self.assertEqual(report["duplicates"], [])
         self.assertEqual(report["counts"]["unique_hashes"], 2)
         self.assertEqual(report["counts"]["excluded_records"], 0)
+
+    def test_exact_decimal_raster_tokens_remain_distinct_identities(self):
+        first = self._bridge_fixture()
+        second = copy.deepcopy(first)
+        first_rate = parse_finite_json_float("25.000000000000001")
+        second_rate = parse_finite_json_float("25.0")
+        self.assertEqual(float(first_rate), float(second_rate))
+        first["raster"]["mean_rate_hz"] = first_rate
+        second["raster"]["mean_rate_hz"] = second_rate
+
+        self.assertNotEqual(
+            quality_gate_identity._canonical_record_blob(
+                quality_gate_identity.exact_identity_view(first)
+            ),
+            quality_gate_identity._canonical_record_blob(
+                quality_gate_identity.exact_identity_view(second)
+            ),
+        )
+        self.assertNotEqual(
+            quality_gate_identity.record_hash(first),
+            quality_gate_identity.record_hash(second),
+        )
+
+    def test_equal_decimal_spellings_share_one_identity(self):
+        records = []
+        for token in ("25.0", "25.00", "2.5e1"):
+            record = self._bridge_fixture()
+            record["raster"]["mean_rate_hz"] = parse_finite_json_float(token)
+            records.append(record)
+
+        self.assertEqual(
+            {quality_gate_identity.record_hash(record) for record in records},
+            {quality_gate_identity.record_hash(records[0])},
+        )
+
+    def test_quality_gate_deduplicates_equal_decimal_spellings_from_jsonl(self):
+        record = self._bridge_fixture()
+        record["raster"]["mean_rate_hz"] = "__RATE__"
+        template = json.dumps(record, separators=(",", ":"))
+        payload = "\n".join(
+            template.replace('"__RATE__"', token) for token in ("25.0", "25.00")
+        )
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            (root / "batch.jsonl").write_text(payload + "\n", encoding="utf-8")
+
+            report = quality_gate.audit_run(root)
+
+        self.assertEqual(len(report["duplicates"]), 1)
+        self.assertEqual(report["duplicates"][0]["kind"], "exact")
+
+    def test_quality_gate_hashes_boundary_decimal_without_expanding_it(self):
+        record = self._bridge_fixture()
+        record["raster"]["mean_rate_hz"] = "__RATE__"
+        payload = json.dumps(record, separators=(",", ":")).replace(
+            '"__RATE__"', "1e-4096"
+        )
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            (root / "batch.jsonl").write_text(payload + "\n", encoding="utf-8")
+
+            report = quality_gate.audit_run(root, embedding_dedup=False)
+
+        self.assertEqual(report["errors"]["malformed_lines"], 0)
+        self.assertEqual(report["counts"]["total"], 1)
 
     def test_bridge_raster_root_and_meta_carriers_share_identity(self):
         for scope in ("standalone", "chosen", "rejected"):

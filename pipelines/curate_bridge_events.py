@@ -6,6 +6,8 @@ from __future__ import annotations
 import json
 from typing import Any, Sequence
 
+from exact_json import exact_fraction
+
 
 TIME_KEYS = ("t_rel_ms", "t_ms")
 CLOCK_DOMAIN_KEYS = (
@@ -98,7 +100,7 @@ def _explicit_order_fields(record: dict[str, Any], events: list[Any]) -> list[st
     )
 
 
-def _adjacent_descents(times: Sequence[float]) -> list[dict[str, Any]]:
+def _adjacent_descents(times: Sequence[Any]) -> list[dict[str, Any]]:
     return [
         {
             "left_index": index - 1,
@@ -107,5 +109,5 @@ def _adjacent_descents(times: Sequence[float]) -> list[dict[str, Any]]:
             "right_time": times[index],
         }
         for index in range(1, len(times))
-        if times[index] < times[index - 1]
+        if exact_fraction(times[index]) < exact_fraction(times[index - 1])
     ]

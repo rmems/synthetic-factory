@@ -173,6 +173,27 @@ class ValidateRunWriteFlag(unittest.TestCase):
             self.assertEqual(result.returncode, 1, result.stderr)
             self.assertIn(validate_run.SPIKE_ORDER_MISMATCH, result.stderr)
 
+    def test_bridge_compares_exact_decimal_timestamps_from_jsonl(self):
+        with tempfile.TemporaryDirectory() as raw:
+            run_dir = Path(raw) / "run"
+            run_dir.mkdir()
+            bridge = {
+                "spike_events": [
+                    {"channel": "late", "t_rel_ms": "__LATE__", "amplitude": 0.4},
+                    {"channel": "early", "t_rel_ms": "__EARLY__", "amplitude": 0.3},
+                ],
+                "language_view": {"trajectory": copy.deepcopy(TINY_THALAMIC)},
+            }
+            payload = json.dumps(bridge, separators=(",", ":"))
+            payload = payload.replace('"__LATE__"', "1.0000000000000001")
+            payload = payload.replace('"__EARLY__"', "1.0")
+            (run_dir / "bridge.jsonl").write_text(payload + "\n", encoding="utf-8")
+
+            result = _invoke(str(run_dir))
+
+            self.assertEqual(result.returncode, 1, result.stderr)
+            self.assertIn(validate_run.SPIKE_ORDER_MISMATCH, result.stderr)
+
 
 class ValidateIdLayering(unittest.TestCase):
     """The shape layer type-checks `id`; coverage is a deep-layer concern.
