@@ -407,6 +407,49 @@ class NirReferenceRuntime:
 
     # -- execution ------------------------------------------------------
 
+    @staticmethod
+    def _io_nodes(graph):
+        """The declared Output and Input node names; both must be present."""
+        output_nodes = [
+            name for name, node in graph["nodes"].items() if node["type"] == "Output"
+        ]
+        input_nodes = [
+            name for name, node in graph["nodes"].items() if node["type"] == "Input"
+        ]
+        if not output_nodes or not input_nodes:
+            raise GraphError("graph needs at least one Input and one Output node")
+        return output_nodes, input_nodes
+
+    @staticmethod
+    def _declared_sizes(graph):
+        """Every node's declared output width.
+
+        Every node declares its output width explicitly. Inferring it would
+        make a recurrent edge's first read depend on inference order.
+        """
+        sizes = {}
+        for name, node in graph["nodes"].items():
+            size = node.get("size")
+            if size is None and node.get("shape"):
+                size = node["shape"][0]
+            if not isinstance(size, int) or isinstance(size, bool) or size < 1:
+                raise GraphError(f"node {name!r} must declare an integer size >= 1")
+            sizes[name] = size
+        return sizes
+
+    @staticmethod
+    def _summed_drive(name, sources, previous, current):
+        """Sum a node's incoming vectors in declared edge order."""
+        parts = []
+        for source, is_recurrent in sources:
+            parts.append(previous[source] if is_recurrent else current[source])
+        if not parts:
+            raise GraphError(f"node {name!r} has no inputs")
+        width = len(parts[0])
+        if any(len(part) != width for part in parts):
+            raise GraphError(f"node {name!r} sums inputs of different widths")
+        return [sum(part[k] for part in parts) for k in range(width)]
+
     def execute(self, graph, stimulus):
         """Run one graph against one stimulus. Raises on unsupported constructs."""
         self._check_supported(graph)
@@ -416,24 +459,8 @@ class NirReferenceRuntime:
         incoming = {name: [] for name in graph["nodes"]}
         for source, target in graph["edges"]:
             incoming[target].append((source, (source, target) in recurrent))
-        output_nodes = [
-            name for name, node in graph["nodes"].items() if node["type"] == "Output"
-        ]
-        input_nodes = [
-            name for name, node in graph["nodes"].items() if node["type"] == "Input"
-        ]
-        if not output_nodes or not input_nodes:
-            raise GraphError("graph needs at least one Input and one Output node")
-        # Every node declares its output width explicitly. Inferring it would make
-        # a recurrent edge's first read depend on inference order.
-        sizes = {}
-        for name, node in graph["nodes"].items():
-            size = node.get("size")
-            if size is None and node.get("shape"):
-                size = node["shape"][0]
-            if not isinstance(size, int) or isinstance(size, bool) or size < 1:
-                raise GraphError(f"node {name!r} must declare an integer size >= 1")
-            sizes[name] = size
+        output_nodes, _input_nodes = self._io_nodes(graph)
+        sizes = self._declared_sizes(graph)
         previous = {name: [0.0] * sizes[name] for name in graph["nodes"]}
 
         trace = []
@@ -444,15 +471,7 @@ class NirReferenceRuntime:
                 if node["type"] == "Input":
                     drive = [float(value) for value in stimulus["events"][step]]
                 else:
-                    parts = []
-                    for source, is_recurrent in incoming[name]:
-                        parts.append(previous[source] if is_recurrent else current[source])
-                    if not parts:
-                        raise GraphError(f"node {name!r} has no inputs")
-                    width = len(parts[0])
-                    if any(len(part) != width for part in parts):
-                        raise GraphError(f"node {name!r} sums inputs of different widths")
-                    drive = [sum(part[k] for part in parts) for k in range(width)]
+                    drive = self._summed_drive(name, incoming[name], previous, current)
                 current[name] = self._node_step(name, node, drive, state, dt_s)
             previous = current
             trace.append([round(value, 12) for value in current[output_nodes[0]]])

@@ -1022,35 +1022,38 @@ def _metrics_equal_list(recorded, recomputed, path, where):
     return errors
 
 
+def _metrics_equal_float(recorded, recomputed, path, where):
+    """Exact-typed finite floats compared under the metric tolerance."""
+    if not isinstance(recorded, float) or not math.isfinite(recorded):
+        return [
+            f"{where}: {path} must be a finite float matching {recomputed!r}, got "
+            f"{recorded!r} [PARITY_METRIC_MISMATCH]"
+        ]
+    if not math.isfinite(recomputed) or abs(recorded - recomputed) > METRIC_TOL:
+        return [_metric_mismatch(path, where, recorded, recomputed)]
+    return []
+
+
 def _metrics_equal_scalar(recorded, recomputed, path, where):
     # JSON numbers still arrive as distinct Python integer and float values,
     # while `bool` is a subclass of `int`. Keep those types exact and reject
     # non-finite floats before applying a tolerance; otherwise True can stand
     # in for 1 and NaN compares equal to every finite metric here.
     if isinstance(recomputed, bool):
-        if not isinstance(recorded, bool) or recorded is not recomputed:
-            return [_metric_mismatch(path, where, recorded, recomputed)]
+        matched = isinstance(recorded, bool) and recorded is recomputed
+    elif isinstance(recomputed, int):
+        matched = (
+            isinstance(recorded, int)
+            and not isinstance(recorded, bool)
+            and recorded == recomputed
+        )
+    elif isinstance(recomputed, float):
+        return _metrics_equal_float(recorded, recomputed, path, where)
+    else:
+        matched = recorded == recomputed
+    if matched:
         return []
-    if isinstance(recomputed, int):
-        if (
-            not isinstance(recorded, int)
-            or isinstance(recorded, bool)
-            or recorded != recomputed
-        ):
-            return [_metric_mismatch(path, where, recorded, recomputed)]
-        return []
-    if isinstance(recomputed, float):
-        if not isinstance(recorded, float) or not math.isfinite(recorded):
-            return [
-                f"{where}: {path} must be a finite float matching {recomputed!r}, got "
-                f"{recorded!r} [PARITY_METRIC_MISMATCH]"
-            ]
-        if not math.isfinite(recomputed) or abs(recorded - recomputed) > METRIC_TOL:
-            return [_metric_mismatch(path, where, recorded, recomputed)]
-        return []
-    if recorded != recomputed:
-        return [_metric_mismatch(path, where, recorded, recomputed)]
-    return []
+    return [_metric_mismatch(path, where, recorded, recomputed)]
 
 
 def _metrics_equal(recorded, recomputed, path, where):
