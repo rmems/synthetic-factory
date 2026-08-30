@@ -179,6 +179,36 @@ class EnvelopeShape(unittest.TestCase):
             findings,
         )
 
+    def test_unauthenticated_provenance_siblings_are_rejected(self):
+        item = build(families.ENCODER_FAMILY)
+        item["provenance"]["external_attestation"] = "verified-on-hardware"
+        findings = record.validate_record(item, check_declared_status=False)
+        self.assertTrue(
+            any("external_attestation" in f and "not allowed" in f for f in findings),
+            findings,
+        )
+        backstop = []
+        record._provenance_findings(item, item["oracle"], backstop)
+        self.assertTrue(
+            any("provenance carries unauthenticated sibling keys" in f for f in backstop),
+            backstop,
+        )
+
+    def test_unauthenticated_meta_siblings_are_rejected(self):
+        item = build(families.ENCODER_FAMILY)
+        item["meta"]["attestation"] = "vendor-signed"
+        findings = record.validate_record(item, check_declared_status=False)
+        self.assertTrue(
+            any("attestation" in f and "not allowed" in f for f in findings),
+            findings,
+        )
+        self.assertTrue(
+            any(
+                "meta carries unauthenticated sibling keys" in f
+                for f in record._validate_generator_side(item)
+            ),
+        )
+
     def test_the_oracle_key_vocabulary_is_closed_without_the_schema_layer(self):
         # Belt and braces: the record validator itself refuses oracle and
         # stage siblings even when the JSON Schema layer is unavailable.

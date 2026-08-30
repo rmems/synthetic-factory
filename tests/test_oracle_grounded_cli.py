@@ -332,26 +332,33 @@ class InvalidFixtures(unittest.TestCase):
     """Every committed defect must still be caught."""
 
     def defects(self, name):
-        return read_jsonl(INVALID / f"{name}.jsonl")
+        # The tag names the committed defect for the reader. It is popped out
+        # of the record before validation because the meta vocabulary is
+        # closed: left in place it would be rejected first and mask the one
+        # defect each fixture exists to prove.
+        pairs = []
+        for item in read_jsonl(INVALID / f"{name}.jsonl"):
+            pairs.append((item["meta"].pop("_defect"), item))
+        return pairs
 
     def test_every_invalid_oracle_record_is_rejected(self):
-        items = self.defects("invalid-oracle")
-        self.assertGreaterEqual(len(items), 9)
-        for item in items:
-            with self.subTest(defect=item["meta"]["_defect"]):
+        pairs = self.defects("invalid-oracle")
+        self.assertGreaterEqual(len(pairs), 9)
+        for defect, item in pairs:
+            with self.subTest(defect=defect):
                 self.assertTrue(
                     record.validate_record(item),
-                    f"{item['meta']['_defect']} was accepted",
+                    f"{defect} was accepted",
                 )
 
     def test_every_malformed_generator_record_is_rejected(self):
-        items = self.defects("malformed-generator")
-        self.assertGreaterEqual(len(items), 7)
-        for item in items:
-            with self.subTest(defect=item["meta"]["_defect"]):
+        pairs = self.defects("malformed-generator")
+        self.assertGreaterEqual(len(pairs), 7)
+        for defect, item in pairs:
+            with self.subTest(defect=defect):
                 self.assertTrue(
                     record.validate_record(item),
-                    f"{item['meta']['_defect']} was accepted",
+                    f"{defect} was accepted",
                 )
 
     def test_each_defect_is_caught_for_the_stated_reason(self):
@@ -375,8 +382,7 @@ class InvalidFixtures(unittest.TestCase):
         }
         seen = set()
         for name in ("invalid-oracle", "malformed-generator"):
-            for item in self.defects(name):
-                defect = item["meta"]["_defect"]
+            for defect, item in self.defects(name):
                 seen.add(defect)
                 findings = " | ".join(record.validate_record(item))
                 with self.subTest(defect=defect):

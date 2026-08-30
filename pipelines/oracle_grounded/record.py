@@ -57,10 +57,15 @@ ORACLE_KEYS = (
     "stages",
     "availability",
 )
-# The oracle block is authoritative execution provenance, so its vocabulary is
-# closed: a sibling key that no oracle wrote (an "attestation", say) would be
-# an unsupported provenance claim that no content hash covers.
+# The oracle, provenance, and meta blocks are authoritative execution
+# provenance that no content hash covers, so their vocabularies are closed: a
+# sibling key nothing here wrote (an "attestation", say) would be an
+# unsupported provenance claim.
 ORACLE_ALLOWED_KEYS = frozenset(ORACLE_KEYS) | {"description"}
+PROVENANCE_ALLOWED_KEYS = frozenset(
+    {"kind", "claimed", "oracle_grounded", "generator_authored", "oracle_authored"}
+)
+META_ALLOWED_KEYS = frozenset({"factory", "round", "tags"})
 STAGE_ALLOWED_KEYS = frozenset(
     {
         "stage",
@@ -416,6 +421,9 @@ def _validate_generator_side(record):
     expected_tags = ["oracle-grounded", family, record["oracle"]["implementation"]]
     if record["meta"].get("tags") != expected_tags:
         findings.append("meta.tags do not match the record family and oracle implementation")
+    unknown_meta = sorted(key for key in record["meta"] if key not in META_ALLOWED_KEYS)
+    if unknown_meta:
+        findings.append("meta carries unauthenticated sibling keys: " + ", ".join(unknown_meta))
     if not isinstance(record["scenario"], dict) or not record["scenario"]:
         findings.append("scenario must be a non-empty object")
     candidate = record["candidate_prediction"]
@@ -547,6 +555,11 @@ def _provenance_findings(record, oracle, findings):
     if not isinstance(provenance, dict):
         findings.append("provenance must be an object")
         return
+    unknown = sorted(key for key in provenance if key not in PROVENANCE_ALLOWED_KEYS)
+    if unknown:
+        findings.append(
+            "provenance carries unauthenticated sibling keys: " + ", ".join(unknown)
+        )
     kind = provenance.get("kind")
     if kind not in ALLOWED_PROVENANCE_KIND:
         findings.append(f"provenance.kind must be one of {sorted(ALLOWED_PROVENANCE_KIND)}")
