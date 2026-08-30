@@ -63,6 +63,11 @@ COMPACT_DIM = 16
 # compact_view appends tail mean/energy/max/min to the leading components.
 COMPACT_SUMMARY_STATS = 4
 
+# The one featurizer this family's compact inputs come from. Pinned so the
+# validator can recompute the student input from the recorded context rather
+# than trust the vector it was handed.
+FEATURIZER_ID = "blake2b-char-trigram-hashing/1.0.0"
+
 # Oracles that compute real routing but are not language-model teachers. A
 # recording may never name one of these as the teacher it replays.
 NON_TEACHER_ORACLE_NAMES = frozenset({"reference_moe_router"})
@@ -441,6 +446,14 @@ class RecordedTeacherRouter(RouterOracle):
                 "non-teacher stand-in; its routing may not be curated as "
                 "teacher truth"
             )
+        if _declared_expert_count(self.teacher) is None:
+            # Without a declared expert count, nothing bounds the replayed
+            # expert ids: a recording with no logits could serve ids like
+            # [-1, 999] as authoritative routing labels.
+            return False, (
+                "recording does not declare a positive num_local_experts, so "
+                "replayed expert ids cannot be range-checked"
+            )
         if not self.observations:
             return False, "recording contains no routing observations"
         return True, f"{len(self.observations)} recorded context(s)"
@@ -455,6 +468,59 @@ class RecordedTeacherRouter(RouterOracle):
     def fingerprint(self) -> dict[str, Any]:
         return {**self.teacher, "is_llm_teacher": self.is_llm_teacher}
 
+    def _recorded_experts(self, layer: dict[str, Any]) -> tuple[int, ...]:
+        """The layer's expert ids, validated rather than coerced.
+
+        ``int()`` coercion silently turned ``true`` into ``1`` and ``3.7``
+        into ``3``, and an empty list slipped through to ``_summarise`` where
+        indexing the first expert raised ``IndexError`` instead of failing
+        closed. Only a list of at least two genuine integers can define a
+        top-k with a top-1/top-2 margin.
+        """
+
+        experts = layer.get("top_k_experts")
+        if not isinstance(experts, list) or len(experts) < 2:
+            raise oc.OracleUnavailable(
+                self.name, "layer top_k_experts must list at least the top two"
+            )
+        for value in experts:
+            if not isinstance(value, int) or isinstance(value, bool):
+                raise oc.OracleUnavailable(
+                    self.name,
+                    f"layer top_k_experts must be integers, got {value!r}",
+                )
+        return tuple(experts)
+
+    def _recorded_logits(self, layer: dict[str, Any]) -> tuple[float, ...] | None:
+        logits = layer.get("router_logits")
+        if logits is None:
+            return None
+        if not isinstance(logits, list) or not all(
+            oc.is_number(value) for value in logits
+        ):
+            raise oc.OracleUnavailable(
+                self.name, "layer router_logits must be an array of finite numbers"
+            )
+        return tuple(float(value) for value in logits)
+
+    def _recorded_layer(self, layer: Any) -> LayerRouting:
+        if not isinstance(layer, dict):
+            raise oc.OracleUnavailable(self.name, "layer must be an object")
+        if not oc.is_number(layer.get("top1_top2_margin")):
+            raise oc.OracleUnavailable(self.name, "layer missing top1_top2_margin")
+        if not oc.is_number(layer.get("routing_entropy")):
+            raise oc.OracleUnavailable(self.name, "layer missing routing_entropy")
+        try:
+            return LayerRouting(
+                layer=int(layer["layer"]),
+                top_k_experts=self._recorded_experts(layer),
+                router_logits=self._recorded_logits(layer),
+                top1_top2_margin=float(layer["top1_top2_margin"]),
+                routing_entropy=float(layer["routing_entropy"]),
+            )
+        except (KeyError, TypeError, ValueError) as exc:
+            raise oc.OracleUnavailable(self.name, f"malformed layer data: {exc}")
+
     def route(self, text: str) -> RouterObservation:
         entry = self.observations.get(self.key_for(text))
         if not isinstance(entry, dict) or not isinstance(entry.get("layers"), list):
@@ -462,32 +528,7 @@ class RecordedTeacherRouter(RouterOracle):
                 self.name,
                 f"no recorded routing for context sha256 {self.key_for(text)}",
             )
-        layers: list[LayerRouting] = []
-        for layer in entry["layers"]:
-            try:
-                if not isinstance(layer, dict):
-                    raise oc.OracleUnavailable(self.name, "layer must be an object")
-                if not oc.is_number(layer.get("top1_top2_margin")):
-                    raise oc.OracleUnavailable(self.name, "layer missing top1_top2_margin")
-                if not oc.is_number(layer.get("routing_entropy")):
-                    raise oc.OracleUnavailable(self.name, "layer missing routing_entropy")
-                layers.append(
-                    LayerRouting(
-                        layer=int(layer["layer"]),
-                        top_k_experts=tuple(int(value) for value in layer["top_k_experts"]),
-                        router_logits=(
-                            tuple(float(value) for value in layer["router_logits"])
-                            if layer.get("router_logits") is not None
-                            else None
-                        ),
-                        top1_top2_margin=float(layer["top1_top2_margin"]),
-                        routing_entropy=float(layer["routing_entropy"]),
-                    )
-                )
-            except (KeyError, TypeError, ValueError) as exc:
-                raise oc.OracleUnavailable(
-                    self.name, f"malformed layer data: {exc}"
-                )
+        layers = [self._recorded_layer(layer) for layer in entry["layers"]]
         if not layers:
             raise oc.OracleUnavailable(self.name, "recorded routing has no layers")
         return _summarise(layers)
@@ -695,7 +736,7 @@ def propose_contexts(seed: int, count: int) -> list[dict[str, Any]]:
                         text.encode("utf-8")
                     ).hexdigest(),
                     "compact_input": {
-                        "featurizer": "blake2b-char-trigram-hashing/1.0.0",
+                        "featurizer": FEATURIZER_ID,
                         "feature_dim": FEATURE_DIM,
                         "compact_dim": COMPACT_DIM,
                         "view": "leading components + tail mean/energy/max/min",
@@ -823,6 +864,60 @@ def _check_compact_input(scenario: dict[str, Any], where: str) -> list[str]:
                 f"{len(features)} values but compact_dim {declared} "
                 f"declares {expected}"
             ]
+    return _check_compact_recompute(scenario, compact, features, where)
+
+
+def _positive_dim(value: Any, floor: int) -> int | None:
+    if isinstance(value, int) and not isinstance(value, bool) and value >= floor:
+        return value
+    return None
+
+
+def _check_compact_recompute(
+    scenario: dict[str, Any],
+    compact: dict[str, Any],
+    features: list[Any],
+    where: str,
+) -> list[str]:
+    """The features must recompute from the context they claim to describe.
+
+    Width and finiteness alone let a correctly rehashed record replace the
+    student input with arbitrary finite values of the same length while
+    ``router_baseline`` consumes them as the input paired with the teacher's
+    label — a corrupted input-label pairing that could change the baseline
+    and the escalation verdict. The featurizer is deterministic, so the
+    validator recomputes ``compact_view(featurize(context))`` instead of
+    trusting the vector.
+    """
+
+    if compact.get("featurizer") != FEATURIZER_ID:
+        return [
+            f"{where}.scenario.compact_input.featurizer must be "
+            f"{FEATURIZER_ID!r} so the student input can be recomputed, got "
+            f"{compact.get('featurizer')!r}"
+        ]
+    feature_dim = _positive_dim(compact.get("feature_dim"), 4)
+    compact_dim = _positive_dim(compact.get("compact_dim"), 1)
+    if feature_dim is None or compact_dim is None:
+        return [
+            f"{where}.scenario.compact_input must declare integer "
+            "feature_dim (>= 4) and compact_dim (>= 1) so the student input "
+            "can be recomputed"
+        ]
+    context = scenario.get("context")
+    if not isinstance(context, str) or not context.strip():
+        # Reported by the context-digest check; nothing to recompute from.
+        return []
+    expected = compact_view(featurize(context, feature_dim), compact_dim)
+    if len(features) != len(expected) or any(
+        abs(float(value) - target) > 1e-9
+        for value, target in zip(features, expected)
+    ):
+        return [
+            f"{where}.scenario.compact_input.features: "
+            "COMPACT_INPUT_NOT_REPRODUCIBLE — the recorded features do not "
+            "recompute from the context with the declared featurizer"
+        ]
     return []
 
 
@@ -870,7 +965,7 @@ def _check_laundered_oracle(
     if (
         isinstance(oracle, dict)
         and oracle.get("authority") == oc.AUTHORITY_AUTHORITATIVE
-        and fingerprint.get("model") in NON_TEACHER_ORACLE_NAMES
+        and oc.is_enum_value(fingerprint.get("model"), NON_TEACHER_ORACLE_NAMES)
     ):
         return [
             f"{where}.oracle: LAUNDERED_REFERENCE_ORACLE — "
@@ -1022,7 +1117,16 @@ def _check_layer_experts(
 
 
 def _check_layer_logits(layer: dict[str, Any], spot: str) -> list[str]:
-    """Router logits, and the expert order they imply."""
+    """Router logits, and the expert order they imply.
+
+    The recorded top-k must carry, position for position, the largest logit
+    values — but *which* expert wins an exact tie is not checked. The stored
+    logits are serialised at six decimal places, so a teacher that ordered by
+    full precision can legitimately disagree with an id-ordered tie-break
+    over values that round together; demanding one canonical tie-break would
+    reject honest records. An expert with a strictly smaller logit still
+    cannot appear.
+    """
 
     logits = layer.get("router_logits")
     if logits is None:
@@ -1034,8 +1138,18 @@ def _check_layer_logits(layer: dict[str, Any], spot: str) -> list[str]:
     experts = layer.get("top_k_experts")
     if not isinstance(experts, list) or not experts:
         return []
-    order = sorted(range(len(logits)), key=lambda e: (-logits[e], e))
-    if list(experts[: len(experts)]) != order[: len(experts)]:
+    if not all(
+        isinstance(expert, int)
+        and not isinstance(expert, bool)
+        and 0 <= expert < len(logits)
+        for expert in experts
+    ):
+        return [f"{spot}.top_k_experts disagrees with router_logits ordering"]
+    recorded_values = [float(logits[expert]) for expert in experts]
+    top_values = sorted(
+        (float(value) for value in logits), reverse=True
+    )[: len(experts)]
+    if recorded_values != top_values:
         return [f"{spot}.top_k_experts disagrees with router_logits ordering"]
     return []
 
@@ -1258,6 +1372,19 @@ def check_family(record: dict[str, Any], where: str) -> list[str]:
         return errors + [f"{where}.result.routing.layers must be a non-empty array"]
 
     expert_count = _declared_expert_count(fingerprint)
+    if (
+        expert_count is None
+        and isinstance(oracle, dict)
+        and oracle.get("authority") == oc.AUTHORITY_AUTHORITATIVE
+    ):
+        # Without a declared count the per-layer range check is disabled, so
+        # an authoritative recording with no logits could carry expert ids
+        # like [-1, 999] straight into curation.
+        errors.append(
+            f"{where}.oracle.fingerprint.num_local_experts must declare a "
+            "positive expert count for an authoritative router record — "
+            "without it the routed expert ids cannot be range-checked"
+        )
     order = _LayerOrder()
     for index, layer in enumerate(layers):
         spot = f"{where}.result.routing.layers[{index}]"

@@ -132,6 +132,16 @@ class FaultOracle:
     authority = oc.AUTHORITY_AUTHORITATIVE
     implementation = "pipelines/fault_recovery.py:FaultOracle"
 
+    # Meter identities for the measurements ``build_records`` derives from a
+    # result. Only the oracle that actually ran knows what measured its
+    # readings — a hardware replay attributing its latencies to
+    # ``simulator_clock`` would be false provenance — so every concrete
+    # oracle must declare its own meters. ``build_records`` fails closed when
+    # these are unset.
+    meter_clock: str | None = None
+    meter_state: str | None = None
+    meter_thermal: str | None = None
+
     def run(self, scenario: dict[str, Any], disturbance: dict[str, Any]) -> "FaultResult":
         raise NotImplementedError
 
@@ -216,6 +226,9 @@ class RelayReflexSimulator(FaultOracle):
     oracle_type = "deterministic_simulator"
     authority = oc.AUTHORITY_AUTHORITATIVE
     implementation = ORACLE_IMPLEMENTATION
+    meter_clock = "simulator_clock"
+    meter_state = "simulator_state"
+    meter_thermal = "simulator_thermal_model"
 
     def oracle_block(self, scenario: dict[str, Any]) -> dict[str, Any]:
         return oc.new_oracle(
@@ -264,10 +277,22 @@ class RelayReflexSimulator(FaultOracle):
             # dropped event and produced `degrade_gracefully` — an authoritative
             # label for a disturbance the simulator never defined.
             variant = parameters.get("malformed_kind")
-            if variant not in MALFORMED_KINDS:
+            if not oc.is_enum_value(variant, MALFORMED_KINDS):
                 raise oc.ContractError(
                     f"malformed_kind must be one of {sorted(MALFORMED_KINDS)}, "
                     f"got {variant!r}"
+                )
+        if kind == "burst_corruption":
+            # The tick comparison can never mark an event corrupt for a ratio
+            # below 0, so a negative (or NaN) ratio runs the declared
+            # disturbance as a no-op and the simulator emits an authoritative
+            # `continue` for a corruption that was requested but never applied.
+            ratio = parameters.get("corrupt_ratio")
+            if not oc.is_number(ratio) or not 0.0 <= float(ratio) <= 1.0:
+                raise oc.ContractError(
+                    f"corrupt_ratio must be a finite number in [0, 1], got "
+                    f"{ratio!r}; outside that range the declared corruption "
+                    "cannot be applied"
                 )
 
     @staticmethod
@@ -293,6 +318,25 @@ class RelayReflexSimulator(FaultOracle):
         affected = self._affected(params, channels)
         declared = params.get("channels")
         declared = list(declared) if isinstance(declared, list) else []
+        # A declared channel the relay does not know cannot be silently
+        # narrowed away: the whole disturbance (or part of it) would run as a
+        # no-op while the record still claims it was simulated, and the no-op
+        # replays as an authoritative `continue`. The only names a disturbance
+        # may touch are the relay's own channels and the fallback source.
+        known = set(channels)
+        fallback_source = system.get("fallback_source")
+        if fallback_source:
+            known.add(fallback_source)
+        unknown_names = sorted(
+            str(name)
+            for name in declared
+            if not (isinstance(name, str) and name in known)
+        )
+        if unknown_names:
+            raise oc.ContractError(
+                f"{kind} declares unknown channels {unknown_names}; this relay "
+                f"reads {sorted(known)} — an unknown name would run as a no-op"
+            )
         tick_ms = float(system["tick_ms"])
         ticks = int(system["ticks"])
 
@@ -641,6 +685,98 @@ def propose_scenarios(seed: int, count: int) -> list[dict[str, Any]]:
     return proposals
 
 
+def _oracle_meters(engine: FaultOracle) -> dict[str, str]:
+    """The meter identities the oracle declares for its readings.
+
+    Hard-coding ``simulator_*`` here would stamp false measurement provenance
+    onto every record an injected non-simulator oracle (a hardware replay)
+    produced, so an oracle that does not declare its meters is refused.
+    """
+
+    meters = {
+        "clock": engine.meter_clock,
+        "state": engine.meter_state,
+        "thermal": engine.meter_thermal,
+    }
+    unset = sorted(
+        role
+        for role, meter in meters.items()
+        if not isinstance(meter, str) or not meter.strip()
+    )
+    if unset:
+        raise oc.ContractError(
+            f"oracle {engine.name!r} does not declare its measurement meters "
+            f"({unset}); readings cannot be attributed to an unnamed instrument"
+        )
+    return meters
+
+
+def _result_measurements(
+    result: FaultResult, intervention: dict[str, Any], meters: dict[str, str]
+) -> list[dict[str, Any]]:
+    """The oracle-side measurements one executed disturbance yields."""
+
+    measurements = [
+        oc.new_measurement(
+            "recovery_latency_ms", result.recovery_latency_ms, meters["clock"]
+        ),
+        oc.new_measurement(
+            "healthy_channel_count",
+            float(result.worst_healthy_channels),
+            meters["state"],
+            detail={"worst_case_over_run": True},
+        ),
+        oc.new_measurement(
+            "dropped_event_count", float(result.dropped_events), meters["state"]
+        ),
+        oc.new_measurement(
+            "residual_error", round(result.residual_error, 6), meters["state"]
+        ),
+        oc.new_measurement(
+            "corrupt_ratio",
+            round(result.realised_corrupt_ratio, 6),
+            meters["state"],
+            detail={"requested": intervention["parameters"].get("corrupt_ratio")},
+        ),
+        oc.new_measurement(
+            "peak_temperature_c", result.peak_temperature_c, meters["thermal"]
+        ),
+    ]
+    if result.detection_latency_ms is not None:
+        measurements.insert(
+            0,
+            oc.new_measurement(
+                "detection_latency_ms", result.detection_latency_ms, meters["clock"]
+            ),
+        )
+    return measurements
+
+
+def _oracle_result(
+    result: FaultResult, intervention: dict[str, Any], prediction: dict[str, Any],
+    meters: dict[str, str],
+) -> dict[str, Any]:
+    """The oracle-owned result block for one executed disturbance."""
+
+    agreement = (
+        "agree" if prediction["predicted_outcome"] == result.outcome else "disagree"
+    )
+    return oc.new_result(
+        measurements=_result_measurements(result, intervention, meters),
+        outcome=result.outcome,
+        outcome_label=OUTCOME_LABELS[result.outcome],
+        reason_codes=list(result.reason_codes),
+        prediction_agreement=agreement,
+        integrity_violation=result.integrity_violation,
+        trace_summary={
+            "ticks": len(result.trace),
+            "max_staleness_ms": result.max_staleness_ms,
+            "max_jitter_ms": result.max_jitter_ms,
+            "saturated_ticks": result.saturated_ticks,
+        },
+    )
+
+
 def build_records(
     seed: int,
     count: int,
@@ -651,6 +787,7 @@ def build_records(
     """Run every proposed disturbance through the oracle and build records."""
 
     engine = oracle or RelayReflexSimulator()
+    meters = _oracle_meters(engine)
     generator = oc.new_generator(
         GENERATOR_NAME, version=GENERATOR_VERSION, kind="programmatic", seed=seed
     )
@@ -660,60 +797,6 @@ def build_records(
         intervention = proposal["intervention"]
         prediction = proposal["candidate_prediction"]
         result = engine.run(scenario, intervention)
-        measurements = [
-            oc.new_measurement(
-                "recovery_latency_ms", result.recovery_latency_ms, "simulator_clock"
-            ),
-            oc.new_measurement(
-                "healthy_channel_count",
-                float(result.worst_healthy_channels),
-                "simulator_state",
-                detail={"worst_case_over_run": True},
-            ),
-            oc.new_measurement(
-                "dropped_event_count", float(result.dropped_events), "simulator_state"
-            ),
-            oc.new_measurement(
-                "residual_error", round(result.residual_error, 6), "simulator_state"
-            ),
-            oc.new_measurement(
-                "corrupt_ratio",
-                round(result.realised_corrupt_ratio, 6),
-                "simulator_state",
-                detail={"requested": intervention["parameters"].get("corrupt_ratio")},
-            ),
-            oc.new_measurement(
-                "peak_temperature_c", result.peak_temperature_c, "simulator_thermal_model"
-            ),
-        ]
-        if result.detection_latency_ms is not None:
-            measurements.insert(
-                0,
-                oc.new_measurement(
-                    "detection_latency_ms",
-                    result.detection_latency_ms,
-                    "simulator_clock",
-                ),
-            )
-        agreement = (
-            "agree"
-            if prediction["predicted_outcome"] == result.outcome
-            else "disagree"
-        )
-        oracle_result = oc.new_result(
-            measurements=measurements,
-            outcome=result.outcome,
-            outcome_label=OUTCOME_LABELS[result.outcome],
-            reason_codes=list(result.reason_codes),
-            prediction_agreement=agreement,
-            integrity_violation=result.integrity_violation,
-            trace_summary={
-                "ticks": len(result.trace),
-                "max_staleness_ms": result.max_staleness_ms,
-                "max_jitter_ms": result.max_jitter_ms,
-                "saturated_ticks": result.saturated_ticks,
-            },
-        )
         records.append(
             oc.build_record(
                 record_id=f"{id_prefix}-{seed}-{proposal['index']:04d}",
@@ -723,7 +806,7 @@ def build_records(
                 intervention=intervention,
                 candidate_prediction=prediction,
                 oracle=engine.oracle_block(scenario),
-                result=oracle_result,
+                result=_oracle_result(result, intervention, prediction, meters),
                 provenance=oc.new_provenance(
                     "pipelines/fault_recovery.py",
                     oracle_run="in_process_deterministic",
@@ -790,7 +873,7 @@ def _check_replay_measurements(
         if not isinstance(item, dict):
             continue
         quantity = item.get("quantity")
-        if quantity not in expected:
+        if not oc.is_enum_value(quantity, expected):
             continue
         target = expected[quantity]
         if target is None or not oc.is_number(item.get("value")):

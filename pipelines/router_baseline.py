@@ -42,7 +42,9 @@ _PIPELINES = Path(__file__).resolve().parent
 if str(_PIPELINES) not in sys.path:
     sys.path.insert(0, str(_PIPELINES))
 
+import moe_router  # noqa: E402
 import oracle_contract as oc  # noqa: E402
+import validate_distill  # noqa: E402
 
 TARGET_TOP1 = "top1_expert"
 TARGET_TOP1_LAST_LAYER = "top1_expert_last_layer"
@@ -79,8 +81,15 @@ def dataset_from_records(
     if target not in TARGETS:
         raise BaselineError(f"unknown target: {target!r}")
     samples: list[Sample] = []
+    sampled_ids: set[str] = set()
     for record in records:
         if not isinstance(record, dict):
+            continue
+        record_id = record.get("id")
+        if not isinstance(record_id, str) or not record_id:
+            # `split` partitions by hashing the id. `str(None)` gave every
+            # id-less record the literal id "None", so they all shared one
+            # train/test bucket.
             continue
         scenario = record.get("scenario")
         result = record.get("result")
@@ -97,9 +106,17 @@ def dataset_from_records(
         label = _target_label(result, target)
         if label is None:
             continue
+        if record_id in sampled_ids:
+            # Duplicates land in the same bucket by construction, so the
+            # holdout would score correlated copies of its own training rows.
+            raise BaselineError(
+                f"duplicate record id {record_id!r}; the id-keyed split "
+                "cannot partition duplicated records"
+            )
+        sampled_ids.add(record_id)
         samples.append(
             Sample(
-                record_id=str(record.get("id")),
+                record_id=record_id,
                 features=tuple(float(value) for value in features),
                 label=label,
             )
@@ -533,6 +550,41 @@ def escalation_gate(report: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _clean_router_records(path: str) -> list[dict[str, Any]]:
+    """CLI gate: every input line must be a clean router-family record.
+
+    The reported accuracies and the SNN escalation verdict are computed from
+    whatever this file contains. A tampered record — a stale digest, a family
+    finding, a relabelled ``top1_expert`` — that still *looks* router-shaped
+    would silently move those numbers, so the evaluation is refused rather
+    than computed over unvalidated rows.
+    """
+
+    problems: list[str] = []
+    records: list[dict[str, Any]] = []
+    for lineno, obj in oc.read_jsonl(path):
+        where = f"{path}:{lineno}"
+        if obj is None:
+            problems.append(f"{where}: JSON parse failure")
+            continue
+        errors = validate_distill.check_record(obj, where)
+        if isinstance(obj, dict) and obj.get("family") != moe_router.FAMILY:
+            problems.append(
+                f"{where}: family {obj.get('family')!r} is not "
+                f"{moe_router.FAMILY!r}"
+            )
+        problems.extend(errors)
+        if isinstance(obj, dict):
+            records.append(obj)
+    if problems:
+        shown = "; ".join(problems[:5])
+        more = f" (+{len(problems) - 5} more)" if len(problems) > 5 else ""
+        raise BaselineError(
+            f"input is not a clean router-family corpus: {shown}{more}"
+        )
+    return records
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     sub = parser.add_subparsers(dest="command", required=True)
@@ -545,7 +597,7 @@ def main(argv: list[str] | None = None) -> int:
 
     args = parser.parse_args(argv)
     try:
-        records = [obj for _, obj in oc.read_jsonl(args.records) if isinstance(obj, dict)]
+        records = _clean_router_records(args.records)
         samples = dataset_from_records(records, target=args.target)
         report = evaluate_baselines(
             samples,

@@ -54,7 +54,9 @@ def check_record(record: Any, where: str) -> list[str]:
         return errors
     errors += oc.check_digest(record, where)
     family = record.get("family")
-    checker = FAMILY_CHECKS.get(family)
+    # A JSON-valid record can carry an unhashable family (an array or an
+    # object); using it as a dict key would raise instead of reporting.
+    checker = FAMILY_CHECKS.get(family) if isinstance(family, str) else None
     if checker is None:
         if family not in oc.FAMILIES:
             # check_envelope already reported the unknown family.

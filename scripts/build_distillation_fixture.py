@@ -49,22 +49,49 @@ def _sha256(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
+# The identity this script writes into every manifest it produces. --force
+# authenticates against it before deleting anything.
+MANIFEST_PRODUCER = "scripts/build_distillation_fixture.py"
+
+# The only names a distillation run contains beside its manifest.
+RUN_LAYOUT = frozenset(
+    {"MANIFEST.json", "fault-recovery", "energy-preferences", "moe-router"}
+)
+
+
+def _is_own_manifest(path: Path) -> bool:
+    """True when ``path`` is a manifest this script itself wrote."""
+
+    try:
+        manifest = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return False
+    return (
+        isinstance(manifest, dict)
+        and manifest.get("generated_by") == MANIFEST_PRODUCER
+    )
+
+
 def can_rebuild(out: Path) -> bool:
     """True when ``out`` is safe for ``--force`` to delete and rewrite.
 
-    A distillation run is a directory that is either empty or carries a
-    ``MANIFEST.json``. That is what stops ``--out . --force`` from deleting a
-    working tree, and it is deliberately no stricter: the committed fixture is
-    a manifest *beside* three family directories, so a rule of "empty, or
-    nothing but a manifest" would reject the documented
-    ``build_distillation_fixture.py --force`` on every normal checkout.
+    ``build()`` hands this directory to ``shutil.rmtree``, so "looks vaguely
+    like a run" is not enough: a dataset or project directory that happens to
+    contain an unrelated file named ``MANIFEST.json`` would be irreversibly
+    deleted. A rebuildable target is empty, or is a distillation run this
+    script wrote — its manifest names this script as the producer and nothing
+    unexpected sits beside it.
     """
 
     if not out.is_dir():
         return False
-    if not any(out.iterdir()):
+    entries = list(out.iterdir())
+    if not entries:
         return True
-    return (out / "MANIFEST.json").is_file()
+    if any(entry.name not in RUN_LAYOUT for entry in entries):
+        return False
+    manifest = out / "MANIFEST.json"
+    return manifest.is_file() and _is_own_manifest(manifest)
 
 
 def assert_rebuildable(out: Path) -> None:
@@ -74,8 +101,9 @@ def assert_rebuildable(out: Path) -> None:
         if can_rebuild(out):
             return
         raise SystemExit(
-            f"{out} is not empty and has no MANIFEST.json, so it does not look "
-            "like a distillation run; refusing to delete it"
+            f"{out} is not a distillation run this script wrote (expected an "
+            f"empty directory, or a MANIFEST.json naming {MANIFEST_PRODUCER} "
+            "beside the family directories); refusing to delete it"
         )
     raise SystemExit(f"{out} exists but is not a directory; refusing to delete it")
 
@@ -102,10 +130,20 @@ def _baseline_summary(router_records: list[Any]) -> dict[str, Any]:
 
 
 def _validation_summary(out: Path) -> dict[str, Any]:
-    """Re-validate what was just written, and keep the census keys."""
+    """Re-validate what was just written, refusing to publish a blocked run."""
 
     report = validate_distill.validate_path(out)
     report.pop("_stamped", None)
+    if report["blocked"]:
+        # A generator regression must fail the rebuild, not ship. The invalid
+        # records are left in place for inspection, but no MANIFEST.json is
+        # written and the exit code is nonzero, so nothing downstream can
+        # mistake this for the documented rebuild having succeeded.
+        first = [finding["error"] for finding in report["findings"][:3]]
+        raise SystemExit(
+            f"{out} does not validate; refusing to publish MANIFEST.json "
+            f"over an invalid run: {first}"
+        )
     return {
         key: report[key]
         for key in (

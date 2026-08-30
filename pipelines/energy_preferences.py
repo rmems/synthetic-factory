@@ -45,6 +45,7 @@ import hashlib
 import json
 import platform
 import random
+import re
 import statistics
 import sys
 import time
@@ -70,6 +71,15 @@ GENERATOR_VERSION = "1.0.0"
 RAPL_ROOT = Path("/sys/class/powercap")
 
 DECISION_RULE = "min_measured_cost_subject_to_quality_and_safety"
+
+# The policy implementations a workload key names. Bump this whenever a
+# policy's algorithm changes: a recorded cost is only valid for the workload
+# it was taken over, and a silently different implementation under the same
+# key would attach an old reading to a new workload.
+POLICY_SUITE_VERSION = "1.0.0"
+
+DEFAULT_FINE_STEPS = 48
+DEFAULT_COARSE_STEPS = 8
 
 ABSTAIN_NO_FEASIBLE = "NO_CANDIDATE_SATISFIES_QUALITY_AND_SAFETY_CONSTRAINTS"
 ABSTAIN_NO_MEASUREMENT = "NO_MEASURED_COST_AVAILABLE"
@@ -200,17 +210,45 @@ class RaplEnergyMeter(EnergyOracle):
     cost_quantity = "energy_j"
     measures_energy = True
 
+    # A root RAPL zone: `intel-rapl:0`, never a subzone like `intel-rapl:0:0`.
+    _ROOT_ZONE_RE = re.compile(r"^intel-rapl:\d+$")
+
     def __init__(self, root: Path | None = None) -> None:
         self.root = Path(root) if root is not None else RAPL_ROOT
 
+    @staticmethod
+    def _zone_label(domain: Path) -> str:
+        try:
+            return (domain / "name").read_text(encoding="utf-8").strip()
+        except OSError:
+            return ""
+
     def _domains(self) -> list[Path]:
+        """The non-overlapping RAPL zones whose counters may be summed.
+
+        ``/sys/class/powercap`` lists every zone flat: ``intel-rapl:0`` (the
+        package) sits beside its own subzones ``intel-rapl:0:0`` (core) and
+        ``intel-rapl:0:1`` (uncore), and a parent's counter already includes
+        its children. Summing everything double-counts whichever components a
+        workload exercises, and workloads with different component mixes can
+        then receive a different preference ordering — so only root zones are
+        read. ``psys``, when it appears beside package zones, is itself a
+        superset of them and is dropped for the same reason; when it is the
+        only root zone, it is the measurement.
+        """
+
         if not self.root.is_dir():
             return []
-        return sorted(
+        roots = sorted(
             child
             for child in self.root.iterdir()
-            if child.name.startswith("intel-rapl:") and (child / "energy_uj").exists()
+            if self._ROOT_ZONE_RE.match(child.name)
+            and (child / "energy_uj").exists()
         )
+        psys = [domain for domain in roots if self._zone_label(domain) == "psys"]
+        if psys and len(psys) < len(roots):
+            roots = [domain for domain in roots if self._zone_label(domain) != "psys"]
+        return roots
 
     def available(self) -> tuple[bool, str]:
         domains = self._domains()
@@ -318,7 +356,7 @@ class RecordedEnergyMeter(EnergyOracle):
         source_meter = recording.get("meter")
         self.source_meter = source_meter if isinstance(source_meter, str) else ""
         self.cost_quantity = recording.get("cost_quantity", self.cost_quantity)
-        self.measures_energy = self.cost_quantity in oc.ENERGY_QUANTITIES
+        self.measures_energy = oc.is_enum_value(self.cost_quantity, oc.ENERGY_QUANTITIES)
         observations = recording.get("observations")
         self.observations = observations if isinstance(observations, dict) else {}
 
@@ -708,16 +746,33 @@ def choose_preference(
     )
 
 
-def workload_key(policy_id: str, scenario: dict[str, Any]) -> str:
-    """Stable key identifying one policy running one scenario.
+def workload_key(
+    policy_id: str,
+    scenario: dict[str, Any],
+    *,
+    fine_steps: int = DEFAULT_FINE_STEPS,
+    coarse_steps: int = DEFAULT_COARSE_STEPS,
+) -> str:
+    """Stable key identifying one policy running one workload configuration.
 
-    A recorded measurement is only valid for the workload it was taken over, so
-    the key binds the policy to the scenario state rather than to the policy
-    name alone.
+    A recorded measurement is only valid for the workload it was taken over,
+    so the key binds the policy to the scenario state *and* to the solver
+    parameters that shape the executed search. Without the solver binding, a
+    recording taken at one grid resolution replays cleanly against another:
+    the grid policy runs a different allocation search while the old energy
+    reading is attached to it, which can silently change the preference.
     """
 
     state = scenario.get("state") if isinstance(scenario, dict) else None
-    digest = hashlib.sha256(oc.canonical_json(state).encode("utf-8")).hexdigest()
+    payload = {
+        "state": state,
+        "policy_suite": POLICY_SUITE_VERSION,
+        "solver": {
+            "fine_steps": int(fine_steps),
+            "coarse_steps": int(coarse_steps),
+        },
+    }
+    digest = hashlib.sha256(oc.canonical_json(payload).encode("utf-8")).hexdigest()
     return f"{policy_id}@{digest[:16]}"
 
 
@@ -729,6 +784,8 @@ def _read_cost(
     scenario: dict[str, Any],
     repeats: int,
     warmup: int,
+    fine_steps: int,
+    coarse_steps: int,
 ) -> MeterReading:
     """Take a live measurement, or replay one a real metered run recorded.
 
@@ -741,7 +798,14 @@ def _read_cost(
 
     lookup = getattr(meter, "lookup", None)
     if callable(lookup):
-        return lookup(workload_key(policy_id, scenario))
+        return lookup(
+            workload_key(
+                policy_id,
+                scenario,
+                fine_steps=fine_steps,
+                coarse_steps=coarse_steps,
+            )
+        )
     return meter.measure(workload, repeats=repeats, warmup=warmup)
 
 
@@ -753,8 +817,8 @@ def build_records(
     meter_probe: dict[str, Any] | None = None,
     repeats: int = 5,
     warmup: int = 1,
-    fine_steps: int = 48,
-    coarse_steps: int = 8,
+    fine_steps: int = DEFAULT_FINE_STEPS,
+    coarse_steps: int = DEFAULT_COARSE_STEPS,
     id_prefix: str = "ep",
 ) -> list[dict[str, Any]]:
     """Execute every candidate policy, meter it, and build measured records."""
@@ -837,6 +901,8 @@ def build_records(
                 scenario=scenario,
                 repeats=repeats,
                 warmup=warmup,
+                fine_steps=fine_steps,
+                coarse_steps=coarse_steps,
             )
             cost_measurement = oc.new_measurement(
                 reading.cost_quantity,
@@ -960,14 +1026,25 @@ def _derive_safety(
 
 
 @dataclass(frozen=True)
+class _Reading:
+    """One usable oracle reading: value, instrument, and whether it measured."""
+
+    value: float
+    meter: str
+    measured: Any
+
+
+@dataclass(frozen=True)
 class _CandidateContext:
     """Record-level facts every candidate is checked against."""
 
-    measured_costs: dict[tuple[str, str], tuple[float, str]]
+    measured_costs: dict[tuple[str, str], _Reading]
     corpus_quantity: Any
     can_derive_safety: bool
     caps: Any
     demand: Any
+    weights: list[float] | None
+    optimum: float | None
 
 
 def _check_scenario_constraints(
@@ -1008,11 +1085,11 @@ def _check_cost_denomination(result: dict[str, Any], where: str) -> list[str]:
     errors: list[str] = []
     corpus_quantity = result.get("cost_quantity")
     cost_is_energy = result.get("cost_is_energy")
-    if corpus_quantity not in oc.QUANTITY_UNITS:
+    if not oc.is_enum_value(corpus_quantity, oc.QUANTITY_UNITS):
         errors.append(f"{where}.result.cost_quantity must be a registered quantity")
     if not isinstance(cost_is_energy, bool):
         errors.append(f"{where}.result.cost_is_energy must be a boolean")
-    elif cost_is_energy != (corpus_quantity in oc.ENERGY_QUANTITIES):
+    elif cost_is_energy != oc.is_enum_value(corpus_quantity, oc.ENERGY_QUANTITIES):
         errors.append(
             f"{where}.result.cost_is_energy is {cost_is_energy} but cost_quantity "
             f"is {corpus_quantity!r} — the flag must follow the quantity"
@@ -1020,8 +1097,8 @@ def _check_cost_denomination(result: dict[str, Any], where: str) -> list[str]:
     return errors
 
 
-def _usable_measurement(item: Any) -> tuple[tuple[str, str], Any, str] | None:
-    """The ``(key, value, meter)`` of a reading, or None if it is not usable."""
+def _usable_measurement(item: Any) -> tuple[tuple[str, str], _Reading] | None:
+    """The ``(key, reading)`` of a measurement, or None if it is not usable."""
 
     if not isinstance(item, dict):
         return None
@@ -1035,13 +1112,16 @@ def _usable_measurement(item: Any) -> tuple[tuple[str, str], Any, str] | None:
         and oc.is_number(item.get("value"))
         and isinstance(meter, str)
     ):
-        return (candidate_id, quantity), item["value"], meter
+        reading = _Reading(
+            value=item["value"], meter=meter, measured=item.get("measured")
+        )
+        return (candidate_id, quantity), reading
     return None
 
 
 def _collect_measured_costs(
     result: dict[str, Any], where: str
-) -> tuple[list[str], dict[tuple[str, str], tuple[float, str]]]:
+) -> tuple[list[str], dict[tuple[str, str], _Reading]]:
     """Index the oracle measurements, reporting readings that contradict.
 
     Keyed by a tuple, not a joined string, so a candidate id containing the
@@ -1049,31 +1129,32 @@ def _collect_measured_costs(
     """
 
     errors: list[str] = []
-    measured_costs: dict[tuple[str, str], tuple[float, str]] = {}
+    measured_costs: dict[tuple[str, str], _Reading] = {}
     measurements = result.get("measurements")
     measurements = measurements if isinstance(measurements, list) else []
     for item in measurements:
         usable = _usable_measurement(item)
         if usable is None:
             continue
-        key, value, meter = usable
-        if key not in measured_costs:
-            measured_costs[key] = (value, meter)
+        key, reading = usable
+        previous = measured_costs.get(key)
+        if previous is None:
+            measured_costs[key] = reading
             continue
         # Silently keeping the first reading made the preference depend
         # on JSON array order while the record still carried the
         # contradicting one. Two readings that disagree are a finding.
-        previous_value, previous_meter = measured_costs[key]
         if (
-            abs(float(previous_value) - float(value)) > 1e-12
-            or previous_meter != meter
+            abs(float(previous.value) - float(reading.value)) > 1e-12
+            or previous.meter != reading.meter
+            or (previous.measured is True) != (reading.measured is True)
         ):
             candidate_id, quantity = key
             errors.append(
                 f"{where}.result.measurements: CONFLICTING_MEASUREMENT — "
                 f"{quantity} for candidate {candidate_id!r} is recorded "
-                f"both as {previous_value!r} ({previous_meter}) and "
-                f"{value!r} ({meter})"
+                f"both as {previous.value!r} ({previous.meter}) and "
+                f"{reading.value!r} ({reading.meter})"
             )
     return errors, measured_costs
 
@@ -1091,6 +1172,96 @@ def _safety_derivation_inputs(scenario: Any) -> tuple[bool, Any, Any]:
         and oc.is_number(demand)
     )
     return can_derive_safety, caps, demand
+
+
+# Slack for re-deriving task_quality from a recorded allocation. Allocations
+# are stored rounded to 9 places and qualities to 6, so an exact comparison
+# would reject honest records; a real tamper has to move the quality by
+# orders of magnitude more than this to matter against a 0.98 floor.
+QUALITY_TOLERANCE = 2e-6
+
+
+def _quality_derivation_inputs(
+    scenario: Any, *, can_derive_safety: bool, caps: Any, demand: Any
+) -> tuple[list[float] | None, float | None]:
+    """The weights and re-derived optimum quality is measured against."""
+
+    state = scenario.get("state") if isinstance(scenario, dict) else None
+    weights = state.get("actuator_weights") if isinstance(state, dict) else None
+    if not (
+        can_derive_safety
+        and isinstance(weights, list)
+        and len(weights) == len(caps)
+        and all(oc.is_number(w) and float(w) > 0.0 for w in weights)
+    ):
+        return None, None
+    numeric_weights = [float(w) for w in weights]
+    optimum = objective(
+        numeric_weights,
+        analytic_allocation(
+            float(demand), numeric_weights, [float(cap) for cap in caps]
+        ),
+    )
+    return numeric_weights, optimum
+
+
+def _check_quality_derivation(
+    candidate: dict[str, Any], spot: str, context: _CandidateContext
+) -> list[str]:
+    """task_quality is a function of the allocation and the scenario state.
+
+    Binding the candidate's quality to its oracle measurement is not enough:
+    editing both together keeps them agreeing while lowering the cheapest safe
+    candidate below the floor, so a correctly rehashed record could steer the
+    preference to a more expensive candidate and stay validation-clean.
+    Re-deriving the quality from the recorded allocation pins both stored
+    values to the arithmetic the scenario defines.
+    """
+
+    if context.optimum is None or context.weights is None:
+        return []
+    allocation = candidate.get("allocation")
+    caps = [float(cap) for cap in context.caps]
+    if _allocation_rejection(allocation, caps) is None:
+        derived = evaluate_allocation(
+            [float(value) for value in allocation],
+            demand=float(context.demand),
+            weights=context.weights,
+            caps=caps,
+            optimum=context.optimum,
+            quality_floor=0.0,
+        ).task_quality
+    elif allocation is None or (isinstance(allocation, list) and not allocation):
+        # A policy that produced no answer has quality 0.0 by definition.
+        derived = 0.0
+    else:
+        # Non-numeric or wrong-width allocations are already reported by the
+        # safety derivation; there is nothing coherent to evaluate.
+        return []
+    recorded = candidate.get("task_quality")
+    if oc.is_number(recorded) and abs(float(recorded) - derived) > QUALITY_TOLERANCE:
+        return [
+            f"{spot}: QUALITY_NOT_REPRODUCIBLE — task_quality is {recorded} "
+            f"but re-evaluating the recorded allocation against the scenario "
+            f"state yields {derived}"
+        ]
+    return []
+
+
+def _check_reference_objective(
+    result: dict[str, Any], context: _CandidateContext, where: str
+) -> list[str]:
+    """The restated reference objective must match the scenario's own optimum."""
+
+    if context.optimum is None:
+        return []
+    recorded = result.get("reference_objective")
+    if oc.is_number(recorded) and abs(float(recorded) - context.optimum) > 1e-9:
+        return [
+            f"{where}.result.reference_objective is {recorded} but the "
+            f"scenario state yields {round(context.optimum, 12)}"
+        ]
+    return []
 
 
 def _check_candidate_safety(
@@ -1142,20 +1313,30 @@ def _check_quality_binding(
     """
 
     quality_key = (candidate_id, "task_quality")
-    if quality_key not in context.measured_costs:
+    reading = context.measured_costs.get(quality_key)
+    if reading is None:
         return [
             f"{spot}: UNMEASURED_TASK_QUALITY — no oracle measurement of "
             f"task_quality for candidate {candidate_id!r}"
         ]
-    measured_quality, _ = context.measured_costs[quality_key]
+    errors: list[str] = []
+    if reading.measured is not True:
+        # A reading marked `measured: false` is a model wearing a
+        # measurement's clothes. Quality gates the preference, so the reading
+        # that backs it has to be one the oracle actually took.
+        errors.append(
+            f"{spot}: UNMEASURED_TASK_QUALITY — the task_quality reading for "
+            f"candidate {candidate_id!r} is marked measured: "
+            f"{reading.measured!r}, so nothing measured backs the quality gate"
+        )
     if oc.is_number(candidate.get("task_quality")) and (
-        abs(measured_quality - float(candidate["task_quality"])) > 1e-9
+        abs(reading.value - float(candidate["task_quality"])) > 1e-9
     ):
-        return [
+        errors.append(
             f"{spot}.task_quality disagrees with the oracle measurement "
-            f"({candidate['task_quality']} vs {measured_quality})"
-        ]
-    return []
+            f"({candidate['task_quality']} vs {reading.value})"
+        )
+    return errors
 
 
 def _check_cost_binding(
@@ -1168,22 +1349,31 @@ def _check_cost_binding(
 
     quantity = candidate.get("cost_quantity")
     candidate_meter = candidate.get("cost_meter")
-    key = (candidate_id, quantity)
-    if key not in context.measured_costs:
+    reading = context.measured_costs.get((candidate_id, quantity))
+    if reading is None:
         return [
             f"{spot}: UNMEASURED_COST — no oracle measurement of {quantity} "
             f"for candidate {candidate_id!r}"
         ]
     errors: list[str] = []
-    measured_value, measured_meter = context.measured_costs[key]
-    if abs(measured_value - float(candidate["cost_value"])) > 1e-12:
+    if reading.measured is not True:
+        # The preference minimises this number. A cost whose backing reading
+        # says `measured: false` is a modelled cost, which is exactly what
+        # this family exists to refuse.
+        errors.append(
+            f"{spot}: UNMEASURED_COST — the {quantity} reading backing "
+            f"candidate {candidate_id!r} is marked measured: "
+            f"{reading.measured!r}, so no measured cost stands behind it"
+        )
+    if abs(reading.value - float(candidate["cost_value"])) > 1e-12:
         errors.append(
             f"{spot}.cost_value disagrees with the oracle measurement "
-            f"({candidate['cost_value']} vs {measured_value})"
+            f"({candidate['cost_value']} vs {reading.value})"
         )
-    if measured_meter != candidate_meter:
+    if reading.meter != candidate_meter:
         errors.append(
-            f"{spot}.cost_meter is {candidate_meter!r} but the measurement meter is {measured_meter!r}"
+            f"{spot}.cost_meter is {candidate_meter!r} but the measurement "
+            f"meter is {reading.meter!r}"
         )
     return errors
 
@@ -1198,10 +1388,13 @@ def _check_candidate_measurements(
 
     errors: list[str] = []
     quantity = candidate.get("cost_quantity")
-    if quantity not in oc.QUANTITY_UNITS:
+    if not oc.is_enum_value(quantity, oc.QUANTITY_UNITS):
         errors.append(f"{spot}.cost_quantity must be a registered quantity")
         return errors
-    if context.corpus_quantity in oc.QUANTITY_UNITS and quantity != context.corpus_quantity:
+    if (
+        oc.is_enum_value(context.corpus_quantity, oc.QUANTITY_UNITS)
+        and quantity != context.corpus_quantity
+    ):
         errors.append(
             f"{spot}.cost_quantity is {quantity!r} but the record is "
             f"denominated in {context.corpus_quantity!r} — costs must be comparable"
@@ -1256,6 +1449,7 @@ def _check_candidate(
     errors = _check_candidate_safety(candidate, spot, context)
     if not oc.is_number(candidate.get("task_quality")):
         errors.append(f"{spot}.task_quality must be a number")
+    errors += _check_quality_derivation(candidate, spot, context)
     errors += _check_candidate_measurements(candidate, candidate_id, spot, context)
     return errors
 
@@ -1322,6 +1516,72 @@ def _check_preferred_cost_minimality(
             f"{sorted(tied_lower_id)} tie {preferred_id!r} on measured cost "
             "and sort before it, so the documented tie-break selects the "
             "first of those instead"
+        )
+    return errors
+
+
+def _check_preference_membership(
+    preference: dict[str, Any],
+    candidates: list[Any],
+    quality_floor: float,
+    preferred: dict[str, Any],
+    where: str,
+) -> list[str]:
+    """``over``, ``feasible`` and the cheaper-but-rejected list are derived.
+
+    ``choose_preference`` computes all three from the measured candidates.
+    Left unchecked, a record could ship arbitrary lists — no opponents, a
+    fabricated feasible set, or a false account of which constraints rejected
+    each policy — while everything else validated clean, and pairwise
+    consumers would train on that account.
+    """
+
+    errors: list[str] = []
+    rows = [
+        candidate
+        for candidate in candidates
+        if isinstance(candidate, dict) and isinstance(candidate.get("id"), str)
+    ]
+    preferred_id = preferred["id"]
+    preferred_cost = float(preferred["cost_value"])
+    derived = {
+        "over": sorted(row["id"] for row in rows if row["id"] != preferred_id),
+        "feasible": sorted(
+            row["id"]
+            for row in rows
+            if row.get("safety_ok") is True
+            and oc.is_number(row.get("task_quality"))
+            and float(row["task_quality"]) >= quality_floor
+            and oc.is_number(row.get("cost_value"))
+        ),
+        "cheaper_but_constraint_violating": sorted(
+            row["id"]
+            for row in rows
+            if row["id"] != preferred_id
+            and oc.is_number(row.get("cost_value"))
+            and float(row["cost_value"]) < preferred_cost
+        ),
+    }
+    for field, expected in derived.items():
+        recorded = preference.get(field)
+        recorded_ids = (
+            sorted(str(item) for item in recorded)
+            if isinstance(recorded, list)
+            else None
+        )
+        if recorded_ids != expected:
+            errors.append(
+                f"{where}.result.preference.{field}: "
+                f"PREFERENCE_MEMBERSHIP_NOT_REPRODUCIBLE — recorded "
+                f"{recorded!r} but the measured candidates yield {expected}"
+            )
+    restated_floor = preference.get("quality_floor")
+    if not oc.is_number(restated_floor) or (
+        abs(float(restated_floor) - quality_floor) > 1e-12
+    ):
+        errors.append(
+            f"{where}.result.preference.quality_floor is {restated_floor!r} "
+            f"but the scenario constraint is {quality_floor}"
         )
     return errors
 
@@ -1427,6 +1687,9 @@ def _check_preference(
         errors += _check_preferred_cost_minimality(
             preferred, candidates, quality_floor, where
         )
+        errors += _check_preference_membership(
+            preference, candidates, quality_floor, preferred, where
+        )
     return errors
 
 
@@ -1451,13 +1714,19 @@ def check_family(record: dict[str, Any], where: str) -> list[str]:
     errors += measurement_errors
 
     can_derive_safety, caps, demand = _safety_derivation_inputs(scenario)
+    weights, optimum = _quality_derivation_inputs(
+        scenario, can_derive_safety=can_derive_safety, caps=caps, demand=demand
+    )
     context = _CandidateContext(
         measured_costs=measured_costs,
         corpus_quantity=result.get("cost_quantity"),
         can_derive_safety=can_derive_safety,
         caps=caps,
         demand=demand,
+        weights=weights,
+        optimum=optimum,
     )
+    errors += _check_reference_objective(result, context, where)
 
     seen_candidate_ids: set[str] = set()
     for index, candidate in enumerate(candidates):

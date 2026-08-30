@@ -213,6 +213,19 @@ def is_number(value: Any) -> bool:
     return math.isfinite(value)
 
 
+def is_enum_value(value: Any, allowed) -> bool:
+    """Membership test for enum-like JSON fields that cannot raise.
+
+    A JSON-valid record can put an array or object where a string enum
+    belongs. Testing such an unhashable value against a set (or using it as a
+    dict key) raises ``TypeError``, and ``validate_path`` does not catch that —
+    one malformed line would abort validation of the entire run. A non-string
+    is simply not a member.
+    """
+
+    return isinstance(value, str) and value in allowed
+
+
 def record_digest(record: dict[str, Any]) -> str:
     """SHA-256 over the record with volatile/derived fields removed.
 
@@ -472,7 +485,7 @@ def check_measurements(record: dict[str, Any], where: str) -> list[str]:
             errors.append(f"{spot}: measurement must be an object")
             continue
         quantity = item.get("quantity")
-        if quantity not in QUANTITY_UNITS:
+        if not is_enum_value(quantity, QUANTITY_UNITS):
             errors.append(f"{spot}: unknown quantity {quantity!r}")
             continue
         if not is_number(item.get("value")):
@@ -524,17 +537,17 @@ def check_no_theoretical_energy_claim(record: dict[str, Any], where: str) -> lis
         if not isinstance(item, dict):
             continue
         quantity = item.get("quantity")
-        if quantity not in ENERGY_QUANTITIES:
+        if not is_enum_value(quantity, ENERGY_QUANTITIES):
             continue
         spot = f"{where}.result.measurements[{index}]"
         meter = item.get("meter")
-        if meter in MODELED_METERS or item.get("measured") is not True:
+        if is_enum_value(meter, MODELED_METERS) or item.get("measured") is not True:
             errors.append(
                 f"{spot}: THEORETICAL_ENERGY_CLAIM — {quantity} came from "
                 f"meter {meter!r}; energy must be physically measured"
             )
             continue
-        if meter not in MEASURED_ENERGY_METERS:
+        if not is_enum_value(meter, MEASURED_ENERGY_METERS):
             errors.append(
                 f"{spot}: THEORETICAL_ENERGY_CLAIM — {quantity} needs a meter in "
                 f"{sorted(MEASURED_ENERGY_METERS)}, got {meter!r}"
@@ -559,7 +572,7 @@ def check_no_theoretical_energy_claim(record: dict[str, Any], where: str) -> lis
     if isinstance(preference, dict):
         cost_quantity = preference.get("cost_quantity")
         if (
-            cost_quantity in ENERGY_QUANTITIES
+            is_enum_value(cost_quantity, ENERGY_QUANTITIES)
             and cost_quantity not in measured_energy_quantities
         ):
             errors.append(
@@ -576,7 +589,7 @@ def _check_generator_block(block: Any, where: str) -> list[str]:
     errors: list[str] = []
     if not isinstance(block.get("name"), str) or not block["name"].strip():
         errors.append(f"{where}.generator.name must be a non-empty string")
-    if block.get("kind") not in GENERATOR_KINDS:
+    if not is_enum_value(block.get("kind"), GENERATOR_KINDS):
         errors.append(
             f"{where}.generator.kind must be one of {sorted(GENERATOR_KINDS)}"
         )
@@ -600,13 +613,13 @@ def _check_oracle_block(block: Any, where: str) -> list[str]:
     errors: list[str] = []
     if not isinstance(block.get("name"), str) or not block["name"].strip():
         errors.append(f"{where}.oracle.name must be a non-empty string")
-    if block.get("type") not in ORACLE_TYPES:
+    if not is_enum_value(block.get("type"), ORACLE_TYPES):
         errors.append(f"{where}.oracle.type must be one of {sorted(ORACLE_TYPES)}")
     for key in ("implementation", "version"):
         value = block.get(key)
         if not isinstance(value, str) or not value.strip():
             errors.append(f"{where}.oracle.{key} must be a non-empty string")
-    if block.get("authority") not in ORACLE_AUTHORITIES:
+    if not is_enum_value(block.get("authority"), ORACLE_AUTHORITIES):
         errors.append(
             f"{where}.oracle.authority must be one of {sorted(ORACLE_AUTHORITIES)}"
         )
@@ -623,7 +636,7 @@ def _check_result_block(block: Any, where: str) -> list[str]:
         return [f"{where}.result must be an object"]
     errors: list[str] = []
     status = block.get("status")
-    if status not in RESULT_STATUSES:
+    if not is_enum_value(status, RESULT_STATUSES):
         errors.append(f"{where}.result.status must be one of {sorted(RESULT_STATUSES)}")
         return errors
     measurements = block.get("measurements")
@@ -669,7 +682,7 @@ def _check_validation_block(block: Any, where: str) -> list[str]:
         return [f"{where}.validation must be an object"]
     errors: list[str] = []
     status = block.get("status")
-    if status not in VALIDATION_STATUSES:
+    if not is_enum_value(status, VALIDATION_STATUSES):
         errors.append(
             f"{where}.validation.status must be one of {sorted(VALIDATION_STATUSES)}"
         )

@@ -47,6 +47,11 @@ def recording_from_reference(
             "model": model,
             "revision_or_checkpoint": "rev-abc123",
             "configuration_sha256": reference.fingerprint()["configuration_sha256"],
+            # An honest teacher recording declares its expert count; without
+            # one the replay wrapper refuses it (replayed expert ids could
+            # not be range-checked).
+            "num_local_experts": reference.num_experts,
+            "num_experts_per_tok": reference.top_k,
         },
         "observations": observations,
     }
