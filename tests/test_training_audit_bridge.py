@@ -59,6 +59,14 @@ class TrainingAuditBridgeEvents(unittest.TestCase):
         bridge = {"meta": {"timebase": "meta-clock"}, "spike_events": events}
         self.assertEqual(training_audit.event_stream_status(events, bridge), "invalid")
 
+    def test_clock_identifier_cannot_spoof_the_order_error_category(self):
+        marker = "spike_events not globally non-decreasing"
+        events = [
+            {"channel": "a", "t_rel_ms": 1.0, "amplitude": 0.5, "source_clock": "a"},
+            {"channel": "b", "t_rel_ms": 2.0, "amplitude": 0.4, "source_clock": marker},
+        ]
+        self.assertEqual(training_audit.event_stream_status(events), "invalid")
+
     def test_a_bridge_clock_agreeing_with_its_events_is_still_sorted(self):
         """The enclosing declaration must not reclassify a valid stream."""
         events = [

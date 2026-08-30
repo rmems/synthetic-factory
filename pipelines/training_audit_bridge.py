@@ -27,6 +27,7 @@ def event_stream_status(events, enclosing=None):
         require_keys=BRIDGE_SPIKE_EVENT_KEYS,
         enclosing=enclosing,
     )
-    if any(SPIKE_ORDER_MISMATCH not in error for error in errors):
+    order_error_prefix = f": {SPIKE_ORDER_MISMATCH} at index "
+    if any(not error.startswith(order_error_prefix) for error in errors):
         return "invalid"
     return "unsorted" if errors else "sorted"

@@ -488,25 +488,25 @@ def check_provenance_publish(obj, where):
     return out
 
 
-def _is_reward_narrative_spike_events(path, value):
+def _is_reward_narrative_spike_events(owner, value, reward_component_entries):
     """True when a walked ``spike_events`` key is reward-component narration.
 
     ``reward_components.spike_events`` is a documented string-valued
     narrative annotation in the reward ontology
     (schemas/reward-ontology-v1.mapping.json: disposition
     "narrative_annotation", observed type "string"), not an event stream.
-    ``walk_key`` matches by key name only, so this path-aware guard keeps it
-    from being misread as a malformed stream. The exemption is scoped to the
+    ``walk_key`` matches by key name only, so this structural-owner guard keeps
+    it from being misread as a malformed stream. Rendered paths are not used:
+    a literal JSON key containing dots must not spoof a ``reward_components``
+    segment. The exemption is scoped to the
     documented string shape and nothing else: an array here is a genuine (if
     oddly placed) stream, and a dict, number, bool or null is neither a
     narrative nor a stream. Both stay strictly checked so they cannot reach
     the publication gate unexamined.
     """
-    parts = path.split(".")
-    return (
-        len(parts) >= 2
-        and parts[-2] == "reward_components"
-        and isinstance(value, str)
+    return isinstance(value, str) and any(
+        owner is reward_components
+        for _path, reward_components in reward_component_entries
     )
 
 
@@ -516,8 +516,11 @@ def check_record(obj, where, factory_staging=False):
     errors.extend(shape_errs)
 
     if isinstance(obj, dict):
+        reward_component_entries = list(walk_key(obj, "reward_components"))
         for path, events, owner in _walk_key_owners(obj, "spike_events"):
-            if _is_reward_narrative_spike_events(path, events):
+            if _is_reward_narrative_spike_events(
+                owner, events, reward_component_entries
+            ):
                 continue
             # Single owner of stream validity: shape_check drops the shape
             # layer's copies, so every stream — top-level, bridge, or nested —
@@ -539,7 +542,7 @@ def check_record(obj, where, factory_staging=False):
                     contract,
                 )
             )
-        for path, rc in walk_key(obj, "reward_components"):
+        for path, rc in reward_component_entries:
             rc_errs, rc_warns = check_reward(rc, f"{where}: {path}")
             errors.extend(rc_errs)
             warnings.extend(rc_warns)

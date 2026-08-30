@@ -159,6 +159,16 @@ class CheckRecordsRewardArithmetic(unittest.TestCase):
         self.assertFalse(result["warnings"], result)
         self.assertEqual(result["exit_code"], 0)
 
+    def test_dotted_key_cannot_spoof_reward_components_narration(self):
+        """Rendered-path punctuation is not structural JSON ancestry."""
+        rec = _thalamic(meta={"id": "dotted-reward-components-spoof"})
+        rec["fake.reward_components"] = {"spike_events": "not a stream"}
+        tmp, run_dir = _run_dir([rec])
+        with tmp:
+            result = check_records.check_run(run_dir, strict=True)
+        self.assertIn("spike_events must be an array", "\n".join(result["errors"]))
+        self.assertEqual(result["exit_code"], 1)
+
     def test_reward_components_spike_events_array_is_still_validated(self):
         """The narrative-annotation exemption is scoped to the documented
         string shape. An array at reward_components.spike_events is a
