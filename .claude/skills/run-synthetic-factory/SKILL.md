@@ -189,8 +189,11 @@ python3 pipelines/promote.py outputs/raw/<date> outputs/cleaned/<new-label>
 ```
 
 The promoter refuses an existing destination and any destination nested inside
-the raw source. Do not promote while `audit` is blocked unless the user explicitly
-asks for a diagnostic cleaned copy; never describe such a copy as curated.
+the raw source. It then runs the blocking quality gate, writes
+`<cleaned_out>/quality-manifest.json`, and exits 1 when the cleaned tree is not
+eligible for curation. Do not promote while `audit` is blocked unless the user
+explicitly asks for a diagnostic cleaned copy; never describe a blocked copy as
+curated.
 
 ## Failure handling
 
