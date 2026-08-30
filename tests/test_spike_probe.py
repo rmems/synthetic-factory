@@ -107,6 +107,39 @@ class NormalizeRaster(unittest.TestCase):
         del record["raster"]["window_ms"]
         self.assertEqual(spike_probe.normalize_raster(record)["window_us"], 40000)
 
+    def test_fractional_microsecond_window_precision_is_preserved(self):
+        for carrier in ("both", "milliseconds", "seconds"):
+            with self.subTest(carrier=carrier):
+                record = gate_snn_record()
+                record["raster"].update(
+                    {
+                        "window_ms": 20.0004,
+                        "window_s": 0.0200004,
+                        "neurons": 10_000,
+                        "mean_rate_hz": 1_000,
+                        "spikes": 200_004,
+                        "excerpt": [{"t_us": 10_000, "neuron_id": 0}],
+                    }
+                )
+                record["raster"].pop("energy_pJ", None)
+                record["raster"].pop("energy_uJ", None)
+                if carrier == "milliseconds":
+                    record["raster"].pop("window_s")
+                elif carrier == "seconds":
+                    record["raster"].pop("window_ms")
+
+                raster = spike_probe.normalize_raster(record)
+
+                self.assertIsNotNone(raster)
+                self.assertEqual(raster["window_us"], 20_000.4)
+                self.assertIsInstance(raster["window_us"], float)
+                self.assertEqual(
+                    raster["spikes"],
+                    round(
+                        raster["neurons"] * raster["mean_rate_hz"] * raster["window_us"] / 1_000_000
+                    ),
+                )
+
     def test_routing_free_raster_is_not_emitted(self):
         record = gate_snn_record()
         record["raster"]["routing"]["table"] = []

@@ -14,6 +14,7 @@ if str(REPO / "tests") not in sys.path:
     sys.path.insert(0, str(REPO / "tests"))
 
 import round_txn  # noqa: E402
+from record_kind import classify_kind  # noqa: E402
 from round_txn_test_helpers import (  # noqa: E402
     bridge,
     raw_factory,
@@ -100,6 +101,17 @@ class BridgeRasterEnvelope(RasterPublishAssertions):
         self.assert_publish_rejected(
             BRIDGE_SLUG,
             [thalamic("not-bridge")],
+            "requires only paired Bridge records",
+        )
+
+    def test_canonically_thalamic_hybrid_cannot_publish_in_bridge_lane(self):
+        record = bridge("hybrid")
+        record.update(thalamic("hybrid-top"))
+
+        self.assertEqual(classify_kind(record), "thalamic")
+        self.assert_publish_rejected(
+            BRIDGE_SLUG,
+            [record],
             "requires only paired Bridge records",
         )
 

@@ -59,10 +59,10 @@ BRIDGE_FACTORY_SLUG = _round_txn_raster.BRIDGE_FACTORY_SLUG
 OUROBOROS_FACTORY_SLUG = _round_txn_raster.OUROBOROS_FACTORY_SLUG
 RASTER_FACTORY_SLUGS = _round_txn_raster.RASTER_FACTORY_SLUGS
 THALAMIC_FACTORY_SLUG = _round_txn_raster.THALAMIC_FACTORY_SLUG
-_distillation_kind_error = _round_txn_raster._distillation_kind_error
-_jsonl_records = _round_txn_raster._jsonl_records
-_raster_contract_errors = _round_txn_raster._raster_contract_errors
-_validate_distillation_record = _round_txn_raster._validate_distillation_record
+_distillation_kind_error = _round_txn_raster.distillation_kind_error
+_jsonl_records = _round_txn_raster.jsonl_records
+_raster_contract_errors = _round_txn_raster.raster_contract_errors
+_validate_distillation_record = _round_txn_raster.validate_distillation_record
 enforce_bridge_envelope = _round_txn_raster.enforce_bridge_envelope
 validate_bridge_envelope = _round_txn_raster.validate_bridge_envelope
 

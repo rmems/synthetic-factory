@@ -27,6 +27,7 @@ import json
 import math
 import sys
 from collections import Counter
+from decimal import Decimal
 from pathlib import Path
 from typing import Any, Iterable, Iterator
 
@@ -49,9 +50,11 @@ from census import visible_jsonl_paths  # noqa: E402
 from round_txn_raster import RASTER_FACTORY_SLUGS  # noqa: E402
 from validate_run import reject_json_constant  # noqa: E402
 
-# Rasters are declared in milliseconds; probes want integer microseconds so a
-# 1 ms refractory window and a 1 ms Loihi barrier stay exactly representable.
+# Excerpt events stay on the contract's integer-microsecond grid.  A raster
+# window may contain a schema-valid fractional microsecond, however, so the
+# normalized duration preserves that precision for spike-budget reconstruction.
 US_PER_MS = 1000
+US_PER_S = 1_000_000
 REASON_INPUT_UNREADABLE = "BRIDGE_SOURCE_UNREADABLE"
 
 
@@ -81,14 +84,19 @@ def _finite(value: Any) -> bool:
     return isinstance(value, float) and math.isfinite(value)
 
 
-def _window_us(raster: dict[str, Any]) -> int | None:
-    window_ms = raster.get("window_ms")
-    if not _finite(window_ms):
-        window_s = raster.get("window_s")
-        if not _finite(window_s):
+def _window_us(raster: dict[str, Any]) -> int | float | None:
+    """Return the validated window in microseconds without rounding it."""
+
+    window_s = raster.get("window_s")
+    if _finite(window_s):
+        microseconds = Decimal(str(window_s)) * US_PER_S
+    else:
+        window_ms = raster.get("window_ms")
+        if not _finite(window_ms):
             return None
-        window_ms = float(window_s) * 1000.0
-    return int(round(float(window_ms) * US_PER_MS))
+        microseconds = Decimal(str(window_ms)) * US_PER_MS
+    integral = microseconds.to_integral_value()
+    return int(integral) if microseconds == integral else float(microseconds)
 
 
 def _normalized_event(item: Any) -> dict[str, Any] | None:

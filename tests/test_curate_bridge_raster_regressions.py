@@ -122,6 +122,59 @@ class RasterArithmeticReviewFollowUps(unittest.TestCase):
         self.assertTrue(status["raster_valid"], status["reason_codes"])
         self.assertTrue(status["evidence"]["gate_compute_spike_budget_valid"])
 
+    def test_large_integer_raster_energy_does_not_hide_one_pj_mismatch(self):
+        record = gate_snn_fixture()
+        spikes = 2**53
+        expected_energy = spikes * curate_bridge.RASTER_ENERGY_PJ_PER_SPIKE
+        record["raster"].update(
+            {
+                "neurons": spikes,
+                "mean_rate_hz": 25,
+                "window_ms": 40,
+                "window_s": 0.04,
+                "spikes": spikes,
+                "energy_pJ": expected_energy,
+            }
+        )
+        record["raster"].pop("energy_uJ", None)
+
+        exact = curate_bridge.raster_status(record)
+        self.assertTrue(exact["raster_valid"], exact["reason_codes"])
+        self.assertEqual(
+            exact["evidence"]["raster_expected_energy_pJ"],
+            expected_energy,
+        )
+        self.assertEqual(float(expected_energy), float(expected_energy + 1))
+
+        record["raster"]["energy_pJ"] = expected_energy + 1
+        mismatch = curate_bridge.raster_status(record)
+        self.assertFalse(mismatch["raster_valid"])
+        self.assertIn(curate_bridge.REASON_RASTER_ENERGY, mismatch["reason_codes"])
+
+    def test_large_integer_gate_total_does_not_hide_one_pj_mismatch(self):
+        record = gate_snn_fixture()
+        spikes = 2**53
+        expected_energy = spikes * curate_bridge.RASTER_ENERGY_PJ_PER_SPIKE
+        record["gate_compute"] = {
+            "per_check": [
+                {
+                    "neurons": spikes,
+                    "mean_rate_hz": 1,
+                    "window_s": 1,
+                    "spikes": spikes,
+                }
+            ],
+            "total_energy_pJ": expected_energy,
+        }
+
+        exact = curate_bridge.raster_status(record)
+        self.assertTrue(exact["raster_valid"], exact["reason_codes"])
+
+        record["gate_compute"]["total_energy_pJ"] = expected_energy + 1
+        mismatch = curate_bridge.raster_status(record)
+        self.assertFalse(mismatch["raster_valid"])
+        self.assertIn(curate_bridge.REASON_RASTER_ENERGY, mismatch["reason_codes"])
+
     def test_conflicting_eligibility_time_aliases_are_rejected(self):
         record = gate_snn_fixture()
         record["raster"]["routing"]["third_factor"]["tau_e_ms"] = 1

@@ -50,11 +50,14 @@ def _expected_spikes(neurons: int, mean_rate_hz: float, window_s: float) -> int 
         return None
 
 
-def _spike_energy(spikes: int, per_spike: float) -> float | None:
-    count = _finite_float(spikes)
-    if count is None:
+def _spike_energy(spikes: int, per_spike: float | int) -> float | int | None:
+    if _finite_float(spikes) is None or _finite_float(per_spike) is None:
         return None
-    return _finite_float(count * per_spike)
+    try:
+        energy = spikes * per_spike
+    except OverflowError:
+        return None
+    return energy if _finite_float(energy) is not None else None
 
 
 @dataclass(frozen=True)
@@ -279,9 +282,10 @@ def _raster_energy_field(
 ) -> bool:
     return (
         expected is not None
+        and _is_finite_number(expected)
         and _is_finite_number(value)
-        and float(value) >= 0
-        and abs(float(value) - float(expected)) <= tolerance
+        and value >= 0
+        and abs(value - expected) <= tolerance
     )
 
 
@@ -298,16 +302,15 @@ def _invalid_declared_energy_keys(raster: dict[str, Any]) -> list[str]:
 
 
 def _raster_energy_checks(spikes: Any) -> tuple[tuple[Any, ...], ...]:
-    expected_pj = spikes * RASTER_ENERGY_PJ_PER_SPIKE
-    comparable_pj = _finite_float(expected_pj)
+    expected_pj = _spike_energy(spikes, RASTER_ENERGY_PJ_PER_SPIKE)
     expected_uj = _spike_energy(spikes, RASTER_ENERGY_UJ_PER_SPIKE)
     return (
         (
             "energy_pJ",
-            comparable_pj,
+            expected_pj,
             1e-6,
             "raster_expected_energy_pJ",
-            expected_pj if comparable_pj is not None else None,
+            expected_pj,
             "raster_energy_pJ_valid",
         ),
         (
