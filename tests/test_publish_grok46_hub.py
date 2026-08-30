@@ -284,6 +284,65 @@ class PublishGrok46HubTests(unittest.TestCase):
         self.assertIn("**94**, not 100", card)
         self.assertIn("`sir-r56-meili-swap-leftover3c-rebuild`", card)
 
+    def test_preference_pair_cards_disclose_the_trajectory_schema(self):
+        # The two published Grok preference repos are trajectory DPO, not Fable
+        # same-state pairs; the card must say so and claim no FFPC purity.
+        for slug in ("code-review-preference-factory", "tool-use-preference-factory"):
+            hub = publisher.hub_name(slug)
+            card = publisher.render_card(
+                {**ITEM, "slug": slug, "hub": hub},
+                records=3,
+                bytes_=4096,
+                first="r01",
+                last="r02",
+            )
+
+            self.assertTrue(hub.endswith("-preference-pairs"), hub)
+            self.assertIn("## Record schema", card)
+            self.assertIn("trajectory preference pair", card)
+            self.assertIn("`proposed_action` field", card)
+            self.assertIn("curate_trajectory_preferences.py", card)
+            self.assertIn("no FFPC-equivalent same-state", card)
+            self.assertIn("payload is unfiltered", card)
+            # The YAML tag block must still be the first --- delimited section.
+            self.assertEqual(len(card.split("---", 2)), 3)
+
+    def test_code_review_card_discloses_leftover_episode_lines(self):
+        kind_mix = [
+            SimpleNamespace(
+                record_id=f"leftover-{index}",
+                source_name="batch-r723.jsonl",
+                source_line=index + 1,
+                record_kind="episode",
+                source_sha256=f"{index:064x}",
+            )
+            for index in range(12)
+        ]
+        card = publisher.render_card(
+            {
+                **ITEM,
+                "slug": "code-review-preference-factory",
+                "hub": "code-review-preference-pairs",
+            },
+            records=2976,
+            bytes_=4096,
+            first="r01",
+            last="r02",
+            kind_mix=kind_mix,
+        )
+
+        self.assertIn("2,964 trajectory", card)
+        self.assertIn("12 quarantined\nleftover-mill episode records", card)
+        self.assertIn("without `chosen` / `rejected`\nobjects", card)
+        self.assertNotIn("Each line is a **trajectory preference pair**", card)
+
+    def test_trajectory_cards_omit_the_preference_pair_disclosure(self):
+        card = publisher.render_card(
+            ITEM, records=1, bytes_=1024, first="r01", last="r01"
+        )
+
+        self.assertNotIn("## Record schema", card)
+
     def test_snapshot_keeps_legacy_baseline_and_filters_uncommitted_marker_batches(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)

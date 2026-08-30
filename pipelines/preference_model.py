@@ -38,7 +38,9 @@ __all__ = [
     "CurationDecision",
     "CurationRun",
     "PreferenceCurationError",
+    "CLASSIFICATION_TRAJECTORY_PAIR",
     "RAW_OUTPUT_ROOT",
+    "REASON_TRAJECTORY_PAIR",
     "REPOSITORY_ROOT",
     "TRANSFORM_NAME",
     "TRANSFORM_VERSION",
@@ -52,7 +54,7 @@ __all__ = [
 ]
 
 TRANSFORM_NAME = "same-context-preference-curation"
-TRANSFORM_VERSION = "1.2.0"
+TRANSFORM_VERSION = "1.3.0"
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 RAW_OUTPUT_ROOT = REPOSITORY_ROOT / "outputs" / "raw"
 
@@ -62,6 +64,13 @@ ACTION_EXCLUDED = "excluded"
 # Quarantine is not a preference decision: a leftover-mill record never was a
 # pair, so it is recorded separately and never counted in a pair denominator.
 ACTION_QUARANTINED = "quarantined"
+
+# A trajectory pair is not a malformed same-state pair: it is a different
+# schema that this lane does not own. Naming the exclusion keeps a 0%
+# same-state yield readable and stops anyone fabricating state here. The
+# lane that does own it is pipelines/curate_trajectory_preferences.py.
+REASON_TRAJECTORY_PAIR = "PREFERENCE_PAIR_IS_A_TRAJECTORY_PAIR"
+CLASSIFICATION_TRAJECTORY_PAIR = "trajectory_pair_out_of_scope"
 
 
 class PreferenceCurationError(RuntimeError):

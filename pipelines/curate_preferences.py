@@ -1,5 +1,14 @@
 #!/usr/bin/env python3
-"""Conservatively curate same-context preference pairs.
+"""Conservatively curate Fable same-state/same-proposal preference pairs.
+
+Scope: this is the Fable ``state``/``proposed_action`` gate, not a universal
+preference curator. A pair whose sides are *trajectories* (``chosen.steps`` /
+``rejected.steps`` under one shared ``goal``, as in the Grok 4.6 preference
+dumps) carries no ``state``/``proposed_action`` to compare. Such pairs are
+excluded here as ``PREFERENCE_PAIR_IS_A_TRAJECTORY_PAIR`` -- never coerced
+into a fabricated same-state shape -- and belong to
+``pipelines/curate_trajectory_preferences.py`` (see
+``docs/trajectory-preference-gate.md``).
 
 The transform never mutates its input objects. A pair is retained only when
 ``chosen`` and ``rejected`` have canonically identical ``state`` and
@@ -75,7 +84,9 @@ from preference_model import (  # noqa: E402
     ACTION_QUARANTINED,
     ACTION_REPAIRED,
     ACTION_RETAINED,
+    CLASSIFICATION_TRAJECTORY_PAIR,
     RAW_OUTPUT_ROOT,
+    REASON_TRAJECTORY_PAIR,
     REPOSITORY_ROOT,
     TRANSFORM_NAME,
     TRANSFORM_VERSION,
@@ -115,6 +126,8 @@ __all__ = [
     "AUDIT_PAIR_FIELDS",
     "AUDIT_SCHEMA_VERSION",
     "AUDIT_SOURCE_FILE_FIELDS",
+    "CLASSIFICATION_TRAJECTORY_PAIR",
+    "REASON_TRAJECTORY_PAIR",
     "CurationDecision",
     "CurationRun",
     "PreferenceCurationError",
@@ -472,6 +485,9 @@ def _curation_summary(source: Path, state: _ScanState) -> dict[str, Any]:
         "proposed_action_only_divergent_pairs": agreement["proposed_action_only_divergent"],
         "both_context_fields_divergent_pairs": agreement["both_divergent"],
         "context_undetermined_pairs": agreement["undetermined"],
+        "out_of_scope_trajectory_pairs": state.classifications[
+            CLASSIFICATION_TRAJECTORY_PAIR
+        ],
         "actions": dict(sorted(state.actions.items())),
         "classifications": dict(sorted(state.classifications.items())),
         "reason_codes": dict(sorted(state.reasons.items())),

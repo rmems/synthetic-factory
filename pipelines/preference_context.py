@@ -29,6 +29,7 @@ __all__ = [
     "context_field_agreement",
     "context_is_pure",
     "diff_paths_between",
+    "is_trajectory_pair",
     "pair_context",
 ]
 
@@ -84,6 +85,20 @@ def pair_context(
     ):
         return None
     return chosen, rejected
+
+
+def is_trajectory_pair(record: dict[str, Any]) -> bool:
+    """Whether both sides are step trajectories rather than same-state sides.
+
+    Trajectory pairs are curated by ``curate_trajectory_preferences.py``; this
+    predicate exists only so their exclusion here is named honestly.
+    """
+
+    sides = (record.get("chosen"), record.get("rejected"))
+    return all(
+        isinstance(side, dict) and isinstance(side.get("steps"), list)
+        for side in sides
+    )
 
 
 def context_is_pure(record: dict[str, Any]) -> bool:

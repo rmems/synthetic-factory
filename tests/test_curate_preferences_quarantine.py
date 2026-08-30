@@ -76,7 +76,7 @@ class LeftoverMillQuarantine(unittest.TestCase):
             run.manifest[0]["transform"],
             {
                 "name": "same-context-preference-curation",
-                "version": "1.2.0",
+                "version": "1.3.0",
             },
         )
         self.assertEqual(run.summary["transform"], run.manifest[0]["transform"])
@@ -104,7 +104,7 @@ class LeftoverMillQuarantine(unittest.TestCase):
         self.assertEqual(audit["summary"]["preference_pairs"], 1)
         self.assertEqual(audit["summary"]["impure_pairs"], 0)
         self.assertEqual(audit["impure_pairs"], [])
-        self.assertEqual(audit["transform"]["version"], "1.2.0")
+        self.assertEqual(audit["transform"]["version"], "1.3.0")
 
     def test_human_report_names_the_quarantined_count(self):
         run = self._run(
