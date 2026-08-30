@@ -68,16 +68,17 @@ The gate does not reuse one lossy projection for three different jobs:
    Preference actions and outcomes are included, while wrapper bookkeeping ids
    stay outside modeled state/action records. Per-factory supervision counts as
    modeled content: Thalamic ``spike_events``, the event-language bridge's
-   ``language_view`` and ``raster`` (normalized from either the top-level or
-   accepted ``meta.raster`` carrier), and the safety-calibration ``case_type``
-   / ``rationale`` / ``decision`` labels are all part of the identity, so
-   records that differ only there are distinct training units.
+   ``language_view``, ``bridge_notes``, and ``raster`` (normalized from either
+   the top-level or accepted ``meta.raster`` carrier), and the safety-
+   calibration ``case_type`` / ``rationale`` / ``decision`` labels are all
+   part of the identity, so records that differ only there are distinct
+   training units.
 2. ``semantic_similarity_view`` removes canonical record identifiers such as
    ``id`` and ``episode_id``, plus root bookkeeping metadata, before lexical
-   encoding. This includes the bridge's nested
-   ``language_view.trajectory.state`` carrier without stripping identifier-
-   shaped action arguments. An id or round-stamp change cannot hide an
-   otherwise identical training example.
+   encoding. This includes both the bridge's ``language_view.trajectory``
+   carrier and its nested ``state`` without stripping identifier-shaped action
+   arguments. An id, promotion provenance claim, or round-stamp change cannot
+   hide an otherwise identical training example.
 3. ``candidate_sketch_features`` turns normalized TF-IDF weights into
    deterministic tiers for LSH recall. The exact cosine vector remains the
    only near-duplicate verdict.
@@ -87,7 +88,7 @@ The gate does not reuse one lossy projection for three different jobs:
 This repository is stdlib-only (see ``AGENTS.md``), so the encoder is
 lexical, not learned:
 
-- **``EMBEDDING_ENCODER = "lexical-tfidf/9"``** — TF-IDF over Unicode word
+- **``EMBEDDING_ENCODER = "lexical-tfidf/10"``** — TF-IDF over Unicode word
   unigrams *and* bigrams of every **path-qualified leaf value** in the
   semantic-similarity view. A feature combines the full field path with the leaf
   word, so shared schema alone contributes nothing while the same value under
@@ -99,12 +100,18 @@ lexical, not learned:
   the encoder order-sensitive for these scripts: a grapheme bag plus adjacent
   bigrams is not injective over sequences, so ``甲乙甲丙甲`` and ``甲丙甲乙甲``
   otherwise scored cosine 1.0.
+- Repeated word/operator units additionally carry one path-qualified full
+  SHA-256 sequence feature. This distinguishes ambiguous adjacent-bigram
+  multisets such as ``a+A+`` / ``A+a+`` and ``a-a/a`` / ``a/a-a`` without
+  adding each sequence marker to MinHash candidate nomination; shared lexical
+  evidence still nominates the pair, and the exact cosine remains the verdict.
 - **Whitespace is a boundary, not a token.** Each unit carries the exact
   whitespace run that preceded it, so indentation and ``https://safe /admin``
-  versus ``https://safe/admin`` stay distinguishable. Emitting whitespace as
-  its own token instead would place it between every pair of prose words, and
-  the adjacent-token bigrams would then relate each word only to a shared
-  separator — ``a b c d`` and ``a c b d`` would embed identically.
+  versus ``https://safe/admin`` stay distinguishable. Terminal and whitespace-
+  only runs are retained in a separate path-qualified feature. Emitting
+  whitespace as an ordinary token instead would place it between every pair of
+  prose words, and the adjacent-token bigrams would then relate each word only
+  to a shared separator — ``a b c d`` and ``a c b d`` would embed identically.
 - Mapping keys are traversed in canonical sorted order before bigrams are
   formed. Equivalent JSON objects therefore embed identically regardless of
   insertion order. Every list carries directed adjacent-element full SHA-256
@@ -347,16 +354,16 @@ JSON output fields:
     {"file": "batch-r03.jsonl", "line": 8, "kind": "embedding", "similarity": 0.9889,
      "duplicate_of": {"file": "batch-r03.jsonl", "line": 7},
      "matched_with": {"file": "batch-r03.jsonl", "line": 7},
-     "reason": "embedding near-duplicate: cosine 0.9889 > 0.97 vs retained representative batch-r03.jsonl:7 (encoder lexical-tfidf/9)"}
+     "reason": "embedding near-duplicate: cosine 0.9889 > 0.97 vs retained representative batch-r03.jsonl:7 (encoder lexical-tfidf/10)"}
   ],
   "duplicate_clusters": [
-    {"kind": "embedding", "size": 2, "threshold": 0.97, "encoder": "lexical-tfidf/9",
+    {"kind": "embedding", "size": 2, "threshold": 0.97, "encoder": "lexical-tfidf/10",
      "max_similarity": 0.9889,
      "representative": {"file": "batch-r03.jsonl", "line": 7},
      "members": [{"file": "batch-r03.jsonl", "line": 7}, {"file": "batch-r03.jsonl", "line": 8}],
      "reason": "1 excluded record(s) linked by cosine > 0.97; representative batch-r03.jsonl:7 is retained"}
   ],
-  "embedding": {"enabled": true, "encoder": "lexical-tfidf/9",
+  "embedding": {"enabled": true, "encoder": "lexical-tfidf/10",
                 "candidate_sketch": "weighted-tier-minhash/1", "threshold": 0.97,
                 "compared_records": 1230, "candidate_pairs": 418, "truncated": false},
   "reward_shapes": {"records_with_reward_components": 1180, "unique_component_keys": 510,

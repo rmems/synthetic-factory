@@ -48,6 +48,26 @@ def _cli(args):
 
 
 class TestPromoteQualityGatePreflight(unittest.TestCase):
+    def _assert_preflight_rejected(self, raw, cleaned, manifest, expected_message):
+        stderr = io.StringIO()
+        with mock.patch.object(promote, "promote_run") as promote_run:
+            with contextlib.redirect_stderr(stderr):
+                with self.assertRaises(SystemExit) as raised:
+                    promote.main(
+                        [
+                            str(raw),
+                            str(cleaned),
+                            "--quality-manifest",
+                            str(manifest),
+                        ]
+                    )
+
+        self.assertEqual(raised.exception.code, 2)
+        self.assertIn(expected_message, stderr.getvalue())
+        promote_run.assert_not_called()
+        self.assertFalse(cleaned.exists())
+        self.assertFalse(manifest.exists())
+
     def _assert_cli_threshold_rejected(self, threshold):
         with tempfile.TemporaryDirectory() as td:
             raw = Path(td) / "raw"
@@ -97,6 +117,76 @@ class TestPromoteQualityGatePreflight(unittest.TestCase):
 
     def test_cli_rejects_a_negative_threshold_before_writing_destination(self):
         self._assert_cli_threshold_rejected("-0.5")
+
+    def test_predictable_promotion_path_collisions_fail_preflight(self):
+        cases = (
+            ("factory/batch.jsonl", "cleaned/PROVENANCE.md", "path created"),
+            ("factory/batch.jsonl", "cleaned/reward-scale.json", "path created"),
+            ("factory/batch.jsonl", "cleaned/factory", "path created"),
+            ("factory/batch.jsonl", "cleaned/factory/batch.jsonl", "path created"),
+            (
+                "factory/batch.jsonl",
+                "cleaned/PROVENANCE.md/gate.json",
+                "path created",
+            ),
+            (
+                "factory/batch.jsonl",
+                "cleaned/reward-scale.json/gate.json",
+                "path created",
+            ),
+            (
+                "factory/batch.jsonl",
+                "cleaned/factory/batch.jsonl/gate.json",
+                "path created",
+            ),
+            (
+                "PROVENANCE.md/batch.jsonl",
+                "sidecars/quality-manifest.json",
+                "both a file and directory",
+            ),
+            (
+                "reward-scale.json/batch.jsonl",
+                "sidecars/quality-manifest.json",
+                "both a file and directory",
+            ),
+        )
+        for raw_relative, manifest_relative, expected_message in cases:
+            with self.subTest(
+                raw_relative=raw_relative, manifest_relative=manifest_relative
+            ):
+                with tempfile.TemporaryDirectory() as td:
+                    root = Path(td)
+                    raw = root / "raw"
+                    cleaned = root / "cleaned"
+                    manifest = root / manifest_relative
+                    _write_jsonl(raw / raw_relative, [_record()])
+                    self._assert_preflight_rejected(
+                        raw, cleaned, manifest, expected_message
+                    )
+
+    def test_manifest_path_is_canonicalized_before_promotion_writes_it(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            raw = root / "raw"
+            cleaned = root / "cleaned"
+            requested = cleaned / "factory" / "batch.jsonl" / ".." / "gate.json"
+            canonical = cleaned / "factory" / "gate.json"
+            _write_jsonl(raw / "factory" / "batch.jsonl", [_record()])
+
+            proc = _cli(
+                [
+                    str(raw),
+                    str(cleaned),
+                    "--quality-manifest",
+                    str(requested),
+                    "--max-synthetic-ratio",
+                    "1.0",
+                ]
+            )
+
+            self.assertEqual(proc.returncode, 0, proc.stderr)
+            self.assertTrue(canonical.is_file())
+            self.assertTrue((cleaned / "factory" / "batch.jsonl").is_file())
 
 
 class TestPromoteGateFlags(unittest.TestCase):
@@ -236,26 +326,32 @@ class TestPromoteGateFlags(unittest.TestCase):
         )
 
     def test_custom_manifest_destination_is_honoured(self):
-        with tempfile.TemporaryDirectory() as td:
-            raw = Path(td) / "raw"
-            cleaned = Path(td) / "cleaned"
-            sidecar = Path(td) / "elsewhere" / "gate.json"
-            _write_jsonl(raw / "f" / "a.jsonl", [_record()])
+        for placement in ("outside", "below-created-directory"):
+            with self.subTest(placement=placement):
+                with tempfile.TemporaryDirectory() as td:
+                    raw = Path(td) / "raw"
+                    cleaned = Path(td) / "cleaned"
+                    sidecar = (
+                        Path(td) / "elsewhere" / "gate.json"
+                        if placement == "outside"
+                        else cleaned / "f" / "gate.json"
+                    )
+                    _write_jsonl(raw / "f" / "a.jsonl", [_record()])
 
-            proc = _cli(
-                [
-                    str(raw),
-                    str(cleaned),
-                    "--quality-manifest",
-                    str(sidecar),
-                    "--max-synthetic-ratio",
-                    "1.0",
-                ]
-            )
+                    proc = _cli(
+                        [
+                            str(raw),
+                            str(cleaned),
+                            "--quality-manifest",
+                            str(sidecar),
+                            "--max-synthetic-ratio",
+                            "1.0",
+                        ]
+                    )
 
-            self.assertEqual(proc.returncode, 0, proc.stderr)
-            self.assertTrue(sidecar.is_file())
-            self.assertFalse((cleaned / "quality-manifest.json").exists())
+                    self.assertEqual(proc.returncode, 0, proc.stderr)
+                    self.assertTrue(sidecar.is_file())
+                    self.assertFalse((cleaned / "quality-manifest.json").exists())
 
 
 if __name__ == "__main__":

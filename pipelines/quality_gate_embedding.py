@@ -22,7 +22,7 @@ from quality_gate_identity import canonical_blob, semantic_similarity_view
 DEFAULT_EMBEDDING_THRESHOLD: float = 0.97
 """Default cosine-similarity threshold for embedding deduplication."""
 
-EMBEDDING_ENCODER = "lexical-tfidf/9"
+EMBEDDING_ENCODER = "lexical-tfidf/10"
 """Versioned identifier for the deterministic semantic encoder."""
 
 EMBEDDING_MINHASH_SLOTS = 32
@@ -39,6 +39,7 @@ _ORDER_MARK = "\x02"
 _PATH_SEP = "\x1f"
 _SKETCH_SEP = "\x1e"
 _GAP_SEP = "\x1d"
+_NONCHAIN_STRING_MARK = "\x03"
 
 _UNSEGMENTED_SCRIPT_MARKERS = (
     "CJK",
@@ -168,11 +169,15 @@ def _string_units(text: str):
 
     Whitespace rides on the following unit.  This preserves exact gaps without
     breaking the word-to-word bigram chain that carries prose and code order.
+    A final gap has no following unit, so it is emitted as a terminal unit for
+    the caller to encode outside that chain.
     """
     state = _StringScan()
     for char in unicodedata.normalize("NFC", text):
         yield from _consume_string_char(state, char)
     yield from _flush_string_scan(state)
+    if state.pending_gap:
+        yield "terminal-gap", "", state.pending_gap
 
 
 def _unsegmented_features(path: str, unit: str, gap: str) -> list[str]:
@@ -184,6 +189,10 @@ def _unsegmented_features(path: str, unit: str, gap: str) -> list[str]:
 
 def _string_unit_features(path: str, kind: str, unit: str, gap: str) -> list[str]:
     """Encode one scanned string unit without erasing case or operators."""
+    if kind == "terminal-gap":
+        return [
+            f"{_NONCHAIN_STRING_MARK}{path}{_PATH_SEP}str-terminal-gap:{gap}"
+        ]
     if kind == "operator":
         return [f"{path}{_PATH_SEP}str-op:{unit}{_GAP_SEP}{gap}"]
     if _uses_unsegmented_script(unit):
@@ -194,17 +203,61 @@ def _string_unit_features(path: str, kind: str, unit: str, gap: str) -> list[str
     ]
 
 
+def _features_repeat_across_string_units(path: str, units) -> bool:
+    """Whether separate scanner units emit any shared lexical feature."""
+    seen = set()
+    for kind, unit, gap in units:
+        current = {
+            feature
+            for feature in _string_unit_features(path, kind, unit, gap)
+            if not feature.startswith(_NONCHAIN_STRING_MARK)
+        }
+        if seen & current:
+            return True
+        seen.update(current)
+    return False
+
+
+def _is_boundary_framed_repeated_run(units) -> bool:
+    """Whether one exact repeated unit is framed only by boundary singletons."""
+    keys = [unit for unit in units if unit[0] != "terminal-gap"]
+    counts = Counter(keys)
+    repeated = [key for key, count in counts.items() if count > 1]
+    if len(repeated) != 1:
+        return False
+    core = repeated[0]
+    start = 0 if keys[0] == core else 1
+    stop = len(keys) if keys[-1] == core else len(keys) - 1
+    return all(key == core for key in keys[start:stop])
+
+
+def _needs_string_sequence_feature(path: str, units) -> bool:
+    """Whether repeated lexical evidence can admit another edge ordering."""
+    return (
+        _features_repeat_across_string_units(path, units)
+        and not _is_boundary_framed_repeated_run(units)
+    )
+
+
+def _string_sequence_features(path: str, units):
+    """Yield a whole-sequence digest when repeated units make order ambiguous."""
+    if not _needs_string_sequence_feature(path, units):
+        return
+    digest = hashlib.sha256(canonical_blob(units).encode("utf-8")).hexdigest()
+    yield f"{_NONCHAIN_STRING_MARK}{path}{_PATH_SEP}str-unit-sequence:{digest}"
+
+
 def _append_string_features(text: str, out: list[str], path: str) -> None:
     """Append all semantic features for a string leaf."""
     normalized = unicodedata.normalize("NFC", text)
     if not normalized:
         out.append(f"{path}{_PATH_SEP}str-empty")
         return
-    emitted = False
-    for kind, unit, gap in _string_units(normalized):
-        emitted = True
+    units = list(_string_units(normalized))
+    for kind, unit, gap in units:
         out.extend(_string_unit_features(path, kind, unit, gap))
-    if not emitted:
+    out.extend(_string_sequence_features(path, units))
+    if not units:
         out.append(f"{path}{_PATH_SEP}str-whitespace")
 
 
@@ -272,7 +325,11 @@ def embedding_tokens(obj) -> Counter:
     words: list[str] = []
     _leaf_words(semantic_similarity_view(obj), words)
     tokens = Counter(words)
-    chain = [word for word in words if not word.startswith(_ORDER_MARK)]
+    chain = [
+        word
+        for word in words
+        if not word.startswith((_ORDER_MARK, _NONCHAIN_STRING_MARK))
+    ]
     tokens.update(
         f"{first}{_BIGRAM_SEP}{second}"
         for first, second in itertools.pairwise(chain)
@@ -294,8 +351,15 @@ def _tfidf_vector(tokens, idf):
 
 
 def candidate_sketch_features(vector):
-    """Yield deterministic frequency-aware tiers for candidate recall."""
+    """Yield frequency-aware tiers from recall-friendly lexical evidence.
+
+    Exact string boundary and sequence features still participate in cosine
+    scoring, but must not prevent shared lexical content from nominating a
+    pair for that exact comparison.
+    """
     for token in sorted(vector):
+        if token.startswith(_NONCHAIN_STRING_MARK):
+            continue
         tiers = max(1, math.ceil(vector[token] * EMBEDDING_SKETCH_LEVELS))
         for tier in range(tiers):
             yield f"{token}{_SKETCH_SEP}{tier}"

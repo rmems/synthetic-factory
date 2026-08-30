@@ -421,6 +421,10 @@ class IdentityAndSemanticProjectionReviewFollowUps(unittest.TestCase):
         second["id"] = "bridge-wrapper-b"
         first_trajectory = first["language_view"]["trajectory"]
         second_trajectory = second["language_view"]["trajectory"]
+        first_trajectory["id"] = "bridge-trajectory-a"
+        second_trajectory["id"] = "bridge-trajectory-b"
+        first_trajectory["meta"] = {"factory": "bridge", "round": 1}
+        second_trajectory["meta"] = {"factory": "bridge", "round": 2}
         first_trajectory["state"]["episode_id"] = "bridge-episode-a"
         second_trajectory["state"]["episode_id"] = "bridge-episode-b"
         first_trajectory["executed_action"] = {
@@ -434,6 +438,8 @@ class IdentityAndSemanticProjectionReviewFollowUps(unittest.TestCase):
 
         first_view = quality_gate.semantic_similarity_view(first)
         trajectory_view = first_view["language_view"]["trajectory"]
+        self.assertNotIn("id", trajectory_view)
+        self.assertNotIn("meta", trajectory_view)
         self.assertNotIn("episode_id", trajectory_view["state"])
         self.assertEqual(
             trajectory_view["executed_action"]["record_id"],
@@ -452,6 +458,67 @@ class IdentityAndSemanticProjectionReviewFollowUps(unittest.TestCase):
             first_view,
             quality_gate.semantic_similarity_view(different_action),
         )
+
+        report = self._audit([first, second])
+        self.assertEqual(len(report["duplicates"]), 1)
+        self.assertEqual(report["duplicates"][0]["kind"], "embedding")
+
+    def test_bridge_trajectory_promotion_provenance_is_semantic_bookkeeping(self):
+        first = self._bridge_raster_fixture()
+        second = self._bridge_raster_fixture()
+        first["language_view"]["trajectory"]["provenance"] = {
+            "kind": "designed",
+            "claimed": "simulation",
+        }
+        second["language_view"]["trajectory"]["provenance"] = {
+            "kind": "designed",
+            "claimed": "hardware replay",
+        }
+
+        first_view = quality_gate.semantic_similarity_view(first)
+        second_view = quality_gate.semantic_similarity_view(second)
+        self.assertNotIn(
+            "provenance",
+            first_view["language_view"]["trajectory"],
+        )
+        self.assertEqual(first_view, second_view)
+        self.assertNotEqual(
+            quality_gate.record_hash(first),
+            quality_gate.record_hash(second),
+        )
+
+        report = self._audit([first, second])
+        self.assertEqual(len(report["duplicates"]), 1)
+        self.assertEqual(report["duplicates"][0]["kind"], "embedding")
+        self.assertEqual(
+            report["duplicates"][0]["duplicate_of"],
+            {"file": "batch.jsonl", "line": 1},
+        )
+
+    def test_bridge_notes_are_modeled_exact_identity(self):
+        first = self._bridge_raster_fixture()
+        second = self._bridge_raster_fixture()
+        first["bridge_notes"] = {
+            "mapping": "retinal onset events map to the visual safety caption",
+            "training_value": "positive-polarity route supervision",
+        }
+        second["bridge_notes"] = {
+            "mapping": "cochlear burst events map to the acoustic alert caption",
+            "training_value": "frequency-band route supervision",
+        }
+
+        first_view = quality_gate.exact_identity_view(first)
+        second_view = quality_gate.exact_identity_view(second)
+        self.assertEqual(first_view["bridge_notes"], first["bridge_notes"])
+        self.assertNotEqual(first_view, second_view)
+        self.assertNotEqual(
+            quality_gate.record_hash(first),
+            quality_gate.record_hash(second),
+        )
+
+        report = self._audit([first, second])
+        self.assertEqual(report["duplicates"], [])
+        self.assertEqual(report["counts"]["unique_hashes"], 2)
 
     def test_bridge_meta_raster_is_normalized_into_exact_identity(self):
         top_level = self._bridge_raster_fixture()

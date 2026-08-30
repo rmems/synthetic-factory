@@ -46,6 +46,80 @@ class EmbeddingEncoder(unittest.TestCase):
             with self.subTest(markers=markers):
                 self._assert_string_channel_distinct(records, markers)
 
+    def test_repeated_case_operator_units_keep_whole_sequence_order(self):
+        """Repeated units can make an adjacent-bigram multiset ambiguous."""
+        pairs = {
+            "case and operator": ("a+A+", "A+a+"),
+            "repeated word and operators": ("a-a/a", "a/a-a"),
+            "same directed-trigram multiset": (
+                "a+a-a+a/a+a",
+                "a+a/a+a-a+a",
+            ),
+            "casefold-expanded chain": (
+                "a/b-A+B",
+                "A+b-a/B",
+            ),
+            "casefold-only repeated chain": (
+                "a a A a",
+                "a A a a",
+            ),
+            "boundary singleton with case variants": (
+                "a b B b",
+                "a B b b",
+            ),
+            "moved internal whitespace gap": (
+                "a a a  a a",
+                "a a  a a a",
+            ),
+        }
+        for label, (left, right) in pairs.items():
+            with self.subTest(case=label):
+                first = {"id": "seq-1", "state": {"expr": left}}
+                second = {"id": "seq-2", "state": {"expr": right}}
+                first_tokens = quality_gate.embedding_tokens(first)
+                second_tokens = quality_gate.embedding_tokens(second)
+
+                self.assertNotEqual(first_tokens, second_tokens)
+                for tokens in (first_tokens, second_tokens):
+                    self.assertTrue(
+                        any("str-unit-sequence:" in token for token in tokens)
+                    )
+                self.assertEqual(
+                    {
+                        token: count
+                        for token, count in first_tokens.items()
+                        if quality_gate._BIGRAM_SEP in token
+                    },
+                    {
+                        token: count
+                        for token, count in second_tokens.items()
+                        if quality_gate._BIGRAM_SEP in token
+                    },
+                )
+                self.assertEqual(self._audit_pair(first, second)["duplicates"], [])
+
+    def test_string_sequence_features_do_not_enter_candidate_sketches(self):
+        tokens = quality_gate.embedding_tokens(
+            {"state": {"expr": "a-a/a"}}
+        )
+        sequence = next(
+            token for token in tokens if "str-unit-sequence:" in token
+        )
+
+        self.assertEqual(
+            list(quality_gate.candidate_sketch_features({sequence: 1.0})),
+            [],
+        )
+
+    def test_one_terminal_singleton_does_not_need_a_sequence_digest(self):
+        tokens = quality_gate.embedding_tokens(
+            {"state": {"note": "saturated saturated saturated alpha"}}
+        )
+
+        self.assertFalse(
+            any("str-unit-sequence:" in token for token in tokens)
+        )
+
     def test_null_and_empty_values_have_typed_sentinels(self):
         records = [
             {"state": {"value": None}},
@@ -343,6 +417,57 @@ class EmbeddingEncoder(unittest.TestCase):
 
                 report = self._audit_pair(first, second)
                 self.assertEqual(report["duplicates"], [])
+
+    def test_terminal_and_whitespace_only_gaps_remain_distinct(self):
+        """The scanner must not discard a gap that has no following unit."""
+        pairs = {
+            "terminal space": ("customer", "customer "),
+            "whitespace width": (" ", "  "),
+            "whitespace kind": (" ", "\t"),
+        }
+        for label, (left, right) in pairs.items():
+            with self.subTest(case=label):
+                first = {"id": "g-1", "state": {"note": left}}
+                second = {"id": "g-2", "state": {"note": right}}
+                first_tokens = quality_gate.embedding_tokens(first)
+                second_tokens = quality_gate.embedding_tokens(second)
+
+                self.assertNotEqual(
+                    quality_gate.record_hash(first), quality_gate.record_hash(second)
+                )
+                self.assertNotEqual(first_tokens, second_tokens)
+                self.assertTrue(
+                    any("str-terminal-gap:" in token for token in second_tokens)
+                )
+                self.assertEqual(self._audit_pair(first, second)["duplicates"], [])
+
+    def test_terminal_gap_does_not_interrupt_word_bigrams(self):
+        """A boundary feature must not enter the ordinary lexical chain."""
+        plain = quality_gate.embedding_tokens(
+            {"state": {"note": "alpha beta gamma"}}
+        )
+        trailing = quality_gate.embedding_tokens(
+            {"state": {"note": "alpha beta gamma "}}
+        )
+
+        plain_bigrams = {
+            token: count
+            for token, count in plain.items()
+            if quality_gate._BIGRAM_SEP in token
+        }
+        trailing_bigrams = {
+            token: count
+            for token, count in trailing.items()
+            if quality_gate._BIGRAM_SEP in token
+        }
+        self.assertEqual(plain_bigrams, trailing_bigrams)
+        self.assertTrue(any("str-terminal-gap:" in token for token in trailing))
+        self.assertFalse(
+            any(
+                "str-terminal-gap:" in token
+                for token in trailing_bigrams
+            )
+        )
 
     def test_word_order_survives_the_whitespace_encoding(self):
         """The gap rides on the following unit instead of becoming a token of

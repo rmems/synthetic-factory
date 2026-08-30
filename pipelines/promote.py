@@ -543,7 +543,7 @@ def _require_raw_directory(value):
     raw_run = Path(value)
     if not raw_run.is_dir():
         raise ValueError(f"not a directory: {raw_run}")
-    return raw_run
+    return raw_run.resolve()
 
 
 def _quality_manifest_path(args, cleaned_out):
@@ -557,6 +557,56 @@ def _validate_manifest_outside_raw(raw_run, manifest_path):
     resolved_manifest = manifest_path.resolve()
     if resolved_manifest == resolved_raw or resolved_raw in resolved_manifest.parents:
         raise ValueError("quality manifest must not be written inside raw_run")
+
+
+class _PromotionCreatedPaths(NamedTuple):
+    files: frozenset
+    directories: frozenset
+
+
+def _promotion_created_paths(raw_run, cleaned_out):
+    """Return files and directories ``promote_run`` predictably creates."""
+    cleaned_root = cleaned_out.resolve()
+    files = {
+        cleaned_root / "PROVENANCE.md",
+        cleaned_root / "reward-scale.json",
+    }
+    for _source, relative in _iter_jsonl(raw_run):
+        files.add((cleaned_root / relative).resolve())
+    directories = frozenset(
+        parent
+        for destination in files
+        for parent in destination.parents
+        if cleaned_root in parent.parents
+    )
+    return _PromotionCreatedPaths(frozenset(files), directories)
+
+
+def _validate_promotion_created_paths(created):
+    collisions = created.files & created.directories
+    if collisions:
+        conflict = min(collisions, key=str)
+        raise ValueError(
+            "promotion output path would be both a file and directory: "
+            f"{conflict}"
+        )
+
+
+def _validate_manifest_not_created_by_promotion(created, manifest_path):
+    resolved_manifest = manifest_path.resolve()
+    file_conflict = next(
+        (
+            path
+            for path in created.files
+            if path == resolved_manifest or path in resolved_manifest.parents
+        ),
+        None,
+    )
+    if resolved_manifest in created.directories or file_conflict is not None:
+        raise ValueError(
+            "quality manifest conflicts with a path created during promotion: "
+            f"{manifest_path}"
+        )
 
 
 def _mix_policy_from_args(args):
@@ -576,9 +626,12 @@ def _validate_embedding_pair_cap(value):
 
 def _prepare_promotion(args):
     raw_run = _require_raw_directory(args.raw_run)
-    cleaned_out = Path(args.cleaned_out)
-    manifest_path = _quality_manifest_path(args, cleaned_out)
+    cleaned_out = Path(args.cleaned_out).resolve()
+    manifest_path = _quality_manifest_path(args, cleaned_out).resolve()
+    created = _promotion_created_paths(raw_run, cleaned_out)
+    _validate_promotion_created_paths(created)
     _validate_manifest_outside_raw(raw_run, manifest_path)
+    _validate_manifest_not_created_by_promotion(created, manifest_path)
     quality_gate.validate_manifest_target(
         manifest_path, cleaned_out, allow_within_run=True
     )

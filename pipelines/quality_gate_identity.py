@@ -45,12 +45,13 @@ _IDENTITY_FIELDS = (
     "diagnosis",
     # Thalamic distillation is driven by ``spike_events`` + ``state``
     # (prompts/01-thalamic-trajectory-factory.md), and the event-language
-    # bridge models the paired language view and raster sidecar
-    # (prompts/03-neuromorphic-event-language-bridge.md). Listing all three
+    # bridge models the paired language view, bridge notes, and raster sidecar
+    # (prompts/03-neuromorphic-event-language-bridge.md). Listing all four
     # keeps a bridge record's whole modeled content in the projection rather
     # than only its stream.
     "spike_events",
     "language_view",
+    "bridge_notes",
     "raster",
     # Safety-calibration supervision is the gate label and its observable
     # reason (prompts/12-safety-calibration-factory.md); goal/outcome/reward
@@ -64,6 +65,9 @@ _CANONICAL_ID_KEYS = frozenset(
     {"episode_id", "record_id", "trajectory_id", "pair_id", "sample_id"}
 )
 _SEMANTIC_ROOT_BOOKKEEPING_KEYS = frozenset({"id", "meta"})
+_SEMANTIC_CONTAINER_BOOKKEEPING_PARENTS = frozenset(
+    {(), ("language_view", "trajectory")}
+)
 # Promotion rewrites ``sim_or_real`` and files the original wording under
 # ``provenance.claimed``, at the root or inside ``state``. That claim is
 # bookkeeping about the promotion, not training content: leaving it in the
@@ -76,6 +80,7 @@ _SEMANTIC_BOOKKEEPING_PARENTS = frozenset(
     {
         (),
         ("state",),
+        ("language_view", "trajectory"),
         ("language_view", "trajectory", "state"),
         ("chosen",),
         ("rejected",),
@@ -170,7 +175,10 @@ def dedup_view(obj):
 
 
 def _is_semantic_bookkeeping_key(path, key):
-    if not path and key in _SEMANTIC_ROOT_BOOKKEEPING_KEYS:
+    if (
+        path in _SEMANTIC_CONTAINER_BOOKKEEPING_PARENTS
+        and key in _SEMANTIC_ROOT_BOOKKEEPING_KEYS
+    ):
         return True
     if path not in _SEMANTIC_BOOKKEEPING_PARENTS:
         return False
