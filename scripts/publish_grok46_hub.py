@@ -1646,7 +1646,7 @@ def _report_orphaned(orphaned: list[str]) -> None:
         )
 
 
-def main() -> int:
+def _parse_args() -> argparse.Namespace:
     ap = argparse.ArgumentParser()
     ap.add_argument(
         "cmd",
@@ -1658,22 +1658,36 @@ def main() -> int:
         action="store_true",
         help="schemas: fail when any dataset has no card schema declaration",
     )
-    args = ap.parse_args()
+    return ap.parse_args()
+
+
+def _schemas_exit_code(args: argparse.Namespace) -> int:
+    if args.only:
+        print("schemas does not accept --only", file=sys.stderr)
+        return 2
+    return cmd_schemas(strict=args.strict)
+
+
+def _auth_error(args: argparse.Namespace) -> int | None:
+    """Return an exit code when a Hub-writing command lacks the rmems identity."""
+    if args.cmd not in {"create", "upload", "collect", "all"}:
+        return None
+    return _require_hf_identity()
+
+
+def main() -> int:
+    args = _parse_args()
     if args.cmd == "schemas":
-        if args.only:
-            print("schemas does not accept --only", file=sys.stderr)
-            return 2
-        return cmd_schemas(strict=args.strict)
+        return _schemas_exit_code(args)
     if args.strict:
         print("--strict only applies to the schemas command", file=sys.stderr)
         return 2
     if args.only and not any(is_selected(item, args.only) for item in factories()):
         print(f"unknown --only target: {args.only}", file=sys.stderr)
         return 2
-    if args.cmd in {"create", "upload", "collect", "all"}:
-        auth_error = _require_hf_identity()
-        if auth_error is not None:
-            return auth_error
+    auth_error = _auth_error(args)
+    if auth_error is not None:
+        return auth_error
     _dispatch_command(args)
     return 0
 
