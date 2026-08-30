@@ -1,7 +1,15 @@
 #!/usr/bin/env python3
 """PR #133 / issue #72 leaf tests for the per-dataset card schema declaration."""
 
-import test_card_schema as _shared
+try:
+    # The shared card-schema test module was renamed on the stack's shared
+    # infrastructure branch (`test_card_schema` -> `test_card_schema_integration`)
+    # after this branch was cut. Prefer the new name so this leaf still imports
+    # on the post-merge tree, where the old monolith no longer exists; fall back
+    # to the old name, which is what this branch's own history carries today.
+    import test_card_schema_integration as _shared
+except ModuleNotFoundError:
+    import test_card_schema as _shared
 
 unittest = _shared.unittest
 io = _shared.io
