@@ -72,11 +72,12 @@ The gate does not reuse one lossy projection for three different jobs:
    the top-level or accepted ``meta.raster`` carrier), and ``gate_compute``
    spike-budget evidence (normalized from its top-level, trajectory, or
    trajectory-safety carrier). The same bridge-sidecar normalization composes
-   inside each preference arm. Conflicting or malformed unselected raster
-   carriers remain as ``raster_unselected``; when gate-compute curation falls
-   through a malformed higher-priority root value to a valid nested budget,
-   that root remains as ``gate_compute_unselected``. Records with different
-   ignored payloads therefore cannot exact-collapse. Safety-calibration
+   inside each preference arm. Conflicting, malformed unselected, and
+   malformed metadata-only raster carriers remain as ``raster_unselected``;
+   when gate-compute curation falls through a malformed higher-priority root
+   value to a valid nested budget, that root remains as
+   ``gate_compute_unselected``. Records with different ignored payloads
+   therefore cannot exact-collapse. Safety-calibration
    ``case_type`` /
    ``rationale`` / ``decision`` labels are also part of the identity, so
    records that differ only there are distinct training units.
@@ -96,7 +97,7 @@ The gate does not reuse one lossy projection for three different jobs:
 This repository is stdlib-only (see ``AGENTS.md``), so the encoder is
 lexical, not learned:
 
-- **``EMBEDDING_ENCODER = "lexical-tfidf/12"``** — TF-IDF over Unicode word
+- **``EMBEDDING_ENCODER = "lexical-tfidf/13"``** — TF-IDF over Unicode word
   unigrams *and* bigrams of every **path-qualified leaf value** in the
   semantic-similarity view. A feature combines the full field path with the leaf
   word, so shared schema alone contributes nothing while the same value under
@@ -379,16 +380,16 @@ JSON output fields:
     {"file": "batch-r03.jsonl", "line": 8, "kind": "embedding", "similarity": 0.9889,
      "duplicate_of": {"file": "batch-r03.jsonl", "line": 7},
      "matched_with": {"file": "batch-r03.jsonl", "line": 7},
-     "reason": "embedding near-duplicate: cosine 0.9889 > 0.97 vs retained representative batch-r03.jsonl:7 (encoder lexical-tfidf/12)"}
+     "reason": "embedding near-duplicate: cosine 0.9889 > 0.97 vs retained representative batch-r03.jsonl:7 (encoder lexical-tfidf/13)"}
   ],
   "duplicate_clusters": [
-    {"kind": "embedding", "size": 2, "threshold": 0.97, "encoder": "lexical-tfidf/12",
+    {"kind": "embedding", "size": 2, "threshold": 0.97, "encoder": "lexical-tfidf/13",
      "max_similarity": 0.9889,
      "representative": {"file": "batch-r03.jsonl", "line": 7},
      "members": [{"file": "batch-r03.jsonl", "line": 7}, {"file": "batch-r03.jsonl", "line": 8}],
      "reason": "1 excluded record(s) linked by cosine > 0.97; representative batch-r03.jsonl:7 is retained"}
   ],
-  "embedding": {"enabled": true, "encoder": "lexical-tfidf/12",
+  "embedding": {"enabled": true, "encoder": "lexical-tfidf/13",
                 "candidate_sketch": "weighted-tier-minhash/3", "threshold": 0.97,
                 "compared_records": 1230, "candidate_pairs": 418, "truncated": false},
   "reward_shapes": {"records_with_reward_components": 1180, "unique_component_keys": 510,

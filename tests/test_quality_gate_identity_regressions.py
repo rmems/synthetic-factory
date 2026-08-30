@@ -278,6 +278,52 @@ class QualityGateIdentityRegressions(unittest.TestCase):
                 self.assertEqual(report["duplicates"], [])
                 self.assertEqual(report["counts"]["excluded_records"], 0)
 
+    def test_bridge_malformed_metadata_only_raster_remains_identity(self):
+        malformed_values = (
+            "alpha malformed raster payload " * 20,
+            "omega rejected metadata evidence " * 20,
+        )
+        for scope in ("standalone", "chosen", "rejected"):
+            with self.subTest(scope=scope):
+                objects = []
+                for malformed in malformed_values:
+                    bridge = {
+                        "spike_events": [],
+                        "language_view": {},
+                        "meta": {"raster": malformed},
+                    }
+                    objects.append(self._wrap_bridge(bridge, scope))
+                originals = copy.deepcopy(objects)
+                views = [
+                    quality_gate_identity.exact_identity_view(item)
+                    for item in objects
+                ]
+                sides = [self._bridge_side(view, scope) for view in views]
+
+                self.assertEqual(
+                    sides[0]["raster_unselected"],
+                    {"meta": malformed_values[0]},
+                )
+                self.assertEqual(
+                    sides[1]["raster_unselected"],
+                    {"meta": malformed_values[1]},
+                )
+                self.assertNotEqual(views[0], views[1])
+                self.assertNotEqual(
+                    quality_gate_identity.record_hash(objects[0]),
+                    quality_gate_identity.record_hash(objects[1]),
+                )
+                self.assertNotEqual(
+                    quality_gate_identity.semantic_similarity_view(objects[0]),
+                    quality_gate_identity.semantic_similarity_view(objects[1]),
+                )
+                self.assertEqual(objects, originals)
+                report = self._audit(objects)
+                self.assertEqual(report["counts"]["duplicate_groups"], 0)
+                self.assertTrue(
+                    all(item["kind"] != "exact" for item in report["duplicates"])
+                )
+
     def test_bridge_root_raster_preserves_nonredundant_meta_carrier(self):
         selected = self._bridge_fixture()["raster"]
         conflicting = self._raster_variant("conflicting", 8000, 50, 50)

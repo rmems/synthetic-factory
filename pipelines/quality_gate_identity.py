@@ -281,9 +281,22 @@ def _unselected_raster_carriers(obj, selected, carrier):
     return {_RASTER_META: nested}
 
 
+def _malformed_meta_raster_carrier(obj):
+    """Return an explicit metadata-only raster that curation would reject."""
+    if "language_view" not in obj or "spike_events" not in obj:
+        return None
+    meta = obj.get("meta")
+    if not isinstance(meta, dict) or "raster" not in meta:
+        return None
+    return {_RASTER_META: meta["raster"]}
+
+
 def _with_bridge_raster(obj, modeled):
     bridge_raster, raster_carrier = _bridge_raster_sidecar(obj)
     if bridge_raster is None:
+        malformed_meta = _malformed_meta_raster_carrier(obj)
+        if malformed_meta is not None:
+            modeled["raster_unselected"] = malformed_meta
         return modeled
     unselected_raster = _unselected_raster_carriers(
         obj, bridge_raster, raster_carrier

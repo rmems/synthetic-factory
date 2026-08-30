@@ -22,7 +22,7 @@ from quality_gate_identity import canonical_blob, semantic_similarity_view
 DEFAULT_EMBEDDING_THRESHOLD: float = 0.97
 """Default cosine-similarity threshold for embedding deduplication."""
 
-EMBEDDING_ENCODER = "lexical-tfidf/12"
+EMBEDDING_ENCODER = "lexical-tfidf/13"
 """Versioned identifier for the deterministic semantic encoder."""
 
 EMBEDDING_MINHASH_SLOTS = 32
