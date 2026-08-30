@@ -1,0 +1,25 @@
+pipelines/oracle_grounded/canon.py
+  s_f3ffb7db87dca1::t_6051372ef6153e 27-37,47
+pipelines/oracle_grounded/record.py
+  s_f3ffb7db87dca1::t_8c7d0f64d96293 99,101-105,109-118
+pipelines/oracle_grounded/families.py
+  s_f3ffb7db87dca1::t_770c78655b8c78 795-805,809-825,827-863,884-893,895-900,902-903,905-906,908-944,946-947,949-978,1000,1005-1007
+pipelines/oracle_generate.py
+  s_f3ffb7db87dca1::t_e9df4efad569cc 159-180,188
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "37fb6c028522a46d2917cc539cc607de5392d74b",
+  "prompts": {},
+  "sessions": {
+    "s_f3ffb7db87dca1": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "510a01e2-1e9d-4f64-a445-6971413485be",
+        "model": "claude-fable-5"
+      },
+      "human_author": "Raul Montoya Cardenas <montoyaraul34@gmail.com>"
+    }
+  }
+}
