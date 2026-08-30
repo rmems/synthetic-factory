@@ -7,6 +7,8 @@ or legacy meta.id/thought warning must each surface in the report's
 blockers/metrics without raising.
 """
 
+import json
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -16,7 +18,12 @@ _TESTS = Path(__file__).resolve().parent
 if str(_TESTS) not in sys.path:
     sys.path.insert(0, str(_TESTS))
 
-from training_audit_test_helpers import thalamic, write  # noqa: E402
+from training_audit_test_helpers import (  # noqa: E402
+    REPO,
+    commit_marker_batch,
+    thalamic,
+    write,
+)
 
 import training_audit  # noqa: E402
 
@@ -34,6 +41,81 @@ class TrainingAuditReadinessReport(unittest.TestCase):
         self.assertEqual(report["provenance"]["canonical_pct"], 100.0)
         self.assertEqual(report["rewards"]["unique_shapes"], 1)
         self.assertGreater(report["totals"]["approx_tokens"], 0)
+
+    def test_empty_corpus_is_not_training_ready(self):
+        with tempfile.TemporaryDirectory() as td:
+            report = training_audit.audit_run(Path(td))
+
+        self.assertFalse(report["training_ready"])
+        self.assertIn(
+            "corpus contains 0 eligible training records",
+            report["blockers"],
+        )
+
+    def test_marker_mode_hides_uncommitted_batches(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td) / "run"
+            factory = root / "agentic-factory"
+            committed = factory / "batch-r01.jsonl"
+            write(committed, [thalamic("committed")])
+            commit_marker_batch(factory, committed)
+            (factory / "batch-r02.jsonl").write_text("{not json}\n")
+            (factory / "ROUND-r02.publishing.json").write_text("{}\n")
+            report = training_audit.audit_run(root)
+
+        self.assertEqual(report["totals"]["files"], 1)
+        self.assertEqual(report["totals"]["records"], 1)
+        self.assertEqual(report["totals"]["eligible_records"], 1)
+        self.assertTrue(report["training_ready"], report["blockers"])
+
+    def test_cli_bounds_unsafe_marker_mode_transaction_error(self):
+        with tempfile.TemporaryDirectory() as td:
+            factory = Path(td) / "thalamic-trajectory-factory"
+            write(factory / "batch-r01.jsonl", [thalamic("unsafe-marker")])
+            (factory / ".round-marker-mode.json").mkdir()
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    str(REPO / "pipelines" / "training_audit.py"),
+                    str(factory),
+                ],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+
+        self.assertEqual(result.returncode, 1)
+        self.assertEqual(result.stdout, "")
+        self.assertIn("training_audit failed: unsafe marker mode file", result.stderr)
+        self.assertNotIn("Traceback", result.stderr)
+
+    def test_suffixed_snapshot_root_keeps_factory_directories_distinct(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td) / "pre-window-factory"
+            write(
+                root / "thalamic-trajectory-factory" / "batch-r01.jsonl",
+                [thalamic("clean-1")],
+            )
+            write(
+                root / "safety-calibration-factory" / "batch-r01.jsonl",
+                [thalamic("clean-2")],
+            )
+            report = training_audit.audit_run(root)
+
+        self.assertEqual(
+            set(report["factories"]),
+            {"safety-calibration-factory", "thalamic-trajectory-factory"},
+        )
+        self.assertNotIn("pre-window-factory", report["factories"])
+
+    def test_off_registry_factory_root_keeps_nested_legacy_identity(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td) / "custom-experiment-factory"
+            write(root / "archive" / "batch-r01.jsonl", [thalamic("clean-1")])
+            report = training_audit.audit_run(root)
+
+        self.assertEqual(set(report["factories"]), {"custom-experiment-factory"})
+        self.assertNotIn("archive", report["factories"])
 
     def test_marked_gate_errors_are_counted(self):
         with tempfile.TemporaryDirectory() as td:
@@ -161,12 +243,18 @@ class TrainingAuditReadinessReport(unittest.TestCase):
             root = Path(td)
             path = root / "f" / "bad.jsonl"
             path.parent.mkdir(parents=True)
-            path.write_bytes(b'{"id":"bad-\xff"}\n')
+            valid = json.dumps(thalamic("valid-after-bad")).encode("utf-8")
+            path.write_bytes(b'{"id":"bad-\xff"}\n' + valid + b"\n")
             report = training_audit.audit_run(root)
 
         self.assertFalse(report["training_ready"])
+        self.assertEqual(report["totals"]["records"], 1)
+        self.assertEqual(report["totals"]["eligible_records"], 1)
         self.assertTrue(
-            any("invalid UTF-8" in item for item in report["record_invariants"]["error_examples"]),
+            any(
+                "bad.jsonl:1: invalid UTF-8" in item
+                for item in report["record_invariants"]["error_examples"]
+            ),
             report["record_invariants"],
         )
 

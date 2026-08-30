@@ -159,6 +159,16 @@ class CheckRecordsRewardArithmetic(unittest.TestCase):
         self.assertFalse(result["warnings"], result)
         self.assertEqual(result["exit_code"], 0)
 
+    def test_dotted_key_cannot_spoof_reward_components_narration(self):
+        """Rendered-path punctuation is not structural JSON ancestry."""
+        rec = _thalamic(meta={"id": "dotted-reward-components-spoof"})
+        rec["fake.reward_components"] = {"spike_events": "not a stream"}
+        tmp, run_dir = _run_dir([rec])
+        with tmp:
+            result = check_records.check_run(run_dir, strict=True)
+        self.assertIn("spike_events must be an array", "\n".join(result["errors"]))
+        self.assertEqual(result["exit_code"], 1)
+
     def test_reward_components_spike_events_array_is_still_validated(self):
         """The narrative-annotation exemption is scoped to the documented
         string shape. An array at reward_components.spike_events is a
@@ -179,6 +189,32 @@ class CheckRecordsRewardArithmetic(unittest.TestCase):
         self.assertTrue(result["errors"], result)
         self.assertIn("not globally non-decreasing", "\n".join(result["errors"]))
         self.assertEqual(result["exit_code"], 1)
+
+    def test_reward_components_spike_events_non_string_shapes_are_validated(self):
+        """The exemption covers the documented narrative string and nothing
+        else. A dict, number, bool or null at reward_components.spike_events
+        is neither a narrative annotation nor an event array, so it must not
+        bypass stream validation on its way to the publication gate
+        (Codex #87 discussion_r3885899087, CodeRabbit #87 line 461)."""
+        for value in ({"t_rel_ms": 1}, 7, False, None):
+            with self.subTest(value=value):
+                rec = _thalamic(
+                    reward_components={
+                        "task_progress": 0.4,
+                        "safety": 0.6,
+                        "spike_events": value,
+                        "total": 1.0,
+                    },
+                    meta={"id": "reward-nonstring-spike-events"},
+                )
+                tmp, run_dir = _run_dir([rec])
+                with tmp:
+                    result = check_records.check_run(run_dir, strict=True)
+                self.assertTrue(result["errors"], result)
+                self.assertIn(
+                    "spike_events must be an array", "\n".join(result["errors"])
+                )
+                self.assertEqual(result["exit_code"], 1)
 
     def test_chosen_and_rejected_reward_components_are_checked(self):
         pair = {

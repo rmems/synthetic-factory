@@ -8,6 +8,7 @@ test_training_audit_agentic.py, and test_training_audit_curated_views.py.
 This module holds what two or more of those files need in common.
 """
 
+import hashlib
 import json
 import sys
 from pathlib import Path
@@ -34,6 +35,39 @@ def thalamic(record_id, provenance="designed", decision="ACCEPT"):
 def write(path, records):
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text("".join(json.dumps(record) + "\n" for record in records))
+
+
+def commit_marker_batch(factory: Path, batch: Path):
+    """Put ``batch`` behind a valid marker-mode completion point."""
+    (factory / ".round-marker-mode.json").write_text(
+        '{"version":1,"legacy_baseline":0,'
+        '"commit_point":"ROUND-rNN.complete.json"}\n'
+    )
+    notes = factory / "NOTES-r01.md"
+    notes.write_text("Novel coverage: fixture\n")
+    (factory / "ROUND-r01.complete.json").write_text(
+        json.dumps(
+            {
+                "version": 1,
+                "factory": factory.name,
+                "round": 1,
+                "records": 1,
+                "expected_records": 1,
+                "commit_point": "ROUND-r01.complete.json",
+                "files": [
+                    {
+                        "name": batch.name,
+                        "sha256": hashlib.sha256(batch.read_bytes()).hexdigest(),
+                    },
+                    {
+                        "name": notes.name,
+                        "sha256": hashlib.sha256(notes.read_bytes()).hexdigest(),
+                    },
+                ],
+            }
+        )
+        + "\n"
+    )
 
 
 def episode_preference(record_id, *, pair_goal=None, chosen_goal=None, rejected_goal=None):

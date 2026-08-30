@@ -15,6 +15,7 @@ import json
 import math
 import re
 import sys
+from dataclasses import dataclass
 from pathlib import Path
 
 _PIPELINES = Path(__file__).resolve().parent
@@ -28,6 +29,7 @@ from validate_run import (  # noqa: E402
     _episode_like,
     check_line,
     check_spike_order,
+    declared_clock_domains,
     event_time,
     reject_json_constant,
 )
@@ -61,6 +63,18 @@ ALLOWED_PROVENANCE = ALLOWED_SIM_OR_REAL
 ROUNDING_RE = re.compile(r"(?:rounded?\s+(?:to\s+)?)?(\d+)[- ]decimal", re.I)
 
 
+@dataclass(frozen=True)
+class SpikeStreamContract:
+    """Shape requirements and clock context for one spike stream."""
+
+    require_keys: tuple = ()
+    require_nonempty: bool = False
+    enclosing: object = None
+
+
+DEFAULT_SPIKE_STREAM_CONTRACT = SpikeStreamContract()
+
+
 def is_number(value):
     return (
         isinstance(value, (int, float))
@@ -82,20 +96,39 @@ def claims_real(value):
     return lowered == "real" or lowered.startswith(("real_", "real-", "real "))
 
 
+def _mapping_item_key_owners(owner, name, path, item):
+    key, value = item
+    child = f"{path}.{key}" if path else key
+    if key == name:
+        yield child, value, owner
+    yield from _walk_key_owners(value, name, child)
+
+
+def _mapping_key_owners(obj, name, path):
+    for item in obj.items():
+        yield from _mapping_item_key_owners(obj, name, path, item)
+
+
+def _sequence_key_owners(obj, name, path):
+    for index, item in enumerate(obj):
+        yield from _walk_key_owners(item, name, f"{path}[{index}]")
+
+
+def _walk_key_owners(obj, name, path=""):
+    """Yield a named entry's path, value, and immediate owning mapping."""
+    if isinstance(obj, dict):
+        yield from _mapping_key_owners(obj, name, path)
+    elif isinstance(obj, list):
+        yield from _sequence_key_owners(obj, name, path)
+
+
 def walk_key(obj, name, path=""):
     """Yield (path, value) for every dict entry named `name`."""
-    if isinstance(obj, dict):
-        for key, val in obj.items():
-            child = f"{path}.{key}" if path else key
-            if key == name:
-                yield child, val
-            yield from walk_key(val, name, child)
-    elif isinstance(obj, list):
-        for i, item in enumerate(obj):
-            yield from walk_key(item, name, f"{path}[{i}]")
+    for found_path, value, _owner in _walk_key_owners(obj, name, path):
+        yield found_path, value
 
 
-def check_spike_stream_shape(events, where, *, require_keys=(), require_nonempty=False):
+def check_spike_stream_shape(events, where, contract=DEFAULT_SPIKE_STREAM_CONTRACT):
     """Strict shape/order validation for one discovered ``spike_events`` stream.
 
     The deep record checker uses this for every stream it discovers — the
@@ -104,9 +137,14 @@ def check_spike_stream_shape(events, where, *, require_keys=(), require_nonempty
     """
     if not isinstance(events, list):
         return [f"{where}: spike_events must be an array"]
-    if require_nonempty and not events:
+    if contract.require_nonempty and not events:
         return [f"{where}: spike_events must be a non-empty array"]
-    return check_spike_order(events, where, require_keys=require_keys)
+    return check_spike_order(
+        events,
+        where,
+        require_keys=contract.require_keys,
+        enclosing=contract.enclosing,
+    )
 
 
 def _timed_spike_events(events):
@@ -135,14 +173,16 @@ def _first_spike_order_violation(where, timed):
     return []
 
 
-def check_spikes(events, where):
+def check_spikes(events, where, enclosing=None):
     """Probe whether a stream is unambiguously, safely out of order.
 
     Used by promotion's safe sorter (and directly by tests) to decide
     whether resorting is safe: reports an error only for a genuine global
     order violation on a single, unambiguous timestamp key. Untimed,
-    mixed-key, non-array, or too-short streams are silently accepted (empty
-    result) since they are neither compared nor resorted by the caller.
+    mixed-key, multi-clock, non-array, or too-short streams are silently
+    accepted (empty result) since they are neither compared nor resorted by
+    the caller. This is a sorter-safety probe, not a validity gate — an
+    incomparable stream is still reported by ``check_spike_order``.
     """
     if not isinstance(events, list):
         return []
@@ -151,6 +191,12 @@ def check_spikes(events, where):
         return []
     time_keys = {key for _, key, _ in timed}
     if len(time_keys) > 1:
+        return []
+    # One timestamp key is not one timeline. Events declaring different
+    # clocks are incomparable, so an inversion between them is not a repair
+    # this probe may authorize: sorting would fabricate the ordering the
+    # hardened validator explicitly refuses to assert.
+    if len(declared_clock_domains(events, enclosing)) > 1:
         return []
     return _first_spike_order_violation(where, timed)
 
@@ -442,23 +488,25 @@ def check_provenance_publish(obj, where):
     return out
 
 
-def _is_reward_narrative_spike_events(path, value):
+def _is_reward_narrative_spike_events(owner, value, reward_component_entries):
     """True when a walked ``spike_events`` key is reward-component narration.
 
     ``reward_components.spike_events`` is a documented string-valued
     narrative annotation in the reward ontology
     (schemas/reward-ontology-v1.mapping.json: disposition
     "narrative_annotation", observed type "string"), not an event stream.
-    ``walk_key`` matches by key name only, so this path-aware guard keeps it
-    from being misread as a malformed stream. The exemption is scoped to
-    the documented non-array shape: an actual array at this path is a
-    genuine (if oddly placed) stream, and stays strictly checked.
+    ``walk_key`` matches by key name only, so this structural-owner guard keeps
+    it from being misread as a malformed stream. Rendered paths are not used:
+    a literal JSON key containing dots must not spoof a ``reward_components``
+    segment. The exemption is scoped to the
+    documented string shape and nothing else: an array here is a genuine (if
+    oddly placed) stream, and a dict, number, bool or null is neither a
+    narrative nor a stream. Both stay strictly checked so they cannot reach
+    the publication gate unexamined.
     """
-    parts = path.split(".")
-    return (
-        len(parts) >= 2
-        and parts[-2] == "reward_components"
-        and not isinstance(value, list)
+    return isinstance(value, str) and any(
+        owner is reward_components
+        for _path, reward_components in reward_component_entries
     )
 
 
@@ -468,23 +516,33 @@ def check_record(obj, where, factory_staging=False):
     errors.extend(shape_errs)
 
     if isinstance(obj, dict):
-        for path, events in walk_key(obj, "spike_events"):
-            if _is_reward_narrative_spike_events(path, events):
+        reward_component_entries = list(walk_key(obj, "reward_components"))
+        for path, events, owner in _walk_key_owners(obj, "spike_events"):
+            if _is_reward_narrative_spike_events(
+                owner, events, reward_component_entries
+            ):
                 continue
             # Single owner of stream validity: shape_check drops the shape
             # layer's copies, so every stream — top-level, bridge, or nested —
             # is reported exactly once from here. Only the bridge root requires
             # channel/amplitude and a non-empty array.
             bridge_root = kind == "bridge_pair" and path == "spike_events"
+            contract = SpikeStreamContract(
+                require_keys=(BRIDGE_SPIKE_EVENT_KEYS if bridge_root else ()),
+                require_nonempty=bridge_root,
+                # Every stream is judged against the clock its own owner
+                # declares, nested ones included: the owner and its meta are
+                # the namespace curate_bridge uses.
+                enclosing=owner,
+            )
             errors.extend(
                 check_spike_stream_shape(
                     events,
                     f"{where}: {path}",
-                    require_keys=(BRIDGE_SPIKE_EVENT_KEYS if bridge_root else ()),
-                    require_nonempty=bridge_root,
+                    contract,
                 )
             )
-        for path, rc in walk_key(obj, "reward_components"):
+        for path, rc in reward_component_entries:
             rc_errs, rc_warns = check_reward(rc, f"{where}: {path}")
             errors.extend(rc_errs)
             warnings.extend(rc_warns)
@@ -523,7 +581,48 @@ def check_record(obj, where, factory_staging=False):
     return errors, warnings, kind, record_id
 
 
-def check_jsonl(path, rel, seen_ids=None, factory_staging=False):
+@dataclass(frozen=True)
+class FactoryStaging:
+    """Whether factory-staging contract rules apply, and to which lines.
+
+    ``enabled`` turns on the stricter staging shape rules for a payload.
+    ``exempt_lines`` holds the 1-based line numbers of quarantined records,
+    which stay graded under the legacy rules even while staging is on. Both
+    are decided together at every call site, so they travel as one value.
+    """
+
+    enabled: bool = False
+    exempt_lines: frozenset[int] = frozenset()
+
+    def applies_to(self, lineno):
+        """Whether line ``lineno`` is graded under the staging rules."""
+        return self.enabled and lineno not in self.exempt_lines
+
+
+# The default: legacy grading, nothing exempt because nothing is stricter.
+NO_FACTORY_STAGING = FactoryStaging()
+
+
+def _claim_record_id(record_id, where, seen_ids):
+    """Claim ``record_id`` for ``where``, or report the collision it hit.
+
+    ``seen_ids`` maps an already-claimed id to the location that claimed it
+    first, and is mutated in place so the claim survives across files in one
+    run. A record with no canonical id claims nothing and collides with
+    nothing.
+    """
+    if record_id is None:
+        return []
+    if record_id in seen_ids:
+        return [
+            f"{where}: duplicate record id {record_id!r} "
+            f"(first {seen_ids[record_id]})"
+        ]
+    seen_ids[record_id] = where
+    return []
+
+
+def check_jsonl(path, rel, seen_ids=None, staging=NO_FACTORY_STAGING):
     errors, warnings = [], []
     kinds = {}
     records = 0
@@ -545,20 +644,13 @@ def check_jsonl(path, rel, seen_ids=None, factory_staging=False):
             errors.append(f"{where}: JSON parse error: {exc}")
             continue
         rec_errs, rec_warns, kind, record_id = check_record(
-            obj, where, factory_staging=factory_staging
+            obj, where, factory_staging=staging.applies_to(lineno)
         )
         records += 1
         kinds[kind] = kinds.get(kind, 0) + 1
         errors.extend(rec_errs)
         warnings.extend(rec_warns)
-        if record_id is not None:
-            if record_id in seen_ids:
-                errors.append(
-                    f"{where}: duplicate record id {record_id!r} "
-                    f"(first {seen_ids[record_id]})"
-                )
-            else:
-                seen_ids[record_id] = where
+        errors.extend(_claim_record_id(record_id, where, seen_ids))
     return errors, warnings, kinds, records
 
 

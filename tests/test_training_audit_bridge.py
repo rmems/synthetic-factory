@@ -39,6 +39,43 @@ class TrainingAuditBridgeEvents(unittest.TestCase):
         ]
         self.assertEqual(training_audit.event_stream_status(events), "invalid")
 
+    def test_a_bridge_level_clock_conflicting_with_its_events_is_invalid(self):
+        """The record validator reports such a pair as multi-clock. Passing
+        only the event list made this count it as 'sorted', so the audit's
+        bridge-fidelity metrics contradicted its own invariant findings
+        (Codex #87)."""
+        events = [
+            {"channel": "a", "t_rel_ms": 1.0, "amplitude": 0.5, "source_clock": "event"},
+            {"channel": "b", "t_rel_ms": 2.0, "amplitude": 0.4, "source_clock": "event"},
+        ]
+        bridge = {"clock_id": "record", "spike_events": events}
+        self.assertEqual(training_audit.event_stream_status(events, bridge), "invalid")
+
+    def test_a_bridge_meta_clock_conflicting_with_its_events_is_invalid(self):
+        events = [
+            {"channel": "a", "t_rel_ms": 1.0, "amplitude": 0.5, "source_clock": "event"},
+            {"channel": "b", "t_rel_ms": 2.0, "amplitude": 0.4, "source_clock": "event"},
+        ]
+        bridge = {"meta": {"timebase": "meta-clock"}, "spike_events": events}
+        self.assertEqual(training_audit.event_stream_status(events, bridge), "invalid")
+
+    def test_clock_identifier_cannot_spoof_the_order_error_category(self):
+        marker = "spike_events not globally non-decreasing"
+        events = [
+            {"channel": "a", "t_rel_ms": 1.0, "amplitude": 0.5, "source_clock": "a"},
+            {"channel": "b", "t_rel_ms": 2.0, "amplitude": 0.4, "source_clock": marker},
+        ]
+        self.assertEqual(training_audit.event_stream_status(events), "invalid")
+
+    def test_a_bridge_clock_agreeing_with_its_events_is_still_sorted(self):
+        """The enclosing declaration must not reclassify a valid stream."""
+        events = [
+            {"channel": "a", "t_rel_ms": 1.0, "amplitude": 0.5, "source_clock": "one"},
+            {"channel": "b", "t_rel_ms": 2.0, "amplitude": 0.4, "source_clock": "one"},
+        ]
+        bridge = {"clock_id": "one", "spike_events": events}
+        self.assertEqual(training_audit.event_stream_status(events, bridge), "sorted")
+
     def test_valid_events_out_of_order_are_still_unsorted(self):
         events = [
             {"channel": "a", "t_rel_ms": 2.0, "amplitude": 0.5},
