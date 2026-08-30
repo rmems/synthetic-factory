@@ -1,0 +1,19 @@
+tests/test_card_schema_issue_117.py
+  s_f3ffb7db87dca1::t_8cbd5f6c932c6b 36-45,47-50,53
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "bf2244b7fefa3262d9a047e053ff46d1ceb47d22",
+  "prompts": {},
+  "sessions": {
+    "s_f3ffb7db87dca1": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "510a01e2-1e9d-4f64-a445-6971413485be",
+        "model": "claude-fable-5"
+      },
+      "human_author": "Raul Montoya Cardenas <montoyaraul34@gmail.com>"
+    }
+  }
+}
