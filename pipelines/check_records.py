@@ -15,6 +15,7 @@ import json
 import math
 import re
 import sys
+from dataclasses import dataclass
 from pathlib import Path
 
 _PIPELINES = Path(__file__).resolve().parent
@@ -406,7 +407,48 @@ def check_record(obj, where, factory_staging=False):
     return errors, warnings, kind, record_id
 
 
-def check_jsonl(path, rel, seen_ids=None, factory_staging=False):
+@dataclass(frozen=True)
+class FactoryStaging:
+    """Whether factory-staging contract rules apply, and to which lines.
+
+    ``enabled`` turns on the stricter staging shape rules for a payload.
+    ``exempt_lines`` holds the 1-based line numbers of quarantined records,
+    which stay graded under the legacy rules even while staging is on. Both
+    are decided together at every call site, so they travel as one value.
+    """
+
+    enabled: bool = False
+    exempt_lines: frozenset[int] = frozenset()
+
+    def applies_to(self, lineno):
+        """Whether line ``lineno`` is graded under the staging rules."""
+        return self.enabled and lineno not in self.exempt_lines
+
+
+# The default: legacy grading, nothing exempt because nothing is stricter.
+NO_FACTORY_STAGING = FactoryStaging()
+
+
+def _claim_record_id(record_id, where, seen_ids):
+    """Claim ``record_id`` for ``where``, or report the collision it hit.
+
+    ``seen_ids`` maps an already-claimed id to the location that claimed it
+    first, and is mutated in place so the claim survives across files in one
+    run. A record with no canonical id claims nothing and collides with
+    nothing.
+    """
+    if record_id is None:
+        return []
+    if record_id in seen_ids:
+        return [
+            f"{where}: duplicate record id {record_id!r} "
+            f"(first {seen_ids[record_id]})"
+        ]
+    seen_ids[record_id] = where
+    return []
+
+
+def check_jsonl(path, rel, seen_ids=None, staging=NO_FACTORY_STAGING):
     errors, warnings = [], []
     kinds = {}
     records = 0
@@ -428,20 +470,13 @@ def check_jsonl(path, rel, seen_ids=None, factory_staging=False):
             errors.append(f"{where}: JSON parse error: {exc}")
             continue
         rec_errs, rec_warns, kind, record_id = check_record(
-            obj, where, factory_staging=factory_staging
+            obj, where, factory_staging=staging.applies_to(lineno)
         )
         records += 1
         kinds[kind] = kinds.get(kind, 0) + 1
         errors.extend(rec_errs)
         warnings.extend(rec_warns)
-        if record_id is not None:
-            if record_id in seen_ids:
-                errors.append(
-                    f"{where}: duplicate record id {record_id!r} "
-                    f"(first {seen_ids[record_id]})"
-                )
-            else:
-                seen_ids[record_id] = where
+        errors.extend(_claim_record_id(record_id, where, seen_ids))
     return errors, warnings, kinds, records
 
 

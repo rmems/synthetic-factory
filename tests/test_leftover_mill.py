@@ -1,5 +1,10 @@
 #!/usr/bin/env python3
-"""Issue #43 ledger and shared-detector quarantine reporting."""
+"""Shared-detector reporting for the frozen issue #43 factory-mix census.
+
+Covers the frozen ledger, the ``audit_run`` eligible-denominator report and
+the CLI surface. The payload-first kind-mix quarantine and the preference
+publish gate it feeds live in ``tests/test_leftover_mill_kind_mix.py``.
+"""
 
 import json
 import subprocess
@@ -24,6 +29,7 @@ ISSUE_43_COUNTS = {
     "observability-debug-factory": 1,
     "rag-retrieval-debug-factory": 18,
 }
+
 
 
 def episode(record_id, factory, goal="rebuild the index"):

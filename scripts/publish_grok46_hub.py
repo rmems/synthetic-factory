@@ -48,6 +48,7 @@ from round_txn import (  # noqa: E402
     discover_legacy_named_baseline as transaction_legacy_named_baseline,
     validate_legacy_baseline_payloads as transaction_validate_legacy_baseline_payloads,
 )
+import leftover_mill  # noqa: E402
 
 LICENSE_SRC = REPO_ROOT / "LICENSE"
 
@@ -490,9 +491,32 @@ def file_sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
-def completed_manifests(src: Path) -> dict[int, dict]:
+def acknowledged_kind_mix_lines(
+    kind_mix: list[leftover_mill.KindMixFinding] | None,
+) -> dict[str, dict[int, str]]:
+    """Return exact legacy lines allowed through strict kind validation."""
+    quarantined_kinds: dict[str, dict[int, str]] = {}
+    for finding in kind_mix or ():
+        if not finding.acknowledged:
+            continue
+        quarantined_kinds.setdefault(finding.source_name, {})[
+            finding.source_line
+        ] = finding.record_kind
+    return quarantined_kinds
+
+
+def completed_manifests(
+    src: Path,
+    kind_mix: list[leftover_mill.KindMixFinding] | None = None,
+) -> dict[int, dict]:
     """Validate completion markers once via the transaction source of truth."""
+    quarantined_kinds = acknowledged_kind_mix_lines(kind_mix)
     try:
+        if quarantined_kinds:
+            return transaction_completed_manifests(
+                src,
+                quarantined_kinds=quarantined_kinds,
+            )
         return transaction_completed_manifests(src)
     except TransactionError as exc:
         raise SystemExit(str(exc)) from exc
@@ -503,12 +527,31 @@ def discovered_legacy_frontier(src: Path) -> tuple[int, int]:
     return transaction_legacy_frontier(src), transaction_legacy_named_baseline(src)
 
 
-def validate_legacy_baseline_payloads(src: Path, baseline: int) -> None:
+def validate_legacy_baseline_payloads(
+    src: Path,
+    baseline: int,
+    kind_mix: list[leftover_mill.KindMixFinding] | None = None,
+) -> None:
     """Translate the allocator's baseline validation into publisher errors."""
     try:
-        transaction_validate_legacy_baseline_payloads(src, baseline)
+        transaction_validate_legacy_baseline_payloads(
+            src,
+            baseline,
+            quarantined_kinds=acknowledged_kind_mix_lines(kind_mix),
+        )
     except TransactionError as exc:
         raise SystemExit(str(exc)) from exc
+
+
+def legacy_kind_mix(
+    src: Path, baseline: int
+) -> list[leftover_mill.KindMixFinding]:
+    """Gate visible legacy payloads before strict destination-kind checks."""
+    payloads = transaction_legacy_baseline_jsonl_paths(src, baseline)
+    item = {"slug": src.name, "hub": src.name}
+    return gate_leftover_mill(
+        item, [(path, path.name) for path in payloads]
+    )
 
 
 def legacy_snapshot_paths(src: Path, baseline: int) -> list[Path]:
@@ -555,10 +598,12 @@ def marker_mode_state(
         paths = legacy_snapshot_paths(src, max(rounds)) if rounds else []
         before = {path.name: file_sha256(path) for path in paths}
         if rounds:
-            validate_legacy_baseline_payloads(src, max(rounds))
+            baseline = max(rounds)
+            kind_mix = legacy_kind_mix(src, baseline)
+            validate_legacy_baseline_payloads(src, baseline, kind_mix)
             after = {
                 path.name: file_sha256(path)
-                for path in legacy_snapshot_paths(src, max(rounds))
+                for path in legacy_snapshot_paths(src, baseline)
             }
         else:
             after = {}
@@ -578,6 +623,15 @@ def marker_mode_state(
     baseline = mode.get("legacy_baseline")
     if not isinstance(baseline, int) or isinstance(baseline, bool) or baseline < 0:
         raise SystemExit(f"invalid legacy_baseline in {mode_path}")
+    legacy_paths = legacy_snapshot_paths(src, baseline)
+    legacy_sha256 = {path.name: file_sha256(path) for path in legacy_paths}
+    # Pin the complete legacy snapshot before deriving any line-scoped
+    # quarantine exemptions. A writer that replaces an acknowledged row after
+    # the scan is caught by the post-validation digest check below, so stale
+    # findings can never exempt different bytes from strict staging checks.
+    # Keep this gate ahead of the generic frontier check so an unacknowledged
+    # mixed-kind row is reported as the actionable publication failure.
+    kind_mix = legacy_kind_mix(src, baseline)
     legacy_frontier, legacy_named_baseline = discovered_legacy_frontier(src)
     if baseline > legacy_frontier:
         raise SystemExit(
@@ -586,16 +640,14 @@ def marker_mode_state(
         )
     if baseline < legacy_named_baseline:
         raise SystemExit(f"legacy_baseline in {mode_path} excludes legacy r01 payloads")
-    legacy_paths = legacy_snapshot_paths(src, baseline)
-    legacy_sha256 = {path.name: file_sha256(path) for path in legacy_paths}
-    validate_legacy_baseline_payloads(src, baseline)
+    validate_legacy_baseline_payloads(src, baseline, kind_mix)
     validated_legacy_sha256 = {
         path.name: file_sha256(path)
         for path in legacy_snapshot_paths(src, baseline)
     }
     if legacy_sha256 != validated_legacy_sha256:
         raise SystemExit(f"legacy baseline changed during validation: {src}")
-    manifests = completed_manifests(src)
+    manifests = completed_manifests(src, kind_mix)
     return baseline, manifests, validated_legacy_sha256
 
 
@@ -768,18 +820,106 @@ def reconcile_snapshot_entries(
             raise SystemExit(f"unsafe non-file {description}: {existing}")
 
 
+def gate_leftover_mill(
+    item: dict, payloads: list[tuple[Path, str]]
+) -> list[leftover_mill.KindMixFinding]:
+    """Refuse a preference publish carrying unquarantined leftover-mill records.
+
+    The destination kind comes from the factory registry and the record kind
+    comes from the payload, so neither the directory slug nor a ``-leftover``
+    id suffix can vouch for a record. Destinations that do not publish
+    preference pairs are not gated here: factory mix and dest-stamped family
+    mix on episode slugs are separate detectors (issues #43 and #44).
+    """
+    expected = (
+        "preference" if leftover_mill.is_preference_destination(item["slug"]) else None
+    )
+    findings: list[leftover_mill.KindMixFinding] = []
+    for path, name in payloads:
+        findings.extend(
+            leftover_mill.scan_jsonl_kind_mix(
+                path, expected, slug=item["slug"], source_name=name
+            )
+        )
+    unacknowledged = leftover_mill.unacknowledged(findings)
+    if unacknowledged:
+        detail = "; ".join(finding.describe() for finding in unacknowledged[:10])
+        raise SystemExit(
+            f"{item['hub']}: refusing to publish {len(unacknowledged)} "
+            f"unquarantined leftover-mill record(s) into a preference "
+            f"destination: {detail}"
+        )
+    return findings
+
+
+def _copy_payload_batches(batches, raw: Path, marker_state) -> tuple[int, int]:
+    """Copy each published batch into the mirror; return records and bytes.
+
+    The counts are taken from the copies rather than the sources, so the card
+    can only ever describe bytes that actually landed in the mirror.
+    """
+    records = 0
+    bytes_ = 0
+    for batch in batches:
+        copied = raw / batch.name
+        link_or_copy(batch, copied, snapshot_manifest_sha256(batch, marker_state))
+        records += count_jsonl_lines(copied)
+        bytes_ += copied.stat().st_size
+    return records, bytes_
+
+
+def _published_round_range(batches) -> tuple[str | None, str | None]:
+    """Return the first and last round token a card may claim, else two Nones.
+
+    A contiguous ``batch-rNN.jsonl`` span may only be claimed when every batch
+    carries a label and every label agrees with its own filename. Anything
+    else -- one unlabelled payload, or a name that disagrees with the round it
+    encodes -- yields no range, and the card falls back to naming the payload
+    files individually rather than asserting a span the mirror does not have.
+    """
+    labels = [
+        (batch, label)
+        for batch in batches
+        if (label := batch_label(batch)) is not None
+    ]
+    batch_only = len(labels) == len(batches) and all(
+        batch.name == f"batch-{label[2]}.jsonl" for batch, label in labels
+    )
+    if not labels or not batch_only:
+        return None, None
+    return (
+        min(label for _batch, label in labels)[2],
+        max(label for _batch, label in labels)[2],
+    )
+
+
+def _refuse_banned_yaml_tags(card: str, hub: str) -> None:
+    """Refuse a banned tag in the card's YAML front matter.
+
+    Front matter only: the prose body is allowed to say things like "not
+    labeled as Spikenaut", which must not trip the tag ban.
+    """
+    front_matter = card.split("---", 2)
+    tag_block = front_matter[1] if len(front_matter) >= 3 else ""
+    for line in tag_block.splitlines():
+        low = line.strip().lstrip("- ").lower()
+        if any(b == low or low.startswith(b + "-") for b in BANNED_TAG_SUBSTR):
+            raise SystemExit(f"banned YAML tag {low!r} on {hub}")
+
+
 def snapshot_one(item: dict) -> dict:
     src = factory_source(item["slug"])
     dest = hf_datasets_root() / item["hub"]
     if not LICENSE_SRC.is_file():
         raise SystemExit(f"missing repository LICENSE at {LICENSE_SRC}")
-    raw, meta = snapshot_directories(dest)
     marker_state = marker_mode_state(src)
     batches = published_batches(src, marker_state)
     notes = published_notes(src, batches, marker_state)
-    records = 0
-    bytes_ = 0
-    labels = []
+    # Payload-first preference gate. It runs before anything is written, so a
+    # leftover-mill leak leaves the mirror untouched, and again on the copies
+    # below, so the card describes the bytes that actually landed.
+    gate_leftover_mill(item, [(batch, batch.name) for batch in batches])
+    raw, meta = snapshot_directories(dest)
     desired_batch_names = {batch.name for batch in batches}
     desired_note_names = {note.name for note in notes}
     reconcile_snapshot_entries(
@@ -792,24 +932,11 @@ def snapshot_one(item: dict) -> dict:
     )
     reconcile_snapshot_entries(raw, desired_batch_names, "snapshot payload")
     reconcile_snapshot_entries(meta, desired_note_names, "snapshot metadata")
-    for b in batches:
-        copied = raw / b.name
-        link_or_copy(b, copied, snapshot_manifest_sha256(b, marker_state))
-        records += count_jsonl_lines(copied)
-        bytes_ += copied.stat().st_size
-        labels.append(batch_label(b))
+    records, bytes_ = _copy_payload_batches(batches, raw, marker_state)
+    kind_mix = gate_leftover_mill(item, [(raw / b.name, b.name) for b in batches])
     for n in notes:
         link_or_copy(n, meta / n.name, snapshot_manifest_sha256(n, marker_state))
-    labels = [
-        (batch, label)
-        for batch, label in zip(batches, labels)
-        if label is not None
-    ]
-    batch_only = len(labels) == len(batches) and all(
-        batch.name == f"batch-{label[2]}.jsonl" for batch, label in labels
-    )
-    first = min(label for _batch, label in labels)[2] if labels and batch_only else None
-    last_s = max(label for _batch, label in labels)[2] if labels and batch_only else None
+    first, last_s = _published_round_range(batches)
     card = render_card(
         item,
         records=records,
@@ -817,6 +944,7 @@ def snapshot_one(item: dict) -> dict:
         first=first,
         last=last_s,
         payload_names=[batch.name for batch in batches],
+        kind_mix=kind_mix,
     )
     replace_snapshot_text(dest / "README.md", card)
     license_dst = dest / "LICENSE"
@@ -825,13 +953,7 @@ def snapshot_one(item: dict) -> dict:
         dest / "ATTRIBUTION.md",
         ATTRIBUTION,
     )
-    # YAML tags only — body may say "not labeled as Spikenaut".
-    fm = card.split("---", 2)
-    tag_block = fm[1] if len(fm) >= 3 else ""
-    for line in tag_block.splitlines():
-        low = line.strip().lstrip("- ").lower()
-        if any(b == low or low.startswith(b + "-") for b in BANNED_TAG_SUBSTR):
-            raise SystemExit(f"banned YAML tag {low!r} on {item['hub']}")
+    _refuse_banned_yaml_tags(card, item["hub"])
     return {
         "hub": item["hub"],
         "slug": item["slug"],
@@ -840,7 +962,60 @@ def snapshot_one(item: dict) -> dict:
         "notes": len(notes),
         "bytes": bytes_,
         "last": last_s,
+        "quarantined": len(kind_mix),
     }
+
+
+def render_quarantine_section(
+    records: int, kind_mix: list[leftover_mill.KindMixFinding]
+) -> str:
+    """Disclose acknowledged leftover-mill records instead of hiding them."""
+    if not kind_mix:
+        return ""
+    ids = "\n".join(
+        f"- `{finding.record_id}` (`data/raw/{finding.source_name}` line "
+        f"{finding.source_line}, payload kind `{finding.record_kind}`, sha256 "
+        f"`{finding.source_sha256}`)"
+        for finding in kind_mix
+    )
+    return f"""
+## Leftover-mill quarantine
+
+Quarantined: {len(kind_mix)} of the {records} published raw records. They are
+**not preference pairs** — they are leftover-mill records whose payload carries
+a different record kind, classified from the payload itself rather than from the
+file name or the `-leftover` id suffix. The preference-pair count this snapshot
+supports is **{records - len(kind_mix)}**, not {records}.
+
+The raw JSONL is published unmodified: these records stay in `data/raw/` as
+evidence and are quarantined by id here, never by editing the payload to fake a
+preference schema. Preference curation (`pipelines/curate_preferences.py`)
+already excludes them, and any *new* leftover-mill record blocks a snapshot of
+this repository outright.
+
+{ids}
+"""
+
+
+def _unranged_payload_sentence(
+    records: int, kb: int, payload_names: list[str] | None
+) -> str:
+    """Describe a payload that cannot claim a contiguous batch-rNN span.
+
+    Named payloads are listed individually; no payload at all says so
+    explicitly rather than implying an empty range.
+    """
+    if not payload_names:
+        return (
+            "This snapshot currently contains no published raw batch files. "
+            "It does not claim a `data/raw/batch-rNN.jsonl` payload. The factory "
+            "source tree is"
+        )
+    names = ", ".join(f"`data/raw/{name}`" for name in payload_names)
+    return (
+        f"The release contains {records} raw records across {len(payload_names)} "
+        f"published JSONL payload(s) ({names}; ~{kb} KB), snapshotted from"
+    )
 
 
 def render_card(
@@ -851,28 +1026,19 @@ def render_card(
     first: str | None,
     last: str | None,
     payload_names: list[str] | None = None,
+    kind_mix: list[leftover_mill.KindMixFinding] | None = None,
 ) -> str:
     tags = "\n".join(f"- {t}" for t in item["tags"])
     kb = max(1, bytes_ // 1024)
     if first is None or last is None:
-        if payload_names:
-            names = ", ".join(f"`data/raw/{name}`" for name in payload_names)
-            payload = (
-                f"The release contains {records} raw records across {len(payload_names)} "
-                f"published JSONL payload(s) ({names}; ~{kb} KB), snapshotted from"
-            )
-        else:
-            payload = (
-                "This snapshot currently contains no published raw batch files. "
-                "It does not claim a `data/raw/batch-rNN.jsonl` payload. The factory "
-                "source tree is"
-            )
+        payload = _unranged_payload_sentence(records, kb, payload_names)
     else:
         payload = (
             f"The release contains {records} raw records across\n"
             f"`data/raw/batch-{first}.jsonl` through `data/raw/batch-{last}.jsonl` "
             f"(~{kb} KB), snapshotted from"
         )
+    quarantine = render_quarantine_section(records, list(kind_mix or ()))
     factory_mix = leftover_mill.render_factory_mix_card_section(item["slug"], records)
     return f"""---
 pretty_name: {item['pretty']}
@@ -913,6 +1079,7 @@ Synthetic Data Factory agentic lane. Factory slug:
 `data/metadata/NOTES-*.md`. The factory source remains the write destination; this Hub
 copy is a public evidence snapshot, not the curated training export. Public
 visibility is not a training-readiness claim.
+{quarantine}
 
 Raw records may still carry model-private reasoning: `thought` on a step, and
 `internal_reasoning` / `internal_reasoning_verbatim` on a gate record's
@@ -946,7 +1113,12 @@ def cmd_snapshot(only: str | None = None) -> list[dict]:
         if only and item["hub"] != only and item["slug"] != only:
             continue
         stats.append(snapshot_one(item))
-        print(f"snapshot {item['hub']} batches={stats[-1]['batches']} records={stats[-1]['records']}", flush=True)
+        print(
+            f"snapshot {item['hub']} batches={stats[-1]['batches']} "
+            f"records={stats[-1]['records']} "
+            f"quarantined={stats[-1]['quarantined']}",
+            flush=True,
+        )
     selected = {row["hub"]: row for row in stats}
     inventory_stats = [
         selected[item["hub"]]
@@ -1061,20 +1233,33 @@ def safe_upload_directory(item: dict) -> Path:
     return dest
 
 
-def validate_upload_snapshot(item: dict, dest: Path) -> None:
-    """Require the complete mirror to match the current validated source."""
-    src = factory_source(item["slug"])
-    marker_state = marker_mode_state(src)
-    batches = published_batches(src, marker_state)
-    notes = published_notes(src, batches, marker_state)
-    raw = dest / "data" / "raw"
-    meta = dest / "data" / "metadata"
+def _validate_upload_snapshot_directories(raw: Path, meta: Path) -> None:
     for directory in (raw, meta):
         if not directory.is_dir() or directory.is_symlink():
             raise SystemExit(f"incomplete upload snapshot directory: {directory}")
 
-    expected_batches = {path.name: path for path in batches}
-    expected_notes = {path.name: path for path in notes}
+
+def _validate_snapshot_digests(directory: Path, expected: dict, marker_state) -> None:
+    """Require every mirrored file in ``directory`` to match its source digest.
+
+    A source under a marker-mode legacy baseline is pinned by its recorded
+    manifest digest; anything else is hashed directly.
+    """
+    for name, source in expected.items():
+        expected_sha256 = snapshot_manifest_sha256(source, marker_state)
+        if expected_sha256 is None:
+            expected_sha256 = file_sha256(source)
+        if file_sha256(directory / name) != expected_sha256:
+            raise SystemExit(f"upload snapshot digest mismatch: {directory / name}")
+
+
+def _validate_upload_snapshot_payload(
+    raw: Path,
+    meta: Path,
+    expected_batches: dict,
+    expected_notes: dict,
+    marker_state,
+) -> None:
     actual_batches = {path.name for path in raw.iterdir()}
     actual_notes = {path.name for path in meta.iterdir()}
     if actual_batches != set(expected_batches):
@@ -1082,14 +1267,21 @@ def validate_upload_snapshot(item: dict, dest: Path) -> None:
     if actual_notes != set(expected_notes):
         raise SystemExit(f"upload snapshot metadata set mismatch: {meta}")
 
-    for directory, expected in ((raw, expected_batches), (meta, expected_notes)):
-        for name, source in expected.items():
-            expected_sha256 = snapshot_manifest_sha256(source, marker_state)
-            if expected_sha256 is None:
-                expected_sha256 = file_sha256(source)
-            if file_sha256(directory / name) != expected_sha256:
-                raise SystemExit(f"upload snapshot digest mismatch: {directory / name}")
+    _validate_snapshot_digests(raw, expected_batches, marker_state)
+    _validate_snapshot_digests(meta, expected_notes, marker_state)
 
+
+def _validate_snapshot_attribution(dest: Path) -> None:
+    """Require the mirrored ATTRIBUTION.md to be exactly the pinned text."""
+    try:
+        attribution = (dest / "ATTRIBUTION.md").read_text()
+    except (OSError, UnicodeError) as exc:
+        raise SystemExit(f"cannot read upload snapshot attribution: {exc}") from exc
+    if attribution != ATTRIBUTION:
+        raise SystemExit(f"upload snapshot digest mismatch: {dest / 'ATTRIBUTION.md'}")
+
+
+def _validate_upload_snapshot_top_level_files(dest: Path) -> None:
     required_top = {
         "README.md": None,
         "LICENSE": LICENSE_SRC,
@@ -1101,25 +1293,21 @@ def validate_upload_snapshot(item: dict, dest: Path) -> None:
             raise SystemExit(f"incomplete upload snapshot file: {path}")
     if file_sha256(dest / "LICENSE") != file_sha256(LICENSE_SRC):
         raise SystemExit(f"upload snapshot digest mismatch: {dest / 'LICENSE'}")
-    try:
-        attribution = (dest / "ATTRIBUTION.md").read_text()
-    except (OSError, UnicodeError) as exc:
-        raise SystemExit(f"cannot read upload snapshot attribution: {exc}") from exc
-    if attribution != ATTRIBUTION:
-        raise SystemExit(f"upload snapshot digest mismatch: {dest / 'ATTRIBUTION.md'}")
+    _validate_snapshot_attribution(dest)
 
+
+def _read_snapshot_card(dest: Path) -> str:
+    """Return the mirrored card text, or exit if it cannot be read."""
+    try:
+        return (dest / "README.md").read_text()
+    except (OSError, UnicodeError) as exc:
+        raise SystemExit(f"cannot read upload snapshot card: {exc}") from exc
+
+
+def _validate_upload_snapshot_card(item: dict, dest: Path, raw: Path, batches, kind_mix) -> None:
     records = sum(count_jsonl_lines(raw / batch.name) for batch in batches)
     bytes_ = sum((raw / batch.name).stat().st_size for batch in batches)
-    labels = [
-        (batch, label)
-        for batch in batches
-        if (label := batch_label(batch)) is not None
-    ]
-    batch_only = len(labels) == len(batches) and all(
-        batch.name == f"batch-{label[2]}.jsonl" for batch, label in labels
-    )
-    first = min(label for _batch, label in labels)[2] if labels and batch_only else None
-    last = max(label for _batch, label in labels)[2] if labels and batch_only else None
+    first, last = _published_round_range(batches)
     expected_card = render_card(
         item,
         records=records,
@@ -1127,14 +1315,35 @@ def validate_upload_snapshot(item: dict, dest: Path) -> None:
         first=first,
         last=last,
         payload_names=[batch.name for batch in batches],
+        kind_mix=kind_mix,
     )
-    try:
-        card = (dest / "README.md").read_text()
-    except (OSError, UnicodeError) as exc:
-        raise SystemExit(f"cannot read upload snapshot card: {exc}") from exc
+    card = _read_snapshot_card(dest)
     if card != expected_card:
         raise SystemExit(f"upload snapshot digest mismatch: {dest / 'README.md'}")
 
+
+def validate_upload_snapshot(item: dict, dest: Path) -> None:
+    """Require the complete mirror to match the current validated source."""
+    src = factory_source(item["slug"])
+    marker_state = marker_mode_state(src)
+    batches = published_batches(src, marker_state)
+    notes = published_notes(src, batches, marker_state)
+    raw = dest / "data" / "raw"
+    meta = dest / "data" / "metadata"
+    _validate_upload_snapshot_directories(raw, meta)
+
+    expected_batches = {path.name: path for path in batches}
+    expected_notes = {path.name: path for path in notes}
+    _validate_upload_snapshot_payload(
+        raw, meta, expected_batches, expected_notes, marker_state
+    )
+
+    _validate_upload_snapshot_top_level_files(dest)
+
+    kind_mix = gate_leftover_mill(
+        item, [(raw / batch.name, batch.name) for batch in batches]
+    )
+    _validate_upload_snapshot_card(item, dest, raw, batches, kind_mix)
 
 def cmd_upload(only: str | None = None) -> None:
     for item in factories():

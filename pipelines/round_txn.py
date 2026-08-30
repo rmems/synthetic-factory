@@ -41,7 +41,7 @@ _PIPELINES = Path(__file__).resolve().parent
 if str(_PIPELINES) not in sys.path:
     sys.path.insert(0, str(_PIPELINES))
 
-from check_records import check_jsonl  # noqa: E402
+from check_records import FactoryStaging, check_jsonl  # noqa: E402
 from validate_run import THALAMIC_CORE_KEYS, terminal_outcome_agrees  # noqa: E402
 
 MODE_FILE = ".round-marker-mode.json"
@@ -552,27 +552,52 @@ def valid_legacy_file(path: Path):
 
 
 def validate_legacy_payload(
-    path: Path, factory_dir: Path, round_number: int, seen_ids=None
+    path: Path,
+    factory_dir: Path,
+    round_number: int,
+    seen_ids=None,
+    quarantined_kinds: dict[int, str] | None = None,
 ):
     """Return a legacy payload's records and any applicable contract errors."""
     factory_staging = factory_dir.name in AGENTIC_FACTORY_KINDS
+    quarantined_kinds = dict(quarantined_kinds or {})
     errors, warnings, kinds, records = check_jsonl(
         path,
         path.name,
         seen_ids=seen_ids,
-        factory_staging=factory_staging,
+        staging=FactoryStaging(
+            enabled=factory_staging,
+            exempt_lines=frozenset(quarantined_kinds),
+        ),
     )
     problems = list(errors)
     if factory_staging:
         problems.extend(warnings)
         expected_kind = AGENTIC_FACTORY_KINDS[factory_dir.name]
-        if set(kinds) != {expected_kind}:
+        eligible_kinds = dict(kinds)
+        for kind in quarantined_kinds.values():
+            remaining = eligible_kinds.get(kind, 0) - 1
+            if remaining > 0:
+                eligible_kinds[kind] = remaining
+            else:
+                eligible_kinds.pop(kind, None)
+        unexpected = set(eligible_kinds) - {expected_kind}
+        if unexpected:
             problems.append(
                 f"{factory_dir.name} requires only {expected_kind!r} records; "
-                f"legacy kinds are {sorted(kinds)!r}"
+                f"non-quarantined legacy kinds are {sorted(eligible_kinds)!r}"
             )
         if not errors:
-            problems.extend(validate_agentic_envelope(path, factory_dir, round_number))
+            problems.extend(
+                validate_agentic_envelope(
+                    path,
+                    factory_dir,
+                    round_number,
+                    factory_staging_exempt_lines=frozenset(
+                        quarantined_kinds
+                    ),
+                )
+            )
     return records, problems
 
 
@@ -710,8 +735,14 @@ def sibling_committed_and_inflight_ids(factory_dir: Path):
     return seen_ids
 
 
-def validate_legacy_baseline_payloads(factory_dir: Path, baseline: int):
+def validate_legacy_baseline_payloads(
+    factory_dir: Path,
+    baseline: int,
+    *,
+    quarantined_kinds: dict[str, dict[int, str]] | None = None,
+):
     """Deep-check every regular legacy payload exposed by a marker baseline."""
+    quarantined_kinds = quarantined_kinds or {}
     records_by_round = {}
     seen_ids = sibling_committed_and_inflight_ids(factory_dir)
     for path in sorted(factory_dir.glob("*.jsonl")):
@@ -727,7 +758,11 @@ def validate_legacy_baseline_payloads(factory_dir: Path, baseline: int):
         else:
             continue
         records, problems = validate_legacy_payload(
-            path, factory_dir, round_number, seen_ids=seen_ids
+            path,
+            factory_dir,
+            round_number,
+            seen_ids=seen_ids,
+            quarantined_kinds=quarantined_kinds.get(path.name),
         )
         if records < 1 or problems:
             details = "\n".join(f"ERROR: {problem}" for problem in problems)
@@ -884,11 +919,15 @@ def _bind_completion_execution_verdict(
     return True
 
 
-def _validate_legacy_baseline_ids(factory_dir, seen_ids):
+def _validate_legacy_baseline_ids(factory_dir, seen_ids, *, quarantined_kinds=None):
     mode_path = marker_mode_path(factory_dir)
     if mode_path is None:
         return
-    baseline = validated_marker_mode(factory_dir, mode_path)["legacy_baseline"]
+    baseline = validated_marker_mode(
+        factory_dir,
+        mode_path,
+        quarantined_kinds=quarantined_kinds,
+    )["legacy_baseline"]
     for legacy_path in legacy_baseline_jsonl_paths(factory_dir, baseline):
         errors, _warnings, _kinds, _records = check_jsonl(
             legacy_path,
@@ -918,7 +957,11 @@ def _load_completion_marker_payload(path, factory_dir):
     return round_number, payload
 
 
-def completed_manifests(factory_dir: Path) -> dict[int, dict]:
+def completed_manifests(
+    factory_dir: Path,
+    *,
+    quarantined_kinds: dict[str, dict[int, str]] | None = None,
+) -> dict[int, dict]:
     """Return only completion manifests safe to use for batch visibility.
 
     ``completed_rounds`` intentionally remains a lightweight frontier-report
@@ -928,7 +971,9 @@ def completed_manifests(factory_dir: Path) -> dict[int, dict]:
     and matching regular, hashed files for every artifact it declares.
     """
     seen_ids = sibling_committed_and_inflight_ids(factory_dir)
-    _validate_legacy_baseline_ids(factory_dir, seen_ids)
+    _validate_legacy_baseline_ids(
+        factory_dir, seen_ids, quarantined_kinds=quarantined_kinds
+    )
     cutover, bound_verified_rounds = execution_gate_policy(factory_dir)
     manifests = {}
     loaded_markers = []
@@ -1059,7 +1104,12 @@ def ensure_marker_mode(factory_dir: Path):
         return validated_marker_mode(factory_dir, existing)
 
 
-def validated_marker_mode(factory_dir: Path, mode_path: Path | None = None):
+def validated_marker_mode(
+    factory_dir: Path,
+    mode_path: Path | None = None,
+    *,
+    quarantined_kinds: dict[str, dict[int, str]] | None = None,
+):
     """Read a marker-mode declaration only when its legacy handoff is real."""
     if mode_path is None:
         mode_path = marker_mode_path(factory_dir)
@@ -1090,7 +1140,11 @@ def validated_marker_mode(factory_dir: Path, mode_path: Path | None = None):
             f"legacy_baseline in {mode_path} excludes validated unmarked legacy "
             f"frontier r{unmarked_frontier:02d}"
         )
-    validate_legacy_baseline_payloads(factory_dir, baseline)
+    validate_legacy_baseline_payloads(
+        factory_dir,
+        baseline,
+        quarantined_kinds=quarantined_kinds,
+    )
     return mode
 
 
@@ -1435,7 +1489,13 @@ def run_publish_lock(factory_dir: Path):
             fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
 
 
-def validate_agentic_envelope(batch: Path, factory_dir: Path, round_number: int):
+def validate_agentic_envelope(
+    batch: Path,
+    factory_dir: Path,
+    round_number: int,
+    *,
+    factory_staging_exempt_lines=frozenset(),
+):
     """Return fixed-contract envelope errors for one staged agentic batch."""
     if factory_dir.name not in AGENTIC_FACTORY_KINDS:
         return []
@@ -1450,6 +1510,8 @@ def validate_agentic_envelope(batch: Path, factory_dir: Path, round_number: int)
     # and U+2029 characters that are valid payload inside a JSON string.
     for lineno, line in enumerate(batch.read_text().split("\n"), 1):
         if not line.strip():
+            continue
+        if lineno in factory_staging_exempt_lines:
             continue
         # JSON parsing and base shape errors have already been checked by
         # check_jsonl. Keep this narrow pass focused on the factory-specific
@@ -2020,7 +2082,7 @@ def _completed_batch_is_training_ready(batch, seen_ids, factory_staging):
         batch,
         batch.name,
         seen_ids=seen_ids,
-        factory_staging=factory_staging,
+        staging=FactoryStaging(enabled=factory_staging),
     )
     if errors or warnings:
         details = [
@@ -2227,7 +2289,7 @@ def validate_stage(
             batch,
             batch.name,
             seen_ids=committed_ids(factory_dir),
-            factory_staging=True,
+            staging=FactoryStaging(enabled=True),
         )
         if errors or warnings:
             details = [

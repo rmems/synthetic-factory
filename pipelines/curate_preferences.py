@@ -21,6 +21,12 @@ Write a new preference JSONL and manifest (both destinations must be absent)::
 without preference-pair fields are counted and skipped; malformed preference
 candidates are explicitly excluded rather than silently dropped.
 
+A skipped record whose payload kind names a different generation mill (an
+agentic episode inside a preference tree, for example) is *quarantined*: it
+gets its own manifest row and its own summary counter so it can never be
+absorbed into a preference-pair denominator. See ``pipelines/leftover_mill.py``
+and ``docs/leftover-mill-quarantine.md``.
+
 Writing anywhere under ``outputs/raw/`` is refused: raw runs are immutable
 evidence, and that includes adding new files beside them.
 """
@@ -31,31 +37,46 @@ import argparse
 import copy
 import hashlib
 import json
-import os
 import sys
 from collections import Counter
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-try:
-    from pipelines.raw_tree_guard import is_under_raw as _guard_is_under_raw
-except ImportError:  # python3 pipelines/curate_preferences.py
-    from raw_tree_guard import is_under_raw as _guard_is_under_raw
+_PIPELINES = Path(__file__).resolve().parent
+if str(_PIPELINES) not in sys.path:
+    sys.path.insert(0, str(_PIPELINES))
 
+import leftover_mill  # noqa: E402
+
+# The destination layer: every rule about where a run may be written, and the
+# atomic creation itself. Imported here because this module is the public
+# entry point for preference curation and callers reach the writer through it.
+import preference_destination  # noqa: E402
+from preference_destination import (  # noqa: E402
+    PreferenceCurationError,
+    _assert_new_destination,
+    _create_exclusive_file,
+    _fsync_parents,
+    _unlink_created,
+)
+
+# Read-only aliases, kept so these names still resolve from this module. The
+# raw-tree refusal resolves RAW_OUTPUT_ROOT through preference_destination, so
+# a test standing in a fake raw root patches it there; rebinding either alias
+# below would not move the guard.
+REPOSITORY_ROOT = preference_destination.REPOSITORY_ROOT
+RAW_OUTPUT_ROOT = preference_destination.RAW_OUTPUT_ROOT
 
 TRANSFORM_NAME = "same-context-preference-curation"
-TRANSFORM_VERSION = "1.0.0"
-REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
-RAW_OUTPUT_ROOT = REPOSITORY_ROOT / "outputs" / "raw"
+TRANSFORM_VERSION = "1.1.0"
 
 ACTION_RETAINED = "retained"
 ACTION_REPAIRED = "repaired"
 ACTION_EXCLUDED = "excluded"
-
-
-class PreferenceCurationError(RuntimeError):
-    """Raised when source or destination handling would be unsafe."""
+# Quarantine is not a preference decision: a leftover-mill record never was a
+# pair, so it is recorded separately and never counted in a pair denominator.
+ACTION_QUARANTINED = "quarantined"
 
 
 @dataclass(frozen=True)
@@ -88,6 +109,10 @@ class _ScanState:
     reasons: Counter[str]
     skipped_non_preferences: int = 0
     json_records_seen: int = 0
+    # Subset of skipped records whose payload kind names a different
+    # generation mill. Tracked separately so a preference yield can never
+    # quietly absorb them into a pair denominator.
+    leftover_mill_kinds: Counter[str] = field(default_factory=Counter)
 
 
 @dataclass(frozen=True)
@@ -112,12 +137,6 @@ def canonical_json(value: Any) -> str:
 
 def _sha256(payload: bytes) -> str:
     return hashlib.sha256(payload).hexdigest()
-
-
-def _is_under_raw(path: Path) -> bool:
-    """Whether ``path`` names or aliases the repository's raw output tree."""
-
-    return _guard_is_under_raw(path, RAW_OUTPUT_ROOT)
 
 
 def _is_canonicalizable(value: Any) -> bool:
@@ -182,9 +201,9 @@ def _preference_context(
     if not isinstance(chosen, dict) or not isinstance(rejected, dict):
         return None
     if not all(
-        isinstance(side.get(field), dict)
+        isinstance(side.get(context_field), dict)
         for side in (chosen, rejected)
-        for field in ("state", "proposed_action")
+        for context_field in ("state", "proposed_action")
     ):
         return None
     return chosen, rejected
@@ -198,8 +217,8 @@ def context_is_pure(record: dict[str, Any]) -> bool:
         return False
     chosen, rejected = context
     return all(
-        canonical_json(chosen[field]) == canonical_json(rejected[field])
-        for field in ("state", "proposed_action")
+        canonical_json(chosen[context_field]) == canonical_json(rejected[context_field])
+        for context_field in ("state", "proposed_action")
     )
 
 
@@ -207,15 +226,15 @@ def _all_context_diffs(
     chosen: dict[str, Any], rejected: dict[str, Any]
 ) -> tuple[str, ...]:
     paths: list[str] = []
-    for field in ("state", "proposed_action"):
-        paths.extend(_context_diff_paths(chosen[field], rejected[field], field))
+    for context_field in ("state", "proposed_action"):
+        paths.extend(_context_diff_paths(chosen[context_field], rejected[context_field], context_field))
     return tuple(paths)
 
 
 def _identity_annotation_reference(
     chosen_value: dict[str, Any],
     rejected_value: dict[str, Any],
-    field: str,
+    context_field: str,
 ) -> tuple[dict[str, Any], str, str] | None:
     """Find an exact reference side for a top-level ``identity_note`` diff.
 
@@ -232,7 +251,7 @@ def _identity_annotation_reference(
         note = attester.get("identity_note")
         if "identity_note" in reference or not isinstance(note, str):
             continue
-        expected_prefix = f"IDENTICAL to {reference_name}.{field}"
+        expected_prefix = f"IDENTICAL to {reference_name}.{context_field}"
         if not note.strip().startswith(expected_prefix):
             continue
         stripped = copy.deepcopy(attester)
@@ -252,18 +271,18 @@ def _repair_identity_annotations(record: dict[str, Any]) -> CurationDecision | N
     repaired = copy.deepcopy(record)
     changed: list[str] = []
 
-    for field in ("state", "proposed_action"):
-        if canonical_json(chosen[field]) == canonical_json(rejected[field]):
+    for context_field in ("state", "proposed_action"):
+        if canonical_json(chosen[context_field]) == canonical_json(rejected[context_field]):
             continue
         reference = _identity_annotation_reference(
-            chosen[field], rejected[field], field
+            chosen[context_field], rejected[context_field], context_field
         )
         if reference is None:
             return None
         exact_value, attester_name, reference_name = reference
-        repaired[attester_name][field] = copy.deepcopy(exact_value)
-        repaired[reference_name][field] = copy.deepcopy(exact_value)
-        changed.append(f"{attester_name}.{field}")
+        repaired[attester_name][context_field] = copy.deepcopy(exact_value)
+        repaired[reference_name][context_field] = copy.deepcopy(exact_value)
+        changed.append(f"{attester_name}.{context_field}")
 
     if not changed or not context_is_pure(repaired):
         return None
@@ -468,6 +487,33 @@ def _relative_source_path(source: Path, path: Path) -> str:
     return path.name
 
 
+def _skipped_manifest_entry(
+    line: _SourceLine, record: Any, mill_kind: str
+) -> dict[str, Any]:
+    """Return a manifest row for a quarantined leftover-mill record."""
+
+    return {
+        "source_path": line.relative_path,
+        "source_line": line.number,
+        "source_sha256": _sha256(line.payload),
+        "source_file_sha256": line.file_sha256,
+        # Same canonicalizability guard the preference rows use. record_id()
+        # keeps its meta.id fallback; only a value the destination cannot
+        # encode is dropped.
+        "source_record_id": _canonicalizable_manifest_id(
+            leftover_mill.record_id(record)
+        ),
+        "transform": {"name": TRANSFORM_NAME, "version": TRANSFORM_VERSION},
+        "action": ACTION_QUARANTINED,
+        "classification": f"leftover_mill_{mill_kind}",
+        "reason_codes": [leftover_mill.REASON_KIND_MIX],
+        "context_diff_paths": [],
+        "changed_context_fields": [],
+        "output_id": None,
+        "output_sha256": None,
+    }
+
+
 def _jsonl_payload_lines(file_payload: bytes) -> tuple[tuple[int, bytes], ...]:
     return tuple(
         (line_number, raw_line)
@@ -491,13 +537,24 @@ def _load_jsonl_record(line: _SourceLine) -> Any:
         ) from exc
 
 
+def _canonicalizable_manifest_id(value: Any) -> Any:
+    """Drop a manifest identifier the JSONL destination cannot encode.
+
+    ``json.loads`` accepts an escaped lone surrogate, so a source id can be a
+    perfectly good Python string that ``write_run`` cannot serialize. Losing
+    the id costs nothing an auditor needs: the source reference survives as
+    path, line, and hash either way, whereas losing the row would delete the
+    evidence that this record was quarantined at all.
+    """
+    return value if _is_canonicalizable(value) else None
+
+
 def _manifest_source_id(record: Any) -> Any:
     # An excluded record may itself hold a non-encodable id; the source
     # reference survives as path, line, and hash either way.
-    source_record_id = record.get("id") if isinstance(record, dict) else None
-    if _is_canonicalizable(source_record_id):
-        return source_record_id
-    return None
+    return _canonicalizable_manifest_id(
+        record.get("id") if isinstance(record, dict) else None
+    )
 
 
 def _kept_output(
@@ -555,6 +612,18 @@ def _curate_jsonl_file(source: Path, path: Path, state: _ScanState) -> None:
         line = _SourceLine(relative_path, line_number, raw_line, file_hash)
         state.json_records_seen += 1
         record = _load_jsonl_record(line)
+        mill_kind = leftover_mill.kind_mix_kind(record, "preference")
+        if mill_kind is not None:
+            # A concrete foreign generation kind takes precedence over the
+            # loose candidate heuristic. An episode carrying reward_delta,
+            # for example, is still an episode and must never enter the
+            # preference denominator as a malformed pair.
+            state.skipped_non_preferences += 1
+            state.leftover_mill_kinds[mill_kind] += 1
+            state.manifest.append(
+                _skipped_manifest_entry(line, record, mill_kind)
+            )
+            continue
         if not _is_preference_candidate(record):
             state.skipped_non_preferences += 1
             continue
@@ -578,6 +647,11 @@ def _curation_summary(source: Path, state: _ScanState) -> dict[str, Any]:
         "json_records_seen": state.json_records_seen,
         "preference_records": preference_records,
         "skipped_non_preference_records": state.skipped_non_preferences,
+        # Subset of the skipped records whose payload kind names a different
+        # generation mill. Reported separately so a preference yield can never
+        # quietly absorb them into a pair denominator.
+        "leftover_mill_records": sum(state.leftover_mill_kinds.values()),
+        "leftover_mill_kinds": dict(sorted(state.leftover_mill_kinds.items())),
         "impure_pairs": impure_pairs,
         "retained_pairs": retained_pairs,
         "excluded_pairs": state.actions[ACTION_EXCLUDED],
@@ -602,115 +676,10 @@ def curate_source(source: Path) -> CurationRun:
     )
 
 
-def _refuse_raw_destination(destination: Path, label: str) -> None:
-    if not _is_under_raw(destination):
-        return
-    # A file source has no directory to nest inside, and a directory source
-    # does not contain its own siblings, so the remaining destination checks
-    # cannot keep a curated write out of the immutable raw tree on their own.
-    raise PreferenceCurationError(
-        f"{label} would write inside immutable raw evidence: {destination}"
-    )
-
-
-def _refuse_existing_destination(destination: Path, label: str) -> None:
-    if destination.exists():
-        raise PreferenceCurationError(
-            f"{label} already exists; refusing overwrite: {destination}"
-        )
-    if destination.parent.is_dir():
-        return
-    raise PreferenceCurationError(
-        f"{label} parent does not exist: {destination.parent}"
-    )
-
-
-def _destination_replaces_source(source: Path, destination: Path) -> bool:
-    return source.resolve() == destination.resolve(strict=False)
-
-
-def _destination_inside_source(source: Path, destination: Path) -> bool:
-    if not source.is_dir():
-        return False
-    return source.resolve() in destination.resolve(strict=False).parents
-
-
-def _refuse_source_collision(source: Path, destination: Path, label: str) -> None:
-    if _destination_replaces_source(source, destination):
-        raise PreferenceCurationError(f"{label} cannot replace source: {destination}")
-    if not _destination_inside_source(source, destination):
-        return
-    raise PreferenceCurationError(
-        f"{label} cannot be written inside source: {destination}"
-    )
-
-
-def _assert_new_destination(source: Path, destination: Path, label: str) -> None:
-    _refuse_raw_destination(destination, label)
-    _refuse_existing_destination(destination, label)
-    _refuse_source_collision(source, destination, label)
-
 
 def _jsonl_payload(records: tuple[dict[str, Any], ...]) -> str:
     return "".join(canonical_json(record) + "\n" for record in records)
 
-
-def _open_destination_parent(path: Path) -> int:
-    flags = os.O_RDONLY | os.O_DIRECTORY | getattr(os, "O_NOFOLLOW", 0)
-    try:
-        return os.open(path.parent, flags)
-    except OSError as exc:
-        raise PreferenceCurationError(
-            f"destination parent is not a pinned directory: {path.parent}"
-        ) from exc
-
-
-def _refuse_opened_parent(parent_fd: int, destination: Path) -> None:
-    try:
-        opened = Path(os.readlink(f"/proc/self/fd/{parent_fd}"))
-    except OSError:
-        opened = destination.parent
-    _refuse_raw_destination(opened, "destination")
-    _refuse_raw_destination(opened / destination.name, "destination")
-
-
-def _create_exclusive_file(path: Path, payload: str, created: list[Path]) -> None:
-    parent_fd = _open_destination_parent(path)
-    try:
-        _refuse_opened_parent(parent_fd, path)
-        descriptor = os.open(
-            path.name,
-            os.O_WRONLY | os.O_CREAT | os.O_EXCL,
-            0o644,
-            dir_fd=parent_fd,
-        )
-    finally:
-        os.close(parent_fd)
-    created.append(path)
-    with os.fdopen(descriptor, "w", encoding="utf-8", newline="\n") as handle:
-        handle.write(payload)
-        handle.flush()
-        os.fsync(handle.fileno())
-
-
-def _fsync_parents(paths: list[Path]) -> None:
-    # Durable file contents still need a durable directory entry.
-    for directory in dict.fromkeys(path.parent for path in paths):
-        directory_descriptor = os.open(directory, os.O_RDONLY)
-        try:
-            os.fsync(directory_descriptor)
-        finally:
-            os.close(directory_descriptor)
-
-
-def _unlink_created(created: list[Path]) -> None:
-    # Remove only files this invocation created; pre-existing paths are
-    # rejected before and during O_EXCL creation.
-    for path in created:
-        try:
-            path.unlink()
-        except FileNotFoundError:
-            pass
 
 
 def write_run(run: CurationRun, source: Path, output: Path, manifest: Path) -> None:
@@ -744,6 +713,7 @@ def _render_human(run: CurationRun) -> str:
         f"Impure: {summary['impure_pairs']}",
         f"Retained: {summary['retained_pairs']}",
         f"Excluded: {summary['excluded_pairs']}",
+        f"Leftover mill (quarantined): {summary['leftover_mill_records']}",
         f"Retained context purity: {summary['retained_context_purity_pct']:.1f}%",
         "Decisions:",
     ]
