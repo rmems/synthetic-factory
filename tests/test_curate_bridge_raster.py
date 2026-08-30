@@ -61,6 +61,32 @@ class RasterAndGateSnnCuration(unittest.TestCase):
         self.assertFalse(status["raster_valid"])
         self.assertIn(curate_bridge.REASON_RASTER_EXCERPT, status["reason_codes"])
 
+    def test_fractional_window_accepts_its_exact_integer_microsecond_endpoint(self):
+        record = gate_snn_fixture()
+        record["raster"].update(
+            {
+                "window_ms": 32.001,
+                "window_s": 0.032001,
+                "spikes": 98,
+                "energy_pJ": 2254,
+                "energy_uJ": 0.002254,
+            }
+        )
+        record["raster"]["excerpt"][-1]["t_us"] = 32_001
+
+        self.assertTrue(curate_bridge.raster_status(record)["raster_valid"])
+
+        record["raster"]["excerpt"][-1]["t_us"] = 32_002
+        status = curate_bridge.raster_status(record)
+        self.assertFalse(status["raster_valid"])
+        self.assertIn(curate_bridge.REASON_RASTER_EXCERPT, status["reason_codes"])
+
+    def test_integral_json_number_timestamp_matches_schema_integer_semantics(self):
+        record = gate_snn_fixture()
+        record["raster"]["excerpt"][0]["t_us"] = 800.0
+
+        self.assertTrue(curate_bridge.raster_status(record)["raster_valid"])
+
         record = gate_snn_fixture()
         record["raster"]["excerpt"][0]["t_us"] = 800.4
         status = curate_bridge.raster_status(record)

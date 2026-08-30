@@ -38,7 +38,7 @@ import json
 from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Iterable, Sequence
+from typing import Any, Callable, Iterable, Sequence
 
 from curate_bridge_events import (
     CLOCK_DOMAIN_KEYS as _EVENT_CLOCK_DOMAIN_KEYS,
@@ -137,6 +137,12 @@ class CurationDecision:
             payload["output_record"] = self.output_record
             payload["quarantine_record"] = self.quarantine_record
         return payload
+
+
+@dataclass(frozen=True)
+class _SidecarValidationState:
+    reason_codes: list[str]
+    evidence: dict[str, Any]
 
 
 def sha256_hex(data: bytes) -> str:
@@ -259,61 +265,125 @@ def _first_declared(
     return None, None
 
 
+def _declared_sidecars(
+    candidates: Sequence[tuple[str, Any, str]],
+) -> list[tuple[str, Any]]:
+    """Return every declared carrier in precedence order."""
+
+    return [
+        (location, value)
+        for location, container, key in candidates
+        for declared, value in (_declared(container, key),)
+        if declared
+    ]
+
+
+def _raster_candidates(record: Any) -> tuple[tuple[str, Any, str], ...]:
+    if not isinstance(record, dict):
+        return ()
+    return (
+        ("raster", record, "raster"),
+        ("meta.raster", record.get("meta"), "raster"),
+    )
+
+
 def raster_sidecar(record: Any) -> tuple[str | None, Any]:
     """Resolve the first declared raster carrier for one record."""
 
+    return _first_declared(_raster_candidates(record))
+
+
+def _gate_snn_candidates(record: Any) -> tuple[tuple[str, Any, str], ...]:
     if not isinstance(record, dict):
-        return None, None
-    return _first_declared(
+        return ()
+    meta = record.get("meta")
+    view = record.get("language_view")
+    trajectory = view.get("trajectory") if isinstance(view, dict) else None
+    decision = trajectory.get("safety_decision") if isinstance(trajectory, dict) else None
+    return (
+        (GATE_SNN_KEY, record, GATE_SNN_KEY),
+        (f"meta.{GATE_SNN_KEY}", meta, GATE_SNN_KEY),
+        (f"language_view.trajectory.{GATE_SNN_KEY}", trajectory, GATE_SNN_KEY),
         (
-            ("raster", record, "raster"),
-            ("meta.raster", record.get("meta"), "raster"),
-        )
+            f"language_view.trajectory.safety_decision.{GATE_SNN_KEY}",
+            decision,
+            GATE_SNN_KEY,
+        ),
     )
 
 
 def gate_snn_sidecar(record: Any) -> tuple[str | None, Any]:
     """Resolve the first declared spike-implemented gate carrier."""
 
+    return _first_declared(_gate_snn_candidates(record))
+
+
+def _gate_compute_candidates(record: Any) -> tuple[tuple[str, Any, str], ...]:
     if not isinstance(record, dict):
-        return None, None
-    meta = record.get("meta")
+        return ()
     view = record.get("language_view")
     trajectory = view.get("trajectory") if isinstance(view, dict) else None
-    decision = trajectory.get("safety_decision") if isinstance(trajectory, dict) else None
-    return _first_declared(
+    probe = trajectory.get("safety_decision") if isinstance(trajectory, dict) else None
+    return (
+        ("gate_compute", record, "gate_compute"),
+        ("language_view.trajectory.gate_compute", trajectory, "gate_compute"),
         (
-            (GATE_SNN_KEY, record, GATE_SNN_KEY),
-            (f"meta.{GATE_SNN_KEY}", meta, GATE_SNN_KEY),
-            (f"language_view.trajectory.{GATE_SNN_KEY}", trajectory, GATE_SNN_KEY),
-            (
-                f"language_view.trajectory.safety_decision.{GATE_SNN_KEY}",
-                decision,
-                GATE_SNN_KEY,
-            ),
-        )
+            "language_view.trajectory.safety_decision.gate_compute",
+            probe,
+            "gate_compute",
+        ),
     )
 
 
 def _gate_compute_sidecar(record: dict[str, Any]) -> tuple[str | None, Any]:
     """Resolve the first declared gate-compute carrier for one record."""
 
-    if not isinstance(record, dict):
-        return None, None
-    view = record.get("language_view")
-    trajectory = view.get("trajectory") if isinstance(view, dict) else None
-    probe = trajectory.get("safety_decision") if isinstance(trajectory, dict) else None
-    return _first_declared(
-        (
-            ("gate_compute", record, "gate_compute"),
-            ("language_view.trajectory.gate_compute", trajectory, "gate_compute"),
-            (
-                "language_view.trajectory.safety_decision.gate_compute",
-                probe,
-                "gate_compute",
-            ),
-        )
-    )
+    return _first_declared(_gate_compute_candidates(record))
+
+
+def _validate_declared_sidecars(
+    candidates: Sequence[tuple[str, Any, str]],
+    validator: Callable[[Any, list[str], dict[str, Any]], None],
+    state: _SidecarValidationState,
+    evidence_prefix: str,
+) -> bool:
+    """Validate all declarations while keeping selected-carrier evidence canonical."""
+
+    declarations = _declared_sidecars(candidates)
+    if not declarations:
+        return False
+    location, value = declarations[0]
+    state.evidence[f"{evidence_prefix}_location"] = location
+    validator(value, state.reason_codes, state.evidence)
+    invalid_locations = _invalid_lower_sidecars(declarations, validator, state.reason_codes)
+    if invalid_locations:
+        _record_invalid_sidecars(state.evidence, evidence_prefix, invalid_locations)
+    return True
+
+
+def _invalid_lower_sidecars(
+    declarations: Sequence[tuple[str, Any]],
+    validator: Callable[[Any, list[str], dict[str, Any]], None],
+    reason_codes: list[str],
+) -> list[str]:
+    """Validate non-selected declarations without overwriting selected evidence."""
+
+    invalid_locations: list[str] = []
+    for lower_location, lower_value in declarations[1:]:
+        lower_reasons: list[str] = []
+        validator(lower_value, lower_reasons, {})
+        reason_codes.extend(lower_reasons)
+        invalid_locations.extend([lower_location] if lower_reasons else [])
+    return invalid_locations
+
+
+def _record_invalid_sidecars(
+    evidence: dict[str, Any], evidence_prefix: str, invalid_locations: list[str]
+) -> None:
+    evidence[f"{evidence_prefix}_invalid_carrier_locations"] = invalid_locations
+    valid_key = f"{evidence_prefix}_valid"
+    if valid_key in evidence:
+        evidence[valid_key] = False
 
 
 def _raster_reasons(
@@ -331,33 +401,42 @@ def _raster_reasons(
 
     reason_codes: list[str] = []
     evidence: dict[str, Any] = {}
-    location, raster = raster_sidecar(record)
-    if location is not None:
-        evidence["raster_location"] = location
-        _validate_raster(
-            raster,
-            reason_codes=reason_codes,
-            evidence=evidence,
+    state = _SidecarValidationState(reason_codes, evidence)
+    raster_present = _validate_declared_sidecars(
+        _raster_candidates(record),
+        lambda value, reasons, details: _validate_raster(
+            value,
+            reason_codes=reasons,
+            evidence=details,
             require_routing_table=require_routing_table,
-        )
-    else:
+        ),
+        state,
+        "raster",
+    )
+    if not raster_present:
         evidence["raster_present"] = False
         if require_raster:
             reason_codes.append(REASON_RASTER_MISSING)
-    gate_compute_location, gate_compute = _gate_compute_sidecar(record)
-    if gate_compute_location is not None:
-        evidence["gate_compute_location"] = gate_compute_location
-        _validate_gate_compute(gate_compute, reason_codes=reason_codes, evidence=evidence)
-    gate_snn_location, gate_snn = gate_snn_sidecar(record)
-    if gate_snn_location is not None:
-        evidence["gate_snn_location"] = gate_snn_location
-        _validate_gate_snn(
-            gate_snn,
-            reason_codes=reason_codes,
-            evidence=evidence,
+    _validate_declared_sidecars(
+        _gate_compute_candidates(record),
+        lambda value, reasons, details: _validate_gate_compute(
+            value, reason_codes=reasons, evidence=details
+        ),
+        state,
+        "gate_compute",
+    )
+    gate_snn_present = _validate_declared_sidecars(
+        _gate_snn_candidates(record),
+        lambda value, reasons, details: _validate_gate_snn(
+            value,
+            reason_codes=reasons,
+            evidence=details,
             expected_decision=_expected_gate_decision(record),
-        )
-    else:
+        ),
+        state,
+        "gate_snn",
+    )
+    if not gate_snn_present:
         evidence["gate_snn_present"] = False
     return reason_codes, evidence
 

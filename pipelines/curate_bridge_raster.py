@@ -102,6 +102,29 @@ def _nonnegative_int(value: Any) -> bool:
     )
 
 
+def _nonnegative_json_integer(value: Any) -> int | None:
+    """Return the integer value represented by one JSON number.
+
+    JSON Schema treats finite integral-valued numbers such as ``800.0`` and
+    ``8e2`` as integers.  Python's JSON decoder represents those spellings as
+    ``float``, so excerpt validation must normalize them explicitly to stay in
+    lockstep with the published schema.
+    """
+
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return value if value >= 0 else None
+    if not isinstance(value, float):
+        return None
+    if not math.isfinite(value):
+        return None
+    if not value.is_integer():
+        return None
+    integer = int(value)
+    return integer if integer >= 0 else None
+
+
 def _nonblank_text(value: Any) -> bool:
     return isinstance(value, str) and bool(value.strip())
 
@@ -403,20 +426,22 @@ def _validate_raster_routing(
 
 
 def _timestamp_within_raster_window(timestamp: Any, window_ms: float | None) -> bool:
-    if not _nonnegative_int(timestamp):
+    timestamp_us = _nonnegative_json_integer(timestamp)
+    if timestamp_us is None:
         return False
     window_us = window_ms * 1000 if window_ms is not None else None
     if window_us is None:
         return True
-    return timestamp <= window_us
+    return timestamp_us <= window_us + 1e-9
 
 
 def _neuron_within_population(neuron_id: Any, neurons: Any) -> bool:
-    if not _nonnegative_int(neuron_id):
+    normalized_neuron = _nonnegative_json_integer(neuron_id)
+    if normalized_neuron is None:
         return False
     if not _positive_int(neurons):
         return True
-    return neuron_id < neurons
+    return normalized_neuron < neurons
 
 
 def _valid_excerpt_item(item: Any, window_ms: float | None, neurons: Any) -> bool:

@@ -280,6 +280,89 @@ class DeclaredNullCarriersAndEnergyBounds(unittest.TestCase):
                     status["reason_codes"],
                 )
 
+    def test_malformed_lower_raster_carrier_is_not_masked(self):
+        record = gate_snn_fixture()
+        record["meta"] = {"raster": "bad"}
+
+        status = curate_bridge.raster_status(record)
+
+        self.assertFalse(status["raster_valid"])
+        self.assertEqual(status["raster_location"], "raster")
+        self.assertIn(curate_bridge.REASON_RASTER_EXCERPT, status["reason_codes"])
+        self.assertEqual(
+            status["evidence"]["raster_invalid_carrier_locations"],
+            ["meta.raster"],
+        )
+
+    def test_malformed_lower_gate_snn_carriers_are_not_masked(self):
+        locations = (
+            "meta.gate_snn",
+            "language_view.trajectory.gate_snn",
+            "language_view.trajectory.safety_decision.gate_snn",
+        )
+        for location in locations:
+            with self.subTest(location=location):
+                record = gate_snn_fixture()
+                target = record
+                for key in location.split(".")[:-1]:
+                    target = target.setdefault(key, {})
+                target["gate_snn"] = "bad"
+
+                status = curate_bridge.raster_status(record)
+
+                self.assertFalse(status["raster_valid"])
+                self.assertFalse(status["gate_snn_valid"])
+                self.assertIn(curate_bridge.REASON_GATE_SNN_INVALID, status["reason_codes"])
+                self.assertEqual(
+                    status["evidence"]["gate_snn_invalid_carrier_locations"],
+                    [location],
+                )
+
+    def test_malformed_lower_gate_compute_carriers_are_not_masked(self):
+        locations = (
+            "language_view.trajectory.gate_compute",
+            "language_view.trajectory.safety_decision.gate_compute",
+        )
+        for location in locations:
+            with self.subTest(location=location):
+                record = gate_snn_fixture()
+                record["gate_compute"] = {
+                    "per_check": [
+                        {"neurons": 2, "mean_rate_hz": 10.0, "window_s": 0.05, "spikes": 1}
+                    ]
+                }
+                target = record
+                for key in location.split(".")[:-1]:
+                    target = target.setdefault(key, {})
+                target["gate_compute"] = "bad"
+
+                status = curate_bridge.raster_status(record)
+
+                self.assertFalse(status["raster_valid"])
+                self.assertIn(
+                    curate_bridge.REASON_RASTER_SPIKE_BUDGET,
+                    status["reason_codes"],
+                )
+                self.assertEqual(
+                    status["evidence"]["gate_compute_invalid_carrier_locations"],
+                    [location],
+                )
+
+    def test_valid_redundant_sidecars_remain_supported(self):
+        record = gate_snn_fixture()
+        record["meta"] = {
+            "raster": copy.deepcopy(record["raster"]),
+            "gate_snn": copy.deepcopy(record["gate_snn"]),
+        }
+        record["gate_compute"] = {
+            "per_check": [{"neurons": 2, "mean_rate_hz": 10.0, "window_s": 0.05, "spikes": 1}]
+        }
+        record["language_view"]["trajectory"]["gate_compute"] = copy.deepcopy(
+            record["gate_compute"]
+        )
+
+        self.assertTrue(curate_bridge.raster_status(record)["raster_valid"])
+
     def test_an_absent_per_check_block_stays_optional(self):
         record = gate_snn_fixture()
         record["gate_compute"] = {}

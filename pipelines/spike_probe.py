@@ -56,6 +56,22 @@ def _is_exact_int(value: Any) -> bool:
     return isinstance(value, int) and not isinstance(value, bool)
 
 
+def _json_integer(value: Any) -> int | None:
+    """Return the integer represented by a schema-valid JSON number."""
+
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return value
+    if not isinstance(value, float):
+        return None
+    if not math.isfinite(value):
+        return None
+    if not value.is_integer():
+        return None
+    return int(value)
+
+
 def _finite(value: Any) -> bool:
     if _is_exact_int(value):
         return True
@@ -77,9 +93,9 @@ def _normalized_event(item: Any) -> dict[str, Any] | None:
 
     if not isinstance(item, dict):
         return None
-    t_us = item.get("t_us")
-    neuron_id = item.get("neuron_id")
-    if not _is_exact_int(t_us) or not _is_exact_int(neuron_id):
+    t_us = _json_integer(item.get("t_us"))
+    neuron_id = _json_integer(item.get("neuron_id"))
+    if t_us is None or neuron_id is None:
         return None
     event: dict[str, Any] = {
         "neuron_id": neuron_id,
@@ -369,12 +385,12 @@ def main(argv=None):
     rasters, problems = load_rasters(args.targets)
     if args.jsonl:
         for raster in rasters:
-            print(json.dumps(raster, ensure_ascii=False, sort_keys=True, allow_nan=False))
+            print(json.dumps(raster, ensure_ascii=True, sort_keys=True, allow_nan=False))
         for problem in problems:
             print(
                 json.dumps(
                     {"unloadable": True, **problem},
-                    ensure_ascii=False,
+                    ensure_ascii=True,
                     sort_keys=True,
                     allow_nan=False,
                 ),
@@ -385,7 +401,7 @@ def main(argv=None):
             json.dumps(
                 summarize(rasters, problems, args.targets),
                 indent=2,
-                ensure_ascii=False,
+                ensure_ascii=True,
                 allow_nan=False,
             )
         )

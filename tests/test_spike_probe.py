@@ -61,6 +61,12 @@ class NormalizeRaster(unittest.TestCase):
         self.assertIsNone(spike_probe._normalized_event({"t_us": 1234.4, "neuron_id": 7}))
         self.assertIsNone(spike_probe._normalized_event({"t_ms": 1.234, "neuron_id": 7}))
 
+    def test_integral_json_numbers_are_normalized_to_python_integers(self):
+        self.assertEqual(
+            spike_probe._normalized_event({"t_us": 800.0, "neuron_id": 7.0}),
+            {"t_us": 800, "neuron_id": 7},
+        )
+
     def test_routing_third_factor_and_gate_head_are_structured(self):
         raster = spike_probe.normalize_raster(gate_snn_record())
 
@@ -314,6 +320,24 @@ class ProbeCli(unittest.TestCase):
         report = json.loads(stdout.getvalue())
         self.assertEqual(code, 0)
         self.assertEqual((report["loaded"], report["input_errors"]), (1, 0))
+
+    def test_jsonl_output_escapes_a_lone_surrogate(self):
+        record = gate_snn_record()
+        record["id"] = "\ud800"
+        with tempfile.TemporaryDirectory() as td:
+            path = Path(td) / "surrogate.jsonl"
+            path.write_text(json.dumps(record) + "\n", encoding="utf-8")
+            output_bytes = io.BytesIO()
+            stdout = io.TextIOWrapper(output_bytes, encoding="utf-8", errors="strict")
+            with redirect_stdout(stdout), redirect_stderr(io.StringIO()):
+                code = spike_probe.main(["--jsonl", str(path)])
+            stdout.flush()
+            output = output_bytes.getvalue().decode("utf-8")
+            stdout.detach()
+
+        self.assertEqual(code, 0)
+        self.assertIn("\\ud800", output)
+        self.assertEqual(json.loads(output)["record_id"], "\ud800")
 
     def test_strict_mode_fails_on_an_unloadable_raster(self):
         with tempfile.TemporaryDirectory() as td:
