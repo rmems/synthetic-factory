@@ -102,6 +102,21 @@ class RasterAndGateSnnCuration(unittest.TestCase):
         self.assertFalse(status["raster_valid"])
         self.assertIn(curate_bridge.REASON_RASTER_EXCERPT, status["reason_codes"])
 
+    def test_declared_excerpt_channel_must_be_a_string(self):
+        for channel in (None, 3, False, {}):
+            with self.subTest(channel=channel):
+                record = gate_snn_fixture()
+                record["raster"]["excerpt"][0]["channel"] = channel
+
+                status = curate_bridge.raster_status(record)
+
+                self.assertFalse(status["raster_valid"])
+                self.assertIn(curate_bridge.REASON_RASTER_EXCERPT, status["reason_codes"])
+
+        record = gate_snn_fixture()
+        record["raster"]["excerpt"][0]["channel"] = ""
+        self.assertTrue(curate_bridge.raster_status(record)["raster_valid"])
+
     def test_missing_raster_quarantines_only_when_required(self):
         record = bridge([event(1.0, "a"), event(2.0, "b")])
         self.assertEqual(decide(record).action, "retain")

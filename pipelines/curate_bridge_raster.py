@@ -451,6 +451,7 @@ def _valid_excerpt_item(item: Any, window_ms: float | None, neurons: Any) -> boo
         (
             _timestamp_within_raster_window(item.get("t_us"), window_ms),
             _neuron_within_population(item.get("neuron_id"), neurons),
+            "channel" not in item or isinstance(item["channel"], str),
         )
     )
 

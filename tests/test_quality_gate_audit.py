@@ -65,6 +65,18 @@ class QualityGate(unittest.TestCase):
         self.assertEqual(report["counts"]["total"], 3)
         self.assertEqual(report["mix"]["unlabeled"], 3)
 
+    def test_bare_cr_does_not_create_two_valid_quality_gate_records(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            path = root / "batch.jsonl"
+            path.write_bytes(b'{"id":"first"}\r{"id":"second"}\n')
+
+            report = quality_gate.audit_run(root)
+
+        self.assertEqual(report["counts"]["total"], 0)
+        self.assertEqual(report["counts"]["malformed_lines"], 1)
+        self.assertTrue(report["blocked"])
+
     def test_preference_side_provenance_counts_once_per_pair(self):
         pair = {
             # A promoted wrapper can carry a generic top-level unknown stamp;

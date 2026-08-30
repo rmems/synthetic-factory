@@ -443,8 +443,11 @@ def promote_run(raw_run, cleaned_out):
         dest = cleaned_out / rel
         dest.parent.mkdir(parents=True, exist_ok=True)
         lines_out = []
-        text = src.read_text()
-        for line in text.splitlines():
+        physical_lines = src.read_bytes().split(b"\n")
+        if physical_lines and physical_lines[-1] == b"":
+            physical_lines.pop()
+        for raw_line in physical_lines:
+            line = raw_line.decode("utf-8")
             if not line.strip():
                 lines_out.append("")
                 continue
@@ -470,7 +473,10 @@ def promote_run(raw_run, cleaned_out):
                 resorted += 1
             records += 1
             lines_out.append(json.dumps(obj, ensure_ascii=False))
-        dest.write_text("\n".join(lines_out) + ("\n" if lines_out else ""))
+        dest.write_text(
+            "\n".join(lines_out) + ("\n" if lines_out else ""),
+            encoding="utf-8",
+        )
         files += 1
         rels.append(rel)
 

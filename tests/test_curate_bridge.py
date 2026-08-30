@@ -302,6 +302,25 @@ class BridgeTimingCuration(unittest.TestCase):
             decision.manifest["evidence"]["parse_error"],
         )
 
+    def test_exponent_overflow_and_lone_surrogate_are_source_quarantined(self):
+        sources = (
+            b'{"id":"overflow","extra":1e999}\n',
+            b'{"id":"surrogate","extra":"\\ud800"}\n',
+        )
+
+        with tempfile.TemporaryDirectory() as td:
+            source = Path(td) / "invalid-scalars.jsonl"
+            source.write_bytes(b"".join(sources))
+            decisions = curate_bridge.curate_jsonl(source)
+
+        self.assertEqual([decision.action for decision in decisions], ["quarantine"] * 2)
+        self.assertEqual(
+            [decision.manifest["reason_codes"] for decision in decisions],
+            [[curate_bridge.REASON_INVALID_JSON]] * 2,
+        )
+        self.assertIn("non-finite JSON number", decisions[0].manifest["evidence"]["parse_error"])
+        self.assertIn("surrogates not allowed", decisions[1].manifest["evidence"]["parse_error"])
+
     def test_missing_top_level_id_is_left_for_identity_lane(self):
         source = bridge([event(2, "b"), event(1, "a")])
         del source["id"]

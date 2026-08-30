@@ -230,6 +230,36 @@ class BridgeMaterialization(unittest.TestCase):
             with self.assertRaisesRegex(curate_bridge.BridgeCurationError, "non-standard"):
                 curate_bridge_materialize._read_manifest(path, context)
 
+    def test_materialization_quarantines_nonfinite_and_nonscalar_json(self):
+        overflow = gate_snn_fixture()
+        overflow["extra"] = 0
+        overflow_line = json.dumps(overflow).replace('"extra": 0', '"extra": 1e999')
+        surrogate = gate_snn_fixture()
+        surrogate["id"] = "surrogate-\ud800"
+
+        with tempfile.TemporaryDirectory() as td:
+            temporary = Path(td)
+            source_root = temporary / "source"
+            source = source_root / "bridge" / "batch-r01.jsonl"
+            source.parent.mkdir(parents=True)
+            source.write_text(
+                overflow_line + "\n" + json.dumps(surrogate) + "\n",
+                encoding="utf-8",
+            )
+            output = temporary / "lane-bridge"
+
+            decisions = curate_bridge.materialize_paths(
+                [source],
+                source_root=source_root,
+                output_dir=output,
+            )
+
+            manifest = (output / curate_bridge.MANIFEST_NAME).read_text(encoding="utf-8")
+
+        self.assertEqual([decision.action for decision in decisions], ["quarantine"] * 2)
+        self.assertTrue(all(decision.output_record is None for decision in decisions))
+        self.assertEqual(len(manifest.splitlines()), 2)
+
     def test_atomic_publication_fails_explicitly_off_linux_and_windows(self):
         source = Path("unused-source")
         destination = Path("unused-destination")

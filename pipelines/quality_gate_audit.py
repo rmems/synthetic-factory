@@ -226,7 +226,8 @@ def _record_unreadable(state, rel, exc):
 
 def _read_jsonl(path, rel, state):
     try:
-        return path.read_text(encoding="utf-8").splitlines()
+        payload = path.read_bytes()
+        return tuple(line.decode("utf-8") for line in payload.split(b"\n"))
     except (OSError, UnicodeDecodeError) as exc:
         _record_unreadable(state, rel, exc)
         return ()

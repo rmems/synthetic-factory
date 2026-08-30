@@ -67,6 +67,15 @@ class NormalizeRaster(unittest.TestCase):
             {"t_us": 800, "neuron_id": 7},
         )
 
+    def test_declared_channel_is_preserved_or_rejected_by_type(self):
+        self.assertEqual(
+            spike_probe._normalized_event({"t_us": 800, "neuron_id": 7, "channel": ""}),
+            {"t_us": 800, "neuron_id": 7, "channel": ""},
+        )
+        self.assertIsNone(
+            spike_probe._normalized_event({"t_us": 800, "neuron_id": 7, "channel": 3})
+        )
+
     def test_routing_third_factor_and_gate_head_are_structured(self):
         raster = spike_probe.normalize_raster(gate_snn_record())
 

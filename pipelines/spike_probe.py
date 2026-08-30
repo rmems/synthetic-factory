@@ -101,8 +101,10 @@ def _normalized_event(item: Any) -> dict[str, Any] | None:
         "neuron_id": neuron_id,
         "t_us": t_us,
     }
-    channel = item.get("channel")
-    if isinstance(channel, str) and channel:
+    if "channel" in item:
+        channel = item["channel"]
+        if not isinstance(channel, str):
+            return None
         event["channel"] = channel
     return event
 

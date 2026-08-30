@@ -793,6 +793,15 @@ def _reject_json_constant(value: str) -> None:
     raise ValueError(f"non-standard JSON numeric constant: {value}")
 
 
+def _parse_finite_json_float(text: str) -> float:
+    """Decode a JSON float token without accepting exponent overflow."""
+
+    value = _finite_float(text)
+    if value is None:
+        raise ValueError(f"non-finite JSON number: {text}")
+    return value
+
+
 def _source_failure_decision(
     *,
     source_path: str,
@@ -864,7 +873,15 @@ def curate_jsonl(
             )
             continue
         try:
-            record = json.loads(text, parse_constant=_reject_json_constant)
+            record = json.loads(
+                text,
+                parse_constant=_reject_json_constant,
+                parse_float=_parse_finite_json_float,
+            )
+            # Parsing can produce lone-surrogate strings from escaped input.
+            # Curated output is canonical UTF-8, so reject values that cannot
+            # enter that representation before curation or materialization.
+            canonical_json_bytes(record)
         except (json.JSONDecodeError, ValueError) as exc:
             decisions.append(
                 _source_failure_decision(
