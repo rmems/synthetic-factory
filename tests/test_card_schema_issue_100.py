@@ -3,7 +3,15 @@
 
 import re
 
-import test_card_schema_integration as _shared
+try:
+    # The base branch (agent/hf-card-viewer-schema-infra, PR #91) renames the
+    # shared module to test_card_schema_integration; a checkout of this branch
+    # alone still has the pre-split test_card_schema. Prefer the post-split
+    # name so the merge result works, and fall back so a bare checkout of this
+    # branch collects and runs too.
+    import test_card_schema_integration as _shared
+except ModuleNotFoundError:
+    import test_card_schema as _shared
 
 unittest = _shared.unittest
 io = _shared.io
