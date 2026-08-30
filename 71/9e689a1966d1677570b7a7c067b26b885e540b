@@ -1,0 +1,59 @@
+pipelines/quality_gate_embedding.py
+  s_98712805c1499b::t_aefc0f7d28fe3b 1-529
+pipelines/quality_gate_audit.py
+  s_98712805c1499b::t_79b5ef35be1600 159-161
+  s_98712805c1499b::t_e18fe84979d75d 1-20,22-120,123-158,162-242,246-250,252-305,307-468,471-514,517-519,521-544,546,548-602
+  s_98712805c1499b::t_91c422bf33e072 21
+  s_98712805c1499b::t_52d1809705b173 121-122,243-245,251,306,469-470,515-516,520,545,547
+tests/test_promote_spikes.py
+  s_98712805c1499b::t_077366478a529d 18-21,32-39,84,129-135,138-144
+  s_98712805c1499b::t_b9162fa61ecf38 1-17,22-31,40-83,85-128,136-137,145-148
+tests/test_promote_quality_gate.py
+  s_98712805c1499b::t_bd05f723bddbb8 51-63,95-96,98-99
+  s_98712805c1499b::t_5810bdab21698c 6-7,14-17,21-47
+  s_98712805c1499b::t_834ca3b4fd11ff 1-5,8-13,18-20,48-50,64-93,101,261-262
+  s_98712805c1499b::t_6152550ab0fc68 94,97,100
+  s_98712805c1499b::t_692e1c9e451ef8 102-260
+tests/test_quality_gate_identity_regressions.py
+  s_98712805c1499b::t_b2a4d82dbe2967 1-45
+pipelines/quality_gate.py
+  s_98712805c1499b::t_5f2029d26dd585 2,4-8,10-15,18,33-46,48-77,79-92,96-98,100-102,107-108,111,115,117,126,130,132,138,142,144,148,150,154,156,159,161-165,172-174,176-184,186-216,218-227,230-243
+pipelines/quality_gate_identity.py
+  s_98712805c1499b::t_b2a4d82dbe2967 1-193
+tests/test_quality_gate_identity.py
+  s_98712805c1499b::t_81ef488148b5ac 2,12-13,418
+docs/quality-gate.md
+  s_98712805c1499b::t_89e2633342db3f 87,107-112,223-224,345,348,354
+tests/quality_gate_test_support.py
+  s_98712805c1499b::t_6900ba2dba5cf6 1-26
+tests/test_quality_gate_embedding_encoder.py
+  s_98712805c1499b::t_18dc1b12f8bd18 1-81,89-94,99-352
+  s_98712805c1499b::t_3143165a603246 82-88,95-98
+tests/test_quality_gate_embedding_search.py
+  s_98712805c1499b::t_0daa5bfa4950db 1-24,65-387,389-413
+  s_98712805c1499b::t_87fd4ce57380ed 25-64,388
+tests/test_quality_gate_embedding_regressions.py
+  s_98712805c1499b::t_6f488d5bff2cf7 7,10,95-164
+  s_98712805c1499b::t_aefc0f7d28fe3b 1-6,8-9,11-94,165-168
+pipelines/promote.py
+  s_98712805c1499b::t_fadc94ac6103f8 535-543,545-555,559-563,570-607,616-618,623-636
+  s_98712805c1499b::t_576109bccb968a 54,61,144-184,189-192,196,207-208,212
+tests/test_quality_gate_audit.py
+  s_98712805c1499b::t_1f6c4a6f70d841 1-332
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "719e689a1966d1677570b7a7c067b26b885e540b",
+  "prompts": {},
+  "sessions": {
+    "s_98712805c1499b": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a04a1f-1e33-7812-a5aa-c7b04b33b6b5",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Raul Montoya Cardenas <montoyaraul34@gmail.com>"
+    }
+  }
+}
