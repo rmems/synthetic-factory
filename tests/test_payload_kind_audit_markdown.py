@@ -149,6 +149,19 @@ class PayloadKindMarkdown(PayloadKindAuditCase):
         self.assertIn("`act-r02-001`", rendered)
         self.assertIn("gate-v1 / MODIFY", rendered)
 
+    def test_markdown_renders_an_empty_identifier_as_a_closed_code_element(self):
+        """An empty string is an accepted legacy identifier, but wrapping it
+        in backticks yields one uninterrupted two-backtick run — a code-span
+        delimiter, not an empty span — so the table shows stray backticks or
+        absorbs later content into a phantom span (Codex #74)."""
+        record = _episode([])
+        record["id"] = ""
+        audit = self._audit_corpus({"episodes.jsonl": [record]})
+        self.assertEqual(audit["records"][0]["id"], "")
+        rendered = payload_kind_audit.render_markdown(audit)
+        self.assertIn("| <code></code> |", rendered)
+        self.assertNotIn("``", rendered)
+
     def test_markdown_renders_a_code_span_without_publishing_entities(self):
         """A code span already disables inline syntax, so escaping inside one
         would print the entity instead of the character the corpus holds."""

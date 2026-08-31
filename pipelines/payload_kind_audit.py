@@ -584,6 +584,11 @@ def _markdown_code(value: Any) -> str:
     entities are decoded again.
     """
     text = _markdown_text(value)
+    if not text:
+        # Backticks around an empty accepted identifier collapse into one
+        # uninterrupted two-backtick delimiter — malformed Markdown, not an
+        # empty span — so only the closed element can render this value.
+        return "<code></code>"
     if any(marker in text for marker in ("`", "|", "\r", "\n")):
         return f"<code>{_markdown_cell(text)}</code>"
     return text.translate(_MARKDOWN_CONTROL_ESCAPES).join("``")
