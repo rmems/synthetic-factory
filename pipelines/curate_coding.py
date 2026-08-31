@@ -27,68 +27,54 @@ emits one aggregate manifest for the complete lane.
 
 from __future__ import annotations
 
-import argparse
 import copy
 import hashlib
 import json
 import os
 import re
+import sys
 from collections import Counter
 from pathlib import Path
 from typing import Any
 
-from validate_run import HIDDEN_THOUGHT_KEYS
+_PIPELINES = Path(__file__).resolve().parent
+if str(_PIPELINES) not in sys.path:
+    sys.path.insert(0, str(_PIPELINES))
 
-
-TRANSFORM_NAME = "coding_observability"
-# Version 3 keeps the version-2 wrap support and additionally aligns the
-# transform with the structural audit's complete hidden-thought vocabulary.
-TRANSFORM_VERSION = "3"
-MAX_DECISION_BASIS_CHARS = 240
-RUN_MANIFEST_FILENAME = "manifest.jsonl"
-
-# Exact key names that never reach a curated record, plus the
-# ``internal_reasoning`` prefix that covers ``internal_reasoning_verbatim``,
-# ``internal_reasoning_optimizer``, and every other published variant.
-# ``reasoning`` is the coding-factory contract key
-# (prompts/04-agentic-coding-trajectory-factory.md) and is an exact match
-# only, so nearby names such as ``reasoning_flaw`` stay visible.
-HIDDEN_REASONING_KEYS = HIDDEN_THOUGHT_KEYS | frozenset(
-    {"internal_reasoning", "internal_reasoning_verbatim", "reasoning"}
+from coding_constants import (  # noqa: E402
+    HIDDEN_REASONING_KEYS,
+    HIDDEN_REASONING_PREFIX,
+    MAX_DECISION_BASIS_CHARS,
+    REASON_BASIS_CONCISED,
+    REASON_BASIS_FROM_OBSERVATION,
+    REASON_BASIS_FROM_PLAN,
+    REASON_BASIS_FROM_REFLECTION,
+    REASON_BASIS_FROM_TOOL_CALL,
+    REASON_HIDDEN_REASONING_REMOVED,
+    REASON_INVALID_JSON,
+    REASON_INVALID_UTF8,
+    REASON_NO_RETAINABLE_STEPS,
+    REASON_NO_VISIBLE_EVIDENCE,
+    REASON_RECORD_NOT_OBJECT,
+    REASON_STEP_NOT_OBJECT,
+    REASON_STEPS_EXCLUDED,
+    REASON_STEPS_MIGRATED,
+    REASON_STEPS_NOT_ARRAY,
+    REASON_THOUGHT_REMOVED,
+    REASON_WRAP_RECORD,
+    RUN_MANIFEST_FILENAME,
+    TRANSFORM_NAME,
+    TRANSFORM_VERSION,
+    WRAP_STEPS_PARENT,
+    _EVIDENCE_REASON,
 )
-HIDDEN_REASONING_PREFIX = "internal_reasoning"
-
-WRAP_STEPS_PARENT = "executed_action"
-
-REASON_HIDDEN_REASONING_REMOVED = "coding_hidden_reasoning_removed"
-REASON_BASIS_CONCISED = "coding_basis_concised"
-REASON_BASIS_FROM_PLAN = "coding_basis_from_plan"
-REASON_BASIS_FROM_REFLECTION = "coding_basis_from_reflection"
-REASON_BASIS_FROM_OBSERVATION = "coding_basis_from_observation"
-REASON_BASIS_FROM_TOOL_CALL = "coding_basis_from_tool_call"
-REASON_STEP_NOT_OBJECT = "coding_step_not_object"
-REASON_NO_VISIBLE_EVIDENCE = "coding_no_visible_decision_evidence"
-REASON_NO_RETAINABLE_STEPS = "coding_no_retainable_steps"
-REASON_STEPS_MIGRATED = "coding_steps_migrated"
-REASON_STEPS_EXCLUDED = "coding_steps_excluded"
-REASON_WRAP_RECORD = "coding_wrap_record"
-REASON_RECORD_NOT_OBJECT = "coding_record_not_object"
-REASON_STEPS_NOT_ARRAY = "coding_steps_not_array"
-REASON_INVALID_JSON = "coding_invalid_json"
-REASON_INVALID_UTF8 = "coding_invalid_utf8"
-
-_EVIDENCE_REASON = {
-    "plan": REASON_BASIS_FROM_PLAN,
-    "reflection": REASON_BASIS_FROM_REFLECTION,
-    "observation": REASON_BASIS_FROM_OBSERVATION,
-    "tool_call": REASON_BASIS_FROM_TOOL_CALL,
-}
 
 
 def canonical_json(value: Any) -> str:
     """Return the stable JSON representation used for output hashes."""
     return json.dumps(
         value,
+        allow_nan=False,
         ensure_ascii=False,
         separators=(",", ":"),
         sort_keys=True,
@@ -98,6 +84,10 @@ def canonical_json(value: Any) -> str:
 def hash_value(value: Any) -> str:
     """Hash a parsed value deterministically."""
     return hashlib.sha256(canonical_json(value).encode("utf-8")).hexdigest()
+
+
+def _reject_json_constant(value: str) -> None:
+    raise ValueError(f"non-standard JSON numeric constant {value}")
 
 
 def normalized_key_name(value: Any) -> str:
@@ -156,6 +146,9 @@ def contains_hidden_reasoning_key(value: Any) -> bool:
     if isinstance(value, list):
         return any(contains_hidden_reasoning_key(item) for item in value)
     return False
+
+
+contains_thought_key = contains_hidden_reasoning_key
 
 
 def _normalize_text(value: Any) -> str | None:
@@ -341,6 +334,17 @@ def _steps_holder(record: dict[str, Any], steps_path: str) -> dict[str, Any]:
     return record[WRAP_STEPS_PARENT]
 
 
+def _record_steps(record: Any) -> list[Any] | None:
+    """Return the curated step array for a plain or wrap record."""
+    if not isinstance(record, dict):
+        return None
+    steps_path = _steps_path(record)
+    if steps_path is None:
+        return None
+    steps = _steps_holder(record, steps_path).get("steps")
+    return steps if isinstance(steps, list) else None
+
+
 def curate_episode(
     record: Any,
     *,
@@ -473,8 +477,9 @@ def curate_jsonl(
                 )
                 continue
             try:
-                record = json.loads(text)
-            except json.JSONDecodeError:
+                record = json.loads(text, parse_constant=_reject_json_constant)
+                hash_value(record)
+            except (json.JSONDecodeError, TypeError, ValueError, RecursionError):
                 manifests.append(
                     _excluded_line_manifest(
                         source_path=source_label,
@@ -523,6 +528,50 @@ def curate_jsonl(
         "decision_basis_sources": dict(sorted(evidence_sources.items())),
     }
     return {"records": records, "manifest": manifests, "summary": summary}
+
+from coding_verify import verify_curation, verify_manifest  # noqa: E402
+
+__all__ = [
+    "HIDDEN_REASONING_KEYS",
+    "HIDDEN_REASONING_PREFIX",
+    "MAX_DECISION_BASIS_CHARS",
+    "REASON_BASIS_CONCISED",
+    "REASON_BASIS_FROM_OBSERVATION",
+    "REASON_BASIS_FROM_PLAN",
+    "REASON_BASIS_FROM_REFLECTION",
+    "REASON_BASIS_FROM_TOOL_CALL",
+    "REASON_HIDDEN_REASONING_REMOVED",
+    "REASON_INVALID_JSON",
+    "REASON_INVALID_UTF8",
+    "REASON_NO_RETAINABLE_STEPS",
+    "REASON_NO_VISIBLE_EVIDENCE",
+    "REASON_STEP_NOT_OBJECT",
+    "REASON_STEPS_EXCLUDED",
+    "REASON_STEPS_NOT_ARRAY",
+    "REASON_THOUGHT_REMOVED",
+    "REASON_WRAP_RECORD",
+    "RUN_MANIFEST_FILENAME",
+    "TRANSFORM_NAME",
+    "TRANSFORM_VERSION",
+    "_derive_decision_basis",
+    "_record_id",
+    "_record_steps",
+    "preflight_destinations",
+    "write_new_jsonl",
+    "canonical_json",
+    "contains_hidden_reasoning_key",
+    "contains_thought_key",
+    "curate_episode",
+    "curate_jsonl",
+    "curate_run",
+    "curate_step",
+    "hash_value",
+    "is_hidden_reasoning_key",
+    "main",
+    "normalized_key_name",
+    "verify_curation",
+    "verify_manifest",
+]
 
 
 def _is_under_raw(path: Path) -> bool:
@@ -712,51 +761,17 @@ def curate_run(source_dir: str | Path, output_dir: str | Path) -> dict[str, Any]
     }
 
 
+write_new_jsonl = _write_new_jsonl
+preflight_destinations = _preflight_destinations
+
+
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("source", type=Path, help="legacy episode JSONL to inspect")
-    parser.add_argument("--output-jsonl", type=Path)
-    parser.add_argument("--manifest-jsonl", type=Path)
-    parser.add_argument(
-        "--output-dir",
-        type=Path,
-        help="new lane root for directory-wide curation",
-    )
-    args = parser.parse_args(argv)
+    pipelines_dir = str(Path(__file__).resolve().parent)
+    if pipelines_dir not in sys.path:
+        sys.path.insert(0, pipelines_dir)
+    from coding_cli import run
 
-    if args.output_dir is not None:
-        if args.output_jsonl is not None or args.manifest_jsonl is not None:
-            parser.error("--output-dir cannot be combined with file output options")
-        if not args.source.is_dir():
-            parser.error("--output-dir requires a source directory")
-        try:
-            result = curate_run(args.source, args.output_dir)
-        except (FileExistsError, OSError, ValueError) as exc:
-            parser.error(str(exc))
-        print(json.dumps(result, ensure_ascii=False, indent=2, sort_keys=True))
-        return 0
-    if args.source.is_dir():
-        parser.error("a source directory requires --output-dir")
-
-    if args.output_jsonl is not None and args.output_jsonl.resolve(strict=False) == args.source.resolve():
-        parser.error("output must not replace the source")
-    destinations = [
-        path
-        for path in (args.output_jsonl, args.manifest_jsonl)
-        if path is not None
-    ]
-    try:
-        _preflight_destinations(destinations)
-    except (FileExistsError, ValueError) as exc:
-        parser.error(str(exc))
-
-    result = curate_jsonl(args.source)
-    if args.output_jsonl is not None:
-        _write_new_jsonl(args.output_jsonl, result["records"])
-    if args.manifest_jsonl is not None:
-        _write_new_jsonl(args.manifest_jsonl, result["manifest"])
-    print(json.dumps(result["summary"], ensure_ascii=False, indent=2, sort_keys=True))
-    return 0
+    return run(argv)
 
 
 if __name__ == "__main__":
