@@ -1,0 +1,52 @@
+tests/test_fault_recovery.py
+  s_f3ffb7db87dca1::t_bc42db5dddaa72 94,96-108
+pipelines/router_baseline.py
+  s_f3ffb7db87dca1::t_769657e5c1e1f6 506-536
+  s_f3ffb7db87dca1::t_aa7513e4216ff5 550
+tests/test_distillation_review_gaps.py
+  s_f3ffb7db87dca1::t_60877d1cb37f49 1601-1694,1703-1832
+  s_f3ffb7db87dca1::t_1e6f9b7087c1ba 1695-1702
+pipelines/energy_preferences.py
+  s_f3ffb7db87dca1::t_9fdd18908a5f4e 1672-1705
+  s_f3ffb7db87dca1::t_26185009ac165d 2029-2031
+pipelines/fault_recovery.py
+  s_f3ffb7db87dca1::t_76792c7a6c9bca 641
+  s_f3ffb7db87dca1::t_f8a96d54e8ff0b 1071-1081,1084
+  s_f3ffb7db87dca1::t_71512f5383ed5b 499-522
+docs/distillation-datasets.md
+  s_f3ffb7db87dca1::t_1b49575812b24d 194-197
+  s_f3ffb7db87dca1::t_9608d7869ea308 287-289
+  s_f3ffb7db87dca1::t_b79ccd3e523928 37-43
+  s_f3ffb7db87dca1::t_ed2beee8fff7a2 18-22
+  s_f3ffb7db87dca1::t_1de50b65bdb063 259-268
+  s_f3ffb7db87dca1::t_f94ab17f1d8275 87-90,93-96
+pipelines/oracle_contract.py
+  s_f3ffb7db87dca1::t_0f8737004f1f69 520-529
+  s_f3ffb7db87dca1::t_f9a57d5b63902d 109-124
+  s_f3ffb7db87dca1::t_60828d232927f9 158-189
+  s_f3ffb7db87dca1::t_70aeeaed8ea8b2 541-542
+pipelines/moe_router.py
+  s_f3ffb7db87dca1::t_6ff271142fbbcd 1290-1298
+  s_f3ffb7db87dca1::t_73c67dde23e594 1394
+  s_f3ffb7db87dca1::t_386762250573f5 1586-1620
+  s_f3ffb7db87dca1::t_51825b37adfffd 477-489
+  s_f3ffb7db87dca1::t_7b6b4ee2fe225d 656-659
+  s_f3ffb7db87dca1::t_39e75708b713cd 1664
+  s_f3ffb7db87dca1::t_d93846c212e02c 1269-1271
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "af0d15d0be1d31057891dde0a3c0f56adeac76f1",
+  "prompts": {},
+  "sessions": {
+    "s_f3ffb7db87dca1": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "510a01e2-1e9d-4f64-a445-6971413485be",
+        "model": "claude-fable-5"
+      },
+      "human_author": "Raul Montoya Cardenas <montoyaraul34@gmail.com>"
+    }
+  }
+}
