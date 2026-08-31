@@ -483,11 +483,46 @@ class RelayReflexSimulator(FaultOracle):
             )
         RelayReflexSimulator._check_parameter_values(kind, parameters)
 
+    # Numeric parameter floors. A value outside these cannot produce the
+    # declared disturbance — a negative duration never opens the active
+    # window, a non-positive jitter or delay perturbs nothing — so the run
+    # would be a no-op wearing a disturbance's name.
+    _PARAMETER_FLOORS: tuple[tuple[str, float, bool], ...] = (
+        ("onset_ms", 0.0, False),
+        ("duration_ms", 0.0, True),
+        ("jitter_ms", 0.0, True),
+        ("ramp_ms", 0.0, True),
+        ("delay_ms", 0.0, True),
+    )
+
     @staticmethod
     def _check_parameter_values(kind: str, parameters: dict[str, Any]) -> None:
         """Value ranges whose violation would also run as a silent no-op."""
 
+        for key, floor, exclusive in RelayReflexSimulator._PARAMETER_FLOORS:
+            if key not in parameters:
+                continue
+            value = parameters[key]
+            if not oc.is_number(value) or (
+                value <= floor if exclusive else value < floor
+            ):
+                raise oc.ContractError(
+                    f"{kind} {key} must be a finite number "
+                    f"{'>' if exclusive else '>='} {floor}, got {value!r}; "
+                    "outside that range the declared disturbance cannot occur"
+                )
+        if "peak_c" in parameters and not oc.is_number(parameters["peak_c"]):
+            raise oc.ContractError(
+                f"{kind} peak_c must be a finite number, got "
+                f"{parameters['peak_c']!r}"
+            )
         if kind == "malformed_spike_burst":
+            count = parameters.get("malformed_count")
+            if not isinstance(count, int) or isinstance(count, bool) or count < 1:
+                raise oc.ContractError(
+                    f"malformed_count must be an integer >= 1, got {count!r}; "
+                    "a burst of zero events is a no-op"
+                )
             # The tick loop branches on this value. A typo used to fall through
             # to the `unknown_channel` arm, so `negative_amplitdue` became a
             # dropped event and produced `degrade_gracefully` — an authoritative
@@ -1026,6 +1061,24 @@ def _check_replay_measurements(
     errors: list[str] = []
     expected = _derived_measurements(replay)
     measurements = result.get("measurements")
+    # Presence first: validating only the readings that remain would let a
+    # record delete the replay-derived latencies, counts and ratios wholesale
+    # and keep a single surviving reading as its "measured" result.
+    recorded_quantities = {
+        item.get("quantity")
+        for item in (measurements if isinstance(measurements, list) else [])
+        if isinstance(item, dict) and isinstance(item.get("quantity"), str)
+    }
+    missing = sorted(
+        quantity
+        for quantity, target in expected.items()
+        if target is not None and quantity not in recorded_quantities
+    )
+    if missing:
+        errors.append(
+            f"{where}.result: OUTCOME_NOT_REPRODUCIBLE — the replay derives "
+            f"measurements {missing} that the record does not carry"
+        )
     for item in measurements if isinstance(measurements, list) else []:
         if not isinstance(item, dict):
             continue
@@ -1198,6 +1251,40 @@ def _check_outcome(result: dict[str, Any], where: str) -> list[str]:
     return errors
 
 
+def _check_prediction_agreement(record: dict[str, Any], where: str) -> list[str]:
+    """``result.prediction_agreement`` is derived, not an independent fact.
+
+    Flipping it to ``"agree"`` would corrupt every disagreement analysis while
+    the replay still reproduced the outcome, so it is recomputed from the
+    prediction and the outcome instead of being trusted.
+    """
+
+    result = record.get("result")
+    if not isinstance(result, dict) or "prediction_agreement" not in result:
+        return []
+    agreement = result.get("prediction_agreement")
+    if agreement not in ("agree", "disagree"):
+        return [
+            f"{where}.result.prediction_agreement must be 'agree' or "
+            f"'disagree', got {agreement!r}"
+        ]
+    prediction = record.get("candidate_prediction")
+    predicted = (
+        prediction.get("predicted_outcome") if isinstance(prediction, dict) else None
+    )
+    outcome = result.get("outcome")
+    if not isinstance(predicted, str) or not oc.is_enum_value(outcome, OUTCOMES):
+        return []
+    expected = "agree" if predicted == outcome else "disagree"
+    if agreement != expected:
+        return [
+            f"{where}.result.prediction_agreement is {agreement!r} but the "
+            f"prediction {predicted!r} against outcome {outcome!r} yields "
+            f"{expected!r}"
+        ]
+    return []
+
+
 def check_family(record: dict[str, Any], where: str) -> list[str]:
     """Family checks layered on top of the shared envelope."""
 
@@ -1207,6 +1294,7 @@ def check_family(record: dict[str, Any], where: str) -> list[str]:
     if not isinstance(result, dict):
         return errors + [f"{where}.result must be an object"]
     errors += _check_outcome(result, where)
+    errors += _check_prediction_agreement(record, where)
     errors += _recheck_deterministic_outcome(record, where)
     return errors
 

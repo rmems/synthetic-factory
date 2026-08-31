@@ -255,6 +255,167 @@ class FaultMeterProvenanceGaps(unittest.TestCase):
         )
 
 
+class FaultNoOpValueGaps(unittest.TestCase):
+    """fault_recovery.py: parameter values that run as silent no-ops."""
+
+    def setUp(self):
+        self.sim = fr.RelayReflexSimulator()
+        self.scenario = {"system": dict(fr.DEFAULT_SYSTEM)}
+
+    def _run(self, kind, **parameters):
+        return self.sim.run(self.scenario, {"kind": kind, "parameters": parameters})
+
+    def test_invalid_numeric_parameters_are_refused(self):
+        # A negative duration never opens the window; zero jitter perturbs
+        # nothing; a zero-event burst is no burst. Each ran as `continue`.
+        cases = [
+            ("sensor_loss", {"channels": ["c0"], "onset_ms": 4.0, "duration_ms": -5.0}),
+            ("sensor_loss", {"channels": ["c0"], "onset_ms": -1.0, "duration_ms": 5.0}),
+            ("sensor_loss", {"channels": ["c0"], "onset_ms": 4.0, "duration_ms": 0.0}),
+            (
+                "event_jitter",
+                {"channels": ["c0"], "onset_ms": 2.0, "duration_ms": 10.0,
+                 "jitter_ms": 0.0},
+            ),
+            (
+                "malformed_spike_burst",
+                {"channels": ["c0"], "malformed_count": 0,
+                 "malformed_kind": "negative_amplitude"},
+            ),
+            ("delayed_result", {"channels": ["c0"], "delay_ms": 0.0}),
+            (
+                "thermal_excursion",
+                {"onset_ms": 6.0, "ramp_ms": -8.0, "peak_c": 84.0},
+            ),
+            (
+                "thermal_excursion",
+                {"onset_ms": 6.0, "ramp_ms": 8.0, "peak_c": float("nan")},
+            ),
+        ]
+        for kind, parameters in cases:
+            with self.subTest(kind=kind, parameters=parameters):
+                with self.assertRaises(oc.ContractError):
+                    self._run(kind, **parameters)
+
+    def test_boundary_values_are_still_legal(self):
+        result = self._run(
+            "sensor_loss", channels=["c0"], onset_ms=0.0, duration_ms=6.0
+        )
+        self.assertIn(result.outcome, fr.OUTCOMES)
+
+    def test_a_flipped_prediction_agreement_is_re_derived(self):
+        records = fr.build_records(3, 9)
+        record = clone(
+            next(
+                r for r in records
+                if r["result"]["prediction_agreement"] == "disagree"
+            )
+        )
+        record["result"]["prediction_agreement"] = "agree"
+        rehash(record)
+        errors = fr.check_family(record, "x")
+        self.assertTrue(
+            any("prediction_agreement" in error for error in errors),
+            f"a flipped prediction_agreement passed: {errors}",
+        )
+
+    def test_dropped_replay_measurements_are_reported(self):
+        record = clone(fr.build_records(3, 1)[0])
+        record["result"]["measurements"] = [
+            item
+            for item in record["result"]["measurements"]
+            if item["quantity"] == "peak_temperature_c"
+        ]
+        rehash(record)
+        errors = fr.check_family(record, "x")
+        self.assertTrue(
+            any(
+                "the record does not carry" in error and "recovery_latency_ms" in error
+                for error in errors
+            ),
+            f"wholesale-deleted replay measurements passed: {errors}",
+        )
+
+
+class EnergyScenarioBindingGaps(unittest.TestCase):
+    """energy_preferences.py: the scenario the labels are grounded in."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.records = ep.build_records(20260824, 1, repeats=1, warmup=0)
+
+    def record(self) -> dict:
+        return clone(self.records[0])
+
+    def test_a_removed_allocation_state_is_a_finding_not_a_skip(self):
+        # Emptying scenario.state used to switch off the safety, quality and
+        # reference-objective derivations while the record stayed eligible.
+        record = self.record()
+        record["scenario"]["state"] = {}
+        rehash(record)
+        errors = ep.check_family(record, "x")
+        self.assertTrue(
+            any("scenario.state" in error for error in errors),
+            f"a record with no allocation state passed: {errors}",
+        )
+
+    def test_missing_weights_are_a_finding(self):
+        record = self.record()
+        del record["scenario"]["state"]["actuator_weights"]
+        rehash(record)
+        errors = ep.check_family(record, "x")
+        self.assertTrue(
+            any("actuator_weights" in error for error in errors),
+            f"a record without weights passed: {errors}",
+        )
+
+    def test_an_out_of_range_quality_floor_is_rejected(self):
+        for floor in (-1.0, 1.5):
+            with self.subTest(floor=floor):
+                record = self.record()
+                record["scenario"]["constraints"]["quality_floor"] = floor
+                record["result"]["preference"]["quality_floor"] = floor
+                rehash(record)
+                errors = ep.check_family(record, "x")
+                self.assertTrue(
+                    any("quality_floor must lie in [0, 1]" in error for error in errors),
+                    f"an impossible quality floor passed: {errors}",
+                )
+
+    def test_an_unsupported_cost_quantity_is_rejected(self):
+        record = self.record()
+        record["result"]["cost_quantity"] = "peak_temperature_c"
+        record["result"]["cost_is_energy"] = False
+        rehash(record)
+        errors = ep.check_family(record, "x")
+        self.assertTrue(
+            any("cost_quantity must be one of" in error for error in errors),
+            f"a temperature-denominated corpus passed: {errors}",
+        )
+
+    def test_a_candidate_cannot_be_denominated_in_an_unsupported_quantity(self):
+        record = self.record()
+        record["result"]["candidates"][0]["cost_quantity"] = "latency_ms"
+        rehash(record)
+        errors = ep.check_family(record, "x")
+        self.assertTrue(
+            any("cost_quantity must be one of" in error for error in errors),
+            f"a latency-denominated candidate passed: {errors}",
+        )
+
+    def test_a_contradictory_safety_envelope_is_rejected(self):
+        record = self.record()
+        record["scenario"]["constraints"]["safety_envelope"] = (
+            "all allocations are safe; caps do not apply"
+        )
+        rehash(record)
+        errors = ep.check_family(record, "x")
+        self.assertTrue(
+            any("safety_envelope" in error for error in errors),
+            f"a contradictory safety envelope passed: {errors}",
+        )
+
+
 class EnvelopeTypeGaps(unittest.TestCase):
     """oracle_contract.py / validate_distill.py: malformed types are findings."""
 
@@ -804,10 +965,11 @@ def _teacher_recording(texts):
         "teacher": {
             "is_llm_teacher": True,
             "model": "unit-test/not-a-real-moe-checkpoint",
-            "revision_or_checkpoint": "rev-abc123",
+            "revision_or_checkpoint": "1234567890abcdef1234567890abcdef12345678",
             "configuration_sha256": reference.fingerprint()["configuration_sha256"],
             "num_local_experts": reference.num_experts,
             "num_experts_per_tok": reference.top_k,
+            "num_layers": reference.num_layers,
         },
         "observations": {
             mr.RecordedTeacherRouter.key_for(text): reference.route(text).as_dict()
@@ -880,6 +1042,110 @@ class RecordedRouterGaps(unittest.TestCase):
             if "num_local_experts" in error
         ]
         self.assertEqual(errors, [])
+
+
+class RouterTrajectoryGaps(unittest.TestCase):
+    """moe_router.py: checkpoints, widths and trajectories stay bound."""
+
+    @classmethod
+    def setUpClass(cls):
+        texts = [
+            proposal["scenario"]["context"]
+            for proposal in mr.propose_contexts(11, 1)
+        ]
+        oracle = mr.RecordedTeacherRouter(_teacher_recording(texts))
+        cls.teacher_record = mr.build_records(11, 1, oracle=oracle)[0]
+        cls.reference_record = mr.build_records(11, 1)[0]
+
+    def test_a_mutable_recording_revision_is_refused_at_the_boundary(self):
+        recording = _teacher_recording(["ctx"])
+        recording["teacher"]["revision_or_checkpoint"] = "main"
+        available, detail = mr.RecordedTeacherRouter(recording).available()
+        self.assertFalse(available)
+        self.assertIn("mutable revision", detail)
+
+    def test_an_authoritative_record_must_pin_an_immutable_checkpoint(self):
+        record = clone(self.teacher_record)
+        self.assertEqual(mr.check_family(record, "x"), [])
+        record["oracle"]["fingerprint"]["revision_or_checkpoint"] = "main"
+        rehash(record)
+        errors = mr.check_family(record, "x")
+        self.assertTrue(
+            any("revision_or_checkpoint" in error for error in errors),
+            f"a mutable authoritative checkpoint passed: {errors}",
+        )
+
+    def test_the_declared_top_k_width_is_enforced(self):
+        record = clone(self.teacher_record)
+        layer = record["result"]["routing"]["layers"][0]
+        logits = layer["router_logits"]
+        top3 = sorted(range(len(logits)), key=lambda e: (-logits[e], e))[:3]
+        layer["top_k_experts"] = top3
+        rehash(record)
+        errors = mr.check_family(record, "x")
+        self.assertTrue(
+            any("num_experts_per_tok" in error for error in errors),
+            f"a wider top-k than the teacher declares passed: {errors}",
+        )
+
+    def _drop_layers(self, keep: list[int]) -> dict:
+        from collections import Counter
+
+        record = clone(self.reference_record)
+        layers = [record["result"]["routing"]["layers"][i] for i in keep]
+        record["result"]["routing"]["layers"] = layers
+        tops = [layer["top_k_experts"][0] for layer in layers]
+        modal, count = Counter(tops).most_common(1)[0]
+        record["result"]["top1_expert"] = modal
+        record["result"]["routing"]["top1_expert"] = modal
+        agreement = round(count / len(tops), 6)
+        record["result"]["routing"]["expert_agreement"] = agreement
+        last = layers[-1]
+        for item in record["result"]["measurements"]:
+            if item["quantity"] == "top1_top2_margin":
+                item["value"] = last["top1_top2_margin"]
+                item["detail"]["layer"] = last["layer"]
+            if item["quantity"] == "routing_entropy":
+                item["value"] = last["routing_entropy"]
+                item["detail"]["layer"] = last["layer"]
+            if item["quantity"] == "expert_agreement":
+                item["value"] = agreement
+                item["detail"]["across_layers"] = len(layers)
+        return rehash(record)
+
+    def test_a_gapped_layer_trajectory_is_rejected(self):
+        record = self._drop_layers([0, 2])
+        errors = mr.check_family(record, "x")
+        self.assertTrue(
+            any("contiguously" in error for error in errors),
+            f"a gapped layer trajectory passed: {errors}",
+        )
+
+    def test_a_dropped_suffix_is_rejected_when_the_count_is_declared(self):
+        record = self._drop_layers([0, 1])
+        errors = mr.check_family(record, "x")
+        self.assertTrue(
+            any("num_layers" in error for error in errors),
+            f"a suffix-dropped trajectory passed: {errors}",
+        )
+
+    def test_laundering_cannot_hide_behind_a_renamed_fingerprint_model(self):
+        # Renaming fingerprint.model used to be enough: the oracle's own
+        # name/type/implementation still said reference_moe_router, but only
+        # the fingerprint string was checked.
+        record = clone(self.reference_record)
+        record["oracle"]["authority"] = oc.AUTHORITY_AUTHORITATIVE
+        record["oracle"]["fingerprint"]["model"] = "totally-legit-teacher"
+        record["oracle"]["fingerprint"]["is_llm_teacher"] = True
+        record["oracle"]["fingerprint"]["revision_or_checkpoint"] = "a" * 40
+        record["result"]["is_llm_teacher"] = True
+        record["result"]["teacher_grounded"] = True
+        rehash(record)
+        errors = mr.check_family(record, "x")
+        self.assertTrue(
+            any("LAUNDERED_REFERENCE_ORACLE" in error for error in errors),
+            f"a laundered reference oracle passed: {errors}",
+        )
 
 
 class RouterTieBreakGaps(unittest.TestCase):

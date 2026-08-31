@@ -45,13 +45,16 @@ def recording_from_reference(
         "teacher": {
             "is_llm_teacher": is_llm_teacher,
             "model": model,
-            "revision_or_checkpoint": "rev-abc123",
+            # A resolved commit, never a branch name: the replay wrapper
+            # refuses mutable revisions.
+            "revision_or_checkpoint": "1234567890abcdef1234567890abcdef12345678",
             "configuration_sha256": reference.fingerprint()["configuration_sha256"],
-            # An honest teacher recording declares its expert count; without
-            # one the replay wrapper refuses it (replayed expert ids could
-            # not be range-checked).
+            # An honest teacher recording declares its shape; without the
+            # expert count the replay wrapper refuses it, and the layer and
+            # top-k widths bind the recorded trajectories.
             "num_local_experts": reference.num_experts,
             "num_experts_per_tok": reference.top_k,
+            "num_layers": reference.num_layers,
         },
         "observations": observations,
     }

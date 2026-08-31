@@ -74,8 +74,14 @@ FEATURIZER_ID = "blake2b-char-trigram-hashing/1.0.0"
 MAX_RECOMPUTE_DIM = 4096
 
 # Oracles that compute real routing but are not language-model teachers. A
-# recording may never name one of these as the teacher it replays.
+# recording may never name one of these as the teacher it replays. The name,
+# type and implementation are all checked: a laundered record can rename the
+# fingerprint's model while leaving the oracle's own identity intact.
 NON_TEACHER_ORACLE_NAMES = frozenset({"reference_moe_router"})
+NON_TEACHER_ORACLE_TYPES = frozenset({"reference_model_router"})
+NON_TEACHER_IMPLEMENTATIONS = frozenset(
+    {"pipelines/moe_router.py:ReferenceMoERouter"}
+)
 
 # Slack allowed when the validator recomputes a summary from the recorded
 # logits. The logits are themselves stored rounded to 6 places, so an exact
@@ -369,6 +375,7 @@ class ReferenceMoERouter(RouterOracle):
             "configuration_sha256": hashlib.sha256(gate_bytes).hexdigest(),
             "num_local_experts": self.num_experts,
             "num_experts_per_tok": self.top_k,
+            "num_layers": self.num_layers,
             "note": "deterministic stand-in; not a language model teacher",
         }
 
@@ -445,6 +452,16 @@ class RecordedTeacherRouter(RouterOracle):
         ]
         if missing:
             return f"recording is missing teacher fields: {sorted(missing)}"
+        revision = self.teacher.get("revision_or_checkpoint")
+        if not (isinstance(revision, str) and COMMIT_SHA_RE.match(revision.strip())):
+            # A branch or tag is not a checkpoint: the same name can serve
+            # different weights tomorrow while the configuration digest stays
+            # the same, so replayed labels would share one teacher identity
+            # across revisions.
+            return (
+                f"recording names a mutable revision {revision!r}; a replayed "
+                "teacher must pin a resolved 40-hex commit"
+            )
         if not self.is_llm_teacher:
             return (
                 "recording does not declare is_llm_teacher: true — a recorded "
@@ -984,22 +1001,68 @@ def _check_fingerprint_identity(fingerprint: dict[str, Any], where: str) -> list
     return errors
 
 
+def _non_teacher_identity(oracle: dict[str, Any], fingerprint: dict[str, Any]) -> str | None:
+    """The stand-in identity an oracle block carries, if it carries one.
+
+    The fingerprint's ``model`` is caller-controlled prose; the oracle's own
+    name, type and implementation are what the producing code wrote. All four
+    are checked so renaming one field cannot launder a stand-in.
+    """
+
+    if oc.is_enum_value(fingerprint.get("model"), NON_TEACHER_ORACLE_NAMES):
+        return f"fingerprint.model {fingerprint.get('model')!r}"
+    if oc.is_enum_value(oracle.get("name"), NON_TEACHER_ORACLE_NAMES):
+        return f"oracle.name {oracle.get('name')!r}"
+    if oc.is_enum_value(oracle.get("type"), NON_TEACHER_ORACLE_TYPES):
+        return f"oracle.type {oracle.get('type')!r}"
+    if oc.is_enum_value(oracle.get("implementation"), NON_TEACHER_IMPLEMENTATIONS):
+        return f"oracle.implementation {oracle.get('implementation')!r}"
+    return None
+
+
 def _check_laundered_oracle(
     oracle: Any, fingerprint: dict[str, Any], where: str
 ) -> list[str]:
     """A non-teacher stand-in may not be recorded as an authoritative teacher."""
 
-    if (
-        isinstance(oracle, dict)
-        and oracle.get("authority") == oc.AUTHORITY_AUTHORITATIVE
-        and oc.is_enum_value(fingerprint.get("model"), NON_TEACHER_ORACLE_NAMES)
-    ):
+    if not isinstance(oracle, dict) or oracle.get("authority") != oc.AUTHORITY_AUTHORITATIVE:
+        return []
+    identity = _non_teacher_identity(oracle, fingerprint)
+    if identity is not None:
         return [
-            f"{where}.oracle: LAUNDERED_REFERENCE_ORACLE — "
-            f"{fingerprint.get('model')!r} is a non-teacher stand-in and may "
-            "not be recorded as an authoritative teacher"
+            f"{where}.oracle: LAUNDERED_REFERENCE_ORACLE — {identity} names a "
+            "non-teacher stand-in and may not be recorded as an authoritative "
+            "teacher"
         ]
     return []
+
+
+def _check_authoritative_checkpoint(
+    oracle: Any, fingerprint: Any, where: str
+) -> list[str]:
+    """An authoritative router record must pin an immutable checkpoint.
+
+    ``resolve_checkpoint`` protects the live Transformers adapter, but a
+    replayed recording could otherwise carry ``revision_or_checkpoint:
+    "main"`` — a mutable name under which different weight revisions share
+    one teacher identity while the configuration digest stays the same.
+    """
+
+    if not (
+        isinstance(oracle, dict)
+        and oracle.get("authority") == oc.AUTHORITY_AUTHORITATIVE
+        and isinstance(fingerprint, dict)
+    ):
+        return []
+    revision = fingerprint.get("revision_or_checkpoint")
+    if isinstance(revision, str) and COMMIT_SHA_RE.match(revision.strip()):
+        return []
+    return [
+        f"{where}.oracle.fingerprint.revision_or_checkpoint must be a "
+        f"resolved 40-hex commit for an authoritative router record, got "
+        f"{revision!r} — a mutable name can serve different weights under "
+        "one recorded identity"
+    ]
 
 
 def _check_teacher_fingerprint(oracle: Any, fingerprint: Any, where: str) -> list[str]:
@@ -1073,19 +1136,33 @@ def _check_teacher_grounding(
     return errors
 
 
-def _declared_expert_count(fingerprint: Any) -> int | None:
-    """The expert count the oracle fingerprint declares, when it declares one."""
+def _declared_positive_int(fingerprint: Any, field: str) -> int | None:
+    """A positive-integer fingerprint field, when it is declared as one."""
 
     if not isinstance(fingerprint, dict):
         return None
-    declared_experts = fingerprint.get("num_local_experts")
-    if (
-        isinstance(declared_experts, int)
-        and not isinstance(declared_experts, bool)
-        and declared_experts > 0
-    ):
-        return declared_experts
+    declared = fingerprint.get(field)
+    if isinstance(declared, int) and not isinstance(declared, bool) and declared > 0:
+        return declared
     return None
+
+
+def _declared_expert_count(fingerprint: Any) -> int | None:
+    """The expert count the oracle fingerprint declares, when it declares one."""
+
+    return _declared_positive_int(fingerprint, "num_local_experts")
+
+
+def _declared_top_k(fingerprint: Any) -> int | None:
+    """The per-token top-k width the fingerprint declares, when it does."""
+
+    return _declared_positive_int(fingerprint, "num_experts_per_tok")
+
+
+def _declared_layer_count(fingerprint: Any) -> int | None:
+    """The routed layer count the fingerprint declares, when it does."""
+
+    return _declared_positive_int(fingerprint, "num_layers")
 
 
 def _check_layer_index(layer: dict[str, Any], spot: str, order: _LayerOrder) -> list[str]:
@@ -1101,12 +1178,15 @@ def _check_layer_index(layer: dict[str, Any], spot: str, order: _LayerOrder) -> 
         # router_baseline._target_label reads the last-layer decision as
         # `layers[-1]`. Unique-but-unordered indices such as [3, 0, 1, 2]
         # would silently make layer 2 the training target while the record
-        # advertises layer 3.
-        if order.previous is not None and layer_index <= order.previous:
+        # advertises layer 3 — and a merely increasing sequence such as
+        # [0, 2] would let interior layers vanish while still looking
+        # ordered, so the trajectory must be contiguous from zero.
+        expected_index = 0 if order.previous is None else order.previous + 1
+        if layer_index != expected_index:
             errors.append(
-                f"{spot}.layer {layer_index} follows {order.previous}; "
-                "routing layers must be recorded in model order so the "
-                "last entry is the last layer"
+                f"{spot}.layer {layer_index} where {expected_index} was "
+                "expected; routing layers must be recorded contiguously "
+                "from 0 in model order so the last entry is the last layer"
             )
         order.previous = layer_index
         order.seen.add(layer_index)
@@ -1122,13 +1202,21 @@ def _invalid_expert_entries(experts: list[Any]) -> list[Any]:
 
 
 def _check_layer_experts(
-    layer: dict[str, Any], spot: str, expert_count: int | None
+    layer: dict[str, Any], spot: str, expert_count: int | None,
+    top_k: int | None = None,
 ) -> list[str]:
-    """The routed expert ids: at least two, distinct, and in range."""
+    """The routed expert ids: the declared width, distinct, and in range."""
 
     experts = layer.get("top_k_experts")
     if not isinstance(experts, list) or len(experts) < 2:
         return [f"{spot}.top_k_experts must list at least the top two"]
+    if top_k is not None and len(experts) != top_k:
+        # A wider (or narrower) list than the teacher's declared top-k is a
+        # distillation target that contradicts the recorded configuration.
+        return [
+            f"{spot}.top_k_experts lists {len(experts)} experts but the "
+            f"oracle fingerprint declares num_experts_per_tok {top_k}"
+        ]
     invalid_experts = _invalid_expert_entries(experts)
     if invalid_experts:
         return [f"{spot}.top_k_experts contains invalid entries: {invalid_experts}"]
@@ -1275,13 +1363,14 @@ def _check_layer_entropy(
 
 
 def _check_layer_signals(
-    layer: dict[str, Any], spot: str, expert_count: int | None
+    layer: dict[str, Any], spot: str, expert_count: int | None,
+    top_k: int | None = None,
 ) -> list[str]:
     """The routed experts, their logits, and the summaries derived from them."""
 
     exposed_logits = _exposed_logits(layer)
     return (
-        _check_layer_experts(layer, spot, expert_count)
+        _check_layer_experts(layer, spot, expert_count, top_k)
         + _check_layer_logits(layer, spot)
         + _check_layer_margin(layer, spot, exposed_logits)
         + _check_layer_entropy(layer, spot, exposed_logits, expert_count)
@@ -1414,7 +1503,7 @@ def _check_declared_count_authority(
 
 
 def _check_routing_layers(
-    layers: list[Any], expert_count: int | None, where: str
+    layers: list[Any], expert_count: int | None, top_k: int | None, where: str
 ) -> list[str]:
     errors: list[str] = []
     order = _LayerOrder()
@@ -1424,8 +1513,28 @@ def _check_routing_layers(
             errors.append(f"{spot} must be an object")
             continue
         errors += _check_layer_index(layer, spot, order)
-        errors += _check_layer_signals(layer, spot, expert_count)
+        errors += _check_layer_signals(layer, spot, expert_count, top_k)
     return errors
+
+
+def _check_layer_count(
+    layers: list[Any], fingerprint: Any, where: str
+) -> list[str]:
+    """The recorded trajectory length against the declared layer count.
+
+    Contiguity alone still lets a suffix vanish: a record keeping layers
+    [0, 1] of a four-layer teacher looks ordered while ``router_baseline``
+    reads a mid-network decision as the last-layer target.
+    """
+
+    declared = _declared_layer_count(fingerprint)
+    if declared is not None and len(layers) != declared:
+        return [
+            f"{where}.result.routing.layers has {len(layers)} layers but the "
+            f"oracle fingerprint declares num_layers {declared} — a dropped "
+            "suffix would change the last-layer target"
+        ]
+    return []
 
 
 def check_family(record: dict[str, Any], where: str) -> list[str]:
@@ -1451,7 +1560,11 @@ def check_family(record: dict[str, Any], where: str) -> list[str]:
 
     expert_count = _declared_expert_count(fingerprint)
     errors += _check_declared_count_authority(expert_count, oracle, where)
-    errors += _check_routing_layers(layers, expert_count, where)
+    errors += _check_authoritative_checkpoint(oracle, fingerprint, where)
+    errors += _check_routing_layers(
+        layers, expert_count, _declared_top_k(fingerprint), where
+    )
+    errors += _check_layer_count(layers, fingerprint, where)
     errors += _check_derived_routing_labels(result, routing, layers, where)
     errors += _check_measurement_reconciliation(result, routing, layers, where)
     return errors

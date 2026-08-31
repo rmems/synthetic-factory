@@ -84,6 +84,17 @@ DEFAULT_COARSE_STEPS = 8
 ABSTAIN_NO_FEASIBLE = "NO_CANDIDATE_SATISFIES_QUALITY_AND_SAFETY_CONSTRAINTS"
 ABSTAIN_NO_MEASUREMENT = "NO_MEASURED_COST_AVAILABLE"
 
+# The one safety envelope this family's oracle enforces. Validated verbatim:
+# a scenario describing a different rule to the student than the one the
+# labels were derived under would pair one decision rule's description with
+# another's outcomes.
+SAFETY_ENVELOPE = "0 <= x_i <= cap_i and sum(x_i) == demand"
+
+# The costs this family's decision rule may minimise: measured joules, or the
+# documented CPU-time fallback. Any other registered quantity (a latency, a
+# temperature) is a different optimisation wearing this family's name.
+SUPPORTED_COST_QUANTITIES = frozenset({"energy_j", "cpu_time_s"})
+
 
 # --------------------------------------------------------------------------
 # Meters
@@ -687,7 +698,7 @@ def propose_scenarios(seed: int, count: int) -> list[dict[str, Any]]:
                     "state": _allocation_state(rng),
                     "constraints": {
                         "quality_floor": 0.98,
-                        "safety_envelope": "0 <= x_i <= cap_i and sum(x_i) == demand",
+                        "safety_envelope": SAFETY_ENVELOPE,
                     },
                     "candidate_actions": [
                         {"id": policy, "description": description}
@@ -1161,13 +1172,68 @@ def _check_scenario_constraints(
         errors.append(
             f"{where}.scenario.constraints.quality_floor must be a number"
         )
+    elif not 0.0 <= float(floor) <= 1.0:
+        # task_quality is a ratio in [0, 1]; a floor of -1 admits every safe
+        # candidate regardless of quality, and a floor above 1 admits none.
+        errors.append(
+            f"{where}.scenario.constraints.quality_floor must lie in [0, 1], "
+            f"got {floor!r}"
+        )
     else:
         quality_floor = float(floor)
-    if not str(constraints.get("safety_envelope") or "").strip():
+    if constraints.get("safety_envelope") != SAFETY_ENVELOPE:
         errors.append(
-            f"{where}.scenario.constraints.safety_envelope must be stated"
+            f"{where}.scenario.constraints.safety_envelope must state the "
+            f"enforced envelope {SAFETY_ENVELOPE!r}, got "
+            f"{constraints.get('safety_envelope')!r} — the description the "
+            "student sees has to be the rule the labels were derived under"
         )
     return errors, quality_floor
+
+
+def _check_scenario_state(scenario: Any, where: str) -> list[str]:
+    """The allocation state every label is grounded in must be re-derivable.
+
+    Silently skipping derivation when the state is malformed would let a
+    record drop ``scenario.state`` (or its demand, caps or weights) and
+    disable the safety, quality and reference-objective checks in one move
+    while its unchanged candidates stayed curation-eligible.
+    """
+
+    if not isinstance(scenario, dict):
+        return []
+    state = scenario.get("state")
+    if not isinstance(state, dict):
+        return [
+            f"{where}.scenario.state must be an object carrying the "
+            "allocation problem the candidates were measured on"
+        ]
+    errors: list[str] = []
+    if not oc.is_number(state.get("demand")):
+        errors.append(f"{where}.scenario.state.demand must be a number")
+    caps = state.get("actuator_caps")
+    if not (
+        isinstance(caps, list)
+        and caps
+        and all(oc.is_number(cap) for cap in caps)
+    ):
+        errors.append(
+            f"{where}.scenario.state.actuator_caps must be a non-empty array "
+            "of numbers"
+        )
+    weights = state.get("actuator_weights")
+    if not (
+        isinstance(weights, list)
+        and isinstance(caps, list)
+        and weights
+        and len(weights) == len(caps)
+        and all(oc.is_number(w) and float(w) > 0.0 for w in weights)
+    ):
+        errors.append(
+            f"{where}.scenario.state.actuator_weights must be positive "
+            "numbers, one per actuator cap"
+        )
+    return errors
 
 
 def _check_cost_denomination(result: dict[str, Any], where: str) -> list[str]:
@@ -1181,8 +1247,13 @@ def _check_cost_denomination(result: dict[str, Any], where: str) -> list[str]:
     errors: list[str] = []
     corpus_quantity = result.get("cost_quantity")
     cost_is_energy = result.get("cost_is_energy")
-    if not oc.is_enum_value(corpus_quantity, oc.QUANTITY_UNITS):
-        errors.append(f"{where}.result.cost_quantity must be a registered quantity")
+    if not oc.is_enum_value(corpus_quantity, SUPPORTED_COST_QUANTITIES):
+        # Any registered quantity used to pass, so a record could quietly
+        # minimise temperature or latency under this family's name.
+        errors.append(
+            f"{where}.result.cost_quantity must be one of "
+            f"{sorted(SUPPORTED_COST_QUANTITIES)}, got {corpus_quantity!r}"
+        )
     if not isinstance(cost_is_energy, bool):
         errors.append(f"{where}.result.cost_is_energy must be a boolean")
     elif cost_is_energy != oc.is_enum_value(corpus_quantity, oc.ENERGY_QUANTITIES):
@@ -1498,8 +1569,11 @@ def _check_candidate_measurements(
 
     errors: list[str] = []
     quantity = candidate.get("cost_quantity")
-    if not oc.is_enum_value(quantity, oc.QUANTITY_UNITS):
-        errors.append(f"{spot}.cost_quantity must be a registered quantity")
+    if not oc.is_enum_value(quantity, SUPPORTED_COST_QUANTITIES):
+        errors.append(
+            f"{spot}.cost_quantity must be one of "
+            f"{sorted(SUPPORTED_COST_QUANTITIES)}, got {quantity!r}"
+        )
         return errors
     if (
         oc.is_enum_value(context.corpus_quantity, oc.QUANTITY_UNITS)
@@ -1816,6 +1890,7 @@ def check_family(record: dict[str, Any], where: str) -> list[str]:
 
     scenario = record.get("scenario")
     errors, quality_floor = _check_scenario_constraints(scenario, where)
+    errors += _check_scenario_state(scenario, where)
 
     result = record.get("result")
     if not isinstance(result, dict):

@@ -76,9 +76,14 @@ not read. A parameter that is silently ignored turns a scenario into a no-op
 that still looks like a disturbance in the record, which is worse than an
 error. The same fail-closed rule covers parameter *values*: a disturbance may
 only name channels the relay actually reads (its own channels plus the
-fallback source), and `burst_corruption` requires a finite `corrupt_ratio` in
-`[0, 1]` — an unknown channel name or an out-of-range ratio would run as a
-no-op and replay as an authoritative `continue`. For the same reason the
+fallback source); `burst_corruption` requires a finite `corrupt_ratio` in
+`[0, 1]`; onsets must be non-negative and durations, jitters, ramps, delays
+and malformed counts strictly positive — an unknown channel name or an
+out-of-range value would run as a no-op and replay as an authoritative
+`continue`. The validator also re-derives `result.prediction_agreement` from
+the prediction and the outcome, and requires every replay-derived measurement
+to be present, so neither a flipped agreement nor a deleted latency survives
+a recomputed digest. For the same reason the
 simulator records the corruption ratio it actually applied alongside the one
 that was requested, and `malformed_kind` is a real behavioural difference:
 times that run backwards and negative amplitudes corrupt an accepted stream
@@ -166,7 +171,12 @@ must themselves be `measured: true`; `task_quality` and
 scenario state, so editing a quality and its measurement together still fails;
 and `preference.over` / `feasible` / `cheaper_but_constraint_violating` and
 the restated `quality_floor` are re-derived from the measured candidates
-rather than trusted.
+rather than trusted. The grounding itself is mandatory: `scenario.state` must
+carry a numeric demand, caps, and positive per-actuator weights (a dropped
+state is a finding, never a reason to skip derivation), the quality floor
+must lie in `[0, 1]`, the stated `safety_envelope` must be the canonical
+enforced rule verbatim, and costs may only be denominated in `energy_j` or
+`cpu_time_s`.
 
 It also ties the bookkeeping together, because those fields are what a reader
 uses to tell a joule corpus from a second corpus. `result.cost_is_energy` must
@@ -220,9 +230,16 @@ input from the recorded context, reconciles the compact measurements against
 the routing they summarise, bounds the entropy by `ln(num_experts)` (falling
 back to the recorded expert count when an oracle exposes no logits), and
 requires `result.teacher_grounded` to follow from the oracle's authority and
-`is_llm_teacher` rather than being asserted. An `authoritative` router record
-must also declare a positive `num_local_experts` in its fingerprint so expert
-ids stay range-checked; a non-teacher oracle belongs in `reference_only`.
+`is_llm_teacher` rather than being asserted. Layer indices must run
+contiguously from zero, and a fingerprint that declares
+`num_experts_per_tok` or `num_layers` binds every layer's top-k width and
+the trajectory length, so neither an interior layer nor a suffix can vanish.
+An `authoritative` router record must also declare a positive
+`num_local_experts` in its fingerprint so expert ids stay range-checked, and
+must pin a resolved 40-hex commit as its `revision_or_checkpoint` — the
+laundering guard checks the oracle's own name, type and implementation, not
+just the fingerprint's model string; a non-teacher oracle belongs in
+`reference_only`.
 
 **Student input.** `scenario.compact_input.features` is a deliberately lossy
 view of the gate input — the leading components plus tail mean/energy/max/min —
