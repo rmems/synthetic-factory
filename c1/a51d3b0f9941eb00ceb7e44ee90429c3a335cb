@@ -1,0 +1,22 @@
+scripts/publish_grok46_hub.py
+  s_f3ffb7db87dca1::t_e5ae2119ad5cc6 1212-1255,1259,1262,1264
+  s_f3ffb7db87dca1::t_d9f14609d551c8 35
+tests/test_publish_grok46_hub.py
+  s_f3ffb7db87dca1::t_5272ca48326fce 1611-1701
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "c1a51d3b0f9941eb00ceb7e44ee90429c3a335cb",
+  "prompts": {},
+  "sessions": {
+    "s_f3ffb7db87dca1": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "510a01e2-1e9d-4f64-a445-6971413485be",
+        "model": "claude-fable-5"
+      },
+      "human_author": "Raul Montoya Cardenas <montoyaraul34@gmail.com>"
+    }
+  }
+}
