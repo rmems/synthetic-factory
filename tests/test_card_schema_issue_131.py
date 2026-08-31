@@ -1,7 +1,15 @@
 #!/usr/bin/env python3
 """Issue #71 leaf tests for the per-dataset card schema declaration."""
 
-import test_card_schema as _shared
+try:
+    # The shared card-schema test module was renamed on the stack's shared
+    # infrastructure branch (`test_card_schema` -> `test_card_schema_integration`)
+    # after this branch was cut. Prefer the new name so this leaf still imports
+    # on the post-merge tree, where the old monolith no longer exists; fall back
+    # to the old name, which is what this branch's own history carries today.
+    import test_card_schema_integration as _shared
+except ModuleNotFoundError:
+    import test_card_schema as _shared
 
 unittest = _shared.unittest
 io = _shared.io
@@ -117,6 +125,8 @@ class RagRetrievalDebugDeclarationTests(unittest.TestCase):
         self.assertEqual(steps["n"]["dtype"], "int64")
         tool_call = {feature["name"]: feature for feature in steps["tool_call"]["struct"]}
         self.assertEqual(tool_call["args"]["dtype"], "json")
+
+    def test_yaml_projection_is_the_complete_annotation_free_feature_tree(self):
         self.assertEqual(
             card_schema.yaml_features(self.declaration["features"]),
             [
