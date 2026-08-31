@@ -1,0 +1,43 @@
+tests/test_oracle_grounded_cli.py
+  s_f3ffb7db87dca1::t_f4a8f99ad15203 1167-1220
+pipelines/oracle_grounded/families.py
+  s_f3ffb7db87dca1::t_4cad293d5b5489 226-229,231
+pipelines/oracle_grounded/record.py
+  s_f3ffb7db87dca1::t_22d83673122063 599,613
+  s_f3ffb7db87dca1::t_d4bf51061b12ac 295
+  s_f3ffb7db87dca1::t_c696d34bf649a8 279-283
+  s_f3ffb7db87dca1::t_268e84fedfbf34 339
+  s_f3ffb7db87dca1::t_56a801921632af 470-478,490-493
+tests/test_oracle_validate_metadata.py
+  s_f3ffb7db87dca1::t_ddd6decdcf9612 396
+  s_f3ffb7db87dca1::t_9ccc5db4d028fd 342-395,397-408
+pipelines/oracle_generate.py
+  s_f3ffb7db87dca1::t_703007913dfc91 392-406
+  s_f3ffb7db87dca1::t_bcfa7bd440fc7d 247-252
+tests/test_oracle_grounded_record.py
+  s_f3ffb7db87dca1::t_c57cbab8a9a2c8 182-228
+pipelines/oracle_validate.py
+  s_f3ffb7db87dca1::t_906941024abc14 1198-1206,1216
+  s_f3ffb7db87dca1::t_21c7f70a31c47a 718-725,735
+  s_f3ffb7db87dca1::t_4c1bf44920b9c6 706
+  s_f3ffb7db87dca1::t_5090a84a2d7661 1161-1166
+  s_f3ffb7db87dca1::t_7938d50c9b21ff 47-65
+  s_f3ffb7db87dca1::t_45263826b91580 583
+  s_f3ffb7db87dca1::t_2b0793193f7d0b 624,627-631
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "91d82f30e4ed7a12110f6f2e3f0a5f2396670182",
+  "prompts": {},
+  "sessions": {
+    "s_f3ffb7db87dca1": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "510a01e2-1e9d-4f64-a445-6971413485be",
+        "model": "claude-fable-5"
+      },
+      "human_author": "Raul Montoya Cardenas <montoyaraul34@gmail.com>"
+    }
+  }
+}
