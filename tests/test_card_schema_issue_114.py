@@ -1,7 +1,12 @@
 #!/usr/bin/env python3
 """Issue #41 leaf tests for the per-dataset card schema declaration."""
 
-import test_card_schema as _shared
+try:
+    # The shared helpers live in test_card_schema_integration once the infra
+    # branch's split of test_card_schema.py lands beneath this leaf.
+    import test_card_schema_integration as _shared
+except ModuleNotFoundError:  # pre-split trees still ship the monolith
+    import test_card_schema as _shared
 
 unittest = _shared.unittest
 io = _shared.io
