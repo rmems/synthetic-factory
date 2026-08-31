@@ -1,0 +1,25 @@
+pipelines/curate_gate.py
+  s_98712805c1499b::t_72cc5c120a1567 108,748-761
+tests/test_curate_gate_exact_merge.py
+  s_98712805c1499b::t_c3abf596e44f6d 1-46
+pipelines/curate_bridge.py
+  s_98712805c1499b::t_72cc5c120a1567 1063
+tests/test_curate_bridge_bundle_exact.py
+  s_98712805c1499b::t_c3abf596e44f6d 1-61
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "739c99c0dc669d0944f47dd2611adf771b388c3b",
+  "prompts": {},
+  "sessions": {
+    "s_98712805c1499b": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a04a1f-1e33-7812-a5aa-c7b04b33b6b5",
+        "model": "gpt-5.6-terra"
+      },
+      "human_author": "Raul Montoya Cardenas <montoyaraul34@gmail.com>"
+    }
+  }
+}
