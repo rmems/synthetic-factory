@@ -87,11 +87,11 @@ def dataset_from_records(
         if sample is None:
             continue
         if sample.record_id in sampled_ids:
-            # Duplicates land in the same bucket by construction, so the
-            # holdout would score correlated copies of its own training rows.
+            # The id is the record's identity: two rows sharing one cannot
+            # be attributed, weighted, or audited separately.
             raise BaselineError(
-                f"duplicate record id {sample.record_id!r}; the id-keyed "
-                "split cannot partition duplicated records"
+                f"duplicate record id {sample.record_id!r}; a corpus cannot "
+                "carry the same record twice"
             )
         sampled_ids.add(sample.record_id)
         samples.append(sample)
@@ -109,9 +109,8 @@ def _record_sample(record: Any, target: str) -> Sample | None:
         return None
     record_id = record.get("id")
     if not isinstance(record_id, str) or not record_id:
-        # `split` partitions by hashing the id. `str(None)` gave every
-        # id-less record the literal id "None", so they all shared one
-        # train/test bucket.
+        # The id is the sample's identity for duplicate refusal and
+        # attribution; a record without one has no usable sample.
         return None
     scenario = record.get("scenario")
     result = record.get("result")
@@ -171,10 +170,16 @@ def _target_label(result: dict[str, Any], target: str) -> int | None:
 def split(
     samples: list[Sample], holdout_pct: int = 30
 ) -> tuple[list[Sample], list[Sample]]:
-    """Deterministic train/test split keyed on the record id.
+    """Deterministic train/test split keyed on the compact input.
 
-    Hashing the id keeps the split stable when records are appended or
-    reordered, so a baseline number is reproducible from the corpus alone.
+    Hashing the input keeps the split stable when records are appended or
+    reordered, so a baseline number is reproducible from the corpus alone —
+    and it puts samples with identical compact inputs on the same side.
+    Keying on the record id let duplicated contexts straddle the split, so
+    the holdout scored exact input-label pairs the model had memorised from
+    training and the escalation verdict was inflated by leakage (on the
+    committed fixture it read learnable_nonlinear where the leak-free
+    corpus supports learnable_linear).
     """
 
     if not 1 <= holdout_pct <= 90:
@@ -182,9 +187,8 @@ def split(
     train: list[Sample] = []
     test: list[Sample] = []
     for sample in samples:
-        digest = hashlib.blake2b(
-            sample.record_id.encode("utf-8"), digest_size=8
-        ).digest()
+        key = ",".join(repr(value) for value in sample.features)
+        digest = hashlib.blake2b(key.encode("utf-8"), digest_size=8).digest()
         bucket = int.from_bytes(digest[:4], "big") % 100
         (test if bucket < holdout_pct else train).append(sample)
     return train, test

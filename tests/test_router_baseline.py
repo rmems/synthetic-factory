@@ -100,7 +100,10 @@ class DatasetExtraction(unittest.TestCase):
 
 
 class Splitting(unittest.TestCase):
-    def test_split_is_deterministic_and_id_keyed(self):
+    def test_split_is_deterministic_and_input_keyed(self):
+        # Keyed on the compact input (not the id): stable under reordering,
+        # and identical inputs can never straddle the split — an id-keyed
+        # split let duplicated contexts leak labels into the holdout.
         samples = separable_samples()
         first = rb.split(samples)
         shuffled = list(samples)
@@ -110,6 +113,17 @@ class Splitting(unittest.TestCase):
             sorted(s.record_id for s in first[1]),
             sorted(s.record_id for s in second[1]),
         )
+        twin = rb.Sample(
+            record_id="twin-of-first",
+            features=samples[0].features,
+            label=samples[0].label,
+        )
+        train, test = rb.split(samples + [twin])
+        sides = {
+            ("test" if any(s.record_id == rid for s in test) else "train")
+            for rid in (samples[0].record_id, "twin-of-first")
+        }
+        self.assertEqual(len(sides), 1, "identical inputs straddled the split")
 
     def test_split_covers_every_sample_exactly_once(self):
         samples = separable_samples()
@@ -149,7 +163,12 @@ class Baselines(unittest.TestCase):
             rb.majority_baseline([], [])
 
     def test_logistic_regression_learns_a_separable_target(self):
-        report = rb.evaluate_baselines(separable_samples(), **FAST)
+        # Noise makes every sample distinct: with noiseless prototypes each
+        # class is one repeated feature vector, so the input-keyed split
+        # places the whole class on a single side (identical inputs never
+        # straddle) and the old pass was memorisation of duplicated inputs,
+        # not generalisation to unseen points.
+        report = rb.evaluate_baselines(separable_samples(noise=0.3), **FAST)
         self.assertGreater(
             report["baselines"]["logistic_regression"]["accuracy"], 0.9
         )

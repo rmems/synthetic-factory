@@ -312,7 +312,12 @@ so the distillation target is not a copy of what the gate itself consumed.
 `pipelines/router_baseline.py` implements the conventional baselines #78
 requires before an SNN student is considered: a majority-class baseline,
 multinomial logistic regression, and a one-hidden-layer MLP, all deterministic
-and standard library, on a train/test split keyed by hashing the record id.
+and standard library, on a train/test split keyed by hashing the compact
+input, so samples with identical inputs can never straddle the split — keyed
+on the record id, duplicated contexts leaked exact input-label pairs into
+the holdout and inflated the committed fixture's escalation verdict to
+`learnable_nonlinear`; the leak-free corpus does not clear the majority
+class at this size.
 The gate only evaluates records with `result.status == "measured"`: an
 abstained result's routing fields are outcomes the oracle declined to stand
 behind, and a corpus containing one is refused loudly rather than filtered

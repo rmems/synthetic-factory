@@ -2328,6 +2328,27 @@ class EighthRoundSevereGaps(unittest.TestCase):
             f"a primary channel posing as its own fallback passed: {errors}",
         )
 
+    def test_duplicate_contexts_cannot_straddle_the_split(self):
+        # The committed fixture has duplicate-context groups; keyed on the
+        # record id, four of them crossed the train/test split, leaking
+        # exact input-label pairs into the holdout and inflating the
+        # escalation verdict to learnable_nonlinear.
+        records = [
+            obj
+            for _, obj in oc.read_jsonl(
+                REPO / "tests/fixtures/distillation-run/moe-router/batch-r01.jsonl"
+            )
+        ]
+        samples = rb.dataset_from_records(records)
+        train, test = rb.split(samples)
+        test_features = {s.features for s in test}
+        train_features = {s.features for s in train}
+        self.assertEqual(
+            test_features & train_features,
+            set(),
+            "identical compact inputs appear on both sides of the split",
+        )
+
     def test_a_changed_rapl_domain_set_is_unmeasurable(self):
         # A domain vanishing after workload() used to read as a zero delta
         # and silently underreport the interval, which can flip the measured
