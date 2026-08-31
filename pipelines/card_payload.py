@@ -39,20 +39,32 @@ def resolve_payload_summary(keywords: dict[str, object]) -> PayloadSummary:
     as a plain wrong-signature call would.
     """
 
+    _require_known_keywords(keywords)
+    summary = keywords.get("summary")
+    legacy = {key: value for key, value in keywords.items() if key != "summary"}
+    if summary is None:
+        return _summary_from_legacy_keywords(legacy)
+    if legacy:
+        raise TypeError(
+            "render_card() takes summary= or the legacy payload keywords "
+            "(records=, bytes_=, first=, last=, payload_names=), not both"
+        )
+    return cast(PayloadSummary, summary)
+
+
+def _require_known_keywords(keywords: dict[str, object]) -> None:
+    """Reject any keyword outside summary= and the legacy surface."""
+
     unknown = sorted(set(keywords) - {"summary", *LEGACY_SUMMARY_KEYS})
     if unknown:
         raise TypeError(
             "render_card() got unexpected keyword arguments: " + ", ".join(unknown)
         )
-    summary = keywords.get("summary")
-    legacy = {key: value for key, value in keywords.items() if key != "summary"}
-    if summary is not None:
-        if legacy:
-            raise TypeError(
-                "render_card() takes summary= or the legacy payload keywords "
-                "(records=, bytes_=, first=, last=, payload_names=), not both"
-            )
-        return cast(PayloadSummary, summary)
+
+
+def _summary_from_legacy_keywords(legacy: dict[str, object]) -> PayloadSummary:
+    """Build the summary from the pre-split keywords, requiring all four facts."""
+
     missing = [
         key for key in ("records", "bytes_", "first", "last") if key not in legacy
     ]
