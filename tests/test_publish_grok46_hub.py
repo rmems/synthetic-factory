@@ -1608,5 +1608,96 @@ class PublishGrok46HubTests(unittest.TestCase):
         whoami.assert_not_called()
 
 
+class RenderCardLegacySurfaceTests(unittest.TestCase):
+    """The stacked card leaf PRs still call the pre-PayloadSummary keywords.
+
+    Until every leaf migrates to summary=PayloadSummary(...), render_card must
+    keep accepting records=/bytes_=/first=/last=/payload_names= and render
+    byte-identical cards for both call styles, while refusing mixed or unknown
+    keywords instead of silently guessing.
+    """
+
+    def test_legacy_keywords_render_byte_identical_declared_card(self):
+        declared = publisher.render_card(
+            ITEM,
+            summary=publisher.PayloadSummary(
+                records=1,
+                bytes_=1024,
+                first="r01",
+                last="r01",
+                names=["batch-r01.jsonl"],
+            ),
+        )
+        legacy = publisher.render_card(
+            ITEM,
+            records=1,
+            bytes_=1024,
+            first="r01",
+            last="r01",
+            payload_names=["batch-r01.jsonl"],
+        )
+
+        self.assertEqual(declared, legacy)
+
+    def test_legacy_keywords_render_byte_identical_undeclared_card(self):
+        # payload_names stays optional on the legacy surface, exactly as before
+        # the PayloadSummary split.
+        declared = publisher.render_card(
+            LEGACY_ITEM,
+            summary=publisher.PayloadSummary(
+                records=3, bytes_=4096, first="r01", last="r02"
+            ),
+        )
+        legacy = publisher.render_card(
+            LEGACY_ITEM, records=3, bytes_=4096, first="r01", last="r02"
+        )
+
+        self.assertEqual(declared, legacy)
+
+    def test_mixing_summary_and_legacy_keywords_fails_closed(self):
+        with self.assertRaises(TypeError) as caught:
+            publisher.render_card(
+                ITEM,
+                summary=publisher.PayloadSummary(
+                    records=1, bytes_=1024, first="r01", last="r01"
+                ),
+                records=1,
+            )
+
+        self.assertIn("not both", str(caught.exception))
+
+    def test_unknown_keywords_fail_closed_on_both_surfaces(self):
+        with self.assertRaises(TypeError) as caught:
+            publisher.render_card(
+                ITEM,
+                summary=publisher.PayloadSummary(
+                    records=1, bytes_=1024, first="r01", last="r01"
+                ),
+                recordz=1,
+            )
+        self.assertIn("unexpected keyword arguments: recordz", str(caught.exception))
+
+        with self.assertRaises(TypeError) as caught:
+            publisher.render_card(
+                ITEM, records=1, bytes_=1024, first="r01", last="r01", recordz=1
+            )
+        self.assertIn("unexpected keyword arguments: recordz", str(caught.exception))
+
+    def test_incomplete_legacy_call_fails_closed(self):
+        with self.assertRaises(TypeError) as caught:
+            publisher.render_card(ITEM, records=1)
+        self.assertIn(
+            "missing required keyword arguments: bytes_, first, last",
+            str(caught.exception),
+        )
+
+        with self.assertRaises(TypeError) as caught:
+            publisher.render_card(ITEM)
+        self.assertIn(
+            "missing required keyword arguments: records, bytes_, first, last",
+            str(caught.exception),
+        )
+
+
 if __name__ == "__main__":
     unittest.main()

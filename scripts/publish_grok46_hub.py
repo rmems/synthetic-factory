@@ -32,6 +32,7 @@ import subprocess
 import sys
 import tempfile
 from pathlib import Path
+from typing import cast
 
 FACTORY_ROOT = Path("/home/raulmc/rmems/synthetic-factory/outputs/raw/2026-08-19-agentic")
 HF_ROOT = Path("/home/raulmc/rmems/hf")
@@ -1208,13 +1209,59 @@ class PayloadSummary:
     names: list[str] | None = None
 
 
+# The pre-PayloadSummary render_card keyword surface. Every card leaf PR
+# stacked on this branch still calls it; render_card keeps accepting it until
+# those leaves migrate after merging.
+_LEGACY_SUMMARY_KEYS = ("records", "bytes_", "first", "last", "payload_names")
+
+
+def _resolve_payload_summary(
+    summary: PayloadSummary | None, legacy: dict[str, object]
+) -> PayloadSummary:
+    """Accept summary= or the legacy keyword surface, refusing mixtures.
+
+    Both call styles must render byte-identical cards. Unknown keywords and
+    mixing summary= with legacy keywords fail closed with TypeError, exactly
+    as a plain wrong-signature call would.
+    """
+
+    unknown = sorted(set(legacy) - set(_LEGACY_SUMMARY_KEYS))
+    if unknown:
+        raise TypeError(
+            "render_card() got unexpected keyword arguments: " + ", ".join(unknown)
+        )
+    if summary is not None:
+        if legacy:
+            raise TypeError(
+                "render_card() takes summary= or the legacy payload keywords "
+                "(records=, bytes_=, first=, last=, payload_names=), not both"
+            )
+        return summary
+    missing = [
+        key for key in ("records", "bytes_", "first", "last") if key not in legacy
+    ]
+    if missing:
+        raise TypeError(
+            "render_card() missing required keyword arguments: " + ", ".join(missing)
+        )
+    return PayloadSummary(
+        records=cast(int, legacy["records"]),
+        bytes_=cast(int, legacy["bytes_"]),
+        first=cast("str | None", legacy["first"]),
+        last=cast("str | None", legacy["last"]),
+        names=cast("list[str] | None", legacy.get("payload_names")),
+    )
+
+
 def render_card(
     item: dict,
     *,
-    summary: PayloadSummary,
+    summary: PayloadSummary | None = None,
     schema: tuple[str, str] | None = None,
     kind_mix: list[leftover_mill.KindMixFinding] | None = None,
+    **legacy: object,
 ) -> str:
+    summary = _resolve_payload_summary(summary, legacy)
     tags = "\n".join(f"- {t}" for t in item["tags"])
     records = summary.records
     kb = max(1, summary.bytes_ // 1024)
