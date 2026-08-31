@@ -1,0 +1,58 @@
+pipelines/moe_router.py
+  s_f3ffb7db87dca1::t_f84c8ae4cf8575 1544
+pipelines/validate_distill.py
+  s_f3ffb7db87dca1::t_a5dbe2234d8e60 306,320-322
+  s_f3ffb7db87dca1::t_abb1f8e84b74d3 101-180
+  s_f3ffb7db87dca1::t_4caaece9a616c7 333,336-338,340,349
+  s_f3ffb7db87dca1::t_9f8c8dea615a4b 24
+docs/distillation-datasets.md
+  s_f3ffb7db87dca1::t_5f84ba3cb5e888 368-376
+  s_f3ffb7db87dca1::t_bb1e3217c1d560 99-102
+  s_f3ffb7db87dca1::t_5ccb20e520b188 407-413
+  s_f3ffb7db87dca1::t_7552d6b82748c7 123-132
+  s_f3ffb7db87dca1::t_07619af0bcb1cc 243-253
+  s_f3ffb7db87dca1::t_b5f2c4425a548b 199-213
+  s_f3ffb7db87dca1::t_e1e41b02d9b8b9 36-44
+pipelines/oracle_contract.py
+  s_f3ffb7db87dca1::t_8297fddad7288f 1040-1069,1078-1088
+  s_f3ffb7db87dca1::t_3f8f77007c89ef 279-295
+  s_f3ffb7db87dca1::t_d84190ac0986bc 712-719
+  s_f3ffb7db87dca1::t_3d83413f8fa4af 741-755
+pipelines/fault_recovery.py
+  s_f3ffb7db87dca1::t_4fb9de67eb8400 1506-1515
+  s_f3ffb7db87dca1::t_34c2a14365fae5 555-579,584
+  s_f3ffb7db87dca1::t_339b4f774868bb 1253-1268,1270-1277,1281-1282,1290,1292-1336,1338-1355
+tests/test_distillation_review_gaps.py
+  s_f3ffb7db87dca1::t_a3b2d33dfd36b9 2382-2831
+pipelines/energy_preferences.py
+  s_f3ffb7db87dca1::t_13c60c75d9990c 1144-1151
+  s_f3ffb7db87dca1::t_85181a4a22262a 2164
+  s_f3ffb7db87dca1::t_500f28ee64a8f6 1708-1718
+  s_f3ffb7db87dca1::t_6a7c075312d687 2309-2327
+  s_f3ffb7db87dca1::t_abfc05bb1420c6 2393
+  s_f3ffb7db87dca1::t_08852ac01d3110 163,167,169-174,196-203,211,220
+  s_f3ffb7db87dca1::t_99e6aa015bcccf 1890-1956,1983
+  s_f3ffb7db87dca1::t_bfe821d450e590 482-507,509-514
+  s_f3ffb7db87dca1::t_b4e7fbeadbac45 924-952
+  s_f3ffb7db87dca1::t_4765472aa38e0b 1281-1318
+pipelines/router_baseline.py
+  s_f3ffb7db87dca1::t_c8da12b7a14f72 510-528,534-537,540-542,544-551
+  s_f3ffb7db87dca1::t_28f15402b2e03d 755-756
+  s_f3ffb7db87dca1::t_9306b6f463413c 568-577
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "17420292df094ba453afe86d5d1fb34f5068c8b5",
+  "prompts": {},
+  "sessions": {
+    "s_f3ffb7db87dca1": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "510a01e2-1e9d-4f64-a445-6971413485be",
+        "model": "claude-fable-5"
+      },
+      "human_author": "Raul Montoya Cardenas <montoyaraul34@gmail.com>"
+    }
+  }
+}
