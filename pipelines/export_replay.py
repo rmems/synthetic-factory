@@ -21,6 +21,7 @@ if str(_PIPELINES) not in sys.path:
 
 import compose_curated  # noqa: E402
 import compose_mill  # noqa: E402
+from round_txn import TransactionError  # noqa: E402
 from export_calibration import _authenticated_calibration  # noqa: E402
 from export_contract import CuratedFile, ExportError  # noqa: E402
 from export_members import (  # noqa: E402
@@ -264,7 +265,7 @@ def _replay_source_lines(source_root: Path, catalog: Any) -> _ReplaySnapshot:
 
     try:
         source_members = compose_curated.source_jsonl_members(source_root)
-    except compose_curated.ComposeError as exc:
+    except (compose_curated.ComposeError, TransactionError) as exc:
         raise ExportError(f"COMPOSE source tree cannot be replayed safely: {exc}") from exc
 
     # Capture every member once, then resolve corpus-level mill ownership over

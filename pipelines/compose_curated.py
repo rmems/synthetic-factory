@@ -66,6 +66,7 @@ import curate_rewards  # noqa: E402
 import training_audit  # noqa: E402
 from check_records import reject_json_constant  # noqa: E402
 from record_kind import preference_side_kinds  # noqa: E402
+from round_txn import TransactionError  # noqa: E402
 
 try:  # PR #93 is a sibling stack; consume its reviewed contract when present.
     import curate_trajectory_preferences  # type: ignore[import-not-found]  # noqa: E402
@@ -2099,7 +2100,7 @@ def main(argv: list[str] | None = None) -> int:
             args.source_run, args.destination, units_migration=args.units_migration
         )
     except (ComposeError, curate_identity.IdentityCurationError,
-            curate_rewards.RewardOntologyError, OSError) as exc:
+            curate_rewards.RewardOntologyError, TransactionError, OSError) as exc:
         print(f"compose_curated: {exc}", file=sys.stderr)
         return 2
     print(json.dumps(summary, ensure_ascii=False, indent=2, sort_keys=True))
