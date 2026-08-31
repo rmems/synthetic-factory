@@ -3,10 +3,9 @@
 
 from __future__ import annotations
 
-import json
 from typing import Any, Sequence
 
-from exact_json import exact_fraction
+from exact_json import dumps_exact_json, exact_fraction
 
 
 TIME_KEYS = ("t_rel_ms", "t_ms")
@@ -59,13 +58,7 @@ def _record_locator(record: Any) -> str | None:
 
 def _canonical_marker(value: Any) -> str:
     try:
-        return json.dumps(
-            value,
-            ensure_ascii=False,
-            separators=(",", ":"),
-            sort_keys=True,
-            allow_nan=False,
-        )
+        return dumps_exact_json(value, ensure_ascii=False, sort_keys=True)
     except (TypeError, ValueError):
         return repr(value)
 

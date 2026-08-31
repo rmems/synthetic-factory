@@ -31,6 +31,7 @@ from validate_run_test_helpers import (  # noqa: E402
 
 import validate_run  # noqa: E402
 import validate_run_spikes  # noqa: E402
+from exact_json import dumps_exact_json, parse_finite_json_float  # noqa: E402
 
 
 class ValidateSpikeOrderIdempotent(unittest.TestCase):
@@ -321,6 +322,31 @@ class ThalamicSpikeStream(unittest.TestCase):
             absent=(validate_run.SPIKE_ORDER_MISMATCH,),
             errors=1,
         )
+
+    def test_exact_numeric_clock_domains_are_not_rounded_together(self):
+        """A cross-clock descent cannot pass after exact JSON parsing."""
+        events = json.loads(
+            "["
+            '{"channel":"a","t_rel_ms":2.0,"clock_id":1.0},'
+            '{"channel":"b","t_rel_ms":1.0,"clock_id":1.0000000000000001}'
+            "]",
+            parse_float=parse_finite_json_float,
+        )
+        record = self._record(events)
+
+        self.assertEqual(
+            validate_run.declared_clock_domains(events, record),
+            {"1.0", "1.0000000000000001"},
+        )
+        with tempfile.TemporaryDirectory() as raw:
+            run_dir = Path(raw) / "run"
+            run_dir.mkdir()
+            (run_dir / "case.jsonl").write_text(dumps_exact_json(record) + "\n")
+            result = _invoke(str(run_dir))
+
+        self.assertEqual(result.returncode, 1, result.stderr)
+        self.assertIn(validate_run.SPIKE_CLOCK_DOMAIN_MISMATCH, result.stderr)
+        self.assertNotIn(validate_run.SPIKE_ORDER_MISMATCH, result.stderr)
 
     def _record_with(self, events, **record_fields):
         """A thalamic record carrying this stream plus enclosing declarations."""

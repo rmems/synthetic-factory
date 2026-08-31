@@ -22,7 +22,7 @@ from pathlib import Path
 from exact_json import parse_finite_json_float as _parse_exact_json_float
 from validate_run_spikes import (  # noqa: F401 - compatibility re-exports
     BRIDGE_SPIKE_EVENT_KEYS,
-    REPO as REPO,
+    REPO as _REPO,
     SCHEMA_PATH,
     SPIKE_CLOCK_DOMAIN_KEYS,
     SPIKE_CLOCK_DOMAIN_MISMATCH,
@@ -38,6 +38,8 @@ from validate_run_spikes import (  # noqa: F401 - compatibility re-exports
     event_time as _event_time,
     is_number as _is_number,
 )
+
+REPO = _REPO
 
 THALAMIC_REQUIRED = tuple(THALAMIC_SCHEMA["required"])
 # Type-check required keys against the schema's own declared types: the six

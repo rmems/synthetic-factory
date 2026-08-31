@@ -200,6 +200,29 @@ class BridgeTimingCuration(unittest.TestCase):
             ['clock_id="sensor-a"', 'clock_id="sensor-b"'],
         )
 
+    def test_exact_numeric_clock_domains_are_not_rounded_together(self):
+        """Exact JSON clock identifiers must not collapse through ``float``."""
+        events = json.loads(
+            "["
+            '{"channel":"a","t_rel_ms":2.0,"amplitude":0.5,"clock_id":1.0},'
+            '{"channel":"b","t_rel_ms":1.0,"amplitude":0.5,'
+            '"clock_id":1.0000000000000001}'
+            "]",
+            parse_float=parse_finite_json_float,
+        )
+
+        decision = decide(bridge(events))
+
+        self.assertEqual(decision.action, "quarantine")
+        self.assertIn(
+            curate_bridge.REASON_MULTIPLE_CLOCKS,
+            decision.manifest["reason_codes"],
+        )
+        self.assertEqual(
+            decision.manifest["evidence"]["declared_clock_domains"],
+            ["clock_id=1.0", "clock_id=1.0000000000000001"],
+        )
+
     def test_explicit_causal_or_sequence_order_is_quarantined(self):
         source = bridge(
             [

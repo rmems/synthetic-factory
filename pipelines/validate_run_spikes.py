@@ -7,7 +7,7 @@ import json
 import math
 from pathlib import Path
 
-from exact_json import exact_fraction
+from exact_json import dumps_exact_json, exact_fraction
 
 
 REPO = Path(__file__).resolve().parents[1]
@@ -100,7 +100,7 @@ def _clock_domain_containers(events, enclosing):
 def _clock_domain_marker(value):
     """Make an arbitrary JSON-compatible clock identifier comparable."""
     try:
-        return json.dumps(value, sort_keys=True)
+        return dumps_exact_json(value, ensure_ascii=True, sort_keys=True)
     except (TypeError, ValueError):
         return repr(value)
 
