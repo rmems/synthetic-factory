@@ -540,6 +540,57 @@ class ComposeCurated(unittest.TestCase):
             self.assertEqual(summary["counts"]["source_records"], 1)
             self.assertEqual(summary["counts"]["source_files"], 1)
 
+    def test_bridge_embedded_coding_wraps_are_repaired_not_blocked(self):
+        """Codex #97 P2: language_view.trajectory wraps reach the coding lane.
+
+        The audit inspects a bridge pair's embedded trajectory exactly like a
+        top-level Thalamic wrap, so hidden reasoning there used to survive
+        composition and block the composed corpus even though the coding lane
+        can repair it.
+        """
+        pair = bridge_pair()
+        pair["language_view"]["trajectory"]["executed_action"] = {
+            "steps": [
+                {
+                    "n": 1,
+                    "thought": "hidden nested reasoning",
+                    "tool_call": {"name": "inspect", "args": {}},
+                    "observation": "fixture result",
+                }
+            ],
+            "goal": "nested goal",
+            "outcome": "nested outcome",
+            "reward": {"success": True},
+        }
+
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            source = root / "run"
+            write_jsonl(
+                source / "neuromorphic-event-language-bridge" / "batch-r01.jsonl",
+                [pair],
+            )
+
+            summary = compose_curated.compose_run(source, root / "curated")
+
+            self.assertEqual(summary["counts"]["retained"], 1)
+            self.assertTrue(
+                summary["audit"]["training_ready"], summary["audit"]["blockers"]
+            )
+            manifest = read_jsonl(root / "curated" / summary["manifest"]["path"])
+            coding_stage = next(
+                stage
+                for stage in manifest[0]["stages"]
+                if stage["lane"] == "coding"
+            )
+            self.assertEqual(
+                coding_stage["detail"]["embedded_at"], "language_view.trajectory"
+            )
+            records_dir = root / "curated" / compose_curated.RECORDS_DIRNAME
+            emitted = next(records_dir.rglob("*.jsonl")).read_text(encoding="utf-8")
+            self.assertNotIn("hidden nested reasoning", emitted)
+            self.assertNotIn('"thought"', emitted)
+
     def test_foreign_mill_records_are_quarantined_before_identity(self):
         """Codex #97 P1: mill ownership resolves before identity rewrites ids.
 

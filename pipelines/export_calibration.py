@@ -9,6 +9,7 @@ before any replay trusts the catalog it names.
 from __future__ import annotations
 
 import hashlib
+import json
 import os
 import sys
 from pathlib import Path
@@ -19,8 +20,9 @@ if str(_PIPELINES) not in sys.path:
     sys.path.insert(0, str(_PIPELINES))
 
 import compose_curated  # noqa: E402
+import curate_identity  # noqa: E402
 import curate_rewards  # noqa: E402
-from export_contract import ExportError, _loads_json  # noqa: E402
+from export_contract import ExportError, _reject_json_constant  # noqa: E402
 from export_members import _read_exact_regular_file  # noqa: E402
 
 def _load_calibration_payload(payload: bytes, path: Path) -> dict[str, Any]:
@@ -30,7 +32,16 @@ def _load_calibration_payload(payload: bytes, path: Path) -> dict[str, Any]:
         text = payload.decode("utf-8")
     except UnicodeDecodeError as exc:
         raise ExportError(f"calibration {path}: payload is not UTF-8: {exc}") from exc
-    document = _loads_json(text, f"calibration {path}")
+    try:
+        # Match compose: duplicate keys in calibration evidence are ambiguous
+        # conversion factors, never a last-value-wins choice.
+        document = json.loads(
+            text,
+            object_pairs_hook=curate_identity._reject_duplicate_object_keys,
+            parse_constant=_reject_json_constant,
+        )
+    except (json.JSONDecodeError, ValueError) as exc:
+        raise ExportError(f"calibration {path}: invalid JSON: {exc}") from exc
     records = document.get("records") if isinstance(document, dict) else None
     if not isinstance(records, list):
         raise ExportError(f"calibration {path}: records must be a list")

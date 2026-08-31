@@ -158,6 +158,7 @@ from compose_destination import (  # noqa: E402,F401
 from compose_trajectory import (  # noqa: E402,F401
     _TRAJECTORY_DIVERGENCE_FIELDS,
     _compat_trajectory_preference,
+    _strip_hidden_only_side,
     _curate_trajectory_sides,
     _is_same_state_pair,
     _mixed_preference_families,
@@ -1034,6 +1035,55 @@ def _append_coding_lane_stage(
     return curated
 
 
+def _bridge_view_trajectory(record: Mapping[str, Any]) -> dict[str, Any] | None:
+    """The language-view trajectory a bridge pair embeds, when it needs coding.
+
+    The audit inspects ``language_view.trajectory`` exactly like a top-level
+    Thalamic wrap, so hidden reasoning or ungrounded steps there would block
+    an otherwise repairable corpus after composition retained it.
+    """
+
+    view = record.get("language_view")
+    trajectory = view.get("trajectory") if isinstance(view, Mapping) else None
+    if not isinstance(trajectory, dict):
+        return None
+    needs_coding = curate_coding._steps_path(trajectory) is not None
+    if needs_coding or curate_coding.contains_hidden_reasoning_key(trajectory):
+        return trajectory
+    return None
+
+
+def _compose_bridge_view_coding(
+    current: dict[str, Any],
+    trajectory: dict[str, Any],
+    stages: list[dict[str, Any]],
+    *,
+    source_path: str,
+    source_line: int,
+) -> "ComposeDecision | dict[str, Any]":
+    """Curate the embedded language-view trajectory through its owning lane."""
+
+    if curate_coding._steps_path(trajectory) is not None:
+        module = curate_coding
+        curated_trajectory, manifest = curate_coding.curate_episode(
+            trajectory,
+            source_path=f"{source_path}#language_view.trajectory",
+            source_line=source_line,
+            source_hash=_canonical_sha256(trajectory),
+        )
+        detail = copy.deepcopy(manifest)
+    else:
+        module = curate_agentic
+        curated_trajectory, detail = _strip_hidden_only_side(trajectory)
+    detail["embedded_at"] = "language_view.trajectory"
+    outcome = _append_coding_lane_stage(stages, module, curated_trajectory, detail)
+    if isinstance(outcome, ComposeDecision):
+        return outcome
+    updated = copy.deepcopy(current)
+    updated["language_view"]["trajectory"] = curated_trajectory
+    return updated
+
+
 def _compose_coding_stage(
     current: dict[str, Any],
     registered_kind: Any,
@@ -1051,6 +1101,17 @@ def _compose_coding_stage(
 
     module = _coding_lane_curator(current, registered_kind)
     if module is None:
+        trajectory = (
+            _bridge_view_trajectory(current) if is_bridge_record(current) else None
+        )
+        if trajectory is not None:
+            return _compose_bridge_view_coding(
+                current,
+                trajectory,
+                stages,
+                source_path=source_path,
+                source_line=source_line,
+            )
         stages.append(
             _stage(
                 "coding",
@@ -1642,8 +1703,12 @@ def _load_calibration(
         "units-migration calibration",
     )
     try:
+        # The identity reader's duplicate-key hook: a document repeating
+        # ``usd_conversion_factor`` or ``scope`` must not silently apply
+        # whichever value the parser kept last to every matching reward.
         document = json.loads(
             payload.decode("utf-8"),
+            object_pairs_hook=curate_identity._reject_duplicate_object_keys,
             parse_constant=reject_json_constant,
         )
     except (UnicodeError, json.JSONDecodeError, ValueError) as exc:

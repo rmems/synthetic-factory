@@ -87,7 +87,9 @@ def _read_pinned_descriptor(
 ) -> tuple[os.stat_result, bytes]:
     """Open without following links, validate the descriptor, read it fully."""
 
-    flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
+    # O_NONBLOCK keeps a member swapped for a FIFO from hanging the open;
+    # the fstat below then rejects it. Regular-file reads ignore the flag.
+    flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | os.O_NONBLOCK
     try:
         descriptor = os.open(path, flags)
     except OSError as exc:

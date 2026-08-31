@@ -341,6 +341,32 @@ class DefaultCalibrationEvidence(unittest.TestCase):
     must then refuse (it checks ``lexists``); fail at compose time instead.
     """
 
+    def test_duplicate_keys_in_calibration_evidence_refuse_composition(self):
+        """Codex #97 P2: repeated calibration fields are ambiguous, not last-wins."""
+        from compose_curated_test_support import thalamic as support_thalamic
+        from compose_curated_test_support import write_jsonl
+
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            source = root / "run"
+            write_jsonl(
+                source / "thalamic-trajectory-factory" / "batch-r01.jsonl",
+                [support_thalamic("clean-1")],
+            )
+            default = source / compose_curated.FFPC_UNITS_MIGRATION
+            default.parent.mkdir(parents=True)
+            default.write_text(
+                '{"records":[{"scope":"ffpc-r5-002",'
+                '"usd_conversion_factor":0.1,"usd_conversion_factor":2.0}]}\n',
+                encoding="utf-8",
+            )
+
+            with self.assertRaisesRegex(
+                compose_curated.ComposeError, "duplicate JSON object key"
+            ):
+                compose_curated.compose_run(source, root / "curated")
+            self.assertFalse((root / "curated").exists())
+
     def test_non_regular_default_calibration_evidence_refuses_composition(self):
         from compose_curated_test_support import thalamic as support_thalamic
         from compose_curated_test_support import write_jsonl

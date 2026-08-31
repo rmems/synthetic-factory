@@ -267,6 +267,28 @@ class ExportSnapshotCoherence(unittest.TestCase):
             self.assertFalse((root / "export").exists())
 
 
+class ExportMemberFifoSwap(unittest.TestCase):
+    def test_a_member_swapped_for_a_fifo_is_rejected_without_blocking(self):
+        """Codex #97 P2: a FIFO swapped in after lstat must not hang the open.
+
+        O_NOFOLLOW does not protect against a file-type swap, and a read-only
+        FIFO open blocks until a writer appears; O_NONBLOCK lets the open
+        return so the descriptor validation can reject it.
+        """
+        import export_members
+
+        with tempfile.TemporaryDirectory() as td:
+            fifo = Path(td) / "swapped.jsonl"
+            os.mkfifo(fifo)
+            before = fifo.lstat()
+            with self.assertRaisesRegex(
+                export_hf.ExportError, "not a unique regular file"
+            ):
+                export_members._read_pinned_descriptor(
+                    fifo, before, "swapped.jsonl", "curated payload"
+                )
+
+
 class ExportAuditByteCapture(unittest.TestCase):
     def test_audit_uses_captured_bytes_when_output_changes_before_the_gate(self):
         with tempfile.TemporaryDirectory() as td:
