@@ -1,0 +1,28 @@
+pipelines/compose_destination.py
+  s_f3ffb7db87dca1::t_efe28b5637a3be 718
+  s_f3ffb7db87dca1::t_a726fda852791e 722,737-744,751-752,759-776
+tests/test_training_audit_readiness.py
+  s_f3ffb7db87dca1::t_cb7a83ad4db88e 100-101,110-118
+  s_f3ffb7db87dca1::t_176f486f5f468d 82-99,102-109,119
+pipelines/training_audit.py
+  s_f3ffb7db87dca1::t_4b8e2fb1e7aa19 329-382,393,408-415
+pipelines/export_replay.py
+  s_f3ffb7db87dca1::t_40e80d41ee6c42 263-303
+  s_f3ffb7db87dca1::t_ce68810e987cc5 315,322
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "39386ee7817686d3cbd77be51d1063077d25a811",
+  "prompts": {},
+  "sessions": {
+    "s_f3ffb7db87dca1": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "510a01e2-1e9d-4f64-a445-6971413485be",
+        "model": "claude-fable-5"
+      },
+      "human_author": "Raul Montoya Cardenas <montoyaraul34@gmail.com>"
+    }
+  }
+}
