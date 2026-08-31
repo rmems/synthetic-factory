@@ -93,6 +93,8 @@ class PublishedAgenticCodingPayloadKindAudit(unittest.TestCase):
         self.assertEqual({row["source_file"] for row in episodes}, {"episodes.jsonl"})
         self.assertEqual([row["source_line"] for row in episodes], [1, 2, 3])
         self.assertEqual([row["id"] for row in episodes], [None, None, None])
+
+    def test_no_batch_shard_contributes_a_single_episode_record(self):
         # A batch-only glob would drop the one file that holds every coding
         # episode: no batch shard contributes a single episode record.
         batch_files = [entry for entry in self.audit["files"] if entry["path"].startswith("batch-")]
