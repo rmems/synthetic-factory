@@ -3,7 +3,15 @@
 
 from collections import Counter
 
-import test_card_schema as _shared
+try:
+    # The shared card-schema test module was renamed on the stack's shared
+    # infrastructure branch (`test_card_schema` -> `test_card_schema_integration`)
+    # after this branch was cut. Prefer the new name so this leaf still imports
+    # on the post-merge tree, where the old monolith no longer exists; fall back
+    # to the old name, which is what this branch's own history carries today.
+    import test_card_schema_integration as _shared
+except ModuleNotFoundError:
+    import test_card_schema as _shared
 
 unittest = _shared.unittest
 io = _shared.io
@@ -31,6 +39,33 @@ GIT_OPS_MIRROR = (
     / "data"
     / "raw"
 )
+
+
+def _census_mirror_payloads(payloads):
+    """Scan every mirror record once, counting reward keys and meta co-occurrence.
+
+    Module-level so the mirror-gated test keeps only the assertions (the same
+    shape the #66 and #70 leaves use for their mirror scans).
+    """
+    reward_counts = Counter()
+    meta_counts = Counter()
+    records = 0
+    for payload in payloads:
+        with payload.open(encoding="utf-8") as handle:
+            for line in handle:
+                if not line.strip():
+                    continue
+                record = json.loads(line)
+                reward_counts.update(record["reward"].keys())
+                keys = record["meta"].keys()
+                meta_counts["kind"] += "kind" in keys
+                meta_counts["plant"] += "plant" in keys
+                meta_counts["kind_and_plant"] += "kind" in keys and "plant" in keys
+                meta_counts["kind_without_plant"] += (
+                    "kind" in keys and "plant" not in keys
+                )
+                records += 1
+    return records, reward_counts, meta_counts
 
 
 class GitOpsRecoveryDeclarationTests(unittest.TestCase):
@@ -113,24 +148,7 @@ class GitOpsRecoveryDeclarationTests(unittest.TestCase):
         """Recheck the corrected card claims when the mirror is present."""
         payloads = sorted(GIT_OPS_MIRROR.glob("batch-*.jsonl"))
         self.assertEqual(len(payloads), 1416)
-        reward_counts = Counter()
-        meta_counts = Counter()
-        records = 0
-        for payload in payloads:
-            with payload.open(encoding="utf-8") as handle:
-                for line in handle:
-                    if not line.strip():
-                        continue
-                    record = json.loads(line)
-                    reward_counts.update(record["reward"].keys())
-                    keys = record["meta"].keys()
-                    meta_counts["kind"] += "kind" in keys
-                    meta_counts["plant"] += "plant" in keys
-                    meta_counts["kind_and_plant"] += "kind" in keys and "plant" in keys
-                    meta_counts["kind_without_plant"] += (
-                        "kind" in keys and "plant" not in keys
-                    )
-                    records += 1
+        records, reward_counts, meta_counts = _census_mirror_payloads(payloads)
 
         self.assertEqual(records, 2832)
         self.assertEqual(len(reward_counts), 58)
