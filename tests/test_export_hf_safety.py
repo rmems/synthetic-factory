@@ -112,6 +112,72 @@ class ExportDestinationSafety(unittest.TestCase):
 
 
 class ExportCompositionMemberSafety(unittest.TestCase):
+    # ---- one alias per mutation, each swapping exactly one compose member ----
+
+    @staticmethod
+    def _swap_for_symlink(path, target):
+        path.replace(target)
+        path.symlink_to(target)
+
+    @staticmethod
+    def _swap_for_hardlink(path, target):
+        path.replace(target)
+        os.link(target, path)
+
+    @classmethod
+    def _alias_summary_symlink(cls, root, curated, summary_path, summary):
+        cls._swap_for_symlink(summary_path, root / "outside-COMPOSE.json")
+
+    @classmethod
+    def _alias_manifest_symlink(cls, root, curated, summary_path, summary):
+        cls._swap_for_symlink(
+            curated / summary["manifest"]["path"], root / "outside-manifest.jsonl"
+        )
+
+    @classmethod
+    def _alias_source_symlink(cls, root, curated, summary_path, summary):
+        source_root = Path(summary["source_run"])
+        cls._swap_for_symlink(
+            next(source_root.rglob("*.jsonl")), root / "outside-source.jsonl"
+        )
+
+    @classmethod
+    def _alias_source_hardlink(cls, root, curated, summary_path, summary):
+        source_root = Path(summary["source_run"])
+        cls._swap_for_hardlink(
+            next(source_root.rglob("*.jsonl")), root / "outside-source.jsonl"
+        )
+
+    @classmethod
+    def _alias_source_directory_symlink(cls, root, curated, summary_path, summary):
+        source_root = Path(summary["source_run"])
+        path = next(source_root.rglob("*.jsonl")).parent
+        target = root / "outside-source-directory"
+        path.replace(target)
+        path.symlink_to(target, target_is_directory=True)
+
+    @classmethod
+    def _alias_output_lexical_alias(cls, root, curated, summary_path, summary):
+        summary["outputs"][0]["path"] = summary["outputs"][0]["path"].replace(
+            "/", "//", 1
+        )
+        summary_path.write_text(
+            json.dumps(summary, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+
+    @classmethod
+    def _alias_output_symlink(cls, root, curated, summary_path, summary):
+        cls._swap_for_symlink(
+            curated / summary["outputs"][0]["path"], curated / "aliased-output.bin"
+        )
+
+    @classmethod
+    def _alias_output_hardlink(cls, root, curated, summary_path, summary):
+        cls._swap_for_hardlink(
+            curated / summary["outputs"][0]["path"], curated / "aliased-output.bin"
+        )
+
     def test_rejects_symlink_and_hardlink_aliases_for_every_compose_member(self):
         mutations = (
             "summary_symlink",
@@ -129,49 +195,7 @@ class ExportCompositionMemberSafety(unittest.TestCase):
                 curated = compose_fixture(root)
                 summary_path = curated / compose_curated.SUMMARY_FILENAME
                 summary = json.loads(summary_path.read_text(encoding="utf-8"))
-                if mutation == "summary_symlink":
-                    target = root / "outside-COMPOSE.json"
-                    summary_path.replace(target)
-                    summary_path.symlink_to(target)
-                elif mutation == "manifest_symlink":
-                    path = curated / summary["manifest"]["path"]
-                    target = root / "outside-manifest.jsonl"
-                    path.replace(target)
-                    path.symlink_to(target)
-                elif mutation == "source_symlink":
-                    source_root = Path(summary["source_run"])
-                    path = next(source_root.rglob("*.jsonl"))
-                    target = root / "outside-source.jsonl"
-                    path.replace(target)
-                    path.symlink_to(target)
-                elif mutation == "source_hardlink":
-                    source_root = Path(summary["source_run"])
-                    path = next(source_root.rglob("*.jsonl"))
-                    target = root / "outside-source.jsonl"
-                    path.replace(target)
-                    os.link(target, path)
-                elif mutation == "source_directory_symlink":
-                    source_root = Path(summary["source_run"])
-                    path = next(source_root.rglob("*.jsonl")).parent
-                    target = root / "outside-source-directory"
-                    path.replace(target)
-                    path.symlink_to(target, target_is_directory=True)
-                elif mutation == "output_lexical_alias":
-                    summary["outputs"][0]["path"] = summary["outputs"][0][
-                        "path"
-                    ].replace("/", "//", 1)
-                    summary_path.write_text(
-                        json.dumps(summary, indent=2, sort_keys=True) + "\n",
-                        encoding="utf-8",
-                    )
-                else:
-                    path = curated / summary["outputs"][0]["path"]
-                    target = curated / "aliased-output.bin"
-                    path.replace(target)
-                    if mutation == "output_symlink":
-                        path.symlink_to(target)
-                    else:
-                        os.link(target, path)
+                getattr(self, f"_alias_{mutation}")(root, curated, summary_path, summary)
 
                 with self.assertRaises(export_hf.ExportError):
                     export_hf.export_run(curated, root / "export")
