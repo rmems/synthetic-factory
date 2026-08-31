@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import json
 import math
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from fractions import Fraction
 from typing import Any, NamedTuple
 
@@ -305,7 +305,17 @@ def _encode_mapping(
         return "{}"
     active.add(identity)
     try:
-        return _encode_mapping_items(value, keys, state, active, depth)
+        formatting = _container_separators(state, depth)
+        key_separator = ":" if state.indent is None else ": "
+        return _encode_mapping_items(
+            value,
+            keys,
+            formatting,
+            lambda key, entry: (
+                f"{json.dumps(key, ensure_ascii=state.ensure_ascii)}{key_separator}"
+                f"{_encode_exact_json(entry, state, active, depth + 1)}"
+            ),
+        )
     finally:
         active.remove(identity)
 
@@ -319,20 +329,8 @@ def _mapping_keys(value: dict[str, Any], sort_keys: bool) -> Iterable[str]:
 def _encode_mapping_items(
     value: dict[str, Any],
     keys: Iterable[str],
-    state: _EncoderState,
-    active: set[int],
-    depth: int,
+    formatting: tuple[str, str, str],
+    encode_item: Callable[[str, Any], str],
 ) -> str:
-    opened, joiner, closed = _container_separators(state, depth)
-    key_separator = ":" if state.indent is None else ": "
-    return (
-        "{"
-        + opened
-        + joiner.join(
-            f"{json.dumps(key, ensure_ascii=state.ensure_ascii)}{key_separator}"
-            f"{_encode_exact_json(value[key], state, active, depth + 1)}"
-            for key in keys
-        )
-        + closed
-        + "}"
-    )
+    opened, joiner, closed = formatting
+    return "{" + opened + joiner.join(encode_item(key, value[key]) for key in keys) + closed + "}"

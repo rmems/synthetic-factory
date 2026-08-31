@@ -30,9 +30,13 @@ from validate_run_test_helpers import (  # noqa: E402
 )
 
 import validate_run  # noqa: E402
+import validate_run_spikes  # noqa: E402
 
 
 class ValidateSpikeOrderIdempotent(unittest.TestCase):
+    def test_repo_remains_a_compatibility_reexport(self):
+        self.assertEqual(validate_run.REPO, validate_run_spikes.REPO)
+
     def test_spike_order_sorted_passes(self):
         rec = copy.deepcopy(TINY_THALAMIC)
         bridge = {

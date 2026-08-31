@@ -22,6 +22,7 @@ from pathlib import Path
 from exact_json import parse_finite_json_float as _parse_exact_json_float
 from validate_run_spikes import (  # noqa: F401 - compatibility re-exports
     BRIDGE_SPIKE_EVENT_KEYS,
+    REPO as REPO,
     SCHEMA_PATH,
     SPIKE_CLOCK_DOMAIN_KEYS,
     SPIKE_CLOCK_DOMAIN_MISMATCH,

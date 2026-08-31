@@ -27,9 +27,9 @@ class BridgeBundleExactJSONTests(unittest.TestCase):
 
         decimal = "1.0000000000000001"
         source_line = (
-            "{\"id\":\"bundle-exact\",\"spike_events\":[{\"channel\":\"only\","
-            f"\"t_rel_ms\":{decimal},\"amplitude\":0.5}}],"
-            "\"language_view\":{\"trajectory\":{\"state\":{\"episode_id\":\"bundle-exact\"}}}}"
+            '{"id":"bundle-exact","spike_events":[{"channel":"only",'
+            f'"t_rel_ms":{decimal},"amplitude":0.5}}],'
+            '"language_view":{"trajectory":{"state":{"episode_id":"bundle-exact"}}}}'
             "\n"
         )
 
