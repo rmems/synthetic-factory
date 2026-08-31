@@ -260,6 +260,47 @@ def _replay_source_file(
         _record_replayed_output_file(state, relative, emitted)
 
 
+def _member_identity(source_root: Path, relative: str) -> tuple[int, ...]:
+    path = source_root.joinpath(*relative.split("/"))
+    try:
+        entry = path.lstat()
+    except OSError as exc:
+        raise ExportError(
+            f"compose source {relative}: member cannot be inspected: {exc}"
+        ) from exc
+    return (entry.st_dev, entry.st_ino, entry.st_size, entry.st_mtime_ns)
+
+
+def _member_identities(
+    source_root: Path, source_members: tuple[str, ...]
+) -> dict[str, tuple[int, ...]]:
+    return {
+        relative: _member_identity(source_root, relative)
+        for relative in source_members
+    }
+
+
+def _require_coherent_capture(
+    source_root: Path,
+    source_members: tuple[str, ...],
+    identities_before: dict[str, tuple[int, ...]],
+) -> None:
+    """Refuse a capture whose members changed while it was being taken.
+
+    Each member read is individually alias- and identity-checked, but a
+    member rewritten after its own read — while a later member is still being
+    captured — would let replay authenticate a hybrid of source states that
+    never coexisted. Comparing every member's identity from before the first
+    read to after the last one refuses that interleaving.
+    """
+    for relative in source_members:
+        if _member_identity(source_root, relative) != identities_before[relative]:
+            raise ExportError(
+                f"compose source {relative}: member changed while the replay "
+                "snapshot was being captured"
+            )
+
+
 def _replay_source_lines(source_root: Path, catalog: Any) -> _ReplaySnapshot:
     """Run every source JSONL line back through compose and record what it yields."""
 
@@ -271,12 +312,14 @@ def _replay_source_lines(source_root: Path, catalog: Any) -> _ReplaySnapshot:
     # Capture every member once, then resolve corpus-level mill ownership over
     # exactly those bytes — the same order of operations compose_run applies,
     # so a quarantined line replays as the same exclusion.
+    identities_before = _member_identities(source_root, source_members)
     payload_by_member = {
         relative: _read_exact_regular_file(
             source_root, relative, f"compose source {relative}"
         )[1]
         for relative in source_members
     }
+    _require_coherent_capture(source_root, source_members, identities_before)
     mill_findings = compose_mill.index_compose_mills(
         source_root, payload_by_member, _replay_physical_lines
     )

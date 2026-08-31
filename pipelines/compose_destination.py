@@ -715,9 +715,11 @@ def _write_pinned_new_bytes(
     current = root_descriptor
     try:
         for name in parts[:-1]:
+            _assert_descriptor_outside_raw(current, label)
             current = _open_pinned_child_directory(current, name, label)
             opened.append(current)
         leaf = parts[-1]
+        _assert_descriptor_outside_raw(current, label)
         flags = (
             os.O_WRONLY
             | os.O_CREAT
@@ -732,18 +734,46 @@ def _write_pinned_new_bytes(
                 f"{label}: cannot create new file {parts[-1]!r}: {exc}"
             ) from exc
         try:
-            with os.fdopen(descriptor, "wb") as handle:
-                handle.write(payload)
+            written = 0
+            while written < len(payload):
+                written += os.write(descriptor, payload[written:])
+            # A same-user rename can move the opened destination — and every
+            # descriptor under it — into ``outputs/raw`` after the open. The
+            # descriptor's current path is authoritative: refuse, and remove
+            # the leaf through its pinned parent so nothing lands in raw.
+            _assert_descriptor_outside_raw(descriptor, label)
         except BaseException:
             try:
                 os.unlink(leaf, dir_fd=current)
             except OSError:
                 pass
             raise
+        finally:
+            os.close(descriptor)
     finally:
         for descriptor in reversed(opened):
             os.close(descriptor)
     return sha256_hex(payload)
+
+
+def _assert_descriptor_outside_raw(descriptor: int, label: str) -> None:
+    """The pinned component must still live outside immutable raw evidence.
+
+    Descriptor-relative opens keep following a directory that a same-user
+    process renames, so an opened destination could be relocated under
+    ``outputs/raw`` between its open and a leaf write. The kernel's view of
+    the descriptor's current path is authoritative; where it is unavailable,
+    the open-time guarantees still hold.
+    """
+
+    try:
+        current_path = os.readlink(f"/proc/self/fd/{descriptor}")
+    except OSError:  # pragma: no cover - non-procfs platforms
+        return
+    if _contains_raw_segments(tuple(PurePosixPath(current_path).parts)):
+        raise ComposeError(
+            f"{label}: destination was relocated into immutable raw evidence"
+        )
 
 
 def _write_new_text(root_descriptor: int, relative: Any, text: str) -> str:

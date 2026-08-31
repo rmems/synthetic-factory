@@ -79,6 +79,44 @@ class TrainingAuditReadinessReport(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     training_audit.audit_run(root)
 
+    def test_swapped_committed_member_bytes_fail_the_audit_closed(self):
+        """Codex #97 P2: audited bytes must match the committed round digest.
+
+        Visibility digest-checks the committed set when it is resolved, and
+        the capture separately binds the bytes it actually read to the digest
+        the round committed, so a member swapped for another regular file
+        under a committed coordinate can never be certified.
+        """
+        import training_audit as audit_module
+
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            factory = root / "thalamic-trajectory-factory"
+            batch = factory / "batch-r01.jsonl"
+            write(batch, [thalamic("committed-1")])
+            commit_marker_batch(factory, batch)
+            self.assertTrue(training_audit.audit_run(root)["training_ready"])
+
+            # The capture-time binding itself: bytes that disagree with the
+            # committed digest are refused even after visibility resolved.
+            digest_cache = {}
+            with self.assertRaisesRegex(ValueError, "committed round digest"):
+                audit_module._require_committed_digest(
+                    b"not the committed bytes\n",
+                    Path("batch-r01.jsonl"),
+                    factory,
+                    digest_cache,
+                )
+            audit_module._require_committed_digest(
+                batch.read_bytes(), Path("batch-r01.jsonl"), factory, digest_cache
+            )
+
+            write(batch, [thalamic("swapped-1")])
+            with self.assertRaises(
+                (ValueError, audit_module.TransactionError)
+            ):
+                training_audit.audit_run(root)
+
     def test_clean_corpus_is_training_ready(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)

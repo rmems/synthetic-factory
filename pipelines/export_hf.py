@@ -84,6 +84,7 @@ from export_calibration import (  # noqa: E402,F401
 )
 from export_members import (  # noqa: E402,F401
     _authenticated_descriptor,
+    iter_alias_free_jsonl,
     _compose_member_path,
     _contains_raw_segments,
     _is_under_raw,
@@ -192,7 +193,7 @@ def collect_files(records_dir: Path) -> list[CuratedFile]:
     """Read every curated JSONL file in stable path order."""
 
     files: list[CuratedFile] = []
-    for path in sorted(records_dir.rglob("*.jsonl")):
+    for path in iter_alias_free_jsonl(records_dir, "curated records"):
         relative = path.relative_to(records_dir).as_posix()
         exact_path, payload = _read_exact_regular_file(
             records_dir, relative, f"curated payload {relative}"

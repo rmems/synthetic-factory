@@ -188,3 +188,37 @@ def _require_exact_directory(path: Path, label: str) -> Path:
     if not stat.S_ISDIR(metadata.st_mode) or resolved != absolute:
         raise ExportError(f"{label}: directory path must be an exact non-symlink identity")
     return resolved
+
+def iter_alias_free_jsonl(root: Path, label: str) -> list[Path]:
+    """Enumerate every JSONL under ``root``, refusing any symlink entry.
+
+    ``Path.rglob`` silently skips a symlinked directory, so an aliased
+    subtree — and every JSONL visible through it — would simply vanish from
+    the snapshot instead of failing closed.
+    """
+
+    members: list[Path] = []
+    pending = [Path(root)]
+    while pending:
+        directory = pending.pop()
+        try:
+            with os.scandir(directory) as scan:
+                entries = sorted(scan, key=lambda entry: entry.name)
+        except OSError as exc:
+            raise ExportError(f"{label}: cannot enumerate {directory}: {exc}") from exc
+        for entry in entries:
+            try:
+                metadata = entry.stat(follow_symlinks=False)
+            except OSError as exc:
+                raise ExportError(
+                    f"{label}: cannot inspect {entry.path}: {exc}"
+                ) from exc
+            if stat.S_ISLNK(metadata.st_mode):
+                raise ExportError(
+                    f"{label}: tree contains a symlink alias: {entry.path}"
+                )
+            if stat.S_ISDIR(metadata.st_mode):
+                pending.append(Path(entry.path))
+            elif entry.name.endswith(".jsonl"):
+                members.append(Path(entry.path))
+    return sorted(members)

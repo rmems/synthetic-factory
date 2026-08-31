@@ -202,6 +202,71 @@ class ExportCompositionMemberSafety(unittest.TestCase):
                 self.assertFalse((root / "export").exists())
 
 
+class ExportSnapshotCoherence(unittest.TestCase):
+    """Codex #97: replay authenticates one coherent source state, never a hybrid."""
+
+    def test_a_member_changed_during_capture_refuses_the_export(self):
+        import export_replay
+
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            curated = compose_fixture(root)
+            source_root = Path(
+                json.loads(
+                    (curated / compose_curated.SUMMARY_FILENAME).read_text(
+                        encoding="utf-8"
+                    )
+                )["source_run"]
+            )
+            members = sorted(source_root.rglob("*.jsonl"))
+            self.assertGreater(len(members), 1)
+            original_read = export_replay._read_exact_regular_file
+            mutated = {"done": False}
+
+            def racing_read(root_dir, relative, label):
+                result = original_read(root_dir, relative, label)
+                if not mutated["done"]:
+                    # After the first member is captured, rewrite the last one.
+                    mutated["done"] = True
+                    victim = members[-1]
+                    victim.write_bytes(victim.read_bytes())
+                    os.utime(victim, ns=(1, 1))
+                return result
+
+            with mock.patch.object(
+                export_replay, "_read_exact_regular_file", racing_read
+            ):
+                with self.assertRaisesRegex(
+                    export_hf.ExportError, "changed while the replay snapshot"
+                ):
+                    export_hf.export_run(curated, root / "export")
+            self.assertFalse((root / "export").exists())
+
+    def test_a_symlinked_directory_in_records_refuses_the_export(self):
+        """Codex #97 P2: an aliased subtree must fail closed, not vanish.
+
+        ``rglob`` does not descend a symlinked directory, so its JSONL would
+        silently drop out of the snapshot while compose authentication still
+        matched the declared outputs.
+        """
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            curated = compose_fixture(root)
+            records_dir = curated / compose_curated.RECORDS_DIRNAME
+            target = root / "outside-subtree"
+            target.mkdir()
+            (target / "extra.jsonl").write_text("{}\n", encoding="utf-8")
+            (records_dir / "aliased-subtree").symlink_to(
+                target, target_is_directory=True
+            )
+
+            with self.assertRaisesRegex(
+                export_hf.ExportError, "symlink alias"
+            ):
+                export_hf.export_run(curated, root / "export")
+            self.assertFalse((root / "export").exists())
+
+
 class ExportAuditByteCapture(unittest.TestCase):
     def test_audit_uses_captured_bytes_when_output_changes_before_the_gate(self):
         with tempfile.TemporaryDirectory() as td:

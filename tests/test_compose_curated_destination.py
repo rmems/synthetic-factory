@@ -379,5 +379,47 @@ class ComposeDestinationSafety(unittest.TestCase):
             self.assertFalse((parent / destination.name).exists())
 
 
+class PinnedWriterRawRelocation(unittest.TestCase):
+    """Codex #97 P1: a relocated pinned destination must not receive writes.
+
+    Descriptor-relative opens keep following a directory a same-user process
+    renames, so an opened destination moved under ``outputs/raw`` would
+    otherwise receive derived files inside immutable raw evidence.
+    """
+
+    def test_destination_renamed_into_raw_refuses_the_write(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            source = root / "run"
+            source.mkdir()
+            raw = root / "outputs" / "raw"
+            raw.mkdir(parents=True)
+            pinned = compose_curated._create_pinned_destination(
+                source, root / "curated"
+            )
+            try:
+                os.rename(root / "curated", raw / "curated")
+                with self.assertRaisesRegex(
+                    compose_curated.ComposeError,
+                    "relocated into immutable raw evidence",
+                ):
+                    compose_curated._write_pinned_new_bytes(
+                        pinned.destination_descriptor,
+                        "records/x.jsonl",
+                        b"data\n",
+                    )
+                leaked = [
+                    entry
+                    for entry in (raw / "curated").rglob("*")
+                    if entry.is_file()
+                ]
+                self.assertEqual(leaked, [])
+            finally:
+                try:
+                    pinned.cleanup()
+                except compose_curated.ComposeError:
+                    pass
+
+
 if __name__ == "__main__":
     unittest.main()

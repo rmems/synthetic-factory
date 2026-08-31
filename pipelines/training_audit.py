@@ -42,7 +42,11 @@ from census import (  # noqa: E402
     factory_for_path,
     visible_jsonl_paths,
 )
-from round_txn import TransactionError  # noqa: E402
+from round_txn import (  # noqa: E402
+    TransactionError,
+    completed_manifests,
+    marker_mode_path,
+)
 from curate_coding import (  # noqa: E402
     HIDDEN_REASONING_KEYS,
     HIDDEN_REASONING_PREFIX,
@@ -322,6 +326,60 @@ def _read_pinned_member(run_dir: Path, relative: Path) -> bytes:
             os.close(descriptor)
 
 
+def _enclosing_marker_root(run_dir: Path, path: Path) -> Path | None:
+    """Return the nearest marker-mode factory enclosing ``path``, if any."""
+
+    current = path.parent
+    while True:
+        if marker_mode_path(current) is not None:
+            return current
+        if current == run_dir or current.parent == current:
+            return None
+        current = current.parent
+
+
+def _marker_digest_index(marker_root: Path) -> dict[str, str]:
+    """Map committed artifact names to the digests their round markers declare."""
+
+    digests: dict[str, str] = {}
+    for manifest in completed_manifests(marker_root).values():
+        for entry in manifest.get("files", []):
+            if not isinstance(entry, dict):
+                continue
+            name = entry.get("name")
+            digest = entry.get("sha256")
+            if isinstance(name, str) and isinstance(digest, str):
+                digests[name] = digest
+    return digests
+
+
+def _require_committed_digest(
+    payload: bytes,
+    relative: Path,
+    marker_root: Path | None,
+    digest_cache: dict[Path, dict[str, str]],
+) -> None:
+    """Bind captured marker-mode bytes to the digest their round committed.
+
+    Visibility is digest-checked when the committed set is resolved, but a
+    member swapped for another regular file after that check would still be
+    read here under a committed coordinate. Members a marker round declares
+    must therefore hash to exactly what the round committed; legacy-baseline
+    members carry no declared digest and keep their legacy contract.
+    """
+    if marker_root is None:
+        return
+    if marker_root not in digest_cache:
+        digest_cache[marker_root] = _marker_digest_index(marker_root)
+    declared = digest_cache[marker_root].get(relative.name)
+    if declared is None:
+        return
+    if hashlib.sha256(payload).hexdigest() != declared:
+        raise ValueError(
+            f"audit member does not match its committed round digest: {relative}"
+        )
+
+
 def _captured_run_files(run_dir: Path) -> list[tuple[Path, bytes]]:
     """Capture every visible JSONL member of ``run_dir`` as exact bytes.
 
@@ -332,6 +390,7 @@ def _captured_run_files(run_dir: Path) -> list[tuple[Path, bytes]]:
     keeps invisible are excluded by that contract, not silently lost.
     """
     visible = set(visible_jsonl_paths(run_dir))
+    digest_cache: dict[Path, dict[str, str]] = {}
     files = []
     for path in sorted(run_dir.rglob("*.jsonl")):
         relative = path.relative_to(run_dir)
@@ -346,7 +405,14 @@ def _captured_run_files(run_dir: Path) -> list[tuple[Path, bytes]]:
                 f"audit member is not an exact regular file: {relative}"
             )
         if path in visible:
-            files.append((relative, _read_pinned_member(run_dir, relative)))
+            payload = _read_pinned_member(run_dir, relative)
+            _require_committed_digest(
+                payload,
+                relative,
+                _enclosing_marker_root(run_dir, path),
+                digest_cache,
+            )
+            files.append((relative, payload))
     return files
 
 
