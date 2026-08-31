@@ -276,6 +276,23 @@ def is_enum_value(value: Any, allowed) -> bool:
     return isinstance(value, str) and value in allowed
 
 
+def is_true(value: Any) -> bool:
+    """Identity test against ``True`` for fields untrusted input controls.
+
+    ``bool(value)`` would accept any truthy JSON value — ``"yes"``, ``[0]``,
+    ``1`` — where the contract demands the boolean itself, so gates built on
+    truthiness fail open on malformed records. Only ``True`` is true here.
+    """
+
+    return value is True
+
+
+def is_genuine_int(value: Any) -> bool:
+    """True for a genuine integer — never a boolean wearing int's clothes."""
+
+    return isinstance(value, int) and not isinstance(value, bool)
+
+
 def record_digest(record: dict[str, Any]) -> str:
     """SHA-256 over the record with volatile/derived fields removed.
 
@@ -692,6 +709,14 @@ def _check_generator_block(block: Any, where: str) -> list[str]:
         errors.append(f"{where}.generator.model is required for an llm generator")
     if "seed" not in block:
         errors.append(f"{where}.generator.seed must be present (null when unseeded)")
+    elif block["seed"] is not None and not is_genuine_int(block["seed"]):
+        # The shared envelope restricts the seed to integer/null. Presence
+        # alone accepted {"seed": {}} or "seed": true, so malformed
+        # reproducibility metadata stayed curation-eligible.
+        errors.append(
+            f"{where}.generator.seed must be an integer or null, "
+            f"got {block['seed']!r}"
+        )
     return errors
 
 
@@ -713,9 +738,21 @@ def _check_oracle_block(block: Any, where: str) -> list[str]:
         )
     if not isinstance(block.get("configuration"), dict):
         errors.append(f"{where}.oracle.configuration must be an object")
-    for key in ("seed", "commit"):
-        if key not in block:
-            errors.append(f"{where}.oracle.{key} must be present (null when n/a)")
+    # Presence is not enough: the shared schema restricts these to
+    # integer/null and string/null, and nothing else inspected them — so
+    # ``seed: {}`` and ``commit: []`` passed as reproducibility metadata.
+    if "seed" not in block:
+        errors.append(f"{where}.oracle.seed must be present (null when n/a)")
+    elif block["seed"] is not None and not is_genuine_int(block["seed"]):
+        errors.append(
+            f"{where}.oracle.seed must be an integer or null, got {block['seed']!r}"
+        )
+    if "commit" not in block:
+        errors.append(f"{where}.oracle.commit must be present (null when n/a)")
+    elif block["commit"] is not None and not isinstance(block["commit"], str):
+        errors.append(
+            f"{where}.oracle.commit must be a string or null, got {block['commit']!r}"
+        )
     return errors
 
 
@@ -1000,8 +1037,36 @@ def _finite_json_float(text: str) -> float:
     return value
 
 
-def read_jsonl(path) -> list[tuple[int, Any]]:
-    """Read a JSONL file into ``(line_number, parsed_or_None)`` pairs.
+def _parse_jsonl_line(raw: bytes) -> tuple[bool, Any]:
+    """``(has_content, parsed_or_None)`` for one raw JSONL line.
+
+    Decoding failures are a per-line finding, not an abort: ``read_text`` on
+    the whole file raised ``UnicodeDecodeError`` before any record was seen,
+    so one undecodable byte took down the validation of the entire corpus
+    instead of being reported as the one bad line it is.
+    """
+
+    try:
+        stripped = raw.decode("utf-8").strip()
+    except UnicodeDecodeError:
+        return True, None
+    if not stripped:
+        return False, None
+    try:
+        return True, json.loads(
+            stripped,
+            parse_constant=_reject_json_constant,
+            parse_float=_finite_json_float,
+        )
+    except ValueError:  # JSONDecodeError included
+        return True, None
+
+
+def iter_jsonl(path):
+    """Yield ``(line_number, parsed_or_None)`` pairs, one line at a time.
+
+    Streaming, so validating a scaled corpus needs memory for one record,
+    never for the whole raw file plus every decoded record at once.
 
     Non-finite constants are a parse failure, not a value. ``json.loads``
     accepts bare ``NaN`` and ``Infinity``; letting one through means the first
@@ -1010,26 +1075,17 @@ def read_jsonl(path) -> list[tuple[int, Any]]:
     is strictly better than aborting the corpus.
     """
 
-    entries: list[tuple[int, Any]] = []
-    text = Path(path).read_text(encoding="utf-8")
-    for lineno, line in enumerate(text.splitlines(), start=1):
-        stripped = line.strip()
-        if not stripped:
-            continue
-        try:
-            entries.append(
-                (
-                    lineno,
-                    json.loads(
-                        stripped,
-                        parse_constant=_reject_json_constant,
-                        parse_float=_finite_json_float,
-                    ),
-                )
-            )
-        except ValueError:  # JSONDecodeError included
-            entries.append((lineno, None))
-    return entries
+    with Path(path).open("rb") as handle:
+        for lineno, raw in enumerate(handle, start=1):
+            has_content, parsed = _parse_jsonl_line(raw)
+            if has_content:
+                yield lineno, parsed
+
+
+def read_jsonl(path) -> list[tuple[int, Any]]:
+    """Eager form of :func:`iter_jsonl`, for small inputs and tests."""
+
+    return list(iter_jsonl(path))
 
 
 def write_jsonl(path, records) -> int:

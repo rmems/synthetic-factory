@@ -160,14 +160,18 @@ class ProcessResourceMeter(EnergyOracle):
 
     def _delta_extras(
         self,
-        rss: tuple[float | None, float | None],
+        peak_rss_kb: float | None,
         switches: tuple[float | None, float | None],
     ) -> list[dict[str, Any]]:
         extra: list[dict[str, Any]] = []
-        rss_before, rss_after = rss
-        if rss_after is not None and rss_before is not None:
+        if peak_rss_kb is not None:
             extra.append(
-                oc.new_measurement("max_rss_kb", float(rss_after - rss_before), self.name)
+                oc.new_measurement(
+                    "max_rss_kb",
+                    peak_rss_kb,
+                    self.name,
+                    detail={"scope": "process_peak_during_workload"},
+                )
             )
         switches_before, switches_after = switches
         if switches_after is not None and switches_before is not None:
@@ -189,7 +193,14 @@ class ProcessResourceMeter(EnergyOracle):
             workload()
         cpu_samples: list[float] = []
         wall_samples: list[float] = []
-        rss_before = _max_rss_kb()
+        # `ru_maxrss` is the process-lifetime high-water mark; subtracting two
+        # snapshots of it does not measure this workload — warmup runs before
+        # the first snapshot and candidates share one process, so an equal or
+        # smaller footprint read as a false `max_rss_kb: 0`. The kernel's peak
+        # counter is reset instead, so the post-run high-water mark is this
+        # workload's own peak residency; where no resettable counter exists
+        # the quantity is unmeasured, not zero.
+        rss_tracked = _reset_peak_rss()
         switches_before = _context_switches()
         for _ in range(repeats):
             cpu_start = time.process_time_ns()
@@ -197,7 +208,7 @@ class ProcessResourceMeter(EnergyOracle):
             workload()
             wall_samples.append((time.perf_counter_ns() - wall_start) / 1e9)
             cpu_samples.append((time.process_time_ns() - cpu_start) / 1e9)
-        rss_after = _max_rss_kb()
+        peak_rss_kb = _peak_rss_kb() if rss_tracked else None
         switches_after = _context_switches()
 
         cpu_median = statistics.median(cpu_samples)
@@ -206,9 +217,7 @@ class ProcessResourceMeter(EnergyOracle):
             oc.new_measurement("wall_time_s", wall_median, self.name),
             oc.new_measurement("latency_ms", wall_median * 1000.0, self.name),
             oc.new_measurement("repeats", float(repeats), self.name),
-        ] + self._delta_extras(
-            (rss_before, rss_after), (switches_before, switches_after)
-        )
+        ] + self._delta_extras(peak_rss_kb, (switches_before, switches_after))
         return MeterReading(
             meter=self.name,
             cost_quantity=self.cost_quantity,
@@ -470,14 +479,39 @@ class RecordedEnergyMeter(EnergyOracle):
         }
 
 
-def _max_rss_kb() -> float | None:
-    if resource is None:
+_CLEAR_REFS = Path("/proc/self/clear_refs")
+_PROC_STATUS = Path("/proc/self/status")
+
+
+def _reset_peak_rss() -> bool:
+    """Reset the kernel's peak-RSS high-water mark for this process.
+
+    Writing ``5`` to ``/proc/self/clear_refs`` resets ``VmHWM``, so the next
+    read reports the peak residency *since this call* — a per-workload peak
+    rather than a process-lifetime one. False where the interface does not
+    exist (non-Linux) or cannot be written.
+    """
+
+    try:
+        _CLEAR_REFS.write_text("5", encoding="ascii")
+    except OSError:
+        return False
+    return True
+
+
+def _peak_rss_kb() -> float | None:
+    """The peak resident set size since the last reset, in kilobytes."""
+
+    try:
+        status = _PROC_STATUS.read_text(encoding="ascii")
+    except OSError:
         return None
-    usage = resource.getrusage(resource.RUSAGE_SELF)
-    # Linux reports kilobytes; macOS reports bytes.
-    if sys.platform == "darwin":
-        return usage.ru_maxrss / 1024.0
-    return float(usage.ru_maxrss)
+    for line in status.splitlines():
+        if line.startswith("VmHWM:"):
+            fields = line.split()
+            if len(fields) >= 2 and fields[1].isdigit():
+                return float(fields[1])
+    return None
 
 
 def _context_switches() -> float | None:
@@ -887,6 +921,35 @@ class _MeterRun:
     coarse_steps: int
 
 
+def _genuine_int_at_least(value: Any, floor: int) -> bool:
+    return isinstance(value, int) and not isinstance(value, bool) and value >= floor
+
+
+# name -> the lowest integer the knob may take. The oracle configuration is
+# an audit of the execution: `warmup=-5` was silently normalised to zero by
+# the live meters while the record still said -5, and fractional or zero
+# grid settings fail later inside `range()` or the grid division — either
+# way the recorded configuration would not describe the run that happened.
+_RUN_KNOB_FLOORS = (
+    ("repeats", 1),
+    ("warmup", 0),
+    ("fine_steps", 1),
+    ("coarse_steps", 1),
+)
+
+
+def _check_run_knobs(knobs: dict[str, Any]) -> None:
+    """Refuse measurement-run knobs the recorded audit could not describe."""
+
+    for name, floor in _RUN_KNOB_FLOORS:
+        if not _genuine_int_at_least(knobs[name], floor):
+            raise oc.ContractError(
+                f"{name} must be an integer >= {floor}, got {knobs[name]!r}; "
+                "the recorded oracle configuration must describe the "
+                "execution that actually happened"
+            )
+
+
 def _resolve_meter(
     meter: EnergyOracle | None, meter_probe: dict[str, Any] | None
 ) -> tuple[EnergyOracle, dict[str, Any]]:
@@ -1078,6 +1141,14 @@ def build_records(
 ) -> list[dict[str, Any]]:
     """Execute every candidate policy, meter it, and build measured records."""
 
+    _check_run_knobs(
+        {
+            "repeats": repeats,
+            "warmup": warmup,
+            "fine_steps": fine_steps,
+            "coarse_steps": coarse_steps,
+        }
+    )
     meter, probe = _resolve_meter(meter, meter_probe)
     run = _MeterRun(
         meter=meter,
@@ -1207,6 +1278,44 @@ class _CandidateContext:
     demand: Any
     weights: list[float] | None
     optimum: float | None
+    solver: tuple[int, int] | None = None
+
+
+# Solver-step ceiling for replaying a recorded grid search. The validator
+# replays untrusted scenarios, and the grid walk visits O(steps^3)
+# allocations of the four-actuator task, so an unbounded recorded resolution
+# would let one record buy an arbitrarily large replay. The builder defaults
+# are 48 and 8.
+MAX_REPLAY_STEPS = 128
+
+
+def _replay_solver_settings(record: dict[str, Any]) -> tuple[int, int] | None:
+    """``(fine_steps, coarse_steps)`` when this module's suite is replayable.
+
+    Only records produced by this module's policy implementations can have
+    their allocations recomputed; a foreign oracle's policies are not
+    executable here. Malformed or out-of-range solver settings are reported
+    by the oracle-audit check, so returning ``None`` for them does not open
+    a bypass.
+    """
+
+    oracle = record.get("oracle")
+    if not isinstance(oracle, dict):
+        return None
+    implementation = oracle.get("implementation")
+    if not isinstance(implementation, str) or not implementation.startswith(
+        "pipelines/energy_preferences.py:"
+    ):
+        return None
+    configuration = oracle.get("configuration")
+    if not isinstance(configuration, dict):
+        return None
+    fine = configuration.get("fine_steps")
+    coarse = configuration.get("coarse_steps")
+    for steps in (fine, coarse):
+        if not _genuine_int_at_least(steps, 1) or steps > MAX_REPLAY_STEPS:
+            return None
+    return int(fine), int(coarse)
 
 
 def _check_scenario_constraints(
@@ -1596,7 +1705,17 @@ def _check_candidate_safety(
                 f"({sorted(derived_violations)})"
             )
         recorded_violations = candidate.get("safety_violations")
-        if isinstance(recorded_violations, list) and sorted(
+        if not isinstance(recorded_violations, list):
+            # The list is derived; absence is a finding, not a pass. Deleting
+            # it from an unsafe candidate and rehashing left pairwise
+            # consumers with a constraint-rejected candidate and no recorded
+            # reason.
+            errors.append(
+                f"{spot}.safety_violations must list the violations the "
+                f"recorded allocation derives ({sorted(derived_violations)}), "
+                f"got {recorded_violations!r}"
+            )
+        elif sorted(
             str(item) for item in recorded_violations
         ) != sorted(derived_violations):
             errors.append(
@@ -1768,6 +1887,73 @@ def _check_candidate_success(
     return []
 
 
+def _expected_policy_allocation(
+    candidate_id: str, context: _CandidateContext
+) -> list[float]:
+    """The stored form of the allocation the named policy computes here."""
+
+    fine_steps, coarse_steps = context.solver
+    caps = [float(cap) for cap in context.caps]
+    workloads = _policy_workloads(
+        float(context.demand),
+        context.weights,
+        caps,
+        fine_steps=fine_steps,
+        coarse_steps=coarse_steps,
+    )
+    allocation = workloads[candidate_id]()
+    if allocation is None:
+        return []
+    return [round(float(value), 9) for value in allocation]
+
+
+def _check_allocation_reproducibility(
+    candidate: dict[str, Any],
+    candidate_id: str,
+    spot: str,
+    context: _CandidateContext,
+) -> list[str]:
+    """The stored allocation must be what the named policy computes.
+
+    Safety, quality and cost are all re-derived from the *stored* allocation,
+    so replacing one policy's allocation with another's — updating the
+    derived fields consistently and rehashing — stayed validation-clean while
+    the retained measured cost was still the named workload's. The policies
+    are deterministic functions of the scenario state and the recorded solver
+    settings, so the advertised output is recomputed rather than trusted.
+    """
+
+    if (
+        context.solver is None
+        or not context.can_derive_safety
+        or context.weights is None
+    ):
+        return []
+    if candidate_id not in POLICY_DESCRIPTIONS:
+        return [
+            f"{spot}: UNKNOWN_POLICY_ID — {candidate_id!r} is not one of this "
+            f"oracle's executable policies {sorted(POLICY_DESCRIPTIONS)}, so "
+            "its allocation cannot be recomputed"
+        ]
+    recorded = candidate.get("allocation")
+    if not isinstance(recorded, list) or not all(
+        oc.is_number(value) for value in recorded
+    ):
+        # The safety derivation already reports the malformed shape.
+        return []
+    expected = _expected_policy_allocation(candidate_id, context)
+    if len(recorded) != len(expected) or any(
+        abs(float(value) - target) > 1e-9
+        for value, target in zip(recorded, expected)
+    ):
+        return [
+            f"{spot}: ALLOCATION_NOT_REPRODUCIBLE — the recorded allocation "
+            f"is not what policy {candidate_id!r} computes on this scenario "
+            f"state with the recorded solver settings ({expected})"
+        ]
+    return []
+
+
 def _check_candidate(
     candidate: Any,
     spot: str,
@@ -1794,6 +1980,7 @@ def _check_candidate(
     if not oc.is_number(candidate.get("task_quality")):
         errors.append(f"{spot}.task_quality must be a number")
     errors += _check_quality_derivation(candidate, spot, context)
+    errors += _check_allocation_reproducibility(candidate, candidate_id, spot, context)
     errors += _check_candidate_measurements(candidate, candidate_id, spot, context)
     return errors
 
@@ -1974,7 +2161,7 @@ def _check_preferred_feasibility(
 
     errors: list[str] = []
     preferred_id = preferred["id"]
-    if preferred.get("safety_ok") is not True:
+    if not oc.is_true(preferred.get("safety_ok")):
         errors.append(
             f"{where}.result.preference: PREFERRED_CANDIDATE_UNSAFE — "
             f"{preferred_id!r} violates {preferred.get('safety_violations')}"
@@ -2119,9 +2306,25 @@ def _check_oracle_audit(record: dict[str, Any], where: str) -> list[str]:
             f"{where}.oracle.configuration must record the meter probe and "
             "solver settings behind the measured costs"
         ]
-    for key in ("repeats", "warmup", "fine_steps", "coarse_steps"):
-        if not oc.is_number(configuration.get(key)):
-            errors.append(f"{where}.oracle.configuration.{key} must be a number")
+    # The same domains the builder refuses to run outside of. "Any number"
+    # let a record declare a fractional warmup or a billion-step grid — an
+    # audit no execution matches, and (for the grid) a replay bound nothing
+    # could afford to honour.
+    for key, floor, ceiling in (
+        ("repeats", 1, None),
+        ("warmup", 0, None),
+        ("fine_steps", 1, MAX_REPLAY_STEPS),
+        ("coarse_steps", 1, MAX_REPLAY_STEPS),
+    ):
+        value = configuration.get(key)
+        if not _genuine_int_at_least(value, floor) or (
+            ceiling is not None and value > ceiling
+        ):
+            bound = f" and <= {ceiling}" if ceiling is not None else ""
+            errors.append(
+                f"{where}.oracle.configuration.{key} must be an integer "
+                f">= {floor}{bound}, got {value!r}"
+            )
     probe = configuration.get("meter_probe")
     if not isinstance(probe, dict):
         return errors + [
@@ -2187,6 +2390,7 @@ def check_family(record: dict[str, Any], where: str) -> list[str]:
         demand=demand,
         weights=weights,
         optimum=optimum,
+        solver=_replay_solver_settings(record),
     )
     errors += _check_reference_objective(result, context, where)
 

@@ -2379,5 +2379,455 @@ class EighthRoundSevereGaps(unittest.TestCase):
         self.assertIn("domain set changed", str(caught.exception))
 
 
+class NinthRoundContractGaps(unittest.TestCase):
+    """Envelope, JSONL and manifest findings of the ninth review pass."""
+
+    def test_jsonl_reading_is_streamed(self):
+        # read_jsonl buffered the whole raw file and every decoded record
+        # before validate_path saw the first row, so one large batch could
+        # kill validation of an otherwise valid corpus.
+        import inspect
+
+        self.assertTrue(inspect.isgeneratorfunction(oc.iter_jsonl))
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "batch.jsonl"
+            path.write_text('{"a": 1}\n\n{"b": 2}\n', encoding="utf-8")
+            seen = []
+            for lineno, obj in oc.iter_jsonl(path):
+                seen.append((lineno, obj))
+            self.assertEqual(seen, [(1, {"a": 1}), (3, {"b": 2})])
+
+    def test_invalid_utf8_is_a_line_finding_not_an_abort(self):
+        # read_text raised UnicodeDecodeError before per-line handling ran,
+        # so one undecodable byte aborted the whole run with a traceback and
+        # no validation report.
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "bad.jsonl"
+            path.write_bytes(b'{"id": "x"}\n\xff\xfe not utf-8\n')
+            report = vd.validate_path(Path(tmp))
+        self.assertTrue(report["blocked"])
+        self.assertTrue(
+            any(
+                finding["line"] == 2 and "JSON parse failure" in finding["error"]
+                for finding in report["findings"]
+            ),
+            report["findings"],
+        )
+
+    def test_oracle_seed_and_commit_must_carry_schema_types(self):
+        # Presence-only checks accepted seed {} and commit [] as
+        # reproducibility metadata on an otherwise curation-eligible record.
+        record = clone(fr.build_records(11, 1)[0])
+        record["oracle"]["seed"] = {}
+        record["oracle"]["commit"] = []
+        rehash(record)
+        errors = oc.check_envelope(record, "x")
+        self.assertTrue(
+            any("oracle.seed must be an integer or null" in e for e in errors),
+            errors,
+        )
+        self.assertTrue(
+            any("oracle.commit must be a string or null" in e for e in errors),
+            errors,
+        )
+
+    def test_generator_seed_must_be_an_integer_or_null(self):
+        record = clone(fr.build_records(11, 1)[0])
+        for seed in ("11", True, [11], {}):
+            with self.subTest(seed=seed):
+                tampered = clone(record)
+                tampered["generator"]["seed"] = seed
+                rehash(tampered)
+                errors = oc.check_envelope(tampered, "x")
+                self.assertTrue(
+                    any(
+                        "generator.seed must be an integer or null" in e
+                        for e in errors
+                    ),
+                    errors,
+                )
+
+    def test_run_files_are_reconciled_with_the_manifest(self):
+        # validate_path scanned only the JSONL files: removing a listed
+        # batch, changing bytes under a stale digest, or smuggling an extra
+        # unlisted batch all returned blocked: false.
+        records = fr.build_records(11, 2)
+        with tempfile.TemporaryDirectory() as tmp:
+            run = Path(tmp) / "run"
+            batch = run / "fault-recovery" / "batch-r01.jsonl"
+            oc.write_jsonl(batch, records)
+            import hashlib as _hashlib
+
+            good_sha = _hashlib.sha256(batch.read_bytes()).hexdigest()
+            manifest = {
+                "generated_by": "scripts/build_distillation_fixture.py",
+                "files": {
+                    "fault-recovery/batch-r01.jsonl": {
+                        "records": 2,
+                        "sha256": good_sha,
+                    }
+                },
+            }
+            manifest_path = run / "MANIFEST.json"
+            manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+            self.assertFalse(vd.validate_path(run)["blocked"])
+
+            with self.subTest(case="listed batch missing"):
+                broken = dict(manifest)
+                broken["files"] = {
+                    **manifest["files"],
+                    "energy-preferences/batch-r01.jsonl": {
+                        "records": 4,
+                        "sha256": "0" * 64,
+                    },
+                }
+                manifest_path.write_text(json.dumps(broken), encoding="utf-8")
+                report = vd.validate_path(run)
+                self.assertTrue(report["blocked"])
+                self.assertTrue(
+                    any(
+                        "does not contain it" in finding["error"]
+                        for finding in report["findings"]
+                    ),
+                    report["findings"],
+                )
+
+            with self.subTest(case="stale digest and count"):
+                manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+                extra = clone(records[0])
+                extra["id"] = "fr-extra-0001"
+                rehash(extra)
+                with batch.open("a", encoding="utf-8") as handle:
+                    handle.write(oc.canonical_json(extra) + "\n")
+                report = vd.validate_path(run)
+                self.assertTrue(report["blocked"])
+                self.assertTrue(
+                    any(
+                        "hashes to" in finding["error"]
+                        for finding in report["findings"]
+                    ),
+                    report["findings"],
+                )
+                self.assertTrue(
+                    any(
+                        "records but the file carries 3" in finding["error"]
+                        for finding in report["findings"]
+                    ),
+                    report["findings"],
+                )
+
+            with self.subTest(case="unlisted extra batch"):
+                oc.write_jsonl(run / "moe-router" / "batch-r01.jsonl", [])
+                report = vd.validate_path(run)
+                self.assertTrue(
+                    any(
+                        "MANIFEST.json does not bind it" in finding["error"]
+                        for finding in report["findings"]
+                    ),
+                    report["findings"],
+                )
+
+    def test_every_escalation_gate_parameter_is_validated(self):
+        # mlp_hidden=0 published a bias-only model as an MLP,
+        # min_test_records=-1 disabled the minimum-holdout guard, and a
+        # negative (or NaN) nonlinear_margin classified a trailing MLP as
+        # meaningfully nonlinear.
+        samples = rb.dataset_from_records(mr.build_records(11, 40))
+        for knobs in (
+            {"mlp_hidden": 0},
+            {"mlp_hidden": True},
+            {"min_test_records": 0},
+            {"min_test_records": -1},
+            {"nonlinear_margin": -1.0},
+            {"nonlinear_margin": math.nan},
+        ):
+            with self.subTest(knobs=knobs):
+                with self.assertRaises(rb.BaselineError):
+                    rb.evaluate_baselines(samples, **knobs)
+
+
+class NinthRoundFaultGaps(unittest.TestCase):
+    """Fault-recovery findings of the ninth review pass."""
+
+    def test_an_empty_required_channel_list_is_refused(self):
+        # channels: [] narrowed to no affected channels: the declared
+        # disturbance ran as a no-op and replayed as an authoritative
+        # `continue`/WITHIN_TOLERANCE — validation-clean and curation-eligible.
+        simulator = fr.RelayReflexSimulator()
+        scenario = {"system": dict(fr.DEFAULT_SYSTEM), "mission": "m"}
+        empty = {
+            "sensor_loss": {"channels": [], "onset_ms": 4.0, "duration_ms": 14.0},
+            "event_jitter": {
+                "channels": [],
+                "onset_ms": 2.0,
+                "duration_ms": 10.0,
+                "jitter_ms": 3.0,
+            },
+            "temporary_saturation": {
+                "channels": [],
+                "onset_ms": 2.0,
+                "duration_ms": 16.0,
+            },
+            "malformed_spike_burst": {
+                "channels": [],
+                "malformed_count": 2,
+                "malformed_kind": "negative_amplitude",
+            },
+            "missing_channel": {"channels": []},
+        }
+        for kind, parameters in empty.items():
+            with self.subTest(kind=kind):
+                with self.assertRaises(oc.ContractError) as caught:
+                    simulator.run(
+                        {**scenario, "disturbance_kind": kind},
+                        {"kind": kind, "parameters": parameters},
+                    )
+                self.assertIn("no-op", str(caught.exception))
+
+    def test_an_empty_channel_record_is_a_validation_finding(self):
+        record = clone(fr.build_records(11, 1)[0])
+        self.assertEqual(record["intervention"]["kind"], "sensor_loss")
+        record["intervention"]["parameters"]["channels"] = []
+        rehash(record)
+        errors = fr.check_family(record, "x")
+        self.assertTrue(
+            any("OUTCOME_NOT_REPRODUCIBLE" in e and "no-op" in e for e in errors),
+            errors,
+        )
+
+    def test_a_non_list_channel_declaration_is_refused(self):
+        simulator = fr.RelayReflexSimulator()
+        with self.assertRaises(oc.ContractError) as caught:
+            simulator.run(
+                {"system": dict(fr.DEFAULT_SYSTEM), "disturbance_kind": "sensor_loss"},
+                {
+                    "kind": "sensor_loss",
+                    "parameters": {
+                        "channels": "c0",
+                        "onset_ms": 4.0,
+                        "duration_ms": 14.0,
+                    },
+                },
+            )
+        self.assertIn("must be a list", str(caught.exception))
+
+    def test_an_optional_empty_channel_list_still_runs(self):
+        # thermal_excursion reads channels only optionally; an empty list
+        # there is not a no-op of the declared disturbance.
+        result = fr.RelayReflexSimulator().run(
+            {
+                "system": dict(fr.DEFAULT_SYSTEM),
+                "disturbance_kind": "thermal_excursion",
+            },
+            {
+                "kind": "thermal_excursion",
+                "parameters": {
+                    "channels": [],
+                    "onset_ms": 6.0,
+                    "ramp_ms": 8.0,
+                    "peak_c": 84.0,
+                },
+            },
+        )
+        self.assertEqual(result.outcome, "reflex_action")
+
+    def test_the_canonical_outcome_label_is_required(self):
+        # Only a present-but-wrong label was refused; deleting it silently
+        # removed the promised prose-vocabulary traceability field.
+        record = clone(fr.build_records(11, 1)[0])
+        del record["result"]["outcome_label"]
+        rehash(record)
+        errors = fr.check_family(record, "x")
+        self.assertTrue(
+            any("outcome_label must be" in e for e in errors), errors
+        )
+
+    def test_replay_measurement_meters_are_reconciled(self):
+        # Renaming every meter to `fabricated_meter` (values untouched,
+        # digest recomputed) validated clean, preserving labels while
+        # falsifying measurement provenance.
+        record = clone(fr.build_records(11, 1)[0])
+        for item in record["result"]["measurements"]:
+            item["meter"] = "fabricated_meter"
+        rehash(record)
+        errors = fr.check_family(record, "x")
+        provenance = [
+            e for e in errors if "MEASUREMENT_PROVENANCE_NOT_REPRODUCIBLE" in e
+        ]
+        self.assertTrue(provenance, errors)
+        self.assertIn("fabricated_meter", provenance[0])
+
+    def test_every_replayed_fault_target_must_be_measured(self):
+        # A reading flipped to measured: false still counted as present and
+        # its value still reconciled, so a promised target could be
+        # explicitly unmeasured on a curation-eligible record.
+        record = clone(fr.build_records(11, 1)[0])
+        for item in record["result"]["measurements"]:
+            if item["quantity"] == "recovery_latency_ms":
+                item["measured"] = False
+        rehash(record)
+        errors = fr.check_family(record, "x")
+        self.assertTrue(
+            any(
+                "recovery_latency_ms" in e and "measured" in e
+                for e in errors
+            ),
+            errors,
+        )
+
+
+class NinthRoundEnergyGaps(unittest.TestCase):
+    """Energy-preference findings of the ninth review pass."""
+
+    def _record(self):
+        meter, probe = ep.select_meter(prefer_energy=False)
+        return clone(
+            ep.build_records(
+                20260823, 1, meter=meter, meter_probe=probe, repeats=1, warmup=0
+            )[0]
+        )
+
+    def test_the_rederived_safety_violation_list_is_required(self):
+        # Deleting safety_violations from the unsafe candidate skipped the
+        # comparison: pairwise consumers saw a constraint-rejected candidate
+        # with no recorded reason.
+        record = self._record()
+        unsafe = [
+            candidate
+            for candidate in record["result"]["candidates"]
+            if candidate["id"] == "unclipped_proportional"
+        ][0]
+        self.assertFalse(unsafe["safety_ok"])
+        del unsafe["safety_violations"]
+        rehash(record)
+        errors = ep.check_family(record, "x")
+        self.assertTrue(
+            any("safety_violations must list" in e for e in errors), errors
+        )
+
+    def test_measurement_run_knobs_are_validated(self):
+        # warmup=-5 was silently normalised to zero by the live meters while
+        # the oracle configuration still recorded -5; fractional or zero
+        # settings failed later inside range() or the grid division.
+        for knobs in (
+            {"repeats": 0},
+            {"repeats": 1.5},
+            {"warmup": -5},
+            {"warmup": True},
+            {"fine_steps": 0},
+            {"coarse_steps": -1},
+        ):
+            with self.subTest(knobs=knobs):
+                with self.assertRaises(oc.ContractError):
+                    ep.build_records(20260823, 1, **knobs)
+
+    def test_a_swapped_policy_allocation_is_not_reproducible(self):
+        # Replacing coarse_grid's allocation with analytic_kkt's — deriving
+        # quality, safety and membership consistently and rehashing — passed
+        # validation while the retained cost was still attributed to the
+        # coarse-grid workload.
+        record = self._record()
+        by_id = {c["id"]: c for c in record["result"]["candidates"]}
+        coarse, kkt = by_id["coarse_grid"], by_id["analytic_kkt"]
+        state = record["scenario"]["state"]
+        weights = [float(w) for w in state["actuator_weights"]]
+        caps = [float(c) for c in state["actuator_caps"]]
+        demand = float(state["demand"])
+        floor = record["scenario"]["constraints"]["quality_floor"]
+        optimum = ep.objective(
+            weights, ep.analytic_allocation(demand, weights, caps)
+        )
+        coarse["allocation"] = list(kkt["allocation"])
+        evaluation = ep.evaluate_allocation(
+            list(coarse["allocation"]),
+            demand=demand,
+            weights=weights,
+            caps=caps,
+            optimum=optimum,
+            quality_floor=floor,
+        )
+        coarse["task_quality"] = evaluation.task_quality
+        coarse["safety_ok"] = evaluation.safety_ok
+        coarse["safety_violations"] = list(evaluation.violations)
+        coarse["success"] = evaluation.success
+        for item in record["result"]["measurements"]:
+            detail = item.get("detail") or {}
+            if (
+                detail.get("candidate") == "coarse_grid"
+                and item["quantity"] == "task_quality"
+            ):
+                item["value"] = evaluation.task_quality
+        preference = record["result"].get("preference")
+        if preference is not None:
+            feasible = ep._feasible_candidates(record["result"]["candidates"], floor)
+            preference["feasible"] = sorted(c["id"] for c in feasible)
+        rehash(record)
+        errors = ep.check_family(record, "x")
+        self.assertTrue(
+            any("ALLOCATION_NOT_REPRODUCIBLE" in e for e in errors), errors
+        )
+
+    def test_a_foreign_candidate_id_cannot_dodge_the_recompute(self):
+        record = self._record()
+        by_id = {c["id"]: c for c in record["result"]["candidates"]}
+        by_id["coarse_grid"]["id"] = "mystery_policy"
+        rehash(record)
+        errors = ep.check_family(record, "x")
+        self.assertTrue(any("UNKNOWN_POLICY_ID" in e for e in errors), errors)
+
+    def test_solver_settings_outside_the_replay_domain_are_findings(self):
+        record = self._record()
+        record["oracle"]["configuration"]["fine_steps"] = 10**9
+        rehash(record)
+        errors = ep.check_family(record, "x")
+        self.assertTrue(
+            any(
+                "fine_steps must be an integer >= 1 and <= 128" in e
+                for e in errors
+            ),
+            errors,
+        )
+
+    def test_max_rss_is_a_per_workload_peak_not_a_high_water_delta(self):
+        # ru_maxrss is the process-lifetime high-water mark: subtracting two
+        # snapshots reported every equal-or-smaller footprint as
+        # max_rss_kb: 0 — all four committed fixture candidates carried the
+        # false zero.
+        meter = ep.ProcessResourceMeter()
+        if not ep._reset_peak_rss():
+            reading = meter.measure(lambda: None, repeats=1, warmup=0)
+            self.assertNotIn(
+                "max_rss_kb",
+                [item["quantity"] for item in reading.extra],
+                "an unmeasurable peak must be unmeasured, not zero",
+            )
+            self.skipTest("no resettable peak-RSS counter on this platform")
+
+        def hungry():
+            buffer = bytearray(64 * 1024 * 1024)
+            buffer[::4096] = b"x" * len(buffer[::4096])
+            return len(buffer)
+
+        hungry_reading = meter.measure(hungry, repeats=1, warmup=0)
+        lean_reading = meter.measure(lambda: None, repeats=1, warmup=0)
+        by_quantity = {
+            item["quantity"]: item["value"] for item in hungry_reading.extra
+        }
+        lean_by_quantity = {
+            item["quantity"]: item["value"] for item in lean_reading.extra
+        }
+        self.assertGreaterEqual(
+            by_quantity["max_rss_kb"],
+            64 * 1024,
+            "the workload's own 64 MiB peak must be visible",
+        )
+        self.assertGreater(
+            by_quantity["max_rss_kb"],
+            lean_by_quantity["max_rss_kb"],
+            "a later lean workload must not inherit the hungry peak — the "
+            "counter is reset per workload, not process-lifetime",
+        )
+
+
 if __name__ == "__main__":  # pragma: no cover
     unittest.main()

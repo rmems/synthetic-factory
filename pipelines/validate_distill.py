@@ -21,6 +21,7 @@ Usage::
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import sys
 from collections import Counter
@@ -95,6 +96,86 @@ def jsonl_paths(root: Path) -> list[Path]:
     if root.is_file():
         return [root]
     return sorted(path for path in root.rglob("*.jsonl") if path.is_file())
+
+
+def _finding(path, error: str) -> dict[str, Any]:
+    return {"file": str(path), "line": 0, "error": error}
+
+
+def _load_manifest_files(manifest_path: Path) -> tuple[dict[str, Any] | None, str | None]:
+    """The manifest's ``files`` map, or the reason it cannot bind anything."""
+
+    try:
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        return None, f"MANIFEST.json cannot be read as JSON ({exc})"
+    files = manifest.get("files") if isinstance(manifest, dict) else None
+    if not isinstance(files, dict):
+        return None, "MANIFEST.json does not carry a files object binding the run"
+    return files, None
+
+
+def _manifest_entry_errors(
+    spec: Any, target: Path | None, relative: str, records: int
+) -> list[str]:
+    """One manifest entry against the file it claims to describe."""
+
+    if target is None:
+        return [f"MANIFEST.json lists {relative} but the run does not contain it"]
+    if not isinstance(spec, dict):
+        return [f"MANIFEST.json entry for {relative} must be an object"]
+    errors: list[str] = []
+    actual_sha256 = hashlib.sha256(target.read_bytes()).hexdigest()
+    if spec.get("sha256") != actual_sha256:
+        errors.append(
+            f"MANIFEST.json binds {relative} to sha256 {spec.get('sha256')!r} "
+            f"but the file hashes to {actual_sha256!r}"
+        )
+    if spec.get("records") != records:
+        errors.append(
+            f"MANIFEST.json binds {relative} to {spec.get('records')!r} "
+            f"records but the file carries {records}"
+        )
+    return errors
+
+
+def _manifest_findings(
+    root: Path, paths: list[Path], records_per_file: dict[Path, int]
+) -> list[dict[str, Any]]:
+    """Reconcile a run manifest's file bindings with the scanned files.
+
+    A run directory's ``MANIFEST.json`` binds each family batch to its path,
+    record count and SHA-256. Nothing reconciled those bindings, so removing
+    an expected batch — or changing one and rehashing its records — returned
+    ``blocked: false`` while the committed manifest still described different
+    bytes and totals.
+    """
+
+    manifest_path = root / "MANIFEST.json"
+    if not root.is_dir() or not manifest_path.is_file():
+        return []
+    files, problem = _load_manifest_files(manifest_path)
+    if files is None:
+        return [_finding(manifest_path, problem)]
+    findings: list[dict[str, Any]] = []
+    scanned = {path.relative_to(root).as_posix(): path for path in paths}
+    for relative in sorted(files, key=str):
+        target = scanned.get(relative) if isinstance(relative, str) else None
+        findings += [
+            _finding(manifest_path, error)
+            for error in _manifest_entry_errors(
+                files[relative], target, relative, records_per_file.get(target, 0)
+            )
+        ]
+    for relative in sorted(set(scanned) - set(files)):
+        findings.append(
+            _finding(
+                manifest_path,
+                f"{relative} is present in the run but MANIFEST.json does "
+                "not bind it",
+            )
+        )
+    return findings
 
 
 class _Location:
@@ -222,7 +303,7 @@ def _build_report(
             {"file": str(root), "line": 0, "error": "no records found in any file"}
         )
 
-    report = {
+    return {
         "path": str(root),
         "files": len(paths),
         "records": tally.records,
@@ -236,10 +317,10 @@ def _build_report(
         "findings": tally.findings,
         "strict": bool(strict),
         "validator": {"name": VALIDATOR_NAME, "version": VALIDATOR_VERSION},
+        "blocked": bool(tally.findings)
+        or (strict and tally.eligible < tally.valid),
+        "_stamped": tally.stamped,
     }
-    report["blocked"] = bool(tally.findings) or (strict and tally.eligible < tally.valid)
-    report["_stamped"] = tally.stamped
-    return report
 
 
 def validate_path(root: Path, strict: bool = False, stamp: bool = False) -> dict[str, Any]:
@@ -249,10 +330,14 @@ def validate_path(root: Path, strict: bool = False, stamp: bool = False) -> dict
         raise FileNotFoundError(f"no such path: {root}")
     paths = jsonl_paths(root)
     tally = _RunTally()
+    records_per_file: dict[Path, int] = {}
 
     for path in paths:
-        for lineno, obj in oc.read_jsonl(path):
+        # Streamed, not buffered: memory stays bounded per record even when
+        # a single batch is far larger than this process.
+        for lineno, obj in oc.iter_jsonl(path):
             tally.records += 1
+            records_per_file[path] = records_per_file.get(path, 0) + 1
             loc = _Location(path, lineno)
             if obj is None:
                 tally.findings.append(
@@ -261,6 +346,7 @@ def validate_path(root: Path, strict: bool = False, stamp: bool = False) -> dict
                 continue
             _process_record(obj, loc, tally, stamp)
 
+    tally.findings += _manifest_findings(root, paths, records_per_file)
     return _build_report(root, paths, tally, strict)
 
 

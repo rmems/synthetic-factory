@@ -33,6 +33,15 @@ Generators propose; oracles decide. Concretely:
   producer stamp itself `passed` and walk through the gate. Structural
   validity alone is never training-ready.
 
+The envelope also holds the reproducibility metadata to its schema types
+rather than to presence alone: `generator.seed` and `oracle.seed` must be
+integers or null, and `oracle.commit` a string or null — `seed: {}` is
+malformed metadata, not an unseeded run. JSONL input is read as a stream
+(`oracle_contract.iter_jsonl`), one line at a time, so validating a scaled
+corpus needs memory for one record rather than for the whole raw file plus
+every decoded record at once; a line that is not valid UTF-8 is reported as
+that line's parse failure instead of aborting the entire run.
+
 Every measurement carries `quantity`, canonical `unit`, `meter`, `measured` and
 `source: "oracle"`, and its value must lie in the quantity's domain: times,
 energies, latencies, counts, entropies and margins cannot be negative, and
@@ -87,7 +96,10 @@ not read. A parameter that is silently ignored turns a scenario into a no-op
 that still looks like a disturbance in the record, which is worse than an
 error. The same fail-closed rule covers parameter *values*: a disturbance may
 only name channels the relay actually reads (its own channels plus the
-fallback source); `burst_corruption` requires a finite `corrupt_ratio` in
+fallback source), a declared `channels` value must be a list, and a kind whose
+spec requires `channels` must name at least one — an empty list narrows to no
+affected channels, so the declared fault would run as a no-op and replay as
+an authoritative `continue`; `burst_corruption` requires a finite `corrupt_ratio` in
 `[0, 1]`; onsets must be non-negative and land at or before the last
 simulated tick (`(ticks - 1) * tick_ms` — any later and the active window
 never opens), and durations, jitters, ramps, delays
@@ -108,9 +120,16 @@ the prediction and the outcome (its absence is a finding, not a pass, and an
 agreement label without `candidate_prediction.predicted_outcome` to grade is
 one too), requires `scenario.disturbance_kind` to be present and name the
 simulated fault, requires every replay-derived measurement
-to be present — and rejects a recorded reading the replay derives no value
-for, such as a detection latency on a run with no detection — and requires
-`result.integrity_violation` to be a boolean
+to be present as a reading the simulator actually took (`measured: true` —
+a reading flipped to `measured: false` is a modelled value wearing a
+measurement's name) and attributed to the simulator instrument that derives
+it (`simulator_clock`, `simulator_state`, `simulator_thermal_model` — a
+renamed meter preserves every value while falsifying measurement
+provenance), requires `result.outcome_label` to be present and equal to the
+canonical prose label (deleting it silently removed the promised
+prose-vocabulary traceability) — and rejects a recorded reading the replay
+derives no value for, such as a detection latency on a run with no
+detection — and requires `result.integrity_violation` to be a boolean
 compared against the replay, so neither a flipped agreement, a deleted
 latency, a fabricated one, nor a dropped integrity signal survives a
 recomputed digest. For the same reason the
@@ -177,7 +196,21 @@ workload, behind `pipelines/energy_preferences.py:EnergyOracle`:
 - `ProcessResourceMeter` — CPU time, wall time, latency and RSS of the executed
   workload. Real measurements of a real execution, but of *time*. A corpus
   metered this way is denominated in `cpu_time_s` and says so in
-  `result.cost_is_energy = false`.
+  `result.cost_is_energy = false`. Its `max_rss_kb` is the process's peak
+  residency **during that workload**, taken by resetting the kernel's
+  high-water counter (`/proc/self/clear_refs`) before the measured repeats and
+  reading `VmHWM` after — `ru_maxrss` is a process-lifetime high-water mark,
+  and subtracting two snapshots of it reported every equal-or-smaller
+  footprint as a false `max_rss_kb: 0`. Where no resettable counter exists
+  the quantity is omitted: unmeasurable is unmeasured, never zero.
+
+`build_records` validates its measurement-run knobs before anything executes —
+`repeats` and both grid resolutions must be positive integers and `warmup` a
+non-negative integer — because `oracle.configuration` is an audit of the
+execution, and a `warmup=-5` silently normalised to zero by the meters would
+be recorded as a configuration no run ever had. The validator holds recorded
+configurations to the same domains, with the grid resolutions additionally
+bounded (`<= 128`) because it replays them.
 
 **Preference rule.** `min_measured_cost_subject_to_quality_and_safety`:
 among candidates with `task_quality >= constraints.quality_floor` **and**
@@ -207,6 +240,17 @@ measured cheaper. The readings backing a candidate's cost and `task_quality`
 must themselves be `measured: true`; `task_quality` and
 `result.reference_objective` are re-derived from the recorded allocation and
 scenario state, so editing a quality and its measurement together still fails;
+the allocation itself is re-derived too — the four policies are deterministic
+functions of the scenario state and the recorded solver settings, so for a
+record produced by this module's suite each candidate's stored allocation must
+be exactly what the policy its id names computes (`ALLOCATION_NOT_REPRODUCIBLE`
+otherwise, and an id outside the executable suite is `UNKNOWN_POLICY_ID`) —
+without that, one policy's allocation could be replaced by another's, with the
+derived fields updated consistently, while the retained measured cost still
+described the named workload's execution; an unsafe candidate's
+`safety_violations` must be present and equal to the list its own allocation
+derives (absence silently removed the recorded reason for a
+constraint-rejected candidate);
 and `preference.over` / `feasible` / `cheaper_but_constraint_violating` and
 the restated `quality_floor` are re-derived from the measured candidates
 rather than trusted. The grounding itself is mandatory: `scenario.state` must
@@ -321,10 +365,15 @@ class at this size.
 The gate only evaluates records with `result.status == "measured"`: an
 abstained result's routing fields are outcomes the oracle declined to stand
 behind, and a corpus containing one is refused loudly rather than filtered
-silently. `min_lift` must be a finite non-negative number — argparse happily
-accepts `--min-lift nan`, and NaN defeats every threshold comparison — and
-the logistic/MLP iteration counts must be positive integers, because zero
-training epochs would publish untrained baselines into the escalation gate.
+silently. Every decision parameter of `evaluate_baselines` is validated, not
+just the CLI-exposed ones: `min_lift` and `nonlinear_margin` must be finite
+non-negative numbers — argparse happily accepts `--min-lift nan`, NaN defeats
+every threshold comparison, and a negative margin classifies an MLP that
+trails the logistic model as meaningfully nonlinear — while the logistic/MLP
+iteration counts, `mlp_hidden` and `min_test_records` must be positive
+integers, because zero training epochs would publish untrained baselines,
+`mlp_hidden=0` publishes a bias-only model as an MLP, and a non-positive
+`min_test_records` disables the small-holdout safeguard.
 
 A lift over the majority class only counts when it clears `required_lift`, the
 larger of `min_lift` and two standard errors of the test accuracy, and only
@@ -354,6 +403,13 @@ read as a learnable target.
 recording which oracles ran, which were unavailable, the validation totals and
 the baseline report. It sets `training_ready: false` and says why. It proves the
 shape end to end; it is not a corpus.
+
+When `validate_distill.py` is pointed at a run directory carrying a
+`MANIFEST.json`, it reconciles the manifest's `files` bindings with what it
+scanned — every listed batch must exist with the recorded record count and
+SHA-256, and every scanned batch must be listed — so a removed family batch,
+a changed-and-rehashed one, or a smuggled extra file blocks the run instead
+of validating beside a manifest that describes different bytes.
 
 Validate it with:
 

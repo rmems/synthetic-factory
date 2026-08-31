@@ -507,34 +507,48 @@ def _verdict(
     return VERDICT_LINEAR
 
 
-def _check_evaluation_knobs(
-    min_lift: float, logistic_iterations: int, mlp_iterations: int
-) -> None:
+# Decision knobs that must be positive genuine integers, and why an
+# out-of-domain value fakes the gate rather than merely misconfiguring it.
+_POSITIVE_INT_KNOBS = (
+    ("logistic_iterations", "zero training epochs would publish untrained baselines"),
+    ("mlp_iterations", "zero training epochs would publish untrained baselines"),
+    ("mlp_hidden", "a widthless MLP publishes a bias-only model as an MLP"),
+    (
+        "min_test_records",
+        "a non-positive minimum disables the small-holdout safeguard",
+    ),
+)
+
+# Decision thresholds that must be finite and non-negative. NaN survives
+# ``max()`` and defeats every comparison against it, and a negative margin
+# lets an MLP that trails the logistic model read as meaningfully nonlinear.
+_THRESHOLD_KNOBS = ("min_lift", "nonlinear_margin")
+
+
+def _check_evaluation_knobs(knobs: dict[str, Any]) -> None:
     """Refuse evaluation knobs that would fake or defeat the gate.
 
     argparse accepts ``--min-lift nan``: NaN survives ``max(min_lift, 2 *
     stderr)`` and every ``lift < required_lift`` comparison against it is
     false, so a large-enough holdout could emit a learnable verdict (and
-    non-standard JSON carrying NaN) no finite threshold would grant. It also
-    accepts ``--iterations 0``, which trains neither advertised baseline yet
-    still publishes their initial predictions as trained accuracies into the
-    SNN escalation gate.
+    non-standard JSON carrying NaN) no finite threshold would grant. The
+    remaining decision parameters are held to their domains for the same
+    reason: an out-of-domain value does not misconfigure the gate, it
+    quietly replaces the documented decision with a different one.
     """
 
-    if not math.isfinite(min_lift) or min_lift < 0.0:
-        raise BaselineError(
-            f"min_lift must be a finite non-negative number, got {min_lift!r}"
-        )
-    for name, iterations in (
-        ("logistic_iterations", logistic_iterations),
-        ("mlp_iterations", mlp_iterations),
-    ):
-        if not isinstance(iterations, int) or isinstance(iterations, bool) or (
-            iterations < 1
-        ):
+    for name in _THRESHOLD_KNOBS:
+        value = knobs[name]
+        if not oc.is_number(value) or value < 0.0:
             raise BaselineError(
-                f"{name} must be a positive integer, got {iterations!r} — "
-                "zero training epochs would publish untrained baselines"
+                f"{name} must be a finite non-negative number, got {value!r}"
+            )
+    for name, consequence in _POSITIVE_INT_KNOBS:
+        value = knobs[name]
+        if not isinstance(value, int) or isinstance(value, bool) or value < 1:
+            raise BaselineError(
+                f"{name} must be a positive integer, got {value!r} — "
+                f"{consequence}"
             )
 
 
@@ -551,7 +565,16 @@ def evaluate_baselines(
 ) -> dict[str, Any]:
     """Run every conventional baseline and return a comparable report."""
 
-    _check_evaluation_knobs(min_lift, logistic_iterations, mlp_iterations)
+    _check_evaluation_knobs(
+        {
+            "min_lift": min_lift,
+            "nonlinear_margin": nonlinear_margin,
+            "logistic_iterations": logistic_iterations,
+            "mlp_iterations": mlp_iterations,
+            "mlp_hidden": mlp_hidden,
+            "min_test_records": min_test_records,
+        }
+    )
     if len(samples) < 8:
         raise BaselineError("need at least 8 samples to evaluate a baseline")
     train, test = split(samples, holdout_pct=holdout_pct)
@@ -729,7 +752,8 @@ def _clean_router_records(path: str) -> list[dict[str, Any]]:
 
     problems: list[str] = []
     records: list[dict[str, Any]] = []
-    for lineno, obj in oc.read_jsonl(path):
+    # Streamed: the raw file is never buffered whole beside the parsed rows.
+    for lineno, obj in oc.iter_jsonl(path):
         where = f"{path}:{lineno}"
         if obj is None:
             problems.append(f"{where}: JSON parse failure")

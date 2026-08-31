@@ -64,15 +64,15 @@
   "files": {
     "energy-preferences/batch-r01.jsonl": {
       "records": 4,
-      "sha256": "56ec700ba5bf467be21e7d761b562e8700d223c1774db97477e6379f5e52a703"
+      "sha256": "46300d3234d2ed676d55258b28bab438bab043aca94c9660088ff5c3f23a1c6f"
     },
     "fault-recovery/batch-r01.jsonl": {
       "records": 18,
-      "sha256": "150f588ad22a2c559d2ee85230962087519b55433d2357b6d5f5c3c00e8671ff"
+      "sha256": "8d92da6adfcb17d2cffb81f1cb0e169c6720b67129a96009131061f4fbd8aca6"
     },
     "moe-router/batch-r01.jsonl": {
       "records": 80,
-      "sha256": "c6afb8cb022241e1dcc7743a13aa66c1a64b85a41e0f6063ff7414c7e7110290"
+      "sha256": "3e0933dc337c659909c9f082eb267799817648f14e1a689f3933da87ff1a2ef6"
     }
   },
   "generated_by": "scripts/build_distillation_fixture.py",

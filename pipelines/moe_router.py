@@ -1541,7 +1541,7 @@ def _check_measurement_reconciliation(
             continue
         if not oc.is_number(item.get("value")):
             continue
-        if item.get("measured") is True:
+        if oc.is_true(item.get("measured")):
             # A `measured: false` reading is a modelled value wearing a
             # promised router target's name — it does not satisfy the
             # completeness requirement below.

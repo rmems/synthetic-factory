@@ -552,9 +552,36 @@ class RelayReflexSimulator(FaultOracle):
             )
 
     @staticmethod
+    def _check_declared_channel_list(kind: str, parameters: dict[str, Any]) -> None:
+        """A declared channel list must be a list, and non-empty where required.
+
+        ``channels: []`` (or a non-list) narrowed to no affected channels, so
+        ``sensor_loss``, ``event_jitter``, ``temporary_saturation`` and
+        ``malformed_spike_burst`` applied no fault at all and the replayed
+        no-op produced an authoritative ``continue``/``WITHIN_TOLERANCE``
+        label for a disturbance that was never simulated.
+        """
+
+        required, _ = PARAMETER_SPEC[kind]
+        if "channels" not in parameters:
+            return
+        channels = parameters["channels"]
+        if not isinstance(channels, list):
+            raise oc.ContractError(
+                f"{kind} channels must be a list of channel names, got "
+                f"{channels!r}; anything else would run as a no-op"
+            )
+        if "channels" in required and not channels:
+            raise oc.ContractError(
+                f"{kind} channels must name at least one channel; an empty "
+                "list would run the declared disturbance as a no-op"
+            )
+
+    @staticmethod
     def _check_parameter_values(kind: str, parameters: dict[str, Any]) -> None:
         """Value ranges whose violation would also run as a silent no-op."""
 
+        RelayReflexSimulator._check_declared_channel_list(kind, parameters)
         for key, floor, exclusive in RelayReflexSimulator._PARAMETER_FLOORS:
             if key not in parameters:
                 continue
@@ -1223,21 +1250,36 @@ def _check_replay_labels(result: dict[str, Any], replay: Any, where: str) -> lis
     return errors
 
 
-def _check_replay_measurements(
-    result: dict[str, Any], replay: Any, where: str
-) -> list[str]:
-    """The recorded measurements against the ones the replay derives."""
+# The simulator instrument each replay-derived quantity is read from. A
+# reading that keeps the derived value but renames its meter falsifies
+# measurement provenance while every value comparison still passes.
+_REPLAY_METERS: dict[str, str] = {
+    "detection_latency_ms": RelayReflexSimulator.meter_clock,
+    "recovery_latency_ms": RelayReflexSimulator.meter_clock,
+    "healthy_channel_count": RelayReflexSimulator.meter_state,
+    "dropped_event_count": RelayReflexSimulator.meter_state,
+    "residual_error": RelayReflexSimulator.meter_state,
+    "corrupt_ratio": RelayReflexSimulator.meter_state,
+    "peak_temperature_c": RelayReflexSimulator.meter_thermal,
+}
 
-    errors: list[str] = []
-    expected = _derived_measurements(replay)
-    measurements = result.get("measurements")
-    # Presence first: validating only the readings that remain would let a
-    # record delete the replay-derived latencies, counts and ratios wholesale
-    # and keep a single surviving reading as its "measured" result.
+
+def _missing_replay_quantities(
+    expected: dict[str, float | None], items: list[dict[str, Any]], where: str
+) -> list[str]:
+    """Presence first: every derived target needs a reading the oracle took.
+
+    Validating only the readings that remain would let a record delete the
+    replay-derived latencies, counts and ratios wholesale and keep a single
+    surviving reading as its "measured" result — and a reading flipped to
+    ``measured: false`` is a modelled value wearing a measurement's name, so
+    it does not count as carrying the target either.
+    """
+
     recorded_quantities = {
         item.get("quantity")
-        for item in (measurements if isinstance(measurements, list) else [])
-        if isinstance(item, dict) and isinstance(item.get("quantity"), str)
+        for item in items
+        if isinstance(item.get("quantity"), str) and oc.is_true(item.get("measured"))
     }
     missing = sorted(
         quantity
@@ -1245,35 +1287,72 @@ def _check_replay_measurements(
         if target is not None and quantity not in recorded_quantities
     )
     if missing:
-        errors.append(
+        return [
             f"{where}.result: OUTCOME_NOT_REPRODUCIBLE — the replay derives "
-            f"measurements {missing} that the record does not carry"
+            f"measurements {missing} that the record does not carry as "
+            "measured readings"
+        ]
+    return []
+
+
+def _replay_item_errors(
+    item: dict[str, Any], expected: dict[str, float | None], where: str
+) -> list[str]:
+    """One recorded reading against the value and meter the replay derives."""
+
+    quantity = item.get("quantity")
+    if not oc.is_enum_value(quantity, expected):
+        return []
+    target = expected[quantity]
+    if target is None:
+        # The replay derives no such value — a `detection_latency_ms` on
+        # a run with no detection is a fabricated oracle-attributed
+        # target, not a reading to skip.
+        return [
+            f"{where}.result: OUTCOME_NOT_REPRODUCIBLE — the record "
+            f"carries {quantity} but the replay derives no such "
+            "measurement"
+        ]
+    errors: list[str] = []
+    if not oc.is_true(item.get("measured")):
+        errors.append(
+            f"{where}.result: OUTCOME_NOT_REPRODUCIBLE — the {quantity} "
+            f"reading is marked measured: {item.get('measured')!r}, but every "
+            "replay-derived fault target must be a reading the simulator "
+            "actually took"
         )
-    for item in measurements if isinstance(measurements, list) else []:
-        if not isinstance(item, dict):
-            continue
-        quantity = item.get("quantity")
-        if not oc.is_enum_value(quantity, expected):
-            continue
-        target = expected[quantity]
-        if target is None:
-            # The replay derives no such value — a `detection_latency_ms` on
-            # a run with no detection is a fabricated oracle-attributed
-            # target, not a reading to skip.
-            errors.append(
-                f"{where}.result: OUTCOME_NOT_REPRODUCIBLE — the record "
-                f"carries {quantity} but the replay derives no such "
-                "measurement"
-            )
-            continue
-        if not oc.is_number(item.get("value")):
-            continue
-        if abs(float(item["value"]) - float(target)) > 1e-6:
-            errors.append(
-                f"{where}.result: OUTCOME_NOT_REPRODUCIBLE — measured "
-                f"{quantity} is {item['value']} but the simulator derives "
-                f"{target}"
-            )
+    if item.get("meter") != _REPLAY_METERS[quantity]:
+        errors.append(
+            f"{where}.result: MEASUREMENT_PROVENANCE_NOT_REPRODUCIBLE — "
+            f"{quantity} is attributed to meter {item.get('meter')!r} but "
+            f"this simulator reads it from {_REPLAY_METERS[quantity]!r}"
+        )
+    if oc.is_number(item.get("value")) and (
+        abs(float(item["value"]) - float(target)) > 1e-6
+    ):
+        errors.append(
+            f"{where}.result: OUTCOME_NOT_REPRODUCIBLE — measured "
+            f"{quantity} is {item['value']} but the simulator derives "
+            f"{target}"
+        )
+    return errors
+
+
+def _check_replay_measurements(
+    result: dict[str, Any], replay: Any, where: str
+) -> list[str]:
+    """The recorded measurements against the ones the replay derives."""
+
+    expected = _derived_measurements(replay)
+    measurements = result.get("measurements")
+    items = [
+        item
+        for item in (measurements if isinstance(measurements, list) else [])
+        if isinstance(item, dict)
+    ]
+    errors = _missing_replay_quantities(expected, items, where)
+    for item in items:
+        errors += _replay_item_errors(item, expected, where)
     return errors
 
 
@@ -1424,12 +1503,16 @@ def _check_outcome(result: dict[str, Any], where: str) -> list[str]:
         errors.append(
             f"{where}.result.outcome must be one of {sorted(OUTCOMES)}, got {outcome!r}"
         )
-    else:
-        label = result.get("outcome_label")
-        if label is not None and label != OUTCOME_LABELS[outcome]:
-            errors.append(
-                f"{where}.result.outcome_label must be {OUTCOME_LABELS[outcome]!r}"
-            )
+    elif result.get("outcome_label") != OUTCOME_LABELS[outcome]:
+        # The label preserves the issue's prose vocabulary beside the
+        # canonical outcome; absence is a finding, not a pass. Deleting it
+        # and rehashing silently removed the promised traceability field
+        # while the record stayed curation-eligible.
+        errors.append(
+            f"{where}.result.outcome_label must be {OUTCOME_LABELS[outcome]!r} "
+            f"— the emitted prose label for {outcome!r} — got "
+            f"{result.get('outcome_label')!r}"
+        )
     reasons = result.get("reason_codes")
     if not isinstance(reasons, list) or not reasons:
         errors.append(
