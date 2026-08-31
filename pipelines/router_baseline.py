@@ -667,6 +667,29 @@ def escalation_gate(report: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _record_gate_problems(obj: dict[str, Any], where: str) -> list[str]:
+    """The gate findings one parsed record contributes beyond check_record."""
+
+    problems: list[str] = []
+    if obj.get("family") != moe_router.FAMILY:
+        problems.append(
+            f"{where}: family {obj.get('family')!r} is not "
+            f"{moe_router.FAMILY!r}"
+        )
+    result = obj.get("result")
+    status = result.get("status") if isinstance(result, dict) else None
+    if status != oc.RESULT_MEASURED:
+        # A valid record can honestly abstain, but its routing fields are
+        # outcomes the oracle declined to produce. Refuse loudly rather than
+        # let dataset_from_records drop it silently — the operator should see
+        # the abstentions and filter deliberately.
+        problems.append(
+            f"{where}: result.status is {status!r} — the baseline "
+            "only evaluates measured router results"
+        )
+    return problems
+
+
 def _clean_router_records(path: str) -> list[dict[str, Any]]:
     """CLI gate: every input line must be a clean router-family record.
 
@@ -685,26 +708,10 @@ def _clean_router_records(path: str) -> list[dict[str, Any]]:
             problems.append(f"{where}: JSON parse failure")
             continue
         errors = validate_distill.check_record(obj, where)
-        if isinstance(obj, dict) and obj.get("family") != moe_router.FAMILY:
-            problems.append(
-                f"{where}: family {obj.get('family')!r} is not "
-                f"{moe_router.FAMILY!r}"
-            )
         if isinstance(obj, dict):
-            result = obj.get("result")
-            status = result.get("status") if isinstance(result, dict) else None
-            if status != oc.RESULT_MEASURED:
-                # A valid record can honestly abstain, but its routing fields
-                # are outcomes the oracle declined to produce. Refuse loudly
-                # rather than let dataset_from_records drop it silently — the
-                # operator should see the abstentions and filter deliberately.
-                problems.append(
-                    f"{where}: result.status is {status!r} — the baseline "
-                    "only evaluates measured router results"
-                )
-        problems.extend(errors)
-        if isinstance(obj, dict):
+            problems.extend(_record_gate_problems(obj, where))
             records.append(obj)
+        problems.extend(errors)
     if problems:
         shown = "; ".join(problems[:5])
         more = f" (+{len(problems) - 5} more)" if len(problems) > 5 else ""
