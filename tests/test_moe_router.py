@@ -376,7 +376,13 @@ class FamilyChecks(unittest.TestCase):
                 for layer in record["result"]["routing"]["layers"]:
                     layer["router_logits"] = None
                     layer["top_k_experts"] = bogus
-                self.assertTrue(mr.check_family(record, "x"))
+                errors = mr.check_family(record, "x")
+                # Non-vacuous: the finding must be about the expert ids, not
+                # any error the tampering happens to trip.
+                self.assertTrue(
+                    any("top_k_experts" in error for error in errors),
+                    f"no expert-id finding for {bogus}: {errors}",
+                )
 
     def test_missing_teacher_fingerprint_is_rejected(self):
         del self.record["oracle"]["fingerprint"]

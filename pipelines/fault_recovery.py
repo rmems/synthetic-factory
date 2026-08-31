@@ -434,14 +434,20 @@ def _unit_interval(value: Any) -> bool:
     return oc.is_number(value) and 0.0 <= float(value) <= 1.0
 
 
-def _genuine_count_from(floor: int):
-    """A predicate for a genuine (non-boolean) integer >= ``floor``."""
+def _genuine_count_from(floor: int, ceiling: int | None = None):
+    """A predicate for a genuine (non-boolean) integer >= ``floor``.
+
+    ``ceiling`` bounds the value inclusively when given — the validator
+    replays untrusted scenarios, so unbounded loop controls would let one
+    record buy an arbitrarily large replay workload.
+    """
 
     def _valid(value: Any) -> bool:
         return (
             isinstance(value, int)
             and not isinstance(value, bool)
             and value >= floor
+            and (ceiling is None or value <= ceiling)
         )
 
     return _valid
@@ -675,7 +681,12 @@ class RelayReflexSimulator(FaultOracle):
         ]
         + [("jitter_tolerance_ms", "a non-negative number", _non_negative_number)]
         + [
-            ("ticks", "an integer >= 1", _genuine_count_from(1)),
+            # The tick count is bounded because the validator replays
+            # untrusted scenarios: it walks every live channel for every
+            # tick and keeps one trace entry per tick, so an unbounded value
+            # would let one record buy an arbitrarily large replay. The
+            # default run uses 24.
+            ("ticks", "an integer in [1, 1000]", _genuine_count_from(1, 1000)),
             ("reflex_saturation_ticks", "an integer >= 1", _genuine_count_from(1)),
             ("min_healthy_channels", "an integer >= 0", _genuine_count_from(0)),
             ("corruption_quarantine_ratio", "a ratio in [0, 1]", _unit_interval),
@@ -707,10 +718,14 @@ class RelayReflexSimulator(FaultOracle):
         if not (
             isinstance(channels, list)
             and channels
+            # Bounded for the same reason ticks is: the replay walks every
+            # channel every tick. The default relay has 4.
+            and len(channels) <= 32
             and all(isinstance(name, str) and name for name in channels)
         ):
             raise oc.ContractError(
-                "system channels must be a non-empty list of channel names"
+                "system channels must be a non-empty list of at most 32 "
+                "channel names"
             )
 
     @staticmethod
@@ -1217,7 +1232,17 @@ def _check_replay_measurements(
         if not oc.is_enum_value(quantity, expected):
             continue
         target = expected[quantity]
-        if target is None or not oc.is_number(item.get("value")):
+        if target is None:
+            # The replay derives no such value — a `detection_latency_ms` on
+            # a run with no detection is a fabricated oracle-attributed
+            # target, not a reading to skip.
+            errors.append(
+                f"{where}.result: OUTCOME_NOT_REPRODUCIBLE — the record "
+                f"carries {quantity} but the replay derives no such "
+                "measurement"
+            )
+            continue
+        if not oc.is_number(item.get("value")):
             continue
         if abs(float(item["value"]) - float(target)) > 1e-6:
             errors.append(
@@ -1312,8 +1337,16 @@ def _check_disturbance_kind_match(
     """
 
     scenario = record.get("scenario")
-    if not isinstance(scenario, dict) or "disturbance_kind" not in scenario:
+    if not isinstance(scenario, dict):
         return []
+    if "disturbance_kind" not in scenario:
+        # Absence is a finding, not a pass: deleting the field left the
+        # student-visible scenario no longer identifying the fault whose
+        # outcome the intervention simulated.
+        return [
+            f"{where}.scenario.disturbance_kind must be present and name "
+            f"the simulated fault ({kind!r})"
+        ]
     declared = scenario.get("disturbance_kind")
     if declared != kind:
         return [
@@ -1412,7 +1445,16 @@ def _check_prediction_agreement(record: dict[str, Any], where: str) -> list[str]
         prediction.get("predicted_outcome") if isinstance(prediction, dict) else None
     )
     outcome = result.get("outcome")
-    if not isinstance(predicted, str) or not oc.is_enum_value(outcome, OUTCOMES):
+    if not isinstance(predicted, str):
+        # An agreement label without the prediction it grades is arbitrary:
+        # deleting candidate_prediction (or just predicted_outcome) used to
+        # skip the derivation check while the label stayed curation-eligible.
+        return [
+            f"{where}.result.prediction_agreement is recorded but "
+            "candidate_prediction.predicted_outcome is missing — an "
+            "agreement label needs the prediction it grades"
+        ]
+    if not oc.is_enum_value(outcome, OUTCOMES):
         return []
     expected = "agree" if predicted == outcome else "disagree"
     if agreement != expected:

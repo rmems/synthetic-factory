@@ -2046,5 +2046,167 @@ class FifthRoundRouterGaps(unittest.TestCase):
                 self.assertIn("genuine integer", str(caught.exception))
 
 
+class SixthRoundContractGaps(unittest.TestCase):
+    """oracle_contract.py and validate_distill.py — sixth pass."""
+
+    def test_overflowing_float_literals_are_parse_failures(self):
+        # json.loads turns 1e999 into inf; the first canonical
+        # re-serialisation (allow_nan=False) then raised out of validation
+        # instead of reporting the offending line.
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "rows.jsonl"
+            path.write_text('{"value": 1e999}\n{"ok": 1.5}\n', encoding="utf-8")
+            rows = oc.read_jsonl(str(path))
+        self.assertIsNone(rows[0][1])
+        self.assertEqual(rows[1][1], {"ok": 1.5})
+
+    def test_a_lifted_validation_stamp_is_a_finding(self):
+        # check_record verified the content digest but never the stamp
+        # binding, so a verdict lifted from another record — any well-formed
+        # 64-hex digest — stayed structurally valid.
+        record = clone(fr.build_records(11, 1)[0])
+        stamped = oc.stamp_validation(
+            record, validator="validate_distill", version="1.0.0", findings=[]
+        )
+        self.assertEqual(vd.check_record(stamped, "x"), [])
+        lifted = clone(stamped)
+        lifted["validation"]["validator"]["validated_digest"] = "0" * 64
+        errors = vd.check_record(lifted, "x")
+        self.assertTrue(
+            any("formed over the exact record" in e for e in errors),
+            f"a lifted stamp passed: {errors}",
+        )
+
+
+class SixthRoundEnergyGaps(unittest.TestCase):
+    """energy_preferences.py — sixth pass."""
+
+    def test_rapl_counts_every_wrap_across_repeats(self):
+        # Endpoint sampling around the whole batch could only ever add one
+        # counter range: three repeats consuming 0.6R each net +0.8R at the
+        # endpoints (delta >= 0, no unwrap), reporting 8 J for an 18 J run.
+        # Per-repeat sampling observes the wrap in the middle interval.
+        range_uj = 10_000_000
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            domain = root / "intel-rapl:0"
+            domain.mkdir()
+            (domain / "energy_uj").write_text("0\n")
+            (domain / "max_energy_range_uj").write_text(f"{range_uj}\n")
+            meter = ep.RaplEnergyMeter(root=root)
+            state = {"uj": 0}
+
+            def workload():
+                state["uj"] = (state["uj"] + 6_000_000) % range_uj
+                (domain / "energy_uj").write_text(f"{state['uj']}\n")
+
+            reading = meter.measure(workload, repeats=3, warmup=0)
+        # 3 x 6 J measured; the mean per repeat is 6 J, not (8/3) J.
+        self.assertAlmostEqual(reading.cost_value, 6.0, places=6)
+
+    def test_an_abstention_needs_an_empty_feasible_set(self):
+        # Relabelling a measured record `abstained` while its own
+        # measurements still contained feasible candidates validated cleanly
+        # as a false oracle abstention.
+        record = clone(ep.build_records(20260823, 1, repeats=1, warmup=0)[0])
+        record["result"]["status"] = "abstained"
+        record["result"]["abstention_reason"] = ep.ABSTAIN_NO_FEASIBLE
+        del record["result"]["preference"]
+        rehash(record)
+        errors = ep.check_family(record, "x")
+        self.assertTrue(
+            any("FALSE_ABSTENTION" in e for e in errors),
+            f"a false abstention passed: {errors}",
+        )
+
+    def test_an_abstention_reason_must_be_canonical(self):
+        record = clone(ep.build_records(20260823, 1, repeats=1, warmup=0)[0])
+        record["result"]["status"] = "abstained"
+        record["result"]["abstention_reason"] = "meter broke mid-run"
+        del record["result"]["preference"]
+        rehash(record)
+        errors = ep.check_family(record, "x")
+        self.assertTrue(
+            any("canonical" in e for e in errors),
+            f"a non-canonical abstention reason passed: {errors}",
+        )
+
+
+class SixthRoundFaultGaps(unittest.TestCase):
+    """fault_recovery.py — sixth pass."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.records = fr.build_records(11, 12)
+
+    def test_the_scenario_must_name_its_disturbance(self):
+        record = clone(self.records[0])
+        del record["scenario"]["disturbance_kind"]
+        rehash(record)
+        errors = fr.check_family(record, "x")
+        self.assertTrue(
+            any("disturbance_kind must be present" in e for e in errors),
+            f"a scenario without its fault name passed: {errors}",
+        )
+
+    def test_agreement_requires_its_source_prediction(self):
+        for mutate in ("candidate_prediction", "predicted_outcome"):
+            record = clone(self.records[1])
+            if mutate == "candidate_prediction":
+                del record["candidate_prediction"]
+            else:
+                del record["candidate_prediction"]["predicted_outcome"]
+            rehash(record)
+            with self.subTest(removed=mutate):
+                errors = fr.check_family(record, "x")
+                self.assertTrue(
+                    any("needs the prediction it grades" in e for e in errors),
+                    f"an unanchored agreement label passed: {errors}",
+                )
+
+    def test_a_reading_the_replay_does_not_derive_is_a_finding(self):
+        record = next(
+            clone(r)
+            for r in self.records
+            if fr.RelayReflexSimulator()
+            .run(r["scenario"], r["intervention"])
+            .detection_latency_ms
+            is None
+        )
+        record["result"]["measurements"].append(
+            oc.new_measurement("detection_latency_ms", 3.5, "simulator_state")
+        )
+        rehash(record)
+        errors = fr.check_family(record, "x")
+        self.assertTrue(
+            any("derives no such measurement" in e for e in errors),
+            f"a fabricated latency target passed: {errors}",
+        )
+
+    def test_replay_workloads_are_bounded(self):
+        # The validator replays untrusted scenarios: every live channel for
+        # every tick, one trace entry per tick. Unbounded controls let one
+        # record buy an arbitrarily large replay.
+        for key, value, fragment in (
+            ("ticks", 1001, "ticks"),
+            ("channels", [f"c{i}" for i in range(33)], "channel"),
+        ):
+            record = clone(self.records[0])
+            system = dict(record["scenario"].get("system", {}))
+            system[key] = value
+            record["scenario"]["system"] = system
+            rehash(record)
+            with self.subTest(control=key):
+                with self.assertRaises(oc.ContractError):
+                    fr.RelayReflexSimulator().run(
+                        record["scenario"], record["intervention"]
+                    )
+                errors = fr.check_family(record, "x")
+                self.assertTrue(
+                    any(fragment in e for e in errors),
+                    f"an oversized {key} passed validation: {errors}",
+                )
+
+
 if __name__ == "__main__":  # pragma: no cover
     unittest.main()

@@ -246,7 +246,11 @@ def build(out: Path, force: bool = False) -> dict[str, Any]:
 
     manifest = {
         "issue": "rmems/synthetic-factory#78",
-        "generated_by": "scripts/build_distillation_fixture.py",
+        # The constant, not a twin literal: `--force` authenticates manifests
+        # against MANIFEST_PRODUCER in `_is_own_manifest`, so a divergence
+        # here would make every manifest this script writes refuse its own
+        # documented rebuild.
+        "generated_by": MANIFEST_PRODUCER,
         "schema_version": oc.SCHEMA_VERSION,
         "seeds": {
             fault_recovery.FAMILY: FAULT_SEED,

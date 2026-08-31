@@ -306,10 +306,15 @@ class SimulatorRules(unittest.TestCase):
         self.assertEqual({run.outcome for run in runs}, {"reflex_action"})
 
     def test_latency_is_never_negative(self):
+        inspected = 0
         for record in fr.build_records(20260823, 27):
             for item in record["result"]["measurements"]:
                 if item["quantity"].endswith("latency_ms"):
+                    inspected += 1
                     self.assertGreaterEqual(item["value"], 0.0)
+        # Non-vacuous: if latency measurements ever stop being emitted, this
+        # test must fail rather than pass over an empty loop.
+        self.assertGreater(inspected, 0)
 
     def test_simulator_is_deterministic(self):
         run = disturbance(

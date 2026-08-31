@@ -662,9 +662,9 @@ class TransformersMoERouter(RouterOracle):
             "num_local_experts": getattr(config, "num_local_experts", None)
             or getattr(config, "num_experts", None),
             "num_experts_per_tok": getattr(config, "num_experts_per_tok", None),
-            # The teacher's own layer-count claim; the validator holds every
-            # recorded trajectory to it, so a routed run that disagrees fails
-            # loudly instead of shipping a shortened trajectory.
+            # Initial claim from the config; `route` overwrites it with the
+            # routed trajectory length, because interleaved-MoE checkpoints
+            # emit router_logits only for their MoE layers.
             "num_layers": getattr(config, "num_hidden_layers", None),
             "torch_dtype": str(getattr(model, "dtype", "unknown")),
             "transformers_version": __import__("transformers").__version__,
@@ -717,6 +717,14 @@ class TransformersMoERouter(RouterOracle):
                     routing_entropy=round(entropy_nats(softmax(values)), 6),
                 )
             )
+        # The fingerprint's layer-count claim must be the ROUTED trajectory
+        # length, not config.num_hidden_layers: interleaved-MoE checkpoints
+        # (Qwen2-MoE style) emit router_logits only for their MoE layers, so
+        # the config count can exceed the routed count and every honest
+        # record would then fail `_check_layer_count`. `build_records`
+        # captures the oracle block after the first route, so this
+        # correction lands in the emitted fingerprint.
+        self._fingerprint["num_layers"] = len(layers)
         return _summarise(layers)
 
 

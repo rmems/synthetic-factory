@@ -53,6 +53,7 @@ def check_record(record: Any, where: str) -> list[str]:
     if not isinstance(record, dict):
         return errors
     errors += oc.check_digest(record, where)
+    errors += _check_stamp_binding(record, where)
     family = record.get("family")
     # A JSON-valid record can carry an unhashable family (an array or an
     # object); using it as a dict key would raise instead of reporting.
@@ -64,6 +65,30 @@ def check_record(record: Any, where: str) -> list[str]:
         errors.append(f"{where}: no family checker registered for {family!r}")
         return errors
     return errors + checker(record, where)
+
+
+def _check_stamp_binding(record: dict[str, Any], where: str) -> list[str]:
+    """A stamped verdict must be formed over this exact record.
+
+    The digest check proves the record was not edited; nothing invoked
+    ``stamp_is_bound_to_content``, so a ``validation`` block lifted from
+    another record — or carrying any well-formed 64-hex digest — stayed
+    structurally valid despite the dedicated binding helper detecting it.
+    """
+
+    validation = record.get("validation")
+    validator = validation.get("validator") if isinstance(validation, dict) else None
+    if not isinstance(validator, dict):
+        return []
+    if validator.get("validated_digest") is None:
+        return []
+    if oc.stamp_is_bound_to_content(record):
+        return []
+    return [
+        f"{where}: validation.validator.validated_digest is not the digest "
+        "of this record's content — a stamped verdict must be formed over "
+        "the exact record it rides on"
+    ]
 
 
 def jsonl_paths(root: Path) -> list[Path]:
@@ -183,6 +208,20 @@ def _build_report(
 ) -> dict[str, Any]:
     """Assemble the report, including the empty-target failures."""
 
+    # An empty target is a failure, not a clean run. A typo in the path or a
+    # generation step that produced nothing would otherwise be reported as
+    # "0 records, 0 invalid" and exit zero. Appended before the report is
+    # built, so the report's findings list carries them by construction
+    # rather than through a shared-list alias a later copy would sever.
+    if not paths:
+        tally.findings.append(
+            {"file": str(root), "line": 0, "error": "no .jsonl files found"}
+        )
+    elif not tally.records:
+        tally.findings.append(
+            {"file": str(root), "line": 0, "error": "no records found in any file"}
+        )
+
     report = {
         "path": str(root),
         "files": len(paths),
@@ -198,18 +237,6 @@ def _build_report(
         "strict": bool(strict),
         "validator": {"name": VALIDATOR_NAME, "version": VALIDATOR_VERSION},
     }
-    # An empty target is a failure, not a clean run. A typo in the path or a
-    # generation step that produced nothing would otherwise be reported as
-    # "0 records, 0 invalid" and exit zero.
-    if not paths:
-        tally.findings.append(
-            {"file": str(root), "line": 0, "error": "no .jsonl files found"}
-        )
-    elif not tally.records:
-        tally.findings.append(
-            {"file": str(root), "line": 0, "error": "no records found in any file"}
-        )
-
     report["blocked"] = bool(tally.findings) or (strict and tally.eligible < tally.valid)
     report["_stamped"] = tally.stamped
     return report

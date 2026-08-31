@@ -58,7 +58,9 @@ records; it does not attest that a meter ran.
 
 The same limit applies to the validation stamp and to a recorded teacher run.
 A `validation` block can be written by anyone, which is why `curation_eligible`
-ignores it; a recording can claim any teacher, which is why the guards on
+ignores it (a *stamped* block must at least bind: `check_record` rejects a
+`validated_digest` that is not the digest of the record it rides on, so a
+verdict cannot be lifted from one record onto another); a recording can claim any teacher, which is why the guards on
 `RecordedTeacherRouter` reduce laundering to a deliberate lie rather than
 eliminate it. Where a check cannot be made airtight, the design makes the
 dishonest path require an explicit assertion that a reviewer can see, instead
@@ -93,17 +95,25 @@ and malformed counts must be strictly positive — an unknown channel name or an
 out-of-range value would run as a no-op and replay as an authoritative
 `continue`. The relay's own system controls are validated before any
 authoritative outcome is derived — `corruption_quarantine_ratio` in
-`[0, 1]`, a positive tick grid and deadlines, integer counts, an ordered
-thermal ladder (`warn < limit < shutdown`), non-empty channels — because an
-out-of-domain control silently rewrites the outcome tiers. The validator
+`[0, 1]`, a bounded tick grid (`ticks` in `[1, 1000]`) and positive
+deadlines, integer counts, an ordered
+thermal ladder (`warn < limit < shutdown`), at most 32 non-empty channels —
+because an out-of-domain control silently rewrites the outcome tiers, and
+because the validator replays untrusted scenarios, so unbounded loop
+controls would let one record buy an arbitrarily large replay. The validator
 also requires `oracle.configuration` to record the `scenario.system` and the
 canonical precedence the replay actually stands on, re-derives
 `result.prediction_agreement` from
-the prediction and the outcome (its absence is a finding, not a pass),
-requires every replay-derived measurement
-to be present, and requires `result.integrity_violation` to be a boolean
+the prediction and the outcome (its absence is a finding, not a pass, and an
+agreement label without `candidate_prediction.predicted_outcome` to grade is
+one too), requires `scenario.disturbance_kind` to be present and name the
+simulated fault, requires every replay-derived measurement
+to be present — and rejects a recorded reading the replay derives no value
+for, such as a detection latency on a run with no detection — and requires
+`result.integrity_violation` to be a boolean
 compared against the replay, so neither a flipped agreement, a deleted
-latency, nor a dropped integrity signal survives a recomputed digest. For the same reason the
+latency, a fabricated one, nor a dropped integrity signal survives a
+recomputed digest. For the same reason the
 simulator records the corruption ratio it actually applied alongside the one
 that was requested, and `malformed_kind` is a real behavioural difference:
 times that run backwards and negative amplitudes corrupt an accepted stream
@@ -141,7 +151,10 @@ influence the label.
 workload, behind `pipelines/energy_preferences.py:EnergyOracle`:
 
 - `RaplEnergyMeter` — `/sys/class/powercap/intel-rapl:*/energy_uj` before and
-  after the workload, handling counter wraparound. Only non-overlapping root
+  after every executed repeat — never only around the whole batch, so each
+  counter wrap is observed and unwrapped individually (endpoint arithmetic
+  can only ever add one range, reporting a long batch modulo the counter
+  range). Only non-overlapping root
   zones are summed: a package counter already contains its core/uncore
   subzones, and `psys` beside package zones contains the packages, so summing
   the flat listing would double-count. Real joules. **Unavailable in this
@@ -171,7 +184,10 @@ among candidates with `task_quality >= constraints.quality_floor` **and**
 `safety_ok`, take the lowest measured cost, ties broken by candidate id. When
 no candidate is feasible the record abstains with
 `NO_CANDIDATE_SATISFIES_QUALITY_AND_SAFETY_CONSTRAINTS` rather than picking a
-least-bad option.
+least-bad option — and the validator holds an abstention to that rule: it is
+this family's only abstention, so an abstained record whose own measured
+candidates still contain a feasible one is a `FALSE_ABSTENTION` finding, not
+a discarded label.
 
 The task is a capped quadratic actuator allocation with four candidate policies
 per record — an exhaustive grid search (correct, expensive), the closed-form
@@ -277,8 +293,9 @@ An `authoritative` router record must also declare positive
 fingerprint — so expert ids stay range-checked, the top-k width stays bound,
 and a dropped layer suffix stays detectable (the replay wrapper refuses a
 recording missing any of the three at the boundary too, and the live
-Transformers fingerprint records the teacher's own `num_hidden_layers`
-claim). Every exposed `router_logits` array must carry exactly
+Transformers fingerprint records the routed trajectory length — not
+`config.num_hidden_layers`, which overcounts on interleaved-MoE checkpoints
+that emit router logits only for their MoE layers). Every exposed `router_logits` array must carry exactly
 `num_local_experts` values, so a truncated distribution cannot pose as the
 promised full one. It must pin a resolved 40-hex commit as its
 `revision_or_checkpoint` — the

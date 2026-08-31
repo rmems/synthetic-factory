@@ -339,16 +339,27 @@ class RaplEnergyMeter(EnergyOracle):
         for _ in range(max(0, warmup)):
             workload()
         ranges = self._range_uj()
+        # One counter sample per executed repeat, never one around the whole
+        # batch: a long batch (the CLI allows up to 1000 repeats) can wrap a
+        # domain counter more than once, and unwrapping can only ever add a
+        # single range — endpoint sampling would silently report energy
+        # modulo the counter range, and an even number of wraps would add
+        # nothing at all. Per-repeat intervals observe every wrap the meter
+        # can observe; a single workload execution outrunning the entire
+        # counter range is outside what endpoint arithmetic can ever
+        # disambiguate and outside this meter's measurable domain.
+        total_uj = 0
         before = self._read_uj()
         wall_start = time.perf_counter_ns()
         for _ in range(repeats):
             workload()
+            after = self._read_uj()
+            total_uj += sum(
+                self._unwrapped_delta(name, start, after.get(name, start), ranges)
+                for name, start in before.items()
+            )
+            before = after
         wall_s = (time.perf_counter_ns() - wall_start) / 1e9
-        after = self._read_uj()
-        total_uj = sum(
-            self._unwrapped_delta(name, start, after.get(name, start), ranges)
-            for name, start in before.items()
-        )
         joules = total_uj / 1e6 / repeats
         return MeterReading(
             meter=self.name,
@@ -1987,6 +1998,44 @@ def _preferred_candidate(
     return by_id.get(preferred)
 
 
+def _check_abstention_feasibility(
+    result: dict[str, Any],
+    candidates: list[Any],
+    quality_floor: float | None,
+    where: str,
+) -> list[str]:
+    """An abstention must be earned by the measured candidates.
+
+    The family's only abstention path is ``choose_preference`` finding no
+    feasible candidate, so a record relabelled ``abstained`` while its own
+    measurements still contain safe, quality-clearing, costed candidates is
+    a silently discarded label, not an oracle abstention.
+    """
+
+    if quality_floor is None:
+        # The malformed floor carries its own finding; without it the
+        # feasible set cannot be re-derived.
+        return []
+    errors: list[str] = []
+    reason = result.get("abstention_reason")
+    if reason != ABSTAIN_NO_FEASIBLE:
+        errors.append(
+            f"{where}.result.abstention_reason must be the canonical "
+            f"{ABSTAIN_NO_FEASIBLE!r} — it is this family's only abstention"
+        )
+    feasible = _feasible_candidates(
+        [c for c in candidates if isinstance(c, dict)], quality_floor
+    )
+    if feasible:
+        errors.append(
+            f"{where}.result: FALSE_ABSTENTION — "
+            f"{sorted(c['id'] for c in feasible if isinstance(c.get('id'), str))} "
+            "satisfy the quality and safety constraints, so the oracle had a "
+            "preference to record"
+        )
+    return errors
+
+
 def _check_preference(
     result: dict[str, Any],
     candidates: list[Any],
@@ -2003,7 +2052,9 @@ def _check_preference(
             errors.append(
                 f"{where}.result: an abstained result must not carry a preference"
             )
-        return errors
+        return errors + _check_abstention_feasibility(
+            result, candidates, quality_floor, where
+        )
     if not isinstance(preference, dict):
         return errors + [
             f"{where}.result.preference must be an object (or the result must abstain)"

@@ -985,6 +985,21 @@ def _reject_json_constant(name: str):
     raise ValueError(f"non-finite JSON constant {name!r}")
 
 
+def _finite_json_float(text: str) -> float:
+    """Refuse float literals that overflow to infinity (for example 1e999).
+
+    ``parse_constant`` only covers the bare constants; an overflowing literal
+    otherwise becomes ``inf`` and the first canonical re-serialisation
+    (``allow_nan=False``) raises out of validation instead of reporting the
+    offending line as a parse failure.
+    """
+
+    value = float(text)
+    if not math.isfinite(value):
+        raise ValueError(f"non-finite JSON float {text!r}")
+    return value
+
+
 def read_jsonl(path) -> list[tuple[int, Any]]:
     """Read a JSONL file into ``(line_number, parsed_or_None)`` pairs.
 
@@ -1003,7 +1018,14 @@ def read_jsonl(path) -> list[tuple[int, Any]]:
             continue
         try:
             entries.append(
-                (lineno, json.loads(stripped, parse_constant=_reject_json_constant))
+                (
+                    lineno,
+                    json.loads(
+                        stripped,
+                        parse_constant=_reject_json_constant,
+                        parse_float=_finite_json_float,
+                    ),
+                )
             )
         except ValueError:  # JSONDecodeError included
             entries.append((lineno, None))
