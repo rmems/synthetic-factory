@@ -487,6 +487,26 @@ class RecordedCapturePath(unittest.TestCase):
             errors,
         )
 
+    def test_overflowing_float_in_capture_is_a_coded_diagnostic(self):
+        # `1e9999` is an ordinary numeric token that float() turns into
+        # infinity; outside the payload it used to crash generation with an
+        # uncaught ValueError from digest() instead of a coded diagnostic.
+        with tempfile.TemporaryDirectory() as tmp:
+            scenario = hp.build_scenarios(steps=6)[0]
+            adapter = self._capture_adapter(tmp, scenario)
+            text = adapter.capture_path.read_text(encoding="utf-8")
+            self.assertIn('"rev-b"', text)
+            adapter.capture_path.write_text(
+                text.replace('"rev-b"', "1e9999"), encoding="utf-8"
+            )
+            reloaded = oracle.RecordedCaptureAdapter(adapter.capture_path)
+            status = reloaded.availability()
+            self.assertFalse(status["available"])
+            self.assertEqual(status["reason_code"], "CAPTURE_UNREADABLE")
+            self.assertIn("non-finite JSON number", status["detail"])
+            with self.assertRaises(oracle.OracleUnavailable):
+                reloaded.run(scenario["model_float"], scenario["stimulus"], repeats=3)
+
     def test_non_object_capture_quantization_is_a_coded_diagnostic(self):
         # A truthy non-object quantization used to flow into build_record and
         # crash the generation CLI with an uncaught AttributeError; it must be

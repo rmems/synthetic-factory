@@ -118,7 +118,20 @@
           "description": "`match` requires at least two executed runtimes agreeing on parse/write parity, structure, and event outputs. Fewer than two executed runtimes can never be a `match`: it is `unsupported` when a runtime refused a construct and `inconclusive` otherwise."
         },
         "reason_codes": { "type": "array", "items": { "type": "string" } },
-        "derived_from": { "type": "array", "minItems": 1, "items": { "type": "string" } },
+        "derived_from": {
+          "type": "array",
+          "minItems": 1,
+          "description": "One ordered identity-bearing lineage entry per oracle.runtimes entry, binding the runtime name and status to its evidence digest (the executed output digest, or this validator's diagnostic/capability digest for a runtime that did not execute).",
+          "items": {
+            "type": "object",
+            "required": ["runtime", "status", "digest"],
+            "properties": {
+              "runtime": { "type": "string" },
+              "status": { "enum": ["executed", "unavailable", "unsupported"] },
+              "digest": { "type": "string" }
+            }
+          }
+        },
         "comparison": {
           "type": "object",
           "required": [

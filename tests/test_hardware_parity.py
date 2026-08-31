@@ -404,13 +404,43 @@ class Cli(unittest.TestCase):
     def test_read_jsonl_rejects_non_standard_json_constants(self):
         # A record containing NaN/Infinity must be a parse error, not a
         # silently accepted value standards-compliant JSON parsers reject.
+        for constant in ("NaN", "Infinity", "-Infinity"):
+            with self.subTest(constant=constant):
+                with tempfile.TemporaryDirectory() as tmp:
+                    path = Path(tmp) / "batch.jsonl"
+                    path.write_text(
+                        '{"pairing": %s}\n' % constant, encoding="utf-8"
+                    )
+                    records, errors = hp.read_jsonl(path)
+                    self.assertEqual(records, [])
+                    self.assertTrue(errors)
+                    self.assertIn("non-standard JSON numeric constant", errors[0])
+
+    def test_read_jsonl_rejects_overflowing_float_tokens(self):
+        # `1e9999` is an ordinary numeric token, so parse_constant never sees
+        # it; float() would silently turn it into infinity, a value digest()
+        # can never re-derive.
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "batch.jsonl"
-            path.write_text('{"pairing": NaN}\n', encoding="utf-8")
+            path.write_text('{"pairing": 1e9999}\n', encoding="utf-8")
             records, errors = hp.read_jsonl(path)
             self.assertEqual(records, [])
             self.assertTrue(errors)
-            self.assertIn("non-standard JSON numeric constant", errors[0])
+            self.assertIn("non-finite JSON number", errors[0])
+
+    def test_read_jsonl_reports_absurd_nesting_as_a_line_error(self):
+        # A syntactically valid but absurdly nested line must be a line-level
+        # parse error, not a decoder RecursionError that aborts the scan.
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "batch.jsonl"
+            path.write_text(
+                "[" * 100_000 + "]" * 100_000 + '\n{"id": "after"}\n',
+                encoding="utf-8",
+            )
+            records, errors = hp.read_jsonl(path)
+            self.assertEqual(records, [{"id": "after"}])
+            self.assertEqual(len(errors), 1)
+            self.assertIn("JSON parse error", errors[0])
 
     def test_validate_rejects_a_tampered_file(self):
         with tempfile.TemporaryDirectory() as tmp:

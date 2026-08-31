@@ -119,7 +119,22 @@ python3 pipelines/hardware_parity.py availability
 python3 pipelines/hardware_parity.py generate outputs/staging/<date> --round 1
 python3 pipelines/nir_equivalence.py availability
 python3 pipelines/nir_equivalence.py generate outputs/staging/<date> --round 1
-# promote the staged round into outputs/raw/ via pipelines/round_txn.py
+# `generate` writes outputs/staging/<date>/<family-slug>/batch-rNN.jsonl. To
+# promote a round into outputs/raw/, run the round transaction against the
+# raw factory directory and move the generated batch into the private stage
+# the reservation returns (publish expects batch-rNN.jsonl, plus a
+# NOTES-rNN.md carrying a "Novel coverage: <N>%" line, directly there):
+#   python3 pipelines/round_txn.py reserve outputs/raw/<date>/<family-slug> \
+#       --round N --expected <records>          # prints staging_dir + token
+#   mv outputs/staging/<date>/<family-slug>/batch-rNN.jsonl <staging_dir>/
+#   $EDITOR <staging_dir>/NOTES-rNN.md
+#   python3 pipelines/round_txn.py publish outputs/raw/<date>/<family-slug> \
+#       --round N --token <token> --allow-inconclusive "<reason>"
+# The publish gate's execution-evidence verifier does not yet model the two
+# parity shapes, so it reports them inconclusive and fails closed; the
+# families' own validators re-derive every recorded number, and the explicit
+# --allow-inconclusive waiver (recorded in the completion marker) is how an
+# operator acknowledges that split today.
 # (outputs/raw/ itself is immutable committed evidence — never a generate target)
 ```
 

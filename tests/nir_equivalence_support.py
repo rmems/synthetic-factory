@@ -31,7 +31,9 @@ WHERE = "unit:1"
 def fixture_records():
     return [
         json.loads(line)
-        for line in FIXTURE.read_text(encoding="utf-8").splitlines()
+        # Only LF frames a record, matching nir.read_jsonl: str.splitlines()
+        # would also split on U+2028/U+2029.
+        for line in FIXTURE.read_text(encoding="utf-8").split("\n")
         if line.strip()
     ]
 

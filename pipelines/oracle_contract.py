@@ -172,6 +172,21 @@ def reject_json_constant(value):
     raise ValueError(f"non-standard JSON numeric constant {value}")
 
 
+def reject_nonfinite_float(text):
+    """Parse a JSON float token, rejecting overflow-to-infinity values.
+
+    ``parse_constant`` never sees an ordinary numeric token like ``1e9999``,
+    which ``float()`` silently turns into infinity — a value ``digest()``
+    (``allow_nan=False``) can never re-derive. Pass as
+    ``json.loads(text, parse_float=reject_nonfinite_float)`` alongside
+    ``reject_json_constant`` so both smuggling routes fail at the parse.
+    """
+    value = float(text)
+    if not math.isfinite(value):
+        raise ValueError(f"non-finite JSON number {text}")
+    return value
+
+
 def _strict_mapping_equal(recorded, expected):
     """Same keys, and every value strictly equal."""
     return recorded.keys() == expected.keys() and all(
@@ -486,7 +501,14 @@ ORACLE_INCOMPLETE_REASON_CODES = frozenset(
 
 def oracle_is_complete(reason_codes):
     codes = reason_codes if isinstance(reason_codes, list) else []
-    return not any(code in ORACLE_INCOMPLETE_REASON_CODES for code in codes)
+    # Only string codes can signal incompleteness. A non-string entry (for
+    # example a nested list) is malformed and is reported by the reason-code
+    # checks; hashing it here would abort with a TypeError before those
+    # checks could say so.
+    return not any(
+        isinstance(code, str) and code in ORACLE_INCOMPLETE_REASON_CODES
+        for code in codes
+    )
 
 
 def build_training_view(record, prompt, completion, execution_targets):

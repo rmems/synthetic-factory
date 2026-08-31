@@ -2700,8 +2700,16 @@ def read_jsonl(path):
         if not line.strip():
             continue
         try:
-            records.append(json.loads(line, parse_constant=contract.reject_json_constant))
-        except (json.JSONDecodeError, ValueError) as exc:
+            records.append(
+                json.loads(
+                    line,
+                    parse_constant=contract.reject_json_constant,
+                    parse_float=contract.reject_nonfinite_float,
+                )
+            )
+        # RecursionError: a syntactically valid but absurdly nested line must
+        # be a line-level parse error, not a traceback that aborts the scan.
+        except (json.JSONDecodeError, ValueError, RecursionError) as exc:
             errors.append(f"{Path(path).name}:{lineno}: JSON parse error: {exc}")
     return records, errors
 

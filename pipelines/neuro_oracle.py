@@ -109,6 +109,20 @@ def _reject_json_constant(value):
     raise ValueError(f"non-standard JSON numeric constant {value}")
 
 
+def _reject_nonfinite_float(text):
+    """Parse a JSON float token, rejecting overflow-to-infinity values.
+
+    ``parse_constant`` never sees an ordinary numeric token like ``1e9999``,
+    which ``float()`` silently turns into infinity; that value would crash
+    ``digest()`` with an uncaught ValueError deep in generation instead of a
+    coded capture diagnostic at the parse.
+    """
+    value = float(text)
+    if not math.isfinite(value):
+        raise ValueError(f"non-finite JSON number {text}")
+    return value
+
+
 def _round_half_away(value):
     """Round half away from zero.
 
@@ -685,7 +699,9 @@ class RecordedCaptureAdapter(OracleAdapter):
             finally:
                 os.close(descriptor)
             self._capture = json.loads(
-                payload.decode("utf-8"), parse_constant=_reject_json_constant
+                payload.decode("utf-8"),
+                parse_constant=_reject_json_constant,
+                parse_float=_reject_nonfinite_float,
             )
         except FileNotFoundError:
             self._error = ("CAPTURE_FILE_ABSENT", f"no capture at {self.capture_path}")

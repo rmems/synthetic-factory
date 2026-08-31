@@ -455,6 +455,21 @@ class TrainingViews(unittest.TestCase):
         view = self._view(_record())
         self.assertTrue(view["oracle_complete"])
 
+    def test_unhashable_reason_codes_are_reported_not_raised(self):
+        # A persisted `reason_codes: [[]]` (or [{}]) must surface as the
+        # malformed-field findings, not abort view construction with a
+        # TypeError from hashing an unhashable entry.
+        for malformed in ([[]], [{}]):
+            with self.subTest(malformed=malformed):
+                self.assertTrue(contract.oracle_is_complete(malformed))
+                record = _record()
+                record["result"]["reason_codes"] = malformed
+                view = self._view(record)
+                errors = contract.training_view_errors(record, view, WHERE)
+                self.assertTrue(
+                    any("reason_codes" in error for error in errors), errors
+                )
+
     def test_overstating_oracle_completeness_is_rejected(self):
         record = _record()
         record["result"]["reason_codes"] = ["ORACLE_UNAVAILABLE"]

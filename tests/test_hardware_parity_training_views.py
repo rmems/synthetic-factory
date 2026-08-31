@@ -112,7 +112,7 @@ class TrainingViews(unittest.TestCase):
         views = [hp.training_view(record) for record in records]
         views[0]["id"], views[1]["id"] = views[1]["id"], views[0]["id"]
         errors = []
-        for index, (record, view) in enumerate(zip(records, views), 1):
+        for index, (record, view) in enumerate(zip(records, views, strict=True), 1):
             errors += hp.training_view_errors(record, view, f"view:{index}")
         errors += contract.view_set_errors(records, views)
         self.assertTrue(

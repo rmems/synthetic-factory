@@ -58,6 +58,11 @@ class PhysicalTargetClaims(unittest.TestCase):
         for section, key in hp.REQUIRED_HARDWARE_FIELDS:
             with self.subTest(field=f"{section}.{key}"):
                 attributed = self._fully_attributed()
+                self.assertIn(
+                    key,
+                    attributed.get(section, {}),
+                    f"_fully_attributed does not cover {section}.{key}",
+                )
                 del attributed[section][key]
                 errors = hp.validate_record(self._promoted(**attributed), WHERE)
                 self.assertTrue(

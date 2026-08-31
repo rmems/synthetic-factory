@@ -63,6 +63,34 @@ class Validation(unittest.TestCase):
         errors = nir.validate_record(record, WHERE)
         self.assertTrue(any("DIVERGENCE_SUPPRESSED" in error for error in errors))
 
+    def test_published_schema_declares_the_object_lineage_entries(self):
+        # The schema is documentation for downstream ingestion; declaring
+        # string lineage items while every record carries {runtime, status,
+        # digest} objects would reject the whole family at ingestion even
+        # though this validator accepts it.
+        import json as json_module
+        from pathlib import Path as PathType
+
+        schema_path = (
+            PathType(nir.__file__).resolve().parents[1]
+            / "schemas"
+            / "nir-cross-runtime-v1.schema.json"
+        )
+        schema = json_module.loads(schema_path.read_text(encoding="utf-8"))
+        items = schema["properties"]["result"]["properties"]["derived_from"]["items"]
+        self.assertEqual(items["type"], "object")
+        self.assertEqual(sorted(items["required"]), ["digest", "runtime", "status"])
+        allowed_statuses = set(items["properties"]["status"]["enum"])
+        self.assertEqual(allowed_statuses, set(nir.RUNTIME_STATUSES))
+        for record in _fixture_records():
+            for entry in record["result"]["derived_from"]:
+                self.assertEqual(
+                    sorted(entry.keys()), ["digest", "runtime", "status"]
+                )
+                self.assertIsInstance(entry["runtime"], str)
+                self.assertIsInstance(entry["digest"], str)
+                self.assertIn(entry["status"], allowed_statuses)
+
     def test_oracle_pairing_is_bound_to_the_canonical_value(self):
         # `pairing` is execution-facing oracle metadata: free text here could
         # advertise an execution the runtime entries never ran.

@@ -245,7 +245,8 @@ class Validation(unittest.TestCase):
     def test_nested_boolean_cannot_impersonate_an_integer_metric(self):
         record = copy.deepcopy(self.records[0])
         counts = record["result"]["parity"]["action"]["deployment_counts"]
-        index = next(i for i, value in enumerate(counts) if value == 1)
+        index = next((i for i, value in enumerate(counts) if value == 1), None)
+        self.assertIsNotNone(index, f"no unit action count to replace: {counts}")
         counts[index] = True
         errors = hp.validate_record(record, WHERE)
         self.assertTrue(any("PARITY_METRIC_MISMATCH" in error for error in errors), errors)
