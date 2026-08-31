@@ -169,6 +169,72 @@ class Validation(unittest.TestCase):
         errors = nir.validate_record(record, WHERE)
         self.assertTrue(errors)
 
+    def test_output_digest_identifies_internal_state(self):
+        # The unusual-but-valid scenario ends with the same output trace and
+        # spike events on both runtimes while their final membrane states
+        # differ (the record reports DIVERGENCE_INTERNAL_STATE). The digest
+        # covers the complete retained outputs, so the two observations must
+        # carry distinct evidence digests -- otherwise result.derived_from
+        # cannot name the complete evidence behind the divergence, and a
+        # content-addressed store keyed by these digests would collapse
+        # distinct runtime observations.
+        record = next(
+            item
+            for item in self.records
+            if item["scenario"]["id"] == "nir-unusual-but-valid"
+        )
+        executed = [
+            entry
+            for entry in record["oracle"]["runtimes"]
+            if entry["status"] == nir.STATUS_EXECUTED
+        ]
+        self.assertEqual(len(executed), 2)
+        behaviour_surfaces = {
+            nir.canonical_json(
+                {
+                    "trace": entry["outputs"]["output_trace"],
+                    "events": entry["outputs"]["spike_events"],
+                }
+            )
+            for entry in executed
+        }
+        self.assertEqual(len(behaviour_surfaces), 1)  # identical behaviour surface
+        membranes = {
+            nir.canonical_json(entry["outputs"]["final_membrane"])
+            for entry in executed
+        }
+        self.assertGreater(len(membranes), 1)  # internal state differs
+        digests = [entry["output_digest"] for entry in executed]
+        self.assertEqual(len(set(digests)), len(digests))
+
+    def test_tampered_final_membrane_breaks_the_output_digest(self):
+        # `final_membrane` feeds the persisted comparison and attribution;
+        # the digest must stop identifying outputs whose internal state was
+        # edited after the fact.
+        record = copy.deepcopy(
+            next(
+                item
+                for item in self.records
+                if item["scenario"]["id"] == "nir-unusual-but-valid"
+            )
+        )
+        entry = next(
+            item
+            for item in record["oracle"]["runtimes"]
+            if item["status"] == nir.STATUS_EXECUTED
+            and item["outputs"]["final_membrane"]
+        )
+        node = next(iter(entry["outputs"]["final_membrane"]))
+        entry["outputs"]["final_membrane"][node]["v"][0] += 1.0
+        errors = nir.validate_record(record, WHERE)
+        self.assertTrue(
+            any(
+                "output_digest does not identify the recorded outputs" in error
+                for error in errors
+            ),
+            errors,
+        )
+
     def test_unavailable_runtime_may_not_carry_outputs(self):
         record = copy.deepcopy(self.records[0])
         entry = next(

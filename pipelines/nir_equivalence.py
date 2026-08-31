@@ -1059,9 +1059,12 @@ def execute_runtime(runtime, scenario):
         return entry
     entry["status"] = STATUS_EXECUTED
     entry["outputs"] = outputs
-    entry["output_digest"] = digest(
-        {"trace": outputs["output_trace"], "events": outputs["spike_events"]}
-    )
+    # The digest covers the complete retained outputs object. `final_membrane`
+    # and `recurrent_edges` feed the persisted comparison and attribution, so
+    # a digest of only trace+events would let two observations that differ in
+    # internal state share an identity -- and `result.derived_from` could no
+    # longer name the complete evidence behind a DIVERGENCE_INTERNAL_STATE.
+    entry["output_digest"] = digest(outputs)
     return entry
 
 
@@ -1925,28 +1928,22 @@ def _reexecute_in_repo_runtimes(record, where):
                 f"{entry.get('status')!r} [RUNTIME_STATUS_UNKNOWN]"
             )
             continue
-        recomputed = digest(
-            {"trace": outputs["output_trace"], "events": outputs["spike_events"]}
-        )
+        recomputed = digest(outputs)
         if entry.get("output_digest") != recomputed:
             errors.append(
                 f"{label}: recorded output digest does not match a re-execution "
                 "[COMPARISON_MISMATCH]"
             )
-        # The whole outputs object, not just the trace: `spike_count` and
-        # `final_membrane` also feed the comparison, so checking only the trace
-        # would leave both editable -- and editing them deletes divergence
-        # diagnostics from a family whose entire product is divergence.
+        # The whole outputs object, not a trace+events subset: `spike_count`,
+        # `final_membrane`, and `recurrent_edges` also feed the comparison and
+        # attribution, so digesting a subset would leave the rest editable --
+        # and editing them deletes divergence diagnostics from a family whose
+        # entire product is divergence.
         recorded_outputs = entry.get("outputs")
         if isinstance(recorded_outputs, dict):
             try:
-                recorded_digest = digest(
-                    {
-                        "trace": recorded_outputs["output_trace"],
-                        "events": recorded_outputs["spike_events"],
-                    }
-                )
-            except (KeyError, TypeError, ValueError, OverflowError) as exc:
+                recorded_digest = digest(recorded_outputs)
+            except (TypeError, ValueError, OverflowError) as exc:
                 errors.append(
                     f"{label}: recorded outputs are not digestible: {exc} "
                     "[COMPARISON_MISMATCH]"
@@ -2486,8 +2483,12 @@ def parse_args(argv=None):
 
 
 def _cmd_generate(args):
-    """Write one validated round, refusing overwrites."""
+    """Write one validated round, refusing raw-tree destinations and overwrites."""
     out = Path(args.out_dir) / FACTORY_SLUG / f"batch-r{args.round:02d}.jsonl"
+    raw_error = contract.raw_tree_destination_error(out)
+    if raw_error:
+        print(f"nir_equivalence: {raw_error}", file=sys.stderr)
+        return 2
     if out.exists():
         print(
             f"nir_equivalence: refusing to overwrite existing round {out}",

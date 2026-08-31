@@ -509,11 +509,20 @@ def check_parity_record(obj, kind, where):
     return [f"{where}: no parity validator for record_kind {kind!r}"]
 
 
-def _check_nested_spike_and_reward_streams(obj, where, kind):
-    """Deep pass over every spike stream and reward component in ``obj``."""
+def _check_nested_spike_and_reward_streams(obj, where, kind, family_owned=()):
+    """Deep pass over every spike stream and reward component in ``obj``.
+
+    ``family_owned`` holds the stream objects (compared by identity, like the
+    reward-narrative owner guard) whose validity a family validator already
+    owns; they are skipped here so one malformed canonical stream is not
+    reported twice with different wording, and so family evidence shapes are
+    not misjudged against the generic event contract.
+    """
     errors, warnings = [], []
     reward_component_entries = list(walk_key(obj, "reward_components"))
     for path, events, owner in _walk_key_owners(obj, "spike_events"):
+        if any(events is owned for owned in family_owned):
+            continue
         if _is_reward_narrative_spike_events(
             owner, events, reward_component_entries
         ):
@@ -602,15 +611,40 @@ def _is_reward_narrative_spike_events(owner, value, reward_component_entries):
     )
 
 
+def _parity_family_owned_streams(obj, kind):
+    """Stream objects whose validity the parity family validator owns.
+
+    NIR runtime outputs and hardware capture sides carry ``spike_events``
+    in family-specific shapes (discrete steps, integer channel/neuron ids)
+    that the family validators check against a re-execution. Returned by
+    identity so a literal key elsewhere in the record cannot claim the
+    exemption by name.
+    """
+    oracle = obj.get("oracle") if isinstance(obj, dict) else None
+    if not isinstance(oracle, dict):
+        return ()
+    owned = []
+    if kind == "nir_equivalence":
+        runtimes = oracle.get("runtimes")
+        for entry in runtimes if isinstance(runtimes, list) else ():
+            outputs = entry.get("outputs") if isinstance(entry, dict) else None
+            if isinstance(outputs, dict) and "spike_events" in outputs:
+                owned.append(outputs["spike_events"])
+    else:
+        for side in ("deployment", "software"):
+            block = oracle.get(side)
+            if isinstance(block, dict) and "spike_events" in block:
+                owned.append(block["spike_events"])
+    return tuple(owned)
+
+
 def check_record(obj, where, factory_staging=False):
     errors, warnings = [], []
     shape_errs, kind = shape_check(obj, where, factory_staging=factory_staging)
     errors.extend(shape_errs)
 
     if kind in ("hardware_parity", "nir_equivalence"):
-        # These records carry no thalamic state, reward components, or spike
-        # streams in the legacy shapes, so the generic passes below would only
-        # produce noise. Their own validator is the whole deep check. Record id
+        # The family validator is the deep check for these kinds. Record id
         # still flows through so cross-file duplicate detection covers them.
         # The family validators assume the shared envelope members have the
         # shapes enforced above.  Running them after a shape failure both adds
@@ -619,6 +653,23 @@ def check_record(obj, where, factory_staging=False):
         if not shape_errs:
             deep = check_parity_record(obj, kind, where)
             errors.extend(error for error in deep if error not in errors)
+        # The repository-wide deep passes still run: both schemas allow
+        # additional properties, and the family validators inspect only their
+        # canonical evidence locations. Without this pass a parity record
+        # would be the one place in the factory where a buried malformed
+        # spike stream or reward component survives the deep publish check.
+        # Canonical family streams are exempt by identity -- their validity
+        # (and their family-specific event shapes) belong to the validator
+        # above, so nothing is reported twice.
+        if isinstance(obj, dict):
+            stream_errors, stream_warnings = _check_nested_spike_and_reward_streams(
+                obj,
+                where,
+                kind,
+                family_owned=_parity_family_owned_streams(obj, kind),
+            )
+            errors.extend(error for error in stream_errors if error not in errors)
+            warnings.extend(stream_warnings)
         # The publish-time provenance scan is repository-wide and owns every
         # nested 'real' claim. Skipping it for these kinds would make a parity
         # record the one place in the factory where a buried real-world claim

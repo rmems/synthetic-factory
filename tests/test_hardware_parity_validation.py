@@ -568,6 +568,22 @@ class DeterminismEvidence(unittest.TestCase):
         errors = hp.validate_record(record, WHERE)
         self.assertTrue(any("REPEATABILITY_UNPROVEN" in error for error in errors), errors)
 
+    def test_deployment_determinism_meaning_is_bound_to_its_adapter(self):
+        # A fixed-point reference deployment is a deterministic simulator.
+        # Relabeling its repeats as measured hardware variability -- and
+        # mirroring that text into result.parity.repeatability so the
+        # recomputed mirror agrees with the claim -- must not validate a
+        # simulator's repeats as a physical measurement.
+        record = copy.deepcopy(self.record)
+        lie = "run-to-run variability measured on the physical board"
+        record["oracle"]["deployment"]["determinism"]["meaning"] = lie
+        record["result"]["parity"]["repeatability"]["meaning"] = lie
+        errors = hp.validate_record(record, WHERE)
+        self.assertTrue(
+            any("oracle.deployment.determinism.meaning" in error for error in errors),
+            errors,
+        )
+
 
 class MalformedRecordsDoNotCrash(unittest.TestCase):
     """A bad record must be reported, not raise and abort the whole scan."""

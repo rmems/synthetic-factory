@@ -48,6 +48,7 @@ if str(_PIPELINES) not in sys.path:
 
 import oracle_contract as contract  # noqa: E402
 from neuro_oracle import (  # noqa: E402
+    CAPTURE_DETERMINISM_MEANING,
     PHYSICAL_TARGETS,
     Q88_MAX_RAW,
     Q88_MIN_RAW,
@@ -2363,8 +2364,8 @@ def _determinism_claim_errors(determinism, digests, label, where, expected_meani
         )
     if expected_meaning is not None and determinism.get("meaning") != expected_meaning:
         errors.append(
-            f"{where}: oracle.{label}.determinism.meaning does not match the "
-            "canonical reference-adapter text [REPEATABILITY_UNPROVEN]"
+            f"{where}: oracle.{label}.determinism.meaning does not match its "
+            "adapter-owned canonical text [REPEATABILITY_UNPROVEN]"
         )
     return errors
 
@@ -2512,12 +2513,25 @@ def _paired_result_errors(record, oracle, software, deployment, result, where):
         require_rederived_repeats=True,
         expected_meaning=REFERENCE_DETERMINISM_MEANING,
     )
+    # The deployment side binds to its adapter-owned meaning just like both
+    # reference sides: a fixed-point reference deployment must describe
+    # bit-determinism, and a capture-backed one must describe the measured
+    # variability of its recorded runs. Without the bind, a deterministic
+    # simulator could relabel its repeats as measured hardware variability
+    # and mirror that text into result.parity.repeatability unchallenged.
+    # An unknown target is already [HW_TARGET_UNKNOWN]; grading it against
+    # the capture text keeps the claim checked rather than skipped.
     errors += _check_determinism(
         deployment,
         "deployment",
         where,
         require_rederived_repeats=(
             deployment.get("execution_target") == TARGET_FIXED_POINT_MODEL
+        ),
+        expected_meaning=(
+            REFERENCE_DETERMINISM_MEANING
+            if deployment.get("execution_target") == TARGET_FIXED_POINT_MODEL
+            else CAPTURE_DETERMINISM_MEANING
         ),
     )
 
@@ -2759,6 +2773,10 @@ def _cmd_generate(args):
         )
         return 2
     out = Path(args.out_dir) / FACTORY_SLUG / f"batch-r{args.round:02d}.jsonl"
+    raw_error = contract.raw_tree_destination_error(out)
+    if raw_error:
+        print(f"hardware_parity: {raw_error}", file=sys.stderr)
+        return 2
     if out.exists():
         print(
             f"hardware_parity: refusing to overwrite existing round {out}",

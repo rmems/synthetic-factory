@@ -372,6 +372,17 @@ class Cli(unittest.TestCase):
             self.assertIn("refusing to overwrite", second.stderr)
             self.assertEqual(out.read_bytes(), before)
 
+    def test_generate_refuses_a_raw_tree_destination(self):
+        # outputs/raw/ is the immutable corpus: a generator CLI must refuse
+        # it outright rather than rely on the overwrite check, which only
+        # protects pre-existing files.
+        with tempfile.TemporaryDirectory() as tmp:
+            destination = str(Path(tmp) / "outputs" / "raw" / "2026-08-31")
+            result = _cli(["generate", destination, "--round", "2", "--steps", "4"])
+            self.assertEqual(result.returncode, 2, result.stderr)
+            self.assertIn("outputs/raw", result.stderr)
+            self.assertFalse((Path(tmp) / "outputs").exists())
+
     def test_generate_rejects_nonpositive_steps_with_a_usage_error(self):
         # Previously this reached generate_records() unchecked and the
         # software adapter raised ValueError normalizing the empty

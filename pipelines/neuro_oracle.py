@@ -43,6 +43,16 @@ REFERENCE_DETERMINISM_MEANING = (
     "evidence about run-to-run variability of physical hardware"
 )
 
+# The determinism.meaning text the recorded-capture adapter emits. A capture
+# deployment's determinism is measured variability of the recorded runs, so
+# validators bind a physical deployment's meaning to this exact constant the
+# same way both reference sides bind to REFERENCE_DETERMINISM_MEANING --
+# a deterministic simulator cannot relabel its repeats as measured hardware
+# variability, and a capture cannot claim reference bit-determinism.
+CAPTURE_DETERMINISM_MEANING = (
+    "run-to-run variability observed during the recorded capture"
+)
+
 # ── Q8.8 fixed-point format ───────────────────────────────────────────
 # Signed 16-bit, 8 fractional bits: value = raw / 256, raw in [-32768, 32767].
 Q88_FRACTIONAL_BITS = 8
@@ -911,7 +921,7 @@ class RecordedCaptureAdapter(OracleAdapter):
             "determinism": {
                 "identical_repeats": len(set(repeat_digests)) == 1,
                 "distinct_digests": len(set(repeat_digests)),
-                "meaning": "run-to-run variability observed during the recorded capture",
+                "meaning": CAPTURE_DETERMINISM_MEANING,
             },
             "latency": payload.get("latency"),
             "output_digest": fingerprint,

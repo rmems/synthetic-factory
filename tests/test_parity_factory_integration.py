@@ -265,5 +265,56 @@ class DeepLayer(unittest.TestCase):
             self.assertIn("duplicate record id", result.stderr)
 
 
+class BuriedStreamsInParityRecords(unittest.TestCase):
+    """The repository-wide nested-stream pass must reach parity records.
+
+    Both parity schemas allow additional properties and the family
+    validators inspect only their canonical evidence locations, so auxiliary
+    data buried elsewhere in a record is the generic deep pass's job --
+    exactly as it already is for every other record kind.
+    """
+
+    def test_clean_fixture_records_pass_the_deep_layer(self):
+        # Guards the canonical-stream exemption: family evidence shapes
+        # (discrete steps, integer channel/neuron ids) must not be misjudged
+        # against the generic event contract.
+        for path in (HARDWARE_BATCH, NIR_BATCH):
+            for record in _records(path):
+                with self.subTest(record=record["id"]):
+                    errors, _warnings, _kind, _rid = check_records.check_record(
+                        record, "unit:1"
+                    )
+                    self.assertEqual(errors, [])
+
+    def test_buried_out_of_order_stream_is_rejected_in_both_families(self):
+        for path in (HARDWARE_BATCH, NIR_BATCH):
+            record = copy.deepcopy(_records(path)[0])
+            record["oracle"].setdefault("extra", {})["spike_events"] = [
+                {"t_ms": 5.0, "channel": "c0", "amplitude": 1.0},
+                {"t_ms": 1.0, "channel": "c0", "amplitude": 1.0},
+            ]
+            errors, _warnings, kind, _rid = check_records.check_record(
+                record, "unit:1"
+            )
+            with self.subTest(kind=kind):
+                self.assertTrue(
+                    any("oracle.extra.spike_events" in error for error in errors),
+                    errors,
+                )
+
+    def test_family_shaped_stream_outside_the_family_location_is_still_checked(self):
+        # The canonical-stream exemption is by object identity, not by key
+        # name or event shape: copying the NIR outputs event shape into an
+        # auxiliary location does not inherit the family validator's grading.
+        record = copy.deepcopy(_records(NIR_BATCH)[0])
+        record["oracle"].setdefault("extra", {})["spike_events"] = [
+            {"channel": 0, "t_step": 0}
+        ]
+        errors, _warnings, _kind, _rid = check_records.check_record(record, "unit:1")
+        self.assertTrue(
+            any("oracle.extra.spike_events" in error for error in errors), errors
+        )
+
+
 if __name__ == "__main__":
     unittest.main()

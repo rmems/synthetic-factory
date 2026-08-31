@@ -153,6 +153,17 @@ class Cli(unittest.TestCase):
             self.assertIn("refusing to overwrite", second.stderr)
             self.assertEqual(out.read_bytes(), before)
 
+    def test_generate_refuses_a_raw_tree_destination(self):
+        # outputs/raw/ is the immutable corpus: a generator CLI must refuse
+        # it outright rather than rely on the overwrite check, which only
+        # protects pre-existing files.
+        with tempfile.TemporaryDirectory() as tmp:
+            destination = str(Path(tmp) / "outputs" / "raw" / "2026-08-31")
+            result = _cli(["generate", destination, "--round", "3", "--steps", "4"])
+            self.assertEqual(result.returncode, 2, result.stderr)
+            self.assertIn("outputs/raw", result.stderr)
+            self.assertFalse((Path(tmp) / "outputs").exists())
+
     def test_validate_rejects_a_suppressed_divergence(self):
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "batch.jsonl"
