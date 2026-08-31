@@ -144,11 +144,13 @@ class CascadingErrorRecoveryDeclarationTests(unittest.TestCase):
         }
         self.card = publisher.render_card(
             self.item,
-            records=4722,
-            bytes_=31062016,
-            first="r01",
-            last="r2361",
-            payload_names=["batch-r01.jsonl", "batch-r2021.jsonl"],
+            summary=publisher.PayloadSummary(
+                records=4722,
+                bytes_=31062016,
+                first="r01",
+                last="r2361",
+                names=["batch-r01.jsonl", "batch-r2021.jsonl"],
+            ),
         )
 
     def test_declaration_matches_the_observed_union_schema(self):
