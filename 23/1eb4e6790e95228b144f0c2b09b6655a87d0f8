@@ -1,0 +1,21 @@
+tests/test_payload_kind_audit_markdown.py
+  s_f3ffb7db87dca1::t_a1f47170d92ac9 152-164
+pipelines/payload_kind_audit.py
+  s_f3ffb7db87dca1::t_faaf049ffb14af 587-591
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "231eb4e6790e95228b144f0c2b09b6655a87d0f8",
+  "prompts": {},
+  "sessions": {
+    "s_f3ffb7db87dca1": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "510a01e2-1e9d-4f64-a445-6971413485be",
+        "model": "claude-fable-5"
+      },
+      "human_author": "Raul Montoya Cardenas <montoyaraul34@gmail.com>"
+    }
+  }
+}
