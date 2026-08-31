@@ -1,0 +1,22 @@
+pipelines/card_payload.py
+  s_f3ffb7db87dca1::t_1463a17846d856 1-69
+scripts/publish_grok46_hub.py
+  s_f3ffb7db87dca1::t_f56b2ff6225ee4 48
+  s_f3ffb7db87dca1::t_0c7d751f3a1e1a 1201-1202,1204-1208,1211-1213,1215,1223
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "d3c9581018f66c667023cbaff8096cf1fee53ebe",
+  "prompts": {},
+  "sessions": {
+    "s_f3ffb7db87dca1": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "510a01e2-1e9d-4f64-a445-6971413485be",
+        "model": "claude-fable-5"
+      },
+      "human_author": "Raul Montoya Cardenas <montoyaraul34@gmail.com>"
+    }
+  }
+}
