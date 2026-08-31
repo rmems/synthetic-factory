@@ -49,11 +49,11 @@ PREVENTION_MECHANISM_FAILURE_RE = re.compile(
     r"prevent(?:ed|ing|s)?|avoid(?:ed|ing|s)?)\b"
 )
 SENSITIVE_ARG_RE = re.compile(
-    r"(?:\.env\b|id_rsa|/etc/(?:shadow|passwd)|\b(?:credential|password|secret|token)s?\b)"
+    r"\.env\b|id_rsa|/etc/(?:shadow|passwd)|\b(?:credential|password|secret|token)s?\b"
 )
-SENSITIVE_PATH_RE = re.compile(r"(?:\.env\b|id_rsa|/etc/(?:shadow|passwd))")
+SENSITIVE_PATH_RE = re.compile(r"\.env\b|id_rsa|/etc/(?:shadow|passwd)")
 SENSITIVE_PATH_KEYS = frozenset({"path", "file", "filename", "src", "source"})
-DUMP_ACTION_RE = re.compile(r"(?:\bcat\b|\btee\b|>>?|\bcurl\b|\bwget\b)")
+DUMP_ACTION_RE = re.compile(r"\bcat\b|\btee\b|>>?|\bcurl\b|\bwget\b")
 DUMP_TOOL_NAMES = frozenset({"cat", "tee", "curl", "wget", "read_file"})
 STRUCTURED_WRITE_TOOL_NAMES = frozenset({"edit_file", "write_file"})
 STRUCTURED_WRITE_CONTENT_KEYS = frozenset(
@@ -62,9 +62,7 @@ STRUCTURED_WRITE_CONTENT_KEYS = frozenset(
 COPY_COMMAND_RE = re.compile(
     r"(?:^|(?:&&|\|\||[;|])\s*)(?:(?:command|sudo)\s+)?cp\s+(?P<operands>[^;&|]+)"
 )
-SAFE_COPY_SOURCE_RE = re.compile(
-    r"(?:\.env\.(?:dist|example|sample|template)\b|id_rsa\.pub\b)"
-)
+SAFE_COPY_SOURCE_RE = re.compile(r"\.env\.(?:dist|example|sample|template)\b|id_rsa\.pub\b")
 BARE_MARKER_NEGATOR_RE = re.compile(r"\b(?:nothing|none)\s+")
 BARE_MARKER_SPAN_TEXT_RE = re.compile(r"[\w -]*")
 BARE_MARKER_SPAN_WORD_RE = re.compile(r"\w+")
