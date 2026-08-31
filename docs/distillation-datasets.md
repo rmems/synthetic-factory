@@ -15,9 +15,11 @@ envelope in `schemas/oracle-grounded-record.schema.json`, enforced by
 Generators propose; oracles decide. Concretely:
 
 - `generator.authority` is pinned to `propose_only`.
-- No oracle-measured key name (`measurements`, `outcome`, `energy_j`,
-  `router_logits`, `task_quality`, `preference`, …) may appear anywhere inside
-  `generator`, `scenario`, `intervention` or `candidate_prediction`.
+- No oracle-measured key name (`measurements`, `outcome`, `top1_expert`,
+  `energy_j`, `router_logits`, `task_quality`, `preference`, …) may appear
+  anywhere inside `generator`, `scenario`, `intervention` or
+  `candidate_prediction` — the emitted summary labels are on that denylist
+  too, so a teacher label cannot be copied into the student-visible input.
 - Every key under `candidate_prediction` is `predicted_*` (plus `rationale`,
   `confidence`, `method`), so a guess can never be read as a label.
 - Producers write `validation.status = "unvalidated"`. Only
@@ -32,8 +34,13 @@ Generators propose; oracles decide. Concretely:
   validity alone is never training-ready.
 
 Every measurement carries `quantity`, canonical `unit`, `meter`, `measured` and
-`source: "oracle"`. Energy-class quantities (`energy_j`, `energy_per_op_j`,
-`power_w`) are rejected unless the meter physically measures energy. There is no
+`source: "oracle"`, and its value must lie in the quantity's domain: times,
+energies, latencies, counts, entropies and margins cannot be negative, and
+ratio quantities (`task_quality`, `expert_agreement`, `corrupt_ratio`,
+`residual_error`) must lie in `[0, 1]` — temperatures are the only listed
+readings a meter may report below zero. Energy-class quantities (`energy_j`,
+`energy_per_op_j`, `power_w`) are rejected unless the meter physically
+measures energy. There is no
 code path that turns an operation count, a synaptic-operation model or a
 measured second into a joule.
 
@@ -77,13 +84,16 @@ that still looks like a disturbance in the record, which is worse than an
 error. The same fail-closed rule covers parameter *values*: a disturbance may
 only name channels the relay actually reads (its own channels plus the
 fallback source); `burst_corruption` requires a finite `corrupt_ratio` in
-`[0, 1]`; onsets must be non-negative and durations, jitters, ramps, delays
-and malformed counts strictly positive — an unknown channel name or an
+`[0, 1]`; onsets must be non-negative and land at or before the last
+simulated tick (`(ticks - 1) * tick_ms` — any later and the active window
+never opens), and durations, jitters, ramps, delays
+and malformed counts must be strictly positive — an unknown channel name or an
 out-of-range value would run as a no-op and replay as an authoritative
 `continue`. The validator also re-derives `result.prediction_agreement` from
-the prediction and the outcome, and requires every replay-derived measurement
-to be present, so neither a flipped agreement nor a deleted latency survives
-a recomputed digest. For the same reason the
+the prediction and the outcome, requires every replay-derived measurement
+to be present, and requires `result.integrity_violation` to be a boolean
+compared against the replay, so neither a flipped agreement, a deleted
+latency, nor a dropped integrity signal survives a recomputed digest. For the same reason the
 simulator records the corruption ratio it actually applied alongside the one
 that was requested, and `malformed_kind` is a real behavioural difference:
 times that run backwards and negative amplitudes corrupt an accepted stream
@@ -181,8 +191,10 @@ enforced rule verbatim, and costs may only be denominated in `energy_j` or
 `cpu_time_s`. The measured candidates must be exactly the proposed
 `scenario.candidate_actions` — same ids and same policy descriptions — so the
 decision problem the student sees is the one the preference was graded on,
-and `preference.preferred` must name a candidate as a non-empty string (a
-JSON object there is a finding, not a `TypeError` that aborts the run).
+`preference.preferred` must name a candidate as a non-empty string (a
+JSON object there is a finding, not a `TypeError` that aborts the run), and
+each `candidate.success` is re-derived as `safety_ok and task_quality >=
+quality_floor` rather than trusted.
 
 It also ties the bookkeeping together, because those fields are what a reader
 uses to tell a joule corpus from a second corpus. `result.cost_is_energy` must
@@ -244,9 +256,16 @@ requires `result.teacher_grounded` to follow from the oracle's authority and
 contiguously from zero, and a fingerprint that declares
 `num_experts_per_tok` or `num_layers` binds every layer's top-k width and
 the trajectory length, so neither an interior layer nor a suffix can vanish.
-An `authoritative` router record must also declare a positive
-`num_local_experts` in its fingerprint so expert ids stay range-checked, and
-must pin a resolved 40-hex commit as its `revision_or_checkpoint` — the
+An `authoritative` router record must also declare positive
+`num_local_experts`, `num_experts_per_tok` and `num_layers` in its
+fingerprint — so expert ids stay range-checked, the top-k width stays bound,
+and a dropped layer suffix stays detectable (the replay wrapper refuses a
+recording missing any of the three at the boundary too, and the live
+Transformers fingerprint records the teacher's own `num_hidden_layers`
+claim). Every exposed `router_logits` array must carry exactly
+`num_local_experts` values, so a truncated distribution cannot pose as the
+promised full one. It must pin a resolved 40-hex commit as its
+`revision_or_checkpoint` — the
 laundering guard checks the oracle's own name, type and implementation, not
 just the fingerprint's model string; a non-teacher oracle belongs in
 `reference_only`.
@@ -265,7 +284,9 @@ The gate only evaluates records with `result.status == "measured"`: an
 abstained result's routing fields are outcomes the oracle declined to stand
 behind, and a corpus containing one is refused loudly rather than filtered
 silently. `min_lift` must be a finite non-negative number — argparse happily
-accepts `--min-lift nan`, and NaN defeats every threshold comparison.
+accepts `--min-lift nan`, and NaN defeats every threshold comparison — and
+the logistic/MLP iteration counts must be positive integers, because zero
+training epochs would publish untrained baselines into the escalation gate.
 
 A lift over the majority class only counts when it clears `required_lift`, the
 larger of `min_lift` and two standard errors of the test accuracy, and only

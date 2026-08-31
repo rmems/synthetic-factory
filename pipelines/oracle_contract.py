@@ -106,6 +106,22 @@ ORACLE_ONLY_KEYS = frozenset(
         "preference",
         "safety_ok",
         "result",
+        # Emitted oracle summaries. `top1_expert` was missing, so a router
+        # record could copy the teacher label into the student-visible
+        # scenario namespace, rehash, and hand training a trivially leaked
+        # target; the rest are the same class of oracle-owned outputs.
+        "top1_expert",
+        "routing",
+        "teacher_grounded",
+        "outcome_label",
+        "prediction_agreement",
+        "integrity_violation",
+        "detection_latency_ms",
+        "recovery_latency_ms",
+        "candidates",
+        "reference_objective",
+        "cost_is_energy",
+        "abstention_reason",
     }
 )
 
@@ -138,6 +154,38 @@ QUANTITY_UNITS = {
     "expert_agreement": "ratio",
     "repeats": "count",
 }
+
+# Quantity domains. `is_number` alone accepted any finite value, so a
+# rehashed record could serve wall_time_s = -5, a negative event count, or a
+# ratio outside [0, 1] as an oracle measurement target. Temperatures are the
+# only listed quantities a physical reading may take below zero.
+NON_NEGATIVE_QUANTITIES = frozenset(
+    {
+        "energy_j",
+        "energy_per_op_j",
+        "power_w",
+        "cpu_time_s",
+        "wall_time_s",
+        "latency_ms",
+        "detection_latency_ms",
+        "recovery_latency_ms",
+        "max_rss_kb",
+        "context_switches",
+        "healthy_channel_count",
+        "dropped_event_count",
+        "repeats",
+        "routing_entropy",
+        "top1_top2_margin",
+    }
+)
+UNIT_INTERVAL_QUANTITIES = frozenset(
+    {
+        "residual_error",
+        "corrupt_ratio",
+        "task_quality",
+        "expert_agreement",
+    }
+)
 
 ENERGY_QUANTITIES = frozenset({"energy_j", "energy_per_op_j", "power_w"})
 
@@ -469,6 +517,16 @@ def check_generator_oracle_separation(record: dict[str, Any], where: str) -> lis
     return errors
 
 
+def _quantity_domain_errors(quantity: str, value: float, spot: str) -> list[str]:
+    """The domain a quantity's value must lie in, beyond being finite."""
+
+    if quantity in NON_NEGATIVE_QUANTITIES and value < 0.0:
+        return [f"{spot}: {quantity} cannot be negative, got {value}"]
+    if quantity in UNIT_INTERVAL_QUANTITIES and not 0.0 <= value <= 1.0:
+        return [f"{spot}: {quantity} must lie in [0, 1], got {value}"]
+    return []
+
+
 def _check_measurement_item(item: Any, spot: str) -> list[str]:
     """One measurement's quantity, unit, meter and provenance."""
 
@@ -480,6 +538,8 @@ def _check_measurement_item(item: Any, spot: str) -> list[str]:
     errors: list[str] = []
     if not is_number(item.get("value")):
         errors.append(f"{spot}: value must be a finite number")
+    else:
+        errors.extend(_quantity_domain_errors(quantity, float(item["value"]), spot))
     expected_unit = QUANTITY_UNITS[quantity]
     if item.get("unit") != expected_unit:
         errors.append(

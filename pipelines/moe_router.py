@@ -474,14 +474,19 @@ class RecordedTeacherRouter(RouterOracle):
                 "non-teacher stand-in; its routing may not be curated as "
                 "teacher truth"
             )
-        if _declared_expert_count(self.teacher) is None:
-            # Without a declared expert count, nothing bounds the replayed
-            # expert ids: a recording with no logits could serve ids like
-            # [-1, 999] as authoritative routing labels.
-            return (
-                "recording does not declare a positive num_local_experts, so "
-                "replayed expert ids cannot be range-checked"
-            )
+        # Without these declarations nothing bounds the replayed routing: a
+        # recording with no logits could serve ids like [-1, 999], widen its
+        # top-k, or drop a layer suffix, all as authoritative labels.
+        for field, consequence in (
+            ("num_local_experts", "replayed expert ids cannot be range-checked"),
+            ("num_experts_per_tok", "the replayed top-k width cannot be checked"),
+            ("num_layers", "a dropped layer suffix cannot be detected"),
+        ):
+            if _declared_positive_int(self.teacher, field) is None:
+                return (
+                    f"recording does not declare a positive {field}, so "
+                    f"{consequence}"
+                )
         return None
 
     def available(self) -> tuple[bool, str]:
@@ -648,6 +653,10 @@ class TransformersMoERouter(RouterOracle):
             "num_local_experts": getattr(config, "num_local_experts", None)
             or getattr(config, "num_experts", None),
             "num_experts_per_tok": getattr(config, "num_experts_per_tok", None),
+            # The teacher's own layer-count claim; the validator holds every
+            # recorded trajectory to it, so a routed run that disagrees fails
+            # loudly instead of shipping a shortened trajectory.
+            "num_layers": getattr(config, "num_hidden_layers", None),
             "torch_dtype": str(getattr(model, "dtype", "unknown")),
             "transformers_version": __import__("transformers").__version__,
             "torch_version": torch.__version__,
@@ -1257,7 +1266,9 @@ def _is_top_of_logits(experts: list[int], logits: list[Any]) -> bool:
     return recorded_values == top_values
 
 
-def _check_layer_logits(layer: dict[str, Any], spot: str) -> list[str]:
+def _check_layer_logits(
+    layer: dict[str, Any], spot: str, expert_count: int | None = None
+) -> list[str]:
     """Router logits, and the expert order they imply.
 
     The recorded top-k must carry, position for position, the largest logit
@@ -1276,6 +1287,15 @@ def _check_layer_logits(layer: dict[str, Any], spot: str) -> list[str]:
         oc.is_number(value) for value in logits
     ):
         return [f"{spot}.router_logits must be an array of numbers"]
+    if expert_count is not None and len(logits) != expert_count:
+        # A truncated array that still contains the selected ids passes the
+        # ordering check below, but it turns the promised full teacher
+        # distribution into a partial one — and both the entropy and the
+        # logit distillation targets change with it.
+        return [
+            f"{spot}.router_logits lists {len(logits)} values but the oracle "
+            f"fingerprint declares num_local_experts {expert_count}"
+        ]
     experts = layer.get("top_k_experts")
     if not isinstance(experts, list) or not experts:
         return []
@@ -1371,7 +1391,7 @@ def _check_layer_signals(
     exposed_logits = _exposed_logits(layer)
     return (
         _check_layer_experts(layer, spot, expert_count, top_k)
-        + _check_layer_logits(layer, spot)
+        + _check_layer_logits(layer, spot, expert_count)
         + _check_layer_margin(layer, spot, exposed_logits)
         + _check_layer_entropy(layer, spot, exposed_logits, expert_count)
     )
@@ -1563,6 +1583,41 @@ def _check_routing_layers(
     return errors
 
 
+def _check_declared_trajectory_authority(
+    fingerprint: Any, oracle: Any, where: str
+) -> list[str]:
+    """An authoritative router must declare its top-k width and layer count.
+
+    Both equality checks are conditional on the declaration being present, so
+    deleting ``num_experts_per_tok`` freed every layer to widen its top-k and
+    deleting ``num_layers`` let a contiguous suffix vanish — while the record
+    stayed validation-clean and curation-eligible.
+    """
+
+    if not (
+        isinstance(oracle, dict)
+        and oracle.get("authority") == oc.AUTHORITY_AUTHORITATIVE
+    ):
+        return []
+    return [
+        f"{where}.oracle.fingerprint.{field} must declare a positive value "
+        f"for an authoritative router record — without it {consequence}"
+        for field, declared, consequence in (
+            (
+                "num_experts_per_tok",
+                _declared_top_k(fingerprint),
+                "the recorded top-k width cannot be checked",
+            ),
+            (
+                "num_layers",
+                _declared_layer_count(fingerprint),
+                "a dropped layer suffix cannot be detected",
+            ),
+        )
+        if declared is None
+    ]
+
+
 def _check_layer_count(
     layers: list[Any], fingerprint: Any, where: str
 ) -> list[str]:
@@ -1606,6 +1661,7 @@ def check_family(record: dict[str, Any], where: str) -> list[str]:
 
     expert_count = _declared_expert_count(fingerprint)
     errors += _check_declared_count_authority(expert_count, oracle, where)
+    errors += _check_declared_trajectory_authority(fingerprint, oracle, where)
     errors += _check_authoritative_checkpoint(oracle, fingerprint, where)
     errors += _check_routing_layers(
         layers, expert_count, _declared_top_k(fingerprint), where

@@ -91,18 +91,21 @@ class SimulatorRules(unittest.TestCase):
         self.assertEqual(result.outcome, "degrade_gracefully")
         self.assertIn("JITTER_BEYOND_TOLERANCE", result.reason_codes)
 
-    def test_jitter_scheduled_outside_the_run_is_not_silently_applied(self):
+    def test_jitter_scheduled_outside_the_run_is_refused(self):
         # The window used to be ignored, so a disturbance scheduled long after
-        # the run still degraded the outcome.
-        result = self.sim.run(
-            scenario(),
-            disturbance(
-                "event_jitter", channels=["c0"], onset_ms=1000.0, duration_ms=5.0,
-                jitter_ms=3.0,
-            ),
-        )
-        self.assertEqual(result.outcome, "continue")
-        self.assertEqual(result.max_jitter_ms, 0.0)
+        # the run still degraded the outcome. Honouring the window then let it
+        # run as a clean `continue` — a no-op wearing a disturbance's name —
+        # so the simulator now refuses an onset beyond the last simulated
+        # tick outright.
+        with self.assertRaises(oc.ContractError) as caught:
+            self.sim.run(
+                scenario(),
+                disturbance(
+                    "event_jitter", channels=["c0"], onset_ms=1000.0,
+                    duration_ms=5.0, jitter_ms=3.0,
+                ),
+            )
+        self.assertIn("never occur", str(caught.exception))
 
     def test_thermal_ladder_walks_warn_limit_shutdown(self):
         ladder = {58.0: "continue", 70.0: "degrade_gracefully",

@@ -503,6 +503,37 @@ def _verdict(
     return VERDICT_LINEAR
 
 
+def _check_evaluation_knobs(
+    min_lift: float, logistic_iterations: int, mlp_iterations: int
+) -> None:
+    """Refuse evaluation knobs that would fake or defeat the gate.
+
+    argparse accepts ``--min-lift nan``: NaN survives ``max(min_lift, 2 *
+    stderr)`` and every ``lift < required_lift`` comparison against it is
+    false, so a large-enough holdout could emit a learnable verdict (and
+    non-standard JSON carrying NaN) no finite threshold would grant. It also
+    accepts ``--iterations 0``, which trains neither advertised baseline yet
+    still publishes their initial predictions as trained accuracies into the
+    SNN escalation gate.
+    """
+
+    if not math.isfinite(min_lift) or min_lift < 0.0:
+        raise BaselineError(
+            f"min_lift must be a finite non-negative number, got {min_lift!r}"
+        )
+    for name, iterations in (
+        ("logistic_iterations", logistic_iterations),
+        ("mlp_iterations", mlp_iterations),
+    ):
+        if not isinstance(iterations, int) or isinstance(iterations, bool) or (
+            iterations < 1
+        ):
+            raise BaselineError(
+                f"{name} must be a positive integer, got {iterations!r} — "
+                "zero training epochs would publish untrained baselines"
+            )
+
+
 def evaluate_baselines(
     samples: list[Sample],
     *,
@@ -516,15 +547,7 @@ def evaluate_baselines(
 ) -> dict[str, Any]:
     """Run every conventional baseline and return a comparable report."""
 
-    if not math.isfinite(min_lift) or min_lift < 0.0:
-        # argparse accepts `--min-lift nan`, NaN survives
-        # `max(min_lift, 2 * stderr)`, and every `lift < required_lift`
-        # comparison against NaN is false — so a large-enough holdout could
-        # emit a learnable verdict (and non-standard JSON carrying NaN) even
-        # when the measured lift would fail every finite threshold.
-        raise BaselineError(
-            f"min_lift must be a finite non-negative number, got {min_lift!r}"
-        )
+    _check_evaluation_knobs(min_lift, logistic_iterations, mlp_iterations)
     if len(samples) < 8:
         raise BaselineError("need at least 8 samples to evaluate a baseline")
     train, test = split(samples, holdout_pct=holdout_pct)

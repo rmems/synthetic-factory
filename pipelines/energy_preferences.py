@@ -1669,6 +1669,40 @@ def _check_candidate_measurements(
     return errors
 
 
+def _check_candidate_success(
+    candidate: Any, spot: str, quality_floor: float | None
+) -> list[str]:
+    """``success`` is a summary of safety and the floor, not a free bit.
+
+    ``build_records`` writes ``success = safety_ok and task_quality >=
+    quality_floor``; nothing re-derived it, so flipping the unsafe
+    candidate's ``false`` to ``true`` and rehashing left a curation-eligible
+    record with contradictory candidate labels.
+    """
+
+    if not isinstance(candidate, dict):
+        return []
+    success = candidate.get("success")
+    if not isinstance(success, bool):
+        return [f"{spot}.success must be a boolean"]
+    if quality_floor is None or not oc.is_number(candidate.get("task_quality")):
+        # The floor and the quality carry their own findings when malformed;
+        # without them the summary cannot be re-derived.
+        return []
+    expected = (
+        candidate.get("safety_ok") is True
+        and float(candidate["task_quality"]) >= quality_floor
+    )
+    if success is not expected:
+        return [
+            f"{spot}.success is {success} but safety_ok "
+            f"{candidate.get('safety_ok')!r} and task_quality "
+            f"{candidate['task_quality']} against quality_floor "
+            f"{quality_floor} give {expected}"
+        ]
+    return []
+
+
 def _check_candidate(
     candidate: Any,
     spot: str,
@@ -1992,12 +2026,9 @@ def check_family(record: dict[str, Any], where: str) -> list[str]:
 
     seen_candidate_ids: set[str] = set()
     for index, candidate in enumerate(candidates):
-        errors += _check_candidate(
-            candidate,
-            f"{where}.result.candidates[{index}]",
-            seen_candidate_ids,
-            context,
-        )
+        spot = f"{where}.result.candidates[{index}]"
+        errors += _check_candidate(candidate, spot, seen_candidate_ids, context)
+        errors += _check_candidate_success(candidate, spot, quality_floor)
 
     return errors + _check_preference(result, candidates, quality_floor, where)
 

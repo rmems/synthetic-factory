@@ -496,6 +496,31 @@ class RelayReflexSimulator(FaultOracle):
     )
 
     @staticmethod
+    def _check_onset_within_horizon(
+        kind: str, parameters: dict[str, Any], system: dict[str, Any]
+    ) -> None:
+        """The declared onset must fall inside the simulated window.
+
+        The non-negative floor alone let ``onset_ms`` sit at or beyond the
+        last observable tick, so the active window never opened and a
+        declared fault replayed as an authoritative ``continue`` — a no-op
+        wearing a disturbance's name, bounded by the recorded horizon rather
+        than by any fixed constant.
+        """
+
+        onset = parameters.get("onset_ms")
+        if not oc.is_number(onset):
+            return
+        last_tick_ms = (int(system["ticks"]) - 1) * float(system["tick_ms"])
+        if float(onset) > last_tick_ms:
+            raise oc.ContractError(
+                f"{kind} onset_ms {onset} is beyond the last simulated tick "
+                f"at {last_tick_ms} ms ({system['ticks']} ticks x "
+                f"{system['tick_ms']} ms); the declared disturbance would "
+                "never occur"
+            )
+
+    @staticmethod
     def _check_parameter_values(kind: str, parameters: dict[str, Any]) -> None:
         """Value ranges whose violation would also run as a silent no-op."""
 
@@ -613,6 +638,7 @@ class RelayReflexSimulator(FaultOracle):
             raise oc.ContractError(f"unknown disturbance kind: {kind!r}")
         params = dict(disturbance.get("parameters", {}))
         self._check_parameters(kind, params)
+        self._check_onset_within_horizon(kind, params, system)
         # ``affected`` is narrowed to the relay's own channels for the tick
         # loop; ``declared`` keeps every name the disturbance claimed, so a
         # disturbance that also hits the fallback source is seen as such.
@@ -1042,12 +1068,20 @@ def _check_replay_labels(result: dict[str, Any], replay: Any, where: str) -> lis
             f"{sorted(str(r) for r in recorded_reasons)} but the simulator "
             f"reports {sorted(replay.reason_codes)}"
         )
-    if isinstance(result.get("integrity_violation"), bool) and (
-        result["integrity_violation"] is not replay.integrity_violation
-    ):
+    integrity = result.get("integrity_violation")
+    if not isinstance(integrity, bool):
+        # The flag is replay-derived, so its absence is a finding, not a
+        # reason to skip the comparison: deleting it was all it took for a
+        # malformed-spike record to lose its `true` integrity signal and
+        # stay curation-eligible.
+        errors.append(
+            f"{where}.result.integrity_violation must be a boolean — the "
+            f"simulator replay reports {replay.integrity_violation}"
+        )
+    elif integrity is not replay.integrity_violation:
         errors.append(
             f"{where}.result.integrity_violation: OUTCOME_NOT_REPRODUCIBLE — "
-            f"recorded {result['integrity_violation']} but the simulator "
+            f"recorded {integrity} but the simulator "
             f"reports {replay.integrity_violation}"
         )
     return errors

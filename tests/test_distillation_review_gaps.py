@@ -1598,5 +1598,237 @@ class ThirdRoundRouterGaps(unittest.TestCase):
                 self.assertIn("min_lift", str(caught.exception))
 
 
+class FourthRoundContractGaps(unittest.TestCase):
+    """oracle_contract.py — the fourth review pass."""
+
+    def test_oracle_summaries_cannot_hide_in_generator_namespaces(self):
+        # `top1_expert` was missing from the oracle-only denylist, so the
+        # teacher label could be copied into the student-visible scenario.
+        record = clone(mr.build_records(20260823, 1)[0])
+        record["scenario"]["top1_expert"] = record["result"]["top1_expert"]
+        rehash(record)
+        errors = vd.check_record(record, "x")
+        self.assertTrue(
+            any(
+                "ORACLE_FIELD_IN_GENERATOR_NAMESPACE" in e and "top1_expert" in e
+                for e in errors
+            ),
+            f"a leaked teacher label passed: {errors}",
+        )
+
+    def test_measurement_values_respect_their_quantity_domains(self):
+        # Any finite number used to pass: wall_time_s could go to -5 and
+        # task_quality to 1.5 with only the digest to recompute.
+        for quantity, value, fragment in (
+            ("wall_time_s", -5.0, "cannot be negative"),
+            ("task_quality", 1.5, "must lie in [0, 1]"),
+        ):
+            record = clone(ep.build_records(20260823, 1, repeats=1, warmup=0)[0])
+            tampered = False
+            for item in record["result"]["measurements"]:
+                if item["quantity"] == quantity:
+                    item["value"] = value
+                    tampered = True
+                    break
+            self.assertTrue(tampered, f"no {quantity} measurement to tamper")
+            rehash(record)
+            with self.subTest(quantity=quantity):
+                errors = vd.check_record(record, "x")
+                self.assertTrue(
+                    any(fragment in e for e in errors),
+                    f"{quantity} = {value} passed: {errors}",
+                )
+
+
+class FourthRoundRouterGaps(unittest.TestCase):
+    """moe_router.py — the fourth review pass."""
+
+    @classmethod
+    def setUpClass(cls):
+        texts = [p["scenario"]["context"] for p in mr.propose_contexts(11, 2)]
+        cls.recording = _teacher_recording(texts)
+        oracle = mr.RecordedTeacherRouter(cls.recording)
+        cls.teacher_records = mr.build_records(11, 2, oracle=oracle)
+
+    def test_an_authoritative_router_must_declare_top_k_and_layers(self):
+        # Both equality checks were conditional on the declaration being
+        # present, so deleting the field freed the recorded trajectory from
+        # the teacher configuration while staying curation-eligible.
+        for field in ("num_experts_per_tok", "num_layers"):
+            record = clone(self.teacher_records[0])
+            del record["oracle"]["fingerprint"][field]
+            rehash(record)
+            with self.subTest(field=field):
+                errors = mr.check_family(record, "x")
+                self.assertTrue(
+                    any(
+                        f"{field} must declare a positive value" in e
+                        for e in errors
+                    ),
+                    f"an authoritative record without {field} passed: {errors}",
+                )
+
+    def test_a_reference_only_record_needs_no_declared_widths(self):
+        record = clone(mr.build_records(11, 1)[0])
+        del record["oracle"]["fingerprint"]["num_experts_per_tok"]
+        del record["oracle"]["fingerprint"]["num_layers"]
+        rehash(record)
+        errors = [
+            e
+            for e in mr.check_family(record, "x")
+            if "must declare a positive value" in e
+        ]
+        self.assertEqual(errors, [])
+
+    def test_a_recording_without_declared_widths_is_refused(self):
+        for field in ("num_experts_per_tok", "num_layers"):
+            recording = clone(self.recording)
+            del recording["teacher"][field]
+            with self.subTest(field=field):
+                ok, detail = mr.RecordedTeacherRouter(recording).available()
+                self.assertFalse(ok)
+                self.assertIn(field, detail)
+
+    def test_truncated_router_logits_are_rejected(self):
+        # A shortened array still containing the selected ids passed the
+        # ordering check while changing the entropy and logit targets.
+        record, index = next(
+            (clone(candidate), i)
+            for candidate in self.teacher_records
+            # Not the last layer: its summaries feed result.measurements.
+            for i, lay in enumerate(candidate["result"]["routing"]["layers"][:-1])
+            if max(lay["top_k_experts"]) + 1 < len(lay["router_logits"])
+        )
+        layer = record["result"]["routing"]["layers"][index]
+        keep = max(layer["top_k_experts"]) + 1
+        layer["router_logits"] = layer["router_logits"][:keep]
+        values = [float(v) for v in layer["router_logits"]]
+        ordered = sorted(values, reverse=True)
+        layer["top1_top2_margin"] = round(ordered[0] - ordered[1], 6)
+        layer["routing_entropy"] = round(
+            mr.entropy_nats(mr.softmax(values)), 6
+        )
+        rehash(record)
+        errors = mr.check_family(record, "x")
+        self.assertTrue(
+            any("router_logits lists" in e for e in errors),
+            f"a truncated logit distribution passed: {errors}",
+        )
+
+
+class FourthRoundFaultGaps(unittest.TestCase):
+    """fault_recovery.py — the fourth review pass."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.records = fr.build_records(11, 12)
+
+    def test_a_disturbance_beyond_the_horizon_is_refused(self):
+        # onset_ms >= the horizon satisfied the non-negative floor while the
+        # active window never opened: a declared fault replaying as an
+        # authoritative `continue`.
+        simulator = fr.RelayReflexSimulator()
+        scenario = {"system": dict(fr.DEFAULT_SYSTEM)}
+        last_tick_ms = (fr.DEFAULT_SYSTEM["ticks"] - 1) * fr.DEFAULT_SYSTEM["tick_ms"]
+
+        def disturbance(onset):
+            return {
+                "kind": "sensor_loss",
+                "parameters": {
+                    "onset_ms": onset,
+                    "duration_ms": 10.0,
+                    "channels": ["c0"],
+                },
+            }
+
+        for onset in (100.0, last_tick_ms + 1.0):
+            with self.subTest(onset=onset):
+                with self.assertRaises(oc.ContractError):
+                    simulator.run(scenario, disturbance(onset))
+        # The last observable tick is still a real fault window.
+        simulator.run(scenario, disturbance(last_tick_ms))
+
+    def test_a_tampered_onset_beyond_the_horizon_is_a_finding(self):
+        record = next(
+            clone(r)
+            for r in self.records
+            if r["intervention"]["kind"] == "sensor_loss"
+        )
+        record["intervention"]["parameters"]["onset_ms"] = 100.0
+        rehash(record)
+        errors = fr.check_family(record, "x")
+        self.assertTrue(
+            any("never occur" in e for e in errors),
+            f"an out-of-window onset passed: {errors}",
+        )
+
+    def test_the_integrity_flag_must_be_present(self):
+        # Deleting result.integrity_violation skipped the comparison, losing
+        # a malformed-spike record's `true` integrity signal.
+        record = next(
+            clone(r)
+            for r in self.records
+            if r["result"].get("integrity_violation") is True
+        )
+        del record["result"]["integrity_violation"]
+        rehash(record)
+        errors = fr.check_family(record, "x")
+        self.assertTrue(
+            any("integrity_violation must be a boolean" in e for e in errors),
+            f"a record without the replayed integrity flag passed: {errors}",
+        )
+
+
+class FourthRoundEnergyGaps(unittest.TestCase):
+    """energy_preferences.py — the fourth review pass."""
+
+    def test_candidate_success_is_re_derived(self):
+        # success = safety_ok and task_quality >= quality_floor is how the
+        # builder writes it; nothing re-derived it, so the unsafe candidate
+        # could claim success after a rehash.
+        record = clone(ep.build_records(20260823, 1, repeats=1, warmup=0)[0])
+        unsafe = next(
+            c
+            for c in record["result"]["candidates"]
+            if c["id"] == "unclipped_proportional"
+        )
+        unsafe["success"] = True
+        rehash(record)
+        errors = ep.check_family(record, "x")
+        self.assertTrue(
+            any(".success is True" in e for e in errors),
+            f"a flipped success summary passed: {errors}",
+        )
+
+    def test_candidate_success_must_be_a_boolean(self):
+        record = clone(ep.build_records(20260823, 1, repeats=1, warmup=0)[0])
+        next(
+            c for c in record["result"]["candidates"] if c["id"] == "analytic_kkt"
+        )["success"] = 1
+        rehash(record)
+        errors = ep.check_family(record, "x")
+        self.assertTrue(
+            any(".success must be a boolean" in e for e in errors),
+            f"an integer success passed: {errors}",
+        )
+
+
+class FourthRoundBaselineGaps(unittest.TestCase):
+    """router_baseline.py — the fourth review pass."""
+
+    def test_iteration_counts_must_be_positive_integers(self):
+        # `--iterations 0` trained neither advertised baseline yet still
+        # published their initial predictions into the escalation gate.
+        for kwargs in (
+            {"logistic_iterations": 0},
+            {"mlp_iterations": -3},
+            {"logistic_iterations": True},
+        ):
+            with self.subTest(**kwargs):
+                with self.assertRaises(rb.BaselineError) as caught:
+                    rb.evaluate_baselines([], **kwargs)
+                self.assertIn("positive integer", str(caught.exception))
+
+
 if __name__ == "__main__":  # pragma: no cover
     unittest.main()
