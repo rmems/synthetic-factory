@@ -37,6 +37,10 @@ python3 .claude/skills/run-synthetic-factory/driver.py audit outputs/raw/<date>
 
 # Marker-aware, validated per-factory frontiers
 python3 .claude/skills/run-synthetic-factory/driver.py frontiers outputs/raw/<date> --json
+
+# Shared-detector leftover-mill report; names foreign-mill records and prints
+# the eligible denominator per destination without rewriting raw evidence
+python3 pipelines/leftover_mill.py outputs/raw/<date>   # add --strict to gate
 ```
 
 `validate` is structural/invariant evidence. `audit` additionally checks reward
@@ -94,6 +98,13 @@ it). The workflow skips factories with no start. Re-include a still-plateaued
 factory only when its prompt, quotas, or gap targets have changed enough to
 expect fresh novelty.
 
+The flag only exists if rounds report their novelty, so `round_txn.py publish`
+now rejects staged NOTES that omit `Novel coverage: <N>%` or state a value
+outside 0–100 — on every registered lane, including the legacy Thalamic
+factories. A generation agent that hits that error should repair its staged
+notes and republish; it is not a batch defect. Rounds committed before the
+contract are unaffected and stay readable. See `docs/token-efficiency.md`.
+
 The workflow runs at most five agents at once. Each generated round is followed
 by one bounded, read-only marker verifier in the same per-factory lane; it checks
 the frontier plus marker file hashes before progress is counted. Each factory
@@ -124,6 +135,21 @@ errors or warnings, and no destination collision. Files are staged under
 An interrupted publish is resumable with the same token. Never delete a
 reservation or staging directory just because an agent stopped.
 
+Publication also runs `pipelines/verify_execution.py` in strict mode and fails
+closed: a `failed` record can never be published, and an `inconclusive`
+(cannot-verify) record blocks the round until the batch is regenerated with
+observable execution evidence or an operator records an explicit waiver.
+
+```bash
+python3 pipelines/round_txn.py publish \
+  outputs/raw/<date>/<factory> --round <N> --token <token> \
+  --allow-inconclusive "<why this batch cannot be verified>"
+```
+
+The waiver and the verified/inconclusive/failed counts are written into
+`ROUND-rNN.complete.json`. Never treat cannot-verify as verified — see
+`docs/verify-execution.md`.
+
 New trajectories use `schemas/thalamic-trajectory-v2.schema.json`, which makes
 top-level IDs and canonical state provenance mandatory. The unsuffixed schema
 is retained only so legacy raw records remain inspectable without rewriting.
@@ -141,6 +167,16 @@ Take a stable snapshot or use `driver.py audit`, then report:
 - exact timestamp and whether numbers came from live raw, a snapshot, or a
   workflow journal.
 
+Quote a destination's yield against its **eligible** denominator, not its raw
+record count. `audit`, `census.py`, and `leftover_mill.py` all consume the
+same `mill_family.py` ownership result and subtract proven foreign-mill
+records. `leftover` inside a record id is a goal-naming convention, never
+grounds for quarantine; those records stay eligible unless payload-factory,
+mill-prefix, or goal-family evidence proves that they belong elsewhere. Raw
+JSONL is named and skipped, never rewritten or deleted. In marker mode these
+readers count only transactionally visible batches; a linked batch does not
+enter an eligible denominator before its completion marker exists.
+
 Never estimate agent-token usage from output bytes without labeling the method.
 Output-token estimates (`bytes / 4`) and model usage tokens are different units.
 
@@ -153,8 +189,11 @@ python3 pipelines/promote.py outputs/raw/<date> outputs/cleaned/<new-label>
 ```
 
 The promoter refuses an existing destination and any destination nested inside
-the raw source. Do not promote while `audit` is blocked unless the user explicitly
-asks for a diagnostic cleaned copy; never describe such a copy as curated.
+the raw source. It then runs the blocking quality gate, writes
+`<cleaned_out>/quality-manifest.json`, and exits 1 when the cleaned tree is not
+eligible for curation. Do not promote while `audit` is blocked unless the user
+explicitly asks for a diagnostic cleaned copy; never describe a blocked copy as
+curated.
 
 ## Failure handling
 
