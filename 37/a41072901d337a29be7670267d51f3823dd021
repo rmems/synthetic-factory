@@ -1,0 +1,49 @@
+pipelines/nir_equivalence.py
+  s_f3ffb7db87dca1::t_c42de0929190b4 2486,2488-2491
+  s_f3ffb7db87dca1::t_4ea8f7a164adb3 1062-1067
+  s_f3ffb7db87dca1::t_df8abcfcd00403 1931,1937-1941,1945-1946
+tests/test_hardware_parity_validation.py
+  s_f3ffb7db87dca1::t_9534b42700c0fb 571-586
+tests/test_parity_factory_integration.py
+  s_f3ffb7db87dca1::t_7807ec22cad145 268-318
+pipelines/hardware_parity.py
+  s_f3ffb7db87dca1::t_80af27d1e74c6d 51
+  s_f3ffb7db87dca1::t_2ddcf785a393f2 2516-2523,2531-2534
+  s_f3ffb7db87dca1::t_4a243ec7002d7e 2776-2779
+  s_f3ffb7db87dca1::t_ca4127d04c5926 2367-2368
+pipelines/neuro_oracle.py
+  s_f3ffb7db87dca1::t_dfaff3d48cef20 924
+  s_f3ffb7db87dca1::t_d18da46462a582 46-55
+tests/test_nir_equivalence_views.py
+  s_f3ffb7db87dca1::t_59b39287527d4d 156-166
+pipelines/check_records.py
+  s_f3ffb7db87dca1::t_d03af5ed6c26fa 614-640,647,656-672
+  s_f3ffb7db87dca1::t_7c33f446626e82 512-520,524-525
+tests/test_hardware_parity.py
+  s_f3ffb7db87dca1::t_83d31802281bbc 375-385
+tests/test_oracle_contract.py
+  s_f3ffb7db87dca1::t_044c4363cf3287 508-558
+  s_f3ffb7db87dca1::t_6febe1e28c8305 5
+tests/test_nir_equivalence_validation.py
+  s_f3ffb7db87dca1::t_c76da5dfb826d1 172-213,221-224,226-237
+  s_f3ffb7db87dca1::t_db67bdae86be25 214-220,225
+pipelines/oracle_contract.py
+  s_f3ffb7db87dca1::t_77696885bd280c 191-218
+  s_f3ffb7db87dca1::t_e50005136bd645 32
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "37a41072901d337a29be7670267d51f3823dd021",
+  "prompts": {},
+  "sessions": {
+    "s_f3ffb7db87dca1": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "510a01e2-1e9d-4f64-a445-6971413485be",
+        "model": "claude-fable-5"
+      },
+      "human_author": "Raul Montoya Cardenas <montoyaraul34@gmail.com>"
+    }
+  }
+}
