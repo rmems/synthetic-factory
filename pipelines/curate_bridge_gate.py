@@ -156,26 +156,29 @@ def _gate_population(
     """Return ``(valid, malformed, neurons)`` for one gate population."""
 
     neurons = _gate_population_neurons(population)
-    if neurons is None:
-        return False, True, 0
-    budget, expected = _gate_population_budget(population, neurons, window_s)
-    if budget == "absent":
-        return True, False, neurons
-    if budget == "invalid":
-        return False, True, neurons
-    spikes = _nonnegative_json_integer(population["spikes"])
-    if spikes is None:
-        return False, True, neurons
-    if abs(spikes - expected) <= 1:
-        return True, False, neurons
-    state.reason_codes.append(REASON_RASTER_SPIKE_BUDGET)
-    _append_mismatch(
-        state.evidence.setdefault("gate_snn_spike_mismatches", []),
-        index,
-        expected,
-        spikes,
-    )
-    return False, False, neurons
+    result = (False, True, 0)
+    if neurons is not None:
+        budget, expected = _gate_population_budget(population, neurons, window_s)
+        if budget == "absent":
+            result = (True, False, neurons)
+        elif budget == "invalid":
+            result = (False, True, neurons)
+        else:
+            spikes = _nonnegative_json_integer(population["spikes"])
+            if spikes is None:
+                result = (False, True, neurons)
+            elif abs(spikes - expected) <= 1:
+                result = (True, False, neurons)
+            else:
+                state.reason_codes.append(REASON_RASTER_SPIKE_BUDGET)
+                _append_mismatch(
+                    state.evidence.setdefault("gate_snn_spike_mismatches", []),
+                    index,
+                    expected,
+                    spikes,
+                )
+                result = (False, False, neurons)
+    return result
 
 
 def _gate_population_list(populations: Any, state: _ValidationState) -> list[Any] | None:

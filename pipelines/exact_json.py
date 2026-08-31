@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import json
 import math
+from collections.abc import Iterable
 from fractions import Fraction
 from typing import Any, NamedTuple
 
@@ -41,8 +42,8 @@ def _bounded_exponent(marker: str, exponent_text: str) -> int:
 
 def _decimal_shape(mantissa: str) -> tuple[int, int]:
     coefficient = mantissa.lstrip("-")
-    integer, decimal_point, fraction = coefficient.partition(".")
-    return len(integer) + len(fraction), len(fraction) if decimal_point else 0
+    integer, _, fraction = coefficient.partition(".")
+    return len(integer) + len(fraction), len(fraction)
 
 
 def _validate_decimal_token_bounds(token: str) -> None:
@@ -114,17 +115,18 @@ def parse_finite_json_float(token: str) -> ExactJSONFloat:
 def exact_fraction(value: Any) -> Fraction | None:
     """Return the exact JSON-decimal value represented by ``value``."""
 
+    fraction = None
     if isinstance(value, bool):
-        return None
+        return fraction
     if isinstance(value, ExactJSONFloat):
-        return value.fraction
-    if isinstance(value, int):
-        return Fraction(value)
-    if isinstance(value, float) and math.isfinite(value):
-        return Fraction(str(value))
-    if isinstance(value, Fraction):
-        return value
-    return None
+        fraction = value.fraction
+    elif isinstance(value, int):
+        fraction = Fraction(value)
+    elif isinstance(value, float) and math.isfinite(value):
+        fraction = Fraction(str(value))
+    elif isinstance(value, Fraction):
+        fraction = value
+    return fraction
 
 
 def exact_json_integer(value: Any) -> int | None:
@@ -298,25 +300,39 @@ def _encode_mapping(
     identity = id(value)
     if identity in active:
         raise ValueError("Circular reference detected")
-    if not all(isinstance(key, str) for key in value):
-        raise TypeError("JSON object keys must be strings")
+    keys = _mapping_keys(value, state.sort_keys)
     if not value:
         return "{}"
-    opened, joiner, closed = _container_separators(state, depth)
-    key_separator = ":" if state.indent is None else ": "
     active.add(identity)
     try:
-        keys = sorted(value) if state.sort_keys else value
-        return (
-            "{"
-            + opened
-            + joiner.join(
-                f"{json.dumps(key, ensure_ascii=state.ensure_ascii)}{key_separator}"
-                f"{_encode_exact_json(value[key], state, active, depth + 1)}"
-                for key in keys
-            )
-            + closed
-            + "}"
-        )
+        return _encode_mapping_items(value, keys, state, active, depth)
     finally:
         active.remove(identity)
+
+
+def _mapping_keys(value: dict[str, Any], sort_keys: bool) -> Iterable[str]:
+    if not all(isinstance(key, str) for key in value):
+        raise TypeError("JSON object keys must be strings")
+    return sorted(value) if sort_keys else value
+
+
+def _encode_mapping_items(
+    value: dict[str, Any],
+    keys: Iterable[str],
+    state: _EncoderState,
+    active: set[int],
+    depth: int,
+) -> str:
+    opened, joiner, closed = _container_separators(state, depth)
+    key_separator = ":" if state.indent is None else ": "
+    return (
+        "{"
+        + opened
+        + joiner.join(
+            f"{json.dumps(key, ensure_ascii=state.ensure_ascii)}{key_separator}"
+            f"{_encode_exact_json(value[key], state, active, depth + 1)}"
+            for key in keys
+        )
+        + closed
+        + "}"
+    )
