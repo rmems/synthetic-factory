@@ -2,7 +2,6 @@
 """Tests for composing the five curation lanes into one curated destination."""
 
 import copy
-import hashlib
 import io
 import json
 import sys
