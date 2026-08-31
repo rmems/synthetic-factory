@@ -183,6 +183,15 @@ def _reject_rounded_fields(fields: Mapping[str, Any], where: str) -> None:
         _reject_rounded_value(fields.get(name), name, where)
 
 
+def _container_children(value: Any, name: str) -> Iterable[tuple[str, Any]]:
+    """Label each child of a container value with the path a rejection reports."""
+    if isinstance(value, Mapping):
+        return ((f"{name}.{key}", item) for key, item in value.items())
+    if isinstance(value, list):
+        return ((f"{name}[{index}]", item) for index, item in enumerate(value))
+    return ()
+
+
 def _reject_rounded_value(value: Any, name: str, where: str) -> None:
     """Reject a decimal at ``name`` or anywhere inside a container it holds."""
     if isinstance(value, float):
@@ -190,12 +199,8 @@ def _reject_rounded_value(value: Any, name: str, where: str) -> None:
             f"{where}: record {name} is a JSON decimal this audit cannot "
             f"report exactly: {value!r}"
         )
-    if isinstance(value, Mapping):
-        for key, item in value.items():
-            _reject_rounded_value(item, f"{name}.{key}", where)
-    elif isinstance(value, list):
-        for index, item in enumerate(value):
-            _reject_rounded_value(item, f"{name}[{index}]", where)
+    for child_name, child in _container_children(value, name):
+        _reject_rounded_value(child, child_name, where)
 
 
 def _record_row(parsed: _ParsedLine) -> dict:
