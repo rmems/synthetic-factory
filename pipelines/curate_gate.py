@@ -105,7 +105,7 @@ import curate_rewards  # noqa: E402
 import curate_identity  # noqa: E402
 import training_audit  # noqa: E402
 from check_records import canonical_record_id, reject_json_constant  # noqa: E402
-from exact_json import dumps_exact_json, parse_finite_json_float  # noqa: E402
+from exact_json import ExactJSONFloat, dumps_exact_json, parse_finite_json_float  # noqa: E402
 from validate_run import check_line  # noqa: E402
 
 TOOL_NAME = "curate_gate"
@@ -745,7 +745,20 @@ _MISSING = object()
 def _same_json(left: Any, right: Any) -> bool:
     if left is _MISSING or right is _MISSING:
         return left is right
-    return type(left) is type(right) and left == right
+    if type(left) is not type(right):
+        return False
+    if isinstance(left, ExactJSONFloat):
+        return left.fraction == right.fraction
+    if isinstance(left, dict):
+        return len(left) == len(right) and all(
+            key in right and _same_json(value, right[key]) for key, value in left.items()
+        )
+    if isinstance(left, list):
+        return len(left) == len(right) and all(
+            _same_json(left_item, right_item)
+            for left_item, right_item in zip(left, right)
+        )
+    return left == right
 
 
 def _json_pointer(parts: Sequence[str | int]) -> str:

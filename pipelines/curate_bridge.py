@@ -1060,7 +1060,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             "summary": summarize(decisions),
             "decisions": [decision.as_dict() for decision in decisions],
         }
-    print(json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True, allow_nan=False))
+    print(dumps_exact_json(payload, ensure_ascii=False, indent=2, sort_keys=True))
     return 0
 
 
