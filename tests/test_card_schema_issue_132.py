@@ -1,7 +1,15 @@
 #!/usr/bin/env python3
 """PR #132 / issue #66 leaf tests for the per-dataset card schema declaration."""
 
-import test_card_schema as _shared
+try:
+    # The shared card-schema test module was renamed on the stack's shared
+    # infrastructure branch (`test_card_schema` -> `test_card_schema_integration`)
+    # after this branch was cut. Prefer the new name so this leaf still imports
+    # on the post-merge tree, where the old monolith no longer exists; fall back
+    # to the old name, which is what this branch's own history carries today.
+    import test_card_schema_integration as _shared
+except ModuleNotFoundError:
+    import test_card_schema as _shared
 
 unittest = _shared.unittest
 io = _shared.io
@@ -24,8 +32,26 @@ INCIDENT_RESPONSE_MIRROR = (
     Path.home() / "rmems/hf/grok-4.6/incident-response-oncall-trajectories/data/raw"
 )
 INCIDENT_RESPONSE_PAYLOAD_NAMES = tuple(
-    f"batch-r{round_number:02}.jsonl" for round_number in range(1, 3853)
+    f"batch-r{round_number:02}.jsonl" for round_number in range(1, 5027)
 )
+
+_needs_mirror = unittest.skipUnless(
+    INCIDENT_RESPONSE_MIRROR.is_dir(),
+    "read-only published mirror is not available",
+)
+
+
+def _load_mirror_records(mirror):
+    """Read every payload record in the mirror, tagged with its location."""
+    payloads = sorted(mirror.glob("*.jsonl"))
+    records = []
+    for payload in payloads:
+        with payload.open(encoding="utf-8") as handle:
+            for line_number, line in enumerate(handle, start=1):
+                if line.strip():
+                    location = f"{payload.name}:{line_number}"
+                    records.append((location, json.loads(line)))
+    return payloads, records
 
 
 # Minimal values copied from one published record in each payload family. These
@@ -86,10 +112,13 @@ class IncidentResponseOncallDeclarationTests(unittest.TestCase):
 
     The counts asserted here were derived by scanning every published record in
     the read-only mirror at
-    ``~/rmems/hf/grok-4.6/incident-response-oncall-trajectories`` (7704 records
-    across 3852 shards, 0 parse failures, 139086 steps), not transcribed from
-    the issue. The three families are 7668 on-call RCA episodes, 20 OpenSRE
-    seed rows, and the 16 dest-stamped ``sir-*`` search-index rows.
+    ``~/rmems/hf/grok-4.6/incident-response-oncall-trajectories`` (10052 records
+    across 5026 shards, 0 parse failures, 178998 steps), not transcribed from
+    the issue. The three families are 10016 on-call RCA episodes, 20 OpenSRE
+    seed rows, and the 16 dest-stamped ``sir-*`` search-index rows. The census
+    was re-grounded on 2026-08-30 after the factory appended rounds
+    r3853-r5026 (2348 further on-call episodes; no new field, family, reward
+    key set, or foreign row).
     """
 
     def setUp(self):
@@ -107,10 +136,10 @@ class IncidentResponseOncallDeclarationTests(unittest.TestCase):
         }
         self.card = publisher.render_card(
             self.item,
-            records=7704,
-            bytes_=66481787,
+            records=10052,
+            bytes_=85596311,
             first="01",
-            last="3852",
+            last="5026",
             payload_names=list(INCIDENT_RESPONSE_PAYLOAD_NAMES),
         )
 
@@ -137,11 +166,11 @@ class IncidentResponseOncallDeclarationTests(unittest.TestCase):
             ],
         )
         names = {feature["name"]: feature for feature in features}
-        # Present on every one of the 7704 records, so never flagged optional.
+        # Present on every one of the 10052 records, so never flagged optional.
         for name in ("id", "goal", "plan", "steps", "outcome", "reward", "meta"):
             with self.subTest(field=name):
                 self.assertFalse(names[name].get("optional", False))
-        # `plan` is a plain string on all 7704 records: it is neither optional
+        # `plan` is a plain string on all 10052 records: it is neither optional
         # (as in the worked #36 example) nor list-vs-string.
         self.assertEqual(names["plan"]["dtype"], "string")
         # Each of these belongs to exactly one family, so each is absent on the
@@ -196,7 +225,7 @@ class IncidentResponseOncallDeclarationTests(unittest.TestCase):
             if feature["name"] == "false_lead"
         )
         children = {child["name"]: child for child in false_lead["struct"]}
-        # All 7668 on-call episodes carry exactly these three keys, and none of
+        # All 10016 on-call episodes carry exactly these three keys, and none of
         # them varies in type, so the nullable struct is castable and more
         # useful in the viewer than an opaque json blob.
         self.assertEqual(set(children), {"claim", "survived_steps", "falsified_at"})
@@ -215,7 +244,7 @@ class IncidentResponseOncallDeclarationTests(unittest.TestCase):
             set(children), {"n", "decision_basis", "tool_call", "observation", "reflection"}
         )
         self.assertFalse(children["decision_basis"].get("optional", False))
-        # 40625 of 139086 steps carry a reflection.
+        # 54713 of 178998 steps carry a reflection.
         self.assertTrue(children["reflection"]["optional"])
         tool_call = {child["name"]: child for child in children["tool_call"]["struct"]}
         self.assertEqual(set(tool_call), {"name", "args"})
@@ -243,7 +272,7 @@ class IncidentResponseOncallDeclarationTests(unittest.TestCase):
         self.assertIn("**not training-ready**", self.card)
 
     def test_declared_glob_covers_the_complete_published_payload_snapshot(self):
-        self.assertEqual(len(INCIDENT_RESPONSE_PAYLOAD_NAMES), 3852)
+        self.assertEqual(len(INCIDENT_RESPONSE_PAYLOAD_NAMES), 5026)
         self.assertEqual(
             card_schema.payload_coverage_errors(
                 self.declaration,
@@ -279,12 +308,31 @@ class IncidentResponseOncallDeclarationTests(unittest.TestCase):
         # while still pointing at the related mill issues.
         self.assertEqual(mill["issues"], [43, 44, 66])
 
-    @unittest.skipUnless(
-        INCIDENT_RESPONSE_MIRROR.is_dir(),
-        "read-only published mirror is not available",
-    )
-    def test_published_mirror_independently_matches_the_schema_snapshot(self):
-        payloads = sorted(INCIDENT_RESPONSE_MIRROR.glob("*.jsonl"))
+    # -- Re-derived from the payload, not from the declaration -------------
+    #
+    # Every assertion of the original single mirror walk is preserved below,
+    # split into focused tests over one cached read-only scan so no method
+    # carries the whole census by itself.
+
+    @classmethod
+    def _mirror(cls):
+        """Scan the published mirror once, then reuse it across these tests."""
+        if getattr(cls, "_mirror_cache", None) is None:
+            cls._mirror_cache = _load_mirror_records(INCIDENT_RESPONSE_MIRROR)
+        return cls._mirror_cache
+
+    @staticmethod
+    def _family(record):
+        """The family classifier the declaration's three shapes are built on."""
+        if "false_lead" in record:
+            return "oncall"
+        if "opensre_seed" in record["meta"]:
+            return "opensre"
+        return "sir"
+
+    @_needs_mirror
+    def test_published_shards_are_exactly_the_declared_shard_list(self):
+        payloads, _records = self._mirror()
         self.assertEqual(
             {payload.name for payload in payloads},
             set(INCIDENT_RESPONSE_PAYLOAD_NAMES),
@@ -297,78 +345,55 @@ class IncidentResponseOncallDeclarationTests(unittest.TestCase):
             [],
         )
 
-        records = 0
-        steps = 0
-        reflections = 0
+    @_needs_mirror
+    def test_mirror_census_counts_match_the_declared_snapshot(self):
+        _payloads, records = self._mirror()
+        steps = [step for _location, record in records for step in record["steps"]]
+        self.assertEqual(len(records), 10052)
+        self.assertEqual(len(steps), 178998)
+        self.assertEqual(sum("reflection" in step for step in steps), 54713)
+
+    @_needs_mirror
+    def test_mirror_family_counts_and_sir_ids_match_the_disclosures(self):
+        _payloads, records = self._mirror()
         family_counts = {"oncall": 0, "opensre": 0, "sir": 0}
+        sir_ids = set()
+        for _location, record in records:
+            family = self._family(record)
+            family_counts[family] += 1
+            if family == "sir":
+                sir_ids.add(record["id"])
+        self.assertEqual(family_counts, {"oncall": 10016, "opensre": 20, "sir": 16})
+        self.assertEqual(sir_ids, set(INCIDENT_RESPONSE_SIR_IDS))
+
+    @_needs_mirror
+    def test_mirror_plans_are_always_nonempty_strings(self):
+        _payloads, records = self._mirror()
+        for location, record in records:
+            self.assertIsInstance(record["plan"], str, location)
+            self.assertTrue(record["plan"].strip(), location)
+
+    @_needs_mirror
+    def test_mirror_opensre_scalars_keep_their_declared_presence_and_types(self):
+        _payloads, records = self._mirror()
         field_counts = {
             "true_root_cause": 0,
             "red_herring": 0,
             "forbidden_diagnosis": 0,
             "required_evidence": 0,
         }
-        leftover_irc_ids = 0
-        leftover_irc_goals = 0
-        leftover_all_goals = 0
-        sir_ids = set()
-
-        for payload in payloads:
-            with payload.open(encoding="utf-8") as handle:
-                for line_number, line in enumerate(handle, start=1):
-                    if not line.strip():
-                        continue
-                    record = json.loads(line)
-                    location = f"{payload.name}:{line_number}"
-                    self.assertIsInstance(record["plan"], str, location)
-                    self.assertTrue(record["plan"].strip(), location)
-
-                    if "false_lead" in record:
-                        family_counts["oncall"] += 1
-                        self.assertIsInstance(record["kind"], str, location)
-                        self.assertIsInstance(record["rca"], str, location)
-                        self.assertIsInstance(record["remediate"], str, location)
-                        false_lead = record["false_lead"]
-                        self.assertEqual(
-                            set(false_lead),
-                            {"claim", "survived_steps", "falsified_at"},
-                            location,
-                        )
-                        self.assertIsInstance(false_lead["claim"], str, location)
-                        self.assertTrue(
-                            all(isinstance(step, int) for step in false_lead["survived_steps"]),
-                            location,
-                        )
-                        self.assertIsInstance(false_lead["falsified_at"], int, location)
-                    elif "opensre_seed" in record["meta"]:
-                        family_counts["opensre"] += 1
-                    else:
-                        family_counts["sir"] += 1
-                        sir_ids.add(record["id"])
-
-                    for name in field_counts:
-                        if name not in record:
-                            continue
-                        field_counts[name] += 1
-                        if name == "required_evidence":
-                            self.assertTrue(
-                                all(isinstance(item, str) for item in record[name]),
-                                location,
-                            )
-                        else:
-                            self.assertIsInstance(record[name], str, location)
-
-                    is_irc = record["id"].startswith("irc-")
-                    leftover_irc_ids += is_irc and "leftover" in record["id"].lower()
-                    leftover_irc_goals += is_irc and "leftover" in record["goal"].lower()
-                    leftover_all_goals += "leftover" in record["goal"].lower()
-                    steps += len(record["steps"])
-                    reflections += sum("reflection" in step for step in record["steps"])
-                    records += 1
-
-        self.assertEqual(records, 7704)
-        self.assertEqual(steps, 139086)
-        self.assertEqual(reflections, 40625)
-        self.assertEqual(family_counts, {"oncall": 7668, "opensre": 20, "sir": 16})
+        for location, record in records:
+            for name in field_counts:
+                if name not in record:
+                    continue
+                field_counts[name] += 1
+                if name == "required_evidence":
+                    self.assertTrue(
+                        all(isinstance(item, str) for item in record[name]),
+                        location,
+                    )
+                else:
+                    self.assertIsInstance(record[name], str, location)
         self.assertEqual(
             field_counts,
             {
@@ -378,10 +403,47 @@ class IncidentResponseOncallDeclarationTests(unittest.TestCase):
                 "required_evidence": 2,
             },
         )
-        self.assertEqual(leftover_irc_ids, 113)
-        self.assertEqual(leftover_irc_goals, 1701)
-        self.assertEqual(leftover_all_goals, 1717)
-        self.assertEqual(sir_ids, set(INCIDENT_RESPONSE_SIR_IDS))
+
+    @_needs_mirror
+    def test_mirror_oncall_rows_keep_the_closed_false_lead_struct(self):
+        _payloads, records = self._mirror()
+        oncall = [
+            (location, record)
+            for location, record in records
+            if self._family(record) == "oncall"
+        ]
+        self.assertEqual(len(oncall), 10016)
+        for location, record in oncall:
+            self.assertIsInstance(record["kind"], str, location)
+            self.assertIsInstance(record["rca"], str, location)
+            self.assertIsInstance(record["remediate"], str, location)
+            false_lead = record["false_lead"]
+            self.assertEqual(
+                set(false_lead),
+                {"claim", "survived_steps", "falsified_at"},
+                location,
+            )
+            self.assertIsInstance(false_lead["claim"], str, location)
+            self.assertTrue(
+                all(isinstance(step, int) for step in false_lead["survived_steps"]),
+                location,
+            )
+            self.assertIsInstance(false_lead["falsified_at"], int, location)
+
+    @_needs_mirror
+    def test_mirror_leftover_naming_counts_match_the_disclosure(self):
+        _payloads, records = self._mirror()
+        irc = [record for _location, record in records if record["id"].startswith("irc-")]
+        self.assertEqual(
+            sum("leftover" in record["id"].lower() for record in irc), 113
+        )
+        self.assertEqual(
+            sum("leftover" in record["goal"].lower() for record in irc), 4049
+        )
+        self.assertEqual(
+            sum("leftover" in record["goal"].lower() for _location, record in records),
+            4065,
+        )
 
 
 if __name__ == "__main__":

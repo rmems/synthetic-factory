@@ -1,0 +1,221 @@
+{
+  "version": "tag-taxonomy-v1",
+  "title": "Synthetic Factory Tag Taxonomy v1",
+  "description": "A compact controlled vocabulary for curated corpus tags. Every canonical tag is 'facet:term'. A source tag becomes canonical only through an alias declared here or an anchored pattern rule declared here. Anything else stays unmapped: it is dropped from the curated tag list, reported explicitly, and preserved verbatim in the record's tag_provenance so the original vocabulary remains recoverable. The taxonomy never guesses at the meaning of a one-off label.",
+  "canonical_tag_pattern": "^[a-z][a-z0-9_]*:[a-z][a-z0-9_]*$",
+  "normalization": {
+    "description": "Alias and pattern lookup happens on the normalized form of a source tag, so case and separator variants fold together without a separate alias entry. Normalization is a lexical fold only; it never assigns meaning.",
+    "steps": [
+      "strip leading and trailing whitespace",
+      "lowercase",
+      "replace every run of characters outside [a-z0-9] with a single underscore",
+      "strip leading and trailing underscores"
+    ],
+    "examples": {
+      "MODIFY": "modify",
+      "near-miss": "near_miss",
+      "wrong_REJECT": "wrong_reject",
+      "cross_ref_ttf-r06-029": "cross_ref_ttf_r06_029"
+    }
+  },
+  "facets": [
+    {
+      "id": "kind",
+      "description": "What the tagged record is. Only record kinds that the 2026-08-17 corpus actually names in its own tags appear here.",
+      "terms": [
+        {
+          "tag": "kind:preference_pair",
+          "definition": "The record is a chosen/rejected preference pair.",
+          "aliases": ["preference_pair", "preference_record"]
+        },
+        {
+          "tag": "kind:thalamic_trajectory",
+          "definition": "The record is a thalamic trajectory.",
+          "aliases": ["thalamic_trajectory"]
+        },
+        {
+          "tag": "kind:raster_excerpt",
+          "definition": "The record carries a spike raster excerpt rather than a full raster.",
+          "aliases": ["raster_excerpt"]
+        }
+      ]
+    },
+    {
+      "id": "decision",
+      "description": "The safety-gate decision named by the tag. Only the bare decision words map here. Compound labels such as 'wrong_REJECT', 'ACCEPT_defective', or 'REJECT_with_replan' judge or qualify a decision rather than name one, so they stay unmapped instead of being folded into a decision term.",
+      "terms": [
+        {
+          "tag": "decision:accept",
+          "definition": "The tag names an ACCEPT gate decision.",
+          "aliases": ["accept"]
+        },
+        {
+          "tag": "decision:modify",
+          "definition": "The tag names a MODIFY gate decision.",
+          "aliases": ["modify"]
+        },
+        {
+          "tag": "decision:reject",
+          "definition": "The tag names a REJECT gate decision.",
+          "aliases": ["reject"]
+        }
+      ]
+    },
+    {
+      "id": "side",
+      "description": "Which side of a preference pair the tagged container belongs to.",
+      "terms": [
+        {
+          "tag": "side:chosen",
+          "definition": "The container belongs to the chosen side of a preference pair.",
+          "aliases": ["chosen", "chosen_branch"]
+        },
+        {
+          "tag": "side:rejected",
+          "definition": "The container belongs to the rejected side of a preference pair.",
+          "aliases": ["rejected", "rejected_branch"]
+        }
+      ]
+    },
+    {
+      "id": "reward",
+      "description": "The shape of the reward signal the tag describes. These terms describe shape only and say nothing about magnitude comparability, which reward ontology v1 owns.",
+      "terms": [
+        {
+          "tag": "reward:per_tick",
+          "definition": "Reward is emitted per simulation tick.",
+          "aliases": ["per_tick_reward", "reward_tick"]
+        },
+        {
+          "tag": "reward:sparse_ticks",
+          "definition": "Reward is emitted on sparse ticks rather than every tick.",
+          "aliases": ["sparse_reward_ticks"]
+        },
+        {
+          "tag": "reward:negative_total",
+          "definition": "The record's total reward is negative.",
+          "aliases": ["negative_total", "negative_total_reward"]
+        }
+      ]
+    },
+    {
+      "id": "pair",
+      "description": "How a preference pair was constructed.",
+      "terms": [
+        {
+          "tag": "pair:pure_gate",
+          "definition": "The two sides share a byte-identical context and differ only in the gate decision.",
+          "aliases": ["pure_gate_pair"]
+        },
+        {
+          "tag": "pair:gate_learning",
+          "definition": "The two sides share a context and differ in gate memory, so the pair teaches gate learning.",
+          "aliases": ["gate_learning_pair"]
+        },
+        {
+          "tag": "pair:near_miss",
+          "definition": "The two sides are close enough that the pair is a near miss. Intensity qualifiers on the source label, such as 'nuanced', are dropped here and remain recoverable in tag_provenance.",
+          "aliases": ["near_miss", "nuanced_near_miss"]
+        }
+      ]
+    },
+    {
+      "id": "provenance",
+      "description": "How the tagged scenario came to exist. This facet mirrors schemas/provenance.md and never asserts that a scenario was measured.",
+      "terms": [
+        {
+          "tag": "provenance:designed_plant",
+          "definition": "The plant in the record was designed rather than measured.",
+          "aliases": ["designed_plant"]
+        }
+      ]
+    },
+    {
+      "id": "release",
+      "description": "Release readiness the source corpus claimed for the record.",
+      "terms": [
+        {
+          "tag": "release:distillation_ready",
+          "definition": "The source corpus marked the record ready for distillation. The tag records the claim; it is not an audit result.",
+          "aliases": ["distillation_ready"]
+        }
+      ]
+    },
+    {
+      "id": "process",
+      "description": "Generation-process bookkeeping carried in tags. Terms in this facet are reached through pattern rules because the source labels embed a pass number or a round number.",
+      "terms": [
+        {
+          "tag": "process:densification_pass",
+          "definition": "The record came from a densification pass. The pass number is dropped from the canonical tag and remains recoverable in tag_provenance.",
+          "aliases": []
+        },
+        {
+          "tag": "process:gap_closure",
+          "definition": "The record was written to close a previously recorded round gap. The round and gap identifiers are dropped from the canonical tag and remain recoverable in tag_provenance.",
+          "aliases": []
+        }
+      ]
+    },
+    {
+      "id": "link",
+      "description": "Structural links a tag encodes to another record.",
+      "terms": [
+        {
+          "tag": "link:cross_reference",
+          "definition": "The tag cross-references another record by id. The referenced id is dropped from the canonical tag and remains recoverable in tag_provenance.",
+          "aliases": []
+        }
+      ]
+    },
+    {
+      "id": "note",
+      "description": "Free prose that the source corpus stored in a tag slot. The canonical tag records only that such a note existed; the prose itself stays in tag_provenance and is never interpreted.",
+      "terms": [
+        {
+          "tag": "note:identity_note",
+          "definition": "The tag slot carried an identity note about how the two sides of a pair relate.",
+          "aliases": []
+        }
+      ]
+    },
+    {
+      "id": "curation",
+      "description": "Curation bookkeeping emitted by the transform itself, never read from a source tag.",
+      "terms": [
+        {
+          "tag": "curation:unmapped_source_tags",
+          "definition": "At least one source tag in this container had no taxonomy mapping and was dropped from the canonical list. The dropped tags are listed in tag_provenance and in the transform's unmapped report.",
+          "aliases": []
+        }
+      ]
+    }
+  ],
+  "pattern_rules": [
+    {
+      "id": "cross_reference",
+      "tag": "link:cross_reference",
+      "pattern": "^cross_ref_[a-z0-9_]+$",
+      "description": "Matches 'cross_ref_<record id>' after normalization."
+    },
+    {
+      "id": "densification_pass",
+      "tag": "process:densification_pass",
+      "pattern": "^densification_pass_[0-9]+$",
+      "description": "Matches 'densification_pass_<n>' after normalization."
+    },
+    {
+      "id": "gap_closure",
+      "tag": "process:gap_closure",
+      "pattern": "^(?:post_)?(?:r[0-9]+[a-z]?_)?gap[0-9]*_clos(?:ure|ed)$",
+      "description": "Matches round-gap closure markers such as 'post_r5_gap_closure', 'gap1-closure', and 'r4b_gap8_closed' after normalization. Labels that append further free text, such as 'r3b_gap6_closed_tables', deliberately do not match and stay unmapped."
+    },
+    {
+      "id": "identity_note",
+      "tag": "note:identity_note",
+      "pattern": "^identity_note_[a-z0-9_]+$",
+      "description": "Matches an 'identity_note: <prose>' tag slot after normalization."
+    }
+  ],
+  "transform_emitted_tags": ["curation:unmapped_source_tags"]
+}
