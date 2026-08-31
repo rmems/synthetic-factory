@@ -216,7 +216,27 @@ def _training_ready_note(meter: Any, router_oracle: Any) -> str:
     )
 
 
+def _refuse_raw_tree(out: Path) -> None:
+    """``outputs/raw`` is the immutable evidence tree; never touch it.
+
+    ``--force`` hands ``out`` to ``shutil.rmtree`` — pointed beneath the raw
+    root, that deletes published evidence, and even without ``--force`` the
+    build would write fixture files into it. Refuse before any filesystem
+    mutation, resolved so relative paths and symlinks cannot dodge the check.
+    """
+
+    resolved = out.resolve()
+    raw_root = (REPO / "outputs" / "raw").resolve()
+    if resolved == raw_root or raw_root in resolved.parents:
+        raise SystemExit(
+            f"refusing to build the fixture at {out}: outputs/raw is the "
+            "immutable evidence tree (AGENTS.md) and may never be deleted "
+            "or written to"
+        )
+
+
 def build(out: Path, force: bool = False) -> dict[str, Any]:
+    _refuse_raw_tree(out)
     if out.exists():
         if not force:
             raise SystemExit(f"{out} exists; pass --force to rebuild it")

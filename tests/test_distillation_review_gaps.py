@@ -2208,5 +2208,103 @@ class SixthRoundFaultGaps(unittest.TestCase):
                 )
 
 
+class SeventhRoundSevereGaps(unittest.TestCase):
+    """The severe findings of the seventh review pass (convergence-capped)."""
+
+    def test_the_fixture_builder_refuses_the_immutable_raw_tree(self):
+        # --force hands the out path to shutil.rmtree; pointed beneath
+        # outputs/raw that deletes published evidence.
+        import importlib.util
+
+        spec = importlib.util.spec_from_file_location(
+            "bdf_raw_guard", REPO / "scripts" / "build_distillation_fixture.py"
+        )
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        for target in ("outputs/raw", "outputs/raw/distillation-fixture"):
+            with self.subTest(out=target):
+                with self.assertRaises(SystemExit) as caught:
+                    module.build(Path(target), force=True)
+                self.assertIn("immutable evidence tree", str(caught.exception))
+        self.assertFalse((REPO / "outputs/raw/distillation-fixture").exists())
+
+    def test_duplicate_relay_channels_are_refused(self):
+        # The healthy budget counts list entries while per-channel state
+        # collapses duplicates: ['c0'] * 4 reported four healthy channels
+        # from one distinct sensor, replaying as an authoritative outcome.
+        record = clone(fr.build_records(11, 1)[0])
+        system = dict(record["scenario"].get("system", {}))
+        system["channels"] = ["c0", "c0", "c0", "c0"]
+        record["scenario"]["system"] = system
+        rehash(record)
+        with self.assertRaises(oc.ContractError) as caught:
+            fr.RelayReflexSimulator().run(
+                record["scenario"], record["intervention"]
+            )
+        self.assertIn("unique", str(caught.exception))
+        errors = fr.check_family(record, "x")
+        self.assertTrue(
+            any("unique" in e for e in errors),
+            f"duplicate channels passed validation: {errors}",
+        )
+
+    def test_a_non_string_fallback_source_cannot_engage(self):
+        # Any truthy value satisfied the fallback tier: fallback_source 123
+        # produced an authoritative `fallback` with FALLBACK_SOURCE_ENGAGED
+        # and no named source.
+        simulator = fr.RelayReflexSimulator()
+        disturbance = {
+            "kind": "sensor_loss",
+            "parameters": {
+                "onset_ms": 2.0,
+                "duration_ms": 40.0,
+                "channels": ["c0"],
+            },
+        }
+        bad = {
+            "system": {
+                **fr.DEFAULT_SYSTEM,
+                "min_healthy_channels": 4,
+                "fallback_source": 123,
+            }
+        }
+        with self.assertRaises(oc.ContractError) as caught:
+            simulator.run(bad, disturbance)
+        self.assertIn("fallback_source", str(caught.exception))
+        # null stays legal: no fallback is an honest configuration.
+        simulator.run(
+            {"system": {**fr.DEFAULT_SYSTEM, "fallback_source": None}},
+            disturbance,
+        )
+
+    def test_energy_records_must_carry_their_oracle_audit_metadata(self):
+        # Deleting oracle.configuration contents and the fingerprint left a
+        # record curation-eligible with no meter host, probe result, or
+        # solver settings behind its measured preference.
+        record = clone(ep.build_records(20260823, 1, repeats=1, warmup=0)[0])
+        record["oracle"]["configuration"] = {}
+        record["oracle"]["fingerprint"] = None
+        rehash(record)
+        errors = ep.check_family(record, "x")
+        self.assertTrue(
+            any("fingerprint must identify" in e for e in errors), errors
+        )
+        self.assertTrue(
+            any("meter_probe must document" in e for e in errors), errors
+        )
+
+    def test_the_meter_probe_must_match_the_corpus_denomination(self):
+        record = clone(ep.build_records(20260823, 1, repeats=1, warmup=0)[0])
+        record["oracle"]["configuration"]["meter_probe"]["cost_quantity"] = (
+            "energy_j"
+        )
+        rehash(record)
+        errors = ep.check_family(record, "x")
+        self.assertTrue(
+            any("denominated" in e for e in errors),
+            f"a probe contradicting the corpus quantity passed: {errors}",
+        )
+
+
 if __name__ == "__main__":  # pragma: no cover
     unittest.main()

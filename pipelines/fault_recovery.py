@@ -722,10 +722,26 @@ class RelayReflexSimulator(FaultOracle):
             # channel every tick. The default relay has 4.
             and len(channels) <= 32
             and all(isinstance(name, str) and name for name in channels)
+            # Unique: the healthy-channel budget counts list entries while
+            # the per-channel state collapses duplicates, so ['c0'] * 4
+            # reported four healthy channels from one distinct sensor and
+            # replayed as an authoritative outcome.
+            and len(set(channels)) == len(channels)
         ):
             raise oc.ContractError(
                 "system channels must be a non-empty list of at most 32 "
-                "channel names"
+                "unique channel names"
+            )
+        fallback = system["fallback_source"]
+        if fallback is not None and not (
+            isinstance(fallback, str) and fallback.strip()
+        ):
+            # Any truthy value used to satisfy the fallback tier, so
+            # `fallback_source: 123` produced an authoritative `fallback`
+            # with FALLBACK_SOURCE_ENGAGED and no named source.
+            raise oc.ContractError(
+                "system fallback_source must be a non-empty string or null, "
+                f"got {fallback!r}"
             )
 
     @staticmethod

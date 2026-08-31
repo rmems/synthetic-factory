@@ -2082,12 +2082,73 @@ def _check_preference(
     return errors
 
 
+def _check_oracle_audit(record: dict[str, Any], where: str) -> list[str]:
+    """The audit metadata behind an authoritative measured preference.
+
+    Nothing validated ``oracle.configuration`` or ``oracle.fingerprint``, so
+    deleting both left a record curation-eligible while no longer
+    identifying the meter host, probe result, repeat/warmup settings, or
+    solver configuration behind its measured costs — the documented audit
+    trail for oracle-grounded energy.
+    """
+
+    oracle = record.get("oracle")
+    if not isinstance(oracle, dict):
+        # The envelope reports a missing or malformed oracle block.
+        return []
+    errors: list[str] = []
+    fingerprint = oracle.get("fingerprint")
+    if not isinstance(fingerprint, dict) or not fingerprint:
+        errors.append(
+            f"{where}.oracle.fingerprint must identify the meter host that "
+            "measured this record"
+        )
+    configuration = oracle.get("configuration")
+    if not isinstance(configuration, dict):
+        return errors + [
+            f"{where}.oracle.configuration must record the meter probe and "
+            "solver settings behind the measured costs"
+        ]
+    for key in ("repeats", "warmup", "fine_steps", "coarse_steps"):
+        if not oc.is_number(configuration.get(key)):
+            errors.append(f"{where}.oracle.configuration.{key} must be a number")
+    probe = configuration.get("meter_probe")
+    if not isinstance(probe, dict):
+        return errors + [
+            f"{where}.oracle.configuration.meter_probe must document the "
+            "probed meters and the selection"
+        ]
+    selected = probe.get("selected")
+    if not isinstance(selected, str) or not selected.strip():
+        errors.append(
+            f"{where}.oracle.configuration.meter_probe.selected must name "
+            "the selected meter"
+        )
+    result = record.get("result")
+    corpus_quantity = result.get("cost_quantity") if isinstance(result, dict) else None
+    cost_is_energy = result.get("cost_is_energy") if isinstance(result, dict) else None
+    if probe.get("cost_quantity") != corpus_quantity:
+        errors.append(
+            f"{where}.oracle.configuration.meter_probe.cost_quantity is "
+            f"{probe.get('cost_quantity')!r} but the corpus is denominated "
+            f"in {corpus_quantity!r}"
+        )
+    if probe.get("cost_is_energy") != cost_is_energy:
+        errors.append(
+            f"{where}.oracle.configuration.meter_probe.cost_is_energy is "
+            f"{probe.get('cost_is_energy')!r} but result.cost_is_energy is "
+            f"{cost_is_energy!r}"
+        )
+    return errors
+
+
 def check_family(record: dict[str, Any], where: str) -> list[str]:
     """Family checks: measured cost, and a preference that respects limits."""
 
     scenario = record.get("scenario")
     errors, quality_floor = _check_scenario_constraints(scenario, where)
     errors += _check_scenario_state(scenario, where)
+    errors += _check_oracle_audit(record, where)
 
     result = record.get("result")
     if not isinstance(result, dict):
