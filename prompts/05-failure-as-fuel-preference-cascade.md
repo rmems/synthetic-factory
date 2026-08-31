@@ -15,6 +15,14 @@ The two sessions MUST be executed in order and MUST NOT share generation
 context beyond the diagnosis artifacts. A single `round_txn.py reserve`
 covers both sessions — they operate on the same `staging_dir`.
 
+**The single-session path is DEPRECATED.** Generating failure, diagnosis,
+and repair in one context produces correlated arms — the repair becomes the
+negation of the failure it just wrote — and that is the collapse vector this
+factory exists to avoid. No new round may be produced that way. Every
+record attests `meta.isolation: "two-session"`, and
+`pipelines/preference_arms.py` blocks a round that cannot produce that
+attestation or whose two arms are one arm restated.
+
 **Execution note (automated launcher):** under
 `.claude/skills/run-synthetic-factory/factory-window.workflow.js`, Session A
 and Session B run as two separate workflow agents with independent
@@ -40,10 +48,8 @@ trajectory is produced in this session.
    - `diagnosis-01-rNN.md`, `diagnosis-02-rNN.md`, `diagnosis-03-rNN.md`
      (where `NN` is the zero-padded round number from the reservation,
      e.g. round 5 → `diagnosis-01-r05.md`).
-   - Alternatively a single `diagnosis-rNN.md` with clearly delimited
-     `## Record 01` / `## Record 02` / `## Record 03` sections is accepted
-     if the three sections are independently parseable. The per-file form is
-     preferred.
+   - No aggregate `diagnosis-rNN.md` form is accepted. The indexed files are
+     the canonical transaction-bound handoff.
 
 2. For each of the exactly 3 preference records, author one deliberately
    imperfect / failed / hallucinated / unsafe / inefficient `rejected`
@@ -62,7 +68,46 @@ trajectory is produced in this session.
 
 3. For each rejected trajectory, write its diagnosis to the corresponding
    indexed file (`diagnosis-01-rNN.md`, `diagnosis-02-rNN.md`, or
-   `diagnosis-03-rNN.md`). Each diagnosis MUST contain:
+   `diagnosis-03-rNN.md`). Each diagnosis MUST use exactly this heading/fence
+   order; no additional heading or code fence is allowed:
+
+   ````markdown
+   # Diagnosis
+
+   ## Shared context
+
+   ```json
+   {"state": {"...": "..."}, "proposed_action": {"...": "..."}}
+   ```
+
+   ## Root cause
+
+   Bounded prose.
+
+   ## Cascade effects
+
+   Bounded prose.
+
+   ## Supervisor catch
+
+   Bounded prose.
+
+   ## Repair sketch
+
+   Bounded prose.
+
+   ## Target reward delta
+
+   ```json
+   {"per_component": {"component": 0.5}, "total": 0.5}
+   ```
+   ````
+
+   The structured handoff validator enforces a 64-KiB document limit and a
+   4-KiB limit on each prose section. It rejects extra fences/headings,
+   duplicate or non-finite JSON, extra shared-context keys, inconsistent
+   reward totals, and serialized trajectory mappings in prose. Within that
+   exact structure, each diagnosis MUST contain:
    - **Shared context** — the exact `state` and `proposed_action` JSON of
      the rejected trajectory, embedded verbatim as a fenced JSON block.
      This block (and only this block) is what Session B copies
@@ -151,15 +196,23 @@ scratch artifacts.
      `total == sum(per_component)` within `1e-6`). Set
      `meta.isolation: "two-session"` on each record. Phase 1 and Phase 2
      do not add extra top-level JSONL lines.
-   - `NOTES-rNN.md` — self-critique: residual weaknesses and the next
-     round's densification target.
+   - `NOTES-rNN.md` — self-critique: residual weaknesses, the next
+     round's densification target, and the mandatory line
+     `Novel coverage: <N>%` (an honest estimate of how much of this round
+     is novel versus all prior committed rounds for this factory).
+     `publish` rejects notes without it or with a value outside 0–100, and
+     2 consecutive rounds under 5% early-stop the lane
+     (`docs/token-efficiency.md`).
    - Retain the `diagnosis-01-rNN.md` / `diagnosis-02-rNN.md` /
      `diagnosis-03-rNN.md` files alongside the batch — they are
      part of the published round and document the repair rationale.
 
-4. Run the **same-context purity gate** (see `docs/preference-isolation.md`)
-   over `batch-rNN.jsonl` before publishing. If any pair fails, repair
-   only staged files; never hand-edit a committed raw file.
+4. Run the **same-context purity gate** and the **independent-arm gate**
+   (see `docs/preference-isolation.md`) over `batch-rNN.jsonl` before
+   publishing. If any pair fails, repair only staged files; never hand-edit
+   a committed raw file. A near-verbatim arm pair is not a formatting
+   defect — re-synthesize that `chosen` from the diagnosis instead of
+   padding it to clear the floor.
 
 **Session B isolation rule:** Session B MUST NOT read `rejected-01-rNN.json`,
 `rejected-02-rNN.json`, or `rejected-03-rNN.json` (or any file containing
@@ -186,12 +239,33 @@ Preference `chosen` and `rejected` MUST satisfy:
 as JSON values (key order irrelevant, value equality strict). The contrast
 must teach gate/execution/recovery quality, not reward a changed problem.
 See `docs/preference-isolation.md` for the canonical validator and the
-failure taxonomy. **Enforcement:** `round_txn.py publish` checks record
-shape only — it performs NO chosen/rejected comparison. The gate is
-enforced pre-publish by the mandatory purity command below (both steps
-must exit 0 before publish) and post-publish by
-`pipelines/curate_preferences.py` and `pipelines/training_audit.py`;
-a round with a same-context violation is not training-ready.
+failure taxonomy. **Enforcement:** reserve this factory with
+`--preference-isolation two-session`. `round_txn.py publish` then runs the
+canonical same-context and independent-arm checks against captured staged
+bytes before linking the completion marker. The commands below are useful
+previews, and post-publish `pipelines/curate_preferences.py` plus
+`pipelines/training_audit.py` remain independent audits, but skipping a
+preview cannot bypass publication.
+
+## Independent-arm gate (summary)
+
+Same context is necessary but not sufficient: two arms that share a problem
+can still be one arm restated. `pipelines/preference_arms.py` requires that
+each pair's allowlisted behavioral surface (`executed_action`,
+`future_outcome`, and `spike_events`) sit more than the arm-distance floor
+apart, rejects unknown arm extensions, and requires at least one changed
+machine-observable leaf present on both arms. Safety prose, one-sided nested
+padding, and reward relabeling cannot establish independence. The record must
+also attest `meta.isolation: "two-session"`. See
+`docs/preference-isolation.md` §3.6 for the lexical metric and reason codes.
+Publication additionally requires the two-session value from the reservation;
+the launcher obtains that reservation in a separate content-blind context. A
+fourth, arm-payload-blind context runs `preference_arms.py verify-handoff
+--write-receipt`. The repository verifier parses only the bounded diagnosis
+envelope and emits only its exact basenames, byte counts, and SHA-256 digests
+before Session B opens those diagnoses. The publisher requires that canonical
+receipt and revalidates both structure and digests against captured diagnosis
+bytes; mutable record metadata is not trusted as proof of the protocol.
 
 ## Purity check command
 
@@ -200,6 +274,11 @@ Run from the repo root after assembling `batch-rNN.jsonl` and before
 path and `rNN` with the zero-padded round (e.g. `r05`):
 
 ```bash
+# Before Session B: independently bind its exact diagnosis-only input
+python3 pipelines/preference_arms.py verify-handoff <staging_dir> \
+  --file diagnosis-01-rNN.md --file diagnosis-02-rNN.md \
+  --file diagnosis-03-rNN.md --write-receipt
+
 # 1. Standard record checks (schema, reward arithmetic, spike order)
 python3 pipelines/check_records.py <staging_dir>
 
@@ -209,9 +288,6 @@ import json, pathlib, sys
 
 batch = pathlib.Path('<staging_dir>/batch-rNN.jsonl')
 diags = sorted(pathlib.Path('<staging_dir>').glob('diagnosis-*-rNN.md'))
-if not diags:
-    single = pathlib.Path('<staging_dir>/diagnosis-rNN.md')
-    diags = [single] if single.exists() else []
 if not diags:
     # Fail CLOSED: no diagnosis files means the glob is wrong (un-replaced
     # rNN?) or Session A never ran — the safety-text check cannot be skipped.
@@ -262,10 +338,24 @@ else:
 "
 ```
 
-Both steps must exit 0 before publish. Fix violations by editing only staged
-files (make `chosen.state`/`proposed_action` byte-identical to `rejected`,
-and rewrite chosen safety rationale in original wording); never hand-edit
-committed raw files.
+```bash
+# 3. Independent-arm gate: arms must not be one arm restated, and each
+#    record must attest the two-session protocol
+python3 pipelines/preference_arms.py scan <staging_dir>/batch-rNN.jsonl
+```
+
+All preview steps must exit 0 before publish, and publish independently
+re-runs the same-context plus arm gate over captured bytes. Fix violations by editing only
+staged files (make `chosen.state`/`proposed_action` byte-identical to
+`rejected`, and rewrite chosen safety rationale in original wording); never
+hand-edit committed raw files. `PREFERENCE_ARMS_NEAR_VERBATIM` is repaired
+by re-synthesizing that `chosen` from its diagnosis in a fresh context, not
+by widening the wording until the floor clears. A
+`PREFERENCE_ARMS_LABEL_ONLY_COPY` finding likewise requires a substantive
+execution, evidence, or outcome contrast rather than a different gate label.
+`PREFERENCE_ARMS_OBSERVABLES_IDENTICAL` requires re-synthesizing an actual
+execution, outcome, or spike-stream difference; adding prose or a field to
+only one arm is not a repair.
 
 ---
 
