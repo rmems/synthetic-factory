@@ -19,9 +19,25 @@ import re
 import sys
 from pathlib import Path
 
-REPO = Path(__file__).resolve().parents[1]
-SCHEMA_PATH = REPO / "schemas" / "thalamic-trajectory.schema.json"
-THALAMIC_SCHEMA = json.loads(SCHEMA_PATH.read_text())
+from validate_run_spikes import (
+    BRIDGE_SPIKE_EVENT_KEYS,
+    REPO,
+    SCHEMA_PATH,
+    SPIKE_CLOCK_DOMAIN_KEYS,
+    SPIKE_CLOCK_DOMAIN_MISMATCH,
+    SPIKE_EVENT_NUMBER_KEYS,
+    SPIKE_EVENT_STRING_KEYS,
+    SPIKE_ORDER_MISMATCH,
+    SPIKE_TIME_KEYS,
+    SPIKE_TIME_KEY_MISMATCH,
+    THALAMIC_SCHEMA,
+    check_spike_order as _check_spike_order,
+    check_spike_stream as _check_spike_stream,
+    declared_clock_domains as _declared_clock_domains,
+    event_time as _event_time,
+    is_number as _is_number,
+)
+
 THALAMIC_REQUIRED = tuple(THALAMIC_SCHEMA["required"])
 # Type-check required keys against the schema's own declared types: the six
 # trajectory fields (+ meta) are objects, but canonical `id` is a string.
@@ -45,9 +61,14 @@ SAFETY_DECISIONS = frozenset(
     ["decision"]["enum"]
 )
 
-# provenance.kind allows 'unknown'; state.sim_or_real does not.
-ALLOWED_PROVENANCE_KIND = frozenset({"designed", "simulated", "hil", "unknown"})
-ALLOWED_SIM_OR_REAL = frozenset({"designed", "simulated", "hil"})
+# provenance.kind allows 'unknown'; state.sim_or_real does not. Both
+# vocabularies are the schema's own enums.
+ALLOWED_PROVENANCE_KIND = frozenset(
+    THALAMIC_SCHEMA["properties"]["provenance"]["properties"]["kind"]["enum"]
+)
+ALLOWED_SIM_OR_REAL = frozenset(
+    THALAMIC_SCHEMA["properties"]["state"]["properties"]["sim_or_real"]["enum"]
+)
 # Bookkeeping keys that are not counted toward the arithmetic sum. This is the
 # single exclusion vocabulary for reward arithmetic: check_records imports it
 # so the shape layer and the deep layer agree on what is a component, and a
@@ -89,50 +110,39 @@ def reject_json_constant(value):
 
 
 def is_number(value):
-    return (
-        isinstance(value, (int, float))
-        and not isinstance(value, bool)
-        and math.isfinite(value)
-    )
+    """Compatibility facade for the shared finite-number predicate."""
+    return _is_number(value)
 
 
 def event_time(event):
-    """Return (key, finite float timestamp) for a supported event object."""
-    if not isinstance(event, dict):
-        return None
-    for key in ("t_rel_ms", "t_ms"):
-        value = event.get(key)
-        if is_number(value):
-            return key, float(value)
-    return None
+    """Compatibility facade for schema-derived spike timestamps."""
+    return _event_time(event)
 
 
-def check_spike_order(events, where):
-    """Require finite timestamps and global non-decreasing event order."""
-    errs = []
-    previous = None
-    for index, event in enumerate(events):
-        if not isinstance(event, dict):
-            errs.append(f"{where}: spike_events[{index}] must be an object")
-            continue
-        for key in ("channel", "amplitude"):
-            if key not in event:
-                errs.append(f"{where}: spike_events[{index}] missing '{key}'")
-        got = event_time(event)
-        if got is None:
-            errs.append(
-                f"{where}: spike_events[{index}] needs finite t_rel_ms or t_ms"
-            )
-            continue
-        key, current = got
-        if previous is not None and current < previous[1]:
-            errs.append(
-                f"{where}: spike_events not globally non-decreasing at index "
-                f"{index} ({key} {previous[1]} -> {current})"
-            )
-            break
-        previous = (key, current)
-    return errs
+def declared_clock_domains(events, enclosing=None):
+    """Compatibility facade for spike clock-domain discovery."""
+    return _declared_clock_domains(events, enclosing)
+
+
+def check_spike_order(
+    events,
+    where,
+    require_keys=BRIDGE_SPIKE_EVENT_KEYS,
+    *,
+    enclosing=None,
+):
+    """Compatibility facade for strict spike-stream validation."""
+    return _check_spike_order(
+        events,
+        where,
+        require_keys=require_keys,
+        enclosing=enclosing,
+    )
+
+
+def check_spike_stream(obj, where):
+    """Compatibility facade for optional trajectory spike streams."""
+    return _check_spike_stream(obj, where)
 
 
 def _component_numeric(value):
@@ -423,6 +433,8 @@ def check_thalamic(obj, where):
     # Deep publish-time provenance: any nested 'real' fails
     errs += [e for e in check_provenance_publish(obj, where) if e not in errs]
     errs += check_meta_round(obj, where)
+    # Optional trajectory-level spike train: same ordering contract as bridge.
+    errs += check_spike_stream(obj, where)
     return errs
 
 
@@ -1360,7 +1372,7 @@ def check_line(obj, where, factory_staging=False):
         if not isinstance(events, list) or not events:
             errs.append(f"{where}: spike_events must be a non-empty array")
         else:
-            errs += check_spike_order(events, where)
+            errs += check_spike_order(events, where, enclosing=obj)
         view = obj.get("language_view")
         if not isinstance(view, dict):
             errs.append(f"{where}: language_view must be an object")
