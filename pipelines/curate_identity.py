@@ -906,7 +906,7 @@ def _shape_validation_errors(
         if not isinstance(events, list) or not events:
             errors.append("record: spike_events must be a non-empty array")
         else:
-            errors.extend(check_spike_order(events, "record"))
+            errors.extend(check_spike_order(events, "record", enclosing=record))
         language_view = record.get("language_view")
         if not isinstance(language_view, Mapping):
             errors.append("record: language_view must be an object")
