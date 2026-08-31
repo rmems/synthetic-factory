@@ -1,0 +1,23 @@
+pipelines/fault_recovery.py
+  s_f3ffb7db87dca1::t_6277a98cd144dd 746-753
+tests/test_distillation_review_gaps.py
+  s_f3ffb7db87dca1::t_eead1d879f3a51 2309-2360
+pipelines/energy_preferences.py
+  s_f3ffb7db87dca1::t_40b4f2244b3c2a 357-366,368
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "e4a890b050bd09afb589f33f2ba1a2629c2b3677",
+  "prompts": {},
+  "sessions": {
+    "s_f3ffb7db87dca1": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "510a01e2-1e9d-4f64-a445-6971413485be",
+        "model": "claude-fable-5"
+      },
+      "human_author": "Raul Montoya Cardenas <montoyaraul34@gmail.com>"
+    }
+  }
+}
