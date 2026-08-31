@@ -1,0 +1,32 @@
+tests/test_export_hf_safety.py
+  s_f3ffb7db87dca1::t_9746ae217a1b05 115-180,198
+tests/test_compose_curated_destination.py
+  s_f3ffb7db87dca1::t_ac026691d56c0a 29-62
+tests/test_export_hf_authentication.py
+  s_f3ffb7db87dca1::t_6cbd2ba3e5e08c 20-125,145-152
+  s_f3ffb7db87dca1::t_41d5a80aac39ec 158-253,273-277
+tests/test_compose_curated.py
+  s_f3ffb7db87dca1::t_4c958726e1f55b 85-89,91-99,101-109,111-119
+  s_f3ffb7db87dca1::t_0543712e5588f4 72-75
+tests/test_compose_curated_preferences.py
+  s_f3ffb7db87dca1::t_859d89b2ba0dbd 28-105
+  s_f3ffb7db87dca1::t_b7242188b83e41 115-142
+  s_f3ffb7db87dca1::t_7c0f0751e7d99c 254-283
+  s_f3ffb7db87dca1::t_580c84a0c27d06 148-197
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "a3fc8eba468a8cb11e6110ec90a6401a43d3af69",
+  "prompts": {},
+  "sessions": {
+    "s_f3ffb7db87dca1": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "510a01e2-1e9d-4f64-a445-6971413485be",
+        "model": "claude-fable-5"
+      },
+      "human_author": "Raul Montoya Cardenas <montoyaraul34@gmail.com>"
+    }
+  }
+}
