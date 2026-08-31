@@ -380,6 +380,39 @@ def _require_committed_digest(
         )
 
 
+def _scanned_audit_entries(directory: Path) -> list[os.DirEntry]:
+    """List one directory's entries in stable name order, failing closed."""
+    try:
+        with os.scandir(directory) as scan:
+            return sorted(scan, key=lambda entry: entry.name)
+    except OSError as exc:
+        raise ValueError(
+            f"audit tree cannot be enumerated: {directory}: {exc}"
+        ) from exc
+
+
+def _classified_audit_entry(entry: os.DirEntry) -> str:
+    """Classify one entry as ``descend``, ``member``, or ``ignore``.
+
+    A symlink of any kind refuses the audit outright. A directory or fifo
+    named ``*.jsonl`` is surfaced as a member so the capture step refuses
+    its irregular identity.
+    """
+    try:
+        metadata = entry.stat(follow_symlinks=False)
+    except OSError as exc:
+        raise ValueError(
+            f"audit member cannot be captured: {entry.path}: {exc}"
+        ) from exc
+    if stat.S_ISLNK(metadata.st_mode):
+        raise ValueError(f"audit tree contains a symlink alias: {entry.path}")
+    if stat.S_ISDIR(metadata.st_mode) and not entry.name.endswith(".jsonl"):
+        return "descend"
+    if entry.name.endswith(".jsonl"):
+        return "member"
+    return "ignore"
+
+
 def _enumerated_run_members(run_dir: Path) -> list[Path]:
     """Enumerate every ``*.jsonl`` entry explicitly, refusing symlink aliases.
 
@@ -391,30 +424,11 @@ def _enumerated_run_members(run_dir: Path) -> list[Path]:
     members: list[Path] = []
     pending = [Path(run_dir)]
     while pending:
-        directory = pending.pop()
-        try:
-            with os.scandir(directory) as scan:
-                entries = sorted(scan, key=lambda entry: entry.name)
-        except OSError as exc:
-            raise ValueError(
-                f"audit tree cannot be enumerated: {directory}: {exc}"
-            ) from exc
-        for entry in entries:
-            try:
-                metadata = entry.stat(follow_symlinks=False)
-            except OSError as exc:
-                raise ValueError(
-                    f"audit member cannot be captured: {entry.path}: {exc}"
-                ) from exc
-            if stat.S_ISLNK(metadata.st_mode):
-                raise ValueError(
-                    f"audit tree contains a symlink alias: {entry.path}"
-                )
-            if stat.S_ISDIR(metadata.st_mode) and not entry.name.endswith(".jsonl"):
+        for entry in _scanned_audit_entries(pending.pop()):
+            action = _classified_audit_entry(entry)
+            if action == "descend":
                 pending.append(Path(entry.path))
-            elif entry.name.endswith(".jsonl"):
-                # A directory or fifo named ``*.jsonl`` is surfaced as a
-                # member so the capture below refuses its irregular identity.
+            elif action == "member":
                 members.append(Path(entry.path))
     return sorted(members)
 

@@ -191,6 +191,40 @@ def _require_exact_directory(path: Path, label: str) -> Path:
         raise ExportError(f"{label}: directory path must be an exact non-symlink identity")
     return resolved
 
+def _scanned_snapshot_entries(directory: Path, label: str) -> list[os.DirEntry]:
+    """List one directory's entries in stable name order, failing closed."""
+
+    try:
+        with os.scandir(directory) as scan:
+            return sorted(scan, key=lambda entry: entry.name)
+    except OSError as exc:
+        raise ExportError(f"{label}: cannot enumerate {directory}: {exc}") from exc
+
+
+def _classified_snapshot_entry(entry: os.DirEntry, label: str) -> str:
+    """Classify one entry as ``descend``, ``member``, or ``ignore``.
+
+    Any symlink refuses the snapshot outright, and so does a ``.jsonl``-named
+    entry that is not an exact regular file: a directory named ``x.jsonl``
+    would otherwise be descended as a container, leaving an apparent curated
+    payload entry in the tree that was never authenticated.
+    """
+
+    try:
+        metadata = entry.stat(follow_symlinks=False)
+    except OSError as exc:
+        raise ExportError(f"{label}: cannot inspect {entry.path}: {exc}") from exc
+    if stat.S_ISLNK(metadata.st_mode):
+        raise ExportError(f"{label}: tree contains a symlink alias: {entry.path}")
+    if entry.name.endswith(".jsonl"):
+        if not stat.S_ISREG(metadata.st_mode):
+            raise ExportError(
+                f"{label}: JSONL entry is not an exact regular file: {entry.path}"
+            )
+        return "member"
+    return "descend" if stat.S_ISDIR(metadata.st_mode) else "ignore"
+
+
 def iter_alias_free_jsonl(root: Path, label: str) -> list[Path]:
     """Enumerate every JSONL under ``root``, refusing any symlink entry.
 
@@ -202,32 +236,10 @@ def iter_alias_free_jsonl(root: Path, label: str) -> list[Path]:
     members: list[Path] = []
     pending = [Path(root)]
     while pending:
-        directory = pending.pop()
-        try:
-            with os.scandir(directory) as scan:
-                entries = sorted(scan, key=lambda entry: entry.name)
-        except OSError as exc:
-            raise ExportError(f"{label}: cannot enumerate {directory}: {exc}") from exc
-        for entry in entries:
-            try:
-                metadata = entry.stat(follow_symlinks=False)
-            except OSError as exc:
-                raise ExportError(
-                    f"{label}: cannot inspect {entry.path}: {exc}"
-                ) from exc
-            if stat.S_ISLNK(metadata.st_mode):
-                raise ExportError(
-                    f"{label}: tree contains a symlink alias: {entry.path}"
-                )
-            if entry.name.endswith(".jsonl") and not stat.S_ISREG(metadata.st_mode):
-                # A directory named ``x.jsonl`` would otherwise be descended
-                # as a container, so an apparent curated payload entry could
-                # sit in the tree without ever being authenticated.
-                raise ExportError(
-                    f"{label}: JSONL entry is not an exact regular file: {entry.path}"
-                )
-            if stat.S_ISDIR(metadata.st_mode):
+        for entry in _scanned_snapshot_entries(pending.pop(), label):
+            action = _classified_snapshot_entry(entry, label)
+            if action == "descend":
                 pending.append(Path(entry.path))
-            elif entry.name.endswith(".jsonl"):
+            elif action == "member":
                 members.append(Path(entry.path))
     return sorted(members)
