@@ -1,0 +1,28 @@
+tests/test_curate_bridge.py
+  s_98712805c1499b::t_c6279e63135ab6 203-225
+pipelines/validate_run_spikes.py
+  s_98712805c1499b::t_ed601b0e51a7c2 103
+  s_98712805c1499b::t_e340843dacbebf 10
+pipelines/curate_bridge_events.py
+  s_98712805c1499b::t_e340843dacbebf 8,61
+pipelines/validate_run.py
+  s_98712805c1499b::t_e340843dacbebf 25,42
+tests/test_validate_run_spikes.py
+  s_98712805c1499b::t_c6279e63135ab6 34,326-349
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "f01e42dd9e9920ca5728b21c15dfb3474ce123ac",
+  "prompts": {},
+  "sessions": {
+    "s_98712805c1499b": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a04a1f-1e33-7812-a5aa-c7b04b33b6b5",
+        "model": "gpt-5.6-terra"
+      },
+      "human_author": "Raul Montoya Cardenas <montoyaraul34@gmail.com>"
+    }
+  }
+}
