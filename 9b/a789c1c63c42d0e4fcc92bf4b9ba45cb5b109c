@@ -1,0 +1,85 @@
+scripts/publish_grok46_hub.py
+  s_0d456da8ea5328::t_ba80cc35e9020d 1025,1063-1081
+  s_f3ffb7db87dca1::t_3ef9ed1a6fd942 1658,1670-1688,1690,1697-1699
+  s_f3ffb7db87dca1::t_ade53d2a108aec 1040
+  s_0d456da8ea5328::t_6ba58583fb370a 1082,1084,1086,1088-1090,1093-1095,1097,1100,1102-1103,1108-1118
+  s_f3ffb7db87dca1::t_46037902fa8aeb 1498-1504
+  s_f3ffb7db87dca1::t_0c7d751f3a1e1a 1201-1202,1204-1208,1211-1213,1215,1223
+  s_f3ffb7db87dca1::t_def35f545653d5 1085,1087,1091-1092
+  s_0d456da8ea5328::t_be96c7ce816529 1613,1621,1633-1655
+  s_f3ffb7db87dca1::t_d9f14609d551c8 34
+  s_f3ffb7db87dca1::t_e5ae2119ad5cc6 1209-1210,1214
+  s_f3ffb7db87dca1::t_f56b2ff6225ee4 48
+  s_0d456da8ea5328::t_89d368f410a9e5 1700-1721
+  s_f3ffb7db87dca1::t_1cac7f367f3da3 1033-1039
+  s_f3ffb7db87dca1::t_7e6c159149a96d 1535
+  s_0d456da8ea5328::t_2a776206ed2a49 1426-1447,1455-1456,1458-1468
+  s_f3ffb7db87dca1::t_acc3342c5e183e 1203,1217-1222
+tests/test_card_schema_io.py
+  s_0d456da8ea5328::t_b46a3aa7be0263 1-106
+pipelines/card_schema.py
+  s_f3ffb7db87dca1::t_ec638c0db4b995 91
+  s_0d456da8ea5328::t_d56a489b581363 76
+  s_0d456da8ea5328::t_aea0e125b9ce18 58-60,72-75,77-80,82,86-90,92-100,174-178,180,183-185
+  s_f3ffb7db87dca1::t_2c3eb1d94f82bc 61-64
+  s_f3ffb7db87dca1::t_93c0587d92e24d 81
+tests/test_publish_grok46_hub.py
+  s_f3ffb7db87dca1::t_f164d30f1c6de3 617-621
+  s_f3ffb7db87dca1::t_5272ca48326fce 1611-1701
+  s_f3ffb7db87dca1::t_137d6ead530668 217
+  s_f3ffb7db87dca1::t_04ffdc2c8bf3f7 158-178,188
+  s_f3ffb7db87dca1::t_4ffec65c128fe4 234
+  s_f3ffb7db87dca1::t_08813503736bee 260
+tests/test_card_schema_issue_126.py
+  s_f3ffb7db87dca1::t_b619b8f7eaadc0 4-12
+tests/test_card_schema_render.py
+  s_0d456da8ea5328::t_0fe550ec3497d2 1-190
+tests/test_card_schema_issue_125.py
+  s_f3ffb7db87dca1::t_25b4df4cef75c5 6-14
+  s_f3ffb7db87dca1::t_afb0cbc019da1e 44-70
+  s_f3ffb7db87dca1::t_8d8a2e51f07e73 151
+pipelines/card_schema_coverage.py
+  s_0d456da8ea5328::t_5fc8f0dac13a73 1-95
+pipelines/card_schema_validate.py
+  s_0d456da8ea5328::t_a3c2c25c380f26 1-13,15-288
+  s_f3ffb7db87dca1::t_4cccbfd8b6ee46 14
+pipelines/card_payload.py
+  s_f3ffb7db87dca1::t_1463a17846d856 1-41,58-62,68-81
+  s_f3ffb7db87dca1::t_6f9166c22c6f98 42-57,63-67
+pipelines/card_schema_yaml.py
+  s_f3ffb7db87dca1::t_d18bc1fef0153e 1-147
+tests/test_card_schema.py
+  s_f3ffb7db87dca1::t_3a04556f9219b3 28-45
+tests/test_card_schema_coverage.py
+  s_0d456da8ea5328::t_24b91f15a04ed7 1-120
+pipelines/card_schema_render.py
+  s_0d456da8ea5328::t_afd6411d4a73c0 1-157
+tests/test_card_schema_validate.py
+  s_0d456da8ea5328::t_a1139f1ccf7ea1 1-161
+pipelines/card_schema_core.py
+  s_0d456da8ea5328::t_fefdb139238162 1-33
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "9ba789c1c63c42d0e4fcc92bf4b9ba45cb5b109c",
+  "prompts": {},
+  "sessions": {
+    "s_0d456da8ea5328": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "a8d33a4c-0324-4388-9173-61055dd33627",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Raul Montoya Cardenas <montoyaraul34@gmail.com>"
+    },
+    "s_f3ffb7db87dca1": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "510a01e2-1e9d-4f64-a445-6971413485be",
+        "model": "claude-fable-5"
+      },
+      "human_author": "Raul Montoya Cardenas <montoyaraul34@gmail.com>"
+    }
+  }
+}
