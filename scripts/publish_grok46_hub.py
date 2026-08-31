@@ -21,7 +21,6 @@ config/card-schemas/<hub-dataset-name>.json; see pipelines/card_schema.py.
 from __future__ import annotations
 
 import argparse
-import dataclasses
 import hashlib
 import json
 import os
@@ -46,6 +45,7 @@ if str(PIPELINES_ROOT) not in sys.path:
     sys.path.insert(0, str(PIPELINES_ROOT))
 
 import card_schema  # noqa: E402
+from card_payload import PayloadSummary, resolve_payload_summary  # noqa: E402
 from card_schema import CardSchemaError  # noqa: E402
 import leftover_mill  # noqa: E402
 from round_txn import (  # noqa: E402
@@ -1198,70 +1198,21 @@ schema; the raw snapshot is intentionally not rewritten.
     return ""
 
 
-@dataclasses.dataclass(frozen=True)
-class PayloadSummary:
-    """Everything a card says about its published payload: counts, span, names."""
+def render_card(item: dict, **keywords: object) -> str:
+    """Render one Hub dataset card.
 
-    records: int
-    bytes_: int
-    first: str | None
-    last: str | None
-    names: list[str] | None = None
-
-
-# The pre-PayloadSummary render_card keyword surface. Every card leaf PR
-# stacked on this branch still calls it; render_card keeps accepting it until
-# those leaves migrate after merging.
-_LEGACY_SUMMARY_KEYS = ("records", "bytes_", "first", "last", "payload_names")
-
-
-def _resolve_payload_summary(
-    summary: PayloadSummary | None, legacy: dict[str, object]
-) -> PayloadSummary:
-    """Accept summary= or the legacy keyword surface, refusing mixtures.
-
-    Both call styles must render byte-identical cards. Unknown keywords and
-    mixing summary= with legacy keywords fail closed with TypeError, exactly
-    as a plain wrong-signature call would.
+    Payload facts arrive as summary=PayloadSummary(...) or as the legacy
+    records=/bytes_=/first=/last=/payload_names= keywords still used by the
+    stacked card leaves; both styles render byte-identical cards, and unknown,
+    mixed, or incomplete keywords fail closed with TypeError. schema= and
+    kind_mix= keep their prior meanings on either surface.
     """
 
-    unknown = sorted(set(legacy) - set(_LEGACY_SUMMARY_KEYS))
-    if unknown:
-        raise TypeError(
-            "render_card() got unexpected keyword arguments: " + ", ".join(unknown)
-        )
-    if summary is not None:
-        if legacy:
-            raise TypeError(
-                "render_card() takes summary= or the legacy payload keywords "
-                "(records=, bytes_=, first=, last=, payload_names=), not both"
-            )
-        return summary
-    missing = [
-        key for key in ("records", "bytes_", "first", "last") if key not in legacy
-    ]
-    if missing:
-        raise TypeError(
-            "render_card() missing required keyword arguments: " + ", ".join(missing)
-        )
-    return PayloadSummary(
-        records=cast(int, legacy["records"]),
-        bytes_=cast(int, legacy["bytes_"]),
-        first=cast("str | None", legacy["first"]),
-        last=cast("str | None", legacy["last"]),
-        names=cast("list[str] | None", legacy.get("payload_names")),
+    schema = cast("tuple[str, str] | None", keywords.pop("schema", None))
+    kind_mix_arg = cast(
+        "list[leftover_mill.KindMixFinding] | None", keywords.pop("kind_mix", None)
     )
-
-
-def render_card(
-    item: dict,
-    *,
-    summary: PayloadSummary | None = None,
-    schema: tuple[str, str] | None = None,
-    kind_mix: list[leftover_mill.KindMixFinding] | None = None,
-    **legacy: object,
-) -> str:
-    summary = _resolve_payload_summary(summary, legacy)
+    summary = resolve_payload_summary(keywords)
     tags = "\n".join(f"- {t}" for t in item["tags"])
     records = summary.records
     kb = max(1, summary.bytes_ // 1024)
@@ -1269,7 +1220,7 @@ def render_card(
     payload = _release_payload_text(
         records, kb, summary.first, summary.last, summary.names
     )
-    kind_mix = list(kind_mix or ())
+    kind_mix = list(kind_mix_arg or ())
     quarantine = render_quarantine_section(records, kind_mix)
     factory_mix = leftover_mill.render_factory_mix_card_section(item["slug"], records)
     return f"""---
