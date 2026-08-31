@@ -259,22 +259,53 @@ def hidden_thought_paths(value, path=""):
             yield from hidden_thought_paths(item, f"{path}[{index}]")
 
 
-def _read_pinned_member(path: Path, relative: Path) -> bytes:
-    """Read one member from a descriptor that cannot follow a swapped path.
+_PINNED_DIRECTORY_FLAGS = (
+    os.O_RDONLY
+    | getattr(os, "O_DIRECTORY", 0)
+    | getattr(os, "O_NOFOLLOW", 0)
+    | getattr(os, "O_CLOEXEC", 0)
+)
+
+
+def _read_pinned_member(run_dir: Path, relative: Path) -> bytes:
+    """Read one member through descriptors that cannot follow a swapped path.
 
     A plain ``lstat`` + ``read_bytes`` pair leaves a window where the member
-    can be replaced by a symlink or FIFO between the check and the read.
-    ``O_NOFOLLOW`` refuses a symlink at open time, ``O_NONBLOCK`` keeps a
-    swapped FIFO from hanging the open, and ``fstat`` validates the very
-    descriptor the bytes are then read from.
+    — or any directory above it — can be replaced by a symlink between the
+    check and the read; ``O_NOFOLLOW`` on the final open protects only the
+    last component. Every component is therefore opened relative to its
+    pinned parent descriptor, the final open adds ``O_NONBLOCK`` so a swapped
+    FIFO cannot hang it, and ``fstat`` validates the very descriptor the
+    bytes are then read from.
     """
+    opened: list[int] = []
     try:
-        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
-    except OSError as exc:
-        raise ValueError(
-            f"audit member cannot be captured: {relative}: {exc}"
-        ) from exc
-    try:
+        try:
+            current = os.open(run_dir, _PINNED_DIRECTORY_FLAGS)
+        except OSError as exc:
+            raise ValueError(
+                f"audit member cannot be captured: {relative}: {exc}"
+            ) from exc
+        opened.append(current)
+        for part in relative.parts[:-1]:
+            try:
+                current = os.open(part, _PINNED_DIRECTORY_FLAGS, dir_fd=current)
+            except OSError as exc:
+                raise ValueError(
+                    f"audit member cannot be captured: {relative}: {exc}"
+                ) from exc
+            opened.append(current)
+        try:
+            fd = os.open(
+                relative.name,
+                os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK,
+                dir_fd=current,
+            )
+        except OSError as exc:
+            raise ValueError(
+                f"audit member cannot be captured: {relative}: {exc}"
+            ) from exc
+        opened.append(fd)
         if not stat.S_ISREG(os.fstat(fd).st_mode):
             raise ValueError(
                 f"audit member is not an exact regular file: {relative}"
@@ -287,7 +318,8 @@ def _read_pinned_member(path: Path, relative: Path) -> bytes:
             chunks.append(chunk)
         return b"".join(chunks)
     finally:
-        os.close(fd)
+        for descriptor in opened:
+            os.close(descriptor)
 
 
 def _captured_run_files(run_dir: Path) -> list[tuple[Path, bytes]]:
@@ -314,7 +346,7 @@ def _captured_run_files(run_dir: Path) -> list[tuple[Path, bytes]]:
                 f"audit member is not an exact regular file: {relative}"
             )
         if path in visible:
-            files.append((relative, _read_pinned_member(path, relative)))
+            files.append((relative, _read_pinned_member(run_dir, relative)))
     return files
 
 

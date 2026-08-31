@@ -22,6 +22,7 @@ if str(_PIPELINES) not in sys.path:
     sys.path.insert(0, str(_PIPELINES))
 
 from compose_contract import ComposeError, sha256_hex  # noqa: E402
+from round_txn import committed_jsonl_paths, marker_mode_path  # noqa: E402
 
 def _contains_raw_segments(parts: tuple[str, ...]) -> bool:
     return any(
@@ -427,6 +428,55 @@ def _collect_source_directory(
     return child_directories
 
 
+def _round_visible_members(root: Path, members: list[str]) -> list[str]:
+    """Keep only members the round-transaction contract exposes.
+
+    Legacy factories without marker mode stay fully visible. Once an
+    enclosing factory has entered marker mode, only the batches its committed
+    round manifests name may contribute — the same visibility census and the
+    training audit apply — so an uncommitted batch can neither compose into a
+    ``training_ready`` tree nor authenticate through the export replay.
+    """
+
+    marker_roots: dict[Path, Path | None] = {}
+    committed: dict[Path, set[Path]] = {}
+
+    def enclosing_marker_root(parent: Path) -> Path | None:
+        visited = []
+        current = parent
+        while True:
+            if current in marker_roots:
+                found = marker_roots[current]
+                break
+            visited.append(current)
+            if marker_mode_path(current) is not None:
+                found = current
+                break
+            if current == root or current.parent == current:
+                found = None
+                break
+            current = current.parent
+        for directory in visited:
+            marker_roots[directory] = found
+        return found
+
+    visible: list[str] = []
+    for relative in members:
+        path = root.joinpath(*PurePosixPath(relative).parts)
+        marker_root = enclosing_marker_root(path.parent)
+        if marker_root is None:
+            visible.append(relative)
+            continue
+        if marker_root not in committed:
+            committed[marker_root] = {
+                candidate.resolve()
+                for candidate in committed_jsonl_paths(marker_root)
+            }
+        if path.resolve() in committed[marker_root]:
+            visible.append(relative)
+    return visible
+
+
 def source_jsonl_members(root: Path) -> tuple[str, ...]:
     """Enumerate a source tree without silently following filesystem aliases."""
 
@@ -440,7 +490,7 @@ def source_jsonl_members(root: Path) -> tuple[str, ...]:
         pending.extend(
             reversed(_collect_source_directory(root, directory, members))
         )
-    return tuple(sorted(members))
+    return tuple(sorted(_round_visible_members(root, members)))
 
 
 def _assert_destination_disjoint(

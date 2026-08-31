@@ -56,6 +56,7 @@ _PIPELINES = Path(__file__).resolve().parent
 if str(_PIPELINES) not in sys.path:
     sys.path.insert(0, str(_PIPELINES))
 
+import compose_mill  # noqa: E402
 import curate_agentic  # noqa: E402
 import curate_bridge  # noqa: E402
 import curate_coding  # noqa: E402
@@ -211,23 +212,41 @@ def _stage(lane: str, name: str, version: str, action: str, **extra: Any) -> dic
     return stage
 
 
-def calibration_for(record: Mapping[str, Any], catalog: Mapping[str, Any] | None) -> Any:
-    """Look a reward calibration up by the record's *source* identifier.
+def _calibration_id_candidates(record: Mapping[str, Any]):
+    """Yield the record's declared source identifiers in identity's order.
 
-    ``curate_rewards`` resolves calibrations from ``id``/``meta.id``.  Compose
-    runs the identity lane first, which replaces ``id`` with a canonical
-    digest, so the lookup has to use the pre-identity record.
+    The identity lane accepts every ``curate_identity.LEGACY_ID_KEYS`` form on
+    the record root and its ``meta``/``state`` containers, so calibration has
+    to consider the same vocabulary: an FFPC pair that carries its catalogued
+    id only as ``pair_id`` must not be silently downgraded to
+    ``sign_order_only`` while its ``id``-carrying twin calibrates.
+    """
+
+    containers = (record, record.get("meta"), record.get("state"))
+    for container in containers:
+        if not isinstance(container, Mapping):
+            continue
+        for key in curate_identity.LEGACY_ID_KEYS:
+            value = container.get(key)
+            if isinstance(value, str) and value.strip():
+                yield value.strip()
+
+
+def calibration_for(record: Mapping[str, Any], catalog: Mapping[str, Any] | None) -> Any:
+    """Look a reward calibration up by the record's *source* identifiers.
+
+    Compose runs the identity lane first, which replaces ``id`` with a
+    canonical digest, so the lookup has to use the pre-identity record. The
+    first declared identifier with catalog evidence wins, deterministically.
     """
 
     if not catalog or not isinstance(record, Mapping):
         return None
-    record_id = record.get("id")
-    if not isinstance(record_id, str):
-        meta = record.get("meta")
-        record_id = meta.get("id") if isinstance(meta, Mapping) else None
-    if not isinstance(record_id, str):
-        return None
-    return catalog.get(record_id.lower())
+    for candidate in _calibration_id_candidates(record):
+        calibration = catalog.get(candidate.lower())
+        if calibration is not None:
+            return calibration
+    return None
 
 
 REASON_IDENTITY_INVALID_PAYLOAD_SHAPE = "identity.invalid_payload_shape"
@@ -981,7 +1000,7 @@ def _compose_rewards_stage(
             _stage(
                 "rewards",
                 curate_rewards.ANNOTATION_FIELD,
-                curate_rewards.ONTOLOGY_VERSION,
+                curate_rewards.REWARD_TRANSFORM_VERSION,
                 ACTION_EXCLUDED,
                 reason_codes=[REASON_REWARD_ONTOLOGY],
                 lane_action=ACTION_EXCLUDED,
@@ -1004,7 +1023,7 @@ def _compose_rewards_stage(
             _stage(
                 "rewards",
                 curate_rewards.ANNOTATION_FIELD,
-                curate_rewards.ONTOLOGY_VERSION,
+                curate_rewards.REWARD_TRANSFORM_VERSION,
                 ACTION_RETAINED,
                 reason_codes=annotation["reason_codes"],
                 lane_action=annotation["comparability"],
@@ -1023,7 +1042,7 @@ def _compose_rewards_stage(
             _stage(
                 "rewards",
                 curate_rewards.ANNOTATION_FIELD,
-                curate_rewards.ONTOLOGY_VERSION,
+                curate_rewards.REWARD_TRANSFORM_VERSION,
                 ACTION_NOT_APPLICABLE,
                 lane_action=ACTION_NOT_APPLICABLE,
                 source_reward_count=0,
@@ -1481,7 +1500,7 @@ def transform_contract() -> dict[str, Any]:
         },
         "rewards": {
             "name": curate_rewards.ANNOTATION_FIELD,
-            "version": curate_rewards.ONTOLOGY_VERSION,
+            "version": curate_rewards.REWARD_TRANSFORM_VERSION,
         },
     }
 
@@ -1500,6 +1519,13 @@ def _load_calibration(
     if calibration_path is None and default.is_file():
         calibration_path = default
         mode = "source_run"
+    if calibration_path is None and os.path.lexists(default):
+        # A directory, broken symlink, or fifo at the canonical path is not
+        # "no calibration": recording mode "none" here would compose a tree
+        # the export step must then refuse (it checks lexists), so fail now.
+        raise ComposeError(
+            f"default calibration evidence is not an exact regular file: {default}"
+        )
     if calibration_path is None:
         return {}, {
             "mode": mode,
@@ -1662,6 +1688,35 @@ def _record_excluded_line(
         state.exclusions[reason] += 1
 
 
+def _mill_quarantined_decision(finding: Any) -> ComposeDecision:
+    """Exclude a corpus-level mill finding before any lane can run.
+
+    The identity lane would otherwise replace the foreign id prefix with a
+    canonical digest, erasing the very evidence the shared detector keys on;
+    the later audit of the curated tree could then no longer see it.
+    """
+
+    reasons = list(finding.reason_codes)
+    return ComposeDecision(
+        ACTION_EXCLUDED,
+        None,
+        tuple(reasons),
+        (
+            _stage(
+                "source",
+                COMPOSE_NAME,
+                COMPOSE_VERSION,
+                ACTION_EXCLUDED,
+                reason_codes=reasons,
+                classification="foreign_mill_quarantined",
+                detail=finding.as_dict(),
+            ),
+        ),
+        None,
+        None,
+    )
+
+
 def _compose_one_line(
     state: _ComposeRunState,
     physical_line: bytes,
@@ -1671,6 +1726,7 @@ def _compose_one_line(
     source_file_sha256: str,
     catalog: Mapping[str, Any] | None,
     emitted: list[str],
+    mill_findings: Mapping[tuple[str, int], Any] | None = None,
 ) -> None:
     """Compose one non-blank source line into the run's accumulators."""
 
@@ -1678,15 +1734,21 @@ def _compose_one_line(
     entry = _new_manifest_entry(
         relative, line_number, sha256_hex(physical_line), source_file_sha256
     )
-    decision = compose_source_line(
-        physical_line,
-        source_path=relative,
-        source_line=line_number,
-        source_file_sha256=source_file_sha256,
-        calibration_catalog=catalog,
-        seen_source_semantics=state.seen_source_semantics,
-        seen_curated_semantics=state.seen_curated_semantics,
+    finding = (
+        mill_findings.get((relative, line_number)) if mill_findings else None
     )
+    if finding is not None:
+        decision = _mill_quarantined_decision(finding)
+    else:
+        decision = compose_source_line(
+            physical_line,
+            source_path=relative,
+            source_line=line_number,
+            source_file_sha256=source_file_sha256,
+            calibration_catalog=catalog,
+            seen_source_semantics=state.seen_source_semantics,
+            seen_curated_semantics=state.seen_curated_semantics,
+        )
     entry["action"] = decision.action
     entry["reason_codes"] = list(decision.reason_codes)
     entry["stages"] = [dict(stage) for stage in decision.stages]
@@ -1735,18 +1797,14 @@ def _write_emitted_records(
 def _compose_source_file(
     state: _ComposeRunState,
     *,
-    resolved_source: Path,
     relative: Any,
+    raw_file: bytes,
     destination_descriptor: int,
     catalog: Mapping[str, Any] | None,
+    mill_findings: Mapping[tuple[str, int], Any] | None = None,
 ) -> None:
-    """Compose every record of one source file, then write its output."""
+    """Compose every record of one captured source file, then write its output."""
 
-    _source_file, raw_file = _read_exact_regular_file(
-        resolved_source,
-        relative,
-        f"compose source {relative}",
-    )
     source_file_sha256 = sha256_hex(raw_file)
     state.counts["source_files"] += 1
     emitted: list[str] = []
@@ -1763,10 +1821,24 @@ def _compose_source_file(
             source_file_sha256=source_file_sha256,
             catalog=catalog,
             emitted=emitted,
+            mill_findings=mill_findings,
         )
 
     if emitted:
         _write_emitted_records(state, destination_descriptor, relative, emitted)
+
+
+def _captured_source_payloads(
+    resolved_source: Path, source_members: tuple[str, ...]
+) -> dict[str, bytes]:
+    """Read every member exactly once so mills and lanes see the same bytes."""
+
+    return {
+        relative: _read_exact_regular_file(
+            resolved_source, relative, f"compose source {relative}"
+        )[1]
+        for relative in source_members
+    }
 
 
 def _write_compose_provenance(
@@ -1851,6 +1923,10 @@ def compose_run(
     destination = Path(destination)
     resolved_source = _require_exact_directory(source_run, "source run")
     source_members = source_jsonl_members(resolved_source)
+    payload_by_member = _captured_source_payloads(resolved_source, source_members)
+    mill_findings = compose_mill.index_compose_mills(
+        resolved_source, payload_by_member, _jsonl_physical_lines
+    )
     catalog, calibration_descriptor = _load_calibration(
         resolved_source,
         Path(units_migration) if units_migration is not None else None,
@@ -1866,10 +1942,11 @@ def compose_run(
         for relative in source_members:
             _compose_source_file(
                 state,
-                resolved_source=resolved_source,
                 relative=relative,
+                raw_file=payload_by_member[relative],
                 destination_descriptor=destination_descriptor,
                 catalog=catalog,
+                mill_findings=mill_findings,
             )
 
         manifest_sha256, sidecar_sha256 = _write_compose_provenance(

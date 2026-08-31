@@ -2,6 +2,7 @@
 """Preference-side routing through compose: trajectory and same-state gates."""
 
 import copy
+import json
 import sys
 import unittest
 from pathlib import Path
@@ -14,6 +15,7 @@ for _path in (TESTS, REPO / "pipelines"):
         sys.path.insert(0, str(_path))
 
 import compose_curated  # noqa: E402
+import curate_agentic  # noqa: E402
 import curate_coding  # noqa: E402
 import curate_preferences  # noqa: E402
 from compose_curated_test_support import (  # noqa: E402
@@ -308,6 +310,92 @@ class TrajectorySideGroundingScope(unittest.TestCase):
             self.assertEqual(
                 first.record[side_name]["steps"], second.record[side_name]["steps"]
             )
+
+
+class TrajectorySideRouting(unittest.TestCase):
+    """Each side runs the transform that owns its shape, never a wrong lane."""
+
+    @staticmethod
+    def _wrap_side(success=True):
+        return {
+            "state": {"sim_or_real": "designed"},
+            "proposed_action": {"action": "noop", "decision_basis": "fixture"},
+            "executed_action": {
+                "steps": [
+                    {
+                        "n": 1,
+                        "tool_call": {"name": "inspect", "args": {}},
+                        "observation": "fixture result",
+                    }
+                ],
+                "goal": "fixture goal",
+                "outcome": "fixture outcome",
+                "reward": {"success": success},
+            },
+        }
+
+    def test_wrapped_steps_route_to_the_coding_lane(self):
+        """Codex #97 P2: steps at executed_action.steps must not skip coding.
+
+        The wrap contract keeps coding steps one level down; probing only a
+        top-level ``steps`` array let a repairable missing ``decision_basis``
+        reach the strict audit unchanged and block composition.
+        """
+        side = self._wrap_side()
+        self.assertTrue(compose_curated._trajectory_side_needs_coding(side))
+
+        record = {"chosen": self._wrap_side(True), "rejected": self._wrap_side(False)}
+        curated, manifests, _reasons, changed = compose_curated._curate_trajectory_sides(
+            record, source_path="p", source_line=1
+        )
+
+        self.assertIsNotNone(curated)
+        self.assertTrue(changed)
+        for side_name in ("chosen", "rejected"):
+            self.assertEqual(
+                manifests[side_name]["transform_name"], curate_coding.TRANSFORM_NAME
+            )
+            step = curated[side_name]["executed_action"]["steps"][0]
+            self.assertTrue(step["decision_basis"].startswith("Observation:"))
+
+    def test_hidden_only_non_coding_sides_use_the_generic_stripper(self):
+        """Codex #97 P2: a stepless Thalamic side with a private field repairs.
+
+        Routing it through curate_coding.curate_episode could only fail
+        (coding_steps_not_array) and excluded the whole pair; the generic
+        recursive stripper removes exactly what the audit refuses.
+        """
+        hidden = {
+            "state": {"sim_or_real": "designed"},
+            "proposed_action": {
+                "action": "noop",
+                "decision_basis": "fixture",
+                "internal_reasoning": "hidden",
+            },
+            "future_outcome": {"success": True},
+        }
+        clean = {
+            "state": {"sim_or_real": "designed"},
+            "proposed_action": {"action": "noop", "decision_basis": "fixture"},
+            "future_outcome": {"success": False},
+        }
+        record = {"chosen": hidden, "rejected": clean}
+
+        curated, manifests, reasons, changed = compose_curated._curate_trajectory_sides(
+            record, source_path="p", source_line=1
+        )
+
+        self.assertIsNotNone(curated)
+        self.assertTrue(changed)
+        self.assertNotIn("internal_reasoning", json.dumps(curated))
+        chosen_manifest = manifests["chosen"]
+        self.assertEqual(
+            chosen_manifest["transform_name"], curate_agentic.TRANSFORM_NAME
+        )
+        self.assertEqual(chosen_manifest["action"], "modified")
+        self.assertGreater(chosen_manifest["hidden_reasoning_fields_removed"], 0)
+        self.assertIn(curate_agentic.REASON_THOUGHT_REMOVED, reasons)
+        self.assertEqual(manifests["rejected"]["action"], "not_applicable")
 
 
 if __name__ == "__main__":

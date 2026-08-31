@@ -167,6 +167,37 @@ class ExportPayloadAndProvenance(unittest.TestCase):
 
 
 class ExportSemanticDuplicateReplay(unittest.TestCase):
+    def test_export_replays_foreign_mill_quarantine(self):
+        """Codex #97 P1: the replay applies the same corpus-level mill pass.
+
+        Compose quarantines a destination-stamped leftover mill before
+        identity can erase its foreign id prefix; the export replay must
+        reproduce exactly that exclusion or refuse, never re-admit it.
+        """
+        from curate_agentic_fixtures import (
+            DEST_STAMPED_MILL,
+            STAMPEDE_CONTROLS,
+            write_mill_run,
+        )
+
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            source = root / "run"
+            source.mkdir()
+            write_mill_run(source, list(STAMPEDE_CONTROLS) + [DEST_STAMPED_MILL])
+            summary = compose_curated.compose_run(source, root / "curated")
+            self.assertIn("FOREIGN_MILL_ID_PREFIX", summary["exclusions"])
+
+            provenance = export_hf.export_run(root / "curated", root / "export")
+
+            self.assertTrue(provenance["training_ready"])
+            self.assertEqual(provenance["records"], summary["counts"]["retained"])
+            exported = "".join(
+                (root / "export" / entry["path"]).read_text(encoding="utf-8")
+                for entry in provenance["files"]
+            )
+            self.assertNotIn(DEST_STAMPED_MILL["goal"], exported)
+
     def test_export_replays_pre_identity_semantic_duplicate_exclusions(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)

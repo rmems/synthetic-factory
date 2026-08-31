@@ -301,6 +301,74 @@ class CalibrationLookup(unittest.TestCase):
             compose_curated.calibration_for({"id": "ffpc-r5-999"}, self.CATALOG)
         )
 
+    def test_every_identity_accepted_legacy_id_form_can_calibrate(self):
+        """Codex #97 P1: pair_id-only records must not silently downgrade.
+
+        Identity accepts every ``LEGACY_ID_KEYS`` form on the record root and
+        its meta/state containers; a calibrated FFPC pair that declares its
+        catalogued id only as ``pair_id`` must calibrate exactly like its
+        ``id``-carrying twin.
+        """
+        for record in (
+            {"pair_id": "ffpc-r5-002"},
+            {"record_id": "FFPC-R5-002"},
+            {"meta": {"pair_id": "ffpc-r5-002"}},
+            {"state": {"episode_id": "ffpc-r5-002"}},
+        ):
+            with self.subTest(record=record):
+                self.assertEqual(
+                    compose_curated.calibration_for(record, self.CATALOG),
+                    self.CATALOG["ffpc-r5-002"],
+                )
+
+    def test_the_first_catalogued_identifier_wins_deterministically(self):
+        catalog = {
+            "ffpc-r5-002": {"canonical_factor": 0.5},
+            "ffpc-r5-003": {"canonical_factor": 0.7},
+        }
+        record = {"id": "ffpc-r5-002", "pair_id": "ffpc-r5-003"}
+        self.assertEqual(
+            compose_curated.calibration_for(record, catalog),
+            catalog["ffpc-r5-002"],
+        )
+
+
+class DefaultCalibrationEvidence(unittest.TestCase):
+    """Codex #97 P2: a malformed canonical calibration path fails composition.
+
+    ``default.is_file()`` is false for a directory, broken symlink, or fifo,
+    so compose used to record mode "none" and build a tree the export step
+    must then refuse (it checks ``lexists``); fail at compose time instead.
+    """
+
+    def test_non_regular_default_calibration_evidence_refuses_composition(self):
+        from compose_curated_test_support import thalamic as support_thalamic
+        from compose_curated_test_support import write_jsonl
+
+        for member in ("directory", "broken_symlink"):
+            with self.subTest(member=member), tempfile.TemporaryDirectory() as td:
+                root = Path(td)
+                source = root / "run"
+                write_jsonl(
+                    source / "thalamic-trajectory-factory" / "batch-r01.jsonl",
+                    [support_thalamic("clean-1")],
+                )
+                default = source / compose_curated.FFPC_UNITS_MIGRATION
+                default.parent.mkdir(parents=True)
+                if member == "directory":
+                    default.mkdir()
+                else:
+                    default.symlink_to(root / "missing-target.json")
+
+                # The directory hits the new default-calibration guard; a
+                # symlink is already refused by the alias-hardened scanner.
+                with self.assertRaisesRegex(
+                    compose_curated.ComposeError,
+                    "not an exact regular file|symlink alias",
+                ):
+                    compose_curated.compose_run(source, root / "curated")
+                self.assertFalse((root / "curated").exists())
+
 
 if __name__ == "__main__":
     unittest.main()

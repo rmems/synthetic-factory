@@ -20,6 +20,7 @@ if str(_PIPELINES) not in sys.path:
     sys.path.insert(0, str(_PIPELINES))
 
 import compose_curated  # noqa: E402
+import compose_mill  # noqa: E402
 from export_calibration import _authenticated_calibration  # noqa: E402
 from export_contract import CuratedFile, ExportError  # noqa: E402
 from export_members import (  # noqa: E402
@@ -163,21 +164,26 @@ def _replay_one_line(
     physical_line: bytes,
     coordinate: tuple[str, int],
     context: tuple[str, Any, list[str]],
+    mill_findings: dict,
 ) -> None:
     """Replay one non-blank source line through the compose lanes."""
 
     relative, line_number = coordinate
     source_file_sha256, catalog, emitted = context
     state.counts["source_records"] += 1
-    decision = compose_curated.compose_source_line(
-        physical_line,
-        source_path=relative,
-        source_line=line_number,
-        source_file_sha256=source_file_sha256,
-        calibration_catalog=catalog,
-        seen_source_semantics=state.seen_source_semantics,
-        seen_curated_semantics=state.seen_curated_semantics,
-    )
+    finding = mill_findings.get((relative, line_number))
+    if finding is not None:
+        decision = compose_curated._mill_quarantined_decision(finding)
+    else:
+        decision = compose_curated.compose_source_line(
+            physical_line,
+            source_path=relative,
+            source_line=line_number,
+            source_file_sha256=source_file_sha256,
+            calibration_catalog=catalog,
+            seen_source_semantics=state.seen_source_semantics,
+            seen_curated_semantics=state.seen_curated_semantics,
+        )
     entry = _replayed_manifest_entry(
         decision,
         relative,
@@ -218,13 +224,14 @@ def _record_replayed_output_file(
 
 
 def _replay_source_file(
-    state: _ReplayState, source_root: Path, relative: str, catalog: Any
+    state: _ReplayState,
+    relative: str,
+    raw_file: bytes,
+    catalog: Any,
+    mill_findings: dict,
 ) -> None:
-    """Replay every record of one source file and its resulting output."""
+    """Replay every record of one captured source file and its output."""
 
-    _path, raw_file = _read_exact_regular_file(
-        source_root, relative, f"compose source {relative}"
-    )
     source_file_sha256 = hashlib.sha256(raw_file).hexdigest()
     state.source_files.append(
         {
@@ -245,6 +252,7 @@ def _replay_source_file(
             physical_line,
             (relative, line_number),
             (source_file_sha256, catalog, emitted),
+            mill_findings,
         )
 
     if emitted:
@@ -259,9 +267,24 @@ def _replay_source_lines(source_root: Path, catalog: Any) -> _ReplaySnapshot:
     except compose_curated.ComposeError as exc:
         raise ExportError(f"COMPOSE source tree cannot be replayed safely: {exc}") from exc
 
+    # Capture every member once, then resolve corpus-level mill ownership over
+    # exactly those bytes — the same order of operations compose_run applies,
+    # so a quarantined line replays as the same exclusion.
+    payload_by_member = {
+        relative: _read_exact_regular_file(
+            source_root, relative, f"compose source {relative}"
+        )[1]
+        for relative in source_members
+    }
+    mill_findings = compose_mill.index_compose_mills(
+        source_root, payload_by_member, _replay_physical_lines
+    )
+
     state = _ReplayState()
     for relative in source_members:
-        _replay_source_file(state, source_root, relative, catalog)
+        _replay_source_file(
+            state, relative, payload_by_member[relative], catalog, mill_findings
+        )
 
     state.counts["reward_sidecars"] = len(state.expected_sidecars)
     return _ReplaySnapshot(

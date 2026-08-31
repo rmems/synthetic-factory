@@ -509,6 +509,83 @@ class ComposeCurated(unittest.TestCase):
             )
 
 
+    def test_uncommitted_marker_mode_batches_never_compose(self):
+        """Codex #97 P1: composition honors round-transaction visibility.
+
+        Once a factory enters marker mode, only batches named by committed
+        round manifests are corpus — census and the training audit already
+        hide the rest, so composing (and replaying) an uncommitted batch
+        would certify records the round contract says do not exist yet.
+        """
+        from training_audit_test_helpers import commit_marker_batch
+        from training_audit_test_helpers import thalamic as marker_thalamic
+        from training_audit_test_helpers import write as marker_write
+
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            source = root / "run"
+            factory = source / "thalamic-trajectory-factory"
+            committed = factory / "batch-r01.jsonl"
+            marker_write(committed, [marker_thalamic("committed-1")])
+            commit_marker_batch(factory, committed)
+            marker_write(
+                factory / "batch-r02.jsonl", [marker_thalamic("uncommitted-1")]
+            )
+
+            self.assertEqual(
+                compose_curated.source_jsonl_members(source),
+                ("thalamic-trajectory-factory/batch-r01.jsonl",),
+            )
+            summary = compose_curated.compose_run(source, root / "curated")
+
+            self.assertEqual(summary["counts"]["source_records"], 1)
+            self.assertEqual(summary["counts"]["source_files"], 1)
+
+    def test_foreign_mill_records_are_quarantined_before_identity(self):
+        """Codex #97 P1: mill ownership resolves before identity rewrites ids.
+
+        A destination-stamped leftover mill is identifiable only by its
+        foreign id prefix and goal family. Composing it record-by-record let
+        identity replace that prefix with a canonical digest, so the curated
+        tree audited clean and the export shipped the foreign record while
+        reporting training_ready.
+        """
+        from curate_agentic_fixtures import (
+            DEST_STAMPED_MILL,
+            STAMPEDE_CONTROLS,
+            write_mill_run,
+        )
+
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            source = root / "run"
+            source.mkdir()
+            write_mill_run(source, list(STAMPEDE_CONTROLS) + [DEST_STAMPED_MILL])
+
+            summary = compose_curated.compose_run(source, root / "curated")
+
+            self.assertEqual(summary["counts"]["source_records"], 5)
+            self.assertEqual(summary["counts"]["excluded"], 1)
+            self.assertIn("FOREIGN_MILL_ID_PREFIX", summary["exclusions"])
+            records_dir = root / "curated" / compose_curated.RECORDS_DIRNAME
+            emitted = "".join(
+                path.read_text(encoding="utf-8")
+                for path in records_dir.rglob("*.jsonl")
+            )
+            self.assertNotIn(DEST_STAMPED_MILL["goal"], emitted)
+            manifest = read_jsonl(root / "curated" / summary["manifest"]["path"])
+            quarantined = [
+                entry
+                for entry in manifest
+                if "FOREIGN_MILL_ID_PREFIX" in entry["reason_codes"]
+            ]
+            self.assertEqual(len(quarantined), 1)
+            self.assertEqual(quarantined[0]["action"], "excluded")
+            self.assertEqual(
+                quarantined[0]["stages"][0]["classification"],
+                "foreign_mill_quarantined",
+            )
+
     def test_empty_composition_is_never_training_ready(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)

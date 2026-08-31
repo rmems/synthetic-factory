@@ -313,9 +313,12 @@ def _compat_trajectory_preference(
 def _trajectory_side_needs_coding(side: Any) -> bool:
     """Whether an episode side runs the coding lane before preference checks.
 
-    Every side that carries a step array does. A nonblank ``decision_basis``
-    is not evidence that the basis is *grounded*: ``curate_coding`` derives it
-    from the step's visible plan, observation, and tool call and overwrites
+    Every side that carries a step array does — wherever the record keeps it:
+    a plain side holds ``steps`` at its root, while a Thalamic wrap embeds the
+    coding episode at ``executed_action.steps`` (``curate_coding._steps_path``
+    is the one wrap-aware answer). A nonblank ``decision_basis`` is not
+    evidence that the basis is *grounded*: ``curate_coding`` derives it from
+    the step's visible plan, observation, and tool call and overwrites
     whatever was there, while the later audit only checks that the field is
     nonempty. Skipping a side whose steps already hold some text would let an
     ungrounded value such as "private hunch" survive into a ``training_ready``
@@ -325,9 +328,64 @@ def _trajectory_side_needs_coding(side: Any) -> bool:
 
     if not isinstance(side, dict):
         return False
-    if curate_coding.contains_hidden_reasoning_key(side):
-        return True
-    return isinstance(side.get("steps"), list)
+    return curate_coding._steps_path(side) is not None
+
+
+def _not_applicable_side_manifest() -> dict[str, Any]:
+    return {
+        "transform_name": curate_coding.TRANSFORM_NAME,
+        "transform_version": curate_coding.TRANSFORM_VERSION,
+        "action": ACTION_NOT_APPLICABLE,
+        "reason_codes": [],
+    }
+
+
+def _strip_hidden_only_side(side: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Strip hidden reasoning from a side that carries no coding steps.
+
+    A legacy Thalamic side with ``proposed_action.internal_reasoning`` but no
+    step array is not a coding episode: routing it through
+    ``curate_coding.curate_episode`` can only fail (``coding_steps_not_array``)
+    and would exclude an otherwise valid pair. The generic recursive stripper
+    removes exactly what the audit refuses while leaving the shape alone.
+    """
+
+    cleaned, removed = curate_agentic.strip_hidden_thought_keys(side)
+    manifest = {
+        "transform_name": curate_agentic.TRANSFORM_NAME,
+        "transform_version": curate_agentic.TRANSFORM_VERSION,
+        "action": "modified" if removed else ACTION_NOT_APPLICABLE,
+        "reason_codes": (
+            [curate_agentic.REASON_THOUGHT_REMOVED] if removed else []
+        ),
+        "hidden_reasoning_fields_removed": removed,
+    }
+    return cleaned, manifest
+
+
+def _curate_one_trajectory_side(
+    side: dict[str, Any],
+    side_name: str,
+    *,
+    source_path: str,
+    source_line: int,
+) -> tuple[dict[str, Any] | None, dict[str, Any]]:
+    """Run the owning transform over one side, returning (curated, manifest)."""
+
+    if _trajectory_side_needs_coding(side):
+        curated_side, manifest = curate_coding.curate_episode(
+            side,
+            source_path=f"{source_path}#{side_name}",
+            source_line=source_line,
+            source_hash=_canonical_sha256(side),
+        )
+        detail = copy.deepcopy(manifest)
+        detail["transform_name"] = curate_coding.TRANSFORM_NAME
+        detail["transform_version"] = curate_coding.TRANSFORM_VERSION
+        return curated_side, detail
+    if isinstance(side, dict) and curate_coding.contains_hidden_reasoning_key(side):
+        return _strip_hidden_only_side(side)
+    return None, _not_applicable_side_manifest()
 
 
 def _curate_trajectory_sides(
@@ -345,23 +403,21 @@ def _curate_trajectory_sides(
     failed = False
     for side_name in ("chosen", "rejected"):
         side = curated.get(side_name)
-        if not _trajectory_side_needs_coding(side):
-            manifests[side_name] = {
-                "transform_name": curate_coding.TRANSFORM_NAME,
-                "transform_version": curate_coding.TRANSFORM_VERSION,
-                "action": ACTION_NOT_APPLICABLE,
-                "reason_codes": [],
-            }
+        if not (
+            _trajectory_side_needs_coding(side)
+            or (
+                isinstance(side, dict)
+                and curate_coding.contains_hidden_reasoning_key(side)
+            )
+        ):
+            manifests[side_name] = _not_applicable_side_manifest()
             continue
-        curated_side, manifest = curate_coding.curate_episode(
+        curated_side, detail = _curate_one_trajectory_side(
             side,
-            source_path=f"{source_path}#{side_name}",
+            side_name,
+            source_path=source_path,
             source_line=source_line,
-            source_hash=_canonical_sha256(side),
         )
-        detail = copy.deepcopy(manifest)
-        detail["transform_name"] = curate_coding.TRANSFORM_NAME
-        detail["transform_version"] = curate_coding.TRANSFORM_VERSION
         manifests[side_name] = detail
         reasons.extend(detail.get("reason_codes", []))
         if curated_side is None:
