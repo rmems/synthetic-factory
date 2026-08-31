@@ -19,7 +19,7 @@ MINIMAL = _shared.MINIMAL
 write_declaration = _shared.write_declaration
 
 
-SECRET_SCAN = "secret-scan-remediation-trajectories"
+SCAN_REMEDIATION = "secret-scan-remediation-trajectories"
 
 
 class SecretScanRemediationDeclarationTests(unittest.TestCase):
@@ -31,11 +31,11 @@ class SecretScanRemediationDeclarationTests(unittest.TestCase):
     """
 
     def setUp(self):
-        self.declaration = card_schema.load(SECRET_SCAN)
+        self.declaration = card_schema.load(SCAN_REMEDIATION)
         self.assertIsNotNone(self.declaration, "config/card-schemas is missing #48")
         self.item = {
             "slug": "secret-scan-remediation-factory",
-            "hub": SECRET_SCAN,
+            "hub": SCAN_REMEDIATION,
             "pretty": "Secret Scan Remediation Trajectories",
             "blurb": "Secret-scan leftover-allowlist / baseline remediation.",
             "tags": ["synthetic-data", "trajectories", "secrets", "security"],
