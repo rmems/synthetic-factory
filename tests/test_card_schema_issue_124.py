@@ -65,7 +65,8 @@ def _spelled(number: int) -> str:
 
 def _shard_number(name: str) -> int:
     label = publisher.batch_label(Path(name))
-    assert label is not None, name
+    if label is None:
+        raise AssertionError(f"shard name the publisher cannot label: {name}")
     return label[0]
 
 
