@@ -63,6 +63,21 @@ MANIFEST_ALLOWED_KEYS = frozenset(
         "note",
     }
 )
+# Exactly the two notes oracle_generate.build_manifest derives from record
+# publishability. The note is a provenance claim, not free text, so it is
+# recomputed from the captured records rather than trusted: a manifest may
+# not assert publishability its own records do not carry.
+MANIFEST_NOTE_PUBLISHABLE = (
+    "Counts describe this run only. Some records were measured through "
+    "the named-runtime protocol and are publishable; check each "
+    "record's own validation.publishable and validation.publishable_reason "
+    "for the authoritative per-record determination."
+)
+MANIFEST_NOTE_REFERENCE = (
+    "Counts describe this run only. A reference-implementation oracle "
+    "measures a real model but is not the named runtime; no record here "
+    "is publishable as a measurement of the named runtime."
+)
 
 
 @dataclass(frozen=True)
@@ -326,13 +341,21 @@ def _scan_entry(entry, relative_path, walk):
 def _scan_directory(prefix, directory_fd, walk):
     """Scan one directory level. True when a run-wide limit halts the walk."""
     walk.directory_fd = directory_fd
+    # Enforce the entry cap while draining the iterator: sorting first would
+    # materialize an untrusted directory of arbitrary size before the cap
+    # could refuse it, so the walk never holds more than the cap allows.
+    entries = []
     with os.scandir(directory_fd) as iterator:
-        entries = sorted(iterator, key=lambda entry: entry.name)
+        for entry in iterator:
+            walk.entries_seen += 1
+            if walk.entries_seen > MAX_RUN_ENTRIES:
+                walk.errors.append(
+                    f"{walk.root}: run contains more than {MAX_RUN_ENTRIES} entries"
+                )
+                return True
+            entries.append(entry)
+    entries.sort(key=lambda entry: entry.name)
     for entry in entries:
-        walk.entries_seen += 1
-        if walk.entries_seen > MAX_RUN_ENTRIES:
-            walk.errors.append(f"{walk.root}: run contains more than {MAX_RUN_ENTRIES} entries")
-            return True
         if _scan_entry(entry, prefix / entry.name, walk):
             return True
     return False
@@ -698,7 +721,11 @@ def _reproduce_record(item, where, scope):
         detail = f"reproduction raised {type(exc).__name__}"
     scope.totals[f"reproduce_{status}"] += 1
     if status != "reproduced":
-        scope.totals["invalid"] += 1
+        # The record is already tallied as accepted or rejected by
+        # _count_valid_record; charging "invalid" as well would make
+        # accepted + rejected + invalid exceed records in the report.  The
+        # failure still fails the run through the reported finding, and the
+        # outcome stays visible in the report's reproduce_* buckets.
         scope.report(where, f"requested oracle reproduction was {status}: {detail}")
 
 
@@ -1207,7 +1234,25 @@ def _manifest_metadata_errors(manifest, snapshots, parsed_records, run_dir):
         context.report("module_digest does not match the current reference implementation")
 
     _availability_block_errors(manifest, actual_families, context)
+    _manifest_note_errors(manifest, parsed_records, context)
     return context.errors
+
+
+def _manifest_note_errors(manifest, parsed_records, context):
+    """The note is derived provenance, not free text: recompute it.
+
+    ``build_manifest`` chooses between exactly two notes based on whether any
+    captured record is publishable.  An unvalidated note could otherwise claim
+    external attestation or publishability that no record carries.
+    """
+    any_publishable = any(
+        isinstance(parsed.item.get("validation"), dict)
+        and parsed.item["validation"].get("publishable") is True
+        for parsed in parsed_records
+    )
+    expected = MANIFEST_NOTE_PUBLISHABLE if any_publishable else MANIFEST_NOTE_REFERENCE
+    if manifest.get("note") != expected:
+        context.report("note does not match the publishability of the captured records")
 
 
 def validate_run(run_dir, require_runtime=False, reproduce=False, selected=()):

@@ -101,26 +101,45 @@ class GenerationError(RuntimeError):
     """A record could not be produced; the caller decides whether to skip."""
 
 
-def _reserved_hits_in_mapping(value, path):
-    hits = []
+# One reserved key already rejects the record, so the scan stops collecting
+# paths at this cap: a schema-open stored payload full of reserved keys must
+# not be able to turn path collection into a multi-megabyte finding string.
+MAX_RESERVED_KEY_HITS = 25
+
+
+def _reserved_hits_in_mapping(value, path, hits):
     for key, item in value.items():
+        if len(hits) >= MAX_RESERVED_KEY_HITS:
+            break
         here = f"{path}.{key}" if path else str(key)
         if key in RESERVED_GENERATOR_KEYS:
             hits.append(here)
-        hits.extend(_reserved_key_hits(item, here))
-    return hits
+        _collect_reserved_key_hits(item, here, hits)
+
+
+def _collect_reserved_key_hits(value, path, hits):
+    if isinstance(value, dict):
+        _reserved_hits_in_mapping(value, path, hits)
+    elif isinstance(value, list):
+        for index, item in enumerate(value):
+            if len(hits) >= MAX_RESERVED_KEY_HITS:
+                break
+            _collect_reserved_key_hits(item, f"{path}[{index}]", hits)
 
 
 def _reserved_key_hits(value, path=""):
-    if isinstance(value, dict):
-        return _reserved_hits_in_mapping(value, path)
-    if isinstance(value, list):
-        return [
-            hit
-            for index, item in enumerate(value)
-            for hit in _reserved_key_hits(item, f"{path}[{index}]")
-        ]
-    return []
+    """Paths of oracle-reserved keys, capped at ``MAX_RESERVED_KEY_HITS``."""
+    hits = []
+    _collect_reserved_key_hits(value, path, hits)
+    return hits
+
+
+def _reserved_key_listing(hits):
+    """Human-readable path list, marking when the bounded scan stopped early."""
+    listed = ", ".join(sorted(hits))
+    if len(hits) >= MAX_RESERVED_KEY_HITS:
+        listed += ", ... (scan capped)"
+    return listed
 
 
 def proposal_of(record):
@@ -161,7 +180,9 @@ def build_record(
     }
     reserved = _reserved_key_hits(proposal)
     if reserved:
-        raise GenerationError(f"generator emitted oracle-reserved keys: {', '.join(reserved)}")
+        raise GenerationError(
+            f"generator emitted oracle-reserved keys: {_reserved_key_listing(reserved)}"
+        )
 
     request = spec.build_request(scenario, intervention)
     adapter = spec.oracle(environ)
@@ -440,7 +461,7 @@ def _validate_generator_side(record):
     reserved = _reserved_key_hits(proposal_of(record))
     if reserved:
         findings.append(
-            "generator sections carry oracle-reserved keys: " + ", ".join(sorted(reserved))
+            "generator sections carry oracle-reserved keys: " + _reserved_key_listing(reserved)
         )
     expected = canon.digest(proposal_of(record))
     if record["proposal_hash"] != expected:

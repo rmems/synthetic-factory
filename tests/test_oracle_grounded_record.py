@@ -330,6 +330,22 @@ class GeneratorNeverMeasures(unittest.TestCase):
         findings = record.validate_record(item)
         self.assertTrue(any("oracle-reserved keys" in f for f in findings), findings)
 
+    def test_reserved_key_scanning_is_bounded_against_adversarial_payloads(self):
+        # A schema-open scenario section can legally carry large extra arrays,
+        # so the reserved-key scan must not turn one reserved key per element
+        # into a multi-megabyte list of paths before the record is rejected.
+        payload = {"scenario": {"junk": [{"measured": index} for index in range(10_000)]}}
+        hits = record._reserved_key_hits(payload)
+        self.assertEqual(len(hits), record.MAX_RESERVED_KEY_HITS)
+
+        item = build(families.MESH_FAMILY)
+        item["scenario"]["junk"] = [{"measured": index} for index in range(10_000)]
+        findings = record.validate_record(item, check_declared_status=False)
+        reserved = [f for f in findings if "oracle-reserved keys" in f]
+        self.assertTrue(reserved, findings)
+        self.assertLess(len(reserved[0]), 4_000, len(reserved[0]))
+        self.assertIn("scan capped", reserved[0])
+
     def test_build_refuses_a_generator_that_authors_a_measurement(self):
         original = generators.propose_mesh_scenario
 
@@ -1449,6 +1465,67 @@ class AuthoritativeRecordSemantics(unittest.TestCase):
         layers = record.classify(item)
         self.assertEqual(layers["envelope"], [])
         self.assertEqual(layers["status"], [])
+
+    def test_every_shipped_schema_uses_only_enforced_keywords(self):
+        paths = [schema_validation.BASE_SCHEMA_PATH]
+        paths.extend(sorted(schema_validation.FAMILY_SCHEMA_DIR.glob("*.schema.json")))
+        self.assertGreaterEqual(len(paths), 6)
+        for path in paths:
+            with self.subTest(schema=path.name):
+                with path.open(encoding="utf-8") as handle:
+                    schema = json.load(handle)
+                self.assertEqual(schema_validation._unsupported_keyword_errors(schema), [])
+
+    def test_a_schema_keyword_the_validator_ignores_is_a_finding_not_a_pass(self):
+        # `_validate` skips `allOf`, so without the keyword audit this
+        # violating instance would sail through the assertion unchecked.
+        schema = {"type": "object", "allOf": [{"required": ["must_have"]}]}
+        self.assertEqual(schema_validation._validate({}, schema, schema, "$"), [])
+        self.assertEqual(
+            schema_validation._unsupported_keyword_errors(schema),
+            ["schema object at # uses unenforced keywords: allOf"],
+        )
+
+    def test_unenforced_keywords_are_reported_from_nested_schema_positions(self):
+        schema = {
+            "type": "object",
+            "properties": {
+                "a": {"oneOf": [{"type": "string"}]},
+                "b": {"type": "array", "items": {"maxLength": 3}},
+            },
+            "$defs": {"c": {"anyOf": [{"if": {}, "then": {}}]}},
+        }
+        errors = schema_validation._unsupported_keyword_errors(schema)
+        self.assertEqual(
+            errors,
+            [
+                "schema object at #/$defs/c/anyOf/0 uses unenforced keywords: if, then",
+                "schema object at #/properties/a uses unenforced keywords: oneOf",
+                "schema object at #/properties/b/items uses unenforced keywords: maxLength",
+            ],
+        )
+
+    def test_validate_record_schemas_reports_unenforced_family_schema_keywords(self):
+        item = build(families.ENCODER_FAMILY)
+        family_path = (
+            schema_validation.FAMILY_SCHEMA_DIR / f"{families.ENCODER_FAMILY}.schema.json"
+        )
+        doctored = json.loads(family_path.read_text(encoding="utf-8"))
+        doctored["allOf"] = [{"required": ["nonexistent_key"]}]
+        self.assertEqual(
+            schema_validation.validate_record_schemas(item, families.ENCODER_FAMILY), []
+        )
+        with tempfile.TemporaryDirectory(prefix="oracle-doctored-schema-") as temp:
+            out = Path(temp) / f"{families.ENCODER_FAMILY}.schema.json"
+            out.write_text(json.dumps(doctored), encoding="utf-8")
+            with mock.patch.object(schema_validation, "FAMILY_SCHEMA_DIR", Path(temp)):
+                findings = schema_validation.validate_record_schemas(
+                    item, families.ENCODER_FAMILY
+                )
+        self.assertTrue(
+            any("unenforced keywords: allOf" in finding for finding in findings),
+            findings,
+        )
 
     def test_redundant_record_identity_labels_are_authenticated(self):
         item = build(families.ENCODER_FAMILY)

@@ -199,6 +199,74 @@ class ManifestAvailabilityTest(GoldenRunFixture):
         self.assert_reports(mutate, "oracle_availability.unbound disagrees")
 
 
+class ManifestNoteTest(GoldenRunFixture):
+    """The note is derived from record publishability, never free text."""
+
+    def test_note_claiming_publishability_is_rejected(self):
+        # The golden run is reference-only: swapping in the other legitimate
+        # note is a publication claim the captured records do not carry.
+        self.assert_reports(
+            lambda m: m.__setitem__("note", oracle_validate.MANIFEST_NOTE_PUBLISHABLE),
+            "note does not match the publishability of the captured records",
+        )
+
+    def test_free_text_note_is_rejected(self):
+        self.assert_reports(
+            lambda m: m.__setitem__(
+                "note", "Records externally attested; publishable as-is."
+            ),
+            "note does not match the publishability of the captured records",
+        )
+
+    def test_missing_note_is_rejected(self):
+        def mutate(manifest):
+            del manifest["note"]
+
+        self.assert_reports(
+            mutate, "note does not match the publishability of the captured records"
+        )
+
+
+class RunTreeWalkTest(unittest.TestCase):
+    """Directory enumeration must stay bounded against untrusted trees."""
+
+    def test_run_entry_cap_bounds_directory_materialization(self):
+        # The cap must be enforced while draining scandir: sorting first would
+        # materialize an arbitrarily large untrusted directory in memory.
+        class FakeEntry:
+            __slots__ = ("name",)
+
+            def __init__(self, name):
+                self.name = name
+
+        class CountingScandir:
+            def __init__(self):
+                self.consumed = 0
+
+            def __enter__(self):
+                return self._entries()
+
+            def __exit__(self, *exc):
+                return False
+
+            def _entries(self):
+                for index in range(100_000):
+                    self.consumed += 1
+                    yield FakeEntry(f"entry-{index:06d}")
+
+        counting = CountingScandir()
+        walk = oracle_validate._RunTreeWalk(root=Path("/nonexistent-run"))
+        from pathlib import PurePosixPath
+
+        with mock.patch.object(oracle_validate.os, "scandir", return_value=counting):
+            halted = oracle_validate._scan_directory(PurePosixPath(), -1, walk)
+        self.assertTrue(halted)
+        self.assertTrue(
+            any("more than" in error for error in walk.errors), walk.errors
+        )
+        self.assertLessEqual(counting.consumed, oracle_validate.MAX_RUN_ENTRIES + 1)
+
+
 class ValidateRunTest(unittest.TestCase):
     """validate_run aggregates per-file totals into the run report."""
 

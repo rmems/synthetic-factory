@@ -4,8 +4,10 @@ The repository publishes Draft 2020-12 schemas, but the runnable factory has a
 stdlib-only contract.  Pulling in ``jsonschema`` just for the curation gate
 would make validation depend on an optional environment package, so this
 module implements the deliberately small keyword subset used by the checked-in
-schemas.  Unsupported schema keywords remain annotations; every assertion
-keyword currently present in ``schemas/oracle-grounded*.json`` is enforced.
+schemas.  A schema object carrying any keyword outside that subset (plus the
+allowed annotations) is itself a finding from ``validate_record_schemas``, so
+a future schema cannot silently weaken the gate by using an assertion this
+validator does not enforce.
 """
 
 import json
@@ -21,6 +23,37 @@ FAMILY_SCHEMA_DIR = REPO_ROOT / "schemas" / "oracle-grounded"
 # Per-frame cap on accumulated findings. Anything past this on one array or
 # object adds a single summary line instead of one string per element.
 MAX_SCHEMA_FINDINGS = 100
+
+# The assertion keywords ``_validate`` enforces, and the annotation keywords
+# the checked-in schemas deliberately carry.  Any other keyword on a schema
+# object would be an assertion this validator silently skips, so its presence
+# is itself a finding: records must never validate against a weaker gate than
+# the schema on disk declares.
+ENFORCED_KEYWORDS = frozenset(
+    {
+        "$ref",
+        "anyOf",
+        "not",
+        "const",
+        "enum",
+        "type",
+        "minimum",
+        "maximum",
+        "exclusiveMinimum",
+        "exclusiveMaximum",
+        "minLength",
+        "pattern",
+        "minItems",
+        "maxItems",
+        "uniqueItems",
+        "items",
+        "minProperties",
+        "required",
+        "properties",
+        "additionalProperties",
+    }
+)
+ANNOTATION_KEYWORDS = frozenset({"$schema", "$id", "$defs", "title", "description"})
 
 
 def _reject_constant(value):
@@ -319,6 +352,38 @@ def _nonfinite_errors(value, path="$"):
     return errors
 
 
+def _unsupported_keyword_errors(schema, path="#"):
+    """Schema objects that carry keywords ``_validate`` does not enforce."""
+    if not isinstance(schema, dict):
+        return []
+    errors = []
+    unknown = sorted(set(schema) - ENFORCED_KEYWORDS - ANNOTATION_KEYWORDS)
+    if unknown:
+        errors.append(
+            f"schema object at {path} uses unenforced keywords: {', '.join(unknown)}"
+        )
+    for name in ("$defs", "properties"):
+        members = schema.get(name)
+        if isinstance(members, dict):
+            for key, sub in members.items():
+                errors.extend(
+                    _unsupported_keyword_errors(sub, f"{path}/{name}/{key}")
+                )
+    for name in ("items", "not", "additionalProperties"):
+        errors.extend(_unsupported_keyword_errors(schema.get(name), f"{path}/{name}"))
+    options = schema.get("anyOf")
+    if isinstance(options, list):
+        for index, sub in enumerate(options):
+            errors.extend(_unsupported_keyword_errors(sub, f"{path}/anyOf/{index}"))
+    return errors
+
+
+@lru_cache(maxsize=None)
+def _schema_keyword_findings(path):
+    """Cached whole-document keyword audit for one schema file."""
+    return tuple(_unsupported_keyword_errors(_load_schema(path)))
+
+
 def validate_record_schemas(instance, family, include_validation=True):
     """Return base- and family-schema findings for one record.
 
@@ -327,6 +392,9 @@ def validate_record_schemas(instance, family, include_validation=True):
     ``validation`` property; all other required and family semantics still run.
     """
     findings = _nonfinite_errors(instance)
+    findings.extend(
+        f"base schema: {item}" for item in _schema_keyword_findings(str(BASE_SCHEMA_PATH))
+    )
     base = _load_schema(str(BASE_SCHEMA_PATH))
     if not include_validation:
         base = dict(base)
@@ -340,6 +408,9 @@ def validate_record_schemas(instance, family, include_validation=True):
     findings.extend(f"base schema: {item}" for item in _validate(instance, base, base, "$"))
 
     family_path = FAMILY_SCHEMA_DIR / f"{family}.schema.json"
+    findings.extend(
+        f"family schema: {item}" for item in _schema_keyword_findings(str(family_path))
+    )
     family_schema = _load_schema(str(family_path))
     findings.extend(
         f"family schema: {item}" for item in _validate(instance, family_schema, family_schema, "$")

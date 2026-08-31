@@ -197,8 +197,10 @@ The oracle encodes the trace with both, decodes each with its matched decoder,
 and measures what survived: `rmse`, `max_abs_error`, `pearson_r`,
 `information_retention` (= `1 - rmse`, clipped), `spike_count`, `mean_rate_hz`,
 `energy_pJ`, plus the spike representation as a bounded excerpt with a digest
-over the full train. The winner is decided by the measurement, with an energy
-tiebreak.
+over the full train. The winner is decided by the measurement, with a
+spike-count tiebreak (`winner_basis: "spike_count_tiebreak"`): when retention
+is within the tie epsilon, the encoding that spent fewer spikes — and so less
+energy at the fixed per-spike cost — wins.
 
 ### 2. `neuron-dynamics-counterfactuals`
 

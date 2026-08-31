@@ -35,7 +35,6 @@ import secrets
 import shutil
 import stat
 import sys
-import tempfile
 from pathlib import Path
 
 from oracle_grounded import canon, families, oracles, record
@@ -131,8 +130,15 @@ def summarize(records):
     }
 
 
-def _lexists(path):
-    return os.path.lexists(os.fspath(path))
+def _raw_containment_error(resolved, out_dir):
+    """The refusal for a fully resolved path inside ``outputs/raw/``, or None."""
+    raw_root = Path(os.path.realpath(RAW_TREE))
+    if resolved == raw_root or raw_root in resolved.parents:
+        return (
+            f"{out_dir} resolves into the immutable raw tree {RAW_TREE}; "
+            "outputs/raw/ is never a generation destination"
+        )
+    return None
 
 
 def _raw_destination_error(out_dir):
@@ -145,27 +151,57 @@ def _raw_destination_error(out_dir):
     """
     try:
         resolved = Path(os.path.realpath(out_dir))
-        raw_root = Path(os.path.realpath(RAW_TREE))
+        return _raw_containment_error(resolved, out_dir)
     except (OSError, ValueError) as exc:
         return f"could not resolve {out_dir} against the immutable raw tree: {type(exc).__name__}"
-    if resolved == raw_root or raw_root in resolved.parents:
-        return (
-            f"{out_dir} resolves into the immutable raw tree {RAW_TREE}; "
-            "outputs/raw/ is never a generation destination"
-        )
-    return None
 
 
-def _locked_lock_descriptor(lock_path):
+def _pinned_parent_descriptor(parent, out_dir):
+    """Open and authenticate the run's parent directory for the transaction.
+
+    ``_raw_destination_error`` checks the path before anything exists, but a
+    non-cooperating process can swap a checked ancestor for a symlink into
+    ``outputs/raw/`` after that check returns.  Every later write of the
+    transaction goes through this descriptor, so this authentication is the
+    one that counts: the kernel reports where the descriptor really landed,
+    and a parent inside the raw tree is refused no matter what the path
+    components claimed.  Platforms without ``/proc`` descriptor resolution
+    fail closed, exactly like the ``renameat2`` publication point.
+    """
+    parent_fd = os.open(
+        parent,
+        os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | getattr(os, "O_CLOEXEC", 0),
+    )
+    try:
+        try:
+            true_parent = Path(os.readlink(f"/proc/self/fd/{parent_fd}"))
+        except OSError as exc:
+            raise OSError(
+                errno.ENOSYS,
+                "cannot authenticate the run parent without /proc descriptor resolution",
+            ) from exc
+        error = _raw_containment_error(true_parent, out_dir)
+        if error is not None:
+            raise OSError(errno.EACCES, error)
+    except BaseException:
+        os.close(parent_fd)
+        raise
+    return parent_fd
+
+
+def _locked_lock_descriptor(lock_path, dir_fd=None):
     """Open, authenticate, and exclusively lock one reservation file.
 
     The descriptor is closed on any failure after the open; the open itself
-    propagates without a descriptor to clean up.
+    propagates without a descriptor to clean up.  With ``dir_fd`` the lock
+    name is resolved relative to an already-authenticated parent descriptor,
+    so a racing ancestor swap cannot redirect the lock.
     """
     descriptor = os.open(
         lock_path,
         os.O_CREAT | os.O_RDWR | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0),
         0o600,
+        dir_fd=dir_fd,
     )
     try:
         lock_stat = os.fstat(descriptor)
@@ -179,20 +215,42 @@ def _locked_lock_descriptor(lock_path):
 
 
 def reserve_run(out_dir):
-    """Hold a kernel lock for this output name for the full transaction."""
+    """Hold a kernel lock for this output name for the full transaction.
+
+    Returns ``(lock_descriptor, parent_fd)``; the caller owns both.  The
+    reservation lock, the staging tree, and the publication rename all go
+    through ``parent_fd``, so an ancestor swapped for a symlink after the
+    static destination check can no longer redirect any of those writes.
+    """
     parent = out_dir.parent
     parent.mkdir(parents=True, exist_ok=True)
+    parent_fd = _pinned_parent_descriptor(parent, out_dir)
     stem = out_dir.name or "oracle-run"
-    lock_path = parent / f".{stem}.oracle-generate.lock"
+    lock_name = f".{stem}.oracle-generate.lock"
     try:
-        descriptor = _locked_lock_descriptor(lock_path)
-    except (BlockingIOError, FileExistsError) as exc:
-        raise FileExistsError(f"another generation owns reservation {lock_path}") from exc
-    if _lexists(out_dir):
-        fcntl.flock(descriptor, fcntl.LOCK_UN)
-        os.close(descriptor)
-        raise FileExistsError(f"refusing to overwrite existing run {out_dir}")
-    return descriptor
+        try:
+            descriptor = _locked_lock_descriptor(lock_name, dir_fd=parent_fd)
+        except (BlockingIOError, FileExistsError) as exc:
+            raise FileExistsError(
+                f"another generation owns reservation {parent / lock_name}"
+            ) from exc
+        try:
+            exists = True
+            if out_dir.name:
+                try:
+                    os.lstat(out_dir.name, dir_fd=parent_fd)
+                except FileNotFoundError:
+                    exists = False
+            if exists:
+                raise FileExistsError(f"refusing to overwrite existing run {out_dir}")
+        except BaseException:
+            fcntl.flock(descriptor, fcntl.LOCK_UN)
+            os.close(descriptor)
+            raise
+    except BaseException:
+        os.close(parent_fd)
+        raise
+    return descriptor, parent_fd
 
 
 def _directory_identity(path):
@@ -482,7 +540,7 @@ def main(argv=None):
         print(f"oracle_generate: {raw_error}", file=sys.stderr)
         return 2
     try:
-        lock_descriptor = reserve_run(out_dir)
+        lock_descriptor, parent_fd = reserve_run(out_dir)
     except (FileExistsError, NotADirectoryError, OSError) as exc:
         print(f"oracle_generate: {exc}", file=sys.stderr)
         return 2
@@ -512,12 +570,14 @@ def main(argv=None):
                 print(f"oracle_generate: {error}", file=sys.stderr)
             return 1
 
-        staging = Path(
-            tempfile.mkdtemp(
-                prefix=f".{out_dir.name or 'oracle-run'}.staging-",
-                dir=out_dir.parent,
-            )
-        )
+        # Create and address the staging tree through the authenticated parent
+        # descriptor: every write below resolves through the pinned directory,
+        # so an ancestor swapped for a symlink after the reservation cannot
+        # redirect the staging files or the publication rename.
+        pinned_parent = Path(f"/proc/self/fd/{parent_fd}")
+        staging_name = f".{out_dir.name or 'oracle-run'}.staging-{secrets.token_hex(8)}"
+        os.mkdir(staging_name, mode=0o700, dir_fd=parent_fd)
+        staging = pinned_parent / staging_name
         staging_identity = _directory_identity(staging)
         files = {}
         total_bytes = 0
@@ -573,7 +633,8 @@ def main(argv=None):
         )
         # The publication point itself is no-replace; a non-cooperating writer
         # that races the reservation cannot have its directory overwritten.
-        publish_noreplace(staging, out_dir, staging_identity)
+        # The destination is addressed through the pinned parent as well.
+        publish_noreplace(staging, pinned_parent / out_dir.name, staging_identity)
         staging = None
         published = True
     except (OSError, TypeError, ValueError) as exc:
@@ -584,10 +645,13 @@ def main(argv=None):
         return 1
     finally:
         try:
+            # Cleanup addresses the staging tree through the still-open parent
+            # descriptor, so it must run before that descriptor is closed.
             _cleanup_staging(staging, staging_identity)
         finally:
             fcntl.flock(lock_descriptor, fcntl.LOCK_UN)
             os.close(lock_descriptor)
+            os.close(parent_fd)
     if published:
         try:
             print(manifest_text)

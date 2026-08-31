@@ -157,6 +157,18 @@ def write_test_manifest(run_dir):
                     probes.setdefault(probe["runtime"], probe)
         availability_probes = [probes[runtime] for runtime in runtime_order if runtime in probes]
         unbound = [probe["runtime"] for probe in availability_probes if not probe["bound"]]
+        # The note is recomputed by the validator from record publishability,
+        # so scratch manifests must derive it the same way build_manifest does.
+        any_publishable = any(
+            isinstance(item.get("validation"), dict)
+            and item["validation"].get("publishable") is True
+            for _path, item in parsed
+        )
+        note = (
+            oracle_validate.MANIFEST_NOTE_PUBLISHABLE
+            if any_publishable
+            else oracle_validate.MANIFEST_NOTE_REFERENCE
+        )
         manifest = {
             "schema": record.SCHEMA_ID,
             "round": round_number,
@@ -174,7 +186,7 @@ def write_test_manifest(run_dir):
             },
             "files": files,
             "generation_errors": [],
-            "note": "Synthetic test manifest; internally consistent but unsigned.",
+            "note": note,
         }
     manifest_path.write_text(
         json.dumps(manifest, indent=2, sort_keys=True) + "\n",
@@ -483,6 +495,26 @@ class ValidateCli(unittest.TestCase):
             report = json.loads(completed.stdout)
             self.assertEqual(report["reproduce"], {"unavailable": 1})
             self.assertIn("reproduction was unavailable", completed.stderr)
+
+    def test_reproduction_failures_stay_in_their_own_bucket(self):
+        # A failed reproduction still fails the run, but the record was
+        # already tallied as accepted or rejected: charging "invalid" too
+        # would make accepted + rejected + invalid exceed records.
+        item = relabel_as_named_runtime(build(families.ENCODER_FAMILY))
+        with tempfile.TemporaryDirectory(prefix="oracle-reproduce-count-") as temp:
+            path = Path(temp) / families.ENCODER_FAMILY / "accepted-r01.jsonl"
+            path.parent.mkdir(parents=True)
+            path.write_text(canon.dumps_record(item) + "\n")
+            write_test_manifest(temp)
+            completed = run_cli(VALIDATE, "--reproduce", temp)
+            self.assertEqual(completed.returncode, 1)
+            report = json.loads(completed.stdout)
+            self.assertEqual(report["reproduce"], {"unavailable": 1})
+            self.assertEqual(report["invalid"], 0)
+            self.assertEqual(
+                report["accepted"] + report["rejected"] + report["invalid"],
+                report["records"],
+            )
 
     def test_mixed_oracle_chains_are_not_counted_as_named_runtime(self):
         item = build(families.CREDIT_FAMILY)
@@ -907,6 +939,9 @@ class GenerateCli(unittest.TestCase):
             {},
         )
         self.assertIn("no record here", manifest["note"])
+        # The validator recomputes the note, so the two vocabularies must be
+        # byte-identical or every generated run would fail note validation.
+        self.assertEqual(manifest["note"], oracle_validate.MANIFEST_NOTE_REFERENCE)
 
         publishable = relabel_as_named_runtime(reference_only)
         self.assertTrue(publishable["validation"]["publishable"], publishable["validation"])
@@ -921,6 +956,7 @@ class GenerateCli(unittest.TestCase):
         )
         self.assertNotIn("no record here", manifest["note"])
         self.assertIn("publishable", manifest["note"])
+        self.assertEqual(manifest["note"], oracle_validate.MANIFEST_NOTE_PUBLISHABLE)
 
     def test_it_refuses_to_overwrite_an_existing_run(self):
         with tempfile.TemporaryDirectory(prefix="oracle-twice-") as temp:
@@ -1163,6 +1199,24 @@ class GenerateCli(unittest.TestCase):
             self.assertFalse(out.exists())
             self.assertIn("exceeding the validator's", captured.getvalue())
             self.assertIn("per-file limit", captured.getvalue())
+
+    def test_reservation_refuses_a_parent_swapped_into_the_raw_tree(self):
+        # _raw_destination_error runs on the caller's path before anything is
+        # written; a non-cooperating process can then swap an ancestor for a
+        # symlink into outputs/raw/. The reservation must authenticate where
+        # its parent descriptor actually landed and refuse the raw tree, or
+        # the lock and staging files would be created inside the raw tree.
+        with tempfile.TemporaryDirectory(prefix="oracle-raw-swap-") as temp:
+            temp = Path(temp)
+            fake_raw = temp / "outputs" / "raw"
+            (fake_raw / "runs").mkdir(parents=True)
+            swapped = temp / "workdir"
+            swapped.symlink_to(fake_raw / "runs")
+            with mock.patch.object(oracle_generate, "RAW_TREE", fake_raw):
+                with self.assertRaises(OSError) as context:
+                    oracle_generate.reserve_run(swapped / "run")
+            self.assertIn("immutable raw tree", str(context.exception))
+            self.assertEqual(list((fake_raw / "runs").iterdir()), [])
 
     def test_a_publication_race_never_deletes_the_impostor(self):
         # If a non-cooperating writer swaps its own directory in after our
