@@ -256,15 +256,20 @@ record in the committed fixture has `oracle_complete: false`.
 
 ```bash
 python3 pipelines/hardware_parity.py availability
-python3 pipelines/hardware_parity.py generate outputs/raw/<date> --round 1
+python3 pipelines/hardware_parity.py generate outputs/staging/<date> --round 1
 python3 pipelines/hardware_parity.py validate tests/fixtures/parity-run/hardware-parity-spike-trajectories/batch-r01.jsonl
 python3 pipelines/hardware_parity.py training-view <path>
 
 python3 pipelines/nir_equivalence.py availability
-python3 pipelines/nir_equivalence.py generate outputs/raw/<date> --round 1
+python3 pipelines/nir_equivalence.py generate outputs/staging/<date> --round 1
 python3 pipelines/nir_equivalence.py validate tests/fixtures/parity-run/nir-cross-runtime-equivalence/batch-r01.jsonl
 python3 pipelines/nir_equivalence.py training-view <path>
 ```
+
+`outputs/raw/` is immutable committed evidence and never a generate target;
+a staged round is promoted into it through `pipelines/round_txn.py`
+(reserve, move the batch and NOTES into the returned stage, publish), as
+documented in the README's parity-families section.
 
 Both families also route through the normal factory layers:
 `pipelines/census.py` classifies them, `pipelines/validate_run.py` enforces

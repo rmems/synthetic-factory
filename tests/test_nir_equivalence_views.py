@@ -230,11 +230,22 @@ class Cli(unittest.TestCase):
 
     def test_read_jsonl_reports_absurd_nesting_as_a_line_error(self):
         # A syntactically valid but absurdly nested line must be a line-level
-        # parse error, not a decoder RecursionError that aborts the scan.
+        # parse error, not a decoder RecursionError that aborts the scan. The
+        # depth at which the decoder gives up is a platform property (stack
+        # budget), so probe for one it refuses rather than hard-coding it.
+        depth = 100_000
+        while depth <= 3_200_000:
+            try:
+                json.loads("[" * depth + "]" * depth)
+            except RecursionError:
+                break
+            depth *= 2
+        else:
+            self.skipTest("this platform's decoder accepts 3.2M-deep nesting")
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "batch.jsonl"
             path.write_text(
-                "[" * 100_000 + "]" * 100_000 + '\n{"id": "after"}\n',
+                "[" * depth + "]" * depth + '\n{"id": "after"}\n',
                 encoding="utf-8",
             )
             records, errors = nir.read_jsonl(path)
