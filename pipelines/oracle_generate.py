@@ -244,13 +244,17 @@ def publish_noreplace(staging, out_dir, expected_identity=None):
     _rename_noreplace(staging, out_dir)
     published_identity = _directory_identity(out_dir)
     if published_identity != expected_identity:
+        # A non-cooperating writer swapped its own directory in after our
+        # rename. Move the imposter aside so the run name is not left
+        # claiming our authentication, but never delete it: that inode is
+        # known NOT to be the staging tree, so its content belongs to
+        # someone else and destroying it would turn a detected race into
+        # data loss. Publication still fails loudly.
         quarantine = out_dir.with_name(
             f".{out_dir.name or 'oracle-run'}.rejected-{secrets.token_hex(8)}"
         )
         try:
             _rename_noreplace(out_dir, quarantine)
-            if _directory_identity(quarantine) == published_identity:
-                shutil.rmtree(quarantine)
         except OSError:
             pass
         raise OSError(
@@ -385,6 +389,21 @@ def _resolve_stamp(args, availability):
                 file=sys.stderr,
             )
             return None, None, 2
+        if dirty is None:
+            # An explicit commit stamp must not leave the dirty flag
+            # unresolved: a bound named runtime can make this run's records
+            # publishable, and null dirty state is not resolved provenance.
+            _checkout_commit, checkout_dirty = oracles.resolve_commit()
+            if checkout_dirty is not None:
+                dirty = checkout_dirty
+            elif any(probe["bound"] for probe in availability["runtimes"]):
+                print(
+                    "oracle_generate: could not resolve the working tree's dirty "
+                    "state; a bound named runtime can produce publishable output, "
+                    "so pass --oracle-dirty or --no-oracle-dirty explicitly",
+                    file=sys.stderr,
+                )
+                return None, None, 3
     if commit == "unknown":
         print(
             "oracle_generate: could not resolve the oracle commit; pass "

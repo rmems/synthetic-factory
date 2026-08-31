@@ -109,6 +109,7 @@
       "properties": {
         "measured": {
           "type": "object",
+          "additionalProperties": false,
           "required": ["before", "after", "delta"],
           "properties": {
             "before": { "$ref": "#/$defs/neuronState" },

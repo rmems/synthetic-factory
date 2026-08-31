@@ -71,6 +71,7 @@
       "properties": {
         "measured": {
           "type": "object",
+          "additionalProperties": false,
           "required": [
             "baseline",
             "probes",

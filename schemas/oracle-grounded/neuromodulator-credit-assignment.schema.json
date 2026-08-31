@@ -64,6 +64,7 @@
       "properties": {
         "measured": {
           "type": "object",
+          "additionalProperties": false,
           "required": ["critic", "plasticity"],
           "properties": {
             "critic": {

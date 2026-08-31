@@ -1164,6 +1164,60 @@ class GenerateCli(unittest.TestCase):
             self.assertIn("exceeding the validator's", captured.getvalue())
             self.assertIn("per-file limit", captured.getvalue())
 
+    def test_a_publication_race_never_deletes_the_impostor(self):
+        # If a non-cooperating writer swaps its own directory in after our
+        # rename, the mismatch is quarantined aside and publication fails,
+        # but the foreign inode's content must survive: it is known NOT to
+        # be our staging tree, so deleting it would be third-party data loss.
+        with tempfile.TemporaryDirectory(prefix="oracle-race-") as temp:
+            staging = Path(temp) / "staging"
+            staging.mkdir()
+            (staging / "payload.txt").write_text("theirs", encoding="utf-8")
+            out = Path(temp) / "run"
+            real_identity = oracle_generate._directory_identity(staging)
+            forged_identity = (real_identity[0] + 1, real_identity[1] + 1)
+            with mock.patch.object(
+                oracle_generate,
+                "_directory_identity",
+                side_effect=[real_identity, forged_identity],
+            ):
+                with self.assertRaises(OSError):
+                    oracle_generate.publish_noreplace(staging, out, real_identity)
+            quarantined = [
+                path
+                for path in Path(temp).iterdir()
+                if path.name.startswith(".run.rejected-")
+            ]
+            self.assertEqual(len(quarantined), 1, list(Path(temp).iterdir()))
+            self.assertEqual(
+                (quarantined[0] / "payload.txt").read_text(), "theirs"
+            )
+            self.assertFalse(out.exists())
+
+    def test_an_explicit_commit_stamp_resolves_the_dirty_state(self):
+        # --oracle-commit without a dirty flag must not stamp a null dirty
+        # state; the checkout's own state is resolved instead.
+        with tempfile.TemporaryDirectory(prefix="oracle-dirty-stamp-") as temp:
+            out = Path(temp) / "run"
+            with mock.patch("builtins.print"):
+                status = oracle_generate.main(
+                    [
+                        "--family",
+                        families.ENCODER_FAMILY,
+                        "--count",
+                        "1",
+                        "--oracle-commit",
+                        PINNED_COMMIT,
+                        str(out),
+                    ]
+                )
+            self.assertEqual(status, 0)
+            manifest = json.loads((out / "manifest.json").read_text())
+            self.assertIsInstance(manifest["oracle_dirty"], bool)
+            for path in out.rglob("*.jsonl"):
+                for item in read_jsonl(path):
+                    self.assertIsInstance(item["oracle"]["dirty"], bool)
+
     def test_argument_guards_reject_in_process(self):
         # The subprocess suite proves these exits end to end; exercising the
         # same guards in process keeps the refusal branches measured.

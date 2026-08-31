@@ -276,6 +276,11 @@ def publishability(record, findings=()):
         )
     if oracle["commit"] == "unknown":
         reasons.append("oracle commit could not be resolved")
+    if oracle.get("dirty") is None:
+        reasons.append(
+            "oracle working-tree dirty state is unresolved; publication "
+            "requires resolved provenance"
+        )
     if findings:
         reasons.append("record failed validation")
     if reasons:
@@ -287,7 +292,7 @@ def publishability(record, findings=()):
     )
 
 
-def classify(record, require_named_runtime=False, check_declared_status=True):
+def classify(record, require_named_runtime=False, check_declared_status=True, expected_commit=None):
     """Split findings into layers so a rejected record still validates.
 
     * ``envelope`` — structure, hashes, attribution, provenance. Always fatal:
@@ -331,7 +336,7 @@ def classify(record, require_named_runtime=False, check_declared_status=True):
         return {"envelope": envelope, "family": [], "status": []}
 
     envelope.extend(_validate_generator_side(record))
-    envelope.extend(_validate_oracle_side(record, require_named_runtime))
+    envelope.extend(_validate_oracle_side(record, require_named_runtime, expected_commit))
     if envelope:
         return {"envelope": envelope, "family": [], "status": []}
 
@@ -462,8 +467,15 @@ def _validate_generator_side(record):
     return findings
 
 
-def _oracle_shape_findings(oracle, findings):
-    """Shape and identity checks on the oracle envelope itself."""
+def _oracle_shape_findings(oracle, findings, expected_commit=None):
+    """Shape and identity checks on the oracle envelope itself.
+
+    ``expected_commit`` is a commit the caller has already resolved against
+    the repository (a run manifest's oracle commit). When provided, a record
+    stamped with a different commit is rejected by string comparison instead
+    of launching its own repository resolution, so a run holding thousands of
+    distinct forged commits cannot turn validation into repeated git calls.
+    """
     if not isinstance(oracle["configuration"], dict) or not oracle["configuration"]:
         findings.append("oracle.configuration must be a non-empty object")
     if not isinstance(oracle["units"], dict) or not oracle["units"]:
@@ -475,6 +487,10 @@ def _oracle_shape_findings(oracle, findings):
     commit = oracle["commit"]
     if not oracles.is_source_commit(commit):
         findings.append("oracle.commit must be a resolved lowercase 40- or 64-hex source commit")
+    elif expected_commit is not None and commit != expected_commit:
+        findings.append(
+            "oracle.commit does not match the run manifest's resolved oracle commit"
+        )
     elif oracles.resolve_source_commit(commit) != commit:
         findings.append(
             "oracle.commit does not resolve to that commit object in the source repository"
@@ -580,7 +596,7 @@ def _provenance_findings(record, oracle, findings):
         findings.append("provenance.oracle_authored does not match the oracle-authored sections")
 
 
-def _validate_oracle_side(record, require_named_runtime):
+def _validate_oracle_side(record, require_named_runtime, expected_commit=None):
     findings = []
     oracle = record["oracle"]
     if not isinstance(oracle, dict):
@@ -594,7 +610,7 @@ def _validate_oracle_side(record, require_named_runtime):
         findings.append(
             "oracle carries unauthenticated sibling keys: " + ", ".join(unknown)
         )
-    _oracle_shape_findings(oracle, findings)
+    _oracle_shape_findings(oracle, findings, expected_commit)
     if oracle["implementation"] not in ("reference", "named-runtime", "mixed"):
         findings.append(f"unknown oracle.implementation: {oracle['implementation']!r}")
     else:

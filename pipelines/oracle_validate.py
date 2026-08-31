@@ -44,6 +44,25 @@ MAX_RUN_BYTES = 128 * 1024 * 1024
 MAX_RUN_RECORDS = 100_000
 MAX_ROUND = 99_999_999
 READ_CHUNK_BYTES = 1024 * 1024
+# Exactly the keys oracle_generate.build_manifest writes. The manifest is
+# canonical run metadata covered by no other digest, so its vocabulary is
+# closed against undeclared provenance claims.
+MANIFEST_ALLOWED_KEYS = frozenset(
+    {
+        "schema",
+        "round",
+        "seed",
+        "count_per_family",
+        "families",
+        "oracle_commit",
+        "oracle_dirty",
+        "module_digest",
+        "oracle_availability",
+        "files",
+        "generation_errors",
+        "note",
+    }
+)
 
 
 @dataclass(frozen=True)
@@ -561,6 +580,7 @@ class _FileScope:
     totals: object
     errors: list
     seen_ids: dict
+    expected_commit: object = None
 
     def report(self, where, message):
         """Record one finding against a file coordinate."""
@@ -601,10 +621,14 @@ def _duplicate_id_finding(item, where, seen_ids):
     return None
 
 
-def _classify_layers(item, require_runtime):
+def _classify_layers(item, require_runtime, expected_commit=None):
     """Classify one record, containing any internal failure as an envelope finding."""
     try:
-        return record.classify(item, require_named_runtime=require_runtime)
+        return record.classify(
+            item,
+            require_named_runtime=require_runtime,
+            expected_commit=expected_commit,
+        )
     except Exception as exc:  # final boundary around one untrusted record
         return {
             "envelope": [
@@ -679,7 +703,7 @@ def _validate_one_record(item, where, scope):
             scope.report(where, identity_finding)
         return
     scope.totals["records"] += 1
-    layers = _classify_layers(item, scope.require_runtime)
+    layers = _classify_layers(item, scope.require_runtime, scope.expected_commit)
     fatal = _fatal_findings(item, layers, identity_finding, scope)
     if fatal:
         scope.totals["invalid"] += 1
@@ -691,8 +715,14 @@ def _validate_one_record(item, where, scope):
         _reproduce_record(item, where, scope)
 
 
-def validate_file(snapshot, require_runtime, reproduce, selected, seen_ids=None):
-    """Validate one captured JSONL snapshot. Returns totals, errors, records."""
+def validate_file(snapshot, require_runtime, reproduce, selected, seen_ids=None, expected_commit=None):
+    """Validate one captured JSONL snapshot. Returns totals, errors, records.
+
+    ``expected_commit`` is the run manifest's already-resolved oracle commit;
+    when provided, a record stamped with a different commit is rejected by
+    string comparison instead of launching its own repository resolution, so
+    a run full of distinct forged commits cannot hold the CLI in git.
+    """
     scope = _FileScope(
         path=snapshot.path,
         relative=snapshot.relative,
@@ -702,6 +732,7 @@ def validate_file(snapshot, require_runtime, reproduce, selected, seen_ids=None)
         totals=Counter(),
         errors=[],
         seen_ids={} if seen_ids is None else seen_ids,
+        expected_commit=expected_commit,
     )
     expected_verdict = _verdict_for_file(scope.path.name)
     parsed_records = []
@@ -1127,6 +1158,12 @@ def _manifest_metadata_errors(manifest, snapshots, parsed_records, run_dir):
         errors=[],
         probe_values={},
     )
+    # The manifest is canonical run metadata that no other digest covers, so
+    # its vocabulary is closed: an undeclared sibling would be an unsupported
+    # provenance claim riding along with an otherwise valid run.
+    unknown = sorted(set(manifest) - MANIFEST_ALLOWED_KEYS)
+    if unknown:
+        context.report("manifest carries unauthenticated sibling keys: " + ", ".join(unknown))
     _header_field_errors(context)
     declared_families = _declared_families_block(manifest, context)
 
@@ -1158,6 +1195,15 @@ def validate_run(run_dir, require_runtime=False, reproduce=False, selected=()):
     by_family = Counter()
     manifest, snapshots, manifest_errors = authenticate_manifest(run_dir)
     errors.extend(manifest_errors)
+    # Resolve the manifest's oracle commit once; per-record validation then
+    # binds each record to it by string comparison rather than resolving
+    # every distinct stamped commit against the repository.
+    manifest_commit = manifest.get("oracle_commit") if isinstance(manifest, dict) else None
+    expected_commit = (
+        manifest_commit
+        if oracles.resolve_source_commit(manifest_commit) == manifest_commit
+        else None
+    )
     seen_ids = {}
     parsed_records = []
     for snapshot in snapshots:
@@ -1167,6 +1213,7 @@ def validate_run(run_dir, require_runtime=False, reproduce=False, selected=()):
             reproduce,
             selected,
             seen_ids=seen_ids,
+            expected_commit=expected_commit,
         )
         totals.update(file_totals)
         errors.extend(file_errors)

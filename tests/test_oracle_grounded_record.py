@@ -179,6 +179,53 @@ class EnvelopeShape(unittest.TestCase):
             findings,
         )
 
+    def test_unauthenticated_measured_siblings_are_rejected_for_every_family(self):
+        # result.measured is the authoritative measurement surface; an
+        # injected sibling with a recomputed result_hash must not validate.
+        for family in families.FAMILY_NAMES:
+            with self.subTest(family=family):
+                item = build(family)
+                item["result"]["measured"]["external_attestation"] = "verified-on-hardware"
+                item["result_hash"] = canon.digest(item["result"])
+                findings = record.validate_record(item, check_declared_status=False)
+                self.assertTrue(
+                    any(
+                        "external_attestation" in f and "not allowed" in f
+                        for f in findings
+                    ),
+                    (family, findings),
+                )
+
+    def test_run_bound_validation_rejects_a_foreign_commit_without_resolving(self):
+        # With the manifest's resolved commit supplied, a record stamped with
+        # a different commit is rejected by string comparison; it must never
+        # launch its own repository resolution, or a run full of distinct
+        # forged commits could hold the bounded CLI in git for minutes.
+        item = build(families.ENCODER_FAMILY)
+        item["oracle"]["commit"] = "b" * 40
+        with mock.patch.object(
+            record.oracles,
+            "resolve_source_commit",
+            side_effect=AssertionError("per-record resolution must not run"),
+        ):
+            layers = record.classify(
+                item, check_declared_status=False, expected_commit=PINNED_COMMIT
+            )
+        self.assertTrue(
+            any(
+                "does not match the run manifest's resolved oracle commit" in f
+                for f in layers["envelope"]
+            ),
+            layers,
+        )
+
+    def test_a_named_runtime_record_with_unresolved_dirty_state_is_unpublishable(self):
+        item = relabel_as_named_runtime(build(families.ENCODER_FAMILY))
+        item["oracle"]["dirty"] = None
+        publishable, reason = record.publishability(item)
+        self.assertFalse(publishable)
+        self.assertIn("dirty state is unresolved", reason)
+
     def test_unauthenticated_provenance_siblings_are_rejected(self):
         item = build(families.ENCODER_FAMILY)
         item["provenance"]["external_attestation"] = "verified-on-hardware"

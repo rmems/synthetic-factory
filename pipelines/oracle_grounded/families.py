@@ -223,8 +223,12 @@ def _encoder_checks(record):
         if len(excerpt) > state["spike_count"]:
             findings.append(f"{side}.representation_excerpt exceeds spike_count")
         duration_ms = scenario["sample_count"] * scenario["sample_ms"]
+        # Set membership keeps this loop linear: both arrays are untrusted
+        # and unbounded up to the validator's file limit, so a list scan per
+        # event would be quadratic on malformed input.
+        known_channels = set(state["channels"])
         for position, event in enumerate(excerpt):
-            if event["channel"] not in state["channels"]:
+            if event["channel"] not in known_channels:
                 findings.append(
                     f"{side}.representation_excerpt[{position}] names an unknown channel"
                 )

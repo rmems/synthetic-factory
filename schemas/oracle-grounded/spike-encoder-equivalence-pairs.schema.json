@@ -71,6 +71,7 @@
       "properties": {
         "measured": {
           "type": "object",
+          "additionalProperties": false,
           "required": [
             "encoding_a",
             "encoding_b",

@@ -339,6 +339,73 @@ class RunTreeGuardTest(unittest.TestCase):
         self.assert_authentication_reports(run, "sha256 mismatch")
 
 
+class ManifestVocabularyTest(GoldenRunFixture):
+    """The manifest's top-level vocabulary is closed."""
+
+    def test_an_unauthenticated_manifest_sibling_is_rejected(self):
+        self.assert_reports(
+            lambda manifest: manifest.__setitem__(
+                "external_attestation", "verified-on-hardware"
+            ),
+            "manifest carries unauthenticated sibling keys: external_attestation",
+        )
+
+    def test_every_generated_manifest_key_is_declared(self):
+        self.assertEqual(
+            set(self.manifest) - oracle_validate.MANIFEST_ALLOWED_KEYS, set()
+        )
+
+
+class RunBoundCommitTest(GoldenRunFixture):
+    """Run-level validation binds records to the manifest's resolved commit."""
+
+    def test_a_record_with_a_foreign_commit_is_rejected_without_resolving(self):
+        import copy as _copy
+
+        from oracle_grounded import canon, oracles
+
+        parsed = _copy.deepcopy(self.records[0].item)
+        parsed["oracle"]["commit"] = "b" * 40
+        body = (canon.dumps_record(parsed) + "\n").encode("utf-8")
+        snapshot = oracle_validate.FileSnapshot(
+            path=Path(self.records[0].where.rsplit(":", 1)[0]),
+            relative=self.records[0].relative,
+            body=body,
+            device=0,
+            inode=0,
+        )
+        expected = self.manifest["oracle_commit"]
+        with mock.patch.object(
+            oracles,
+            "resolve_source_commit",
+            side_effect=AssertionError("per-record resolution must not run"),
+        ):
+            totals, errors, _parsed = oracle_validate.validate_file(
+                snapshot, False, False, set(), expected_commit=expected
+            )
+        self.assertEqual(totals["invalid"], 1)
+        self.assertTrue(
+            any(
+                "does not match the run manifest's resolved oracle commit" in e
+                for e in errors
+            ),
+            errors,
+        )
+
+    def test_a_matching_commit_still_validates_through_the_bound_path(self):
+        snapshot = self.snapshots[0]
+        totals, errors, _parsed = oracle_validate.validate_file(
+            snapshot,
+            False,
+            False,
+            set(),
+            expected_commit=self.manifest["oracle_commit"],
+        )
+        self.assertEqual(errors, [])
+        self.assertEqual(totals["invalid"], 0)
+        self.assertGreater(totals["records"], 0)
+
+
 class StrictParsingTest(unittest.TestCase):
     """The JSON boundary refuses what canonical JSON cannot represent."""
 
