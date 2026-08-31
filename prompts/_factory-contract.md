@@ -13,7 +13,8 @@ start factories 06 or 07 from this contract.
    into `outputs/raw/`; never invent `c` collision suffixes.
 4. Emit exactly one complete JSON object per nonblank JSONL line—no fences,
    headings, comments, trailing prose, or multiline objects.
-5. Self-critique in the staged notes, then publish with
+5. Self-critique in the staged notes, which MUST contain the line
+   `Novel coverage: <N>%` (see "Novel coverage" below), then publish with
    `python3 pipelines/round_txn.py publish <factory-dir> --round N --token TOKEN`.
    Repair only staged files when validation fails. A round is complete only
    when its `ROUND-rNN.complete.json` marker exists.
@@ -39,9 +40,35 @@ start factories 06 or 07 from this contract.
 - Preference `chosen` and `rejected` share the exact same state and proposed
   action. The contrast must teach gate/execution/recovery quality, not reward a
   changed problem.
-- Bridge `spike_events` are globally non-decreasing by finite timestamp and
-  include finite amplitudes, channel IDs, realistic density, refractory gaps,
+- Any `spike_events` stream — on a Bridge pair or on a trajectory — is one
+  train in global time order: every event carries exactly one finite
+  `t_rel_ms` (or the `t_ms` alias), every event in the stream uses that same
+  key, and the timestamps are non-decreasing. Never mix timestamp keys or
+  group events by channel. Bridge streams additionally carry finite
+  amplitudes, non-empty channel IDs, realistic density, refractory gaps,
   adaptation, and noise.
+
+## Novel coverage (required NOTES line)
+
+Every staged `NOTES-rNN.md` must contain one line of the form:
+
+```text
+Novel coverage: 12.3%
+```
+
+`N` is your honest estimate of the fraction of this round's scenarios, edges,
+or failure modes that are novel relative to all prior committed rounds for this
+factory. `round_txn.py publish` rejects a round whose notes omit the line or
+state a value outside 0–100.
+
+The line drives the token-efficiency early-stop: two consecutive rounds under
+5% stop the lane and save ~40% of the plateau tail's generation and
+verification tokens (`docs/token-efficiency.md`). Report a low number when
+novelty really is low — over-reporting buys near-duplicate rounds at full
+token cost, and under-reporting cuts a lane that still had signal left. An
+optional parenthetical is accepted
+(`Novel coverage (estimated): 4.2 %`); prose percentages elsewhere in the notes
+are ignored, so the labeled line must be present verbatim.
 
 ## Quality
 
