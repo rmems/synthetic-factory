@@ -1830,5 +1830,221 @@ class FourthRoundBaselineGaps(unittest.TestCase):
                 self.assertIn("positive integer", str(caught.exception))
 
 
+class FifthRoundEnergyGaps(unittest.TestCase):
+    """energy_preferences.py and the shared meter allowlist — fifth pass."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.records = ep.build_records(20260823, 1, repeats=1, warmup=0)
+
+    def record(self) -> dict:
+        return clone(self.records[0])
+
+    def test_a_malformed_allocation_is_corruption_not_a_derived_failure(self):
+        # ["bad"] used to convert into ALLOCATION_NOT_NUMERIC, so restating
+        # the derived failure values shipped a fabricated policy failure.
+        record = self.record()
+        candidate = next(
+            c for c in record["result"]["candidates"] if c["id"] == "coarse_grid"
+        )
+        candidate["allocation"] = ["bad"]
+        candidate["safety_ok"] = False
+        candidate["safety_violations"] = ["ALLOCATION_NOT_NUMERIC"]
+        candidate["task_quality"] = 0.0
+        for item in record["result"]["measurements"]:
+            detail = item.get("detail", {})
+            if (
+                detail.get("candidate") == "coarse_grid"
+                and item["quantity"] == "task_quality"
+            ):
+                item["value"] = 0.0
+        rehash(record)
+        errors = ep.check_family(record, "x")
+        self.assertTrue(
+            any(
+                "must be null, empty, or a finite numeric vector" in e
+                for e in errors
+            ),
+            f"a fabricated policy failure passed: {errors}",
+        )
+
+    def test_the_reference_objective_must_be_restated(self):
+        # Deleting it (or writing a string) skipped the comparison even
+        # though the scenario derives the optimum.
+        for mutate in ("delete", "string"):
+            record = self.record()
+            if mutate == "delete":
+                del record["result"]["reference_objective"]
+            else:
+                record["result"]["reference_objective"] = "high"
+            rehash(record)
+            with self.subTest(mutate=mutate):
+                errors = ep.check_family(record, "x")
+                self.assertTrue(
+                    any("must restate the scenario optimum" in e for e in errors),
+                    f"a lost reference objective passed: {errors}",
+                )
+
+    def test_the_replay_wrapper_is_not_a_physical_energy_meter(self):
+        # `recorded_power_run` is the replay wrapper; renaming every joule
+        # reading's meter to it used to stay validation-clean while hiding
+        # the physical instrument.
+        scenario = ep.propose_scenarios(21, 1)[0]["scenario"]
+        observations = {
+            ep.workload_key(policy, scenario, fine_steps=12, coarse_steps=4): {
+                "cost_value": cost
+            }
+            for policy, cost in (
+                ("analytic_kkt", 8.0),
+                ("coarse_grid", 3.0),
+                ("exhaustive_grid", 31.0),
+                ("unclipped_proportional", 0.2),
+            )
+        }
+        meter = ep.RecordedEnergyMeter(
+            {
+                "run_id": "metered-run-5",
+                "meter": "external_power_meter",
+                "cost_quantity": "energy_j",
+                "observations": observations,
+            }
+        )
+        record = ep.build_records(21, 1, meter=meter, fine_steps=12, coarse_steps=4)[0]
+        self.assertEqual(ep.check_family(record, "x") + vd.check_record(record, "x"), [])
+        tampered = clone(record)
+        for item in tampered["result"]["measurements"]:
+            if item["quantity"] == "energy_j":
+                item["meter"] = "recorded_power_run"
+        for candidate in tampered["result"]["candidates"]:
+            candidate["cost_meter"] = "recorded_power_run"
+        rehash(tampered)
+        errors = ep.check_family(tampered, "x") + vd.check_record(tampered, "x")
+        self.assertTrue(
+            any("recorded_power_run" in e for e in errors),
+            f"the replay wrapper passed as a physical meter: {errors}",
+        )
+
+
+class FifthRoundFaultGaps(unittest.TestCase):
+    """fault_recovery.py — fifth pass."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.records = fr.build_records(11, 12)
+
+    def test_invalid_system_controls_are_refused(self):
+        # corruption_quarantine_ratio: -1 flipped a below-threshold
+        # corruption from degrade_gracefully to quarantine with zero
+        # findings; a scrambled thermal ladder rewrites the tiers the same
+        # way.
+        base = next(
+            clone(r)
+            for r in self.records
+            if r["intervention"]["kind"] == "burst_corruption"
+        )
+        for key, value, fragment in (
+            ("corruption_quarantine_ratio", -1, "corruption_quarantine_ratio"),
+            ("thermal_shutdown_c", 10.0, "thermal ladder"),
+            ("ticks", 0, "ticks"),
+            ("tick_ms", 0, "tick_ms"),
+        ):
+            record = clone(base)
+            system = dict(record["scenario"].get("system", {}))
+            system[key] = value
+            record["scenario"]["system"] = system
+            rehash(record)
+            with self.subTest(control=key):
+                with self.assertRaises(oc.ContractError) as caught:
+                    fr.RelayReflexSimulator().run(
+                        record["scenario"], record["intervention"]
+                    )
+                self.assertIn(fragment, str(caught.exception))
+                errors = fr.check_family(record, "x")
+                self.assertTrue(
+                    any(fragment in e for e in errors),
+                    f"an invalid {key} passed validation: {errors}",
+                )
+
+    def test_the_oracle_configuration_must_describe_the_replayed_system(self):
+        for mutate, fragment in (
+            ("system", "does not match"),
+            ("missing", "must record the simulator's"),
+            ("precedence", "canonical"),
+        ):
+            record = clone(self.records[0])
+            if mutate == "system":
+                record["oracle"]["configuration"]["system"] = {"tick_ms": 999}
+            elif mutate == "missing":
+                del record["oracle"]["configuration"]
+            else:
+                record["oracle"]["configuration"]["precedence"] = ["continue"]
+            rehash(record)
+            with self.subTest(mutate=mutate):
+                errors = fr.check_family(record, "x")
+                self.assertTrue(
+                    any(fragment in e for e in errors),
+                    f"a rewritten oracle configuration passed: {errors}",
+                )
+
+    def test_the_prediction_agreement_field_must_be_present(self):
+        record = clone(self.records[0])
+        del record["result"]["prediction_agreement"]
+        rehash(record)
+        errors = fr.check_family(record, "x")
+        self.assertTrue(
+            any("prediction_agreement must be present" in e for e in errors),
+            f"a record without the derived agreement passed: {errors}",
+        )
+
+
+class FifthRoundRouterGaps(unittest.TestCase):
+    """moe_router.py — fifth pass."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.records = mr.build_records(20260823, 2)
+
+    def test_a_promised_target_marked_unmeasured_is_not_reconciled(self):
+        # `measured: false` on a promised compact target still counted as
+        # reconciled, publishing a modelled value as a grounded router
+        # measurement.
+        record = clone(self.records[0])
+        for item in record["result"]["measurements"]:
+            if item["quantity"] == "routing_entropy":
+                item["measured"] = False
+        rehash(record)
+        errors = mr.check_family(record, "x")
+        self.assertTrue(
+            any(
+                "must record routing_entropy as a measured numeric reading" in e
+                for e in errors
+            ),
+            f"an unmeasured promised target passed: {errors}",
+        )
+
+    def test_an_unhashable_quantity_is_a_finding_not_a_typeerror(self):
+        record = clone(self.records[1])
+        record["result"]["measurements"][0]["quantity"] = ["routing_entropy"]
+        rehash(record)
+        errors = mr.check_family(record, "x")  # must not raise
+        self.assertTrue(errors, "a malformed quantity produced no finding")
+        self.assertTrue(
+            any("unknown quantity" in e for e in vd.check_record(record, "x")),
+            "the shared checker no longer flags the malformed item",
+        )
+
+    def test_recorded_layer_indices_are_not_coerced(self):
+        # int() silently rewrote 0.9 to 0 and True to 1, normalising
+        # malformed recording metadata into a validation-clean trajectory.
+        for bogus in (0.9, True, "0"):
+            recording = _teacher_recording(["ctx"])
+            key = mr.RecordedTeacherRouter.key_for("ctx")
+            recording["observations"][key]["layers"][0]["layer"] = bogus
+            with self.subTest(layer=bogus):
+                with self.assertRaises(oc.OracleUnavailable) as caught:
+                    mr.RecordedTeacherRouter(recording).route("ctx")
+                self.assertIn("genuine integer", str(caught.exception))
+
+
 if __name__ == "__main__":  # pragma: no cover
     unittest.main()

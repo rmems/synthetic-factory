@@ -1108,6 +1108,33 @@ def _allocation_rejection(allocation: Any, caps: list[float]) -> str | None:
     return None
 
 
+def _allocation_shape_error(
+    allocation: Any, caps: list[Any], spot: str
+) -> list[str]:
+    """A malformed allocation is record corruption, not a derived failure.
+
+    The builder's only no-solution representation is ``None`` (stored as an
+    empty vector). Anything else that is not a finite numeric vector of the
+    actuator width never came from ``evaluate_allocation`` — converting it
+    into ``ALLOCATION_NOT_NUMERIC`` let a tampered candidate restate the
+    derived failure values and ship a fabricated policy failure to pairwise
+    consumers.
+    """
+
+    if allocation is None or (isinstance(allocation, list) and not allocation):
+        return []
+    if (
+        not isinstance(allocation, list)
+        or not all(oc.is_number(value) for value in allocation)
+        or len(allocation) != len(caps)
+    ):
+        return [
+            f"{spot}.allocation must be null, empty, or a finite numeric "
+            "vector with one entry per actuator cap"
+        ]
+    return []
+
+
 def _cap_violations(allocation: list[Any], caps: list[float]) -> list[str]:
     """Per-actuator cap and sign violations, in actuator order."""
 
@@ -1498,7 +1525,17 @@ def _check_reference_objective(
     if context.optimum is None:
         return []
     recorded = result.get("reference_objective")
-    if oc.is_number(recorded) and abs(float(recorded) - context.optimum) > 1e-9:
+    if not oc.is_number(recorded):
+        # The scenario supplies everything needed to derive the optimum, so
+        # a deleted or non-numeric restatement is a finding — skipping the
+        # comparison silently lost the reference target that grounds
+        # candidate quality.
+        return [
+            f"{where}.result.reference_objective must restate the scenario "
+            f"optimum as a finite number — the state derives "
+            f"{round(context.optimum, 12)}"
+        ]
+    if abs(float(recorded) - context.optimum) > 1e-9:
         return [
             f"{where}.result.reference_objective is {recorded} but the "
             f"scenario state yields {round(context.optimum, 12)}"
@@ -1515,6 +1552,13 @@ def _check_candidate_safety(
     if not isinstance(candidate.get("safety_ok"), bool):
         errors.append(f"{spot}.safety_ok must be a boolean")
     elif context.can_derive_safety:
+        shape_errors = _allocation_shape_error(
+            candidate.get("allocation"), list(context.caps), spot
+        )
+        if shape_errors:
+            # Deriving from a corrupt allocation would only restate the
+            # fabricated failure the tamper wrote; report the corruption.
+            return errors + shape_errors
         # safety_ok summarises the allocation; it is not an independent
         # fact. Trusting it lets an obviously over-cap allocation be
         # preferred as the feasible minimum.

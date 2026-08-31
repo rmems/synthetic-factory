@@ -549,9 +549,18 @@ class RecordedTeacherRouter(RouterOracle):
             raise oc.OracleUnavailable(self.name, "layer missing top1_top2_margin")
         if not oc.is_number(layer.get("routing_entropy")):
             raise oc.OracleUnavailable(self.name, "layer missing routing_entropy")
+        layer_index = layer.get("layer")
+        if not isinstance(layer_index, int) or isinstance(layer_index, bool):
+            # int() silently rewrote 0.9 to 0 and True to 1, normalising
+            # malformed recording metadata into a validation-clean trajectory
+            # instead of failing closed at the replay boundary.
+            raise oc.OracleUnavailable(
+                self.name,
+                f"layer index must be a genuine integer, got {layer_index!r}",
+            )
         try:
             return LayerRouting(
-                layer=int(layer["layer"]),
+                layer=layer_index,
                 top_k_experts=self._recorded_experts(layer),
                 router_logits=self._recorded_logits(layer),
                 top1_top2_margin=float(layer["top1_top2_margin"]),
@@ -1514,12 +1523,21 @@ def _check_measurement_reconciliation(
         if not isinstance(item, dict):
             continue
         quantity = item.get("quantity")
+        if not isinstance(quantity, str):
+            # An unhashable quantity raised TypeError out of the dict lookup
+            # and aborted validation of the whole run; the shared measurement
+            # checker already reports the malformed item as a finding.
+            continue
         expected = expected_measurements.get(quantity)
         if expected is None or not oc.is_number(expected):
             continue
         if not oc.is_number(item.get("value")):
             continue
-        reconciled.add(quantity)
+        if item.get("measured") is True:
+            # A `measured: false` reading is a modelled value wearing a
+            # promised router target's name — it does not satisfy the
+            # completeness requirement below.
+            reconciled.add(quantity)
         if abs(float(item["value"]) - float(expected)) > 1e-6:
             errors.append(
                 f"{where}.result: measured {quantity} is {item['value']} but the "
@@ -1542,8 +1560,8 @@ def _missing_promised_measurements(
     """
 
     return [
-        f"{where}.result.measurements must record {quantity} with a numeric "
-        "value — the recorded routing promises it"
+        f"{where}.result.measurements must record {quantity} as a measured "
+        "numeric reading — the recorded routing promises it"
         for quantity, expected in sorted(expected_measurements.items())
         if oc.is_number(expected) and quantity not in reconciled
     ]

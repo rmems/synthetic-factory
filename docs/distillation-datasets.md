@@ -40,7 +40,9 @@ ratio quantities (`task_quality`, `expert_agreement`, `corrupt_ratio`,
 `residual_error`) must lie in `[0, 1]` — temperatures are the only listed
 readings a meter may report below zero. Energy-class quantities (`energy_j`,
 `energy_per_op_j`, `power_w`) are rejected unless the meter physically
-measures energy. There is no
+measures energy — and the replay wrapper `recorded_power_run` is not such an
+instrument: a replayed joule must name the physical meter the recording says
+took it. There is no
 code path that turns an operation count, a synaptic-operation model or a
 measured second into a joule.
 
@@ -89,8 +91,16 @@ simulated tick (`(ticks - 1) * tick_ms` — any later and the active window
 never opens), and durations, jitters, ramps, delays
 and malformed counts must be strictly positive — an unknown channel name or an
 out-of-range value would run as a no-op and replay as an authoritative
-`continue`. The validator also re-derives `result.prediction_agreement` from
-the prediction and the outcome, requires every replay-derived measurement
+`continue`. The relay's own system controls are validated before any
+authoritative outcome is derived — `corruption_quarantine_ratio` in
+`[0, 1]`, a positive tick grid and deadlines, integer counts, an ordered
+thermal ladder (`warn < limit < shutdown`), non-empty channels — because an
+out-of-domain control silently rewrites the outcome tiers. The validator
+also requires `oracle.configuration` to record the `scenario.system` and the
+canonical precedence the replay actually stands on, re-derives
+`result.prediction_agreement` from
+the prediction and the outcome (its absence is a finding, not a pass),
+requires every replay-derived measurement
 to be present, and requires `result.integrity_violation` to be a boolean
 compared against the replay, so neither a flipped agreement, a deleted
 latency, nor a dropped integrity signal survives a recomputed digest. For the same reason the
@@ -194,7 +204,11 @@ decision problem the student sees is the one the preference was graded on,
 `preference.preferred` must name a candidate as a non-empty string (a
 JSON object there is a finding, not a `TypeError` that aborts the run), and
 each `candidate.success` is re-derived as `safety_ok and task_quality >=
-quality_floor` rather than trusted.
+quality_floor` rather than trusted. A candidate's allocation must be null,
+empty (the builder's no-solution representation), or a finite numeric vector
+of the actuator width — anything else is record corruption, never a derived
+policy failure — and `result.reference_objective` must restate the
+scenario's derivable optimum as a finite number.
 
 It also ties the bookkeeping together, because those fields are what a reader
 uses to tell a joule corpus from a second corpus. `result.cost_is_energy` must
@@ -247,8 +261,10 @@ while never admitting a strictly smaller logit), recomputes `top1_expert` and
 genuine integers — a JSON boolean would impersonate expert 0 or 1 under
 `==`), recomputes the compact student
 input from the recorded context, reconciles the compact measurements against
-the routing they summarise (every promised target must be present with a
-numeric value, not just the survivors), bounds the entropy by
+the routing they summarise (every promised target must be present as a
+`measured: true` numeric reading, not just the survivors — a modelled value
+wearing a target's name does not count, and a malformed quantity is a
+finding rather than an exception), bounds the entropy by
 `ln(num_experts)` (falling
 back to the recorded expert count when an oracle exposes no logits), and
 requires `result.teacher_grounded` to follow from the oracle's authority and

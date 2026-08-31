@@ -630,8 +630,88 @@ class RelayReflexSimulator(FaultOracle):
             detection_ms = round(max(detection_ms - spec.onset_ms, 0.0), 3)
         return detection_ms
 
+    # Numeric relay controls and their fail-closed domains. An out-of-domain
+    # control silently rewrites the outcome tiers — a negative quarantine
+    # ratio turns every below-threshold corruption into `quarantine` — so an
+    # authoritative outcome may not be derived over one.
+    _SYSTEM_POSITIVE_CONTROLS = (
+        "tick_ms",
+        "stale_threshold_ms",
+        "deadline_ms",
+        "hard_deadline_ms",
+        "reflex_latency_ms",
+        "fallback_latency_ms",
+    )
+    _SYSTEM_COUNT_CONTROLS = (
+        ("ticks", 1),
+        ("reflex_saturation_ticks", 1),
+        ("min_healthy_channels", 0),
+    )
+
+    @staticmethod
+    def _check_thermal_ladder(system: dict[str, Any]) -> None:
+        thresholds = [
+            system["ambient_c"],
+            system["thermal_warn_c"],
+            system["thermal_limit_c"],
+            system["thermal_shutdown_c"],
+        ]
+        if not all(oc.is_number(value) for value in thresholds):
+            raise oc.ContractError(
+                "system thermal thresholds must be finite numbers"
+            )
+        warn, limit, shutdown = (float(value) for value in thresholds[1:])
+        if not warn < limit < shutdown:
+            raise oc.ContractError(
+                "system thermal ladder must be ordered warn < limit < "
+                f"shutdown, got {warn}, {limit}, {shutdown}"
+            )
+
+    @staticmethod
+    def _check_system_controls(system: dict[str, Any]) -> None:
+        """Refuse relay thresholds an authoritative outcome cannot stand on."""
+
+        for key in RelayReflexSimulator._SYSTEM_POSITIVE_CONTROLS:
+            value = system[key]
+            if not oc.is_number(value) or float(value) <= 0.0:
+                raise oc.ContractError(
+                    f"system {key} must be a positive number, got {value!r}"
+                )
+        if not oc.is_number(system["jitter_tolerance_ms"]) or (
+            float(system["jitter_tolerance_ms"]) < 0.0
+        ):
+            raise oc.ContractError(
+                "system jitter_tolerance_ms must be a non-negative number, "
+                f"got {system['jitter_tolerance_ms']!r}"
+            )
+        for key, floor in RelayReflexSimulator._SYSTEM_COUNT_CONTROLS:
+            value = system[key]
+            if not isinstance(value, int) or isinstance(value, bool) or (
+                value < floor
+            ):
+                raise oc.ContractError(
+                    f"system {key} must be an integer >= {floor}, got {value!r}"
+                )
+        ratio = system["corruption_quarantine_ratio"]
+        if not oc.is_number(ratio) or not 0.0 <= float(ratio) <= 1.0:
+            raise oc.ContractError(
+                "system corruption_quarantine_ratio must lie in [0, 1], "
+                f"got {ratio!r}"
+            )
+        RelayReflexSimulator._check_thermal_ladder(system)
+        channels = system["channels"]
+        if not (
+            isinstance(channels, list)
+            and channels
+            and all(isinstance(name, str) and name for name in channels)
+        ):
+            raise oc.ContractError(
+                "system channels must be a non-empty list of channel names"
+            )
+
     def run(self, scenario: dict[str, Any], disturbance: dict[str, Any]) -> FaultResult:
         system = {**DEFAULT_SYSTEM, **dict(scenario.get("system", {}))}
+        self._check_system_controls(system)
         channels: list[str] = list(system["channels"])
         kind = disturbance.get("kind")
         if kind not in DISTURBANCES:
@@ -1294,8 +1374,16 @@ def _check_prediction_agreement(record: dict[str, Any], where: str) -> list[str]
     """
 
     result = record.get("result")
-    if not isinstance(result, dict) or "prediction_agreement" not in result:
+    if not isinstance(result, dict):
         return []
+    if "prediction_agreement" not in result:
+        # The field is derived, so its absence is a finding, not a pass:
+        # deleting it made the record silently disappear from the
+        # disagreement analyses this emitted field supports.
+        return [
+            f"{where}.result.prediction_agreement must be present — it is "
+            "derived from the prediction and the outcome"
+        ]
     agreement = result.get("prediction_agreement")
     if agreement not in ("agree", "disagree"):
         return [
@@ -1319,6 +1407,45 @@ def _check_prediction_agreement(record: dict[str, Any], where: str) -> list[str]
     return []
 
 
+def _check_oracle_configuration_binding(
+    record: dict[str, Any], where: str
+) -> list[str]:
+    """The oracle block must describe the configuration behind its label.
+
+    The replay reads only ``scenario.system``, so a rewritten or deleted
+    ``oracle.configuration.system`` stayed validation-clean while the
+    authoritative oracle block no longer described the run that produced its
+    label — breaking reproducibility and provenance audits.
+    """
+
+    oracle = record.get("oracle")
+    if not isinstance(oracle, dict) or oracle.get("name") != ORACLE_NAME or (
+        oracle.get("type") != "deterministic_simulator"
+    ):
+        return []
+    scenario = record.get("scenario")
+    recorded_system = scenario.get("system", {}) if isinstance(scenario, dict) else {}
+    configuration = oracle.get("configuration")
+    if not isinstance(configuration, dict):
+        return [
+            f"{where}.oracle.configuration must record the simulator's "
+            "system and precedence"
+        ]
+    errors: list[str] = []
+    if configuration.get("system") != recorded_system:
+        errors.append(
+            f"{where}.oracle.configuration.system does not match "
+            "scenario.system — the oracle block must describe the "
+            "configuration that produced its label"
+        )
+    if configuration.get("precedence") != list(OUTCOME_PRECEDENCE):
+        errors.append(
+            f"{where}.oracle.configuration.precedence must be the canonical "
+            f"outcome precedence {list(OUTCOME_PRECEDENCE)}"
+        )
+    return errors
+
+
 def check_family(record: dict[str, Any], where: str) -> list[str]:
     """Family checks layered on top of the shared envelope."""
 
@@ -1329,6 +1456,7 @@ def check_family(record: dict[str, Any], where: str) -> list[str]:
         return errors + [f"{where}.result must be an object"]
     errors += _check_outcome(result, where)
     errors += _check_prediction_agreement(record, where)
+    errors += _check_oracle_configuration_binding(record, where)
     errors += _recheck_deterministic_outcome(record, where)
     return errors
 

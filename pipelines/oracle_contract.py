@@ -190,13 +190,15 @@ UNIT_INTERVAL_QUANTITIES = frozenset(
 ENERGY_QUANTITIES = frozenset({"energy_j", "energy_per_op_j", "power_w"})
 
 # Meters that physically measure energy. Anything outside this set may not
-# produce an energy-class quantity.
+# produce an energy-class quantity. `recorded_power_run` is deliberately
+# absent: it is the replay *wrapper*, not an instrument — a replayed joule
+# must name the physical meter the recording says took it, or a file of bare
+# observations could launder energy readings behind the wrapper's name.
 MEASURED_ENERGY_METERS = frozenset(
     {
         "intel_rapl_powercap",
         "external_power_meter",
         "board_power_rail",
-        "recorded_power_run",
     }
 )
 
