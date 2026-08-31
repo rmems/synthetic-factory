@@ -394,7 +394,7 @@ class PinnedWriterRawRelocation(unittest.TestCase):
             source.mkdir()
             raw = root / "outputs" / "raw"
             raw.mkdir(parents=True)
-            pinned = compose_curated._create_pinned_destination(
+            pinned = compose_curated.create_pinned_destination(
                 source, root / "curated"
             )
             try:
@@ -403,7 +403,7 @@ class PinnedWriterRawRelocation(unittest.TestCase):
                     compose_curated.ComposeError,
                     "relocated into immutable raw evidence",
                 ):
-                    compose_curated._write_pinned_new_bytes(
+                    compose_curated.write_pinned_new_bytes(
                         pinned.destination_descriptor,
                         "records/x.jsonl",
                         b"data\n",
@@ -434,7 +434,7 @@ class PinnedWriterRawRelocation(unittest.TestCase):
             source = build_source_run(root / "run")
             raw = root / "outputs" / "raw"
             raw.mkdir(parents=True)
-            original = compose_curated._create_pinned_destination
+            original = compose_curated.create_pinned_destination
 
             def relocating(source_dir, destination):
                 pinned = original(source_dir, destination)
@@ -442,7 +442,7 @@ class PinnedWriterRawRelocation(unittest.TestCase):
                 return pinned
 
             with mock.patch.object(
-                compose_curated, "_create_pinned_destination", relocating
+                compose_curated, "create_pinned_destination", relocating
             ):
                 with self.assertRaisesRegex(
                     compose_curated.ComposeError,

@@ -67,14 +67,14 @@ def is_episode_record(record: Mapping[str, Any]) -> bool:
 
     A retained Thalamic wrap keeps its coding episode under
     ``executed_action``, so its steps live one level down.  ``curate_coding``
-    supports that layout through ``_steps_path``; routing only on a top-level
+    supports that layout through ``steps_path``; routing only on a top-level
     ``steps`` array would send a repairable wrap straight to the strict audit
     with its hidden reasoning and ungrounded ``decision_basis`` intact.
     """
 
     return (
         isinstance(record, Mapping)
-        and curate_coding._steps_path(dict(record)) is not None
+        and curate_coding.steps_path(dict(record)) is not None
     )
 
 
@@ -317,7 +317,7 @@ def _trajectory_side_needs_coding(side: Any) -> bool:
 
     Every side that carries a step array does — wherever the record keeps it:
     a plain side holds ``steps`` at its root, while a Thalamic wrap embeds the
-    coding episode at ``executed_action.steps`` (``curate_coding._steps_path``
+    coding episode at ``executed_action.steps`` (``curate_coding.steps_path``
     is the one wrap-aware answer). A nonblank ``decision_basis`` is not
     evidence that the basis is *grounded*: ``curate_coding`` derives it from
     the step's visible plan, observation, and tool call and overwrites
@@ -330,7 +330,7 @@ def _trajectory_side_needs_coding(side: Any) -> bool:
 
     if not isinstance(side, dict):
         return False
-    return curate_coding._steps_path(side) is not None
+    return curate_coding.steps_path(side) is not None
 
 
 def _not_applicable_side_manifest() -> dict[str, Any]:

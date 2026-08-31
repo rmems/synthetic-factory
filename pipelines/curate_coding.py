@@ -314,7 +314,7 @@ def _base_manifest(
     }
 
 
-def _steps_path(record: dict[str, Any]) -> str | None:
+def steps_path(record: dict[str, Any]) -> str | None:
     """Return where this record keeps its coding steps, or None.
 
     A plain episode holds them at ``steps``. A Thalamic wrap record embeds the
@@ -336,9 +336,9 @@ def _steps_path(record: dict[str, Any]) -> str | None:
     return None
 
 
-def _steps_holder(record: dict[str, Any], steps_path: str) -> dict[str, Any]:
-    """Return the mapping that owns the step array named by ``steps_path``."""
-    if steps_path == "steps":
+def _steps_holder(record: dict[str, Any], record_steps_path: str) -> dict[str, Any]:
+    """Return the mapping that owns the step array named by ``record_steps_path``."""
+    if record_steps_path == "steps":
         return record
     return record[WRAP_STEPS_PARENT]
 
@@ -347,10 +347,10 @@ def _record_steps(record: Any) -> list[Any] | None:
     """Return the curated step array for a plain or wrap record."""
     if not isinstance(record, dict):
         return None
-    steps_path = _steps_path(record)
-    if steps_path is None:
+    record_steps_path = steps_path(record)
+    if record_steps_path is None:
         return None
-    steps = _steps_holder(record, steps_path).get("steps")
+    steps = _steps_holder(record, record_steps_path).get("steps")
     return steps if isinstance(steps, list) else None
 
 
@@ -372,12 +372,12 @@ def curate_episode(
         manifest["reason_codes"] = [REASON_RECORD_NOT_OBJECT]
         return None, manifest
 
-    steps_path = _steps_path(record)
-    if steps_path is None:
+    record_steps_path = steps_path(record)
+    if record_steps_path is None:
         manifest["reason_codes"] = [REASON_STEPS_NOT_ARRAY]
         return None, manifest
-    manifest["steps_path"] = steps_path
-    steps = _steps_holder(record, steps_path)["steps"]
+    manifest["steps_path"] = record_steps_path
+    steps = _steps_holder(record, record_steps_path)["steps"]
 
     cleaned_record, record_reasoning_removed = _strip_hidden_reasoning_keys(record)
     manifest["hidden_reasoning_fields_removed"] = record_reasoning_removed
@@ -406,11 +406,11 @@ def curate_episode(
         manifest["reason_codes"] = [REASON_NO_RETAINABLE_STEPS]
         return None, manifest
 
-    _steps_holder(cleaned_record, steps_path)["steps"] = retained_steps
+    _steps_holder(cleaned_record, record_steps_path)["steps"] = retained_steps
     reasons = []
     if record_reasoning_removed:
         reasons.append(REASON_HIDDEN_REASONING_REMOVED)
-    if steps_path != "steps":
+    if record_steps_path != "steps":
         reasons.append(REASON_WRAP_RECORD)
     if migrated:
         reasons.append(REASON_STEPS_MIGRATED)
@@ -565,6 +565,7 @@ __all__ = [
     "_derive_decision_basis",
     "_record_id",
     "_record_steps",
+    "steps_path",
     "preflight_destinations",
     "write_new_jsonl",
     "canonical_json",

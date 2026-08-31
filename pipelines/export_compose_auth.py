@@ -295,13 +295,11 @@ def _authenticated_manifest_sidecar(
         raise ExportError(
             f"compose manifest references missing reward sidecar {sidecar_id}"
         )
-    _require_sidecar_restores(row, sidecar_id, sidecars_by_id[sidecar_id])
+    _require_sidecar_restores(row, sidecars_by_id[sidecar_id])
     return sidecar_id
 
 
-def _require_sidecar_restores(
-    row: _ManifestRow, sidecar_id: str, sidecar: dict[str, Any]
-) -> None:
+def _require_sidecar_restores(row: _ManifestRow, sidecar: dict[str, Any]) -> None:
     """The claimed sidecar must name the same source and restore the record."""
 
     sidecar_source = sidecar["source"]
@@ -420,7 +418,6 @@ def _compose_metadata(
     )
 
     source_snapshot = _authenticate_source_replay(
-        curated_root,
         summary,
         actual_outputs,
         manifest_documents,

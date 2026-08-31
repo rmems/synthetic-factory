@@ -217,7 +217,7 @@ def _write_new_bytes(root_descriptor: int, relative: Any, payload: bytes) -> str
     """
 
     try:
-        return compose_curated._write_pinned_new_bytes(
+        return compose_curated.write_pinned_new_bytes(
             root_descriptor, relative, payload, f"export {relative}"
         )
     except compose_curated.ComposeError as exc:
@@ -230,16 +230,16 @@ def _jsonl_payload(rows: Sequence[ViewerRow]) -> bytes:
 
 def _create_pinned_destination(
     curated_root: Path, destination: Path
-) -> compose_curated._PinnedDestination:
+) -> compose_curated.PinnedDestination:
     """Create the export directory through the same parent pin compose uses."""
 
     try:
-        return compose_curated._create_pinned_destination(curated_root, destination)
+        return compose_curated.create_pinned_destination(curated_root, destination)
     except compose_curated.ComposeError as exc:
         raise ExportError(str(exc)) from exc
 
 
-def _finish_pinned_destination(pinned: compose_curated._PinnedDestination) -> None:
+def _finish_pinned_destination(pinned: compose_curated.PinnedDestination) -> None:
     try:
         pinned.finish()
     except compose_curated.ComposeError as exc:

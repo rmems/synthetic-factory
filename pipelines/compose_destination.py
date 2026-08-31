@@ -55,7 +55,7 @@ def _require_exact_directory(path: Path, label: str) -> Path:
 def _directory_identity(metadata: os.stat_result) -> tuple[int, int, int]:
     """Identity fields that do not change when directory entries are added."""
 
-    return (metadata.st_dev, metadata.st_ino, stat.S_IFMT(metadata.st_mode))
+    return metadata.st_dev, metadata.st_ino, stat.S_IFMT(metadata.st_mode)
 
 
 def _directory_binding_matches(
@@ -104,7 +104,7 @@ def _verify_directory_binding(
 
 
 @dataclass
-class _PinnedDestination:
+class PinnedDestination:
     """A new destination held by directory descriptors until commit or cleanup."""
 
     path: Path
@@ -288,7 +288,6 @@ def _read_exact_regular_file(root: Path, raw_path: Any, label: str) -> tuple[Pat
     except OSError as exc:
         raise ComposeError(f"{label}: cannot open exact source file: {exc}") from exc
 
-    opened_after: os.stat_result | None = None
     try:
         opened_before = os.fstat(descriptor)
         _assert_opened_source_identity(before, opened_before, label)
@@ -575,9 +574,9 @@ def _discard_created_destination(
         )
 
 
-def _create_pinned_destination(
+def create_pinned_destination(
     source_run: Path, destination: Path
-) -> _PinnedDestination:
+) -> PinnedDestination:
     """Create one exclusive destination relative to a pinned parent descriptor."""
 
     parent, expected_parent_identity = _assert_new_destination(
@@ -617,7 +616,7 @@ def _create_pinned_destination(
         )
         if _directory_identity(os.fstat(destination_descriptor)) != created_identity:
             raise ComposeError("destination identity changed while opening")
-        return _PinnedDestination(
+        return PinnedDestination(
             path=destination,
             root=_pinned_root_path(destination_descriptor),
             parent_descriptor=parent_descriptor,
@@ -722,7 +721,7 @@ def _create_pinned_new_directory(
     os.close(_open_pinned_child_directory(parent_descriptor, name, label))
 
 
-def _write_pinned_new_bytes(
+def write_pinned_new_bytes(
     root_descriptor: int, relative: Any, payload: bytes, label: str = "destination"
 ) -> str:
     """Create one new file under a pinned root, pinning every component.
@@ -803,7 +802,7 @@ def _assert_descriptor_outside_raw(descriptor: int, label: str) -> None:
 def _write_new_text(root_descriptor: int, relative: Any, text: str) -> str:
     """Create one new destination file exclusively and hash its bytes."""
 
-    return _write_pinned_new_bytes(
+    return write_pinned_new_bytes(
         root_descriptor,
         relative,
         text.encode("utf-8"),

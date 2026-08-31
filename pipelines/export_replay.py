@@ -174,7 +174,7 @@ def _replay_one_line(
     state.counts["source_records"] += 1
     finding = mill_findings.get((relative, line_number))
     if finding is not None:
-        decision = compose_curated._mill_quarantined_decision(finding)
+        decision = compose_curated.mill_quarantined_decision(finding)
     else:
         decision = compose_curated.compose_source_line(
             physical_line,
@@ -268,7 +268,7 @@ def _member_identity(source_root: Path, relative: str) -> tuple[int, ...]:
         raise ExportError(
             f"compose source {relative}: member cannot be inspected: {exc}"
         ) from exc
-    return (entry.st_dev, entry.st_ino, entry.st_size, entry.st_mtime_ns)
+    return entry.st_dev, entry.st_ino, entry.st_size, entry.st_mtime_ns
 
 
 def _member_identities(
@@ -435,7 +435,6 @@ def _verify_replay_matches(
 
 
 def _authenticate_source_replay(
-    curated_root: Path,
     summary: dict[str, Any],
     actual_outputs: dict[str, CuratedFile],
     manifest_documents: Sequence[Any],

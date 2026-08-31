@@ -42,6 +42,7 @@ Usage::
 from __future__ import annotations
 
 import argparse
+import contextlib
 import copy
 import json
 import os
@@ -65,13 +66,14 @@ import curate_preferences  # noqa: E402
 import curate_rewards  # noqa: E402
 import training_audit  # noqa: E402
 from check_records import reject_json_constant  # noqa: E402
+from curate_identity import _reject_duplicate_object_keys  # noqa: E402
 from record_kind import preference_side_kinds  # noqa: E402
 from round_txn import TransactionError  # noqa: E402
 
 try:  # PR #93 is a sibling stack; consume its reviewed contract when present.
     import curate_trajectory_preferences  # type: ignore[import-not-found]  # noqa: E402
-except ModuleNotFoundError as exc:  # pragma: no cover - branch topology decides this
-    if exc.name != "curate_trajectory_preferences":
+except ModuleNotFoundError as missing_import:  # pragma: no cover - branch topology decides this
+    if missing_import.name != "curate_trajectory_preferences":
         raise
     curate_trajectory_preferences = None
 
@@ -121,7 +123,7 @@ from compose_contract import (  # noqa: E402,F401
     sha256_hex,
 )
 from compose_destination import (  # noqa: E402,F401
-    _PinnedDestination,
+    PinnedDestination,
     _assert_destination_disjoint,
     _assert_new_destination,
     _assert_opened_source_identity,
@@ -129,7 +131,7 @@ from compose_destination import (  # noqa: E402,F401
     _assert_unaliased_regular_member,
     _collect_source_directory,
     _contains_raw_segments,
-    _create_pinned_destination,
+    create_pinned_destination,
     _create_pinned_new_directory,
     _destination_write_parts,
     _directory_binding_matches,
@@ -153,7 +155,7 @@ from compose_destination import (  # noqa: E402,F401
     _verify_directory_binding,
     _verify_pinned_child,
     _write_new_text,
-    _write_pinned_new_bytes,
+    write_pinned_new_bytes,
     source_jsonl_members,
 )
 from compose_trajectory import (  # noqa: E402,F401
@@ -215,7 +217,7 @@ __all__ = [
     "REWARD_SIDECAR_FILENAME",
     "SUMMARY_FILENAME",
     "TRAJECTORY_GOAL_LOCATIONS",
-    "_PinnedDestination",
+    "PinnedDestination",
     "_TRAJECTORY_DIVERGENCE_FIELDS",
     "_TrajectoryPreferenceDecision",
     "_assert_destination_disjoint",
@@ -227,7 +229,7 @@ __all__ = [
     "_collect_source_directory",
     "_compat_trajectory_preference",
     "_contains_raw_segments",
-    "_create_pinned_destination",
+    "create_pinned_destination",
     "_create_pinned_new_directory",
     "_curate_trajectory_sides",
     "_destination_write_parts",
@@ -263,7 +265,7 @@ __all__ = [
     "_verify_pinned_child",
     "_whitespace_only_goal",
     "_write_new_text",
-    "_write_pinned_new_bytes",
+    "write_pinned_new_bytes",
     "calibration_for",
     "canonical_json",
     "compose_record",
@@ -395,7 +397,9 @@ def _bridge_order_repaired_copy(
     record it would quarantine is never smuggled past identity.
     """
 
-    try:
+    # A probe must never fail composition: any error means "will not repair".
+    decision: Any = _PROBE_FAILED
+    with contextlib.suppress(Exception):
         decision = curate_bridge.curate_record(
             record,
             source_path=source_path,
@@ -403,12 +407,15 @@ def _bridge_order_repaired_copy(
             source_hash=source_sha256,
             source_file_hash=None,
         )
-    except Exception:  # noqa: BLE001 - a probe must never fail composition
+    if decision is _PROBE_FAILED:
         return None
     if decision.action != "repair" or not isinstance(decision.output_record, dict):
         return None
     return decision.output_record
 
+
+# Sentinel distinguishing "the probe raised" from any value a probe returns.
+_PROBE_FAILED: Any = object()
 
 # Identity's step-shape diagnostics for a top-level episode. Wrap records
 # validate through the Thalamic structural path and never produce this form.
@@ -446,14 +453,16 @@ def _coding_steps_repaired_copy(
     never smuggled past identity.
     """
 
-    try:
+    # A probe must never fail composition: any error means "will not repair".
+    curated: Any = _PROBE_FAILED
+    with contextlib.suppress(Exception):
         curated, _manifest = curate_coding.curate_episode(
             copy.deepcopy(dict(record)),
             source_path=source_path,
             source_line=source_line,
             source_hash=source_sha256,
         )
-    except Exception:  # noqa: BLE001 - a probe must never fail composition
+    if curated is _PROBE_FAILED:
         return None
     return curated if isinstance(curated, dict) else None
 
@@ -1055,7 +1064,7 @@ def _bridge_view_trajectory(record: Mapping[str, Any]) -> dict[str, Any] | None:
     trajectory = view.get("trajectory") if isinstance(view, Mapping) else None
     if not isinstance(trajectory, dict):
         return None
-    needs_coding = curate_coding._steps_path(trajectory) is not None
+    needs_coding = curate_coding.steps_path(trajectory) is not None
     if needs_coding or curate_coding.contains_hidden_reasoning_key(trajectory):
         return trajectory
     return None
@@ -1071,7 +1080,7 @@ def _compose_bridge_view_coding(
 ) -> "ComposeDecision | dict[str, Any]":
     """Curate the embedded language-view trajectory through its owning lane."""
 
-    if curate_coding._steps_path(trajectory) is not None:
+    if curate_coding.steps_path(trajectory) is not None:
         module = curate_coding
         curated_trajectory, manifest = curate_coding.curate_episode(
             trajectory,
@@ -1610,7 +1619,7 @@ def compose_source_line(
         # record actually asserted.
         record = json.loads(
             text,
-            object_pairs_hook=curate_identity._reject_duplicate_object_keys,
+            object_pairs_hook=_reject_duplicate_object_keys,
             parse_constant=reject_json_constant,
         )
         semantic_sha256 = _canonical_sha256(record)
@@ -1748,7 +1757,7 @@ def _load_calibration(
         # whichever value the parser kept last to every matching reward.
         document = json.loads(
             payload.decode("utf-8"),
-            object_pairs_hook=curate_identity._reject_duplicate_object_keys,
+            object_pairs_hook=_reject_duplicate_object_keys,
             parse_constant=reject_json_constant,
         )
     except (UnicodeError, json.JSONDecodeError, ValueError) as exc:
@@ -1896,7 +1905,7 @@ def _record_excluded_line(
         state.exclusions[reason] += 1
 
 
-def _mill_quarantined_decision(finding: Any) -> ComposeDecision:
+def mill_quarantined_decision(finding: Any) -> ComposeDecision:
     """Exclude a corpus-level mill finding before any lane can run.
 
     The identity lane would otherwise replace the foreign id prefix with a
@@ -1946,7 +1955,7 @@ def _compose_one_line(
         mill_findings.get((relative, line_number)) if mill_findings else None
     )
     if finding is not None:
-        decision = _mill_quarantined_decision(finding)
+        decision = mill_quarantined_decision(finding)
     else:
         decision = compose_source_line(
             physical_line,
@@ -2139,7 +2148,7 @@ def compose_run(
         resolved_source,
         Path(units_migration) if units_migration is not None else None,
     )
-    pinned_destination = _create_pinned_destination(resolved_source, destination)
+    pinned_destination = create_pinned_destination(resolved_source, destination)
     destination_descriptor = pinned_destination.destination_descriptor
     records_dir = pinned_destination.root / RECORDS_DIRNAME
     state = _ComposeRunState()

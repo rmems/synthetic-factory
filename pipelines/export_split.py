@@ -25,7 +25,7 @@ def split_bucket(row: ViewerRow, salt: str) -> float:
 def _bucket_order_key(item: tuple[float, ViewerRow]) -> tuple[float, str, int]:
     """The one deterministic ordering every split decision ties back to."""
 
-    return (item[0], item[1].source_file, item[1].source_line)
+    return item[0], item[1].source_file, item[1].source_line
 
 
 def _eval_keys_by_factory(

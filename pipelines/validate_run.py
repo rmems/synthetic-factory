@@ -38,6 +38,23 @@ from validate_run_spikes import (
     is_number as _is_number,
 )
 
+# The spike-train surface lived here before it split into validate_run_spikes;
+# ``__all__`` declares the names this module still re-exports so existing
+# ``validate_run.X`` consumers (the CLI tests among them) resolve unchanged.
+__all__ = [
+    "BRIDGE_SPIKE_EVENT_KEYS",
+    "REPO",
+    "SCHEMA_PATH",
+    "SPIKE_CLOCK_DOMAIN_KEYS",
+    "SPIKE_CLOCK_DOMAIN_MISMATCH",
+    "SPIKE_EVENT_NUMBER_KEYS",
+    "SPIKE_EVENT_STRING_KEYS",
+    "SPIKE_ORDER_MISMATCH",
+    "SPIKE_TIME_KEYS",
+    "SPIKE_TIME_KEY_MISMATCH",
+    "THALAMIC_SCHEMA",
+]
+
 THALAMIC_REQUIRED = tuple(THALAMIC_SCHEMA["required"])
 # Type-check required keys against the schema's own declared types: the six
 # trajectory fields (+ meta) are objects, but canonical `id` is a string.

@@ -20,10 +20,11 @@ if str(_PIPELINES) not in sys.path:
     sys.path.insert(0, str(_PIPELINES))
 
 import compose_curated  # noqa: E402
-import curate_identity  # noqa: E402
 import curate_rewards  # noqa: E402
 from export_contract import ExportError, _reject_json_constant  # noqa: E402
 from export_members import _read_exact_regular_file  # noqa: E402
+from curate_identity import _reject_duplicate_object_keys  # noqa: E402
+from reward_mapping import _decimal, _json_number  # noqa: E402
 
 def _load_calibration_payload(payload: bytes, path: Path) -> dict[str, Any]:
     """Load reward calibration from pinned bytes while preserving evidence labels."""
@@ -37,7 +38,7 @@ def _load_calibration_payload(payload: bytes, path: Path) -> dict[str, Any]:
         # conversion factors, never a last-value-wins choice.
         document = json.loads(
             text,
-            object_pairs_hook=curate_identity._reject_duplicate_object_keys,
+            object_pairs_hook=_reject_duplicate_object_keys,
             parse_constant=_reject_json_constant,
         )
     except (json.JSONDecodeError, ValueError) as exc:
@@ -68,7 +69,7 @@ def _entry_calibrations(entry: Any, index: int, path: Path):
 
     if not isinstance(entry, dict):
         return
-    factor = curate_rewards._decimal(entry.get("usd_conversion_factor"))
+    factor = _decimal(entry.get("usd_conversion_factor"))
     if factor is None or factor <= 0:
         return
     scope = entry.get("scope")
@@ -76,10 +77,10 @@ def _entry_calibrations(entry: Any, index: int, path: Path):
         return
     for record_id in sorted(set(curate_rewards.RECORD_ID_RE.findall(scope))):
         yield record_id, {
-            "source_unit_usd": curate_rewards._json_number(
+            "source_unit_usd": _json_number(
                 factor * curate_rewards.CANONICAL_UNIT_USD
             ),
-            "canonical_factor": curate_rewards._json_number(factor),
+            "canonical_factor": _json_number(factor),
             "evidence_ref": f"{path.as_posix()}#/records/{index}",
         }
 
