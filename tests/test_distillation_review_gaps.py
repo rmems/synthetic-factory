@@ -2306,5 +2306,57 @@ class SeventhRoundSevereGaps(unittest.TestCase):
         )
 
 
+class EighthRoundSevereGaps(unittest.TestCase):
+    """The severe findings of the eighth review pass (convergence-capped)."""
+
+    def test_a_primary_channel_cannot_be_its_own_fallback(self):
+        # fallback_source "c0" with "c0" among the primaries let a surviving
+        # primary engage as its own fallback: losing c1 and c2 produced an
+        # authoritative `fallback` with no redundant relay behind it.
+        simulator = fr.RelayReflexSimulator()
+        record = clone(fr.build_records(11, 1)[0])
+        system = dict(record["scenario"].get("system", {}))
+        system["fallback_source"] = "c0"
+        record["scenario"]["system"] = system
+        rehash(record)
+        with self.assertRaises(oc.ContractError) as caught:
+            simulator.run(record["scenario"], record["intervention"])
+        self.assertIn("redundant source", str(caught.exception))
+        errors = fr.check_family(record, "x")
+        self.assertTrue(
+            any("redundant source" in e for e in errors),
+            f"a primary channel posing as its own fallback passed: {errors}",
+        )
+
+    def test_a_changed_rapl_domain_set_is_unmeasurable(self):
+        # A domain vanishing after workload() used to read as a zero delta
+        # and silently underreport the interval, which can flip the measured
+        # preference.
+        range_uj = 10_000_000
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            for name in ("intel-rapl:0", "intel-rapl:1"):
+                domain = root / name
+                domain.mkdir()
+                (domain / "energy_uj").write_text("0\n")
+                (domain / "max_energy_range_uj").write_text(f"{range_uj}\n")
+            meter = ep.RaplEnergyMeter(root=root)
+            state = {"n": 0}
+
+            def workload():
+                state["n"] += 1
+                (root / "intel-rapl:0" / "energy_uj").write_text(
+                    f"{state['n'] * 1_000_000}\n"
+                )
+                if state["n"] == 1:
+                    import shutil
+
+                    shutil.rmtree(root / "intel-rapl:1")
+
+            with self.assertRaises(oc.OracleUnavailable) as caught:
+                meter.measure(workload, repeats=2, warmup=0)
+        self.assertIn("domain set changed", str(caught.exception))
+
+
 if __name__ == "__main__":  # pragma: no cover
     unittest.main()

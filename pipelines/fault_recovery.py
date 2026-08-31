@@ -743,6 +743,14 @@ class RelayReflexSimulator(FaultOracle):
                 "system fallback_source must be a non-empty string or null, "
                 f"got {fallback!r}"
             )
+        if isinstance(fallback, str) and fallback in channels:
+            # A fallback names a REDUNDANT source. Naming a primary channel
+            # let a surviving primary engage as its own fallback, producing
+            # an authoritative `fallback` with no redundant relay behind it.
+            raise oc.ContractError(
+                f"system fallback_source {fallback!r} is one of the primary "
+                "channels; a fallback must be a redundant source"
+            )
 
     @staticmethod
     def _check_system_controls(system: dict[str, Any]) -> None:

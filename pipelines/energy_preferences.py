@@ -354,8 +354,18 @@ class RaplEnergyMeter(EnergyOracle):
         for _ in range(repeats):
             workload()
             after = self._read_uj()
+            if set(after) != set(before):
+                # A vanished domain used to read as a zero delta and
+                # silently underreport the interval; an appeared one would
+                # be silently dropped. Either way the interval cannot be
+                # attributed to a stable meter.
+                raise oc.OracleUnavailable(
+                    self.name,
+                    "the RAPL domain set changed mid-measurement "
+                    f"({sorted(before)} -> {sorted(after)})",
+                )
             total_uj += sum(
-                self._unwrapped_delta(name, start, after.get(name, start), ranges)
+                self._unwrapped_delta(name, start, after[name], ranges)
                 for name, start in before.items()
             )
             before = after
