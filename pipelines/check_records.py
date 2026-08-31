@@ -611,6 +611,23 @@ def _is_reward_narrative_spike_events(owner, value, reward_component_entries):
     )
 
 
+def _nir_owned_streams(oracle):
+    """Canonical NIR evidence streams: ``oracle.runtimes[*].outputs.spike_events``."""
+    runtimes = oracle.get("runtimes")
+    for entry in runtimes if isinstance(runtimes, list) else ():
+        outputs = entry.get("outputs") if isinstance(entry, dict) else None
+        if isinstance(outputs, dict) and "spike_events" in outputs:
+            yield outputs["spike_events"]
+
+
+def _hardware_owned_streams(oracle):
+    """Canonical hardware evidence streams: ``oracle.deployment/software.spike_events``."""
+    for side in ("deployment", "software"):
+        block = oracle.get(side)
+        if isinstance(block, dict) and "spike_events" in block:
+            yield block["spike_events"]
+
+
 def _parity_family_owned_streams(obj, kind):
     """Stream objects whose validity the parity family validator owns.
 
@@ -623,19 +640,9 @@ def _parity_family_owned_streams(obj, kind):
     oracle = obj.get("oracle") if isinstance(obj, dict) else None
     if not isinstance(oracle, dict):
         return ()
-    owned = []
     if kind == "nir_equivalence":
-        runtimes = oracle.get("runtimes")
-        for entry in runtimes if isinstance(runtimes, list) else ():
-            outputs = entry.get("outputs") if isinstance(entry, dict) else None
-            if isinstance(outputs, dict) and "spike_events" in outputs:
-                owned.append(outputs["spike_events"])
-    else:
-        for side in ("deployment", "software"):
-            block = oracle.get(side)
-            if isinstance(block, dict) and "spike_events" in block:
-                owned.append(block["spike_events"])
-    return tuple(owned)
+        return tuple(_nir_owned_streams(oracle))
+    return tuple(_hardware_owned_streams(oracle))
 
 
 def check_record(obj, where, factory_staging=False):
