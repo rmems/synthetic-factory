@@ -6,14 +6,12 @@ Distinguishes verified / inconclusive / failed. Never treats
 
 Frontier gate integration:
   pipelines/round_txn.py owns the frontier commit point
-  (ROUND-rNN.complete.json). Execution verification is a co-gate:
-  round_txn.validate_stage() / publish() may call
-  verify_batch_for_frontier() (or verify_stage_for_frontier())
-  to block frontier advancement when execution evidence is missing.
-  The hook is comment-anchored below ("Frontier gate hook") and
-  documented in docs/verify-execution.md. round_txn remains the
-  commit-point owner; verify_execution remains the source of truth
-  for verified / inconclusive / failed.
+  (ROUND-rNN.complete.json). Execution verification is a live co-gate:
+  round_txn.validate_stage() calls verify_batch_for_frontier(strict=True)
+  through round_txn.execution_gate() and refuses to publish while any
+  record is failed or inconclusive. round_txn remains the commit-point
+  owner; verify_execution remains the source of truth for
+  verified / inconclusive / failed. See docs/verify-execution.md.
 
 Usage:
   python3 pipelines/verify_execution.py <run_dir> [--strict]
@@ -42,136 +40,74 @@ except ImportError:  # pragma: no cover - depends on sys.path of the caller
     )
     ALLOWED_SIM_OR_REAL = frozenset({"designed", "simulated", "hil"})
 
+try:
+    from validate_run import (
+        THALAMIC_CORE_KEYS,
+        check_episode,
+        check_line,
+        check_safety_case,
+    )
+except ImportError:  # pragma: no cover - publish imports from the repo tree
+    THALAMIC_CORE_KEYS = (
+        "state",
+        "proposed_action",
+        "safety_decision",
+        "executed_action",
+        "future_outcome",
+        "reward_components",
+    )
+    check_episode = None
+    check_line = None
+    check_safety_case = None
 
-KNOWN_TOOLS = frozenset({
-    "bash", "read_file", "edit_file", "write_file", "search",
-    "gh", "kubectl", "gate-cli", "tofu", "tenv", "tflint", "aws", "jq", "hcl2json",
-})
+
+from verify_execution_shapes import (  # noqa: E402
+    verify_record_execution,
+)
 
 # ---------------------------------------------------------------------------
-# Frontier gate hook — integration with pipelines/round_txn.py
+# Frontier gate — integration with pipelines/round_txn.py
 # ---------------------------------------------------------------------------
 # pipelines/round_txn.py:validate_stage() is the training-ready gate that
 # runs check_jsonl() and quota checks before publish() links
-# ROUND-rNN.complete.json. Execution verification is an additional frontier
-# gate: a round must not become visible to frontier readers when its
-# records lack observable execution evidence.
+# ROUND-rNN.complete.json. Execution verification is a live co-gate there:
+# a round must not become visible to frontier readers when its records lack
+# observable execution evidence.
 #
-# Hook contract (comment hook, no hard import cycle):
-#   # In pipelines/round_txn.py — inside validate_stage() after check_jsonl:
-#   #   from verify_execution import verify_batch_for_frontier
-#   #   counts, findings, blocked = verify_batch_for_frontier(batch, strict=strict_execution)
-#   #   if blocked:
-#   #       raise TransactionError("execution verification blocks frontier: " + ...)
-#   #
-#   # publish() then links ROUND-rNN.complete.json only if both gates pass.
-#   #
+# Live call site (pipelines/round_txn.py:execution_gate, invoked from
+# validate_stage() after the envelope check):
+#
+#   verify_batch_for_frontier = load_execution_verifier()
+#   counts, findings, blocked = verify_batch_for_frontier(batch, strict=True)
+#   # failed        -> TransactionError, never waivable
+#   # inconclusive  -> TransactionError unless the operator passed
+#   #                  --allow-inconclusive "<reason>", which is recorded in
+#   #                  ROUND-rNN.complete.json
+#
+# publish() links ROUND-rNN.complete.json only if both gates pass, so an
+# unverifiable round cannot advance frontier_status().next_round.
+#
 # This keeps a clean separation: round_txn owns the atomic commit point
 # and filesystem invariants; verify_execution owns the verified /
 # inconclusive / failed taxonomy and never promotes cannot-verify.
-# The hook is intentionally import-on-demand so round_txn can operate
-# without verify_execution, and verify_execution can audit any run_dir
-# without a round_txn reservation.
+# The import is on-demand so verify_execution can audit any run_dir without a
+# round_txn reservation — but a missing verifier fails the publish closed
+# rather than skipping the gate.
 #
-# See docs/verify-execution.md (mirrors tests/tests_verify_execution.md)
-# for the full contract, strict vs non-strict semantics, and test matrix.
+# See docs/verify-execution.md for the full contract, strict vs non-strict
+# semantics, the waiver format, and the test matrix.
 # ---------------------------------------------------------------------------
 
 
-def verify_episode_steps(steps, _where):
-    """Verify coding episode steps have observable execution evidence."""
-    if not isinstance(steps, list) or not steps:
-        return "failed", "steps missing or empty"
-    inconclusive_reasons = []
-    for i, step in enumerate(steps):
-        if not isinstance(step, dict):
-            return "failed", f"step {i} not an object"
-        tool = step.get("tool_call")
-        obs = step.get("observation")
-        basis = step.get("decision_basis")
-        thought = step.get("thought")
+def jsonl_lines(text):
+    """Split JSONL on literal LF only.
 
-        # Hidden thought without observable basis is inconclusive, not verified
-        if thought is not None and basis is None:
-            inconclusive_reasons.append(f"step {i} has hidden thought without decision_basis")
+    ``str.splitlines()`` also splits at U+2028/U+2029, which remain ordinary
+    JSON string data and must not become record boundaries. Staging validation
+    (`check_jsonl`) uses the same literal-LF contract.
+    """
+    return text.split("\n")
 
-        if isinstance(tool, dict):
-            name = tool.get("name")
-        elif isinstance(tool, str) and tool.strip():
-            # Curated coding episodes keep a visible string tool call
-            # (pipelines/curate_coding.py); the shape validator accepts it, so
-            # normalize to its leading token rather than blocking the record.
-            name = tool.strip().split()[0]
-        else:
-            inconclusive_reasons.append(f"step {i} missing tool_call")
-            continue
-        if name not in KNOWN_TOOLS:
-            inconclusive_reasons.append(f"step {i} unknown tool {name!r}")
-        if not isinstance(obs, str) or not obs.strip():
-            # Observation is the execution evidence; missing = cannot-verify
-            inconclusive_reasons.append(f"step {i} missing observation")
-    if inconclusive_reasons:
-        return "inconclusive", "; ".join(inconclusive_reasons[:3])
-    return "verified", "all steps have tool_call + observation + decision_basis"
-
-
-def verify_thalamic(obj, where):
-    """Thalamic record: needs provenance + gate rationale + future outcome that is not hallucinated."""
-    # Callers include the bridge path, which can hand us a non-object
-    # language_view.trajectory. Return a verdict rather than raising.
-    if not isinstance(obj, dict):
-        return "inconclusive", f"{where} is not an object — cannot verify"
-    state = obj.get("state", {})
-    prov = state.get("sim_or_real") if isinstance(state, dict) else None
-    if prov not in ALLOWED_SIM_OR_REAL:
-        return "inconclusive", f"non-training provenance {prov!r} on {where}.state.sim_or_real"
-    sd = obj.get("safety_decision", {})
-    # A non-string rationale (object/number/null) must not raise here — this
-    # gate runs over untrusted generated records and a crash would take down
-    # the frontier check instead of returning a verdict.
-    rationale = sd.get("rationale") if isinstance(sd, dict) else None
-    if not isinstance(rationale, str) or not rationale.strip():
-        return "failed", "missing safety_decision.rationale"
-    fo = obj.get("future_outcome")
-    if not isinstance(fo, dict):
-        return "inconclusive", "future_outcome not an object — cannot verify outcome"
-    # If future_outcome has only narrative without timeline/events, mark inconclusive
-    if not fo.get("timeline") and not fo.get("observed_effects") and not fo.get("new_state"):
-        return "inconclusive", "future_outcome lacks observable timeline/effects"
-    return "verified", "thalamic checks pass"
-
-
-def verify_record_execution(obj, where="record"):
-    """Return (status, reason) in {verified, inconclusive, failed}."""
-    if not isinstance(obj, dict):
-        return "failed", "not an object"
-    # Episode
-    if "goal" in obj and "steps" in obj:
-        return verify_episode_steps(obj.get("steps"), where)
-    # Thalamic top-level
-    if all(k in obj for k in ("state", "proposed_action", "safety_decision", "executed_action", "future_outcome", "reward_components")):
-        return verify_thalamic(obj, where)
-    # Preference pair: both sides must be verified independently, status = min
-    if "chosen" in obj and "rejected" in obj:
-        s1, r1 = verify_record_execution(obj["chosen"], f"{where}.chosen")
-        s2, r2 = verify_record_execution(obj["rejected"], f"{where}.rejected")
-        if "failed" in (s1, s2):
-            return "failed", f"preference side failed: {r1 if s1=='failed' else r2}"
-        if "inconclusive" in (s1, s2):
-            return "inconclusive", f"preference side inconclusive: {r1 if s1=='inconclusive' else r2}"
-        return "verified", "both preference sides verified"
-    # Bridge pair
-    if "language_view" in obj and "spike_events" in obj:
-        traj = obj.get("language_view", {}).get("trajectory", {}) if isinstance(obj.get("language_view"), dict) else {}
-        if traj:
-            return verify_thalamic(traj, f"{where}.language_view.trajectory")
-        return "inconclusive", "bridge missing language_view.trajectory"
-    return "inconclusive", f"unrecognized shape keys {sorted(obj)[:6]}"
-
-
-# ---------------------------------------------------------------------------
-# Frontier-facing helpers — called by pipelines/round_txn.py
-# ---------------------------------------------------------------------------
 
 def verify_batch_for_frontier(batch_path: Path, strict: bool = False):
     """Verify a single staged batch file for frontier gating.
@@ -197,8 +133,8 @@ def verify_batch_for_frontier(batch_path: Path, strict: bool = False):
     counts = {"verified": 0, "inconclusive": 0, "failed": 0, "total": 0}
     findings: list[dict] = []
     try:
-        lines = batch_path.read_text().splitlines()
-    except OSError as exc:
+        lines = jsonl_lines(batch_path.read_text())
+    except (OSError, UnicodeError) as exc:
         findings.append({"file": str(batch_path), "line": 0, "status": "failed", "reason": str(exc)})
         counts["failed"] = 1
         counts["total"] = 1
@@ -266,8 +202,10 @@ def audit_run(run_dir: Path, strict: bool = False):
     for path in sorted(run_dir.rglob("*.jsonl")):
         rel = path.relative_to(run_dir)
         try:
-            lines = path.read_text().splitlines()
-        except OSError as e:
+            lines = jsonl_lines(path.read_text())
+        except (OSError, UnicodeError) as e:
+            counts["failed"] += 1
+            counts["total"] += 1
             findings.append({"file": str(rel), "line": 0, "status": "failed", "reason": str(e)})
             continue
         for lineno, line in enumerate(lines, 1):
@@ -306,8 +244,8 @@ def main(argv=None):
         path = Path(args.record)
         lineno = 1 if args.line is None else args.line
         try:
-            text = path.read_text().splitlines()
-        except OSError as exc:
+            text = jsonl_lines(path.read_text())
+        except (OSError, UnicodeError) as exc:
             print(json.dumps({"status": "failed", "reason": str(exc)}, indent=2))
             sys.exit(1)
         if lineno < 1 or lineno > len(text):
