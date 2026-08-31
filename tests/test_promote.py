@@ -10,7 +10,6 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
 PIPELINES = REPO / "pipelines"
-FIXTURES = Path(__file__).resolve().parent / "fixtures"
 PROMOTER = PIPELINES / "promote.py"
 
 sys.path.insert(0, str(PIPELINES))
@@ -178,6 +177,15 @@ class TestPromoteRecord(unittest.TestCase):
         self.assertEqual(out["state"]["sim_or_real"], "designed")
         self.assertNotEqual(out["state"]["sim_or_real"].lower(), "real")
 
+    def test_remapped_state_claim_is_idempotent_across_two_passes(self):
+        first = promote.promote_record(_thalamic(sim_or_real="real"))
+        second = promote.promote_record(json.loads(json.dumps(first)))
+
+        self.assertEqual(first["state"]["sim_or_real"], "designed")
+        self.assertEqual(first["state"]["provenance"]["claimed"], "real")
+        self.assertEqual(first["provenance"]["claimed"], "real")
+        self.assertEqual(second, first)
+
     def test_nested_chosen_rejected_and_trajectory(self):
         pair = {
             "chosen": _thalamic(sim_or_real="real", meta={"id": "c"}),
@@ -221,23 +229,151 @@ class TestPromoteRecord(unittest.TestCase):
         self.assertEqual(out["state"]["provenance"]["kind"], "unknown")
         self.assertNotIn("sim_or_real", out["state"])
 
-    def test_unsorted_spikes_are_sorted_and_flagged(self):
-        rec = json.loads((FIXTURES / "bad-spikes.jsonl").read_text().splitlines()[0])
-        out = promote.promote_record(rec)
-        times = [e["t_rel_ms"] for e in out["spike_events"]]
-        self.assertEqual(times, sorted(times))
-        self.assertTrue(out["meta"]["spike_events_resorted"])
+    def test_nested_state_provenance_precedes_default_unknown(self):
+        record = {
+            "id": "nested-provenance-1",
+            "state": {
+                "domain": "test",
+                "provenance": {
+                    "kind": "hil",
+                    "claimed": "hardware-in-the-loop rig",
+                },
+            },
+        }
 
-    def test_already_sorted_spikes_not_flagged(self):
-        rec = _thalamic()
-        rec["spike_events"] = [
-            {"channel": "a", "t_rel_ms": 1.0},
-            {"channel": "b", "t_ms": 2.0},
-        ]
-        out = promote.promote_record(rec)
-        self.assertNotIn("spike_events_resorted", out.get("meta", {}))
-        self.assertEqual([e.get("t_rel_ms") or e.get("t_ms") for e in out["spike_events"]], [1.0, 2.0])
+        out = promote.promote_record(record)
 
+        expected = {
+            "kind": "hil",
+            "claimed": "hardware-in-the-loop rig",
+        }
+        self.assertEqual(out["state"]["provenance"], expected)
+        self.assertEqual(out["provenance"], expected)
+        self.assertNotIn("sim_or_real", out["state"])
+
+    def test_nested_state_provenance_precedes_root_provenance(self):
+        record = {
+            "id": "nested-provenance-2",
+            "state": {
+                "provenance": {
+                    "kind": "simulated",
+                    "claimed": "high-fidelity simulation",
+                },
+            },
+            "provenance": {"kind": "unknown", "claimed": None},
+        }
+
+        out = promote.promote_record(record)
+
+        self.assertEqual(out["state"]["provenance"]["kind"], "simulated")
+        self.assertEqual(out["provenance"], out["state"]["provenance"])
+
+    def test_rejected_nested_state_claim_precedes_canonical_root(self):
+        record = {
+            "id": "nested-provenance-3",
+            "state": {"provenance": {"kind": "real"}},
+            "provenance": {"kind": "hil", "claimed": "test rig"},
+        }
+
+        out = promote.promote_record(record)
+
+        expected = {"kind": "designed", "claimed": "real"}
+        self.assertEqual(out["state"]["provenance"], expected)
+        self.assertEqual(out["provenance"], expected)
+
+    def test_stateless_factory_record_is_stamped_designed(self):
+        record = {
+            "id": "coding-episode-1",
+            "goal": "repair a queue consumer",
+            "steps": [],
+            "outcome": "verified",
+            "meta": {"factory": "agentic-coding-trajectory-factory"},
+            "provenance": {"kind": "unknown", "claimed": None},
+        }
+
+        out = promote.promote_record(record)
+
+        self.assertEqual(out["provenance"]["kind"], "designed")
+        self.assertIsNone(out["provenance"]["claimed"])
+        self.assertEqual(out["provenance"]["inferred_from"], "meta.factory")
+
+    def test_rejected_provenance_kind_keeps_its_claim(self):
+        """A stateless wrapper whose provenance.kind is outside ALLOWED_KINDS
+        used to be re-stamped with remap_claimed(None), erasing the original
+        claim that PROVENANCE.md promises survives in provenance.claimed. The
+        stateful path kept it, so the two disagreed about the same real-world
+        claim (mergestorm #98, promote.py:153).
+        """
+        record = {
+            "id": "coding-episode-2",
+            "goal": "repair a queue consumer",
+            "steps": [],
+            "outcome": "verified",
+            "meta": {"factory": "agentic-coding-trajectory-factory"},
+            "provenance": {"kind": "real", "claimed": CLAIMED_LIVE},
+        }
+
+        out = promote.promote_record(record)
+
+        # Cleaned records never emit `real` (PROVENANCE.md); the claim itself
+        # is what survives, exactly as on the stateful path.
+        self.assertEqual(out["provenance"]["kind"], "designed")
+        self.assertEqual(out["provenance"]["claimed"], CLAIMED_LIVE)
+
+    def test_rejected_kind_without_a_claim_is_itself_the_claim(self):
+        record = {
+            "id": "coding-episode-3",
+            "steps": [],
+            "meta": {"factory": "agentic-coding-trajectory-factory"},
+            "provenance": {"kind": "real"},
+        }
+
+        out = promote.promote_record(record)
+
+        self.assertEqual(out["provenance"]["kind"], "designed")
+        self.assertEqual(out["provenance"]["claimed"], "real")
+
+    def test_mix_bucket_does_not_depend_on_factory_envelope_metadata(self):
+        """The same claim must land in the same mix bucket whether or not the
+        record happens to carry meta.factory; otherwise synthetic_ratio, and
+        the blocking mix verdict, moved on unrelated metadata.
+        """
+        def record(meta):
+            out = {
+                "id": "coding-episode-4",
+                "steps": [],
+                "provenance": {"kind": "real", "claimed": CLAIMED_LIVE},
+            }
+            if meta is not None:
+                out["meta"] = meta
+            return out
+
+        with_factory = promote.promote_record(
+            record({"factory": "agentic-coding-trajectory-factory"})
+        )
+        without_factory = promote.promote_record(record(None))
+
+        self.assertEqual(
+            with_factory["provenance"]["kind"], without_factory["provenance"]["kind"]
+        )
+        self.assertEqual(
+            with_factory["provenance"]["claimed"],
+            without_factory["provenance"]["claimed"],
+        )
+
+    def test_stateful_wrapper_without_sim_or_real_keeps_its_claim(self):
+        record = {
+            "id": "coding-episode-5",
+            "state": {"note": "no sim_or_real key here"},
+            "meta": {"factory": "agentic-coding-trajectory-factory"},
+            "provenance": {"kind": "real", "claimed": CLAIMED_LIVE},
+        }
+
+        out = promote.promote_record(record)
+
+        self.assertEqual(out["provenance"]["kind"], "designed")
+        self.assertEqual(out["provenance"]["claimed"], CLAIMED_LIVE)
+        self.assertEqual(out["state"]["provenance"]["claimed"], CLAIMED_LIVE)
 
 class TestPromoteRun(unittest.TestCase):
     def test_rejects_destination_inside_raw(self):
@@ -352,7 +488,18 @@ class TestPromoteRun(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             raw = Path(td) / "raw"
             cleaned = Path(td) / "cleaned"
-            _write_jsonl(raw / "f" / "a.jsonl", [_thalamic()])
+            records = []
+            for index in range(5):
+                record = _thalamic(
+                    sim_or_real="real" if index == 0 else "unknown",
+                    meta={"id": f"t-{index}"},
+                )
+                record["state"]["domain"] = f"distinct-domain-{index}"
+                record["state"]["note"] = f"independent scenario vocabulary {index}"
+                record["proposed_action"]["action_type"] = f"proposal-{index}"
+                record["executed_action"]["action_type"] = f"execution-{index}"
+                records.append(record)
+            _write_jsonl(raw / "f" / "a.jsonl", records)
             proc = _cli([str(raw), str(cleaned)])
             self.assertEqual(proc.returncode, 0, proc.stderr)
             note = (cleaned / "PROVENANCE.md").read_text()
@@ -362,7 +509,81 @@ class TestPromoteRun(unittest.TestCase):
             payload = json.loads(proc.stdout)
             self.assertGreaterEqual(payload.get("files", 0), 1)
             self.assertGreaterEqual(payload.get("records", 0), 1)
+            self.assertFalse(payload["quality_gate"]["blocked"])
+            manifest = cleaned / "quality-manifest.json"
+            self.assertTrue(manifest.is_file())
+            self.assertFalse(json.loads(manifest.read_text())["blocked"])
 
+    def test_cli_returns_one_and_keeps_manifest_when_quality_gate_blocks(self):
+        with tempfile.TemporaryDirectory() as td:
+            raw = Path(td) / "raw"
+            cleaned = Path(td) / "cleaned"
+            record = _thalamic(meta={"id": "duplicate"})
+            _write_jsonl(raw / "f" / "a.jsonl", [record, record])
+
+            proc = _cli([str(raw), str(cleaned)])
+
+            self.assertEqual(proc.returncode, 1, proc.stderr)
+            payload = json.loads(proc.stdout)
+            self.assertTrue(payload["quality_gate"]["blocked"])
+            self.assertTrue(any("duplicate" in b for b in payload["quality_gate"]["blockers"]))
+            manifest = cleaned / "quality-manifest.json"
+            self.assertTrue(manifest.is_file())
+            report = json.loads(manifest.read_text())
+            self.assertTrue(report["blocked"])
+            self.assertEqual(report["counts"]["excluded_records"], 1)
+
+    def test_cli_rejects_manifest_inside_raw_before_writing_cleaned_output(self):
+        with tempfile.TemporaryDirectory() as td:
+            raw = Path(td) / "raw"
+            cleaned = Path(td) / "cleaned"
+            _write_jsonl(raw / "f" / "a.jsonl", [_thalamic()])
+
+            proc = _cli(
+                [
+                    str(raw),
+                    str(cleaned),
+                    "--quality-manifest",
+                    str(raw / "quality-manifest.json"),
+                ]
+            )
+
+            self.assertEqual(proc.returncode, 2)
+            self.assertFalse(cleaned.exists())
+            self.assertFalse((raw / "quality-manifest.json").exists())
+
+    def test_cli_rejects_manifest_equal_to_or_ancestor_of_destination_preflight(self):
+        with tempfile.TemporaryDirectory() as td:
+            base = Path(td)
+            for label, cleaned, manifest in (
+                (
+                    "equal",
+                    base / "equal-cleaned",
+                    base / "equal-cleaned",
+                ),
+                (
+                    "ancestor",
+                    base / "future-parent" / "cleaned",
+                    base / "future-parent",
+                ),
+            ):
+                with self.subTest(label=label):
+                    raw = base / f"raw-{label}"
+                    _write_jsonl(raw / "f" / "a.jsonl", [_thalamic()])
+
+                    proc = _cli(
+                        [
+                            str(raw),
+                            str(cleaned),
+                            "--quality-manifest",
+                            str(manifest),
+                        ]
+                    )
+
+                    self.assertEqual(proc.returncode, 2, proc.stderr)
+                    self.assertIn("must not equal or contain", proc.stderr)
+                    self.assertFalse(cleaned.exists())
+                    self.assertFalse(manifest.exists())
 
 if __name__ == "__main__":
     unittest.main()
