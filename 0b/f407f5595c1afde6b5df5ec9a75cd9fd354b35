@@ -1,0 +1,54 @@
+tests/test_oracle_grounded_cli.py
+  s_f3ffb7db87dca1::t_fea16574841e12 189
+  s_f3ffb7db87dca1::t_2e9bec0d1f259e 160-171
+  s_f3ffb7db87dca1::t_c56c3d38e6fe7e 499-518
+  s_f3ffb7db87dca1::t_4a57fde3983a2d 959
+  s_f3ffb7db87dca1::t_6f7dff6c1b50dd 1203-1220
+  s_f3ffb7db87dca1::t_213709da5b87be 942-944
+pipelines/oracle_generate.py
+  s_f3ffb7db87dca1::t_85786f0fdc160f 636-637
+  s_f3ffb7db87dca1::t_074bcf77a6a7f9 543
+  s_f3ffb7db87dca1::t_9e04226abd28ee 648-649,654
+  s_f3ffb7db87dca1::t_50657d387eadb6 218-224,227,229,231-253
+  s_f3ffb7db87dca1::t_6e76b96fa117f8 573-580
+  s_f3ffb7db87dca1::t_2a94810ba5bc9d 133-141,154,159-189
+  s_f3ffb7db87dca1::t_4412cf7a32987c 192,196-198,204
+pipelines/oracle_grounded/record.py
+  s_f3ffb7db87dca1::t_327ba051644179 104-110,112-113,117,120,122-142
+  s_f3ffb7db87dca1::t_ced75dc3bf739c 464
+  s_f3ffb7db87dca1::t_8cd352263c6758 183-185
+docs/oracle-grounded-datasets.md
+  s_f3ffb7db87dca1::t_c1e0bf5b9d6254 200-203
+tests/test_oracle_validate_metadata.py
+  s_f3ffb7db87dca1::t_30519aff7b33ed 202-269
+pipelines/oracle_grounded/schema_validation.py
+  s_f3ffb7db87dca1::t_00ba9e6da0ffad 355-386
+  s_f3ffb7db87dca1::t_0ab1af5c6114bb 395-397
+  s_f3ffb7db87dca1::t_782c7e76e516d6 7-10
+  s_f3ffb7db87dca1::t_706c58266d3691 27-57
+  s_f3ffb7db87dca1::t_235c9eda4e8e70 411-413
+pipelines/oracle_validate.py
+  s_f3ffb7db87dca1::t_ff88901b61fb19 344-347,349-357
+  s_f3ffb7db87dca1::t_37f9a54c78d5bb 724-728
+  s_f3ffb7db87dca1::t_ae8e50a2a60c9d 66-80
+  s_f3ffb7db87dca1::t_b4f887bf8687d3 1237,1241-1255
+tests/test_oracle_grounded_record.py
+  s_f3ffb7db87dca1::t_e0063dfc9c379e 333-348
+  s_f3ffb7db87dca1::t_6e3c65bbaad4ed 1469-1529
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "0bf407f5595c1afde6b5df5ec9a75cd9fd354b35",
+  "prompts": {},
+  "sessions": {
+    "s_f3ffb7db87dca1": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "510a01e2-1e9d-4f64-a445-6971413485be",
+        "model": "claude-fable-5"
+      },
+      "human_author": "Raul Montoya Cardenas <montoyaraul34@gmail.com>"
+    }
+  }
+}
