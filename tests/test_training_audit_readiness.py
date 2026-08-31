@@ -79,6 +79,35 @@ class TrainingAuditReadinessReport(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     training_audit.audit_run(root)
 
+    def test_a_symlinked_directory_in_the_run_tree_fails_the_audit_closed(self):
+        """Codex #97 P2: an aliased subtree must fail the audit, not vanish.
+
+        ``Path.rglob("*.jsonl")`` neither returns a directory symlink whose
+        name does not end in ``.jsonl`` nor descends through it, so JSONL
+        visible only through that alias would silently drop out of a
+        standalone audit while ``--strict`` still certified the remaining
+        subset as the whole corpus.
+        """
+
+        with tempfile.TemporaryDirectory() as td, (
+            tempfile.TemporaryDirectory()
+        ) as outside:
+            root = Path(td)
+            factory = root / "thalamic-trajectory-factory"
+            write(factory / "batch-r01.jsonl", [thalamic("clean-1")])
+            self.assertTrue(training_audit.audit_run(root)["training_ready"])
+
+            alias_target = Path(outside)
+            (alias_target / "invalid.jsonl").write_text(
+                "not json\n", encoding="utf-8"
+            )
+            (root / "aliased-subtree").symlink_to(
+                alias_target, target_is_directory=True
+            )
+
+            with self.assertRaisesRegex(ValueError, "symlink alias"):
+                training_audit.audit_run(root)
+
     def test_swapped_committed_member_bytes_fail_the_audit_closed(self):
         """Codex #97 P2: audited bytes must match the committed round digest.
 

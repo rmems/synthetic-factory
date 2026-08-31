@@ -219,6 +219,13 @@ def iter_alias_free_jsonl(root: Path, label: str) -> list[Path]:
                 raise ExportError(
                     f"{label}: tree contains a symlink alias: {entry.path}"
                 )
+            if entry.name.endswith(".jsonl") and not stat.S_ISREG(metadata.st_mode):
+                # A directory named ``x.jsonl`` would otherwise be descended
+                # as a container, so an apparent curated payload entry could
+                # sit in the tree without ever being authenticated.
+                raise ExportError(
+                    f"{label}: JSONL entry is not an exact regular file: {entry.path}"
+                )
             if stat.S_ISDIR(metadata.st_mode):
                 pending.append(Path(entry.path))
             elif entry.name.endswith(".jsonl"):

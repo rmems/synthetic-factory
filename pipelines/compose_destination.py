@@ -280,7 +280,9 @@ def _read_exact_regular_file(root: Path, raw_path: Any, label: str) -> tuple[Pat
 
     path = _source_member_path(root, raw_path, label)
     before = path.lstat()
-    flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
+    # O_NONBLOCK keeps a member swapped for a FIFO from hanging the open;
+    # the identity check below then rejects it. Regular reads ignore the flag.
+    flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | os.O_NONBLOCK
     try:
         descriptor = os.open(path, flags)
     except OSError as exc:
@@ -308,9 +310,14 @@ def _open_pinned_child(
 
     try:
         before = os.stat(name, dir_fd=parent_descriptor, follow_symlinks=False)
+        # O_NONBLOCK keeps a child swapped for a FIFO from hanging the open;
+        # ``_read_pinned_child_bytes`` then rejects the opened identity.
         descriptor = os.open(
             name,
-            os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_CLOEXEC", 0),
+            os.O_RDONLY
+            | getattr(os, "O_NOFOLLOW", 0)
+            | getattr(os, "O_CLOEXEC", 0)
+            | os.O_NONBLOCK,
             dir_fd=parent_descriptor,
         )
     except OSError as exc:
@@ -696,6 +703,23 @@ def _verify_pinned_child(
         raise ComposeError(
             f"{label}: directory component {name!r} changed while it was pinned"
         )
+
+
+def _create_pinned_new_directory(
+    parent_descriptor: int, name: str, label: str
+) -> None:
+    """Create one child directory through its checked pinned parent.
+
+    A same-user rename can move the pinned destination — and every descriptor
+    under it — into ``outputs/raw`` after it was opened, so a ``mkdir``
+    resolved through the descriptor would create directories inside immutable
+    raw evidence. Refuse from the kernel's view of the descriptor first, then
+    create and verify the component descriptor-relative, exactly like the
+    pinned leaf writer.
+    """
+
+    _assert_descriptor_outside_raw(parent_descriptor, label)
+    os.close(_open_pinned_child_directory(parent_descriptor, name, label))
 
 
 def _write_pinned_new_bytes(

@@ -266,6 +266,70 @@ class ExportSnapshotCoherence(unittest.TestCase):
                 export_hf.export_run(curated, root / "export")
             self.assertFalse((root / "export").exists())
 
+    def test_a_directory_named_like_jsonl_refuses_the_export(self):
+        """Codex #97 P2: a ``*.jsonl``-named directory must fail closed.
+
+        The alias-refusing walker used to descend such an entry as a
+        container, so an empty directory named ``ignored.jsonl`` vanished
+        from the snapshot and the export still authenticated — leaving an
+        apparent curated payload entry in the tree that was never checked.
+        """
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            curated = compose_fixture(root)
+            records_dir = curated / compose_curated.RECORDS_DIRNAME
+            (records_dir / "ignored.jsonl").mkdir()
+
+            with self.assertRaisesRegex(
+                export_hf.ExportError, "not an exact regular file"
+            ):
+                export_hf.export_run(curated, root / "export")
+            self.assertFalse((root / "export").exists())
+
+    def test_a_member_added_during_capture_refuses_the_export(self):
+        """Codex #97 P2: replay must re-discover members after its capture.
+
+        Identity rechecks only cover the members enumerated before the first
+        read, so a visible JSONL added to a legacy source tree mid-capture
+        used to let export authenticate and publish the old subset of a
+        source run that no longer exists.
+        """
+        import export_replay
+
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            curated = compose_fixture(root)
+            source_root = Path(
+                json.loads(
+                    (curated / compose_curated.SUMMARY_FILENAME).read_text(
+                        encoding="utf-8"
+                    )
+                )["source_run"]
+            )
+            original_read = export_replay._read_exact_regular_file
+            added = {"done": False}
+
+            def racing_read(root_dir, relative, label):
+                result = original_read(root_dir, relative, label)
+                if not added["done"]:
+                    # After the first member is captured, add a new one.
+                    added["done"] = True
+                    write_jsonl(
+                        source_root / "late-factory" / "late-batch.jsonl",
+                        [multi_agent("late")],
+                    )
+                return result
+
+            with mock.patch.object(
+                export_replay, "_read_exact_regular_file", racing_read
+            ):
+                with self.assertRaisesRegex(
+                    export_hf.ExportError,
+                    "member set changed while the replay snapshot",
+                ):
+                    export_hf.export_run(curated, root / "export")
+            self.assertFalse((root / "export").exists())
+
 
 class ExportMemberFifoSwap(unittest.TestCase):
     def test_a_member_swapped_for_a_fifo_is_rejected_without_blocking(self):

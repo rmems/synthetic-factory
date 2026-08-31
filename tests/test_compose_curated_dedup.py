@@ -16,6 +16,7 @@ for _path in (TESTS, REPO / "pipelines"):
 
 import compose_curated  # noqa: E402
 from compose_curated_test_support import (  # noqa: E402
+    bridge_pair,
     episode,
     read_jsonl,
     thalamic,
@@ -291,6 +292,103 @@ class ComposeSemanticDeduplication(unittest.TestCase):
             self.assertEqual(
                 summary["exclusions"],
                 {compose_curated.REASON_DUPLICATE_CURATED_RECORD: 1},
+            )
+
+    def test_bridge_trajectory_provenance_duplicates_are_deduplicated(self):
+        """Codex #97 P1: bridge trajectory provenance must not survive the digest.
+
+        Identity treats ``language_view.trajectory`` as the owner of a bridge
+        record, so the semantic digest has to normalize provenance on that
+        owner exactly as it does for the wrapper and both preference sides.
+        Two bridge records whose nested trajectory differs only in
+        ``meta.run``/``meta.round`` are the same training content; keeping
+        both would place the duplicate on opposite sides of a two-record
+        train/eval split.
+        """
+        first = bridge_pair()
+        second = copy.deepcopy(first)
+        second["id"] = "legacy-bridge-2"
+        second["language_view"]["trajectory"]["meta"]["round"] = 7
+        second["language_view"]["trajectory"]["meta"]["run"] = "2026-08-18"
+
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            source = root / "run"
+            write_jsonl(
+                source / "neuromorphic-event-language-bridge" / "batch-r01.jsonl",
+                [first, second],
+            )
+
+            summary = compose_curated.compose_run(source, root / "curated")
+
+            self.assertEqual(summary["counts"]["source_records"], 2)
+            self.assertEqual(summary["counts"]["retained"], 1)
+            self.assertEqual(
+                summary["exclusions"],
+                {compose_curated.REASON_DUPLICATE_CURATED_RECORD: 1},
+            )
+
+    def test_calibration_evidence_coordinates_do_not_split_duplicates(self):
+        """Codex #97 P1: calibration evidence coordinates must not survive the digest.
+
+        ``magnitude.values[*].calibration_source`` embeds the calibration
+        document path and entry index. Two otherwise identical records whose
+        distinct catalog entries declare the same conversion factor differ
+        only in that evidence coordinate, so keeping it in the digest retains
+        both substantive copies — and a two-record factory then necessarily
+        splits them across train and eval. The emitted record keeps its
+        ``calibration_source``; only the dedup digest ignores it.
+        """
+
+        def calibrated(tag):
+            record = thalamic(f"cal-{tag}")
+            record["id"] = f"ffpc-r5-00{tag}"
+            record["state"]["domain"] = "compose-cal"
+            return record
+
+        migration = {
+            "records": [
+                {
+                    "scope": "batch-r01.jsonl / ffpc-r5-001 (grid)",
+                    "usd_conversion_factor": 0.2,
+                },
+                {
+                    "scope": "batch-r01.jsonl / ffpc-r5-002 (grid)",
+                    "usd_conversion_factor": 0.2,
+                },
+            ]
+        }
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            source = root / "run"
+            write_jsonl(
+                source / "thalamic-trajectory-factory" / "batch-r01.jsonl",
+                [calibrated(1), calibrated(2)],
+            )
+            migration_path = root / "units-migration.json"
+            migration_path.write_text(
+                json.dumps(migration) + "\n", encoding="utf-8"
+            )
+
+            summary = compose_curated.compose_run(
+                source, root / "curated", units_migration=migration_path
+            )
+
+            self.assertEqual(summary["counts"]["source_records"], 2)
+            self.assertEqual(summary["counts"]["retained"], 1)
+            self.assertEqual(
+                summary["exclusions"],
+                {compose_curated.REASON_DUPLICATE_CURATED_RECORD: 1},
+            )
+            records_dir = root / "curated" / compose_curated.RECORDS_DIRNAME
+            (emitted,) = [
+                record
+                for path in sorted(records_dir.rglob("*.jsonl"))
+                for record in read_jsonl(path)
+            ]
+            values = emitted["reward_training"]["magnitude"]["values"]
+            self.assertTrue(
+                all("calibration_source" in value for value in values), values
             )
 
 

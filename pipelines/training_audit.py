@@ -380,6 +380,45 @@ def _require_committed_digest(
         )
 
 
+def _enumerated_run_members(run_dir: Path) -> list[Path]:
+    """Enumerate every ``*.jsonl`` entry explicitly, refusing symlink aliases.
+
+    ``Path.rglob`` neither returns a symlinked directory (its name does not
+    match the pattern) nor descends through it, so an aliased subtree — and
+    every JSONL member visible through it — would simply vanish from a
+    standalone audit instead of failing closed.
+    """
+    members: list[Path] = []
+    pending = [Path(run_dir)]
+    while pending:
+        directory = pending.pop()
+        try:
+            with os.scandir(directory) as scan:
+                entries = sorted(scan, key=lambda entry: entry.name)
+        except OSError as exc:
+            raise ValueError(
+                f"audit tree cannot be enumerated: {directory}: {exc}"
+            ) from exc
+        for entry in entries:
+            try:
+                metadata = entry.stat(follow_symlinks=False)
+            except OSError as exc:
+                raise ValueError(
+                    f"audit member cannot be captured: {entry.path}: {exc}"
+                ) from exc
+            if stat.S_ISLNK(metadata.st_mode):
+                raise ValueError(
+                    f"audit tree contains a symlink alias: {entry.path}"
+                )
+            if stat.S_ISDIR(metadata.st_mode) and not entry.name.endswith(".jsonl"):
+                pending.append(Path(entry.path))
+            elif entry.name.endswith(".jsonl"):
+                # A directory or fifo named ``*.jsonl`` is surfaced as a
+                # member so the capture below refuses its irregular identity.
+                members.append(Path(entry.path))
+    return sorted(members)
+
+
 def _captured_run_files(run_dir: Path) -> list[tuple[Path, bytes]]:
     """Capture every visible JSONL member of ``run_dir`` as exact bytes.
 
@@ -392,7 +431,7 @@ def _captured_run_files(run_dir: Path) -> list[tuple[Path, bytes]]:
     visible = set(visible_jsonl_paths(run_dir))
     digest_cache: dict[Path, dict[str, str]] = {}
     files = []
-    for path in sorted(run_dir.rglob("*.jsonl")):
+    for path in _enumerated_run_members(run_dir):
         relative = path.relative_to(run_dir)
         try:
             metadata = path.lstat()

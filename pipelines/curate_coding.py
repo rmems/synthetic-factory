@@ -68,6 +68,7 @@ from coding_constants import (  # noqa: E402
     WRAP_STEPS_PARENT,
     _EVIDENCE_REASON,
 )
+from record_kind import classify_kind  # noqa: E402
 
 
 def canonical_json(value: Any) -> str:
@@ -318,11 +319,19 @@ def _steps_path(record: dict[str, Any]) -> str | None:
 
     A plain episode holds them at ``steps``. A Thalamic wrap record embeds the
     coding episode under ``executed_action``, so its steps live one level down.
+    When a record classifies as a Thalamic wrap and carries both — its wrapped
+    episode plus an incidental top-level ``steps`` array — the wrapped episode
+    wins: the strict audit grounds a Thalamic record's ``executed_action.steps``
+    and never the root array, so curating the root array instead would leave
+    the actual wrap ungrounded and block an otherwise repairable corpus.
     """
+    parent = record.get(WRAP_STEPS_PARENT)
+    wrapped = isinstance(parent, dict) and isinstance(parent.get("steps"), list)
+    if wrapped and classify_kind(record) == "thalamic":
+        return f"{WRAP_STEPS_PARENT}.steps"
     if isinstance(record.get("steps"), list):
         return "steps"
-    parent = record.get(WRAP_STEPS_PARENT)
-    if isinstance(parent, dict) and isinstance(parent.get("steps"), list):
+    if wrapped:
         return f"{WRAP_STEPS_PARENT}.steps"
     return None
 

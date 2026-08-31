@@ -420,6 +420,86 @@ class PinnedWriterRawRelocation(unittest.TestCase):
                 except compose_curated.ComposeError:
                     pass
 
+    def test_initial_compose_directories_refuse_a_relocated_destination(self):
+        """Codex #97 P1: the first mkdirs must not follow a raw relocation.
+
+        ``compose_run`` used to create ``records/`` and ``manifest/`` through
+        the ``/proc/self/fd`` root path with no residency check, so a
+        destination renamed under ``outputs/raw`` right after it was pinned
+        received those directories inside immutable raw evidence — before the
+        checked leaf writer ever ran.
+        """
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            source = build_source_run(root / "run")
+            raw = root / "outputs" / "raw"
+            raw.mkdir(parents=True)
+            original = compose_curated._create_pinned_destination
+
+            def relocating(source_dir, destination):
+                pinned = original(source_dir, destination)
+                os.rename(destination, raw / "curated")
+                return pinned
+
+            with mock.patch.object(
+                compose_curated, "_create_pinned_destination", relocating
+            ):
+                with self.assertRaisesRegex(
+                    compose_curated.ComposeError,
+                    "relocated into immutable raw evidence",
+                ):
+                    compose_curated.compose_run(source, root / "curated")
+            self.assertEqual(list((raw / "curated").rglob("*")), [])
+
+    def test_source_and_calibration_fifo_swaps_are_rejected_without_blocking(self):
+        """Codex #97 P2: a FIFO swapped in after lstat must not hang compose.
+
+        O_NOFOLLOW does not protect against a file-type swap, and a read-only
+        FIFO open blocks until a writer appears; O_NONBLOCK lets both the
+        source-member open and the pinned calibration-child open return so
+        the identity validation can reject the descriptor.
+        """
+        import compose_destination
+
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            member_fifo = root / "member.jsonl"
+            os.mkfifo(member_fifo)
+            with mock.patch.object(
+                compose_destination,
+                "_source_member_path",
+                lambda *args, **kwargs: member_fifo,
+            ):
+                with self.assertRaisesRegex(
+                    compose_curated.ComposeError, "not a regular file"
+                ):
+                    compose_destination._read_exact_regular_file(
+                        root, "member.jsonl", "source member"
+                    )
+
+            calibration_fifo = root / "calibration.json"
+            os.mkfifo(calibration_fifo)
+            parent = os.open(root, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
+            try:
+                before, descriptor = compose_destination._open_pinned_child(
+                    "calibration.json", parent, "units-migration calibration"
+                )
+                try:
+                    with self.assertRaisesRegex(
+                        compose_curated.ComposeError, "not a regular file"
+                    ):
+                        compose_destination._read_pinned_child_bytes(
+                            "calibration.json",
+                            parent,
+                            descriptor,
+                            before,
+                            "units-migration calibration",
+                        )
+                finally:
+                    os.close(descriptor)
+            finally:
+                os.close(parent)
+
 
 if __name__ == "__main__":
     unittest.main()

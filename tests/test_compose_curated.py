@@ -591,6 +591,111 @@ class ComposeCurated(unittest.TestCase):
             self.assertNotIn("hidden nested reasoning", emitted)
             self.assertNotIn('"thought"', emitted)
 
+    def test_wrap_records_with_incidental_root_steps_ground_the_wrapped_episode(self):
+        """Codex #97 P2: the wrapped episode wins over an incidental root array.
+
+        The strict audit grounds a registered Thalamic record's
+        ``executed_action.steps`` — and a bridge record's
+        ``language_view.trajectory`` wrap — never a root-level ``steps``
+        array. Curating the incidental root array instead used to leave the
+        actual wrap ungrounded, blocking an otherwise repairable corpus.
+        """
+        wrap_episode = {
+            "steps": [
+                {
+                    "n": 1,
+                    "thought": "hidden nested reasoning",
+                    "tool_call": {"name": "inspect", "args": {}},
+                    "observation": "fixture result",
+                }
+            ],
+            "goal": "nested goal",
+            "outcome": "nested outcome",
+            "reward": {"success": True},
+        }
+        incidental = [
+            {
+                "n": 1,
+                "decision_basis": "incidental top-level step",
+                "tool_call": {"name": "noop", "args": {}},
+                "observation": "incidental",
+            }
+        ]
+        wrap = thalamic("root-steps")
+        wrap["executed_action"] = dict(
+            wrap["executed_action"], **copy.deepcopy(wrap_episode)
+        )
+        wrap["steps"] = copy.deepcopy(incidental)
+        pair = bridge_pair()
+        pair["language_view"]["trajectory"]["executed_action"] = copy.deepcopy(
+            wrap_episode
+        )
+        pair["steps"] = copy.deepcopy(incidental)
+
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            source = root / "run"
+            write_jsonl(
+                source / "thalamic-trajectory-factory" / "batch-r01.jsonl", [wrap]
+            )
+            write_jsonl(
+                source / "neuromorphic-event-language-bridge" / "batch-r01.jsonl",
+                [pair],
+            )
+
+            summary = compose_curated.compose_run(source, root / "curated")
+
+            self.assertEqual(summary["counts"]["retained"], 2)
+            self.assertTrue(
+                summary["audit"]["training_ready"], summary["audit"]["blockers"]
+            )
+            records_dir = root / "curated" / compose_curated.RECORDS_DIRNAME
+            emitted = "".join(
+                path.read_text(encoding="utf-8")
+                for path in sorted(records_dir.rglob("*.jsonl"))
+            )
+            self.assertNotIn("hidden nested reasoning", emitted)
+            self.assertNotIn('"thought"', emitted)
+
+    def test_hidden_only_thalamic_records_are_stripped_not_blocked(self):
+        """Codex #97 P2: hidden reasoning on a stepless Thalamic record is repaired.
+
+        A valid Thalamic record with ``proposed_action.internal_reasoning``
+        but no episode step array has no coding lane, so composition used to
+        retain the private field and the strict audit then blocked the whole
+        corpus — even though the generic recursive stripper can repair it
+        exactly as it does for preference sides and stepless bridge wraps.
+        """
+        record = thalamic("hidden-only")
+        record["proposed_action"]["internal_reasoning"] = "secret plan"
+
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            source = root / "run"
+            write_jsonl(
+                source / "thalamic-trajectory-factory" / "batch-r01.jsonl", [record]
+            )
+
+            summary = compose_curated.compose_run(source, root / "curated")
+
+            self.assertEqual(summary["counts"]["retained"], 1)
+            self.assertTrue(
+                summary["audit"]["training_ready"], summary["audit"]["blockers"]
+            )
+            manifest = read_jsonl(root / "curated" / summary["manifest"]["path"])
+            coding_stage = next(
+                stage
+                for stage in manifest[0]["stages"]
+                if stage["lane"] == "coding"
+            )
+            self.assertEqual(
+                coding_stage["detail"]["hidden_reasoning_fields_removed"], 1
+            )
+            records_dir = root / "curated" / compose_curated.RECORDS_DIRNAME
+            emitted = next(records_dir.rglob("*.jsonl")).read_text(encoding="utf-8")
+            self.assertNotIn("secret plan", emitted)
+            self.assertNotIn("internal_reasoning", emitted)
+
     def test_foreign_mill_records_are_quarantined_before_identity(self):
         """Codex #97 P1: mill ownership resolves before identity rewrites ids.
 

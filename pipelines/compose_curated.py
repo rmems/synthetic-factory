@@ -130,6 +130,7 @@ from compose_destination import (  # noqa: E402,F401
     _collect_source_directory,
     _contains_raw_segments,
     _create_pinned_destination,
+    _create_pinned_new_directory,
     _destination_write_parts,
     _directory_binding_matches,
     _directory_identity,
@@ -227,6 +228,7 @@ __all__ = [
     "_compat_trajectory_preference",
     "_contains_raw_segments",
     "_create_pinned_destination",
+    "_create_pinned_new_directory",
     "_curate_trajectory_sides",
     "_destination_write_parts",
     "_directory_binding_matches",
@@ -998,6 +1000,12 @@ def _coding_lane_curator(current: dict[str, Any], registered_kind: Any) -> Any:
 
     if registered_kind in {"multi_agent", "safety_case"}:
         return curate_agentic
+    if is_bridge_record(current):
+        # A bridge pair's coding episode lives at language_view.trajectory;
+        # an incidental top-level ``steps`` array must not route the wrapper
+        # through the plain-episode lane, which curates only that root array
+        # the audit never grounds for a bridge record.
+        return None
     if is_episode_record(current):
         return curate_coding
     return None
@@ -1111,6 +1119,19 @@ def _compose_coding_stage(
                 stages,
                 source_path=source_path,
                 source_line=source_line,
+            )
+        if registered_kind == "thalamic" and curate_coding.contains_hidden_reasoning_key(
+            current
+        ):
+            # A Thalamic record without any episode step array is not a
+            # coding episode, but hidden reasoning it carries (for example
+            # ``proposed_action.internal_reasoning``) still blocks the strict
+            # audit. The generic recursive stripper removes exactly what the
+            # audit refuses while leaving the shape alone — the same repair
+            # the preference sides and stepless bridge trajectories receive.
+            cleaned, detail = _strip_hidden_only_side(current)
+            return _append_coding_lane_stage(
+                stages, curate_agentic, cleaned, detail
             )
         stages.append(
             _stage(
@@ -1384,9 +1405,13 @@ def _mapped_legacy_id_paths(detail: Mapping[str, Any] | None) -> tuple[str, ...]
 def _semantic_identity_owners(record: dict[str, Any]) -> list[dict[str, Any]]:
     """Every owner that may carry a factory declaration for one record.
 
-    Mirrors ``curate_identity._payload_factory``: the wrapper itself plus both
+    Mirrors ``curate_identity``'s owners: the wrapper itself plus both
     preference sides, since a legacy preference wrapper attests its factory on
-    ``chosen``/``rejected`` and omits a wrapper-level ``meta`` entirely.
+    ``chosen``/``rejected`` and omits a wrapper-level ``meta`` entirely — and
+    the ``language_view.trajectory`` a bridge record embeds, since identity
+    treats that trajectory as the bridge record's owner. Leaving the bridge
+    trajectory out would keep two otherwise identical bridge records apart on
+    nothing but its ``meta.run``/``meta.round`` labels.
     """
 
     owners = [record]
@@ -1394,6 +1419,10 @@ def _semantic_identity_owners(record: dict[str, Any]) -> list[dict[str, Any]]:
         owner = record.get(side)
         if isinstance(owner, dict):
             owners.append(owner)
+    view = record.get("language_view")
+    trajectory = view.get("trajectory") if isinstance(view, Mapping) else None
+    if isinstance(trajectory, dict):
+        owners.append(trajectory)
     return owners
 
 
@@ -1448,16 +1477,27 @@ def _strip_provenance_labels(semantic: dict[str, Any]) -> None:
 
 
 def _strip_sidecar_binding(semantic: dict[str, Any]) -> None:
-    """Drop the reward annotation's source-coordinate binding.
+    """Drop the reward annotation's source-coordinate bindings.
 
     The sidecar digest authenticates source coordinates. Keep the
     comparability class and any magnitude/order payload, but remove the
-    coordinate binding that would otherwise hide converged examples.
+    coordinate bindings that would otherwise hide converged examples:
+    ``source_sidecar_id`` names this record's own sidecar row, and each
+    magnitude value's ``calibration_source`` embeds the calibration document
+    path and entry index — evidence coordinates, not trained-on content. Two
+    records whose distinct catalog entries declare the same conversion keep
+    their identical units and canonical values in the digest either way.
     """
 
     annotation = semantic.get(curate_rewards.ANNOTATION_FIELD)
-    if isinstance(annotation, dict):
-        annotation.pop("source_sidecar_id", None)
+    if not isinstance(annotation, dict):
+        return
+    annotation.pop("source_sidecar_id", None)
+    magnitude = annotation.get("magnitude")
+    values = magnitude.get("values") if isinstance(magnitude, dict) else None
+    for value in values if isinstance(values, list) else ():
+        if isinstance(value, dict):
+            value.pop("calibration_source", None)
 
 
 def _post_transform_semantic_sha256(decision: ComposeDecision) -> str:
@@ -2105,8 +2145,16 @@ def compose_run(
     state = _ComposeRunState()
 
     try:
-        records_dir.mkdir()
-        (pinned_destination.root / MANIFEST_DIRNAME).mkdir()
+        # Never ``mkdir`` through the ``/proc/self/fd`` root path: a same-user
+        # rename could have moved the pinned destination under ``outputs/raw``
+        # after it was opened, and the path would follow it there. The checked
+        # helper refuses first, from the kernel's view of the descriptor.
+        _create_pinned_new_directory(
+            destination_descriptor, RECORDS_DIRNAME, "destination"
+        )
+        _create_pinned_new_directory(
+            destination_descriptor, MANIFEST_DIRNAME, "destination"
+        )
         for relative in source_members:
             _compose_source_file(
                 state,

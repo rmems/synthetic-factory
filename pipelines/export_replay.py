@@ -291,8 +291,23 @@ def _require_coherent_capture(
     member rewritten after its own read — while a later member is still being
     captured — would let replay authenticate a hybrid of source states that
     never coexisted. Comparing every member's identity from before the first
-    read to after the last one refuses that interleaving.
+    read to after the last one refuses that interleaving. Identity checks
+    only cover the members enumerated before the first read, so member
+    discovery reruns here too: a visible JSONL added to the tree mid-capture
+    would otherwise let export authenticate and publish the old subset of a
+    source run that no longer exists.
     """
+    try:
+        members_now = compose_curated.source_jsonl_members(source_root)
+    except (compose_curated.ComposeError, TransactionError) as exc:
+        raise ExportError(
+            f"COMPOSE source tree cannot be replayed safely: {exc}"
+        ) from exc
+    if tuple(members_now) != tuple(source_members):
+        raise ExportError(
+            "compose source: the visible member set changed while the replay "
+            "snapshot was being captured"
+        )
     for relative in source_members:
         if _member_identity(source_root, relative) != identities_before[relative]:
             raise ExportError(
