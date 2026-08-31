@@ -1,0 +1,20 @@
+pipelines/fault_recovery.py
+  s_f3ffb7db87dca1::t_a4fe9ffeabfc29 425-449
+  s_f3ffb7db87dca1::t_7e0cbf889d2506 661-682,705,716-727
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "1cd0f940cf1bd18f6e71607cbbd5115b263ed0de",
+  "prompts": {},
+  "sessions": {
+    "s_f3ffb7db87dca1": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "510a01e2-1e9d-4f64-a445-6971413485be",
+        "model": "claude-fable-5"
+      },
+      "human_author": "Raul Montoya Cardenas <montoyaraul34@gmail.com>"
+    }
+  }
+}
