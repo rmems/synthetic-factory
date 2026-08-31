@@ -20,28 +20,32 @@ import publish_grok46_hub as publisher  # noqa: E402
 
 FEATURE_FLAG_DEBUG = "feature-flag-debug-trajectories"
 
+# Rendering inputs for the #63 card, at module level so the card is built
+# exactly once for the whole class. This leaf already sits on top of the
+# schema-infra facade, so it calls the current summary=PayloadSummary(...)
+# surface instead of the legacy records=/bytes_= keywords.
+ITEM = {
+    "slug": "feature-flag-debug-factory",
+    "hub": FEATURE_FLAG_DEBUG,
+    "pretty": "Feature Flag Debug Trajectories",
+    "blurb": "Feature-flag leftover assignment/override debug episodes.",
+    "tags": ["synthetic-data", "trajectories", "feature-flags"],
+}
+PAYLOAD_NAMES = [f"batch-r{n:02d}.jsonl" for n in range(1, 111)]
+SUMMARY = publisher.PayloadSummary(
+    records=220, bytes_=1523718, first="r01", last="r110", names=PAYLOAD_NAMES
+)
+
 
 class FeatureFlagDebugDeclarationTests(unittest.TestCase):
     """Issue #63: thin `meta` vs the designed/plant shapes that widen it."""
 
-    def setUp(self):
-        self.declaration = card_schema.load(FEATURE_FLAG_DEBUG)
-        self.assertIsNotNone(self.declaration, "config/card-schemas is missing #63")
-        self.item = {
-            "slug": "feature-flag-debug-factory",
-            "hub": FEATURE_FLAG_DEBUG,
-            "pretty": "Feature Flag Debug Trajectories",
-            "blurb": "Feature-flag leftover assignment/override debug episodes.",
-            "tags": ["synthetic-data", "trajectories", "feature-flags"],
-        }
-        self.card = publisher.render_card(
-            self.item,
-            records=220,
-            bytes_=1523718,
-            first="r01",
-            last="r110",
-            payload_names=[f"batch-r{n:02d}.jsonl" for n in range(1, 111)],
-        )
+    @classmethod
+    def setUpClass(cls):
+        cls.declaration = card_schema.load(FEATURE_FLAG_DEBUG)
+        if cls.declaration is None:
+            raise AssertionError("config/card-schemas is missing #63")
+        cls.card = publisher.render_card(ITEM, summary=SUMMARY)
 
     def test_declaration_matches_the_observed_union_schema(self):
         names = {feature["name"]: feature for feature in self.declaration["features"]}
@@ -97,14 +101,13 @@ class FeatureFlagDebugDeclarationTests(unittest.TestCase):
         self.assertIn("`decision_basis`", self.card)
 
     def test_declared_globs_cover_every_published_shard(self):
-        payload_names = [f"batch-r{n:02d}.jsonl" for n in range(1, 111)]
         self.assertEqual(
-            card_schema.payload_coverage_errors(self.declaration, payload_names), []
+            card_schema.payload_coverage_errors(self.declaration, PAYLOAD_NAMES), []
         )
         # A shard the glob cannot reach is a hard error, not a silent drop.
         self.assertTrue(
             card_schema.payload_coverage_errors(
-                self.declaration, payload_names + ["extra.jsonl"]
+                self.declaration, PAYLOAD_NAMES + ["extra.jsonl"]
             )
         )
 
