@@ -352,8 +352,15 @@ def _normalized_sha256(value: Any, label: str) -> str:
 
 
 def _write_json(path: Path, payload: Any) -> None:
+    # Governance files are re-read with exact numeric hooks and re-hashed at
+    # promotion time, so the writer must emit every ``ExactJSONFloat`` token
+    # verbatim; ``json.dumps`` would silently round precision-sensitive
+    # evidence (``25.000000000000001`` -> ``25.0``) and block promotion.
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(payload, indent=2, sort_keys=False) + "\n", encoding="utf-8")
+    path.write_text(
+        dumps_exact_json(payload, ensure_ascii=True, sort_keys=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
 
 
 def _load_json(path: Path) -> Any:
@@ -448,9 +455,7 @@ def _relative_artifact_destination(value: Any, label: str) -> Path:
 def load_plan(plan_path: Path) -> dict[str, Any]:
     """Read and validate an integration plan; resolve its lane paths."""
     plan_path = Path(plan_path).resolve()
-    payload, plan_sha256, _plan_size = _read_regular_file_snapshot(
-        plan_path, "integration plan"
-    )
+    payload, plan_sha256, _plan_size = _read_regular_file_snapshot(plan_path, "integration plan")
     try:
         text = payload.decode("utf-8")
     except UnicodeDecodeError as exc:
@@ -1265,8 +1270,7 @@ def compose(
         target = destination / relative
         target.parent.mkdir(parents=True, exist_ok=True)
         payload = "".join(
-            dumps_exact_json(item["record"], ensure_ascii=False, sort_keys=True)
-            + "\n"
+            dumps_exact_json(item["record"], ensure_ascii=False, sort_keys=True) + "\n"
             for item in records
         )
         target.write_text(payload, encoding="utf-8", newline="\n")
@@ -1955,14 +1959,10 @@ def _normalize_record_bindings(raw_bindings: Any) -> list[dict[str, Any]]:
                 "source_record_sha256": _normalized_sha256(
                     raw.get("source_record_sha256"), f"{label}.source_record_sha256"
                 ),
-                "lineage": sorted(
-                    normalized_lineage, key=lambda lane_row: lane_row["lane_order"]
-                ),
+                "lineage": sorted(normalized_lineage, key=lambda lane_row: lane_row["lane_order"]),
             }
         )
-    return sorted(
-        normalized, key=lambda binding: (binding["output_path"], binding["output_line"])
-    )
+    return sorted(normalized, key=lambda binding: (binding["output_path"], binding["output_line"]))
 
 
 def _output_evidence_gate(
@@ -2590,9 +2590,7 @@ def build_sample(
         chosen = sorted(
             population,
             key=lambda sampled: (sampled["record_sha256"], sampled["source"]),
-        )[
-            :per_stratum
-        ]
+        )[:per_stratum]
         strata.append(
             {
                 "evidence": evidence,
@@ -2885,14 +2883,9 @@ def _authenticated_record_calibration(
     if claimed is None:
         classification = sidecar.get("classification")
         comparability = (
-            classification.get("comparability")
-            if isinstance(classification, dict)
-            else None
+            classification.get("comparability") if isinstance(classification, dict) else None
         )
-        if (
-            expected is not None
-            and comparability == curate_rewards.MAGNITUDE_COMPARABLE
-        ):
+        if expected is not None and comparability == curate_rewards.MAGNITUDE_COMPARABLE:
             raise curate_rewards.RewardOntologyError(
                 "sidecar omits calibration evidence present in the migration artifact"
             )

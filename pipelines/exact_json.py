@@ -13,7 +13,7 @@ from __future__ import annotations
 import json
 import math
 from fractions import Fraction
-from typing import Any
+from typing import Any, NamedTuple
 
 
 # Bound decimal expansion before Fraction construction.  Short tokens such as
@@ -185,28 +185,55 @@ def json_number_from_fraction(value: Fraction) -> int | ExactJSONFloat:
     return ExactJSONFloat(_finite_decimal_token(value))
 
 
+class _EncoderState(NamedTuple):
+    """Formatting options threaded through the exact encoder."""
+
+    ensure_ascii: bool
+    sort_keys: bool
+    indent: int | None
+
+
 def dumps_exact_json(
     value: Any,
     *,
     ensure_ascii: bool = False,
     sort_keys: bool = True,
+    indent: int | None = None,
 ) -> str:
-    """Serialize JSON data while emitting :class:`ExactJSONFloat` tokens raw."""
+    """Serialize JSON data while emitting :class:`ExactJSONFloat` tokens raw.
 
-    return _encode_exact_json(value, ensure_ascii, sort_keys, set())
+    ``indent`` mirrors :func:`json.dumps`: ``None`` keeps the compact single
+    line form, while a non-negative integer pretty-prints containers with that
+    many spaces per nesting level.
+    """
+
+    if indent is not None and indent < 0:
+        raise ValueError("indent must be None or a non-negative integer")
+    state = _EncoderState(ensure_ascii=ensure_ascii, sort_keys=sort_keys, indent=indent)
+    return _encode_exact_json(value, state, set(), 0)
+
+
+def _container_separators(state: _EncoderState, depth: int) -> tuple[str, str, str]:
+    """Return ``(open, item, close)`` joiners for one container level."""
+
+    if state.indent is None:
+        return "", ",", ""
+    inner = "\n" + " " * (state.indent * (depth + 1))
+    outer = "\n" + " " * (state.indent * depth)
+    return inner, "," + inner, outer
 
 
 def _encode_exact_json(
     value: Any,
-    ensure_ascii: bool,
-    sort_keys: bool,
+    state: _EncoderState,
     active: set[int],
+    depth: int,
 ) -> str:
     if isinstance(value, (list, tuple)):
-        return _encode_sequence(value, ensure_ascii, sort_keys, active)
+        return _encode_sequence(value, state, active, depth)
     if isinstance(value, dict):
-        return _encode_mapping(value, ensure_ascii, sort_keys, active)
-    return _encode_scalar(value, ensure_ascii)
+        return _encode_mapping(value, state, active, depth)
+    return _encode_scalar(value, state.ensure_ascii)
 
 
 def _encode_scalar(value: Any, ensure_ascii: bool) -> str:
@@ -239,40 +266,57 @@ def _encode_number(value: int | float) -> str:
 
 def _encode_sequence(
     value: list[Any] | tuple[Any, ...],
-    ensure_ascii: bool,
-    sort_keys: bool,
+    state: _EncoderState,
     active: set[int],
+    depth: int,
 ) -> str:
     identity = id(value)
     if identity in active:
         raise ValueError("Circular reference detected")
+    if not value:
+        return "[]"
+    opened, joiner, closed = _container_separators(state, depth)
     active.add(identity)
     try:
-        return "[" + ",".join(
-            _encode_exact_json(entry, ensure_ascii, sort_keys, active) for entry in value
-        ) + "]"
+        return (
+            "["
+            + opened
+            + joiner.join(_encode_exact_json(entry, state, active, depth + 1) for entry in value)
+            + closed
+            + "]"
+        )
     finally:
         active.remove(identity)
 
 
 def _encode_mapping(
     value: dict[str, Any],
-    ensure_ascii: bool,
-    sort_keys: bool,
+    state: _EncoderState,
     active: set[int],
+    depth: int,
 ) -> str:
     identity = id(value)
     if identity in active:
         raise ValueError("Circular reference detected")
     if not all(isinstance(key, str) for key in value):
         raise TypeError("JSON object keys must be strings")
+    if not value:
+        return "{}"
+    opened, joiner, closed = _container_separators(state, depth)
+    key_separator = ":" if state.indent is None else ": "
     active.add(identity)
     try:
-        keys = sorted(value) if sort_keys else value
-        return "{" + ",".join(
-            f"{json.dumps(key, ensure_ascii=ensure_ascii)}:"
-            f"{_encode_exact_json(value[key], ensure_ascii, sort_keys, active)}"
-            for key in keys
-        ) + "}"
+        keys = sorted(value) if state.sort_keys else value
+        return (
+            "{"
+            + opened
+            + joiner.join(
+                f"{json.dumps(key, ensure_ascii=state.ensure_ascii)}{key_separator}"
+                f"{_encode_exact_json(value[key], state, active, depth + 1)}"
+                for key in keys
+            )
+            + closed
+            + "}"
+        )
     finally:
         active.remove(identity)

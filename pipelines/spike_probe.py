@@ -3,11 +3,9 @@
 
 A distillation probe needs execution-grounded spikes, not sentences such as
 "366 vs 301, margin 0.097".  This loader reads a run tree (or explicit JSONL
-files) and returns one normalized raster per Bridge record: ``(neuron_id,
-t_us)`` events sorted in time, the population and routing metadata, the
-third-factor eligibility channel, the checked spike budget, and the
-spike-implemented gate head when the record carries one.  Every field is read
-from structured JSON; no free text is ever inspected.
+files) and returns one normalized raster per Bridge record; the raster shape
+itself is produced by :mod:`spike_probe_normalize`, and the fail-closed JSONL
+reading lives in :mod:`spike_probe_source`.
 
 Records whose raster sidecar is missing or fails ``curate_bridge``'s spike
 arithmetic are reported as problems instead of being silently emitted, so a
@@ -24,11 +22,10 @@ from __future__ import annotations
 
 import argparse
 import json
-import math
 import sys
 from collections import Counter
 from pathlib import Path
-from typing import Any, Iterable, Iterator
+from typing import Any, Iterable
 
 _PIPELINES = Path(__file__).resolve().parent
 if str(_PIPELINES) not in sys.path:
@@ -36,220 +33,27 @@ if str(_PIPELINES) not in sys.path:
 
 from curate_bridge import (  # noqa: E402
     RASTER_ENERGY_PJ_PER_SPIKE,
-    REASON_INVALID_JSON,
-    REASON_INVALID_UTF8,
     REASON_NOT_BRIDGE,
-    gate_snn_sidecar,
     is_bridge_record,
     is_thalamic_record,
-    raster_sidecar,
     raster_status,
 )
-from census import visible_jsonl_paths  # noqa: E402
-from exact_json import (  # noqa: E402
-    dumps_exact_json,
-    exact_fraction,
-    exact_json_integer,
-    json_number_from_fraction,
-    parse_finite_json_float as _parse_exact_json_float,
+from exact_json import dumps_exact_json  # noqa: E402
+from spike_probe_normalize import (  # noqa: E402
+    _is_exact_int,
+    _normalized_event as _normalized_event,
+    _record_id,
+    normalize_raster,
 )
-from round_txn_raster import RASTER_FACTORY_SLUGS  # noqa: E402
-from validate_run import reject_json_constant  # noqa: E402
+from spike_probe_source import (  # noqa: E402
+    _is_raster_factory_path,
+    _records_in_path,
+    iter_records as iter_records,
+    jsonl_paths,
+)
+from validate_run import reject_json_constant as reject_json_constant  # noqa: E402
 
-# Excerpt events stay on the contract's integer-microsecond grid.  A raster
-# window may contain a schema-valid fractional microsecond, however, so the
-# normalized duration preserves that precision for spike-budget reconstruction.
-US_PER_MS = 1000
-US_PER_S = 1_000_000
-REASON_INPUT_UNREADABLE = "BRIDGE_SOURCE_UNREADABLE"
-
-
-def _is_exact_int(value: Any) -> bool:
-    return isinstance(value, int) and not isinstance(value, bool)
-
-
-def _json_integer(value: Any) -> int | None:
-    """Return the integer represented by a schema-valid JSON number."""
-
-    if isinstance(value, bool) or not isinstance(value, (int, float)):
-        return None
-    return exact_json_integer(value)
-
-
-def _normalized_gate_population(value: Any) -> Any:
-    """Copy one gate population with schema-integer fields normalized."""
-
-    if not isinstance(value, dict):
-        return value
-    normalized = dict(value)
-    for key in ("neurons", "spikes"):
-        if key in value:
-            integer = _json_integer(value[key])
-            if integer is not None:
-                normalized[key] = integer
-    return normalized
-
-
-def _normalized_gate_snn(value: Any) -> dict[str, Any] | None:
-    """Copy a validated gate head with schema-integer fields normalized."""
-
-    if not isinstance(value, dict):
-        return None
-    normalized = dict(value)
-    populations = value.get("populations")
-    if isinstance(populations, list):
-        normalized["populations"] = [
-            _normalized_gate_population(population) for population in populations
-        ]
-    return normalized
-
-
-def _finite(value: Any) -> bool:
-    if _is_exact_int(value):
-        return True
-    return isinstance(value, float) and math.isfinite(value)
-
-
-def _window_us(raster: dict[str, Any]) -> Any:
-    """Return the validated window in microseconds without rounding it."""
-
-    window_s = raster.get("window_s")
-    if _finite(window_s):
-        window = exact_fraction(window_s)
-        scale = US_PER_S
-    else:
-        window_ms = raster.get("window_ms")
-        if not _finite(window_ms):
-            return None
-        window = exact_fraction(window_ms)
-        scale = US_PER_MS
-    if window is None:
-        return None
-    return json_number_from_fraction(window * scale)
-
-
-def _normalized_event(item: Any) -> dict[str, Any] | None:
-    """Normalize one well-shaped excerpt event into integer microseconds."""
-
-    if not isinstance(item, dict):
-        return None
-    t_us = _json_integer(item.get("t_us"))
-    neuron_id = _json_integer(item.get("neuron_id"))
-    if t_us is None or neuron_id is None:
-        return None
-    event: dict[str, Any] = {
-        "neuron_id": neuron_id,
-        "t_us": t_us,
-    }
-    if "channel" in item:
-        channel = item["channel"]
-        if not isinstance(channel, str):
-            return None
-        event["channel"] = channel
-    return event
-
-
-def _events_us(raster: dict[str, Any]) -> list[dict[str, Any]]:
-    """Return excerpt events as integer-microsecond (neuron_id, t_us) pairs."""
-
-    excerpt = raster.get("excerpt")
-    items = excerpt if isinstance(excerpt, list) else []
-    events = filter(None, map(_normalized_event, items))
-    return sorted(events, key=lambda event: (event["t_us"], event["neuron_id"]))
-
-
-def _routing(raster: dict[str, Any]) -> dict[str, Any]:
-    routing = raster.get("routing")
-    if not isinstance(routing, dict):
-        return {"source": None, "target": None, "table": [], "third_factor": None}
-    table = routing.get("table")
-    third_factor = routing.get("third_factor")
-    return {
-        "source": routing.get("source"),
-        "target": routing.get("target"),
-        "table": [entry for entry in table if isinstance(entry, dict)]
-        if isinstance(table, list)
-        else [],
-        "third_factor": third_factor if isinstance(third_factor, dict) else None,
-    }
-
-
-def normalize_raster(record: Any, *, source: str | None = None) -> dict[str, Any] | None:
-    """Return one machine-readable raster, or None when the record has none.
-
-    ``None`` means the caller must treat the record as unloadable: either it is
-    not a Bridge record, or its sidecar failed the shared spike arithmetic.
-    """
-
-    status = raster_status(record)
-    if not status["raster_valid"] or status["routing_table_entries"] < 1:
-        return None
-    _location, raster = raster_sidecar(record)
-    _gate_location, gate_snn = gate_snn_sidecar(record)
-    neurons = _json_integer(raster.get("neurons"))
-    spikes = _json_integer(raster.get("spikes"))
-    normalized: dict[str, Any] = {
-        "record_id": _record_id(record),
-        "source": source,
-        "window_us": _window_us(raster),
-        "neurons": neurons,
-        "mean_rate_hz": raster.get("mean_rate_hz"),
-        "spikes": spikes,
-        # Exact integer picojoules.  Converting the spike count to a float
-        # first overflows to ``inf`` for an extreme but schema-valid raster,
-        # and ``--jsonl`` would then emit the non-standard ``Infinity`` token
-        # that this module's own reader (reject_json_constant) refuses.
-        "energy_pJ": spikes * RASTER_ENERGY_PJ_PER_SPIKE if spikes is not None else None,
-        "routing": _routing(raster),
-        "gate_snn": _normalized_gate_snn(gate_snn),
-        "events": _events_us(raster),
-    }
-    return normalized
-
-
-def _mapping(value: Any) -> dict[str, Any]:
-    """Return mapping-shaped JSON data, or an empty read-only fallback."""
-
-    return value if isinstance(value, dict) else {}
-
-
-def _nonblank_text(value: Any) -> str | None:
-    """Return stripped non-blank text without coercing another JSON type."""
-
-    text = value.strip() if isinstance(value, str) else ""
-    return text or None
-
-
-def _record_id(record: Any) -> str | None:
-    """Return the first documented record identifier carrier."""
-
-    root = _mapping(record)
-    meta = _mapping(root.get("meta"))
-    view = _mapping(root.get("language_view"))
-    trajectory = _mapping(view.get("trajectory"))
-    state = _mapping(trajectory.get("state"))
-    candidates = (root.get("id"), meta.get("id"), state.get("episode_id"))
-    for candidate in candidates:
-        identifier = _nonblank_text(candidate)
-        if identifier is not None:
-            return identifier
-    return None
-
-
-def _expanded_jsonl_targets(targets: Iterable[str | Path]) -> Iterator[Path]:
-    """Yield explicit files or transaction-visible JSONL from directories."""
-
-    for target in targets:
-        path = Path(target)
-        yield from visible_jsonl_paths(path) if path.is_dir() else (path,)
-
-
-def _is_raster_factory_path(path: Path) -> bool:
-    """Return whether a JSONL path is enclosed by a raster-gated factory."""
-
-    supplied_parts = path.parts
-    resolved_parts = path.resolve(strict=False).parts
-    return any(part in RASTER_FACTORY_SLUGS for part in (*supplied_parts, *resolved_parts))
+__all__ = ["_normalized_event", "iter_records", "reject_json_constant"]
 
 
 def _is_bridge_near_match(record: Any) -> bool:
@@ -279,76 +83,6 @@ def _malformed_raster_problem(
         (REASON_NOT_BRIDGE,),
         record_id=_record_id(record),
     )
-
-
-def jsonl_paths(targets: Iterable[str | Path]) -> list[Path]:
-    """Expand run directories into sorted JSONL paths; keep explicit files.
-
-    An input reached twice -- named twice, or named once directly and once
-    through a containing directory -- is expanded once. Reading it twice
-    emitted every raster twice and silently doubled the spike and energy
-    totals, changing the weighting of a distillation dataset with no report
-    that anything was wrong. Identity is the resolved path, so two names for
-    one file (a symlink, ``./x`` vs ``x``) also count once.
-    """
-
-    unique: dict[Path, Path] = {}
-    for path in _expanded_jsonl_targets(targets):
-        unique.setdefault(path.resolve(strict=False), path)
-    return list(unique.values())
-
-
-def _read_jsonl(path: Path) -> tuple[str | None, str | None]:
-    """Read UTF-8 without universal-newline translation."""
-
-    try:
-        payload = path.read_bytes()
-    except OSError:
-        return None, REASON_INPUT_UNREADABLE
-    try:
-        return payload.decode("utf-8"), None
-    except UnicodeDecodeError:
-        return None, REASON_INVALID_UTF8
-
-
-def _parse_finite_json_float(text: str) -> float:
-    """Reject a finite JSON token such as ``1e999`` that overflows to infinity."""
-
-    return _parse_exact_json_float(text)
-
-
-def _parse_record(line: str) -> tuple[Any, str | None]:
-    """Parse one physical JSONL record using strict numeric hooks."""
-
-    try:
-        record = json.loads(
-            line,
-            parse_constant=reject_json_constant,
-            parse_float=_parse_finite_json_float,
-        )
-    except (ValueError, RecursionError):
-        return None, REASON_INVALID_JSON
-    return record, None
-
-
-def _records_in_path(path: Path) -> Iterator[tuple[str, Any, str | None]]:
-    """Yield parsed records and named input problems from one JSONL path."""
-
-    text, read_problem = _read_jsonl(path)
-    if read_problem is not None:
-        yield f"{path}:0", None, read_problem
-        return
-    for line_number, line in enumerate(text.split("\n"), 1):
-        if line.strip():
-            record, parse_problem = _parse_record(line)
-            yield f"{path}:{line_number}", record, parse_problem
-
-
-def iter_records(paths: Iterable[Path]) -> Iterator[tuple[str, Any, str | None]]:
-    """Yield ``(where, record, problem_code)`` for every JSONL input line."""
-
-    for path in paths:
-        yield from _records_in_path(path)
 
 
 def _problem(
@@ -493,4 +227,4 @@ def main(argv=None):
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    sys.exit(main())

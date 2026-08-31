@@ -70,8 +70,9 @@ class ExactJSONNumbers(unittest.TestCase):
             "0." + ("1" * 4097),
         )
         for token in hostile_tokens:
-            with self.subTest(token=token[:32]), self.assertRaisesRegex(
-                ValueError, "exact-decimal limit"
+            with (
+                self.subTest(token=token[:32]),
+                self.assertRaisesRegex(ValueError, "exact-decimal limit"),
             ):
                 parse_finite_json_float(token)
 
@@ -112,13 +113,58 @@ class ExactJSONNumbers(unittest.TestCase):
         with self.assertRaises(TypeError):
             dumps_exact_json(object())
 
+    def test_indented_serialization_matches_json_dumps_layout(self):
+        payload = {
+            "outer": {"inner": [1, 2.5, "x"], "empty_list": [], "empty_map": {}},
+            "unicode": "café",
+            "flag": True,
+        }
+        for indent in (0, 1, 2, 4):
+            for sort_keys in (False, True):
+                for ensure_ascii in (True, False):
+                    with self.subTest(
+                        indent=indent, sort_keys=sort_keys, ensure_ascii=ensure_ascii
+                    ):
+                        self.assertEqual(
+                            dumps_exact_json(
+                                payload,
+                                ensure_ascii=ensure_ascii,
+                                sort_keys=sort_keys,
+                                indent=indent,
+                            ),
+                            json.dumps(
+                                payload,
+                                ensure_ascii=ensure_ascii,
+                                sort_keys=sort_keys,
+                                indent=indent,
+                            ),
+                        )
+
+    def test_indented_serialization_keeps_exact_tokens_verbatim(self):
+        payload = json.loads(
+            '{"rates": [42.000000000000000001, 0.100], "window": 2.50}',
+            parse_float=parse_finite_json_float,
+        )
+        encoded = dumps_exact_json(payload, sort_keys=False, indent=2)
+        self.assertIn("42.000000000000000001", encoded)
+        self.assertIn("0.100", encoded)
+        self.assertIn("2.50", encoded)
+        reparsed = json.loads(encoded, parse_float=parse_finite_json_float)
+        self.assertEqual(
+            exact_fraction(reparsed["rates"][0]),
+            exact_fraction(payload["rates"][0]),
+        )
+
+    def test_indent_must_be_none_or_non_negative(self):
+        with self.assertRaisesRegex(ValueError, "indent"):
+            dumps_exact_json({}, indent=-1)
+        self.assertEqual(dumps_exact_json({"k": 1}, indent=None), '{"k":1}')
+
     def test_probe_jsonl_preserves_a_contractual_decimal_token(self):
         neurons = 10**18 + 2
         spikes = round(Fraction("25.000000000000001") * Fraction("0.04") * neurons)
         record = json.loads(FIXTURE.read_text(encoding="utf-8").splitlines()[0])
-        record["raster"].update(
-            {"neurons": neurons, "mean_rate_hz": 25, "spikes": spikes}
-        )
+        record["raster"].update({"neurons": neurons, "mean_rate_hz": 25, "spikes": spikes})
         record["raster"].pop("energy_pJ", None)
         record["raster"].pop("energy_uJ", None)
         payload = json.dumps(record, separators=(",", ":")).replace(
