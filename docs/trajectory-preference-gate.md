@@ -1,0 +1,247 @@
+# Trajectory-Pair Preference Gate
+
+> Pipeline: `pipelines/curate_trajectory_preferences.py`
+> Tests: `tests/test_curate_trajectory_preferences.py`
+> Companion: `docs/preference-isolation.md` (Fable same-state gate)
+> Tracking: [rmems/synthetic-factory#35](https://github.com/rmems/synthetic-factory/issues/35)
+
+## 1. Why a second preference lane exists
+
+`pipelines/curate_preferences.py` is the **Fable same-state/same-proposal
+gate**. It compares `chosen.state` / `rejected.state` and
+`chosen.proposed_action` / `rejected.proposed_action` and retains a pair only
+when both subtrees are canonically identical. That gate assumes the
+ThalamicTrajectory preference schema produced by
+`failure-as-fuel-preference-cascade`.
+
+The Grok 4.6 preference dumps do not use that schema. Their sides are
+**trajectories**:
+
+```json
+{
+  "id": "tup-r01-atomic-manifest",
+  "goal": "Publish output/manifest.json so readers never see a partial object.",
+  "outcome": "...", "reward": {...}, "meta": {...}, "critique": "...",
+  "chosen":   {"steps": [{"n": 1, "decision_basis": "...", "tool_call": {...},
+                          "observation": "..."}], "outcome": "...", "reward": {...}},
+  "rejected": {"steps": [...], "outcome": "...", "reward": {...}}
+}
+```
+
+There is no `state` and no `proposed_action` to compare, so the same-state gate
+returned `PREFERENCE_CONTEXT_MISSING_OR_INVALID` for every eligible pair and
+yielded nothing (measured 0% in `EXP-G46-PREF-YIELD-001`; explained in
+`EXP-G46-PREF-CONTEXT-SCHEMA-001`).
+
+The fix is **not** to inject fabricated `state` / `proposed_action` into raw
+records. It is this second lane, which gates the contrast a trajectory pair
+actually carries. `curate_preferences.py` now names such pairs
+`PREFERENCE_PAIR_IS_A_TRAJECTORY_PAIR` (classification
+`trajectory_pair_out_of_scope`) instead of calling them malformed, and reports
+`summary.out_of_scope_trajectory_pairs` so a 0% same-state yield is readable.
+
+## 2. Lane routing (denominators never mix)
+
+| Record | Routed to | Action here |
+|---|---|---|
+| Both sides carry dict `state` **and** `proposed_action` | `curate_preferences.py` | `skipped` — `SAME_STATE_PAIR_DEFERRED_TO_CURATE_PREFERENCES` |
+| Both sides carry `steps` | this gate | keep / repair / reject |
+| No `chosen`/`rejected` (for example leftover mill episodes, [#30](https://github.com/rmems/synthetic-factory/issues/30)) | neither | `skipped` — `NOT_A_PREFERENCE_PAIR_RECORD` |
+| `chosen`/`rejected` present but not objects | this gate | `excluded` — `TRAJECTORY_PAIR_SIDES_NOT_OBJECTS` |
+
+`trajectory_pairs_considered` counts only the pairs this gate judges. Skipped
+records are reported separately, so a Grok retain rate and a Fable FFPC retain
+rate are never averaged into one figure.
+
+## 3. Keep
+
+A pair is `retained` when all of the following hold, on the thought-stripped
+copy:
+
+1. **Valid pair envelope and episode sides.** The pair has a non-empty text
+   `id` and `outcome`, object-valued `reward` and `meta`, and a non-empty text
+   `critique` when present. Both `chosen` and `rejected` satisfy the strict
+   structured-step mode of
+   `validate_run.check_episode(..., require_goal=False)`. Mixed Thalamic /
+   episode pairs, malformed observable fields, non-text outcomes, invalid
+   reward objects, and invalid reward labels are rejected before they can enter
+   the training view. Every step also has an exact integer `n` equal to its
+   one-based position; booleans, strings, missing ordinals, gaps, and duplicates
+   are rejected.
+2. **Shared goal.** Every present goal string (top-level, `chosen.goal`,
+   `rejected.goal`) is identical after whitespace normalization, and either the
+   top-level `goal` is present or both side goals are.
+3. **Shared step prefix > 0.** The leading steps of both sides are byte-equal
+   under canonical JSON (`curate_agentic.prefix_overlap`).
+4. **Trajectories are not identical.** A pair with the same `steps` on both
+   sides carries no preference signal.
+5. **`outcome` diverges.** Both sides have a non-empty text `outcome` and they
+   differ. The gate does not infer success from domain prose: successful code
+   review outcomes routinely name the failure that was caught.
+6. **`reward` diverges in the right direction.** Both sides have a valid
+   episode reward, they differ, `chosen.reward.success` is `true`, and
+   `rejected.reward.success` is `false`. Pair-level direction metadata cannot
+   contradict those labels: when present, `reward.success` is `true`,
+   `preference_margin` / `delta` are finite and positive, and `same_goal` is
+   numeric `1.0`.
+
+Reason code on the keep path: `TRAJECTORY_PAIR_SHARED_GOAL_AND_PREFIX`.
+
+## 4. Repair
+
+Repairs are narrow, evidence-supported, and never invent context.
+
+| Repair | Reason code | Rule |
+|---|---|---|
+| Hidden reasoning removed | `HIDDEN_THOUGHT_REMOVED` | Recursively drop `thought`, `chain_of_thought`, `scratch`, `inner_monologue` (shared vocabulary with `curate_agentic.py`) |
+| Goal whitespace normalized | `TRAJECTORY_GOAL_WHITESPACE_NORMALIZED` | Only when two or more goal strings are present, are not byte-identical, and *are* identical after whitespace normalization |
+
+A repaired record is emitted only if it then passes every keep rule; the
+curator re-checks the emitted record and raises rather than writing a pair that
+fails its own gate. Repair is idempotent: re-curating a repaired record yields
+`retained` and an identical record.
+
+## 5. Reject
+
+| Reason code | Meaning |
+|---|---|
+| `TRAJECTORY_RECORD_NOT_AN_OBJECT` | Line is not a JSON object |
+| `TRAJECTORY_PAIR_SIDES_NOT_OBJECTS` | `chosen` / `rejected` present but not objects |
+| `TRAJECTORY_PAIR_ENVELOPE_INVALID` | Pair-level `id`, `outcome`, `reward`, `meta`, or optional `critique` has the wrong shape; exact errors are in `pair_validation_errors` |
+| `TRAJECTORY_PAIR_SIDE_EPISODE_INVALID` | At least one side fails the canonical episode validator; exact per-side errors are in `side_validation_errors` |
+| `TRAJECTORY_STEPS_MISSING_OR_INVALID` | A side has no `steps` list or contains a malformed step |
+| `TRAJECTORY_STEPS_EMPTY` | A side has an empty `steps` list |
+| `PREFERENCE_GOAL_MISSING` / `PREFERENCE_GOAL_NOT_TEXT` / `PREFERENCE_GOAL_DIVERGES` | Goal rules (vocabulary shared with `curate_agentic.py`) |
+| `TRAJECTORY_PAIR_IDENTICAL` | Both sides have identical `steps` |
+| `TRAJECTORY_PREFIX_OVERLAP_ABSENT` | Zero shared leading steps |
+| `FIRST_STEP_DIFFERS_BY_BRANCH_LABEL_ONLY` | Disclosure note on a zero-prefix reject (Section 6) |
+| `TRAJECTORY_OUTCOME_MISSING` / `TRAJECTORY_OUTCOME_INVALID` / `TRAJECTORY_OUTCOME_DOES_NOT_DIVERGE` | Outcome rules |
+| `TRAJECTORY_REWARD_MISSING` / `TRAJECTORY_REWARD_INVALID` / `TRAJECTORY_REWARD_DOES_NOT_DIVERGE` | Reward rules |
+| `TRAJECTORY_PREFERENCE_DIRECTION_INVALID` | A side success label is missing / non-boolean / inverted, or pair-level direction metadata contradicts the chosen/rejected ordering |
+
+Every applicable reason is reported for one record, in a fixed order, so a
+manifest entry is fully diagnostic and byte-stable across runs. Invalid steps
+do not suppress independent outcome or reward findings; the manifest preserves
+the exact pair-envelope errors and `check_episode` messages under their own
+fields.
+
+## 6. The zero-prefix tool-use pairs
+
+`curate_agentic.py` retains all published Grok preference pairs and only notes
+`PREFIX_OVERLAP_NOTED`. That 100% retain figure hides a real defect: in
+`tool-use-preference-pairs`, **36 of 6192 pairs have no shared prefix at all**.
+
+Inspecting them shows the divergence is at step 1 and is *only* the branch
+label — the `decision_basis` text ends with "— chosen policy starts by locating
+the target." on one side and "— rejected policy starts by locating the target."
+on the other. That is native impurity: the trajectory names its own branch, so
+a learner can separate the sides on a label token instead of on judgment.
+
+This gate therefore **excludes** all 36 with `TRAJECTORY_PREFIX_OVERLAP_ABSENT`
+and additionally names the cause with
+`FIRST_STEP_DIFFERS_BY_BRANCH_LABEL_ONLY`, surfaced in the summary as
+`prefix_overlap_absent_pairs` and `branch_label_only_first_step_pairs`. The
+gate never rewrites the leaked text — repairing generated step text would
+fabricate evidence, and the fix belongs upstream in generation.
+
+## 7. Outcome/label agreement is opt-in
+
+`round_txn.py` applies `validate_run.terminal_outcome_agrees` to every
+preference arm at publication time: a side's outcome prose must agree with its
+own `reward.success` label. A pair whose labels are correctly oriented but
+whose prose is reversed — `chosen.reward.success = true` with "failed and
+remained broken", `rejected.reward.success = false` with "completed and passed
+verification" — carries reversed semantic supervision, and this lane scans
+legacy and external mirrors where the publish-time check cannot be assumed.
+
+The check is therefore available here, but **off by default**:
+
+```bash
+python3 pipelines/curate_trajectory_preferences.py scan <source> \
+  --enforce-outcome-agreement
+```
+
+The default is a measurement, not a preference. `terminal_outcome_agrees` is a
+lexical heuristic calibrated for the outcome vocabulary the Thalamic factory
+generates. Run over the published Grok mirrors it is dominated by false
+positives:
+
+| Dump | Pairs | Rejected by the agreement check | All inspected samples |
+|---|---:|---:|---|
+| `code-review-preference-pairs` | 2964 | 282 (9.5%) | false positives |
+| `tool-use-preference-pairs` | 6192 | 5936 (95.9%) | false positives |
+
+Three collision classes account for them:
+
+- **Tool names.** The failure vocabulary is `fail\w*`, so `faillock` and
+  `fail2ban-client` read as failure evidence in a successful arm
+  (`faillock verify ok; checkout.user kept.`).
+- **Failures that narrate the defect.** A correctly labelled rejected arm ends
+  `evidence deleted; hallucinated success.` — the completion term `success`
+  appears inside the description of the failure.
+- **Review verdicts that quote what they reject.** A `REQUEST_CHANGES` outcome
+  restates the defect text it is rejecting, so completion and failure terms
+  appear on both arms.
+
+Tightening the rule does not separate the two populations: requiring positive
+opposite-evidence on both arms simultaneously still leaves 12 and 7 flags on
+the two dumps, and every one of those 19 is also a false positive.
+
+The lane's *structural* direction invariant is unaffected and is always
+enforced: `TRAJECTORY_PREFERENCE_DIRECTION_INVALID` requires
+`chosen.reward.success` to be exactly `true`, `rejected.reward.success` to be
+exactly `false`, and any pair-level `success` / `preference_margin` / `delta` /
+`same_goal` metadata to agree. That check is exact, not lexical.
+
+Every scan summary records `enforce_outcome_agreement`, so two scans of one
+corpus are never mistaken for each other in an audit.
+
+## 8. Measured yield on the published dumps
+
+Read-only scans of the local Hub mirrors under `/home/raulmc/rmems/hf/grok-4.6/`
+(no writes, raw untouched), under the default policy of Section 7:
+
+| Dump | Lines | Pairs considered | Retained | Excluded | Skipped |
+|---|---:|---:|---:|---:|---:|
+| `code-review-preference-pairs` | 2976 | 2964 | 2964 (100.0%) | 0 | 12 mill episodes ([#30](https://github.com/rmems/synthetic-factory/issues/30)) |
+| `tool-use-preference-pairs` | 6192 | 6192 | 6156 (99.42%) | 36 zero-prefix | 0 |
+| `tests/fixtures/preference-purity` (Fable FFPC) | 42 | 0 | 0 | 0 | 42 same-state |
+
+## 9. Commands
+
+```bash
+# Read-only classification, human or JSON
+python3 pipelines/curate_trajectory_preferences.py scan <source>
+python3 pipelines/curate_trajectory_preferences.py scan <source> --json
+
+# Additionally require each arm's outcome prose to agree with its own
+# reward.success label (Section 7 — off by default, and why)
+python3 pipelines/curate_trajectory_preferences.py scan <source> \
+  --enforce-outcome-agreement
+
+# Write a curated view plus a per-record manifest (both must be absent)
+python3 pipelines/curate_trajectory_preferences.py curate <source> \
+  --output <new-pairs.jsonl> --manifest <new-manifest.jsonl>
+```
+
+Safety rules enforced by the CLI:
+
+- Sources are read only; the curator never writes into its source tree.
+- Destinations under `outputs/raw/` are refused outright.
+- Both destinations must be absent; writes use `O_EXCL` and are fsynced.
+- If a curated view of a Hub dataset is wanted, clone the Hub repo into a
+  separate writable workspace. `/home/raulmc/rmems/hf/` is a read-only mirror
+  of published evidence.
+
+## 10. Out of scope
+
+- Fable FFPC impurity ([#4](https://github.com/rmems/synthetic-factory/issues/4),
+  [#25](https://github.com/rmems/synthetic-factory/issues/25)) — pairs that
+  *have* `state` / `proposed_action` and diverge.
+- Independent preference arms / generation isolation
+  ([#11](https://github.com/rmems/synthetic-factory/issues/11)).
+- Leftover mill episodes in `code-review-preference-pairs`
+  ([#30](https://github.com/rmems/synthetic-factory/issues/30)) — skipped and
+  counted here, quarantined there.
+- Training. This gate defines training-readiness for one schema; it does not
+  publish a training corpus.
