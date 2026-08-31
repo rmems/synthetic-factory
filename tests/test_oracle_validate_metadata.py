@@ -367,6 +367,14 @@ class ManifestVocabularyTest(GoldenRunFixture):
             set(self.manifest) - oracle_validate.MANIFEST_ALLOWED_KEYS, set()
         )
 
+    def test_an_unauthenticated_availability_sibling_is_rejected(self):
+        self.assert_reports(
+            lambda manifest: manifest["oracle_availability"].__setitem__(
+                "external_attestation", "verified-on-hardware"
+            ),
+            "oracle_availability carries unauthenticated sibling keys: external_attestation",
+        )
+
 
 class RunBoundCommitTest(GoldenRunFixture):
     """Run-level validation binds records to the manifest's resolved commit."""

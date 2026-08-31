@@ -263,6 +263,23 @@ def publish_noreplace(staging, out_dir, expected_identity=None):
         )
 
 
+def _cleanup_staging(staging, staging_identity):
+    """Remove only the staging inode whose identity was authenticated.
+
+    If a non-cooperating writer renamed our staging tree away and created
+    its own directory at the same path, that replacement is not ours to
+    delete; leave it and let the failed transaction report the problem.
+    """
+    if staging is None or staging_identity is None:
+        return
+    try:
+        if _directory_identity(staging) == staging_identity:
+            shutil.rmtree(staging)
+    except OSError:
+        # Already gone, or replaced by something that is not our directory.
+        pass
+
+
 def build_manifest(args, selected, availability, commit, dirty, generated, files):
     per_family = {}
     all_errors = []
@@ -471,6 +488,7 @@ def main(argv=None):
         return 2
 
     staging = None
+    staging_identity = None
     manifest_text = None
     published = False
     try:
@@ -566,8 +584,7 @@ def main(argv=None):
         return 1
     finally:
         try:
-            if staging is not None and staging.exists():
-                shutil.rmtree(staging)
+            _cleanup_staging(staging, staging_identity)
         finally:
             fcntl.flock(lock_descriptor, fcntl.LOCK_UN)
             os.close(lock_descriptor)

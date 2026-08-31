@@ -1118,11 +1118,16 @@ def _availability_probe_errors(probes, context):
 
 def _availability_rollup_errors(availability, probes, runtime_names, context):
     """``all_bound`` and ``unbound`` must follow from the declared probes."""
-    bound = [
+    # A set keeps this linear: probe counts are untrusted and bounded only by
+    # the manifest byte limit. Non-string runtimes can never match a string
+    # name, so excluding them from the set changes no outcome.
+    bound = {
         probe.get("runtime")
         for probe in probes
-        if isinstance(probe, dict) and probe.get("bound") is True
-    ]
+        if isinstance(probe, dict)
+        and probe.get("bound") is True
+        and isinstance(probe.get("runtime"), str)
+    }
     unbound = (
         [runtime for runtime in runtime_names if runtime not in bound]
         if all(isinstance(runtime, str) for runtime in runtime_names)
@@ -1140,6 +1145,13 @@ def _availability_block_errors(manifest, actual_families, context):
     if not isinstance(availability, dict):
         context.report("oracle_availability must be an object")
         return
+    # Exactly the fields availability_report() emits; an undeclared sibling
+    # would be an unsupported provenance claim in canonical run metadata.
+    unknown = sorted(set(availability) - {"protocol", "runtimes", "all_bound", "unbound"})
+    if unknown:
+        context.report(
+            "oracle_availability carries unauthenticated sibling keys: " + ", ".join(unknown)
+        )
     probes = availability.get("runtimes")
     if availability.get("protocol") != oracles.PROTOCOL or not isinstance(probes, list):
         context.report("oracle_availability is malformed")

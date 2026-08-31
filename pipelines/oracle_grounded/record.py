@@ -821,11 +821,15 @@ def _probe_alignment_findings(probes, requested, stages, evidence):
 
 def _availability_rollup_findings(availability, probes, requested, findings):
     """all_bound and unbound must be derived from the declared probes."""
-    bound = [
+    # A set keeps this linear on untrusted probe counts; non-string runtimes
+    # can never match a string name, so excluding them changes no outcome.
+    bound = {
         probe.get("runtime")
         for probe in probes
-        if isinstance(probe, dict) and probe.get("bound") is True
-    ]
+        if isinstance(probe, dict)
+        and probe.get("bound") is True
+        and isinstance(probe.get("runtime"), str)
+    }
     unbound = [runtime for runtime in requested if runtime not in bound]
     if availability.get("all_bound") is not (not unbound):
         findings.append("oracle.availability.all_bound is not derived from runtimes")

@@ -1194,6 +1194,28 @@ class GenerateCli(unittest.TestCase):
             )
             self.assertFalse(out.exists())
 
+    def test_staging_cleanup_only_removes_the_authenticated_inode(self):
+        # The pre-publication counterpart of the publication race: cleanup
+        # must delete only the staging inode it created, never a directory
+        # another writer swapped in at the same path.
+        with tempfile.TemporaryDirectory(prefix="oracle-staging-race-") as temp:
+            staging = Path(temp) / "staging"
+            staging.mkdir()
+            identity = oracle_generate._directory_identity(staging)
+            moved = Path(temp) / "moved-away"
+            os.rename(staging, moved)
+            staging.mkdir()
+            (staging / "payload.txt").write_text("theirs", encoding="utf-8")
+            oracle_generate._cleanup_staging(staging, identity)
+            self.assertTrue(staging.exists())
+            self.assertEqual((staging / "payload.txt").read_text(), "theirs")
+            # The authenticated inode itself is still removed.
+            oracle_generate._cleanup_staging(moved, identity)
+            self.assertFalse(moved.exists())
+            # And an unknown identity never deletes anything.
+            oracle_generate._cleanup_staging(staging, None)
+            self.assertTrue(staging.exists())
+
     def test_an_explicit_commit_stamp_resolves_the_dirty_state(self):
         # --oracle-commit without a dirty flag must not stamp a null dirty
         # state; the checkout's own state is resolved instead.
