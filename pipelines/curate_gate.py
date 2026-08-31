@@ -2862,11 +2862,20 @@ def _authenticated_record_calibration(
         else None
     )
     if claimed is None:
-        if expected is not None:
+        classification = sidecar.get("classification")
+        comparability = (
+            classification.get("comparability")
+            if isinstance(classification, dict)
+            else None
+        )
+        if (
+            expected is not None
+            and comparability == curate_rewards.MAGNITUDE_COMPARABLE
+        ):
             raise curate_rewards.RewardOntologyError(
                 "sidecar omits calibration evidence present in the migration artifact"
             )
-        return None
+        return expected
     normalized_claimed = curate_rewards.normalize_calibration(claimed)
     if expected is None:
         raise curate_rewards.RewardOntologyError(
