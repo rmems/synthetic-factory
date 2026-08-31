@@ -105,11 +105,13 @@ class PublisherIntegrationTests(unittest.TestCase):
                 with self.assertRaisesRegex(SystemExit, "non-empty 'note'"):
                     publisher.render_card(
                         item,
-                        records=2,
-                        bytes_=10,
-                        first="r01",
-                        last="r02",
-                        payload_names=["batch-r01.jsonl"],
+                        summary=publisher.PayloadSummary(
+                            records=2,
+                            bytes_=10,
+                            first="r01",
+                            last="r02",
+                            names=["batch-r01.jsonl"],
+                        ),
                     )
 
     def test_render_card_refuses_a_declaration_that_misses_a_payload(self):
@@ -123,11 +125,13 @@ class PublisherIntegrationTests(unittest.TestCase):
         with self.assertRaisesRegex(SystemExit, "does not cover the published payload"):
             publisher.render_card(
                 item,
-                records=2,
-                bytes_=10,
-                first=None,
-                last=None,
-                payload_names=["episodes.jsonl"],
+                summary=publisher.PayloadSummary(
+                    records=2,
+                    bytes_=10,
+                    first=None,
+                    last=None,
+                    names=["episodes.jsonl"],
+                ),
             )
 
     def test_an_undeclared_dataset_card_carries_the_visible_placeholder(self):
@@ -143,11 +147,13 @@ class PublisherIntegrationTests(unittest.TestCase):
         self.assertIsNone(card_schema.load(item["hub"]))
         card = publisher.render_card(
             item,
-            records=2,
-            bytes_=10,
-            first="r01",
-            last="r02",
-            payload_names=["batch-r01.jsonl"],
+            summary=publisher.PayloadSummary(
+                records=2,
+                bytes_=10,
+                first="r01",
+                last="r02",
+                names=["batch-r01.jsonl"],
+            ),
         )
         front_matter = card.split("---", 2)[1]
         self.assertNotIn("configs:", front_matter)
@@ -170,11 +176,13 @@ class LongHorizonCodingDeclarationTests(unittest.TestCase):
         }
         self.card = publisher.render_card(
             self.item,
-            records=9970,
-            bytes_=94602148,
-            first="r01",
-            last="r4985",
-            payload_names=["batch-r01.jsonl", "batch-r02.jsonl"],
+            summary=publisher.PayloadSummary(
+                records=9970,
+                bytes_=94602148,
+                first="r01",
+                last="r4985",
+                names=["batch-r01.jsonl", "batch-r02.jsonl"],
+            ),
         )
 
     def test_declaration_matches_the_observed_union_schema(self):

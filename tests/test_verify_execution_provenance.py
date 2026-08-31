@@ -39,7 +39,7 @@ class VerifyExecutionProvenance(unittest.TestCase):
         base["state"] = {"sim_or_real": sim_or_real, "domain": "gate-test"}
         return {
             "language_view": {"trajectory": base},
-            "spike_events": [{"t_ms": 0, "channel": 1, "amplitude": 1.0}],
+            "spike_events": [{"t_ms": 0, "channel": "a", "amplitude": 1.0}],
         }
 
 
