@@ -21,6 +21,23 @@ write_declaration = _shared.write_declaration
 
 SPARSE_REWARD = "sparse-reward-long-tasks"
 
+# The Hub item and published-payload facts the card must render, derived from
+# the read-only mirror at ~/rmems/hf/grok-4.6/sparse-reward-long-tasks.
+SPARSE_ITEM = {
+    "slug": "sparse-reward-long-task-factory",
+    "hub": SPARSE_REWARD,
+    "pretty": "Sparse Reward Long Tasks",
+    "blurb": "Sparse-reward leftover-goal long tasks (final reward only).",
+    "tags": ["synthetic-data", "sparse-reward", "long-horizon"],
+}
+SPARSE_SUMMARY = dict(
+    records=6551,
+    bytes_=67907183,
+    first="r01",
+    last="r6551",
+    names=["batch-r01.jsonl", "batch-r6551.jsonl"],
+)
+
 
 class SparseRewardLongTasksDeclarationTests(unittest.TestCase):
     """Issue #45: the union `reward` key-bag that broke the viewer's first cast.
@@ -34,20 +51,9 @@ class SparseRewardLongTasksDeclarationTests(unittest.TestCase):
     def setUp(self):
         self.declaration = card_schema.load(SPARSE_REWARD)
         self.assertIsNotNone(self.declaration, "config/card-schemas is missing #45")
-        self.item = {
-            "slug": "sparse-reward-long-task-factory",
-            "hub": SPARSE_REWARD,
-            "pretty": "Sparse Reward Long Tasks",
-            "blurb": "Sparse-reward leftover-goal long tasks (final reward only).",
-            "tags": ["synthetic-data", "sparse-reward", "long-horizon"],
-        }
+        self.item = dict(SPARSE_ITEM)
         self.card = publisher.render_card(
-            self.item,
-            records=6551,
-            bytes_=67907183,
-            first="r01",
-            last="r6551",
-            payload_names=["batch-r01.jsonl", "batch-r6551.jsonl"],
+            self.item, summary=publisher.PayloadSummary(**SPARSE_SUMMARY)
         )
 
     def test_declaration_matches_the_observed_union_schema(self):
