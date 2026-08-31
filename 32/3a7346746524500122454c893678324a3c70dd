@@ -1,0 +1,48 @@
+pipelines/compose_curated.py
+  s_f3ffb7db87dca1::t_de57303bf6d845 1926-1929,1946,1949
+  s_f3ffb7db87dca1::t_4956e488c9a7f0 1801,1804,1806,1824,1831-1841
+  s_f3ffb7db87dca1::t_1e95593f58f70f 1691-1719,1729,1737-1738,1740-1751
+  s_f3ffb7db87dca1::t_c47adab2931ea1 1522-1528
+  s_f3ffb7db87dca1::t_1c8c6bb99c393c 215-234,236,238-240,245-249
+pipelines/compose_destination.py
+  s_f3ffb7db87dca1::t_80add55d3df771 25
+  s_f3ffb7db87dca1::t_5446a0dd76c85f 431-479,493
+tests/test_compose_curated.py
+  s_f3ffb7db87dca1::t_4834a2f98b36ef 512-543
+  s_f3ffb7db87dca1::t_da75aae22e4952 544-588
+pipelines/reward_mapping.py
+  s_f3ffb7db87dca1::t_9f1d9ca62612c2 18-25
+pipelines/compose_trajectory.py
+  s_f3ffb7db87dca1::t_768203d6a98bc9 316-321,331-388,406-413,415,417-418
+pipelines/compose_mill.py
+  s_f3ffb7db87dca1::t_51f8bb893830f3 55-61
+  s_f3ffb7db87dca1::t_60325580f8249b 1-54,62-69
+pipelines/export_replay.py
+  s_f3ffb7db87dca1::t_beb4e2695ca03c 167,174-186
+  s_f3ffb7db87dca1::t_1e6952aedb6d1a 23
+  s_f3ffb7db87dca1::t_57dda4075d92c0 227-231,233,255,270-282,285-287
+tests/test_export_hf.py
+  s_f3ffb7db87dca1::t_10a736c405bbda 170-200
+tests/test_compose_curated_robustness.py
+  s_f3ffb7db87dca1::t_dca120a676d809 304-362,365-366,368-371
+  s_f3ffb7db87dca1::t_645caf9ed07356 363-364,367
+pipelines/training_audit.py
+  s_f3ffb7db87dca1::t_7716f515eb6787 262-271,274-279,281,283-308,321-322
+  s_f3ffb7db87dca1::t_e9920ee2178e38 349
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "323a7346746524500122454c893678324a3c70dd",
+  "prompts": {},
+  "sessions": {
+    "s_f3ffb7db87dca1": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "510a01e2-1e9d-4f64-a445-6971413485be",
+        "model": "claude-fable-5"
+      },
+      "human_author": "Raul Montoya Cardenas <montoyaraul34@gmail.com>"
+    }
+  }
+}
