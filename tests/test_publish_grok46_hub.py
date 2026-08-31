@@ -155,6 +155,27 @@ def write_valid_completed_long_horizon(path, round_number):
     path.write_text("".join(json.dumps(record) + "\n" for record in records))
 
 
+def mirror_file_bytes(mirror):
+    """Snapshot every mirror file's bytes, keyed by mirror-relative path."""
+    return {
+        path.relative_to(mirror): path.read_bytes()
+        for path in mirror.rglob("*")
+        if path.is_file()
+    }
+
+
+def seed_mirror_with_previous_snapshot(destination_root):
+    """Create ITEM's mirror holding a previous publish; return it and its bytes."""
+    mirror = destination_root / publisher.HF_DATASETS_DIRNAME / ITEM["hub"]
+    mirror.mkdir(parents=True)
+    (mirror / "README.md").write_text("previous card\n", encoding="utf-8")
+    (mirror / "previous-snapshot.json").write_text(
+        '{"state":"complete"}\n',
+        encoding="utf-8",
+    )
+    return mirror, mirror_file_bytes(mirror)
+
+
 class PublishGrok46HubTests(unittest.TestCase):
     def test_schema_coverage_failure_preserves_the_existing_mirror(self):
         with tempfile.TemporaryDirectory() as td:
@@ -164,17 +185,7 @@ class PublishGrok46HubTests(unittest.TestCase):
             write_valid_legacy(source / "batch-r01.jsonl")
 
             destination_root = root / "hf"
-            mirror = destination_root / publisher.HF_DATASETS_DIRNAME / ITEM["hub"]
-            mirror.mkdir(parents=True)
-            readme = mirror / "README.md"
-            sentinel = mirror / "previous-snapshot.json"
-            readme.write_text("previous card\n", encoding="utf-8")
-            sentinel.write_text('{"state":"complete"}\n', encoding="utf-8")
-            before = {
-                path.relative_to(mirror): path.read_bytes()
-                for path in mirror.rglob("*")
-                if path.is_file()
-            }
+            mirror, before = seed_mirror_with_previous_snapshot(destination_root)
 
             schema_root = root / "card-schemas"
             schema_root.mkdir()
@@ -203,12 +214,7 @@ class PublishGrok46HubTests(unittest.TestCase):
                 ):
                     publisher.snapshot_one(ITEM)
 
-            after = {
-                path.relative_to(mirror): path.read_bytes()
-                for path in mirror.rglob("*")
-                if path.is_file()
-            }
-            self.assertEqual(after, before)
+            self.assertEqual(mirror_file_bytes(mirror), before)
             self.assertFalse((mirror / "data").exists())
 
     def test_schema_render_failure_preserves_the_existing_mirror(self):
@@ -225,18 +231,7 @@ class PublishGrok46HubTests(unittest.TestCase):
                 write_valid_legacy(source / "batch-r01.jsonl")
 
                 destination_root = root / "hf"
-                mirror = destination_root / publisher.HF_DATASETS_DIRNAME / ITEM["hub"]
-                mirror.mkdir(parents=True)
-                (mirror / "README.md").write_text("previous card\n", encoding="utf-8")
-                (mirror / "previous-snapshot.json").write_text(
-                    '{"state":"complete"}\n',
-                    encoding="utf-8",
-                )
-                before = {
-                    path.relative_to(mirror): path.read_bytes()
-                    for path in mirror.rglob("*")
-                    if path.is_file()
-                }
+                mirror, before = seed_mirror_with_previous_snapshot(destination_root)
 
                 schema_root = root / "card-schemas"
                 schema_root.mkdir()
@@ -262,12 +257,7 @@ class PublishGrok46HubTests(unittest.TestCase):
                     with self.assertRaisesRegex(SystemExit, "cannot render card schema"):
                         publisher.snapshot_one(ITEM)
 
-                after = {
-                    path.relative_to(mirror): path.read_bytes()
-                    for path in mirror.rglob("*")
-                    if path.is_file()
-                }
-                self.assertEqual(after, before)
+                self.assertEqual(mirror_file_bytes(mirror), before)
                 self.assertFalse((mirror / "data").exists())
 
     def test_snapshot_and_upload_refuse_orphaned_declarations(self):
@@ -549,6 +539,96 @@ class PublishGrok46HubTests(unittest.TestCase):
             card = (root / "hf" / publisher.HF_DATASETS_DIRNAME / ITEM["hub"] / "README.md").read_text()
             self.assertIn("`data/raw/batch-r1a.jsonl`", card)
             self.assertNotIn("`data/raw/batch-r01a.jsonl`", card)
+            self.assertNotIn("## Factory-mix quarantine", card)
+
+    def test_snapshot_card_discloses_issue_43_factory_mix(self):
+        item = {
+            "slug": "email-webhook-retry-factory",
+            "hub": "email-webhook-retry-trajectories",
+            "pretty": "Email Webhook Retry Trajectories",
+            "blurb": "Test factory.",
+            "tags": ["synthetic-data"],
+        }
+        card = publisher.render_card(
+            item,
+            summary=publisher.PayloadSummary(
+                records=100,
+                bytes_=4096,
+                first="r56",
+                last="r58",
+                names=["batch-r56.jsonl", "batch-r57.jsonl", "batch-r58.jsonl"],
+            ),
+        )
+        self.assertIn("## Factory-mix quarantine", card)
+        self.assertIn("**94**, not 100", card)
+        self.assertIn("`sir-r56-meili-swap-leftover3c-rebuild`", card)
+
+    def test_preference_pair_cards_disclose_the_trajectory_schema(self):
+        # The two published Grok preference repos are trajectory DPO, not Fable
+        # same-state pairs; the card must say so and claim no FFPC purity.
+        for slug in ("code-review-preference-factory", "tool-use-preference-factory"):
+            hub = publisher.hub_name(slug)
+            card = publisher.render_card(
+                {**ITEM, "slug": slug, "hub": hub},
+                summary=publisher.PayloadSummary(
+                    records=3, bytes_=4096, first="r01", last="r02"
+                ),
+            )
+
+            self.assertTrue(hub.endswith("-preference-pairs"), hub)
+            self.assertIn("## Record schema", card)
+            self.assertIn("trajectory preference pair", card)
+            self.assertIn("`proposed_action` field", card)
+            self.assertIn("curate_trajectory_preferences.py", card)
+            self.assertIn("no FFPC-equivalent same-state", card)
+            self.assertIn("payload is unfiltered", card)
+            # The YAML tag block must still be the first --- delimited section.
+            self.assertEqual(len(card.split("---", 2)), 3)
+
+    def test_code_review_card_discloses_leftover_episode_lines(self):
+        kind_mix = [
+            SimpleNamespace(
+                record_id=f"leftover-{index}",
+                source_name="batch-r723.jsonl",
+                source_line=index + 1,
+                record_kind="episode",
+                source_sha256=f"{index:064x}",
+            )
+            for index in range(12)
+        ]
+        card = publisher.render_card(
+            {
+                **ITEM,
+                "slug": "code-review-preference-factory",
+                "hub": "code-review-preference-pairs",
+            },
+            summary=publisher.PayloadSummary(
+                records=2976, bytes_=4096, first="r01", last="r02"
+            ),
+            kind_mix=kind_mix,
+        )
+
+        self.assertIn("2,964 trajectory", card)
+        self.assertIn("12 quarantined\nleftover-mill episode records", card)
+        self.assertIn("without `chosen` / `rejected`\nobjects", card)
+        self.assertNotIn("Each line is a **trajectory preference pair**", card)
+
+    def test_trajectory_cards_omit_the_preference_pair_disclosure(self):
+        # ITEM's hub owns a card-schema declaration, so the render must name
+        # the payload the declared data_files glob covers, exactly as
+        # snapshot_one does; an empty payload list is a coverage failure.
+        card = publisher.render_card(
+            ITEM,
+            summary=publisher.PayloadSummary(
+                records=1,
+                bytes_=1024,
+                first="r01",
+                last="r01",
+                names=["batch-r01.jsonl"],
+            ),
+        )
+
+        self.assertNotIn("## Record schema", card)
 
     def test_snapshot_keeps_legacy_baseline_and_filters_uncommitted_marker_batches(self):
         with tempfile.TemporaryDirectory() as td:
@@ -1526,6 +1606,97 @@ class PublishGrok46HubTests(unittest.TestCase):
             self.assertEqual(publisher.main(), 2)
 
         whoami.assert_not_called()
+
+
+class RenderCardLegacySurfaceTests(unittest.TestCase):
+    """The stacked card leaf PRs still call the pre-PayloadSummary keywords.
+
+    Until every leaf migrates to summary=PayloadSummary(...), render_card must
+    keep accepting records=/bytes_=/first=/last=/payload_names= and render
+    byte-identical cards for both call styles, while refusing mixed or unknown
+    keywords instead of silently guessing.
+    """
+
+    def test_legacy_keywords_render_byte_identical_declared_card(self):
+        declared = publisher.render_card(
+            ITEM,
+            summary=publisher.PayloadSummary(
+                records=1,
+                bytes_=1024,
+                first="r01",
+                last="r01",
+                names=["batch-r01.jsonl"],
+            ),
+        )
+        legacy = publisher.render_card(
+            ITEM,
+            records=1,
+            bytes_=1024,
+            first="r01",
+            last="r01",
+            payload_names=["batch-r01.jsonl"],
+        )
+
+        self.assertEqual(declared, legacy)
+
+    def test_legacy_keywords_render_byte_identical_undeclared_card(self):
+        # payload_names stays optional on the legacy surface, exactly as before
+        # the PayloadSummary split.
+        declared = publisher.render_card(
+            LEGACY_ITEM,
+            summary=publisher.PayloadSummary(
+                records=3, bytes_=4096, first="r01", last="r02"
+            ),
+        )
+        legacy = publisher.render_card(
+            LEGACY_ITEM, records=3, bytes_=4096, first="r01", last="r02"
+        )
+
+        self.assertEqual(declared, legacy)
+
+    def test_mixing_summary_and_legacy_keywords_fails_closed(self):
+        with self.assertRaises(TypeError) as caught:
+            publisher.render_card(
+                ITEM,
+                summary=publisher.PayloadSummary(
+                    records=1, bytes_=1024, first="r01", last="r01"
+                ),
+                records=1,
+            )
+
+        self.assertIn("not both", str(caught.exception))
+
+    def test_unknown_keywords_fail_closed_on_both_surfaces(self):
+        with self.assertRaises(TypeError) as caught:
+            publisher.render_card(
+                ITEM,
+                summary=publisher.PayloadSummary(
+                    records=1, bytes_=1024, first="r01", last="r01"
+                ),
+                recordz=1,
+            )
+        self.assertIn("unexpected keyword arguments: recordz", str(caught.exception))
+
+        with self.assertRaises(TypeError) as caught:
+            publisher.render_card(
+                ITEM, records=1, bytes_=1024, first="r01", last="r01", recordz=1
+            )
+        self.assertIn("unexpected keyword arguments: recordz", str(caught.exception))
+
+    def test_incomplete_legacy_call_fails_closed(self):
+        with self.assertRaises(TypeError) as caught:
+            publisher.render_card(ITEM, records=1)
+        self.assertIn(
+            "missing required keyword arguments: bytes_, first, last",
+            str(caught.exception),
+        )
+
+        with self.assertRaises(TypeError) as caught:
+            publisher.render_card(ITEM)
+        self.assertIn(
+            "missing required keyword arguments: records, bytes_, first, last",
+            str(caught.exception),
+        )
 
 
 if __name__ == "__main__":
