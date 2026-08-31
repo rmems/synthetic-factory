@@ -422,6 +422,31 @@ def _result_from_state(
     )
 
 
+def _positive_number(value: Any) -> bool:
+    return oc.is_number(value) and float(value) > 0.0
+
+
+def _non_negative_number(value: Any) -> bool:
+    return oc.is_number(value) and float(value) >= 0.0
+
+
+def _unit_interval(value: Any) -> bool:
+    return oc.is_number(value) and 0.0 <= float(value) <= 1.0
+
+
+def _genuine_count_from(floor: int):
+    """A predicate for a genuine (non-boolean) integer >= ``floor``."""
+
+    def _valid(value: Any) -> bool:
+        return (
+            isinstance(value, int)
+            and not isinstance(value, bool)
+            and value >= floor
+        )
+
+    return _valid
+
+
 class RelayReflexSimulator(FaultOracle):
     """Deterministic multi-channel relay with reflex, fallback and quarantine.
 
@@ -633,19 +658,28 @@ class RelayReflexSimulator(FaultOracle):
     # Numeric relay controls and their fail-closed domains. An out-of-domain
     # control silently rewrites the outcome tiers — a negative quarantine
     # ratio turns every below-threshold corruption into `quarantine` — so an
-    # authoritative outcome may not be derived over one.
-    _SYSTEM_POSITIVE_CONTROLS = (
-        "tick_ms",
-        "stale_threshold_ms",
-        "deadline_ms",
-        "hard_deadline_ms",
-        "reflex_latency_ms",
-        "fallback_latency_ms",
-    )
-    _SYSTEM_COUNT_CONTROLS = (
-        ("ticks", 1),
-        ("reflex_saturation_ticks", 1),
-        ("min_healthy_channels", 0),
+    # authoritative outcome may not be derived over one. Each entry is
+    # ``(key, expected, predicate)``; the predicate decides, the expected
+    # text names the domain in the refusal.
+    _SYSTEM_CONTROL_DOMAINS = tuple(
+        [
+            (key, "a positive number", _positive_number)
+            for key in (
+                "tick_ms",
+                "stale_threshold_ms",
+                "deadline_ms",
+                "hard_deadline_ms",
+                "reflex_latency_ms",
+                "fallback_latency_ms",
+            )
+        ]
+        + [("jitter_tolerance_ms", "a non-negative number", _non_negative_number)]
+        + [
+            ("ticks", "an integer >= 1", _genuine_count_from(1)),
+            ("reflex_saturation_ticks", "an integer >= 1", _genuine_count_from(1)),
+            ("min_healthy_channels", "an integer >= 0", _genuine_count_from(0)),
+            ("corruption_quarantine_ratio", "a ratio in [0, 1]", _unit_interval),
+        ]
     )
 
     @staticmethod
@@ -668,37 +702,7 @@ class RelayReflexSimulator(FaultOracle):
             )
 
     @staticmethod
-    def _check_system_controls(system: dict[str, Any]) -> None:
-        """Refuse relay thresholds an authoritative outcome cannot stand on."""
-
-        for key in RelayReflexSimulator._SYSTEM_POSITIVE_CONTROLS:
-            value = system[key]
-            if not oc.is_number(value) or float(value) <= 0.0:
-                raise oc.ContractError(
-                    f"system {key} must be a positive number, got {value!r}"
-                )
-        if not oc.is_number(system["jitter_tolerance_ms"]) or (
-            float(system["jitter_tolerance_ms"]) < 0.0
-        ):
-            raise oc.ContractError(
-                "system jitter_tolerance_ms must be a non-negative number, "
-                f"got {system['jitter_tolerance_ms']!r}"
-            )
-        for key, floor in RelayReflexSimulator._SYSTEM_COUNT_CONTROLS:
-            value = system[key]
-            if not isinstance(value, int) or isinstance(value, bool) or (
-                value < floor
-            ):
-                raise oc.ContractError(
-                    f"system {key} must be an integer >= {floor}, got {value!r}"
-                )
-        ratio = system["corruption_quarantine_ratio"]
-        if not oc.is_number(ratio) or not 0.0 <= float(ratio) <= 1.0:
-            raise oc.ContractError(
-                "system corruption_quarantine_ratio must lie in [0, 1], "
-                f"got {ratio!r}"
-            )
-        RelayReflexSimulator._check_thermal_ladder(system)
+    def _check_system_channels(system: dict[str, Any]) -> None:
         channels = system["channels"]
         if not (
             isinstance(channels, list)
@@ -708,6 +712,19 @@ class RelayReflexSimulator(FaultOracle):
             raise oc.ContractError(
                 "system channels must be a non-empty list of channel names"
             )
+
+    @staticmethod
+    def _check_system_controls(system: dict[str, Any]) -> None:
+        """Refuse relay thresholds an authoritative outcome cannot stand on."""
+
+        for key, expected, valid in RelayReflexSimulator._SYSTEM_CONTROL_DOMAINS:
+            value = system[key]
+            if not valid(value):
+                raise oc.ContractError(
+                    f"system {key} must be {expected}, got {value!r}"
+                )
+        RelayReflexSimulator._check_thermal_ladder(system)
+        RelayReflexSimulator._check_system_channels(system)
 
     def run(self, scenario: dict[str, Any], disturbance: dict[str, Any]) -> FaultResult:
         system = {**DEFAULT_SYSTEM, **dict(scenario.get("system", {}))}
