@@ -117,6 +117,10 @@ def _record_sample(record: Any, target: str) -> Sample | None:
     result = record.get("result")
     if not isinstance(scenario, dict) or not isinstance(result, dict):
         return None
+    if result.get("status") != oc.RESULT_MEASURED:
+        # An abstained result's routing fields are outcomes the oracle
+        # explicitly declined to stand behind; they must never become labels.
+        return None
     features = _compact_features(scenario)
     if features is None:
         return None
@@ -512,6 +516,15 @@ def evaluate_baselines(
 ) -> dict[str, Any]:
     """Run every conventional baseline and return a comparable report."""
 
+    if not math.isfinite(min_lift) or min_lift < 0.0:
+        # argparse accepts `--min-lift nan`, NaN survives
+        # `max(min_lift, 2 * stderr)`, and every `lift < required_lift`
+        # comparison against NaN is false — so a large-enough holdout could
+        # emit a learnable verdict (and non-standard JSON carrying NaN) even
+        # when the measured lift would fail every finite threshold.
+        raise BaselineError(
+            f"min_lift must be a finite non-negative number, got {min_lift!r}"
+        )
     if len(samples) < 8:
         raise BaselineError("need at least 8 samples to evaluate a baseline")
     train, test = split(samples, holdout_pct=holdout_pct)
@@ -677,6 +690,18 @@ def _clean_router_records(path: str) -> list[dict[str, Any]]:
                 f"{where}: family {obj.get('family')!r} is not "
                 f"{moe_router.FAMILY!r}"
             )
+        if isinstance(obj, dict):
+            result = obj.get("result")
+            status = result.get("status") if isinstance(result, dict) else None
+            if status != oc.RESULT_MEASURED:
+                # A valid record can honestly abstain, but its routing fields
+                # are outcomes the oracle declined to produce. Refuse loudly
+                # rather than let dataset_from_records drop it silently — the
+                # operator should see the abstentions and filter deliberately.
+                problems.append(
+                    f"{where}: result.status is {status!r} — the baseline "
+                    "only evaluates measured router results"
+                )
         problems.extend(errors)
         if isinstance(obj, dict):
             records.append(obj)

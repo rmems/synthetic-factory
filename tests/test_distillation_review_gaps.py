@@ -1419,5 +1419,184 @@ class FixtureBuilderGaps(unittest.TestCase):
             self.assertIn("refusing to publish MANIFEST.json", str(caught.exception))
 
 
+class ThirdRoundEnergyGaps(unittest.TestCase):
+    """energy_preferences.py — the third review pass on the hardened checks."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.records = ep.build_records(20260823, 1, repeats=1, warmup=0)
+
+    def record(self) -> dict:
+        return clone(self.records[0])
+
+    def test_a_non_string_preferred_id_is_a_finding_not_a_typeerror(self):
+        # A JSON object or array in preference.preferred is unhashable, so
+        # the candidate lookup raised TypeError straight out of the family
+        # checker — and validate_path does not catch checker exceptions, so
+        # one malformed record aborted validation of the entire run.
+        for bad in ({"id": "analytic_kkt"}, ["analytic_kkt"], 7, None, ""):
+            record = self.record()
+            record["result"]["preference"]["preferred"] = bad
+            rehash(record)
+            with self.subTest(preferred=bad):
+                errors = ep.check_family(record, "x")
+                self.assertTrue(
+                    any("must name a measured candidate" in e for e in errors),
+                    f"a non-string preferred id passed: {errors}",
+                )
+
+    def test_the_measured_candidates_must_be_the_proposed_actions(self):
+        # Nothing reconciled scenario.candidate_actions with
+        # result.candidates, so a record could show the student one action
+        # set while its preference was grounded in another.
+        record = self.record()
+        record["scenario"]["candidate_actions"] = [
+            {"id": "fake", "description": "an action the oracle never measured"}
+        ]
+        rehash(record)
+        errors = ep.check_family(record, "x")
+        self.assertTrue(
+            any("CANDIDATE_SET_MISMATCH" in e for e in errors),
+            f"an unrelated proposed action set passed: {errors}",
+        )
+
+    def test_a_proposed_description_must_match_the_measured_candidate(self):
+        record = self.record()
+        record["scenario"]["candidate_actions"][0]["description"] = (
+            "a different policy story"
+        )
+        rehash(record)
+        errors = ep.check_family(record, "x")
+        self.assertTrue(
+            any("was proposed as" in e for e in errors),
+            f"a diverging policy description passed: {errors}",
+        )
+
+    def test_missing_or_duplicated_candidate_actions_are_findings(self):
+        without = self.record()
+        del without["scenario"]["candidate_actions"]
+        duplicated = self.record()
+        duplicated["scenario"]["candidate_actions"].append(
+            dict(duplicated["scenario"]["candidate_actions"][0])
+        )
+        for label, record in (("missing", without), ("duplicated", duplicated)):
+            rehash(record)
+            with self.subTest(candidate_actions=label):
+                errors = ep.check_family(record, "x")
+                self.assertTrue(
+                    any(
+                        "candidate_actions must list each proposed" in e
+                        for e in errors
+                    ),
+                    f"{label} candidate_actions passed: {errors}",
+                )
+
+    def test_a_replayed_cost_labels_its_oracle_recorded_measurement(self):
+        # RecordedEnergyMeter replays a cost recorded by a metered run
+        # elsewhere; only task quality and safety execute locally. Labelling
+        # that oracle `measured_execution` claimed a live metered execution
+        # this run never performed.
+        scenario = ep.propose_scenarios(21, 1)[0]["scenario"]
+        observations = {
+            ep.workload_key(policy, scenario, fine_steps=12, coarse_steps=4): {
+                "cost_value": cost
+            }
+            for policy, cost in (
+                ("analytic_kkt", 8.0),
+                ("coarse_grid", 3.0),
+                ("exhaustive_grid", 31.0),
+                ("unclipped_proportional", 0.2),
+            )
+        }
+        meter = ep.RecordedEnergyMeter(
+            {
+                "run_id": "metered-run-3",
+                "meter": "external_power_meter",
+                "cost_quantity": "energy_j",
+                "observations": observations,
+            }
+        )
+        records = ep.build_records(21, 1, meter=meter, fine_steps=12, coarse_steps=4)
+        self.assertEqual(records[0]["oracle"]["type"], "recorded_measurement")
+        self.assertEqual(ep.check_family(records[0], "x"), [])
+        self.assertEqual(vd.check_record(records[0], "x"), [])
+        # A meter read around the locally executed workload keeps its claim.
+        self.assertEqual(self.records[0]["oracle"]["type"], "measured_execution")
+
+
+class ThirdRoundRouterGaps(unittest.TestCase):
+    """moe_router.py and router_baseline.py — the third review pass."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.records = mr.build_records(20260823, 8)
+
+    def test_a_boolean_top1_label_cannot_impersonate_expert_0_or_1(self):
+        # False == 0 and True == 1, so a JSON boolean passed the modal
+        # equality checks while router_baseline._genuine_int rejected it and
+        # silently dropped the sample — a cleanly validating record could
+        # skew the baseline by vanishing from it.
+        record = next(
+            clone(r) for r in self.records if r["result"]["top1_expert"] in (0, 1)
+        )
+        flag = bool(record["result"]["top1_expert"])
+        record["result"]["top1_expert"] = flag
+        record["result"]["routing"]["top1_expert"] = flag
+        rehash(record)
+        errors = mr.check_family(record, "x")
+        self.assertEqual(
+            sum("genuine integer expert id" in e for e in errors), 2, errors
+        )
+        self.assertIsNone(rb._target_label(record["result"], rb.TARGET_TOP1))
+
+    def test_promised_router_measurements_cannot_be_dropped(self):
+        # The reconciliation loop only validated the readings present, so a
+        # record could delete promised compact targets and stay
+        # curation-eligible after a rehash.
+        for missing in ("routing_entropy", "expert_agreement", "top1_top2_margin"):
+            record = clone(self.records[0])
+            record["result"]["measurements"] = [
+                item
+                for item in record["result"]["measurements"]
+                if item.get("quantity") != missing
+            ]
+            rehash(record)
+            with self.subTest(missing=missing):
+                errors = mr.check_family(record, "x")
+                self.assertTrue(
+                    any(f"must record {missing}" in e for e in errors),
+                    f"dropping {missing} passed: {errors}",
+                )
+
+    def test_the_baseline_refuses_an_abstained_router_result(self):
+        record = clone(self.records[1])
+        record["result"]["status"] = "abstained"
+        record["result"]["abstention_reason"] = "teacher unavailable for this batch"
+        rehash(record)
+        # The record is valid — an oracle may honestly abstain —
+        self.assertEqual(vd.check_record(record, "x"), [])
+        # — but its routing fields must never become labels ...
+        self.assertEqual(rb.dataset_from_records([record]), [])
+        # ... and the CLI gate refuses loudly instead of filtering silently.
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "records.jsonl"
+            path.write_text(oc.canonical_json(record) + "\n", encoding="utf-8")
+            with self.assertRaises(rb.BaselineError) as caught:
+                rb._clean_router_records(str(path))
+        self.assertIn(
+            "only evaluates measured router results", str(caught.exception)
+        )
+
+    def test_min_lift_must_be_finite_and_non_negative(self):
+        # argparse accepts `--min-lift nan`; NaN survived the max() floor and
+        # made every lift comparison false, so a large holdout could emit a
+        # learnable verdict no finite threshold would grant.
+        for bad in (float("nan"), float("inf"), -0.05):
+            with self.subTest(min_lift=bad):
+                with self.assertRaises(rb.BaselineError) as caught:
+                    rb.evaluate_baselines([], min_lift=bad)
+                self.assertIn("min_lift", str(caught.exception))
+
+
 if __name__ == "__main__":  # pragma: no cover
     unittest.main()

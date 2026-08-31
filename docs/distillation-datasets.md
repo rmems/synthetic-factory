@@ -138,7 +138,9 @@ workload, behind `pipelines/energy_preferences.py:EnergyOracle`:
   a joule-denominated corpus: the recording supplies the cost, while task
   quality and safety are re-evaluated by executing the policy locally — sound
   because the task is deterministic, so the same policy on the same state
-  gives the same allocation on any host.
+  gives the same allocation on any host. A corpus produced this way labels
+  its oracle `recorded_measurement`; `measured_execution` is reserved for a
+  meter actually read around the workload executed on this run.
 - `ProcessResourceMeter` — CPU time, wall time, latency and RSS of the executed
   workload. Real measurements of a real execution, but of *time*. A corpus
   metered this way is denominated in `cpu_time_s` and says so in
@@ -176,7 +178,11 @@ carry a numeric demand, caps, and positive per-actuator weights (a dropped
 state is a finding, never a reason to skip derivation), the quality floor
 must lie in `[0, 1]`, the stated `safety_envelope` must be the canonical
 enforced rule verbatim, and costs may only be denominated in `energy_j` or
-`cpu_time_s`.
+`cpu_time_s`. The measured candidates must be exactly the proposed
+`scenario.candidate_actions` — same ids and same policy descriptions — so the
+decision problem the student sees is the one the preference was graded on,
+and `preference.preferred` must name a candidate as a non-empty string (a
+JSON object there is a finding, not a `TypeError` that aborts the run).
 
 It also ties the bookkeeping together, because those fields are what a reader
 uses to tell a joule corpus from a second corpus. `result.cost_is_energy` must
@@ -225,9 +231,13 @@ oracle exposes them, `top1_top2_margin`, `routing_entropy` (nats). Per record:
 independent fact. It re-derives the expert ordering from the logits (tolerating
 tie-breaks among values that round together at the six-decimal serialisation,
 while never admitting a strictly smaller logit), recomputes `top1_expert` and
-`expert_agreement` from the recorded layers, recomputes the compact student
+`expert_agreement` from the recorded layers (both summary labels must be
+genuine integers — a JSON boolean would impersonate expert 0 or 1 under
+`==`), recomputes the compact student
 input from the recorded context, reconciles the compact measurements against
-the routing they summarise, bounds the entropy by `ln(num_experts)` (falling
+the routing they summarise (every promised target must be present with a
+numeric value, not just the survivors), bounds the entropy by
+`ln(num_experts)` (falling
 back to the recorded expert count when an oracle exposes no logits), and
 requires `result.teacher_grounded` to follow from the oracle's authority and
 `is_llm_teacher` rather than being asserted. Layer indices must run
@@ -251,6 +261,11 @@ so the distillation target is not a copy of what the gate itself consumed.
 requires before an SNN student is considered: a majority-class baseline,
 multinomial logistic regression, and a one-hidden-layer MLP, all deterministic
 and standard library, on a train/test split keyed by hashing the record id.
+The gate only evaluates records with `result.status == "measured"`: an
+abstained result's routing fields are outcomes the oracle declined to stand
+behind, and a corpus containing one is refused loudly rather than filtered
+silently. `min_lift` must be a finite non-negative number — argparse happily
+accepts `--min-lift nan`, and NaN defeats every threshold comparison.
 
 A lift over the majority class only counts when it clears `required_lift`, the
 larger of `min_lift` and two standard errors of the test accuracy, and only

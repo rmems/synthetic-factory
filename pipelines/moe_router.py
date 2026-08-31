@@ -1443,10 +1443,33 @@ def _check_derived_routing_labels(
     """
 
     errors = _check_expert_agreement_range(routing, where)
+    errors += _check_summary_label_types(result, routing, where)
     tops = _layer_top_experts(layers)
     if len(tops) == len(layers) and tops:
         errors += _check_modal_agreement(result, routing, tops, where)
     return errors
+
+
+def _check_summary_label_types(
+    result: dict[str, Any], routing: dict[str, Any], where: str
+) -> list[str]:
+    """Both summary labels must be genuine integers, never booleans.
+
+    When the modal expert is 0 or 1, a JSON boolean passes the modal equality
+    checks (``False == 0`` and ``True == 1``), yet ``router_baseline``'s
+    ``_genuine_int`` rejects it and silently drops the sample — so a record
+    that validates cleanly here could still skew the baseline and the SNN
+    escalation verdict by vanishing from it.
+    """
+
+    return [
+        f"{where}.{field} must be a genuine integer expert id, got {value!r}"
+        for field, value in (
+            ("result.top1_expert", result.get("top1_expert")),
+            ("result.routing.top1_expert", routing.get("top1_expert")),
+        )
+        if not isinstance(value, int) or isinstance(value, bool)
+    ]
 
 
 def _check_measurement_reconciliation(
@@ -1466,6 +1489,7 @@ def _check_measurement_reconciliation(
         "expert_agreement": routing.get("expert_agreement"),
     }
     measurements = result.get("measurements")
+    reconciled: set[str] = set()
     for item in measurements if isinstance(measurements, list) else []:
         if not isinstance(item, dict):
             continue
@@ -1475,12 +1499,34 @@ def _check_measurement_reconciliation(
             continue
         if not oc.is_number(item.get("value")):
             continue
+        reconciled.add(quantity)
         if abs(float(item["value"]) - float(expected)) > 1e-6:
             errors.append(
                 f"{where}.result: measured {quantity} is {item['value']} but the "
                 f"recorded routing says {expected}"
             )
-    return errors
+    return errors + _missing_promised_measurements(
+        expected_measurements, reconciled, where
+    )
+
+
+def _missing_promised_measurements(
+    expected_measurements: dict[str, Any], reconciled: set[str], where: str
+) -> list[str]:
+    """Every promised compact target must be present, not just the survivors.
+
+    Validating only the readings that happen to be present would let a record
+    delete ``routing_entropy`` and ``expert_agreement`` while keeping its
+    digest and curation eligibility — measurement-based consumers would
+    silently lose two of the three promised router targets.
+    """
+
+    return [
+        f"{where}.result.measurements must record {quantity} with a numeric "
+        "value — the recorded routing promises it"
+        for quantity, expected in sorted(expected_measurements.items())
+        if oc.is_number(expected) and quantity not in reconciled
+    ]
 
 
 def _check_declared_count_authority(

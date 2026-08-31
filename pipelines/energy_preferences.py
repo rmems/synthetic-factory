@@ -896,9 +896,16 @@ def _resolve_meter(
 
 def _oracle_block(run: _MeterRun) -> dict[str, Any]:
     meter = run.meter
+    # A replay meter (it exposes `lookup`, the same discriminator
+    # `_measure_policy` routes on) hands back a cost recorded by a metered run
+    # elsewhere; only task quality and safety were executed locally. Labelling
+    # that `measured_execution` would claim the cost truth came from a live
+    # metered execution on this run, so provenance consumers could not tell a
+    # replayed corpus from one metered in place.
+    replayed = callable(getattr(meter, "lookup", None))
     return oc.new_oracle(
         meter.name,
-        oracle_type="measured_execution",
+        oracle_type="recorded_measurement" if replayed else "measured_execution",
         implementation=f"pipelines/energy_preferences.py:{type(meter).__name__}",
         version=meter.version,
         authority=oc.AUTHORITY_AUTHORITATIVE,
@@ -1234,6 +1241,60 @@ def _check_scenario_state(scenario: Any, where: str) -> list[str]:
             "numbers, one per actuator cap"
         )
     return errors
+
+
+def _proposed_actions(scenario: Any) -> dict[str, Any] | None:
+    """id -> description of the proposed candidate actions, or None if unusable."""
+
+    actions = scenario.get("candidate_actions") if isinstance(scenario, dict) else None
+    if not isinstance(actions, list) or not actions:
+        return None
+    proposed: dict[str, Any] = {}
+    for action in actions:
+        if not isinstance(action, dict) or not isinstance(action.get("id"), str):
+            return None
+        proposed[action["id"]] = action.get("description")
+    if len(proposed) != len(actions):
+        return None
+    return proposed
+
+
+def _check_candidate_binding(
+    scenario: Any, candidates: list[Any], where: str
+) -> list[str]:
+    """The measured candidates must be the proposed decision problem's.
+
+    The student is shown ``scenario.candidate_actions`` as the choices on
+    offer; the oracle measured ``result.candidates``. Nothing reconciled the
+    two, so a record could present one action set while its preference was
+    grounded in another — pairing the visible decision problem with a winner
+    the student was never offered.
+    """
+
+    proposed = _proposed_actions(scenario)
+    if proposed is None:
+        return [
+            f"{where}.scenario.candidate_actions must list each proposed "
+            "policy exactly once as an object with a string id"
+        ]
+    measured = {
+        candidate["id"]: candidate.get("description")
+        for candidate in candidates
+        if isinstance(candidate, dict) and isinstance(candidate.get("id"), str)
+    }
+    if set(proposed) != set(measured):
+        return [
+            f"{where}: CANDIDATE_SET_MISMATCH — scenario.candidate_actions "
+            f"proposes {sorted(proposed)} but result.candidates measured "
+            f"{sorted(measured)}"
+        ]
+    return [
+        f"{where}: candidate {candidate_id!r} is described as "
+        f"{measured[candidate_id]!r} but was proposed as "
+        f"{proposed[candidate_id]!r}"
+        for candidate_id in sorted(proposed)
+        if measured[candidate_id] != proposed[candidate_id]
+    ]
 
 
 def _check_cost_denomination(result: dict[str, Any], where: str) -> list[str]:
@@ -1833,12 +1894,19 @@ def _preferred_candidate(
 ) -> dict[str, Any] | None:
     """The candidate the preference names, if it names a measured one."""
 
+    preferred = preference.get("preferred")
+    if not isinstance(preferred, str) or not preferred:
+        # A JSON object or array here is unhashable: looking it up raised
+        # TypeError straight out of the family checker, and validate_path does
+        # not catch that — one malformed record aborted validation of the
+        # whole run instead of being reported as one bad line.
+        return None
     by_id = {
         candidate["id"]: candidate
         for candidate in candidates
         if isinstance(candidate, dict) and isinstance(candidate.get("id"), str)
     }
-    return by_id.get(preference.get("preferred"))
+    return by_id.get(preferred)
 
 
 def _check_preference(
@@ -1902,6 +1970,7 @@ def check_family(record: dict[str, Any], where: str) -> list[str]:
             f"{where}.result.candidates must list at least two measured candidates"
         ]
 
+    errors += _check_candidate_binding(scenario, candidates, where)
     errors += _check_cost_denomination(result, where)
     measurement_errors, measured_costs = _collect_measured_costs(result, where)
     errors += measurement_errors
