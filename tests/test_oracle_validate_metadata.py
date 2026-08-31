@@ -338,6 +338,18 @@ class RunTreeGuardTest(unittest.TestCase):
             handle.write("{}\n")
         self.assert_authentication_reports(run, "sha256 mismatch")
 
+    def test_a_file_entry_sibling_is_rejected(self):
+        run = self.scratch_run()
+        manifest = json.loads((run / "manifest.json").read_text())
+        first = sorted(manifest["files"])[0]
+        manifest["files"][first]["external_attestation"] = "verified-on-hardware"
+        (run / "manifest.json").write_text(
+            json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+        )
+        self.assert_authentication_reports(
+            run, "carries unauthenticated sibling keys: external_attestation"
+        )
+
 
 class ManifestVocabularyTest(GoldenRunFixture):
     """The manifest's top-level vocabulary is closed."""
@@ -404,6 +416,61 @@ class RunBoundCommitTest(GoldenRunFixture):
         self.assertEqual(errors, [])
         self.assertEqual(totals["invalid"], 0)
         self.assertGreater(totals["records"], 0)
+
+    def test_an_invalid_manifest_commit_still_binds_records(self):
+        # Breaking the manifest's own commit must not regain per-record
+        # repository lookups: the manifest value stays the comparison
+        # sentinel, so mismatching records are rejected without git.
+        import shutil as _shutil
+
+        from oracle_grounded import oracles
+
+        with tempfile.TemporaryDirectory(prefix="oracle-bind-") as temp:
+            run = Path(temp) / "run"
+            _shutil.copytree(GOLDEN, run)
+            manifest = json.loads((run / "manifest.json").read_text())
+            manifest["oracle_commit"] = "c" * 40
+            (run / "manifest.json").write_text(
+                json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+            )
+            calls = []
+            real = oracles.resolve_source_commit
+
+            def counting(value, repo_root=None):
+                calls.append(value)
+                return real(value, repo_root)
+
+            with mock.patch.object(oracles, "resolve_source_commit", side_effect=counting):
+                report, errors = oracle_validate.validate_run(run)
+        self.assertGreater(report["invalid"], 0)
+        self.assertTrue(
+            any("does not match the run manifest" in e for e in errors), errors[:5]
+        )
+        # One pre-resolution in validate_run plus the header check; never one
+        # per record.
+        self.assertLessEqual(len(calls), 4, calls)
+
+
+class SchemaFindingBudgetTest(unittest.TestCase):
+    """Untrusted element counts cannot inflate schema findings unboundedly."""
+
+    def test_array_item_findings_are_capped(self):
+        from oracle_grounded import schema_validation
+
+        schema = {"type": "array", "items": {"type": "number"}}
+        value = ["x"] * (schema_validation.MAX_SCHEMA_FINDINGS * 50)
+        errors = schema_validation._validate(value, schema, schema, "$.signal")
+        self.assertLessEqual(len(errors), schema_validation.MAX_SCHEMA_FINDINGS + 2)
+        self.assertTrue(any("further findings suppressed" in e for e in errors), errors[-2:])
+
+    def test_unknown_key_findings_are_capped(self):
+        from oracle_grounded import schema_validation
+
+        schema = {"type": "object", "additionalProperties": False}
+        value = {f"key{i}": i for i in range(schema_validation.MAX_SCHEMA_FINDINGS * 50)}
+        errors = schema_validation._validate(value, schema, schema, "$")
+        self.assertLessEqual(len(errors), schema_validation.MAX_SCHEMA_FINDINGS + 2)
+        self.assertTrue(any("further findings suppressed" in e for e in errors), errors[-2:])
 
 
 class StrictParsingTest(unittest.TestCase):

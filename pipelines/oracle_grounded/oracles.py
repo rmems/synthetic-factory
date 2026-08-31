@@ -149,6 +149,10 @@ def resolve_source_commit(value, repo_root=None):
         return None
     canonical = resolved.stdout.strip()
     if resolved.returncode != 0 or canonical != value or not is_source_commit(canonical):
+        # A definitive miss (git ran and said no) is cached too, so repeated
+        # queries for the same absent commit cost one subprocess per process,
+        # not one per record. Transient failures above are never cached.
+        _SOURCE_COMMIT_CACHE[key] = None
         return None
     _SOURCE_COMMIT_CACHE[key] = canonical
     return canonical

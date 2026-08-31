@@ -437,6 +437,15 @@ def _manifest_file_entries(entries, manifest_path, errors):
         if not isinstance(entry, dict):
             errors.append(f"{manifest_path}: files[{relative!r}] must be an object")
             continue
+        unknown = sorted(set(entry) - {"sha256", "records"})
+        if unknown:
+            # Generation writes exactly these two fields; anything else is an
+            # unauthenticated provenance claim riding on canonical metadata.
+            errors.append(
+                f"{manifest_path}: files[{relative!r}] carries unauthenticated "
+                "sibling keys: " + ", ".join(unknown)
+            )
+            continue
         if not _is_sha256_hex(entry.get("sha256")):
             errors.append(f"{manifest_path}: files[{relative!r}].sha256 is invalid")
             continue
@@ -1197,13 +1206,21 @@ def validate_run(run_dir, require_runtime=False, reproduce=False, selected=()):
     errors.extend(manifest_errors)
     # Resolve the manifest's oracle commit once; per-record validation then
     # binds each record to it by string comparison rather than resolving
-    # every distinct stamped commit against the repository.
-    manifest_commit = manifest.get("oracle_commit") if isinstance(manifest, dict) else None
-    expected_commit = (
-        manifest_commit
-        if oracles.resolve_source_commit(manifest_commit) == manifest_commit
-        else None
-    )
+    # every distinct stamped commit against the repository. The binding is
+    # kept even when the manifest commit is invalid or missing -- an empty
+    # sentinel then mismatches every record -- so a malformed run cannot
+    # regain per-record repository lookups by breaking its own manifest.
+    expected_commit = None
+    if isinstance(manifest, dict):
+        manifest_commit = manifest.get("oracle_commit")
+        if isinstance(manifest_commit, str) and manifest_commit:
+            expected_commit = manifest_commit
+            if oracles.is_source_commit(manifest_commit):
+                # One resolution for the whole run; a definitive miss is
+                # negatively cached, so matching records add no lookups.
+                oracles.resolve_source_commit(manifest_commit)
+        else:
+            expected_commit = ""
     seen_ids = {}
     parsed_records = []
     for snapshot in snapshots:

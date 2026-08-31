@@ -18,6 +18,9 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[2]
 BASE_SCHEMA_PATH = REPO_ROOT / "schemas" / "oracle-grounded-v1.schema.json"
 FAMILY_SCHEMA_DIR = REPO_ROOT / "schemas" / "oracle-grounded"
+# Per-frame cap on accumulated findings. Anything past this on one array or
+# object adds a single summary line instead of one string per element.
+MAX_SCHEMA_FINDINGS = 100
 
 
 def _reject_constant(value):
@@ -204,6 +207,20 @@ def _unique_items_errors(value, path):
     return []
 
 
+def _budget_exhausted(errors, path):
+    """Bound one frame's findings so untrusted element counts stay bounded.
+
+    A finding still rejects the record, so suppressing repeats past the cap
+    loses no fail-closed behavior; without it a multi-million-item array of
+    wrong-typed values would retain one error string per element and turn
+    the bounded validation CLI into a memory sink.
+    """
+    if len(errors) < MAX_SCHEMA_FINDINGS:
+        return False
+    errors.append(f"{path}: further findings suppressed after {MAX_SCHEMA_FINDINGS}")
+    return True
+
+
 def _array_errors(value, schema, root, path):
     """minItems, maxItems, uniqueItems and items."""
     if not isinstance(value, list):
@@ -218,6 +235,8 @@ def _array_errors(value, schema, root, path):
     item_schema = schema.get("items")
     if isinstance(item_schema, dict):
         for index, item in enumerate(value):
+            if _budget_exhausted(errors, path):
+                break
             errors.extend(_validate(item, item_schema, root, f"{path}[{index}]"))
     return errors
 
@@ -240,9 +259,13 @@ def _object_errors(value, schema, root, path):
     extras = [key for key in value if key not in properties]
     if additional is False:
         for key in extras:
+            if _budget_exhausted(errors, path):
+                break
             errors.append(f"{_path_key(path, key)} is not allowed")
     elif isinstance(additional, dict):
         for key in extras:
+            if _budget_exhausted(errors, path):
+                break
             errors.extend(_validate(value[key], additional, root, _path_key(path, key)))
     return errors
 
