@@ -1,0 +1,114 @@
+pipelines/trajectory_pair_gate.py
+  s_98712805c1499b::t_298f0201f5105e 16-81
+pipelines/curate_agentic_shapes.py
+  s_98712805c1499b::t_007eff42abc7a9 28-39
+pipelines/mill_evidence.py
+  s_98712805c1499b::t_9b48293b837f0d 23-32
+pipelines/coding_verify.py
+  s_98712805c1499b::t_74d014b97bc398 8-35,39-42,48-51,57-60,66-69,75-78
+pipelines/compose_trajectory.py
+  s_98712805c1499b::t_d093466681c86d 17-72
+pipelines/compose_curated.py
+  s_98712805c1499b::t_f7b2b18521c992 359
+pipelines/curate_trajectory_preferences.py
+  s_98712805c1499b::t_f05972ce25bd2b 57-167,207-208
+pipelines/coding_constants.py
+  s_98712805c1499b::t_74d014b97bc398 9-12
+pipelines/mill_resolution.py
+  s_98712805c1499b::t_9b48293b837f0d 20-43
+pipelines/coding_verify_steps.py
+  s_98712805c1499b::t_74d014b97bc398 7-28
+pipelines/reward_calibration.py
+  s_98712805c1499b::t_2ead4d34398026 8-23
+pipelines/curate_coding.py
+  s_98712805c1499b::t_b098a24251c0b0 40-100,570-573
+pipelines/curate_agentic_output.py
+  s_98712805c1499b::t_007eff42abc7a9 26-29
+pipelines/preference_audit.py
+  s_98712805c1499b::t_9a6dfad40ad90e 22-38
+pipelines/reward_policy.py
+  s_98712805c1499b::t_2ead4d34398026 15-76
+pipelines/reward_mapping.py
+  s_98712805c1499b::t_2ead4d34398026 16-19
+pipelines/trajectory_pair_vocabulary.py
+  s_98712805c1499b::t_298f0201f5105e 24-37
+tests/test_pipelines_package_imports.py
+  s_98712805c1499b::t_c88e9e99ac2baf 78
+pipelines/reward_units.py
+  s_98712805c1499b::t_1da72b80e9b01b 8-55
+pipelines/census.py
+  s_98712805c1499b::t_e082dfa7424326 21-45
+pipelines/preference_context.py
+  s_98712805c1499b::t_557feb52e26596 17,23,26-28
+pipelines/preference_repair.py
+  s_98712805c1499b::t_9a6dfad40ad90e 29-47
+pipelines/compose_contract.py
+  s_98712805c1499b::t_e082dfa7424326 19-25
+pipelines/curate_identity.py
+  s_98712805c1499b::t_74d9ae11cb6a98 34-63
+pipelines/preference_writer.py
+  s_98712805c1499b::t_9a6dfad40ad90e 21-37
+pipelines/reward_vocabulary.py
+  s_98712805c1499b::t_2ead4d34398026 8-35
+pipelines/mill_family.py
+  s_98712805c1499b::t_9b48293b837f0d 47-130
+pipelines/curate_agentic.py
+  s_98712805c1499b::t_007eff42abc7a9 35-112
+pipelines/reward_ontology.py
+  s_98712805c1499b::t_1da72b80e9b01b 9-47,63-64,81-82
+pipelines/coding_verify_manifest.py
+  s_98712805c1499b::t_74d014b97bc398 7-62
+pipelines/round_txn.py
+  s_98712805c1499b::t_74d9ae11cb6a98 45-55,378-467
+  s_98712805c1499b::t_9660e9824ab286 469-474
+pipelines/preference_model.py
+  s_98712805c1499b::t_9a6dfad40ad90e 24-29
+pipelines/leftover_mill.py
+  s_98712805c1499b::t_ba6cef129bc0d3 35-45
+pipelines/check_records.py
+  s_98712805c1499b::t_e082dfa7424326 21-59
+pipelines/mill_ownership.py
+  s_98712805c1499b::t_9b48293b837f0d 21-72
+pipelines/preference_reconcile.py
+  s_98712805c1499b::t_9a6dfad40ad90e 22-30
+pipelines/preference_record.py
+  s_98712805c1499b::t_9a6dfad40ad90e 24-60
+pipelines/training_audit_mill.py
+  s_98712805c1499b::t_e8d39cddc968c9 7-16
+pipelines/compose_mill.py
+  s_98712805c1499b::t_557feb52e26596 15,21,24-31
+pipelines/training_audit_report.py
+  s_98712805c1499b::t_e8d39cddc968c9 8-21
+pipelines/reward_document.py
+  s_98712805c1499b::t_1da72b80e9b01b 9-54,69-70,82-84,96
+pipelines/round_txn_preference.py
+  s_98712805c1499b::t_9d9888f69712f2 18-21
+pipelines/trajectory_pair_shape.py
+  s_98712805c1499b::t_298f0201f5105e 13-28
+pipelines/trajectory_pair_curation.py
+  s_98712805c1499b::t_088d48de5c9c01 15-74
+pipelines/preference_audit_diff.py
+  s_98712805c1499b::t_557feb52e26596 19,26,29-32
+pipelines/curate_preferences.py
+  s_98712805c1499b::t_ba6cef129bc0d3 63-155
+pipelines/curate_rewards.py
+  s_98712805c1499b::t_bb4d1deea48269 53-223
+pipelines/round_txn_raster.py
+  s_98712805c1499b::t_9d9888f69712f2 14-25
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "e39d39084c3665be3bfe29ab94584ae80317250a",
+  "prompts": {},
+  "sessions": {
+    "s_98712805c1499b": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a04a1f-1e33-7812-a5aa-c7b04b33b6b5",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Raul Montoya Cardenas <montoyaraul34@gmail.com>"
+    }
+  }
+}
