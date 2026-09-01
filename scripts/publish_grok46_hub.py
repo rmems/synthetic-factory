@@ -358,6 +358,28 @@ def require_no_orphaned_declarations() -> None:
     )
 
 
+def require_renderable_declarations() -> None:
+    """Load and render every declared schema before any publication work.
+
+    ``snapshot`` and ``upload`` mutate one mirror at a time, so a declaration
+    that fails to load or render must abort the run before the first dataset
+    is touched, not when its own loop iteration reaches it. Payload coverage
+    still runs per dataset inside the loop because coverage needs the scanned
+    payload names.
+    """
+    declared, _undeclared, _orphaned = card_schema_audit()
+    for name in declared:
+        declaration = card_declaration(name)
+        if declaration is None:  # pragma: no cover - declared files exist
+            continue
+        try:
+            rendered_card_schema(declaration)
+        except (CardSchemaError, UnicodeEncodeError) as exc:
+            raise SystemExit(
+                f"cannot render card schema for {name}: {exc}"
+            ) from exc
+
+
 def rendered_card_schema(declaration: dict) -> tuple[str, str]:
     """Render and UTF-8-check one validated declaration's card fragments."""
     schema_yaml = card_schema.metadata_yaml(declaration)
@@ -1292,6 +1314,7 @@ training-ready or factual real-world measurements.
 
 def cmd_snapshot(only: str | None = None) -> list[dict]:
     require_no_orphaned_declarations()
+    require_renderable_declarations()
     items = factories()
     stats = []
     for item in items:
@@ -1535,6 +1558,7 @@ def validate_upload_snapshot(item: dict, dest: Path) -> None:
 
 def cmd_upload(only: str | None = None) -> None:
     require_no_orphaned_declarations()
+    require_renderable_declarations()
     for item in factories():
         if not is_selected(item, only):
             continue
