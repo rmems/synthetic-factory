@@ -95,7 +95,7 @@ def _parse_record(line: str) -> tuple[Any, str | None]:
             parse_constant=reject_json_constant,
             parse_float=_parse_finite_json_float,
         )
-        dumps_exact_json(record, ensure_ascii=False, sort_keys=True)
+        dumps_exact_json(record, ensure_ascii=False, sort_keys=False)
     except (ValueError, RecursionError):
         return None, REASON_INVALID_JSON
     return record, None

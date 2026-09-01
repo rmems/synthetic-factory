@@ -44,6 +44,7 @@ from census import (  # noqa: E402
     visible_jsonl_paths,
 )
 from round_txn import TransactionError  # noqa: E402
+from quality_gate_identity import canonical_numeric_value as _canonical_numeric_value  # noqa: E402
 from curate_coding import (  # noqa: E402
     HIDDEN_REASONING_KEYS,
     HIDDEN_REASONING_PREFIX,
@@ -89,6 +90,12 @@ def percentile(values, fraction):
 
 def canonical_blob(value):
     return dumps_exact_json(value, sort_keys=True, ensure_ascii=False)
+
+
+def _semantic_context_value(value):
+    """Canonicalize number values only for semantic context comparisons."""
+
+    return _canonical_numeric_value(value)
 
 
 def _parse_finite_json_float(text: str) -> float:
@@ -155,10 +162,12 @@ def _thalamic_context_purity(chosen, rejected):
         for key in ("state", "proposed_action")
     )
     same_state = valid_context and (
-        canonical_blob(chosen["state"]) == canonical_blob(rejected["state"])
+        _semantic_context_value(chosen["state"])
+        == _semantic_context_value(rejected["state"])
     )
     same_proposal = valid_context and (
-        canonical_blob(chosen["proposed_action"]) == canonical_blob(rejected["proposed_action"])
+        _semantic_context_value(chosen["proposed_action"])
+        == _semantic_context_value(rejected["proposed_action"])
     )
     return {
         "episode_pair": False,
@@ -292,6 +301,7 @@ class _CorpusAudit:
                 "eligible_records": 0,
                 "bytes": 0,
                 "approx_tokens": 0,
+                "exact_json_contract_errors": 0,
                 "by_kind": Counter(),
                 "record_tokens": [],
             }
@@ -369,9 +379,13 @@ class _CorpusAudit:
                 parse_constant=reject_json_constant,
                 parse_float=_parse_finite_json_float,
             )
-            canonical_blob(obj)
         except (ValueError, RecursionError) as exc:
             self._record_parse_error(where, exc, token_estimate, bucket)
+            return
+        try:
+            canonical_blob(obj)
+        except (ValueError, RecursionError) as exc:
+            self._record_exact_json_contract_error(where, exc, token_estimate, bucket)
             return
 
         finding = self.mill_findings_by_ref.get((rel.as_posix(), line_number))
@@ -392,6 +406,14 @@ class _CorpusAudit:
         self.record_errors.append(f"{where}: JSON parse error: {exc}")
         self.kinds["unknown"] += 1
         bucket["by_kind"]["unknown"] += 1
+
+    def _record_exact_json_contract_error(self, where, exc, token_estimate, bucket):
+        self._account_tokens(token_estimate, bucket)
+        self.totals["exact_json_contract_errors"] += 1
+        bucket["exact_json_contract_errors"] += 1
+        self.record_errors.append(f"{where}: exact JSON contract error: {exc}")
+        self.kinds["exact_json_contract_error"] += 1
+        bucket["by_kind"]["exact_json_contract_error"] += 1
 
     def _account_tokens(self, token_estimate, bucket):
         self.totals["approx_tokens"] += token_estimate

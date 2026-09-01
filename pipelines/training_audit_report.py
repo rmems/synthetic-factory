@@ -269,6 +269,7 @@ def build_report(**state):
             "files": totals["files"],
             "records": totals["records"],
             "eligible_records": eligible_records,
+            "exact_json_contract_errors": totals["exact_json_contract_errors"],
             "bytes": totals["bytes"],
             "approx_tokens": totals["approx_tokens"],
             "by_kind": dict(sorted(state["kinds"].items())),

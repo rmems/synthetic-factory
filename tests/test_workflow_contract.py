@@ -183,6 +183,18 @@ class RasterGateProducerContract(unittest.TestCase):
                 self.assertIn("any malformed declaration rejects the record", text)
                 self.assertNotIn("first declared carrier is the one validated", text)
 
+    def test_producer_prompts_describe_exact_derived_energy(self):
+        for name in (
+            "01-thalamic-trajectory-factory.md",
+            "02-multi-agent-ouroboros-swarm.md",
+        ):
+            text = " ".join(self.prompts[name].split()).lower()
+            with self.subTest(prompt=name):
+                self.assertIn("omitted energy is allowed", text)
+                self.assertIn("exact integer", text)
+                self.assertIn("binary-double overflow", text)
+                self.assertNotIn("not a finite double is rejected", text)
+
 
 class QodanaWorkflowContract(unittest.TestCase):
     def test_pull_requests_scan_only_changed_files(self):

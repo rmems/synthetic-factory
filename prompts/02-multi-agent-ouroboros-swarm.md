@@ -60,9 +60,10 @@ an SNN distillation run even though it is schema-valid as a trajectory.
   and `routing` with non-empty `source`/`target` plus at least one
   `{from, to, weight}` entry in `routing.table`.
 - **Energy — Loihi 2 4-core 23 pJ/spike**: when declared, `energy_pJ = spikes * 23`
-  within 1e-6 and `energy_uJ = spikes * 23e-6` within 1e-9. Keep `spikes` a
-  realistic count: a spike budget whose 23 pJ product is not a finite double is
-  rejected rather than published.
+  within 1e-6 and `energy_uJ = spikes * 23e-6` within 1e-9. Omitted energy is
+  allowed: the probe derives `energy_pJ` as the exact integer `spikes * 23`, so
+  binary-double overflow of that derived product alone does not reject an
+  otherwise valid record. Keep `spikes` a realistic count.
 - **`routing.third_factor` required**: a named `modulator`, a positive eligibility
   time constant `tau_e_s` (alias `tau_e_ms`), and the `eligibility` rule it gates.
   Declaring BOTH representations is allowed only if they agree

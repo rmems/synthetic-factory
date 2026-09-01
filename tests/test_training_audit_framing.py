@@ -101,9 +101,18 @@ class TrainingAuditPhysicalFraming(unittest.TestCase):
 
         self.assertFalse(report["training_ready"])
         self.assertEqual(report["totals"]["eligible_records"], 0)
+        self.assertEqual(report["totals"]["exact_json_contract_errors"], 1)
+        self.assertEqual(
+            report["totals"]["by_kind"],
+            {"exact_json_contract_error": 1},
+        )
+        self.assertEqual(
+            report["factories"][THALAMIC_FACTORY]["exact_json_contract_errors"],
+            1,
+        )
         self.assertTrue(
             any(
-                "JSON nesting" in item
+                "exact JSON contract error" in item and "JSON nesting" in item
                 for item in report["record_invariants"]["error_examples"]
             ),
             report["record_invariants"],

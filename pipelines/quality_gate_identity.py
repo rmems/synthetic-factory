@@ -155,10 +155,16 @@ def canonical_blob(value):
     )
 
 
+def canonical_numeric_value(value):
+    """Return a typed value projection with numbers canonicalized exactly."""
+
+    return _canonical_identity_value(value)
+
+
 def _canonical_record_blob(value):
     """Return collision-safe record identity with numeric values canonicalized."""
 
-    normalized = _canonical_identity_value(value)
+    normalized = canonical_numeric_value(value)
     return dumps_exact_json(normalized, sort_keys=True, ensure_ascii=False)
 
 

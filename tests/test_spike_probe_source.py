@@ -11,10 +11,22 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO / "pipelines"))
 
 import spike_probe  # noqa: E402
+import spike_probe_source  # noqa: E402
 from exact_json import MAX_JSON_NESTING_DEPTH  # noqa: E402
 
 
 class ProbeSource(unittest.TestCase):
+    def test_validation_only_exact_encoding_does_not_sort_discarded_output(self):
+        with mock.patch.object(
+            spike_probe_source,
+            "dumps_exact_json",
+            wraps=spike_probe_source.dumps_exact_json,
+        ) as encode:
+            record, reason = spike_probe_source._parse_record('{"z":1,"a":2}')
+
+        self.assertEqual((record, reason), ({"z": 1, "a": 2}, None))
+        encode.assert_called_once_with(record, ensure_ascii=False, sort_keys=False)
+
     def test_jsonl_probe_reports_encoder_depth_as_invalid_input(self):
         fixture = json.loads(
             (REPO / "tests" / "fixtures" / "bridge_gate_snn.jsonl").read_text(

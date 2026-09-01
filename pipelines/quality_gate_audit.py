@@ -246,6 +246,11 @@ def _record_malformed(state, rel, lineno, exc):
 _PARSE_FAILED = object()
 
 
+class _ParsedRecord(NamedTuple):
+    value: object
+    digest: str
+
+
 def _parse_record(line, rel, lineno, state):
     try:
         record = json.loads(
@@ -253,29 +258,29 @@ def _parse_record(line, rel, lineno, state):
             parse_constant=reject_json_constant,
             parse_float=_parse_exact_json_float,
         )
-        return record, record_hash(record)
+        return _ParsedRecord(record, record_hash(record))
     except (ValueError, RecursionError) as exc:
         _record_malformed(state, rel, lineno, exc)
         return _PARSE_FAILED
 
 
-def _consume_identity(obj, digest, where, state, embedding_dedup):
-    state.hashes[digest] += 1
-    state.exact_clusters[digest].append(where)
-    if state.hashes[digest] == 1:
-        state.first_seen[digest] = where
+def _consume_identity(parsed, where, state, embedding_dedup):
+    state.hashes[parsed.digest] += 1
+    state.exact_clusters[parsed.digest].append(where)
+    if state.hashes[parsed.digest] == 1:
+        state.first_seen[parsed.digest] = where
         if embedding_dedup:
-            state.kept.append({**where, "tokens": embedding_tokens(obj)})
+            state.kept.append({**where, "tokens": embedding_tokens(parsed.value)})
         return
-    origin = state.first_seen[digest]
+    origin = state.first_seen[parsed.digest]
     state.duplicates.append(
         {
             **where,
-            "hash": digest,
+            "hash": parsed.digest,
             "kind": "exact",
             "duplicate_of": dict(origin),
             "reason": (
-                f"exact content hash {digest} already seen at "
+                f"exact content hash {parsed.digest} already seen at "
                 f"{origin['file']}:{origin['line']}"
             ),
         }
@@ -297,11 +302,11 @@ def _consume_rewards(obj, state):
         state.reward_shapes[reward_shape(reward)] += 1
 
 
-def _consume_record(obj, digest, where, state, embedding_dedup):
+def _consume_record(parsed, where, state, embedding_dedup):
     state.total += 1
-    _consume_identity(obj, digest, where, state, embedding_dedup)
-    _consume_provenance(obj, state)
-    _consume_rewards(obj, state)
+    _consume_identity(parsed, where, state, embedding_dedup)
+    _consume_provenance(parsed.value, state)
+    _consume_rewards(parsed.value, state)
 
 
 def _scan_jsonl_file(path, run_dir, state, embedding_dedup):
@@ -311,10 +316,8 @@ def _scan_jsonl_file(path, run_dir, state, embedding_dedup):
             continue
         parsed = _parse_record(line, rel, lineno, state)
         if parsed is not _PARSE_FAILED:
-            obj, digest = parsed
             _consume_record(
-                obj,
-                digest,
+                parsed,
                 {"file": str(rel), "line": lineno},
                 state,
                 embedding_dedup,

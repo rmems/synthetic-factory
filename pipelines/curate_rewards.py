@@ -270,7 +270,7 @@ def _load_jsonl_with_source_bytes(path):
                 parse_constant=_reject_json_constant,
                 parse_float=parse_finite_json_float,
             )
-            canonical_bytes(record)
+            _reward_mapping.canonical_bytes(record)
         except (ValueError, RecursionError) as exc:
             raise RewardOntologyError(
                 f"{path}:{line_number}: invalid JSON: {exc}"
