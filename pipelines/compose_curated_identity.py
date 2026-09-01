@@ -7,36 +7,58 @@ import contextlib
 import copy
 import re
 import sys
-from pathlib import Path
 from typing import Any, Mapping
 
-_PIPELINES = Path(__file__).resolve().parent
-if str(_PIPELINES) not in sys.path:
-    sys.path.insert(0, str(_PIPELINES))
+if __package__:
+    from . import _expose_package_sibling, _local_sibling_module, _require_local_sibling
 
-import curate_bridge  # noqa: E402
-import curate_coding  # noqa: E402
-import curate_identity  # noqa: E402
-import curate_rewards  # noqa: E402
-from compose_contract import (  # noqa: E402
-    ACTION_EXCLUDED,
-    ACTION_NOT_APPLICABLE,
-    ACTION_RETAINED,
-    ComposeDecision,
-    REASON_MIXED_PREFERENCE_FAMILIES,
-)
-from compose_curated_context import (  # noqa: E402
-    SourceCoordinates,
-    StageDefinition,
-    stage,
-)
-from compose_trajectory import (  # noqa: E402
-    _is_same_state_pair,
-    _mixed_preference_families,
-    is_bridge_record,
-    is_preference_record,
-)
-from record_kind import preference_side_kinds  # noqa: E402
+    if _local_sibling_module("compose_curated_identity", allow_initializing=True):
+        import compose_curated_identity as _direct_compose_curated_identity
+
+        _require_local_sibling(
+            _direct_compose_curated_identity,
+            "compose_curated_identity",
+        )
+        del _direct_compose_curated_identity
+    from . import curate_bridge, curate_coding, curate_identity, curate_rewards
+    from .compose_contract import (
+        ACTION_EXCLUDED,
+        ACTION_NOT_APPLICABLE,
+        ACTION_RETAINED,
+        ComposeDecision,
+        REASON_MIXED_PREFERENCE_FAMILIES,
+    )
+    from .compose_curated_context import SourceCoordinates, StageDefinition, stage
+    from .compose_trajectory import (
+        _is_same_state_pair,
+        _mixed_preference_families,
+        is_bridge_record,
+        is_preference_record,
+    )
+    from .record_kind import preference_side_kinds
+else:
+    getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
+        "compose_curated_identity"
+    )
+    import curate_bridge
+    import curate_coding
+    import curate_identity
+    import curate_rewards
+    from compose_contract import (
+        ACTION_EXCLUDED,
+        ACTION_NOT_APPLICABLE,
+        ACTION_RETAINED,
+        ComposeDecision,
+        REASON_MIXED_PREFERENCE_FAMILIES,
+    )
+    from compose_curated_context import SourceCoordinates, StageDefinition, stage
+    from compose_trajectory import (
+        _is_same_state_pair,
+        _mixed_preference_families,
+        is_bridge_record,
+        is_preference_record,
+    )
+    from record_kind import preference_side_kinds
 
 
 IDENTITY_STAGE = StageDefinition(
@@ -54,10 +76,16 @@ _PROBE_FAILED: Any = object()
 def _container_calibration_id_candidates(container: Mapping[str, Any]):
     """Yield usable legacy IDs from one identity container."""
 
-    for key in curate_identity.LEGACY_ID_KEYS:
-        value = container.get(key)
-        if isinstance(value, str) and value.strip():
-            yield value.strip()
+    values = map(container.get, curate_identity.LEGACY_ID_KEYS)
+    yield from filter(None, map(_usable_calibration_id, values))
+
+
+def _usable_calibration_id(value: Any) -> str | None:
+    """Normalize one legacy identifier without nesting generator branches."""
+
+    if isinstance(value, str) and value.strip():
+        return value.strip()
+    return None
 
 
 def _owner_calibration_id_candidates(owner: Mapping[str, Any]):
@@ -111,7 +139,7 @@ def _is_bridge_order_only_rejection(mapping: Mapping[str, Any]) -> bool:
     )
 
 
-def _bridge_order_repaired_copy(
+def _bridge_order_repaired_copy_with_source(
     record: Mapping[str, Any], source: SourceCoordinates
 ) -> dict[str, Any] | None:
     """Return the bridge lane's stable-sorted copy when it can repair."""
@@ -140,7 +168,7 @@ def _is_coding_step_only_rejection(mapping: Mapping[str, Any]) -> bool:
     )
 
 
-def _coding_steps_repaired_copy(
+def _coding_steps_repaired_copy_with_source(
     record: Mapping[str, Any], source: SourceCoordinates
 ) -> dict[str, Any] | None:
     """Return the coding lane's repaired copy when it can retain the episode."""
@@ -170,7 +198,9 @@ def _source_preference_shape(record: Any) -> tuple[Any, bool]:
     return side_kinds, mixed
 
 
-def _identity_retry(repaired: dict[str, Any] | None, source: SourceCoordinates):
+def _identity_retry_with_source(
+    repaired: dict[str, Any] | None, source: SourceCoordinates
+):
     """Revalidate identity against a downstream lane's repaired copy."""
 
     if repaired is None:
@@ -198,10 +228,10 @@ def _lane_retry(
 
     if not applies:
         return None
-    return _identity_retry(repair(record, source), source)
+    return _identity_retry_with_source(repair(record, source), source)
 
 
-def _deferred_lane_repair(
+def _deferred_lane_repair_with_source(
     record: Any,
     identity_result: Any,
     source: SourceCoordinates,
@@ -213,7 +243,7 @@ def _deferred_lane_repair(
     retry = _lane_retry(
         is_bridge_record(record)
         and _is_bridge_order_only_rejection(identity_result.mapping),
-        _bridge_order_repaired_copy,
+        _bridge_order_repaired_copy_with_source,
         record,
         source,
     )
@@ -222,7 +252,7 @@ def _deferred_lane_repair(
     retry = _lane_retry(
         isinstance(record.get("steps"), list)
         and _is_coding_step_only_rejection(identity_result.mapping),
-        _coding_steps_repaired_copy,
+        _coding_steps_repaired_copy_with_source,
         record,
         source,
     )
@@ -264,7 +294,7 @@ def _restore_deferred_payload(
         current["steps"] = copy.deepcopy(record["steps"])
 
 
-def _compose_identity_stage(
+def _compose_identity_stage_with_source(
     record: Any,
     stages: list[dict[str, Any]],
     source: SourceCoordinates,
@@ -280,7 +310,7 @@ def _compose_identity_stage(
             source_sha256=source.sha256,
         )
     )
-    result, deferred_lane = _deferred_lane_repair(record, result, source)
+    result, deferred_lane = _deferred_lane_repair_with_source(record, result, source)
     reasons, detail = _identity_stage_evidence(
         result, deferred_lane, source_side_kinds, mixed_families
     )
@@ -302,7 +332,7 @@ def _compose_identity_stage(
     return current, result.mapping.get("record_kind")
 
 
-def _compose_bridge_stage(
+def _compose_bridge_stage_with_source(
     current: dict[str, Any],
     stages: list[dict[str, Any]],
     source: SourceCoordinates,
@@ -341,3 +371,7 @@ def _compose_bridge_stage(
             ACTION_EXCLUDED, None, tuple(reasons), tuple(stages), None, None
         )
     return decision.output_record
+
+
+if __package__:
+    _expose_package_sibling(__name__)

@@ -5,11 +5,29 @@ from __future__ import annotations
 
 import os
 import stat
+import sys
 from pathlib import PurePosixPath
 from typing import Any
 
-from compose_contract import ComposeError
-from compose_destination_binding import _directory_identity
+if __package__:
+    from . import _expose_package_sibling, _local_sibling_module, _require_local_sibling
+
+    if _local_sibling_module("compose_destination_writer", allow_initializing=True):
+        import compose_destination_writer as _direct_compose_destination_writer
+
+        _require_local_sibling(
+            _direct_compose_destination_writer,
+            "compose_destination_writer",
+        )
+        del _direct_compose_destination_writer
+    from .compose_contract import ComposeError
+    from .compose_destination_binding import _directory_identity
+else:
+    getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
+        "compose_destination_writer"
+    )
+    from compose_contract import ComposeError
+    from compose_destination_binding import _directory_identity
 
 
 def _unsafe_destination_component(candidate: PurePosixPath) -> bool:
@@ -189,3 +207,7 @@ def _write_all(descriptor: int, payload: bytes) -> None:
     written = 0
     while written < len(payload):
         written += os.write(descriptor, payload[written:])
+
+
+if __package__:
+    _expose_package_sibling(__name__)

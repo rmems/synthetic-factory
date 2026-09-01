@@ -16,12 +16,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-_PIPELINES = Path(__file__).resolve().parent
-if str(_PIPELINES) not in sys.path:
-    sys.path.insert(0, str(_PIPELINES))
-
 from compose_contract import ComposeError, sha256_hex  # noqa: E402
-from compose_destination_binding import (  # noqa: E402
+from compose_destination_binding import (
     DESTINATION_PARENT_LABEL as _DESTINATION_PARENT_LABEL,
     DirectoryBinding,
     PinnedDestination,
@@ -36,7 +32,7 @@ from compose_destination_binding import (  # noqa: E402
     _verify_directory_binding,
     directory_binding_matches,
 )
-from compose_destination_creation import (  # noqa: E402
+from compose_destination_creation import (
     _assert_destination_disjoint,
     _assert_new_destination,
     _created_destination_identity,
@@ -47,7 +43,7 @@ from compose_destination_creation import (  # noqa: E402
     _verify_destination_parent_residency,
     create_pinned_destination as _create_pinned_destination,
 )
-from compose_destination_writer import (  # noqa: E402
+from compose_destination_writer import (
     _create_child_directory,
     _destination_write_parts as _validated_destination_write_parts,
     _open_child_directory_entry,
@@ -59,7 +55,7 @@ from compose_destination_writer import (  # noqa: E402
     _verify_pinned_child,
     _write_all,
 )
-from compose_source_snapshot import (  # noqa: E402
+from compose_source_snapshot import (
     DescriptorReadHooks,
     ExactReadHooks,
     PinnedChildRead,
@@ -84,6 +80,9 @@ from compose_source_snapshot import (  # noqa: E402
     round_visible_members,
     source_jsonl_members as enumerate_source_jsonl_members,
 )
+
+_PIPELINES = Path(__file__).resolve().parent
+_COMPATIBILITY_MODULES = (sys,)
 
 __all__ = (
     "ComposeError",

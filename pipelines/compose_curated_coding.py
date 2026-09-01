@@ -5,35 +5,54 @@ from __future__ import annotations
 
 import copy
 import sys
-from pathlib import Path
 from typing import Any, Mapping
 
-_PIPELINES = Path(__file__).resolve().parent
-if str(_PIPELINES) not in sys.path:
-    sys.path.insert(0, str(_PIPELINES))
+if __package__:
+    from . import _expose_package_sibling, _local_sibling_module, _require_local_sibling
 
-import curate_agentic  # noqa: E402
-import curate_coding  # noqa: E402
-import curate_rewards  # noqa: E402
-from compose_contract import (  # noqa: E402
-    ACTION_EXCLUDED,
-    ACTION_NOT_APPLICABLE,
-    ACTION_RETAINED,
-    ComposeDecision,
-    REASON_REWARD_ONTOLOGY,
-    _canonical_sha256,
-)
-from compose_curated_context import (  # noqa: E402
-    RecordContext,
-    StageDefinition,
-    stage,
-)
-from compose_trajectory import (  # noqa: E402
-    _strip_hidden_only_side,
-    is_bridge_record,
-    is_episode_record,
-    is_preference_record,
-)
+    if _local_sibling_module("compose_curated_coding", allow_initializing=True):
+        import compose_curated_coding as _direct_compose_curated_coding
+
+        _require_local_sibling(_direct_compose_curated_coding, "compose_curated_coding")
+        del _direct_compose_curated_coding
+    from . import curate_agentic, curate_coding, curate_rewards
+    from .compose_contract import (
+        ACTION_EXCLUDED,
+        ACTION_NOT_APPLICABLE,
+        ACTION_RETAINED,
+        ComposeDecision,
+        REASON_REWARD_ONTOLOGY,
+        _canonical_sha256,
+    )
+    from .compose_curated_context import RecordContext, StageDefinition, stage
+    from .compose_trajectory import (
+        _strip_hidden_only_side,
+        is_bridge_record,
+        is_episode_record,
+        is_preference_record,
+    )
+else:
+    getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
+        "compose_curated_coding"
+    )
+    import curate_agentic
+    import curate_coding
+    import curate_rewards
+    from compose_contract import (
+        ACTION_EXCLUDED,
+        ACTION_NOT_APPLICABLE,
+        ACTION_RETAINED,
+        ComposeDecision,
+        REASON_REWARD_ONTOLOGY,
+        _canonical_sha256,
+    )
+    from compose_curated_context import RecordContext, StageDefinition, stage
+    from compose_trajectory import (
+        _strip_hidden_only_side,
+        is_bridge_record,
+        is_episode_record,
+        is_preference_record,
+    )
 
 
 CODING_STAGE = StageDefinition(
@@ -303,3 +322,7 @@ def _compose_rewards_stage(
     if annotation["source_reward_count"]:
         return _retained_rewards(annotated, sidecar, stages)
     return _reward_not_applicable(annotated, stages)
+
+
+if __package__:
+    _expose_package_sibling(__name__)

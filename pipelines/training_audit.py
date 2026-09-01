@@ -26,10 +26,6 @@ from typing import Mapping
 
 from exact_json import dumps_exact_json, parse_finite_json_float as _parse_exact_json_float
 
-_PIPELINES = Path(__file__).resolve().parent
-if str(_PIPELINES) not in sys.path:
-    sys.path.insert(0, str(_PIPELINES))
-
 from check_records import (  # noqa: E402
     ALLOWED_PROVENANCE,
     canonical_record_id,
@@ -40,8 +36,8 @@ from check_records import (  # noqa: E402
     shape_check,
     walk_key,
 )
-from census import factory_for_path  # noqa: E402
-from round_txn import TransactionError  # noqa: E402
+from census import factory_for_path
+from round_txn import TransactionError
 from quality_gate_identity import canonical_numeric_value as _canonical_numeric_value  # noqa: E402
 from curate_coding import (  # noqa: E402
     HIDDEN_REASONING_KEYS,
@@ -62,7 +58,9 @@ from training_audit_report import (  # noqa: E402
     percentile as _percentile,
     render_markdown as _render_markdown,
 )
-import training_audit_snapshot as _snapshot  # noqa: E402
+import training_audit_snapshot as _snapshot
+
+_PIPELINES = Path(__file__).resolve().parent
 
 # Compatibility exports retained for callers that imported the factory slugs
 # from this module before distillation accounting moved into its own helper.

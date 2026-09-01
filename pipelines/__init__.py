@@ -116,6 +116,108 @@ def _load_validate_run_provenance():
     return validate_run_provenance
 
 
+def _load_compose_curated_calibration():
+    from . import compose_curated_calibration
+
+    return compose_curated_calibration
+
+
+def _load_compose_curated_coding():
+    from . import compose_curated_coding
+
+    return compose_curated_coding
+
+
+def _load_compose_curated_context():
+    from . import compose_curated_context
+
+    return compose_curated_context
+
+
+def _load_compose_curated_identity():
+    from . import compose_curated_identity
+
+    return compose_curated_identity
+
+
+def _load_compose_curated_preferences():
+    from . import compose_curated_preferences
+
+    return compose_curated_preferences
+
+
+def _load_compose_curated_record():
+    from . import compose_curated_record
+
+    return compose_curated_record
+
+
+def _load_compose_curated_run():
+    from . import compose_curated_run
+
+    return compose_curated_run
+
+
+def _load_compose_curated_source():
+    from . import compose_curated_source
+
+    return compose_curated_source
+
+
+def _load_compose_destination_binding():
+    from . import compose_destination_binding
+
+    return compose_destination_binding
+
+
+def _load_compose_destination_creation():
+    from . import compose_destination_creation
+
+    return compose_destination_creation
+
+
+def _load_compose_destination_writer():
+    from . import compose_destination_writer
+
+    return compose_destination_writer
+
+
+def _load_compose_source_snapshot():
+    from . import compose_source_snapshot
+
+    return compose_source_snapshot
+
+
+def _load_export_members_auth():
+    from . import export_members_auth
+
+    return export_members_auth
+
+
+def _load_export_members_jsonl():
+    from . import export_members_jsonl
+
+    return export_members_jsonl
+
+
+def _load_export_members_path():
+    from . import export_members_path
+
+    return export_members_path
+
+
+def _load_export_members_read():
+    from . import export_members_read
+
+    return export_members_read
+
+
+def _load_training_audit_snapshot():
+    from . import training_audit_snapshot
+
+    return training_audit_snapshot
+
+
 def _load_validate_run():
     from . import validate_run
 
@@ -139,6 +241,23 @@ _PACKAGE_SIBLING_LOADERS = {
     "curate_bridge_raster_numbers": _load_curate_bridge_raster_numbers,
     "validate_run_spikes": _load_validate_run_spikes,
     "validate_run_provenance": _load_validate_run_provenance,
+    "compose_curated_calibration": _load_compose_curated_calibration,
+    "compose_curated_coding": _load_compose_curated_coding,
+    "compose_curated_context": _load_compose_curated_context,
+    "compose_curated_identity": _load_compose_curated_identity,
+    "compose_curated_preferences": _load_compose_curated_preferences,
+    "compose_curated_record": _load_compose_curated_record,
+    "compose_curated_run": _load_compose_curated_run,
+    "compose_curated_source": _load_compose_curated_source,
+    "compose_destination_binding": _load_compose_destination_binding,
+    "compose_destination_creation": _load_compose_destination_creation,
+    "compose_destination_writer": _load_compose_destination_writer,
+    "compose_source_snapshot": _load_compose_source_snapshot,
+    "export_members_auth": _load_export_members_auth,
+    "export_members_jsonl": _load_export_members_jsonl,
+    "export_members_path": _load_export_members_path,
+    "export_members_read": _load_export_members_read,
+    "training_audit_snapshot": _load_training_audit_snapshot,
     "validate_run": _load_validate_run,
     "curate_bridge": _load_curate_bridge,
 }

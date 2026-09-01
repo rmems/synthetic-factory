@@ -5,37 +5,63 @@ from __future__ import annotations
 
 import sys
 from dataclasses import dataclass
-from pathlib import Path
-from typing import Any
+from typing import Any, Mapping
 
-_PIPELINES = Path(__file__).resolve().parent
-if str(_PIPELINES) not in sys.path:
-    sys.path.insert(0, str(_PIPELINES))
+if __package__:
+    from . import _expose_package_sibling, _local_sibling_module, _require_local_sibling
 
-import curate_preferences  # noqa: E402
-from compose_contract import (  # noqa: E402
-    ACTION_EXCLUDED,
-    ACTION_NOT_APPLICABLE,
-    ACTION_RETAINED,
-    COMPOSE_NAME,
-    COMPOSE_VERSION,
-    ComposeDecision,
-    REASON_MIXED_PREFERENCE_FAMILIES,
-    REASON_TRAJECTORY_SIDE_INVALID,
-)
-from compose_curated_context import (  # noqa: E402
-    RecordContext,
-    StageDefinition,
-    stage,
-)
-from compose_trajectory import (  # noqa: E402
-    _compat_trajectory_preference,
-    _curate_trajectory_sides,
-    _is_same_state_pair,
-    _mixed_preference_families,
-    is_preference_record,
-)
-from record_kind import preference_side_kinds  # noqa: E402
+    if _local_sibling_module("compose_curated_preferences", allow_initializing=True):
+        import compose_curated_preferences as _direct_compose_curated_preferences
+
+        _require_local_sibling(
+            _direct_compose_curated_preferences,
+            "compose_curated_preferences",
+        )
+        del _direct_compose_curated_preferences
+    from . import curate_preferences
+    from .compose_contract import (
+        ACTION_EXCLUDED,
+        ACTION_NOT_APPLICABLE,
+        ACTION_RETAINED,
+        COMPOSE_NAME,
+        COMPOSE_VERSION,
+        ComposeDecision,
+        REASON_MIXED_PREFERENCE_FAMILIES,
+        REASON_TRAJECTORY_SIDE_INVALID,
+    )
+    from .compose_curated_context import RecordContext, StageDefinition, stage
+    from .compose_trajectory import (
+        _compat_trajectory_preference,
+        _curate_trajectory_sides,
+        _is_same_state_pair,
+        _mixed_preference_families,
+        is_preference_record,
+    )
+    from .record_kind import preference_side_kinds
+else:
+    getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
+        "compose_curated_preferences"
+    )
+    import curate_preferences
+    from compose_contract import (
+        ACTION_EXCLUDED,
+        ACTION_NOT_APPLICABLE,
+        ACTION_RETAINED,
+        COMPOSE_NAME,
+        COMPOSE_VERSION,
+        ComposeDecision,
+        REASON_MIXED_PREFERENCE_FAMILIES,
+        REASON_TRAJECTORY_SIDE_INVALID,
+    )
+    from compose_curated_context import RecordContext, StageDefinition, stage
+    from compose_trajectory import (
+        _compat_trajectory_preference,
+        _curate_trajectory_sides,
+        _is_same_state_pair,
+        _mixed_preference_families,
+        is_preference_record,
+    )
+    from record_kind import preference_side_kinds
 
 
 PREFERENCES_STAGE = StageDefinition(
@@ -65,6 +91,7 @@ class SideFailure:
     kinds: tuple[str, str]
     classification: str
     schema: str | None = None
+    extra: Mapping[str, Any] | None = None
 
 
 def _trajectory_preference(record: dict[str, Any], reviewed_module: Any):
@@ -116,6 +143,8 @@ def _side_curation_failed_decision(
     }
     if failure.schema is not None:
         evidence["schema"] = failure.schema
+    if failure.extra is not None:
+        evidence.update(failure.extra)
     stages.append(stage(COMPOSE_PREFERENCES_STAGE, ACTION_EXCLUDED, **evidence))
     return ComposeDecision(
         ACTION_EXCLUDED, None, tuple(reasons), tuple(stages), None, None
@@ -136,10 +165,11 @@ def _compose_same_state_preference(
     current: dict[str, Any],
     stages: list[dict[str, Any]],
     context: RecordContext,
+    side_kinds: tuple[str, str] | None = None,
 ) -> "ComposeDecision | tuple[Any, list[str]]":
     """Curate a same-state Thalamic trajectory pair."""
 
-    kinds = preference_side_kinds(current)
+    kinds = side_kinds or preference_side_kinds(current)
     curation = _curate_sides(current, context)
     if curation.record is None:
         return _side_curation_failed_decision(
@@ -195,10 +225,11 @@ def _compose_episode_preference(
     current: dict[str, Any],
     stages: list[dict[str, Any]],
     context: RecordContext,
+    side_kinds: tuple[str, str] | None = None,
 ) -> "ComposeDecision | tuple[Any, list[str]]":
     """Curate an episode/episode coding trajectory pair."""
 
-    kinds = preference_side_kinds(current)
+    kinds = side_kinds or preference_side_kinds(current)
     curation = _curate_sides(current, context)
     if curation.record is None:
         return _side_curation_failed_decision(
@@ -235,10 +266,11 @@ def _compose_episode_preference(
 def _compose_legacy_preference(
     current: dict[str, Any],
     stages: list[dict[str, Any]],
+    side_kinds: tuple[str, str] | None = None,
 ) -> tuple[Any, list[str]]:
     """Curate a legacy pre-episode Thalamic-shaped pair."""
 
-    kinds = preference_side_kinds(current)
+    kinds = side_kinds or preference_side_kinds(current)
     decision = curate_preferences.curate_preference_record(current)
     reasons = list(decision.reason_codes)
     retained = decision.record is not None
@@ -298,3 +330,7 @@ def _compose_preferences_stage(
             ACTION_EXCLUDED, None, tuple(reasons), tuple(stages), None, None
         )
     return decision.record
+
+
+if __package__:
+    _expose_package_sibling(__name__)

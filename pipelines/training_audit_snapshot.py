@@ -10,12 +10,30 @@ from __future__ import annotations
 import hashlib
 import os
 import stat
+import sys
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import Callable, Mapping
 
-from census import enclosing_marker_root, visible_jsonl_paths
-from round_txn import completed_manifests
+if __package__:
+    from . import _expose_package_sibling, _local_sibling_module, _require_local_sibling
+
+    if _local_sibling_module("training_audit_snapshot", allow_initializing=True):
+        import training_audit_snapshot as _direct_training_audit_snapshot
+
+        _require_local_sibling(
+            _direct_training_audit_snapshot,
+            "training_audit_snapshot",
+        )
+        del _direct_training_audit_snapshot
+    from .census import enclosing_marker_root, visible_jsonl_paths
+    from .round_txn import completed_manifests
+else:
+    getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
+        "training_audit_snapshot"
+    )
+    from census import enclosing_marker_root, visible_jsonl_paths
+    from round_txn import completed_manifests
 
 
 PINNED_DIRECTORY_FLAGS = (
@@ -371,3 +389,7 @@ def validate_snapshot_files(
         validate_snapshot_member(raw_relative, payload)
         for raw_relative, payload in sorted(snapshot.items())
     ]
+
+
+if __package__:
+    _expose_package_sibling(__name__)

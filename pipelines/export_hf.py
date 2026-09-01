@@ -35,7 +35,6 @@ import hashlib
 import json
 import os
 import sys
-from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
@@ -557,45 +556,16 @@ def _refuse_authenticated_source_destination(
         )
 
 
-@dataclass(frozen=True)
-class ExportOptions:
-    """The cohesive policy knobs for one deterministic export."""
-
-    eval_fraction: float = DEFAULT_EVAL_FRACTION
-    split_salt: str = DEFAULT_SPLIT_SALT
-    dataset_name: str | None = None
-
-
-def _requested_export_options(
-    options: ExportOptions | None, legacy_options: Mapping[str, Any]
-) -> ExportOptions:
-    """Normalize the options object while preserving keyword-call compatibility."""
-
-    if options is not None:
-        if legacy_options:
-            raise TypeError("export options object cannot be combined with keyword options")
-        return options
-    accepted = {"eval_fraction", "split_salt", "dataset_name"}
-    unexpected = set(legacy_options) - accepted
-    if unexpected:
-        name = sorted(unexpected)[0]
-        raise TypeError(f"export_run() got an unexpected keyword argument {name!r}")
-    return ExportOptions(
-        eval_fraction=legacy_options.get("eval_fraction", DEFAULT_EVAL_FRACTION),
-        split_salt=legacy_options.get("split_salt", DEFAULT_SPLIT_SALT),
-        dataset_name=legacy_options.get("dataset_name"),
-    )
-
-
 def export_run(
     curated_root: str | Path,
     destination: str | Path,
-    options: ExportOptions | None = None,
-    **legacy_options: Any,
+    *,
+    eval_fraction: float = DEFAULT_EVAL_FRACTION,
+    split_salt: str = DEFAULT_SPLIT_SALT,
+    dataset_name: str | None = None,
 ) -> dict[str, Any]:
     """Export one composed curated tree, refusing anything not training-ready."""
 
-    requested = _requested_export_options(options, legacy_options)
     destination = Path(destination)
     curated_root, records_dir, resolved_root = _validated_export_paths(
         Path(curated_root), destination
@@ -607,11 +577,7 @@ def export_run(
     _refuse_authenticated_source_destination(compose_metadata, destination)
     _require_curated_snapshot_unchanged(records_dir, curated_files)
 
-    train, evaluate = split_rows(
-        rows,
-        eval_fraction=requested.eval_fraction,
-        salt=requested.split_salt,
-    )
+    train, evaluate = split_rows(rows, eval_fraction=eval_fraction, salt=split_salt)
 
     pinned_destination = _create_pinned_destination(resolved_root, destination)
     destination_target = pinned_destination
@@ -638,9 +604,9 @@ def export_run(
                 "rows": rows,
                 "audit": audit,
                 "options": {
-                    "dataset_name": requested.dataset_name,
-                    "eval_fraction": requested.eval_fraction,
-                    "split_salt": requested.split_salt,
+                    "dataset_name": dataset_name,
+                    "eval_fraction": eval_fraction,
+                    "split_salt": split_salt,
                 },
                 "written": {
                     "files": files,

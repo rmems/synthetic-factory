@@ -17,6 +17,132 @@ PIPELINES = REPO / "pipelines"
 
 
 class PipelinesPackageImports(unittest.TestCase):
+    NEW_SPLIT_MODULES = (
+        "compose_curated_calibration",
+        "compose_curated_coding",
+        "compose_curated_context",
+        "compose_curated_identity",
+        "compose_curated_preferences",
+        "compose_curated_record",
+        "compose_curated_run",
+        "compose_curated_source",
+        "compose_destination_binding",
+        "compose_destination_creation",
+        "compose_destination_writer",
+        "compose_source_snapshot",
+        "export_members_auth",
+        "export_members_jsonl",
+        "export_members_path",
+        "export_members_read",
+        "training_audit_snapshot",
+        "validate_run_provenance",
+    )
+
+    def _new_split_module_aliases(self) -> tuple[str, ...]:
+        return ("pipelines",) + tuple(
+            module_name
+            for name in self.NEW_SPLIT_MODULES
+            for module_name in (name, f"pipelines.{name}")
+        )
+
+    def _saved_package_attributes(
+        self, package: ModuleType | None
+    ) -> dict[str, ModuleType | None]:
+        if package is None:
+            return {}
+        return {
+            name: getattr(package, name, None) for name in self.NEW_SPLIT_MODULES
+        }
+
+    @staticmethod
+    def _restore_module_aliases(
+        names: tuple[str, ...], saved: dict[str, ModuleType | None]
+    ) -> None:
+        for name in names:
+            sys.modules.pop(name, None)
+        sys.modules.update(
+            {name: module for name, module in saved.items() if module is not None}
+        )
+
+    @staticmethod
+    def _restore_package_attributes(
+        package: ModuleType | None,
+        attributes: dict[str, ModuleType | None],
+    ) -> None:
+        if package is None:
+            return
+        for name, original in attributes.items():
+            if original is None:
+                package.__dict__.pop(name, None)
+            else:
+                setattr(package, name, original)
+
+    @contextmanager
+    def _isolated_new_split_modules(self):
+        names = self._new_split_module_aliases()
+        saved = {name: sys.modules.pop(name, None) for name in names}
+        original_package = saved["pipelines"]
+        original_attributes = self._saved_package_attributes(original_package)
+        try:
+            yield
+        finally:
+            self._restore_module_aliases(names, saved)
+            self._restore_package_attributes(original_package, original_attributes)
+
+    def _assert_new_split_module_identity(self, first: str) -> None:
+        with self._isolated_new_split_modules():
+            if first == "direct":
+                sys.path.insert(0, str(PIPELINES))
+                try:
+                    direct = {
+                        name: importlib.import_module(name)
+                        for name in self.NEW_SPLIT_MODULES
+                    }
+                finally:
+                    sys.path.remove(str(PIPELINES))
+                packaged = {
+                    name: importlib.import_module(f"pipelines.{name}")
+                    for name in self.NEW_SPLIT_MODULES
+                }
+            else:
+                packaged = {
+                    name: importlib.import_module(f"pipelines.{name}")
+                    for name in self.NEW_SPLIT_MODULES
+                }
+                sys.path.insert(0, str(PIPELINES))
+                try:
+                    direct = {
+                        name: importlib.import_module(name)
+                        for name in self.NEW_SPLIT_MODULES
+                    }
+                finally:
+                    sys.path.remove(str(PIPELINES))
+            for name in self.NEW_SPLIT_MODULES:
+                with self.subTest(first=first, name=name):
+                    self.assertIs(direct[name], packaged[name])
+            self.assertIs(
+                direct["compose_curated_context"].SourceCoordinates,
+                packaged["compose_curated_context"].SourceCoordinates,
+            )
+            self.assertIs(
+                direct["compose_curated_run"].ComposeRunState,
+                packaged["compose_curated_run"].ComposeRunState,
+            )
+            self.assertIs(
+                direct["export_members_auth"].AuthenticationRequest,
+                packaged["export_members_auth"].AuthenticationRequest,
+            )
+            self.assertIs(
+                direct["validate_run_provenance"].check_provenance,
+                packaged["validate_run_provenance"].check_provenance,
+            )
+
+    def test_all_new_split_modules_retain_identity_direct_first(self):
+        self._assert_new_split_module_identity("direct")
+
+    def test_all_new_split_modules_retain_identity_package_first(self):
+        self._assert_new_split_module_identity("package")
+
     @contextmanager
     def _isolated_validate_run_provenance_modules(self):
         names = (

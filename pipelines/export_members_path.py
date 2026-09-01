@@ -5,11 +5,26 @@ from __future__ import annotations
 
 import os
 import stat
+import sys
 from pathlib import Path, PurePosixPath
 from typing import Any
 
-from export_contract import ExportError
-from raw_tree_guard import contains_raw_segments
+if __package__:
+    from . import _expose_package_sibling, _local_sibling_module, _require_local_sibling
+
+    if _local_sibling_module("export_members_path", allow_initializing=True):
+        import export_members_path as _direct_export_members_path
+
+        _require_local_sibling(_direct_export_members_path, "export_members_path")
+        del _direct_export_members_path
+    from .export_contract import ExportError
+    from .raw_tree_guard import contains_raw_segments
+else:
+    getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
+        "export_members_path"
+    )
+    from export_contract import ExportError
+    from raw_tree_guard import contains_raw_segments
 
 
 def _resolved_non_strict(path: Path) -> Path:
@@ -149,3 +164,7 @@ def require_exact_directory(path: Path, label: str) -> Path:
     if not _is_exact_directory(metadata, resolved, path):
         raise ExportError(f"{label}: directory path must be an exact non-symlink identity")
     return resolved
+
+
+if __package__:
+    _expose_package_sibling(__name__)

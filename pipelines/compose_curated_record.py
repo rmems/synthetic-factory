@@ -3,13 +3,52 @@
 
 from __future__ import annotations
 
-from typing import Any
+import sys
+from dataclasses import dataclass
+from typing import Any, Callable
 
-from compose_contract import ACTION_RETAINED, ComposeDecision
-from compose_curated_coding import _compose_coding_stage, _compose_rewards_stage
-from compose_curated_context import RecordContext
-from compose_curated_identity import _compose_bridge_stage, _compose_identity_stage
-from compose_curated_preferences import _compose_preferences_stage
+if __package__:
+    from . import _expose_package_sibling, _local_sibling_module, _require_local_sibling
+
+    if _local_sibling_module("compose_curated_record", allow_initializing=True):
+        import compose_curated_record as _direct_compose_curated_record
+
+        _require_local_sibling(
+            _direct_compose_curated_record,
+            "compose_curated_record",
+        )
+        del _direct_compose_curated_record
+    from .compose_contract import ACTION_RETAINED, ComposeDecision
+    from .compose_curated_coding import _compose_coding_stage, _compose_rewards_stage
+    from .compose_curated_context import RecordContext
+    from .compose_curated_identity import (
+        _compose_bridge_stage_with_source,
+        _compose_identity_stage_with_source,
+    )
+    from .compose_curated_preferences import _compose_preferences_stage
+else:
+    getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
+        "compose_curated_record"
+    )
+    from compose_contract import ACTION_RETAINED, ComposeDecision
+    from compose_curated_coding import _compose_coding_stage, _compose_rewards_stage
+    from compose_curated_context import RecordContext
+    from compose_curated_identity import (
+        _compose_bridge_stage_with_source,
+        _compose_identity_stage_with_source,
+    )
+    from compose_curated_preferences import _compose_preferences_stage
+
+
+@dataclass(frozen=True)
+class RecordServices:
+    """Stage boundaries selected by the compatibility facade at call time."""
+
+    identity: Callable[..., Any] = _compose_identity_stage_with_source
+    bridge: Callable[..., Any] = _compose_bridge_stage_with_source
+    preferences: Callable[..., Any] = _compose_preferences_stage
+    coding: Callable[..., Any] = _compose_coding_stage
+    rewards: Callable[..., Any] = _compose_rewards_stage
 
 
 def _early_decision(outcome: Any) -> ComposeDecision | None:
@@ -39,32 +78,41 @@ def _retained_decision(
     )
 
 
-def compose_record(record: Any, context: RecordContext) -> ComposeDecision:
+def compose_record(
+    record: Any,
+    context: RecordContext,
+    services: RecordServices | None = None,
+) -> ComposeDecision:
     """Apply identity, bridge, preference, coding, and reward lanes in order."""
 
+    active = services or RecordServices()
     stages: list[dict[str, Any]] = []
-    identity = _compose_identity_stage(record, stages, context.source)
+    identity = active.identity(record, stages, context.source)
     if terminal := _early_decision(identity):
         return terminal
     current, registered_kind = identity
 
-    bridge = _compose_bridge_stage(current, stages, context.source)
+    bridge = active.bridge(current, stages, context.source)
     if terminal := _early_decision(bridge):
         return terminal
     current = bridge
 
-    preferences = _compose_preferences_stage(current, stages, context)
+    preferences = active.preferences(current, stages, context)
     if terminal := _early_decision(preferences):
         return terminal
     current = preferences
 
-    coding = _compose_coding_stage(current, registered_kind, stages, context)
+    coding = active.coding(current, registered_kind, stages, context)
     if terminal := _early_decision(coding):
         return terminal
     current = coding
 
-    rewards = _compose_rewards_stage(current, stages, context)
+    rewards = active.rewards(current, stages, context)
     if terminal := _early_decision(rewards):
         return terminal
     current, sidecar = rewards
     return _retained_decision(current, stages, sidecar)
+
+
+if __package__:
+    _expose_package_sibling(__name__)

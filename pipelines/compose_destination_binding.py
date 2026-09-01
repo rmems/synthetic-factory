@@ -6,11 +6,29 @@ from __future__ import annotations
 import os
 import shutil
 import stat
+import sys
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 
-from compose_contract import ComposeError
-from raw_tree_guard import contains_raw_segments
+if __package__:
+    from . import _expose_package_sibling, _local_sibling_module, _require_local_sibling
+
+    if _local_sibling_module("compose_destination_binding", allow_initializing=True):
+        import compose_destination_binding as _direct_compose_destination_binding
+
+        _require_local_sibling(
+            _direct_compose_destination_binding,
+            "compose_destination_binding",
+        )
+        del _direct_compose_destination_binding
+    from .compose_contract import ComposeError
+    from .raw_tree_guard import contains_raw_segments
+else:
+    getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
+        "compose_destination_binding"
+    )
+    from compose_contract import ComposeError
+    from raw_tree_guard import contains_raw_segments
 
 DESTINATION_PARENT_LABEL = "destination parent"
 
@@ -109,7 +127,7 @@ def _assert_descriptor_outside_raw(descriptor: int, label: str) -> None:
 
     try:
         current_path = os.readlink(f"/proc/self/fd/{descriptor}")
-    except OSError:  # pragma: no cover - non-procfs platforms
+    except OSError:
         return
     if _contains_raw_segments(tuple(PurePosixPath(current_path).parts)):
         raise ComposeError(
@@ -125,7 +143,7 @@ def _assert_descriptor_contained(
     try:
         root_path = Path(os.readlink(f"/proc/self/fd/{root_descriptor}"))
         current_path = Path(os.readlink(f"/proc/self/fd/{descriptor}"))
-    except OSError:  # pragma: no cover - non-procfs platforms
+    except OSError:
         return
     if current_path == root_path:
         return
@@ -221,3 +239,7 @@ def _verify_destination_target(target: int | PinnedDestination) -> None:
     if isinstance(target, PinnedDestination):
         _assert_descriptor_outside_raw(target.destination_descriptor, "destination")
         target.verify_binding()
+
+
+if __package__:
+    _expose_package_sibling(__name__)

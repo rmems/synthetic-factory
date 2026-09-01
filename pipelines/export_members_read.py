@@ -4,11 +4,26 @@
 from __future__ import annotations
 
 import os
+import sys
 from pathlib import Path, PurePosixPath
 from typing import Any
 
-from export_contract import ExportError
-from export_members_path import compose_member_path, is_unique_regular
+if __package__:
+    from . import _expose_package_sibling, _local_sibling_module, _require_local_sibling
+
+    if _local_sibling_module("export_members_read", allow_initializing=True):
+        import export_members_read as _direct_export_members_read
+
+        _require_local_sibling(_direct_export_members_read, "export_members_read")
+        del _direct_export_members_read
+    from .export_contract import ExportError
+    from .export_members_path import compose_member_path, is_unique_regular
+else:
+    getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
+        "export_members_read"
+    )
+    from export_contract import ExportError
+    from export_members_path import compose_member_path, is_unique_regular
 
 _READ_CHUNK_SIZE = 1024 * 1024
 
@@ -122,3 +137,7 @@ def read_exact_regular_file(root: Path, raw_path: Any, label: str) -> tuple[Path
     if not _resolved_after_read(root, path, raw_path, label):
         raise ExportError(f"{label}: path became a symlink alias while reading")
     return path, payload
+
+
+if __package__:
+    _expose_package_sibling(__name__)

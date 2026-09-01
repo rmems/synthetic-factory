@@ -5,17 +5,40 @@ from __future__ import annotations
 
 import os
 import stat
+import sys
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import Any, Callable
 
-from compose_contract import ComposeError
-from compose_destination_binding import (
-    _directory_identity,
-    _require_exact_directory,
-    _verify_directory_binding,
-)
-from round_txn import committed_jsonl_paths, marker_mode_path
+if __package__:
+    from . import _expose_package_sibling, _local_sibling_module, _require_local_sibling
+
+    if _local_sibling_module("compose_source_snapshot", allow_initializing=True):
+        import compose_source_snapshot as _direct_compose_source_snapshot
+
+        _require_local_sibling(
+            _direct_compose_source_snapshot,
+            "compose_source_snapshot",
+        )
+        del _direct_compose_source_snapshot
+    from .compose_contract import ComposeError
+    from .compose_destination_binding import (
+        _directory_identity,
+        _require_exact_directory,
+        _verify_directory_binding,
+    )
+    from .round_txn import committed_jsonl_paths, marker_mode_path
+else:
+    getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
+        "compose_source_snapshot"
+    )
+    from compose_contract import ComposeError
+    from compose_destination_binding import (
+        _directory_identity,
+        _require_exact_directory,
+        _verify_directory_binding,
+    )
+    from round_txn import committed_jsonl_paths, marker_mode_path
 
 MemberResolver = Callable[[Path, Any, str], Path]
 OpenedIdentityCheck = Callable[[os.stat_result, os.stat_result, str], None]
@@ -464,3 +487,7 @@ def source_jsonl_members(
         child_directories = _collect_source_directory(root, directory, members)
         pending.extend(reversed(child_directories))
     return tuple(sorted(visible_members(root, members)))
+
+
+if __package__:
+    _expose_package_sibling(__name__)

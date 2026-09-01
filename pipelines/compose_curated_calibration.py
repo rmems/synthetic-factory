@@ -5,16 +5,38 @@ from __future__ import annotations
 
 import json
 import os
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Mapping
 
-from compose_contract import (
-    ComposeError,
-    FFPC_UNITS_MIGRATION,
-    REASON_EMPTY_CORPUS,
-    RECORDS_DIRNAME,
-)
+if __package__:
+    from . import _expose_package_sibling, _local_sibling_module, _require_local_sibling
+
+    if _local_sibling_module("compose_curated_calibration", allow_initializing=True):
+        import compose_curated_calibration as _direct_compose_curated_calibration
+
+        _require_local_sibling(
+            _direct_compose_curated_calibration,
+            "compose_curated_calibration",
+        )
+        del _direct_compose_curated_calibration
+    from .compose_contract import (
+        ComposeError,
+        FFPC_UNITS_MIGRATION,
+        REASON_EMPTY_CORPUS,
+        RECORDS_DIRNAME,
+    )
+else:
+    getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
+        "compose_curated_calibration"
+    )
+    from compose_contract import (
+        ComposeError,
+        FFPC_UNITS_MIGRATION,
+        REASON_EMPTY_CORPUS,
+        RECORDS_DIRNAME,
+    )
 
 
 @dataclass(frozen=True)
@@ -139,3 +161,7 @@ __all__ = [
     "compact_audit_report",
     "load_calibration",
 ]
+
+
+if __package__:
+    _expose_package_sibling(__name__)

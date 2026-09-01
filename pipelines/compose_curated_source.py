@@ -7,43 +7,82 @@ import copy
 import json
 import sys
 from dataclasses import dataclass
-from pathlib import Path
-from typing import Any, Mapping, MutableMapping
+from typing import Any, Callable, Mapping, MutableMapping
 
-_PIPELINES = Path(__file__).resolve().parent
-if str(_PIPELINES) not in sys.path:
-    sys.path.insert(0, str(_PIPELINES))
+if __package__:
+    from . import _expose_package_sibling, _local_sibling_module, _require_local_sibling
 
-import curate_agentic  # noqa: E402
-import curate_bridge  # noqa: E402
-import curate_coding  # noqa: E402
-import curate_identity  # noqa: E402
-import curate_preferences  # noqa: E402
-import curate_rewards  # noqa: E402
-from check_records import reject_json_constant  # noqa: E402
-from compose_contract import (  # noqa: E402
-    ACTION_EXCLUDED,
-    ACTION_RETAINED,
-    COMPOSE_NAME,
-    COMPOSE_VERSION,
-    ComposeDecision,
-    ComposeError,
-    REASON_DUPLICATE_CURATED_RECORD,
-    REASON_DUPLICATE_SOURCE_RECORD,
-    REASON_INVALID_JSON,
-    REASON_INVALID_UTF8,
-    _canonical_sha256,
-    sha256_hex,
-)
-from compose_curated_context import (  # noqa: E402
-    RecordContext,
-    SourceCoordinates,
-    StageDefinition,
-    stage,
-)
-from compose_curated_identity import calibration_for  # noqa: E402
-from compose_curated_record import compose_record  # noqa: E402
-from curate_identity import _reject_duplicate_object_keys  # noqa: E402
+    if _local_sibling_module("compose_curated_source", allow_initializing=True):
+        import compose_curated_source as _direct_compose_curated_source
+
+        _require_local_sibling(_direct_compose_curated_source, "compose_curated_source")
+        del _direct_compose_curated_source
+    from . import (
+        curate_agentic,
+        curate_bridge,
+        curate_coding,
+        curate_identity,
+        curate_preferences,
+        curate_rewards,
+    )
+    from .check_records import reject_json_constant
+    from .compose_contract import (
+        ACTION_EXCLUDED,
+        ACTION_RETAINED,
+        COMPOSE_NAME,
+        COMPOSE_VERSION,
+        ComposeDecision,
+        ComposeError,
+        REASON_DUPLICATE_CURATED_RECORD,
+        REASON_DUPLICATE_SOURCE_RECORD,
+        REASON_INVALID_JSON,
+        REASON_INVALID_UTF8,
+        _canonical_sha256,
+        sha256_hex,
+    )
+    from .compose_curated_context import (
+        RecordContext,
+        SourceCoordinates,
+        StageDefinition,
+        stage,
+    )
+    from .compose_curated_identity import calibration_for
+    from .compose_curated_record import compose_record
+    from .curate_identity import _reject_duplicate_object_keys
+else:
+    getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
+        "compose_curated_source"
+    )
+    import curate_agentic
+    import curate_bridge
+    import curate_coding
+    import curate_identity
+    import curate_preferences
+    import curate_rewards
+    from check_records import reject_json_constant
+    from compose_contract import (
+        ACTION_EXCLUDED,
+        ACTION_RETAINED,
+        COMPOSE_NAME,
+        COMPOSE_VERSION,
+        ComposeDecision,
+        ComposeError,
+        REASON_DUPLICATE_CURATED_RECORD,
+        REASON_DUPLICATE_SOURCE_RECORD,
+        REASON_INVALID_JSON,
+        REASON_INVALID_UTF8,
+        _canonical_sha256,
+        sha256_hex,
+    )
+    from compose_curated_context import (
+        RecordContext,
+        SourceCoordinates,
+        StageDefinition,
+        stage,
+    )
+    from compose_curated_identity import calibration_for
+    from compose_curated_record import compose_record
+    from curate_identity import _reject_duplicate_object_keys
 
 
 SOURCE_STAGE = StageDefinition("source", COMPOSE_NAME, COMPOSE_VERSION)
@@ -62,6 +101,14 @@ class SourceLineContext:
     seen_curated_semantics: MutableMapping[str, tuple[str, int]] | None = None
     trajectory_preferences: Any = None
     canonical_sha256: Any = _canonical_sha256
+    record_composer: Callable[[Any, RecordContext], ComposeDecision] = compose_record
+    calibration_lookup: Callable[[Mapping[str, Any], Mapping[str, Any] | None], Any] = (
+        calibration_for
+    )
+    duplicate_key_rejector: Callable[[list[tuple[str, Any]]], dict[str, Any]] = (
+        _reject_duplicate_object_keys
+    )
+    constant_rejector: Callable[[str], Any] = reject_json_constant
 
 
 def _identity_owner(record: dict[str, Any], pointer: Any) -> dict[str, Any] | None:
@@ -72,6 +119,14 @@ def _identity_owner(record: dict[str, Any], pointer: Any) -> dict[str, Any] | No
     tokens = _json_pointer_tokens(pointer)
     if tokens is None:
         return None
+    return _descendant_mapping(record, tokens)
+
+
+def _descendant_mapping(
+    record: dict[str, Any], tokens: list[str]
+) -> dict[str, Any] | None:
+    """Traverse decoded pointer tokens and return only mapping owners."""
+
     owner: Any = record
     for token in tokens:
         if not isinstance(owner, dict):
@@ -283,8 +338,8 @@ def _parse_source_record(
     try:
         record = json.loads(
             text,
-            object_pairs_hook=_reject_duplicate_object_keys,
-            parse_constant=reject_json_constant,
+            object_pairs_hook=context.duplicate_key_rejector,
+            parse_constant=context.constant_rejector,
         )
         return record, context.canonical_sha256(record)
     except (ValueError, RecursionError) as exc:
@@ -325,11 +380,11 @@ def _curate_source_record(
     )
     record_context = RecordContext(
         source,
-        calibration_for(record, context.calibration_catalog),
+        context.calibration_lookup(record, context.calibration_catalog),
         context.trajectory_preferences,
     )
     try:
-        decision = compose_record(record, record_context)
+        decision = context.record_composer(record, record_context)
         return _deduplicate_curated_record(decision, context)
     except RecursionError as exc:
         return _excluded_source_line(
@@ -415,3 +470,7 @@ def transform_contract(reviewed_trajectory_module: Any = None) -> dict[str, Any]
             "version": curate_rewards.REWARD_TRANSFORM_VERSION,
         },
     }
+
+
+if __package__:
+    _expose_package_sibling(__name__)

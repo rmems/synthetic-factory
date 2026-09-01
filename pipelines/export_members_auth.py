@@ -4,13 +4,29 @@
 from __future__ import annotations
 
 import hashlib
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable
 
-from export_contract import ExportError
-from export_members_jsonl import lf_jsonl_documents
-from export_members_read import read_exact_regular_file
+if __package__:
+    from . import _expose_package_sibling, _local_sibling_module, _require_local_sibling
+
+    if _local_sibling_module("export_members_auth", allow_initializing=True):
+        import export_members_auth as _direct_export_members_auth
+
+        _require_local_sibling(_direct_export_members_auth, "export_members_auth")
+        del _direct_export_members_auth
+    from .export_contract import ExportError
+    from .export_members_jsonl import lf_jsonl_documents
+    from .export_members_read import read_exact_regular_file
+else:
+    getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
+        "export_members_auth"
+    )
+    from export_contract import ExportError
+    from export_members_jsonl import lf_jsonl_documents
+    from export_members_read import read_exact_regular_file
 
 
 _ReadExactRegularFile = Callable[[Path, str, str], tuple[Path, bytes]]
@@ -139,3 +155,7 @@ def authenticate_descriptor(
     documents = dependencies.parse_documents(payload, descriptor["path"])
     _require_entry_count(descriptor, documents, request.key)
     return dict(descriptor), documents
+
+
+if __package__:
+    _expose_package_sibling(__name__)

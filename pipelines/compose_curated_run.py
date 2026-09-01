@@ -11,23 +11,52 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Mapping
 
-from compose_contract import (
-    ACTION_EXCLUDED,
-    ACTION_RETAINED,
-    COMPOSE_NAME,
-    COMPOSE_VERSION,
-    LANE_ORDER,
-    MANIFEST_DIRNAME,
-    MANIFEST_FILENAME,
-    RECORDS_DIRNAME,
-    REWARD_SIDECAR_FILENAME,
-    SUMMARY_FILENAME,
-    ComposeDecision,
-    ComposeError,
-    canonical_json,
-    sha256_hex,
-)
-from compose_curated_calibration import CalibrationContext
+if __package__:
+    from . import _expose_package_sibling, _local_sibling_module, _require_local_sibling
+
+    if _local_sibling_module("compose_curated_run", allow_initializing=True):
+        import compose_curated_run as _direct_compose_curated_run
+
+        _require_local_sibling(_direct_compose_curated_run, "compose_curated_run")
+        del _direct_compose_curated_run
+    from .compose_contract import (
+        ACTION_EXCLUDED,
+        ACTION_RETAINED,
+        COMPOSE_NAME,
+        COMPOSE_VERSION,
+        LANE_ORDER,
+        MANIFEST_DIRNAME,
+        MANIFEST_FILENAME,
+        RECORDS_DIRNAME,
+        REWARD_SIDECAR_FILENAME,
+        SUMMARY_FILENAME,
+        ComposeDecision,
+        ComposeError,
+        canonical_json,
+        sha256_hex,
+    )
+    from .compose_curated_calibration import CalibrationContext
+else:
+    getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
+        "compose_curated_run"
+    )
+    from compose_contract import (
+        ACTION_EXCLUDED,
+        ACTION_RETAINED,
+        COMPOSE_NAME,
+        COMPOSE_VERSION,
+        LANE_ORDER,
+        MANIFEST_DIRNAME,
+        MANIFEST_FILENAME,
+        RECORDS_DIRNAME,
+        REWARD_SIDECAR_FILENAME,
+        SUMMARY_FILENAME,
+        ComposeDecision,
+        ComposeError,
+        canonical_json,
+        sha256_hex,
+    )
+    from compose_curated_calibration import CalibrationContext
 
 
 @dataclass(frozen=True)
@@ -70,6 +99,26 @@ class ComposeRunServices:
 
 
 @dataclass(frozen=True)
+class ComposeRunHooks:
+    """Facade-owned orchestration seams resolved for one compose invocation."""
+
+    new_manifest_entry: Callable[..., dict[str, Any]]
+    claim_output_id: Callable[..., None]
+    record_retained_line: Callable[..., None]
+    record_excluded_line: Callable[..., None]
+    mill_quarantined_decision: Callable[[Any], ComposeDecision]
+    compose_one_line: Callable[..., None]
+    write_emitted_records: Callable[..., None]
+    compose_source_file: Callable[..., None]
+    capture_source_snapshot: Callable[..., Any]
+    write_compose_provenance: Callable[..., tuple[str, str]]
+    authenticate_composed_artifacts: Callable[..., None]
+    compose_run_summary: Callable[..., dict[str, Any]]
+    commit_compose_summary: Callable[..., None]
+    jsonl_physical_lines: Callable[[bytes], list[bytes]]
+
+
+@dataclass(frozen=True)
 class ComposeCliServices:
     run: ComposeRunServices
     caught_errors: tuple[type[BaseException], ...]
@@ -83,6 +132,12 @@ class SourceLineContext:
     catalog: Mapping[str, Any] | None
     emitted: list[str]
     mill_findings: Mapping[tuple[str, int], Any] | None = None
+
+
+@dataclass(frozen=True)
+class PhysicalSourceLine:
+    payload: bytes
+    context: SourceLineContext
 
 
 @dataclass(frozen=True)
@@ -133,6 +188,14 @@ class TransactionContext:
     calibration_descriptor: Mapping[str, Any]
 
 
+@dataclass(frozen=True)
+class SummaryCommitContext:
+    pinned_destination: Any
+    summary: Mapping[str, Any]
+    manifest_sha256: str | None = None
+    sidecar_sha256: str | None = None
+
+
 @dataclass
 class ComposeRunState:
     counts: Counter[str] = field(default_factory=Counter)
@@ -153,10 +216,15 @@ def jsonl_physical_lines(raw_file: bytes) -> list[bytes]:
     terminated_lines = len(physical_lines) - 1
     if physical_lines and physical_lines[-1] == b"":
         physical_lines.pop()
-    for index in range(min(terminated_lines, len(physical_lines))):
-        if physical_lines[index].endswith(b"\r"):
-            physical_lines[index] = physical_lines[index][:-1]
+    framed = min(terminated_lines, len(physical_lines))
+    physical_lines[:framed] = map(_without_terminal_cr, physical_lines[:framed])
     return physical_lines
+
+
+def _without_terminal_cr(physical_line: bytes) -> bytes:
+    """Remove JSONL framing's CR only when the line ended in CRLF."""
+
+    return physical_line[:-1] if physical_line.endswith(b"\r") else physical_line
 
 
 def new_manifest_entry(context: SourceLineContext, source_sha256: str) -> dict[str, Any]:
@@ -186,9 +254,10 @@ def record_retained_line(
     state: ComposeRunState,
     decision: ComposeDecision,
     context: RetainedLineContext,
+    claim_output_id_fn: Callable[..., None] = claim_output_id,
 ) -> None:
     line = canonical_json(decision.record)
-    claim_output_id(state, decision.output_id, context.location)
+    claim_output_id_fn(state, decision.output_id, context.location)
     context.emitted.append(line)
     context.entry.update(
         {
@@ -243,17 +312,18 @@ def mill_quarantined_decision(finding: Any) -> ComposeDecision:
 
 def _line_decision(
     state: ComposeRunState,
-    physical_line: bytes,
-    context: SourceLineContext,
+    source_line: PhysicalSourceLine,
     services: SourceServices,
+    hooks: ComposeRunHooks,
 ) -> ComposeDecision:
+    context = source_line.context
     finding = None
     if context.mill_findings is not None:
         finding = context.mill_findings.get((context.relative, context.line_number))
     if finding is not None:
-        return mill_quarantined_decision(finding)
+        return hooks.mill_quarantined_decision(finding)
     return services.compose_source_line(
-        physical_line,
+        source_line.payload,
         source_path=context.relative,
         source_line=context.line_number,
         source_file_sha256=context.source_file_sha256,
@@ -272,13 +342,16 @@ def _account_lane_actions(state: ComposeRunState, decision: ComposeDecision) -> 
 
 def compose_one_line(
     state: ComposeRunState,
-    physical_line: bytes,
-    context: SourceLineContext,
+    source_line: PhysicalSourceLine,
     services: SourceServices,
+    hooks: ComposeRunHooks | None = None,
 ) -> None:
+    active = hooks or default_run_hooks()
+    physical_line = source_line.payload
+    context = source_line.context
     state.counts["source_records"] += 1
-    entry = new_manifest_entry(context, sha256_hex(physical_line))
-    decision = _line_decision(state, physical_line, context, services)
+    entry = active.new_manifest_entry(context, sha256_hex(physical_line))
+    decision = _line_decision(state, source_line, services, active)
     entry.update(
         {
             "action": decision.action,
@@ -295,9 +368,9 @@ def compose_one_line(
             f"{context.relative}:{context.line_number}",
             context.emitted,
         )
-        record_retained_line(state, decision, retained_context)
+        active.record_retained_line(state, decision, retained_context)
     else:
-        record_excluded_line(state, decision, entry)
+        active.record_excluded_line(state, decision, entry)
     state.manifest_lines.append(canonical_json(entry))
 
 
@@ -323,11 +396,15 @@ def compose_source_file(
     state: ComposeRunState,
     context: SourceFileContext,
     services: ComposeRunServices,
+    hooks: ComposeRunHooks | None = None,
 ) -> None:
+    active = hooks or default_run_hooks()
     source_file_sha256 = sha256_hex(context.raw_file)
     state.counts["source_files"] += 1
     emitted: list[str] = []
-    for line_number, physical_line in enumerate(jsonl_physical_lines(context.raw_file), 1):
+    for line_number, physical_line in enumerate(
+        active.jsonl_physical_lines(context.raw_file), 1
+    ):
         if not physical_line.strip():
             state.counts["blank_lines"] += 1
             continue
@@ -339,9 +416,14 @@ def compose_source_file(
             emitted,
             context.mill_findings,
         )
-        compose_one_line(state, physical_line, line_context, services.source)
+        active.compose_one_line(
+            state,
+            PhysicalSourceLine(physical_line, line_context),
+            services.source,
+            active,
+        )
     if emitted:
-        write_emitted_records(state, context, emitted, services.destination)
+        active.write_emitted_records(state, context, emitted, services.destination)
 
 
 def captured_source_payloads(
@@ -466,10 +548,12 @@ def compose_run_summary(
 
 def commit_compose_summary(
     state: ComposeRunState,
-    pinned_destination: Any,
-    summary: Mapping[str, Any],
+    context: SummaryCommitContext,
     services: DestinationServices,
+    authenticate: Callable[..., None] = authenticate_composed_artifacts,
 ) -> None:
+    pinned_destination = context.pinned_destination
+    summary = context.summary
     summary_sha256 = services.write_new_text(
         pinned_destination,
         SUMMARY_FILENAME,
@@ -478,18 +562,27 @@ def commit_compose_summary(
     expected_digests = {item["path"]: item["sha256"] for item in state.outputs}
     expected_digests.update(
         {
-            summary["manifest"]["path"]: summary["manifest"]["sha256"],
-            summary["reward_sidecars"]["path"]: summary["reward_sidecars"]["sha256"],
+            summary["manifest"]["path"]: (
+                summary["manifest"]["sha256"]
+                if context.manifest_sha256 is None
+                else context.manifest_sha256
+            ),
+            summary["reward_sidecars"]["path"]: (
+                summary["reward_sidecars"]["sha256"]
+                if context.sidecar_sha256 is None
+                else context.sidecar_sha256
+            ),
             SUMMARY_FILENAME: summary_sha256,
         }
     )
-    authenticate_composed_artifacts(pinned_destination, expected_digests, services)
+    authenticate(pinned_destination, expected_digests, services)
 
 
 def _write_source_members(
     state: ComposeRunState,
     context: SourceBatchContext,
     services: ComposeRunServices,
+    hooks: ComposeRunHooks,
 ) -> None:
     for relative in context.source_members:
         source_context = SourceFileContext(
@@ -499,13 +592,14 @@ def _write_source_members(
             context.catalog,
             context.mill_findings,
         )
-        compose_source_file(state, source_context, services)
+        hooks.compose_source_file(state, source_context, services)
 
 
 def _write_transaction(
     state: ComposeRunState,
     context: TransactionContext,
     services: ComposeRunServices,
+    hooks: ComposeRunHooks,
 ) -> dict[str, Any]:
     pinned_destination = context.pinned_destination
     destination_target = pinned_destination
@@ -522,8 +616,8 @@ def _write_transaction(
         context.catalog,
         context.mill_findings,
     )
-    _write_source_members(state, member_context, services)
-    manifest_sha256, sidecar_sha256 = write_compose_provenance(
+    _write_source_members(state, member_context, services, hooks)
+    manifest_sha256, sidecar_sha256 = hooks.write_compose_provenance(
         state, destination_target, services.destination
     )
     summary_context = SummaryContext(
@@ -535,22 +629,31 @@ def _write_transaction(
         sidecar_sha256,
         pinned_destination.root / RECORDS_DIRNAME,
     )
-    summary = compose_run_summary(state, summary_context, services.report)
-    commit_compose_summary(state, pinned_destination, summary, services.destination)
+    summary = hooks.compose_run_summary(state, summary_context, services.report)
+    commit_context = SummaryCommitContext(
+        pinned_destination,
+        summary,
+        manifest_sha256,
+        sidecar_sha256,
+    )
+    hooks.commit_compose_summary(state, commit_context, services.destination)
     return summary
 
 
 def compose_run(
-    context: ComposeRunContext, services: ComposeRunServices
+    context: ComposeRunContext,
+    services: ComposeRunServices,
+    hooks: ComposeRunHooks | None = None,
 ) -> dict[str, Any]:
+    active = hooks or default_run_hooks()
     resolved_source = services.source.require_exact_directory(
         context.source_run, "source run"
     )
-    source_members, payload_by_member, identities = capture_source_snapshot(
+    source_members, payload_by_member, identities = active.capture_source_snapshot(
         resolved_source, services.source
     )
     mill_findings = services.source.index_compose_mills(
-        payload_by_member, identities, jsonl_physical_lines
+        payload_by_member, identities, active.jsonl_physical_lines
     )
     catalog, calibration_descriptor = services.report.load_calibration(
         CalibrationContext(resolved_source, context.units_migration)
@@ -569,12 +672,132 @@ def compose_run(
         calibration_descriptor,
     )
     try:
-        summary = _write_transaction(state, transaction, services)
+        summary = _write_transaction(state, transaction, services, active)
     except BaseException:
         pinned_destination.cleanup()
         raise
     pinned_destination.finish()
     return summary
+
+
+def default_run_hooks() -> ComposeRunHooks:
+    """Return the split module's native call graph for direct consumers."""
+
+    return ComposeRunHooks(
+        new_manifest_entry,
+        claim_output_id,
+        record_retained_line,
+        record_excluded_line,
+        mill_quarantined_decision,
+        compose_one_line,
+        write_emitted_records,
+        compose_source_file,
+        capture_source_snapshot,
+        write_compose_provenance,
+        authenticate_composed_artifacts,
+        compose_run_summary,
+        commit_compose_summary,
+        jsonl_physical_lines,
+    )
+
+
+def facade_run_services(
+    facade: Any, index_compose_mills: Callable[..., Mapping[tuple[str, int], Any]]
+) -> ComposeRunServices:
+    """Resolve one service graph from a live compatibility-facade namespace."""
+
+    source = SourceServices(
+        facade._require_exact_directory,
+        facade.source_jsonl_members,
+        facade._captured_source_payloads,
+        facade._source_snapshot_identities,
+        index_compose_mills,
+        facade.compose_source_line,
+    )
+    destination = DestinationServices(
+        facade.create_pinned_destination,
+        facade._create_pinned_new_directory,
+        facade._write_new_text,
+        facade._read_exact_regular_file,
+    )
+    report = ReportServices(
+        lambda context: facade._load_calibration(
+            context.source_run, context.units_migration
+        ),
+        facade._audit_records,
+        facade.transform_contract,
+    )
+    return ComposeRunServices(source, destination, report)
+
+
+def facade_run_hooks(facade: Any) -> ComposeRunHooks:
+    """Resolve every run helper through a live compatibility facade."""
+
+    return ComposeRunHooks(
+        lambda context, digest: facade._new_manifest_entry(
+            context.relative,
+            context.line_number,
+            digest,
+            context.source_file_sha256,
+        ),
+        facade._claim_output_id,
+        lambda state, decision, context: facade._record_retained_line(
+            state,
+            decision,
+            context.entry,
+            relative=context.relative,
+            location=context.location,
+            emitted=context.emitted,
+        ),
+        facade._record_excluded_line,
+        facade.mill_quarantined_decision,
+        lambda state, source_line, _services, _hooks: facade._compose_one_line(
+            state,
+            source_line.payload,
+            relative=source_line.context.relative,
+            line_number=source_line.context.line_number,
+            source_file_sha256=source_line.context.source_file_sha256,
+            catalog=source_line.context.catalog,
+            emitted=source_line.context.emitted,
+            mill_findings=source_line.context.mill_findings,
+        ),
+        lambda state, context, emitted, _services: facade._write_emitted_records(
+            state, context.destination_target, context.relative, emitted
+        ),
+        lambda state, context, _services: facade._compose_source_file(
+            state,
+            relative=context.relative,
+            raw_file=context.raw_file,
+            destination_target=context.destination_target,
+            catalog=context.catalog,
+            mill_findings=context.mill_findings,
+        ),
+        lambda resolved, _services: facade._capture_source_snapshot(resolved),
+        lambda state, destination, _services: facade._write_compose_provenance(
+            state, destination
+        ),
+        lambda pinned, expected, _services: facade._authenticate_composed_artifacts(
+            pinned, expected
+        ),
+        lambda state, context, _services: facade._compose_run_summary(
+            state,
+            resolved_source=context.resolved_source,
+            destination_path=context.destination_path,
+            calibration_descriptor=context.calibration_descriptor,
+            calibrated_records=context.calibrated_records,
+            manifest_sha256=context.manifest_sha256,
+            sidecar_sha256=context.sidecar_sha256,
+            records_dir=context.records_dir,
+        ),
+        lambda state, context, _services: facade._commit_compose_summary(
+            state,
+            context.pinned_destination,
+            context.summary,
+            context.manifest_sha256,
+            context.sidecar_sha256,
+        ),
+        facade.jsonl_physical_lines,
+    )
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -598,7 +821,11 @@ def _print_strict_blockers(summary: Mapping[str, Any]) -> None:
         print(f"blocker: {blocker}", file=sys.stderr)
 
 
-def main(argv: list[str] | None, services: ComposeCliServices) -> int:
+def main(
+    argv: list[str] | None,
+    services: ComposeCliServices,
+    hooks: ComposeRunHooks | None = None,
+) -> int:
     args = parse_args(argv)
     context = ComposeRunContext(
         Path(args.source_run),
@@ -606,7 +833,7 @@ def main(argv: list[str] | None, services: ComposeCliServices) -> int:
         Path(args.units_migration) if args.units_migration is not None else None,
     )
     try:
-        summary = compose_run(context, services.run)
+        summary = compose_run(context, services.run, hooks)
     except services.caught_errors as exc:
         print(f"compose_curated: {exc}", file=sys.stderr)
         return 2
@@ -615,3 +842,7 @@ def main(argv: list[str] | None, services: ComposeCliServices) -> int:
         _print_strict_blockers(summary)
         return 1
     return 0
+
+
+if __package__:
+    _expose_package_sibling(__name__)

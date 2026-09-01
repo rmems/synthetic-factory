@@ -6,19 +6,45 @@ from __future__ import annotations
 import os
 import shutil
 import stat
+import sys
 from pathlib import Path
 from typing import Callable
 
-from compose_contract import ComposeError
-from compose_destination_binding import (
-    DESTINATION_PARENT_LABEL,
-    PinnedDestination,
-    _assert_descriptor_outside_raw,
-    _directory_identity,
-    _is_under_raw,
-    _require_exact_directory,
-    _verify_directory_binding,
-)
+if __package__:
+    from . import _expose_package_sibling, _local_sibling_module, _require_local_sibling
+
+    if _local_sibling_module("compose_destination_creation", allow_initializing=True):
+        import compose_destination_creation as _direct_compose_destination_creation
+
+        _require_local_sibling(
+            _direct_compose_destination_creation,
+            "compose_destination_creation",
+        )
+        del _direct_compose_destination_creation
+    from .compose_contract import ComposeError
+    from .compose_destination_binding import (
+        DESTINATION_PARENT_LABEL,
+        PinnedDestination,
+        _assert_descriptor_outside_raw,
+        _directory_identity,
+        _is_under_raw,
+        _require_exact_directory,
+        _verify_directory_binding,
+    )
+else:
+    getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
+        "compose_destination_creation"
+    )
+    from compose_contract import ComposeError
+    from compose_destination_binding import (
+        DESTINATION_PARENT_LABEL,
+        PinnedDestination,
+        _assert_descriptor_outside_raw,
+        _directory_identity,
+        _is_under_raw,
+        _require_exact_directory,
+        _verify_directory_binding,
+    )
 
 ExistingDestinationCheck = Callable[[int, Path], None]
 
@@ -218,3 +244,7 @@ def create_pinned_destination(
             )
         os.close(parent_descriptor)
         raise
+
+
+if __package__:
+    _expose_package_sibling(__name__)
