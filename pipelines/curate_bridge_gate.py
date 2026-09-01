@@ -5,7 +5,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from exact_json import dumps_exact_json
+from exact_json import json_integer_is_bounded
 from curate_bridge_raster import (
     RASTER_ENERGY_PJ_PER_SPIKE,
     RASTER_ENERGY_UJ_PER_SPIKE,
@@ -236,15 +236,13 @@ def _gate_populations(
     evidence["gate_snn_population_count"] = len(population_list)
     populations_valid = all(result[0] for result in results)
     total_neurons = sum(result[2] for result in results)
-    try:
-        dumps_exact_json(total_neurons)
-    except (TypeError, ValueError):
+    total_valid = not bad and json_integer_is_bounded(total_neurons)
+    evidence["gate_snn_total_neurons_valid"] = total_valid
+    if not total_valid:
         reason_codes.append(REASON_GATE_SNN_INVALID)
-        evidence["gate_snn_total_neurons_valid"] = False
         evidence["gate_snn_populations_valid"] = False
         return False
     evidence["gate_snn_total_neurons"] = total_neurons
-    evidence["gate_snn_total_neurons_valid"] = True
     evidence["gate_snn_populations_valid"] = populations_valid
     return populations_valid
 
@@ -306,13 +304,17 @@ def _invalid_gate_check(index: int, reason_codes: list[str], evidence: dict[str,
     return False
 
 
-def _total_gate_spikes(checks: list[Any]) -> int:
-    normalized = (
+def _total_gate_spikes(checks: list[Any]) -> tuple[int | None, bool]:
+    normalized = [
         _nonnegative_json_integer(check.get("spikes"))
-        for check in checks
         if isinstance(check, dict)
-    )
-    return sum(spikes for spikes in normalized if spikes is not None)
+        else None
+        for check in checks
+    ]
+    if any(spikes is None for spikes in normalized):
+        return None, False
+    total = sum(normalized)
+    return (total, True) if json_integer_is_bounded(total) else (None, False)
 
 
 def _validate_gate_checks(
@@ -338,7 +340,12 @@ def _validate_gate_checks(
             for index, check in enumerate(checks)
         ]
         evidence["gate_compute_spike_budget_valid"] = all(results)
-    total_spikes = _total_gate_spikes(checks)
+    total_spikes, total_valid = _total_gate_spikes(checks)
+    evidence["gate_compute_total_spikes_valid"] = total_valid
+    if not total_valid:
+        reason_codes.append(REASON_RASTER_SPIKE_BUDGET)
+        evidence["gate_compute_spike_budget_valid"] = False
+        return None
     evidence["gate_compute_total_spikes"] = total_spikes
     return total_spikes
 

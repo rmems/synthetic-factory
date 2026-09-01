@@ -91,6 +91,7 @@ _export(
     "_reject_nonfinite_numbers",
     "_sha256",
     "canonical_source_record_id",
+    "canonical_bytes",
 )
 _export(
     _reward_policy,
@@ -269,7 +270,8 @@ def _load_jsonl_with_source_bytes(path):
                 parse_constant=_reject_json_constant,
                 parse_float=parse_finite_json_float,
             )
-        except (UnicodeError, json.JSONDecodeError, ValueError) as exc:
+            canonical_bytes(record)
+        except (ValueError, RecursionError) as exc:
             raise RewardOntologyError(
                 f"{path}:{line_number}: invalid JSON: {exc}"
             ) from exc

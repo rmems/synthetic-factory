@@ -369,7 +369,8 @@ class _CorpusAudit:
                 parse_constant=reject_json_constant,
                 parse_float=_parse_finite_json_float,
             )
-        except ValueError as exc:
+            canonical_blob(obj)
+        except (ValueError, RecursionError) as exc:
             self._record_parse_error(where, exc, token_estimate, bucket)
             return
 

@@ -19,7 +19,10 @@ if str(_PIPELINES) not in sys.path:
 
 from curate_bridge import REASON_INVALID_JSON, REASON_INVALID_UTF8  # noqa: E402
 from census import visible_jsonl_paths  # noqa: E402
-from exact_json import parse_finite_json_float as _parse_exact_json_float  # noqa: E402
+from exact_json import (  # noqa: E402
+    dumps_exact_json,
+    parse_finite_json_float as _parse_exact_json_float,
+)
 from round_txn_raster import RASTER_FACTORY_SLUGS  # noqa: E402
 from validate_run import reject_json_constant  # noqa: E402
 
@@ -92,6 +95,7 @@ def _parse_record(line: str) -> tuple[Any, str | None]:
             parse_constant=reject_json_constant,
             parse_float=_parse_finite_json_float,
         )
+        dumps_exact_json(record, ensure_ascii=False, sort_keys=True)
     except (ValueError, RecursionError):
         return None, REASON_INVALID_JSON
     return record, None

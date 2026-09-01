@@ -19,8 +19,27 @@ from quality_gate_test_support import (  # noqa: E402
     mix_records,
 )
 import quality_gate  # noqa: E402
+from exact_json import MAX_JSON_NESTING_DEPTH  # noqa: E402
 
 class QualityGate(unittest.TestCase):
+    def test_identity_depth_failure_is_reported_as_malformed_input(self):
+        identity_depth = MAX_JSON_NESTING_DEPTH // 2 + 1
+        nested = "[" * identity_depth + "0" + "]" * identity_depth
+        payload = (
+            '{"id":"deep","state":{"sim_or_real":"real","extension":'
+            + nested
+            + "}}\n"
+        )
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            (root / "batch.jsonl").write_text(payload, encoding="utf-8")
+
+            report = quality_gate.audit_run(root)
+
+        self.assertEqual(report["counts"]["total"], 0)
+        self.assertEqual(report["counts"]["malformed_lines"], 1)
+        self.assertTrue(report["blocked"])
+
     def test_record_hash_survives_malformed_preference_records(self):
         for malformed in (
             {"chosen": {"state": {"a": 1}}},           # no rejected side

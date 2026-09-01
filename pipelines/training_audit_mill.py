@@ -35,7 +35,7 @@ def _index_findings(run_dir: Path, files: list[Path]):
                     parse_constant=reject_json_constant,
                     parse_float=parse_finite_json_float,
                 )
-            except (UnicodeDecodeError, json.JSONDecodeError, ValueError):
+            except (ValueError, RecursionError):
                 continue
             mills.add(
                 factory,

@@ -11,9 +11,29 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO / "pipelines"))
 
 import promote  # noqa: E402
+from exact_json import MAX_JSON_NESTING_DEPTH  # noqa: E402
 
 
 class PromoteExactJSON(unittest.TestCase):
+    def test_excessive_json_nesting_is_preserved_as_unpromoted_input(self):
+        nested = "[" * (MAX_JSON_NESTING_DEPTH + 1) + "0" + "]" * (
+            MAX_JSON_NESTING_DEPTH + 1
+        )
+        payload = '{"state":{"sim_or_real":"designed","extension":' + nested + "}}"
+        with tempfile.TemporaryDirectory() as td:
+            raw = Path(td) / "raw"
+            cleaned = Path(td) / "cleaned"
+            source = raw / "f" / "nested.jsonl"
+            source.parent.mkdir(parents=True)
+            source.write_text(payload + "\n", encoding="utf-8")
+
+            result = promote.promote_run(raw, cleaned)
+
+            promoted = (cleaned / "f" / "nested.jsonl").read_text(encoding="utf-8")
+
+        self.assertEqual(result["records"], 0)
+        self.assertEqual(promoted, payload + "\n")
+
     def test_exact_numbers_survive_promotion_and_drive_event_sorting(self):
         with tempfile.TemporaryDirectory() as td:
             raw = Path(td) / "raw"

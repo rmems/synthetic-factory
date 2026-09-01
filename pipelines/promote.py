@@ -468,6 +468,7 @@ def promote_run(raw_run, cleaned_out):
                     parse_constant=reject_json_constant,
                     parse_float=_parse_exact_json_float,
                 )
+                dumps_exact_json(obj, ensure_ascii=False, sort_keys=False)
             except (ValueError, RecursionError):
                 lines_out.append(line)
                 continue

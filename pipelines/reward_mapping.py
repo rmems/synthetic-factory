@@ -339,7 +339,9 @@ def _policy_disposition(key, observed_types, arithmetic):
     return DISPOSITION_AMBIGUOUS
 
 
-def _canonical_bytes(value) -> bytes:
+def canonical_bytes(value) -> bytes:
+    """Return the stable UTF-8 representation used by reward hashes."""
+
     return dumps_exact_json(
         value,
         ensure_ascii=False,
@@ -347,8 +349,14 @@ def _canonical_bytes(value) -> bytes:
     ).encode("utf-8")
 
 
+def _canonical_bytes(value) -> bytes:
+    """Compatibility alias for callers predating the public hash surface."""
+
+    return canonical_bytes(value)
+
+
 def _sha256(value) -> str:
-    return "sha256:" + hashlib.sha256(_canonical_bytes(value)).hexdigest()
+    return "sha256:" + hashlib.sha256(canonical_bytes(value)).hexdigest()
 
 
 def _decimal(value):

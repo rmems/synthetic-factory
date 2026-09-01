@@ -8,7 +8,12 @@ from dataclasses import dataclass
 from fractions import Fraction
 from typing import Any
 
-from exact_json import exact_fraction, exact_json_integer, json_number_from_fraction
+from exact_json import (
+    exact_fraction,
+    exact_json_integer,
+    json_integer_is_bounded,
+    json_number_from_fraction,
+)
 
 
 RASTER_WINDOW_MIN_MS = 20
@@ -123,7 +128,7 @@ def _nonnegative_json_integer(value: Any) -> int | None:
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         return None
     integer = exact_json_integer(value)
-    if integer is None:
+    if integer is None or not json_integer_is_bounded(integer):
         return None
     return integer if integer >= 0 else None
 
@@ -496,7 +501,7 @@ def _timestamp_within_raster_window(timestamp: Any, window_ms: Any | None) -> bo
         return True
     if window is None:
         return False
-    return Fraction(timestamp_us) <= window * 1000 + Fraction(1, 10**9)
+    return Fraction(timestamp_us) <= window * 1000
 
 
 def _neuron_within_population(neuron_id: Any, neurons: Any) -> bool:

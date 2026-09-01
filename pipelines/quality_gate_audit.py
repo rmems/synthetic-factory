@@ -248,18 +248,18 @@ _PARSE_FAILED = object()
 
 def _parse_record(line, rel, lineno, state):
     try:
-        return json.loads(
+        record = json.loads(
             line,
             parse_constant=reject_json_constant,
             parse_float=_parse_exact_json_float,
         )
+        return record, record_hash(record)
     except (ValueError, RecursionError) as exc:
         _record_malformed(state, rel, lineno, exc)
         return _PARSE_FAILED
 
 
-def _consume_identity(obj, where, state, embedding_dedup):
-    digest = record_hash(obj)
+def _consume_identity(obj, digest, where, state, embedding_dedup):
     state.hashes[digest] += 1
     state.exact_clusters[digest].append(where)
     if state.hashes[digest] == 1:
@@ -297,9 +297,9 @@ def _consume_rewards(obj, state):
         state.reward_shapes[reward_shape(reward)] += 1
 
 
-def _consume_record(obj, where, state, embedding_dedup):
+def _consume_record(obj, digest, where, state, embedding_dedup):
     state.total += 1
-    _consume_identity(obj, where, state, embedding_dedup)
+    _consume_identity(obj, digest, where, state, embedding_dedup)
     _consume_provenance(obj, state)
     _consume_rewards(obj, state)
 
@@ -309,10 +309,12 @@ def _scan_jsonl_file(path, run_dir, state, embedding_dedup):
     for lineno, line in enumerate(_read_jsonl(path, rel, state), 1):
         if not line.strip():
             continue
-        obj = _parse_record(line, rel, lineno, state)
-        if obj is not _PARSE_FAILED:
+        parsed = _parse_record(line, rel, lineno, state)
+        if parsed is not _PARSE_FAILED:
+            obj, digest = parsed
             _consume_record(
                 obj,
+                digest,
                 {"file": str(rel), "line": lineno},
                 state,
                 embedding_dedup,

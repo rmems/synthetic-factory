@@ -910,7 +910,7 @@ def curate_jsonl(
             continue
         try:
             record = _parse_source_record(text)
-        except ValueError as exc:
+        except (ValueError, RecursionError) as exc:
             decisions.append(
                 _source_failure_decision(
                     source_path=display_path,

@@ -40,6 +40,10 @@ EXPLICIT_ORDER_KEYS = (
 )
 
 
+def _nonblank_identifier(value: Any) -> str | None:
+    return value if isinstance(value, str) and value.strip() else None
+
+
 def _record_locator(record: Any) -> str | None:
     if not isinstance(record, dict):
         return None
@@ -52,10 +56,7 @@ def _record_locator(record: Any) -> str | None:
         state.get("episode_id") if isinstance(state, dict) else None,
         meta.get("id") if isinstance(meta, dict) else None,
     )
-    return next(
-        (value for value in candidates if isinstance(value, str) and bool(value.strip())),
-        None,
-    )
+    return next(filter(None, map(_nonblank_identifier, candidates)), None)
 
 
 def _canonical_marker(value: Any) -> str:

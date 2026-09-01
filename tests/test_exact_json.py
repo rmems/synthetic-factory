@@ -18,6 +18,8 @@ sys.path.insert(0, str(PIPELINES))
 
 from exact_json import (  # noqa: E402
     ExactJSONFloat,
+    MAX_DECIMAL_DIGITS,
+    MAX_JSON_NESTING_DEPTH,
     dumps_exact_json,
     exact_fraction,
     exact_json_integer,
@@ -30,6 +32,33 @@ FIXTURE = PIPELINES.parent / "tests" / "fixtures" / "bridge_gate_snn.jsonl"
 
 
 class ExactJSONNumbers(unittest.TestCase):
+    def test_integer_serialization_has_an_explicit_decimal_digit_bound(self):
+        at_limit = 10 ** (MAX_DECIMAL_DIGITS - 1)
+        beyond_limit = 10**MAX_DECIMAL_DIGITS
+
+        self.assertEqual(len(dumps_exact_json(at_limit)), MAX_DECIMAL_DIGITS)
+        with self.assertRaisesRegex(ValueError, "integer precision"):
+            dumps_exact_json(beyond_limit)
+
+    def test_integer_rendering_does_not_depend_on_the_process_digit_cap(self):
+        original_limit = sys.get_int_max_str_digits()
+        try:
+            sys.set_int_max_str_digits(640)
+            rendered = dumps_exact_json(10**999)
+        finally:
+            sys.set_int_max_str_digits(original_limit)
+
+        self.assertEqual(len(rendered), 1000)
+        self.assertEqual(rendered, "1" + "0" * 999)
+
+    def test_container_nesting_is_bounded_before_python_recursion(self):
+        payload = 0
+        for _ in range(MAX_JSON_NESTING_DEPTH + 1):
+            payload = [payload]
+
+        with self.assertRaisesRegex(ValueError, "JSON nesting"):
+            dumps_exact_json(payload)
+
     def test_parse_serialize_parse_preserves_decimal_token(self):
         payload = '{"rate":25.000000000000001,"label":"25.000000000000001"}'
         parsed = json.loads(payload, parse_float=parse_finite_json_float)

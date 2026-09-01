@@ -3,7 +3,7 @@ import json
 import sys
 import tempfile
 import unittest
-from contextlib import redirect_stdout
+from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 from unittest import mock
 
@@ -11,9 +11,36 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO / "pipelines"))
 
 import spike_probe  # noqa: E402
+from exact_json import MAX_JSON_NESTING_DEPTH  # noqa: E402
 
 
 class ProbeSource(unittest.TestCase):
+    def test_jsonl_probe_reports_encoder_depth_as_invalid_input(self):
+        fixture = json.loads(
+            (REPO / "tests" / "fixtures" / "bridge_gate_snn.jsonl").read_text(
+                encoding="utf-8"
+            )
+        )
+        fixture["gate_snn"]["populations"][0]["extension"] = "DEPTH_SENTINEL"
+        nested = "[" * (MAX_JSON_NESTING_DEPTH + 1) + "0" + "]" * (
+            MAX_JSON_NESTING_DEPTH + 1
+        )
+        payload = json.dumps(fixture).replace('"DEPTH_SENTINEL"', nested, 1)
+
+        with tempfile.TemporaryDirectory() as td:
+            path = Path(td) / "nested.jsonl"
+            path.write_text(payload + "\n", encoding="utf-8")
+            stdout = io.StringIO()
+            stderr = io.StringIO()
+            with redirect_stdout(stdout), redirect_stderr(stderr):
+                code = spike_probe.main(["--jsonl", str(path)])
+
+        self.assertEqual(code, 1)
+        self.assertEqual(stdout.getvalue(), "")
+        problem = json.loads(stderr.getvalue())
+        self.assertTrue(problem["unloadable"])
+        self.assertEqual(problem["reason_codes"], ["BRIDGE_SOURCE_JSON_INVALID"])
+
     def test_invalid_utf8_is_reported_per_physical_line(self):
         with tempfile.TemporaryDirectory() as td:
             path = Path(td) / "mixed.jsonl"

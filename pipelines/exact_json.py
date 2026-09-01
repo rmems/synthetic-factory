@@ -23,9 +23,11 @@ from typing import Any, NamedTuple
 # denominators.  The limit comfortably covers every finite IEEE-754 decimal
 # while keeping parsing and exact serialization operationally bounded.
 MAX_DECIMAL_DIGITS = 4096
+MAX_JSON_NESTING_DEPTH = 128
 _MAX_JSON_NUMBER_TOKEN_LENGTH = MAX_DECIMAL_DIGITS + 32
 _MAX_EXPONENT_DIGITS = len(str(MAX_DECIMAL_DIGITS))
 _MAX_DECIMAL_BITS = (MAX_DECIMAL_DIGITS * 3322 // 1000) + 8
+_MAX_JSON_INTEGER_MAGNITUDE = 10**MAX_DECIMAL_DIGITS
 _JSON_NUMBER_RE = re.compile(
     r"-?(?:0|[1-9][0-9]*)(?:\.[0-9]+)?(?:[eE][+-]?[0-9]+)?\Z"
 )
@@ -50,20 +52,59 @@ def _decimal_shape(mantissa: str) -> tuple[int, int]:
     return len(integer) + len(fraction), len(fraction)
 
 
-def _validate_decimal_token_bounds(token: str) -> None:
-    """Reject a decimal token whose exact expansion exceeds fixed bounds."""
-
+def _validate_json_number_syntax(token: str) -> None:
     if not isinstance(token, str) or len(token) > _MAX_JSON_NUMBER_TOKEN_LENGTH:
         raise ValueError("JSON number token exceeds the exact-decimal limit")
     if _JSON_NUMBER_RE.fullmatch(token) is None:
         raise ValueError("invalid JSON number syntax")
-    mantissa, marker, exponent_text = token.lower().partition("e")
-    exponent = _bounded_exponent(marker, exponent_text)
+
+
+def _validate_decimal_shape(mantissa: str, exponent: int) -> None:
     coefficient_digits, decimal_places = _decimal_shape(mantissa)
     if coefficient_digits > MAX_DECIMAL_DIGITS:
         raise ValueError("JSON number precision exceeds the exact-decimal limit")
     if abs(decimal_places - exponent) > MAX_DECIMAL_DIGITS:
         raise ValueError("JSON number scale exceeds the exact-decimal limit")
+
+
+def _validate_decimal_token_bounds(token: str) -> None:
+    """Reject a decimal token whose exact expansion exceeds fixed bounds."""
+
+    _validate_json_number_syntax(token)
+    mantissa, marker, exponent_text = token.lower().partition("e")
+    exponent = _bounded_exponent(marker, exponent_text)
+    _validate_decimal_shape(mantissa, exponent)
+
+
+def json_integer_is_bounded(value: Any) -> bool:
+    """Return whether an integer fits the exact JSON decimal-digit contract."""
+
+    return (
+        isinstance(value, int)
+        and not isinstance(value, bool)
+        and abs(value) < _MAX_JSON_INTEGER_MAGNITUDE
+    )
+
+
+def _validate_json_integer_bounds(value: int) -> None:
+    if not json_integer_is_bounded(value):
+        raise ValueError("JSON integer precision exceeds the exact-decimal limit")
+
+
+def _render_json_integer(value: int) -> str:
+    """Render a bounded integer without Python's process-wide digit cap."""
+
+    _validate_json_integer_bounds(value)
+    negative = value < 0
+    remaining = abs(value)
+    chunks = []
+    while remaining:
+        remaining, chunk = divmod(remaining, 1_000_000_000)
+        chunks.append(chunk)
+    if not chunks:
+        return "0"
+    rendered = str(chunks.pop()) + "".join(f"{chunk:09d}" for chunk in reversed(chunks))
+    return "-" + rendered if negative else rendered
 
 
 def _validate_fraction_bounds(value: Fraction) -> None:
@@ -159,7 +200,7 @@ def _decimal_factor_counts(denominator: int) -> tuple[int, int]:
 
 
 def _render_scaled_decimal(numerator: int, scaled: int, places: int) -> str:
-    digits = str(scaled)
+    digits = _render_json_integer(scaled)
     sign = "-" if numerator < 0 else ""
     if places == 0:
         return f"{sign}{digits}"
@@ -189,6 +230,7 @@ def json_number_from_fraction(value: Fraction) -> int | ExactJSONFloat:
 
     _validate_fraction_bounds(value)
     if value.denominator == 1:
+        _validate_json_integer_bounds(value.numerator)
         return value.numerator
     return ExactJSONFloat(_finite_decimal_token(value))
 
@@ -218,7 +260,10 @@ def dumps_exact_json(
     if indent is not None and indent < 0:
         raise ValueError("indent must be None or a non-negative integer")
     state = _EncoderState(ensure_ascii=ensure_ascii, sort_keys=sort_keys, indent=indent)
-    return _encode_exact_json(value, state, set(), 0)
+    try:
+        return _encode_exact_json(value, state, set(), 0)
+    except RecursionError as exc:
+        raise ValueError("JSON nesting exceeds the operational recursion limit") from exc
 
 
 def _container_separators(state: _EncoderState, depth: int) -> tuple[str, str, str]:
@@ -238,10 +283,19 @@ def _encode_exact_json(
     depth: int,
 ) -> str:
     if isinstance(value, (list, tuple)):
+        _validate_container_depth(depth)
         return _encode_sequence(value, state, active, depth)
     if isinstance(value, dict):
+        _validate_container_depth(depth)
         return _encode_mapping(value, state, active, depth)
     return _encode_scalar(value, state.ensure_ascii)
+
+
+def _validate_container_depth(depth: int) -> None:
+    if depth >= MAX_JSON_NESTING_DEPTH:
+        raise ValueError(
+            f"JSON nesting exceeds the {MAX_JSON_NESTING_DEPTH}-level limit"
+        )
 
 
 def _encode_scalar(value: Any, ensure_ascii: bool) -> str:
@@ -264,7 +318,7 @@ def _encode_number(value: int | float) -> str:
     if isinstance(value, ExactJSONFloat):
         return value.json_token
     if isinstance(value, int):
-        return str(value)
+        return _render_json_integer(value)
     if isinstance(value, float):
         if not math.isfinite(value):
             raise ValueError("Out of range float values are not JSON compliant")

@@ -9,6 +9,7 @@ from pathlib import Path
 from training_audit_test_helpers import thalamic
 
 import training_audit
+from exact_json import MAX_JSON_NESTING_DEPTH
 
 THALAMIC_FACTORY = "thalamic-trajectory-factory"
 
@@ -81,6 +82,28 @@ class TrainingAuditPhysicalFraming(unittest.TestCase):
         self.assertTrue(
             any(
                 "non-finite JSON number 1e999" in item
+                for item in report["record_invariants"]["error_examples"]
+            ),
+            report["record_invariants"],
+        )
+
+    def test_excessive_json_nesting_is_reported_instead_of_aborting(self):
+        record = json.dumps(thalamic("ttf-deep")).replace(
+            '"state": {',
+            '"state": {"nested": ' + ("[" * (MAX_JSON_NESTING_DEPTH + 1))
+            + "0"
+            + ("]" * (MAX_JSON_NESTING_DEPTH + 1))
+            + ", ",
+            1,
+        )
+
+        report = self._audit_payload((record + "\n").encode("utf-8"))
+
+        self.assertFalse(report["training_ready"])
+        self.assertEqual(report["totals"]["eligible_records"], 0)
+        self.assertTrue(
+            any(
+                "JSON nesting" in item
                 for item in report["record_invariants"]["error_examples"]
             ),
             report["record_invariants"],

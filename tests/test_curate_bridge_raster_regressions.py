@@ -81,7 +81,7 @@ class RasterArithmeticReviewFollowUps(unittest.TestCase):
 
     def test_gate_population_total_is_bounded_before_evidence_serialization(self):
         record = gate_snn_fixture()
-        huge_population = 6 * 10**4299
+        huge_population = 6 * 10**4095
         for population in record["gate_snn"]["populations"]:
             population["neurons"] = huge_population
             population.pop("mean_rate_hz", None)
@@ -92,8 +92,39 @@ class RasterArithmeticReviewFollowUps(unittest.TestCase):
         self.assertFalse(status["raster_valid"])
         self.assertIn(curate_bridge.REASON_GATE_SNN_INVALID, status["reason_codes"])
         self.assertFalse(status["evidence"]["gate_snn_populations_valid"])
+        self.assertNotIn("gate_snn_invalid_population_indices", status["evidence"])
         self.assertNotIn("gate_snn_total_neurons", status["evidence"])
         dumps_exact_json(status["evidence"])
+
+    def test_gate_compute_sum_is_bounded_before_evidence_serialization(self):
+        record = gate_snn_fixture()
+        large_spike_count = 6 * 10**4095
+        record["gate_compute"] = {
+            "per_check": [
+                {"neurons": 1, "mean_rate_hz": 1, "window_s": 1, "spikes": value}
+                for value in (large_spike_count, large_spike_count)
+            ]
+        }
+
+        status = curate_bridge.raster_status(record)
+
+        self.assertFalse(status["raster_valid"])
+        self.assertFalse(status["evidence"]["gate_compute_total_spikes_valid"])
+        self.assertNotIn("gate_compute_total_spikes", status["evidence"])
+        dumps_exact_json(status["evidence"])
+
+    def test_excerpt_endpoint_does_not_receive_a_float_tolerance(self):
+        record = zero_spike_record()
+        record["raster"].pop("window_s")
+        record["raster"]["window_ms"] = parse_finite_json_float(
+            "20.0009999999999995"
+        )
+        record["raster"]["excerpt"] = [{"t_us": 20001, "neuron_id": 0}]
+
+        status = curate_bridge.raster_status(record)
+
+        self.assertFalse(status["raster_valid"])
+        self.assertIn(curate_bridge.REASON_RASTER_EXCERPT, status["reason_codes"])
 
     def test_population_budget_mismatch_marks_population_evidence_invalid(self):
         record = gate_snn_fixture()
