@@ -53,6 +53,14 @@ def decide(record):
 
 
 class BridgeTimingCuration(unittest.TestCase):
+    def test_source_hash_remains_a_required_keyword(self):
+        with self.assertRaisesRegex(TypeError, "source_hash"):
+            curate_bridge.curate_record(
+                bridge([]),
+                source_path="bridge/batch-r02.jsonl",
+                source_line=1,
+            )
+
     @staticmethod
     def _literal_timing_decision(left: str, right: str):
         payload = (

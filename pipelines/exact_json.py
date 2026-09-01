@@ -29,7 +29,7 @@ _MAX_EXPONENT_DIGITS = len(str(MAX_DECIMAL_DIGITS))
 _MAX_DECIMAL_BITS = (MAX_DECIMAL_DIGITS * 3322 // 1000) + 8
 _MAX_JSON_INTEGER_MAGNITUDE = 10**MAX_DECIMAL_DIGITS
 _JSON_NUMBER_RE = re.compile(
-    r"-?(?:0|[1-9][0-9]*)(?:\.[0-9]+)?(?:[eE][+-]?[0-9]+)?\Z"
+    r"(?a)-?(?:0|[1-9]\d*)(?:\.\d+)?(?:[eE][+-]?\d+)?\Z"
 )
 
 

@@ -88,6 +88,7 @@ HASH_ALGORITHM = "sha256"
 SOURCE_HASH_SCOPE = "jsonl_record_bytes_without_line_terminator"
 OUTPUT_HASH_SCOPE = "canonical_json_utf8_without_line_terminator"
 MANIFEST_NAME = "BRIDGE-MANIFEST.json"
+_REQUIRED_OPTION = object()
 
 REASON_RETAINED = "BRIDGE_EVENTS_ALREADY_GLOBALLY_ORDERED"
 REASON_REPAIRED = "BRIDGE_EVENTS_STABLE_SORTED_SINGLE_GLOBAL_CLOCK"
@@ -589,7 +590,13 @@ def _resolve_options(
     unexpected = sorted(set(supplied).difference(defaults))
     if unexpected:
         raise TypeError(f"{function_name}() got an unexpected keyword argument {unexpected[0]!r}")
-    return defaults | supplied
+    resolved = defaults | supplied
+    missing = [name for name, value in resolved.items() if value is _REQUIRED_OPTION]
+    if missing:
+        raise TypeError(
+            f"{function_name}() missing 1 required keyword-only argument: {missing[0]!r}"
+        )
+    return resolved
 
 
 def curate_record(
@@ -597,8 +604,6 @@ def curate_record(
     *,
     source_path: str,
     source_line: int,
-    source_hash: str,
-    source_file_hash: str | None = None,
     **requirements: Any,
 ) -> CurationDecision:
     """Return a deterministic Bridge timing decision without mutating ``record``.
@@ -615,10 +620,14 @@ def curate_record(
         "curate_record",
         requirements,
         {
+            "source_hash": _REQUIRED_OPTION,
+            "source_file_hash": None,
             "require_raster": False,
             "require_routing_table": False,
         },
     )
+    source_hash = options["source_hash"]
+    source_file_hash = options["source_file_hash"]
     require_raster = options["require_raster"]
     require_routing_table = options["require_routing_table"]
 

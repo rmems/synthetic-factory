@@ -3,24 +3,33 @@
 
 from __future__ import annotations
 
-import ctypes
-import errno
 import json
 import os
 import shutil
-import sys
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Iterable, Sequence
 
 
-_AT_FDCWD = -100
-_RENAME_NOREPLACE = 1
+from curate_bridge_materialize_fs import (
+    BridgeCurationError,
+    _is_under_raw,
+    _manifest_path,
+    _materialization_sources,
+    _rename_linux as _fs_rename_linux,
+    _rename_noreplace,
+    _rename_windows as _fs_rename_windows,
+    _safe_relative_path,
+    _symlinked_ancestor,
+    _unsafe_relative_path as _fs_unsafe_relative_path,
+    _write_exclusive,
+)
 
-
-class BridgeCurationError(ValueError):
-    """The curation input or source-root contract is invalid."""
+# Compatibility exports used by focused atomic-publication tests.
+_rename_linux = _fs_rename_linux
+_rename_windows = _fs_rename_windows
+_unsafe_relative_path = _fs_unsafe_relative_path
 
 
 @dataclass(frozen=True)
@@ -44,91 +53,6 @@ class MaterializationContext:
     parse_json_float: Callable[[str], float]
     reject_json_constant: Callable[[str], None]
     sha256_hex: Callable[[bytes], str]
-
-
-def _is_under_raw(path: Path) -> bool:
-    parts = path.resolve(strict=False).parts
-    return ("outputs", "raw") in zip(parts, parts[1:])
-
-
-def _unsafe_relative_path(path: Path) -> bool:
-    if path.is_absolute():
-        return True
-    if not path.parts:
-        return True
-    return ".." in path.parts
-
-
-def _safe_relative_path(value: str, *, label: str) -> Path:
-    path = Path(value)
-    if _unsafe_relative_path(path):
-        raise BridgeCurationError(f"{label} must be a safe relative path: {value!r}")
-    return path
-
-
-def _write_exclusive(path: Path, payload: bytes) -> None:
-    descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o644)
-    try:
-        with os.fdopen(descriptor, "wb") as handle:
-            handle.write(payload)
-            handle.flush()
-            os.fsync(handle.fileno())
-    except BaseException:
-        path.unlink(missing_ok=True)
-        raise
-
-
-def _rename_windows(source: Path, destination: Path) -> None:
-    try:
-        source.rename(destination)
-    except FileExistsError as exc:
-        raise BridgeCurationError(
-            f"destination already exists; refusing overwrite: {destination}"
-        ) from exc
-
-
-def _rename_linux(source: Path, destination: Path) -> None:
-    libc = ctypes.CDLL(None, use_errno=True)
-    try:
-        renameat2 = libc.renameat2
-    except AttributeError as exc:
-        raise BridgeCurationError(
-            "atomic no-replace publication requires Linux renameat2 with RENAME_NOREPLACE"
-        ) from exc
-    renameat2.argtypes = [
-        ctypes.c_int,
-        ctypes.c_char_p,
-        ctypes.c_int,
-        ctypes.c_char_p,
-        ctypes.c_uint,
-    ]
-    renameat2.restype = ctypes.c_int
-    result = renameat2(
-        _AT_FDCWD,
-        os.fsencode(source),
-        _AT_FDCWD,
-        os.fsencode(destination),
-        _RENAME_NOREPLACE,
-    )
-    if result == 0:
-        return
-    error = ctypes.get_errno()
-    if error in {errno.EEXIST, errno.ENOTEMPTY}:
-        raise BridgeCurationError(f"destination already exists; refusing overwrite: {destination}")
-    raise BridgeCurationError(f"cannot atomically publish {destination}: {os.strerror(error)}")
-
-
-def _rename_noreplace(source: Path, destination: Path) -> None:
-    """Atomically publish ``source`` while refusing any existing destination."""
-
-    if os.name == "nt":
-        _rename_windows(source, destination)
-        return
-    if sys.platform != "linux":
-        raise BridgeCurationError(
-            f"atomic no-replace publication is unsupported on platform {sys.platform!r}"
-        )
-    _rename_linux(source, destination)
 
 
 def _read_manifest(path: Path, context: MaterializationContext) -> list[Any]:
@@ -234,18 +158,6 @@ def _require(condition: bool, message: str) -> None:
         raise BridgeCurationError(message)
 
 
-def _symlinked_ancestor(path: Path) -> Path | None:
-    """Return the first lexical path component that is a symlink."""
-
-    absolute = path.absolute()
-    current = Path(absolute.anchor)
-    for part in absolute.parts[1:]:
-        current /= part
-        if current.is_symlink():
-            return current
-    return None
-
-
 def _materialization_roots(
     source_root: str | Path,
     output_dir: str | Path,
@@ -282,21 +194,6 @@ def _materialization_roots(
     if root_resolved in destination_resolved.parents:
         raise BridgeCurationError(f"destination cannot be inside source_root: {destination}")
     return root, destination, root_resolved
-
-
-def _materialization_sources(
-    sources: Iterable[str | Path],
-    root_resolved: Path,
-) -> list[Path]:
-    source_paths = list(map(Path, sources))
-    for source in source_paths:
-        if not source.is_file():
-            raise BridgeCurationError(f"source must be a real JSONL file: {source}")
-        if source.is_symlink():
-            raise BridgeCurationError(f"source must be a real JSONL file: {source}")
-        if not source.resolve(strict=True).is_relative_to(root_resolved):
-            raise BridgeCurationError(f"source is outside source_root: {source}")
-    return source_paths
 
 
 def _records_by_path(decisions: Sequence[Any]) -> dict[Path, list[dict[str, Any]]]:
@@ -354,13 +251,6 @@ def _publish_materialized_tree(
         _rename_noreplace(staged, destination)
     finally:
         shutil.rmtree(stage_root, ignore_errors=True)
-
-
-def _manifest_path(name: str) -> Path:
-    relative = _safe_relative_path(name, label="manifest_name")
-    if relative.suffix != ".json":
-        raise BridgeCurationError("manifest_name must end in .json")
-    return relative
 
 
 def _output_paths(decisions: Sequence[Any]) -> set[Path]:

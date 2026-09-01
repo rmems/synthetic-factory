@@ -23,6 +23,7 @@ except ModuleNotFoundError:
 
 import curate_gate  # noqa: E402
 import curate_bridge_materialize  # noqa: E402
+import curate_bridge_materialize_fs  # noqa: E402
 import check_records  # noqa: E402
 import training_audit  # noqa: E402
 from census import visible_jsonl_paths  # noqa: E402
@@ -40,7 +41,7 @@ def materialized_record(events, record_id):
     return record
 
 
-def materialization_context():
+def materialization_context() -> curate_bridge_materialize.MaterializationContext:
     return curate_bridge_materialize.MaterializationContext(
         canonical_json_bytes=curate_bridge.canonical_json_bytes,
         canonical_json_line=curate_bridge.canonical_json_line,
@@ -456,8 +457,8 @@ class BridgeMaterialization(unittest.TestCase):
         source = Path("unused-source")
         destination = Path("unused-destination")
         with (
-            mock.patch.object(curate_bridge_materialize.os, "name", "posix"),
-            mock.patch.object(curate_bridge_materialize.sys, "platform", "darwin"),
+            mock.patch.object(curate_bridge_materialize_fs.os, "name", "posix"),
+            mock.patch.object(curate_bridge_materialize_fs.sys, "platform", "darwin"),
             self.assertRaisesRegex(
                 curate_bridge.BridgeCurationError,
                 "unsupported on platform 'darwin'",
@@ -468,7 +469,7 @@ class BridgeMaterialization(unittest.TestCase):
     def test_linux_publication_fails_explicitly_without_renameat2(self):
         with (
             mock.patch.object(
-                curate_bridge_materialize.ctypes,
+                curate_bridge_materialize_fs.ctypes,
                 "CDLL",
                 return_value=object(),
             ),
