@@ -1,0 +1,28 @@
+qodana.yaml
+  s_f3ffb7db87dca1::t_3088565af9dc72 27-33
+tests/test_publish_grok46_hub.py
+  s_f3ffb7db87dca1::t_b448a5f9fbf218 316-356,367-375,378,381-383
+  s_f3ffb7db87dca1::t_fbe98028f02c12 357-366,376-377,379-380,384-385
+tests/test_card_schema_issue_109.py
+  s_f3ffb7db87dca1::t_221f9b1a55bd1b 24-40,53,55
+AGENTS.md
+  s_f3ffb7db87dca1::t_b2da11b96fdd90 73-79
+tests/test_card_schema_issue_108.py
+  s_f3ffb7db87dca1::t_39314b4603794c 24-40,53,55
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "27a145570fdbaa94b478dc64b9ad37ad7397b787",
+  "prompts": {},
+  "sessions": {
+    "s_f3ffb7db87dca1": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "510a01e2-1e9d-4f64-a445-6971413485be",
+        "model": "claude-fable-5"
+      },
+      "human_author": "Raul Montoya Cardenas <montoyaraul34@gmail.com>"
+    }
+  }
+}
