@@ -1,0 +1,36 @@
+tests/test_pr97_pinned_destination_security.py
+  s_98712805c1499b::t_22a4546d9da16a 396,408
+  s_98712805c1499b::t_a23d4a79349842 2,7,45-121,166,238,256,295
+pipelines/export_contract.py
+  s_98712805c1499b::t_b581993ab36afb 15,19-32,99-102
+tests/test_pr97_export_transaction_security.py
+  s_98712805c1499b::t_bba9788770a17a 1-193
+tests/test_pr97_raw_tree_guard.py
+  s_98712805c1499b::t_3ce9aefcbc8802 1-131
+tests/test_training_audit_snapshot_security.py
+  s_98712805c1499b::t_209389e1dfe1e5 32,35-36,41-44
+  s_98712805c1499b::t_dfa43187974431 1-31,33-34,37-40,45-59
+pipelines/compose_curated_run.py
+  s_98712805c1499b::t_968f2eade0c3db 11,464-467,473-505,697-700
+  s_98712805c1499b::t_2320910b796ad6 468,472
+  s_98712805c1499b::t_c39a02a37e7f82 469-471
+tests/test_pipelines_package_imports.py
+  s_98712805c1499b::t_77b47189b20e02 149-159
+  s_98712805c1499b::t_3d7cc78376b29a 85,92
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "53d1a66e22fa6c5ef70144dc965e77c0a2881533",
+  "prompts": {},
+  "sessions": {
+    "s_98712805c1499b": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a04a1f-1e33-7812-a5aa-c7b04b33b6b5",
+        "model": "gpt-5.6-terra"
+      },
+      "human_author": "Raul Montoya Cardenas <montoyaraul34@gmail.com>"
+    }
+  }
+}
