@@ -16,6 +16,7 @@ if str(PIPELINES) not in sys.path:
 
 import check_records  # noqa: E402
 from check_records_test_helpers import _thalamic  # noqa: E402
+from exact_json import MAX_JSON_NESTING_DEPTH  # noqa: E402
 
 
 class CheckRecordsPhysicalFraming(unittest.TestCase):
@@ -74,6 +75,32 @@ class CheckRecordsPhysicalFraming(unittest.TestCase):
         errors, warnings, kinds, records = self.check_payload((serialized + "\n").encode("utf-8"))
 
         self.assertTrue(any("non-finite JSON number 1e999" in error for error in errors), errors)
+        self.assertEqual(warnings, [])
+        self.assertEqual(kinds, {})
+        self.assertEqual(records, 0)
+
+    def test_exact_json_depth_is_rejected_before_record_validation(self):
+        record = _thalamic(id="too-deep")
+        record["state"]["extension"] = "DEPTH_SENTINEL"
+        serialized = json.dumps(record).replace(
+            '"DEPTH_SENTINEL"',
+            "[" * (MAX_JSON_NESTING_DEPTH + 1)
+            + "0"
+            + "]" * (MAX_JSON_NESTING_DEPTH + 1),
+            1,
+        )
+
+        errors, warnings, kinds, records = self.check_payload(
+            (serialized + "\n").encode("utf-8")
+        )
+
+        self.assertTrue(
+            any(
+                "exact JSON contract error" in error and "JSON nesting" in error
+                for error in errors
+            ),
+            errors,
+        )
         self.assertEqual(warnings, [])
         self.assertEqual(kinds, {})
         self.assertEqual(records, 0)

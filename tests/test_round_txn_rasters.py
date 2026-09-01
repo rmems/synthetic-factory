@@ -14,6 +14,7 @@ if str(REPO / "tests") not in sys.path:
     sys.path.insert(0, str(REPO / "tests"))
 
 import round_txn  # noqa: E402
+from exact_json import MAX_JSON_NESTING_DEPTH  # noqa: E402
 from record_kind import classify_kind  # noqa: E402
 from round_txn_test_helpers import (  # noqa: E402
     bridge,
@@ -165,6 +166,28 @@ class BridgeRasterEnvelope(RasterPublishAssertions):
             with self.assertRaisesRegex(round_txn.TransactionError, "non-finite JSON number 1e999"):
                 round_txn.publish(factory, 1, reservation["token"])
             self.assertFalse((factory / reservation["batch_file"]).exists())
+
+    def test_exact_json_depth_cannot_publish_a_non_training_ready_round(self):
+        record = thalamic("too-deep")
+        record["state"]["extension"] = "DEPTH_SENTINEL"
+        with tempfile.TemporaryDirectory() as td:
+            factory = raw_factory(td, THALAMIC_SLUG)
+            reservation = stage_round(round_txn, factory, [record])
+            batch = Path(reservation["staging_dir"]) / reservation["batch_file"]
+            payload = batch.read_text(encoding="utf-8").replace(
+                '"DEPTH_SENTINEL"',
+                "[" * (MAX_JSON_NESTING_DEPTH + 1)
+                + "0"
+                + "]" * (MAX_JSON_NESTING_DEPTH + 1),
+                1,
+            )
+            batch.write_text(payload, encoding="utf-8")
+
+            with self.assertRaisesRegex(round_txn.TransactionError, "JSON nesting"):
+                round_txn.publish(factory, 1, reservation["token"])
+
+            self.assertFalse((factory / reservation["batch_file"]).exists())
+            self.assertFalse((factory / "ROUND-r01.complete.json").exists())
 
 
 class OuroborosLaneRasterEnvelope(RasterPublishAssertions):

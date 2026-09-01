@@ -22,6 +22,7 @@ _PIPELINES = Path(__file__).resolve().parent
 if str(_PIPELINES) not in sys.path:
     sys.path.insert(0, str(_PIPELINES))
 from exact_json import (  # noqa: E402
+    dumps_exact_json,
     exact_fraction,
     parse_finite_json_float as _parse_exact_json_float,
 )
@@ -642,8 +643,13 @@ def check_jsonl(path, rel, seen_ids=None, staging=NO_FACTORY_STAGING):
                 parse_constant=reject_json_constant,
                 parse_float=_parse_finite_json_float,
             )
-        except (json.JSONDecodeError, ValueError) as exc:
+        except (ValueError, RecursionError) as exc:
             errors.append(f"{where}: JSON parse error: {exc}")
+            continue
+        try:
+            dumps_exact_json(obj, ensure_ascii=False, sort_keys=False)
+        except (ValueError, RecursionError) as exc:
+            errors.append(f"{where}: exact JSON contract error: {exc}")
             continue
         rec_errs, rec_warns, kind, record_id = check_record(
             obj, where, factory_staging=staging.applies_to(lineno)

@@ -382,16 +382,17 @@ class _CorpusAudit:
         except (ValueError, RecursionError) as exc:
             self._record_parse_error(where, exc, token_estimate, bucket)
             return
+
+        finding = self.mill_findings_by_ref.get((rel.as_posix(), line_number))
+        if finding is not None:
+            # Foreign evidence is excluded before every training invariant,
+            # including the exact-JSON serialization contract.
+            self.totals["quarantined"] += 1
+            return
         try:
             canonical_blob(obj)
         except (ValueError, RecursionError) as exc:
             self._record_exact_json_contract_error(where, exc, token_estimate, bucket)
-            return
-
-        finding = self.mill_findings_by_ref.get((rel.as_posix(), line_number))
-        if finding is not None:
-            # Raw evidence from another mill is not eligible training data.
-            self.totals["quarantined"] += 1
             return
 
         self._account_tokens(token_estimate, bucket)

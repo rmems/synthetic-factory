@@ -48,10 +48,10 @@ _IDENTITY_FIELDS = (
     # Thalamic distillation is driven by ``spike_events`` + ``state``
     # (prompts/01-thalamic-trajectory-factory.md), and the event-language
     # bridge models the paired language view, bridge notes, raster sidecar,
-    # and per-check gate-compute budget
-    # (prompts/03-neuromorphic-event-language-bridge.md). Listing all five
-    # keeps a bridge record's whole modeled content in the projection rather
-    # than only its stream.
+    # per-check gate-compute budget, and spike-implemented gate head
+    # (prompts/03-neuromorphic-event-language-bridge.md). The gate head is
+    # carrier-normalized below; these fields keep the rest of a bridge
+    # record's modeled content in the projection rather than only its stream.
     "spike_events",
     "language_view",
     "bridge_notes",
@@ -110,6 +110,17 @@ _PREFERENCE_WRAPPER_FIELDS = _IDENTITY_FIELDS + (
 
 _TRAJECTORY_GATE_COMPUTE = ("trajectory", "gate_compute")
 _SAFETY_GATE_COMPUTE = ("trajectory", "safety_decision", "gate_compute")
+_TRAJECTORY_GATE_SNN = ("trajectory", "gate_snn")
+_SAFETY_GATE_SNN = ("trajectory", "safety_decision", "gate_snn")
+_GATE_SNN_ROOT = "root"
+_GATE_SNN_META = "meta"
+_GATE_SNN_CARRIERS = (
+    (_GATE_SNN_ROOT, ("gate_snn",)),
+    (_GATE_SNN_META, ("meta", "gate_snn")),
+    (_TRAJECTORY_GATE_SNN, ("language_view", *_TRAJECTORY_GATE_SNN)),
+    (_SAFETY_GATE_SNN, ("language_view", *_SAFETY_GATE_SNN)),
+)
+_NO_GATE_SNN_CARRIER = object()
 _RASTER_ROOT = "root"
 _RASTER_META = "meta"
 _NOT_CANONICAL_PRIMITIVE = object()
@@ -248,6 +259,16 @@ def _bridge_gate_compute_sidecar(obj):
     return None, None
 
 
+def _bridge_gate_snn_sidecar(obj):
+    """Return the curator-selected gate head and its accepted carrier."""
+
+    for carrier, path in _GATE_SNN_CARRIERS:
+        candidate = _value_at_path(obj, path)
+        if isinstance(candidate, dict):
+            return candidate, carrier
+    return None, None
+
+
 def _value_at_path(value, path):
     for key in path:
         if not isinstance(value, dict):
@@ -263,6 +284,24 @@ def _nested_gate_compute_removals(language_view, selected, carrier):
         lower_carriers = (_TRAJECTORY_GATE_COMPUTE, _SAFETY_GATE_COMPUTE)
     elif carrier == _TRAJECTORY_GATE_COMPUTE:
         lower_carriers = (_SAFETY_GATE_COMPUTE,)
+    else:
+        lower_carriers = ()
+    selected_blob = _canonical_record_blob(selected)
+    for path in lower_carriers:
+        candidate = _value_at_path(language_view, path)
+        if isinstance(candidate, dict) and _canonical_record_blob(candidate) == selected_blob:
+            removals.append(path)
+    return removals
+
+
+def _nested_gate_snn_removals(language_view, selected, carrier):
+    """Return selected/redundant nested gate-head paths to remove."""
+
+    removals = [carrier] if isinstance(carrier, tuple) else []
+    if carrier in (_GATE_SNN_ROOT, _GATE_SNN_META):
+        lower_carriers = (_TRAJECTORY_GATE_SNN, _SAFETY_GATE_SNN)
+    elif carrier == _TRAJECTORY_GATE_SNN:
+        lower_carriers = (_SAFETY_GATE_SNN,)
     else:
         lower_carriers = ()
     selected_blob = _canonical_record_blob(selected)
@@ -376,9 +415,54 @@ def _with_bridge_gate_compute(obj, modeled):
     return modeled
 
 
+def _declared_root_meta_gate_snn(obj, carrier):
+    """Return one declared root/meta carrier, including malformed values."""
+
+    container = obj if carrier == _GATE_SNN_ROOT else obj.get("meta")
+    if not isinstance(container, dict) or "gate_snn" not in container:
+        return _NO_GATE_SNN_CARRIER
+    return container["gate_snn"]
+
+
+def _unselected_gate_snn_carriers(obj, selected, carrier):
+    """Return non-selected root/meta gate heads omitted from modeled fields."""
+
+    unselected = {}
+    for candidate_carrier in (_GATE_SNN_ROOT, _GATE_SNN_META):
+        if candidate_carrier == carrier:
+            continue
+        candidate = _declared_root_meta_gate_snn(obj, candidate_carrier)
+        if candidate is _NO_GATE_SNN_CARRIER:
+            continue
+        if _same_canonical_dict(candidate, selected):
+            continue
+        unselected[candidate_carrier] = candidate
+    return unselected or None
+
+
+def _with_bridge_gate_snn(obj, modeled):
+    """Normalize accepted gate-head carriers into one modeled identity field."""
+
+    gate_snn, carrier = _bridge_gate_snn_sidecar(obj)
+    unselected = _unselected_gate_snn_carriers(obj, gate_snn, carrier)
+    if unselected is not None:
+        modeled["gate_snn_unselected"] = unselected
+    if gate_snn is None:
+        return modeled
+    modeled["gate_snn"] = gate_snn
+    language_view = modeled.get("language_view")
+    if not isinstance(language_view, dict):
+        return modeled
+    removals = _nested_gate_snn_removals(language_view, gate_snn, carrier)
+    if removals:
+        modeled["language_view"] = _copy_without_paths(language_view, removals)
+    return modeled
+
+
 def _with_bridge_sidecars(obj, modeled):
     """Normalize accepted bridge sidecars into the modeled identity fields."""
-    return _with_bridge_gate_compute(obj, _with_bridge_raster(obj, modeled))
+    normalized = _with_bridge_gate_compute(obj, _with_bridge_raster(obj, modeled))
+    return _with_bridge_gate_snn(obj, normalized)
 
 
 def exact_identity_view(obj):
