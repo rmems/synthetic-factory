@@ -82,12 +82,14 @@ class PipelinesPackageImports(unittest.TestCase):
         "compose_destination_creation",
         "compose_destination_writer",
         "compose_source_snapshot",
+        "export_contract",
         "export_members_auth",
         "export_members_jsonl",
         "export_members_path",
         "export_members_read",
         "export_viewer",
         "preference_audit_diff",
+        "raw_tree_guard",
         "preference_context",
         "reward_mapping",
         "reward_policy",
@@ -143,6 +145,17 @@ class PipelinesPackageImports(unittest.TestCase):
                     module = importlib.import_module(f"pipelines.{name}")
                     self.assertEqual(module.__name__, f"pipelines.{name}")
                     self.assertNotIn(str(PIPELINES), sys.path)
+
+    def test_export_contract_and_viewer_import_from_a_clean_package(self):
+        """Package consumers need the export contract without CLI-path leakage."""
+
+        with self._clean_package_imports():
+            self.assertNotIn(str(PIPELINES), sys.path)
+            contract = importlib.import_module("pipelines.export_contract")
+            viewer = importlib.import_module("pipelines.export_viewer")
+            self.assertIs(viewer.ExportError, contract.ExportError)
+            self.assertIs(viewer.ViewerRow, contract.ViewerRow)
+            self.assertNotIn(str(PIPELINES), sys.path)
 
     def test_refactored_facades_support_package_and_direct_import_modes(self):
         """Every refactored facade remains usable through both supported modes."""

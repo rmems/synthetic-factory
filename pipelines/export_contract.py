@@ -12,10 +12,24 @@ from __future__ import annotations
 
 import json
 import math
+import sys
 from dataclasses import dataclass
 from typing import Any
 
-from tag_jsonutil import reject_duplicate_object_keys
+if __package__:
+    from . import _expose_package_sibling, _local_sibling_module, _require_local_sibling
+
+    if _local_sibling_module("export_contract", allow_initializing=True):
+        import export_contract as _direct_export_contract
+
+        _require_local_sibling(_direct_export_contract, "export_contract")
+        del _direct_export_contract
+    from .tag_jsonutil import reject_duplicate_object_keys
+else:
+    getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
+        "export_contract"
+    )
+    from tag_jsonutil import reject_duplicate_object_keys
 
 EXPORT_NAME = "export_hf"
 EXPORT_VERSION = "export-hf-v3"
@@ -82,3 +96,7 @@ def _loads_json(payload: str, label: str) -> Any:
         )
     except (ValueError, RecursionError) as exc:
         raise ExportError(f"{label}: invalid JSON: {exc}") from exc
+
+
+if __package__:
+    _expose_package_sibling(__name__)
