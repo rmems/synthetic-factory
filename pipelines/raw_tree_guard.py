@@ -40,12 +40,17 @@ def _ancestor_identities(path: Path) -> set[tuple[int, int]]:
     return identities
 
 
-def _has_raw_tree_components(path: Path) -> bool:
-    parts = path.parts
+def contains_raw_segments(parts: tuple[str, ...]) -> bool:
+    """Return whether path components contain the immutable raw-tree pair."""
+
     return any(
         parts[index : index + 2] == ("outputs", "raw")
         for index in range(len(parts) - 1)
     )
+
+
+def _has_raw_tree_components(path: Path) -> bool:
+    return contains_raw_segments(path.parts)
 
 
 def _names_raw_tree(path: Path, raw_root: Path) -> bool:

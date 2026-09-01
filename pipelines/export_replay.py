@@ -74,7 +74,7 @@ class _ReplayState:
 def _replay_physical_lines(raw_file: bytes) -> list[bytes]:
     """Split LF-framed JSONL exactly as the compose writer framed it."""
 
-    return compose_curated._jsonl_physical_lines(raw_file)
+    return compose_curated.jsonl_physical_lines(raw_file)
 
 
 def _replayed_manifest_entry(
@@ -455,13 +455,13 @@ def _calibration_evidence_identity(
     """Identity token for already-authenticated calibration evidence."""
 
     if descriptor["mode"] == "none":
-        return ("none", str(source_root / compose_curated.FFPC_UNITS_MIGRATION))
+        return "none", str(source_root / compose_curated.FFPC_UNITS_MIGRATION)
     path = Path(descriptor["path"])
     try:
         metadata = path.lstat()
     except OSError as exc:
         raise ExportError("calibration evidence changed during source replay") from exc
-    return ("file", str(path), *_stable_file_identity(metadata))
+    return "file", str(path), *_stable_file_identity(metadata)
 
 
 def _authenticated_calibration_state(

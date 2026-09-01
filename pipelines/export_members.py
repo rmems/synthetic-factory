@@ -15,12 +15,11 @@ from pathlib import Path, PurePosixPath
 from typing import Any
 
 from export_contract import ExportError, _loads_json
+from raw_tree_guard import contains_raw_segments
 
-def _contains_raw_segments(parts: tuple[str, ...]) -> bool:
-    return any(
-        parts[index : index + 2] == ("outputs", "raw")
-        for index in range(len(parts) - 1)
-    )
+# Compatibility alias retained for ``export_hf`` and external callers of the
+# pre-split module surface.
+_contains_raw_segments = contains_raw_segments
 
 
 def _is_under_raw(path: Path) -> bool:

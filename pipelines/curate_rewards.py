@@ -138,6 +138,21 @@ from reward_document import (  # noqa: E402
 )
 from reward_calibration import _entry_calibrations  # noqa: E402
 
+# These private names are deliberate compatibility exports for direct callers
+# of the pre-split ``curate_rewards`` module. Keeping one explicit reference
+# set distinguishes that supported surface from accidentally unused imports.
+_PRIVATE_COMPATIBILITY_EXPORTS = (
+    _UNSET,
+    _decimal,
+    _json_number,
+    _sha256,
+    _extract_unit_usd,
+    _normalize_calibration,
+    _classify,
+    _require_declared_rule,
+    _walk_rewards,
+)
+
 __all__ = [
     "ANNOTATION_FIELD",
     "ARITHMETIC_METHODS",

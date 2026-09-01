@@ -22,14 +22,14 @@ if str(_PIPELINES) not in sys.path:
     sys.path.insert(0, str(_PIPELINES))
 
 from compose_contract import ComposeError, sha256_hex  # noqa: E402
+from raw_tree_guard import contains_raw_segments  # noqa: E402
 from round_txn import committed_jsonl_paths, marker_mode_path  # noqa: E402
 
 _DESTINATION_PARENT_LABEL = "destination parent"
 
-def _contains_raw_segments(parts: tuple[str, ...]) -> bool:
-    return any(
-        parts[index : index + 2] == ("outputs", "raw") for index in range(len(parts) - 1)
-    )
+# Compatibility alias retained for ``compose_curated`` and callers of its
+# pre-split filesystem helper surface.
+_contains_raw_segments = contains_raw_segments
 
 
 def _is_under_raw(path: Path) -> bool:

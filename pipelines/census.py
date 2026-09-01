@@ -113,7 +113,7 @@ def iter_sim_or_real(obj):
             yield from iter_sim_or_real(item)
 
 
-def _enclosing_marker_root(run_dir: Path, path: Path) -> Path | None:
+def enclosing_marker_root(run_dir: Path, path: Path) -> Path | None:
     """Return the nearest marker-mode factory enclosing ``path``."""
 
     current = path.parent
@@ -126,6 +126,10 @@ def _enclosing_marker_root(run_dir: Path, path: Path) -> Path | None:
         if parent == current:  # Defensive: ``relative_to`` should prevent this.
             return None
         current = parent
+
+
+# Compatibility alias for direct callers of the pre-split private helper.
+_enclosing_marker_root = enclosing_marker_root
 
 
 def visible_jsonl_paths(run_dir: Path) -> list[Path]:
@@ -142,7 +146,7 @@ def visible_jsonl_paths(run_dir: Path) -> list[Path]:
     for path in sorted(run_dir.rglob("*.jsonl")):
         if not path.is_file() or path.is_symlink():
             continue
-        marker_root = _enclosing_marker_root(run_dir, path)
+        marker_root = enclosing_marker_root(run_dir, path)
         if marker_root is None:
             visible.append(path)
             continue
@@ -164,7 +168,7 @@ def factory_identity_for_path(
     return shared_factory_identity_for_path(
         run_dir,
         path,
-        marker_root=_enclosing_marker_root(run_dir, path),
+        marker_root=enclosing_marker_root(run_dir, path),
         # The reviewed factory registry is the source of truth for which
         # directory names are a known factory. The round-quota table
         # (FACTORY_QUOTAS) only covers factories with an active quota; a

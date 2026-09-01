@@ -97,6 +97,7 @@ __all__ = [
     "check_thalamic",
     "declared_clock_domains",
     "event_time",
+    "episode_like",
     "is_number",
     "json",
     "main",
@@ -529,13 +530,17 @@ HIDDEN_THOUGHT_KEYS = frozenset(
 )
 
 
-def _episode_like(obj):
+def episode_like(obj):
     """True when an object is a coding/agent episode rather than Thalamic."""
     return (
         isinstance(obj, dict)
         and "steps" in obj
         and not all(key in obj for key in THALAMIC_CORE_KEYS)
     )
+
+
+# Compatibility alias for callers of the pre-split validator surface.
+_episode_like = episode_like
 
 
 def _hidden_thought_paths(value, path=""):
@@ -1402,7 +1407,7 @@ def check_line(obj, where, factory_staging=False):
         errs = []
         chosen = obj.get("chosen")
         rejected = obj.get("rejected")
-        episode_pref = _episode_like(chosen) or _episode_like(rejected)
+        episode_pref = episode_like(chosen) or episode_like(rejected)
         if not isinstance(chosen, dict):
             errs.append(f"{where}.chosen must be an object")
         elif episode_pref:

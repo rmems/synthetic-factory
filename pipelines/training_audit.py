@@ -42,8 +42,8 @@ from check_records import (  # noqa: E402
     shape_check,
     walk_key,
 )
-import census  # noqa: E402
 from census import (  # noqa: E402
+    enclosing_marker_root,
     factory_for_path,
     visible_jsonl_paths,
 )
@@ -56,8 +56,8 @@ from curate_coding import (  # noqa: E402
 )
 from validate_run import (  # noqa: E402
     HIDDEN_THOUGHT_KEYS,
-    _episode_like,
     check_episode,
+    episode_like,
 )
 from training_audit_bridge import event_stream_status as _event_stream_status  # noqa: E402
 import distillation_audit as _distillation_audit  # noqa: E402
@@ -223,7 +223,7 @@ def preference_context_purity(obj, chosen, rejected):
     Thalamic pairs hold state and proposal constant. Episode-sided pairs use
     one shared task goal, including an optional outer pair goal.
     """
-    if _episode_like(chosen) or _episode_like(rejected):
+    if episode_like(chosen) or episode_like(rejected):
         return _episode_context_purity(obj, chosen, rejected)
     return _thalamic_context_purity(chosen, rejected)
 
@@ -236,7 +236,7 @@ def _list_field(value, key):
 def _preference_turns(obj):
     for side_name in ("chosen", "rejected"):
         side = dict_field(obj, side_name)
-        if _episode_like(side):
+        if episode_like(side):
             yield from _list_field(side, "steps")
 
 
@@ -487,7 +487,7 @@ def _capture_run_member(
     _require_committed_digest(
         payload,
         relative,
-        census._enclosing_marker_root(run_dir, path),
+        enclosing_marker_root(run_dir, path),
         digest_cache,
     )
     return relative, payload
@@ -721,7 +721,7 @@ class _CorpusAudit:
             )
         )
         preference = {"chosen", "rejected"} <= keys and any(
-            _episode_like(obj.get(side)) for side in ("chosen", "rejected")
+            episode_like(obj.get(side)) for side in ("chosen", "rejected")
         )
         return direct or preference
 

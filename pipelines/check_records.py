@@ -31,7 +31,7 @@ from validate_run import (  # noqa: E402
     BRIDGE_SPIKE_EVENT_KEYS,
     REWARD_ARITHMETIC_MARKERS,
     REWARD_NON_COMPONENT_KEYS,
-    _episode_like,
+    episode_like,
     check_line,
     check_spike_order,
     declared_clock_domains,
@@ -345,7 +345,7 @@ def expected_states(obj, kind):
             if not isinstance(sub, dict):
                 continue
             # Episode-sided DPO pairs have no Thalamic state object.
-            if _episode_like(sub):
+            if episode_like(sub):
                 continue
             yield f"{side}.state", sub.get("state")
     elif kind == "bridge_pair":

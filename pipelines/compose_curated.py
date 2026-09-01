@@ -281,6 +281,7 @@ __all__ = [
     "is_bridge_record",
     "is_episode_record",
     "is_preference_record",
+    "jsonl_physical_lines",
     "main",
     "parse_args",
     "sha256_hex",
@@ -1893,6 +1894,12 @@ def _jsonl_physical_lines(raw_file: bytes) -> list[bytes]:
         if physical_lines[index].endswith(b"\r"):
             physical_lines[index] = physical_lines[index][:-1]
     return physical_lines
+
+
+def jsonl_physical_lines(raw_file: bytes) -> list[bytes]:
+    """Public boundary for exact LF-framed JSONL splitting."""
+
+    return _jsonl_physical_lines(raw_file)
 
 
 def _new_manifest_entry(
