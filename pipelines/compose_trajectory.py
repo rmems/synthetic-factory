@@ -232,7 +232,7 @@ def _trajectory_step_reasons(
 
     chosen_steps = chosen.get("steps") if isinstance(chosen, dict) else None
     rejected_steps = rejected.get("steps") if isinstance(rejected, dict) else None
-    if not isinstance(chosen_steps, list) or not isinstance(rejected_steps, list):
+    if not all(isinstance(steps, list) for steps in (chosen_steps, rejected_steps)):
         return [REASON_TRAJECTORY_STEPS_INVALID]
     if not chosen_steps or not rejected_steps:
         return [REASON_TRAJECTORY_STEPS_EMPTY]

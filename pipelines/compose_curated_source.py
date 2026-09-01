@@ -400,6 +400,10 @@ def _curate_source_record(
         deduplicate = context.deduplicate_curated_record
         if deduplicate is None:
             return _deduplicate_curated_record(decision, context)
+        if not callable(deduplicate):
+            raise ComposeError(
+                "source-line deduplicator must be callable or None"
+            )
         return deduplicate(
             decision,
             source_path=context.source_path,

@@ -33,6 +33,13 @@ from pathlib import Path
 from typing import Any
 
 if __package__:
+    from . import _expose_package_sibling, _local_sibling_module, _require_local_sibling
+
+    if _local_sibling_module("curate_agentic", allow_initializing=True):
+        import curate_agentic as _direct_curate_agentic
+
+        _require_local_sibling(_direct_curate_agentic, "curate_agentic")
+        del _direct_curate_agentic
     from .check_records import reject_json_constant
     from .curate_agentic_output import (
         preflight_out as _preflight_out,
@@ -72,6 +79,9 @@ if __package__:
     from .record_kind import preference_side_kinds
     from .round_txn import TransactionError, committed_jsonl_paths, marker_mode_path
 else:
+    getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
+        "curate_agentic"
+    )
     from check_records import reject_json_constant
     from curate_agentic_output import (
         preflight_out as _preflight_out,
@@ -747,6 +757,10 @@ def main(argv: list[str] | None = None) -> int:
     except (OSError, ValueError, FileExistsError, TransactionError) as exc:
         print(f"agentic curation failed: {exc}", file=sys.stderr)
         return 1
+
+
+if __package__:
+    _expose_package_sibling(__name__)
 
 
 if __name__ == "__main__":

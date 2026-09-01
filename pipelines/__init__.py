@@ -122,6 +122,18 @@ def _load_compose_curated_calibration():
     return compose_curated_calibration
 
 
+def _load_compose_contract():
+    from . import compose_contract
+
+    return compose_contract
+
+
+def _load_compose_curated():
+    from . import compose_curated
+
+    return compose_curated
+
+
 def _load_compose_curated_coding():
     from . import compose_curated_coding
 
@@ -241,6 +253,8 @@ _PACKAGE_SIBLING_LOADERS = {
     "curate_bridge_raster_numbers": _load_curate_bridge_raster_numbers,
     "validate_run_spikes": _load_validate_run_spikes,
     "validate_run_provenance": _load_validate_run_provenance,
+    "compose_contract": _load_compose_contract,
+    "compose_curated": _load_compose_curated,
     "compose_curated_calibration": _load_compose_curated_calibration,
     "compose_curated_coding": _load_compose_curated_coding,
     "compose_curated_context": _load_compose_curated_context,

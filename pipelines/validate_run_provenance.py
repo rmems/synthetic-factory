@@ -45,7 +45,10 @@ def _typed_enum_errors(value, allowed, message):
 def _contains_real(value):
     if not isinstance(value, str):
         return False
-    return "real" in value.lower()
+    normalized = value.strip().lower()
+    return normalized == "real" or normalized.startswith(
+        ("real_", "real-", "real ")
+    )
 
 
 def _claimed_value_errors(claimed, where):

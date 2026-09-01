@@ -91,7 +91,7 @@ def _decode_calibration(
             parse_constant=services.reject_json_constant,
             parse_float=services.parse_finite_json_float,
         )
-    except ValueError as exc:
+    except (ValueError, RecursionError) as exc:
         raise ComposeError(
             f"{calibration_path}: invalid calibration JSON: {exc}"
         ) from exc

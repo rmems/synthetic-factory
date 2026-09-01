@@ -6,6 +6,7 @@ import json
 import sys
 import tempfile
 import unittest
+from dataclasses import dataclass
 from pathlib import Path
 from unittest import mock
 
@@ -34,6 +35,12 @@ from compose_curated_test_support import (  # noqa: E402
     thalamic,
     write_jsonl,
 )
+
+
+@dataclass(frozen=True)
+class _AgenticHiddenShape:
+    multi: tuple[str, str]
+    safety: tuple[str, str]
 
 
 class ComposeCurated(unittest.TestCase):
@@ -115,25 +122,40 @@ class ComposeCurated(unittest.TestCase):
             self.assertEqual(annotation["ontology_version"], "reward-ontology-v1")
             self.assertTrue(annotation["source_sidecar_id"])
 
+    @staticmethod
+    def _compose_agentic_hidden_shapes(
+        root: Path,
+        hidden: _AgenticHiddenShape,
+    ):
+        multi_key, multi_value = hidden.multi
+        safety_key, safety_value = hidden.safety
+        multi = multi_agent()
+        multi["transcript"][1][multi_key] = multi_value
+        safety = safety_case()
+        safety["steps"][0][safety_key] = safety_value
+        source = root / "run"
+        write_jsonl(
+            source / "multi-agent-coordination-factory" / "batch-r01.jsonl",
+            [multi],
+        )
+        write_jsonl(
+            source / "safety-calibration-factory" / "batch-r01.jsonl",
+            [safety],
+        )
+        summary = compose_curated.compose_run(source, root / "curated")
+        records_dir = root / "curated" / compose_curated.RECORDS_DIRNAME
+        return summary, records_dir
+
     def test_registered_agentic_shapes_strip_hidden_fields_before_strict_audit(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
-            multi = multi_agent()
-            multi["transcript"][1]["inner_monologue"] = "hidden review reasoning"
-            safety = safety_case()
-            safety["steps"][0]["thought"] = "hidden refusal reasoning"
-            source = root / "run"
-            write_jsonl(
-                source / "multi-agent-coordination-factory" / "batch-r01.jsonl",
-                [multi],
+            summary, records_dir = self._compose_agentic_hidden_shapes(
+                root,
+                _AgenticHiddenShape(
+                    ("inner_monologue", "hidden review reasoning"),
+                    ("thought", "hidden refusal reasoning"),
+                ),
             )
-            write_jsonl(
-                source / "safety-calibration-factory" / "batch-r01.jsonl",
-                [safety],
-            )
-
-            summary = compose_curated.compose_run(source, root / "curated")
-
             self.assertTrue(summary["audit"]["training_ready"], summary["audit"])
             self.assertEqual(summary["audit"]["blockers"], [])
             self.assertEqual(
@@ -144,7 +166,6 @@ class ComposeCurated(unittest.TestCase):
                     "record_kinds": ["multi_agent", "safety_case"],
                 },
             )
-            records_dir = root / "curated" / compose_curated.RECORDS_DIRNAME
             report = training_audit.audit_run(records_dir)
             self.assertTrue(report["training_ready"], report["blockers"])
             self.assertEqual(report["episodes"]["hidden_thought_fields"], 0)
@@ -184,25 +205,15 @@ class ComposeCurated(unittest.TestCase):
         """
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
-            multi = multi_agent()
-            multi["transcript"][1]["reasoning"] = "hidden coding-style reasoning"
-            safety = safety_case()
-            safety["steps"][0]["internal_reasoning_optimizer"] = "hidden optimizer trace"
-            source = root / "run"
-            write_jsonl(
-                source / "multi-agent-coordination-factory" / "batch-r01.jsonl",
-                [multi],
+            summary, records_dir = self._compose_agentic_hidden_shapes(
+                root,
+                _AgenticHiddenShape(
+                    ("reasoning", "hidden coding-style reasoning"),
+                    ("internal_reasoning_optimizer", "hidden optimizer trace"),
+                ),
             )
-            write_jsonl(
-                source / "safety-calibration-factory" / "batch-r01.jsonl",
-                [safety],
-            )
-
-            summary = compose_curated.compose_run(source, root / "curated")
-
             self.assertTrue(summary["audit"]["training_ready"], summary["audit"])
             self.assertEqual(summary["audit"]["blockers"], [])
-            records_dir = root / "curated" / compose_curated.RECORDS_DIRNAME
             report = training_audit.audit_run(records_dir)
             self.assertTrue(report["training_ready"], report["blockers"])
             self.assertEqual(report["episodes"]["hidden_thought_fields"], 0)
@@ -211,6 +222,33 @@ class ComposeCurated(unittest.TestCase):
                     self.assertFalse(curate_agentic.contains_hidden_thought_key(record))
                     self.assertNotIn("reasoning", json.dumps(record))
                     self.assertNotIn("internal_reasoning_optimizer", json.dumps(record))
+
+    def _assert_lane_predicates_agree(self, sample):
+        self.assertEqual(
+            compose_curated.is_preference_record(sample),
+            curate_preferences._is_preference_candidate(sample),
+            sample,
+        )
+        bridge_decision = curate_bridge.curate_record(
+            sample,
+            source_path="factory/batch-r01.jsonl",
+            source_line=1,
+            source_hash="0" * 64,
+        )
+        rejected_as_bridge = (
+            curate_bridge.REASON_NOT_BRIDGE
+            in bridge_decision.manifest["reason_codes"]
+        )
+        self.assertEqual(
+            compose_curated.is_bridge_record(sample), not rejected_as_bridge, sample
+        )
+        _curated, coding_manifest = curate_coding.curate_episode(sample)
+        rejected_as_episode = coding_manifest["reason_codes"] == [
+            curate_coding.REASON_STEPS_NOT_ARRAY
+        ]
+        self.assertEqual(
+            compose_curated.is_episode_record(sample), not rejected_as_episode, sample
+        )
 
     def test_lane_gates_match_each_lane_predicate(self):
         record = thalamic("gate")
@@ -253,33 +291,7 @@ class ComposeCurated(unittest.TestCase):
             {"language_view": {}, "spike_events": "not-a-list"},
         ]
         for sample in samples:
-            self.assertEqual(
-                compose_curated.is_preference_record(sample),
-                curate_preferences._is_preference_candidate(sample),
-                sample,
-            )
-            bridge_decision = curate_bridge.curate_record(
-                sample,
-                source_path="factory/batch-r01.jsonl",
-                source_line=1,
-                source_hash="0" * 64,
-            )
-            rejected_as_bridge = (
-                curate_bridge.REASON_NOT_BRIDGE
-                in bridge_decision.manifest["reason_codes"]
-            )
-            self.assertEqual(
-                compose_curated.is_bridge_record(sample), not rejected_as_bridge, sample
-            )
-            _curated, coding_manifest = curate_coding.curate_episode(sample)
-            rejected_as_episode = coding_manifest["reason_codes"] == [
-                curate_coding.REASON_STEPS_NOT_ARRAY
-            ]
-            self.assertEqual(
-                compose_curated.is_episode_record(sample),
-                not rejected_as_episode,
-                sample,
-            )
+            self._assert_lane_predicates_agree(sample)
 
     def test_bridge_order_error_fragment_matches_the_validator(self):
         """The deferral below keys off this exact validator phrasing."""

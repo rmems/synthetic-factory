@@ -123,15 +123,26 @@ def _resolved_after_read(root: Path, path: Path, raw_path: Any, label: str) -> b
     return resolved_path == expected_path
 
 
+def _member_lstat(path: Path, raw_path: Any, label: str) -> os.stat_result:
+    """Inspect a member while keeping every failure inside ExportError."""
+
+    try:
+        return path.lstat()
+    except OSError as exc:
+        raise ExportError(
+            f"{label}: cannot inspect declared file {raw_path!r}: {exc}"
+        ) from exc
+
+
 def read_exact_regular_file(root: Path, raw_path: Any, label: str) -> tuple[Path, bytes]:
     """Read one path through a pinned descriptor and reject identity changes."""
 
     path = compose_member_path(root, raw_path, label)
-    before = path.lstat()
+    before = _member_lstat(path, raw_path, label)
     opened, payload = read_pinned_descriptor(path, before, raw_path, label)
     _require_same_identity(
         opened,
-        path.lstat(),
+        _member_lstat(path, raw_path, label),
         f"{label}: path identity changed while reading",
     )
     if not _resolved_after_read(root, path, raw_path, label):

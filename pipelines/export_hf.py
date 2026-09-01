@@ -35,6 +35,7 @@ import hashlib
 import json
 import os
 import sys
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
@@ -556,6 +557,172 @@ def _refuse_authenticated_source_destination(
         )
 
 
+@dataclass(frozen=True)
+class _ExportRequest:
+    """One fully bound invocation of the historically frozen public API."""
+
+    curated_root: Path
+    destination: Path
+    eval_fraction: float
+    split_salt: str
+    dataset_name: str | None
+
+
+@dataclass(frozen=True)
+class _PreparedExport:
+    """Authenticated source state needed by the destination transaction."""
+
+    request: _ExportRequest
+    records_dir: Path
+    resolved_root: Path
+    curated_files: list[CuratedFile]
+    rows: list[ViewerRow]
+    audit: dict[str, Any]
+    compose_metadata: dict[str, Any]
+    train: list[ViewerRow]
+    evaluate: list[ViewerRow]
+
+
+@dataclass(frozen=True)
+class _WrittenExport:
+    """Authenticated payload details used to build export provenance."""
+
+    files: list[dict[str, Any]]
+    viewer_digest: str
+    train_digest: str
+    eval_digest: str
+
+
+def _prepare_export(request: _ExportRequest) -> _PreparedExport:
+    """Validate and authenticate the exact source snapshot before any write."""
+
+    _curated_root, records_dir, resolved_root = _validated_export_paths(
+        request.curated_root,
+        request.destination,
+    )
+    curated_files, rows, snapshot = _curated_snapshot(records_dir)
+    report, audit = _training_ready_audit(records_dir, snapshot)
+    compose_metadata = _compose_metadata(_curated_root, curated_files, report)
+    _refuse_authenticated_source_destination(
+        compose_metadata,
+        request.destination,
+    )
+    _require_curated_snapshot_unchanged(records_dir, curated_files)
+    train, evaluate = split_rows(
+        rows,
+        eval_fraction=request.eval_fraction,
+        salt=request.split_salt,
+    )
+    return _PreparedExport(
+        request,
+        records_dir,
+        resolved_root,
+        curated_files,
+        rows,
+        audit,
+        compose_metadata,
+        train,
+        evaluate,
+    )
+
+
+def _write_export_artifacts(
+    prepared: _PreparedExport,
+    pinned_destination: compose_curated.PinnedDestination,
+) -> dict[str, Any]:
+    """Write and authenticate every artifact in one pinned destination."""
+
+    files = _write_curated_payloads(pinned_destination, prepared.curated_files)
+    expected_digests = {item["path"]: item["sha256"] for item in files}
+    viewer_digest = _write_viewer_projection(pinned_destination, prepared.rows)
+    expected_digests[VIEWER_PATH] = viewer_digest
+    train_digest = _write_new_bytes(
+        pinned_destination,
+        TRAIN_PATH,
+        _jsonl_payload(prepared.train),
+    )
+    eval_digest = _write_new_bytes(
+        pinned_destination,
+        EVAL_PATH,
+        _jsonl_payload(prepared.evaluate),
+    )
+    expected_digests.update({TRAIN_PATH: train_digest, EVAL_PATH: eval_digest})
+    provenance = _export_provenance(
+        prepared,
+        _WrittenExport(files, viewer_digest, train_digest, eval_digest),
+    )
+    protocol_digest = _write_new_bytes(
+        pinned_destination,
+        PROTOCOL_PATH,
+        render_eval_protocol(provenance).encode("utf-8"),
+    )
+    _write_export_metadata(
+        pinned_destination,
+        provenance,
+        protocol_digest,
+        expected_digests,
+    )
+    # Remove the transaction from its public name before the final source and
+    # destination authentication pass.  ``finish`` publishes it with an
+    # atomic no-replace rename, which is the public commit point.
+    try:
+        pinned_destination.begin_commit()
+    except compose_curated.ComposeError as exc:
+        raise ExportError(str(exc)) from exc
+    _require_curated_snapshot_unchanged(
+        prepared.records_dir,
+        prepared.curated_files,
+    )
+    _authenticate_written_artifacts(pinned_destination.root, expected_digests)
+    return provenance
+
+
+def _export_provenance(
+    prepared: _PreparedExport,
+    written: _WrittenExport,
+) -> dict[str, Any]:
+    """Build provenance from one already written export transaction."""
+
+    return build_export_provenance(
+        {
+            "resolved_root": prepared.resolved_root,
+            "compose_metadata": prepared.compose_metadata,
+            "rows": prepared.rows,
+            "audit": prepared.audit,
+            "options": {
+                "dataset_name": prepared.request.dataset_name,
+                "eval_fraction": prepared.request.eval_fraction,
+                "split_salt": prepared.request.split_salt,
+            },
+            "written": {
+                "files": written.files,
+                "viewer_digest": written.viewer_digest,
+                "train": prepared.train,
+                "evaluate": prepared.evaluate,
+                "train_digest": written.train_digest,
+                "eval_digest": written.eval_digest,
+            },
+        }
+    )
+
+
+def _export_request(request: _ExportRequest) -> dict[str, Any]:
+    """Execute one prepared export with append-only cleanup semantics."""
+
+    prepared = _prepare_export(request)
+    pinned_destination = _create_pinned_destination(
+        prepared.resolved_root,
+        request.destination,
+    )
+    try:
+        provenance = _write_export_artifacts(prepared, pinned_destination)
+    except BaseException:
+        pinned_destination.cleanup()
+        raise
+    _finish_pinned_destination(pinned_destination)
+    return provenance
+
+
 def export_run(
     curated_root: str | Path,
     destination: str | Path,
@@ -566,71 +733,15 @@ def export_run(
 ) -> dict[str, Any]:
     """Export one composed curated tree, refusing anything not training-ready."""
 
-    destination = Path(destination)
-    curated_root, records_dir, resolved_root = _validated_export_paths(
-        Path(curated_root), destination
+    return _export_request(
+        _ExportRequest(
+            Path(curated_root),
+            Path(destination),
+            eval_fraction,
+            split_salt,
+            dataset_name,
+        )
     )
-
-    curated_files, rows, snapshot = _curated_snapshot(records_dir)
-    report, audit = _training_ready_audit(records_dir, snapshot)
-    compose_metadata = _compose_metadata(curated_root, curated_files, report)
-    _refuse_authenticated_source_destination(compose_metadata, destination)
-    _require_curated_snapshot_unchanged(records_dir, curated_files)
-
-    train, evaluate = split_rows(rows, eval_fraction=eval_fraction, salt=split_salt)
-
-    pinned_destination = _create_pinned_destination(resolved_root, destination)
-    destination_target = pinned_destination
-    try:
-        files = _write_curated_payloads(destination_target, curated_files)
-        expected_digests = {item["path"]: item["sha256"] for item in files}
-        viewer_digest = _write_viewer_projection(destination_target, rows)
-        expected_digests[VIEWER_PATH] = viewer_digest
-
-        train_digest = _write_new_bytes(
-            destination_target, TRAIN_PATH, _jsonl_payload(train)
-        )
-        eval_digest = _write_new_bytes(
-            destination_target, EVAL_PATH, _jsonl_payload(evaluate)
-        )
-        expected_digests.update(
-            {TRAIN_PATH: train_digest, EVAL_PATH: eval_digest}
-        )
-
-        provenance = build_export_provenance(
-            {
-                "resolved_root": resolved_root,
-                "compose_metadata": compose_metadata,
-                "rows": rows,
-                "audit": audit,
-                "options": {
-                    "dataset_name": dataset_name,
-                    "eval_fraction": eval_fraction,
-                    "split_salt": split_salt,
-                },
-                "written": {
-                    "files": files,
-                    "viewer_digest": viewer_digest,
-                    "train": train,
-                    "evaluate": evaluate,
-                    "train_digest": train_digest,
-                    "eval_digest": eval_digest,
-                },
-            }
-        )
-        protocol_digest = _write_new_bytes(
-            destination_target,
-            PROTOCOL_PATH,
-            render_eval_protocol(provenance).encode("utf-8"),
-        )
-        _write_export_metadata(
-            pinned_destination, provenance, protocol_digest, expected_digests
-        )
-    except BaseException:
-        pinned_destination.cleanup()
-        raise
-    _finish_pinned_destination(pinned_destination)
-    return provenance
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:

@@ -11,6 +11,8 @@ if str(PIPELINES) not in __import__("sys").path:
     __import__("sys").path.insert(0, str(PIPELINES))
 
 from compose_contract import ComposeError  # noqa: E402
+
+
 def calibration_services():
     """Provide deterministic collaborators unused by the guard under test."""
 
@@ -75,6 +77,19 @@ class ComposeRunContextContract(unittest.TestCase):
 
             with self.assertRaisesRegex(ComposeError, "not an exact regular file"):
                 load_calibration(context, calibration_services())
+
+    def test_nested_calibration_exhaustion_is_reported_as_invalid_json(self):
+        """A pathological calibration document must not abort the compose run."""
+
+        from compose_curated_calibration import _decode_calibration
+
+        depth = 200_000
+        payload = b"[" * depth + b"]" * depth
+
+        with self.assertRaisesRegex(ComposeError, "invalid calibration JSON"):
+            _decode_calibration(
+                Path("units-migration.json"), payload, calibration_services()
+            )
 
 
 if __name__ == "__main__":

@@ -369,16 +369,9 @@ class ComposeCuratedFacadeContract(unittest.TestCase):
                     seen_curated_semantics={},
                 )
 
-    def test_restored_helper_graph_uses_live_facade_nodes(self):
-        retained = compose_curated.ComposeDecision(
-            compose_curated.ACTION_RETAINED,
-            {"id": "record"},
-            (),
-            ({"lane": "identity", "detail": {}},),
-            None,
-            "record",
-        )
-        cases = (
+    @staticmethod
+    def _restored_helper_graph_cases(retained):
+        return (
             (
                 "_container_calibration_id_candidates",
                 "calibration container",
@@ -417,6 +410,17 @@ class ComposeCuratedFacadeContract(unittest.TestCase):
                 lambda: compose_curated._post_transform_semantic_sha256(retained),
             ),
         )
+
+    def test_restored_helper_graph_uses_live_facade_nodes(self):
+        retained = compose_curated.ComposeDecision(
+            compose_curated.ACTION_RETAINED,
+            {"id": "record"},
+            (),
+            ({"lane": "identity", "detail": {}},),
+            None,
+            "record",
+        )
+        cases = self._restored_helper_graph_cases(retained)
         for binding, message, invocation in cases:
             with self.subTest(binding=binding):
                 self._assert_facade_seam(binding, message, invocation)

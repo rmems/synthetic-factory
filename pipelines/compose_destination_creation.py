@@ -4,9 +4,9 @@
 from __future__ import annotations
 
 import os
-import shutil
 import stat
 import sys
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable
 
@@ -28,7 +28,11 @@ if __package__:
         _assert_descriptor_outside_raw,
         _directory_identity,
         _is_under_raw,
+        _private_entry_name,
+        _quarantine_owned_entry,
+        _require_empty_directory,
         _require_exact_directory,
+        _require_safe_new_directory,
         _verify_directory_binding,
     )
 else:
@@ -42,11 +46,16 @@ else:
         _assert_descriptor_outside_raw,
         _directory_identity,
         _is_under_raw,
+        _private_entry_name,
+        _quarantine_owned_entry,
+        _require_empty_directory,
         _require_exact_directory,
+        _require_safe_new_directory,
         _verify_directory_binding,
     )
 
 ExistingDestinationCheck = Callable[[int, Path], None]
+_PRIVATE_DESTINATION_ATTEMPTS = 8
 
 
 def _assert_destination_disjoint(
@@ -71,10 +80,14 @@ def _assert_new_destination(
         raise ComposeError(f"refusing to overwrite an existing destination: {destination}")
     if _is_under_raw(destination):
         raise ComposeError(f"refusing to write inside immutable raw evidence: {destination}")
-    _assert_destination_disjoint(
-        source_run.resolve(),
-        destination.resolve(strict=False),
-    )
+    try:
+        resolved_source = source_run.resolve()
+        resolved_destination = destination.resolve(strict=False)
+    except (OSError, RuntimeError) as exc:
+        raise ComposeError(
+            f"cannot resolve source/destination paths safely: {exc}"
+        ) from exc
+    _assert_destination_disjoint(resolved_source, resolved_destination)
     parent = _require_exact_directory(destination.parent, DESTINATION_PARENT_LABEL)
     return parent, _directory_identity(parent.lstat())
 
@@ -107,22 +120,14 @@ def _discard_created_destination(
     destination: Path,
     created_identity: tuple[int, int, int],
 ) -> None:
-    """Remove a partly created destination, but only the one we created."""
+    """Detach a partly created destination without deleting a public name."""
 
-    try:
-        current = os.stat(
-            destination.name,
-            dir_fd=parent_descriptor,
-            follow_symlinks=False,
-        )
-    except OSError:
-        return
-    if _directory_identity(current) == created_identity:
-        shutil.rmtree(
-            destination.name,
-            ignore_errors=True,
-            dir_fd=parent_descriptor,
-        )
+    _quarantine_owned_entry(
+        parent_descriptor,
+        destination.name,
+        created_identity,
+        "destination creation rollback",
+    )
 
 
 def _verify_destination_parent_residency(
@@ -180,6 +185,128 @@ def _directory_open_flags() -> int:
     )
 
 
+def _create_private_destination(
+    parent_descriptor: int,
+    destination: Path,
+) -> Path:
+    """Create one unpublished destination name with bounded collision retry."""
+
+    for _attempt in range(_PRIVATE_DESTINATION_ATTEMPTS):
+        private = destination.with_name(_private_entry_name("destination"))
+        try:
+            os.mkdir(private.name, 0o755, dir_fd=parent_descriptor)
+        except FileExistsError:
+            continue
+        except OSError as exc:
+            raise ComposeError(f"cannot create private destination: {exc}") from exc
+        return private
+    raise ComposeError("cannot allocate a private destination name")
+
+
+def _cleanup_failed_destination(
+    parent_descriptor: int,
+    destination_descriptor: int | None,
+    destination: Path,
+    created_identity: tuple[int, int, int] | None,
+) -> None:
+    """Close pinned descriptors and remove only this invocation's directory."""
+
+    if destination_descriptor is not None:
+        os.close(destination_descriptor)
+    try:
+        if created_identity is not None:
+            _discard_created_destination(
+                parent_descriptor,
+                destination,
+                created_identity,
+            )
+    finally:
+        os.close(parent_descriptor)
+
+
+@dataclass
+class _DestinationCreation:
+    """Mutable descriptor state for one private destination transaction."""
+
+    destination: Path
+    refuse_existing: ExistingDestinationCheck
+    parent: Path
+    parent_identity: tuple[int, int, int]
+    flags: int
+    parent_descriptor: int
+    destination_descriptor: int | None = None
+    created_identity: tuple[int, int, int] | None = None
+    created_path: Path | None = None
+
+    def _verify_parent(self) -> None:
+        _verify_destination_parent_residency(
+            self.parent,
+            self.parent_descriptor,
+            self.parent_identity,
+        )
+
+    def _create_private_root(self) -> None:
+        self._verify_parent()
+        self.refuse_existing(self.parent_descriptor, self.destination)
+        self._verify_parent()
+        self.created_path = _create_private_destination(
+            self.parent_descriptor,
+            self.destination,
+        )
+        self.created_identity = _created_destination_identity(
+            self.parent_descriptor,
+            self.created_path,
+        )
+
+    def _open_private_root(self) -> None:
+        self._verify_parent()
+        self.destination_descriptor = _open_created_destination(
+            self.parent_descriptor,
+            self.created_path,
+            self.flags,
+            self.created_identity,
+        )
+        _require_safe_new_directory(
+            self.destination_descriptor,
+            self.parent_descriptor,
+            "destination",
+        )
+        _require_empty_directory(self.destination_descriptor, "destination")
+        self._verify_parent()
+        _assert_descriptor_outside_raw(self.destination_descriptor, "destination")
+        _verify_directory_binding(
+            self.created_path,
+            self.destination_descriptor,
+            "destination",
+            expected_identity=self.created_identity,
+        )
+
+    def _pinned_destination(self) -> PinnedDestination:
+        return PinnedDestination(
+            path=self.destination,
+            root=_pinned_root_path(self.destination_descriptor),
+            parent_descriptor=self.parent_descriptor,
+            destination_descriptor=self.destination_descriptor,
+            parent_identity=self.parent_identity,
+            destination_identity=self.created_identity,
+            staged_name=self.created_path.name,
+        )
+
+    def create(self) -> PinnedDestination:
+        try:
+            self._create_private_root()
+            self._open_private_root()
+            return self._pinned_destination()
+        except BaseException:
+            _cleanup_failed_destination(
+                self.parent_descriptor,
+                self.destination_descriptor,
+                self.created_path or self.destination,
+                self.created_identity,
+            )
+            raise
+
+
 def create_pinned_destination(
     source_run: Path,
     destination: Path,
@@ -191,59 +318,14 @@ def create_pinned_destination(
     destination = Path(os.path.abspath(destination))
     flags = _directory_open_flags()
     parent_descriptor = os.open(parent, flags)
-    destination_descriptor: int | None = None
-    created_identity: tuple[int, int, int] | None = None
-    try:
-        _verify_destination_parent_residency(
-            parent, parent_descriptor, parent_identity
-        )
-        refuse_existing(parent_descriptor, destination)
-        _verify_destination_parent_residency(
-            parent, parent_descriptor, parent_identity
-        )
-        os.mkdir(destination.name, 0o755, dir_fd=parent_descriptor)
-        created_identity = _created_destination_identity(
-            parent_descriptor,
-            destination,
-        )
-        _verify_destination_parent_residency(
-            parent, parent_descriptor, parent_identity
-        )
-        destination_descriptor = _open_created_destination(
-            parent_descriptor,
-            destination,
-            flags,
-            created_identity,
-        )
-        _verify_destination_parent_residency(
-            parent, parent_descriptor, parent_identity
-        )
-        _assert_descriptor_outside_raw(destination_descriptor, "destination")
-        _verify_directory_binding(
-            destination,
-            destination_descriptor,
-            "destination",
-            expected_identity=created_identity,
-        )
-        return PinnedDestination(
-            path=destination,
-            root=_pinned_root_path(destination_descriptor),
-            parent_descriptor=parent_descriptor,
-            destination_descriptor=destination_descriptor,
-            parent_identity=parent_identity,
-            destination_identity=created_identity,
-        )
-    except BaseException:
-        if destination_descriptor is not None:
-            os.close(destination_descriptor)
-        if created_identity is not None:
-            _discard_created_destination(
-                parent_descriptor,
-                destination,
-                created_identity,
-            )
-        os.close(parent_descriptor)
-        raise
+    return _DestinationCreation(
+        destination=destination,
+        refuse_existing=refuse_existing,
+        parent=parent,
+        parent_identity=parent_identity,
+        flags=flags,
+        parent_descriptor=parent_descriptor,
+    ).create()
 
 
 if __package__:

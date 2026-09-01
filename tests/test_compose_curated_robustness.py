@@ -211,29 +211,6 @@ class ComposeSourceLineResourceLimits(unittest.TestCase):
         self.assertEqual(added[0][0][0], "captured-factory")
         self.assertIs(added[0][1]["factory_verified"], True)
 
-    def test_factory_identity_change_during_capture_is_refused(self):
-        """The mill index must never resolve ownership from a later tree state."""
-
-        with tempfile.TemporaryDirectory() as td:
-            root = Path(td)
-            source = root / "run"
-            write_jsonl(
-                source / "thalamic-trajectory-factory" / "batch-r01.jsonl",
-                [thalamic("factory-snapshot")],
-            )
-
-            with mock.patch.object(
-                compose_curated,
-                "factory_identity_for_path",
-                side_effect=(("captured-factory", True), ("later-factory", True)),
-            ):
-                with self.assertRaisesRegex(
-                    compose_curated.ComposeError,
-                    "identity changed while capturing the source snapshot",
-                ):
-                    compose_curated.compose_run(source, root / "curated")
-            self.assertFalse((root / "curated").exists())
-
     def test_a_fatal_line_does_not_roll_back_the_whole_run(self):
         # The unguarded ``RecursionError`` escaped ``compose_run``, which
         # discards the destination on any error, so one deep line destroyed
@@ -262,6 +239,33 @@ class ComposeSourceLineResourceLimits(unittest.TestCase):
                 summary["exclusions"],
                 {compose_curated.REASON_INVALID_JSON: 1},
             )
+
+
+class ComposeSourceSnapshotRaces(unittest.TestCase):
+    """Source ownership remains bound to the tree captured at run start."""
+
+    def test_factory_identity_change_during_capture_is_refused(self):
+        """The mill index must never resolve ownership from a later tree state."""
+
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            source = root / "run"
+            write_jsonl(
+                source / "thalamic-trajectory-factory" / "batch-r01.jsonl",
+                [thalamic("factory-snapshot")],
+            )
+
+            with mock.patch.object(
+                compose_curated,
+                "factory_identity_for_path",
+                side_effect=(("captured-factory", True), ("later-factory", True)),
+            ):
+                with self.assertRaisesRegex(
+                    compose_curated.ComposeError,
+                    "identity changed while capturing the source snapshot",
+                ):
+                    compose_curated.compose_run(source, root / "curated")
+            self.assertFalse((root / "curated").exists())
 
 
 class IdentityLaneTotality(unittest.TestCase):
@@ -371,6 +375,47 @@ class CalibrationLookup(unittest.TestCase):
 
     CATALOG = {"ffpc-r5-002": {"canonical_factor": 0.5}}
 
+    @staticmethod
+    def _compose_calibrated_preference(root: Path):
+        source = root / "run"
+        pair = preference_pair(pure=True)
+        pair.pop("id")
+        for side in ("chosen", "rejected"):
+            pair[side]["state"]["episode_id"] = "ffpc-r5-002"
+        pair["rejected"]["reward_components"] = {
+            "task_progress": 0.1,
+            "safety": 0.1,
+            "total": 0.2,
+        }
+        write_jsonl(
+            source / "failure-as-fuel-preference-cascade" / "batch-r01.jsonl",
+            [pair],
+        )
+        calibration = source / compose_curated.FFPC_UNITS_MIGRATION
+        calibration.parent.mkdir(parents=True, exist_ok=True)
+        calibration.write_text(
+            json.dumps(
+                {
+                    "records": [
+                        {
+                            "scope": "ffpc-r5-002",
+                            "usd_conversion_factor": 0.5,
+                        }
+                    ]
+                }
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        compose_curated.compose_run(source, root / "curated")
+        return read_jsonl(
+            root
+            / "curated"
+            / compose_curated.RECORDS_DIRNAME
+            / "failure-as-fuel-preference-cascade"
+            / "batch-r01.jsonl"
+        )[0]
+
     def test_an_absent_catalog_never_calibrates(self):
         for catalog in (None, {}):
             with self.subTest(catalog=catalog):
@@ -448,45 +493,7 @@ class CalibrationLookup(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
-            source = root / "run"
-            pair = preference_pair(pure=True)
-            pair.pop("id")
-            for side in ("chosen", "rejected"):
-                pair[side]["state"]["episode_id"] = "ffpc-r5-002"
-            pair["rejected"]["reward_components"] = {
-                "task_progress": 0.1,
-                "safety": 0.1,
-                "total": 0.2,
-            }
-            write_jsonl(
-                source / "failure-as-fuel-preference-cascade" / "batch-r01.jsonl",
-                [pair],
-            )
-            calibration = source / compose_curated.FFPC_UNITS_MIGRATION
-            calibration.parent.mkdir(parents=True, exist_ok=True)
-            calibration.write_text(
-                json.dumps(
-                    {
-                        "records": [
-                            {
-                                "scope": "ffpc-r5-002",
-                                "usd_conversion_factor": 0.5,
-                            }
-                        ]
-                    }
-                )
-                + "\n",
-                encoding="utf-8",
-            )
-
-            compose_curated.compose_run(source, root / "curated")
-            emitted = read_jsonl(
-                root
-                / "curated"
-                / compose_curated.RECORDS_DIRNAME
-                / "failure-as-fuel-preference-cascade"
-                / "batch-r01.jsonl"
-            )[0]
+            emitted = self._compose_calibrated_preference(root)
 
         annotation = emitted["reward_training"]
         self.assertEqual(annotation["comparability"], "magnitude_comparable")

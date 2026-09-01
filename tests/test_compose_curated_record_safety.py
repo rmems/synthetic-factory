@@ -25,6 +25,41 @@ from compose_curated_test_support import (  # noqa: E402
 class ComposeCuratedRecordSafety(unittest.TestCase):
     """Exercise record repairs that keep private or foreign data out."""
 
+    @staticmethod
+    def _wrapped_records_with_incidental_steps():
+        wrap_episode = {
+            "steps": [
+                {
+                    "n": 1,
+                    "thought": "hidden nested reasoning",
+                    "tool_call": {"name": "inspect", "args": {}},
+                    "observation": "fixture result",
+                }
+            ],
+            "goal": "nested goal",
+            "outcome": "nested outcome",
+            "reward": {"success": True},
+        }
+        incidental = [
+            {
+                "n": 1,
+                "decision_basis": "incidental top-level step",
+                "tool_call": {"name": "noop", "args": {}},
+                "observation": "incidental",
+            }
+        ]
+        wrap = thalamic("root-steps")
+        wrap["executed_action"] = dict(
+            wrap["executed_action"], **copy.deepcopy(wrap_episode)
+        )
+        wrap["steps"] = copy.deepcopy(incidental)
+        pair = bridge_pair()
+        pair["language_view"]["trajectory"]["executed_action"] = copy.deepcopy(
+            wrap_episode
+        )
+        pair["steps"] = copy.deepcopy(incidental)
+        return wrap, pair
+
     def test_bridge_embedded_coding_wraps_are_repaired_not_blocked(self):
         """Codex #97 P2: language_view.trajectory wraps reach the coding lane.
 
@@ -96,37 +131,7 @@ class ComposeCuratedRecordSafety(unittest.TestCase):
         actual wrap ungrounded, blocking an otherwise repairable corpus.
         """
 
-        wrap_episode = {
-            "steps": [
-                {
-                    "n": 1,
-                    "thought": "hidden nested reasoning",
-                    "tool_call": {"name": "inspect", "args": {}},
-                    "observation": "fixture result",
-                }
-            ],
-            "goal": "nested goal",
-            "outcome": "nested outcome",
-            "reward": {"success": True},
-        }
-        incidental = [
-            {
-                "n": 1,
-                "decision_basis": "incidental top-level step",
-                "tool_call": {"name": "noop", "args": {}},
-                "observation": "incidental",
-            }
-        ]
-        wrap = thalamic("root-steps")
-        wrap["executed_action"] = dict(
-            wrap["executed_action"], **copy.deepcopy(wrap_episode)
-        )
-        wrap["steps"] = copy.deepcopy(incidental)
-        pair = bridge_pair()
-        pair["language_view"]["trajectory"]["executed_action"] = copy.deepcopy(
-            wrap_episode
-        )
-        pair["steps"] = copy.deepcopy(incidental)
+        wrap, pair = self._wrapped_records_with_incidental_steps()
 
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)

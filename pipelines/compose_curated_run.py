@@ -730,10 +730,8 @@ def facade_run_services(
     return ComposeRunServices(source, destination, report)
 
 
-def facade_run_hooks(facade: Any) -> ComposeRunHooks:
-    """Resolve every run helper through a live compatibility facade."""
-
-    return ComposeRunHooks(
+def _facade_line_hooks(facade: Any) -> tuple[Callable[..., Any], ...]:
+    return (
         lambda context, digest: facade._new_manifest_entry(
             context.relative,
             context.line_number,
@@ -761,6 +759,11 @@ def facade_run_hooks(facade: Any) -> ComposeRunHooks:
             emitted=source_line.context.emitted,
             mill_findings=source_line.context.mill_findings,
         ),
+    )
+
+
+def _facade_source_hooks(facade: Any) -> tuple[Callable[..., Any], ...]:
+    return (
         lambda state, context, emitted, _services: facade._write_emitted_records(
             state, context.destination_target, context.relative, emitted
         ),
@@ -773,6 +776,11 @@ def facade_run_hooks(facade: Any) -> ComposeRunHooks:
             mill_findings=context.mill_findings,
         ),
         lambda resolved, _services: facade._capture_source_snapshot(resolved),
+    )
+
+
+def _facade_finalize_hooks(facade: Any) -> tuple[Callable[..., Any], ...]:
+    return (
         lambda state, destination, _services: facade._write_compose_provenance(
             state, destination
         ),
@@ -796,6 +804,16 @@ def facade_run_hooks(facade: Any) -> ComposeRunHooks:
             context.manifest_sha256,
             context.sidecar_sha256,
         ),
+    )
+
+
+def facade_run_hooks(facade: Any) -> ComposeRunHooks:
+    """Resolve every run helper through a live compatibility facade."""
+
+    return ComposeRunHooks(
+        *_facade_line_hooks(facade),
+        *_facade_source_hooks(facade),
+        *_facade_finalize_hooks(facade),
         facade.jsonl_physical_lines,
     )
 

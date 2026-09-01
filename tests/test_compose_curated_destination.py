@@ -268,11 +268,11 @@ class ComposeDestinationSafety(unittest.TestCase):
             destination = root / "curated"
             real_write = compose_curated._write_new_text
 
-            def write_then_mutate(root_descriptor, relative, text):
-                digest = real_write(root_descriptor, relative, text)
+            def write_then_mutate(destination_target, relative, text):
+                digest = real_write(destination_target, relative, text)
                 if relative == compose_curated.SUMMARY_FILENAME:
                     member = (
-                        destination
+                        destination_target.root
                         / compose_curated.RECORDS_DIRNAME
                         / "thalamic-trajectory-factory"
                         / "batch-r01.jsonl"
@@ -490,7 +490,12 @@ class ComposeDestinationSafety(unittest.TestCase):
             def swap_parent_before_create(path, mode=0o777, *, dir_fd=None):
                 nonlocal swapped
                 should_swap = (
-                    path == destination.name
+                    (
+                        path == destination.name
+                        or str(path).startswith(
+                            ".synthetic-factory-destination-"
+                        )
+                    )
                     and dir_fd is not None
                     and not swapped
                 )

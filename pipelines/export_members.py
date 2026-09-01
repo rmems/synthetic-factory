@@ -59,6 +59,7 @@ def _authenticated_descriptor(
     )
 
 __all__ = [
+    "ExportError",
     "_authenticated_descriptor",
     "_compose_member_path",
     "_contains_raw_segments",

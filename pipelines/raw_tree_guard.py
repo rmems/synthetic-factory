@@ -3,16 +3,24 @@
 from __future__ import annotations
 
 import os
+import sys
+from contextlib import suppress
 from pathlib import Path
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_RAW_OUTPUT_ROOT = REPOSITORY_ROOT / "outputs" / "raw"
 
 
-def _stat_identity(path: Path) -> tuple[int, int] | None:
-    try:
+def _stat_path(path: Path) -> os.stat_result | None:
+    state = None
+    with suppress(OSError):
         state = path.stat()
-    except OSError:
+    return state
+
+
+def _stat_identity(path: Path) -> tuple[int, int] | None:
+    state = _stat_path(path)
+    if state is None:
         return None
     return state.st_dev, state.st_ino
 
@@ -193,3 +201,26 @@ def is_under_raw(path: Path, raw_root: Path | None = None) -> bool:
     if _shares_root_inode(path, root):
         return True
     return _bind_mount_hits_raw(path, root)
+
+
+if __package__:
+    from . import _expose_package_sibling, _local_sibling_module, _require_local_sibling
+
+    if _local_sibling_module("raw_tree_guard", allow_initializing=True):
+        import raw_tree_guard as _direct_raw_tree_guard
+
+        _require_local_sibling(_direct_raw_tree_guard, "raw_tree_guard")
+        del _direct_raw_tree_guard
+    _expose_package_sibling(__name__)
+else:
+    _package = sys.modules.get("pipelines")
+    getattr(_package, "_join_package_sibling", lambda name: None)("raw_tree_guard")
+    _current = sys.modules[__name__]
+    _local = getattr(_package, "_local_sibling_module", lambda *args, **kwargs: None)(
+        "raw_tree_guard",
+        allow_initializing=True,
+    )
+    if _local is _current:
+        sys.modules.setdefault("pipelines.raw_tree_guard", _current)
+        setattr(_package, "raw_tree_guard", _current)
+    del _current, _local, _package

@@ -13,7 +13,7 @@ from __future__ import annotations
 import os
 import sys
 from dataclasses import dataclass
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any
 
 if __package__:
@@ -50,8 +50,8 @@ if __package__:
         _open_child_directory_entry,
         _open_new_leaf,
         _open_pinned_child_directory as _pin_child_directory,
-        _remove_created_directory,
-        _remove_created_file,
+        _remove_created_directory_if_identity,
+        _remove_created_file_if_identity,
         _rollback_child_directory,
         _verify_pinned_child,
         _write_all,
@@ -115,8 +115,8 @@ else:
         _open_child_directory_entry,
         _open_new_leaf,
         _open_pinned_child_directory as _pin_child_directory,
-        _remove_created_directory,
-        _remove_created_file,
+        _remove_created_directory_if_identity,
+        _remove_created_file_if_identity,
         _rollback_child_directory,
         _verify_pinned_child,
         _write_all,
@@ -321,15 +321,16 @@ class BoundDestinationAccess:
 
     def verify_parent(self) -> None:
         _verify_destination_target(self.target)
+        _assert_descriptor_outside_raw(self.parent_descriptor, self.label)
         _assert_descriptor_contained(
             self.root_descriptor,
             self.parent_descriptor,
             self.label,
         )
-        _assert_descriptor_outside_raw(self.parent_descriptor, self.label)
 
     def verify_child(self, descriptor: int) -> None:
         _verify_destination_target(self.target)
+        _assert_descriptor_outside_raw(descriptor, self.label)
         _assert_descriptor_contained(
             self.root_descriptor,
             descriptor,
@@ -352,11 +353,16 @@ def _open_bound_destination_directory(
         name,
         label,
     )
+    child_identity = _directory_identity(os.fstat(child_descriptor))
     try:
         access.verify_child(child_descriptor)
     except BaseException:
         if created:
-            _remove_created_directory(parent_descriptor, name)
+            _remove_created_directory_if_identity(
+                parent_descriptor,
+                name,
+                child_identity,
+            )
         os.close(child_descriptor)
         raise
     return child_descriptor
@@ -375,6 +381,8 @@ def _create_pinned_new_directory(
         label,
     )
     os.close(child_descriptor)
+    if isinstance(target, PinnedDestination):
+        target.expect_directory(name)
 
 
 def _open_bound_destination_leaf(
@@ -388,10 +396,15 @@ def _open_bound_destination_leaf(
     access = BoundDestinationAccess(target, parent_descriptor, label)
     access.verify_parent()
     descriptor = _open_new_leaf(parent_descriptor, leaf, label)
+    leaf_identity = _directory_identity(os.fstat(descriptor))
     try:
         access.verify_child(descriptor)
     except BaseException:
-        _remove_created_file(parent_descriptor, leaf)
+        _remove_created_file_if_identity(
+            parent_descriptor,
+            leaf,
+            leaf_identity,
+        )
         os.close(descriptor)
         raise
     return descriptor
@@ -418,13 +431,18 @@ def _write_destination_leaf(write: DestinationLeafWrite) -> None:
         write.label,
     )
     root_descriptor = _destination_descriptor(write.target)
+    leaf_identity = _directory_identity(os.fstat(descriptor))
     try:
         _write_all(descriptor, write.payload)
         _assert_descriptor_contained(root_descriptor, descriptor, write.label)
         _assert_descriptor_outside_raw(descriptor, write.label)
         _verify_destination_target(write.target)
     except BaseException:
-        _remove_created_file(write.parent_descriptor, write.leaf)
+        _remove_created_file_if_identity(
+            write.parent_descriptor,
+            write.leaf,
+            leaf_identity,
+        )
         raise
     finally:
         os.close(descriptor)
@@ -448,6 +466,7 @@ def write_pinned_new_bytes(
     parts = _destination_write_parts(relative, label)
     opened: list[int] = []
     current = root_descriptor
+    traversed: list[str] = []
     try:
         for name in parts[:-1]:
             current = _open_bound_destination_directory(
@@ -457,6 +476,9 @@ def write_pinned_new_bytes(
                 label,
             )
             opened.append(current)
+            traversed.append(name)
+            if isinstance(target, PinnedDestination):
+                target.expect_directory(PurePosixPath(*traversed).as_posix())
         _write_destination_leaf(
             DestinationLeafWrite(
                 target=target,
@@ -469,7 +491,10 @@ def write_pinned_new_bytes(
     finally:
         for descriptor in reversed(opened):
             os.close(descriptor)
-    return sha256_hex(payload)
+    digest = sha256_hex(payload)
+    if isinstance(target, PinnedDestination):
+        target.expect_file(PurePosixPath(*parts).as_posix(), digest)
+    return digest
 
 
 def _write_new_text(

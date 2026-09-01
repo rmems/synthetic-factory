@@ -10,15 +10,24 @@ the canonical hashing primitives that two or more siblings need.
 
 from __future__ import annotations
 
-import hashlib
 import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 if __package__:
+    from . import _expose_package_sibling, _local_sibling_module, _require_local_sibling
+
+    if _local_sibling_module("compose_contract", allow_initializing=True):
+        import compose_contract as _direct_compose_contract
+
+        _require_local_sibling(_direct_compose_contract, "compose_contract")
+        del _direct_compose_contract
     from . import curate_identity
 else:
+    getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
+        "compose_contract"
+    )
     _PIPELINES = Path(__file__).resolve().parent
     if str(_PIPELINES) not in sys.path:
         sys.path.insert(0, str(_PIPELINES))
@@ -95,15 +104,12 @@ class _TrajectoryPreferenceDecision:
     side_validation_errors: dict[str, tuple[str, ...]] | None = None
 
 
-def canonical_json(value: Any) -> str:
-    """Serialize JSON data byte-stably (shared with the curation lanes)."""
-
-    return curate_identity.canonical_json(value)
-
-
-def sha256_hex(data: bytes) -> str:
-    return hashlib.sha256(data).hexdigest()
+# Identity owns the byte-stable JSON and digest primitives.  Re-export those
+# exact callables here instead of wrapping them in a second utility layer.
+canonical_json = curate_identity.canonical_json
+sha256_hex = curate_identity._sha256_bytes
+_canonical_sha256 = curate_identity._sha256_json
 
 
-def _canonical_sha256(value: Any) -> str:
-    return sha256_hex(canonical_json(value).encode("utf-8"))
+if __package__:
+    _expose_package_sibling(__name__)

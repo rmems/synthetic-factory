@@ -91,6 +91,33 @@ class ValidateRewardTotal(unittest.TestCase):
 
 
 class ValidateProvenanceStrict(unittest.TestCase):
+    def test_publish_gate_matches_only_real_claim_tokens(self):
+        real_claims = (
+            "real",
+            "real_world",
+            "real-world",
+            "real production",
+            "real-time",
+        )
+        ordinary_values = ("not_real", "non-real", "surreal", "realistic")
+        for value in real_claims:
+            with self.subTest(value=value):
+                errors = validate_run.check_provenance_publish(
+                    {"nested": {"provenance": {"kind": value}}}, "record"
+                )
+                self.assertEqual(
+                    errors,
+                    ["record: nested.provenance.kind must not be 'real'"],
+                )
+        for value in ordinary_values:
+            with self.subTest(value=value):
+                self.assertEqual(
+                    validate_run.check_provenance_publish(
+                        {"nested": {"provenance": {"kind": value}}}, "record"
+                    ),
+                    [],
+                )
+
     def test_state_vocabulary_rebinding_changes_parent_provenance_gate(self):
         with mock.patch.object(
             validate_run,

@@ -24,7 +24,9 @@ import export_hf  # noqa: E402
 def _should_swap_destination_parent(path, destination, dir_fd, already_swapped):
     """Return whether this mkdir is the one guarded parent-race injection."""
 
-    if path != destination.name:
+    if path != destination.name and not str(path).startswith(
+        ".synthetic-factory-destination-"
+    ):
         return False
     if dir_fd is None:
         return False
@@ -419,10 +421,12 @@ class ExportSnapshotCoherence(unittest.TestCase):
             destination = root / "export"
             real_write = export_hf._write_new_bytes
 
-            def write_then_mutate(root_descriptor, relative, payload):
-                digest = real_write(root_descriptor, relative, payload)
+            def write_then_mutate(destination_target, relative, payload):
+                digest = real_write(destination_target, relative, payload)
                 if relative == export_hf.PROVENANCE_PATH:
-                    (destination / export_hf.TRAIN_PATH).write_bytes(b"{}\n")
+                    (destination_target.root / export_hf.TRAIN_PATH).write_bytes(
+                        b"{}\n"
+                    )
                 return digest
 
             with mock.patch.object(

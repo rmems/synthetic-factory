@@ -17,7 +17,59 @@ PIPELINES = REPO / "pipelines"
 
 
 class PipelinesPackageImports(unittest.TestCase):
+    REFACTORED_FACADES = (
+        "census",
+        "check_records",
+        "coding_constants",
+        "coding_verify",
+        "coding_verify_manifest",
+        "coding_verify_steps",
+        "compose_contract",
+        "compose_curated",
+        "compose_mill",
+        "compose_trajectory",
+        "curate_agentic",
+        "curate_agentic_output",
+        "curate_agentic_shapes",
+        "curate_coding",
+        "curate_identity",
+        "curate_preferences",
+        "curate_rewards",
+        "curate_trajectory_preferences",
+        "leftover_mill",
+        "mill_evidence",
+        "mill_family",
+        "mill_ownership",
+        "mill_resolution",
+        "preference_audit",
+        "preference_audit_diff",
+        "preference_context",
+        "preference_model",
+        "preference_reconcile",
+        "preference_record",
+        "preference_repair",
+        "preference_writer",
+        "reward_calibration",
+        "reward_document",
+        "reward_mapping",
+        "reward_ontology",
+        "reward_policy",
+        "reward_units",
+        "reward_vocabulary",
+        "round_txn",
+        "round_txn_preference",
+        "round_txn_raster",
+        "training_audit_mill",
+        "training_audit_report",
+        "trajectory_pair_curation",
+        "trajectory_pair_gate",
+        "trajectory_pair_shape",
+        "trajectory_pair_vocabulary",
+    )
     NEW_SPLIT_MODULES = (
+        "compose_contract",
+        "compose_curated",
+        "compose_mill",
         "compose_curated_calibration",
         "compose_curated_coding",
         "compose_curated_context",
@@ -34,7 +86,14 @@ class PipelinesPackageImports(unittest.TestCase):
         "export_members_jsonl",
         "export_members_path",
         "export_members_read",
+        "export_viewer",
+        "preference_audit_diff",
+        "preference_context",
+        "reward_mapping",
+        "reward_policy",
         "training_audit_snapshot",
+        "curate_agentic",
+        "curate_trajectory_preferences",
         "validate_run_provenance",
     )
 
@@ -48,23 +107,31 @@ class PipelinesPackageImports(unittest.TestCase):
         except OSError:
             return False
 
-    @contextmanager
-    def _clean_package_imports(self):
-        original_path = list(sys.path)
-        saved = {
+    def _repository_pipeline_modules(self) -> dict[str, ModuleType]:
+        return {
             name: module
             for name, module in tuple(sys.modules.items())
             if self._repository_pipeline_module(module)
         }
-        for name in saved:
+
+    @staticmethod
+    def _remove_modules(names) -> None:
+        for name in names:
             sys.modules.pop(name, None)
+
+    def _discard_loaded_repository_modules(self) -> None:
+        self._remove_modules(self._repository_pipeline_modules())
+
+    @contextmanager
+    def _clean_package_imports(self):
+        original_path = list(sys.path)
+        saved = self._repository_pipeline_modules()
+        self._remove_modules(saved)
         sys.path[:] = [entry for entry in sys.path if entry != str(PIPELINES)]
         try:
             yield
         finally:
-            for name, module in tuple(sys.modules.items()):
-                if self._repository_pipeline_module(module):
-                    sys.modules.pop(name, None)
+            self._discard_loaded_repository_modules()
             sys.modules.update(saved)
             sys.path[:] = original_path
 
@@ -76,6 +143,35 @@ class PipelinesPackageImports(unittest.TestCase):
                     module = importlib.import_module(f"pipelines.{name}")
                     self.assertEqual(module.__name__, f"pipelines.{name}")
                     self.assertNotIn(str(PIPELINES), sys.path)
+
+    def test_refactored_facades_support_package_and_direct_import_modes(self):
+        """Every refactored facade remains usable through both supported modes."""
+
+        with self._clean_package_imports():
+            self.assertNotIn(str(PIPELINES), sys.path)
+            packaged = {
+                name: importlib.import_module(f"pipelines.{name}")
+                for name in self.REFACTORED_FACADES
+            }
+            for name, module in packaged.items():
+                with self.subTest(mode="package", name=name):
+                    self.assertEqual(module.__package__, "pipelines")
+                    self.assertTrue(self._repository_pipeline_module(module))
+            self.assertNotIn(str(PIPELINES), sys.path)
+
+        with self._clean_package_imports():
+            sys.path.insert(0, str(PIPELINES))
+            try:
+                direct = {
+                    name: importlib.import_module(name)
+                    for name in self.REFACTORED_FACADES
+                }
+            finally:
+                sys.path.remove(str(PIPELINES))
+            for name, module in direct.items():
+                with self.subTest(mode="direct", name=name):
+                    self.assertEqual(module.__package__, "")
+                    self.assertTrue(self._repository_pipeline_module(module))
 
     def _new_split_module_aliases(self) -> tuple[str, ...]:
         return ("pipelines",) + tuple(
@@ -172,6 +268,10 @@ class PipelinesPackageImports(unittest.TestCase):
                 packaged["export_members_auth"].AuthenticationRequest,
             )
             self.assertIs(
+                direct["reward_mapping"].RewardOntologyError,
+                packaged["reward_mapping"].RewardOntologyError,
+            )
+            self.assertIs(
                 direct["validate_run_provenance"].check_provenance,
                 packaged["validate_run_provenance"].check_provenance,
             )
@@ -212,7 +312,7 @@ class PipelinesPackageImports(unittest.TestCase):
                 else:
                     original_package.validate_run_provenance = original_attribute
 
-    def _assert_validate_run_provenance_identity(self, first):
+    def _assert_validate_run_provenance_identity(self, first: str) -> None:
         with self._isolated_validate_run_provenance_modules():
             if first == "direct":
                 sys.path.insert(0, str(PIPELINES))

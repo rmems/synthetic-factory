@@ -91,6 +91,31 @@ def read_regular_audit_descriptor(fd: int, relative: Path) -> bytes:
     return b"".join(chunks)
 
 
+def _audit_member_identity(metadata: os.stat_result) -> tuple[int, ...]:
+    """Identity and content fields that must span one legacy member read."""
+
+    return (
+        metadata.st_dev,
+        metadata.st_ino,
+        metadata.st_mode,
+        metadata.st_nlink,
+        metadata.st_size,
+        metadata.st_mtime_ns,
+        metadata.st_ctime_ns,
+    )
+
+
+def _require_audit_member_identity(
+    expected: os.stat_result,
+    actual: os.stat_result,
+    relative: Path,
+) -> None:
+    """Require two observations to describe one unchanged member identity."""
+
+    if _audit_member_identity(expected) != _audit_member_identity(actual):
+        raise ValueError(f"audit member identity changed while reading: {relative}")
+
+
 def read_pinned_member(
     run_dir: Path,
     relative: Path,
@@ -104,6 +129,7 @@ def read_pinned_member(
     final open adds ``O_NONBLOCK`` so a swapped FIFO cannot hang the audit,
     and ``fstat`` validates the same descriptor from which bytes are read.
     """
+    expected = _regular_member_metadata(run_dir / relative, relative)
     opened: list[int] = []
     try:
         current = open_descriptor(
@@ -127,7 +153,20 @@ def read_pinned_member(
             dir_fd=current,
         )
         opened.append(descriptor)
-        return read_descriptor(descriptor, relative)
+        descriptor_metadata = os.fstat(descriptor)
+        _require_audit_member_identity(expected, descriptor_metadata, relative)
+        payload = read_descriptor(descriptor, relative)
+        _require_audit_member_identity(
+            descriptor_metadata,
+            os.fstat(descriptor),
+            relative,
+        )
+        _require_audit_member_identity(
+            descriptor_metadata,
+            _regular_member_metadata(run_dir / relative, relative),
+            relative,
+        )
+        return payload
     finally:
         for descriptor in opened:
             os.close(descriptor)
@@ -357,13 +396,24 @@ def capture_run_files(
     return files
 
 
+def _snapshot_path_is_unsafe(raw_relative: str, relative: PurePosixPath) -> bool:
+    invalid_parts = {"", ".", ".."}.intersection(relative.parts)
+    return any(
+        (
+            relative.is_absolute(),
+            not relative.parts,
+            "\0" in raw_relative,
+            bool(invalid_parts),
+        )
+    )
+
+
 def validate_snapshot_path(raw_relative: str) -> Path:
     """Return one safe relative path in the host path vocabulary."""
     if not isinstance(raw_relative, str) or not raw_relative:
         raise ValueError("audit snapshot paths must be nonempty strings")
     relative = PurePosixPath(raw_relative)
-    unsafe_part = any(part in {"", ".", ".."} for part in relative.parts)
-    if relative.is_absolute() or unsafe_part:
+    if _snapshot_path_is_unsafe(raw_relative, relative):
         raise ValueError(f"unsafe audit snapshot path: {raw_relative!r}")
     return Path(*relative.parts)
 

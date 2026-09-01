@@ -21,13 +21,29 @@ if __package__:
         )
         del _direct_compose_destination_writer
     from .compose_contract import ComposeError
-    from .compose_destination_binding import _directory_identity
+    from .compose_destination_binding import (
+        _directory_identity,
+        _private_entry_name,
+        _quarantine_owned_entry,
+        _rename_noreplace,
+        _require_empty_directory,
+        _require_safe_new_directory,
+    )
 else:
     getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
         "compose_destination_writer"
     )
     from compose_contract import ComposeError
-    from compose_destination_binding import _directory_identity
+    from compose_destination_binding import (
+        _directory_identity,
+        _private_entry_name,
+        _quarantine_owned_entry,
+        _rename_noreplace,
+        _require_empty_directory,
+        _require_safe_new_directory,
+    )
+
+_PRIVATE_CHILD_ATTEMPTS = 8
 
 
 def _unsafe_destination_component(candidate: PurePosixPath) -> bool:
@@ -118,30 +134,47 @@ def _open_child_directory_entry(
 
 
 def _remove_created_directory(parent_descriptor: int, name: str) -> None:
-    """Best-effort rollback for a directory created through a pinned parent."""
-
-    try:
-        os.rmdir(name, dir_fd=parent_descriptor)
-    except OSError:
-        pass
+    """Compatibility no-op: identity-free deletion cannot be made safe."""
 
 
 def _remove_created_file(parent_descriptor: int, name: str) -> None:
-    """Best-effort rollback for a file created through a pinned parent."""
+    """Compatibility no-op: identity-free deletion cannot be made safe."""
 
-    try:
-        os.unlink(name, dir_fd=parent_descriptor)
-    except OSError:
-        pass
+
+def _remove_created_directory_if_identity(
+    parent_descriptor: int,
+    name: str,
+    expected_identity: tuple[int, int, int],
+) -> None:
+    """Best-effort rollback that never removes a different directory entry."""
+
+    _quarantine_owned_entry(
+        parent_descriptor,
+        name,
+        expected_identity,
+        "destination directory rollback",
+    )
+
+
+def _remove_created_file_if_identity(
+    parent_descriptor: int,
+    name: str,
+    expected_identity: tuple[int, int, int],
+) -> None:
+    """Best-effort rollback that never removes a different file entry."""
+
+    _quarantine_owned_entry(
+        parent_descriptor,
+        name,
+        expected_identity,
+        "destination file rollback",
+    )
 
 
 def _rollback_child_directory(
     created: bool, parent_descriptor: int, name: str
 ) -> None:
-    """Remove a failed component only when this call created it."""
-
-    if created:
-        _remove_created_directory(parent_descriptor, name)
+    """Compatibility no-op when no created-entry identity is available."""
 
 
 def _verify_pinned_child(
@@ -170,19 +203,100 @@ def _open_pinned_child_directory(
 ) -> tuple[int, bool]:
     """Create or reuse one child directory and pin it without links."""
 
-    created = _create_child_directory(parent_descriptor, name, label)
     try:
-        descriptor = _open_child_directory_entry(parent_descriptor, name, label)
-    except BaseException:
-        _rollback_child_directory(created, parent_descriptor, name)
-        raise
+        os.stat(name, dir_fd=parent_descriptor, follow_symlinks=False)
+    except FileNotFoundError:
+        return _create_and_publish_child_directory(parent_descriptor, name, label)
+    except OSError as exc:
+        raise ComposeError(
+            f"{label}: cannot inspect directory component {name!r}: {exc}"
+        ) from exc
+    descriptor = _open_child_directory_entry(parent_descriptor, name, label)
     try:
         _verify_pinned_child(descriptor, parent_descriptor, name, label)
     except BaseException:
         os.close(descriptor)
-        _rollback_child_directory(created, parent_descriptor, name)
         raise
-    return descriptor, created
+    return descriptor, False
+
+
+def _create_private_child(parent_descriptor: int, label: str) -> str:
+    """Create an unpublished child with bounded no-replace name selection."""
+
+    for _attempt in range(_PRIVATE_CHILD_ATTEMPTS):
+        private_name = _private_entry_name("directory")
+        try:
+            os.mkdir(private_name, 0o755, dir_fd=parent_descriptor)
+        except FileExistsError:
+            continue
+        except OSError as exc:
+            raise ComposeError(f"{label}: cannot create private directory: {exc}") from exc
+        return private_name
+    raise ComposeError(f"{label}: cannot allocate a private directory name")
+
+
+def _create_and_publish_child_directory(
+    parent_descriptor: int,
+    name: str,
+    label: str,
+) -> tuple[int, bool]:
+    """Pin an empty private directory before atomically attaching its name."""
+
+    private_name = _create_private_child(parent_descriptor, label)
+    descriptor: int | None = None
+    identity: tuple[int, int, int] | None = None
+    try:
+        identity = _directory_identity(
+            os.stat(
+                private_name,
+                dir_fd=parent_descriptor,
+                follow_symlinks=False,
+            )
+        )
+        descriptor = _open_child_directory_entry(
+            parent_descriptor,
+            private_name,
+            label,
+        )
+        _verify_pinned_child(
+            descriptor,
+            parent_descriptor,
+            private_name,
+            label,
+        )
+        _require_safe_new_directory(descriptor, parent_descriptor, label)
+        _require_empty_directory(descriptor, label)
+        try:
+            _rename_noreplace(parent_descriptor, private_name, name)
+        except OSError as exc:
+            raise ComposeError(
+                f"{label}: cannot publish directory component {name!r}: {exc}"
+            ) from exc
+        _verify_pinned_child(descriptor, parent_descriptor, name, label)
+        return descriptor, True
+    except BaseException:
+        if descriptor is not None:
+            os.close(descriptor)
+        if identity is not None:
+            candidate = name if _entry_has_identity(parent_descriptor, name, identity) else private_name
+            _remove_created_directory_if_identity(
+                parent_descriptor,
+                candidate,
+                identity,
+            )
+        raise
+
+
+def _entry_has_identity(
+    parent_descriptor: int,
+    name: str,
+    expected_identity: tuple[int, int, int],
+) -> bool:
+    try:
+        metadata = os.stat(name, dir_fd=parent_descriptor, follow_symlinks=False)
+    except OSError:
+        return False
+    return _directory_identity(metadata) == expected_identity
 
 
 def _open_new_leaf(parent_descriptor: int, leaf: str, label: str) -> int:

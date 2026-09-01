@@ -7,7 +7,8 @@ import contextlib
 import copy
 import re
 import sys
-from typing import Any, Mapping
+from dataclasses import dataclass
+from typing import Any, Callable, Mapping
 
 if __package__:
     from . import _expose_package_sibling, _local_sibling_module, _require_local_sibling
@@ -30,6 +31,7 @@ if __package__:
     )
     from .compose_curated_context import SourceCoordinates, StageDefinition, stage
     from .compose_trajectory import (
+        _curate_trajectory_sides,
         _is_same_state_pair,
         _mixed_preference_families,
         is_bridge_record,
@@ -53,6 +55,7 @@ else:
     )
     from compose_curated_context import SourceCoordinates, StageDefinition, stage
     from compose_trajectory import (
+        _curate_trajectory_sides,
         _is_same_state_pair,
         _mixed_preference_families,
         is_bridge_record,
@@ -70,7 +73,17 @@ BRIDGE_STAGE = StageDefinition(
 REASON_IDENTITY_INVALID_PAYLOAD_SHAPE = "identity.invalid_payload_shape"
 BRIDGE_ORDER_ERROR_FRAGMENT = "spike_events not globally non-decreasing"
 CODING_STEP_ERROR_RE = re.compile(r"^record step \d+: ")
+PREFERENCE_STEP_ERROR_RE = re.compile(r"^record/(?:chosen|rejected) step \d+: ")
 _PROBE_FAILED: Any = object()
+
+
+@dataclass(frozen=True)
+class DeferredLaneRepair:
+    """One downstream lane that may repair an identity-only refusal."""
+
+    lane: str
+    applies: bool
+    repair: Callable[[Mapping[str, Any]], dict[str, Any] | None]
 
 
 def _container_calibration_id_candidates(container: Mapping[str, Any]):
@@ -186,6 +199,56 @@ def _coding_steps_repaired_copy_with_source(
     return curated if isinstance(curated, dict) else None
 
 
+def _is_preference_step_only_rejection(mapping: Mapping[str, Any]) -> bool:
+    """Whether identity refused only coding-owned preference-side steps."""
+
+    return _only_identity_shape_details(
+        mapping, lambda detail: PREFERENCE_STEP_ERROR_RE.match(detail) is not None
+    )
+
+
+def _replace_coding_steps(
+    target: dict[str, Any], curated: Mapping[str, Any]
+) -> bool:
+    """Copy only a coding lane's repaired step array into ``target``."""
+
+    steps_path = curate_coding.steps_path(dict(curated))
+    if steps_path == "steps":
+        target["steps"] = copy.deepcopy(curated["steps"])
+        return True
+    if steps_path == "executed_action.steps":
+        target_action = target.get("executed_action")
+        curated_action = curated.get("executed_action")
+        if not isinstance(target_action, dict) or not isinstance(curated_action, Mapping):
+            return False
+        target_action["steps"] = copy.deepcopy(curated_action["steps"])
+        return True
+    return False
+
+
+def _preference_steps_repaired_copy_with_source(
+    record: Mapping[str, Any], source: SourceCoordinates
+) -> dict[str, Any] | None:
+    """Probe the canonical side repair without leaking unrelated changes."""
+
+    curated, _manifests, _reasons, _changed = _curate_trajectory_sides(
+        dict(record),
+        source_path=source.path,
+        source_line=source.line,
+    )
+    if not isinstance(curated, Mapping):
+        return None
+    repaired = copy.deepcopy(dict(record))
+    for side_name in ("chosen", "rejected"):
+        target = repaired.get(side_name)
+        curated_side = curated.get(side_name)
+        if not isinstance(curated_side, Mapping) or not isinstance(target, dict):
+            return None
+        if not _replace_coding_steps(target, curated_side):
+            return None
+    return repaired
+
+
 def _source_preference_shape(record: Any) -> tuple[Any, bool]:
     """Return side kinds and whether source sides mix record families."""
 
@@ -231,34 +294,63 @@ def _lane_retry(
     return _identity_retry_with_source(repair(record, source), source)
 
 
+def _run_deferred_lane_repairs(
+    record: Any,
+    identity_result: Any,
+    lanes: tuple[DeferredLaneRepair, ...],
+    retry: Callable[[dict[str, Any] | None], Any],
+) -> tuple[Any, str | None]:
+    """Return the first identity-valid downstream repair, in lane order."""
+
+    if identity_result.action == "retained" or not isinstance(record, Mapping):
+        return identity_result, None
+    for lane in lanes:
+        if not lane.applies:
+            continue
+        repaired = retry(lane.repair(record))
+        if repaired is not None:
+            return repaired, lane.lane
+    return identity_result, None
+
+
 def _deferred_lane_repair_with_source(
     record: Any,
     identity_result: Any,
     source: SourceCoordinates,
 ) -> tuple[Any, str | None]:
-    """Let the bridge or coding owner repair a narrowly refused invariant."""
+    """Let the owning downstream lane repair a narrowly refused invariant."""
 
     if identity_result.action == "retained" or not isinstance(record, Mapping):
         return identity_result, None
-    retry = _lane_retry(
-        is_bridge_record(record)
-        and _is_bridge_order_only_rejection(identity_result.mapping),
-        _bridge_order_repaired_copy_with_source,
-        record,
-        source,
+    lanes = (
+        DeferredLaneRepair(
+            "bridge",
+            is_bridge_record(record)
+            and _is_bridge_order_only_rejection(identity_result.mapping),
+            lambda current: _bridge_order_repaired_copy_with_source(current, source),
+        ),
+        DeferredLaneRepair(
+            "coding",
+            isinstance(record.get("steps"), list)
+            and _is_coding_step_only_rejection(identity_result.mapping),
+            lambda current: _coding_steps_repaired_copy_with_source(current, source),
+        ),
+        DeferredLaneRepair(
+            "preferences",
+            is_preference_record(record)
+            and preference_side_kinds(record) == ("episode", "episode")
+            and _is_preference_step_only_rejection(identity_result.mapping),
+            lambda current: _preference_steps_repaired_copy_with_source(
+                current, source
+            ),
+        ),
     )
-    if retry is not None:
-        return retry, "bridge"
-    retry = _lane_retry(
-        isinstance(record.get("steps"), list)
-        and _is_coding_step_only_rejection(identity_result.mapping),
-        _coding_steps_repaired_copy_with_source,
+    return _run_deferred_lane_repairs(
         record,
-        source,
+        identity_result,
+        lanes,
+        lambda repaired: _identity_retry_with_source(repaired, source),
     )
-    if retry is not None:
-        return retry, "coding"
-    return identity_result, None
 
 
 def _identity_stage_evidence(
@@ -275,6 +367,8 @@ def _identity_stage_evidence(
         identity_detail["bridge_order_deferred_to_bridge_lane"] = True
     if deferred_lane == "coding":
         identity_detail["coding_steps_deferred_to_coding_lane"] = True
+    if deferred_lane == "preferences":
+        identity_detail["preference_steps_deferred_to_preferences_lane"] = True
     if source_side_kinds is not None:
         identity_detail["preference_side_kinds"] = list(source_side_kinds)
     if mixed_preference_families:
@@ -292,6 +386,13 @@ def _restore_deferred_payload(
         current["spike_events"] = copy.deepcopy(record["spike_events"])
     if deferred_lane == "coding":
         current["steps"] = copy.deepcopy(record["steps"])
+    if deferred_lane == "preferences":
+        for side_name in ("chosen", "rejected"):
+            source_side = record.get(side_name)
+            current_side = current.get(side_name)
+            if not isinstance(source_side, Mapping) or not isinstance(current_side, dict):
+                continue
+            _replace_coding_steps(current_side, source_side)
 
 
 def _compose_identity_stage_with_source(
@@ -314,16 +415,21 @@ def _compose_identity_stage_with_source(
     reasons, detail = _identity_stage_evidence(
         result, deferred_lane, source_side_kinds, mixed_families
     )
+    public_action = (
+        ACTION_RETAINED if result.action == "retained" else ACTION_EXCLUDED
+    )
+    if mixed_families:
+        public_action = ACTION_EXCLUDED
     stages.append(
         stage(
             IDENTITY_STAGE,
-            ACTION_RETAINED if result.action == "retained" else ACTION_EXCLUDED,
+            public_action,
             reason_codes=reasons,
             lane_action=result.action,
             detail=detail,
         )
     )
-    if result.action != "retained" or result.record is None:
+    if public_action == ACTION_EXCLUDED or result.record is None:
         return ComposeDecision(
             ACTION_EXCLUDED, None, tuple(reasons), tuple(stages), None, None
         )

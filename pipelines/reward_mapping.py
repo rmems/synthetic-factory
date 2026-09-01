@@ -10,12 +10,23 @@ from __future__ import annotations
 import hashlib
 import math
 import re
+import sys
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
 
 if __package__:
+    from . import _expose_package_sibling, _local_sibling_module, _require_local_sibling
+
+    if _local_sibling_module("reward_mapping", allow_initializing=True):
+        import reward_mapping as _direct_reward_mapping
+
+        _require_local_sibling(_direct_reward_mapping, "reward_mapping")
+        del _direct_reward_mapping
     from .exact_json import dumps_exact_json
 else:
+    getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
+        "reward_mapping"
+    )
     from exact_json import dumps_exact_json
 
 ONTOLOGY_VERSION = "reward-ontology-v1"
@@ -409,3 +420,7 @@ def _canonical_record_id(record):
 
 
 canonical_source_record_id = _canonical_record_id
+
+
+if __package__:
+    _expose_package_sibling(__name__)

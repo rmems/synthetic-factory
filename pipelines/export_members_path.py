@@ -18,13 +18,13 @@ if __package__:
         _require_local_sibling(_direct_export_members_path, "export_members_path")
         del _direct_export_members_path
     from .export_contract import ExportError
-    from .raw_tree_guard import contains_raw_segments
+    from .raw_tree_guard import contains_raw_segments, is_under_raw as _guard_is_under_raw
 else:
     getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
         "export_members_path"
     )
     from export_contract import ExportError
-    from raw_tree_guard import contains_raw_segments
+    from raw_tree_guard import contains_raw_segments, is_under_raw as _guard_is_under_raw
 
 
 def _resolved_non_strict(path: Path) -> Path:
@@ -41,13 +41,21 @@ def is_under_raw(path: Path) -> bool:
 
     if contains_raw_segments(path.parts):
         return True
-    return contains_raw_segments(_resolved_non_strict(path).parts)
+    try:
+        return _guard_is_under_raw(path)
+    except (OSError, RuntimeError) as exc:
+        raise ExportError(f"cannot resolve path safely: {path}: {exc}") from exc
 
 
 def _is_member_path_text(raw_path: Any) -> bool:
     """Return whether a declaration has the required POSIX text shape."""
 
-    return isinstance(raw_path, str) and bool(raw_path) and "\\" not in raw_path
+    return (
+        isinstance(raw_path, str)
+        and bool(raw_path)
+        and "\\" not in raw_path
+        and "\0" not in raw_path
+    )
 
 
 def _is_canonical_relative(relative: PurePosixPath, raw_path: str) -> bool:
@@ -112,6 +120,10 @@ def _member_metadata(candidate: Path, raw_path: str, label: str) -> os.stat_resu
         return candidate.lstat()
     except FileNotFoundError as exc:
         raise ExportError(f"{label}: declared file is missing: {raw_path}") from exc
+    except OSError as exc:
+        raise ExportError(
+            f"{label}: cannot inspect declared file: {raw_path}: {exc}"
+        ) from exc
 
 
 def is_unique_regular(metadata: os.stat_result) -> bool:

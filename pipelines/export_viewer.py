@@ -9,9 +9,23 @@ proves the projection is lossless by rebuilding the exact rows.
 from __future__ import annotations
 
 import struct
+import sys
 from typing import Any, Iterable, Sequence
 
-from export_contract import CREATED_BY, VIEWER_COLUMNS, ExportError, ViewerRow
+if __package__:
+    from . import _expose_package_sibling, _local_sibling_module, _require_local_sibling
+
+    if _local_sibling_module("export_viewer", allow_initializing=True):
+        import export_viewer as _direct_export_viewer
+
+        _require_local_sibling(_direct_export_viewer, "export_viewer")
+        del _direct_export_viewer
+    from .export_contract import CREATED_BY, VIEWER_COLUMNS, ExportError, ViewerRow
+else:
+    getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
+        "export_viewer"
+    )
+    from export_contract import CREATED_BY, VIEWER_COLUMNS, ExportError, ViewerRow
 
 # ── Thrift compact protocol ───────
 
@@ -46,14 +60,11 @@ def _uvarint(value: int) -> bytes:
     if value < 0:
         raise ValueError("unsigned varint cannot encode a negative value")
     out = bytearray()
-    while True:
-        byte = value & 0x7F
+    while value >= 0x80:
+        out.append((value & 0x7F) | 0x80)
         value >>= 7
-        if value:
-            out.append(byte | 0x80)
-        else:
-            out.append(byte)
-            return bytes(out)
+    out.append(value)
+    return bytes(out)
 
 
 def _zigzag(value: int) -> int:
@@ -163,10 +174,12 @@ class _CompactDecoder:
             mapping[key] = self._value(value_type)
         return mapping
 
-    def _true_value(self) -> bool:
+    @staticmethod
+    def _true_value() -> bool:
         return True
 
-    def _false_value(self) -> bool:
+    @staticmethod
+    def _false_value() -> bool:
         return False
 
     def _double_value(self) -> float:
@@ -489,3 +502,7 @@ def read_viewer_parquet(payload: bytes) -> list[ViewerRow]:
     for row_group in metadata.get(4) or []:
         rows.extend(_row_group_rows(payload, row_group))
     return rows
+
+
+if __package__:
+    _expose_package_sibling(__name__)

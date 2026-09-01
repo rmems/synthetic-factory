@@ -16,20 +16,27 @@ silently overwriting its twin, so both inventories report a repeated key.
 
 from __future__ import annotations
 
-from importlib import import_module
 import json
 import sys
-from pathlib import Path
 from typing import Any
 
-_PIPELINES = Path(__file__).resolve().parent
-if not __package__ and str(_PIPELINES) not in sys.path:
-    sys.path.insert(0, str(_PIPELINES))
+if __package__:
+    from . import _expose_package_sibling, _local_sibling_module, _require_local_sibling
 
-_SIBLING_PREFIX = f"{__package__}." if __package__ else ""
-_preference_model = import_module(f"{_SIBLING_PREFIX}preference_model")
-json_equal = _preference_model.json_equal
-json_key = _preference_model.json_key
+    if _local_sibling_module("preference_audit_diff", allow_initializing=True):
+        import preference_audit_diff as _direct_preference_audit_diff
+
+        _require_local_sibling(
+            _direct_preference_audit_diff,
+            "preference_audit_diff",
+        )
+        del _direct_preference_audit_diff
+    from .preference_model import json_equal, json_key
+else:
+    getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
+        "preference_audit_diff"
+    )
+    from preference_model import json_equal, json_key
 
 __all__ = [
     "AUDIT_COLLECTIONS",
@@ -62,10 +69,16 @@ def _reject_duplicate_members(members: list[tuple[str, Any]]) -> dict[str, Any]:
 
     parsed: dict[str, Any] = {}
     for key, value in members:
-        if key in parsed:
-            raise ValueError(f"duplicate object member: {key!r}")
-        parsed[key] = value
+        _add_unique_member(parsed, key, value)
     return parsed
+
+
+def _add_unique_member(parsed: dict[str, Any], key: str, value: Any) -> None:
+    """Add one parsed member without permitting last-value-wins semantics."""
+
+    if key in parsed:
+        raise ValueError(f"duplicate object member: {key!r}")
+    parsed[key] = value
 
 
 def parse_expected_audit(text: str) -> Any:
@@ -368,3 +381,7 @@ def audit_differences(expected: Any, actual: dict[str, Any]) -> list[str]:
         *_audit_source_file_differences(expected, actual),
         *_audit_impure_pair_differences(expected, actual),
     ]
+
+
+if __package__:
+    _expose_package_sibling(__name__)

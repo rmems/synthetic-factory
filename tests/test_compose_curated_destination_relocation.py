@@ -38,6 +38,14 @@ class RelocationExercise:
     operation: Callable[[], None]
 
 
+def staged_root(pinned: compose_destination.PinnedDestination) -> Path:
+    """Return the unpublished root entry currently owned by one transaction."""
+
+    if pinned.staged_name is None:
+        raise AssertionError("destination is not privately staged")
+    return pinned.path.parent / pinned.staged_name
+
+
 @contextmanager
 def pinned_relocation_case(root: Path) -> Iterator[RelocationCase]:
     """Create the shared pin topology for post-open relocation races."""
@@ -69,7 +77,12 @@ def assert_relocation_rolls_back(
             "destination changed while it was pinned",
         ):
             exercise.operation()
-    test.assertEqual(list(exercise.case.moved.rglob("*")), [])
+    recovered = list(exercise.case.moved.rglob("*"))
+    test.assertEqual(len(recovered), 1)
+    test.assertTrue(
+        recovered[0].name.startswith(".synthetic-factory-rollback-"),
+        recovered,
+    )
 
 
 def relocation_exercise(case: RelocationCase, kind: str) -> RelocationExercise:
@@ -80,7 +93,7 @@ def relocation_exercise(case: RelocationCase, kind: str) -> RelocationExercise:
 
         def side_effect(parent_descriptor, name, label):
             descriptor, created = real_open(parent_descriptor, name, label)
-            case.destination.rename(case.moved)
+            staged_root(case.pinned).rename(case.moved)
             return descriptor, created
 
         def operation():
@@ -103,7 +116,7 @@ def relocation_exercise(case: RelocationCase, kind: str) -> RelocationExercise:
     def side_effect(path, flags, mode=0o777, *, dir_fd=None):
         descriptor = real_open(path, flags, mode, dir_fd=dir_fd)
         if path == "row.jsonl":
-            case.destination.rename(case.moved)
+            staged_root(case.pinned).rename(case.moved)
         return descriptor
 
     def operation():
@@ -150,7 +163,7 @@ class PinnedWriterRawRelocation(unittest.TestCase):
                 source, root / "curated"
             )
             try:
-                os.rename(root / "curated", raw / "curated")
+                os.rename(staged_root(pinned), raw / "curated")
                 with self.assertRaisesRegex(
                     compose_curated.ComposeError,
                     "relocated into immutable raw evidence",
@@ -183,7 +196,7 @@ class PinnedWriterRawRelocation(unittest.TestCase):
             moved = root / "moved-curated"
             pinned = compose_curated.create_pinned_destination(source, destination)
             try:
-                destination.rename(moved)
+                staged_root(pinned).rename(moved)
                 with self.assertRaisesRegex(
                     compose_curated.ComposeError,
                     "destination changed while it was pinned",
@@ -198,7 +211,7 @@ class PinnedWriterRawRelocation(unittest.TestCase):
                 pinned.cleanup()
 
     def test_post_create_root_relocation_rolls_back_directory(self):
-        """A root rename after mkdir must remove the just-created directory."""
+        """A root rename after mkdir must quarantine the created directory."""
 
         assert_relocation_kind_rolls_back(self, "directory")
 
@@ -211,7 +224,7 @@ class PinnedWriterRawRelocation(unittest.TestCase):
             source.mkdir()
             destination = root / "curated"
             pinned = compose_curated.create_pinned_destination(source, destination)
-            existing = destination / compose_curated.RECORDS_DIRNAME
+            existing = pinned.root / compose_curated.RECORDS_DIRNAME
             existing.mkdir()
             real_verify = compose_destination._verify_destination_target
             calls = 0
@@ -246,7 +259,7 @@ class PinnedWriterRawRelocation(unittest.TestCase):
                 pinned.cleanup()
 
     def test_post_leaf_open_root_relocation_rolls_back_file(self):
-        """A root rename after leaf creation must remove the new leaf."""
+        """A root rename after leaf creation must quarantine the new leaf."""
 
         assert_relocation_kind_rolls_back(self, "leaf")
 
@@ -317,7 +330,12 @@ class PinnedWriterRawRelocation(unittest.TestCase):
 
             def should_relocate_destination(path, dir_fd):
                 return (
-                    path == destination.name
+                    (
+                        path == destination.name
+                        or str(path).startswith(
+                            ".synthetic-factory-destination-"
+                        )
+                    )
                     and dir_fd is not None
                     and not relocated
                 )
@@ -362,7 +380,7 @@ class PinnedWriterRawRelocation(unittest.TestCase):
 
             def relocating(source_dir, destination):
                 pinned = original(source_dir, destination)
-                os.rename(destination, raw / "curated")
+                os.rename(staged_root(pinned), raw / "curated")
                 return pinned
 
             with mock.patch.object(

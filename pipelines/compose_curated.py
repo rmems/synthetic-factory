@@ -21,6 +21,13 @@ from pathlib import Path
 from typing import Any, Mapping, MutableMapping
 
 if __package__:
+    from . import _expose_package_sibling, _local_sibling_module, _require_local_sibling
+
+    if _local_sibling_module("compose_curated", allow_initializing=True):
+        import compose_curated as _direct_compose_curated
+
+        _require_local_sibling(_direct_compose_curated, "compose_curated")
+        del _direct_compose_curated
     from . import (
         compose_mill,
         curate_agentic,
@@ -76,7 +83,13 @@ if __package__:
     from .compose_curated_calibration import (
         CalibrationContext,
         CalibrationServices,
+        compact_audit_report as _compact_audit_report_impl,
         load_calibration as _load_calibration_impl,
+    )
+    from .compose_curated_coding import (
+        _retained_rewards as _retained_rewards_impl,
+        _reward_not_applicable as _reward_not_applicable_impl,
+        _reward_refusal as _reward_refusal_impl,
     )
     from .compose_curated_context import (
         RecordContext,
@@ -187,6 +200,9 @@ if __package__:
     from .record_kind import preference_side_kinds
     from .round_txn import TransactionError
 else:
+    getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
+        "compose_curated"
+    )
     import compose_mill
     import curate_agentic
     import curate_bridge
@@ -238,9 +254,15 @@ else:
     sha256_hex,
     )
     from compose_curated_calibration import (
-    CalibrationContext,
-    CalibrationServices,
-    load_calibration as _load_calibration_impl,
+        CalibrationContext,
+        CalibrationServices,
+        compact_audit_report as _compact_audit_report_impl,
+        load_calibration as _load_calibration_impl,
+    )
+    from compose_curated_coding import (
+        _retained_rewards as _retained_rewards_impl,
+        _reward_not_applicable as _reward_not_applicable_impl,
+        _reward_refusal as _reward_refusal_impl,
     )
     from compose_curated_context import (
     RecordContext,
@@ -372,6 +394,7 @@ REASON_IDENTITY_INVALID_PAYLOAD_SHAPE = (
     _identity_impl.REASON_IDENTITY_INVALID_PAYLOAD_SHAPE
 )
 CODING_STEP_ERROR_RE = _identity_impl.CODING_STEP_ERROR_RE
+PREFERENCE_STEP_ERROR_RE = _identity_impl.PREFERENCE_STEP_ERROR_RE
 _PROBE_FAILED = _identity_impl._PROBE_FAILED
 
 
@@ -489,6 +512,8 @@ def _identity_stage_evidence(
         detail["bridge_order_deferred_to_bridge_lane"] = True
     if deferred_lane == "coding":
         detail["coding_steps_deferred_to_coding_lane"] = True
+    if deferred_lane == "preferences":
+        detail["preference_steps_deferred_to_preferences_lane"] = True
     if source_side_kinds is not None:
         detail["preference_side_kinds"] = list(source_side_kinds)
     if mixed_preference_families:
@@ -574,31 +599,53 @@ def _deferred_lane_repair(
 ) -> tuple[Any, str | None]:
     if identity_result.action == "retained" or not isinstance(record, Mapping):
         return identity_result, None
-    coordinates = {
-        "source_path": source_path,
-        "source_line": source_line,
-        "source_sha256": source_sha256,
-    }
-    retries = (
-        (
+    source = SourceCoordinates(source_path, source_line, source_sha256)
+    lanes = (
+        _identity_impl.DeferredLaneRepair(
+            "bridge",
             is_bridge_record(record)
             and _is_bridge_order_only_rejection(identity_result.mapping),
-            _bridge_order_repaired_copy,
-            "bridge",
+            lambda current: _bridge_order_repaired_copy(
+                current,
+                source_path=source.path,
+                source_line=source.line,
+                source_sha256=source.sha256,
+            ),
         ),
-        (
+        _identity_impl.DeferredLaneRepair(
+            "coding",
             isinstance(record.get("steps"), list)
             and _is_coding_step_only_rejection(identity_result.mapping),
-            _coding_steps_repaired_copy,
-            "coding",
+            lambda current: _coding_steps_repaired_copy(
+                current,
+                source_path=source.path,
+                source_line=source.line,
+                source_sha256=source.sha256,
+            ),
+        ),
+        _identity_impl.DeferredLaneRepair(
+            "preferences",
+            is_preference_record(record)
+            and preference_side_kinds(record) == ("episode", "episode")
+            and _identity_impl._is_preference_step_only_rejection(
+                identity_result.mapping
+            ),
+            lambda current: _identity_impl._preference_steps_repaired_copy_with_source(
+                current, source
+            ),
         ),
     )
-    for applies, repair, lane in retries:
-        if applies:
-            retry = _identity_retry(repair(record, **coordinates), **coordinates)
-            if retry is not None:
-                return retry, lane
-    return identity_result, None
+    return _identity_impl._run_deferred_lane_repairs(
+        record,
+        identity_result,
+        lanes,
+        lambda repaired: _identity_retry(
+            repaired,
+            source_path=source.path,
+            source_line=source.line,
+            source_sha256=source.sha256,
+        ),
+    )
 
 
 def _compose_identity_stage(
@@ -626,31 +673,28 @@ def _compose_identity_stage(
         source_sha256=source_sha256,
     )
     reasons, detail = _identity_stage_evidence(
-        result,
-        deferred_lane,
-        source_side_kinds,
-        mixed_families,
+        result, deferred_lane, source_side_kinds, mixed_families
     )
+    public_action = ACTION_EXCLUDED
+    if not mixed_families and result.action == "retained":
+        public_action = ACTION_RETAINED
     stages.append(
         _stage(
             "identity",
             curate_identity.TRANSFORM_NAME,
             curate_identity.TRANSFORM_VERSION,
-            ACTION_RETAINED if result.action == "retained" else ACTION_EXCLUDED,
+            public_action,
             reason_codes=reasons,
             lane_action=result.action,
             detail=detail,
         )
     )
-    if result.action != "retained" or result.record is None:
+    if public_action == ACTION_EXCLUDED or result.record is None:
         return ComposeDecision(
             ACTION_EXCLUDED, None, tuple(reasons), tuple(stages), None, None
         )
     current: dict[str, Any] = result.record
-    if deferred_lane == "bridge":
-        current["spike_events"] = copy.deepcopy(record["spike_events"])
-    if deferred_lane == "coding":
-        current["steps"] = copy.deepcopy(record["steps"])
+    _identity_impl._restore_deferred_payload(current, record, deferred_lane)
     return current, result.mapping.get("record_kind")
 
 
@@ -1087,7 +1131,6 @@ def _compose_rewards_stage(
     source_line: int,
     calibration: Any,
 ) -> "ComposeDecision | tuple[dict[str, Any], dict[str, Any] | None]":
-    sidecar: dict[str, Any] | None = None
     try:
         annotated, reward_sidecar = curate_rewards.curate_record(
             current,
@@ -1096,56 +1139,13 @@ def _compose_rewards_stage(
             calibration=calibration,
         )
     except curate_rewards.RewardOntologyError as exc:
-        stages.append(
-            _stage(
-                "rewards",
-                curate_rewards.ANNOTATION_FIELD,
-                curate_rewards.REWARD_TRANSFORM_VERSION,
-                ACTION_EXCLUDED,
-                reason_codes=[REASON_REWARD_ONTOLOGY],
-                lane_action=ACTION_EXCLUDED,
-                detail={"error": str(exc)},
-            )
-        )
-        return ComposeDecision(
-            ACTION_EXCLUDED,
-            None,
-            (REASON_REWARD_ONTOLOGY,),
-            tuple(stages),
-            None,
-            None,
-        )
+        return _facade_delegate(_reward_refusal_impl, stages, exc)
     annotation = annotated[curate_rewards.ANNOTATION_FIELD]
     if annotation["source_reward_count"]:
-        current = annotated
-        sidecar = reward_sidecar
-        stages.append(
-            _stage(
-                "rewards",
-                curate_rewards.ANNOTATION_FIELD,
-                curate_rewards.REWARD_TRANSFORM_VERSION,
-                ACTION_RETAINED,
-                reason_codes=annotation["reason_codes"],
-                lane_action=annotation["comparability"],
-                comparability=annotation["comparability"],
-                source_sidecar_id=annotation["source_sidecar_id"],
-                source_reward_count=annotation["source_reward_count"],
-            )
+        return _facade_delegate(
+            _retained_rewards_impl, annotated, reward_sidecar, stages
         )
-    else:
-        current = annotated
-        current.pop(curate_rewards.ANNOTATION_FIELD, None)
-        stages.append(
-            _stage(
-                "rewards",
-                curate_rewards.ANNOTATION_FIELD,
-                curate_rewards.REWARD_TRANSFORM_VERSION,
-                ACTION_NOT_APPLICABLE,
-                lane_action=ACTION_NOT_APPLICABLE,
-                source_reward_count=0,
-            )
-        )
-    return current, sidecar
+    return _facade_delegate(_reward_not_applicable_impl, annotated, stages)
 
 
 def _record_services() -> RecordServices:
@@ -1509,24 +1509,7 @@ def compact_audit_report(
 ) -> dict[str, Any]:
     """Return the exact compact audit declaration stored in ``COMPOSE.json``."""
 
-    if record_count == 0:
-        return {
-            "run_dir": RECORDS_DIRNAME,
-            "records": 0,
-            "training_ready": False,
-            "blockers": [REASON_EMPTY_CORPUS],
-        }
-    if report is None:
-        raise ComposeError("nonempty compact audit requires an audit report")
-    return {
-        "run_dir": RECORDS_DIRNAME,
-        "records": report["totals"]["records"],
-        "training_ready": bool(report["training_ready"]),
-        "blockers": list(report["blockers"]),
-        "identity_coverage_pct": report["identity"]["coverage_pct"],
-        "provenance_canonical_pct": report["provenance"]["canonical_pct"],
-        "preference_context_purity_pct": report["preferences"]["context_purity_pct"],
-    }
+    return _facade_delegate(_compact_audit_report_impl, report, record_count)
 
 
 def _audit_records(records_dir: Path, record_count: int) -> dict[str, Any]:
@@ -1998,6 +1981,10 @@ __all__ = [
     "source_jsonl_members",
     "transform_contract",
 ]
+
+
+if __package__:
+    _expose_package_sibling(__name__)
 
 
 if __name__ == "__main__":

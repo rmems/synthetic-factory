@@ -64,6 +64,27 @@ class ComposePreferenceGates(unittest.TestCase):
             preference_stage["reason_codes"],
         )
 
+    def test_repairable_preference_steps_defer_through_the_facade(self):
+        pair = trajectory_preference_pair()
+        pair["chosen"]["steps"].append(None)
+        original = copy.deepcopy(pair)
+
+        decision = self._compose_pair(pair)
+
+        self.assertEqual(decision.action, compose_curated.ACTION_RETAINED)
+        self.assertEqual(pair, original)
+        identity_stage = decision.stages[0]
+        self.assertTrue(
+            identity_stage["detail"][
+                "preference_steps_deferred_to_preferences_lane"
+            ]
+        )
+        self.assertTrue(decision.record["chosen"]["id"].startswith("sfcur-"))
+        self.assertEqual(
+            decision.record["chosen"]["provenance"]["kind"], "designed"
+        )
+        self.assertEqual(self._preference_stage(decision)["lane_action"], "repaired")
+
     def test_mixed_family_sides_are_excluded_with_the_explicit_reason(self):
         mixed = trajectory_preference_pair()
         mixed["rejected"] = trajectory(action="reject", domain="mixed")
@@ -79,6 +100,7 @@ class ComposePreferenceGates(unittest.TestCase):
             rejected.stages[0]["detail"]["preference_side_kinds"],
             ["episode", "thalamic"],
         )
+        self.assertEqual(rejected.stages[0]["action"], "excluded")
 
     def test_a_missing_side_is_not_reported_as_a_family_mix(self):
         malformed = trajectory_preference_pair()
