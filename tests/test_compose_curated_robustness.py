@@ -23,6 +23,8 @@ import compose_curated  # noqa: E402
 import curate_coding  # noqa: E402
 from compose_curated_test_support import (  # noqa: E402
     episode,
+    preference_pair,
+    read_jsonl,
     thalamic,
     write_jsonl,
 )
@@ -439,6 +441,62 @@ class CalibrationLookup(unittest.TestCase):
         self.assertEqual(
             compose_curated.calibration_for(record, catalog),
             catalog["ffpc-r5-002"],
+        )
+
+    def test_preference_owner_ids_feed_reward_calibration(self):
+        """Nested chosen/rejected IDs must not lose magnitude evidence."""
+
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            source = root / "run"
+            pair = preference_pair(pure=True)
+            pair.pop("id")
+            for side in ("chosen", "rejected"):
+                pair[side]["state"]["episode_id"] = "ffpc-r5-002"
+            pair["rejected"]["reward_components"] = {
+                "task_progress": 0.1,
+                "safety": 0.1,
+                "total": 0.2,
+            }
+            write_jsonl(
+                source / "failure-as-fuel-preference-cascade" / "batch-r01.jsonl",
+                [pair],
+            )
+            calibration = source / compose_curated.FFPC_UNITS_MIGRATION
+            calibration.parent.mkdir(parents=True, exist_ok=True)
+            calibration.write_text(
+                json.dumps(
+                    {
+                        "records": [
+                            {
+                                "scope": "ffpc-r5-002",
+                                "usd_conversion_factor": 0.5,
+                            }
+                        ]
+                    }
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+
+            compose_curated.compose_run(source, root / "curated")
+            emitted = read_jsonl(
+                root
+                / "curated"
+                / compose_curated.RECORDS_DIRNAME
+                / "failure-as-fuel-preference-cascade"
+                / "batch-r01.jsonl"
+            )[0]
+
+        annotation = emitted["reward_training"]
+        self.assertEqual(annotation["comparability"], "magnitude_comparable")
+        self.assertIn(
+            "external_calibration_evidence",
+            annotation["reason_codes"],
+        )
+        self.assertNotIn(
+            "magnitude_calibration_missing",
+            annotation["reason_codes"],
         )
 
 

@@ -326,24 +326,33 @@ def _stage(lane: str, name: str, version: str, action: str, **extra: Any) -> dic
     return stage
 
 
-def _calibration_id_candidates(record: Mapping[str, Any]):
-    """Yield the record's declared source identifiers in identity's order.
+def _owner_calibration_id_candidates(owner: Mapping[str, Any]):
+    """Yield legacy IDs from one identity owner and its nested containers."""
 
-    The identity lane accepts every ``curate_identity.LEGACY_ID_KEYS`` form on
-    the record root and its ``meta``/``state`` containers, so calibration has
-    to consider the same vocabulary: an FFPC pair that carries its catalogued
-    id only as ``pair_id`` must not be silently downgraded to
-    ``sign_order_only`` while its ``id``-carrying twin calibrates.
-    """
-
-    containers = (record, record.get("meta"), record.get("state"))
-    for container in containers:
+    for container in (owner, owner.get("meta"), owner.get("state")):
         if not isinstance(container, Mapping):
             continue
         for key in curate_identity.LEGACY_ID_KEYS:
             value = container.get(key)
             if isinstance(value, str) and value.strip():
                 yield value.strip()
+
+
+def _calibration_id_candidates(record: Mapping[str, Any]):
+    """Yield the record's declared source identifiers in identity's order.
+
+    The identity lane accepts every ``curate_identity.LEGACY_ID_KEYS`` form on
+    the record root and preference owners, including their ``meta``/``state``
+    containers. Calibration has to consider the same vocabulary: an FFPC pair
+    that carries its catalogued id only on ``chosen``/``rejected`` must not be
+    silently downgraded while its wrapper-id-carrying twin calibrates.
+    """
+
+    yield from _owner_calibration_id_candidates(record)
+    for side in ("chosen", "rejected"):
+        owner = record.get(side)
+        if isinstance(owner, Mapping):
+            yield from _owner_calibration_id_candidates(owner)
 
 
 def calibration_for(record: Mapping[str, Any], catalog: Mapping[str, Any] | None) -> Any:
