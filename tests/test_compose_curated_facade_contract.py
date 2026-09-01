@@ -8,6 +8,7 @@ import importlib
 import sys
 import tempfile
 import unittest
+from contextlib import nullcontext
 from pathlib import Path
 from unittest import mock
 
@@ -89,6 +90,53 @@ HISTORICAL_BINDINGS = set(
     transform_contract write_pinned_new_bytes
     """.split()
 )
+
+BASE_ALL = """
+ACTION_EXCLUDED ACTION_NOT_APPLICABLE ACTION_RETAINED COMPOSE_NAME COMPOSE_VERSION
+ComposeDecision ComposeError FFPC_UNITS_MIGRATION LANE_ORDER MANIFEST_DIRNAME
+MANIFEST_FILENAME PREFERENCE_CANDIDATE_KEYS REASON_DUPLICATE_CURATED_RECORD
+REASON_DUPLICATE_SOURCE_RECORD REASON_EMPTY_CORPUS REASON_INVALID_JSON
+REASON_INVALID_UTF8 REASON_MIXED_PREFERENCE_FAMILIES REASON_REWARD_ONTOLOGY
+REASON_TRAJECTORY_GATE_PASSED REASON_TRAJECTORY_GOAL_NORMALIZED
+REASON_TRAJECTORY_IDENTICAL REASON_TRAJECTORY_OUTCOME_MISSING
+REASON_TRAJECTORY_OUTCOME_NOT_DIVERGENT REASON_TRAJECTORY_PREFIX_ABSENT
+REASON_TRAJECTORY_REWARD_MISSING REASON_TRAJECTORY_REWARD_NOT_DIVERGENT
+REASON_TRAJECTORY_SIDE_INVALID REASON_TRAJECTORY_STEPS_EMPTY
+REASON_TRAJECTORY_STEPS_INVALID RECORDS_DIRNAME REWARD_SIDECAR_FILENAME
+SUMMARY_FILENAME TRAJECTORY_GOAL_LOCATIONS PinnedDestination
+_TRAJECTORY_DIVERGENCE_FIELDS _TrajectoryPreferenceDecision
+_assert_descriptor_contained _assert_destination_disjoint _assert_new_destination
+_assert_opened_source_identity _assert_source_path_unchanged
+_assert_unaliased_regular_member _canonical_sha256 _collect_source_directory
+_compat_trajectory_preference _contains_raw_segments create_pinned_destination
+_create_pinned_new_directory _curate_trajectory_sides _destination_write_parts
+_directory_binding_matches _directory_identity _discard_created_destination
+_drain_descriptor _is_same_state_pair _is_under_raw _mixed_preference_families
+_normalize_trajectory_goal_whitespace _open_pinned_child
+_open_pinned_child_directory _pinned_root_path _present_trajectory_goals
+_read_exact_child_file _read_exact_regular_file _read_pinned_child_bytes
+_refuse_existing_destination _require_exact_directory _scan_source_directory
+_source_entry_metadata _source_member_path _stable_file_identity
+_trajectory_divergence_reasons _trajectory_gate_passed _trajectory_goal_owner
+_trajectory_side_needs_coding _trajectory_side_validation_errors
+_trajectory_step_reasons _validated_member_relative _verify_directory_binding
+_verify_pinned_child _whitespace_only_goal _write_new_text write_pinned_new_bytes
+calibration_for canonical_json compose_record compose_run compose_source_line
+curate_trajectory_preferences is_bridge_record is_episode_record
+is_preference_record jsonl_physical_lines main parse_args sha256_hex
+source_jsonl_members transform_contract
+""".split()
+
+BASE_COMPATIBILITY_EXPORTS = """
+os sys argparse contextlib copy json re Counter dataclass field curate_agentic
+curate_bridge curate_coding curate_preferences preference_side_kinds
+compact_audit_report mill_quarantined_decision TRAJECTORY_GOAL_LOCATIONS
+_TrajectoryPreferenceDecision BRIDGE_ORDER_ERROR_FRAGMENT
+_authenticate_composed_artifacts _claim_output_id _commit_compose_summary
+_compose_one_line _compose_run_summary _compose_source_file _new_manifest_entry
+_record_excluded_line _record_retained_line _write_compose_provenance
+_write_emitted_records
+""".split()
 
 
 HISTORICAL_SIGNATURES = dict(
@@ -184,6 +232,11 @@ class ComposeCuratedFacadeContract(unittest.TestCase):
         missing = sorted(HISTORICAL_BINDINGS - set(vars(compose_curated)))
         self.assertEqual(missing, [])
 
+    def test_all_and_compatibility_exports_match_the_base_exactly(self):
+        self.assertEqual(compose_curated.__all__, BASE_ALL)
+        expected = tuple(getattr(compose_curated, name) for name in BASE_COMPATIBILITY_EXPORTS)
+        self.assertEqual(compose_curated._COMPATIBILITY_EXPORTS, expected)
+
     def test_every_historical_callable_signature_is_restored(self):
         for name, expected in HISTORICAL_SIGNATURES.items():
             with self.subTest(name=name):
@@ -235,6 +288,120 @@ class ComposeCuratedFacadeContract(unittest.TestCase):
                     function(*positional, **named)
                 self.assertEqual(str(raised.exception), expected)
 
+    def test_historical_implementation_bindings_interpose_at_call_time(self):
+        cases = (
+            (
+                "_compose_record_impl",
+                lambda: compose_curated.compose_record(
+                    {},
+                    source_path="factory/batch.jsonl",
+                    source_line=1,
+                    source_sha256="a" * 64,
+                ),
+            ),
+            (
+                "_compose_source_line_impl",
+                lambda: compose_curated.compose_source_line(
+                    b"{}",
+                    source_path="factory/batch.jsonl",
+                    source_line=1,
+                    source_file_sha256="b" * 64,
+                ),
+            ),
+            (
+                "_compose_record_from_context",
+                lambda: compose_curated.compose_source_line(
+                    b"{}",
+                    source_path="factory/batch.jsonl",
+                    source_line=1,
+                    source_file_sha256="c" * 64,
+                ),
+            ),
+            (
+                "_only_identity_shape_details",
+                lambda: compose_curated._is_bridge_order_only_rejection({}),
+            ),
+        )
+        for binding, invocation in cases:
+            with self.subTest(binding=binding):
+                self._assert_facade_seam(binding, f"live {binding}", invocation)
+
+    def test_nested_preference_and_coding_helpers_use_live_facade_nodes(self):
+        def side_failure():
+            return compose_curated._compose_same_state_preference(
+                {}, ("thalamic", "thalamic"), [], source_path="batch.jsonl", source_line=1
+            )
+
+        def episode():
+            return compose_curated._compose_episode_preference(
+                {}, ("episode", "episode"), [], source_path="batch.jsonl", source_line=1
+            )
+
+        def append_stage():
+            return compose_curated._append_coding_lane_stage(
+                [], compose_curated.curate_coding, {}, {"action": "retained"}
+            )
+
+        def bridge_hidden():
+            return compose_curated._compose_bridge_view_coding(
+                {"language_view": {"trajectory": {"inner_monologue": "secret"}}},
+                {"inner_monologue": "secret"},
+                [],
+                source_path="batch.jsonl",
+                source_line=1,
+            )
+
+        cases = (
+            ("_side_curation_failed_decision", side_failure, (None, {}, [], False)),
+            ("_trajectory_preference", episode, ({}, {}, [], False)),
+            ("_stage", append_stage, None),
+            ("_strip_hidden_only_side", bridge_hidden, None),
+        )
+        for binding, invocation, side_result in cases:
+            with self.subTest(binding=binding):
+                side_patch = (
+                    mock.patch.object(
+                        compose_curated,
+                        "_curate_trajectory_sides",
+                        return_value=side_result,
+                    )
+                    if side_result is not None
+                    else nullcontext()
+                )
+                with side_patch:
+                    self._assert_facade_seam(binding, f"nested {binding}", invocation)
+
+        coding_binding = mock.Mock()
+        coding_binding.steps_path.side_effect = FacadeSentinel("coding binding")
+        with mock.patch.object(compose_curated, "curate_coding", coding_binding):
+            with self.assertRaisesRegex(FacadeSentinel, "coding binding"):
+                bridge_hidden()
+
+    def test_side_curation_evidence_rejects_duplicate_keyword_overrides(self):
+        reason = compose_curated.REASON_TRAJECTORY_SIDE_INVALID
+        with self.assertRaisesRegex(
+            TypeError, "multiple values for keyword argument 'reason_codes'"
+        ):
+            compose_curated._side_curation_failed_decision(
+                [],
+                {},
+                ["side_invalid"],
+                False,
+                side_kinds=("episode", "episode"),
+                classification="side_failure",
+                reason_codes=["overwritten"],
+            )
+        decision = compose_curated._side_curation_failed_decision(
+            [],
+            {},
+            [reason, "side_invalid", "side_invalid"],
+            False,
+            side_kinds=("episode", "episode"),
+            classification="side_failure",
+        )
+        self.assertEqual(decision.reason_codes, (reason, "side_invalid"))
+        self.assertEqual(tuple(decision.stages[-1]["reason_codes"]), decision.reason_codes)
+
     def test_facade_seams_are_resolved_at_call_time(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
@@ -276,9 +443,7 @@ class ComposeCuratedFacadeContract(unittest.TestCase):
                 (
                     "_capture_source_snapshot",
                     "snapshot capture",
-                    lambda: compose_curated.compose_run(
-                        root, root / "destination"
-                    ),
+                    lambda: compose_curated.compose_run(root, root / "destination"),
                 ),
             )
             for binding, message, invocation in cases:
@@ -382,11 +547,7 @@ class ComposeCuratedFacadeContract(unittest.TestCase):
                 "identity owner",
                 lambda: compose_curated._strip_assigned_ids(
                     {"nested": {"id": "record"}},
-                    {
-                        "id_mappings": [
-                            {"owner_path": "/nested", "output_id": "record"}
-                        ]
-                    },
+                    {"id_mappings": [{"owner_path": "/nested", "output_id": "record"}]},
                 ),
             ),
             (
@@ -447,9 +608,7 @@ class ComposeCuratedFacadeContract(unittest.TestCase):
 
     def test_bridge_coding_dispatch_uses_the_live_facade_helper(self):
         with (
-            mock.patch.object(
-                compose_curated, "_coding_lane_curator", return_value=None
-            ),
+            mock.patch.object(compose_curated, "_coding_lane_curator", return_value=None),
             mock.patch.object(compose_curated, "is_bridge_record", return_value=True),
             mock.patch.object(
                 compose_curated,

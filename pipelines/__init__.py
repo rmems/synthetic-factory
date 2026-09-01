@@ -46,6 +46,16 @@ def _require_local_sibling(module, name: str) -> None:
         raise ImportError(f"{name} did not resolve to the local pipeline sibling")
 
 
+def _canonical_sibling_binding(name: str, bound):
+    """Prefer a fully initialized local module over an abandoned import object."""
+
+    for module_key in (name, f"{__name__}.{name}"):
+        candidate = _local_module(name, module_key)
+        if candidate is not None:
+            return candidate
+    return bound
+
+
 def _local_package_sibling(name: str, *, allow_initializing: bool = False):
     """Return a repository-local package child, optionally while it initializes."""
 
@@ -152,6 +162,12 @@ def _load_compose_curated_identity():
     return compose_curated_identity
 
 
+def _load_compose_curated_identity_facade():
+    from . import compose_curated_identity_facade
+
+    return compose_curated_identity_facade
+
+
 def _load_compose_curated_preferences():
     from . import compose_curated_preferences
 
@@ -162,6 +178,12 @@ def _load_compose_curated_record():
     from . import compose_curated_record
 
     return compose_curated_record
+
+
+def _load_compose_curated_record_facade():
+    from . import compose_curated_record_facade
+
+    return compose_curated_record_facade
 
 
 def _load_compose_curated_run():
@@ -259,8 +281,10 @@ _PACKAGE_SIBLING_LOADERS = {
     "compose_curated_coding": _load_compose_curated_coding,
     "compose_curated_context": _load_compose_curated_context,
     "compose_curated_identity": _load_compose_curated_identity,
+    "compose_curated_identity_facade": _load_compose_curated_identity_facade,
     "compose_curated_preferences": _load_compose_curated_preferences,
     "compose_curated_record": _load_compose_curated_record,
+    "compose_curated_record_facade": _load_compose_curated_record_facade,
     "compose_curated_run": _load_compose_curated_run,
     "compose_curated_source": _load_compose_curated_source,
     "compose_destination_binding": _load_compose_destination_binding,

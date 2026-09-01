@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import importlib
 import io
+import multiprocessing
 import sys
 import unittest
 from contextlib import contextmanager, redirect_stdout
@@ -15,6 +16,31 @@ from unittest import mock
 
 REPO = Path(__file__).resolve().parents[1]
 PIPELINES = REPO / "pipelines"
+
+
+def _assert_adapter_first_process(adapter_name, adapter_mode, facade_mode):
+    if adapter_mode == "direct":
+        sys.path.insert(0, str(PIPELINES))
+        adapter = importlib.import_module(adapter_name)
+    else:
+        adapter = importlib.import_module(f"pipelines.{adapter_name}")
+    if facade_mode == "direct":
+        if str(PIPELINES) not in sys.path:
+            sys.path.insert(0, str(PIPELINES))
+        direct = importlib.import_module("compose_curated")
+        packaged = importlib.import_module("pipelines.compose_curated")
+    else:
+        packaged = importlib.import_module("pipelines.compose_curated")
+        if str(PIPELINES) not in sys.path:
+            sys.path.insert(0, str(PIPELINES))
+        direct = importlib.import_module("compose_curated")
+    other_name = f"pipelines.{adapter_name}" if adapter.__package__ == "" else adapter_name
+    if direct is not packaged:
+        raise AssertionError("compose_curated module identity diverged")
+    if adapter is not importlib.import_module(other_name):
+        raise AssertionError("adapter module identity diverged")
+    if adapter._facade() is not direct:
+        raise AssertionError("adapter bound an abandoned facade")
 
 
 class PipelinesPackageImports(unittest.TestCase):
@@ -75,8 +101,10 @@ class PipelinesPackageImports(unittest.TestCase):
         "compose_curated_coding",
         "compose_curated_context",
         "compose_curated_identity",
+        "compose_curated_identity_facade",
         "compose_curated_preferences",
         "compose_curated_record",
+        "compose_curated_record_facade",
         "compose_curated_run",
         "compose_curated_run_cli",
         "compose_curated_run_facade",
@@ -317,6 +345,33 @@ class PipelinesPackageImports(unittest.TestCase):
                 with self.subTest(name=name, first=first):
                     self._assert_run_support_module_identity(name, first)
 
+    def test_compose_adapters_import_first_bind_the_canonical_facade(self):
+        adapters = ("compose_curated_identity_facade", "compose_curated_record_facade")
+        for adapter_name in adapters:
+            for adapter_mode in ("direct", "package"):
+                for facade_mode in ("direct", "package"):
+                    with self.subTest(
+                        adapter=adapter_name,
+                        adapter_mode=adapter_mode,
+                        facade_mode=facade_mode,
+                    ):
+                        context = multiprocessing.get_context("spawn")
+                        process = context.Process(
+                            target=_assert_adapter_first_process,
+                            args=(adapter_name, adapter_mode, facade_mode),
+                        )
+                        process.start()
+                        process.join(30)
+                        if process.is_alive():
+                            process.terminate()
+                            process.join()
+                            self.fail("adapter-first import probe timed out")
+                        self.assertEqual(
+                            process.exitcode,
+                            0,
+                            "adapter-first import probe failed in its clean interpreter",
+                        )
+
     def test_split_cli_preserves_original_help_contract(self):
         """Extraction retains the core CLI's published description and option text."""
 
@@ -338,6 +393,37 @@ class PipelinesPackageImports(unittest.TestCase):
                 "exit 1 when the composed tree is not training_ready",
                 normalized_help,
             )
+
+    def test_compose_facade_preserves_internal_compatibility_bindings(self):
+        """The split retains base-era bindings beyond the documented public API."""
+
+        facade = importlib.import_module("pipelines.compose_curated")
+        historical = """
+        CalibrationContext CalibrationServices RecordContext RecordServices
+        SourceCoordinates SourceLineContext StageDefinition _COMPATIBILITY_EXPORTS
+        _authenticate_composed_artifacts_impl _calibration_services
+        _capture_source_snapshot_impl _claim_output_id_impl
+        _commit_compose_summary_impl _compose_one_line_impl
+        _compose_record_from_context _compose_record_impl _compose_run_impl
+        _compose_run_summary_impl _compose_source_file_impl
+        _compose_source_line_impl _facade_run_hooks _facade_run_services
+        _new_manifest_entry_impl _only_identity_shape_details
+        _record_excluded_line_impl _record_retained_line_impl _record_services
+        _retained_rewards_impl _reward_not_applicable_impl _reward_refusal_impl
+        _transform_contract_impl _write_compose_provenance_impl
+        _write_emitted_records_impl stage
+        """.split()
+        self.assertEqual([name for name in historical if not hasattr(facade, name)], [])
+
+    def test_compose_facade_delegate_remains_a_live_seam(self):
+        facade = importlib.import_module("pipelines.compose_curated")
+        with mock.patch.object(
+            facade,
+            "_facade_delegate",
+            side_effect=RuntimeError("facade delegation seam"),
+        ):
+            with self.assertRaisesRegex(RuntimeError, "facade delegation seam"):
+                facade.jsonl_physical_lines(b"{}\n")
 
     @contextmanager
     def _isolated_validate_run_provenance_modules(self):
