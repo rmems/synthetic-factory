@@ -5,8 +5,13 @@ from __future__ import annotations
 
 import json
 import math
+import sys
 from collections.abc import Callable, Iterable
 from typing import Any, NamedTuple
+
+if not __package__ and "pipelines.exact_json_encoding" in sys.modules:
+    from pipelines import _join_package_sibling
+    _join_package_sibling("exact_json_encoding")
 
 
 class EncoderState(NamedTuple):

@@ -35,42 +35,64 @@ import argparse
 import copy
 import hashlib
 import json
+import sys
 from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Iterable, Sequence, cast
 
-from curate_bridge_events import (
-    CLOCK_DOMAIN_KEYS as _EVENT_CLOCK_DOMAIN_KEYS,
-    EXPLICIT_ORDER_KEYS as _EVENT_EXPLICIT_ORDER_KEYS,
-    TIME_KEYS,
-    _adjacent_descents,
-    _canonical_marker as _event_canonical_marker,
-    _declared_clock_domains,
-    _explicit_order_fields,
-    _record_locator,
-)
-from curate_bridge_gate import _validate_gate_compute, _validate_gate_snn
-from curate_bridge_materialize import (
-    BridgeCurationError,
-    MaterializationConfig,
-    MaterializationContext,
-    _safe_relative_path as _materialize_safe_relative_path,
-    materialize_paths as _materialize_paths,
-)
-from curate_bridge_raster import (
-    _finite_float as _raster_finite_float,
-    _is_finite_number,
-    _nonnegative_json_integer,
-    _validate_raster,
-    _validate_third_factor as _raster_validate_third_factor,
-)
-from exact_json import (
-    dumps_exact_json,
-    exact_fraction,
-    parse_finite_json_float as _parse_exact_json_float,
-)
-from validate_run import SAFETY_DECISIONS
+
+if __package__:
+    from . import _expose_package_sibling, _local_sibling_module
+    if _local_sibling_module("curate_bridge", allow_initializing=True) is not None:
+        import curate_bridge as _direct_curate_bridge
+        del _direct_curate_bridge
+    from . import curate_bridge_events as _bridge_events
+    from . import curate_bridge_gate as _bridge_gate
+    from . import curate_bridge_materialize as _bridge_materialize
+    from . import curate_bridge_raster as _bridge_raster
+    from . import exact_json as _exact_json
+    from . import validate_run as _validate_run
+else:
+    # Join a qualified twin without importing pipelines during normal CLI use.
+    getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
+        "curate_bridge"
+    )
+    import curate_bridge_events as _bridge_events
+    import curate_bridge_gate as _bridge_gate
+    import curate_bridge_materialize as _bridge_materialize
+    import curate_bridge_raster as _bridge_raster
+    import exact_json as _exact_json
+    import validate_run as _validate_run
+
+_EVENT_CLOCK_DOMAIN_KEYS = _bridge_events.CLOCK_DOMAIN_KEYS
+_EVENT_EXPLICIT_ORDER_KEYS = _bridge_events.EXPLICIT_ORDER_KEYS
+TIME_KEYS = _bridge_events.TIME_KEYS
+_adjacent_descents = _bridge_events._adjacent_descents
+_event_canonical_marker = _bridge_events._canonical_marker
+_declared_clock_domains = _bridge_events._declared_clock_domains
+_explicit_order_fields = _bridge_events._explicit_order_fields
+_record_locator = _bridge_events._record_locator
+
+_validate_gate_compute = _bridge_gate._validate_gate_compute
+_validate_gate_snn = _bridge_gate._validate_gate_snn
+
+BridgeCurationError = _bridge_materialize.BridgeCurationError
+MaterializationConfig = _bridge_materialize.MaterializationConfig
+MaterializationContext = _bridge_materialize.MaterializationContext
+_materialize_safe_relative_path = _bridge_materialize._safe_relative_path
+_materialize_paths = _bridge_materialize.materialize_paths
+
+_raster_finite_float = _bridge_raster._finite_float
+_is_finite_number = _bridge_raster._is_finite_number
+_nonnegative_json_integer = _bridge_raster._nonnegative_json_integer
+_validate_raster = _bridge_raster._validate_raster
+_raster_validate_third_factor = _bridge_raster._validate_third_factor
+
+dumps_exact_json = _exact_json.dumps_exact_json
+exact_fraction = _exact_json.exact_fraction
+_parse_exact_json_float = _exact_json.parse_finite_json_float
+SAFETY_DECISIONS = _validate_run.SAFETY_DECISIONS
 
 # Compatibility re-exports used by downstream tests and integrations.  The
 # explicit assignments keep the ownership boundary visible to static analyzers.
@@ -1074,6 +1096,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         }
     print(dumps_exact_json(payload, ensure_ascii=False, indent=2, sort_keys=True))
     return 0
+
+
+if __package__:
+    _expose_package_sibling(__name__)
 
 
 if __name__ == "__main__":

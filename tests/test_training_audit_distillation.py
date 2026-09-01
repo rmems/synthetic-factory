@@ -207,7 +207,7 @@ class DistillationRasterAudit(unittest.TestCase):
             any("raster-gated distillation records" in item for item in report["blockers"]),
             report["blockers"],
         )
-        self.assertNotIn("NELB/TTF", " ".join(report["blockers"]))
+        self.assertEqual(report["bridge"]["wrong_kind_records"], 0)
 
     def test_bridge_record_in_thalamic_lane_is_wrong_kind(self):
         pair = gate_snn_bridge("bridge-in-thalamic")
@@ -218,6 +218,9 @@ class DistillationRasterAudit(unittest.TestCase):
         self.assertEqual(report["bridge"]["pairs"], 1)
         self.assertEqual(report["bridge"]["distillation_records"], 0)
         self.assertEqual(report["bridge"]["wrong_kind_records"], 1)
+        blockers = " ".join(report["blockers"])
+        self.assertIn("wrong-kind distillation records", blockers)
+        self.assertIn(f"non-Thalamic records in {THALAMIC_FACTORY}", blockers)
 
     def test_bridge_record_in_ouroboros_lane_names_the_supported_lane(self):
         pair = gate_snn_bridge("bridge-in-ouroboros")

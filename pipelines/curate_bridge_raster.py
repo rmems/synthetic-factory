@@ -6,27 +6,54 @@ from __future__ import annotations
 from fractions import Fraction
 from typing import Any
 
-from curate_bridge_raster_numbers import (
-    REASON_RASTER_SPIKE_BUDGET as _NUMERIC_REASON_RASTER_SPIKE_BUDGET,
-    _PositiveAliases,
-    _ValidationState,
-    _alias_pair_valid,
-    _expected_spikes as _numeric_expected_spikes,
-    _finite_float as _numeric_finite_float,
-    _is_exact_finite_number,
-    _is_finite_number,
-    _nonblank_text,
-    _nonnegative_int as _numeric_nonnegative_int,
-    _nonnegative_json_integer,
-    _positive_int as _numeric_positive_int,
-    _positive_number,
-    _raster_energy_field,
-    _raster_spike_budget,
-    _spike_energy,
-    _valid_routing_entry,
-    _validation_state,
-)
-from exact_json import exact_fraction, json_number_from_fraction
+if __package__:
+    from . import _expose_package_sibling, _local_sibling_module
+    if _local_sibling_module("curate_bridge_raster", allow_initializing=True) is not None:
+        import curate_bridge_raster as _direct_curate_bridge_raster
+        del _direct_curate_bridge_raster
+    from .curate_bridge_raster_numbers import (
+        REASON_RASTER_SPIKE_BUDGET as _NUMERIC_REASON_RASTER_SPIKE_BUDGET,
+        _PositiveAliases,
+        _ValidationState,
+        _alias_pair_valid,
+        _expected_spikes as _numeric_expected_spikes,
+        _finite_float as _numeric_finite_float,
+        _is_exact_finite_number,
+        _is_finite_number,
+        _nonblank_text,
+        _nonnegative_int as _numeric_nonnegative_int,
+        _nonnegative_json_integer,
+        _positive_int as _numeric_positive_int,
+        _positive_number,
+        _raster_energy_field,
+        _raster_spike_budget,
+        _spike_energy,
+        _valid_routing_entry,
+        _validation_state,
+    )
+    from .exact_json import exact_fraction, json_number_from_fraction
+else:
+    from curate_bridge_raster_numbers import (
+        REASON_RASTER_SPIKE_BUDGET as _NUMERIC_REASON_RASTER_SPIKE_BUDGET,
+        _PositiveAliases,
+        _ValidationState,
+        _alias_pair_valid,
+        _expected_spikes as _numeric_expected_spikes,
+        _finite_float as _numeric_finite_float,
+        _is_exact_finite_number,
+        _is_finite_number,
+        _nonblank_text,
+        _nonnegative_int as _numeric_nonnegative_int,
+        _nonnegative_json_integer,
+        _positive_int as _numeric_positive_int,
+        _positive_number,
+        _raster_energy_field,
+        _raster_spike_budget,
+        _spike_energy,
+        _valid_routing_entry,
+        _validation_state,
+    )
+    from exact_json import exact_fraction, json_number_from_fraction
 
 # Compatibility exports used by the public Bridge facade and gate validators.
 REASON_RASTER_SPIKE_BUDGET = _NUMERIC_REASON_RASTER_SPIKE_BUDGET
@@ -405,3 +432,7 @@ def _validate_raster(
     _validate_raster_energy(raster, spikes, budget_ready, state)
     _validate_raster_routing(raster.get("routing"), require_routing_table, reason_codes, evidence)
     _validate_raster_excerpt(raster.get("excerpt"), window_ms, neurons, state)
+
+
+if __package__:
+    _expose_package_sibling(__name__)

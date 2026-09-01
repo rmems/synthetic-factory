@@ -23,7 +23,10 @@ from exact_json import (  # noqa: E402
     dumps_exact_json,
     parse_finite_json_float as _parse_exact_json_float,
 )
-from round_txn_raster import RASTER_FACTORY_SLUGS  # noqa: E402
+from round_txn_raster import (  # noqa: E402
+    BRIDGE_FACTORY_SLUG,
+    RASTER_FACTORY_SLUGS,
+)
 from validate_run import reject_json_constant  # noqa: E402
 
 REASON_INPUT_UNREADABLE = "BRIDGE_SOURCE_UNREADABLE"
@@ -40,9 +43,18 @@ def _expanded_jsonl_targets(targets: Iterable[str | Path]) -> Iterator[Path]:
 def _is_raster_factory_path(path: Path) -> bool:
     """Return whether a JSONL path is enclosed by a raster-gated factory."""
 
-    supplied_parts = path.parts
-    resolved_parts = _resolved_identity(path).parts
-    return any(part in RASTER_FACTORY_SLUGS for part in (*supplied_parts, *resolved_parts))
+    return _raster_factory_kind(path) is not None
+
+
+def _raster_factory_kind(path: Path) -> str | None:
+    """Return the distillation record kind implied by a raster factory path."""
+
+    for parts in (path.parts, _resolved_identity(path).parts):
+        for part in reversed(parts):
+            if part not in RASTER_FACTORY_SLUGS:
+                continue
+            return "bridge" if part == BRIDGE_FACTORY_SLUG else "thalamic"
+    return None
 
 
 def _resolved_identity(path: Path) -> Path:

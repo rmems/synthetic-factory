@@ -4,8 +4,6 @@
 from __future__ import annotations
 
 import copy
-import importlib
-import importlib.util
 import io
 import json
 import sys
@@ -36,34 +34,19 @@ FIXTURE = PIPELINES.parent / "tests" / "fixtures" / "bridge_gate_snn.jsonl"
 
 class ExactJSONNumbers(unittest.TestCase):
     def test_exact_json_imports_through_the_pipelines_namespace(self):
-        module_name = "pipelines.exact_json"
-        encoding_name = "pipelines.exact_json_encoding"
-        cached_module = sys.modules.pop(module_name, None)
-        cached_encoding = sys.modules.pop(encoding_name, None)
-        cached_top_level_encoding = sys.modules.pop("exact_json_encoding", None)
-        try:
-            with mock.patch.object(
-                sys,
-                "path",
-                [entry for entry in sys.path if entry != str(PIPELINES)],
-            ):
-                imported = importlib.import_module(module_name)
-            self.assertEqual(imported.dumps_exact_json({"value": 1}), '{"value":1}')
-        finally:
-            sys.modules.pop(module_name, None)
-            sys.modules.pop(encoding_name, None)
-            if cached_module is not None:
-                sys.modules[module_name] = cached_module
-            if cached_encoding is not None:
-                sys.modules[encoding_name] = cached_encoding
-            if cached_top_level_encoding is not None:
-                sys.modules["exact_json_encoding"] = cached_top_level_encoding
+        with mock.patch.object(
+            sys,
+            "path",
+            [entry for entry in sys.path if entry != str(PIPELINES)],
+        ):
+            from pipelines import exact_json as packaged_exact_json
+
+        self.assertEqual(packaged_exact_json.dumps_exact_json({"value": 1}), '{"value":1}')
 
     def test_encoder_module_preserves_exact_tokens_and_sorted_keys(self):
-        spec = importlib.util.find_spec("exact_json_encoding")
-        self.assertIsNotNone(spec, "exact JSON encoding needs an isolated module boundary")
-        encoding = importlib.import_module("exact_json_encoding")
-        state = encoding.EncoderState(
+        from exact_json_encoding import EncoderState, encode_exact_json
+
+        state = EncoderState(
             ensure_ascii=False,
             sort_keys=True,
             indent=None,
@@ -72,7 +55,7 @@ class ExactJSONNumbers(unittest.TestCase):
             max_nesting_depth=MAX_JSON_NESTING_DEPTH,
         )
 
-        encoded = encoding.encode_exact_json(
+        encoded = encode_exact_json(
             {"z": parse_finite_json_float("1.00000000000000001"), "a": 2},
             state,
         )

@@ -7,12 +7,24 @@ import math
 from dataclasses import dataclass
 from typing import Any
 
-from exact_json import (
-    exact_fraction,
-    exact_json_integer,
-    json_integer_is_bounded,
-    json_number_from_fraction,
-)
+if __package__:
+    from . import _expose_package_sibling, _local_sibling_module
+    if _local_sibling_module("curate_bridge_raster_numbers", allow_initializing=True) is not None:
+        import curate_bridge_raster_numbers as _direct_curate_bridge_raster_numbers
+        del _direct_curate_bridge_raster_numbers
+    from .exact_json import (
+        exact_fraction,
+        exact_json_integer,
+        json_integer_is_bounded,
+        json_number_from_fraction,
+    )
+else:
+    from exact_json import (
+        exact_fraction,
+        exact_json_integer,
+        json_integer_is_bounded,
+        json_number_from_fraction,
+    )
 
 
 REASON_RASTER_SPIKE_BUDGET = "BRIDGE_SPIKE_BUDGET_MISMATCH"
@@ -90,7 +102,7 @@ def _nonnegative_json_integer(value: Any) -> int | None:
 
 def _expected_spikes(neurons: Any, mean_rate_hz: Any, window_s: Any) -> int | None:
     normalized_neurons = _nonnegative_json_integer(neurons)
-    if normalized_neurons is None or _finite_float(normalized_neurons) is None:
+    if normalized_neurons is None:
         return None
     rate_float = _finite_float(mean_rate_hz)
     window_float = _finite_float(window_s)
@@ -207,3 +219,7 @@ def _valid_routing_entry(entry: Any) -> bool:
     if not _nonblank_text(entry.get("to")):
         return False
     return _is_finite_number(entry.get("weight"))
+
+
+if __package__:
+    _expose_package_sibling(__name__)

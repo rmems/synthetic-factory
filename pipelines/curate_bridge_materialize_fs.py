@@ -11,6 +11,18 @@ from collections.abc import Iterable
 from pathlib import Path
 
 
+if __package__:
+    from . import _expose_package_sibling, _local_sibling_module
+    if _local_sibling_module("curate_bridge_materialize_fs", allow_initializing=True) is not None:
+        import curate_bridge_materialize_fs as _direct_curate_bridge_materialize_fs
+        del _direct_curate_bridge_materialize_fs
+else:
+    # Join a qualified twin without importing pipelines during normal CLI use.
+    getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
+        "curate_bridge_materialize_fs"
+    )
+
+
 _AT_FDCWD = -100
 _RENAME_NOREPLACE = 1
 
@@ -136,3 +148,7 @@ def _symlinked_ancestor(path: Path) -> Path | None:
         if current.is_symlink():
             return current
     return None
+
+
+if __package__:
+    _expose_package_sibling(__name__)

@@ -291,6 +291,7 @@ class LoadRasters(unittest.TestCase):
                 }
             )
             del record["raster"]
+            del record["future_outcome"]
             write(root / "thalamic-trajectory-factory" / "batch-r01.jsonl", [record])
             rasters, problems = spike_probe.load_rasters([root])
 

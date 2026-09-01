@@ -19,8 +19,16 @@ import re
 import sys
 from pathlib import Path
 
-from exact_json import parse_finite_json_float as _parse_exact_json_float
-import validate_run_spikes as _validate_run_spikes
+if __package__:
+    from . import _expose_package_sibling, _local_sibling_module
+    if _local_sibling_module("validate_run", allow_initializing=True) is not None:
+        import validate_run as _direct_validate_run
+        del _direct_validate_run
+    from .exact_json import parse_finite_json_float as _parse_exact_json_float
+    from . import validate_run_spikes as _validate_run_spikes
+else:
+    from exact_json import parse_finite_json_float as _parse_exact_json_float
+    import validate_run_spikes as _validate_run_spikes
 
 # Historical public compatibility surface. Explicit binding keeps these names
 # importable without asking static analyzers to treat unused imports as use.
@@ -1477,6 +1485,10 @@ def main(argv=None):
     for err in manifest["errors"]:
         print("ERROR:", err, file=sys.stderr)
     sys.exit(1 if manifest["errors"] else 0)
+
+
+if __package__:
+    _expose_package_sibling(__name__)
 
 
 if __name__ == "__main__":

@@ -46,7 +46,7 @@ from spike_probe_normalize import (  # noqa: E402
     normalize_raster,
 )
 from spike_probe_source import (  # noqa: E402
-    _is_raster_factory_path,
+    _raster_factory_kind,
     _records_in_path,
     iter_records as iter_records,
     jsonl_paths,
@@ -84,16 +84,19 @@ def _malformed_raster_problem(
     where: str,
     record: Any,
     *,
-    raster_gated_path: bool,
+    raster_path_kind: str | None,
 ) -> dict[str, Any] | None:
-    if not raster_gated_path and not _is_bridge_near_match(record):
+    if raster_path_kind is None and not _is_bridge_near_match(record):
         return None
-    return _problem(
+    problem = _problem(
         where,
         "distillation_record",
         (REASON_NOT_BRIDGE,),
         record=record,
     )
+    if "record_kind" not in problem and raster_path_kind is not None:
+        problem["record_kind"] = raster_path_kind
+    return problem
 
 
 def _problem(
@@ -111,9 +114,9 @@ def _problem(
         "scope": scope,
         "reason_codes": list(reason_codes),
     }
-    record_kind = _raster_record_kind(record)
-    if record_kind is not None:
-        problem["record_kind"] = record_kind
+    classified_kind = _raster_record_kind(record)
+    if classified_kind is not None:
+        problem["record_kind"] = classified_kind
     return problem
 
 
@@ -122,7 +125,7 @@ def _probe_record(
     record: Any,
     input_problem: str | None,
     *,
-    raster_gated_path: bool = False,
+    raster_path_kind: str | None = None,
 ) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
     """Classify one parsed input as a raster, a problem, or out of scope."""
 
@@ -132,7 +135,7 @@ def _probe_record(
         return None, _malformed_raster_problem(
             where,
             record,
-            raster_gated_path=raster_gated_path,
+            raster_path_kind=raster_path_kind,
         )
     record_kind = _raster_record_kind(record)
     normalized = normalize_raster(record, source=where)
@@ -159,11 +162,11 @@ def load_rasters(
     rasters: list[dict[str, Any]] = []
     problems: list[dict[str, Any]] = []
     for path in jsonl_paths(targets):
-        raster_gated_path = _is_raster_factory_path(path)
+        raster_path_kind = _raster_factory_kind(path)
         for item in _records_in_path(path):
             normalized, problem = _probe_record(
                 *item,
-                raster_gated_path=raster_gated_path,
+                raster_path_kind=raster_path_kind,
             )
             if normalized is not None:
                 rasters.append(normalized)

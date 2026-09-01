@@ -12,12 +12,16 @@ from __future__ import annotations
 
 import math
 import re
+import sys
 from fractions import Fraction
 from typing import Any
 
 if __package__:
     from .exact_json_encoding import EncoderState, encode_exact_json
 else:
+    if "pipelines.exact_json" in sys.modules:
+        from pipelines import _join_package_sibling
+        _join_package_sibling("exact_json")
     from exact_json_encoding import EncoderState, encode_exact_json
 
 

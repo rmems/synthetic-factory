@@ -6,6 +6,7 @@ from __future__ import annotations
 import json
 import os
 import shutil
+import sys
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
@@ -13,6 +14,10 @@ from typing import Any, Callable, Iterable, Sequence
 
 
 if __package__:
+    from . import _expose_package_sibling, _local_sibling_module
+    if _local_sibling_module("curate_bridge_materialize", allow_initializing=True) is not None:
+        import curate_bridge_materialize as _direct_curate_bridge_materialize
+        del _direct_curate_bridge_materialize
     from .curate_bridge_materialize_fs import (
         BridgeCurationError,
         _is_under_raw,
@@ -27,6 +32,10 @@ if __package__:
         _write_exclusive,
     )
 else:
+    # Join a qualified twin without importing pipelines during normal CLI use.
+    getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
+        "curate_bridge_materialize"
+    )
     from curate_bridge_materialize_fs import (
         BridgeCurationError,
         _is_under_raw,
@@ -339,3 +348,7 @@ def materialize_paths(
         )
     _publish_materialized_tree(destination, decisions, manifest_relative, context)
     return decisions
+
+
+if __package__:
+    _expose_package_sibling(__name__)

@@ -271,24 +271,20 @@ def weighted_components(rc, weights):
 
 def _weighted_reward_findings(rc, where, total):
     """Return weighted findings, or ``None`` when no numeric weights apply."""
+
     weights = rc.get("weights")
     if not isinstance(weights, dict):
         return None
-    declared = {
-        key: float(weight)
-        for key, weight in weights.items()
-        if key not in WEIGHTED_SKIP_KEYS and is_number(weight)
-    }
-    if not declared:
-        return None
     values, missing = weighted_components(rc, weights)
+    if not values and not missing:
+        return None
     if missing:
         warning = (
             f"{where}: unsupported weighted reward layout; missing components "
             f"{', '.join(sorted(missing))}; skipped arithmetic check"
         )
         return [], [warning]
-    recomputed = sum(values[key] * declared[key] for key in declared)
+    recomputed = sum(values[key] * float(weights[key]) for key in values)
     tolerance = reward_tolerance(rc)
     if abs(recomputed - total) <= tolerance:
         return [], []

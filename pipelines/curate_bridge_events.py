@@ -5,7 +5,14 @@ from __future__ import annotations
 
 from typing import Any, Sequence
 
-from exact_json import dumps_exact_json, exact_fraction
+if __package__:
+    from . import _expose_package_sibling, _local_sibling_module
+    if _local_sibling_module("curate_bridge_events", allow_initializing=True) is not None:
+        import curate_bridge_events as _direct_curate_bridge_events
+        del _direct_curate_bridge_events
+    from .exact_json import dumps_exact_json, exact_fraction
+else:
+    from exact_json import dumps_exact_json, exact_fraction
 
 
 TIME_KEYS = ("t_rel_ms", "t_ms")
@@ -107,3 +114,7 @@ def _adjacent_descents(times: Sequence[Any]) -> list[dict[str, Any]]:
         for index in range(1, len(times))
         if exact_fraction(times[index]) < exact_fraction(times[index - 1])
     ]
+
+
+if __package__:
+    _expose_package_sibling(__name__)

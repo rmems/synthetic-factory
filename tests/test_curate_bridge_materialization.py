@@ -4,7 +4,6 @@
 from __future__ import annotations
 
 import contextlib
-import importlib
 import io
 import json
 import sys
@@ -164,6 +163,26 @@ class BridgeMaterialization(unittest.TestCase):
 
         self.assertEqual([decision.action for decision in decisions], ["retain"])
         self.assertIn('"mean_rate_hz":25.000000000000001', materialized)
+
+    def test_raster_budget_accepts_bounded_integers_beyond_binary_float_range(self):
+        neurons = 10**309
+        record = materialized_record([event(1, "exact-integer")], "exact-integer")
+        record["raster"].update(
+            {
+                "window_ms": 50,
+                "window_s": 0.05,
+                "neurons": neurons,
+                "mean_rate_hz": 20,
+                "spikes": neurons,
+            }
+        )
+        record["raster"].pop("energy_pJ", None)
+        record["raster"].pop("energy_uJ", None)
+
+        status = curate_bridge.raster_status(record)
+
+        self.assertTrue(status["raster_valid"], status)
+        self.assertEqual(status["evidence"]["raster_expected_spikes"], neurons)
 
     def test_materialization_quarantines_invalid_safety_supervision(self):
         cases = (
@@ -475,23 +494,14 @@ class BridgeMaterialization(unittest.TestCase):
 
     def test_materializer_imports_through_the_pipelines_namespace(self):
         pipelines_path = str(Path(__file__).resolve().parents[1] / "pipelines")
-        module_name = "pipelines.curate_bridge_materialize"
-        cached_package_module = sys.modules.pop(module_name, None)
-        cached_top_level_helper = sys.modules.pop("curate_bridge_materialize_fs", None)
-        try:
-            with mock.patch.object(
-                sys,
-                "path",
-                [entry for entry in sys.path if entry != pipelines_path],
-            ):
-                imported = importlib.import_module(module_name)
-            self.assertTrue(issubclass(imported.BridgeCurationError, ValueError))
-        finally:
-            sys.modules.pop(module_name, None)
-            if cached_package_module is not None:
-                sys.modules[module_name] = cached_package_module
-            if cached_top_level_helper is not None:
-                sys.modules["curate_bridge_materialize_fs"] = cached_top_level_helper
+        with mock.patch.object(
+            sys,
+            "path",
+            [entry for entry in sys.path if entry != pipelines_path],
+        ):
+            from pipelines import curate_bridge_materialize as packaged_materializer
+
+        self.assertTrue(issubclass(packaged_materializer.BridgeCurationError, ValueError))
 
     def test_linux_publication_fails_explicitly_without_renameat2(self):
         with (

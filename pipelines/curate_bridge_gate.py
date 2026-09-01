@@ -5,28 +5,56 @@ from __future__ import annotations
 
 from typing import Any
 
-from exact_json import json_integer_is_bounded
-from curate_bridge_raster import (
-    RASTER_ENERGY_PJ_PER_SPIKE,
-    RASTER_ENERGY_UJ_PER_SPIKE,
-    REASON_GATE_SNN_INVALID,
-    REASON_RASTER_ENERGY,
-    REASON_RASTER_SPIKE_BUDGET,
-    _PositiveAliases,
-    _ValidationState,
-    _alias_pair_valid,
-    _expected_spikes,
-    _is_finite_number,
-    _nonblank_text,
-    _nonnegative_int,
-    _nonnegative_json_integer,
-    _positive_aliases,
-    _positive_int,
-    _raster_energy_field,
-    _record_alias_derivation,
-    _spike_energy,
-    _validation_state,
-)
+if __package__:
+    from . import _expose_package_sibling, _local_sibling_module
+    if _local_sibling_module("curate_bridge_gate", allow_initializing=True) is not None:
+        import curate_bridge_gate as _direct_curate_bridge_gate
+        del _direct_curate_bridge_gate
+    from .exact_json import json_integer_is_bounded
+    from .curate_bridge_raster import (
+        RASTER_ENERGY_PJ_PER_SPIKE,
+        RASTER_ENERGY_UJ_PER_SPIKE,
+        REASON_GATE_SNN_INVALID,
+        REASON_RASTER_ENERGY,
+        REASON_RASTER_SPIKE_BUDGET,
+        _PositiveAliases,
+        _ValidationState,
+        _alias_pair_valid,
+        _expected_spikes,
+        _is_finite_number,
+        _nonblank_text,
+        _nonnegative_int,
+        _nonnegative_json_integer,
+        _positive_aliases,
+        _positive_int,
+        _raster_energy_field,
+        _record_alias_derivation,
+        _spike_energy,
+        _validation_state,
+    )
+else:
+    from exact_json import json_integer_is_bounded
+    from curate_bridge_raster import (
+        RASTER_ENERGY_PJ_PER_SPIKE,
+        RASTER_ENERGY_UJ_PER_SPIKE,
+        REASON_GATE_SNN_INVALID,
+        REASON_RASTER_ENERGY,
+        REASON_RASTER_SPIKE_BUDGET,
+        _PositiveAliases,
+        _ValidationState,
+        _alias_pair_valid,
+        _expected_spikes,
+        _is_finite_number,
+        _nonblank_text,
+        _nonnegative_int,
+        _nonnegative_json_integer,
+        _positive_aliases,
+        _positive_int,
+        _raster_energy_field,
+        _record_alias_derivation,
+        _spike_energy,
+        _validation_state,
+    )
 
 
 _NO_EXPECTED_DECISION = object()
@@ -389,3 +417,7 @@ def _validate_gate_compute(
         return
     total_spikes = _validate_gate_checks(gate_compute, reason_codes, evidence)
     _validate_gate_energy(gate_compute, total_spikes, reason_codes, evidence)
+
+
+if __package__:
+    _expose_package_sibling(__name__)
