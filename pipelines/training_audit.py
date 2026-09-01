@@ -140,19 +140,22 @@ def wrapped_agentic_episodes(obj, kind):
         yield path, executed_action
 
 
+def _reward_shape_type(value):
+    if isinstance(value, dict):
+        return "value-object" if isinstance(value.get("value"), (int, float)) else "object"
+    if isinstance(value, list):
+        return "array"
+    if isinstance(value, float):
+        return "float"
+    return type(value).__name__
+
+
 def reward_shape(value):
     if not isinstance(value, dict):
-        return type(value).__name__
-    shape = []
-    for key, item in sorted(value.items()):
-        if isinstance(item, dict):
-            subtype = "value-object" if isinstance(item.get("value"), (int, float)) else "object"
-        elif isinstance(item, list):
-            subtype = "array"
-        else:
-            subtype = type(item).__name__
-        shape.append(f"{key}:{subtype}")
-    return "|".join(shape)
+        return _reward_shape_type(value)
+    return "|".join(
+        f"{key}:{_reward_shape_type(item)}" for key, item in sorted(value.items())
+    )
 
 
 def _thalamic_context_purity(chosen, rejected):

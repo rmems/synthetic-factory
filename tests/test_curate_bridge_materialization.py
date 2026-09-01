@@ -4,12 +4,14 @@
 from __future__ import annotations
 
 import contextlib
+import importlib
 import io
 import json
+import sys
 import tempfile
 import unittest
 from fractions import Fraction
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 from unittest import mock
 
 try:
@@ -465,6 +467,31 @@ class BridgeMaterialization(unittest.TestCase):
             ),
         ):
             curate_bridge_materialize._rename_noreplace(source, destination)
+
+    def test_windows_rooted_relative_path_is_rejected_on_linux(self):
+        rooted = PureWindowsPath(r"\escape.json")
+
+        self.assertTrue(curate_bridge_materialize._unsafe_relative_path(rooted))
+
+    def test_materializer_imports_through_the_pipelines_namespace(self):
+        pipelines_path = str(Path(__file__).resolve().parents[1] / "pipelines")
+        module_name = "pipelines.curate_bridge_materialize"
+        cached_package_module = sys.modules.pop(module_name, None)
+        cached_top_level_helper = sys.modules.pop("curate_bridge_materialize_fs", None)
+        try:
+            with mock.patch.object(
+                sys,
+                "path",
+                [entry for entry in sys.path if entry != pipelines_path],
+            ):
+                imported = importlib.import_module(module_name)
+            self.assertTrue(issubclass(imported.BridgeCurationError, ValueError))
+        finally:
+            sys.modules.pop(module_name, None)
+            if cached_package_module is not None:
+                sys.modules[module_name] = cached_package_module
+            if cached_top_level_helper is not None:
+                sys.modules["curate_bridge_materialize_fs"] = cached_top_level_helper
 
     def test_linux_publication_fails_explicitly_without_renameat2(self):
         with (

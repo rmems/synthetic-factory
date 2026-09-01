@@ -57,6 +57,30 @@ def write_records(path, records):
     path.write_text("".join(json.dumps(record) + "\n" for record in records))
 
 
+def write_completion_marker(round_txn, factory, batch, notes):
+    """Write the ordinary one-record, two-artifact completion fixture."""
+    round_number = int(batch.stem.rsplit("-r", 1)[1])
+    marker = factory / f"ROUND-r{round_number:02d}.complete.json"
+    marker.write_text(
+        json.dumps(
+            {
+                "version": 1,
+                "factory": factory.name,
+                "round": round_number,
+                "records": 1,
+                "expected_records": 1,
+                "commit_point": marker.name,
+                "files": [
+                    {"name": batch.name, "sha256": round_txn.file_sha256(batch)},
+                    {"name": notes.name, "sha256": round_txn.file_sha256(notes)},
+                ],
+            }
+        )
+        + "\n"
+    )
+    return marker
+
+
 def raw_factory(root, slug):
     path = Path(root) / "outputs" / "raw" / "2099-01-01" / slug
     path.mkdir(parents=True)

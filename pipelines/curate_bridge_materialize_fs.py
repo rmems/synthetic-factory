@@ -25,7 +25,7 @@ def _is_under_raw(path: Path) -> bool:
 
 
 def _unsafe_relative_path(path: Path) -> bool:
-    if path.is_absolute():
+    if path.is_absolute() or bool(path.anchor):
         return True
     if not path.parts:
         return True

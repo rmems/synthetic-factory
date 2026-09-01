@@ -68,6 +68,18 @@ def _is_supported_raster_record(record: Any) -> bool:
     return is_bridge_record(record) or is_thalamic_record(record)
 
 
+def _raster_record_kind(record: Any) -> str | None:
+    """Return the supported distillation lane kind for one record."""
+
+    if is_bridge_record(record):
+        return "bridge"
+    if is_thalamic_record(record):
+        return "thalamic"
+    if _is_bridge_near_match(record):
+        return "bridge"
+    return None
+
+
 def _malformed_raster_problem(
     where: str,
     record: Any,
@@ -78,9 +90,9 @@ def _malformed_raster_problem(
         return None
     return _problem(
         where,
-        "bridge_record",
+        "distillation_record",
         (REASON_NOT_BRIDGE,),
-        record_id=_record_id(record),
+        record=record,
     )
 
 
@@ -89,16 +101,20 @@ def _problem(
     scope: str,
     reason_codes: Iterable[str],
     *,
-    record_id: str | None = None,
+    record: Any = None,
 ) -> dict[str, Any]:
     """Build the stable problem envelope shared by input and record failures."""
 
-    return {
+    problem = {
         "source": where,
-        "record_id": record_id,
+        "record_id": _record_id(record),
         "scope": scope,
         "reason_codes": list(reason_codes),
     }
+    record_kind = _raster_record_kind(record)
+    if record_kind is not None:
+        problem["record_kind"] = record_kind
+    return problem
 
 
 def _probe_record(
@@ -118,8 +134,10 @@ def _probe_record(
             record,
             raster_gated_path=raster_gated_path,
         )
+    record_kind = _raster_record_kind(record)
     normalized = normalize_raster(record, source=where)
     if normalized is not None:
+        normalized["record_kind"] = record_kind
         return normalized, None
     status = raster_status(record)
     reason_codes = list(status["reason_codes"])
@@ -127,9 +145,9 @@ def _probe_record(
         reason_codes.append("BRIDGE_RASTER_ROUTING_MISSING")
     return None, _problem(
         where,
-        "bridge_record",
+        "distillation_record",
         reason_codes,
-        record_id=_record_id(record),
+        record=record,
     )
 
 
@@ -160,16 +178,32 @@ def _exact_integer(value: Any) -> int:
     return value if _is_exact_int(value) else 0
 
 
+def _record_kind_counts(rasters, problems):
+    """Return loaded and unloadable counts grouped by distillation kind."""
+
+    loaded = Counter(raster.get("record_kind", "bridge") for raster in rasters)
+    unloadable = Counter(
+        problem.get("record_kind")
+        for problem in problems
+        if problem.get("scope") == "distillation_record"
+    )
+    return loaded, unloadable
+
+
 def summarize(rasters, problems, targets):
     """Aggregate loaded rasters into a machine-readable probe report."""
 
     spikes = sum(_exact_integer(raster["spikes"]) for raster in rasters)
     scope_counts = Counter(problem.get("scope") for problem in problems)
+    loaded_kinds, unloadable_kinds = _record_kind_counts(rasters, problems)
+    distillation_records = len(rasters) + scope_counts["distillation_record"]
     return {
         "targets": [str(target) for target in targets],
-        "bridge_records": len(rasters) + scope_counts["bridge_record"],
+        "distillation_records": distillation_records,
+        "bridge_records": loaded_kinds["bridge"] + unloadable_kinds["bridge"],
+        "thalamic_records": loaded_kinds["thalamic"] + unloadable_kinds["thalamic"],
         "loaded": len(rasters),
-        "unloadable": scope_counts["bridge_record"],
+        "unloadable": scope_counts["distillation_record"],
         "input_errors": scope_counts["input"],
         "events": sum(len(raster["events"]) for raster in rasters),
         "spikes": spikes,

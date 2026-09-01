@@ -53,6 +53,16 @@ def decide(record):
 
 
 class BridgeTimingCuration(unittest.TestCase):
+    def test_event_preflight_quarantines_an_empty_bridge_stream(self):
+        helper = getattr(curate_bridge, "_bridge_event_preflight", None)
+        self.assertIsNotNone(helper, "bridge shape exits need one preflight boundary")
+
+        events, reason_codes, evidence = helper(bridge([]))
+
+        self.assertIsNone(events)
+        self.assertEqual(reason_codes, [curate_bridge.REASON_EMPTY_STREAM])
+        self.assertEqual(evidence, {"event_count": 0})
+
     def test_source_hash_remains_a_required_keyword(self):
         with self.assertRaisesRegex(TypeError, "source_hash"):
             curate_bridge.curate_record(

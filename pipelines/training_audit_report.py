@@ -6,7 +6,11 @@ import math
 import statistics
 
 from check_records import ALLOWED_PROVENANCE
-from distillation_audit import BRIDGE_FACTORY_SLUG, THALAMIC_FACTORY_SLUG
+from distillation_audit import (
+    BRIDGE_FACTORY_SLUG,
+    OUROBOROS_FACTORY_SLUG,
+    THALAMIC_FACTORY_SLUG,
+)
 
 
 def _corpus_blockers(state):
@@ -55,17 +59,18 @@ def _distillation_blockers(bridge):
         blockers.append(
             f"{bridge['wrong_kind_records']} wrong-kind distillation records "
             f"(non-Bridge records in {BRIDGE_FACTORY_SLUG} batches, "
-            f"non-Thalamic records in {THALAMIC_FACTORY_SLUG} batches)"
+            f"non-Thalamic records in {THALAMIC_FACTORY_SLUG} or "
+            f"{OUROBOROS_FACTORY_SLUG} batches)"
         )
 
     messages = (
         (
             "raster_missing_pairs",
-            "NELB/TTF records lack a 20-50 ms raster excerpt sidecar",
+            "raster-gated distillation records lack a 20-50 ms raster excerpt sidecar",
         ),
         (
             "raster_routing_table_missing_pairs",
-            "NELB/TTF rasters lack a routing table",
+            "raster-gated distillation rasters lack a routing table",
         ),
     )
     for key, message in messages:
@@ -77,7 +82,7 @@ def _distillation_blockers(bridge):
     if defects:
         codes = ", ".join(sorted(bridge.get("raster_defect_codes", {})))
         blockers.append(
-            f"{defects}/{denominator} NELB/TTF records have raster or "
+            f"{defects}/{denominator} raster-gated distillation records have raster or "
             f"spike-budget defects ({codes})"
         )
 
@@ -321,7 +326,7 @@ def _corpus_observation_lines(report):
         f"{bridge.get('pairs', 0)} pairs globally time-ordered; "
         f"{bridge.get('pairs_48_plus', 0)} have at least 48 events.",
         f"- Distillation rasters: {bridge.get('raster_valid_pairs', 0)}/"
-        f"{distillation_records} NELB/TTF records carry a valid 20-50 ms "
+        f"{distillation_records} raster-gated distillation records carry a valid 20-50 ms "
         f"excerpt ({bridge.get('raster_coverage_pct', 0)}%), "
         f"{bridge.get('raster_spikes', 0)} budgeted spikes, "
         f"{bridge.get('third_factor_pairs', 0)} third-factor routes, "

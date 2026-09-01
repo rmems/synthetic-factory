@@ -4,6 +4,8 @@
 from __future__ import annotations
 
 import copy
+import importlib
+import importlib.util
 import io
 import json
 import sys
@@ -12,6 +14,7 @@ import unittest
 from contextlib import redirect_stdout
 from fractions import Fraction
 from pathlib import Path
+from unittest import mock
 
 PIPELINES = Path(__file__).resolve().parents[1] / "pipelines"
 sys.path.insert(0, str(PIPELINES))
@@ -32,6 +35,50 @@ FIXTURE = PIPELINES.parent / "tests" / "fixtures" / "bridge_gate_snn.jsonl"
 
 
 class ExactJSONNumbers(unittest.TestCase):
+    def test_exact_json_imports_through_the_pipelines_namespace(self):
+        module_name = "pipelines.exact_json"
+        encoding_name = "pipelines.exact_json_encoding"
+        cached_module = sys.modules.pop(module_name, None)
+        cached_encoding = sys.modules.pop(encoding_name, None)
+        cached_top_level_encoding = sys.modules.pop("exact_json_encoding", None)
+        try:
+            with mock.patch.object(
+                sys,
+                "path",
+                [entry for entry in sys.path if entry != str(PIPELINES)],
+            ):
+                imported = importlib.import_module(module_name)
+            self.assertEqual(imported.dumps_exact_json({"value": 1}), '{"value":1}')
+        finally:
+            sys.modules.pop(module_name, None)
+            sys.modules.pop(encoding_name, None)
+            if cached_module is not None:
+                sys.modules[module_name] = cached_module
+            if cached_encoding is not None:
+                sys.modules[encoding_name] = cached_encoding
+            if cached_top_level_encoding is not None:
+                sys.modules["exact_json_encoding"] = cached_top_level_encoding
+
+    def test_encoder_module_preserves_exact_tokens_and_sorted_keys(self):
+        spec = importlib.util.find_spec("exact_json_encoding")
+        self.assertIsNotNone(spec, "exact JSON encoding needs an isolated module boundary")
+        encoding = importlib.import_module("exact_json_encoding")
+        state = encoding.EncoderState(
+            ensure_ascii=False,
+            sort_keys=True,
+            indent=None,
+            exact_float_type=ExactJSONFloat,
+            render_integer=str,
+            max_nesting_depth=MAX_JSON_NESTING_DEPTH,
+        )
+
+        encoded = encoding.encode_exact_json(
+            {"z": parse_finite_json_float("1.00000000000000001"), "a": 2},
+            state,
+        )
+
+        self.assertEqual(encoded, '{"a":2,"z":1.00000000000000001}')
+
     def test_integer_serialization_has_an_explicit_decimal_digit_bound(self):
         at_limit = 10 ** (MAX_DECIMAL_DIGITS - 1)
         beyond_limit = 10**MAX_DECIMAL_DIGITS

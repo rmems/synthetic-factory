@@ -12,19 +12,34 @@ from pathlib import Path
 from typing import Any, Callable, Iterable, Sequence
 
 
-from curate_bridge_materialize_fs import (
-    BridgeCurationError,
-    _is_under_raw,
-    _manifest_path,
-    _materialization_sources,
-    _rename_linux as _fs_rename_linux,
-    _rename_noreplace,
-    _rename_windows as _fs_rename_windows,
-    _safe_relative_path,
-    _symlinked_ancestor,
-    _unsafe_relative_path as _fs_unsafe_relative_path,
-    _write_exclusive,
-)
+if __package__:
+    from .curate_bridge_materialize_fs import (
+        BridgeCurationError,
+        _is_under_raw,
+        _manifest_path,
+        _materialization_sources,
+        _rename_linux as _fs_rename_linux,
+        _rename_noreplace,
+        _rename_windows as _fs_rename_windows,
+        _safe_relative_path,
+        _symlinked_ancestor,
+        _unsafe_relative_path as _fs_unsafe_relative_path,
+        _write_exclusive,
+    )
+else:
+    from curate_bridge_materialize_fs import (
+        BridgeCurationError,
+        _is_under_raw,
+        _manifest_path,
+        _materialization_sources,
+        _rename_linux as _fs_rename_linux,
+        _rename_noreplace,
+        _rename_windows as _fs_rename_windows,
+        _safe_relative_path,
+        _symlinked_ancestor,
+        _unsafe_relative_path as _fs_unsafe_relative_path,
+        _write_exclusive,
+    )
 
 # Compatibility exports used by focused atomic-publication tests.
 _rename_linux = _fs_rename_linux

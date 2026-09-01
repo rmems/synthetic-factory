@@ -6,7 +6,6 @@ import unittest
 from pathlib import Path
 
 from training_audit_test_helpers import (
-    distillation_sidecars,
     gate_snn_bridge,
     thalamic,
     write,
@@ -204,17 +203,14 @@ class DistillationRasterAudit(unittest.TestCase):
             any("lack a 20-50 ms raster" in item for item in report["blockers"]),
             report["blockers"],
         )
+        self.assertTrue(
+            any("raster-gated distillation records" in item for item in report["blockers"]),
+            report["blockers"],
+        )
+        self.assertNotIn("NELB/TTF", " ".join(report["blockers"]))
 
     def test_bridge_record_in_thalamic_lane_is_wrong_kind(self):
-        pair = {
-            "id": "bridge-in-thalamic",
-            "spike_events": [
-                {"channel": "a", "t_rel_ms": 1.0, "amplitude": 0.4},
-                {"channel": "b", "t_rel_ms": 2.0, "amplitude": 0.5},
-            ],
-            "language_view": {"trajectory": thalamic("bridge-inner")},
-        }
-        pair.update(distillation_sidecars())
+        pair = gate_snn_bridge("bridge-in-thalamic")
         temporary, report = self._audit(THALAMIC_FACTORY, [pair])
         temporary.cleanup()
 
@@ -222,6 +218,16 @@ class DistillationRasterAudit(unittest.TestCase):
         self.assertEqual(report["bridge"]["pairs"], 1)
         self.assertEqual(report["bridge"]["distillation_records"], 0)
         self.assertEqual(report["bridge"]["wrong_kind_records"], 1)
+
+    def test_bridge_record_in_ouroboros_lane_names_the_supported_lane(self):
+        pair = gate_snn_bridge("bridge-in-ouroboros")
+        temporary, report = self._audit(OUROBOROS_FACTORY, [pair])
+        temporary.cleanup()
+
+        blockers = " ".join(report["blockers"])
+        self.assertFalse(report["training_ready"])
+        self.assertIn(OUROBOROS_FACTORY, blockers)
+        self.assertIn("non-Thalamic records", blockers)
 
     def test_thalamic_record_in_bridge_lane_is_wrong_kind(self):
         temporary, report = self._audit(

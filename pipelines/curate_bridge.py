@@ -38,7 +38,7 @@ import json
 from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Callable, Iterable, Sequence
+from typing import Any, Callable, Iterable, Sequence, cast
 
 from curate_bridge_events import (
     CLOCK_DOMAIN_KEYS as _EVENT_CLOCK_DOMAIN_KEYS,
@@ -599,6 +599,18 @@ def _resolve_options(
     return resolved
 
 
+def _bridge_event_preflight(record: Any) -> tuple[list[Any] | None, list[str], dict[str, Any]]:
+    """Resolve events or one structural quarantine reason and its evidence."""
+    if not isinstance(record, dict):
+        return None, [REASON_NOT_BRIDGE], {}
+    events = record.get("spike_events")
+    if not is_bridge_record(record):
+        return None, [REASON_NOT_BRIDGE], {}
+    if not events:
+        return None, [REASON_EMPTY_STREAM], {"event_count": 0}
+    return events, [], {}
+
+
 def curate_record(
     record: Any,
     *,
@@ -649,19 +661,10 @@ def curate_record(
         source_file_hash=source_file_hash,
         source_record_locator=_record_locator(record),
     )
-    if not isinstance(record, dict):
-        return _quarantine(record, manifest, [REASON_NOT_BRIDGE], {})
-
-    events = record.get("spike_events")
-    if not is_bridge_record(record):
-        return _quarantine(record, manifest, [REASON_NOT_BRIDGE], {})
-    if not events:
-        return _quarantine(
-            record,
-            manifest,
-            [REASON_EMPTY_STREAM],
-            {"event_count": 0},
-        )
+    events, preflight_reasons, preflight_evidence = _bridge_event_preflight(record)
+    if preflight_reasons:
+        return _quarantine(record, manifest, preflight_reasons, preflight_evidence)
+    events = cast(list[Any], events)
 
     reason_codes: list[str] = []
     event_time_keys: list[str | None] = []

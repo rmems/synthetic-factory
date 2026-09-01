@@ -15,6 +15,7 @@ sys.path.insert(0, str(REPO / "pipelines"))
 sys.path.insert(0, str(REPO / "tests"))
 
 import round_txn  # noqa: E402
+import round_txn_test_helpers  # noqa: E402
 from round_txn_test_helpers import thalamic, write_records  # noqa: E402
 
 
@@ -913,29 +914,28 @@ class RoundTransaction(unittest.TestCase):
             notes = factory / "NOTES-r02.md"
             write_records(batch, [thalamic("shared-id", 2)])
             notes.write_text("# Critique\n\nDuplicate ID fixture.\n")
-            marker = factory / "ROUND-r02.complete.json"
-            marker.write_text(
-                json.dumps(
-                    {
-                        "version": 1,
-                        "factory": factory.name,
-                        "round": 2,
-                        "records": 1,
-                        "expected_records": 1,
-                        "commit_point": marker.name,
-                        "files": [
-                            {"name": batch.name, "sha256": round_txn.file_sha256(batch)},
-                            {"name": notes.name, "sha256": round_txn.file_sha256(notes)},
-                        ],
-                    }
-                )
-                + "\n"
-            )
+            round_txn_test_helpers.write_completion_marker(round_txn, factory, batch, notes)
 
             with self.assertRaisesRegex(
                 round_txn.TransactionError, "duplicate record id 'shared-id'"
             ):
                 round_txn.frontier_status(factory)
+
+    def test_completion_marker_helper_writes_a_visible_hash_bound_batch(self):
+        helper = getattr(round_txn_test_helpers, "write_completion_marker", None)
+        self.assertIsNotNone(helper, "completion marker fixtures need one shared writer")
+        with tempfile.TemporaryDirectory() as td:
+            factory = self.factory(td)
+            round_txn.ensure_marker_mode(factory)
+            batch = factory / "batch-r01.jsonl"
+            notes = factory / "NOTES-r01.md"
+            write_records(batch, [thalamic("helper-visible")])
+            notes.write_text("# Critique\n\nHelper fixture.\n")
+
+            marker = helper(round_txn, factory, batch, notes)
+
+            self.assertEqual(marker, factory / "ROUND-r01.complete.json")
+            self.assertEqual(round_txn.committed_jsonl_paths(factory), [batch])
 
     def test_legacy_baseline_id_cannot_duplicate_a_sibling_factory(self):
         with tempfile.TemporaryDirectory() as td:
@@ -976,26 +976,9 @@ class RoundTransaction(unittest.TestCase):
             round_txn.ensure_marker_mode(factory)
             batch = factory / "batch-r01.jsonl"
             notes = factory / "NOTES-r01.md"
-            marker = factory / "ROUND-r01.complete.json"
             write_records(batch, [thalamic("shared-completed-id")])
             notes.write_text("# Critique\n\nDuplicate sibling ID fixture.\n")
-            marker.write_text(
-                json.dumps(
-                    {
-                        "version": 1,
-                        "factory": factory.name,
-                        "round": 1,
-                        "records": 1,
-                        "expected_records": 1,
-                        "commit_point": marker.name,
-                        "files": [
-                            {"name": batch.name, "sha256": round_txn.file_sha256(batch)},
-                            {"name": notes.name, "sha256": round_txn.file_sha256(notes)},
-                        ],
-                    }
-                )
-                + "\n"
-            )
+            round_txn_test_helpers.write_completion_marker(round_txn, factory, batch, notes)
 
             with self.assertRaisesRegex(
                 round_txn.TransactionError, "duplicate record id 'shared-completed-id'"
@@ -1016,29 +999,7 @@ class RoundTransaction(unittest.TestCase):
             with self.assertRaisesRegex(round_txn.TransactionError, "identity mismatch"):
                 round_txn.committed_jsonl_paths(factory)
 
-            marker.write_text(
-                json.dumps(
-                    {
-                        "version": 1,
-                        "factory": factory.name,
-                        "round": 1,
-                        "records": 1,
-                        "expected_records": 1,
-                        "commit_point": marker.name,
-                        "files": [
-                            {
-                                "name": batch.name,
-                                "sha256": round_txn.file_sha256(batch),
-                            },
-                            {
-                                "name": notes.name,
-                                "sha256": round_txn.file_sha256(notes),
-                            },
-                        ],
-                    }
-                )
-                + "\n"
-            )
+            round_txn_test_helpers.write_completion_marker(round_txn, factory, batch, notes)
             self.assertEqual(round_txn.committed_jsonl_paths(factory), [batch])
 
             batch.write_text("tampered\n")
@@ -1055,24 +1016,7 @@ class RoundTransaction(unittest.TestCase):
             notes = factory / "NOTES-r01.md"
             write_records(batch, [thalamic("semantic-swap")])
             notes.write_text("# Critique\n\nManifest fixture.\n")
-            marker = factory / "ROUND-r01.complete.json"
-            marker.write_text(
-                json.dumps(
-                    {
-                        "version": 1,
-                        "factory": factory.name,
-                        "round": 1,
-                        "records": 1,
-                        "expected_records": 1,
-                        "commit_point": marker.name,
-                        "files": [
-                            {"name": batch.name, "sha256": round_txn.file_sha256(batch)},
-                            {"name": notes.name, "sha256": round_txn.file_sha256(notes)},
-                        ],
-                    }
-                )
-                + "\n"
-            )
+            round_txn_test_helpers.write_completion_marker(round_txn, factory, batch, notes)
             real_validate = round_txn.validate_completed_batch
 
             def tamper_after_validation(*args, **kwargs):

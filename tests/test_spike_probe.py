@@ -236,6 +236,12 @@ class LoadRasters(unittest.TestCase):
         self.assertEqual(problems, [])
         self.assertEqual(len(rasters), 1)
         self.assertEqual(rasters[0]["spikes"], 123)
+        self.assertEqual(rasters[0]["record_kind"], "thalamic")
+
+        report = spike_probe.summarize(rasters, problems, [root])
+        self.assertEqual(report["distillation_records"], 1)
+        self.assertEqual(report["bridge_records"], 0)
+        self.assertEqual(report["thalamic_records"], 1)
 
     def test_unrelated_records_outside_raster_factories_are_ignored(self):
         with tempfile.TemporaryDirectory() as td:
@@ -264,9 +270,38 @@ class LoadRasters(unittest.TestCase):
 
         self.assertEqual(rasters, [])
         self.assertEqual(len(problems), 1)
-        self.assertEqual(problems[0]["scope"], "bridge_record")
+        self.assertEqual(problems[0]["scope"], "distillation_record")
         self.assertEqual(problems[0]["record_id"], "bridge-gate-snn-fixture-001")
         self.assertEqual(problems[0]["reason_codes"], ["BRIDGE_RECORD_SHAPE_INVALID"])
+
+    def test_unloadable_thalamic_record_keeps_its_kind(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            record = gate_snn_record()
+            record.pop("spike_events")
+            record.pop("language_view")
+            record.update(
+                {
+                    "state": {"sim_or_real": "designed"},
+                    "proposed_action": {"action": "noop"},
+                    "safety_decision": {"decision": "ACCEPT", "rationale": "fixture"},
+                    "executed_action": {"action": "noop"},
+                    "future_outcome": {"success": True},
+                    "reward_components": {"total": 1.0},
+                }
+            )
+            del record["raster"]
+            write(root / "thalamic-trajectory-factory" / "batch-r01.jsonl", [record])
+            rasters, problems = spike_probe.load_rasters([root])
+
+        report = spike_probe.summarize(rasters, problems, [root])
+        self.assertEqual(rasters, [])
+        self.assertEqual(problems[0]["scope"], "distillation_record")
+        self.assertEqual(problems[0]["record_kind"], "thalamic")
+        self.assertEqual(report["distillation_records"], 1)
+        self.assertEqual(report["bridge_records"], 0)
+        self.assertEqual(report["thalamic_records"], 1)
+        self.assertEqual(report["unloadable"], 1)
 
     def test_unparsable_lines_are_reported_without_crashing_the_probe(self):
         with tempfile.TemporaryDirectory() as td:
@@ -326,7 +361,9 @@ class ProbeCli(unittest.TestCase):
         report = json.loads(stdout.getvalue())
 
         self.assertEqual(code, 0)
+        self.assertEqual(report["distillation_records"], 1)
         self.assertEqual(report["bridge_records"], 1)
+        self.assertEqual(report["thalamic_records"], 0)
         self.assertEqual(report["loaded"], 1)
         self.assertEqual(report["spikes"], 123)
         self.assertEqual(report["energy_pJ"], 123 * 23)

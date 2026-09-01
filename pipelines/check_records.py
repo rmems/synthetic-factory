@@ -269,6 +269,55 @@ def weighted_components(rc, weights):
     return values, missing
 
 
+def _weighted_reward_findings(rc, where, total):
+    """Return weighted findings, or ``None`` when no numeric weights apply."""
+    weights = rc.get("weights")
+    if not isinstance(weights, dict):
+        return None
+    declared = {
+        key: float(weight)
+        for key, weight in weights.items()
+        if key not in WEIGHTED_SKIP_KEYS and is_number(weight)
+    }
+    if not declared:
+        return None
+    values, missing = weighted_components(rc, weights)
+    if missing:
+        warning = (
+            f"{where}: unsupported weighted reward layout; missing components "
+            f"{', '.join(sorted(missing))}; skipped arithmetic check"
+        )
+        return [], [warning]
+    recomputed = sum(values[key] * declared[key] for key in declared)
+    tolerance = reward_tolerance(rc)
+    if abs(recomputed - total) <= tolerance:
+        return [], []
+    error = (
+        f"{where}.total {total} != recomputed {recomputed} "
+        f"(weighted, diff {abs(recomputed - total)} > {tolerance})"
+    )
+    return [error], []
+
+
+def _unweighted_reward_findings(rc, where, total):
+    """Return an unweighted-total mismatch when numeric siblings exist."""
+    siblings = {
+        key: component_value(val)
+        for key, val in rc.items()
+        if key not in UNWEIGHTED_EXCLUDE and component_value(val) is not None
+    }
+    if not siblings:
+        return []
+    recomputed = sum(siblings.values())
+    tolerance = reward_tolerance(rc)
+    if abs(recomputed - total) <= tolerance:
+        return []
+    return [
+        f"{where}.total {total} != recomputed {recomputed} "
+        f"(unweighted, diff {abs(recomputed - total)} > {tolerance})"
+    ]
+
+
 def check_reward(rc, where):
     """Recompute total from numeric siblings / weights. Strict total==sum (TOL=1e-6)."""
     errors, warnings = [], []
@@ -280,47 +329,14 @@ def check_reward(rc, where):
         return errors, warnings
     if not is_number(total):
         return errors, warnings
-
-    weights = rc.get("weights")
-    if isinstance(weights, dict):
-        declared = {
-            key: float(weight)
-            for key, weight in weights.items()
-            if key not in WEIGHTED_SKIP_KEYS and is_number(weight)
-        }
-        if declared:
-            values, missing = weighted_components(rc, weights)
-            if missing:
-                warnings.append(
-                    f"{where}: unsupported weighted reward layout; missing components "
-                    f"{', '.join(sorted(missing))}; skipped arithmetic check"
-                )
-                return errors, warnings
-            recomputed = sum(values[key] * declared[key] for key in declared)
-            tolerance = reward_tolerance(rc)
-            if abs(recomputed - total) > tolerance:
-                errors.append(
-                    f"{where}.total {total} != recomputed {recomputed} "
-                    f"(weighted, diff {abs(recomputed - total)} > {tolerance})"
-                )
-            return errors, warnings
-        # Empty or bookkeeping-only weights: same fallthrough as
-        # validate_run.check_reward_total — unweighted sibling sum.
-
-    siblings = {
-        key: component_value(val)
-        for key, val in rc.items()
-        if key not in UNWEIGHTED_EXCLUDE and component_value(val) is not None
-    }
-    if not siblings:
+    weighted = _weighted_reward_findings(rc, where, total)
+    if weighted is None:
+        # Empty or bookkeeping-only weights follow the ordinary sibling sum.
+        errors.extend(_unweighted_reward_findings(rc, where, total))
         return errors, warnings
-    recomputed = sum(siblings.values())
-    tolerance = reward_tolerance(rc)
-    if abs(recomputed - total) > tolerance:
-        errors.append(
-            f"{where}.total {total} != recomputed {recomputed} "
-            f"(unweighted, diff {abs(recomputed - total)} > {tolerance})"
-        )
+    weighted_errors, weighted_warnings = weighted
+    errors.extend(weighted_errors)
+    warnings.extend(weighted_warnings)
     return errors, warnings
 
 
