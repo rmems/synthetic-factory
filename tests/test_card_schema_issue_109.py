@@ -21,6 +21,23 @@ write_declaration = _shared.write_declaration
 
 SSL_CERT_ROTATION = "ssl-cert-rotation-trajectories"
 
+# The Hub item and published-payload facts the card must render, derived from
+# the mirror at ~/rmems/hf/grok-4.6/ssl-cert-rotation-trajectories/data/raw.
+SSL_ITEM = {
+    "slug": "ssl-cert-rotation-factory",
+    "hub": SSL_CERT_ROTATION,
+    "pretty": "Ssl Cert Rotation Trajectories",
+    "blurb": "TLS leftover-cert-object rotation episodes.",
+    "tags": ["synthetic-data", "tls", "certificates"],
+}
+SSL_SUMMARY = dict(
+    records=730,
+    bytes_=4632576,
+    first="r01",
+    last="r365",
+    names=["batch-r01.jsonl", "batch-r180.jsonl"],
+)
+
 
 class SslCertRotationDeclarationTests(unittest.TestCase):
     """Issue #50: thin `meta` vs designed/domain/stack plus reward extras.
@@ -33,20 +50,9 @@ class SslCertRotationDeclarationTests(unittest.TestCase):
     def setUp(self):
         self.declaration = card_schema.load(SSL_CERT_ROTATION)
         self.assertIsNotNone(self.declaration, "config/card-schemas is missing #50")
-        self.item = {
-            "slug": "ssl-cert-rotation-factory",
-            "hub": SSL_CERT_ROTATION,
-            "pretty": "Ssl Cert Rotation Trajectories",
-            "blurb": "TLS leftover-cert-object rotation episodes.",
-            "tags": ["synthetic-data", "tls", "certificates"],
-        }
+        self.item = dict(SSL_ITEM)
         self.card = publisher.render_card(
-            self.item,
-            records=730,
-            bytes_=4632576,
-            first="r01",
-            last="r365",
-            payload_names=["batch-r01.jsonl", "batch-r180.jsonl"],
+            self.item, summary=publisher.PayloadSummary(**SSL_SUMMARY)
         )
 
     def test_declaration_matches_the_observed_union_schema(self):
