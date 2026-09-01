@@ -1,0 +1,118 @@
+{
+  "commit_point": "ROUND-r01.complete.json",
+  "execution_verification": {
+    "counts": {
+      "failed": 0,
+      "inconclusive": 0,
+      "total": 3,
+      "verified": 3
+    },
+    "gate": "pipelines/verify_execution.py:verify_batch_for_frontier",
+    "override": null,
+    "semantics_version": 6,
+    "strict": true
+  },
+  "expected_records": 3,
+  "factory": "failure-as-fuel-preference-cascade",
+  "files": [
+    {
+      "bytes": 3948,
+      "name": "NOTES-r01.md",
+      "sha256": "81b8a53a7e565226b897261d0d2bb68242a38b7b198055468b81e31800f770e1"
+    },
+    {
+      "bytes": 47614,
+      "name": "batch-r01.jsonl",
+      "sha256": "3eedc5d16c84577e5a3497f2fed69f20a8ad8b0898791bb1c38530285e2e44a8"
+    },
+    {
+      "bytes": 7801,
+      "name": "diagnosis-01-r01.md",
+      "sha256": "449f1a0dba1e6bcccb9cd5cf141736a79ec9599986115ef4cb0327344ee83386"
+    },
+    {
+      "bytes": 6438,
+      "name": "diagnosis-02-r01.md",
+      "sha256": "682b559a42565dfbad031eae18ef57b68eb6d4dcce61105c4277ed9085da99ce"
+    },
+    {
+      "bytes": 7933,
+      "name": "diagnosis-03-r01.md",
+      "sha256": "e7fc61c0f2d961c6e23a41a1b08f1688f76c181a6abe54e6c2e14e35eeea289d"
+    },
+    {
+      "bytes": 658,
+      "name": "diagnosis-handoff-receipt-r01.json",
+      "sha256": "48a0ef966db8ed6cac0c359ef4eb88b767495bdc497553cd67542de412c6c821"
+    },
+    {
+      "bytes": 6767,
+      "name": "rejected-01-r01.json",
+      "sha256": "b112e4d102ecace397d655f4ee5e4843380abf55dc4638826bb9bd0a30d608ca"
+    },
+    {
+      "bytes": 5589,
+      "name": "rejected-02-r01.json",
+      "sha256": "64e719b10e4406c3bf4ef1fdf6565e8d632b3b9a120563e70dfe174c2ed57a12"
+    },
+    {
+      "bytes": 7175,
+      "name": "rejected-03-r01.json",
+      "sha256": "c560ed715d1b803a3b681410301df7ad8a474fcda9a3672a7a6c29eec61e7a82"
+    }
+  ],
+  "kinds": {
+    "preference": 3
+  },
+  "preference_arm_gate": {
+    "blocked_pairs": 0,
+    "context_purity_pct": 100.0,
+    "gate": {
+      "name": "independent-preference-arms",
+      "version": "1.6.0"
+    },
+    "independent_pairs": 3,
+    "min_arm_distance": 0.03,
+    "observed_max_arm_distance": 1.0,
+    "observed_min_arm_distance": 1.0,
+    "preference_pairs": 3,
+    "reason_codes": {},
+    "require_isolation": true,
+    "require_trusted_isolation": true,
+    "same_context_pairs": 3,
+    "skipped_non_preference_records": 0,
+    "trusted_isolation": "two-session",
+    "trusted_two_session_pairs": 3,
+    "two_session_pairs": 3
+  },
+  "preference_diagnosis_handoff": {
+    "diagnosis_files": [
+      {
+        "bytes": 7801,
+        "name": "diagnosis-01-r01.md",
+        "sha256": "449f1a0dba1e6bcccb9cd5cf141736a79ec9599986115ef4cb0327344ee83386"
+      },
+      {
+        "bytes": 6438,
+        "name": "diagnosis-02-r01.md",
+        "sha256": "682b559a42565dfbad031eae18ef57b68eb6d4dcce61105c4277ed9085da99ce"
+      },
+      {
+        "bytes": 7933,
+        "name": "diagnosis-03-r01.md",
+        "sha256": "e7fc61c0f2d961c6e23a41a1b08f1688f76c181a6abe54e6c2e14e35eeea289d"
+      }
+    ],
+    "factory": "failure-as-fuel-preference-cascade",
+    "reservation_token": "4d6ecf298e9a45a08a511495e19d6140",
+    "round": 1,
+    "staging_dir": "/home/raulmc/rmems/synthetic-factory/outputs/staging/2026-08-30/failure-as-fuel-preference-cascade/r01-4d6ecf298e9a45a08a511495e19d6140",
+    "version": 2
+  },
+  "preference_isolation": "two-session",
+  "published_at": "2026-09-01T03:29:53+00:00",
+  "records": 3,
+  "round": 1,
+  "token": "4d6ecf298e9a45a08a511495e19d6140",
+  "version": 2
+}

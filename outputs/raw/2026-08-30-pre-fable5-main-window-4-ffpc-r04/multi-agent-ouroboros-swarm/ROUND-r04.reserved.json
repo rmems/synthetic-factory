@@ -1,0 +1,11 @@
+{
+  "batch_file": "batch-r04.jsonl",
+  "expected_records": 1,
+  "factory": "multi-agent-ouroboros-swarm",
+  "notes_file": "NOTES-r04.md",
+  "reserved_at": "2026-09-01T04:03:14+00:00",
+  "round": 4,
+  "staging_dir": "/home/raulmc/rmems/synthetic-factory/outputs/staging/2026-08-30/multi-agent-ouroboros-swarm/r04-7586d8ca7bda44a29891d31f99d7cc4a",
+  "token": "7586d8ca7bda44a29891d31f99d7cc4a",
+  "version": 1
+}

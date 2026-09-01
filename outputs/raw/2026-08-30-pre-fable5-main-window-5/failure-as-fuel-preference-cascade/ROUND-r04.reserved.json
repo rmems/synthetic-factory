@@ -1,0 +1,12 @@
+{
+  "batch_file": "batch-r04.jsonl",
+  "expected_records": 3,
+  "factory": "failure-as-fuel-preference-cascade",
+  "notes_file": "NOTES-r04.md",
+  "preference_isolation": "two-session",
+  "reserved_at": "2026-09-01T04:20:55+00:00",
+  "round": 4,
+  "staging_dir": "/home/raulmc/rmems/synthetic-factory/outputs/staging/2026-08-30/failure-as-fuel-preference-cascade/r04-70bf8a62042343ce9792b1ff2d645db4",
+  "token": "70bf8a62042343ce9792b1ff2d645db4",
+  "version": 1
+}

@@ -1,0 +1,37 @@
+{
+  "commit_point": "ROUND-r04.complete.json",
+  "execution_verification": {
+    "counts": {
+      "failed": 0,
+      "inconclusive": 0,
+      "total": 5,
+      "verified": 5
+    },
+    "gate": "pipelines/verify_execution.py:verify_batch_for_frontier",
+    "override": null,
+    "semantics_version": 6,
+    "strict": true
+  },
+  "expected_records": 5,
+  "factory": "thalamic-trajectory-factory",
+  "files": [
+    {
+      "bytes": 12891,
+      "name": "NOTES-r04.md",
+      "sha256": "fd69218499a9781645dd28a62b7fe4fb182a27b877814949a5628cbfc71e06cd"
+    },
+    {
+      "bytes": 91513,
+      "name": "batch-r04.jsonl",
+      "sha256": "6442863a28aba5ae37114f0236d2366835b582cb790511425f4ba23d7a6b3c46"
+    }
+  ],
+  "kinds": {
+    "thalamic": 5
+  },
+  "published_at": "2026-09-01T04:18:12+00:00",
+  "records": 5,
+  "round": 4,
+  "token": "342e7552b70746b8b46babf9678a7599",
+  "version": 2
+}

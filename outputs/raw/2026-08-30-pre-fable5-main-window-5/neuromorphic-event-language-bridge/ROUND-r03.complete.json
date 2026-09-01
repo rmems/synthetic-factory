@@ -1,0 +1,37 @@
+{
+  "commit_point": "ROUND-r03.complete.json",
+  "execution_verification": {
+    "counts": {
+      "failed": 0,
+      "inconclusive": 0,
+      "total": 3,
+      "verified": 3
+    },
+    "gate": "pipelines/verify_execution.py:verify_batch_for_frontier",
+    "override": null,
+    "semantics_version": 6,
+    "strict": true
+  },
+  "expected_records": 3,
+  "factory": "neuromorphic-event-language-bridge",
+  "files": [
+    {
+      "bytes": 16636,
+      "name": "NOTES-r03.md",
+      "sha256": "072db97b1a070c844d3178b090bf5925e36b62ce972e31507046fcfebb986837"
+    },
+    {
+      "bytes": 115008,
+      "name": "batch-r03.jsonl",
+      "sha256": "77eea38892378d08099ccbd9e2676731115db998a751123cc41fd92aacbc14d6"
+    }
+  ],
+  "kinds": {
+    "bridge_pair": 3
+  },
+  "published_at": "2026-09-01T03:59:06+00:00",
+  "records": 3,
+  "round": 3,
+  "token": "b73c4d716c514755adc56ba3fd5dade0",
+  "version": 2
+}

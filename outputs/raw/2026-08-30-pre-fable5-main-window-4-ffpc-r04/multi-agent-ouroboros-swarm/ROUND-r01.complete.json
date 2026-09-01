@@ -1,0 +1,42 @@
+{
+  "commit_point": "ROUND-r01.complete.json",
+  "execution_verification": {
+    "counts": {
+      "failed": 0,
+      "inconclusive": 0,
+      "total": 1,
+      "verified": 1
+    },
+    "gate": "pipelines/verify_execution.py:verify_batch_for_frontier",
+    "override": null,
+    "semantics_version": 6,
+    "strict": true
+  },
+  "expected_records": 1,
+  "factory": "multi-agent-ouroboros-swarm",
+  "files": [
+    {
+      "bytes": 12267,
+      "name": "NOTES-r01.md",
+      "sha256": "25c35349edaf8c239c66eaa3ea3f38974f4a6f02f84e5a798eefba79fc16013f"
+    },
+    {
+      "bytes": 25197,
+      "name": "batch-r01.jsonl",
+      "sha256": "ca2b55efd980e03310a44386dd1c0540725c05bc6326d495d35ac9c2b489a0e6"
+    },
+    {
+      "bytes": 67085,
+      "name": "swarm-transcript-r01.md",
+      "sha256": "1ff13dcee2e23acdd6719b4376cf7a787bf97d59db564e99fa9d6bff6a44e331"
+    }
+  ],
+  "kinds": {
+    "thalamic": 1
+  },
+  "published_at": "2026-08-30T20:31:17+00:00",
+  "records": 1,
+  "round": 1,
+  "token": "3b540a4d817c44579f036b3a93289d0e",
+  "version": 2
+}

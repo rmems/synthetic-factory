@@ -1,0 +1,11 @@
+{
+  "batch_file": "batch-r04.jsonl",
+  "expected_records": 3,
+  "factory": "neuromorphic-event-language-bridge",
+  "notes_file": "NOTES-r04.md",
+  "reserved_at": "2026-09-01T04:04:27+00:00",
+  "round": 4,
+  "staging_dir": "/home/raulmc/rmems/synthetic-factory/outputs/staging/2026-08-30/neuromorphic-event-language-bridge/r04-47bf6ec08b9b4679b4c1ce8bba33da7b",
+  "token": "47bf6ec08b9b4679b4c1ce8bba33da7b",
+  "version": 1
+}
