@@ -24,6 +24,10 @@ SCALAR_DTYPES = frozenset(
     {"string", "bool", "int32", "int64", "float32", "float64", "json"}
 )
 
+# The domain of a parsed-JSON value. Rejection messages repr these, and
+# every member renders a useful repr (unlike a value typed as bare object).
+_JsonValue = str | int | float | bool | list | dict | None
+
 FIELD_NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_-]*$")
 DATA_FILE_RE = re.compile(r"^data/raw/[A-Za-z0-9_*?./-]+$")
 
@@ -187,7 +191,7 @@ def _feature_value(node: dict, kind: str, here: tuple[str, ...]) -> dict:
     return out
 
 
-def _feature_dtype(dtype: object, here: tuple[str, ...]) -> str:
+def _feature_dtype(dtype: _JsonValue, here: tuple[str, ...]) -> str:
     _require(
         isinstance(dtype, str) and dtype in SCALAR_DTYPES,
         f"unsupported dtype on {'.'.join(here)}: {dtype!r} "
