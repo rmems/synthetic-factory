@@ -10,30 +10,22 @@ from pathlib import Path
 from typing import Any, Mapping
 
 if __package__:
-    from . import _expose_package_sibling, _local_sibling_module, _require_local_sibling
-
-    if _local_sibling_module("compose_curated_run_cli", allow_initializing=True):
-        import compose_curated_run_cli as _direct_compose_curated_run_cli
-
-        _require_local_sibling(_direct_compose_curated_run_cli, "compose_curated_run_cli")
-        del _direct_compose_curated_run_cli
-    from .compose_curated_run import (
+    from .compose_curated_run_bootstrap import (
         CLI_DESCRIPTION,
         ComposeCliServices,
         ComposeRunContext,
         ComposeRunHooks,
         compose_run,
+        expose_run_adapter,
     )
 else:
-    getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
-        "compose_curated_run_cli"
-    )
-    from compose_curated_run import (
+    from compose_curated_run_bootstrap import (
         CLI_DESCRIPTION,
         ComposeCliServices,
         ComposeRunContext,
         ComposeRunHooks,
         compose_run,
+        expose_run_adapter,
     )
 
 
@@ -79,5 +71,4 @@ def main(
     return 0
 
 
-if __package__:
-    _expose_package_sibling(__name__)
+expose_run_adapter(__name__)

@@ -131,12 +131,10 @@ def calibration_for(record: Mapping[str, Any], catalog: Mapping[str, Any] | None
     return None
 
 
-def _only_identity_shape_details(mapping: Mapping[str, Any], matches) -> bool:
+def _only_identity_shape_details(mapping: Mapping[str, Any], matches: Any) -> bool:
     """Whether identity's only diagnostics all match one lane-owned defect."""
 
-    if list(mapping.get("reason_codes", [])) != [
-        REASON_IDENTITY_INVALID_PAYLOAD_SHAPE
-    ]:
+    if list(mapping.get("reason_codes", [])) != [REASON_IDENTITY_INVALID_PAYLOAD_SHAPE]:
         return False
     details = mapping.get("details")
     if not isinstance(details, list) or not details:
@@ -207,9 +205,7 @@ def _is_preference_step_only_rejection(mapping: Mapping[str, Any]) -> bool:
     )
 
 
-def _replace_coding_steps(
-    target: dict[str, Any], curated: Mapping[str, Any]
-) -> bool:
+def _replace_coding_steps(target: dict[str, Any], curated: Mapping[str, Any]) -> bool:
     """Copy only a coding lane's repaired step array into ``target``."""
 
     steps_path = curate_coding.steps_path(dict(curated))
@@ -255,15 +251,11 @@ def _source_preference_shape(record: Any) -> tuple[Any, bool]:
     if not (is_preference_record(record) and isinstance(record, Mapping)):
         return None, False
     side_kinds = preference_side_kinds(record)
-    mixed = not _is_same_state_pair(record) and _mixed_preference_families(
-        side_kinds
-    )
+    mixed = not _is_same_state_pair(record) and _mixed_preference_families(side_kinds)
     return side_kinds, mixed
 
 
-def _identity_retry_with_source(
-    repaired: dict[str, Any] | None, source: SourceCoordinates
-):
+def _identity_retry_with_source(repaired: dict[str, Any] | None, source: SourceCoordinates):
     """Revalidate identity against a downstream lane's repaired copy."""
 
     if repaired is None:
@@ -325,8 +317,7 @@ def _deferred_lane_repair_with_source(
     lanes = (
         DeferredLaneRepair(
             "bridge",
-            is_bridge_record(record)
-            and _is_bridge_order_only_rejection(identity_result.mapping),
+            is_bridge_record(record) and _is_bridge_order_only_rejection(identity_result.mapping),
             lambda current: _bridge_order_repaired_copy_with_source(current, source),
         ),
         DeferredLaneRepair(
@@ -340,9 +331,7 @@ def _deferred_lane_repair_with_source(
             is_preference_record(record)
             and preference_side_kinds(record) == ("episode", "episode")
             and _is_preference_step_only_rejection(identity_result.mapping),
-            lambda current: _preference_steps_repaired_copy_with_source(
-                current, source
-            ),
+            lambda current: _preference_steps_repaired_copy_with_source(current, source),
         ),
     )
     return _run_deferred_lane_repairs(
@@ -415,9 +404,7 @@ def _compose_identity_stage_with_source(
     reasons, detail = _identity_stage_evidence(
         result, deferred_lane, source_side_kinds, mixed_families
     )
-    public_action = (
-        ACTION_RETAINED if result.action == "retained" else ACTION_EXCLUDED
-    )
+    public_action = ACTION_RETAINED if result.action == "retained" else ACTION_EXCLUDED
     if mixed_families:
         public_action = ACTION_EXCLUDED
     stages.append(
@@ -430,9 +417,7 @@ def _compose_identity_stage_with_source(
         )
     )
     if public_action == ACTION_EXCLUDED or result.record is None:
-        return ComposeDecision(
-            ACTION_EXCLUDED, None, tuple(reasons), tuple(stages), None, None
-        )
+        return ComposeDecision(ACTION_EXCLUDED, None, tuple(reasons), tuple(stages), None, None)
     current: dict[str, Any] = result.record
     _restore_deferred_payload(current, record, deferred_lane)
     return current, result.mapping.get("record_kind")
@@ -473,9 +458,7 @@ def _compose_bridge_stage_with_source(
         )
     )
     if not retained:
-        return ComposeDecision(
-            ACTION_EXCLUDED, None, tuple(reasons), tuple(stages), None, None
-        )
+        return ComposeDecision(ACTION_EXCLUDED, None, tuple(reasons), tuple(stages), None, None)
     return decision.output_record
 
 

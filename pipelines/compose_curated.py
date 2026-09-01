@@ -11,6 +11,7 @@ from __future__ import annotations
 import argparse
 import contextlib
 import copy
+import importlib
 import json
 import os
 import re
@@ -20,82 +21,40 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Mapping, MutableMapping
 
-if __package__:
-    from . import _expose_package_sibling, _local_sibling_module, _require_local_sibling
 
-    if _local_sibling_module("compose_curated", allow_initializing=True):
-        import compose_curated as _direct_compose_curated
-
-        _require_local_sibling(_direct_compose_curated, "compose_curated")
-        del _direct_compose_curated
-    from . import (
-        compose_mill,
-        curate_agentic,
-        curate_bridge,
-        curate_coding,
-        curate_identity,
-        curate_preferences,
-        curate_rewards,
-        training_audit,
-    )
-    from . import compose_contract as _contract
-    from . import compose_curated_calibration as _calibration_impl
-    from . import compose_curated_coding as _coding_stage_impl
-    from . import compose_curated_identity as _identity_impl
-    from . import compose_curated_identity_facade as _identity_facade
-    from . import compose_curated_record_facade as _record_facade
-    from . import compose_curated_record as _record_impl
-    from . import compose_curated_run as _run_impl
-    from . import compose_curated_run_facade as _run_facade
-    from . import compose_destination as _destination
-    from . import compose_trajectory as _trajectory
-    from .check_records import reject_json_constant
-    from .census import factory_identity_for_path
-    from .curate_identity import _parse_finite_json_float, _reject_duplicate_object_keys
-    from .record_kind import preference_side_kinds
-    from .round_txn import TransactionError
-else:
-    getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
-        "compose_curated"
-    )
-    import compose_contract as _contract
-    import compose_curated_calibration as _calibration_impl
-    import compose_curated_coding as _coding_stage_impl
-    import compose_curated_identity as _identity_impl
-    import compose_curated_identity_facade as _identity_facade
-    import compose_curated_record_facade as _record_facade
-    import compose_curated_record as _record_impl
-    import compose_curated_run as _run_impl
-    import compose_curated_run_facade as _run_facade
-    import compose_destination as _destination
-    import compose_mill
-    import compose_trajectory as _trajectory
-    import curate_agentic
-    import curate_bridge
-    import curate_coding
-    import curate_identity
-    import curate_preferences
-    import curate_rewards
-    import training_audit
-    from check_records import reject_json_constant
-    from census import factory_identity_for_path
-    from curate_identity import _parse_finite_json_float, _reject_duplicate_object_keys
-    from record_kind import preference_side_kinds
-    from round_txn import TransactionError
-
-try:
-    if __package__:
-        from . import curate_trajectory_preferences
-    else:
-        import curate_trajectory_preferences
-except ModuleNotFoundError as missing_import:
-    allowed_missing = {
-        "curate_trajectory_preferences",
-        f"{__package__}.curate_trajectory_preferences",
-    }
-    if missing_import.name not in allowed_missing:
-        raise
-    curate_trajectory_preferences = None
+_bootstrap_module = importlib.import_module(
+    f"{__package__ + '.' if __package__ else ''}compose_curated_facade_bootstrap"
+)
+_modules = _bootstrap_module.bootstrap_facade_imports(__package__)
+del _bootstrap_module
+_contract = _modules["compose_contract"]
+_calibration_impl = _modules["compose_curated_calibration"]
+_coding_stage_impl = _modules["compose_curated_coding"]
+_identity_impl = _modules["compose_curated_identity"]
+_identity_facade = _modules["compose_curated_identity_facade"]
+_record_facade = _modules["compose_curated_record_facade"]
+_record_impl = _modules["compose_curated_record"]
+_run_impl = _modules["compose_curated_run"]
+_run_facade = _modules["compose_curated_run_facade"]
+_destination = _modules["compose_destination"]
+_trajectory = _modules["compose_trajectory"]
+compose_mill = _modules["compose_mill"]
+curate_agentic = _modules["curate_agentic"]
+curate_bridge = _modules["curate_bridge"]
+curate_coding = _modules["curate_coding"]
+curate_identity = _modules["curate_identity"]
+curate_preferences = _modules["curate_preferences"]
+curate_rewards = _modules["curate_rewards"]
+training_audit = _modules["training_audit"]
+curate_trajectory_preferences = _modules["curate_trajectory_preferences"]
+allowed_missing = _modules["allowed_missing"]
+reject_json_constant = _modules["check_records"].reject_json_constant
+factory_identity_for_path = _modules["census"].factory_identity_for_path
+_parse_finite_json_float = _modules["curate_identity"]._parse_finite_json_float
+_reject_duplicate_object_keys = _modules["curate_identity"]._reject_duplicate_object_keys
+preference_side_kinds = _modules["record_kind"].preference_side_kinds
+TransactionError = _modules["round_txn"].TransactionError
+del _modules
 
 
 def _reexport(module: Any, names: str) -> None:
@@ -161,9 +120,8 @@ TRAJECTORY_GOAL_LOCATIONS = _contract.TRAJECTORY_GOAL_LOCATIONS
 _TrajectoryPreferenceDecision = _contract._TrajectoryPreferenceDecision
 _facade_delegate = _record_facade._facade_delegate
 _stage = _record_facade._stage
-for _facade_module in (_identity_facade, _record_facade):
-    for _name in _facade_module.__all__:
-        globals()[_name] = getattr(_facade_module, _name)
+_reexport(_identity_facade, " ".join(_identity_facade.__all__))
+_reexport(_record_facade, " ".join(_record_facade.__all__))
 
 _identity_facade.bind_facade(sys.modules[__name__])
 _record_facade.bind_facade(sys.modules[__name__])
@@ -470,7 +428,7 @@ def compose_run(
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
+    parser = argparse.ArgumentParser(description=__doc__.split("\n\n", maxsplit=1)[0])
     parser.add_argument("source_run", help="source run directory (read-only)")
     parser.add_argument("destination", help="new curated destination (must not exist)")
     parser.add_argument(
@@ -578,8 +536,13 @@ is_preference_record jsonl_physical_lines main parse_args sha256_hex
 source_jsonl_members transform_contract
 """.split()
 
-if __package__:
-    _expose_package_sibling(__name__)
+getattr(sys.modules.get(__package__), "_expose_package_sibling", lambda name: None)(__name__)
 
-if __name__ == "__main__":
-    raise SystemExit(main())
+
+def _run_as_main(module_name: str) -> None:
+    if module_name == "__main__":
+        raise SystemExit(main())
+
+
+_run_as_main(__name__)
+del _run_as_main

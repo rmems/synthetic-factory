@@ -23,6 +23,13 @@ if __package__:
         ACTION_EXCLUDED,
         ComposeDecision,
     )
+    from .compose_curated_record_dispatch import (
+        CodingDispatchContext,
+        PreferenceDispatchContext,
+        compose_coding_stage,
+        compose_preferences_stage,
+    )
+    from .compose_curated_record_services import build_record_services
 else:
     getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
         "compose_curated_record_facade"
@@ -31,6 +38,13 @@ else:
         ACTION_EXCLUDED,
         ComposeDecision,
     )
+    from compose_curated_record_dispatch import (
+        CodingDispatchContext,
+        PreferenceDispatchContext,
+        compose_coding_stage,
+        compose_preferences_stage,
+    )
+    from compose_curated_record_services import build_record_services
 
 
 _FACADE: ModuleType | None = None
@@ -278,37 +292,17 @@ def _compose_preferences_stage(
     source_path: str,
     source_line: int,
 ) -> "ComposeDecision | dict[str, Any]":
-    facade = _facade()
-    if not facade.is_preference_record(current):
-        stages.append(
-            facade._stage(
-                "preferences",
-                facade.curate_preferences.TRANSFORM_NAME,
-                facade.curate_preferences.TRANSFORM_VERSION,
-                facade.ACTION_NOT_APPLICABLE,
-                lane_action=facade.ACTION_NOT_APPLICABLE,
-            )
-        )
-        return current
-    side_kinds = facade.preference_side_kinds(current)
-    if facade._is_same_state_pair(current):
-        outcome = facade._compose_same_state_preference(
-            current, side_kinds, stages, source_path=source_path, source_line=source_line
-        )
-    elif facade._mixed_preference_families(side_kinds):
-        return facade._compose_mixed_family_preference_exclusion(side_kinds, stages)
-    elif side_kinds == ("episode", "episode"):
-        outcome = facade._compose_episode_preference(
-            current, side_kinds, stages, source_path=source_path, source_line=source_line
-        )
-    else:
-        outcome = facade._compose_legacy_preference(current, side_kinds, stages)
-    if isinstance(outcome, ComposeDecision):
-        return outcome
-    decision, reasons = outcome
-    if decision.record is None:
-        return ComposeDecision(ACTION_EXCLUDED, None, tuple(reasons), tuple(stages), None, None)
-    return decision.record
+    return compose_preferences_stage(
+        PreferenceDispatchContext(
+            _facade(),
+            ComposeDecision,
+            ACTION_EXCLUDED,
+            source_path,
+            source_line,
+        ),
+        current,
+        stages,
+    )
 
 
 def _coding_lane_curator(current: dict[str, Any], registered_kind: Any) -> Any:
@@ -416,38 +410,17 @@ def _compose_coding_stage(
     source_line: int,
     source_sha256: str,
 ) -> "ComposeDecision | dict[str, Any]":
-    facade = _facade()
-    module = facade._coding_lane_curator(current, registered_kind)
-    if module is None:
-        trajectory = (
-            facade._bridge_view_trajectory(current) if facade.is_bridge_record(current) else None
-        )
-        if trajectory is not None:
-            return facade._compose_bridge_view_coding(
-                current, trajectory, stages, source_path=source_path, source_line=source_line
-            )
-        if facade._hidden_only_curation_applies(current, registered_kind):
-            cleaned, detail = facade._strip_hidden_only_side(current)
-            return facade._append_coding_lane_stage(stages, facade.curate_agentic, cleaned, detail)
-        stages.append(
-            facade._stage(
-                "coding",
-                facade.curate_coding.TRANSFORM_NAME,
-                facade.curate_coding.TRANSFORM_VERSION,
-                facade.ACTION_NOT_APPLICABLE,
-                lane_action=facade.ACTION_NOT_APPLICABLE,
-            )
-        )
-        return current
-    curator = (
-        facade.curate_agentic.curate_record
-        if module is facade.curate_agentic
-        else facade.curate_coding.curate_episode
+    return compose_coding_stage(
+        CodingDispatchContext(
+            _facade(),
+            source_path,
+            source_line,
+            source_sha256,
+        ),
+        current,
+        registered_kind,
+        stages,
     )
-    curated, manifest = curator(
-        current, source_path=source_path, source_line=source_line, source_hash=source_sha256
-    )
-    return facade._append_coding_lane_stage(stages, module, curated, manifest)
 
 
 def _compose_rewards_stage(
@@ -477,42 +450,7 @@ def _compose_rewards_stage(
 
 
 def _record_services() -> RecordServices:
-    facade = _facade()
-    return facade.RecordServices(
-        lambda record, stages, source: facade._compose_identity_stage(
-            record,
-            stages,
-            source_path=source.path,
-            source_line=source.line,
-            source_sha256=source.sha256,
-        ),
-        lambda current, stages, source: facade._compose_bridge_stage(
-            current,
-            stages,
-            source_path=source.path,
-            source_line=source.line,
-            source_sha256=source.sha256,
-            source_file_sha256=source.file_sha256,
-        ),
-        lambda current, stages, context: facade._compose_preferences_stage(
-            current, stages, source_path=context.source.path, source_line=context.source.line
-        ),
-        lambda current, kind, stages, context: facade._compose_coding_stage(
-            current,
-            kind,
-            stages,
-            source_path=context.source.path,
-            source_line=context.source.line,
-            source_sha256=context.source.sha256,
-        ),
-        lambda current, stages, context: facade._compose_rewards_stage(
-            current,
-            stages,
-            source_path=context.source.path,
-            source_line=context.source.line,
-            calibration=context.calibration,
-        ),
-    )
+    return build_record_services(_facade())
 
 
 def compose_record(

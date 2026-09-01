@@ -17,6 +17,13 @@ from pathlib import Path, PurePosixPath
 from typing import Any
 
 if __package__:
+    from . import _expose_package_sibling, _local_sibling_module, _require_local_sibling
+
+    if _local_sibling_module("compose_destination", allow_initializing=True):
+        import compose_destination as _direct_compose_destination
+
+        _require_local_sibling(_direct_compose_destination, "compose_destination")
+        del _direct_compose_destination
     from .compose_contract import ComposeError, sha256_hex
     from .compose_destination_binding import (
         DESTINATION_PARENT_LABEL as _DESTINATION_PARENT_LABEL,
@@ -82,6 +89,9 @@ if __package__:
         source_jsonl_members as enumerate_source_jsonl_members,
     )
 else:
+    getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
+        "compose_destination"
+    )
     from compose_contract import ComposeError, sha256_hex
     from compose_destination_binding import (
         DESTINATION_PARENT_LABEL as _DESTINATION_PARENT_LABEL,
@@ -221,9 +231,7 @@ def _descriptor_read_hooks() -> DescriptorReadHooks:
     )
 
 
-def _read_exact_regular_file(
-    root: Path, raw_path: Any, label: str
-) -> tuple[Path, bytes]:
+def _read_exact_regular_file(root: Path, raw_path: Any, label: str) -> tuple[Path, bytes]:
     """Read a source member while retaining the monkeypatch-visible resolver."""
 
     return read_exact_regular_file(
@@ -281,9 +289,7 @@ def source_jsonl_members(root: Path) -> tuple[str, ...]:
     return enumerate_source_jsonl_members(root, _round_visible_members)
 
 
-def create_pinned_destination(
-    source_run: Path, destination: Path
-) -> PinnedDestination:
+def create_pinned_destination(source_run: Path, destination: Path) -> PinnedDestination:
     """Create a destination while retaining the existing-name race seam."""
 
     return _create_pinned_destination(
@@ -299,9 +305,7 @@ def _destination_write_parts(relative: Any, label: str) -> tuple[str, ...]:
     return _validated_destination_write_parts(relative, label)
 
 
-def _open_pinned_child_directory(
-    parent_descriptor: int, name: str, label: str
-) -> tuple[int, bool]:
+def _open_pinned_child_directory(parent_descriptor: int, name: str, label: str) -> tuple[int, bool]:
     """Pin one child while retaining the relocation-race patch seam."""
 
     return _pin_child_directory(parent_descriptor, name, label)
@@ -368,9 +372,7 @@ def _open_bound_destination_directory(
     return child_descriptor
 
 
-def _create_pinned_new_directory(
-    target: int | PinnedDestination, name: str, label: str
-) -> None:
+def _create_pinned_new_directory(target: int | PinnedDestination, name: str, label: str) -> None:
     """Create one checked child directory through a pinned destination."""
 
     parent_descriptor = _destination_descriptor(target)
@@ -497,9 +499,7 @@ def write_pinned_new_bytes(
     return digest
 
 
-def _write_new_text(
-    target: int | PinnedDestination, relative: Any, text: str
-) -> str:
+def _write_new_text(target: int | PinnedDestination, relative: Any, text: str) -> str:
     """Create one new destination file exclusively and hash its bytes."""
 
     return write_pinned_new_bytes(
@@ -508,3 +508,7 @@ def _write_new_text(
         text.encode("utf-8"),
         f"destination {relative}",
     )
+
+
+if __package__:
+    _expose_package_sibling(__name__)

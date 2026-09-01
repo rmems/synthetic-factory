@@ -91,12 +91,12 @@ def relocation_exercise(case: RelocationCase, kind: str) -> RelocationExercise:
     if kind == "directory":
         real_open = compose_destination._open_pinned_child_directory
 
-        def side_effect(parent_descriptor, name, label):
+        def relocate_after_directory_open(parent_descriptor, name, label):
             descriptor, created = real_open(parent_descriptor, name, label)
             staged_root(case.pinned).rename(case.moved)
             return descriptor, created
 
-        def operation():
+        def create_directory():
             compose_destination._create_pinned_new_directory(
                 case.pinned,
                 compose_curated.RECORDS_DIRNAME,
@@ -107,19 +107,19 @@ def relocation_exercise(case: RelocationCase, kind: str) -> RelocationExercise:
             case,
             compose_destination,
             "_open_pinned_child_directory",
-            side_effect,
-            operation,
+            relocate_after_directory_open,
+            create_directory,
         )
 
     real_open = os.open
 
-    def side_effect(path, flags, mode=0o777, *, dir_fd=None):
+    def relocate_after_file_open(path, flags, mode=0o777, *, dir_fd=None):
         descriptor = real_open(path, flags, mode, dir_fd=dir_fd)
         if path == "row.jsonl":
             staged_root(case.pinned).rename(case.moved)
         return descriptor
 
-    def operation():
+    def write_file():
         compose_curated.write_pinned_new_bytes(
             case.pinned,
             "row.jsonl",
@@ -130,8 +130,8 @@ def relocation_exercise(case: RelocationCase, kind: str) -> RelocationExercise:
         case,
         compose_destination.os,
         "open",
-        side_effect,
-        operation,
+        relocate_after_file_open,
+        write_file,
     )
 
 
@@ -159,9 +159,7 @@ class PinnedWriterRawRelocation(unittest.TestCase):
             source.mkdir()
             raw = root / "outputs" / "raw"
             raw.mkdir(parents=True)
-            pinned = compose_curated.create_pinned_destination(
-                source, root / "curated"
-            )
+            pinned = compose_curated.create_pinned_destination(source, root / "curated")
             try:
                 os.rename(staged_root(pinned), raw / "curated")
                 with self.assertRaisesRegex(
@@ -173,11 +171,7 @@ class PinnedWriterRawRelocation(unittest.TestCase):
                         "records/x.jsonl",
                         b"data\n",
                     )
-                leaked = [
-                    entry
-                    for entry in (raw / "curated").rglob("*")
-                    if entry.is_file()
-                ]
+                leaked = [entry for entry in (raw / "curated").rglob("*") if entry.is_file()]
                 self.assertEqual(leaked, [])
             finally:
                 try:
@@ -233,9 +227,7 @@ class PinnedWriterRawRelocation(unittest.TestCase):
                 nonlocal calls
                 calls += 1
                 if calls == 2:
-                    raise compose_curated.ComposeError(
-                        "simulated post-open binding failure"
-                    )
+                    raise compose_curated.ComposeError("simulated post-open binding failure")
                 real_verify(target)
 
             try:
@@ -270,9 +262,7 @@ class PinnedWriterRawRelocation(unittest.TestCase):
             root = Path(td)
             source = root / "run"
             source.mkdir()
-            pinned = compose_curated.create_pinned_destination(
-                source, root / "curated"
-            )
+            pinned = compose_curated.create_pinned_destination(source, root / "curated")
             pinned.finish()
             with self.assertRaisesRegex(
                 compose_curated.ComposeError,
@@ -332,9 +322,7 @@ class PinnedWriterRawRelocation(unittest.TestCase):
                 return (
                     (
                         path == destination.name
-                        or str(path).startswith(
-                            ".synthetic-factory-destination-"
-                        )
+                        or str(path).startswith(".synthetic-factory-destination-")
                     )
                     and dir_fd is not None
                     and not relocated
@@ -383,9 +371,7 @@ class PinnedWriterRawRelocation(unittest.TestCase):
                 os.rename(staged_root(pinned), raw / "curated")
                 return pinned
 
-            with mock.patch.object(
-                compose_curated, "create_pinned_destination", relocating
-            ):
+            with mock.patch.object(compose_curated, "create_pinned_destination", relocating):
                 with self.assertRaisesRegex(
                     compose_curated.ComposeError,
                     "relocated into immutable raw evidence",
@@ -411,9 +397,7 @@ class PinnedWriterRawRelocation(unittest.TestCase):
                 "_source_member_path",
                 lambda *args, **kwargs: member_fifo,
             ):
-                with self.assertRaisesRegex(
-                    compose_curated.ComposeError, "not a regular file"
-                ):
+                with self.assertRaisesRegex(compose_curated.ComposeError, "not a regular file"):
                     compose_destination._read_exact_regular_file(
                         root, "member.jsonl", "source member"
                     )
@@ -426,9 +410,7 @@ class PinnedWriterRawRelocation(unittest.TestCase):
                     "calibration.json", parent, "units-migration calibration"
                 )
                 try:
-                    with self.assertRaisesRegex(
-                        compose_curated.ComposeError, "not a regular file"
-                    ):
+                    with self.assertRaisesRegex(compose_curated.ComposeError, "not a regular file"):
                         compose_destination._read_pinned_child_bytes(
                             "calibration.json",
                             parent,

@@ -198,6 +198,12 @@ def _load_compose_curated_source():
     return compose_curated_source
 
 
+def _load_compose_destination():
+    from . import compose_destination
+
+    return compose_destination
+
+
 def _load_compose_destination_binding():
     from . import compose_destination_binding
 
@@ -287,6 +293,7 @@ _PACKAGE_SIBLING_LOADERS = {
     "compose_curated_record_facade": _load_compose_curated_record_facade,
     "compose_curated_run": _load_compose_curated_run,
     "compose_curated_source": _load_compose_curated_source,
+    "compose_destination": _load_compose_destination,
     "compose_destination_binding": _load_compose_destination_binding,
     "compose_destination_creation": _load_compose_destination_creation,
     "compose_destination_writer": _load_compose_destination_writer,

@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import importlib
 import io
+import itertools
 import multiprocessing
 import sys
 import unittest
@@ -16,24 +17,60 @@ from unittest import mock
 
 REPO = Path(__file__).resolve().parents[1]
 PIPELINES = REPO / "pipelines"
+ADAPTER_FIRST_CASES = tuple(
+    itertools.product(
+        ("compose_curated_identity_facade", "compose_curated_record_facade"),
+        ("direct", "package"),
+        ("direct", "package"),
+    )
+)
+FACADE_IMPORT_ORDERS = {
+    None: """
+        compose_contract compose_curated_calibration compose_curated_coding
+        compose_curated_identity compose_curated_identity_facade
+        compose_curated_record_facade compose_curated_record compose_curated_run
+        compose_curated_run_facade compose_destination compose_mill compose_trajectory
+        curate_agentic curate_bridge curate_coding curate_identity curate_preferences
+        curate_rewards training_audit check_records census record_kind round_txn
+        """.split(),
+    "pipelines": """
+        compose_mill curate_agentic curate_bridge curate_coding curate_identity
+        curate_preferences curate_rewards training_audit compose_contract
+        compose_curated_calibration compose_curated_coding compose_curated_identity
+        compose_curated_identity_facade compose_curated_record_facade
+        compose_curated_record compose_curated_run compose_curated_run_facade
+        compose_destination compose_trajectory check_records census record_kind round_txn
+        """.split(),
+}
+
+
+def _ensure_direct_pipeline_imports() -> None:
+    if str(PIPELINES) not in sys.path:
+        sys.path.insert(0, str(PIPELINES))
+
+
+def _import_adapter_first(adapter_name: str, adapter_mode: str) -> ModuleType:
+    if adapter_mode == "direct":
+        _ensure_direct_pipeline_imports()
+        return importlib.import_module(adapter_name)
+    return importlib.import_module(f"pipelines.{adapter_name}")
+
+
+def _import_facade_pair(facade_mode: str) -> tuple[ModuleType, ModuleType]:
+    if facade_mode == "direct":
+        _ensure_direct_pipeline_imports()
+        direct = importlib.import_module("compose_curated")
+        packaged = importlib.import_module("pipelines.compose_curated")
+    else:
+        packaged = importlib.import_module("pipelines.compose_curated")
+        _ensure_direct_pipeline_imports()
+        direct = importlib.import_module("compose_curated")
+    return direct, packaged
 
 
 def _assert_adapter_first_process(adapter_name, adapter_mode, facade_mode):
-    if adapter_mode == "direct":
-        sys.path.insert(0, str(PIPELINES))
-        adapter = importlib.import_module(adapter_name)
-    else:
-        adapter = importlib.import_module(f"pipelines.{adapter_name}")
-    if facade_mode == "direct":
-        if str(PIPELINES) not in sys.path:
-            sys.path.insert(0, str(PIPELINES))
-        direct = importlib.import_module("compose_curated")
-        packaged = importlib.import_module("pipelines.compose_curated")
-    else:
-        packaged = importlib.import_module("pipelines.compose_curated")
-        if str(PIPELINES) not in sys.path:
-            sys.path.insert(0, str(PIPELINES))
-        direct = importlib.import_module("compose_curated")
+    adapter = _import_adapter_first(adapter_name, adapter_mode)
+    direct, packaged = _import_facade_pair(facade_mode)
     other_name = f"pipelines.{adapter_name}" if adapter.__package__ == "" else adapter_name
     if direct is not packaged:
         raise AssertionError("compose_curated module identity diverged")
@@ -100,6 +137,7 @@ class PipelinesPackageImports(unittest.TestCase):
         "compose_curated_calibration",
         "compose_curated_coding",
         "compose_curated_context",
+        "compose_curated_facade_bootstrap",
         "compose_curated_identity",
         "compose_curated_identity_facade",
         "compose_curated_preferences",
@@ -109,6 +147,7 @@ class PipelinesPackageImports(unittest.TestCase):
         "compose_curated_run_cli",
         "compose_curated_run_facade",
         "compose_curated_source",
+        "compose_destination",
         "compose_destination_binding",
         "compose_destination_creation",
         "compose_destination_writer",
@@ -319,6 +358,59 @@ class PipelinesPackageImports(unittest.TestCase):
     def test_all_new_split_modules_retain_identity_package_first(self):
         self._assert_new_split_module_identity("package")
 
+    def test_facade_bootstrap_preserves_import_order_and_optional_fail_open(self):
+        bootstrap = importlib.import_module("pipelines.compose_curated_facade_bootstrap")
+        for package, names in FACADE_IMPORT_ORDERS.items():
+            with self.subTest(package=package):
+                imported = []
+                prefix = f"{package}." if package else ""
+                optional_name = f"{prefix}curate_trajectory_preferences"
+
+                def import_module(name, imported=imported, optional_name=optional_name):
+                    imported.append(name)
+                    if name == optional_name:
+                        raise ModuleNotFoundError(f"No module named {name!r}", name=name)
+                    return ModuleType(name)
+
+                with (
+                    mock.patch.object(bootstrap, "_prepare_facade_identity"),
+                    mock.patch.object(
+                        bootstrap.importlib, "import_module", side_effect=import_module
+                    ),
+                ):
+                    modules = bootstrap.bootstrap_facade_imports(package)
+
+                self.assertEqual(
+                    imported,
+                    [*(f"{prefix}{name}" for name in names), optional_name],
+                )
+                self.assertIsNone(modules["curate_trajectory_preferences"])
+                self.assertEqual(
+                    modules["allowed_missing"],
+                    {
+                        "curate_trajectory_preferences",
+                        f"{package}.curate_trajectory_preferences",
+                    },
+                )
+
+    def test_facade_bootstrap_reraises_a_missing_optional_dependency(self):
+        bootstrap = importlib.import_module("pipelines.compose_curated_facade_bootstrap")
+
+        def import_module(name):
+            if name == "curate_trajectory_preferences":
+                raise ModuleNotFoundError(
+                    "No module named 'trajectory_dependency'",
+                    name="trajectory_dependency",
+                )
+            return ModuleType(name)
+
+        with (
+            mock.patch.object(bootstrap, "_prepare_facade_identity"),
+            mock.patch.object(bootstrap.importlib, "import_module", side_effect=import_module),
+            self.assertRaisesRegex(ModuleNotFoundError, "trajectory_dependency"),
+        ):
+            bootstrap.bootstrap_facade_imports(None)
+
     def _assert_run_support_module_identity(self, name: str, first: str) -> None:
         """Import run support first, before its core module can mask a cycle."""
 
@@ -346,31 +438,34 @@ class PipelinesPackageImports(unittest.TestCase):
                     self._assert_run_support_module_identity(name, first)
 
     def test_compose_adapters_import_first_bind_the_canonical_facade(self):
-        adapters = ("compose_curated_identity_facade", "compose_curated_record_facade")
-        for adapter_name in adapters:
-            for adapter_mode in ("direct", "package"):
-                for facade_mode in ("direct", "package"):
-                    with self.subTest(
-                        adapter=adapter_name,
-                        adapter_mode=adapter_mode,
-                        facade_mode=facade_mode,
-                    ):
-                        context = multiprocessing.get_context("spawn")
-                        process = context.Process(
-                            target=_assert_adapter_first_process,
-                            args=(adapter_name, adapter_mode, facade_mode),
-                        )
-                        process.start()
-                        process.join(30)
-                        if process.is_alive():
-                            process.terminate()
-                            process.join()
-                            self.fail("adapter-first import probe timed out")
-                        self.assertEqual(
-                            process.exitcode,
-                            0,
-                            "adapter-first import probe failed in its clean interpreter",
-                        )
+        for adapter_name, adapter_mode, facade_mode in ADAPTER_FIRST_CASES:
+            with self.subTest(
+                adapter=adapter_name,
+                adapter_mode=adapter_mode,
+                facade_mode=facade_mode,
+            ):
+                self._assert_adapter_first_case(adapter_name, adapter_mode, facade_mode)
+
+    def _assert_adapter_first_case(self, adapter_name, adapter_mode, facade_mode):
+        context = multiprocessing.get_context("spawn")
+        process = context.Process(
+            target=_assert_adapter_first_process,
+            args=(adapter_name, adapter_mode, facade_mode),
+        )
+        process.start()
+        process.join(30)
+        if process.is_alive():
+            process.terminate()
+            process.join(5)
+            if process.is_alive():
+                process.kill()
+                process.join(5)
+            self.fail("adapter-first import probe timed out")
+        self.assertEqual(
+            process.exitcode,
+            0,
+            "adapter-first import probe failed in its clean interpreter",
+        )
 
     def test_split_cli_preserves_original_help_contract(self):
         """Extraction retains the core CLI's published description and option text."""
