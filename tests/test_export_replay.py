@@ -5,15 +5,21 @@ import unittest
 from collections import Counter
 from copy import deepcopy
 from dataclasses import FrozenInstanceError
+from pathlib import Path
 from types import SimpleNamespace
 
-import export_test_support  # noqa: F401,E402 - configures test import paths
-import compose_curated  # noqa: E402
-import export_hf  # noqa: E402
-import export_replay  # noqa: E402
+from pipelines import compose_curated, export_hf, export_replay
 
 
 class ReplayAuthenticationContexts(unittest.TestCase):
+    def test_absent_calibration_identity_uses_a_direct_factory_sidecar(self):
+        source_root = Path("/source/failure-as-fuel-preference-cascade")
+
+        self.assertEqual(
+            export_replay._calibration_evidence_identity({"mode": "none"}, source_root),
+            ("none", str(source_root / "units-migration.json")),
+        )
+
     def test_replay_contexts_are_immutable(self):
         contexts = (
             export_replay._SourceReplay(
@@ -187,9 +193,7 @@ class ReplayCompatibilityAdapters(unittest.TestCase):
         self.assertEqual(state.counts["source_records"], 1)
         self.assertEqual(state.counts["blank_lines"], 1)
         self.assertEqual(state.counts["excluded"], 1)
-        self.assertEqual(
-            state.source_files[0]["path"], "factory/batch-r1.jsonl"
-        )
+        self.assertEqual(state.source_files[0]["path"], "factory/batch-r1.jsonl")
 
 
 if __name__ == "__main__":

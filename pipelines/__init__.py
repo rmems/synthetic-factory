@@ -252,6 +252,30 @@ def _load_export_members_read():
     return export_members_read
 
 
+def _load_export_members():
+    from . import export_members
+
+    return export_members
+
+
+def _load_export_provenance():
+    from . import export_provenance
+
+    return export_provenance
+
+
+def _load_export_split():
+    from . import export_split
+
+    return export_split
+
+
+def _load_strict_jsonl():
+    from . import strict_jsonl
+
+    return strict_jsonl
+
+
 def _load_training_audit_snapshot():
     from . import training_audit_snapshot
 
@@ -302,6 +326,10 @@ _PACKAGE_SIBLING_LOADERS = {
     "export_members_jsonl": _load_export_members_jsonl,
     "export_members_path": _load_export_members_path,
     "export_members_read": _load_export_members_read,
+    "export_members": _load_export_members,
+    "export_provenance": _load_export_provenance,
+    "export_split": _load_export_split,
+    "strict_jsonl": _load_strict_jsonl,
     "training_audit_snapshot": _load_training_audit_snapshot,
     "validate_run": _load_validate_run,
     "curate_bridge": _load_curate_bridge,

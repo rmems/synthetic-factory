@@ -3,12 +3,13 @@
 
 tests/test_compose_curated.py outgrew one file (CodeScene: Low Cohesion,
 Lines of Code in a Single File) and is now split by responsibility across
-test_compose_curated.py (lane composition and manifests),
+test_compose_curated.py (end-to-end composition, bridge/reward repair, and
+source framing), test_compose_curated_agentic.py,
 test_compose_curated_preferences.py, test_compose_curated_dedup.py,
 test_compose_curated_record_safety.py, test_compose_curated_run_contracts.py,
-test_compose_curated_destination.py, and
-test_compose_curated_destination_relocation.py. This module holds what two or
-more of those files need in common. Not named ``test_*`` so it is not
+test_compose_curated_source_safety.py, test_compose_curated_destination.py,
+and test_compose_curated_destination_relocation.py. This module holds what
+two or more of those files need in common. Not named ``test_*`` so it is not
 collected.
 """
 
@@ -63,9 +64,7 @@ def bridge_pair(*, unsorted=False):
         "id": "legacy-bridge-1",
         "language_view": {
             "summary": "three relay events",
-            "trajectory": trajectory(
-                action="relay", provenance="simulated", domain="bridge"
-            ),
+            "trajectory": trajectory(action="relay", provenance="simulated", domain="bridge"),
         },
         "spike_events": [spike(value, index) for index, value in enumerate(times)],
         "meta": {
@@ -252,7 +251,5 @@ def build_source_run(root):
 
 def read_jsonl(path):
     return [
-        json.loads(line)
-        for line in path.read_text(encoding="utf-8").splitlines()
-        if line.strip()
+        json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()
     ]

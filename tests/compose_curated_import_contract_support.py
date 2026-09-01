@@ -2,11 +2,15 @@
 
 from __future__ import annotations
 
-import importlib
 import multiprocessing
 import sys
 from pathlib import Path
 from typing import Iterable
+
+if __package__:
+    from . import pipeline_import_catalog
+else:
+    import pipeline_import_catalog
 
 
 _PROCESS_TIMEOUT_SECONDS = 30.0
@@ -16,14 +20,19 @@ _TERMINATION_TIMEOUT_SECONDS = 5.0
 def _assert_module_identities(
     repo_text: str,
     names: tuple[str, ...],
-    first_prefix: str,
-    second_prefix: str,
+    package_first: bool,
 ) -> None:
     repo = Path(repo_text)
     sys.path.insert(0, str(repo / "pipelines"))
     sys.path.insert(0, str(repo))
-    first = [importlib.import_module(first_prefix + name) for name in names]
-    second = [importlib.import_module(second_prefix + name) for name in names]
+    if package_first:
+        first_loader = pipeline_import_catalog.load_package
+        second_loader = pipeline_import_catalog.load_direct
+    else:
+        first_loader = pipeline_import_catalog.load_direct
+        second_loader = pipeline_import_catalog.load_package
+    first = [first_loader(name) for name in names]
+    second = [second_loader(name) for name in names]
     if not all(left is right for left, right in zip(first, second)):
         raise AssertionError("package and direct module identities diverged")
 
@@ -36,10 +45,9 @@ def clean_process_identity_exit_code(
 ) -> int | None:
     """Check import-order identity in a spawned, uncontaminated interpreter."""
 
-    first_prefix, second_prefix = ("pipelines.", "") if package_first else ("", "pipelines.")
     process = multiprocessing.get_context("spawn").Process(
         target=_assert_module_identities,
-        args=(str(repo), tuple(names), first_prefix, second_prefix),
+        args=(str(repo), tuple(names), package_first),
     )
     process.start()
     process.join(_PROCESS_TIMEOUT_SECONDS)

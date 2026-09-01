@@ -9,11 +9,13 @@ if __package__:
     from .check_records import reject_json_constant
     from .exact_json import parse_finite_json_float
     from .mill_family import MillFinding, MillIndex, summarize
+    from .tag_jsonutil import reject_duplicate_object_keys
 else:
     from census import factory_identity_for_path
     from check_records import reject_json_constant
     from exact_json import parse_finite_json_float
     from mill_family import MillFinding, MillIndex, summarize
+    from tag_jsonutil import reject_duplicate_object_keys
 
 
 def _finding_row(finding: MillFinding) -> dict:
@@ -46,6 +48,7 @@ def _parsed_records(payload: bytes):
             line = raw_line.decode("utf-8")
             record = json.loads(
                 line,
+                object_pairs_hook=reject_duplicate_object_keys,
                 parse_constant=reject_json_constant,
                 parse_float=parse_finite_json_float,
             )

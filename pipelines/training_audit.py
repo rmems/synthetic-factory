@@ -59,6 +59,8 @@ if __package__:
         percentile as _percentile,
         render_markdown as _render_markdown,
     )
+    from .strict_jsonl import StrictJsonlError, strict_lf_jsonl_records
+    from .tag_jsonutil import reject_duplicate_object_keys
     from .validate_run import HIDDEN_THOUGHT_KEYS, check_episode, episode_like
 else:
     import distillation_audit as _distillation_audit
@@ -95,6 +97,8 @@ else:
         percentile as _percentile,
         render_markdown as _render_markdown,
     )
+    from strict_jsonl import StrictJsonlError, strict_lf_jsonl_records
+    from tag_jsonutil import reject_duplicate_object_keys
     from validate_run import HIDDEN_THOUGHT_KEYS, check_episode, episode_like
 
 _PIPELINES = Path(__file__).resolve().parent
@@ -187,9 +191,7 @@ def _reward_shape_type(value):
 def reward_shape(value):
     if not isinstance(value, dict):
         return _reward_shape_type(value)
-    return "|".join(
-        f"{key}:{_reward_shape_type(item)}" for key, item in sorted(value.items())
-    )
+    return "|".join(f"{key}:{_reward_shape_type(item)}" for key, item in sorted(value.items()))
 
 
 def _thalamic_context_purity(chosen, rejected):
@@ -199,8 +201,7 @@ def _thalamic_context_purity(chosen, rejected):
         for key in ("state", "proposed_action")
     )
     same_state = valid_context and (
-        _semantic_context_value(chosen["state"])
-        == _semantic_context_value(rejected["state"])
+        _semantic_context_value(chosen["state"]) == _semantic_context_value(rejected["state"])
     )
     same_proposal = valid_context and (
         _semantic_context_value(chosen["proposed_action"])
@@ -498,11 +499,12 @@ class _CorpusAudit:
         self.totals["files"] += 1
         self.totals["bytes"] += len(payload)
 
-        # JSONL record boundaries are literal LF bytes. CRLF leaves JSON
-        # whitespace at the end of a record, while a bare CR stays within one
-        # physical record and is rejected as extra JSON data. Literal UTF-8
-        # U+2028/U+2029 bytes remain ordinary JSON string content.
-        for line_number, raw_line in enumerate(payload.split(b"\n"), 1):
+        try:
+            raw_lines = strict_lf_jsonl_records(payload, rel.as_posix())
+        except StrictJsonlError as exc:
+            self.record_errors.append(str(exc))
+            return
+        for line_number, raw_line in enumerate(raw_lines, 1):
             self._observe_line(raw_line, line_number, rel, factory)
 
     def _observe_line(self, raw_line, line_number, rel, factory):
@@ -522,6 +524,7 @@ class _CorpusAudit:
         try:
             obj = json.loads(
                 line,
+                object_pairs_hook=reject_duplicate_object_keys,
                 parse_constant=reject_json_constant,
                 parse_float=_parse_finite_json_float,
             )
@@ -798,9 +801,7 @@ def audit_run(
 
     run_dir = Path(run_dir).resolve()
     files = (
-        _captured_run_files(run_dir)
-        if snapshot is None
-        else _validated_snapshot_files(snapshot)
+        _captured_run_files(run_dir) if snapshot is None else _validated_snapshot_files(snapshot)
     )
     mill_findings, mill_mix = index_mill_quarantine(run_dir, files)
     audit = _CorpusAudit(run_dir, mill_findings, mill_mix)

@@ -11,33 +11,70 @@ from __future__ import annotations
 
 import os
 import stat
+import sys
 from pathlib import Path
 from typing import Any
 
-from export_contract import ExportError
-from export_members_auth import (
-    AuthenticationDependencies as _AuthenticationDependencies,
-    AuthenticationRequest as _AuthenticationRequest,
-    authenticate_descriptor as _authenticate_descriptor,
-)
-from export_members_jsonl import (
-    lf_jsonl_documents as _lf_jsonl_documents,
-    lf_jsonl_lines as _lf_jsonl_lines,
-)
-from export_members_path import (
-    compose_member_path as _compose_member_path,
-    is_under_raw as _is_under_raw,
-    member_relative as _member_relative,
-    require_exact_directory as _require_exact_directory,
-    require_unique_regular as _require_unique_regular,
-    require_inside_root as _require_inside_root,
-)
-from export_members_read import (
-    read_exact_regular_file as _read_exact_regular_file,
-    read_pinned_descriptor as _read_pinned_descriptor,
-    stable_file_identity as _stable_file_identity,
-)
-from raw_tree_guard import contains_raw_segments
+if __package__:
+    from . import _expose_package_sibling, _local_sibling_module, _require_local_sibling
+
+    if _local_sibling_module("export_members", allow_initializing=True):
+        import export_members as _direct_export_members
+
+        _require_local_sibling(_direct_export_members, "export_members")
+        del _direct_export_members
+    from .export_contract import ExportError
+    from .export_members_auth import (
+        AuthenticationDependencies as _AuthenticationDependencies,
+        AuthenticationRequest as _AuthenticationRequest,
+        authenticate_descriptor as _authenticate_descriptor,
+    )
+    from .export_members_jsonl import (
+        lf_jsonl_documents as _lf_jsonl_documents,
+        lf_jsonl_lines as _lf_jsonl_lines,
+    )
+    from .export_members_path import (
+        compose_member_path as _compose_member_path,
+        is_under_raw as _is_under_raw,
+        member_relative as _member_relative,
+        require_exact_directory as _require_exact_directory,
+        require_inside_root as _require_inside_root,
+        require_unique_regular as _require_unique_regular,
+    )
+    from .export_members_read import (
+        read_exact_regular_file as _read_exact_regular_file,
+        read_pinned_descriptor as _read_pinned_descriptor,
+        stable_file_identity as _stable_file_identity,
+    )
+    from .raw_tree_guard import contains_raw_segments
+else:
+    getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
+        "export_members"
+    )
+    from export_contract import ExportError
+    from export_members_auth import (
+        AuthenticationDependencies as _AuthenticationDependencies,
+        AuthenticationRequest as _AuthenticationRequest,
+        authenticate_descriptor as _authenticate_descriptor,
+    )
+    from export_members_jsonl import (
+        lf_jsonl_documents as _lf_jsonl_documents,
+        lf_jsonl_lines as _lf_jsonl_lines,
+    )
+    from export_members_path import (
+        compose_member_path as _compose_member_path,
+        is_under_raw as _is_under_raw,
+        member_relative as _member_relative,
+        require_exact_directory as _require_exact_directory,
+        require_inside_root as _require_inside_root,
+        require_unique_regular as _require_unique_regular,
+    )
+    from export_members_read import (
+        read_exact_regular_file as _read_exact_regular_file,
+        read_pinned_descriptor as _read_pinned_descriptor,
+        stable_file_identity as _stable_file_identity,
+    )
+    from raw_tree_guard import contains_raw_segments
 
 # Compatibility alias retained for ``export_hf`` and pre-split callers.
 _contains_raw_segments = contains_raw_segments
@@ -57,6 +94,7 @@ def _authenticated_descriptor(
             _lf_jsonl_documents,
         ),
     )
+
 
 __all__ = [
     "ExportError",
@@ -100,9 +138,7 @@ def _jsonl_entry_action(entry: os.DirEntry, metadata: os.stat_result, label: str
     """Classify a JSONL-named entry, requiring one exact regular file."""
 
     if not stat.S_ISREG(metadata.st_mode):
-        raise ExportError(
-            f"{label}: JSONL entry is not an exact regular file: {entry.path}"
-        )
+        raise ExportError(f"{label}: JSONL entry is not an exact regular file: {entry.path}")
     return "member"
 
 
@@ -145,3 +181,7 @@ def iter_alias_free_jsonl(root: Path, label: str) -> list[Path]:
             action = _classified_snapshot_entry(entry, label)
             _record_snapshot_entry(entry, action, pending, members)
     return sorted(members)
+
+
+if __package__:
+    _expose_package_sibling(__name__)

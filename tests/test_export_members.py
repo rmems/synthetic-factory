@@ -16,8 +16,8 @@ import export_members  # noqa: E402
 
 
 class ExportMemberCompatibility(unittest.TestCase):
-    def test_descriptor_authentication_resolves_facade_reader_at_call_time(self):
-        class FacadeReaderReached(Exception):
+    def _assert_descriptor_resolves_hook_at_call_time(self, hook_name):
+        class FacadeHookReached(Exception):
             pass
 
         payload = b'{"id":"one"}\n'
@@ -35,40 +35,17 @@ class ExportMemberCompatibility(unittest.TestCase):
 
             with mock.patch.object(
                 export_members,
-                "_read_exact_regular_file",
-                side_effect=FacadeReaderReached,
+                hook_name,
+                side_effect=FacadeHookReached,
             ):
-                with self.assertRaises(FacadeReaderReached):
-                    export_members._authenticated_descriptor(
-                        root, summary, "manifest", member.name
-                    )
+                with self.assertRaises(FacadeHookReached):
+                    export_members._authenticated_descriptor(root, summary, "manifest", member.name)
+
+    def test_descriptor_authentication_resolves_facade_reader_at_call_time(self):
+        self._assert_descriptor_resolves_hook_at_call_time("_read_exact_regular_file")
 
     def test_descriptor_authentication_resolves_facade_parser_at_call_time(self):
-        class FacadeParserReached(Exception):
-            pass
-
-        payload = b'{"id":"one"}\n'
-        with tempfile.TemporaryDirectory() as td:
-            root = Path(td)
-            member = root / "manifest.jsonl"
-            member.write_bytes(payload)
-            summary = {
-                "manifest": {
-                    "path": member.name,
-                    "sha256": hashlib.sha256(payload).hexdigest(),
-                    "entries": 1,
-                }
-            }
-
-            with mock.patch.object(
-                export_members,
-                "_lf_jsonl_documents",
-                side_effect=FacadeParserReached,
-            ):
-                with self.assertRaises(FacadeParserReached):
-                    export_members._authenticated_descriptor(
-                        root, summary, "manifest", member.name
-                    )
+        self._assert_descriptor_resolves_hook_at_call_time("_lf_jsonl_documents")
 
     def test_reads_exact_lf_jsonl_through_the_export_hf_surface(self):
         payload = b'{"id":"one"}\n{"id":"two"}\n'
@@ -102,12 +79,8 @@ class ExportMemberCompatibility(unittest.TestCase):
                 }
             }
 
-            with self.assertRaisesRegex(
-                export_members.ExportError, "duplicate JSON object key"
-            ):
-                export_members._authenticated_descriptor(
-                    root, summary, "manifest", member.name
-                )
+            with self.assertRaisesRegex(export_members.ExportError, "duplicate JSON object key"):
+                export_members._authenticated_descriptor(root, summary, "manifest", member.name)
 
     def test_descriptor_digest_is_checked_before_parsing_member_json(self):
         payload = b"not-json\n"
@@ -124,9 +97,7 @@ class ExportMemberCompatibility(unittest.TestCase):
             }
 
             with self.assertRaisesRegex(export_members.ExportError, "digest mismatch"):
-                export_members._authenticated_descriptor(
-                    root, summary, "manifest", member.name
-                )
+                export_members._authenticated_descriptor(root, summary, "manifest", member.name)
 
 
 if __name__ == "__main__":

@@ -91,6 +91,24 @@ class ValidateRewardTotal(unittest.TestCase):
 
 
 class ValidateProvenanceStrict(unittest.TestCase):
+    def _assert_vocabulary_rebinding(
+        self, attribute, accepted_record, rejected_record, rejected_error
+    ):
+        with mock.patch.object(validate_run, attribute, frozenset({"declared"})):
+            self.assertEqual(validate_run.check_provenance(accepted_record, "record"), [])
+            self.assertEqual(
+                validate_run.check_provenance(rejected_record, "record"),
+                [rejected_error],
+            )
+
+    def _assert_unhashable_provenance_reports_invalid(self, mutate, fragment):
+        rec = copy.deepcopy(TINY_THALAMIC)
+        mutate(rec)
+        result = _run_with_record(rec)
+        self.assertEqual(result.returncode, 1, result.stderr)
+        self.assertIn(fragment, result.stdout + result.stderr)
+        self.assertNotIn("Traceback", result.stderr)
+
     def test_publish_gate_matches_only_real_claim_tokens(self):
         real_claims = (
             "real",
@@ -119,46 +137,20 @@ class ValidateProvenanceStrict(unittest.TestCase):
                 )
 
     def test_state_vocabulary_rebinding_changes_parent_provenance_gate(self):
-        with mock.patch.object(
-            validate_run,
+        self._assert_vocabulary_rebinding(
             "ALLOWED_SIM_OR_REAL",
-            frozenset({"declared"}),
-        ):
-            self.assertEqual(
-                validate_run.check_provenance(
-                    {"state": {"sim_or_real": "declared"}}, "record"
-                ),
-                [],
-            )
-            self.assertEqual(
-                validate_run.check_provenance(
-                    {"state": {"sim_or_real": "designed"}}, "record"
-                ),
-                [
-                    "record: state.sim_or_real must be one of ['declared']",
-                ],
-            )
+            {"state": {"sim_or_real": "declared"}},
+            {"state": {"sim_or_real": "designed"}},
+            "record: state.sim_or_real must be one of ['declared']",
+        )
 
     def test_kind_vocabulary_rebinding_changes_parent_provenance_gate(self):
-        with mock.patch.object(
-            validate_run,
+        self._assert_vocabulary_rebinding(
             "ALLOWED_PROVENANCE_KIND",
-            frozenset({"declared"}),
-        ):
-            self.assertEqual(
-                validate_run.check_provenance(
-                    {"provenance": {"kind": "declared"}}, "record"
-                ),
-                [],
-            )
-            self.assertEqual(
-                validate_run.check_provenance(
-                    {"provenance": {"kind": "designed"}}, "record"
-                ),
-                [
-                    "record: provenance.kind must be one of ['declared']",
-                ],
-            )
+            {"provenance": {"kind": "declared"}},
+            {"provenance": {"kind": "designed"}},
+            "record: provenance.kind must be one of ['declared']",
+        )
 
     def test_provenance_valid_kinds(self):
         for kind in ["designed", "simulated", "hil", "unknown"]:
@@ -194,6 +186,18 @@ class ValidateProvenanceStrict(unittest.TestCase):
         result = _run_with_record(rec)
         self.assertEqual(result.returncode, 1, result.stderr)
         self.assertIn("provenance.claimed", result.stderr)
+
+    def test_unhashable_provenance_kind_reports_invalid(self):
+        self._assert_unhashable_provenance_reports_invalid(
+            lambda rec: rec.__setitem__("provenance", {"kind": [], "claimed": "designed"}),
+            "provenance.kind must be one of",
+        )
+
+    def test_unhashable_state_provenance_reports_invalid(self):
+        self._assert_unhashable_provenance_reports_invalid(
+            lambda rec: rec["state"].__setitem__("sim_or_real", {"designed": True}),
+            "state.sim_or_real must be one of",
+        )
 
 
 class ValidateMetaRound(unittest.TestCase):
@@ -270,22 +274,6 @@ class ValidationIsTotalOverDecodedJson(unittest.TestCase):
             "safety_decision.decision must be ACCEPT|MODIFY|REJECT",
             result.stdout + result.stderr,
         )
-        self.assertNotIn("Traceback", result.stderr)
-
-    def test_unhashable_provenance_kind_reports_invalid(self):
-        rec = copy.deepcopy(TINY_THALAMIC)
-        rec["provenance"] = {"kind": [], "claimed": "designed"}
-        result = _run_with_record(rec)
-        self.assertEqual(result.returncode, 1, result.stderr)
-        self.assertIn("provenance.kind must be one of", result.stdout + result.stderr)
-        self.assertNotIn("Traceback", result.stderr)
-
-    def test_unhashable_state_provenance_reports_invalid(self):
-        rec = copy.deepcopy(TINY_THALAMIC)
-        rec["state"]["sim_or_real"] = {"designed": True}
-        result = _run_with_record(rec)
-        self.assertEqual(result.returncode, 1, result.stderr)
-        self.assertIn("state.sim_or_real must be one of", result.stdout + result.stderr)
         self.assertNotIn("Traceback", result.stderr)
 
 

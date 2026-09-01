@@ -71,6 +71,7 @@ else:
     from trajectory_pair_gate import preference_direction_failures
     from validate_run import THALAMIC_CORE_KEYS, check_episode
 
+
 def is_bridge_record(record: Mapping[str, Any]) -> bool:
     """Mirror the shape gate ``curate_bridge.curate_record`` applies itself."""
 
@@ -84,9 +85,7 @@ def is_bridge_record(record: Mapping[str, Any]) -> bool:
 def is_preference_record(record: Mapping[str, Any]) -> bool:
     """Mirror the candidate gate ``curate_preferences`` applies to a corpus."""
 
-    return isinstance(record, Mapping) and any(
-        key in record for key in PREFERENCE_CANDIDATE_KEYS
-    )
+    return isinstance(record, Mapping) and any(key in record for key in PREFERENCE_CANDIDATE_KEYS)
 
 
 def is_episode_record(record: Mapping[str, Any]) -> bool:
@@ -99,18 +98,14 @@ def is_episode_record(record: Mapping[str, Any]) -> bool:
     with its hidden reasoning and ungrounded ``decision_basis`` intact.
     """
 
-    return (
-        isinstance(record, Mapping)
-        and curate_coding.steps_path(dict(record)) is not None
-    )
+    return isinstance(record, Mapping) and curate_coding.steps_path(dict(record)) is not None
 
 
 def _mixed_preference_families(side_kinds: tuple[str, str]) -> bool:
     """Whether two recognized preference-side families disagree."""
 
     return (
-        all(kind in PREFERENCE_SIDE_KINDS for kind in side_kinds)
-        and side_kinds[0] != side_kinds[1]
+        all(kind in PREFERENCE_SIDE_KINDS for kind in side_kinds) and side_kinds[0] != side_kinds[1]
     )
 
 
@@ -126,8 +121,7 @@ def _is_same_state_pair(record: Mapping[str, Any]) -> bool:
     return all(
         isinstance(side, Mapping)
         and all(
-            isinstance(side.get(field_name), Mapping)
-            for field_name in ("state", "proposed_action")
+            isinstance(side.get(field_name), Mapping) for field_name in ("state", "proposed_action")
         )
         for side in sides
     )
@@ -151,9 +145,7 @@ def _trajectory_side_validation_errors(
     return found
 
 
-def _trajectory_goal_owner(
-    record: dict[str, Any], path: tuple[str, ...]
-) -> dict[str, Any] | None:
+def _trajectory_goal_owner(record: dict[str, Any], path: tuple[str, ...]) -> dict[str, Any] | None:
     owner: Any = record
     for key in path[:-1]:
         owner = owner.get(key) if isinstance(owner, dict) else None
@@ -225,17 +217,30 @@ _TRAJECTORY_DIVERGENCE_FIELDS = (
 )
 
 
-def _trajectory_step_reasons(
-    chosen: Any, rejected: Any, overlap: Mapping[str, Any]
-) -> list[str]:
+def _trajectory_steps(side: Any) -> Any:
+    """Return one side's steps without treating non-objects as mappings."""
+
+    return side.get("steps") if isinstance(side, dict) else None
+
+
+def _trajectory_step_shape_reason(chosen_steps: Any, rejected_steps: Any) -> str | None:
+    """Return the first structural step-array failure in gate order."""
+
+    if not isinstance(chosen_steps, list) or not isinstance(rejected_steps, list):
+        return REASON_TRAJECTORY_STEPS_INVALID
+    if not chosen_steps or not rejected_steps:
+        return REASON_TRAJECTORY_STEPS_EMPTY
+    return None
+
+
+def _trajectory_step_reasons(chosen: Any, rejected: Any, overlap: Mapping[str, Any]) -> list[str]:
     """Why the pair's step arrays fail PR #93's gate, in gate order."""
 
-    chosen_steps = chosen.get("steps") if isinstance(chosen, dict) else None
-    rejected_steps = rejected.get("steps") if isinstance(rejected, dict) else None
-    if not all(isinstance(steps, list) for steps in (chosen_steps, rejected_steps)):
-        return [REASON_TRAJECTORY_STEPS_INVALID]
-    if not chosen_steps or not rejected_steps:
-        return [REASON_TRAJECTORY_STEPS_EMPTY]
+    chosen_steps = _trajectory_steps(chosen)
+    rejected_steps = _trajectory_steps(rejected)
+    shape_reason = _trajectory_step_shape_reason(chosen_steps, rejected_steps)
+    if shape_reason is not None:
+        return [shape_reason]
 
     reasons: list[str] = []
     if canonical_json(chosen_steps) == canonical_json(rejected_steps):
@@ -278,9 +283,7 @@ def _trajectory_gate_passed(
     reasons.append(REASON_TRAJECTORY_GATE_PASSED)
     return _TrajectoryPreferenceDecision(
         action="repaired" if repaired else ACTION_RETAINED,
-        classification=(
-            "trajectory_pair_repaired" if repaired else "trajectory_pair_gate_passed"
-        ),
+        classification=("trajectory_pair_repaired" if repaired else "trajectory_pair_gate_passed"),
         reason_codes=tuple(reasons),
         record=curated,
         shared_goal=True,
@@ -385,9 +388,7 @@ def _strip_hidden_only_side(side: dict[str, Any]) -> tuple[dict[str, Any], dict[
         "transform_name": curate_agentic.TRANSFORM_NAME,
         "transform_version": curate_agentic.TRANSFORM_VERSION,
         "action": "modified" if removed else ACTION_NOT_APPLICABLE,
-        "reason_codes": (
-            [curate_agentic.REASON_THOUGHT_REMOVED] if removed else []
-        ),
+        "reason_codes": ([curate_agentic.REASON_THOUGHT_REMOVED] if removed else []),
         "hidden_reasoning_fields_removed": removed,
     }
     return cleaned, manifest

@@ -8,7 +8,7 @@ import json
 import sys
 from collections import Counter
 from dataclasses import dataclass, field
-from pathlib import Path, PurePosixPath
+from pathlib import Path
 from typing import Any, Callable, Mapping
 
 if __package__:
@@ -33,6 +33,8 @@ if __package__:
         ComposeDecision,
         ComposeError,
         canonical_json,
+        published_source_coordinate,
+        published_source_snapshot,
         sha256_hex,
     )
     from .compose_curated_calibration import CalibrationContext
@@ -54,12 +56,15 @@ else:
         ComposeDecision,
         ComposeError,
         canonical_json,
+        published_source_coordinate,
+        published_source_snapshot,
         sha256_hex,
     )
     from compose_curated_calibration import CalibrationContext
 
 
 CLI_DESCRIPTION = __doc__.split("\n\n")[0]
+_published_source_coordinate = published_source_coordinate
 
 
 @dataclass(frozen=True)
@@ -454,44 +459,6 @@ def capture_source_snapshot(
     return source_members, payloads, factory_identities
 
 
-def _published_source_coordinate(relative: str, factory: str) -> str:
-    """Return the factory-qualified coordinate published for one source member."""
-
-    factory_path = PurePosixPath(factory)
-    if factory_path.name != factory:
-        raise ComposeError(f"invalid factory identity for published source coordinate: {factory!r}")
-    if factory == "..":
-        raise ComposeError(f"invalid factory identity for published source coordinate: {factory!r}")
-    source_path = PurePosixPath(relative)
-    if source_path.parts[: len(factory_path.parts)] == factory_path.parts:
-        return source_path.as_posix()
-    return (factory_path / source_path).as_posix()
-
-
-def _published_source_snapshot(
-    source_members: tuple[str, ...],
-    payload_by_member: Mapping[str, bytes],
-    identities: Mapping[str, tuple[str, bool]],
-) -> tuple[tuple[str, ...], dict[str, bytes], dict[str, tuple[str, bool]]]:
-    """Rekey captured bytes from physical paths to collision-free published paths."""
-
-    published_members: list[str] = []
-    published_payloads: dict[str, bytes] = {}
-    published_identities: dict[str, tuple[str, bool]] = {}
-    for relative in source_members:
-        factory, verified = identities[relative]
-        coordinate = _published_source_coordinate(relative, factory)
-        if coordinate in published_payloads:
-            raise ComposeError(
-                "published source coordinate collision: "
-                f"{relative!r} and another source member both map to {coordinate!r}"
-            )
-        published_members.append(coordinate)
-        published_payloads[coordinate] = payload_by_member[relative]
-        published_identities[coordinate] = factory, verified
-    return tuple(published_members), published_payloads, published_identities
-
-
 def write_compose_provenance(
     state: ComposeRunState, destination_target: Any, services: DestinationServices
 ) -> tuple[str, str]:
@@ -676,7 +643,7 @@ def compose_run(
     source_members, payload_by_member, identities = active.capture_source_snapshot(
         resolved_source, services.source
     )
-    source_members, payload_by_member, identities = _published_source_snapshot(
+    source_members, payload_by_member, identities = published_source_snapshot(
         source_members,
         payload_by_member,
         identities,

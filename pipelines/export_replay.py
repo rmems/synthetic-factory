@@ -21,6 +21,11 @@ if str(_PIPELINES) not in sys.path:
 
 import compose_curated  # noqa: E402
 import compose_mill  # noqa: E402
+from compose_contract import (  # noqa: E402
+    ComposeError,
+    default_units_migration_path,
+    published_source_snapshot,
+)
 from census import factory_identity_for_path  # noqa: E402
 from round_txn import TransactionError  # noqa: E402
 from export_calibration import _authenticated_calibration  # noqa: E402
@@ -58,9 +63,7 @@ class _ReplayState:
     counts: Counter[str] = field(default_factory=Counter)
     exclusions: Counter[str] = field(default_factory=Counter)
     lane_actions: dict[str, Counter[str]] = field(
-        default_factory=lambda: {
-            lane: Counter() for lane in compose_curated.LANE_ORDER
-        }
+        default_factory=lambda: {lane: Counter() for lane in compose_curated.LANE_ORDER}
     )
     expected_manifest: list[dict[str, Any]] = field(default_factory=list)
     expected_sidecars: list[dict[str, Any]] = field(default_factory=list)
@@ -130,9 +133,7 @@ def _replayed_manifest_entry(
     }
 
 
-def _claim_replayed_output_id(
-    state: _ReplayState, output_id: Any, location: str
-) -> None:
+def _claim_replayed_output_id(state: _ReplayState, output_id: Any, location: str) -> None:
     """Reserve a canonical ID across the replay, or refuse the export."""
 
     if output_id is None:
@@ -140,8 +141,7 @@ def _claim_replayed_output_id(
     previous = state.emitted_ids.get(output_id)
     if previous is not None:
         raise ExportError(
-            f"replayed canonical ID collision {output_id!r}: "
-            f"{previous} and {location}"
+            f"replayed canonical ID collision {output_id!r}: {previous} and {location}"
         )
     state.emitted_ids[output_id] = location
 
@@ -155,9 +155,7 @@ def _record_replayed_retained_context(
     """Account one replayed record that compose would have emitted."""
 
     line = compose_curated.canonical_json(decision.record)
-    _claim_replayed_output_id(
-        state, decision.output_id, f"{replay.relative}:{replay.line_number}"
-    )
+    _claim_replayed_output_id(state, decision.output_id, f"{replay.relative}:{replay.line_number}")
     entry.update(
         {
             "output_path": f"{compose_curated.RECORDS_DIRNAME}/{replay.relative}",
@@ -197,9 +195,7 @@ def _record_replayed_retained(
     )
 
 
-def _record_replayed_excluded(
-    state: _ReplayState, decision: Any, entry: dict[str, Any]
-) -> None:
+def _record_replayed_excluded(state: _ReplayState, decision: Any, entry: dict[str, Any]) -> None:
     """Account one replayed record that compose would have excluded."""
 
     entry.update(
@@ -246,13 +242,8 @@ def _replay_one_line_context(
         if lane in state.lane_actions:
             state.lane_actions[lane][stage["action"]] += 1
 
-    if (
-        decision.action == compose_curated.ACTION_RETAINED
-        and decision.record is not None
-    ):
-        emitted_line = _record_replayed_retained_context(
-            state, decision, entry, replay
-        )
+    if decision.action == compose_curated.ACTION_RETAINED and decision.record is not None:
+        emitted_line = _record_replayed_retained_context(state, decision, entry, replay)
     else:
         _record_replayed_excluded(state, decision, entry)
         emitted_line = None
@@ -286,9 +277,7 @@ def _replay_one_line(
         emitted.append(emitted_line)
 
 
-def _record_replayed_output_file(
-    state: _ReplayState, relative: str, emitted: list[str]
-) -> None:
+def _record_replayed_output_file(state: _ReplayState, relative: str, emitted: list[str]) -> None:
     """Record the output file one replayed source file would have produced."""
 
     output_path = f"{compose_curated.RECORDS_DIRNAME}/{relative}"
@@ -321,9 +310,7 @@ def _replay_source_file_context(
     state.counts["source_files"] += 1
     emitted: list[str] = []
 
-    for line_number, physical_line in enumerate(
-        _replay_physical_lines(replay.raw_file), 1
-    ):
+    for line_number, physical_line in enumerate(_replay_physical_lines(replay.raw_file), 1):
         if not physical_line.strip():
             state.counts["blank_lines"] += 1
             continue
@@ -336,9 +323,7 @@ def _replay_source_file_context(
                 output_line=len(emitted) + 1,
                 source_file_sha256=source_file_sha256,
                 catalog=replay.catalog,
-                mill_finding=replay.mill_findings.get(
-                    (replay.relative, line_number)
-                ),
+                mill_finding=replay.mill_findings.get((replay.relative, line_number)),
             ),
         )
         if emitted_line is not None:
@@ -366,16 +351,12 @@ def _replay_source_file(
     )
 
 
-def _member_identity(
-    source_root: Path, relative: str
-) -> tuple[tuple[int, ...], str, bool]:
+def _member_identity(source_root: Path, relative: str) -> tuple[tuple[int, ...], str, bool]:
     path = source_root.joinpath(*relative.split("/"))
     try:
         entry = path.lstat()
     except OSError as exc:
-        raise ExportError(
-            f"compose source {relative}: member cannot be inspected: {exc}"
-        ) from exc
+        raise ExportError(f"compose source {relative}: member cannot be inspected: {exc}") from exc
     factory, verified = factory_identity_for_path(source_root, path)
     return _stable_file_identity(entry), factory, verified
 
@@ -383,10 +364,7 @@ def _member_identity(
 def _member_identities(
     source_root: Path, source_members: tuple[str, ...]
 ) -> dict[str, tuple[tuple[int, ...], str, bool]]:
-    return {
-        relative: _member_identity(source_root, relative)
-        for relative in source_members
-    }
+    return {relative: _member_identity(source_root, relative) for relative in source_members}
 
 
 def _require_coherent_capture(
@@ -409,9 +387,7 @@ def _require_coherent_capture(
     try:
         members_now = compose_curated.source_jsonl_members(source_root)
     except (compose_curated.ComposeError, TransactionError) as exc:
-        raise ExportError(
-            f"COMPOSE source tree cannot be replayed safely: {exc}"
-        ) from exc
+        raise ExportError(f"COMPOSE source tree cannot be replayed safely: {exc}") from exc
     if tuple(members_now) != tuple(source_members):
         raise ExportError(
             "compose source: the visible member set changed while the replay "
@@ -438,9 +414,7 @@ def _replay_source_lines(source_root: Path, catalog: Any) -> _ReplaySnapshot:
     # so a quarantined line replays as the same exclusion.
     identities_before = _member_identities(source_root, source_members)
     payload_by_member = {
-        relative: _read_exact_regular_file(
-            source_root, relative, f"compose source {relative}"
-        )[1]
+        relative: _read_exact_regular_file(source_root, relative, f"compose source {relative}")[1]
         for relative in source_members
     }
     _require_coherent_capture(source_root, source_members, identities_before)
@@ -448,6 +422,14 @@ def _replay_source_lines(source_root: Path, catalog: Any) -> _ReplaySnapshot:
         relative: (factory, verified)
         for relative, (_file_identity, factory, verified) in identities_before.items()
     }
+    try:
+        source_members, payload_by_member, factory_identities = published_source_snapshot(
+            source_members,
+            payload_by_member,
+            factory_identities,
+        )
+    except ComposeError as exc:
+        raise ExportError(f"COMPOSE source coordinates cannot be replayed safely: {exc}") from exc
     mill_findings = compose_mill.index_compose_mills(
         payload_by_member, factory_identities, _replay_physical_lines
     )
@@ -510,9 +492,7 @@ def _require_replayed_outputs(
             raise ExportError(f"curated output bytes do not reproduce: {output_path}")
 
 
-def _require_replayed_counts(
-    snapshot: _ReplaySnapshot, summary: dict[str, Any]
-) -> None:
+def _require_replayed_counts(snapshot: _ReplaySnapshot, summary: dict[str, Any]) -> None:
     """Every published aggregate must replay under the same transforms."""
 
     expected = {
@@ -526,8 +506,7 @@ def _require_replayed_counts(
             "reward_sidecars": snapshot.counts["reward_sidecars"],
         },
         "lane_actions": {
-            lane: dict(sorted(actions.items()))
-            for lane, actions in snapshot.lane_actions.items()
+            lane: dict(sorted(actions.items())) for lane, actions in snapshot.lane_actions.items()
         },
         "exclusions": dict(sorted(snapshot.exclusions.items())),
         "transforms": compose_curated.transform_contract(),
@@ -549,9 +528,7 @@ def _verify_replay_matches_context(
 ) -> None:
     """Raise ``ExportError`` unless every declared artifact reproduces from ``snapshot``."""
 
-    _require_replayed_documents(
-        snapshot, published.manifest_documents, published.sidecar_documents
-    )
+    _require_replayed_documents(snapshot, published.manifest_documents, published.sidecar_documents)
     _require_replayed_outputs(snapshot, published.summary, published.actual_outputs)
     _require_replayed_counts(snapshot, published.summary)
 
@@ -583,7 +560,7 @@ def _calibration_evidence_identity(
     """Identity token for already-authenticated calibration evidence."""
 
     if descriptor["mode"] == "none":
-        return "none", str(source_root / compose_curated.FFPC_UNITS_MIGRATION)
+        return "none", str(default_units_migration_path(source_root))
     path = Path(descriptor["path"])
     try:
         metadata = path.lstat()
@@ -598,9 +575,7 @@ def _authenticated_calibration_state(
     """Return catalog, descriptor, and its post-authentication identity token."""
 
     catalog, descriptor = _authenticated_calibration(summary, source_root)
-    return catalog, descriptor, _calibration_evidence_identity(
-        descriptor, source_root
-    )
+    return catalog, descriptor, _calibration_evidence_identity(descriptor, source_root)
 
 
 def _authenticate_source_replay(

@@ -127,9 +127,7 @@ class _OwnedEntryMove:
 
     def _handle_error(self, error: OSError) -> None:
         if self.strict or error.errno in _ATOMIC_RENAME_UNSUPPORTED:
-            raise ComposeError(
-                f"{self.label}: atomic private rename failed: {error}"
-            ) from error
+            raise ComposeError(f"{self.label}: atomic private rename failed: {error}") from error
 
     def _restore(self, private_name: str) -> None:
         try:
@@ -142,9 +140,7 @@ class _OwnedEntryMove:
             return private_name
         self._restore(private_name)
         if self.strict:
-            raise ComposeError(
-                f"{self.label}: entry identity changed before private rename"
-            )
+            raise ComposeError(f"{self.label}: entry identity changed before private rename")
         return None
 
     def move(self) -> str | None:
@@ -159,9 +155,7 @@ class _OwnedEntryMove:
                 return None
             return self._authenticate(private_name)
         if self.strict:
-            raise ComposeError(
-                f"{self.label}: cannot allocate a private transaction name"
-            )
+            raise ComposeError(f"{self.label}: cannot allocate a private transaction name")
         return None
 
 
@@ -233,9 +227,7 @@ def _directory_observations(path: Path) -> tuple[os.stat_result, Path]:
     return path.lstat(), path.resolve(strict=True)
 
 
-def _required_directory_observations(
-    path: Path, label: str
-) -> tuple[os.stat_result, Path]:
+def _required_directory_observations(path: Path, label: str) -> tuple[os.stat_result, Path]:
     """Observe a required directory while normalizing resolution failures."""
 
     try:
@@ -361,10 +353,14 @@ class _DestinationTreeSnapshot:
 
     @staticmethod
     def _open(path: _TreePath, *, directory: bool) -> int:
-        flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(
-            os,
-            "O_CLOEXEC",
-            0,
+        flags = (
+            os.O_RDONLY
+            | getattr(os, "O_NOFOLLOW", 0)
+            | getattr(
+                os,
+                "O_CLOEXEC",
+                0,
+            )
         )
         flags |= getattr(os, "O_DIRECTORY", 0) if directory else os.O_NONBLOCK
         try:
@@ -409,9 +405,7 @@ class _DestinationTreeSnapshot:
         """Hash one unique regular entry through a stable pinned descriptor."""
 
         if not stat.S_ISREG(entry.metadata.st_mode) or entry.metadata.st_nlink != 1:
-            raise ComposeError(
-                f"destination tree contains unsafe file: {entry.relative}"
-            )
+            raise ComposeError(f"destination tree contains unsafe file: {entry.relative}")
         descriptor = self._open(entry.path, directory=False)
         try:
             _assert_descriptor_outside_raw(
@@ -429,9 +423,7 @@ class _DestinationTreeSnapshot:
             )
             return digest
         except OSError as exc:
-            raise ComposeError(
-                f"destination tree file cannot be read: {entry.relative}"
-            ) from exc
+            raise ComposeError(f"destination tree file cannot be read: {entry.relative}") from exc
         finally:
             os.close(descriptor)
 
@@ -445,15 +437,11 @@ class _DestinationTreeSnapshot:
                 f"destination tree directory {entry.relative}",
             )
             if _directory_identity(entry.metadata) != _directory_identity(opened):
-                raise ComposeError(
-                    f"destination tree directory changed: {entry.relative}"
-                )
+                raise ComposeError(f"destination tree directory changed: {entry.relative}")
             self._scan_directory(child, entry.path.relative_parts)
             current = self._metadata(entry.path)
             if _directory_identity(opened) != _directory_identity(current):
-                raise ComposeError(
-                    f"destination tree directory changed: {entry.relative}"
-                )
+                raise ComposeError(f"destination tree directory changed: {entry.relative}")
         finally:
             os.close(child)
 
@@ -470,9 +458,7 @@ class _DestinationTreeSnapshot:
             elif stat.S_ISREG(entry.metadata.st_mode):
                 self.digests[entry.relative] = self._read_file(entry)
             else:
-                raise ComposeError(
-                    f"destination tree contains unsafe entry: {entry.relative}"
-                )
+                raise ComposeError(f"destination tree contains unsafe entry: {entry.relative}")
 
     def capture(self, descriptor: int) -> tuple[frozenset[str], dict[str, str]]:
         self._scan_directory(descriptor, ())
@@ -496,18 +482,15 @@ class DirectoryBinding:
     def matches(self) -> bool:
         """Whether every observation still identifies the expected directory."""
 
-        if not stat.S_ISDIR(self.metadata.st_mode):
-            return False
-        if not stat.S_ISDIR(self.opened.st_mode):
-            return False
-        if self.resolved != self.absolute:
-            return False
         opened_identity = _directory_identity(self.opened)
-        if _directory_identity(self.metadata) != opened_identity:
-            return False
-        if self.expected_identity is None:
-            return True
-        return opened_identity == self.expected_identity
+        checks = (
+            stat.S_ISDIR(self.metadata.st_mode),
+            stat.S_ISDIR(self.opened.st_mode),
+            self.resolved == self.absolute,
+            _directory_identity(self.metadata) == opened_identity,
+            (self.expected_identity is None or opened_identity == self.expected_identity),
+        )
+        return all(checks)
 
 
 def directory_binding_matches(binding: DirectoryBinding) -> bool:
@@ -566,18 +549,12 @@ def _assert_descriptor_outside_raw(descriptor: int, label: str) -> None:
 
     descriptor_path = _descriptor_path(descriptor, label)
     if _contains_raw_segments(tuple(descriptor_path.parts)):
-        raise ComposeError(
-            f"{label}: destination was relocated into immutable raw evidence"
-        )
+        raise ComposeError(f"{label}: destination was relocated into immutable raw evidence")
     if _descriptor_aliases_raw(descriptor_path, label):
-        raise ComposeError(
-            f"{label}: destination was relocated into immutable raw evidence"
-        )
+        raise ComposeError(f"{label}: destination was relocated into immutable raw evidence")
 
 
-def _assert_descriptor_contained(
-    root_descriptor: int, descriptor: int, label: str
-) -> None:
+def _assert_descriptor_contained(root_descriptor: int, descriptor: int, label: str) -> None:
     """Require a pinned component to remain below its destination root."""
 
     try:
@@ -643,10 +620,13 @@ class PinnedDestination:
     def _verify_staged_entry(self) -> None:
         if self.staged_name is None:
             raise ComposeError("destination is not staged for commit")
-        if _entry_identity(
-            self.parent_descriptor,
-            self.staged_name,
-        ) != self.destination_identity:
+        if (
+            _entry_identity(
+                self.parent_descriptor,
+                self.staged_name,
+            )
+            != self.destination_identity
+        ):
             raise ComposeError("destination changed while it was pinned")
         if _directory_identity(os.fstat(self.destination_descriptor)) != (
             self.destination_identity
@@ -718,10 +698,13 @@ class PinnedDestination:
         except OSError as exc:
             raise ComposeError(f"destination publication failed: {exc}") from exc
         self.staged_name = None
-        if _entry_identity(
-            self.parent_descriptor,
-            self.path.name,
-        ) != self.destination_identity:
+        if (
+            _entry_identity(
+                self.parent_descriptor,
+                self.path.name,
+            )
+            != self.destination_identity
+        ):
             _quarantine_owned_entry(
                 self.parent_descriptor,
                 self.path.name,

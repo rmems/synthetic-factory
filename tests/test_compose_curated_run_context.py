@@ -78,6 +78,20 @@ class ComposeRunContextContract(unittest.TestCase):
             with self.assertRaisesRegex(ComposeError, "not an exact regular file"):
                 load_calibration(context, calibration_services())
 
+    def test_direct_factory_root_selects_its_own_calibration_sidecar(self):
+        from compose_curated_calibration import CalibrationContext, _calibration_path
+
+        with tempfile.TemporaryDirectory() as td:
+            source = Path(td) / "failure-as-fuel-preference-cascade"
+            source.mkdir()
+            sidecar = source / "units-migration.json"
+            sidecar.write_text("{}", encoding="utf-8")
+
+            self.assertEqual(
+                _calibration_path(CalibrationContext(source, None)),
+                (sidecar, "source_run"),
+            )
+
     def test_nested_calibration_exhaustion_is_reported_as_invalid_json(self):
         """A pathological calibration document must not abort the compose run."""
 
@@ -87,9 +101,7 @@ class ComposeRunContextContract(unittest.TestCase):
         payload = b"[" * depth + b"]" * depth
 
         with self.assertRaisesRegex(ComposeError, "invalid calibration JSON"):
-            _decode_calibration(
-                Path("units-migration.json"), payload, calibration_services()
-            )
+            _decode_calibration(Path("units-migration.json"), payload, calibration_services())
 
 
 if __name__ == "__main__":

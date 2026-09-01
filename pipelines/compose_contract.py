@@ -12,8 +12,8 @@ from __future__ import annotations
 
 import sys
 from dataclasses import dataclass
-from pathlib import Path
-from typing import Any
+from pathlib import Path, PurePosixPath
+from typing import Any, Mapping
 
 if __package__:
     from . import _expose_package_sibling, _local_sibling_module, _require_local_sibling
@@ -77,6 +77,51 @@ TRAJECTORY_GOAL_LOCATIONS = (("goal",), ("chosen", "goal"), ("rejected", "goal")
 
 class ComposeError(RuntimeError):
     """Raised when composition input, output, or run integrity is unsafe."""
+
+
+def default_units_migration_path(source_root: Path) -> Path:
+    """Return the canonical calibration candidate for either supported root."""
+
+    relative = Path(FFPC_UNITS_MIGRATION)
+    if source_root.name == relative.parts[0]:
+        return source_root / relative.name
+    return source_root / relative
+
+
+def published_source_coordinate(relative: str, factory: str) -> str:
+    """Return the factory-qualified coordinate published for one source member."""
+
+    factory_path = PurePosixPath(factory)
+    if factory_path.name != factory or factory == "..":
+        raise ComposeError(f"invalid factory identity for published source coordinate: {factory!r}")
+    source_path = PurePosixPath(relative)
+    if source_path.parts[: len(factory_path.parts)] == factory_path.parts:
+        return source_path.as_posix()
+    return (factory_path / source_path).as_posix()
+
+
+def published_source_snapshot(
+    source_members: tuple[str, ...],
+    payload_by_member: Mapping[str, bytes],
+    identities: Mapping[str, tuple[str, bool]],
+) -> tuple[tuple[str, ...], dict[str, bytes], dict[str, tuple[str, bool]]]:
+    """Rekey captured bytes from physical paths to collision-free published paths."""
+
+    published_members: list[str] = []
+    published_payloads: dict[str, bytes] = {}
+    published_identities: dict[str, tuple[str, bool]] = {}
+    for relative in source_members:
+        factory, verified = identities[relative]
+        coordinate = published_source_coordinate(relative, factory)
+        if coordinate in published_payloads:
+            raise ComposeError(
+                "published source coordinate collision: "
+                f"{relative!r} and another source member both map to {coordinate!r}"
+            )
+        published_members.append(coordinate)
+        published_payloads[coordinate] = payload_by_member[relative]
+        published_identities[coordinate] = factory, verified
+    return tuple(published_members), published_payloads, published_identities
 
 
 @dataclass(frozen=True)

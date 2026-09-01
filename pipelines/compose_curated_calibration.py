@@ -23,7 +23,7 @@ if __package__:
         del _direct_compose_curated_calibration
     from .compose_contract import (
         ComposeError,
-        FFPC_UNITS_MIGRATION,
+        default_units_migration_path,
         REASON_EMPTY_CORPUS,
         RECORDS_DIRNAME,
     )
@@ -33,7 +33,7 @@ else:
     )
     from compose_contract import (
         ComposeError,
-        FFPC_UNITS_MIGRATION,
+        default_units_migration_path,
         REASON_EMPTY_CORPUS,
         RECORDS_DIRNAME,
     )
@@ -69,13 +69,11 @@ def _calibration_path(context: CalibrationContext) -> tuple[Path | None, str]:
 
     if context.units_migration is not None:
         return Path(os.path.abspath(context.units_migration)), "explicit"
-    default = context.source_run / FFPC_UNITS_MIGRATION
+    default = default_units_migration_path(context.source_run)
     if default.is_file():
         return default, "source_run"
     if os.path.lexists(default):
-        raise ComposeError(
-            f"default calibration evidence is not an exact regular file: {default}"
-        )
+        raise ComposeError(f"default calibration evidence is not an exact regular file: {default}")
     return None, "none"
 
 
@@ -92,9 +90,7 @@ def _decode_calibration(
             parse_float=services.parse_finite_json_float,
         )
     except (ValueError, RecursionError) as exc:
-        raise ComposeError(
-            f"{calibration_path}: invalid calibration JSON: {exc}"
-        ) from exc
+        raise ComposeError(f"{calibration_path}: invalid calibration JSON: {exc}") from exc
 
 
 def load_calibration(
@@ -120,9 +116,7 @@ def load_calibration(
     }
 
 
-def compact_audit_report(
-    report: Mapping[str, Any] | None, record_count: int
-) -> dict[str, Any]:
+def compact_audit_report(report: Mapping[str, Any] | None, record_count: int) -> dict[str, Any]:
     """Return the compact audit declaration stored in ``COMPOSE.json``."""
 
     if record_count == 0:

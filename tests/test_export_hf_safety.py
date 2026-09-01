@@ -13,10 +13,7 @@ from unittest import mock
 from export_test_support import (  # noqa: E402
     compose_fixture,
 )
-from test_compose_curated import (  # noqa: E402
-    multi_agent,
-    write_jsonl,
-)
+from compose_curated_test_support import multi_agent, write_jsonl  # noqa: E402
 import compose_curated  # noqa: E402
 import export_hf  # noqa: E402
 
@@ -24,9 +21,7 @@ import export_hf  # noqa: E402
 def _should_swap_destination_parent(path, destination, dir_fd, already_swapped):
     """Return whether this mkdir is the one guarded parent-race injection."""
 
-    if path != destination.name and not str(path).startswith(
-        ".synthetic-factory-destination-"
-    ):
+    if path != destination.name and not str(path).startswith(".synthetic-factory-destination-"):
         return False
     if dir_fd is None:
         return False
@@ -79,9 +74,7 @@ class ExportDestinationSafety(unittest.TestCase):
             real_parent.mkdir()
             symlink_parent = root / "destination-parent-alias"
             symlink_parent.symlink_to(real_parent, target_is_directory=True)
-            with self.assertRaisesRegex(
-                export_hf.ExportError, "exact non-symlink"
-            ):
+            with self.assertRaisesRegex(export_hf.ExportError, "exact non-symlink"):
                 export_hf.export_run(curated, symlink_parent / "export")
             self.assertFalse((real_parent / "export").exists())
 
@@ -94,9 +87,7 @@ class ExportDestinationSafety(unittest.TestCase):
             )
             destination = Path(summary["source_run"]) / "export"
 
-            with self.assertRaisesRegex(
-                export_hf.ExportError, "authenticated compose source"
-            ):
+            with self.assertRaisesRegex(export_hf.ExportError, "authenticated compose source"):
                 export_hf.export_run(curated, destination)
             self.assertFalse(destination.exists())
 
@@ -114,9 +105,7 @@ class ExportDestinationSafety(unittest.TestCase):
 
             def swap_parent_before_create(path, mode=0o777, *, dir_fd=None):
                 nonlocal swapped
-                if _should_swap_destination_parent(
-                    path, destination, dir_fd, swapped
-                ):
+                if _should_swap_destination_parent(path, destination, dir_fd, swapped):
                     swapped = True
                     parent.rename(moved_parent)
                     raw.mkdir(parents=True)
@@ -166,16 +155,12 @@ class ExportCompositionMemberSafety(unittest.TestCase):
     @classmethod
     def _alias_source_symlink(cls, root, curated, summary_path, summary):
         source_root = Path(summary["source_run"])
-        cls._swap_for_symlink(
-            next(source_root.rglob("*.jsonl")), root / "outside-source.jsonl"
-        )
+        cls._swap_for_symlink(next(source_root.rglob("*.jsonl")), root / "outside-source.jsonl")
 
     @classmethod
     def _alias_source_hardlink(cls, root, curated, summary_path, summary):
         source_root = Path(summary["source_run"])
-        cls._swap_for_hardlink(
-            next(source_root.rglob("*.jsonl")), root / "outside-source.jsonl"
-        )
+        cls._swap_for_hardlink(next(source_root.rglob("*.jsonl")), root / "outside-source.jsonl")
 
     @classmethod
     def _alias_source_directory_symlink(cls, root, curated, summary_path, summary):
@@ -187,9 +172,7 @@ class ExportCompositionMemberSafety(unittest.TestCase):
 
     @classmethod
     def _alias_output_lexical_alias(cls, root, curated, summary_path, summary):
-        summary["outputs"][0]["path"] = summary["outputs"][0]["path"].replace(
-            "/", "//", 1
-        )
+        summary["outputs"][0]["path"] = summary["outputs"][0]["path"].replace("/", "//", 1)
         summary_path.write_text(
             json.dumps(summary, indent=2, sort_keys=True) + "\n",
             encoding="utf-8",
@@ -262,9 +245,7 @@ class ExportSnapshotCoherence(unittest.TestCase):
             curated = compose_fixture(root)
             source_root = Path(
                 json.loads(
-                    (curated / compose_curated.SUMMARY_FILENAME).read_text(
-                        encoding="utf-8"
-                    )
+                    (curated / compose_curated.SUMMARY_FILENAME).read_text(encoding="utf-8")
                 )["source_run"]
             )
             members = sorted(source_root.rglob("*.jsonl"))
@@ -286,9 +267,7 @@ class ExportSnapshotCoherence(unittest.TestCase):
                     )
                 return result
 
-            with mock.patch.object(
-                export_replay, "_read_exact_regular_file", racing_read
-            ):
+            with mock.patch.object(export_replay, "_read_exact_regular_file", racing_read):
                 with self.assertRaisesRegex(
                     export_hf.ExportError, "changed while the replay snapshot"
                 ):
@@ -309,13 +288,9 @@ class ExportSnapshotCoherence(unittest.TestCase):
             target = root / "outside-subtree"
             target.mkdir()
             (target / "extra.jsonl").write_text("{}\n", encoding="utf-8")
-            (records_dir / "aliased-subtree").symlink_to(
-                target, target_is_directory=True
-            )
+            (records_dir / "aliased-subtree").symlink_to(target, target_is_directory=True)
 
-            with self.assertRaisesRegex(
-                export_hf.ExportError, "symlink alias"
-            ):
+            with self.assertRaisesRegex(export_hf.ExportError, "symlink alias"):
                 export_hf.export_run(curated, root / "export")
             self.assertFalse((root / "export").exists())
 
@@ -333,9 +308,7 @@ class ExportSnapshotCoherence(unittest.TestCase):
             records_dir = curated / compose_curated.RECORDS_DIRNAME
             (records_dir / "ignored.jsonl").mkdir()
 
-            with self.assertRaisesRegex(
-                export_hf.ExportError, "not an exact regular file"
-            ):
+            with self.assertRaisesRegex(export_hf.ExportError, "not an exact regular file"):
                 export_hf.export_run(curated, root / "export")
             self.assertFalse((root / "export").exists())
 
@@ -354,9 +327,7 @@ class ExportSnapshotCoherence(unittest.TestCase):
             curated = compose_fixture(root)
             source_root = Path(
                 json.loads(
-                    (curated / compose_curated.SUMMARY_FILENAME).read_text(
-                        encoding="utf-8"
-                    )
+                    (curated / compose_curated.SUMMARY_FILENAME).read_text(encoding="utf-8")
                 )["source_run"]
             )
             original_read = export_replay._read_exact_regular_file
@@ -373,9 +344,7 @@ class ExportSnapshotCoherence(unittest.TestCase):
                     )
                 return result
 
-            with mock.patch.object(
-                export_replay, "_read_exact_regular_file", racing_read
-            ):
+            with mock.patch.object(export_replay, "_read_exact_regular_file", racing_read):
                 with self.assertRaisesRegex(
                     export_hf.ExportError,
                     "member set changed while the replay snapshot",
@@ -424,17 +393,11 @@ class ExportSnapshotCoherence(unittest.TestCase):
             def write_then_mutate(destination_target, relative, payload):
                 digest = real_write(destination_target, relative, payload)
                 if relative == export_hf.PROVENANCE_PATH:
-                    (destination_target.root / export_hf.TRAIN_PATH).write_bytes(
-                        b"{}\n"
-                    )
+                    (destination_target.root / export_hf.TRAIN_PATH).write_bytes(b"{}\n")
                 return digest
 
-            with mock.patch.object(
-                export_hf, "_write_new_bytes", side_effect=write_then_mutate
-            ):
-                with self.assertRaisesRegex(
-                    export_hf.ExportError, "changed before export commit"
-                ):
+            with mock.patch.object(export_hf, "_write_new_bytes", side_effect=write_then_mutate):
+                with self.assertRaisesRegex(export_hf.ExportError, "changed before export commit"):
                     export_hf.export_run(curated, destination)
             self.assertFalse(destination.exists())
 
@@ -494,9 +457,7 @@ class ExportMemberFifoSwap(unittest.TestCase):
             fifo = Path(td) / "swapped.jsonl"
             os.mkfifo(fifo)
             before = fifo.lstat()
-            with self.assertRaisesRegex(
-                export_hf.ExportError, "not a unique regular file"
-            ):
+            with self.assertRaisesRegex(export_hf.ExportError, "not a unique regular file"):
                 export_members._read_pinned_descriptor(
                     fifo, before, "swapped.jsonl", "curated payload"
                 )
@@ -524,14 +485,11 @@ class ExportAuditByteCapture(unittest.TestCase):
             )
             safe_payload = output.read_bytes()
             unsafe_documents = [
-                json.loads(line)
-                for line in safe_payload.decode("utf-8").split("\n")
-                if line
+                json.loads(line) for line in safe_payload.decode("utf-8").split("\n") if line
             ]
             unsafe_documents[0]["thought"] = "hidden payload captured before the audit"
             unsafe_payload = "".join(
-                compose_curated.canonical_json(record) + "\n"
-                for record in unsafe_documents
+                compose_curated.canonical_json(record) + "\n" for record in unsafe_documents
             ).encode("utf-8")
             output.write_bytes(unsafe_payload)
             real_collect = export_hf.collect_files
@@ -541,9 +499,7 @@ class ExportAuditByteCapture(unittest.TestCase):
                 output.write_bytes(safe_payload)
                 return captured
 
-            with mock.patch.object(
-                export_hf, "collect_files", side_effect=capture_then_replace
-            ):
+            with mock.patch.object(export_hf, "collect_files", side_effect=capture_then_replace):
                 with self.assertRaisesRegex(export_hf.ExportError, "hidden-thought"):
                     export_hf.export_run(curated, root / "export")
             self.assertFalse((root / "export").exists())

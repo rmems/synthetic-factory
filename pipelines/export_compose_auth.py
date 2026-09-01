@@ -12,7 +12,7 @@ from __future__ import annotations
 import hashlib
 import sys
 from pathlib import Path
-from typing import Any, Mapping, Sequence
+from typing import Any, Mapping, Sequence, TypeGuard
 
 _PIPELINES = Path(__file__).resolve().parent
 if str(_PIPELINES) not in sys.path:
@@ -40,6 +40,12 @@ _MANIFEST_OUTPUT_FIELDS = (
     "output_sha256",
     "reward_sidecar_id",
 )
+
+
+def _is_json_integer(value: Any) -> TypeGuard[int]:
+    """Accept JSON integers without Python's boolean-as-integer coercion."""
+
+    return isinstance(value, int) and not isinstance(value, bool)
 
 
 @dataclass(frozen=True)
@@ -174,10 +180,7 @@ def _compose_output_path(curated: CuratedFile) -> str:
     prefix = f"{CURATED_DIRNAME}/"
     if not curated.source_file.startswith(prefix):
         raise ExportError(f"invalid curated source path: {curated.source_file}")
-    return (
-        f"{compose_curated.RECORDS_DIRNAME}/"
-        f"{curated.source_file.removeprefix(prefix)}"
-    )
+    return f"{compose_curated.RECORDS_DIRNAME}/{curated.source_file.removeprefix(prefix)}"
 
 
 def _add_captured_output(
@@ -236,7 +239,7 @@ def _positive_output_record_count(entry: Mapping[str, Any], raw_path: Any) -> in
     """Require one declared output count to be a positive integer."""
 
     records = entry.get("records")
-    if type(records) is not int:
+    if not _is_json_integer(records):
         raise ExportError(f"COMPOSE.json: invalid record count for {raw_path}")
     if records < 1:
         raise ExportError(f"COMPOSE.json: invalid record count for {raw_path}")
@@ -268,9 +271,7 @@ def _authenticated_output_declaration(
     if raw_path in authentication.seen_output_paths:
         raise ExportError(f"COMPOSE.json: duplicate output path {raw_path!r}")
     authentication.seen_output_paths.add(raw_path)
-    curated = _snapshot_bound_output(
-        raw_path, current_payload, authentication.actual_outputs
-    )
+    curated = _snapshot_bound_output(raw_path, current_payload, authentication.actual_outputs)
     return _authenticated_output_row(raw_path, entry, curated)
 
 
@@ -294,9 +295,7 @@ def _authenticated_output_declarations(
 
     authenticated_outputs: list[dict[str, Any]] = []
     seen_output_paths: set[str] = set()
-    authentication = _OutputAuthentication(
-        curated_root, actual_outputs, seen_output_paths
-    )
+    authentication = _OutputAuthentication(curated_root, actual_outputs, seen_output_paths)
     for index, entry in enumerate(_declared_output_entries(summary)):
         authenticated_outputs.append(
             _authenticated_output_declaration(authentication, entry, index)
@@ -344,9 +343,7 @@ def _assert_excluded_row_claims_no_output(entry: Mapping[str, Any], index: int) 
     """An excluded row may not claim an output, an id, or a reward sidecar."""
 
     if any(entry.get(field_name) is not None for field_name in _MANIFEST_OUTPUT_FIELDS):
-        raise ExportError(
-            f"compose manifest entry {index + 1} gives an excluded row output"
-        )
+        raise ExportError(f"compose manifest entry {index + 1} gives an excluded row output")
 
 
 def _manifest_output_coordinate(
@@ -365,9 +362,7 @@ def _manifest_output_coordinate(
 def _invalid_coordinate(index: int) -> ExportError:
     """Build the stable error for a malformed manifest coordinate."""
 
-    return ExportError(
-        f"compose manifest entry {index + 1} has an invalid output coordinate"
-    )
+    return ExportError(f"compose manifest entry {index + 1} has an invalid output coordinate")
 
 
 def _manifest_output_path(entry: Mapping[str, Any], index: int) -> str:
@@ -383,7 +378,7 @@ def _manifest_output_line(entry: Mapping[str, Any], index: int) -> int:
     """Require a retained manifest entry to name an integer output line."""
 
     output_line = entry.get("output_line")
-    if type(output_line) is not int:
+    if not _is_json_integer(output_line):
         raise _invalid_coordinate(index)
     return output_line
 
@@ -457,9 +452,7 @@ def _require_no_unmanifested_annotation(row: _ManifestRow) -> None:
     if not isinstance(row.record, dict):
         return
     if curate_rewards.ANNOTATION_FIELD in row.record:
-        raise ExportError(
-            f"compose output {row.coordinate} has an unmanifested reward annotation"
-        )
+        raise ExportError(f"compose output {row.coordinate} has an unmanifested reward annotation")
 
 
 def _required_manifest_sidecar(
@@ -473,9 +466,7 @@ def _required_manifest_sidecar(
         raise ExportError(f"{row.label} has an invalid reward sidecar id")
     sidecar = sidecars_by_id.get(sidecar_id)
     if sidecar is None:
-        raise ExportError(
-            f"compose manifest references missing reward sidecar {sidecar_id}"
-        )
+        raise ExportError(f"compose manifest references missing reward sidecar {sidecar_id}")
     return sidecar
 
 
@@ -484,18 +475,13 @@ def _require_sidecar_restores(row: _ManifestRow, sidecar: dict[str, Any]) -> Non
 
     sidecar_source = sidecar["source"]
     mismatch = f"compose manifest and reward sidecar source disagree: {row.coordinate}"
-    _require_equal(
-        sidecar_source.get("path"), row.entry.get("source_path"), mismatch
-    )
-    _require_equal(
-        sidecar_source.get("line"), row.entry.get("source_line"), mismatch
-    )
+    _require_equal(sidecar_source.get("path"), row.entry.get("source_path"), mismatch)
+    _require_equal(sidecar_source.get("line"), row.entry.get("source_line"), mismatch)
     try:
         curate_rewards.restore_source_record(row.record, sidecar)
     except curate_rewards.RewardOntologyError as exc:
         raise ExportError(
-            f"compose output {row.coordinate} does not authenticate its reward "
-            f"sidecar: {exc}"
+            f"compose output {row.coordinate} does not authenticate its reward sidecar: {exc}"
         ) from exc
 
 
@@ -510,12 +496,8 @@ def _authenticated_manifest_entry(
     if entry.get("action") != compose_curated.ACTION_RETAINED:
         _assert_excluded_row_claims_no_output(entry, index)
         return None
-    coordinate = _manifest_output_coordinate(
-        entry, index, authentication.coordinates
-    )
-    record = _authenticated_manifest_record(
-        entry, coordinate, authentication.actual_outputs
-    )
+    coordinate = _manifest_output_coordinate(entry, index, authentication.coordinates)
+    record = _authenticated_manifest_record(entry, coordinate, authentication.actual_outputs)
     sidecar_id = _authenticated_manifest_sidecar(
         _ManifestRow(entry, index, coordinate, record),
         authentication.sidecars_by_id,
@@ -532,9 +514,7 @@ def _authenticate_compose_manifest(
 
     manifest_coordinates: set[tuple[str, int]] = set()
     referenced_sidecars: set[str] = set()
-    authentication = _ManifestAuthentication(
-        manifest_coordinates, actual_outputs, sidecars_by_id
-    )
+    authentication = _ManifestAuthentication(manifest_coordinates, actual_outputs, sidecars_by_id)
     for index, entry in enumerate(manifest_documents):
         authenticated = _authenticated_manifest_entry(entry, index, authentication)
         if authenticated is None:
@@ -546,9 +526,7 @@ def _authenticate_compose_manifest(
     return manifest_coordinates, referenced_sidecars
 
 
-def _assert_compose_counts(
-    summary: Mapping[str, Any], expected_counts: Mapping[str, int]
-) -> None:
+def _assert_compose_counts(summary: Mapping[str, Any], expected_counts: Mapping[str, int]) -> None:
     """The declared counts must be the ones the exported bytes produce."""
 
     counts = _declared_compose_counts(summary)
@@ -565,13 +543,11 @@ def _declared_compose_counts(summary: Mapping[str, Any]) -> dict[str, Any]:
     return counts
 
 
-def _require_compose_count(
-    counts: Mapping[str, Any], key: str, expected: int
-) -> None:
+def _require_compose_count(counts: Mapping[str, Any], key: str, expected: int) -> None:
     """Require one compose count to be an integer with the expected value."""
 
     value = counts.get(key)
-    if type(value) is not int:
+    if not _is_json_integer(value):
         raise ExportError(f"COMPOSE.json: counts.{key} {value!r} != {expected}")
     _require_equal(
         value,
@@ -595,10 +571,7 @@ def _authenticated_compose_evidence(
         curated_root,
         summary,
         "reward_sidecars",
-        (
-            f"{compose_curated.MANIFEST_DIRNAME}/"
-            f"{compose_curated.REWARD_SIDECAR_FILENAME}"
-        ),
+        (f"{compose_curated.MANIFEST_DIRNAME}/{compose_curated.REWARD_SIDECAR_FILENAME}"),
     )
     return _ComposeEvidence(
         manifest=manifest,
@@ -615,9 +588,7 @@ def _expected_output_coordinates(
     """Return every output coordinate present in the captured payload rows."""
 
     return {
-        (path, row.source_line)
-        for path, curated in actual_outputs.items()
-        for row in curated.rows
+        (path, row.source_line) for path, curated in actual_outputs.items() for row in curated.rows
     }
 
 
@@ -707,9 +678,7 @@ def _compose_metadata(
 ) -> dict[str, Any]:
     """Authenticate COMPOSE paths, bytes, coordinates, and reward links."""
 
-    _summary_path, summary_payload, summary = _authenticated_compose_summary(
-        curated_root
-    )
+    _summary_path, summary_payload, summary = _authenticated_compose_summary(curated_root)
     actual_outputs = _curated_outputs_by_compose_path(curated_files)
     authenticated_outputs = _authenticated_output_declarations(
         curated_root, summary, actual_outputs
@@ -732,9 +701,7 @@ def _compose_metadata(
         evidence.manifest_documents,
         evidence.sidecar_documents,
     )
-    _require_compose_audit(
-        summary, audit_report, retained=len(expected_coordinates)
-    )
+    _require_compose_audit(summary, audit_report, retained=len(expected_coordinates))
     return _exported_compose_metadata(
         _ExportedCompose(
             summary_payload,

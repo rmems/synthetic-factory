@@ -9,9 +9,23 @@ two-sided fallback that keeps both split sides nonempty.
 from __future__ import annotations
 
 import hashlib
+import sys
 from typing import Sequence
 
-from export_contract import ExportError, ViewerRow
+if __package__:
+    from . import _expose_package_sibling, _local_sibling_module, _require_local_sibling
+
+    if _local_sibling_module("export_split", allow_initializing=True):
+        import export_split as _direct_export_split
+
+        _require_local_sibling(_direct_export_split, "export_split")
+        del _direct_export_split
+    from .export_contract import ExportError, ViewerRow
+else:
+    getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
+        "export_split"
+    )
+    from export_contract import ExportError, ViewerRow
 
 
 def split_bucket(row: ViewerRow, salt: str) -> float:
@@ -112,3 +126,7 @@ def split_rows(
     evaluation = _eval_keys_by_factory(rows, eval_fraction=eval_fraction, salt=salt)
     _rebalance_one_sided_split(rows, evaluation, salt)
     return _partition_by_eval_keys(rows, evaluation)
+
+
+if __package__:
+    _expose_package_sibling(__name__)
